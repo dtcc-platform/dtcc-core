@@ -2,6 +2,7 @@
 New core to match plans of Oct 2024
 
 # Initial sketch of structure
+```
 dtcc-core/
 │
 ├── dtcc_core/
@@ -22,3 +23,4 @@ dtcc-core/
 ├── pyproject.toml
 ├── README.md
 └── LICENSE
+```
