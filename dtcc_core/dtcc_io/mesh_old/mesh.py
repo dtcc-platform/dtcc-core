@@ -16,12 +16,10 @@ try:
 
     HAS_ASSIMP = True
 except:
-    warning(
-        "Could not import pyassimp, some file formats will not be supported"
-    )
+    warning("Could not import pyassimp, some file formats will not be supported")
     HAS_ASSIMP = False
 from dtcc_io.mesh.pygltflib_loaders import save_3d_surface_with_gltflib
-from dtcc_model import Mesh, VolumeMesh
+from ..dtcc_model import Mesh, VolumeMesh
 
 mesh_types = ["surface", "volume", "2d"]
 

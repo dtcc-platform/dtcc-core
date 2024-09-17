@@ -1,5 +1,5 @@
-from dtcc_model import Landuse, LanduseClasses, GeometryType
-from dtcc_model.geometry import Surface, MultiSurface
+from ..dtcc_model import Landuse, LanduseClasses, GeometryType
+from ..dtcc_model.geometry import Surface, MultiSurface
 
 from pathlib import Path
 import fiona
@@ -23,9 +23,7 @@ LM_landuse_map = {
     "BEBIND": LanduseClasses.INDUSTRIAL,
 }
 
-landuse_mappings = {
-    "LM": LM_landuse_map
-}
+landuse_mappings = {"LM": LM_landuse_map}
 
 
 def _get_landuse_class(properties, key, lookup_map):
@@ -38,10 +36,11 @@ def _get_landuse_class(properties, key, lookup_map):
         warning(f"Unknown landuse code {value}")
     return landuse_code
 
+
 def _load_fiona(filename, landuse_field="DETALJTYP", landuse_datasource="LM"):
     landuse = Landuse()
     landuse_surfaces = MultiSurface()
-    landuse_map = landuse_mappings.get(landuse_datasource,{})
+    landuse_map = landuse_mappings.get(landuse_datasource, {})
     filename = Path(filename)
     if not filename.is_file():
         raise FileNotFoundError(f"File {filename} not found")
@@ -51,9 +50,13 @@ def _load_fiona(filename, landuse_field="DETALJTYP", landuse_datasource="LM"):
             if geom.geom_type == "Polygon":
                 surface = Surface()
                 landuse_surfaces.surfaces.append(surface.from_polygon(geom, 0))
-                landuse.landuses.append(_get_landuse_class(f["properties"], landuse_field, LM_landuse_map))
+                landuse.landuses.append(
+                    _get_landuse_class(f["properties"], landuse_field, LM_landuse_map)
+                )
             elif geom.geom_type == "MultiPolygon":
-                landuse_class = _get_landuse_class(f["properties"], landuse_field, LM_landuse_map)
+                landuse_class = _get_landuse_class(
+                    f["properties"], landuse_field, LM_landuse_map
+                )
                 for poly in list(geom.geoms):
                     surface = Surface()
                     landuse_surfaces.surfaces.append(surface.from_polygon(poly, 0))
@@ -63,6 +66,7 @@ def _load_fiona(filename, landuse_field="DETALJTYP", landuse_datasource="LM"):
 
     landuse.add_geometry(landuse_surfaces, GeometryType.MULTISURFACE)
     return landuse
+
 
 def load(filename, landuse_field="DETALJTYP", landuse_datasource="LM"):
     filename = Path(filename)
@@ -74,8 +78,9 @@ def load(filename, landuse_field="DETALJTYP", landuse_datasource="LM"):
         Landuse,
         _load_formats,
         landuse_field="DETALJTYP",
-        landuse_datasource="LM"
+        landuse_datasource="LM",
     )
+
 
 _load_formats = {
     Landuse: {

@@ -1,4 +1,4 @@
-from dtcc_model import Mesh, VolumeMesh, Vector3D, Triangle, Tetrahedron
+from ..dtcc_model import Mesh, VolumeMesh, Vector3D, Triangle, Tetrahedron
 
 
 def create_3d_surface(vertices, faces, normals=None, return_serialized=False):

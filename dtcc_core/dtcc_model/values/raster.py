@@ -7,10 +7,10 @@ from dataclasses import dataclass, field
 from affine import Affine
 from copy import deepcopy
 
-from dtcc_model.geometry.bounds import Bounds
-from dtcc_model.logging import info, warning, error
-from dtcc_model.model import Model
-from dtcc_model import dtcc_pb2 as proto
+from ..geometry.bounds import Bounds
+from ..logging import info, warning, error
+from ..model import Model
+from .. import dtcc_pb2 as proto
 
 # FIXME: Make Raster fit the UML diagram
 # FIXME: Make Raster own a Grid that holds Transform and Bounds

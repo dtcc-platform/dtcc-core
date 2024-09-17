@@ -1,9 +1,9 @@
-from dtcc_model import Mesh, Surface, MultiSurface
-from dtcc_builder.register import register_model_method
+from ...dtcc_model import Mesh, Surface, MultiSurface
+from ..register import register_model_method
 
-from dtcc_builder import _dtcc_builder
+from .. import _dtcc_builder
 
-from dtcc_builder.model import (
+from ..model import (
     create_builder_multisurface,
     create_builder_surface,
     builder_mesh_to_mesh,

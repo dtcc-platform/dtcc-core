@@ -1,5 +1,5 @@
 from . import _dtcc_builder
-from dtcc_builder.model import (
+from .model import (
     create_builder_polygon,
     create_builder_surface,
     create_builder_multisurface,
@@ -10,7 +10,7 @@ from dtcc_builder.model import (
 )
 
 from time import time
-from dtcc_model import Building, City, PointCloud, Mesh, Surface, MultiSurface
+from ..dtcc_model import Building, City, PointCloud, Mesh, Surface, MultiSurface
 from .logging import info, warning, error, debug
 
 import numpy as np

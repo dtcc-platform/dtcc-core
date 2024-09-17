@@ -5,8 +5,8 @@ from dataclasses import dataclass
 from typing import Union
 import numpy as np
 
-from dtcc_model.model import Model
-from dtcc_model import dtcc_pb2 as proto
+from ..model import Model
+from .. import dtcc_pb2 as proto
 
 
 @dataclass
@@ -223,7 +223,9 @@ class Bounds(Model):
         self.ymax = min(self.ymax, other.ymax)
         return self
 
-    def contains(self, x: float, y: float, z: float = 0.0, ignore_z:bool = True) -> bool:
+    def contains(
+        self, x: float, y: float, z: float = 0.0, ignore_z: bool = True
+    ) -> bool:
         """Check if a point is inside the bounds.
 
         Parameters
@@ -243,9 +245,13 @@ class Bounds(Model):
         if ignore_z:
             return self.xmin <= x <= self.xmax and self.ymin <= y <= self.ymax
         else:
-            return self.xmin <= x <= self.xmax and self.ymin <= y <= self.ymax and self.zmin <= z <= self.zmax
+            return (
+                self.xmin <= x <= self.xmax
+                and self.ymin <= y <= self.ymax
+                and self.zmin <= z <= self.zmax
+            )
 
-    def contains_bounds(self, other: "Bounds", ignore_z:bool = True) -> bool:
+    def contains_bounds(self, other: "Bounds", ignore_z: bool = True) -> bool:
         """Check if another bounds is inside this bounds.
 
         Parameters
@@ -259,9 +265,22 @@ class Bounds(Model):
             True if the other bounds is inside this bounds, False otherwise.
         """
         if ignore_z:
-            return self.xmin <= other.xmin and self.xmax >= other.xmax and self.ymin <= other.ymin and self.ymax >= other.ymax
+            return (
+                self.xmin <= other.xmin
+                and self.xmax >= other.xmax
+                and self.ymin <= other.ymin
+                and self.ymax >= other.ymax
+            )
         else:
-            return self.xmin <= other.xmin and self.xmax >= other.xmax and self.ymin <= other.ymin and self.ymax >= other.ymax and self.zmin <= other.zmin and self.zmax >= other.zmax
+            return (
+                self.xmin <= other.xmin
+                and self.xmax >= other.xmax
+                and self.ymin <= other.ymin
+                and self.ymax >= other.ymax
+                and self.zmin <= other.zmin
+                and self.zmax >= other.zmax
+            )
+
     def to_proto(self) -> proto.Bounds:
         """Return a protobuf representation of the Bounds.
 

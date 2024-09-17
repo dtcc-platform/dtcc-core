@@ -1,4 +1,4 @@
-from dtcc_model import (
+from ...dtcc_model import (
     Mesh,
     VolumeMesh,
     Building,
@@ -9,7 +9,7 @@ from dtcc_model import (
     GeometryType,
 )
 
-from dtcc_builder.model import (
+from ..model import (
     create_builder_polygon,
     create_builder_surface,
     create_builder_multisurface,
@@ -19,24 +19,24 @@ from dtcc_builder.model import (
     raster_to_builder_gridfield,
 )
 
-from dtcc_builder import _dtcc_builder
+from .. import _dtcc_builder
 
-from dtcc_builder.polygons.polygons import (
+from ..polygons.polygons import (
     polygon_merger,
     simplify_polygon,
     remove_slivers,
     fix_clearance,
 )
 
-from dtcc_builder.building.modify import (
+from ..building.modify import (
     merge_building_footprints,
     simplify_building_footprints,
     fix_building_footprint_clearance,
 )
 
-from dtcc_builder.meshing.convert import mesh_to_raster
+from ..meshing.convert import mesh_to_raster
 
-from dtcc_builder.logging import debug, info, warning, error
+from ..logging import debug, info, warning, error
 
 
 def build_surface_mesh(

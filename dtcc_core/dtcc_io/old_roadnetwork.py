@@ -10,8 +10,8 @@ from typing import Tuple, Callable, Union
 import numpy as np
 import pyproj
 
-from dtcc_model.roadnetwork import RoadNetwork, RoadType, Road
-from dtcc_model.geometry import Georef
+from ..dtcc_model.roadnetwork import RoadNetwork, RoadType, Road
+from ..dtcc_model.geometry import Georef
 from . import generic
 from .utils import get_epsg
 from .logging import info, warning, error

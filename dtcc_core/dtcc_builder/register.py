@@ -1,5 +1,5 @@
 from inspect import signature
-from dtcc_model.model import Model
+from ..dtcc_model.model import Model
 
 
 def register_model_method(fn):

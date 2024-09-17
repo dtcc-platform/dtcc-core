@@ -1,8 +1,8 @@
-from dtcc_io.cityjson.utils import get_terrain_mesh, get_root_objects, set_buildings
-from dtcc_model.object.city import City
-from dtcc_model.object.object import GeometryType
-from dtcc_model.object.terrain import Terrain
-from dtcc_model.geometry import Bounds
+from .utils import get_terrain_mesh, get_root_objects, set_buildings
+from ...dtcc_model.object.city import City
+from ...dtcc_model.object.object import GeometryType
+from ...dtcc_model.object.terrain import Terrain
+from ...dtcc_model.geometry import Bounds
 import numpy as np
 from pathlib import Path
 import json

@@ -1,7 +1,7 @@
 import fiona
 
-from dtcc_model.object import RoadNetwork, GeometryType
-from dtcc_model.geometry import LineString, MultiLineString
+from ..dtcc_model.object import RoadNetwork, GeometryType
+from ..dtcc_model.geometry import LineString, MultiLineString
 from . import generic
 
 import shapely.geometry
@@ -18,12 +18,13 @@ HAS_GEOPANDAS = False
 try:
     import geopandas as gpd
     import pandas as pd
+
     HAS_GEOPANDAS = True
 except ImportError:
     warning("Geopandas not found, some functionality may be disabled")
 
 
-def _load_fiona(filename,id_field = 'id', round_coordinates = 2, load_geometry = True):
+def _load_fiona(filename, id_field="id", round_coordinates=2, load_geometry=True):
     road_network = RoadNetwork()
     filename = Path(filename)
     if not filename.is_file():
@@ -52,7 +53,12 @@ def _load_fiona(filename,id_field = 'id', round_coordinates = 2, load_geometry =
 
     edges = []
     for c_start, c_end in rounded_coords:
-        edges.append((coord_lookup[c_start], coord_lookup[c_end],))
+        edges.append(
+            (
+                coord_lookup[c_start],
+                coord_lookup[c_end],
+            )
+        )
     road_network.vertices = vertices
     road_network.edges = np.array(edges)
     road_network.length = np.array(lengths)
@@ -72,7 +78,10 @@ def _load_fiona(filename,id_field = 'id', round_coordinates = 2, load_geometry =
 
     return road_network
 
-def load(filename,id_field = 'id', round_coordinates = 2, load_geometry = True) -> RoadNetwork:
+
+def load(
+    filename, id_field="id", round_coordinates=2, load_geometry=True
+) -> RoadNetwork:
     filename = Path(filename)
     if not filename.is_file():
         raise FileNotFoundError(f"File {filename} not found")
@@ -81,22 +90,25 @@ def load(filename,id_field = 'id', round_coordinates = 2, load_geometry = True) 
         "road_network",
         RoadNetwork,
         _load_formats,
-        id_field = id_field,
-        round_coordinates = round_coordinates,
-        load_geometry = load_geometry
+        id_field=id_field,
+        round_coordinates=round_coordinates,
+        load_geometry=load_geometry,
     )
 
-def to_dataframe(road_network: RoadNetwork, crs = None):
+
+def to_dataframe(road_network: RoadNetwork, crs=None):
     if HAS_GEOPANDAS is False:
         warning("Geopandas not found, unable to convert to dataframe")
         return None
     df = gpd.GeoDataFrame.from_dict(road_network.attributes)
-    df["geometry"] = [ linestring.to_shapely() for linestring in road_network.geometry[GeometryType.MULTILINESTRING].linestrings]
+    df["geometry"] = [
+        linestring.to_shapely()
+        for linestring in road_network.geometry[
+            GeometryType.MULTILINESTRING
+        ].linestrings
+    ]
     df.set_geometry("geometry", inplace=True, crs=crs)
     return df
-
-
-
 
 
 _load_formats = {

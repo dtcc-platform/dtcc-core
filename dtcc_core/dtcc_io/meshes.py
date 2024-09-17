@@ -5,7 +5,7 @@ import meshio
 import pygltflib
 import numpy as np
 
-from dtcc_model import Mesh, VolumeMesh
+from ..dtcc_model import Mesh, VolumeMesh
 from .logging import info, warning, error
 from . import generic
 

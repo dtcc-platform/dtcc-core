@@ -1,7 +1,7 @@
 import pygltflib
 from pathlib import Path
 import numpy as np
-from dtcc_model import Mesh
+from ..dtcc_model import Mesh
 import base64
 
 

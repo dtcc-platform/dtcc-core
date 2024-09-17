@@ -1,6 +1,6 @@
 from google.protobuf.json_format import MessageToJson
 
-from dtcc_builder import _dtcc_builder
+from . import _dtcc_builder
 import dtcc_io as io
 import dtcc_model as model
 import os

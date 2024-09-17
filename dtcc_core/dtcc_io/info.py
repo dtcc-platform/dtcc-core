@@ -5,7 +5,7 @@ import rasterio
 import numpy as np
 from pathlib import Path
 from types import UnionType
-from dtcc_model import Bounds
+from ..dtcc_model import Bounds
 
 
 def las_file_bounds(las_file):

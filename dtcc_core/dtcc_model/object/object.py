@@ -8,9 +8,8 @@ from typing import Union
 from enum import Enum, auto
 import json
 
-from dtcc_model.logging import info, warning, error
-from dtcc_model.model import Model
-from dtcc_model.geometry import (
+from ..model import Model
+from ..geometry import (
     Geometry,
     Bounds,
     Surface,
@@ -26,9 +25,10 @@ from dtcc_model.geometry import (
 from collections import defaultdict
 from uuid import uuid4
 
-from dtcc_model import dtcc_pb2 as proto
+from .. import dtcc_pb2 as proto
 
-import dtcc_model
+
+from ..logging import info, warning, error, debug
 
 
 class GeometryType(Enum):

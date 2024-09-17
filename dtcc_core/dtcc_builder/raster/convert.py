@@ -1,6 +1,6 @@
-from dtcc_model import Raster, PointCloud
+from ...dtcc_model import Raster, PointCloud
 
-from dtcc_builder.register import register_model_method
+from ..register import register_model_method
 
 import numpy as np
 

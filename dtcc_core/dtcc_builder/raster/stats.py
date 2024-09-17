@@ -1,9 +1,9 @@
 import rasterstats
-from dtcc_model import Raster
+from ...dtcc_model import Raster
 from shapely.geometry import Polygon
 from typing import Union, List
 from affine import Affine
-from dtcc_builder.register import register_model_method
+from ..register import register_model_method
 
 
 @register_model_method

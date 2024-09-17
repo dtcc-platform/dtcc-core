@@ -2,8 +2,8 @@ from pathlib import Path
 import numpy as np
 import laspy
 
-from dtcc_model import dtcc_pb2 as proto
-from dtcc_model.geometry import PointCloud, Bounds
+from ..dtcc_model import dtcc_pb2 as proto
+from ..dtcc_model.geometry import PointCloud, Bounds
 from .logging import info, warning, error
 from typing import List, Union
 
@@ -86,7 +86,7 @@ def load(
     if isinstance(path, Path) and not path.exists():
         raise ValueError(f"Path {path} does not exist")
 
-    if isinstance(path, (list,tuple)):
+    if isinstance(path, (list, tuple)):
         return load_list(
             path,
             points_only=points_only,

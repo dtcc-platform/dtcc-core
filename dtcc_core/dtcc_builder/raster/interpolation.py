@@ -1,8 +1,8 @@
 import scipy.ndimage
 import numpy as np
 import rasterio
-from dtcc_builder.register import register_model_method
-from dtcc_model import Raster
+from ..register import register_model_method
+from ...dtcc_model import Raster
 from logging import info, warning, error
 
 

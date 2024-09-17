@@ -2,9 +2,9 @@ from dataclasses import dataclass, field
 from typing import Union, List, Tuple
 from enum import Enum, auto
 from .object import Object, GeometryType
-from dtcc_model.geometry import Surface, MultiSurface
-from dtcc_model.geometry import Bounds
-from dtcc_model import dtcc_pb2 as proto
+from ..geometry import Surface, MultiSurface
+from ..geometry import Bounds
+from .. import dtcc_pb2 as proto
 
 import numpy as np
 

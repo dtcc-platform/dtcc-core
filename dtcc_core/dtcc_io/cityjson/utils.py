@@ -1,10 +1,10 @@
 import numpy as np
 from collections import defaultdict
 
-from dtcc_model import Mesh, MultiSurface, Surface, Building, City
-from dtcc_model.object.city import CityObject
-from dtcc_model.object.building import BuildingPart
-from dtcc_model.object.object import GeometryType
+from ...dtcc_model import Mesh, MultiSurface, Surface, Building, City
+from ...dtcc_model.object.city import CityObject
+from ...dtcc_model.object.building import BuildingPart
+from ...dtcc_model.object.object import GeometryType
 
 
 def tin_geom_to_mesh(tin_geom_pair: tuple, verts) -> Mesh:

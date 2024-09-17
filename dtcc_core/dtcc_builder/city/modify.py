@@ -1,23 +1,23 @@
-from dtcc_builder.polygons.polygons import (
+from ..polygons.polygons import (
     polygon_merger,
     simplify_polygon,
     remove_slivers,
     fix_clearance,
 )
 
-from dtcc_builder.building.modify import clean_building_geometry
+from ..building.modify import clean_building_geometry
 
-from dtcc_builder.register import register_model_method
-from dtcc_model import City, Bounds
-from dtcc_model.object.building import Building
-from dtcc_model.object.object import GeometryType
+from ..register import register_model_method
+from ...dtcc_model import City, Bounds
+from ...dtcc_model.object.building import Building
+from ...dtcc_model.object.object import GeometryType
 from statistics import mean
 import shapely
 import dataclasses
 from copy import deepcopy
 from collections import defaultdict
 from shapely.geometry import MultiPolygon, Polygon, JOIN_STYLE, CAP_STYLE
-from dtcc_builder.logging import info, warning, error
+from ..logging import info, warning, error
 
 
 @register_model_method

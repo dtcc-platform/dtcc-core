@@ -11,7 +11,7 @@ from shapely.geometry import (
     MultiLineString as ShapelyMultiLineString,
 )
 
-from dtcc_model import dtcc_pb2 as proto
+from .. import dtcc_pb2 as proto
 
 
 @dataclass

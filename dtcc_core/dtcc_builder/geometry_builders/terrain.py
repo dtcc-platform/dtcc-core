@@ -1,6 +1,14 @@
-from dtcc_model import PointCloud, Terrain, Raster, Mesh, Surface, GeometryType, Bounds
+from ...dtcc_model import (
+    PointCloud,
+    Terrain,
+    Raster,
+    Mesh,
+    Surface,
+    GeometryType,
+    Bounds,
+)
 
-from dtcc_builder.model import (
+from ..model import (
     raster_to_builder_gridfield,
     builder_mesh_to_mesh,
     create_builder_polygon,
@@ -9,14 +17,14 @@ from dtcc_builder.model import (
 import numpy as np
 from pypoints2grid import points2grid
 from affine import Affine
-from dtcc_builder import _dtcc_builder
+from .. import _dtcc_builder
 from typing import List, Union
 
 
 def build_terrain_mesh(
     dem: Raster = None,
     pointcloud: PointCloud = None,
-    subdomains: [Surface] = None,
+    subdomains: list[Surface] = None,
     subdomain_resolution: Union[float, List[float]] = None,
     max_mesh_size=10,
     min_mesh_angle=25,

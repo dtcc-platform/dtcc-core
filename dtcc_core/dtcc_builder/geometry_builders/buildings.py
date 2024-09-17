@@ -1,8 +1,8 @@
-from dtcc_model import Building, GeometryType
-from dtcc_model import Surface, MultiSurface, PointCloud, Raster
-from dtcc_builder.model import create_builder_polygon, create_builder_pointcloud
-from dtcc_builder import _dtcc_builder
-from dtcc_builder.logging import debug, info, warning, error
+from ...dtcc_model import Building, GeometryType
+from ...dtcc_model import Surface, MultiSurface, PointCloud, Raster
+from ..model import create_builder_polygon, create_builder_pointcloud
+from .. import _dtcc_builder
+from ..logging import debug, info, warning, error
 from shapely.geometry import Polygon
 import numpy as np
 

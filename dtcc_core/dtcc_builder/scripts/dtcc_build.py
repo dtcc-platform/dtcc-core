@@ -16,8 +16,7 @@ from pathlib import Path
 
 
 import dtcc_io as io
-import dtcc_builder as builder
-from dtcc_builder.logging import info, warning
+from ..logging import info, warning
 
 PARAMETERS_FILE = "parameters.json"
 

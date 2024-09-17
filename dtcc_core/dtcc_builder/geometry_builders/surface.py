@@ -1,5 +1,5 @@
-from dtcc_model import Building, GeometryType
-from dtcc_model.geometry import Surface, MultiSurface
+from ...dtcc_model import Building, GeometryType
+from ...dtcc_model.geometry import Surface, MultiSurface
 from logging import debug, info, warning, error
 import numpy as np
 

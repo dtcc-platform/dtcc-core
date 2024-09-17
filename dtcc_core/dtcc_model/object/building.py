@@ -5,10 +5,9 @@ from dataclasses import dataclass, field
 from typing import Union
 from shapely.geometry import Polygon
 
-from .object import Object
-from dtcc_model.geometry import Bounds
-from dtcc_model.object import GeometryType
-from dtcc_model import dtcc_pb2 as proto
+from .object import Object, GeometryType
+from ..geometry import Bounds
+from .. import dtcc_pb2 as proto
 
 
 @dataclass

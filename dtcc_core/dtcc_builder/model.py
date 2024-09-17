@@ -1,7 +1,7 @@
 from . import _dtcc_builder
-import dtcc_model as model
+import dtcc_core.dtcc_model as model
 from shapely.geometry import Polygon
-from dtcc_model import City, PointCloud, Raster
+from dtcc_core.dtcc_model import City, PointCloud, Raster
 from typing import Union
 import numpy as np
 

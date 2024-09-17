@@ -8,12 +8,12 @@ from collections import defaultdict
 from .object import Object, GeometryType
 from .building import Building
 from .terrain import Terrain
-from dtcc_model.values.raster import Raster
-from dtcc_model import geometry
-from dtcc_model.geometry import Bounds
+from ..values.raster import Raster
+from .. import geometry
+from ..geometry import Bounds
 
-from dtcc_model import dtcc_pb2 as proto
-from dtcc_model.logging import info, warning, error, debug
+from .. import dtcc_pb2 as proto
+from ..logging import info, warning, error, debug
 
 
 @dataclass

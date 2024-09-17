@@ -3,14 +3,14 @@ import rasterio.merge
 from rasterio.transform import from_origin
 import os
 
-from typing import Union,List
+from typing import Union, List
 import numpy as np
 from pathlib import Path
 from PIL import Image
 
 from . import generic
 
-from dtcc_model import Raster
+from ..dtcc_model import Raster
 from .logging import info, error, warning
 
 
@@ -20,29 +20,29 @@ def _load_proto_raster(path, **kwargs):
     return raster
 
 
-def _load_rasterio(path: Union[Path,List], **kwargs):
+def _load_rasterio(path: Union[Path, List], **kwargs):
     raster = Raster()
     if not isinstance(path, list):
-            with rasterio.open(path) as src:
-                data = src.read()
-                data = data.squeeze()
-                if data.ndim == 3:
-                    # rasterio returns (channels, height, width)
-                    # we want (width, heigh, channels)
-                    data = np.moveaxis(data, 0, -1)
+        with rasterio.open(path) as src:
+            data = src.read()
+            data = data.squeeze()
+            if data.ndim == 3:
+                # rasterio returns (channels, height, width)
+                # we want (width, heigh, channels)
+                data = np.moveaxis(data, 0, -1)
 
-                raster.data = np.squeeze(data)
-                raster.georef = src.transform
-                raster.crs = str(src.crs)
+            raster.data = np.squeeze(data)
+            raster.georef = src.transform
+            raster.crs = str(src.crs)
     else:
-        if 'merge_method' in kwargs:
-            merge_method = kwargs['merge_method']
-            if merge_method not in ['first', 'last', 'min', 'max']:
+        if "merge_method" in kwargs:
+            merge_method = kwargs["merge_method"]
+            if merge_method not in ["first", "last", "min", "max"]:
                 warning(f"Invalid merge method: {merge_method}. Using 'first' instead.")
-                merge_method = 'first'
+                merge_method = "first"
         else:
-            merge_method = 'first'
-        data,transform = rasterio.merge.merge(path, method=merge_method)
+            merge_method = "first"
+        data, transform = rasterio.merge.merge(path, method=merge_method)
         raster.data = data.squeeze()
         raster.georef = transform
         with rasterio.open(path[0]) as src:

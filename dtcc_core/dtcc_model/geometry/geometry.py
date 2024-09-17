@@ -5,9 +5,9 @@ from dataclasses import dataclass, field
 from typing import Union
 from abc import abstractmethod
 
-from dtcc_model import dtcc_pb2 as proto
-from dtcc_model.model import Model
-from dtcc_model.values import Field
+from .. import dtcc_pb2 as proto
+from ..model import Model
+from ..values import Field
 from .bounds import Bounds
 from .transform import Transform
 

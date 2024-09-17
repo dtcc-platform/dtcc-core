@@ -3,8 +3,11 @@
 
 import logging as _logging
 
+loggers = {}
+
 # Global logger object
 _logger = None
+
 
 def _init_logging(name):
     "Internal function for initializing logging"
@@ -36,6 +39,14 @@ def init_logging(name):
     "Initialize logging for given package"
     debug(f"Initializing logging for {name}")
     return _init_logging(name)
+
+
+def get_logger(name):
+    "Get logger for given package"
+    debug(f"getting loggers for {name}")
+    if name not in loggers:
+        loggers[name] = _init_logging(name)
+    return loggers[name]
 
 
 def set_log_level(level):

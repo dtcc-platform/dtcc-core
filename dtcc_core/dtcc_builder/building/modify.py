@@ -1,5 +1,5 @@
-from dtcc_model import Building, GeometryType, MultiSurface, Surface, GeometryType
-from dtcc_builder.polygons.polygons import (
+from ...dtcc_model import Building, GeometryType, MultiSurface, Surface, GeometryType
+from ..polygons.polygons import (
     polygon_merger,
     simplify_polygon,
     remove_slivers,
@@ -7,11 +7,11 @@ from dtcc_builder.polygons.polygons import (
     split_polygon_sides,
 )
 
-from dtcc_builder.polygons.surface import clean_multisurface, clean_surface
+from ..polygons.surface import clean_multisurface, clean_surface
 
-from dtcc_builder.register import register_model_method
+from ..register import register_model_method
 from shapely.geometry import Polygon
-from dtcc_builder.logging import debug, info, warning, error
+from ..logging import debug, info, warning, error
 
 from typing import List, Tuple, Union
 from statistics import mean

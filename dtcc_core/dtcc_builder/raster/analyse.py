@@ -1,8 +1,8 @@
 import numpy as np
 from scipy.signal import convolve2d
 from scipy.ndimage import convolve
-from dtcc_model import Raster
-from dtcc_builder.register import register_model_method
+from ...dtcc_model import Raster
+from ..register import register_model_method
 
 
 @register_model_method

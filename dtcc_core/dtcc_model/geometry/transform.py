@@ -5,9 +5,9 @@ from dataclasses import dataclass, field
 from typing import Union
 import numpy as np
 
-from dtcc_model.model import Model
+from ..model import Model
 
-from dtcc_model import proto
+from .. import proto
 
 
 default_affine = np.eye(4)

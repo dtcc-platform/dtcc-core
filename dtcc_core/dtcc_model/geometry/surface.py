@@ -9,9 +9,10 @@ from inspect import getmembers, isfunction, ismethod
 from shapely.geometry import Polygon
 from shapely.validation import make_valid
 
-from dtcc_model.logging import info, warning, error, debug
 from .geometry import Geometry, Bounds
-from dtcc_model import dtcc_pb2 as proto
+from .. import dtcc_pb2 as proto
+
+from ..logging import info, warning, error, debug
 
 
 @dataclass

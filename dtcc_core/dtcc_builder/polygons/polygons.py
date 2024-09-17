@@ -1,7 +1,7 @@
 from shapely.geometry import Polygon
 from typing import List, Tuple
 
-from dtcc_model import Building, City
+from ...dtcc_model import Building, City
 import shapely
 from shapely.geometry import (
     Point,
@@ -22,7 +22,7 @@ from scipy.sparse.csgraph import connected_components
 from collections import defaultdict
 from itertools import combinations, groupby
 
-from dtcc_builder.logging import debug, info, warning, error, critical
+from ..logging import debug, info, warning, error, critical
 
 
 def merge_polygons_convexhull(p1, p2):

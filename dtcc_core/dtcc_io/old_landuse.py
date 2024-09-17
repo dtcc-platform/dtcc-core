@@ -1,6 +1,6 @@
-from dtcc_model.landuse import Landuse, LanduseClasses
-from dtcc_model import proto
-from dtcc_model.geometry.bounds import Bounds
+from ..dtcc_model.landuse import Landuse, LanduseClasses
+from ..dtcc_model import proto
+from ..dtcc_model.geometry.bounds import Bounds
 from pathlib import Path
 import fiona
 import shapely.geometry

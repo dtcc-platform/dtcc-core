@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Union
 
 from .object import Object
-from dtcc_model import dtcc_pb2 as proto
+from .. import dtcc_pb2 as proto
 
 
 @dataclass

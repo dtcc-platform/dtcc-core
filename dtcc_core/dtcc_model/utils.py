@@ -2,7 +2,7 @@
 # Licensed under the MIT License
 
 import shapely.geometry
-from dtcc_model import dtcc_pb2
+from . import dtcc_pb2
 
 
 def coords_to_pb_linear_ring(coords):

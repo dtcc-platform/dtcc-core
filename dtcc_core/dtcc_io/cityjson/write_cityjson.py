@@ -1,8 +1,8 @@
 import json
 from pathlib import Path
 
-from dtcc_model import City
-from dtcc_model import Surface, MultiSurface, Mesh, Building, BuildingPart
+from ..dtcc_model import City
+from ..dtcc_model import Surface, MultiSurface, Mesh, Building, BuildingPart
 import numpy as np
 
 

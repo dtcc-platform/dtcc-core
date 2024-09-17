@@ -4,12 +4,12 @@ from shapely.validation import make_valid
 
 import numpy as np
 from scipy.spatial.transform import Rotation as R
-from dtcc_model.geometry import Surface, MultiSurface, PointCloud
+from ...dtcc_model.geometry import Surface, MultiSurface, PointCloud
 
 from shapely import minimum_rotated_rectangle
 
-from dtcc_builder.polygons.polygons import remove_slivers
-from dtcc_builder.logging import info, warning, error, debug
+from ..polygons.polygons import remove_slivers
+from ..logging import info, warning, error, debug
 
 
 def clean_multisurface(ms: MultiSurface, simplify=1e-2) -> MultiSurface:

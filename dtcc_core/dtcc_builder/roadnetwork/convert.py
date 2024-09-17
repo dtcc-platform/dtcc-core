@@ -1,9 +1,9 @@
-from dtcc_model import RoadNetwork, GeometryType
+from ...dtcc_model import RoadNetwork, GeometryType
 
 from scipy.sparse import csr_matrix
 import numpy as np
-from dtcc_builder.register import register_model_method
-from dtcc_model.geometry import Surface
+from ..register import register_model_method
+from ...dtcc_model.geometry import Surface
 
 import geopandas as gpd
 from typing import Any, Union, List, Tuple

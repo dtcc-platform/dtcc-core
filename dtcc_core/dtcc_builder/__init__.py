@@ -9,6 +9,7 @@ from . import geometry
 from . import city
 from . import building
 from . import roadnetwork
+
 # from .builders import (
 #     build,
 #     build_city,
@@ -34,19 +35,19 @@ from .building.modify import (
     merge_building_footprints,
     simplify_building_footprints,
     fix_building_footprint_clearance,
-    split_footprint_walls
+    split_footprint_walls,
 )
 
 from .city.modify import (
     merge_buildings,
     fix_building_clearance,
-    clean_building_surfaces
+    clean_building_surfaces,
 )
 
 from .geometry_builders.meshes import build_surface_mesh
 
 # # Add model extensions
-# from dtcc_model import City, PointCloud
+# from ..dtcc_model import City, PointCloud
 
 # City.add_methods(city_methods.compute_building_points, "compute_building_points")
 # City.add_methods(city_methods.compute_building_heights, "compute_building_heights")
@@ -62,5 +63,5 @@ __all__ = [
     "merge_building_footprints",
     "simplify_building_footprints",
     "fix_building_footprint_clearance",
-    "split_footprint_walls"
+    "split_footprint_walls",
 ]

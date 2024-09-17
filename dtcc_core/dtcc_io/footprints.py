@@ -11,17 +11,16 @@ import shapely.affinity
 import fiona
 import pyproj
 from logging import info, warning, error
-from dtcc_model import City, Building, GeometryType, Surface
+from ..dtcc_model import City, Building, GeometryType, Surface
 import numpy as np
 
 from . import generic
 from .utils import get_epsg
 
 
-# from dtcc_model import Polygon, Building, LinearRing, Vector2D, City
-import dtcc_model as model
-from dtcc_model import Building
-from dtcc_model.geometry import Bounds
+# from ..dtcc_model import Polygon, Building, LinearRing, Vector2D, City
+from ..dtcc_model import Building
+from ..dtcc_model.geometry import Bounds
 
 from .logging import info, warning, error
 

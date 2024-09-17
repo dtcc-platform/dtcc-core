@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from inspect import getmembers, isfunction, ismethod
 
 from .geometry import Geometry, Bounds
-from dtcc_model import dtcc_pb2 as proto
+from .. import dtcc_pb2 as proto
 
 
 @dataclass

@@ -10,8 +10,8 @@ from psutil import cpu_count
 from math import ceil, sqrt
 from time import time
 
-import dtcc_model as model
-from dtcc_model import City, PointCloud
+
+from ..dtcc_model import City, PointCloud
 from .logging import info, warning, error, debug
 from . import _dtcc_builder
 from . import meshing
@@ -129,8 +129,8 @@ def compute_building_points(
 
 
 def compute_building_heights(
-    city: model.City, min_building_height=2.5, roof_percentile=0.9
-) -> model.City:
+    city: City, min_building_height=2.5, roof_percentile=0.9
+) -> City:
     """
     Compute building heights from roof points for the given city.
 

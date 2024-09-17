@@ -1,8 +1,8 @@
 import rasterio
 from rasterio.features import rasterize
 
-from dtcc_model import Raster
-from dtcc_builder.register import register_model_method
+from ...dtcc_model import Raster
+from ..register import register_model_method
 from shapely.geometry import Polygon
 
 

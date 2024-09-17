@@ -11,8 +11,8 @@ from typing import Tuple, List
 from time import time
 
 
-import dtcc_model as model
-import dtcc_io as io
+import dtcc_core.dtcc_model as model
+import dtcc_core.dtcc_io as io
 from .logging import info, warning, error
 from . import _dtcc_builder
 from . import city_methods

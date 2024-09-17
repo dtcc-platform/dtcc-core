@@ -37,7 +37,7 @@ load_city = city.load
 save_city = city.save
 
 
-from dtcc_model import City, PointCloud, Raster, Mesh, VolumeMesh, City, RoadNetwork
+from ..dtcc_model import City, PointCloud, Raster, Mesh, VolumeMesh, City, RoadNetwork
 
 City.add_methods(load_city, "load")
 City.add_methods(save_city, "save")
