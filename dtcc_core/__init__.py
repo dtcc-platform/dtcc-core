@@ -1,22 +1,22 @@
-from dtcc_core.dtcc_common.dtcc_logging import init_logging, set_log_level, get_logger
-from dtcc_core import dtcc_common
+from dtcc_core.common.dtcc_logging import init_logging, set_log_level, get_logger
+from dtcc_core import common
 
-from dtcc_core import dtcc_model
+from dtcc_core import model
 
-model = dtcc_model
+model = model
 
-from dtcc_core import dtcc_builder
+from dtcc_core import builder
 
-builder = dtcc_builder
+builder = builder
 
-from dtcc_core import dtcc_io
+from dtcc_core import io
 
-io = dtcc_io
+io = io
 
 
-common = dtcc_common
+common = common
 
-# import dtcc_common as common
-# from dtcc_common.dtcc_logging import init_logging, set_log_level
-# import dtcc_io as io
-# import dtcc_model as model
+# import common as common
+# from common.dtcc_logging import init_logging, set_log_level
+# import io as io
+# import model as model
