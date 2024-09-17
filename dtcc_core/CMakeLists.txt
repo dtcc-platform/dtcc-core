@@ -26,4 +26,4 @@ if(WIN32)
     target_compile_definitions(${BINDINGS} PRIVATE -DNO_TIMER)
 endif()
 
-install(TARGETS ${BINDINGS} DESTINATION dtcc_builder)
+install(TARGETS ${BINDINGS} DESTINATION ${CMAKE_CURRENT_SOURCE_DIR}/dtcc_builder)
