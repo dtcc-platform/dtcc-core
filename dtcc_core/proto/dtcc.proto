@@ -1,0 +1,194 @@
+syntax = "proto3";
+
+//option optimize_for = LITE_RUNTIME;
+
+package DTCC;
+
+//------------------------------------------------------------------------------
+// Object
+//------------------------------------------------------------------------------
+
+message Object
+{
+    string id = 1;
+    string attributes = 2;
+    repeated Object children = 3;
+    map<string, Geometry> geometry = 4;
+    Bounds bounds = 5;
+
+    
+    oneof type
+    {
+        City city = 6;
+        Building building = 7;
+        Terrain terrain = 8;
+        CityObject city_object = 9;
+        BuildingPart building_part = 10;
+        RoadNetwork road_network = 11;
+        Landuse landuse = 12;
+    }
+
+
+}
+
+message City
+{
+  // Do nothing
+}
+
+message Building
+{
+  // Do nothing
+}
+
+message Terrain
+{
+  // Do nothing
+}
+
+message CityObject
+{
+  // Do nothing
+}
+
+message BuildingPart
+{
+  // Do nothing
+}
+
+message RoadNetwork
+{
+  repeated float vertices = 1;
+  uint32 dim = 2;
+  repeated uint32 edges = 3;
+  repeated float lengths = 4;
+}
+
+message Landuse
+{
+  uint32 landuses = 1;
+}
+
+//------------------------------------------------------------------------------
+// Geometry
+//------------------------------------------------------------------------------
+
+message Bounds
+{
+  float xmin = 1;
+  float ymin = 2;
+  float zmin = 3;
+  float xmax = 4;
+  float ymax = 5;
+  float zmax = 6;
+}
+
+message Transform
+{
+    string srs = 1;
+    repeated float affine = 2;
+}
+
+message LineString
+{
+    repeated float vertices = 1;
+     int32 dim = 2;
+}
+
+message MultiLineString
+{
+    repeated LineString line_strings = 1;
+}
+
+message Geometry
+{
+  Bounds bounds = 1;
+  Transform transform = 2;
+  repeated Field fields = 3;
+  
+  oneof type
+  {
+    Surface surface = 4;
+    MultiSurface multi_surface = 5;
+    PointCloud point_cloud = 6;
+    Mesh mesh = 7;
+    VolumeMesh volume_mesh = 8;
+    Grid grid = 9;
+    VolumeGrid volume_grid = 10;
+    LineString line_string = 11;
+    MultiLineString multi_line_string = 12;
+  }
+}
+
+message Surface
+{
+    repeated float vertices = 1;
+    repeated float normal = 2;
+    repeated LineString holes = 3;
+}
+
+message MultiSurface
+{
+    repeated Surface surfaces = 1;
+}
+
+message PointCloud
+{
+    repeated float points = 1;
+    repeated uint32 classification = 2;
+    repeated uint32 intensity = 3;
+    repeated uint32 return_number = 4;
+    repeated uint32 num_returns = 5;
+}
+
+message Mesh
+{
+    repeated float vertices = 1;
+    repeated uint32 faces = 2;
+}
+
+message VolumeMesh
+{
+  repeated float vertices = 1;
+  repeated uint32 cells = 2;
+}
+
+message Grid
+{
+  int32 width = 1;
+  int32 height = 2;
+  float xstep = 3;
+  float ystep = 4;
+}
+
+message VolumeGrid
+{
+  int32 width = 1;
+  int32 height = 2;
+  int32 depth = 3;
+  float xstep = 4;
+  float ystep = 5;
+  float zstep = 6;
+}
+
+//------------------------------------------------------------------------------
+// Values
+//------------------------------------------------------------------------------
+
+message Field
+{
+  string name = 1;
+  string unit = 2;
+  string description = 3;
+  repeated float values = 4;
+  int32 dim = 5;
+}
+
+message Raster
+{
+  string name = 1;
+  string unit = 2;
+  string description = 3;
+  repeated float values = 4;
+  Grid grid = 5;  
+}
