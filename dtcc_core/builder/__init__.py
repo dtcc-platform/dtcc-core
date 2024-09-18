@@ -52,6 +52,7 @@ from .geometry_builders.meshes import build_surface_mesh
 # City.add_methods(city_methods.compute_building_points, "compute_building_points")
 # City.add_methods(city_methods.compute_building_heights, "compute_building_heights")
 
+
 __all__ = [
     "extract_roof_points",
     "compute_building_heights",

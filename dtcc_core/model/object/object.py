@@ -8,6 +8,8 @@ from typing import Union
 from enum import Enum, auto
 import json
 
+import dtcc_core
+
 from ..model import Model
 from ..geometry import (
     Geometry,
@@ -60,7 +62,7 @@ class GeometryType(Enum):
 def _proto_type_to_object_class(_type):
     """Get object class from protobuf type string."""
     class_name = _type.title().replace("_", "")
-    _class = getattr(dtcc_model.object, class_name, None)
+    _class = getattr(dtcc_core.model.object, class_name, None)
     if _class is None:
         error(f"Invalid object type: {_type}")
     return _class
@@ -69,7 +71,7 @@ def _proto_type_to_object_class(_type):
 def _proto_type_to_geometry_class(_type):
     """Get geometry class from protobuf type string."""
     class_name = _type.title().replace("_", "")
-    _class = getattr(dtcc_model.geometry, class_name, None)
+    _class = getattr(dtcc_core.model.geometry, class_name, None)
     if _class is None:
         error(f"Invalid geometry type: {_type}")
     return _class
