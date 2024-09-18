@@ -1,6 +1,5 @@
 import unittest
-import dtcc_builder as builder
-import dtcc_io as io
+from dtcc_core import io, builder
 from pathlib import Path
 
 project_dir = (Path(__file__).parent / "../data" / "MinimalCase").resolve()
