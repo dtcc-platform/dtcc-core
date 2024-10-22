@@ -8,25 +8,25 @@ developed at the
 [Digital Twin Cities Centre](https://dtcc.chalmers.se/)
 supported by Sweden’s Innovation Agency Vinnova under Grant No. 2019-421 00041.
 
-# 1. DTCC Model
+## 1. DTCC Model
 
 DTCC Model defines the common data model and data formats for DTCC Platform.
 Additionally, DTCC Model provides utilities for working with the data model
 and data formats.
 
-# 2. DTCC IO
+## 2. DTCC IO
 
 DTCC IO provides input/output (IO) for DTCC Platform.
 
-# 3. DTCC Builder
+## 3. DTCC Builder
 
 DTCC Builder provides functionality for building city models for DTCC Platform.
 
-## Citing
+### Citing
 
 [![DOI](https://joss.theoj.org/papers/10.21105/joss.04928/status.svg)](https://doi.org/10.21105/joss.04928)
 
-# 4. DTCC Common
+## 4. DTCC Common
 
 DTCC Common provides common utilities for DTCC Platform.
 
@@ -39,13 +39,13 @@ This project is documented as part of the
 
 ## Authors (in order of appearance)
 
-* [Anders Logg](http://anders.logg.org) [1](#1-dtcc-model), [2](#2-dtcc-io), [3](#3-dtcc-builder), [4](#4-dtcc-common)
-* [Vasilis Naserentin](https://www.chalmers.se/en/Staff/Pages/vasnas.aspx) [1](#1-dtcc-model), [2](#2-dtcc-io), [3](#3-dtcc-builder)
-* [Dag Wästerberg](https://chalmersindustriteknik.se/sv/medarbetare/dag-wastberg/) [1](#1-dtcc-model), [2](#2-dtcc-io), [3](#3-dtcc-builder)
-* [Orfeas Eleutheriou](http://orfeasel.com/) [3](#3-dtcc-builder)
-* [Anton Olsson](mailto:anton.j.olsson@bredband.net) [3](#3-dtcc-builder)
-* [Anton Annlöv](mailto:annlova@student.chalmers.se) [3](#3-dtcc-builder)
-* [George Spaias](mailto:gspaiasa@ece.auth.gr) [3](#3-dtcc-builder)
+* [Anders Logg](http://anders.logg.org) [[1]](#1-dtcc-model), [[2]](#2-dtcc-io), [[3]](#3-dtcc-builder), [[4]](#4-dtcc-common)
+* [Vasilis Naserentin](https://www.chalmers.se/en/Staff/Pages/vasnas.aspx) [[1]](#1-dtcc-model), [[2]](#2-dtcc-io), [[3]](#3-dtcc-builder)
+* [Dag Wästerberg](https://chalmersindustriteknik.se/sv/medarbetare/dag-wastberg/) [[1]](#1-dtcc-model), [[2]](#2-dtcc-io), [[3]](#3-dtcc-builder)
+* [Orfeas Eleutheriou](http://orfeasel.com/) [[3]](#3-dtcc-builder)
+* [Anton Olsson](mailto:anton.j.olsson@bredband.net) [[3]](#3-dtcc-builder)
+* [Anton Annlöv](mailto:annlova@student.chalmers.se) [[3]](#3-dtcc-builder)
+* [George Spaias](mailto:gspaiasa@ece.auth.gr) [[3]](#3-dtcc-builder)
 
 ## License
 
