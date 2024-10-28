@@ -7,6 +7,7 @@ from shapely.geometry import Polygon
 from shapely.geometry import Polygon, MultiPolygon
 from shapely.validation import make_valid
 
+import numpy as np
 
 @register_model_method
 def mesh(ms: MultiSurface, triangle_size=None, weld=False) -> Mesh:
@@ -41,3 +42,26 @@ def to_polygon(ms: MultiSurface, simplify=1e-2) -> Polygon:
         merged = make_valid(merged)
         merged = merged.simplify(simplify, preserve_topology=True)
     return merged
+
+
+@register_model_method
+def ray_intersection(
+    ms: MultiSurface, origin: np.ndarray, direction: np.ndarray
+) -> np.ndarray:
+    """
+    Compute the intersection points of a ray with a MultiSurface.
+
+    Args:
+        ms (MultiSurface): The MultiSurface.
+        origin (np.ndarray): The origin of the ray.
+        direction (np.ndarray): The direction of the ray.
+
+    Returns:
+        np.ndarray: The intersection points.
+    """
+    builder_multisurface = create_builder_multisurface(ms)
+    origin = np.array(origin, dtype=np.float64)
+    direction = np.array(direction, dtype=np.float64)
+    return _dtcc_builder.ray_multisurface_intersection(
+        builder_multisurface, origin, direction
+    )
