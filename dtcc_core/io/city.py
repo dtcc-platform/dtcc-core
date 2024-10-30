@@ -65,7 +65,7 @@ def buildings_to_df(city: City, include_geometry=True, crs=None):
         return None
     if include_geometry:
         try:
-            import dtcc_builder
+            import dtcc_core.builder
         except ImportError:
             warning(
                 "builder not found, cannot convert building geometry to dataframe"
