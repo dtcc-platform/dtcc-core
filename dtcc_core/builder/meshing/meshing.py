@@ -3,7 +3,7 @@ from ..register import register_model_method
 
 from .. import _dtcc_builder
 
-from ..model import (
+from ..model_conversion import (
     create_builder_multisurface,
     create_builder_surface,
     builder_mesh_to_mesh,

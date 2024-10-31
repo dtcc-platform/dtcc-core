@@ -1,7 +1,7 @@
 from dtcc_core import io
 from dtcc_core.model import Raster
 import unittest
-from dtcc_core.builder.model import raster_to_builder_gridfield
+from dtcc_core.builder.model_conversion import raster_to_builder_gridfield
 from pathlib import Path
 
 

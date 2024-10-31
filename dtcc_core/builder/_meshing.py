@@ -1,5 +1,5 @@
 from . import _dtcc_builder
-from .model import (
+from .model_conversion import (
     create_builder_polygon,
     create_builder_surface,
     create_builder_multisurface,

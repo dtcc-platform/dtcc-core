@@ -4,7 +4,7 @@ from ..register import register_model_method
 
 from ..meshing.meshing import mesh_surface
 import numpy as np
-from ..model import create_builder_surface
+from ..model_conversion import create_builder_surface
 
 from .. import _dtcc_builder
 

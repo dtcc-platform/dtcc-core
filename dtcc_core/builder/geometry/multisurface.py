@@ -7,7 +7,10 @@ from shapely.geometry import Polygon
 from shapely.geometry import Polygon, MultiPolygon
 from shapely.validation import make_valid
 
+from ..model_conversion import create_builder_multisurface
 import numpy as np
+
+from .. import _dtcc_builder
 
 @register_model_method
 def mesh(ms: MultiSurface, triangle_size=None, weld=False) -> Mesh:

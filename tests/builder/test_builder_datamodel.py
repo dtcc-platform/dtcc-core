@@ -10,7 +10,7 @@ data_dir = (Path(__file__).parent / "../data").resolve()
 class TestBuilderPointCloud(unittest.TestCase):
     def test_convert_pointcloud(self):
         pc = io.load_pointcloud(data_dir / "MinimalCase" / "pointcloud.las")
-        builder_pc = builder.model.create_builder_pointcloud(pc)
+        builder_pc = builder.model_conversion.create_builder_pointcloud(pc)
         self.assertEqual(len(builder_pc.points), len(pc.points))
         self.assertEqual(len(builder_pc.points), 8148)
 

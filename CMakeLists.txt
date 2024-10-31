@@ -79,7 +79,6 @@ include_directories(SYSTEM ${DTCC_CPP_DIR}/external)
 include_directories(SYSTEM ${DTCC_CPP_DIR}/external/triangle)
 
 # Set installation directory
-set(CMAKE_INSTALL_PREFIX ${CDTCC_CPP_DIR}/src)
 set(CMAKE_SKIP_INSTALL_ALL_DEPENDENCY true)
 
 # Add subdirectories

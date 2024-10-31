@@ -15,7 +15,7 @@ from ..model import City, PointCloud
 from .logging import info, warning, error, debug
 from . import _dtcc_builder
 from . import meshing
-from . import model as builder_model
+from . import model_conversion as builder_model
 from . import parameters as builder_parameters
 
 

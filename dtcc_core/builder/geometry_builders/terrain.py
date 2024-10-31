@@ -8,7 +8,7 @@ from ...model import (
     Bounds,
 )
 
-from ..model import (
+from ..model_conversion import (
     raster_to_builder_gridfield,
     builder_mesh_to_mesh,
     create_builder_polygon,

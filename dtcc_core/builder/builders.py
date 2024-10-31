@@ -16,7 +16,7 @@ import dtcc_core.io as io
 from .logging import info, warning, error
 from . import _dtcc_builder
 from . import city_methods
-from . import model as builder_model
+from . import model_conversion as builder_model
 from . import parameters as builder_parameters
 from . import meshing
 
