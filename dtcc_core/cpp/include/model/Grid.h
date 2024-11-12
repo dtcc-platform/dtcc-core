@@ -205,10 +205,6 @@ public:
 
     const size_t iy = Utils::crop(std::lround( (_y / ystep) - 0.5), ysize, 0);
     i = iy * xsize + ix;
-    if (i>=250000)
-    {
-    info("unexpected i = " + str(i) + " for p = " + str(p) + " with ix = " + str(ix) + " and iy = " + str(iy));
-    }
 
     // Map coordinates to [0, 1] x [0, 1] within grid cell
     x = (_x - ix * xstep) / xstep;
