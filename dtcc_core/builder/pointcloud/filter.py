@@ -5,6 +5,7 @@ from ...model import PointCloud
 from ..logging import info, warning, error
 from ..register import register_model_method
 
+from .. import _dtcc_builder
 
 @register_model_method
 def remove_global_outliers(pc: PointCloud, margin: float):
@@ -27,6 +28,22 @@ def remove_global_outliers(pc: PointCloud, margin: float):
     new_pc.remove_points(outliers)
     return new_pc
 
+@register_model_method
+def statistical_outlier_filter(pc:PointCloud, neighbours, outlier_margin):
+    """
+    Remove statistical outliers from a `PointCloud` object.
+
+    Args:
+        pc (PointCloud): The `PointCloud` object to remove outliers from.
+        neighbours (int): The number of neighbours to consider for the outlier detection.
+        outlier_margin (float): The margin in standard deviations to consider a point an outlier.
+
+    Returns:
+        PointCloud: A new `PointCloud` object with the outliers removed.
+    """
+
+    outliers = _dtcc_builder.statistical_outlier_finder(pc.points, neighbours, outlier_margin)
+    return pc.remove_points(outliers)
 
 @register_model_method
 def classification_filter(pc: PointCloud, classes: List[int], keep: bool = False):

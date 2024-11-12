@@ -29,11 +29,12 @@ def build_terrain_mesh(
     max_mesh_size=10,
     min_mesh_angle=25,
     smoothing=3,
+    ground_points_only=True,
 ) -> Mesh:
     if dem is None and pointcloud is None:
         raise ValueError("Either dem raster or pointcloud must be provided.")
     if dem is None:
-        dem = build_terrain_raster(pointcloud, cell_size=max_mesh_size / 2)
+        dem = build_terrain_raster(pointcloud, cell_size=max_mesh_size / 2, ground_only=ground_points_only)
     _builder_gridfield = raster_to_builder_gridfield(dem)
     if subdomains is None:
         subdomains = []

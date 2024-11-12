@@ -119,6 +119,7 @@ class PointCloud(Geometry):
             self.return_number = np.delete(self.return_number, indices, axis=0)
         if len(self.num_returns) > 0:
             self.num_returns = np.delete(self.num_returns, indices, axis=0)
+        self.calculate_bounds()
         return self
 
     def merge(self, other):

@@ -296,6 +296,8 @@ namespace DTCC_BUILDER
     return point_cloud;
   }
 
+
+
   GridField create_gridfield(py::array_t<double> data,
                              py::tuple bounds,
                              size_t xsize,
@@ -361,6 +363,20 @@ namespace DTCC_BUILDER
         Intersection::ray_multisurface_intersection(surface, ray_origin, ray_vector);
 
     return py::array_t<double>(3, &intersection.x);
+  }
+
+py::array_t<size_t> statistical_outlier_finder(py::array_t<double> &points, size_t neighbors, double outlier_margin)
+  {
+    auto points_r = points.unchecked<2>();
+    size_t num_points = points_r.shape(0);
+    std::vector<Vector3D> pc;
+    for (size_t i = 0; i < num_points; i++)
+    {
+      pc.push_back(Vector3D(points_r(i, 0), points_r(i, 1), points_r(i, 2)));
+    }
+
+    auto outliers = PointCloudProcessor::statistical_outlier_finder(pc, neighbors, outlier_margin);
+    return py::array_t<size_t>(outliers.size(), outliers.data());
   }
 
 } // namespace DTCC_BUILDER
@@ -580,4 +596,7 @@ PYBIND11_MODULE(_dtcc_builder, m)
         "Compute ray-surface intersection");
 
   m.def("ray_multisurface_intersection", &DTCC_BUILDER::ray_multisurface_intersection, "Compute ray-multisurface intersection");
+
+  m.def("statistical_outlier_finder", &DTCC_BUILDER::statistical_outlier_finder, "Find statistical outliers in point cloud");
+
 }
