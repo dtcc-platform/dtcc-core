@@ -52,7 +52,16 @@ public:
                         std::numeric_limits<double>::max())
   {
     // Compute vertex markers
-    compute_vertex_markers();
+    if (volume_mesh.markers.size() == volume_mesh.vertices.size())
+    {
+      info("VolumeMesh already uses vertex Markers. Layering set them up");
+      vertex_markers = volume_mesh.markers;
+    }
+    else
+    {
+      compute_vertex_markers();
+    }
+
 
     // Compute boundary values
     compute_boundary_values();
@@ -163,11 +172,11 @@ public:
     compute_halo_elevations();
 
     for (size_t i = 0; i < _volume_mesh.vertices.size(); i++)
-    {
+    { 
       const int vertex_marker = vertex_markers[i];
       if (vertex_marker >= 0) //  && fix_buildings Building
       {
-        values[i] = building_centroids[i].z -
+        values[i] = building_centroids[vertex_marker].z -
                     _volume_mesh.vertices[i].z;
       }
       else if (vertex_marker == -1) // Building Halo

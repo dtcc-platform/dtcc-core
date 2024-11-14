@@ -128,7 +128,8 @@ private:
                                 const VolumeMesh &volume_mesh,
                                 const GridField &dem,
                                 double top_height,
-                                BoundaryConditions &bc)
+                                BoundaryConditions &bc
+                                )
   {
     info("Setting initial guess for solution vector");
 
@@ -142,6 +143,28 @@ private:
       else
         u[i] = 0.0;
     }
+  }
+
+  static std::vector<double> get_adjusted_building_heights(const VolumeMesh &volume_mesh, const std::vector<Surface> &building_surfaces)
+  {
+    std::vector<double> adj_heights(building_surfaces.size(),0.0);
+      
+    for (size_t i = 0; i < volume_mesh.vertices.size(); i++)
+    {   
+      int marker = volume_mesh.markers[i];
+      if (marker >= 0)
+      {
+        adj_heights[marker] = volume_mesh.vertices[i].z;
+
+       
+      }     
+    }
+    for (size_t i = 0; i < adj_heights.size(); i++)
+    {
+       std::cout <<i << ") Building max height: " <<  building_surfaces[i].max_height() << " adj: " << adj_heights[i] <<std::endl ;
+    }
+    
+    return adj_heights;
   }
 
   // Compute the number of cells to which each vertex belongs

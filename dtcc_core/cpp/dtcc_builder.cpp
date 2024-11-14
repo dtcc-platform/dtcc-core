@@ -12,6 +12,7 @@
 #include "ElevationBuilder.h"
 #include "Intersection.h"
 #include "MeshBuilder.h"
+#include "VolumeMeshBuilder.h"
 #include "MeshProcessor.h"
 #include "Smoother.h"
 #include "VertexSmoother.h"
@@ -598,5 +599,23 @@ PYBIND11_MODULE(_dtcc_builder, m)
   m.def("ray_multisurface_intersection", &DTCC_BUILDER::ray_multisurface_intersection, "Compute ray-multisurface intersection");
 
   m.def("statistical_outlier_finder", &DTCC_BUILDER::statistical_outlier_finder, "Find statistical outliers in point cloud");
+
+  py::class_<DTCC_BUILDER::VolumeMeshBuilder>(m, "VolumeMeshBuilder")
+      .def(py::init<const std::vector<DTCC_BUILDER::Surface> &, const DTCC_BUILDER::GridField &,
+                    DTCC_BUILDER::Mesh &, double>(),
+           py::arg("buildings"), py::arg("dem"), py::arg("ground_mesh"),
+           py::arg("domain_height"),
+           "Constructor for VolumeMeshBuilder taking city, dem, ground_mesh, "
+           "and domain_height as arguments")
+      .def("build", &DTCC_BUILDER::VolumeMeshBuilder::build,
+           "Layers the ground mesh and returns a VolumeMesh")
+      // Expose public variables directly
+      .def_readwrite("domain_height",
+                     &DTCC_BUILDER::VolumeMeshBuilder::domain_height)
+      .def_readwrite("top_height", &DTCC_BUILDER::VolumeMeshBuilder::top_height)
+      // If you need to expose std::vectors or similar, pybind11/stl.h header
+      // takes care of this. For custom types like City, GridField, Mesh, ensure
+      // you've also provided bindings for them.
+      ;
 
 }
