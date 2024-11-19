@@ -2,7 +2,7 @@
 # Licensed under the MIT License
 
 import numpy as np
-from typing import Union
+from typing import Union, Iterable
 from dataclasses import dataclass, field
 from inspect import getmembers, isfunction, ismethod
 
@@ -81,6 +81,19 @@ class Mesh(Geometry):
 
         """
         return len(self.faces)
+
+    def offset(self, offset: Iterable):
+        """Offset the vertices of the mesh.
+
+        Parameters
+        ----------
+        offset :
+            The offset to apply to the vertices.
+
+        """
+        offset = np.array(offset)
+        self.vertices += offset
+        return self
 
     def to_proto(self) -> proto.Geometry:
         """Return a protobuf representation of the Mesh.
