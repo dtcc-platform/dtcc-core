@@ -54,28 +54,3 @@ This project is licensed under the
 
 Copyright is held by the individual authors as listed at the top of
 each source file.
-
-
-## Initial sketch of structure
-```
-dtcc-core/
-│
-├── dtcc_core/
-│   ├── __init__.py
-│   ├── dtcc_io/
-│   │   ├── __init__.py
-│   ├── dtcc_common/
-│   │   ├── __init__.py
-│   └── dtcc_builder/
-│       ├── __init__.py
-│
-├── tests/
-│
-├── docs/
-│
-├── examples/
-│
-├── pyproject.toml
-├── README.md
-└── LICENSE
-```
