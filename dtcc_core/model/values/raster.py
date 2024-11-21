@@ -1,5 +1,6 @@
 # Copyright(C) 2023 Dag Wästberg
 # Licensed under the MIT License
+from email.headerregistry import Address
 
 import numpy as np
 from typing import Union
@@ -126,14 +127,20 @@ class Raster(Model):
             The spatial bounds of the raster.
 
         """
-        return Bounds(
-            xmin=self.georef.c,
-            ymin=self.georef.f + self.georef.e * self.height,
-            xmax=self.georef.c + self.georef.a * self.width,
-            ymax=self.georef.f,
-            zmin=0,
-            zmax=0,
-        )
+
+        _xmin=self.georef.c #+ (self.georef.a / 2)
+        _ymin=self.georef.f + self.georef.e * self.height #- (self.georef.e / 2)
+        _xmax=self.georef.c + self.georef.a * self.width #- (self.georef.a / 2)
+        _ymax=self.georef.f #+ (self.georef.e / 2)
+        zmin=0
+        zmax=0
+
+        xmin = min(_xmin, _xmax)
+        ymin = min(_ymin, _ymax)
+        xmax = max(_xmin, _xmax)
+        ymax = max(_ymin, _ymax)
+        return Bounds(xmin, ymin, xmax, ymax, zmin, zmax)
+
 
     def calculate_bounds(self):
         """
