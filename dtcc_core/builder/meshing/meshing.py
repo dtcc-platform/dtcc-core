@@ -10,6 +10,10 @@ from ..model_conversion import (
     mesh_to_builder_mesh,
 )
 
+import numpy as np
+from scipy import sparse
+from scipy.sparse.csgraph import connected_components
+
 
 def mesh_multisurface(ms: MultiSurface, triangle_size=None, weld=False) -> Mesh:
     """
@@ -87,3 +91,48 @@ def merge(mesh: Mesh, other: Mesh, weld=False) -> Mesh:
     merged_mesh = _dtcc_builder.merge_meshes([builder_mesh, builder_other], weld)
     mesh = builder_mesh_to_mesh(merged_mesh)
     return mesh
+
+def disjoint_meshes(mesh: Mesh) -> [Mesh]:
+    num_vertices = len(mesh.vertices)
+    edges = np.vstack([
+        mesh.faces[:, [0, 1]],  # First edge of each face
+        mesh.faces[:, [1, 2]],  # Second edge of each face
+        mesh.faces[:, [2, 0]]  # Third edge of each face
+    ])
+    # Create sparse adjacency matrix
+    adj_matrix = sparse.coo_matrix(
+        (np.ones(len(edges)), (edges[:, 0], edges[:, 1])),
+        shape=(num_vertices, num_vertices)
+    )
+
+    # Make matrix symmetric (undirected graph)
+    adj_matrix = adj_matrix + adj_matrix.T
+    n_components, labels = connected_components(
+        csgraph=adj_matrix,
+        directed=False,
+        return_labels=True
+    )
+    disjointed_meshes = []
+    for component_id in range(n_components):
+        # Get vertices in this component
+        component_vertex_mask = (labels == component_id)
+        component_vertex_indices = np.where(component_vertex_mask)[0]
+
+        # Create vertex index mapping
+        vertex_map = {old_idx: new_idx for new_idx, old_idx
+                      in enumerate(component_vertex_indices)}
+
+        # Get faces that use these vertices
+        face_vertex_mask = np.isin(mesh.faces, component_vertex_indices)
+        valid_faces_mask = np.all(face_vertex_mask, axis=1)
+        component_faces = mesh.faces[valid_faces_mask]
+
+        # Vectorized vertex index remapping
+        new_faces = np.vectorize(vertex_map.get)(component_faces)
+
+        # Create new mesh component
+        new_vertices = mesh.vertices[component_vertex_indices]
+
+        disjointed_meshes.append(Mesh(vertices=new_vertices, faces=new_faces))
+
+    return disjointed_meshes

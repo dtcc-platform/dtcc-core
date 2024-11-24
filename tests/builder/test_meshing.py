@@ -1,10 +1,12 @@
-from dtcc_core.builder.meshing import mesh_multisurface, mesh_surface, mesh_multisurfaces
+from dtcc_core.builder.meshing import mesh_multisurface, mesh_surface, mesh_multisurfaces, disjoint_meshes
 from dtcc_core import io
 from dtcc_core.model import Mesh, Building, Surface, MultiSurface
 import numpy as np
 from shapely.geometry import Polygon
 import unittest
 from pathlib import Path
+
+
 
 
 project_dir = (Path(__file__).parent / "../data" / "MinimalCase").resolve()
@@ -201,6 +203,23 @@ class TestMeshMultiSurfaces(unittest.TestCase):
         self.assertEqual(len(meshes[1].faces), 6)
         self.assertAlmostEqual(meshes[1].vertices[:, 2].min(), 0)
         self.assertAlmostEqual(meshes[1].vertices[:, 2].max(), 7)
+
+class TestDisjointMesh(unittest.TestCase):
+    def test_disjoint_mesh(self):
+        cube1_vertices = np.array([[0,0,0], [0,1,0], [1,1,0], [1,0,0], [0,0,1], [0,1,1], [1,1,1], [1,0,1]])
+        cube1_faces = [[0,1,2], [0,2,3], [0,4,5], [0,5,1], [1,5,6], [1,6,2], [2,6,7], [2,7,3], [3,7,4], [3,4,0], [4,7,6], [4,6,5]]
+        cube2_vertices = cube1_vertices + np.array([2,2,2])
+        cube2_faces = [[i+8 for i in face] for face in cube1_faces]
+        cubes_vertices = np.vstack([cube1_vertices, cube2_vertices])
+        cubes_faces = np.array(cube1_faces + cube2_faces)
+        cubes_mesh = Mesh(vertices=cubes_vertices, faces = cubes_faces)
+        disjointed_meshes = disjoint_meshes(cubes_mesh)
+        self.assertEqual(len(disjointed_meshes), 2)
+        self.assertEqual(disjointed_meshes[0].faces.max(), 7)
+        self.assertEqual(disjointed_meshes[1].faces.max(), 7)
+        self.assertEqual(len(disjointed_meshes[0].vertices), 8)
+        self.assertEqual(len(disjointed_meshes[1].vertices), 8)
+
 
 if __name__ == "__main__":
     unittest.main()
