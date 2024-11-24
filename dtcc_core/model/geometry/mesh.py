@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from inspect import getmembers, isfunction, ismethod
 
 from .geometry import Geometry, Bounds
+from .surface import Surface, MultiSurface
 from .. import dtcc_pb2 as proto
 
 
@@ -136,6 +137,20 @@ class Mesh(Geometry):
         self.vertices = np.array(_pb.vertices).reshape((-1, 3))
         self.faces = np.array(_pb.faces, dtype=np.int64).reshape((-1, 3))
 
+    def to_multisurface(self) -> MultiSurface:
+        """Convert the mesh to a MultiSurface object.
+
+        Returns
+        -------
+        MultiSurface
+            The Mesh as a MultiSurface object.
+        """
+        multisurface = MultiSurface()
+        for f in self.faces:
+            surface = Surface()
+            surface.vertices = self.vertices[f]
+            multisurface.surfaces.append(surface)
+        return multisurface
 
 @dataclass
 class VolumeMesh(Geometry):
