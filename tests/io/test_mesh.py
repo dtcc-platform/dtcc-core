@@ -19,6 +19,14 @@ class TestMesh(unittest.TestCase):
             (pathlib.Path(__file__).parent / ".." / "data" / "cube.fbx").resolve()
         )
 
+        cls.mesh_quad_cube = str(
+            (pathlib.Path(__file__).parent / ".." / "data" / "quad_cube.obj").resolve()
+        )
+
+        cls.mesh_quad_tri_cube = str(
+            (pathlib.Path(__file__).parent / ".." / "data" / "quad_and_tri_cube.obj").resolve()
+        )
+
     # FIXME: Not really testing all formats here, just a few
 
     def test_load_mesh_stl(self):
@@ -83,6 +91,18 @@ class TestMesh(unittest.TestCase):
         # mesh = io.load_mesh(path)
         # self.assertEqual(len(mesh.vertices), 24)
         # self.assertEqual(len(mesh.faces), 44)
+
+    def test_load_quad_mesh(self):
+        mesh = io.load_mesh(self.mesh_quad_cube)
+        self.assertEqual(len(mesh.vertices), 8)
+        self.assertEqual(len(mesh.faces), 12)
+        self.assertEqual(mesh.faces.shape[1], 3)
+
+    def test_load_quad_tri_mesh(self):
+        mesh = io.load_mesh(self.mesh_quad_tri_cube)
+        self.assertEqual(len(mesh.vertices), 8)
+        self.assertEqual(len(mesh.faces), 12)
+        self.assertEqual(mesh.faces.shape[1], 3)
 
 
 class TestVolumeMesh(unittest.TestCase):

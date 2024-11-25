@@ -45,9 +45,23 @@ def _save_proto_volume_mesh(mesh, path):
 def _load_meshio_mesh(path):
     mesh = meshio.read(path)
     vertices = mesh.points[:, :3]
-    faces = mesh.cells[0].data
+    tri_faces = mesh.cells_dict.get("triangle", np.empty((0, 3), dtype=np.int64))
+    quad_faces = mesh.cells_dict.get("quad", np.empty((0, 4), dtype=np.int64))
+    if len(quad_faces) > 0:
+        warning("Mesh contains quads. Converting quads to triangles")
+    for f in quad_faces:
+        # triangulate quads
+        if len(f) == 4:
+            tri_faces = np.vstack(
+                [
+                    tri_faces,
+                    [f[0], f[1], f[2]],
+                    [f[0], f[2], f[3]],
+                ]
+            )
+
     # FIXME: What about normals?
-    return Mesh(vertices=vertices, faces=faces)
+    return Mesh(vertices=vertices, faces=tri_faces)
 
 
 def _load_meshio_volume_mesh(path):
