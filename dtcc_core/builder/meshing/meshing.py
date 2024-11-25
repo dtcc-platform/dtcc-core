@@ -13,7 +13,7 @@ from ..model_conversion import (
 import numpy as np
 from scipy import sparse
 from scipy.sparse.csgraph import connected_components
-
+from typing import List, Tuple
 
 def mesh_multisurface(ms: MultiSurface, triangle_size=None, weld=False) -> Mesh:
     """
@@ -92,7 +92,7 @@ def merge(mesh: Mesh, other: Mesh, weld=False) -> Mesh:
     mesh = builder_mesh_to_mesh(merged_mesh)
     return mesh
 
-def disjoint_meshes(mesh: Mesh) -> [Mesh]:
+def disjoint_meshes(mesh: Mesh) -> List[Mesh]:
     num_vertices = len(mesh.vertices)
     edges = np.vstack([
         mesh.faces[:, [0, 1]],  # First edge of each face

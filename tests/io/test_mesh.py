@@ -2,7 +2,7 @@ import unittest
 import json
 import os, tempfile, pathlib
 from dtcc_core import io
-from dtcc_core.model import Mesh, VolumeMesh
+from dtcc_core.model import Mesh, VolumeMesh, City
 import numpy as np
 
 
@@ -25,6 +25,10 @@ class TestMesh(unittest.TestCase):
 
         cls.mesh_quad_tri_cube = str(
             (pathlib.Path(__file__).parent / ".." / "data" / "quad_and_tri_cube.obj").resolve()
+        )
+
+        cls.mesh_9_cubes = str(
+            (pathlib.Path(__file__).parent / ".." / "data" / "9_cubes.obj").resolve()
         )
 
     # FIXME: Not really testing all formats here, just a few
@@ -103,6 +107,17 @@ class TestMesh(unittest.TestCase):
         self.assertEqual(len(mesh.vertices), 8)
         self.assertEqual(len(mesh.faces), 12)
         self.assertEqual(mesh.faces.shape[1], 3)
+
+    def test_load_disjoint_mesh(self):
+        mesh = io.load_mesh(self.mesh_9_cubes)
+        self.assertEqual(len(mesh.vertices), 9*8)
+        self.assertEqual(len(mesh.faces), 9*12)
+
+
+    def test_load_city_mesh(self):
+        city = io.load_mesh_as_city(self.mesh_9_cubes)
+        self.assertIsInstance(city, City)
+        self.assertEqual(len(city.buildings), 9)
 
 
 class TestVolumeMesh(unittest.TestCase):

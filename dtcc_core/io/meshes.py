@@ -5,7 +5,10 @@ import meshio
 import pygltflib
 import numpy as np
 
-from ..model import Mesh, VolumeMesh
+from ..model import Mesh, VolumeMesh, City, Building
+from ..model import GeometryType
+from ..builder.meshing import disjoint_meshes
+
 from .logging import info, warning, error
 from . import generic
 
@@ -69,6 +72,25 @@ def _load_meshio_volume_mesh(path):
     vertices = mesh.points[:, :3]
     cells = mesh.cells[0].data.astype(np.int64)
     return VolumeMesh(vertices=vertices, cells=cells)
+
+def _load_meshio_city_mesh(path, lod = GeometryType.LOD1 ):
+    city = City()
+
+    mesh = _load_meshio_mesh(path)
+    disjointed_mesh = disjoint_meshes(mesh)
+
+    buildings = []
+    for m in disjointed_mesh:
+        b = Building()
+        building_ms =m.to_multisurface()
+        b.add_geometry(building_ms, lod)
+        buildings.append(b)
+    city.add_buildings(buildings)
+    city.calculate_bounds()
+    return city
+
+
+
 
 
 def _save_meshio_mesh(mesh, path):
@@ -183,6 +205,13 @@ _load_formats = {
         ".bdf": _load_meshio_volume_mesh,
         ".inp": _load_meshio_volume_mesh,
     },
+    City: {
+        ".obj": _load_meshio_city_mesh,
+        ".ply": _load_meshio_city_mesh,
+        ".stl": _load_meshio_city_mesh,
+        ".vtk": _load_meshio_city_mesh,
+        ".vtu": _load_meshio_city_mesh,
+    }
 }
 
 _save_formats = {
@@ -232,6 +261,9 @@ def load_mesh(path):
 
 def load_volume_mesh(path):
     return generic.load(path, "mesh", VolumeMesh, _load_formats)
+
+def load_mesh_as_city(path) -> City:
+    return generic.load(path, "city_mesh", City, _load_formats)
 
 
 def save(mesh, path):
