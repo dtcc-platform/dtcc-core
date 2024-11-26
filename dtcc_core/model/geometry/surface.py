@@ -263,6 +263,14 @@ class MultiSurface(Geometry):
         """Get the centroid of the MultiSurface."""
         return np.mean([s.centroid for s in self.surfaces], axis=0)
 
+    def is_planar(self, tol=1e-5):
+        """Check if the MultiSurface is planar."""
+        for s in self.surfaces:
+            if not s.is_planar(tol):
+                return False
+        return True
+
+
     def to_proto(self) -> proto.Geometry:
         """Return a protobuf representation of the MultiSurface.
 
@@ -308,9 +316,11 @@ class MultiSurface(Geometry):
     def __str__(self) -> str:
         return f"DTCC MultiSurface with {len(self.surfaces)} surfaces"
 
+
+
     def find_dups(self):
         """Find duplicate vertices."""
         return False
-        for srf in self.surfaces:
-            if srf._find_dups():
-                return True
+        # for srf in self.surfaces:
+        #     if srf._find_dups():
+        #         return True

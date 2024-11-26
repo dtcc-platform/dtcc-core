@@ -11,3 +11,4 @@ def mesh_to_raster(mesh: Mesh, cell_size: float) -> Raster:
     pc.calculate_bounds()
     raster = rasterize(pc, cell_size, radius=cell_size, ground_only=False)
     return raster
+

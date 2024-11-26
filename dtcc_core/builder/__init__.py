@@ -9,6 +9,7 @@ from . import geometry
 from . import city
 from . import building
 from . import roadnetwork
+from . import polygons
 
 # from .builders import (
 #     build,
