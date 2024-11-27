@@ -101,13 +101,13 @@ def to_dataframe(road_network: RoadNetwork, crs=None):
         warning("Geopandas not found, unable to convert to dataframe")
         return None
     df = gpd.GeoDataFrame.from_dict(road_network.attributes)
-    df["geometry"] = [
+    road_geometry = [
         linestring.to_shapely()
         for linestring in road_network.geometry[
             GeometryType.MULTILINESTRING
         ].linestrings
     ]
-    df.set_geometry("geometry", inplace=True, crs=crs)
+    df.set_geometry(road_geometry, inplace=True, crs=crs)
     return df
 
 
