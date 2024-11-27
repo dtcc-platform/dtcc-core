@@ -6,11 +6,16 @@ from pathlib import Path
 testdata = Path(__file__).parent / ".." / "data" / "cityjson" / "DenHaag_01.city.json"
 
 
-class MyTestCase(unittest.TestCase):
+class TestLoadCity(unittest.TestCase):
     def test_load_cityjson(self):
         city = io.load_city(testdata)
         self.assertIsInstance(city, City)
         self.assertEqual(len(city.buildings), 844)
+
+    def test_load_city_mesh(self):
+        city = io.load_city(Path(__file__).parent / ".." / "data" / "9_cubes.obj")
+        self.assertIsInstance(city, City)
+        self.assertEqual(len(city.buildings), 9)
 
     def test_to_df(self):
         city =io.load_city(testdata)

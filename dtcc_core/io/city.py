@@ -1,7 +1,8 @@
-from ..model import City
+from ..model import City, GeometryType
 from pathlib import Path
 from .cityjson import cityjson
 from .logging import info, warning, error
+from .meshes import load_mesh_as_city
 from . import generic
 import json
 from collections import defaultdict
@@ -44,6 +45,10 @@ def _load_proto_city(filename) -> City:
         city = City()
         city.from_proto(f.read())
     return city
+
+
+def _load_mesh_city(filename, lod=GeometryType.LOD1, merge_coplanar_surfaces=True) -> City:
+    return load_mesh_as_city(filename, lod=lod, merge_coplanar_surfaces=merge_coplanar_surfaces)
 
 
 def _save_proto_city(city: City, filename):
@@ -91,7 +96,14 @@ def buildings_to_df(city: City, include_geometry=True, crs=None):
 
 
 _load_formats = {
-    City: {".pb": _load_proto_city, ".pb2": _load_proto_city, ".json": _load_json}
-}
+    City: {".pb": _load_proto_city,
+           ".pb2": _load_proto_city,
+           ".json": _load_json,
+           ".obj": _load_mesh_city,
+           ".ply": _load_mesh_city,
+           ".stl": _load_mesh_city,
+           ".vtk": _load_mesh_city,
+           ".vtu": _load_mesh_city
+           }}
 
 _save_formats = {City: {".pb": _save_proto_city, ".pb2": _save_proto_city}}
