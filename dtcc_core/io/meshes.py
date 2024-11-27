@@ -9,6 +9,8 @@ from ..model import Mesh, VolumeMesh, City, Building
 from ..model import GeometryType
 from ..builder.meshing import disjoint_meshes
 
+from ..builder.geometry.multisurface import merge_coplanar
+
 from .logging import info, warning, error
 from . import generic
 
@@ -73,7 +75,7 @@ def _load_meshio_volume_mesh(path):
     cells = mesh.cells[0].data.astype(np.int64)
     return VolumeMesh(vertices=vertices, cells=cells)
 
-def _load_meshio_city_mesh(path, lod = GeometryType.LOD1 ):
+def _load_meshio_city_mesh(path, lod = GeometryType.LOD1, merge_coplanar_surfaces =  True ) -> City:
     city = City()
 
     mesh = _load_meshio_mesh(path)
@@ -83,6 +85,8 @@ def _load_meshio_city_mesh(path, lod = GeometryType.LOD1 ):
     for m in disjointed_mesh:
         b = Building()
         building_ms =m.to_multisurface()
+        if merge_coplanar_surfaces:
+            building_ms = merge_coplanar(building_ms)
         b.add_geometry(building_ms, lod)
         buildings.append(b)
     city.add_buildings(buildings)
@@ -262,8 +266,8 @@ def load_mesh(path):
 def load_volume_mesh(path):
     return generic.load(path, "mesh", VolumeMesh, _load_formats)
 
-def load_mesh_as_city(path) -> City:
-    return generic.load(path, "city_mesh", City, _load_formats)
+def load_mesh_as_city(path, lod = GeometryType.LOD1, merge_coplanar_surfaces=True) -> City:
+    return generic.load(path, "city_mesh", City, _load_formats, lod = lod, merge_coplanar_surfaces = merge_coplanar_surfaces)
 
 
 def save(mesh, path):

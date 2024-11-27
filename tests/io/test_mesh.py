@@ -115,9 +115,16 @@ class TestMesh(unittest.TestCase):
 
 
     def test_load_city_mesh(self):
-        city = io.load_mesh_as_city(self.mesh_9_cubes)
+        city = io.load_mesh_as_city(self.mesh_9_cubes, merge_coplanar_surfaces=False)
         self.assertIsInstance(city, City)
         self.assertEqual(len(city.buildings), 9)
+
+
+    def test_load_city_mesh_merge(self):
+        city = io.load_mesh_as_city(self.mesh_9_cubes, merge_coplanar_surfaces=True)
+        self.assertIsInstance(city, City)
+        self.assertEqual(len(city.buildings), 9)
+        self.assertEqual(len(city.buildings[0].lod1.surfaces), 6)
 
 
 class TestVolumeMesh(unittest.TestCase):
