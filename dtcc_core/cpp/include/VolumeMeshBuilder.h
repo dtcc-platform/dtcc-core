@@ -149,13 +149,7 @@ public:
       error("Error: Empty Layer heights Vector.");
 
 
-    // double relaxation_domain_height = compute_relaxation_height() ;
-    // double padding_height = domain_height - relaxation_domain_height;
-    // domain_height = relaxation_domain_height;
-    // info("Initial domain hegiht adjusted to max building height.. "+ str(relaxation_domain_height));
-
-    // top_height = compute_top_height() - padding_height;
-    // info("Top hegiht adjusted to max building height.. "+ str(top_height));
+    
 
 
     domain_height = compute_relaxation_height() ;
@@ -367,11 +361,8 @@ private:
     return vertex_markers;
   }
 
-  /// Assigns colors to the faces of the ground mesh.
-  ///
-  /// This method assigns ideal layer height  for each face of the ground
-  /// mesh.
-  void assign_colors(std::vector<double> &areas)
+  /// Assign face colors based on layer heights
+  void assign_face_colors(std::vector<double> &areas)
   {
     size_t num_buildings = _buildings.size();
     min_building_colors.resize(num_buildings,num_layers);
@@ -404,14 +395,14 @@ private:
 
   }
 
-  /// Reassigns colors to avoid big layer height differences.
-  void reassign_colors()
+  // Reassign face colors to avoid big jumps
+  void reassign_face_colors()
   {
     for (size_t i = 0; i < ff.size(); i++)
     {
       for (const auto &j : ff[i])
       {
-        int diff = face_colors[i] - face_colors[j];
+        const auto diff = face_colors[i] - face_colors[j];
         if (diff > 1)
         {
           face_colors[i] -= diff - 1;
@@ -420,51 +411,33 @@ private:
     }
   }
 
-  /// Checking for neighboring faces that have non consequtive colors (assigned
-  /// layer heights)
-  size_t check_neighbors()
+  // Check face colors to avoid big jumps
+  size_t check_face_colors()
   {
-    int max_diff = 0;
-    size_t num_big_diffs = 0;
-    std::vector<int> big_diff_colors;
+    size_t num_big_jumps = 0;
     for (size_t i = 0; i < ff.size(); i++)
     {
-      const auto face = ff[i];
-      int diff_num = 0;
-      for (const auto &f : face)
+      size_t _num_big_jumps = 0;
+      for (const auto &j : ff[i])
       {
-        int diff = face_colors[i] - face_colors[f];
-        if (diff > 1)
-        {
-          max_diff = std::max(max_diff, diff);
-          diff_num++;
-        }
+        const auto jump = face_colors[i] - face_colors[j];
+        if (jump > 1)
+          _num_big_jumps++;
       }
-      if (diff_num > 0)
-      {
-        num_big_diffs++;
-        big_diff_colors.push_back(1);
-      }
-      else
-      {
-        big_diff_colors.push_back(0);
-      }
+      if (_num_big_jumps > 0)
+        num_big_jumps++;
     }
-    double big_diff_percentage =
-        100.0 * num_big_diffs / static_cast<double>(ff.size());
-    const std::string s = "Num Big diffs " + str(num_big_diffs) + " / " +
-                          str(ff.size()) + " (" + str(big_diff_percentage, 2L) +
-                          "%)";
 
-    info(s);
-    return num_big_diffs;
+    double percentage = 100.0 * num_big_jumps / ff.size();
+    info("Big jumps: " + str(num_big_jumps) + " / " + str(ff.size()) +
+         " (" + str(percentage, 2L) + "%)");
+
+    return num_big_jumps;
   }
 
-  /// Each Vertex inherits the minimum color (layer height) from the faces it
-  /// belongs to.
+  /// Assign vertex colors based on minimum neighbor face color
   void assign_vertex_colors()
   {
-    info("Assigning colors to vertices.");
     vertex_colors.resize(num_ground_vertices, num_layers);
     for (size_t i = 0; i < num_ground_faces; i++)
     {
@@ -513,7 +486,8 @@ private:
   }
 
 
-  void compute_layer_heights(size_t reassignment_iterations = 3)
+  // Compute layer heights for all faces in the ground mesh
+  void compute_layer_heights()
   {
     std::vector<double> areas(num_ground_faces);
     for (std::size_t i = 0; i < num_ground_faces; i++)
@@ -583,34 +557,32 @@ private:
     //Test for max builing color.
     //ideal_building_colors();
 
-    info("Assign layer heights to mesh");
+    info("Assigning layer heights to mesh");
     // Assign layer heights to mesh (closest by quotient)
-    assign_colors(areas);
+    assign_face_colors(areas);
 
-    info("Build mapping from vertices to faces");
+    info("Building mapping from vertices to faces");
     build_vertex_to_face_mapping();
 
-    info("Build mapping from faces to faces");
+    info("Building mapping from faces to faces");
     build_face_to_face_mapping();
 
     // Iteratively reassign colors to avoid big jumps
-    // Note: It should not do 3 iterations but reassign colors until there are
-    // 0 big jumps.
-    info("Iteratively reassign colors to avoid big jumps");
+    info("Reassigning colors to avoid big jumps");
     size_t iteration = 0;
-    while ((check_neighbors() > 0) && (iteration < reassignment_iterations))
+    const size_t max_color_iterations = 10;
+    while (check_face_colors() > 0)
     {
-      info("Reassigning colors, iteration " + str(++iteration));
-      reassign_colors();
+      reassign_face_colors();
+      if (++iteration == max_color_iterations)
+      {
+        error("Reached max color iterations");
+      }
     }
 
-    //adj_building_height = adjust_building_heights();
-
-    // Assigning colors to the ground mesh's vertices inherited from the faces
-    // the belong to.
+    // Assign vertex colors based on minimum neighbor face color
+    info("Assigning vertex colors");
     assign_vertex_colors();
-
-    //reassign_vertex_colors();
 
     //Sort vertices in each face of the ground mesh in ascending index and color.
     mesh_faces_color_sort();
@@ -720,7 +692,7 @@ private:
     }
 
     //Check to ensure there are not layer height differences larger than 1.
-    check_neighbors();
+    check_face_colors();
   }
 
 
