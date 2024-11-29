@@ -53,17 +53,6 @@ private:
 
   Mesh &_ground_mesh;
 
-  /// Number of faces in ground mesh and number of cell columns for
-  /// VolumeMesh creation
-  const size_t num_ground_faces;
-
-  /// Number of vertices in ground mesh and number of vertex columns for
-  /// VolumeMesh creation
-  const size_t num_ground_vertices;
-
-  /// Number of marker columns for VolumeMesh creation
-  const size_t num_ground_markers;
-
   // Stores vertex to face mapping for ground mesh.
   std::vector<std::unordered_set<int>> vf;
 
@@ -80,7 +69,7 @@ private:
 
   std::vector<size_t> vert_skip;
 
-  std::vector<int> face_partition;
+  std::vector<int> face_partitions;
 
   std::vector<int> max_building_colors;
 
@@ -89,24 +78,20 @@ public:
   VolumeMeshBuilder(const std::vector<Surface> &buildings, const GridField &dem, Mesh &ground_mesh,
                     double domain_height)
       : _buildings(buildings), _dem(dem), _ground_mesh(ground_mesh), domain_height(domain_height),
-        num_ground_vertices(ground_mesh.vertices.size()),
-        num_ground_faces(ground_mesh.faces.size()), num_ground_markers(ground_mesh.markers.size()),
         _col_volume_mesh(ground_mesh)
   {
     // FIXME: Use static functions instead, avoid all the many private
     // variables (cleaner)
 
-    assert((num_ground_vertices > 0) && "Empty ground mesh. It has no faces connecting vertices");
-
-    assert((num_ground_faces > 0) && "Empty ground mesh. It has no faces connecting faces");
-
-    assert((num_ground_markers > 0) && "Empty ground mesh. It has no face markers");
+    assert((!_ground_mesh.vertices.empty()) && "Ground mesh has no vertices");
+    assert((!_ground_mesh.faces.empty()) && "Ground mesh has no faces");
+    assert((!_ground_mesh.markers.empty()) && "Ground mesh has no markers");
 
     top_height = compute_top_height();
 
     compute_building_ground_heights();
 
-    face_colors.reserve(num_ground_faces);
+    face_colors.reserve(_ground_mesh.faces.size());
   }
 
   // Destructor
@@ -194,8 +179,9 @@ private:
   std::vector<double> compute_layer_heights(Mesh &ground_mesh)
   {
     // Compute face areas
-    std::vector<double> areas(num_ground_faces);
-    for (std::size_t i = 0; i < num_ground_faces; i++)
+    const size_t num_faces = ground_mesh.faces.size();
+    std::vector<double> areas(num_faces);
+    for (std::size_t i = 0; i < num_faces; i++)
     {
       const auto &v0 = ground_mesh.vertices[ground_mesh.faces[i].v0];
       const auto &v1 = ground_mesh.vertices[ground_mesh.faces[i].v1];
@@ -246,18 +232,22 @@ private:
     }
     check_layer_heights(areas, layer_heights);
 
-    // Assign vertex colors based on minimum neighbor face color
+    // Assign vertex colors and sort by color
     info("Assigning vertex colors...");
     assign_vertex_colors(layer_heights);
-
-    // Sort faces by vertex color
-    info("Sorting faces by vertex color...");
     sort_faces_by_vertex_color();
 
     // Assign face partitions
+    info("Assigning face partitions...");
     assign_face_partitions();
 
-    type_3_partition_elimination(layer_heights);
+    // Eliminate type 3 partitions
+    info("Eliminating type 3 partitions...");
+    eliminate_type_3_partitions();
+
+    // Double-check face colors
+    if (check_face_colors() > 0)
+      error("Found big jumps after partition elimination");
 
     return layer_heights;
   }
@@ -321,7 +311,7 @@ private:
         building_colors[marker] = std::min(building_colors[marker], face_color);
     }
 
-    // FIXME: Is this necessary?
+    // FIXME: Is this necessary? Much better quality if we do this, but why?
 
     // Assign common colors to all faces of the same building
     // for (size_t i = 0; i < areas.size(); i++)
@@ -412,63 +402,40 @@ private:
     }
   }
 
-  /// Assigns a partition to each face of the ground_mesh.
-  ///
-  /// Partition types dictate how the layering of cells above each face
-  /// will be done. Layering is implemented by stacking repeated structures
-  /// we call prisms. The number of cells and the way the vertices are
-  /// connected to create those cells is dictated by the partition type
-  ///
-  /// We have the following types:
-  /// `Face Partition 0` : It consists of 6 vertices and 3 tetrahedral
-  /// cells. `Face Partition 1` : It consists of 7 vertices and 4
-  /// tetrahedral cells. `Face Partition 2` : It consists of 8 vertices and
-  /// 5 tetrahedral cells. `Face Partition 3` : It consists of 9 vertices
-  /// and 6 tetrahedral cells. (Redundant partition)
+  // Assign face (prism) partitions based on face and vertex colors.
+  //
+  // Partition 0: 6 vertices, 3 tetrahedrons
+  // Partition 1: 7 vertices, 4 tetrahedrons
+  // Partition 2: 8 vertices, 5 tetrahedrons
+  // Partition 3: 9 vertices, 6 tetrahedrons (reduntant)
   void assign_face_partitions()
   {
-    info("Assigning Partitions to ground mesh faces.");
-    face_partition.resize(num_ground_faces);
-    for (size_t f = 0; f < num_ground_faces; f++)
+    const size_t num_faces = _ground_mesh.faces.size();
+    face_partitions.resize(num_faces);
+    for (size_t i = 0; i < num_faces; i++)
     {
-
-      const Simplex2D face_simplex = _ground_mesh.faces[f];
-
-      std::array<int, 3> v_colors = {vertex_colors[face_simplex.v0], vertex_colors[face_simplex.v1],
-                                     vertex_colors[face_simplex.v2]};
-
-      face_partition[f] = 3 * face_colors[f] - (v_colors[0] + v_colors[1] + v_colors[2]);
+      const auto &face = _ground_mesh.faces[i];
+      const size_t c0 = vertex_colors[face.v0];
+      const size_t c1 = vertex_colors[face.v1];
+      const size_t c2 = vertex_colors[face.v2];
+      face_partitions[i] = 3 * face_colors[i] - (c0 + c1 + c2);
     }
   }
 
-  /* Type 3 Partitions are redundant.
-   *  It's just two prisms with partition type 0 stacked.
-   *  By eliminating these we get more granularity when handling layer
-   * heights.
-   *
-   *  Example:
-   *  If a face is partitioned as type 3 prism, it means its color due to
-   * neighbor reassignment is c+1 when all the colors of its vertices are
-   * c.
-   */
-  void type_3_partition_elimination(const std::vector<double> &layer_heights)
+  // Eliminate type 3 partitions which are just two stacked prisms of type 0
+  void eliminate_type_3_partitions()
   {
     info("Test: Eliminating type 3 partitions");
 
-    size_t num_buildings = _buildings.size();
-    std::vector<int> min_building_color(num_buildings, layer_heights.size());
-    for (size_t i = 0; i < _ground_mesh.faces.size(); i++)
+    const size_t num_faces = _ground_mesh.faces.size();
+    for (size_t i = 0; i < num_faces; i++)
     {
-      if (face_partition[i] == 3)
+      if (face_partitions[i] == 3)
       {
         face_colors[i]--;
-        face_partition[i] = 0;
+        face_partitions[i] = 0;
       }
     }
-
-    // Check to ensure there are not layer height differences larger
-    // than 1.
-    check_face_colors();
   }
 
   // Build mapping from vertices to faces
@@ -572,7 +539,10 @@ private:
   ///  etc (non-negative integers mark faces inside buildings)
   std::vector<int> face_to_vertex_markers()
   {
-    vertex_markers.resize(num_ground_vertices, -2);
+    const size_t num_vertices = _ground_mesh.vertices.size();
+    const size_t num_faces = _ground_mesh.faces.size();
+
+    vertex_markers.resize(num_vertices, -2);
 
     if (!_ground_mesh.markers.size())
     {
@@ -582,7 +552,7 @@ private:
       return vertex_markers;
     }
 
-    for (size_t f = 0; f < num_ground_faces; f++)
+    for (size_t f = 0; f < num_faces; f++)
     {
       if (_ground_mesh.markers[f] < -2)
       {
@@ -622,8 +592,7 @@ private:
     // smoother converge faster...
     const double min_elevation = 0.0; //_dem.min();
 
-    // size_t volume_mesh_num_vertices = 0;
-    for (size_t i = 0; i < num_ground_vertices; i++)
+    for (size_t i = 0; i < _ground_mesh.vertices.size(); i++)
     {
       const double layer_h = layer_heights[vertex_colors[i]];
       const size_t col_count = static_cast<size_t>((adjusted_domain_height / layer_h)) + 1;
@@ -632,13 +601,13 @@ private:
         Vector3D v(_ground_mesh.vertices[i].x, _ground_mesh.vertices[i].y,
                    _ground_mesh.vertices[i].z + min_elevation + j * layer_h);
         _col_volume_mesh.vertices[i].push_back(v);
-        // volume_mesh_num_vertices++;
       }
       _col_volume_mesh.vertices_offset[i + 1] =
           _col_volume_mesh.vertices_offset[i] + _col_volume_mesh.vertices[i].size();
     }
 
-    for (size_t i = 0; i < num_ground_faces; i++)
+    const size_t num_faces = _ground_mesh.faces.size();
+    for (size_t i = 0; i < num_faces; i++)
     {
       const Simplex2D face_simplex = _ground_mesh.faces[i];
       std::array<size_t, 3> face = {face_simplex.v0, face_simplex.v1, face_simplex.v2};
@@ -661,7 +630,7 @@ private:
                              column_offsets[1] + j * (1 << (face_colors[i] - v_colors[1])),
                              column_offsets[2] + j * (1 << (face_colors[i] - v_colors[2]))};
       }
-      switch (face_partition[i])
+      switch (face_partitions[i])
       {
       case 0:
       {
@@ -830,7 +799,7 @@ private:
       default:
         error("Face Coloring Error: Large layer height "
               "difference: " +
-              str(face_partition[i]) + "\nFace:" + str(i) + " color: " + str(face_colors[i]) +
+              str(face_partitions[i]) + "\nFace:" + str(i) + " color: " + str(face_colors[i]) +
               "\n v0 color: " + str(v_colors[0]) + "\n v1 color: " + str(v_colors[1]) +
               "\n v2 color: " + str(v_colors[2]));
         break;
@@ -838,9 +807,8 @@ private:
     }
 
     // Add Markers
-    // col_markers.resize(num_ground_vertices);
     auto mesh_vertex_markers = face_to_vertex_markers();
-    for (size_t i = 0; i < num_ground_vertices; i++)
+    for (size_t i = 0; i < _ground_mesh.vertices.size(); i++)
     {
       std::vector<int> tmp(_col_volume_mesh.vertices[i].size(), -4);
       if (mesh_vertex_markers[i] == -1 || mesh_vertex_markers[i] == -2)
@@ -870,7 +838,7 @@ private:
   //  etc (non-negative integers mark faces inside buildings)
   std::vector<int> face_to_vertex_markers_min()
   {
-    vertex_markers.resize(num_ground_vertices, std::numeric_limits<int>::max());
+    vertex_markers.resize(_ground_mesh.vertices.size(), std::numeric_limits<int>::max());
 
     if (!_ground_mesh.markers.size())
     {
@@ -880,7 +848,7 @@ private:
       return vertex_markers;
     }
 
-    for (size_t f = 0; f < num_ground_faces; f++)
+    for (size_t f = 0; f < _ground_mesh.markers.size(); f++)
     {
       if (_ground_mesh.markers[f] < -2)
       {
@@ -908,12 +876,12 @@ private:
 
     info("Building map from buildings to cells in 2D mesh");
     std::vector<std::vector<size_t>> building_faces(num_buildings);
-    for (size_t face_index = 0; face_index < num_ground_faces; face_index++)
+    for (size_t i = 0; i < _ground_mesh.markers.size(); i++)
     {
-      const int building_index = _ground_mesh.markers[face_index];
+      const int building_index = _ground_mesh.markers[i];
       if (building_index >= 0)
       {
-        building_faces[building_index].push_back(face_index);
+        building_faces[building_index].push_back(i);
       }
     }
 
@@ -1028,7 +996,7 @@ private:
     std::vector<size_t> trimming_index(num_buildings, 0);
 
     // Looping over all Vertex columns of the columnar volume mesh.
-    for (size_t i = 0; i < num_ground_vertices; i++)
+    for (size_t i = 0; i < _ground_mesh.vertices.size(); i++)
     {
       int marker = vertex_markers[i];
       if (marker >= 0 && vertex_colors[i] == max_building_colors[marker])
@@ -1098,9 +1066,9 @@ private:
     auto trimming_index = get_building_trimming_index();
     // In this vector we store how many minimum layer vertices in each
     // column are skipped to trim mesh and create a building
-    vert_skip.resize(num_ground_vertices, 0);
+    vert_skip.resize(_ground_mesh.vertices.size(), 0);
     // size_t volume_mesh_num_vertices = 0;
-    for (size_t i = 0; i < num_ground_vertices; i++)
+    for (size_t i = 0; i < _ground_mesh.vertices.size(); i++)
     {
       if (min_vertex_markers[i] >= 0)
       {
@@ -1135,9 +1103,7 @@ private:
     std::cout << "Short test to find error. Ajusted building Heights: "
               << adj_building_heights.size() << std::endl;
 
-    // std::vector<int> face_partition(num_ground_faces,-1);
-
-    for (size_t i = 0; i < num_ground_faces; i++)
+    for (size_t i = 0; i < _ground_mesh.markers.size(); i++)
     {
       // No trimming needed for cell columns that are not marked
       // as buildings.
@@ -1211,7 +1177,7 @@ private:
             column_offsets[2] + prism_start_indexes[2] + (j << (face_colors[i] - v_colors[2]))};
       }
 
-      switch (face_partition[i])
+      switch (face_partitions[i])
       {
       case 0:
       {
@@ -1386,8 +1352,8 @@ private:
 
     const auto mesh_vertex_markers = face_to_vertex_markers();
 
-    // col_markers.resize(num_ground_vertices);
-    for (size_t i = 0; i < num_ground_vertices; i++)
+    // col_markers.resize(_ground_mesh.vertices.size());
+    for (size_t i = 0; i < _ground_mesh.vertices.size(); i++)
     {
       const int marker = mesh_vertex_markers[i];
       std::vector<int> tmp(_col_volume_mesh.vertices[i].size(), -4);
@@ -1431,7 +1397,7 @@ private:
     info("Padding Domain with " + str(n) + " max layers scaled from 1 to " + str(max_scale));
     std::vector<size_t> offset_before_padding = _col_volume_mesh.vertices_offset;
 
-    for (size_t i = 0; i < num_ground_vertices; i++)
+    for (size_t i = 0; i < _ground_mesh.vertices.size(); i++)
     {
       // Z coordinate of the last veertex of each column.
       const double top_vertex_z = _col_volume_mesh.vertices[i].back().z;
@@ -1457,7 +1423,7 @@ private:
     }
 
     size_t volume_mesh_num_cells = 0;
-    for (size_t i = 0; i < num_ground_faces; i++)
+    for (size_t i = 0; i < _ground_mesh.faces.size(); i++)
     {
       const Simplex2D face_simplex = _ground_mesh.faces[i];
       std::array<size_t, 3> face = {face_simplex.v0, face_simplex.v1, face_simplex.v2};
@@ -1485,7 +1451,7 @@ private:
                              column_offsets[1] + j * (1 << (face_colors[i] - v_colors[1])),
                              column_offsets[2] + j * (1 << (face_colors[i] - v_colors[2]))};
       }
-      switch (face_partition[i])
+      switch (face_partitions[i])
       {
       case 0:
       {
