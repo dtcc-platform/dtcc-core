@@ -42,8 +42,6 @@ private:
 
   ColumnarVolumeMesh _col_volume_mesh;
 
-  VolumeMesh __volume_mesh__;
-
   const std::vector<Surface> _buildings;
 
   std::vector<double> _building_ground_height;
@@ -112,53 +110,42 @@ public:
     info("Top height adjusted to max building height.. " + str(top_height));
 
     Timer t3_2("Step 3.2: Ground mesh layering");
-    __volume_mesh__ = layer_ground_mesh(layer_heights);
+    VolumeMesh volume_mesh = layer_ground_mesh(layer_heights);
     t3_2.stop();
     t3_2.print();
 
-    // info(__volume_mesh__.__str__());
+    // Debugging
     if (debug_step <= 2)
-    {
-      // if (padding_height > 0.0)
-      //   __volume_mesh__ = add_domain_padding(padding_height);
-      return __volume_mesh__;
-    }
+      return volume_mesh;
 
     Timer t3_3("Step 3.3: Volume mesh smoothing (ground only)");
-    __volume_mesh__ =
-        Smoother::smooth_volume_mesh(__volume_mesh__, _buildings, _dem, top_height, false,
-                                     smoother_iterations, smoother_relative_tolerance);
+    volume_mesh = Smoother::smooth_volume_mesh(volume_mesh, _buildings, _dem, top_height, false,
+                                               smoother_iterations, smoother_relative_tolerance);
     t3_3.stop();
     t3_3.print();
 
+    // Debugging
     if (debug_step == 3)
-    {
-      // if (padding_height > 0.0)
-      //   __volume_mesh__ = add_domain_padding(padding_height);
-      return __volume_mesh__;
-    }
-    _col_volume_mesh._update_vertices(__volume_mesh__);
+      return volume_mesh;
+
+    _col_volume_mesh._update_vertices(volume_mesh);
 
     Timer t3_4("Step 3.4: Trim volume mesh.");
-    __volume_mesh__ = trim_volume_mesh(layer_heights);
+    volume_mesh = trim_volume_mesh(layer_heights);
     t3_4.stop();
     t3_4.print();
 
+    // Debugging
     if (debug_step == 4)
-    {
-      // if (padding_height > 0.0)
-      //   __volume_mesh__ = add_domain_padding(padding_height);
-      return __volume_mesh__;
-    }
+      return volume_mesh;
 
     Timer t3_5("Step 3.5: Volume mesh smoothing (ground and buildings)");
-    __volume_mesh__ =
-        Smoother::smooth_volume_mesh(__volume_mesh__, _buildings, _dem, top_height, true,
-                                     smoother_iterations, smoother_relative_tolerance);
+    volume_mesh = Smoother::smooth_volume_mesh(volume_mesh, _buildings, _dem, top_height, true,
+                                               smoother_iterations, smoother_relative_tolerance);
     t3_5.stop();
     t3_5.print();
 
-    return __volume_mesh__;
+    return volume_mesh;
   }
 
 private:
@@ -476,11 +463,7 @@ private:
     }
   }
 
-  /// Computes the relaxation height for cells above buildings.
-  ///
-  /// This method calculates the relaxation height, which is used to
-  /// determine the height of cells above buildings in the mesh where high
-  /// resolution is not necessary (bigger cells).
+  /// Compute relaxation height for cells above buildings
   double compute_relaxation_height(const std::vector<double> &layer_heights, double buffer = 0.0)
   {
 
@@ -559,10 +542,9 @@ private:
     return vertex_markers;
   }
 
+  // Layer ground mesh
   VolumeMesh layer_ground_mesh(const std::vector<double> &layer_heights)
   {
-    info("Mesh Layering Function.");
-
     VolumeMesh volume_mesh;
 
     const double min_layer_height = layer_heights.front();
@@ -946,7 +928,6 @@ private:
       }
       _col_volume_mesh.vertices_offset[i + 1] =
           _col_volume_mesh.vertices_offset[i] + _col_volume_mesh.vertices[i].size();
-      // volume_mesh_num_vertices += col_vertices[i].size();
     }
 
     std::cout << "Short test to find error. Ajusted building Heights: "
