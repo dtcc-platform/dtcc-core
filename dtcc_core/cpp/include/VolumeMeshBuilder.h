@@ -82,8 +82,6 @@ private:
 
   std::vector<int> face_partition;
 
-  std::vector<int> min_building_colors;
-
   std::vector<int> max_building_colors;
 
 public:
@@ -192,177 +190,146 @@ public:
   }
 
 private:
-  /// Returns the top height of our smoothed domain.
-  double compute_top_height() { return domain_height + _dem.max(); }
-
-  /// Computes the ground heights at the centroids of buildings.
-  void compute_building_ground_heights()
+  // Compute layer heights for all faces in the ground mesh
+  std::vector<double> compute_layer_heights(Mesh &ground_mesh)
   {
-
-    const size_t num_buildings = _buildings.size();
-    _building_ground_height.resize(num_buildings);
-
-    for (size_t i = 0; i < _buildings.size(); i++)
+    // Compute face areas
+    std::vector<double> areas(num_ground_faces);
+    for (std::size_t i = 0; i < num_ground_faces; i++)
     {
-
-      const Vector3D centroid = Geometry::surface_centroid(_buildings[i]);
-
-      _building_ground_height[i] = _dem(centroid);
-    }
-  }
-
-  /// Computes the relaxation height for cells above buildings.
-  ///
-  /// This method calculates the relaxation height, which is used to
-  /// determine the height of cells above buildings in the mesh where high
-  /// resolution is not necessary (bigger cells).
-  double compute_relaxation_height(const std::vector<double> &layer_heights, double buffer = 0.0)
-  {
-
-    const double max_layer_height = layer_heights.back();
-    const size_t num_buildings = _buildings.size();
-    std::vector<double> building_heights(num_buildings, 0.0);
-
-    for (size_t i = 0; i < num_buildings; i++)
-    {
-      building_heights[i] = _buildings[i].max_height() - _building_ground_height[i];
+      const auto &v0 = ground_mesh.vertices[ground_mesh.faces[i].v0];
+      const auto &v1 = ground_mesh.vertices[ground_mesh.faces[i].v1];
+      const auto &v2 = ground_mesh.vertices[ground_mesh.faces[i].v2];
+      areas[i] = Geometry::triangle_area(v0, v1, v2);
     }
 
-    double _max_building_height = 0.0;
-    auto max = std::max_element(building_heights.begin(), building_heights.end());
-    if (max != building_heights.end())
+    // Compute ideal min and max layer heights based on areas
+    const double min_area = *std::min_element(areas.begin(), areas.end());
+    const double max_area = *std::max_element(areas.begin(), areas.end());
+    const double _min_height = ideal_layer_height(min_area);
+    const double _max_height = ideal_layer_height(max_area);
+    info("Ideal layer heights: [" + str(_min_height) + ", " + str(_max_height) + "]");
+
+    // Compute optimal dyadic layer heights based on ideal min and max
+    const double rho = _max_height / _min_height;
+    const double mid = std::sqrt(_min_height * _max_height);
+    const size_t steps = static_cast<int>(std::log2(rho) + 0.5);
+    double min_height = mid / std::pow(2, steps / 2.0);
+    std::vector<double> layer_heights;
+    for (int i = 0; i < steps + 1; i++)
+      layer_heights.push_back(min_height * std::pow(2.0, i));
+    const double max_height = layer_heights.back();
+    info("Adjusted layer heights: [" + str(min_height) + ", " + str(max_height) + "]");
+
+    // Assign face colors (closest layer height index)
+    info("Assigning face colors...");
+    assign_face_colors(areas, layer_heights);
+    check_layer_heights(areas, layer_heights);
+
+    // Build vertex and face mappings
+    info("Building mapping from vertices to faces...");
+    build_vertex_to_face_mapping();
+    info("Building mapping from faces to faces...");
+    build_face_to_face_mapping();
+
+    // Iteratively reassign colors to avoid big jumps
+    info("Reassigning colors to avoid big jumps...");
+    size_t iteration = 0;
+    const size_t max_color_iterations = 10;
+    while (check_face_colors() > 0)
     {
-      _max_building_height = *max;
-    }
-
-    // Buffer should be a non-negative float number.
-    if (buffer < 0)
-      buffer = 0;
-
-    double relaxation_height = _max_building_height + buffer;
-    double adj_relaxation_height =
-        (std::ceil(relaxation_height / max_layer_height) + 1) * max_layer_height;
-
-    info("Max building height: " + str(_max_building_height) + " m.");
-    info("Relaxation height for cells above buildings: " + str(relaxation_height) + " m.");
-    info("Adjusted relaxation height for cells above buildings: " + str(adj_relaxation_height) +
-         " m.");
-
-    return adj_relaxation_height;
-  }
-
-  /// Builds the mapping from vertices to faces.
-  ///
-  /// This method populates the `vf` vector, which maps each vertex in the
-  /// ground mesh to the set of faces that contain that vertex.
-  void build_vertex_to_face_mapping()
-  {
-    vf.resize(num_ground_vertices);
-    for (size_t i = 0; i < num_ground_faces; i++)
-    {
-      vf[_ground_mesh.faces[i].v0].insert(i);
-      vf[_ground_mesh.faces[i].v1].insert(i);
-      vf[_ground_mesh.faces[i].v2].insert(i);
-    }
-  }
-
-  /// Builds the mapping from faces to faces.
-  ///
-  /// This method populates the `ff` vector, which maps each face in the
-  /// ground mesh to the set of neighboring faces that share at least one
-  /// vertex with it.
-  void build_face_to_face_mapping()
-  {
-    if (vf.empty())
-      build_vertex_to_face_mapping();
-
-    ff.resize(num_ground_faces);
-    for (size_t i = 0; i < num_ground_faces; i++)
-    {
-      for (size_t j = 0; j < 3; j++)
+      reassign_face_colors();
+      if (++iteration == max_color_iterations)
       {
-        for (const int &v : vf[_ground_mesh.faces[i][j]])
-        {
-          ff[i].insert(v);
-        }
+        error("Reached max color iterations");
       }
     }
+    check_layer_heights(areas, layer_heights);
+
+    // Assign vertex colors based on minimum neighbor face color
+    info("Assigning vertex colors...");
+    assign_vertex_colors(layer_heights);
+
+    // Sort faces by vertex color
+    info("Sorting faces by vertex color...");
+    sort_faces_by_vertex_color();
+
+    // Assign face partitions
+    assign_face_partitions();
+
+    type_3_partition_elimination(layer_heights);
+
+    return layer_heights;
   }
 
-  /// Mapping face markers to Vertex markers for ground mesh.
-  ///
-  /// Each vertex adopts the max marker value from the faces it belongs to.
-  ///
-  /// Ground Mesh Markers:
-  /// -2: Ground
-  /// -1: Building halos
-  ///  0: Building 0
-  ///  1: Building 1
-  ///  etc (non-negative integers mark faces inside buildings)
-  std::vector<int> face_to_vertex_markers()
+  // Compute ideal layer height for a regular tetrahedron
+  double ideal_layer_height(double area)
   {
-    vertex_markers.resize(num_ground_vertices, -2);
-
-    if (!_ground_mesh.markers.size())
-    {
-      error("Ground mesh has no face Markers. Treating all "
-            "faces as "
-            "ground");
-      return vertex_markers;
-    }
-
-    for (size_t f = 0; f < num_ground_faces; f++)
-    {
-      if (_ground_mesh.markers[f] < -2)
-      {
-        info("Problem problem with marker:" + str(_ground_mesh.markers[f]));
-      }
-
-      const std::array<size_t, 3> I = {_ground_mesh.faces[f].v0, _ground_mesh.faces[f].v1,
-                                       _ground_mesh.faces[f].v2};
-
-      vertex_markers[I[0]] = std::max(vertex_markers[I[0]], _ground_mesh.markers[f]);
-      vertex_markers[I[1]] = std::max(vertex_markers[I[1]], _ground_mesh.markers[f]);
-      vertex_markers[I[2]] = std::max(vertex_markers[I[2]], _ground_mesh.markers[f]);
-    }
-
-    return vertex_markers;
+    return std::pow(2.0, 1.5) * std::pow(3.0, -0.75) * std::sqrt(area);
   }
 
-  // Assign colors based on heights (closest by quotient)
+  // Compute closest layer height index to a given height
+  size_t closest_layer_height(double h, const std::vector<double> &layer_heights)
+  {
+    size_t min_index = 0;
+    double min_diff = std::abs(std::log(h / layer_heights[0]));
+    for (size_t i = 1; i < layer_heights.size(); i++)
+    {
+      const double diff = std::abs(std::log(h / layer_heights[i]));
+      if (diff < min_diff)
+      {
+        min_index = i;
+        min_diff = diff;
+      }
+    }
+    return min_index;
+  }
+
+  // Check layer heights (deviation from ideal)
+  void check_layer_heights(const std::vector<double> &areas,
+                           const std::vector<double> &layer_heights)
+  {
+    double max_error = 0.0;
+    for (size_t i = 0; i < areas.size(); i++)
+    {
+      const double h = ideal_layer_height(areas[i]);
+      const double H = layer_heights[face_colors[i]];
+      const double e = std::abs(h - H) / h;
+      max_error = std::max(max_error, e);
+    }
+    info("Max layer height error: " + str(100 * max_error, 2L) + "%");
+  }
+
+  // Assign face colors (closest layer height index)
   void assign_face_colors(const std::vector<double> &areas,
                           const std::vector<double> &layer_heights)
   {
-    size_t num_buildings = _buildings.size();
-    min_building_colors.resize(num_buildings, layer_heights.size());
-    // Assign layer heights to mesh (closest by quotient)
-    for (size_t i = 0; i < num_ground_faces; i++)
+    // Array of common building colors
+    std::vector<size_t> building_colors(_buildings.size(), layer_heights.size());
+
+    // Iterate over ground faces
+    for (size_t i = 0; i < areas.size(); i++)
     {
-      double h = ideal_layer_height(areas[i]);
-      std::vector<double> d(layer_heights.size());
-      d.reserve(layer_heights.size());
+      // Assign closest layer height index
+      const double h = ideal_layer_height(areas[i]);
+      const size_t face_color = closest_layer_height(h, layer_heights);
+      face_colors[i] = face_color;
 
-      for (size_t ih = 0; ih < layer_heights.size(); ih++)
-      {
-        d[ih] = std::abs(std::log(h / layer_heights[ih]));
-      }
-      auto min_it = std::min_element(d.begin(), d.end());
-      face_colors[i] = std::distance(d.begin(), min_it);
-
-      if (_ground_mesh.markers[i] >= 0)
-        min_building_colors[_ground_mesh.markers[i]] =
-            std::min(min_building_colors[_ground_mesh.markers[i]], face_colors[i]);
+      // Save minimum color for each building
+      const int marker = _ground_mesh.markers[i];
+      if (marker >= 0)
+        building_colors[marker] = std::min(building_colors[marker], face_color);
     }
 
-    for (size_t i = 0; i < num_ground_faces; i++)
-    {
-      if (_ground_mesh.markers[i] >= 0 &&
-          face_colors[i] - min_building_colors[_ground_mesh.markers[i]] > 1)
-      {
-        face_colors[i]--; // =
-                          // min_building_colors[_ground_mesh.markers[i]];
-      }
-    }
+    // FIXME: Is this necessary?
+
+    // Assign common colors to all faces of the same building
+    // for (size_t i = 0; i < areas.size(); i++)
+    // {
+    //   const int marker = _ground_mesh.markers[i];
+    //   if (marker >= 0)
+    //     face_colors[i] = building_colors[marker];
+    // }
   }
 
   // Reassign face colors to avoid big jumps
@@ -381,7 +348,7 @@ private:
     }
   }
 
-  // Check face colors to avoid big jumps
+  // Check face colors (big jumps)
   size_t check_face_colors()
   {
     size_t num_big_jumps = 0;
@@ -408,163 +375,40 @@ private:
   /// Assign vertex colors based on minimum neighbor face color
   void assign_vertex_colors(const std::vector<double> &layer_heights)
   {
-    vertex_colors.resize(num_ground_vertices, layer_heights.size());
-    for (size_t i = 0; i < num_ground_faces; i++)
+    const size_t num_vertices = _ground_mesh.vertices.size();
+    const size_t num_faces = _ground_mesh.faces.size();
+    vertex_colors.resize(num_vertices, layer_heights.size());
+    for (size_t i = 0; i < num_faces; i++)
     {
-      const std::vector<size_t> face = {_ground_mesh.faces[i].v0, _ground_mesh.faces[i].v1,
-                                        _ground_mesh.faces[i].v2};
-      for (const auto &j : face)
+      const auto &face = _ground_mesh.faces[i];
+      for (const auto &j : {face.v0, face.v1, face.v2})
+        vertex_colors[j] = std::min(vertex_colors[j], face_colors[i]);
+    }
+  }
+
+  // Sort faces by vertex color
+  void sort_faces_by_vertex_color()
+  {
+    for (auto &face : _ground_mesh.faces)
+    {
+      size_t c0 = vertex_colors[face.v0];
+      size_t c1 = vertex_colors[face.v1];
+      size_t c2 = vertex_colors[face.v2];
+      if (c0 > c1)
       {
-        if (vertex_colors[j] > face_colors[i])
-          vertex_colors[j] = face_colors[i];
+        std::swap(c0, c1);
+        std::swap(face.v0, face.v1);
       }
-    }
-  }
-
-  /// Reassigns vertex colors to ensure that we dont have layer height
-  /// differences larger than 2
-  ///  between each vertex column in a building and the minimum color used
-  ///  in the building
-  ///
-  /// @note Experimental.. not currently used
-  void reassign_vertex_colors()
-  {
-    vertex_markers = face_to_vertex_markers();
-
-    for (size_t i = 0; i < num_ground_vertices; i++)
-    {
-
-      if (vertex_markers[i] >= 0)
+      if (c0 > c2)
       {
-        const int building_index = vertex_markers[i];
-        if (vertex_colors[i] - min_building_colors[building_index] >= 2)
-        {
-          vertex_colors[i]--;
-        }
+        std::swap(c0, c2);
+        std::swap(face.v0, face.v2);
       }
-    }
-  }
-
-  /// Computes ideal layer height based on height of a regular tetrahedron
-  double ideal_layer_height(double area)
-  {
-    return std::pow(2.0, 1.5) * std::pow(3.0, -0.75) * std::sqrt(area);
-  }
-
-  // Compute layer heights for all faces in the ground mesh
-  std::vector<double> compute_layer_heights(Mesh &ground_mesh)
-  {
-    // Compute face areas
-    std::vector<double> areas(num_ground_faces);
-    for (std::size_t i = 0; i < num_ground_faces; i++)
-    {
-      areas[i] = Geometry::triangle_area(ground_mesh.vertices[ground_mesh.faces[i].v0],
-                                         ground_mesh.vertices[ground_mesh.faces[i].v1],
-                                         ground_mesh.vertices[ground_mesh.faces[i].v2]);
-    }
-
-    // Compute ideal layer heights for smallest and largest mesh sizes
-    const double min_area = *std::min_element(areas.begin(), areas.end());
-    const double max_area = *std::max_element(areas.begin(), areas.end());
-    const double _min_height = ideal_layer_height(min_area);
-    const double _max_height = ideal_layer_height(max_area);
-    info("Ideal layer heights: [" + str(_min_height) + ", " + str(_max_height) + "]");
-
-    // Compute dyadic layer heights to match min/max as close as
-    // possible
-    const double rho = _max_height / _min_height;
-    const double mid = std::sqrt(_min_height * _max_height);
-    const size_t num_heights = static_cast<int>(std::log2(rho) + 0.5) + 1;
-    double min_height = mid / std::pow(2, num_heights / 2);
-    std::vector<double> layer_heights;
-    for (int i = 0; i < num_heights; i++)
-      layer_heights.push_back(min_height * std::pow(2.0, i));
-    const double max_height = layer_heights.back();
-    info("Adjusted layer heights: [" + str(min_height) + ", " + str(max_height) + "]");
-
-    // Assign colors based on heights (closest by quotient)
-    info("Assigning face colors...");
-    assign_face_colors(areas, layer_heights);
-
-    // Build vertex and face mappings
-    info("Building mapping from vertices to faces");
-    build_vertex_to_face_mapping();
-    info("Building mapping from faces to faces");
-    build_face_to_face_mapping();
-
-    // Iteratively reassign colors to avoid big jumps
-    info("Reassigning colors to avoid big jumps");
-    size_t iteration = 0;
-    const size_t max_color_iterations = 10;
-    while (check_face_colors() > 0)
-    {
-      reassign_face_colors();
-      if (++iteration == max_color_iterations)
+      if (c1 > c2)
       {
-        error("Reached max color iterations");
+        std::swap(c1, c2);
+        std::swap(face.v1, face.v2);
       }
-    }
-
-    // Assign vertex colors based on minimum neighbor face color
-    info("Assigning vertex colors");
-    assign_vertex_colors(layer_heights);
-
-    // Sort vertices in each face of the ground mesh in ascending
-    // index and color.
-    mesh_faces_color_sort();
-
-    assign_face_partitions();
-
-    type_3_partition_elimination(layer_heights);
-
-    return layer_heights;
-  }
-
-  /// Utility function that sorts the vertices of a face according to index
-  /// and color.
-  void color_sort(std::array<size_t, 3> &vertices, std::array<int, 3> &colors)
-  {
-    // Combine colors and vertices into a vector of pairs
-    std::vector<std::pair<size_t, int>> combinedList;
-    for (size_t i = 0; i < colors.size(); ++i)
-    {
-      combinedList.emplace_back(vertices[i], colors[i]);
-    }
-
-    // Sort the combined list first based on the first element
-    // (vertices)
-    std::sort(combinedList.begin(), combinedList.end(),
-              [](const auto &lhs, const auto &rhs) { return lhs.first < rhs.first; });
-
-    // Sort again based on the second element (colors)
-    std::sort(combinedList.begin(), combinedList.end(),
-              [](const auto &lhs, const auto &rhs) { return lhs.second < rhs.second; });
-
-    // Unpack the sorted list back into colors and vertices
-    for (size_t i = 0; i < combinedList.size(); ++i)
-    {
-      colors[i] = combinedList[i].second;
-      vertices[i] = combinedList[i].first;
-    }
-  }
-
-  /// Sorts the vertices of the `_ground_mesh` according to index and
-  /// color.
-  void mesh_faces_color_sort()
-  {
-    for (size_t i = 0; i < num_ground_faces; i++)
-    {
-      const Simplex2D face_simplex = _ground_mesh.faces[i];
-
-      std::array<size_t, 3> face = {face_simplex.v0, face_simplex.v1, face_simplex.v2};
-      std::array<int, 3> v_colors = {vertex_colors[face_simplex.v0], vertex_colors[face_simplex.v1],
-                                     vertex_colors[face_simplex.v2]};
-
-      color_sort(face, v_colors);
-
-      _ground_mesh.faces[i].v0 = face[0];
-      _ground_mesh.faces[i].v1 = face[1];
-      _ground_mesh.faces[i].v2 = face[2];
     }
   }
 
@@ -627,6 +471,135 @@ private:
     check_face_colors();
   }
 
+  // Build mapping from vertices to faces
+  void build_vertex_to_face_mapping()
+  {
+    const size_t num_faces = _ground_mesh.faces.size();
+    vf.resize(num_faces);
+    for (size_t i = 0; i < num_faces; i++)
+    {
+      vf[_ground_mesh.faces[i].v0].insert(i);
+      vf[_ground_mesh.faces[i].v1].insert(i);
+      vf[_ground_mesh.faces[i].v2].insert(i);
+    }
+  }
+
+  /// Build mapping from faces to faces
+  void build_face_to_face_mapping()
+  {
+    const size_t num_faces = _ground_mesh.faces.size();
+    ff.resize(num_faces);
+    for (size_t i = 0; i < num_faces; i++)
+    {
+      for (size_t j = 0; j < 3; j++)
+      {
+        for (const int &v : vf[_ground_mesh.faces[i][j]])
+        {
+          ff[i].insert(v);
+        }
+      }
+    }
+  }
+
+  // Return the top height of our smoothed domain
+  double compute_top_height() { return domain_height + _dem.max(); }
+
+  /// Computes the ground heights at the centroids of buildings.
+  void compute_building_ground_heights()
+  {
+
+    const size_t num_buildings = _buildings.size();
+    _building_ground_height.resize(num_buildings);
+
+    for (size_t i = 0; i < _buildings.size(); i++)
+    {
+
+      const Vector3D centroid = Geometry::surface_centroid(_buildings[i]);
+
+      _building_ground_height[i] = _dem(centroid);
+    }
+  }
+
+  /// Computes the relaxation height for cells above buildings.
+  ///
+  /// This method calculates the relaxation height, which is used to
+  /// determine the height of cells above buildings in the mesh where high
+  /// resolution is not necessary (bigger cells).
+  double compute_relaxation_height(const std::vector<double> &layer_heights, double buffer = 0.0)
+  {
+
+    const double max_layer_height = layer_heights.back();
+    const size_t num_buildings = _buildings.size();
+    std::vector<double> building_heights(num_buildings, 0.0);
+
+    for (size_t i = 0; i < num_buildings; i++)
+    {
+      building_heights[i] = _buildings[i].max_height() - _building_ground_height[i];
+    }
+
+    double _max_building_height = 0.0;
+    auto max = std::max_element(building_heights.begin(), building_heights.end());
+    if (max != building_heights.end())
+    {
+      _max_building_height = *max;
+    }
+
+    // Buffer should be a non-negative float number.
+    if (buffer < 0)
+      buffer = 0;
+
+    double relaxation_height = _max_building_height + buffer;
+    double adj_relaxation_height =
+        (std::ceil(relaxation_height / max_layer_height) + 1) * max_layer_height;
+
+    info("Max building height: " + str(_max_building_height) + " m.");
+    info("Relaxation height for cells above buildings: " + str(relaxation_height) + " m.");
+    info("Adjusted relaxation height for cells above buildings: " + str(adj_relaxation_height) +
+         " m.");
+
+    return adj_relaxation_height;
+  }
+
+  /// Mapping face markers to Vertex markers for ground mesh.
+  ///
+  /// Each vertex adopts the max marker value from the faces it belongs to.
+  ///
+  /// Ground Mesh Markers:
+  /// -2: Ground
+  /// -1: Building halos
+  ///  0: Building 0
+  ///  1: Building 1
+  ///  etc (non-negative integers mark faces inside buildings)
+  std::vector<int> face_to_vertex_markers()
+  {
+    vertex_markers.resize(num_ground_vertices, -2);
+
+    if (!_ground_mesh.markers.size())
+    {
+      error("Ground mesh has no face Markers. Treating all "
+            "faces as "
+            "ground");
+      return vertex_markers;
+    }
+
+    for (size_t f = 0; f < num_ground_faces; f++)
+    {
+      if (_ground_mesh.markers[f] < -2)
+      {
+        info("Problem problem with marker:" + str(_ground_mesh.markers[f]));
+      }
+
+      const std::array<size_t, 3> I = {_ground_mesh.faces[f].v0, _ground_mesh.faces[f].v1,
+                                       _ground_mesh.faces[f].v2};
+
+      vertex_markers[I[0]] = std::max(vertex_markers[I[0]], _ground_mesh.markers[f]);
+      vertex_markers[I[1]] = std::max(vertex_markers[I[1]], _ground_mesh.markers[f]);
+      vertex_markers[I[2]] = std::max(vertex_markers[I[2]], _ground_mesh.markers[f]);
+    }
+
+    return vertex_markers;
+  }
+
   VolumeMesh layer_ground_mesh(const std::vector<double> &layer_heights)
   {
     info("Mesh Layering Function.");
@@ -664,23 +637,13 @@ private:
       _col_volume_mesh.vertices_offset[i + 1] =
           _col_volume_mesh.vertices_offset[i] + _col_volume_mesh.vertices[i].size();
     }
-    // col_index_offset[num_ground_faces + 1] =
-    // col_index_offset[num_ground_faces] +
-    // col_vertices[num_ground_faces - 1].size();
 
-    // std::size_t volume_mesh_num_cells = 0;
     for (size_t i = 0; i < num_ground_faces; i++)
     {
       const Simplex2D face_simplex = _ground_mesh.faces[i];
       std::array<size_t, 3> face = {face_simplex.v0, face_simplex.v1, face_simplex.v2};
       std::array<int, 3> v_colors = {vertex_colors[face_simplex.v0], vertex_colors[face_simplex.v1],
                                      vertex_colors[face_simplex.v2]};
-      // color_sort(face, v_colors);
-
-      // const std::array<size_t, 3> column_offsets =
-      // {col_index_offset[face[0]],
-      //                                               col_index_offset[face[1]],
-      //                                               col_index_offset[face[2]]};
 
       const std::array<size_t, 3> column_offsets = {0, 0, 0};
       const std::array<size_t, 3> column_len = {
@@ -868,7 +831,6 @@ private:
         error("Face Coloring Error: Large layer height "
               "difference: " +
               str(face_partition[i]) + "\nFace:" + str(i) + " color: " + str(face_colors[i]) +
-              str(min_building_colors[_ground_mesh.markers[i]]) +
               "\n v0 color: " + str(v_colors[0]) + "\n v1 color: " + str(v_colors[1]) +
               "\n v2 color: " + str(v_colors[2]));
         break;
@@ -955,7 +917,6 @@ private:
       }
     }
 
-    std::vector<int> min_building_colors(num_buildings, 0);
     for (size_t building_index = 0; building_index < num_buildings; building_index++)
     {
       // Note: We could either work with face or vertex
@@ -1056,18 +1017,6 @@ private:
                                                                         // max_building_colors[i]);
       else
         trimming_index[i] = 1; //<< max_building_colors[i];
-
-      // if (max_layer_height[i] > 0 )
-      //   std::cout << i << ") Building h: " << building_height
-      //             << " max_cell_height: " <<
-      //             max_layer_height[i]
-      //             << " j: "<< trimming_index_j[i]
-      //             << " trimming_index: " <<trimming_index[i]
-      //             << " max layer h: " << layer_heights[
-      //             max_building_colors[i]]
-      //             << " min layer h: " << layer_heights[
-      //             min_building_colors[i]]
-      //             << std::endl;
     }
 
     return trimming_index;
@@ -1514,12 +1463,6 @@ private:
       std::array<size_t, 3> face = {face_simplex.v0, face_simplex.v1, face_simplex.v2};
       std::array<int, 3> v_colors = {vertex_colors[face_simplex.v0], vertex_colors[face_simplex.v1],
                                      vertex_colors[face_simplex.v2]};
-      // color_sort(face, v_colors);
-
-      // const std::array<size_t, 3> column_offsets =
-      // {col_index_offset[face[0]],
-      //                                               col_index_offset[face[1]],
-      //                                               col_index_offset[face[2]]};
 
       const std::array<size_t, 3> column_offsets = {
           offset_before_padding[face[0] + 1] - offset_before_padding[face[0]] - 1,
