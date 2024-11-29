@@ -37,6 +37,9 @@ public:
   double top_height;
 
 private:
+  // FIXME: Use static functions instead, avoid all the many private
+  // variables (cleaner)
+
   ColumnarVolumeMesh _col_volume_mesh;
 
   VolumeMesh __volume_mesh__;
@@ -46,8 +49,6 @@ private:
   std::vector<double> _building_ground_height;
 
   std::vector<double> adj_building_height;
-
-  // double adjusted_relaxation_height;
 
   const GridField &_dem;
 
@@ -61,10 +62,7 @@ private:
 
   std::vector<int> vertex_markers;
 
-  // Colors (ints) are assigned to each ground mesh face describing
-  // which layer height is ideal for the triangular face.
   std::vector<int> face_colors;
-
   std::vector<int> vertex_colors;
 
   std::vector<size_t> vert_skip;
@@ -80,9 +78,6 @@ public:
       : _buildings(buildings), _dem(dem), _ground_mesh(ground_mesh), domain_height(domain_height),
         _col_volume_mesh(ground_mesh)
   {
-    // FIXME: Use static functions instead, avoid all the many private
-    // variables (cleaner)
-
     assert((!_ground_mesh.vertices.empty()) && "Ground mesh has no vertices");
     assert((!_ground_mesh.faces.empty()) && "Ground mesh has no faces");
     assert((!_ground_mesh.markers.empty()) && "Ground mesh has no markers");
@@ -90,8 +85,6 @@ public:
     top_height = compute_top_height();
 
     compute_building_ground_heights();
-
-    face_colors.reserve(_ground_mesh.faces.size());
   }
 
   // Destructor
@@ -131,7 +124,7 @@ public:
       return __volume_mesh__;
     }
 
-    Timer t3_3("Step 3.3: Smooth Volume Mesh (No fixed buildings)");
+    Timer t3_3("Step 3.3: Volume mesh smoothing (ground only)");
     __volume_mesh__ =
         Smoother::smooth_volume_mesh(__volume_mesh__, _buildings, _dem, top_height, false,
                                      smoother_iterations, smoother_relative_tolerance);
@@ -158,18 +151,12 @@ public:
       return __volume_mesh__;
     }
 
-    Timer t3_5("Step 3.5: Smooth Volume Mesh with fixed buildings");
+    Timer t3_5("Step 3.5: Volume mesh smoothing (ground and buildings)");
     __volume_mesh__ =
         Smoother::smooth_volume_mesh(__volume_mesh__, _buildings, _dem, top_height, true,
                                      smoother_iterations, smoother_relative_tolerance);
     t3_5.stop();
     t3_5.print();
-
-    _col_volume_mesh._update_vertices(__volume_mesh__);
-
-    // if (padding_height > 0.0) __volume_mesh__ =
-    // add_domain_padding(padding_height);
-    info(__volume_mesh__.__str__());
 
     return __volume_mesh__;
   }
@@ -298,6 +285,7 @@ private:
     std::vector<size_t> building_colors(_buildings.size(), layer_heights.size());
 
     // Iterate over ground faces
+    face_colors.resize(areas.size());
     for (size_t i = 0; i < areas.size(); i++)
     {
       // Assign closest layer height index
@@ -468,6 +456,7 @@ private:
     }
   }
 
+  // FIXME: Remove?
   // Return the top height of our smoothed domain
   double compute_top_height() { return domain_height + _dem.max(); }
 
@@ -649,18 +638,9 @@ private:
           ColumnarSimplex3D K1(bot_triangle_0, top_triangle_1, bot_triangle_1, top_triangle_2);
           ColumnarSimplex3D K2(bot_triangle_0, top_triangle_0, top_triangle_1, top_triangle_2);
 
-          // volume_mesh.cells.emplace_back(K0);
-          // volume_mesh.cells.emplace_back(K1);
-          // volume_mesh.cells.emplace_back(K2);
-
-          // col_cells[i].emplace_back(K0);
-          // col_cells[i].emplace_back(K1);
-          // col_cells[i].emplace_back(K2);
-
           _col_volume_mesh.cells[i].emplace_back(K0);
           _col_volume_mesh.cells[i].emplace_back(K1);
           _col_volume_mesh.cells[i].emplace_back(K2);
-          // volume_mesh_num_cells += 3;
         }
       }
       break;
@@ -678,28 +658,15 @@ private:
           ColumnarVertexIndex top_triangle_0(face[0], k + 2), top_triangle_1(face[1], l + 1),
               top_triangle_2(face[2], m + 1);
 
-          // size_t bot_triangle_0 = k, bot_triangle_1
-          // = l, bot_triangle_2 = m; size_t
-          // mid_triangle_0 = k + 1; size_t
-          // top_triangle_0 = k + 2, top_triangle_1 = l
-          // + 1,
-          //        top_triangle_2 = m + 1;
-
           ColumnarSimplex3D K0(bot_triangle_0, bot_triangle_1, bot_triangle_2, mid_triangle_0);
           ColumnarSimplex3D K1(bot_triangle_1, top_triangle_2, bot_triangle_2, mid_triangle_0);
           ColumnarSimplex3D K2(bot_triangle_1, top_triangle_2, mid_triangle_0, top_triangle_1);
           ColumnarSimplex3D K3(mid_triangle_0, top_triangle_0, top_triangle_1, top_triangle_2);
 
-          // volume_mesh.cells.emplace_back(K0);
-          // volume_mesh.cells.emplace_back(K1);
-          // volume_mesh.cells.emplace_back(K2);
-          // volume_mesh.cells.emplace_back(K3);
-
           _col_volume_mesh.cells[i].emplace_back(K0);
           _col_volume_mesh.cells[i].emplace_back(K1);
           _col_volume_mesh.cells[i].emplace_back(K2);
           _col_volume_mesh.cells[i].emplace_back(K3);
-          // volume_mesh_num_cells += 4;
         }
       }
       break;
@@ -710,13 +677,6 @@ private:
           const size_t k = ar[0];
           const size_t l = ar[1];
           const size_t m = ar[2];
-
-          // size_t bot_triangle_0 = k, bot_triangle_1
-          // = l, bot_triangle_2 = m; size_t
-          // mid_triangle_0 = k + 1, mid_triangle_1 = l
-          // + 1; size_t top_triangle_0 = k + 2,
-          // top_triangle_1 = l + 2,
-          //        top_triangle_2 = m + 1;
 
           ColumnarVertexIndex bot_triangle_0(face[0], k), bot_triangle_1(face[1], l),
               bot_triangle_2(face[2], m);
@@ -730,18 +690,11 @@ private:
           ColumnarSimplex3D K3(top_triangle_0, top_triangle_2, top_triangle_1, mid_triangle_0);
           ColumnarSimplex3D K4(top_triangle_1, top_triangle_2, mid_triangle_1, mid_triangle_0);
 
-          // volume_mesh.cells.emplace_back(K0);
-          // volume_mesh.cells.emplace_back(K1);
-          // volume_mesh.cells.emplace_back(K2);
-          // volume_mesh.cells.emplace_back(K3);
-          // volume_mesh.cells.emplace_back(K4);
-
           _col_volume_mesh.cells[i].emplace_back(K0);
           _col_volume_mesh.cells[i].emplace_back(K1);
           _col_volume_mesh.cells[i].emplace_back(K2);
           _col_volume_mesh.cells[i].emplace_back(K3);
           _col_volume_mesh.cells[i].emplace_back(K4);
-          // volume_mesh_num_cells += 5;
         }
       }
       break;
@@ -754,15 +707,6 @@ private:
           const size_t k = ar[0];
           const size_t l = ar[1];
           const size_t m = ar[2];
-
-          // size_t bot_triangle_0 = k, bot_triangle_1
-          // = l, bot_triangle_2 = m; size_t
-          // mid_triangle_0 = k + 1, mid_triangle_1 = l
-          // + 1,
-          //        mid_triangle_2 = m + 1;
-          // size_t top_triangle_0 = k + 2,
-          // top_triangle_1 = l + 2,
-          //        top_triangle_2 = m + 2;
 
           ColumnarVertexIndex bot_triangle_0(face[0], k), bot_triangle_1(face[1], l),
               bot_triangle_2(face[2], m);
@@ -779,20 +723,12 @@ private:
           ColumnarSimplex3D K4(mid_triangle_0, top_triangle_1, mid_triangle_1, top_triangle_2);
           ColumnarSimplex3D K5(mid_triangle_0, top_triangle_0, top_triangle_1, top_triangle_2);
 
-          // volume_mesh.cells.emplace_back(K0);
-          // volume_mesh.cells.emplace_back(K1);
-          // volume_mesh.cells.emplace_back(K2);
-          // volume_mesh.cells.emplace_back(K3);
-          // volume_mesh.cells.emplace_back(K4);
-          // volume_mesh.cells.emplace_back(K5);
-
           _col_volume_mesh.cells[i].emplace_back(K0);
           _col_volume_mesh.cells[i].emplace_back(K1);
           _col_volume_mesh.cells[i].emplace_back(K2);
           _col_volume_mesh.cells[i].emplace_back(K3);
           _col_volume_mesh.cells[i].emplace_back(K4);
           _col_volume_mesh.cells[i].emplace_back(K5);
-          // volume_mesh_num_cells += 6;
         }
         break;
       }
@@ -896,15 +832,6 @@ private:
         // created.
         max_building_colors[building_index] =
             std::max({face_colors[f], max_building_colors[building_index]});
-
-        //   const Simplex2D face = _ground_mesh.faces[f];
-        //   const int max_v_color =
-        //   std::max({vertex_colors[face.v0],
-        //                                     vertex_colors[face.v1],
-        //                                     vertex_colors[face.v2]});
-        //   building_colors[building_index] =
-        //       std::max({max_v_color,
-        //       building_colors[building_index]});
       }
     }
 
@@ -929,67 +856,6 @@ private:
     return adj_building_heights;
   }
 
-  //   void ideal_building_colors()
-  // {
-  //   const size_t num_buildings = _buildings.size();
-
-  //   building_colors.resize(num_buildings,0);
-  //   for (size_t i = 0; i < num_buildings; i++)
-  //   {
-  //     const double building_height = _buildings[i].max_height() -
-  //     _building_ground_height[i];
-
-  //     double min_excess = 1.0;
-  //     for (size_t j = layer_heights.size(); j < 0; --j)
-  //     {
-  //       double excess = fmod(building_height,layer_heights[j]);
-
-  //       if (excess < min_excess)
-  //       {
-  //         building_colors[i] = j;
-  //       }
-
-  //     }
-  //     // auto max_element_it =
-  //     std::max_element(max_color_index.rbegin(),max_color_index.rend());
-  //     // building_colors[i] =
-  //     std::distance(max_color_index.begin(),max_element_it.base()-1);
-
-  //     //std::cout << " Ideal color: " << building_colors[i] << " bh: "<<
-  //     building_height << " lh: "<< layer_heights[building_colors[i]]<<
-  //     std::endl;
-
-  //   }
-
-  // }
-
-  // TO BE REMOVED:
-  // This function is not used.
-  // It returns the starting index of the vertex that should be included in
-  // the trimmed column.
-  std::vector<size_t> _get_building_trimming_indexes()
-  {
-    const size_t num_buildings = _buildings.size();
-    std::vector<size_t> trimming_index(num_buildings, 0);
-    std::vector<size_t> trimming_index_j(num_buildings, 0);
-
-    std::vector<int> min_vertex_markers = face_to_vertex_markers_min();
-    std::vector<double> max_layer_height(num_buildings, 0.0);
-
-    for (size_t i = 0; i < num_buildings; i++)
-    {
-      const double building_height = _buildings[i].max_height() - _building_ground_height[i];
-      if (max_layer_height[i] > 0.0)
-        trimming_index[i] =
-            static_cast<size_t>(building_height / max_layer_height[i]); //*( 1 <<
-                                                                        // max_building_colors[i]);
-      else
-        trimming_index[i] = 1; //<< max_building_colors[i];
-    }
-
-    return trimming_index;
-  }
-
   std::vector<size_t> get_building_trimming_index(double buffer = 0.0)
   {
     const size_t num_buildings = _buildings.size();
@@ -1008,11 +874,6 @@ private:
         }
         trimming_index[marker] =
             std::max(trimming_index[marker], static_cast<size_t>(j * (1 << vertex_colors[i])));
-
-        // For debugging.
-        // std::cout <<i << ") Building: "<<  marker << "
-        // trimming_index: " << j << " v_color: " <<
-        // vertex_colors[i]<< std::endl;
       }
     }
 
@@ -1022,9 +883,6 @@ private:
       {
         trimming_index[i] = 1 << max_building_colors[i];
       }
-      // trimming_index[i] *= (1<<max_building_colors[i]);
-      //  std::cout<<i << ") Trimming_index: " <<
-      //  trimming_index[i] << std::endl;
     }
     return trimming_index;
   }
@@ -1051,7 +909,7 @@ private:
 
   VolumeMesh trim_volume_mesh(const std::vector<double> &layer_heights)
   {
-    info("Trimming Volume Mesh..");
+    info("Trimming volume mesh...");
 
     // Adjust Building heights to the largest layer height assigned to
     // buildings faces.
@@ -1061,13 +919,11 @@ private:
                  "Heights: "
               << std::endl;
 
-    // adj_building_heights = get_adjusted_building_heights();
-
     auto trimming_index = get_building_trimming_index();
+
     // In this vector we store how many minimum layer vertices in each
     // column are skipped to trim mesh and create a building
     vert_skip.resize(_ground_mesh.vertices.size(), 0);
-    // size_t volume_mesh_num_vertices = 0;
     for (size_t i = 0; i < _ground_mesh.vertices.size(); i++)
     {
       if (min_vertex_markers[i] >= 0)
@@ -1079,13 +935,6 @@ private:
         size_t col_begin = static_cast<size_t>((building_adj_height / layer_h));
         vert_skip[i] = col_begin;
 
-        // col_begin =
-        // (trimming_index[min_vertex_markers[i]] )/ (1 <<
-        // vertex_colors[i]);
-        // std::cout << "Vcol: " << i << "
-        // building_adjusted_height: "
-        // << building_adj_height << " fitting layer: " <<
-        // layer_h << "col_skip: "<< col_begin << std::endl;
         std::vector<Vector3D> trimmed_column;
         const size_t col_end = _col_volume_mesh.vertices[i].size();
         for (size_t j = col_begin; j < col_end; j++)
@@ -1144,11 +993,6 @@ private:
       size_t face_col_skip =
           static_cast<size_t>((adj_building_heights[face_marker] / layer_heights[0]));
 
-      // size_t face_col_skip = static_cast<size_t>(
-      //     ((_buildings[face_marker].max_height() -
-      //     _building_ground_height[face_marker]) /
-      //     layer_heights[0]));
-
       // We do that for the corner of the buildings. Although no
       // vertices are trimmed we should not create cells because
       // we elimenate the corners of the buildings.
@@ -1162,10 +1006,6 @@ private:
           static_cast<size_t>((max_col_skip - col_skip[2]) / (1 << v_colors[2]))};
 
       const size_t num_prisms = static_cast<size_t>(min_nrml_col_len / (1 << face_colors[i]));
-
-      // const size_t num_prisms =
-      //     static_cast<size_t>(min_nrml_col_len / (1 <<
-      //     v_colors[2]));
 
       std::vector<std::array<size_t, 3>> prism_iterator(num_prisms);
 
@@ -1196,18 +1036,9 @@ private:
           ColumnarSimplex3D K1(bot_triangle_0, top_triangle_1, bot_triangle_1, top_triangle_2);
           ColumnarSimplex3D K2(bot_triangle_0, top_triangle_0, top_triangle_1, top_triangle_2);
 
-          // volume_mesh.cells.emplace_back(K0);
-          // volume_mesh.cells.emplace_back(K1);
-          // volume_mesh.cells.emplace_back(K2);
-
-          // col_cells[i].emplace_back(K0);
-          // col_cells[i].emplace_back(K1);
-          // col_cells[i].emplace_back(K2);
-
           _col_volume_mesh.cells[i].emplace_back(K0);
           _col_volume_mesh.cells[i].emplace_back(K1);
           _col_volume_mesh.cells[i].emplace_back(K2);
-          // volume_mesh_num_cells += 3;
         }
       }
       break;
@@ -1225,28 +1056,15 @@ private:
           ColumnarVertexIndex top_triangle_0(face[0], k + 2), top_triangle_1(face[1], l + 1),
               top_triangle_2(face[2], m + 1);
 
-          // size_t bot_triangle_0 = k, bot_triangle_1
-          // = l, bot_triangle_2 = m; size_t
-          // mid_triangle_0 = k + 1; size_t
-          // top_triangle_0 = k + 2, top_triangle_1 = l
-          // + 1,
-          //        top_triangle_2 = m + 1;
-
           ColumnarSimplex3D K0(bot_triangle_0, bot_triangle_1, bot_triangle_2, mid_triangle_0);
           ColumnarSimplex3D K1(bot_triangle_1, top_triangle_2, bot_triangle_2, mid_triangle_0);
           ColumnarSimplex3D K2(bot_triangle_1, top_triangle_2, mid_triangle_0, top_triangle_1);
           ColumnarSimplex3D K3(mid_triangle_0, top_triangle_0, top_triangle_1, top_triangle_2);
 
-          // volume_mesh.cells.emplace_back(K0);
-          // volume_mesh.cells.emplace_back(K1);
-          // volume_mesh.cells.emplace_back(K2);
-          // volume_mesh.cells.emplace_back(K3);
-
           _col_volume_mesh.cells[i].emplace_back(K0);
           _col_volume_mesh.cells[i].emplace_back(K1);
           _col_volume_mesh.cells[i].emplace_back(K2);
           _col_volume_mesh.cells[i].emplace_back(K3);
-          // volume_mesh_num_cells += 4;
         }
       }
       break;
@@ -1257,13 +1075,6 @@ private:
           const size_t k = ar[0];
           const size_t l = ar[1];
           const size_t m = ar[2];
-
-          // size_t bot_triangle_0 = k, bot_triangle_1
-          // = l, bot_triangle_2 = m; size_t
-          // mid_triangle_0 = k + 1, mid_triangle_1 = l
-          // + 1; size_t top_triangle_0 = k + 2,
-          // top_triangle_1 = l + 2,
-          //        top_triangle_2 = m + 1;
 
           ColumnarVertexIndex bot_triangle_0(face[0], k), bot_triangle_1(face[1], l),
               bot_triangle_2(face[2], m);
@@ -1277,18 +1088,11 @@ private:
           ColumnarSimplex3D K3(top_triangle_0, top_triangle_2, top_triangle_1, mid_triangle_0);
           ColumnarSimplex3D K4(top_triangle_1, top_triangle_2, mid_triangle_1, mid_triangle_0);
 
-          // volume_mesh.cells.emplace_back(K0);
-          // volume_mesh.cells.emplace_back(K1);
-          // volume_mesh.cells.emplace_back(K2);
-          // volume_mesh.cells.emplace_back(K3);
-          // volume_mesh.cells.emplace_back(K4);
-
           _col_volume_mesh.cells[i].emplace_back(K0);
           _col_volume_mesh.cells[i].emplace_back(K1);
           _col_volume_mesh.cells[i].emplace_back(K2);
           _col_volume_mesh.cells[i].emplace_back(K3);
           _col_volume_mesh.cells[i].emplace_back(K4);
-          // volume_mesh_num_cells += 5;
         }
       }
       break;
@@ -1301,15 +1105,6 @@ private:
           const size_t k = ar[0];
           const size_t l = ar[1];
           const size_t m = ar[2];
-
-          // size_t bot_triangle_0 = k, bot_triangle_1
-          // = l, bot_triangle_2 = m; size_t
-          // mid_triangle_0 = k + 1, mid_triangle_1 = l
-          // + 1,
-          //        mid_triangle_2 = m + 1;
-          // size_t top_triangle_0 = k + 2,
-          // top_triangle_1 = l + 2,
-          //        top_triangle_2 = m + 2;
 
           ColumnarVertexIndex bot_triangle_0(face[0], k), bot_triangle_1(face[1], l),
               bot_triangle_2(face[2], m);
@@ -1326,20 +1121,12 @@ private:
           ColumnarSimplex3D K4(mid_triangle_0, top_triangle_1, mid_triangle_1, top_triangle_2);
           ColumnarSimplex3D K5(mid_triangle_0, top_triangle_0, top_triangle_1, top_triangle_2);
 
-          // volume_mesh.cells.emplace_back(K0);
-          // volume_mesh.cells.emplace_back(K1);
-          // volume_mesh.cells.emplace_back(K2);
-          // volume_mesh.cells.emplace_back(K3);
-          // volume_mesh.cells.emplace_back(K4);
-          // volume_mesh.cells.emplace_back(K5);
-
           _col_volume_mesh.cells[i].emplace_back(K0);
           _col_volume_mesh.cells[i].emplace_back(K1);
           _col_volume_mesh.cells[i].emplace_back(K2);
           _col_volume_mesh.cells[i].emplace_back(K3);
           _col_volume_mesh.cells[i].emplace_back(K4);
           _col_volume_mesh.cells[i].emplace_back(K5);
-          // volume_mesh_num_cells += 6;
         }
         break;
       }
@@ -1352,7 +1139,6 @@ private:
 
     const auto mesh_vertex_markers = face_to_vertex_markers();
 
-    // col_markers.resize(_ground_mesh.vertices.size());
     for (size_t i = 0; i < _ground_mesh.vertices.size(); i++)
     {
       const int marker = mesh_vertex_markers[i];
@@ -1374,8 +1160,6 @@ private:
         {
           tmp.front() = -1;
           tmp[idx] = marker;
-          // for (size_t j = 1; j < idx; j++) tmp[j] =
-          // - 5 - marker;
         }
         tmp.back() = -3;
       }
@@ -1470,14 +1254,6 @@ private:
           ColumnarSimplex3D K1(bot_triangle_0, top_triangle_1, bot_triangle_1, top_triangle_2);
           ColumnarSimplex3D K2(bot_triangle_0, top_triangle_0, top_triangle_1, top_triangle_2);
 
-          // volume_mesh.cells.emplace_back(K0);
-          // volume_mesh.cells.emplace_back(K1);
-          // volume_mesh.cells.emplace_back(K2);
-
-          // col_cells[i].emplace_back(K0);
-          // col_cells[i].emplace_back(K1);
-          // col_cells[i].emplace_back(K2);
-
           _col_volume_mesh.cells[i].emplace_back(K0);
           _col_volume_mesh.cells[i].emplace_back(K1);
           _col_volume_mesh.cells[i].emplace_back(K2);
@@ -1499,22 +1275,10 @@ private:
           ColumnarVertexIndex top_triangle_0(face[0], k + 2), top_triangle_1(face[1], l + 1),
               top_triangle_2(face[2], m + 1);
 
-          // size_t bot_triangle_0 = k, bot_triangle_1
-          // = l, bot_triangle_2 = m; size_t
-          // mid_triangle_0 = k + 1; size_t
-          // top_triangle_0 = k + 2, top_triangle_1 = l
-          // + 1,
-          //        top_triangle_2 = m + 1;
-
           ColumnarSimplex3D K0(bot_triangle_0, bot_triangle_1, bot_triangle_2, mid_triangle_0);
           ColumnarSimplex3D K1(bot_triangle_1, top_triangle_2, bot_triangle_2, mid_triangle_0);
           ColumnarSimplex3D K2(bot_triangle_1, top_triangle_2, mid_triangle_0, top_triangle_1);
           ColumnarSimplex3D K3(mid_triangle_0, top_triangle_0, top_triangle_1, top_triangle_2);
-
-          // volume_mesh.cells.emplace_back(K0);
-          // volume_mesh.cells.emplace_back(K1);
-          // volume_mesh.cells.emplace_back(K2);
-          // volume_mesh.cells.emplace_back(K3);
 
           _col_volume_mesh.cells[i].emplace_back(K0);
           _col_volume_mesh.cells[i].emplace_back(K1);
@@ -1532,13 +1296,6 @@ private:
           const size_t l = ar[1];
           const size_t m = ar[2];
 
-          // size_t bot_triangle_0 = k, bot_triangle_1
-          // = l, bot_triangle_2 = m; size_t
-          // mid_triangle_0 = k + 1, mid_triangle_1 = l
-          // + 1; size_t top_triangle_0 = k + 2,
-          // top_triangle_1 = l + 2,
-          //        top_triangle_2 = m + 1;
-
           ColumnarVertexIndex bot_triangle_0(face[0], k), bot_triangle_1(face[1], l),
               bot_triangle_2(face[2], m);
           ColumnarVertexIndex mid_triangle_0(face[0], k + 1), mid_triangle_1(face[1], l + 1);
@@ -1550,12 +1307,6 @@ private:
           ColumnarSimplex3D K2(bot_triangle_2, top_triangle_2, mid_triangle_0, mid_triangle_1);
           ColumnarSimplex3D K3(top_triangle_0, top_triangle_2, top_triangle_1, mid_triangle_0);
           ColumnarSimplex3D K4(top_triangle_1, top_triangle_2, mid_triangle_1, mid_triangle_0);
-
-          // volume_mesh.cells.emplace_back(K0);
-          // volume_mesh.cells.emplace_back(K1);
-          // volume_mesh.cells.emplace_back(K2);
-          // volume_mesh.cells.emplace_back(K3);
-          // volume_mesh.cells.emplace_back(K4);
 
           _col_volume_mesh.cells[i].emplace_back(K0);
           _col_volume_mesh.cells[i].emplace_back(K1);
@@ -1575,15 +1326,6 @@ private:
           const size_t l = ar[1];
           const size_t m = ar[2];
 
-          // size_t bot_triangle_0 = k, bot_triangle_1
-          // = l, bot_triangle_2 = m; size_t
-          // mid_triangle_0 = k + 1, mid_triangle_1 = l
-          // + 1,
-          //        mid_triangle_2 = m + 1;
-          // size_t top_triangle_0 = k + 2,
-          // top_triangle_1 = l + 2,
-          //        top_triangle_2 = m + 2;
-
           ColumnarVertexIndex bot_triangle_0(face[0], k), bot_triangle_1(face[1], l),
               bot_triangle_2(face[2], m);
           ColumnarVertexIndex mid_triangle_0(face[0], k + 1), mid_triangle_1(face[1], l + 1),
@@ -1597,13 +1339,6 @@ private:
           ColumnarSimplex3D K3(mid_triangle_0, mid_triangle_1, mid_triangle_2, top_triangle_2);
           ColumnarSimplex3D K4(mid_triangle_0, top_triangle_1, mid_triangle_1, top_triangle_2);
           ColumnarSimplex3D K5(mid_triangle_0, top_triangle_0, top_triangle_1, top_triangle_2);
-
-          // volume_mesh.cells.emplace_back(K0);
-          // volume_mesh.cells.emplace_back(K1);
-          // volume_mesh.cells.emplace_back(K2);
-          // volume_mesh.cells.emplace_back(K3);
-          // volume_mesh.cells.emplace_back(K4);
-          // volume_mesh.cells.emplace_back(K5);
 
           _col_volume_mesh.cells[i].emplace_back(K0);
           _col_volume_mesh.cells[i].emplace_back(K1);
