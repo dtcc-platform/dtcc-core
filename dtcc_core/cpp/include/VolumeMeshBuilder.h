@@ -608,13 +608,15 @@ private:
     auto mesh_vertex_markers = face_to_vertex_markers();
     for (size_t i = 0; i < _ground_mesh.vertices.size(); i++)
     {
-      std::vector<int> tmp(_column_mesh.vertices[i].size(), -4);
-      if (mesh_vertex_markers[i] == -1 || mesh_vertex_markers[i] == -2)
-        tmp.front() = mesh_vertex_markers[i];
-      else
-        tmp.front() = -1;
-      tmp.back() = -3;
-      _column_mesh.markers[i] = tmp;
+      // Initialize all markers to Other (-4)
+      auto &markers = _column_mesh.markers[i];
+      markers.resize(_column_mesh.vertices[i].size(), -4);
+
+      // Set last (top) marker to Top (-3)
+      markers.back() = -3;
+
+      // Set first (bottom) marker to Ground (-2) if ground otherwise Halo (-1)
+      markers.front() = mesh_vertex_markers[i] == -2 ? -2 : -1;
     }
 
     return _column_mesh.to_volume_mesh();
@@ -980,10 +982,12 @@ private:
           const size_t l = ar[1];
           const size_t m = ar[2];
 
-          ColumnIndex bot_triangle_0(face[0], k), bot_triangle_1(face[1], l),
-              bot_triangle_2(face[2], m);
-          ColumnIndex top_triangle_0(face[0], k + 1), top_triangle_1(face[1], l + 1),
-              top_triangle_2(face[2], m + 1);
+          ColumnIndex bot_triangle_0(face[0], k);
+          ColumnIndex bot_triangle_1(face[1], l);
+          ColumnIndex bot_triangle_2(face[2], m);
+          ColumnIndex top_triangle_0(face[0], k + 1);
+          ColumnIndex top_triangle_1(face[1], l + 1);
+          ColumnIndex top_triangle_2(face[2], m + 1);
 
           ColumnSimplex K0(bot_triangle_0, bot_triangle_1, bot_triangle_2, top_triangle_2);
           ColumnSimplex K1(bot_triangle_0, top_triangle_1, bot_triangle_1, top_triangle_2);
@@ -995,6 +999,7 @@ private:
         }
       }
       break;
+
       case 1:
       {
         for (const auto &ar : prism_iterator)
@@ -1003,11 +1008,13 @@ private:
           const size_t l = ar[1];
           const size_t m = ar[2];
 
-          ColumnIndex bot_triangle_0(face[0], k), bot_triangle_1(face[1], l),
-              bot_triangle_2(face[2], m);
+          ColumnIndex bot_triangle_0(face[0], k);
+          ColumnIndex bot_triangle_1(face[1], l);
+          ColumnIndex bot_triangle_2(face[2], m);
           ColumnIndex mid_triangle_0(face[0], k + 1);
-          ColumnIndex top_triangle_0(face[0], k + 2), top_triangle_1(face[1], l + 1),
-              top_triangle_2(face[2], m + 1);
+          ColumnIndex top_triangle_0(face[0], k + 2);
+          ColumnIndex top_triangle_1(face[1], l + 1);
+          ColumnIndex top_triangle_2(face[2], m + 1);
 
           ColumnSimplex K0(bot_triangle_0, bot_triangle_1, bot_triangle_2, mid_triangle_0);
           ColumnSimplex K1(bot_triangle_1, top_triangle_2, bot_triangle_2, mid_triangle_0);
@@ -1021,6 +1028,7 @@ private:
         }
       }
       break;
+
       case 2:
       {
         for (const auto &ar : prism_iterator)
@@ -1029,11 +1037,14 @@ private:
           const size_t l = ar[1];
           const size_t m = ar[2];
 
-          ColumnIndex bot_triangle_0(face[0], k), bot_triangle_1(face[1], l),
-              bot_triangle_2(face[2], m);
-          ColumnIndex mid_triangle_0(face[0], k + 1), mid_triangle_1(face[1], l + 1);
-          ColumnIndex top_triangle_0(face[0], k + 2), top_triangle_1(face[1], l + 2),
-              top_triangle_2(face[2], m + 1);
+          ColumnIndex bot_triangle_0(face[0], k);
+          ColumnIndex bot_triangle_1(face[1], l);
+          ColumnIndex bot_triangle_2(face[2], m);
+          ColumnIndex mid_triangle_0(face[0], k + 1);
+          ColumnIndex mid_triangle_1(face[1], l + 1);
+          ColumnIndex top_triangle_0(face[0], k + 2);
+          ColumnIndex top_triangle_1(face[1], l + 2);
+          ColumnIndex top_triangle_2(face[2], m + 1);
 
           ColumnSimplex K0(bot_triangle_0, bot_triangle_1, bot_triangle_2, mid_triangle_1);
           ColumnSimplex K1(bot_triangle_0, bot_triangle_2, mid_triangle_0, mid_triangle_1);
@@ -1050,42 +1061,8 @@ private:
       }
       break;
 
-      case 3:
-      {
-        info("Trim stage:" + str(i) + "Partition type 3");
-        for (const auto &ar : prism_iterator)
-        {
-          const size_t k = ar[0];
-          const size_t l = ar[1];
-          const size_t m = ar[2];
-
-          ColumnIndex bot_triangle_0(face[0], k), bot_triangle_1(face[1], l),
-              bot_triangle_2(face[2], m);
-          ColumnIndex mid_triangle_0(face[0], k + 1), mid_triangle_1(face[1], l + 1),
-              mid_triangle_2(face[2], m + 1);
-          ;
-          ColumnIndex top_triangle_0(face[0], k + 2), top_triangle_1(face[1], l + 2),
-              top_triangle_2(face[2], m + 2);
-
-          ColumnSimplex K0(bot_triangle_0, bot_triangle_1, bot_triangle_2, mid_triangle_2);
-          ColumnSimplex K1(bot_triangle_0, mid_triangle_1, bot_triangle_1, mid_triangle_2);
-          ColumnSimplex K2(bot_triangle_0, mid_triangle_0, mid_triangle_1, mid_triangle_2);
-          ColumnSimplex K3(mid_triangle_0, mid_triangle_1, mid_triangle_2, top_triangle_2);
-          ColumnSimplex K4(mid_triangle_0, top_triangle_1, mid_triangle_1, top_triangle_2);
-          ColumnSimplex K5(mid_triangle_0, top_triangle_0, top_triangle_1, top_triangle_2);
-
-          _column_mesh.cells[i].emplace_back(K0);
-          _column_mesh.cells[i].emplace_back(K1);
-          _column_mesh.cells[i].emplace_back(K2);
-          _column_mesh.cells[i].emplace_back(K3);
-          _column_mesh.cells[i].emplace_back(K4);
-          _column_mesh.cells[i].emplace_back(K5);
-        }
-        break;
-      }
       default:
-        error("Face Color Error: Large layer height "
-              "difference");
+        error("Unhandled partition type: " + str(face_partitions[i]));
         break;
       }
     }

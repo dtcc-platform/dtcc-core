@@ -47,44 +47,33 @@ public:
 // extruding a 2D mesh in columns.
 class ColumnMesh : public Printable
 {
-  // private:
-  //   const Mesh &_ground_mesh;
-
 public:
-  /// Vector of vectors of Vertices.
+  /// Vector of vectors of vertices
   std::vector<std::vector<Vector3D>> vertices{};
-
-  std::vector<size_t> vertices_offset;
 
   /// Vector of vectors of cells (tetrahedra)
   std::vector<std::vector<ColumnSimplex>> cells{};
 
-  /// Vector of vectors of cell markers
+  /// Vector of vectors of vertex markers
   std::vector<std::vector<int>> markers{};
 
-  const size_t num_cell_columns{};
+  // Vector of vertex offsets
+  std::vector<size_t> vertices_offset;
 
-  const size_t num_vertex_columns{};
-
-  const size_t num_marker_columns{};
-
+  // Default constructor
   ColumnMesh() = default;
 
+  // Constructor
   ColumnMesh(const Mesh &ground_mesh)
-      : num_cell_columns(ground_mesh.faces.size()), num_vertex_columns(ground_mesh.vertices.size()),
-        num_marker_columns(ground_mesh.markers.size()),
-        vertices_offset(ground_mesh.vertices.size() + 1)
   {
-    assert((num_vertex_columns > 0) && "Empty ground mesh. It has no faces connecting vertices");
-    assert((num_cell_columns > 0) && "Empty ground mesh. It has no faces connecting faces");
-
-    vertices.resize(num_vertex_columns);
-    cells.resize(num_cell_columns);
-    markers.resize(num_marker_columns);
-
-    vertices_offset.resize(num_vertex_columns + 1, 0);
+    vertices.resize(ground_mesh.vertices.size());
+    cells.resize(ground_mesh.faces.size());
+    markers.resize(ground_mesh.markers.size());
+    vertices_offset.resize(ground_mesh.vertices.size() + 1, 0);
   }
-  virtual ~ColumnMesh() {} // make the destructor virtual
+
+  // Destructor
+  virtual ~ColumnMesh() {}
 
   // Pretty-print
   std::string __str__() const override
@@ -93,14 +82,15 @@ public:
            str(cells.size()) + " cell columns";
   }
 
+  // Convert to volume mesh
   VolumeMesh to_volume_mesh()
   {
     VolumeMesh volume_mesh;
 
+    // Add vertices
     const size_t volume_mesh_num_vertices = vertices_offset.back() + vertices.back().size();
-    // Add Vertices
     volume_mesh.vertices.reserve(volume_mesh_num_vertices);
-    for (size_t j = 0; j < num_vertex_columns; j++)
+    for (size_t j = 0; j < vertices.size(); j++)
     {
       for (size_t k = 0; k < vertices[j].size(); k++)
       {
@@ -108,8 +98,8 @@ public:
       }
     }
 
-    // Add Cells
-    for (size_t i = 0; i < num_cell_columns; i++)
+    // Add cells
+    for (size_t i = 0; i < cells.size(); i++)
     {
       for (size_t j = 0; j < cells[i].size(); j++)
       {
@@ -122,6 +112,7 @@ public:
       }
     }
 
+    // Add markers
     volume_mesh.markers.reserve(volume_mesh_num_vertices);
     for (size_t j = 0; j < markers.size(); j++)
     {
@@ -137,7 +128,7 @@ public:
   // Update vertex coordinates from a volume mesh
   void _update_vertices(VolumeMesh &volume_mesh)
   {
-    for (size_t i = 0; i < num_vertex_columns; i++)
+    for (size_t i = 0; i < vertices.size(); i++)
     {
       const size_t start_index = this->vertices_offset[i];
       const size_t end_index = this->vertices_offset[i + 1];

@@ -29,7 +29,7 @@ public:
     info("Smoothing volume mesh...");
     info(volume_mesh.__str__());
 
-    // Compute (local) stifness matrices
+    // Compute (local) stiffness matrices
     StiffnessMatrix AK(volume_mesh);
 
     // Create solution vector and load vector
@@ -42,10 +42,10 @@ public:
     bc.apply(b);
 
     // Set initial guess
-    if (!fix_buildings)
-      set_initial_guess(u, volume_mesh, dem, top_height, bc);
-    else
-      u = b;
+    //    if (!fix_buildings)
+    //      set_initial_guess(u, volume_mesh, dem, top_height, bc);
+    //   else
+    u = b;
 
     // Solve linear system
     solve_unassembled_gauss_seidel(volume_mesh, AK, b, u, max_iterations, relative_tolerance);
@@ -78,25 +78,36 @@ private:
     std::vector<uint> _vertex_degrees(volume_mesh.vertices.size());
     compute_vertex_degrees(vertex_degrees, volume_mesh);
 
+    // Gauss-Seidel iterations
     size_t iterations;
     double residual;
     for (iterations = 0; iterations < max_iterations; iterations++)
     {
+      // Initialize right-hand side and residual
       C = b;
-      _vertex_degrees = vertex_degrees;
       residual = 0;
+
+      // Initialize vertex degrees
+      _vertex_degrees = vertex_degrees;
+
+      // Iterate over cells
       for (size_t c = 0; c < volume_mesh.cells.size(); c++)
       {
+        // Get vertex indices
         I[0] = volume_mesh.cells[c].v0;
         I[1] = volume_mesh.cells[c].v1;
         I[2] = volume_mesh.cells[c].v2;
         I[3] = volume_mesh.cells[c].v3;
+
+        // Gauss-Seidel update
         for (uint8_t i = 0; i < 4; i++)
         {
+          // Update right-hand side
           C[I[i]] -= AK._data[c * 16 + i * 4 + (i + 1) % 4] * u[I[(i + 1) % 4]] +
                      AK._data[c * 16 + i * 4 + (i + 2) % 4] * u[I[(i + 2) % 4]] +
                      AK._data[c * 16 + i * 4 + (i + 3) % 4] * u[I[(i + 3) % 4]];
 
+          // Divide by diagonal when fully updated
           _vertex_degrees[I[i]]--;
           if (_vertex_degrees[I[i]] == 0)
           {
@@ -104,6 +115,11 @@ private:
             u[I[i]] = C[I[i]] / AK.diagonal[I[i]];
             res = std::abs(res - u[I[i]]);
             residual = std::max(residual, res);
+
+            if (I[i] == 100)
+            {
+              std::cout << "u = " << u[I[i]] << std::endl;
+            }
           }
         }
       }
@@ -113,8 +129,17 @@ private:
         break;
     }
 
-    info("Converged in " + str(iterations) + "/" + str(max_iterations) +
-         " iterations with residual " + str(residual));
+    // Check convergence
+    if (iterations == max_iterations)
+    {
+      error("Failed to converge in " + str(max_iterations) + " iterations with residual " +
+            str(residual));
+    }
+    else
+    {
+      info("Converged in " + str(iterations) + "/" + str(max_iterations) +
+           " iterations with residual " + str(residual));
+    }
   }
 
   // Set initial guess for solution vector
