@@ -451,6 +451,9 @@ private:
   VolumeMesh layer_ground_mesh(const std::vector<double> &layer_heights)
   {
 
+    //-------------------------------------------------------------------------
+    // FIXME: Rework this part
+    //-------------------------------------------------------------------------
     domain_height = compute_relaxation_height(layer_heights);
     info("Initial domain height adjusted to max building height.. " + str(domain_height));
     top_height = compute_top_height();
@@ -461,6 +464,7 @@ private:
     const double H = layer_heights.back();
     const double adjusted_domain_height = std::ceil(domain_height / H) * H;
     info("Adjusted domain height: " + str(adjusted_domain_height));
+    //-------------------------------------------------------------------------
 
     // Layer vertices in columns
     for (size_t j = 0; j < _ground_mesh.vertices.size(); j++)
@@ -476,30 +480,35 @@ private:
       _column_mesh.vertices_offset[j + 1] = _column_mesh.vertices_offset[j] + col_size;
     }
 
-    // Layer faces in columns
+    // Layer cells in columns
     for (size_t i = 0; i < _ground_mesh.faces.size(); i++)
     {
+      // Get face vertices and colors
       const Simplex2D face_simplex = _ground_mesh.faces[i];
-      std::array<size_t, 3> face = {face_simplex.v0, face_simplex.v1, face_simplex.v2};
-      std::array<int, 3> v_colors = {vertex_colors[face_simplex.v0], vertex_colors[face_simplex.v1],
-                                     vertex_colors[face_simplex.v2]};
+      const std::array<size_t, 3> face = {face_simplex.v0, face_simplex.v1, face_simplex.v2};
+      const std::array<int, 3> _vertex_colors = {vertex_colors[face_simplex.v0],
+                                                 vertex_colors[face_simplex.v1],
+                                                 vertex_colors[face_simplex.v2]};
 
-      const std::array<size_t, 3> column_offsets = {0, 0, 0};
-      const std::array<size_t, 3> column_len = {
+      // Calculate offsets and sizes
+      const std::array<size_t, 3> col_offsets = {0, 0, 0};
+      const std::array<size_t, 3> col_sizes = {
           _column_mesh.vertices_offset[face[0] + 1] - _column_mesh.vertices_offset[face[0]],
           _column_mesh.vertices_offset[face[1] + 1] - _column_mesh.vertices_offset[face[1]],
           _column_mesh.vertices_offset[face[2] + 1] - _column_mesh.vertices_offset[face[2]]};
-      const size_t num_prisms = (column_len.back() - 1) / (1 << (face_colors[i] - v_colors[2]));
 
+      // Create prism iterator
+      const size_t num_prisms =
+          (col_sizes.back() - 1) / (1 << (face_colors[i] - _vertex_colors[2]));
       std::vector<std::array<size_t, 3>> prism_iterator(num_prisms);
-
       for (size_t j = 0; j < num_prisms; j++)
       {
-        prism_iterator[j] = {column_offsets[0] + j * (1 << (face_colors[i] - v_colors[0])),
-                             column_offsets[1] + j * (1 << (face_colors[i] - v_colors[1])),
-                             column_offsets[2] + j * (1 << (face_colors[i] - v_colors[2]))};
+        prism_iterator[j] = {col_offsets[0] + j * (1 << (face_colors[i] - _vertex_colors[0])),
+                             col_offsets[1] + j * (1 << (face_colors[i] - _vertex_colors[1])),
+                             col_offsets[2] + j * (1 << (face_colors[i] - _vertex_colors[2]))};
       }
 
+      // Add tetrahedrons based on face partition type
       switch (face_partitions[i])
       {
       case 0:
@@ -510,10 +519,12 @@ private:
           const size_t l = ar[1];
           const size_t m = ar[2];
 
-          ColumnIndex bot_triangle_0(face[0], k), bot_triangle_1(face[1], l),
-              bot_triangle_2(face[2], m);
-          ColumnIndex top_triangle_0(face[0], k + 1), top_triangle_1(face[1], l + 1),
-              top_triangle_2(face[2], m + 1);
+          ColumnIndex bot_triangle_0(face[0], k);
+          ColumnIndex bot_triangle_1(face[1], l);
+          ColumnIndex bot_triangle_2(face[2], m);
+          ColumnIndex top_triangle_0(face[0], k + 1);
+          ColumnIndex top_triangle_1(face[1], l + 1);
+          ColumnIndex top_triangle_2(face[2], m + 1);
 
           ColumnSimplex K0(bot_triangle_0, bot_triangle_1, bot_triangle_2, top_triangle_2);
           ColumnSimplex K1(bot_triangle_0, top_triangle_1, bot_triangle_1, top_triangle_2);
@@ -534,11 +545,13 @@ private:
           const size_t l = ar[1];
           const size_t m = ar[2];
 
-          ColumnIndex bot_triangle_0(face[0], k), bot_triangle_1(face[1], l),
-              bot_triangle_2(face[2], m);
+          ColumnIndex bot_triangle_0(face[0], k);
+          ColumnIndex bot_triangle_1(face[1], l);
+          ColumnIndex bot_triangle_2(face[2], m);
           ColumnIndex mid_triangle_0(face[0], k + 1);
-          ColumnIndex top_triangle_0(face[0], k + 2), top_triangle_1(face[1], l + 1),
-              top_triangle_2(face[2], m + 1);
+          ColumnIndex top_triangle_0(face[0], k + 2);
+          ColumnIndex top_triangle_1(face[1], l + 1);
+          ColumnIndex top_triangle_2(face[2], m + 1);
 
           ColumnSimplex K0(bot_triangle_0, bot_triangle_1, bot_triangle_2, mid_triangle_0);
           ColumnSimplex K1(bot_triangle_1, top_triangle_2, bot_triangle_2, mid_triangle_0);
@@ -561,11 +574,14 @@ private:
           const size_t l = ar[1];
           const size_t m = ar[2];
 
-          ColumnIndex bot_triangle_0(face[0], k), bot_triangle_1(face[1], l),
-              bot_triangle_2(face[2], m);
-          ColumnIndex mid_triangle_0(face[0], k + 1), mid_triangle_1(face[1], l + 1);
-          ColumnIndex top_triangle_0(face[0], k + 2), top_triangle_1(face[1], l + 2),
-              top_triangle_2(face[2], m + 1);
+          ColumnIndex bot_triangle_0(face[0], k);
+          ColumnIndex bot_triangle_1(face[1], l);
+          ColumnIndex bot_triangle_2(face[2], m);
+          ColumnIndex mid_triangle_0(face[0], k + 1);
+          ColumnIndex mid_triangle_1(face[1], l + 1);
+          ColumnIndex top_triangle_0(face[0], k + 2);
+          ColumnIndex top_triangle_1(face[1], l + 2);
+          ColumnIndex top_triangle_2(face[2], m + 1);
 
           ColumnSimplex K0(bot_triangle_0, bot_triangle_1, bot_triangle_2, mid_triangle_1);
           ColumnSimplex K1(bot_triangle_0, bot_triangle_2, mid_triangle_0, mid_triangle_1);
@@ -588,19 +604,15 @@ private:
       }
     }
 
-    // Add Markers
+    // Set markers
     auto mesh_vertex_markers = face_to_vertex_markers();
     for (size_t i = 0; i < _ground_mesh.vertices.size(); i++)
     {
       std::vector<int> tmp(_column_mesh.vertices[i].size(), -4);
       if (mesh_vertex_markers[i] == -1 || mesh_vertex_markers[i] == -2)
-      {
         tmp.front() = mesh_vertex_markers[i];
-      }
       else
-      {
         tmp.front() = -1;
-      }
       tmp.back() = -3;
       _column_mesh.markers[i] = tmp;
     }
@@ -608,7 +620,7 @@ private:
     return _column_mesh.to_volume_mesh();
   }
 
-  /// Computes the ground heights at the centroids of buildings.
+  /// Computes ground heights at the building centroids
   void compute_building_ground_heights()
   {
 
@@ -955,6 +967,8 @@ private:
             column_offsets[1] + prism_start_indexes[1] + (j << (face_colors[i] - v_colors[1])),
             column_offsets[2] + prism_start_indexes[2] + (j << (face_colors[i] - v_colors[2]))};
       }
+
+      // FIXME: Reuse code above in layer_ground_mesh
 
       switch (face_partitions[i])
       {
