@@ -116,8 +116,9 @@ public:
 
     // Volume mesh smoothing
     Timer t3_3("Step 3.3: Volume mesh smoothing (ground only)");
-    volume_mesh = Smoother::smooth_volume_mesh(volume_mesh, _buildings, _dem, top_height, false,
-                                               smoother_iterations, smoother_relative_tolerance);
+    volume_mesh =
+        Smoother::smooth_volume_mesh(volume_mesh, _buildings, _dem, top_height, false, true,
+                                     smoother_iterations, smoother_relative_tolerance);
     t3_3.stop();
     t3_3.print();
 
@@ -139,8 +140,9 @@ public:
 
     // Trim volume mesh (again)
     Timer t3_5("Step 3.5: Volume mesh smoothing (ground and buildings)");
-    volume_mesh = Smoother::smooth_volume_mesh(volume_mesh, _buildings, _dem, top_height, true,
-                                               smoother_iterations, smoother_relative_tolerance);
+    volume_mesh =
+        Smoother::smooth_volume_mesh(volume_mesh, _buildings, _dem, top_height, true, true,
+                                     smoother_iterations, smoother_relative_tolerance);
     t3_5.stop();
     t3_5.print();
 

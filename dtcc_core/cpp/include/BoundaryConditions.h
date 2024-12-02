@@ -40,16 +40,12 @@ public:
   std::vector<double> halo_elevations;
 
   // Constructor
-  BoundaryConditions(const VolumeMesh &volume_mesh,
-                     const std::vector<Surface> &building_surfaces,
-                     const GridField &dtm,
-                     const double top_height,
-                     const bool fix_buildings)
+  BoundaryConditions(const VolumeMesh &volume_mesh, const std::vector<Surface> &building_surfaces,
+                     const GridField &dtm, double top_height, bool fix_buildings, bool fix_top)
       : _volume_mesh(volume_mesh), _building_surfaces(building_surfaces), _dtm(dtm),
         top_height(top_height), vertex_markers(volume_mesh.vertices.size(), -4),
-        values(volume_mesh.vertices.size(), 0.0), fix_buildings(fix_buildings),
-        halo_elevations(volume_mesh.vertices.size(),
-                        std::numeric_limits<double>::max())
+        values(volume_mesh.vertices.size(), 0.0), fix_buildings(fix_buildings), fix_top(fix_top),
+        halo_elevations(volume_mesh.vertices.size(), std::numeric_limits<double>::max())
   {
     // Compute vertex markers
     if (volume_mesh.markers.size() == volume_mesh.vertices.size())
@@ -61,7 +57,6 @@ public:
     {
       compute_vertex_markers();
     }
-
 
     // Compute boundary values
     compute_boundary_values();
@@ -90,10 +85,9 @@ public:
       I[2] = _volume_mesh.cells[c].v2;
       I[3] = _volume_mesh.cells[c].v3;
 
-      const double z_mean =
-          (_volume_mesh.vertices[I[0]].z + _volume_mesh.vertices[I[1]].z +
-           _volume_mesh.vertices[I[2]].z + _volume_mesh.vertices[I[3]].z) /
-          4;
+      const double z_mean = (_volume_mesh.vertices[I[0]].z + _volume_mesh.vertices[I[1]].z +
+                             _volume_mesh.vertices[I[2]].z + _volume_mesh.vertices[I[3]].z) /
+                            4;
 
       const int cell_marker = _volume_mesh.markers[c];
       if (cell_marker >= 0 && fix_buildings) // Building
@@ -107,7 +101,7 @@ public:
           vertex_markers[I[i]] = cell_marker;
         }
       }
-      else if (cell_marker == -1) // Building Halo
+      else if (cell_marker == -1) // Halo
       {
         for (size_t i = 0; i < 4; i++)
         {
@@ -129,7 +123,7 @@ public:
           vertex_markers[I[i]] = std::max(vertex_markers[I[i]], -2);
         }
       }
-      else if (cell_marker == -3) // Top
+      else if (cell_marker == -3 && fix_top) // Top
       {
         for (size_t i = 0; i < 4; i++)
         {
@@ -137,6 +131,7 @@ public:
           {
             continue;
           }
+          std::cout << "Top" << std::endl;
           vertex_markers[I[i]] = std::max(vertex_markers[I[i]], -3);
         }
       }
@@ -172,25 +167,24 @@ public:
     compute_halo_elevations();
 
     for (size_t i = 0; i < _volume_mesh.vertices.size(); i++)
-    { 
+    {
       const int vertex_marker = vertex_markers[i];
-      if (vertex_marker >= 0) //  && fix_buildings Building
+      if (vertex_marker >= 0) // Building
       {
-        values[i] = building_centroids[vertex_marker].z -
-                    _volume_mesh.vertices[i].z;
+        values[i] = building_centroids[vertex_marker].z - _volume_mesh.vertices[i].z;
       }
-      else if (vertex_marker == -1) // Building Halo
+      else if (vertex_marker == -1) // Halo
       {
         values[i] = halo_elevations[i] - _volume_mesh.vertices[i].z;
       }
       else if (vertex_marker == -2) // Ground
       {
-        const Vector2D p(_volume_mesh.vertices[i].x,
-                         _volume_mesh.vertices[i].y);
+        const Vector2D p(_volume_mesh.vertices[i].x, _volume_mesh.vertices[i].y);
         values[i] = _dtm(p) - _volume_mesh.vertices[i].z;
       }
       else if (vertex_marker == -3) // Top
       {
+        std::cout << "Setting top bc" << std::endl;
         values[i] = top_height - _volume_mesh.vertices[i].z;
       }
       else
@@ -247,6 +241,8 @@ private:
 
   const bool fix_buildings;
 
+  const bool fix_top;
+
   // Compute building centroids
   void compute_building_centroids()
   {
@@ -275,14 +271,11 @@ private:
 
       for (size_t i = 0; i < 4; i++)
       {
-        const Vector2D p(_volume_mesh.vertices[I[i]].x,
-                         _volume_mesh.vertices[I[i]].y);
+        const Vector2D p(_volume_mesh.vertices[I[i]].x, _volume_mesh.vertices[I[i]].y);
         const double z = _dtm(p);
 
         z_min = std::min(z_min, z);
-
       }
-
 
       halo_elevations[I[0]] = std::min(halo_elevations[I[0]], z_min);
       halo_elevations[I[1]] = std::min(halo_elevations[I[1]], z_min);

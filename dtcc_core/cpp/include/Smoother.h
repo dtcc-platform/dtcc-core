@@ -15,16 +15,14 @@ namespace DTCC_BUILDER
 
 class Smoother
 {
-    typedef unsigned int uint;
+  typedef unsigned int uint;
 
 public:
   // Smooth mesh using Laplacian smoothing
   static VolumeMesh smooth_volume_mesh(const VolumeMesh &volume_mesh,
                                        const std::vector<Surface> &building_surfaces,
-                                       const GridField &dem,
-                                       double top_height,
-                                       bool fix_buildings,
-                                       size_t max_iterations,
+                                       const GridField &dem, double top_height, bool fix_buildings,
+                                       bool fix_top, size_t max_iterations,
                                        double relative_tolerance)
 
   {
@@ -39,7 +37,7 @@ public:
     std::vector<double> b(volume_mesh.vertices.size(), 0);
 
     // Apply boundary conditions
-    BoundaryConditions bc(volume_mesh, building_surfaces, dem, top_height, fix_buildings);
+    BoundaryConditions bc(volume_mesh, building_surfaces, dem, top_height, fix_buildings, fix_top);
     bc.apply(AK);
     bc.apply(b);
 
@@ -50,8 +48,7 @@ public:
       u = b;
 
     // Solve linear system
-    solve_unassembled_gauss_seidel(volume_mesh, AK, b, u, max_iterations,
-                                   relative_tolerance);
+    solve_unassembled_gauss_seidel(volume_mesh, AK, b, u, max_iterations, relative_tolerance);
 
     // Update mesh coordinates
     VolumeMesh _volume_mesh{volume_mesh};
@@ -63,10 +60,8 @@ public:
 
 private:
   // Solve linear system using unassembled Gauss-Seidel iterations
-  static void solve_unassembled_gauss_seidel(const VolumeMesh &volume_mesh,
-                                             StiffnessMatrix &AK,
-                                             std::vector<double> &b,
-                                             std::vector<double> &u,
+  static void solve_unassembled_gauss_seidel(const VolumeMesh &volume_mesh, StiffnessMatrix &AK,
+                                             std::vector<double> &b, std::vector<double> &u,
                                              const size_t max_iterations,
                                              const double relative_tolerance)
   {
@@ -98,10 +93,9 @@ private:
         I[3] = volume_mesh.cells[c].v3;
         for (uint8_t i = 0; i < 4; i++)
         {
-          C[I[i]] -=
-              AK._data[c * 16 + i * 4 + (i + 1) % 4] * u[I[(i + 1) % 4]] +
-              AK._data[c * 16 + i * 4 + (i + 2) % 4] * u[I[(i + 2) % 4]] +
-              AK._data[c * 16 + i * 4 + (i + 3) % 4] * u[I[(i + 3) % 4]];
+          C[I[i]] -= AK._data[c * 16 + i * 4 + (i + 1) % 4] * u[I[(i + 1) % 4]] +
+                     AK._data[c * 16 + i * 4 + (i + 2) % 4] * u[I[(i + 2) % 4]] +
+                     AK._data[c * 16 + i * 4 + (i + 3) % 4] * u[I[(i + 3) % 4]];
 
           _vertex_degrees[I[i]]--;
           if (_vertex_degrees[I[i]] == 0)
@@ -114,7 +108,7 @@ private:
         }
       }
 
-      // Check convergance
+      // Check convergence
       if (residual < relative_tolerance)
         break;
     }
@@ -124,12 +118,8 @@ private:
   }
 
   // Set initial guess for solution vector
-  static void set_initial_guess(std::vector<double> &u,
-                                const VolumeMesh &volume_mesh,
-                                const GridField &dem,
-                                double top_height,
-                                BoundaryConditions &bc
-                                )
+  static void set_initial_guess(std::vector<double> &u, const VolumeMesh &volume_mesh,
+                                const GridField &dem, double top_height, BoundaryConditions &bc)
   {
     info("Setting initial guess for solution vector");
 
@@ -145,25 +135,26 @@ private:
     }
   }
 
-  static std::vector<double> get_adjusted_building_heights(const VolumeMesh &volume_mesh, const std::vector<Surface> &building_surfaces)
+  static std::vector<double>
+  get_adjusted_building_heights(const VolumeMesh &volume_mesh,
+                                const std::vector<Surface> &building_surfaces)
   {
-    std::vector<double> adj_heights(building_surfaces.size(),0.0);
-      
+    std::vector<double> adj_heights(building_surfaces.size(), 0.0);
+
     for (size_t i = 0; i < volume_mesh.vertices.size(); i++)
-    {   
+    {
       int marker = volume_mesh.markers[i];
       if (marker >= 0)
       {
         adj_heights[marker] = volume_mesh.vertices[i].z;
-
-       
-      }     
+      }
     }
     for (size_t i = 0; i < adj_heights.size(); i++)
     {
-       std::cout <<i << ") Building max height: " <<  building_surfaces[i].max_height() << " adj: " << adj_heights[i] <<std::endl ;
+      std::cout << i << ") Building max height: " << building_surfaces[i].max_height()
+                << " adj: " << adj_heights[i] << std::endl;
     }
-    
+
     return adj_heights;
   }
 
