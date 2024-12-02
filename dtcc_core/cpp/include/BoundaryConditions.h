@@ -131,7 +131,6 @@ public:
           {
             continue;
           }
-          std::cout << "Top" << std::endl;
           vertex_markers[I[i]] = std::max(vertex_markers[I[i]], -3);
         }
       }
@@ -181,10 +180,12 @@ public:
       {
         const Vector2D p(_volume_mesh.vertices[i].x, _volume_mesh.vertices[i].y);
         values[i] = _dtm(p) - _volume_mesh.vertices[i].z;
+        values[i] +=
+            0.1 * (_volume_mesh.vertices[i].x - _volume_mesh.vertices[0].x); // FIXME: Debugging
       }
       else if (vertex_marker == -3) // Top
       {
-        std::cout << "Setting top bc" << std::endl;
+        std::cout << "Top: " << i << std::endl;
         values[i] = top_height - _volume_mesh.vertices[i].z;
       }
       else
