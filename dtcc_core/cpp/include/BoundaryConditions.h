@@ -59,9 +59,6 @@ public:
   {
     info("Computing boundary values");
 
-    std::cout << fix_buildings << std::endl;
-    std::cout << fix_top << std::endl;
-
     // TODO: Check if Search tree has already been built
     //_city.build_search_tree(true,0.0);
 

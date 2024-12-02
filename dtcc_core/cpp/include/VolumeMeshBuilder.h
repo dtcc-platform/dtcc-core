@@ -9,9 +9,6 @@
 #include <tuple>
 #include <vector>
 
-#include "Eigen/Eigen"
-#include "Eigen/Geometry"
-
 #include "Geometry.h"
 #include "Logging.h"
 #include "MeshProcessor.h"
@@ -33,7 +30,6 @@ class VolumeMeshBuilder
 {
 public:
   double domain_height;
-
   double top_height;
 
 private:
@@ -80,8 +76,6 @@ public:
     assert((!_ground_mesh.faces.empty()) && "Ground mesh has no faces");
     assert((!_ground_mesh.markers.empty()) && "Ground mesh has no markers");
 
-    top_height = compute_top_height();
-
     compute_building_ground_heights();
   }
 
@@ -116,9 +110,8 @@ public:
 
     // Volume mesh smoothing
     Timer t3_3("Step 3.3: Volume mesh smoothing (ground only)");
-    volume_mesh =
-        Smoother::smooth_volume_mesh(volume_mesh, _buildings, _dem, top_height, false, false,
-                                     smoother_iterations, smoother_relative_tolerance);
+    volume_mesh = Smoother::smooth_volume_mesh(volume_mesh, _buildings, _dem, 0.0, false, false,
+                                               smoother_iterations, smoother_relative_tolerance);
     t3_3.stop();
     t3_3.print();
 
@@ -138,7 +131,10 @@ public:
     if (debug_step == 4)
       return volume_mesh;
 
-    // Trim volume mesh (again)
+    // Compute top height
+    const double top_height = domain_height + _dem.max();
+
+    // Smooth volume mesh (again)
     Timer t3_5("Step 3.5: Volume mesh smoothing (ground and buildings)");
     volume_mesh =
         Smoother::smooth_volume_mesh(volume_mesh, _buildings, _dem, top_height, true, true,
@@ -443,35 +439,30 @@ private:
     }
   }
 
-  // FIXME: Remove?
-  // Return the top height of our smoothed domain
-  double compute_top_height() { return domain_height + _dem.max(); }
-
   // Layer ground mesh
   VolumeMesh layer_ground_mesh(const std::vector<double> &layer_heights)
   {
+    // Compute max building height
+    double max_height = 0.0;
+    for (size_t i = 0; i < _buildings.size(); i++)
+    {
+      const double height = _buildings[i].max_height() - _building_ground_height[i];
+      max_height = std::max(max_height, height);
+    }
 
-    //-------------------------------------------------------------------------
-    // FIXME: Rework this part
-    //-------------------------------------------------------------------------
-    domain_height = compute_relaxation_height(layer_heights);
-    info("Initial domain height adjusted to max building height.. " + str(domain_height));
-    top_height = compute_top_height();
-    info("Top height adjusted to max building height.. " + str(top_height));
-
-    // Adjust domain height to fit chosen layer heights
-    info("Initial domain height: " + str(domain_height));
+    // Compute layering height (cover tallest building and respect layer heights)
     const double H = layer_heights.back();
-    const double adjusted_domain_height = std::ceil(domain_height / H) * H;
-    info("Adjusted domain height: " + str(adjusted_domain_height));
-    //-------------------------------------------------------------------------
+    const double layering_height = std::ceil(max_height / H) * H;
 
     // Layer vertices in columns
     for (size_t j = 0; j < _ground_mesh.vertices.size(); j++)
     {
       const Vector3D &vg = _ground_mesh.vertices[j];
       const double h = layer_heights[vertex_colors[j]];
-      const size_t col_size = static_cast<size_t>((adjusted_domain_height / h)) + 1;
+      const size_t col_size = static_cast<size_t>((layering_height / h)) + 1;
+      std::cout << "Column size: " << col_size << std::endl;
+      std::cout << "Column height: " << h * (col_size - 1) << std::endl;
+
       for (size_t i = 0; i < col_size; i++)
       {
         Vector3D v(vg.x, vg.y, i * h);
@@ -636,42 +627,6 @@ private:
 
       _building_ground_height[i] = _dem(centroid);
     }
-  }
-
-  /// Compute relaxation height for cells above buildings
-  double compute_relaxation_height(const std::vector<double> &layer_heights, double buffer = 0.0)
-  {
-
-    const double max_layer_height = layer_heights.back();
-    const size_t num_buildings = _buildings.size();
-    std::vector<double> building_heights(num_buildings, 0.0);
-
-    for (size_t i = 0; i < num_buildings; i++)
-    {
-      building_heights[i] = _buildings[i].max_height() - _building_ground_height[i];
-    }
-
-    double _max_building_height = 0.0;
-    auto max = std::max_element(building_heights.begin(), building_heights.end());
-    if (max != building_heights.end())
-    {
-      _max_building_height = *max;
-    }
-
-    // Buffer should be a non-negative float number.
-    if (buffer < 0)
-      buffer = 0;
-
-    double relaxation_height = _max_building_height + buffer;
-    double adj_relaxation_height =
-        (std::ceil(relaxation_height / max_layer_height) + 1) * max_layer_height;
-
-    info("Max building height: " + str(_max_building_height) + " m.");
-    info("Relaxation height for cells above buildings: " + str(relaxation_height) + " m.");
-    info("Adjusted relaxation height for cells above buildings: " + str(adj_relaxation_height) +
-         " m.");
-
-    return adj_relaxation_height;
   }
 
   /// Mapping face markers to Vertex markers for ground mesh.

@@ -115,11 +115,6 @@ private:
             u[I[i]] = C[I[i]] / AK.diagonal[I[i]];
             res = std::abs(res - u[I[i]]);
             residual = std::max(residual, res);
-
-            if (I[i] == 100)
-            {
-              std::cout << "u = " << u[I[i]] << std::endl;
-            }
           }
         }
       }

@@ -53,7 +53,7 @@ public:
   /// uuid of property containing building
   std::string base_area_id{};
 
-  /// height of building relative to ground height
+  /// Height of building relative to ground height
   double height{};
 
   /// Error code for error found during while generating building
@@ -113,12 +113,9 @@ public:
   {
     return "Building\n"
            "uuid: " +
-           uuid + "\nProperty FNR: " + str(property_fnr) +
-           "\nProperty uuid: " + property_uuid +
-           "\nBase area ID: " + base_area_id +
-           "\nMin height: " + std::to_string(min_height()) +
-           "\nMax height: " + std::to_string(max_height()) +
-           "\nFootprint: " + footprint.__str__();
+           uuid + "\nProperty FNR: " + str(property_fnr) + "\nProperty uuid: " + property_uuid +
+           "\nBase area ID: " + base_area_id + "\nMin height: " + std::to_string(min_height()) +
+           "\nMax height: " + std::to_string(max_height()) + "\nFootprint: " + footprint.__str__();
   }
 };
 
