@@ -117,7 +117,7 @@ public:
     // Volume mesh smoothing
     Timer t3_3("Step 3.3: Volume mesh smoothing (ground only)");
     volume_mesh =
-        Smoother::smooth_volume_mesh(volume_mesh, _buildings, _dem, top_height, false, true,
+        Smoother::smooth_volume_mesh(volume_mesh, _buildings, _dem, top_height, false, false,
                                      smoother_iterations, smoother_relative_tolerance);
     t3_3.stop();
     t3_3.print();

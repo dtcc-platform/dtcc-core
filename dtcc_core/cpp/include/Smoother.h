@@ -48,7 +48,7 @@ public:
       u = b;
 
     // Solve linear system
-    solve_unassembled_gauss_seidel(volume_mesh, AK, b, u, max_iterations, relative_tolerance);
+    // solve_unassembled_gauss_seidel(volume_mesh, AK, b, u, max_iterations, relative_tolerance);
 
     // Update mesh coordinates
     VolumeMesh _volume_mesh{volume_mesh};
