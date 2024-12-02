@@ -123,7 +123,8 @@ public:
 
     // Trim volume mesh
     Timer t3_4("Step 3.4: Volume mesh trimming");
-    volume_mesh = trim_volume_mesh(layer_heights);
+    volume_mesh = trim_volume_mesh_new();
+    // volume_mesh = trim_volume_mesh(layer_heights);
     t3_4.stop();
     t3_4.print();
 
@@ -611,6 +612,42 @@ private:
     }
 
     return _column_mesh.to_volume_mesh();
+  }
+
+  // Trim volume mesh
+  VolumeMesh trim_volume_mesh_new()
+  {
+    // Keep track of which cells to keep
+    std::vector<std::vector<bool>> keep_cells(_column_mesh.cells.size());
+
+    // Iterate over cell columns
+    for (size_t i = 0; i < _column_mesh.cells.size(); i++)
+    {
+      // Keep all cells by default
+      keep_cells[i].resize(_column_mesh.cells[i].size(), true);
+
+      // Skip if not building
+      const int marker = _ground_mesh.markers[i];
+      if (marker < 0)
+        continue;
+
+      // Get building height
+      const double height = _buildings[marker].max_height();
+
+      // Iterate over cells in column
+      for (size_t j = 0; j < _column_mesh.cells[j].size(); j++)
+      {
+        // Get height of cell centroid
+        const auto &cell = _column_mesh.cells[i][j];
+        const double cz = _column_mesh.cell_centroid(cell).z;
+
+        // Trim cell if centroid is below building height
+        if (cz < height)
+          keep_cells[i][j] = false;
+      }
+    }
+
+    return _column_mesh.to_volume_mesh(keep_cells);
   }
 
   /// Computes ground heights at the building centroids
