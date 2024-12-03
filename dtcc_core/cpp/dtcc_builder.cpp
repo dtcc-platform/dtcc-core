@@ -313,17 +313,12 @@ namespace DTCC_BUILDER
     grid_field.grid.bounding_box = bbox;
     grid_field.grid.xstep = (qx - px) / xsize;
     grid_field.grid.ystep = (qy - py) / ysize;
-    info("xstep: " + str(grid_field.grid.xstep));
-    info("ystep: " + str(grid_field.grid.ystep));
 
     grid_field.grid.xsize = xsize;
     grid_field.grid.ysize = ysize;
 
     auto data_r = data.unchecked<1>();
     size_t data_count = data_r.size();
-
-    info("expected size: " + str(xsize * ysize));
-    info("actual size: " + str(data_count));
 
     for (size_t i = 0; i < data_count; i++)
     {
