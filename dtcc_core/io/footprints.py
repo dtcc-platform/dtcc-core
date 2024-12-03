@@ -24,6 +24,8 @@ from ..model.geometry import Bounds
 
 from .logging import info, warning, error
 
+from typing import Union
+
 
 def building_bounds(shp_footprint_file, buffer=0):
     """
@@ -153,7 +155,7 @@ def _load_fiona(
 
 
 def load(
-    filename,
+    filename: Union[str, Path],
     uuid_field="id",
     height_field="",
     area_filter=None,

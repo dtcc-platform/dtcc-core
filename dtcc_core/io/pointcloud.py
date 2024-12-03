@@ -62,7 +62,7 @@ def bounds_filter_poinst(pts, bounds):
 
 
 def load(
-    path: Union[str, List[str]],
+    path: Union[str, List[str], Path],
     points_only=False,
     points_classification_only=False,
     delimiter=",",
