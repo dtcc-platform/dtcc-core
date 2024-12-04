@@ -30,16 +30,20 @@ public:
   ColumnIndex v2{};
   ColumnIndex v3{};
 
+  // Layer relative to tallest prism
+  size_t layer{};
+
   // Create default simplex
   ColumnSimplex() = default;
 
   // Create simplex and optionally sort vertices
-  ColumnSimplex(ColumnIndex v0, ColumnIndex v1, ColumnIndex v2, ColumnIndex v3)
+  ColumnSimplex(ColumnIndex v0, ColumnIndex v1, ColumnIndex v2, ColumnIndex v3, size_t layer)
   {
     this->v0 = v0;
     this->v1 = v1;
     this->v2 = v2;
     this->v3 = v3;
+    this->layer = layer;
   }
 };
 
@@ -90,6 +94,17 @@ public:
     const Vector3D &v3 = vertex(cell.v3);
 
     return (v0 + v1 + v2 + v3) / 4.0;
+  }
+
+  // Get cell height
+  double cell_height(const ColumnSimplex &cell) const
+  {
+    const Vector3D &v0 = vertex(cell.v0);
+    const Vector3D &v1 = vertex(cell.v1);
+    const Vector3D &v2 = vertex(cell.v2);
+    const Vector3D &v3 = vertex(cell.v3);
+
+    return std::max({v0.z, v1.z, v2.z, v3.z});
   }
 
   // Convert to volume mesh
