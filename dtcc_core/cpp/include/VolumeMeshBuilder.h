@@ -205,7 +205,6 @@ private:
     // Assign vertex colors and sort by color
     info("Assigning vertex colors...");
     assign_vertex_colors(layer_heights);
-    // sort_faces_by_vertex_color();
     sort_faces_by_vertex_color_and_index();
 
     // Assign face partitions
@@ -330,32 +329,7 @@ private:
     }
   }
 
-  // Sort faces by vertex color
-  void sort_faces_by_vertex_color()
-  {
-    for (auto &face : _ground_mesh.faces)
-    {
-      size_t c0 = vertex_colors[face.v0];
-      size_t c1 = vertex_colors[face.v1];
-      size_t c2 = vertex_colors[face.v2];
-      if (c0 > c1)
-      {
-        std::swap(c0, c1);
-        std::swap(face.v0, face.v1);
-      }
-      if (c0 > c2)
-      {
-        std::swap(c0, c2);
-        std::swap(face.v0, face.v2);
-      }
-      if (c1 > c2)
-      {
-        std::swap(c1, c2);
-        std::swap(face.v1, face.v2);
-      }
-    }
-  }
-
+  // Sort faces by vertex color and index
   void sort_faces_by_vertex_color_and_index()
   {
     for (auto &face : _ground_mesh.faces)
@@ -381,22 +355,22 @@ private:
       // Compare and swap first and second elements
       if (c0 > c1 || (c0 == c1 && face.v0 > face.v1))
       {
-          std::swap(c0, c1);
-          std::swap(face.v0, face.v1);
+        std::swap(c0, c1);
+        std::swap(face.v0, face.v1);
       }
 
       // Compare and swap first and third elements
       if (c0 > c2 || (c0 == c2 && face.v0 > face.v2))
       {
-          std::swap(c0, c2);
-          std::swap(face.v0, face.v2);
+        std::swap(c0, c2);
+        std::swap(face.v0, face.v2);
       }
 
       // Compare and swap second and third elements
       if (c1 > c2 || (c1 == c2 && face.v1 > face.v2))
       {
-          std::swap(c1, c2);
-          std::swap(face.v1, face.v2);
+        std::swap(c1, c2);
+        std::swap(face.v1, face.v2);
       }
     }
   }
@@ -647,21 +621,20 @@ private:
   // Trim volume mesh
   VolumeMesh trim_volume_mesh()
   {
-    return _column_mesh.to_volume_mesh();
 
     std::vector<std::vector<bool>> keep_cells(_column_mesh.cells.size());
     for (size_t i = 0; i < _column_mesh.cells.size(); i++)
     {
-      keep_cells[i].resize(_column_mesh.cells[i].size(), true);
+      keep_cells[i].resize(_column_mesh.cells[i].size(), false);
 
-      // for (size_t j = 0; j < _column_mesh.cells[i].size(); j++)
-      // {
-      //   const auto &cell = _column_mesh.cells[i][j];
-      //   if (cell.layer_index <= 8)
-      //   {
-      //     keep_cells[i][j] = true;
-      //   }
-      // }
+      for (size_t j = 0; j < _column_mesh.cells[i].size(); j++)
+      {
+        const auto &cell = _column_mesh.cells[i][j];
+        if (cell.layer_index <= 6)
+        {
+          keep_cells[i][j] = true;
+        }
+      }
     }
 
     // We decide which layer to keep for each building by checking which layer
