@@ -63,8 +63,6 @@ private:
 
   std::vector<int> face_partitions;
 
-  std::vector<size_t> max_building_colors;
-
 public:
   // Constructor
   VolumeMeshBuilder(const std::vector<Surface> &buildings, const GridField &dem, Mesh &ground_mesh,
@@ -266,9 +264,6 @@ private:
   void assign_face_colors(const std::vector<double> &areas,
                           const std::vector<double> &layer_heights)
   {
-    // Keep track of maximum color for each building
-    max_building_colors.resize(_buildings.size(), 0);
-
     // Iterate over ground faces
     face_colors.resize(areas.size());
     for (size_t i = 0; i < areas.size(); i++)
@@ -277,11 +272,6 @@ private:
       const double h = ideal_layer_height(areas[i]);
       const size_t face_color = closest_layer_height(h, layer_heights);
       face_colors[i] = face_color;
-
-      // Save maximum color for each building
-      const int marker = _ground_mesh.markers[i];
-      if (marker >= 0)
-        max_building_colors[marker] = std::max(max_building_colors[marker], face_color);
     }
   }
 
@@ -445,14 +435,13 @@ private:
     const double layering_height = std::ceil(max_height / H) * H;
 
     // Layer vertices in columns
+    size_t max_col_size = 0;
     for (size_t j = 0; j < _ground_mesh.vertices.size(); j++)
     {
       const Vector3D &vg = _ground_mesh.vertices[j];
       const double h = layer_heights[vertex_colors[j]];
       const size_t col_size = static_cast<size_t>((layering_height / h)) + 1;
-      std::cout << "Column size: " << col_size << std::endl;
-      std::cout << "Column height: " << h * (col_size - 1) << std::endl;
-
+      max_col_size = std::max(max_col_size, col_size);
       for (size_t i = 0; i < col_size; i++)
       {
         Vector3D v(vg.x, vg.y, i * h);
@@ -484,22 +473,25 @@ private:
       std::vector<std::array<size_t, 4>> prism_iterator(num_prisms);
       for (size_t j = 0; j < num_prisms; j++)
       {
-        prism_iterator[j] = {j, col_offsets[0] + j * (1 << (face_colors[i] - _vertex_colors[0])),
+        const size_t layer_index = (j + 1) * (max_col_size - 1) / num_prisms;
+        std::cout << "layer_index: " << layer_index << std::endl;
+        prism_iterator[j] = {col_offsets[0] + j * (1 << (face_colors[i] - _vertex_colors[0])),
                              col_offsets[1] + j * (1 << (face_colors[i] - _vertex_colors[1])),
-                             col_offsets[2] + j * (1 << (face_colors[i] - _vertex_colors[2]))};
+                             col_offsets[2] + j * (1 << (face_colors[i] - _vertex_colors[2])),
+                             layer_index};
       }
 
       // Add tetrahedrons based on face partition type
       switch (face_partitions[i])
       {
-      case 0:
+      case 0: // 6 vertices, 3 tetrahedrons
       {
         for (const auto &ar : prism_iterator)
         {
-          const size_t j = ar[0];
-          const size_t k = ar[1];
-          const size_t l = ar[2];
-          const size_t m = ar[3];
+          const size_t k = ar[0];
+          const size_t l = ar[1];
+          const size_t m = ar[2];
+          const size_t n = ar[3];
 
           ColumnIndex bot_triangle_0(face[0], k);
           ColumnIndex bot_triangle_1(face[1], l);
@@ -508,9 +500,9 @@ private:
           ColumnIndex top_triangle_1(face[1], l + 1);
           ColumnIndex top_triangle_2(face[2], m + 1);
 
-          ColumnSimplex K0(bot_triangle_0, bot_triangle_1, bot_triangle_2, top_triangle_2, j);
-          ColumnSimplex K1(bot_triangle_0, top_triangle_1, bot_triangle_1, top_triangle_2, j);
-          ColumnSimplex K2(bot_triangle_0, top_triangle_0, top_triangle_1, top_triangle_2, j);
+          ColumnSimplex K0(bot_triangle_0, bot_triangle_1, bot_triangle_2, top_triangle_2, n);
+          ColumnSimplex K1(bot_triangle_0, top_triangle_1, bot_triangle_1, top_triangle_2, n);
+          ColumnSimplex K2(bot_triangle_0, top_triangle_0, top_triangle_1, top_triangle_2, n);
 
           _column_mesh.cells[i].emplace_back(K0);
           _column_mesh.cells[i].emplace_back(K1);
@@ -519,14 +511,14 @@ private:
       }
       break;
 
-      case 1:
+      case 1: // 7 vertices, 4 tetrahedrons
       {
         for (const auto &ar : prism_iterator)
         {
-          const size_t j = ar[0];
-          const size_t k = ar[1];
-          const size_t l = ar[2];
-          const size_t m = ar[3];
+          const size_t k = ar[0];
+          const size_t l = ar[1];
+          const size_t m = ar[2];
+          const size_t n = ar[3];
 
           ColumnIndex bot_triangle_0(face[0], k);
           ColumnIndex bot_triangle_1(face[1], l);
@@ -536,10 +528,10 @@ private:
           ColumnIndex top_triangle_1(face[1], l + 1);
           ColumnIndex top_triangle_2(face[2], m + 1);
 
-          ColumnSimplex K0(bot_triangle_0, bot_triangle_1, bot_triangle_2, mid_triangle_0, j);
-          ColumnSimplex K1(bot_triangle_1, top_triangle_2, bot_triangle_2, mid_triangle_0, j);
-          ColumnSimplex K2(bot_triangle_1, top_triangle_2, mid_triangle_0, top_triangle_1, j);
-          ColumnSimplex K3(mid_triangle_0, top_triangle_0, top_triangle_1, top_triangle_2, j);
+          ColumnSimplex K0(bot_triangle_0, bot_triangle_1, bot_triangle_2, mid_triangle_0, n);
+          ColumnSimplex K1(bot_triangle_1, top_triangle_2, bot_triangle_2, mid_triangle_0, n);
+          ColumnSimplex K2(bot_triangle_1, top_triangle_2, mid_triangle_0, top_triangle_1, n);
+          ColumnSimplex K3(mid_triangle_0, top_triangle_0, top_triangle_1, top_triangle_2, n);
 
           _column_mesh.cells[i].emplace_back(K0);
           _column_mesh.cells[i].emplace_back(K1);
@@ -549,14 +541,14 @@ private:
       }
       break;
 
-      case 2:
+      case 2: // 8 vertices, 5 tetrahedrons
       {
         for (const auto &ar : prism_iterator)
         {
-          const size_t j = ar[0];
-          const size_t k = ar[1];
-          const size_t l = ar[2];
-          const size_t m = ar[3];
+          const size_t k = ar[0];
+          const size_t l = ar[1];
+          const size_t m = ar[2];
+          const size_t n = ar[3];
 
           ColumnIndex bot_triangle_0(face[0], k);
           ColumnIndex bot_triangle_1(face[1], l);
@@ -567,11 +559,11 @@ private:
           ColumnIndex top_triangle_1(face[1], l + 2);
           ColumnIndex top_triangle_2(face[2], m + 1);
 
-          ColumnSimplex K0(bot_triangle_0, bot_triangle_1, bot_triangle_2, mid_triangle_1, j);
-          ColumnSimplex K1(bot_triangle_0, bot_triangle_2, mid_triangle_0, mid_triangle_1, j);
-          ColumnSimplex K2(bot_triangle_2, top_triangle_2, mid_triangle_0, mid_triangle_1, j);
-          ColumnSimplex K3(top_triangle_0, top_triangle_2, top_triangle_1, mid_triangle_0, j);
-          ColumnSimplex K4(top_triangle_1, top_triangle_2, mid_triangle_1, mid_triangle_0, j);
+          ColumnSimplex K0(bot_triangle_0, bot_triangle_1, bot_triangle_2, mid_triangle_1, n);
+          ColumnSimplex K1(bot_triangle_0, bot_triangle_2, mid_triangle_0, mid_triangle_1, n);
+          ColumnSimplex K2(bot_triangle_2, top_triangle_2, mid_triangle_0, mid_triangle_1, n);
+          ColumnSimplex K3(top_triangle_0, top_triangle_2, top_triangle_1, mid_triangle_0, n);
+          ColumnSimplex K4(top_triangle_1, top_triangle_2, mid_triangle_1, mid_triangle_0, n);
 
           _column_mesh.cells[i].emplace_back(K0);
           _column_mesh.cells[i].emplace_back(K1);
@@ -609,67 +601,106 @@ private:
   // Trim volume mesh
   VolumeMesh trim_volume_mesh()
   {
+
+    std::vector<std::vector<bool>> keep_cells(_column_mesh.cells.size());
+    for (size_t i = 0; i < _column_mesh.cells.size(); i++)
+    {
+      keep_cells[i].resize(_column_mesh.cells[i].size(), true);
+
+      for (size_t j = 0; j < _column_mesh.cells[i].size(); j++)
+      {
+        const auto &cell = _column_mesh.cells[i][j];
+        if (cell.layer_index >= 4)
+        {
+          keep_cells[i][j] = false;
+        }
+      }
+    }
+
     // We decide which layer to keep for each building by checking which layer
     // of the highest color (tallest prisms) is closest to the building height.
 
-    // Initialize highest layer to trim for each building
-    std::vector<std::pair<double, size_t>> trim_layer(_buildings.size(),
-                                                      {std::numeric_limits<double>::max(), 0});
+    // // Get max colors for each building
+    // std::vector<int> max_building_colors(_buildings.size(), 0);
+    // for (size_t i = 0; i < _ground_mesh.faces.size(); i++)
+    // {
+    //   const int marker = _ground_mesh.markers[i];
+    //   if (marker < 0)
+    //     continue;
+    //   max_building_colors[marker] = std::max(max_building_colors[marker], face_colors[i]);
+    // }
 
-    // Iterate over cell columns
-    for (size_t i = 0; i < _column_mesh.cells.size(); i++)
-    {
-      // Skip if not building
-      const int marker = _ground_mesh.markers[i];
-      if (marker < 0)
-        continue;
+    // // Initialize highest layer to trim for each building
+    // std::vector<std::pair<double, size_t>> trim_layer(_buildings.size(),
+    //                                                   {std::numeric_limits<double>::max(), 0});
 
-      // Skip if not column with highest color (tallest prisms)
-      if (face_colors[i] != max_building_colors[marker])
-        continue;
+    // // Iterate over cell columns
+    // for (size_t i = 0; i < _column_mesh.cells.size(); i++)
+    // {
+    //   // Skip if not building
+    //   const int marker = _ground_mesh.markers[i];
+    //   if (marker < 0)
+    //     continue;
 
-      // Get building height
-      const double height = _buildings[marker].max_height();
+    //   std::cout << std::endl;
+    //   std::cout << " Building: " << marker << std::endl;
+    //   std::cout << " Face color: " << face_colors[i] << std::endl;
+    //   std::cout << " Max building color: " << max_building_colors[marker] << std::endl;
 
-      // Iterate over cells in column
-      for (size_t j = 0; j < _column_mesh.cells[j].size(); j++)
-      {
-        // Get height of cell (max vertex coordinate)
-        const auto &cell = _column_mesh.cells[i][j];
-        const double z = _column_mesh.cell_height(cell);
+    //   // Skip if not column with highest color (tallest prisms)
+    //   if (face_colors[i] != max_building_colors[marker])
+    //     continue;
 
-        // Check for closest layer to building height
-        const double d = std::abs(z - height);
-        if (d < trim_layer[marker].first)
-          trim_layer[marker] = {d, cell.layer};
-      }
-    }
+    //   // Get building height
+    //   const double height = _buildings[marker].max_height();
 
-    // Initialize markers for which cells to keep
-    std::vector<std::vector<bool>> keep_cells(_column_mesh.cells.size());
+    //   // Iterate over cells in column
+    //   for (size_t j = 0; j < _column_mesh.cells[j].size(); j++)
+    //   {
+    //     // Get height of cell (max vertex coordinate)
+    //     const auto &cell = _column_mesh.cells[i][j];
+    //     const double z = _column_mesh.cell_height(cell);
 
-    // Iterate over cell columns
-    for (size_t i = 0; i < _column_mesh.cells.size(); i++)
-    {
-      // Keep all cells by default
-      keep_cells[i].resize(_column_mesh.cells[i].size(), true);
+    //     // Check for closest layer to building height
+    //     const double d = std::abs(z - height);
+    //     if (d < trim_layer[marker].first)
+    //     {
+    //       std::cout << "Building " << marker << " closest to layer " << cell.layer << std::endl;
+    //       trim_layer[marker] = {d, cell.layer};
+    //     }
+    //   }
+    // }
 
-      // Skip if not building
-      const int marker = _ground_mesh.markers[i];
-      if (marker < 0)
-        continue;
+    // for (size_t i = 0; i < trim_layer.size(); i++)
+    // {
+    //   std::cout << "Building " << i << " trimmed to layer " << trim_layer[i].second << std::endl;
+    // }
 
-      // Iterate over cells in column
-      for (size_t j = 0; j < _column_mesh.cells[j].size(); j++)
-      {
-        // Get cell
-        const auto &cell = _column_mesh.cells[i][j];
+    // // Initialize markers for which cells to keep
+    // std::vector<std::vector<bool>> keep_cells(_column_mesh.cells.size());
 
-        // Trim cell if inside trimming layer
-        if (cell.layer <= trim_layer[marker].second)
-          keep_cells[i][j] = false;
-      }
-    }
+    // // Iterate over cell columns
+    // for (size_t i = 0; i < _column_mesh.cells.size(); i++)
+    // {
+    //   // Keep all cells by default
+    //   keep_cells[i].resize(_column_mesh.cells[i].size(), true);
+
+    //   // Skip if not building
+    //   const int marker = _ground_mesh.markers[i];
+    //   if (marker < 0)
+    //     continue;
+
+    //   // Iterate over cells in column
+    //   for (size_t j = 0; j < _column_mesh.cells[j].size(); j++)
+    //   {
+    //     // Get cell
+    //     const auto &cell = _column_mesh.cells[i][j];
+
+    //     // Trim cell if inside trimming layer
+    //     if (cell.layer <= trim_layer[marker].second)
+    //       keep_cells[i][j] = false;
+    //   }
+    // }
 
     return _column_mesh.to_volume_mesh(keep_cells);
   }

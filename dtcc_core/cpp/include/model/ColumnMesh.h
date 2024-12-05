@@ -30,20 +30,20 @@ public:
   ColumnIndex v2{};
   ColumnIndex v3{};
 
-  // Layer relative to tallest prism
-  size_t layer{};
+  // Layer index (integer height in terms of smallest layer height)
+  size_t layer_index{};
 
   // Create default simplex
   ColumnSimplex() = default;
 
   // Create simplex and optionally sort vertices
-  ColumnSimplex(ColumnIndex v0, ColumnIndex v1, ColumnIndex v2, ColumnIndex v3, size_t layer)
+  ColumnSimplex(ColumnIndex v0, ColumnIndex v1, ColumnIndex v2, ColumnIndex v3, size_t layer_index)
   {
     this->v0 = v0;
     this->v1 = v1;
     this->v2 = v2;
     this->v3 = v3;
-    this->layer = layer;
+    this->layer_index = layer_index;
   }
 };
 
