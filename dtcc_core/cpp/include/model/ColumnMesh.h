@@ -1,6 +1,8 @@
 #ifndef DTCC_COLUMN_MESH_H
 #define DTCC_COLUMN_MESH_H
 
+#include <map>
+
 #include "VertexSmoother.h"
 #include "model/City.h"
 #include "model/GridField.h"
@@ -155,18 +157,9 @@ public:
   {
     VolumeMesh volume_mesh;
 
-    // Add vertices
-    const size_t volume_mesh_num_vertices = vertices_offset.back() + vertices.back().size();
-    volume_mesh.vertices.reserve(volume_mesh_num_vertices);
-    for (size_t j = 0; j < vertices.size(); j++)
-    {
-      for (size_t k = 0; k < vertices[j].size(); k++)
-      {
-        volume_mesh.vertices.push_back(vertices[j][k]);
-      }
-    }
-
-    // Add cells
+    // Add cells and renumber vertices
+    std::unordered_map<size_t, size_t> vertex_indices;
+    std::unordered_map<size_t, ColumnIndex> column_indices;
     for (size_t i = 0; i < cells.size(); i++)
     {
       for (size_t j = 0; j < cells[i].size(); j++)
@@ -175,24 +168,41 @@ public:
         if (!keep_cells[i][j])
           continue;
 
-        size_t vc0 = vertices_offset[cells[i][j].v0.column] + cells[i][j].v0.index;
-        size_t vc1 = vertices_offset[cells[i][j].v1.column] + cells[i][j].v1.index;
-        size_t vc2 = vertices_offset[cells[i][j].v2.column] + cells[i][j].v2.index;
-        size_t vc3 = vertices_offset[cells[i][j].v3.column] + cells[i][j].v3.index;
+        // Get vertex indices
+        size_t i0 = vertices_offset[cells[i][j].v0.column] + cells[i][j].v0.index;
+        size_t i1 = vertices_offset[cells[i][j].v1.column] + cells[i][j].v1.index;
+        size_t i2 = vertices_offset[cells[i][j].v2.column] + cells[i][j].v2.index;
+        size_t i3 = vertices_offset[cells[i][j].v3.column] + cells[i][j].v3.index;
 
-        volume_mesh.cells.push_back(Simplex3D(vc0, vc1, vc2, vc3));
+        // Renumber vertices
+        i0 = renumber_vertex(i0, cells[i][j].v0, vertex_indices, column_indices);
+        i1 = renumber_vertex(i1, cells[i][j].v1, vertex_indices, column_indices);
+        i2 = renumber_vertex(i2, cells[i][j].v2, vertex_indices, column_indices);
+        i3 = renumber_vertex(i3, cells[i][j].v3, vertex_indices, column_indices);
+
+        // Add cell
+        volume_mesh.cells.push_back(Simplex3D(i0, i1, i2, i3));
       }
     }
+
+    // Add vertices
+    volume_mesh.vertices.resize(vertex_indices.size());
+    for (const auto &it : vertex_indices)
+    {
+      volume_mesh.vertices[it.second] = vertex(column_indices[it.first]);
+    }
+
+    // FIXME: Handle markers
 
     // Add markers
-    volume_mesh.markers.reserve(volume_mesh_num_vertices);
-    for (size_t j = 0; j < markers.size(); j++)
-    {
-      for (size_t k = 0; k < markers[j].size(); k++)
-      {
-        volume_mesh.markers.push_back(markers[j][k]);
-      }
-    }
+    // volume_mesh.markers.reserve(volume_mesh_num_vertices);
+    // for (size_t j = 0; j < markers.size(); j++)
+    // {
+    //   for (size_t k = 0; k < markers[j].size(); k++)
+    //   {
+    //     volume_mesh.markers.push_back(markers[j][k]);
+    //   }
+    // }
 
     return volume_mesh;
   }
@@ -223,6 +233,24 @@ public:
   {
     return "ColumnMesh mesh with " + str(vertices.size()) + " vertex columns and " +
            str(cells.size()) + " cell columns";
+  }
+
+private:
+  // Renumber vertex (if not already renumbered)
+  size_t renumber_vertex(size_t vertex_index, ColumnIndex column_index,
+                         std::unordered_map<size_t, size_t> &vertex_indices,
+                         std::unordered_map<size_t, ColumnIndex> &column_indices)
+  {
+    // Check if vertex has already been renumbered
+    const auto it = vertex_indices.find(vertex_index);
+    if (it != vertex_indices.end())
+      return it->second;
+
+    // Renumber vertex
+    const size_t new_index = vertex_indices.size();
+    vertex_indices[vertex_index] = new_index;
+    column_indices[vertex_index] = column_index;
+    return new_index;
   }
 };
 

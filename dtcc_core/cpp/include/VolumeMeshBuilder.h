@@ -607,14 +607,14 @@ private:
     {
       keep_cells[i].resize(_column_mesh.cells[i].size(), true);
 
-      for (size_t j = 0; j < _column_mesh.cells[i].size(); j++)
-      {
-        const auto &cell = _column_mesh.cells[i][j];
-        if (cell.layer_index >= 4)
-        {
-          keep_cells[i][j] = false;
-        }
-      }
+      // for (size_t j = 0; j < _column_mesh.cells[i].size(); j++)
+      // {
+      //   const auto &cell = _column_mesh.cells[i][j];
+      //   if (cell.layer_index <= 8)
+      //   {
+      //     keep_cells[i][j] = true;
+      //   }
+      // }
     }
 
     // We decide which layer to keep for each building by checking which layer
