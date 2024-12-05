@@ -601,6 +601,7 @@ private:
   // Trim volume mesh
   VolumeMesh trim_volume_mesh()
   {
+    return _column_mesh.to_volume_mesh();
 
     std::vector<std::vector<bool>> keep_cells(_column_mesh.cells.size());
     for (size_t i = 0; i < _column_mesh.cells.size(); i++)
