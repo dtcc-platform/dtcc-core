@@ -205,7 +205,8 @@ private:
     // Assign vertex colors and sort by color
     info("Assigning vertex colors...");
     assign_vertex_colors(layer_heights);
-    sort_faces_by_vertex_color();
+    // sort_faces_by_vertex_color();
+    sort_faces_by_vertex_color_and_index();
 
     // Assign face partitions
     info("Assigning face partitions...");
@@ -351,6 +352,51 @@ private:
       {
         std::swap(c1, c2);
         std::swap(face.v1, face.v2);
+      }
+    }
+  }
+
+  void sort_faces_by_vertex_color_and_index()
+  {
+    for (auto &face : _ground_mesh.faces)
+    {
+      size_t c0 = vertex_colors[face.v0];
+      size_t c1 = vertex_colors[face.v1];
+      size_t c2 = vertex_colors[face.v2];
+      if (c0 > c1)
+      {
+        std::swap(c0, c1);
+        std::swap(face.v0, face.v1);
+      }
+      if (c0 > c2)
+      {
+        std::swap(c0, c2);
+        std::swap(face.v0, face.v2);
+      }
+      if (c1 > c2)
+      {
+        std::swap(c1, c2);
+        std::swap(face.v1, face.v2);
+      }
+      // Compare and swap first and second elements
+      if (c0 > c1 || (c0 == c1 && face.v0 > face.v1))
+      {
+          std::swap(c0, c1);
+          std::swap(face.v0, face.v1);
+      }
+
+      // Compare and swap first and third elements
+      if (c0 > c2 || (c0 == c2 && face.v0 > face.v2))
+      {
+          std::swap(c0, c2);
+          std::swap(face.v0, face.v2);
+      }
+
+      // Compare and swap second and third elements
+      if (c1 > c2 || (c1 == c2 && face.v1 > face.v2))
+      {
+          std::swap(c1, c2);
+          std::swap(face.v1, face.v2);
       }
     }
   }
