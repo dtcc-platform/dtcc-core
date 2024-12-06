@@ -131,17 +131,18 @@ public:
     if (debug_step == 4)
       return volume_mesh;
 
-    // Compute top height
-    const double top_height = domain_height + _dem.max();
+    // FIXME: Smooth mesh in-place instead of returning a new mesh
 
     // Smooth volume mesh (again)
     Timer t3_5("Step 3.5: Volume mesh smoothing (ground and buildings)");
     info("Smoothing volume mesh...");
-    volume_mesh =
-        Smoother::smooth_volume_mesh(volume_mesh, _buildings, _dem, top_height, true, true,
-                                     smoother_iterations, smoother_relative_tolerance);
+    volume_mesh = Smoother::smooth_volume_mesh(volume_mesh, _buildings, _dem, 0.0, true, false,
+                                               smoother_iterations, smoother_relative_tolerance);
     t3_5.stop();
     t3_5.print();
+
+    // FIXME: Not used yet (only for padding)
+    top_height = domain_height + _dem.max();
 
     return volume_mesh;
   }
@@ -721,6 +722,16 @@ private:
         const auto &cell = _column_mesh.cells[i][j];
         if (cell.layer_index <= trimming_layer_indices[marker])
           keep_cells[i][j] = false;
+
+        // Mark top vertices as building
+        if (_column_mesh.layer_index(cell.v0) == trimming_layer_indices[marker])
+          _column_mesh.markers[cell.v0.column][cell.v0.index] = marker;
+        if (_column_mesh.layer_index(cell.v1) == trimming_layer_indices[marker])
+          _column_mesh.markers[cell.v1.column][cell.v1.index] = marker;
+        if (_column_mesh.layer_index(cell.v2) == trimming_layer_indices[marker])
+          _column_mesh.markers[cell.v2.column][cell.v2.index] = marker;
+        if (_column_mesh.layer_index(cell.v3) == trimming_layer_indices[marker])
+          _column_mesh.markers[cell.v3.column][cell.v3.index] = marker;
       }
     }
 

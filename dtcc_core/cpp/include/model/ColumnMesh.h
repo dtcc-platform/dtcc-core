@@ -119,6 +119,13 @@ public:
     return std::max({v0.z, v1.z, v2.z, v3.z});
   }
 
+  // Get layer index of vertex
+  size_t layer_index(const ColumnIndex &index) const
+  {
+    const size_t layer_step = num_min_layers / (vertices[index.column].size() - 1);
+    return index.index * layer_step;
+  }
+
   // Convert to volume mesh
   VolumeMesh to_volume_mesh()
   {
@@ -199,20 +206,17 @@ public:
     volume_mesh.vertices.resize(vertex_indices.size());
     for (const auto &it : vertex_indices)
     {
-      volume_mesh.vertices[it.second] = vertex(column_indices[it.first]);
+      const auto column_index = column_indices[it.first];
+      volume_mesh.vertices[it.second] = vertices[column_index.column][column_index.index];
     }
 
-    // FIXME: Handle markers
-
     // Add markers
-    // volume_mesh.markers.reserve(volume_mesh_num_vertices);
-    // for (size_t j = 0; j < markers.size(); j++)
-    // {
-    //   for (size_t k = 0; k < markers[j].size(); k++)
-    //   {
-    //     volume_mesh.markers.push_back(markers[j][k]);
-    //   }
-    // }
+    volume_mesh.markers.resize(vertex_indices.size());
+    for (const auto &it : vertex_indices)
+    {
+      const auto column_index = column_indices[it.first];
+      volume_mesh.markers[it.second] = markers[column_index.column][column_index.index];
+    }
 
     return volume_mesh;
   }
