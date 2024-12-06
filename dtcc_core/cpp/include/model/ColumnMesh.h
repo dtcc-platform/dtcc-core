@@ -63,8 +63,17 @@ public:
   /// Vector of vectors of vertex markers
   std::vector<std::vector<int>> markers{};
 
+  // Vector of number of prisms in each cell column
+  std::vector<size_t> num_prisms;
+
   // Vector of vertex offsets
   std::vector<size_t> vertices_offset;
+
+  // Number of layers of minimum height
+  size_t num_min_layers{};
+
+  // Number of layers of maximum height
+  size_t num_max_layers{};
 
   // Default constructor
   ColumnMesh() = default;
@@ -75,6 +84,7 @@ public:
     vertices.resize(ground_mesh.vertices.size());
     cells.resize(ground_mesh.faces.size());
     markers.resize(ground_mesh.markers.size());
+    num_prisms.resize(ground_mesh.faces.size(), 0);
     vertices_offset.resize(ground_mesh.vertices.size() + 1, 0);
   }
 

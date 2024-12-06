@@ -98,6 +98,7 @@ public:
 
     // Layer ground mesh
     Timer t3_2("Step 3.2: Ground mesh layering");
+    info("Layering ground mesh...");
     VolumeMesh volume_mesh = layer_ground_mesh(layer_heights);
     t3_2.stop();
     t3_2.print();
@@ -108,8 +109,10 @@ public:
 
     // Volume mesh smoothing
     Timer t3_3("Step 3.3: Volume mesh smoothing (ground only)");
+    info("Smoothing volume mesh...");
     volume_mesh = Smoother::smooth_volume_mesh(volume_mesh, _buildings, _dem, 0.0, false, false,
                                                smoother_iterations, smoother_relative_tolerance);
+    _column_mesh._update_vertices(volume_mesh);
     t3_3.stop();
     t3_3.print();
 
@@ -117,10 +120,9 @@ public:
     if (debug_step == 3)
       return volume_mesh;
 
-    _column_mesh._update_vertices(volume_mesh);
-
     // Trim volume mesh
     Timer t3_4("Step 3.4: Volume mesh trimming");
+    info("Trimming volume mesh...");
     volume_mesh = trim_volume_mesh();
     t3_4.stop();
     t3_4.print();
@@ -134,6 +136,7 @@ public:
 
     // Smooth volume mesh (again)
     Timer t3_5("Step 3.5: Volume mesh smoothing (ground and buildings)");
+    info("Smoothing volume mesh...");
     volume_mesh =
         Smoother::smooth_volume_mesh(volume_mesh, _buildings, _dem, top_height, true, true,
                                      smoother_iterations, smoother_relative_tolerance);
@@ -443,25 +446,23 @@ private:
   VolumeMesh layer_ground_mesh(const std::vector<double> &layer_heights)
   {
     // Compute max building height
-    double max_height = 0.0;
+    double max_building_height = 0.0;
     for (size_t i = 0; i < _buildings.size(); i++)
     {
-      const double height = _buildings[i].max_height() - _building_ground_height[i];
-      max_height = std::max(max_height, height);
+      const double building_height = _buildings[i].max_height() - _building_ground_height[i];
+      max_building_height = std::max(max_building_height, building_height);
     }
 
-    // Compute layering height (cover tallest building and respect layer heights)
-    const double H = layer_heights.back();
-    const double layering_height = std::ceil(max_height / H) * H;
+    // Compute number of layers of max height and min height
+    _column_mesh.num_max_layers = std::ceil(max_building_height / layer_heights.back());
+    _column_mesh.num_min_layers = _column_mesh.num_max_layers << (layer_heights.size() - 1);
 
     // Layer vertices in columns
-    size_t max_col_size = 0;
     for (size_t j = 0; j < _ground_mesh.vertices.size(); j++)
     {
       const Vector3D &vg = _ground_mesh.vertices[j];
       const double h = layer_heights[vertex_colors[j]];
-      const size_t col_size = static_cast<size_t>((layering_height / h)) + 1;
-      max_col_size = std::max(max_col_size, col_size);
+      const size_t col_size = (_column_mesh.num_min_layers >> vertex_colors[j]) + 1;
       for (size_t i = 0; i < col_size; i++)
       {
         Vector3D v(vg.x, vg.y, i * h);
@@ -487,14 +488,16 @@ private:
           _column_mesh.vertices_offset[face[1] + 1] - _column_mesh.vertices_offset[face[1]],
           _column_mesh.vertices_offset[face[2] + 1] - _column_mesh.vertices_offset[face[2]]};
 
-      // Create prism iterator
+      // Calculate number of prisms
       const size_t num_prisms =
           (col_sizes.back() - 1) / (1 << (face_colors[i] - _vertex_colors[2]));
+      _column_mesh.num_prisms[i] = num_prisms;
+
+      // Create prism iterator
       std::vector<std::array<size_t, 4>> prism_iterator(num_prisms);
       for (size_t j = 0; j < num_prisms; j++)
       {
-        const size_t layer_index = (j + 1) * (max_col_size - 1) / num_prisms;
-        std::cout << "layer_index: " << layer_index << std::endl;
+        const size_t layer_index = (j + 1) * _column_mesh.num_min_layers / num_prisms;
         prism_iterator[j] = {col_offsets[0] + j * (1 << (face_colors[i] - _vertex_colors[0])),
                              col_offsets[1] + j * (1 << (face_colors[i] - _vertex_colors[1])),
                              col_offsets[2] + j * (1 << (face_colors[i] - _vertex_colors[2])),
@@ -621,106 +624,105 @@ private:
   // Trim volume mesh
   VolumeMesh trim_volume_mesh()
   {
+    // The volume mesh is trimmed by removing cells that are below the top of
+    // each building. To find out where we can trim the cells in each column
+    // we first find which layer indices are common to all cells in each
+    // building. This tells us at which layer index height we can trim the
+    // building (without cutting any prisms). The cut is made at the height
+    // closest to the building height.
 
-    std::vector<std::vector<bool>> keep_cells(_column_mesh.cells.size());
+    // Initialize allowed building trimming layer indices and distances
+    std::vector<std::vector<std::pair<bool, double>>> building_layer_indices(_buildings.size());
+    for (size_t i = 0; i < _buildings.size(); i++)
+    {
+      building_layer_indices[i].resize(_column_mesh.num_min_layers,
+                                       {true, std::numeric_limits<double>::max()});
+    }
+
+    // Iterate over cell columns
     for (size_t i = 0; i < _column_mesh.cells.size(); i++)
     {
-      keep_cells[i].resize(_column_mesh.cells[i].size(), false);
+      // Skip if not building
+      const int marker = _ground_mesh.markers[i];
+      if (marker < 0)
+        continue;
 
-      for (size_t j = 0; j < _column_mesh.cells[i].size(); j++)
+      // Mark which layer indices are *not* allowed for this column
+      const size_t layer_step = _column_mesh.num_min_layers / _column_mesh.num_prisms[i];
+      for (size_t j = 0; j < _column_mesh.num_min_layers; j++)
       {
-        const auto &cell = _column_mesh.cells[i][j];
-        if (cell.layer_index <= 6)
+        if ((j + 1) % layer_step != 0)
+          building_layer_indices[marker][j] = {false, 0.0};
+      }
+
+      // Get building height
+      const double building_height = _buildings[marker].max_height();
+
+      // Iterate over cells in column
+      for (const auto &cell : _column_mesh.cells[i])
+      {
+        // Skip if not allowed layer index
+        if (!building_layer_indices[marker][cell.layer_index - 1].first)
+          continue;
+
+        // Get cell height
+        const double z = _column_mesh.cell_height(cell);
+
+        // Check for closest layer to building height
+        const double d = std::abs(z - building_height);
+        if (d < building_layer_indices[marker][cell.layer_index - 1].second)
         {
-          keep_cells[i][j] = true;
+          building_layer_indices[marker][cell.layer_index - 1] = {true, d};
         }
       }
     }
 
-    // We decide which layer to keep for each building by checking which layer
-    // of the highest color (tallest prisms) is closest to the building height.
+    // Compute building trimming layer indices based on allowed layer indices
+    std::vector<size_t> trimming_layer_indices(_buildings.size(), 0);
+    for (size_t i = 0; i < building_layer_indices.size(); i++)
+    {
+      // Find minimal distance among allowed layer indices
+      size_t min_index = 0;
+      double min_distance = std::numeric_limits<double>::max();
+      for (size_t j = 0; j < building_layer_indices[i].size(); j++)
+      {
+        if (building_layer_indices[i][j].first &&
+            building_layer_indices[i][j].second < min_distance)
+        {
+          min_index = j;
+          min_distance = building_layer_indices[i][j].second;
+        }
+      }
 
-    // // Get max colors for each building
-    // std::vector<int> max_building_colors(_buildings.size(), 0);
-    // for (size_t i = 0; i < _ground_mesh.faces.size(); i++)
-    // {
-    //   const int marker = _ground_mesh.markers[i];
-    //   if (marker < 0)
-    //     continue;
-    //   max_building_colors[marker] = std::max(max_building_colors[marker], face_colors[i]);
-    // }
+      // Sanity check
+      if (min_distance == std::numeric_limits<double>::max())
+        error("No allowed layer indices for building " + str(i));
 
-    // // Initialize highest layer to trim for each building
-    // std::vector<std::pair<double, size_t>> trim_layer(_buildings.size(),
-    //                                                   {std::numeric_limits<double>::max(), 0});
+      // Set trimming index
+      trimming_layer_indices[i] = min_index + 1;
+    }
 
-    // // Iterate over cell columns
-    // for (size_t i = 0; i < _column_mesh.cells.size(); i++)
-    // {
-    //   // Skip if not building
-    //   const int marker = _ground_mesh.markers[i];
-    //   if (marker < 0)
-    //     continue;
+    // Mark which cells should be trimmed (or rather kept)
+    std::vector<std::vector<bool>> keep_cells(_column_mesh.cells.size());
+    for (size_t i = 0; i < _column_mesh.cells.size(); i++)
+    {
+      // Keep all cells by default
+      keep_cells[i].resize(_column_mesh.cells[i].size(), true);
 
-    //   std::cout << std::endl;
-    //   std::cout << " Building: " << marker << std::endl;
-    //   std::cout << " Face color: " << face_colors[i] << std::endl;
-    //   std::cout << " Max building color: " << max_building_colors[marker] << std::endl;
+      // Skip if not building
+      const int marker = _ground_mesh.markers[i];
+      if (marker < 0)
+        continue;
 
-    //   // Skip if not column with highest color (tallest prisms)
-    //   if (face_colors[i] != max_building_colors[marker])
-    //     continue;
-
-    //   // Get building height
-    //   const double height = _buildings[marker].max_height();
-
-    //   // Iterate over cells in column
-    //   for (size_t j = 0; j < _column_mesh.cells[j].size(); j++)
-    //   {
-    //     // Get height of cell (max vertex coordinate)
-    //     const auto &cell = _column_mesh.cells[i][j];
-    //     const double z = _column_mesh.cell_height(cell);
-
-    //     // Check for closest layer to building height
-    //     const double d = std::abs(z - height);
-    //     if (d < trim_layer[marker].first)
-    //     {
-    //       std::cout << "Building " << marker << " closest to layer " << cell.layer << std::endl;
-    //       trim_layer[marker] = {d, cell.layer};
-    //     }
-    //   }
-    // }
-
-    // for (size_t i = 0; i < trim_layer.size(); i++)
-    // {
-    //   std::cout << "Building " << i << " trimmed to layer " << trim_layer[i].second << std::endl;
-    // }
-
-    // // Initialize markers for which cells to keep
-    // std::vector<std::vector<bool>> keep_cells(_column_mesh.cells.size());
-
-    // // Iterate over cell columns
-    // for (size_t i = 0; i < _column_mesh.cells.size(); i++)
-    // {
-    //   // Keep all cells by default
-    //   keep_cells[i].resize(_column_mesh.cells[i].size(), true);
-
-    //   // Skip if not building
-    //   const int marker = _ground_mesh.markers[i];
-    //   if (marker < 0)
-    //     continue;
-
-    //   // Iterate over cells in column
-    //   for (size_t j = 0; j < _column_mesh.cells[j].size(); j++)
-    //   {
-    //     // Get cell
-    //     const auto &cell = _column_mesh.cells[i][j];
-
-    //     // Trim cell if inside trimming layer
-    //     if (cell.layer <= trim_layer[marker].second)
-    //       keep_cells[i][j] = false;
-    //   }
-    // }
+      // Iterate over cells in column
+      for (size_t j = 0; j < _column_mesh.cells[i].size(); j++)
+      {
+        // Trim cell if inside trimming layer
+        const auto &cell = _column_mesh.cells[i][j];
+        if (cell.layer_index <= trimming_layer_indices[marker])
+          keep_cells[i][j] = false;
+      }
+    }
 
     return _column_mesh.to_volume_mesh(keep_cells);
   }
