@@ -649,31 +649,38 @@ private:
         continue;
 
       // Mark which layer indices are *not* allowed for this column
-      const size_t layer_step = _column_mesh.num_min_layers / _column_mesh.num_prisms[i];
+      const size_t cell_layer_step = _column_mesh.num_min_layers / _column_mesh.num_prisms[i];
       for (size_t j = 0; j < _column_mesh.num_min_layers; j++)
       {
-        if ((j + 1) % layer_step != 0)
+        if ((j + 1) % cell_layer_step != 0)
           building_layer_indices[marker][j] = {false, 0.0};
       }
 
       // Get building height
       const double building_height = _buildings[marker].max_height();
 
-      // Iterate over cells in column
-      for (const auto &cell : _column_mesh.cells[i])
+      // Iterate over vertex columns for current cell column
+      const auto &face = _ground_mesh.faces[i];
+      for (size_t j : {face.v0, face.v1, face.v2})
       {
-        // Skip if not allowed layer index
-        if (!building_layer_indices[marker][cell.layer_index - 1].first)
-          continue;
+        // Compute vertex layer step
+        const size_t vertex_layer_step =
+            _column_mesh.num_min_layers / (_column_mesh.vertices[j].size() - 1);
 
-        // Get cell height
-        const double z = _column_mesh.cell_height(cell);
-
-        // Check for closest layer to building height
-        const double d = std::abs(z - building_height);
-        if (d < building_layer_indices[marker][cell.layer_index - 1].second)
+        // Iterate over vertices in column
+        for (size_t k = 1; k < _column_mesh.vertices[j].size(); k++)
         {
-          building_layer_indices[marker][cell.layer_index - 1] = {true, d};
+          // Skip if not allowed layer index
+          const size_t layer_index = k * vertex_layer_step;
+          if (!building_layer_indices[marker][layer_index - 1].first)
+            continue;
+
+          // Check for closest layer to building height
+          const double z = _column_mesh.vertices[j][k].z;
+          const double d = std::abs(z - building_height);
+
+          if (d < building_layer_indices[marker][layer_index - 1].second)
+            building_layer_indices[marker][layer_index - 1] = {true, d};
         }
       }
     }
