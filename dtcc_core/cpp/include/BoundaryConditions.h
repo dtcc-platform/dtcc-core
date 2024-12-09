@@ -74,17 +74,6 @@ public:
       const int vertex_marker = vertex_markers[i];
       if (vertex_marker >= 0 && fix_buildings) // Building
       {
-
-        if (i == 28555)
-        {
-          std::cout << "Vertex: x = " << _volume_mesh.vertices[i].x
-                    << ", y = " << _volume_mesh.vertices[i].y << std::endl;
-          std::cout << "Building index: " << vertex_marker << std::endl;
-          std::cout << "Building height: " << building_centroids[vertex_marker].z << std::endl;
-        }
-        //  Id: 28555
-        //  Coords: (102620, 6.21337e+06, 42.797)
-
         values[i].first = true;
         values[i].second = building_centroids[vertex_marker].z - _volume_mesh.vertices[i].z;
       }
