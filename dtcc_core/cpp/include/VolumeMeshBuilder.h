@@ -233,8 +233,7 @@ private:
   // Compute ideal layer height for a regular tetrahedron
   double ideal_layer_height(double area)
   {
-    const double a = 1.0;
-    return a * std::pow(2.0, 1.5) * std::pow(3.0, -0.75) * std::sqrt(area);
+    return std::pow(2.0, 1.5) * std::pow(3.0, -0.75) * std::sqrt(area);
   }
 
   // Compute closest layer height index to a given height
@@ -279,8 +278,8 @@ private:
     const double median = std::get<2>(aspect_ratios);
 
     // Print aspect ratios
-    info("Mesh quality (aspect ratio): min = " + str(min, 2L) + ", max = " + str(max, 2L) +
-         ", median = " + str(median, 2L));
+    info("Mesh quality (aspect ratio): min = " + str(min, 3L) + ", max = " + str(max, 3L) +
+         ", median = " + str(median, 3L));
   }
 
   // Assign face colors (closest layer height index)
