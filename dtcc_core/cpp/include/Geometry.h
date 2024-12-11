@@ -40,22 +40,13 @@ public:
   static double squared_norm_3d(const Vector3D &v) { return dot_3d(v, v); }
 
   // Compute norm (2D)
-  static double norm_2d(const Vector2D &v)
-  {
-    return std::sqrt(squared_norm_2d(v));
-  }
+  static double norm_2d(const Vector2D &v) { return std::sqrt(squared_norm_2d(v)); }
 
   // Compute norm (3D)
-  static double norm_3d(const Vector3D &v)
-  {
-    return std::sqrt(squared_norm_3d(v));
-  }
+  static double norm_3d(const Vector3D &v) { return std::sqrt(squared_norm_3d(v)); }
 
   // Compute dot product (2D)
-  static double dot_2d(const Vector2D &u, const Vector2D &v)
-  {
-    return u.x * v.x + u.y * v.y;
-  }
+  static double dot_2d(const Vector2D &u, const Vector2D &v) { return u.x * v.x + u.y * v.y; }
 
   // Compute dot product (3D)
   static double dot_3d(const Vector3D &u, const Vector3D &v)
@@ -66,8 +57,7 @@ public:
   // Compute cross product (3D)
   static Vector3D cross_3d(const Vector3D &u, const Vector3D &v)
   {
-    return Vector3D(u.y * v.z - u.z * v.y, u.z * v.x - u.x * v.z,
-                    u.x * v.y - u.y * v.x);
+    return Vector3D(u.y * v.z - u.z * v.y, u.z * v.x - u.x * v.z, u.x * v.y - u.y * v.x);
   }
 
   // Compute distance between points (2D)
@@ -77,8 +67,7 @@ public:
   }
 
   // Compute distance between segment (p0, p1) and point q (2D)
-  static double
-  distance_2d(const Vector2D &p0, const Vector2D &p1, const Vector2D &q)
+  static double distance_2d(const Vector2D &p0, const Vector2D &p1, const Vector2D &q)
   {
     return std::sqrt(squared_distance_2d(p0, p1, q));
   }
@@ -110,8 +99,7 @@ public:
   }
 
   // Compute squared distance between segment (p0, p1) and point q (2D)
-  static double
-  squared_distance_2d(const Vector2D &p0, const Vector2D &p1, const Vector2D &q)
+  static double squared_distance_2d(const Vector2D &p0, const Vector2D &p1, const Vector2D &q)
   {
     // Project point to line
     const Vector2D u(p0, q);
@@ -120,10 +108,9 @@ public:
 
     // Check whether projected point is inside segment. Check either
     // x or y coordinates depending on which is largest (most stable)
-    const bool inside =
-        std::abs(v.x) > std::abs(v.y)
-            ? std::min(p0.x, p1.x) <= p.x && p.x <= std::max(p0.x, p1.x)
-            : std::min(p0.y, p1.y) <= p.y && p.y <= std::max(p0.y, p1.y);
+    const bool inside = std::abs(v.x) > std::abs(v.y)
+                            ? std::min(p0.x, p1.x) <= p.x && p.x <= std::max(p0.x, p1.x)
+                            : std::min(p0.y, p1.y) <= p.y && p.y <= std::max(p0.y, p1.y);
 
     // Use distance to projection if inside
     if (inside)
@@ -155,8 +142,7 @@ public:
   }
 
   // Compute squared distance between polygons (2D)
-  static double squared_distance_2d(const Polygon &polygon0,
-                                    const Polygon &polygon1)
+  static double squared_distance_2d(const Polygon &polygon0, const Polygon &polygon1)
   {
     //    std::cout << "Checking polygon with " << polygon0.vertices.size()
     //              << " vertices" << std::endl;
@@ -191,8 +177,7 @@ public:
   }
 
   // Compute orientation of point q relative to edge (p0, p1) (2D)
-  static double
-  orient_2d(const Vector2D &p0, const Vector2D &p1, const Vector2D &q)
+  static double orient_2d(const Vector2D &p0, const Vector2D &p1, const Vector2D &q)
   {
     const Vector2D u(p0, p1);
     const Vector2D v(p0, q);
@@ -201,8 +186,7 @@ public:
 
   // Compute sign of point q relative to edge (p0, p1) (2D).
   // -1 --- (p0) --- 0 --- (p1) --- +1
-  static int
-  edge_sign_2d(const Vector2D &p0, const Vector2D &p1, const Vector2D &q)
+  static int edge_sign_2d(const Vector2D &p0, const Vector2D &p1, const Vector2D &q)
   {
     double l{}, d0{}, d1{};
     if (std::abs(p0.x - p1.x) > std::abs(p0.y - p1.y))
@@ -239,8 +223,7 @@ public:
   }
 
   // Compute quadrant angle of point p relative to polygon (2D)
-  static int quadrant_angle_2d(const Vector2D &p,
-                               const std::vector<Vector2D> &polygon)
+  static int quadrant_angle_2d(const Vector2D &p, const std::vector<Vector2D> &polygon)
   {
     // Compute angle to first vertex
     Vector2D q0 = polygon[0];
@@ -283,8 +266,7 @@ public:
   }
 
   // Compute face normal
-  static Vector3D face_normal_3d(const Simplex2D &face,
-                                 const VolumeMesh &mesh_3d)
+  static Vector3D face_normal_3d(const Simplex2D &face, const VolumeMesh &mesh_3d)
   {
     const Vector3D p0{mesh_3d.vertices[face.v0]};
     const Vector3D p1{mesh_3d.vertices[face.v1]};
@@ -292,8 +274,7 @@ public:
     return triangle_normal(p0, p1, p2);
   }
 
-  static Vector3D
-  triangle_normal(const Vector3D &p0, const Vector3D &p1, const Vector3D &p2)
+  static Vector3D triangle_normal(const Vector3D &p0, const Vector3D &p1, const Vector3D &p2)
   {
     const Vector3D u = p1 - p0;
     const Vector3D v = p2 - p0;
@@ -302,7 +283,7 @@ public:
     return n;
   }
 
-  static Vector3D surface_noraml(const Surface &surface)
+  static Vector3D surface_normal(const Surface &surface)
   {
     const Vector3D p0{surface.vertices[0]};
     const Vector3D p1{surface.vertices[1]};
@@ -342,7 +323,7 @@ public:
   static Polygon project_surface(const Surface &surface)
   {
     const auto z_normal = Eigen::Vector3d(0, 0, 1);
-    auto normal = Geometry::surface_noraml(surface);
+    auto normal = Geometry::surface_normal(surface);
     auto e_norm = Eigen::Vector3d(normal.x, normal.y, normal.z);
     auto transform = Eigen::Transform<double, 3, Eigen::Isometry>();
     transform = Eigen::Quaterniond::FromTwoVectors(e_norm, z_normal);
@@ -351,8 +332,7 @@ public:
     {
       auto e_v = Eigen::Vector3d(v.x, v.y, v.z);
       auto e_v_prime = transform * e_v;
-      projected_polygon.vertices.push_back(
-          Vector2D(e_v_prime.x(), e_v_prime.y()));
+      projected_polygon.vertices.push_back(Vector2D(e_v_prime.x(), e_v_prime.y()));
     }
     return projected_polygon;
   }
@@ -381,8 +361,7 @@ public:
   }
 
   // Compute cell center
-  static Vector3D cell_center_3d(const Simplex3D &cell,
-                                 const VolumeMesh &mesh_3d)
+  static Vector3D cell_center_3d(const Simplex3D &cell, const VolumeMesh &mesh_3d)
   {
     Vector3D c{};
     c += Vector3D(mesh_3d.vertices[cell.v0]);
@@ -468,8 +447,7 @@ public:
   }
 
   // Compute area of a triangle (3D)
-  static double
-  triangle_area(const Vector3D &p0, const Vector3D &p1, const Vector3D &p2)
+  static double triangle_area(const Vector3D &p0, const Vector3D &p1, const Vector3D &p2)
   {
     double side_a = (p0 - p1).magnitude();
     double side_b = (p1 - p2).magnitude();
@@ -504,8 +482,7 @@ public:
   }
 
   // Compute radius of polygon relative to center (2D)
-  static double polygon_radius_2d(const Polygon &polygon,
-                                  const Vector2D &center)
+  static double polygon_radius_2d(const Polygon &polygon, const Vector2D &center)
   {
     double r_to_max = 0.0;
     for (auto const &p : polygon.vertices)
@@ -521,18 +498,14 @@ public:
 
   // Check whether edge (p0, p1) contains point q. It is assumed that the
   // point is located on the line defined by the edge.
-  static bool edge_contains_2d(const Vector2D &p0,
-                               const Vector2D &p1,
-                               const Vector2D &q,
+  static bool edge_contains_2d(const Vector2D &p0, const Vector2D &p1, const Vector2D &q,
                                double tol = 0.0)
   {
     const Vector2D v(p0, p1);
     if (std::abs(v.x) > std::abs(v.y))
-      return std::min(p0.x, p1.x) - tol < q.x and
-             std::max(p0.x, p1.x) + tol > q.x;
+      return std::min(p0.x, p1.x) - tol < q.x and std::max(p0.x, p1.x) + tol > q.x;
     else
-      return std::min(p0.y, p1.y) - tol < q.y and
-             std::max(p0.y, p1.y) + tol > q.y;
+      return std::min(p0.y, p1.y) - tol < q.y and std::max(p0.y, p1.y) + tol > q.y;
   }
 
   // Check whether polygon contains point (2D)
@@ -556,27 +529,23 @@ public:
   }
 
   // Check whether bounding box contains point (2D)
-  static bool bounding_box_contains_2d(const BoundingBox2D &bbox,
-                                       const Vector2D &p,
+  static bool bounding_box_contains_2d(const BoundingBox2D &bbox, const Vector2D &p,
                                        double margin = 0.0)
   {
-    return (bbox.P.x + margin <= p.x && p.x + margin <= bbox.Q.x &&
-            bbox.P.y + margin <= p.y && p.y + margin <= bbox.Q.y);
+    return (bbox.P.x + margin <= p.x && p.x + margin <= bbox.Q.x && bbox.P.y + margin <= p.y &&
+            p.y + margin <= bbox.Q.y);
   }
 
   // Check whether bounding box contains point (3D)
-  static bool bounding_box_contains_3d(const BoundingBox3D &bbox,
-                                       const Vector3D &p,
+  static bool bounding_box_contains_3d(const BoundingBox3D &bbox, const Vector3D &p,
                                        double margin = 0.0)
   {
-    return (bbox.P.x + margin <= p.x && p.x + margin <= bbox.Q.x &&
-            bbox.P.y + margin <= p.y && p.y + margin <= bbox.Q.y &&
-            bbox.P.z + margin <= p.z && p.z + margin <= bbox.Q.z);
+    return (bbox.P.x + margin <= p.x && p.x + margin <= bbox.Q.x && bbox.P.y + margin <= p.y &&
+            p.y + margin <= bbox.Q.y && bbox.P.z + margin <= p.z && p.z + margin <= bbox.Q.z);
   }
 
   // Check whether bounding box contains polygon (2D)
-  static bool bounding_box_contains_2d(const BoundingBox2D &bbox,
-                                       const Polygon &polygon,
+  static bool bounding_box_contains_2d(const BoundingBox2D &bbox, const Polygon &polygon,
                                        double margin = 0.0)
   {
     for (const auto &p : polygon.vertices)
@@ -586,16 +555,13 @@ public:
   }
 
   // Check whether edges (p0, p1) and (q0, q1) intersect
-  static bool intersects_2d(const Vector2D &p0,
-                            const Vector2D &p1,
-                            const Vector2D &q0,
-                            const Vector2D &q1,
-                            bool strict = false)
+  static bool intersects_2d(const Vector2D &p0, const Vector2D &p1, const Vector2D &q0,
+                            const Vector2D &q1, bool strict = false)
 
   {
 
     bool crosses = (orient_2d(p0, p1, q0) * orient_2d(p0, p1, q1) <= 0.0 &&
-            orient_2d(q0, q1, p0) * orient_2d(q0, q1, p1) <= 0.0);
+                    orient_2d(q0, q1, p0) * orient_2d(q0, q1, p1) <= 0.0);
     if (crosses && strict)
     {
       if (p0 == q0 || p0 == q1 || p1 == q0 || p1 == q1)
@@ -604,12 +570,11 @@ public:
     return crosses;
   }
 
-  // Check wheter bounding boxes intersect (2D)
-  static bool intersect_2d(const BoundingBox2D &bbox_a,
-                           const BoundingBox2D &bbox_b)
+  // Check whether bounding boxes intersect (2D)
+  static bool intersect_2d(const BoundingBox2D &bbox_a, const BoundingBox2D &bbox_b)
   {
-    return (bbox_a.P.x <= bbox_b.Q.x && bbox_b.P.x <= bbox_a.Q.x &&
-            bbox_a.P.y <= bbox_b.Q.y && bbox_b.P.y <= bbox_a.Q.y);
+    return (bbox_a.P.x <= bbox_b.Q.x && bbox_b.P.x <= bbox_a.Q.x && bbox_a.P.y <= bbox_b.Q.y &&
+            bbox_b.P.y <= bbox_a.Q.y);
   }
 
   // Check whether polygon intersects with polygon (2D)
@@ -636,9 +601,7 @@ public:
   }
 
   // Compute intersection between edges p0 - p1 and q0 - q1 (2D)
-  static Vector2D edge_intersection_2d(const Vector2D &p0,
-                                       const Vector2D &p1,
-                                       const Vector2D &q0,
+  static Vector2D edge_intersection_2d(const Vector2D &p0, const Vector2D &p1, const Vector2D &q0,
                                        const Vector2D &q1)
   {
     // Solve for intersection: p0 + k*(p1 - p0) = q0 + l*(q1 - q0)
@@ -714,8 +677,7 @@ public:
       const Vector2D &p = points[i];
       const Vector2D v(base_point, p);
       const double distance = v.magnitude();
-      const double angle =
-          (distance > Constants::epsilon ? -v.x / distance : 0.0);
+      const double angle = (distance > Constants::epsilon ? -v.x / distance : 0.0);
 
       // Store angle and distance along with index (for sorting)
       angles[k++] = std::make_tuple(angle, distance, i);
@@ -791,6 +753,70 @@ public:
     std::reverse(polygon.vertices.begin(), polygon.vertices.end());
 
     return polygon;
+  }
+
+  // Compute tetrahedron volume (3D)
+  static double tetrahedron_volume(const Vector3D &v0, const Vector3D &v1, const Vector3D &v2,
+                                   const Vector3D &v3)
+  {
+    return std::abs((v1 - v0).dot((v2 - v0).cross(v3 - v0))) / 6.0;
+  }
+
+  // Compute face area (3D)
+  static double face_area(const Vector3D &v0, const Vector3D &v1, const Vector3D &v2)
+  {
+    return 0.5 * (v1 - v0).cross(v2 - v0).magnitude();
+  }
+
+  // Compute aspect ratio of tetrahedron (3D)
+  static double aspect_ratio(const Vector3D &v0, const Vector3D &v1, const Vector3D &v2,
+                             const Vector3D &v3)
+  {
+    // Compute volume
+    const double V = tetrahedron_volume(v0, v1, v2, v3);
+
+    // Handle degenerate tetrahedra (zero volume)
+    if (V == 0)
+      return 0.0;
+
+    // Compute total surface area
+    const double A0 = face_area(v1, v2, v3);
+    const double A1 = face_area(v0, v2, v3);
+    const double A2 = face_area(v0, v1, v3);
+    const double A3 = face_area(v0, v1, v2);
+    const double A = A0 + A1 + A2 + A3;
+
+    // Compute circumradius (R) and inradius (r)
+    const double R = (std::sqrt(6) * V) / A;
+    const double r = (3 * V) / A;
+
+    // Compute aspect ratio
+    return R / r;
+  }
+
+  // Compute aspect ratios of volume  mesh: min, max, median (3D)
+  std::tuple<double, double, double> aspect_ratio(const VolumeMesh &mesh)
+  {
+    // Compute aspect ratios of all tetrahedra
+    std::vector<double> aspect_ratios;
+    aspect_ratios.reserve(mesh.cells.size());
+    for (const auto &cell : mesh.cells)
+    {
+      const Vector3D &v0 = mesh.vertices[cell.v0];
+      const Vector3D &v1 = mesh.vertices[cell.v1];
+      const Vector3D &v2 = mesh.vertices[cell.v2];
+      const Vector3D &v3 = mesh.vertices[cell.v3];
+      double ar = aspect_ratio(v0, v1, v2, v3);
+      aspect_ratios.push_back(ar);
+    }
+
+    // Compute min, max and median aspect ratios
+    double min_ar = *std::min_element(aspect_ratios.begin(), aspect_ratios.end());
+    double max_ar = *std::max_element(aspect_ratios.begin(), aspect_ratios.end());
+    std::sort(aspect_ratios.begin(), aspect_ratios.end());
+    double median_ar = aspect_ratios[aspect_ratios.size() / 2];
+
+    return std::make_tuple(min_ar, max_ar, median_ar);
   }
 };
 
