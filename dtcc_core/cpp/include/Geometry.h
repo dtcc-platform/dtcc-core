@@ -762,13 +762,70 @@ public:
     return std::abs((v1 - v0).dot((v2 - v0).cross(v3 - v0))) / 6.0;
   }
 
+  // Compute tetrahedron circumcenter (3D)
+  static Vector3D tetrahedron_circumcenter(const Vector3D &v0, const Vector3D &v1,
+                                           const Vector3D &v2, const Vector3D &v3)
+  {
+    // Translate so v0 is at origin
+    const Vector3D &B = v1 - v0;
+    const Vector3D &C = v2 - v0;
+    const Vector3D &D = v3 - v0;
+
+    // Compute squared magnitudes
+    const double B2 = B.squared_magnitude();
+    const double C2 = C.squared_magnitude();
+    const double D2 = D.squared_magnitude();
+
+    // Create linear system
+    double M[3][3] = {{B.x, B.y, B.z}, {C.x, C.y, C.z}, {D.x, D.y, D.z}};
+    double R[3] = {0.5 * B2, 0.5 * C2, 0.5 * D2};
+
+    // Compute determinant of M
+    const double det = M[0][0] * (M[1][1] * M[2][2] - M[1][2] * M[2][1]) -
+                       M[0][1] * (M[1][0] * M[2][2] - M[1][2] * M[2][0]) +
+                       M[0][2] * (M[1][0] * M[2][1] - M[1][1] * M[2][0]);
+
+    // Cramer's rule for each variable
+
+    auto cramer = [&](int col)
+    {
+      double _M[3][3];
+      for (int i = 0; i < 3; i++)
+      {
+        for (int j = 0; j < 3; j++)
+        {
+          _M[i][j] = M[i][j];
+        }
+      }
+      for (int i = 0; i < 3; i++)
+      {
+        _M[i][col] = R[i];
+      }
+      double d = _M[0][0] * (_M[1][1] * _M[2][2] - _M[1][2] * _M[2][1]) -
+                 _M[0][1] * (_M[1][0] * _M[2][2] - _M[1][2] * _M[2][0]) +
+                 _M[0][2] * (_M[1][0] * _M[2][1] - _M[1][1] * _M[2][0]);
+      return d;
+    };
+
+    // Solve for each variable
+    const double detX = cramer(0);
+    const double detY = cramer(1);
+    const double detZ = cramer(2);
+    const double x = detX / det;
+    const double y = detY / det;
+    const double z = detZ / det;
+
+    // Return circumcenter
+    return Vector3D(v0.x + x, v0.y + y, v0.z + z);
+  }
+
   // Compute face area (3D)
   static double face_area(const Vector3D &v0, const Vector3D &v1, const Vector3D &v2)
   {
     return 0.5 * (v1 - v0).cross(v2 - v0).magnitude();
   }
 
-  // Compute aspect ratio of tetrahedron (3D)
+  // Compute normalized aspect ratio of tetrahedron (3D)
   static double aspect_ratio(const Vector3D &v0, const Vector3D &v1, const Vector3D &v2,
                              const Vector3D &v3)
   {
@@ -779,23 +836,26 @@ public:
     if (V == 0)
       return 0.0;
 
-    // Compute total surface area
+    // Compute radius of inscribed
     const double A0 = face_area(v1, v2, v3);
     const double A1 = face_area(v0, v2, v3);
     const double A2 = face_area(v0, v1, v3);
     const double A3 = face_area(v0, v1, v2);
     const double A = A0 + A1 + A2 + A3;
+    const double r = 3.0 * V / A;
 
-    // Compute circumradius (R) and inradius (r)
-    const double R = (std::sqrt(6) * V) / A;
-    const double r = (3 * V) / A;
+    // Compute radius of circumscribed sphere
+    const Vector3D c = tetrahedron_circumcenter(v0, v1, v2, v3);
+    const double R = (c - v0).magnitude();
 
-    // Compute aspect ratio
-    return R / r;
+    // Compute aspect ratio (normalized by regular tetrahedron)
+    const double ar = (R / r) / 3.0;
+
+    return ar;
   }
 
-  // Compute aspect ratios of volume  mesh: min, max, median (3D)
-  std::tuple<double, double, double> aspect_ratio(const VolumeMesh &mesh)
+  // Compute normalized aspect ratio of volume mesh: min, max, median (3D)
+  static std::tuple<double, double, double> aspect_ratio(const VolumeMesh &mesh)
   {
     // Compute aspect ratios of all tetrahedra
     std::vector<double> aspect_ratios;
@@ -806,7 +866,7 @@ public:
       const Vector3D &v1 = mesh.vertices[cell.v1];
       const Vector3D &v2 = mesh.vertices[cell.v2];
       const Vector3D &v3 = mesh.vertices[cell.v3];
-      double ar = aspect_ratio(v0, v1, v2, v3);
+      const double ar = aspect_ratio(v0, v1, v2, v3);
       aspect_ratios.push_back(ar);
     }
 

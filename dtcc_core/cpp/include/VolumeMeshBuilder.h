@@ -102,6 +102,7 @@ public:
     VolumeMesh volume_mesh = layer_ground_mesh(layer_heights);
     t3_2.stop();
     t3_2.print();
+    check_mesh_quality(volume_mesh);
 
     // Debugging
     if (debug_step <= 2)
@@ -115,6 +116,7 @@ public:
     _column_mesh._update_vertices(volume_mesh);
     t3_3.stop();
     t3_3.print();
+    check_mesh_quality(volume_mesh);
 
     // Debugging
     if (debug_step == 3)
@@ -126,6 +128,7 @@ public:
     volume_mesh = trim_volume_mesh();
     t3_4.stop();
     t3_4.print();
+    check_mesh_quality(volume_mesh);
 
     // Debugging
     if (debug_step == 4)
@@ -140,6 +143,7 @@ public:
                                                smoother_iterations, smoother_relative_tolerance);
     t3_5.stop();
     t3_5.print();
+    check_mesh_quality(volume_mesh);
 
     // FIXME: Not used yet (only for padding)
     top_height = domain_height + _dem.max();
@@ -229,7 +233,8 @@ private:
   // Compute ideal layer height for a regular tetrahedron
   double ideal_layer_height(double area)
   {
-    return std::pow(2.0, 1.5) * std::pow(3.0, -0.75) * std::sqrt(area);
+    const double a = 1.0;
+    return a * std::pow(2.0, 1.5) * std::pow(3.0, -0.75) * std::sqrt(area);
   }
 
   // Compute closest layer height index to a given height
@@ -262,6 +267,20 @@ private:
       max_error = std::max(max_error, e);
     }
     info("Max layer height error: " + str(100 * max_error, 2L) + "%");
+  }
+
+  // Check mesh quality
+  void check_mesh_quality(const VolumeMesh &volume_mesh)
+  {
+    // Compute aspect ratios
+    const auto aspect_ratios = Geometry::aspect_ratio(volume_mesh);
+    const double min = std::get<0>(aspect_ratios);
+    const double max = std::get<1>(aspect_ratios);
+    const double median = std::get<2>(aspect_ratios);
+
+    // Print aspect ratios
+    info("Mesh quality (aspect ratio): min = " + str(min, 2L) + ", max = " + str(max, 2L) +
+         ", median = " + str(median, 2L));
   }
 
   // Assign face colors (closest layer height index)
