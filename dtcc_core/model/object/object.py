@@ -217,11 +217,14 @@ class Object(Model):
         children = self.get_children(child_type)
         return [c.attributes.get(attribute, default) for c in children]
 
-    def flatten_geometry(self, geom_type: GeometryType):
+    def flatten_geometry(self, geom_type: GeometryType, exclude=None):
         """Returns a single geometry of the specified type, merging all the geometries of the children."""
+        if exclude is None:
+            exclude = []
         geom = deepcopy(self.geometry.get(geom_type, None))
-        child_list = list(self.children)
-        for child_list in self.children.values():
+        for child_type, child_list in self.children.items():
+            if child_type in exclude:
+                continue
             for child in child_list:
                 child_geom = deepcopy(child.geometry.get(geom_type, None))
                 if geom is None and child_geom is not None:
