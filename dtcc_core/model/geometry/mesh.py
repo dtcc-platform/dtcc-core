@@ -56,7 +56,7 @@ class Mesh(Geometry):
         """
         return len(self.vertices)
 
-    def calculate_bounds(self):
+    def calculate_bounds(self) -> Bounds:
         """Calculate the bounding box of the mesh."""
         if len(self.vertices) < 3:
             self._bounds = Bounds()

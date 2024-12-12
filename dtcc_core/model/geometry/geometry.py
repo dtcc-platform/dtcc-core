@@ -45,7 +45,7 @@ class Geometry(Model):
         pass
 
     @property
-    def bounds(self):
+    def bounds(self) -> Bounds:
         if self._bounds is None or self._bounds.area == 0:
             self.calculate_bounds()
         return self._bounds
