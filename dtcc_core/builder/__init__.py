@@ -68,4 +68,7 @@ __all__ = [
     "simplify_building_footprints",
     "fix_building_footprint_clearance",
     "split_footprint_walls",
+    "merge_buildings",
+    "fix_building_clearance",
+    "clean_building_surfaces",
 ]
