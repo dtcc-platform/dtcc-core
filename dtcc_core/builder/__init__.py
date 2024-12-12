@@ -28,6 +28,8 @@ from .geometry_builders.buildings import (
     extract_roof_points,
     compute_building_heights,
     build_lod1_buildings,
+    building_heights_from_pointcloud,
+
 )
 
 

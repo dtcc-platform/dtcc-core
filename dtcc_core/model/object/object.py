@@ -186,6 +186,18 @@ class Object(Model):
             warning(f"Invalid geometry type (but I'll allow it): {geometry_type}")
         self.geometry[geometry_type] = geometry
 
+    def remove_geometry(self, geometry_type: Union[GeometryType, str]):
+        """Remove geometry from object."""
+        if isinstance(geometry_type, str) and geometry_type.startswith("GeometryType."):
+            geometry_type = GeometryType.from_str(geometry_type[13:])
+        if not isinstance(geometry_type, GeometryType):
+            try:
+                geometry_type = GeometryType(geometry_type)
+            except ValueError:
+                warning(f"Invalid geometry type (but I'll allow it): {geometry_type}")
+        if geometry_type in self.geometry:
+            del self.geometry[geometry_type]
+
     def add_field(self, field, geometry_type):
         """Add a field to a geometry of the object."""
         geometry = self.geometry.get(geometry_type, None)
