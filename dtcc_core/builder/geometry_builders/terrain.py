@@ -22,7 +22,7 @@ from typing import List, Union
 
 
 def build_terrain_mesh(
-    data,
+    data: Union[PointCloud, Raster],
     subdomains: list[Surface] = None,
     subdomain_resolution: Union[float, List[float]] = None,
     max_mesh_size=10,
