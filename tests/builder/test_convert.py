@@ -1,19 +1,20 @@
 import unittest
 from pathlib import Path
+import numpy as np
 from dtcc_core.model import Raster, PointCloud
 
 from dtcc_core import io
 import dtcc_core.builder
 
-test_data_dir = project_dir = (Path(__file__).parent / ".." / "data" ).resolve()
+test_data_dir = project_dir = (Path(__file__).parent / ".." / "data").resolve()
 
 
 class TestConvert(unittest.TestCase):
     def test_raster_to_pointcloud(self):
-        raster = io.load_raster(test_data_dir/"test_dem.tif")
+        raster = io.load_raster(test_data_dir / "test_dem.tif")
         raster_bounds = raster.bounds
         cell_size = raster.cell_size
-        pointcloud = raster.to_pointcloud()
+        pointcloud = raster.to_pointcloud(point_classification=2)
         self.assertIsInstance(pointcloud, PointCloud)
         self.assertEqual(pointcloud.points[:, 2].max(), raster.data.max())
         self.assertEqual(pointcloud.points[:, 2].min(), raster.data.min())
@@ -31,6 +32,9 @@ class TestConvert(unittest.TestCase):
         self.assertEqual(
             pointcloud.points[:, 1].max(), raster.bounds.ymax + cell_size[1] / 2
         )
+
+        self.assertEqual(len(pointcloud.classification), len(pointcloud.points))
+        self.assertTrue(np.all((pointcloud.classification == 2)))
 
 
 if __name__ == "__main__":
