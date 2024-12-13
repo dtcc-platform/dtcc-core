@@ -1,6 +1,6 @@
 from ...model import Building, GeometryType
 from ...model import Surface, MultiSurface, PointCloud, Raster
-from ..model_conversion import create_builder_polygon, create_builder_pointcloud
+from ..model_conversion import create_builder_polygon
 from .terrain import build_terrain_raster
 from .. import _dtcc_builder
 from ..logging import debug, info, warning, error
