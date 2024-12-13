@@ -25,7 +25,6 @@
 #include "PointCloudProcessor.h"
 #include "Polyfix.h"
 #include "Timer.h"
-#include "model/City.h"
 #include "model/GridField.h"
 #include "model/PointCloud.h"
 #include "model/Polygon.h"
@@ -37,131 +36,7 @@ namespace DTCC_BUILDER
 class CityBuilder
 {
 public:
-  /// build city from building footprints, including only building
-  /// inside the given bounding box. Note that this does not generate any
-  /// building heights, only flat 2D buildings.
-  ///
-  /// @param city The city
-  /// @param footprints Footprints of buildings (polygons)
-  /// @param uuids uuids of buildings
-  /// @param entity_ids Indices of buildings (in shapefile)
-  /// @param bbox Bounding box of domain
-  /// @param min_building_distance Minimal distance from building to domain
-  /// boundary
-  static void build_city(City &city,
-                         const std::vector<Polygon> &footprints,
-                         const std::vector<std::string> &uuids,
-                         const std::vector<int> &entity_ids,
-                         const BoundingBox2D &bbox,
-                         double min_building_distance,
-                         double min_building_size)
-  {
-    info("Building city...");
-    Timer timer("build_city");
 
-    // clear data
-    city.buildings.clear();
-
-    // Add buildings
-    for (size_t i = 0; i < footprints.size(); i++)
-    {
-      // Skip if not inside  bounding box
-      if (!Geometry::bounding_box_contains_2d(bbox, footprints[i],
-                                              min_building_distance))
-      {
-        warning("Skipping building " + uuids[i] +
-                "; outside domain or too close to boundary");
-        continue;
-      }
-
-      // Add building
-      Building building;
-      building.footprint = footprints[i];
-      building.uuid = uuids[i];
-      building.shpfile_id = entity_ids[i];
-      if (Geometry::polygon_area(building.footprint) < min_building_size)
-      {
-        building.error |= BuildingError::BUILDING_TOO_SMALL;
-      }
-
-      city.buildings.push_back(building);
-    }
-
-    info("Added " + str(city.buildings.size()) + "/" + str(footprints.size()) +
-         " buildings inside bounding box");
-  }
-
-  /// Clean city by making sure that all building footprints
-  /// are closed and counter-clockwise oriented.
-  ///
-  /// @param city The city
-  /// @param min_vertex_distance Minimal vertex distance
-  static City clean_city(const City &city, double min_vertex_distance)
-  {
-    info("Cleaning city...");
-    Timer timer("clean_city");
-
-    // clear search tree (since it might become invalid)
-    city.bbtree.clear();
-
-    // Count some stats
-    size_t num_closed = 0;
-    size_t num_oriented = 0;
-    size_t num_vertex_merged = 0;
-    size_t num_edge_merged = 0;
-    size_t num_removed = 0;
-
-    // Initialize new city
-    City _city;
-    _city.name = city.name;
-
-    // Clean buildings
-    for (auto &building : city.buildings)
-    {
-      // Make copy of building
-      Building _building{building};
-
-      // Make closed
-      num_closed +=
-          Polyfix::make_closed(_building.footprint, Constants::epsilon);
-
-      // Make oriented
-      num_oriented += Polyfix::make_oriented(_building.footprint);
-
-      // Merge vertices (but skip if only 4 vertices or less)
-      if (_building.footprint.vertices.size() > 4)
-      {
-        num_vertex_merged +=
-            Polyfix::merge_vertices(_building.footprint, min_vertex_distance);
-      }
-
-      // Merge edges (but skip if only 4 vertices or less)
-      if (_building.footprint.vertices.size() > 4)
-      {
-        num_edge_merged += Polyfix::merge_edges(
-            _building.footprint, Constants::footprint_angle_threshold);
-      }
-
-      // Keep only valid buildings
-      if (_building.valid())
-        _city.buildings.push_back(_building);
-      else
-        num_removed++;
-    }
-
-    info("Fixed " + str(num_closed) + "/" + str(city.buildings.size()) +
-         " polygons that were not closed");
-    info("Fixed " + str(num_oriented) + "/" + str(city.buildings.size()) +
-         " polygons that were not oriented");
-    info("Merged vertices for " + str(num_vertex_merged) + "/" +
-         str(city.buildings.size()) + " polygons");
-    info("Merged edges for " + str(num_edge_merged) + "/" +
-         str(city.buildings.size()) + " polygons");
-    info("Removed " + str(num_removed) + "/" + str(city.buildings.size()) +
-         " buildings (invalid/too small after cleaning)");
-
-    return _city;
-  }
 
   /// Extract roof points from point cloud.
   ///
@@ -377,47 +252,6 @@ public:
     return building;
   }
 
-  static City remove_building_point_outliers_statistical(const City &city,
-                                                         size_t neighbours,
-                                                         double outlier_margin)
-  {
-    // Create copy of city
-    City _city{city};
-
-    // size_t totalRemoved = 0;
-
-    // #pragma omp parallel for
-    for (size_t i = 0; i < _city.buildings.size(); i++)
-    {
-      auto &building = _city.buildings[i];
-      // size_t beforeFilter = building.roof_points.size();
-      PointCloudProcessor::statistical_outlier_remover(
-          building.roof_points, neighbours, outlier_margin);
-      // totalRemoved += (beforeFilter - building.roof_points.size());
-    }
-
-    return _city;
-  }
-
-  static City remove_building_point_outliers_ransac(const City &city,
-                                                    double distance_thershold,
-                                                    size_t iterations)
-  {
-    // Create copy of city
-    City _city{city};
-
-    // size_t totalRemoved = 0;
-    // #pragma omp parallel for
-    for (auto &building : _city.buildings)
-    {
-      // size_t beforeFilter = building.roof_points.size();
-      PointCloudProcessor::ransac_outlier_remover(
-          building.roof_points, distance_thershold, iterations);
-      // totalRemoved += (beforeFilter - building.roof_points.size());
-    }
-
-    return _city;
-  }
 
 private:
   // Get percentile object from array. It is assumed that the array is ordered.

@@ -8,7 +8,7 @@
 
 #include <pybind11/stl.h>
 
-#include "CityBuilder.h"
+#include "BuildingProcessor.h"
 #include "ElevationBuilder.h"
 #include "Intersection.h"
 #include "MeshBuilder.h"
@@ -16,7 +16,6 @@
 #include "Smoother.h"
 #include "VertexSmoother.h"
 #include "model/Building.h"
-#include "model/City.h"
 #include "model/GridField.h"
 #include "model/Mesh.h"
 #include "model/PointCloud.h"
@@ -55,60 +54,6 @@ namespace DTCC_BUILDER
     return poly;
   }
 
-  City create_city(py::list footprints,
-                   py::list holes,
-                   py::list uuids,
-                   py::list heights,
-                   py::list ground_levels,
-                   py::tuple origin)
-  {
-    City city;
-
-    city.origin = Vector2D(origin[0].cast<double>(), origin[1].cast<double>());
-    size_t num_buildings = footprints.size();
-    for (size_t i = 0; i < num_buildings; i++)
-    {
-      auto footprint = footprints[i].cast<py::list>();
-      auto uuid = uuids[i].cast<std::string>();
-      auto height = heights[i].cast<double>();
-      auto ground_level = ground_levels[i].cast<double>();
-      auto hls = holes[i].cast<py::list>();
-
-      Polygon poly;
-      for (size_t j = 0; j < footprint.size(); j++)
-      {
-        auto pt = footprint[j].cast<py::tuple>();
-
-        poly.vertices.push_back(
-            Vector2D(pt[0].cast<double>(), pt[1].cast<double>()));
-      }
-      if (hls.size() > 0)
-      {
-        for (size_t j = 0; j < hls.size(); j++)
-        {
-          auto hl = hls[j].cast<py::list>();
-          std::vector<Vector2D> hole;
-          for (size_t k = 0; k < hl.size(); k++)
-          {
-            auto pt = hl[k].cast<py::tuple>();
-            hole.push_back(Vector2D(pt[0].cast<double>(), pt[1].cast<double>()));
-          }
-          poly.holes.push_back(hole);
-        }
-      }
-      Building building;
-      building.footprint = poly;
-      building.uuid = uuid;
-      building.height = height;
-      building.ground_height = ground_level;
-      city.buildings.push_back(building);
-    }
-    // Cleaning should be done elsewhere (in Python)
-    // This function should only convert
-    // CityBuilder::clean_city(city, 1.0);
-
-    return city;
-  }
 
   Mesh create_mesh(py::array_t<double> vertices,
                    py::array_t<size_t> faces,
@@ -166,25 +111,6 @@ namespace DTCC_BUILDER
     return py::make_tuple(py_vertices, py_faces, py_markers);
   }
 
-  py::list building_roofpoints(const City &city)
-  {
-    py::list roof_points;
-    for (auto const &building : city.buildings)
-    {
-      py::array_t<double> pts(building.roof_points.size() * 3);
-      for (size_t i = 0; i < building.roof_points.size(); i++)
-      {
-        pts.mutable_at(i * 3) = building.roof_points[i].x;
-        pts.mutable_at(i * 3 + 1) = building.roof_points[i].y;
-        pts.mutable_at(i * 3 + 2) = building.roof_points[i].z;
-      }
-      pts = pts.reshape(
-          std::vector<long>{static_cast<long>(building.roof_points.size()), 3});
-      roof_points.append(pts);
-    }
-    return roof_points;
-  }
-
   Surface create_surface(py::array_t<double> vertices, py::list holes)
   {
     Surface surface;
@@ -226,7 +152,7 @@ namespace DTCC_BUILDER
       pc.push_back(Vector3D(pts_r(i, 0), pts_r(i, 1), pts_r(i, 2)));
     }
 
-    auto _roof_points = CityBuilder::extract_building_points(buildings, pc);
+    auto _roof_points = BuildingProcessor::extract_building_points(buildings, pc);
     if (statistical_outlier_remover)
     {
       for (auto &rp : _roof_points)
@@ -378,13 +304,7 @@ py::array_t<size_t> statistical_outlier_finder(py::array_t<double> &points, size
 
 PYBIND11_MODULE(_dtcc_builder, m)
 {
-  py::class_<DTCC_BUILDER::City>(m, "City")
-      .def(py::init<>())
-      .def("__len__",
-           [](const DTCC_BUILDER::City &cm)
-           { return cm.buildings.size(); })
-      .def_readonly("buildings", &DTCC_BUILDER::City::buildings)
-      .def_readonly("origin", &DTCC_BUILDER::City::origin);
+
 
   py::class_<DTCC_BUILDER::Building>(m, "Building")
       .def(py::init<>())
@@ -497,7 +417,6 @@ PYBIND11_MODULE(_dtcc_builder, m)
 
   m.def("create_polygon", &DTCC_BUILDER::create_polygon, "Create C++ polygon");
 
-  m.def("create_city", &DTCC_BUILDER::create_city, "Create C++ city");
 
   m.def("create_pointcloud", &DTCC_BUILDER::create_pointcloud,
         "Create C++ point cloud");
@@ -506,9 +425,6 @@ PYBIND11_MODULE(_dtcc_builder, m)
 
   m.def("mesh_as_arrays", &DTCC_BUILDER::mesh_as_arrays, "Create C++ mesh");
 
-  m.def("building_roofpoints", &DTCC_BUILDER::building_roofpoints,
-        "Create C++ roof points");
-
   m.def("create_gridfield", &DTCC_BUILDER::create_gridfield,
         "Create C++ grid field");
 
@@ -516,20 +432,9 @@ PYBIND11_MODULE(_dtcc_builder, m)
         &DTCC_BUILDER::PointCloudProcessor::remove_vegetation,
         "Remove vegetation from point cloud");
 
-  m.def("remove_building_point_outliers_statistical",
-        &DTCC_BUILDER::CityBuilder::remove_building_point_outliers_statistical,
-        "Remove building point outliers (statistical)");
-
-  m.def("remove_building_point_outliers_ransac",
-        &DTCC_BUILDER::CityBuilder::remove_building_point_outliers_ransac,
-        "Remove building point outliers (RANSAC)");
-
   m.def("extract_building_points", &DTCC_BUILDER::extract_building_points,
         "Compute building points from point cloud");
 
-  // m.def("compute_building_points_parallel",
-  //       &DTCC_BUILDER::CityBuilder::compute_building_points_parallel,
-  //       "Compute building points from point cloud (parallel)");
 
   m.def("build_elevation", &DTCC_BUILDER::ElevationBuilder::build_elevation,
         "build height field from point cloud");
@@ -537,7 +442,6 @@ PYBIND11_MODULE(_dtcc_builder, m)
   m.def("smooth_field", &DTCC_BUILDER::VertexSmoother::smooth_field,
         "Smooth grid field");
 
-  m.def("clean_city", &DTCC_BUILDER::CityBuilder::clean_city, "Clean city");
 
   // m.def("build_mesh", &DTCC_BUILDER::MeshBuilder::build_mesh,
   //       "build mesh for city, returning a list of meshes");
