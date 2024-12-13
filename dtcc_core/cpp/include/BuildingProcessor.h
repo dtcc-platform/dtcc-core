@@ -7,15 +7,15 @@
 #include <set>
 
 
+#include "BoundingBox.h"
+#include "BoundingBoxTree.h"
 #include "BuildingProcessor.h"
 #include "KDTreeVectorOfVectorsAdaptor.h"
 #include "Logging.h"
 #include "PointCloudProcessor.h"
 #include "Polyfix.h"
 #include "Timer.h"
-#include "model/Building.h"
 #include "model/GridField.h"
-#include "model/PointCloud.h"
 #include "model/Polygon.h"
 #include "model/Vector.h"
 
@@ -87,13 +87,13 @@ public:
     }
     return building_points;
   }
-  static double point_coverage(const Building &building, double tile_size = 1.0)
+  static double point_coverage(const Polygon &building, const std::vector<Vector3D> &roof_points, double tile_size = 1.0)
   {
     // Estimate what percentage of a building roof is covered by the point cloud
     // If much less than 1 then that indicates that there is a problem with the
     // pointcloud data for that building.
     Timer("BuildingProcessor::point_coverage");
-    auto bbox = BoundingBox2D(building.footprint);
+    auto bbox = BoundingBox2D(building);
     std::vector<BoundingBox2D> tiles;
     for (double x = bbox.P.x; x < bbox.Q.x; x += tile_size)
     {
@@ -107,7 +107,7 @@ public:
         tile_poly.vertices.push_back(Vector2D(x + tile_size, y + tile_size));
         tile_poly.vertices.push_back(Vector2D(x, y + tile_size));
 
-        if (Geometry::intersects_2d(building.footprint, tile_poly))
+        if (Geometry::intersects_2d(building, tile_poly))
         {
           tiles.push_back(tile);
         }
@@ -118,7 +118,7 @@ public:
     tile_tree.build(tiles);
 
     std::set<size_t> collision_set;
-    for (const auto &point : building.roof_points)
+    for (const auto &point : roof_points)
     {
       auto p = Vector2D(point.x, point.y);
       auto containingTile = tile_tree.find(p);

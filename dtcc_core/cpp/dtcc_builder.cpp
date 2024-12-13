@@ -9,16 +9,13 @@
 #include <pybind11/stl.h>
 
 #include "BuildingProcessor.h"
-#include "ElevationBuilder.h"
 #include "Intersection.h"
 #include "MeshBuilder.h"
 #include "MeshProcessor.h"
 #include "Smoother.h"
 #include "VertexSmoother.h"
-#include "model/Building.h"
 #include "model/GridField.h"
 #include "model/Mesh.h"
-#include "model/PointCloud.h"
 #include "model/Polygon.h"
 #include "model/Simplices.h"
 #include "model/Vector.h"
@@ -187,42 +184,6 @@ namespace DTCC_BUILDER
     return multi_surface;
   }
 
-  PointCloud create_pointcloud(py::array_t<double> pts,
-                               py::array_t<uint8_t> cls,
-                               py::array_t<uint8_t> ret_number,
-                               py::array_t<uint8_t> num_returns)
-  {
-    auto pts_r = pts.unchecked<2>();
-    auto cls_r = cls.unchecked<1>();
-    auto ret_number_r = ret_number.unchecked<1>();
-    auto num_returns_r = num_returns.unchecked<1>();
-
-    auto pt_count = pts_r.shape(0);
-
-    bool has_classification = cls_r.size() == pt_count;
-    bool has_return_number = ret_number_r.size() == pt_count;
-    bool has_number_of_returns = num_returns_r.size() == pt_count;
-
-    PointCloud point_cloud;
-    for (int i = 0; i < pt_count; i++)
-    {
-      point_cloud.points.push_back(
-          Vector3D(pts_r(i, 0), pts_r(i, 1), pts_r(i, 2)));
-      if (has_classification)
-        point_cloud.classifications.push_back(cls_r(i));
-      else
-        point_cloud.classifications.push_back(1);
-      if (has_return_number and has_number_of_returns)
-        point_cloud.scan_flags.push_back(PointCloudProcessor::pack_scan_flag(
-            ret_number_r(i), num_returns_r(i)));
-    }
-
-    point_cloud.build_has_classifications();
-    point_cloud.calculate_bounding_box();
-    return point_cloud;
-  }
-
-
 
   GridField create_gridfield(py::array_t<double> data,
                              py::tuple bounds,
@@ -306,16 +267,6 @@ PYBIND11_MODULE(_dtcc_builder, m)
 {
 
 
-  py::class_<DTCC_BUILDER::Building>(m, "Building")
-      .def(py::init<>())
-      .def_readwrite("error", &DTCC_BUILDER::Building::error)
-      .def_readwrite("uuid", &DTCC_BUILDER::Building::uuid)
-      .def_readwrite("property_uuid", &DTCC_BUILDER::Building::property_uuid)
-      .def_readwrite("height", &DTCC_BUILDER::Building::height)
-      .def_readwrite("ground_height", &DTCC_BUILDER::Building::ground_height)
-      .def_readonly("footprint", &DTCC_BUILDER::Building::footprint)
-      .def_readonly("roof_points", &DTCC_BUILDER::Building::roof_points);
-
   py::class_<DTCC_BUILDER::Vector2D>(m, "Vector2D")
       .def(py::init<>())
       .def("__repr__",
@@ -356,16 +307,6 @@ PYBIND11_MODULE(_dtcc_builder, m)
       .def_readonly("vertices", &DTCC_BUILDER::Polygon::vertices)
       .def_readonly("holes", &DTCC_BUILDER::Polygon::holes);
 
-  py::class_<DTCC_BUILDER::PointCloud>(m, "PointCloud")
-      .def(py::init<>())
-      .def("__len__",
-           [](const DTCC_BUILDER::PointCloud &p)
-           { return p.points.size(); })
-      .def_readonly("points", &DTCC_BUILDER::PointCloud::points)
-      .def_readonly("classifications",
-                    &DTCC_BUILDER::PointCloud::classifications)
-      .def_readonly("intensities", &DTCC_BUILDER::PointCloud::intensities)
-      .def_readonly("scan_flags", &DTCC_BUILDER::PointCloud::scan_flags);
 
   py::class_<DTCC_BUILDER::GridField>(m, "GridField")
       .def(py::init<>())
@@ -417,10 +358,6 @@ PYBIND11_MODULE(_dtcc_builder, m)
 
   m.def("create_polygon", &DTCC_BUILDER::create_polygon, "Create C++ polygon");
 
-
-  m.def("create_pointcloud", &DTCC_BUILDER::create_pointcloud,
-        "Create C++ point cloud");
-
   m.def("create_mesh", &DTCC_BUILDER::create_mesh, "Create C++ mesh");
 
   m.def("mesh_as_arrays", &DTCC_BUILDER::mesh_as_arrays, "Create C++ mesh");
@@ -428,16 +365,9 @@ PYBIND11_MODULE(_dtcc_builder, m)
   m.def("create_gridfield", &DTCC_BUILDER::create_gridfield,
         "Create C++ grid field");
 
-  m.def("remove_vegetation",
-        &DTCC_BUILDER::PointCloudProcessor::remove_vegetation,
-        "Remove vegetation from point cloud");
 
   m.def("extract_building_points", &DTCC_BUILDER::extract_building_points,
         "Compute building points from point cloud");
-
-
-  m.def("build_elevation", &DTCC_BUILDER::ElevationBuilder::build_elevation,
-        "build height field from point cloud");
 
   m.def("smooth_field", &DTCC_BUILDER::VertexSmoother::smooth_field,
         "Smooth grid field");
