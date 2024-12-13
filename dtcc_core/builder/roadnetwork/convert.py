@@ -5,7 +5,6 @@ import numpy as np
 from ..register import register_model_method
 from ...model.geometry import Surface
 
-import geopandas as gpd
 from typing import Any, Union, List, Tuple
 
 
