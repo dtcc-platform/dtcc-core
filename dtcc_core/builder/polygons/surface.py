@@ -1,5 +1,4 @@
 import shapely.affinity
-from mpl_toolkits.mplot3d.proj3d import inv_transform
 from shapely.geometry import Polygon, MultiPolygon
 from shapely.validation import make_valid
 
@@ -152,10 +151,13 @@ def surface_sample_points(s: Surface, spacing=1.0) -> PointCloud:
     grid_points = [np.array([x, y]) for x in x_range for y in y_range]
 
     # Rotate the points back to the original coordinate system
-    aligned_points = np.array([np.dot(point, inverse_rotation_matrix.T) for point in grid_points])
+    aligned_points = np.array(
+        [np.dot(point, inverse_rotation_matrix.T) for point in grid_points]
+    )
     return PointCloud(points=aligned_points)
 
-def union_surfaces(ms: MultiSurface|List[Surface]) -> Surface:
+
+def union_surfaces(ms: MultiSurface | List[Surface]) -> Surface:
     """Union a list of surfaces into a single Surface. Assumes that all surfaces are co-planar
     and connected. If this is not the case, the result is undefined.
 
@@ -173,10 +175,9 @@ def union_surfaces(ms: MultiSurface|List[Surface]) -> Surface:
     if len(surfaces) == 1:
         return surfaces[0]
 
-    transform, transform_inv  = _transform_to_planar(surfaces[0])
+    transform, transform_inv = _transform_to_planar(surfaces[0])
     surface_poly = [_to_polygon(s, transform) for s in surfaces]
     union_poly = unary_union(surface_poly)
-
 
     if union_poly.geom_type == "MultiPolygon":
         union_poly = union_poly.convex_hull
@@ -187,8 +188,6 @@ def union_surfaces(ms: MultiSurface|List[Surface]) -> Surface:
     union_poly = union_poly.simplify(1e-6, preserve_topology=True)
     merged_surface = _to_surface(union_poly, transform_inv)
     return merged_surface
-
-
 
 
 def _to_polygon(s: Surface, transform) -> Polygon:
