@@ -68,7 +68,15 @@ def compute_building_heights(
         if footprint is None:
             warning(f"Building {building.id} has no LOD0 geometry.")
             continue
+        if len(footprint.vertices) < 3:
+            warning(
+                f"Building {building.id} has an invalid footprint with only {len(footprint.vertices)} vertices."
+            )
+            continue
         centroid = footprint.centroid
+        if np.isnan(centroid[0]) or np.isnan(centroid[1]):
+            warning(f"Building {building.id} has an invalid centroid.")
+            continue
         ground_height = terrain.get_value(centroid[0], centroid[1])
         building.attributes["ground_height"] = ground_height
         if overwrite or footprint.zmax == 0:
