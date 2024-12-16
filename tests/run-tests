@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
-# Get the directory where the 'run-tests` script is stored
-TESTS_DIR="$(dirname "$(readlink -f "$0")")"
-echo "Script directory: $SCRIPT_DIR"
+# Get the directory where the 'run-tests' script is stored
+TESTS_DIR="$(cd "$(dirname "$0")" && pwd)"
+echo "Script directory: $TESTS_DIR"
 
 # Define the array
 test_modules=("builder" "io" "model")
@@ -11,8 +11,5 @@ test_modules=("builder" "io" "model")
 for module in "${test_modules[@]}"; do
     echo "Running dtcc-$module Python tests"
     echo "======================================================================"
-    python3 -m unittest discover -s $TESTS_DIR/$module    #2>&1 | grep -A 10 "Ran [0-9]* tests"
-    
+    python3 -m unittest discover -s "$TESTS_DIR/$module"
 done
-
-
