@@ -2,7 +2,7 @@ from pathlib import Path
 import numpy as np
 import laspy
 
-from ..model import dtcc_pb2 as proto
+
 from ..model.geometry import PointCloud, Bounds
 from .logging import info, warning, error
 from typing import List, Union

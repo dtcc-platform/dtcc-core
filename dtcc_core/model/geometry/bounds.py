@@ -193,7 +193,6 @@ class Bounds(Model):
         self.ymax += distance
         return self
 
-    # FIXME: How to handle z-axis?
     def union(self, other):
         """Merges this bounds with another, taking the outermost bounds.
 

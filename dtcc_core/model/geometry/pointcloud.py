@@ -49,6 +49,10 @@ class PointCloud(Geometry):
         """
         return f"DTCC PointCloud on {self.bounds} with {len(self.points)} points"
 
+    def __repr__(self):
+        result = f"DTCC PointCloud on {self.bounds} with {len(self.points)} points"
+        return result
+
     def __len__(self):
         """
         Get the number of points in the PointCloud.
@@ -157,6 +161,24 @@ class PointCloud(Geometry):
             )
         if len(other.num_returns) == len(other.points):
             self.num_returns = np.concatenate((self.num_returns, other.num_returns))
+        self.calculate_bounds()
+        return self
+
+    def offset(self, offset: Union[list, np.ndarray]) -> "PointCloud":
+        """
+        Offset the point cloud by the given offset.
+
+        Parameters
+        ----------
+        offset : np.ndarray
+            The offset to apply to the point cloud.
+
+        Returns
+        -------
+        None
+
+        """
+        self.points += offset
         self.calculate_bounds()
         return self
 
