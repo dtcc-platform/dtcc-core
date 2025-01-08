@@ -23,11 +23,17 @@ class TestPointCloudDirectory(unittest.TestCase):
         pc = pcd.pointcloud(pcd.bounds)
         self.assertEqual(len(pc), 20)
 
-    def test_get_sub_points(self):
+    def test_get_sub_points_1file(self):
         pcd = io.load_pointcloud_directory(data_dir / "pointclouds")
         bounds = Bounds(xmin=0.1, xmax=3.1, ymin=0.1, ymax=1.1)
         pc = pcd.pointcloud(bounds)
         self.assertEqual(len(pc), 3)
+
+    def test_get_sub_points_2files(self):
+        pcd = io.load_pointcloud_directory(data_dir / "pointclouds")
+        bounds = Bounds(xmin=0.1, xmax=3.1, ymin=-1, ymax=3)
+        pc = pcd.pointcloud(bounds)
+        self.assertEqual(len(pc), 6)
 
 
 if __name__ == "__main__":
