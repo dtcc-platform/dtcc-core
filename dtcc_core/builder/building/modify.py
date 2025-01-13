@@ -115,6 +115,8 @@ def simplify_building_footprints(
         if lod0 is None:
             continue
         footprint = lod0.to_polygon()
+        if footprint is None or footprint.is_empty:
+            continue
         footprint = footprint.simplify(tolerance, True)
         building_surface = Surface()
         building_surface.from_polygon(footprint, lod0.zmax)
@@ -136,6 +138,8 @@ def fix_building_footprint_clearance(
         if lod0 is None:
             continue
         footprint = lod0.to_polygon()
+        if footprint is None or footprint.is_empty:
+            continue
         footprint = fix_clearance(footprint, clearance)
         building_surface = Surface()
         building_surface.from_polygon(footprint, lod0.zmax)
@@ -163,6 +167,8 @@ def split_footprint_walls(
             continue
 
         footprint = lod0.to_polygon()
+        if footprint is None or footprint.is_empty:
+            continue
         footprint = split_polygon_sides(footprint, wall_length)
         building_surface = Surface()
         building_surface.from_polygon(footprint, lod0.zmax)

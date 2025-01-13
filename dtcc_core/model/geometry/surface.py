@@ -40,27 +40,27 @@ class Surface(Geometry):
 
     @property
     def xmin(self):
-        return np.min(self.vertices[:, 0])
+        return self.bounds.xmin
 
     @property
     def ymin(self):
-        return np.min(self.vertices[:, 1])
+        return self.bounds.ymin
 
     @property
     def zmin(self):
-        return np.min(self.vertices[:, 2])
+        return self.bounds.zmin
 
     @property
     def xmax(self):
-        return np.max(self.vertices[:, 0])
+        return self.bounds.xmax
 
     @property
     def ymax(self):
-        return np.max(self.vertices[:, 1])
+        return self.bounds.ymax
 
     @property
     def zmax(self):
-        return np.max(self.vertices[:, 2])
+        return self.bounds.zmax
 
     @property
     def centroid(self):
