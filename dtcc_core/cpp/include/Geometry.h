@@ -854,8 +854,8 @@ public:
     return ar;
   }
 
-  // Compute normalized aspect ratio of volume mesh: min, max, median (3D)
-  static std::tuple<double, double, double> aspect_ratio(const VolumeMesh &mesh)
+  // Compute normalized aspect ratios of volume mesh
+  static std::vector<double> aspect_ratios(const VolumeMesh &mesh)
   {
     // Compute aspect ratios of all tetrahedra
     std::vector<double> aspect_ratios;
@@ -870,11 +870,20 @@ public:
       aspect_ratios.push_back(ar);
     }
 
+    return aspect_ratios;
+  }
+
+  // Compute normalized aspect ratio of volume mesh: min, max, median (3D)
+  static std::tuple<double, double, double> aspect_ratio(const VolumeMesh &mesh)
+  {
+    // Compute aspect ratios of all tetrahedra
+    std::vector<double> _aspect_ratios = aspect_ratios(mesh);
+
     // Compute min, max and median aspect ratios
-    double min_ar = *std::min_element(aspect_ratios.begin(), aspect_ratios.end());
-    double max_ar = *std::max_element(aspect_ratios.begin(), aspect_ratios.end());
-    std::sort(aspect_ratios.begin(), aspect_ratios.end());
-    double median_ar = aspect_ratios[aspect_ratios.size() / 2];
+    double min_ar = *std::min_element(_aspect_ratios.begin(), _aspect_ratios.end());
+    double max_ar = *std::max_element(_aspect_ratios.begin(), _aspect_ratios.end());
+    std::sort(_aspect_ratios.begin(), _aspect_ratios.end());
+    double median_ar = _aspect_ratios[_aspect_ratios.size() / 2];
 
     return std::make_tuple(min_ar, max_ar, median_ar);
   }
