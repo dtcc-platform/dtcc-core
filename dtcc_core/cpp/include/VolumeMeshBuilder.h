@@ -102,10 +102,10 @@ public:
     VolumeMesh volume_mesh = layer_ground_mesh(layer_heights);
     t3_2.stop();
     t3_2.print();
-    check_mesh_quality(volume_mesh);
+    check_mesh_quality(volume_mesh, 2);
 
     // Debugging
-    if (debug_step <= 2)
+    if (debug_step == 2)
       return volume_mesh;
 
     // Volume mesh smoothing
@@ -116,7 +116,7 @@ public:
     _column_mesh._update_vertices(volume_mesh);
     t3_3.stop();
     t3_3.print();
-    check_mesh_quality(volume_mesh);
+    check_mesh_quality(volume_mesh, 3);
 
     // Debugging
     if (debug_step == 3)
@@ -128,7 +128,7 @@ public:
     volume_mesh = trim_volume_mesh();
     t3_4.stop();
     t3_4.print();
-    check_mesh_quality(volume_mesh);
+    check_mesh_quality(volume_mesh, 4);
 
     // Debugging
     if (debug_step == 4)
@@ -143,7 +143,7 @@ public:
                                                smoother_iterations, smoother_relative_tolerance);
     t3_5.stop();
     t3_5.print();
-    check_mesh_quality(volume_mesh);
+    check_mesh_quality(volume_mesh, 5);
 
     // FIXME: Not used yet (only for padding)
     top_height = domain_height + _dem.max();
@@ -269,13 +269,20 @@ private:
   }
 
   // Check mesh quality
-  void check_mesh_quality(const VolumeMesh &volume_mesh)
+  void check_mesh_quality(const VolumeMesh &volume_mesh, int step)
   {
     // Compute aspect ratios
     const auto aspect_ratios = Geometry::aspect_ratio(volume_mesh);
     const double min = std::get<0>(aspect_ratios);
     const double max = std::get<1>(aspect_ratios);
     const double median = std::get<2>(aspect_ratios);
+
+    // Write aspect ratios to file for debugging
+    const auto _aspect_rations = Geometry::aspect_ratios(volume_mesh);
+    std::ofstream file("aspect_ratios_" + str(step) + ".txt");
+    for (const auto &ar : _aspect_rations)
+      file << ar << std::endl;
+    file.close();
 
     // Print aspect ratios
     info("Mesh quality (aspect ratio): min = " + str(min, 3L) + ", max = " + str(max, 3L) +
