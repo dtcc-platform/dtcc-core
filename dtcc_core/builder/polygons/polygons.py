@@ -209,7 +209,7 @@ def clean_merge_candidates(
     return merge_candidates
 
 
-def merge_list_of_polygons(mcp: List[Polygon], tolerance=1e-2, min_area=0) -> Polygon:
+def merge_list_of_polygons(mcp: List[Polygon], tolerance=1e-2) -> Polygon:
     if len(mcp) == 1:
         return mcp[0]
     else:
@@ -222,19 +222,17 @@ def merge_list_of_polygons(mcp: List[Polygon], tolerance=1e-2, min_area=0) -> Po
                     m = simp_m
             return m
         else:
-            if min_area > 0:
-                m = MultiPolygon(
-                    [p for p in m.geoms if p.area > min_area and p.is_valid]
-                )
+            m = MultiPolygon([p for p in m.geoms if p.is_valid and (not p.is_empty)])
+
             m = merge_multipolygon(m, tolerance)
             if m.geom_type != "Polygon":
                 warning("Failed to merge polygon list. Falling back to convex hull")
                 m = m.convex_hull
             else:
-
                 simp_m = m.simplify(tolerance / 4, True)
                 if simp_m.is_valid and simp_m.geom_type == "Polygon":
                     m = simp_m
+
             return m
 
 
@@ -256,7 +254,7 @@ def polygon_merger(
 
     merged_polygons = []
     for mcp in merge_candidate_polygons:
-        m = merge_list_of_polygons(mcp, tolerance, min_area=min_area)
+        m = merge_list_of_polygons(mcp, tolerance)
         merged_polygons.append(m)
 
     return merged_polygons, merge_candidates

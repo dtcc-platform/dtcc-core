@@ -72,6 +72,10 @@ def merge_building_footprints(
         footprint = remove_slivers(footprint, max_distance / 2)
         if footprint.geom_type == "MultiPolygon":
             ValueError("de-slivered footprint is a MultiPolygon")
+
+        if footprint.is_empty or footprint.area < min_area:
+            warning(f"Empty or too small footprint: {footprint.area}")
+            continue
         indices = merged_indices[idx]
 
         original_buildings = [buildings[i] for i in indices]
