@@ -23,6 +23,8 @@
 
 #include "model/ColumnMesh.h"
 
+
+
 namespace DTCC_BUILDER
 {
 
@@ -472,18 +474,18 @@ private:
   VolumeMesh layer_ground_mesh(const std::vector<double> &layer_heights)
   {
     // Compute max building height
-    double max_building_height = 0.0;
+    double max_building_height =  layer_heights.back();
     for (size_t i = 0; i < _buildings.size(); i++)
     {
-      const double building_height = _buildings[i].max_height() - _building_ground_height[i];
+      double building_height = _buildings[i].max_height() - _building_ground_height[i];
+      
+      // Validate that each building's height is positive and log an error with specific details if it's not.
+      // This ensures data integrity and prevents unexpected behavior caused by invalid building heights.
+      if (building_height <= 0.0 ) 
+        error("Building "+ str(i)+ " height less or equal to 0.0m ("+str(building_height)+"m).");
       max_building_height = std::max(max_building_height, building_height);
     }
 
-    if (max_building_height <= 0.0)
-    {
-      warning("No buildings or Building heights <= 0");
-      max_building_height = layer_heights.back();
-    }
     // Compute number of layers of max height and min height
     _column_mesh.num_max_layers = std::ceil(max_building_height / layer_heights.back());
     _column_mesh.num_min_layers = _column_mesh.num_max_layers << (layer_heights.size() - 1);
