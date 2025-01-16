@@ -85,6 +85,7 @@ def compute_building_heights(
                     height = min_building_height
                 footprint.set_z(ground_height + height)
                 building.attributes["height"] = height
+
     return buildings
 
 
