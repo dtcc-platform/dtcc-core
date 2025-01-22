@@ -23,6 +23,7 @@ from ..geometry import (
     VolumeGrid,
     Grid,
     VolumeGrid,
+    Transform,
 )
 from collections import defaultdict
 from uuid import uuid4
@@ -106,6 +107,7 @@ class Object(Model):
     attributes: dict = field(default_factory=dict)
     children: dict = field(default_factory=lambda: defaultdict(list))
     geometry: dict = field(default_factory=dict)
+    transform: Transform = field(default_factory=Transform)
     _bounds: Bounds = None
 
     @property
