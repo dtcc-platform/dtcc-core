@@ -21,6 +21,7 @@ from scipy.sparse import lil_matrix
 from scipy.sparse.csgraph import connected_components
 from collections import defaultdict
 from itertools import combinations, groupby
+import copy
 
 from ..logging import debug, info, warning, error, critical
 
@@ -405,7 +406,7 @@ def remove_short_edges(p: Polygon, min_length: float) -> Polygon:
 def fix_clearance(
     polygon: Polygon, target_clearance: float, tol: float = 0.9
 ) -> Polygon:
-    original_polygon = Polygon(polygon.exterior, holes=polygon.interiors)
+    original_polygon = copy.deepcopy(polygon)
     min_clearance = shapely.minimum_clearance(polygon)
     # print(f"min_clearance: {min_clearance}")
     if min_clearance > target_clearance:
@@ -441,7 +442,7 @@ def fix_clearance(
         # print(f"buffer clearance: {shapely.minimum_clearance(polygon)}")
         if shapely.minimum_clearance(polygon) > target_clearance * tol:
             return polygon
-    polygon = shapely.convex_hull(original_polygon)
+    warning("failed to fix clearance, returning best attempt")
     return polygon
 
 
