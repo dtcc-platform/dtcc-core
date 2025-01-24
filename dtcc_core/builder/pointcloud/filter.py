@@ -7,6 +7,7 @@ from ..register import register_model_method
 
 from .. import _dtcc_builder
 
+
 @register_model_method
 def remove_global_outliers(pc: PointCloud, margin: float):
     """
@@ -28,8 +29,9 @@ def remove_global_outliers(pc: PointCloud, margin: float):
     new_pc.remove_points(outliers)
     return new_pc
 
+
 @register_model_method
-def statistical_outlier_filter(pc:PointCloud, neighbours, outlier_margin):
+def statistical_outlier_filter(pc: PointCloud, neighbours, outlier_margin):
     """
     Remove statistical outliers from a `PointCloud` object.
 
@@ -42,8 +44,11 @@ def statistical_outlier_filter(pc:PointCloud, neighbours, outlier_margin):
         PointCloud: A new `PointCloud` object with the outliers removed.
     """
 
-    outliers = _dtcc_builder.statistical_outlier_finder(pc.points, neighbours, outlier_margin)
+    outliers = _dtcc_builder.statistical_outlier_finder(
+        pc.points, neighbours, outlier_margin
+    )
     return pc.remove_points(outliers)
+
 
 @register_model_method
 def classification_filter(pc: PointCloud, classes: List[int], keep: bool = False):
@@ -64,6 +69,31 @@ def classification_filter(pc: PointCloud, classes: List[int], keep: bool = False
     if keep:
         mask = np.logical_not(mask)
     pc.remove_points(mask)
+    return pc
+
+
+@register_model_method
+def z_range_filter(pc: PointCloud, min=None, max=None):
+    """
+    Filter a `PointCloud` object based on its Z-values.
+
+    Args:
+        min (float): The minimum Z-value to keep.
+        max (float): The maximum Z-value to keep.
+
+    Returns:
+        PointCloud: A new `PointCloud` object with the specified points removed.
+    """
+    mask = np.ones(len(pc.points), dtype=bool)
+    filtered = False
+    if min is not None:
+        mask = np.logical_and(mask, pc.points[:, 2] >= min)
+        filtered = True
+    if max is not None:
+        mask = np.logical_and(mask, pc.points[:, 2] <= max)
+        filtered = True
+    if filtered:
+        pc.remove_points(np.logical_not(mask))
     return pc
 
 
