@@ -50,22 +50,30 @@ public:
     double x{}, y{};
     grid.point_to_cell(p, i, x, y);
 
-    double v00{}, v10{}, v01{}, v11{};
+    // Get value at lower left corner of cell
+    const double v00 = values[i];
 
-    // Extract grid data
-    v00 = values[i];
-    if ((i+1) % grid.xsize != 0 && i + 1 < values.size())
-      v10 = values[i + 1];
+    // Get indices for other corners of cell
+    const size_t i10 = i + 1;
+    const size_t i01 = i + grid.xsize;
+    const size_t i11 = i + grid.xsize + 1;
+    double v10{}, v01{}, v11{};
+
+    // Get value at lower right corner of cell
+    if (i10 % grid.xsize != 0 && i10 < values.size())
+      v10 = values[i10];
     else
       v10 = v00;
 
-    if (i + grid.xsize < values.size())
-      v01 = values[i + grid.xsize];
+    // Get value at upper left corner of cell
+    if (i01 < values.size())
+      v01 = values[i01];
     else
       v01 = v00;
 
-    if (i + grid.xsize + 1 < values.size())
-      v11 = values[i + grid.xsize + 1];
+    // Get value at upper right corner of cell
+    if (i11 % grid.xsize != 0 && i11 < values.size())
+      v11 = values[i11];
     else
       v11 = v10;
 

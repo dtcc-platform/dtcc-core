@@ -6,11 +6,13 @@
 
 #include <algorithm>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <iterator>
 #include <string>
 #include <vector>
 
+#include "Geometry.h"
 #include "StiffnessMatrix.h"
 #include "model/GridField.h"
 #include "model/Surface.h"
