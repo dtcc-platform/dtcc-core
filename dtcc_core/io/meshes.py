@@ -5,7 +5,12 @@ import meshio
 import pygltflib
 import numpy as np
 
-from ..model import Mesh, VolumeMesh
+from ..model import Mesh, VolumeMesh, City, Building
+from ..model import GeometryType
+from ..builder.meshing import disjoint_meshes
+
+from ..builder.geometry.multisurface import merge_coplanar
+
 from .logging import info, warning, error
 from . import generic
 
@@ -45,9 +50,23 @@ def _save_proto_volume_mesh(mesh, path):
 def _load_meshio_mesh(path):
     mesh = meshio.read(path)
     vertices = mesh.points[:, :3]
-    faces = mesh.cells[0].data
+    tri_faces = mesh.cells_dict.get("triangle", np.empty((0, 3), dtype=np.int64))
+    quad_faces = mesh.cells_dict.get("quad", np.empty((0, 4), dtype=np.int64))
+    if len(quad_faces) > 0:
+        warning("Mesh contains quads. Converting quads to triangles")
+    for f in quad_faces:
+        # triangulate quads
+        if len(f) == 4:
+            tri_faces = np.vstack(
+                [
+                    tri_faces,
+                    [f[0], f[1], f[2]],
+                    [f[0], f[2], f[3]],
+                ]
+            )
+
     # FIXME: What about normals?
-    return Mesh(vertices=vertices, faces=faces)
+    return Mesh(vertices=vertices, faces=tri_faces)
 
 
 def _load_meshio_volume_mesh(path):
@@ -55,6 +74,27 @@ def _load_meshio_volume_mesh(path):
     vertices = mesh.points[:, :3]
     cells = mesh.cells[0].data.astype(np.int64)
     return VolumeMesh(vertices=vertices, cells=cells)
+
+def _load_meshio_city_mesh(path, lod = GeometryType.LOD1, merge_coplanar_surfaces =  True ) -> City:
+    city = City()
+
+    mesh = _load_meshio_mesh(path)
+    disjointed_mesh = disjoint_meshes(mesh)
+
+    buildings = []
+    for m in disjointed_mesh:
+        b = Building()
+        building_ms =m.to_multisurface()
+        if merge_coplanar_surfaces:
+            building_ms = merge_coplanar(building_ms)
+        b.add_geometry(building_ms, lod)
+        buildings.append(b)
+    city.add_buildings(buildings)
+    city.calculate_bounds()
+    return city
+
+
+
 
 
 def _save_meshio_mesh(mesh, path):
@@ -169,6 +209,13 @@ _load_formats = {
         ".bdf": _load_meshio_volume_mesh,
         ".inp": _load_meshio_volume_mesh,
     },
+    City: {
+        ".obj": _load_meshio_city_mesh,
+        ".ply": _load_meshio_city_mesh,
+        ".stl": _load_meshio_city_mesh,
+        ".vtk": _load_meshio_city_mesh,
+        ".vtu": _load_meshio_city_mesh,
+    }
 }
 
 _save_formats = {
@@ -218,6 +265,9 @@ def load_mesh(path):
 
 def load_volume_mesh(path):
     return generic.load(path, "mesh", VolumeMesh, _load_formats)
+
+def load_mesh_as_city(path, lod = GeometryType.LOD1, merge_coplanar_surfaces=True) -> City:
+    return generic.load(path, "city_mesh", City, _load_formats, lod = lod, merge_coplanar_surfaces = merge_coplanar_surfaces)
 
 
 def save(mesh, path):

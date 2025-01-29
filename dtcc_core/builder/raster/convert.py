@@ -6,7 +6,7 @@ import numpy as np
 
 
 @register_model_method
-def to_pointcloud(raster: Raster) -> PointCloud:
+def to_pointcloud(raster: Raster, point_classification=1) -> PointCloud:
     """
     Convert a raster to a point cloud. The points will be in the center of each cell.
 
@@ -40,5 +40,5 @@ def to_pointcloud(raster: Raster) -> PointCloud:
     xx += cell_x / 2
     yy += cell_y / 2
     points = np.array([xx, yy, zz]).T
-    classification = np.ones(len(points), dtype=int)
+    classification = np.ones(len(points), dtype=int) * point_classification
     return PointCloud(points=points, classification=classification)

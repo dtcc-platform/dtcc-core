@@ -1,6 +1,7 @@
 from ...model import Building, GeometryType
 from ...model import Surface, MultiSurface, PointCloud, Raster
-from ..model_conversion import create_builder_polygon, create_builder_pointcloud
+from ..model_conversion import create_builder_polygon
+from .terrain import build_terrain_raster
 from .. import _dtcc_builder
 from ..logging import debug, info, warning, error
 from shapely.geometry import Polygon
@@ -67,7 +68,15 @@ def compute_building_heights(
         if footprint is None:
             warning(f"Building {building.id} has no LOD0 geometry.")
             continue
+        if len(footprint.vertices) < 3:
+            warning(
+                f"Building {building.id} has an invalid footprint with only {len(footprint.vertices)} vertices."
+            )
+            continue
         centroid = footprint.centroid
+        if np.isnan(centroid[0]) or np.isnan(centroid[1]):
+            warning(f"Building {building.id} has an invalid centroid.")
+            continue
         ground_height = terrain.get_value(centroid[0], centroid[1])
         building.attributes["ground_height"] = ground_height
         if overwrite or footprint.zmax == 0:
@@ -170,4 +179,27 @@ def extract_roof_points(
             pc.calculate_bounds()
             buildings[idx].add_geometry(pc, GeometryType.POINT_CLOUD)
             idx += 1
+    return buildings
+
+
+def building_heights_from_pointcloud(
+    buildings: [Building],
+    pointcloud: PointCloud,
+    statistical_outlier_remover=True,
+    roof_outlier_neighbors=5,
+    roof_outlier_margin=1.5,
+    overwrite=False,
+) -> List[Building]:
+
+    terrain_raster = build_terrain_raster(pointcloud, cell_size=2, ground_only=True)
+    buildings = extract_roof_points(
+        buildings,
+        pointcloud,
+        statistical_outlier_remover,
+        roof_outlier_neighbors,
+        roof_outlier_margin,
+    )
+    buildings = compute_building_heights(buildings, terrain_raster, overwrite=overwrite)
+    for building in buildings:
+        building.remove_geometry(GeometryType.POINT_CLOUD)
     return buildings

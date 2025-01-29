@@ -22,8 +22,7 @@ from typing import List, Union
 
 
 def build_terrain_mesh(
-    dem: Raster = None,
-    pointcloud: PointCloud = None,
+    data: Union[PointCloud, Raster],
     subdomains: list[Surface] = None,
     subdomain_resolution: Union[float, List[float]] = None,
     max_mesh_size=10,
@@ -31,10 +30,14 @@ def build_terrain_mesh(
     smoothing=3,
     ground_points_only=True,
 ) -> Mesh:
-    if dem is None and pointcloud is None:
-        raise ValueError("Either dem raster or pointcloud must be provided.")
-    if dem is None:
-        dem = build_terrain_raster(pointcloud, cell_size=max_mesh_size / 2, ground_only=ground_points_only)
+    if isinstance(data, PointCloud):
+        dem = build_terrain_raster(
+            data, cell_size=max_mesh_size / 2, ground_only=ground_points_only
+        )
+    elif isinstance(data, Raster):
+        dem = data
+    else:
+        raise ValueError("data must be a PointCloud or a Raster.")
     _builder_gridfield = raster_to_builder_gridfield(dem)
     if subdomains is None:
         subdomains = []

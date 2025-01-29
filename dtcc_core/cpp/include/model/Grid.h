@@ -194,7 +194,7 @@ public:
   void point_to_cell(const Vector2D &p, size_t &i, double &x, double &y) const
   {
     // Check that point is inside domain
-    if (!Geometry::bounding_box_contains_2d(bounding_box, p))
+    if (!Geometry::bounding_box_contains_2d(bounding_box, p, -Constants::epsilon))
       error("Point p = " + str(p) +
             " is outside of domain = " + str(bounding_box));
 

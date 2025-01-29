@@ -8,6 +8,8 @@ from typing import Union
 from enum import Enum, auto
 import json
 
+from copy import copy, deepcopy
+
 import dtcc_core
 
 from ..model import Model
@@ -28,7 +30,6 @@ from collections import defaultdict
 from uuid import uuid4
 
 from .. import dtcc_pb2 as proto
-
 
 from ..logging import info, warning, error, debug
 
@@ -169,8 +170,9 @@ class Object(Model):
 
     def add_child(self, child):
         """Add child object."""
+
         if not isinstance(child, Object):
-            raise ValueError(f"Invalid child object: {child}")
+            raise ValueError(f"Invalid child object of type {type(child)}: {child}")
         self.children[type(child)].append(child)
 
     def add_children(self, children):
@@ -182,9 +184,26 @@ class Object(Model):
         """Add geometry to object."""
         if isinstance(geometry_type, str) and geometry_type.startswith("GeometryType."):
             geometry_type = GeometryType.from_str(geometry_type[13:])
+        elif isinstance(geometry_type, str):
+            try:
+                geometry_type = GeometryType.from_str(geometry_type)
+            except ValueError:
+                pass
         if not isinstance(geometry_type, GeometryType):
             warning(f"Invalid geometry type (but I'll allow it): {geometry_type}")
         self.geometry[geometry_type] = geometry
+
+    def remove_geometry(self, geometry_type: Union[GeometryType, str]):
+        """Remove geometry from object."""
+        if isinstance(geometry_type, str) and geometry_type.startswith("GeometryType."):
+            geometry_type = GeometryType.from_str(geometry_type[13:])
+        if not isinstance(geometry_type, GeometryType):
+            try:
+                geometry_type = GeometryType(geometry_type)
+            except ValueError:
+                warning(f"Invalid geometry type (but I'll allow it): {geometry_type}")
+        if geometry_type in self.geometry:
+            del self.geometry[geometry_type]
 
     def add_field(self, field, geometry_type):
         """Add a field to a geometry of the object."""
@@ -210,13 +229,16 @@ class Object(Model):
         children = self.get_children(child_type)
         return [c.attributes.get(attribute, default) for c in children]
 
-    def flatten_geometry(self, geom_type: GeometryType):
+    def flatten_geometry(self, geom_type: GeometryType, exclude=None):
         """Returns a single geometry of the specified type, merging all the geometries of the children."""
-        geom = self.geometry.get(geom_type, None)
-        child_list = list(self.children)
-        for child_list in self.children.values():
+        if exclude is None:
+            exclude = []
+        geom = deepcopy(self.geometry.get(geom_type, None))
+        for child_type, child_list in self.children.items():
+            if child_type in exclude:
+                continue
             for child in child_list:
-                child_geom = child.geometry.get(geom_type, None)
+                child_geom = deepcopy(child.geometry.get(geom_type, None))
                 if geom is None and child_geom is not None:
                     geom = child_geom
                 if child_geom is not None:

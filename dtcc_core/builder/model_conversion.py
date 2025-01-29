@@ -27,35 +27,6 @@ def create_builder_polygon(polygon: Polygon) -> _dtcc_builder.Polygon:
 
     return _dtcc_builder.create_polygon(shell, holes)
 
-
-def create_builder_pointcloud(
-    pc: Union[PointCloud, np.ndarray]
-) -> _dtcc_builder.PointCloud:
-    """
-    Create a DTCC builder PointCloud object through the pybind exposed C++
-    `DTCC_BUILDER::create_pointcloud()` function.
-
-    Parameters
-    ----------
-    pc : Union[PointCloud, np.ndarray]
-        The input PointCloud data or numpy array.
-
-    Returns
-    -------
-    _dtcc_builder.PointCloud
-        A `DTCC_BUILDER` PointCloud object.
-
-    """
-    if isinstance(pc, np.ndarray):
-        return _dtcc_builder.create_pointcloud(
-            pc, np.empty(0), np.empty(0), np.empty(0)
-        )
-    else:
-        return _dtcc_builder.create_pointcloud(
-            pc.points, pc.classification, pc.return_number, pc.num_returns
-        )
-
-
 def create_builder_surface(surface: model.Surface):
     """
     Create a DTCC builder Surface object through the pybind exposed C++

@@ -9,16 +9,21 @@ from . import footprints
 from . import city
 from . import roadnetwork
 from . import landuse
+from . import pointcloud_directory
 from .cityjson import cityjson
 
 load_pointcloud = pointcloud.load
 save_pointcloud = pointcloud.save
+
+load_pointcloud_directory = pointcloud_directory.load
 
 load_raster = raster.load
 save_raster = raster.save
 
 load_mesh = meshes.load_mesh
 load_volume_mesh = meshes.load_volume_mesh
+load_mesh_as_city = meshes.load_mesh_as_city
+
 save_mesh = meshes.save
 save_volume_mesh = meshes.save
 list_mesh_io = meshes.list_io

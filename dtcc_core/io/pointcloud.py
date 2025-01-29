@@ -2,7 +2,7 @@ from pathlib import Path
 import numpy as np
 import laspy
 
-from ..model import dtcc_pb2 as proto
+
 from ..model.geometry import PointCloud, Bounds
 from .logging import info, warning, error
 from typing import List, Union
@@ -22,7 +22,7 @@ def las_file_bounds(las_file):
     """
     src = laspy.read(las_file)
     bounds = Bounds(
-        src.header.x_min, src.header.y_min, src.header.x_max, src.header.y_max
+        src.header.x_min, src.header.y_min, src.header.x_max, src.header.y_max, src.header.z_min, src.header.z_max
     )
     return bounds
 
@@ -37,18 +37,26 @@ def calc_las_bounds(las_path):
     Returns:
         Bounds: A `Bounds` object representing the bounding box of the LAS file(s).
     """
-    las_path = Path(las_path)
-    if not las_path.exists():
-        raise ValueError(f"Path {las_path} does not exist")
-    if las_path.is_file():
-        bbox = las_file_bounds(las_path)
-    if las_path.is_dir():
-        bbox = None
-        for f in las_path.glob("*.la[sz]"):
-            if bbox is None:
-                bbox = las_file_bounds(f)
-            else:
-                bbox.union(las_file_bounds(f))
+    if isinstance(las_path, list):
+        las_path = [Path(p) for p in las_path if Path(p).exists()]
+        if len(las_path) == 0:
+            raise ValueError("No valid LAS files found")
+    else:
+        las_path = Path(las_path)
+
+        if not las_path.exists():
+            raise ValueError(f"Path {las_path} does not exist")
+        if las_path.is_dir():
+            las_path = list(las_path.glob("*.la[sz]"))
+        else:
+            las_path = [las_path]
+
+    bbox = None
+    for f in las_path:
+        if bbox is None:
+            bbox = las_file_bounds(f)
+        else:
+            bbox.union(las_file_bounds(f))
     return bbox
 
 
@@ -62,7 +70,7 @@ def bounds_filter_poinst(pts, bounds):
 
 
 def load(
-    path: Union[str, List[str]],
+    path: Union[str, List[str], Path, List[Path]],
     points_only=False,
     points_classification_only=False,
     delimiter=",",
