@@ -2,7 +2,9 @@
 # Licensed under the MIT License
 
 import logging as _logging
+import sys
 
+# Global logger dictionary
 loggers = {}
 
 # Global logger object
@@ -14,11 +16,27 @@ def _init_logging(name):
 
     global _logger
 
-    # Initialize logger
+    # Set log format
     format = "%(asctime)s [%(name)s] [%(levelname)s] %(message)s"
-    _logging.basicConfig(format=format)
+
+    # Initialize logger
     _logger = _logging.getLogger(name)
     _logger.setLevel(_logging.INFO)
+
+    # Remove all existing handlers
+    _logger.handlers.clear()
+
+    # Create a new handler explicitly using stdout
+    handler = _logging.StreamHandler(sys.stdout)
+    handler.setFormatter(_logging.Formatter(format))
+
+    # Add handler to logger
+    _logger.addHandler(handler)
+
+    # Also set the root logger's handlers to stdout to override any previous settings
+    _logging.root.handlers.clear()
+    _logging.root.addHandler(handler)
+    _logging.root.setLevel(_logging.INFO)
 
     # Define error and critical as print + exit
     def error(message):
@@ -35,15 +53,13 @@ def _init_logging(name):
 debug, info, warning, error, critical = _init_logging("dtcc-common")
 
 
-def init_logging(name):
+def init_logging(name="dtcc-core"):
     "Initialize logging for given package"
-    debug(f"Initializing logging for {name}")
     return _init_logging(name)
 
 
-def get_logger(name):
+def get_logger(name="dtcc-core"):
     "Get logger for given package"
-    debug(f"getting loggers for {name}")
     if name not in loggers:
         loggers[name] = _init_logging(name)
     return loggers[name]
@@ -61,5 +77,5 @@ def set_log_level(level):
     """
     global _logger
     if _logger is None:
-        _init_logging("dtcc-common")
+        _init_logging("dtcc-core")
     _logger.setLevel(level)

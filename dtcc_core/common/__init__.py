@@ -1,3 +1,13 @@
-from .dtcc_logging import init_logging, set_log_level
+from .dtcc_logging import init_logging, get_logger
 
-__all__ = ["init_logging", "set_log_level"]
+debug, info, warning, error, critical = get_logger()
+
+__all__ = [
+    "init_logging",
+    "get_logger",
+    "debug",
+    "info",
+    "warning",
+    "error",
+    "critical",
+]

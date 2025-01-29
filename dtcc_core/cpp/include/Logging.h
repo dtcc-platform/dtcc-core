@@ -17,7 +17,7 @@
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
-#include <iso646.h> 
+#include <iso646.h>
 
 
 namespace DTCC_BUILDER
@@ -65,7 +65,7 @@ public:
   std::string __format__(LogLevel log_level, const std::string &message)
   {
     // Set component (hard-coded for now)
-    std::string component{"[dtcc-builder]"};
+    std::string component{"[dtcc-core]"};
 
     // Format level
     std::string level{};
