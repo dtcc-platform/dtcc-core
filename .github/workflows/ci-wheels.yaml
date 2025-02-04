@@ -24,7 +24,7 @@ jobs:
         with:
           # You only need to pick one "bootstrap" Python.
           # cibuildwheel will build for many versions automatically.
-          python-version: "3.10"
+          python-version: "3.11"
 
       - name: Upgrade pip + install cibuildwheel
         run: |
