@@ -37,9 +37,12 @@ jobs:
 
           # Install build dependencies in the container before building
           CIBW_BEFORE_BUILD_LINUX: |
-            dnf install -y dnf-plugins-core
-            dnf install -y gcc gcc-c++ make
+            dnf install -y dnf-plugins-core && \
+            dnf install -y gcc gcc-c++ make && \
             "$PYTHON" -m pip install --upgrade scikit-build-core cmake ninja
+            #dnf install -y dnf-plugins-core
+            #dnf install -y gcc gcc-c++ make
+            #"$PYTHON" -m pip install --upgrade scikit-build-core cmake ninja
 
           # Environment so that scikit-build (CMake) can find Python dev libs
           CIBW_ENVIRONMENT_LINUX: |
