@@ -4,7 +4,6 @@
 #include <map>
 
 #include "VertexSmoother.h"
-#include "model/City.h"
 #include "model/GridField.h"
 #include "model/Mesh.h"
 #include "model/Surface.h"

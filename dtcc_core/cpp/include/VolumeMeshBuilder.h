@@ -15,7 +15,6 @@
 #include "Smoother.h"
 #include "Timer.h"
 #include "VertexSmoother.h"
-#include "model/City.h"
 #include "model/GridField.h"
 #include "model/Mesh.h"
 #include "model/Surface.h"
