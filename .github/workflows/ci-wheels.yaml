@@ -34,7 +34,7 @@ jobs:
           CIBW_BUILD: cp310-*, cp311-*, cp312-*
           # 1) Install Python dev libs + scikit-build, cmake, ninja
           CIBW_BEFORE_BUILD_LINUX: |
-            apt-get -y install python3.10-devel python3.11-devel python3.12-devel
+            yum -y install python3.10-devel python3.11-devel python3.12-devel
             #python -m pip install --upgrade scikit-build-core cmake ninja
           # 2) Tell CMake which Python to use
           CIBW_ENVIRONMENT_LINUX: |
