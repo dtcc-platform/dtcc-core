@@ -32,68 +32,21 @@ jobs:
           CIBW_BUILD: cp311-*
           CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
           CIBW_BEFORE_BUILD_LINUX: |
-            dnf install -y 'dnf-command(config-manager)'
-            dnf config-manager --set-enabled powertools
-            dnf install -y python3.11-devel gcc gcc-c++ make
+            dnf install -y dnf-plugins-core
+            dnf install -y gcc gcc-c++ make
             python -m pip install --upgrade scikit-build-core cmake ninja
+            python-config --includes
+            export PYTHON_INCLUDE_DIR=$(python -c "from sysconfig import get_paths; print(get_paths()['include'])")
+            export PYTHON_LIBRARY=$(python -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
+            echo "Python include dir: $PYTHON_INCLUDE_DIR"
+            echo "Python library: $PYTHON_LIBRARY"
           CIBW_ENVIRONMENT_LINUX: |
-            CMAKE_ARGS="-DPython3_ROOT_DIR=/opt/python/cp311-cp311 -DPython3_EXECUTABLE=/opt/python/cp311-cp311/bin/python"
+            PYTHON_INCLUDE_DIR=$(python -c "from sysconfig import get_paths; print(get_paths()['include'])")
+            PYTHON_LIBRARY=$(python -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
+            CMAKE_ARGS="-DPython3_ROOT_DIR=/opt/python/cp311-cp311 -DPython3_EXECUTABLE=/opt/python/cp311-cp311/bin/python -DPYTHON_INCLUDE_DIR=$PYTHON_INCLUDE_DIR -DPYTHON_LIBRARY=$PYTHON_LIBRARY"
         run: cibuildwheel --output-dir wheelhouse
 
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-${{ matrix.os }}
           path: wheelhouse/*.whl
-
-  build_sdist:
-    name: Build source distribution (sdist)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-
-      - uses: actions/setup-python@v4
-        with:
-          python-version: "3.11"
-
-      - name: Upgrade pip + install build
-        run: |
-          pip install --upgrade pip setuptools wheel build
-
-      - name: Build sdist
-        run: python -m build --sdist
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sdist
-          path: dist/*.tar.gz
-
-  upload_pypi:
-    name: Upload to PyPI
-    needs: [build_wheels, build_sdist]
-    runs-on: ubuntu-latest
-    if: github.event_name == 'release' && github.event.action == 'published'
-    steps:
-      - uses: actions/download-artifact@v3
-        with:
-          name: wheels-ubuntu-latest
-          path: dist
-
-      - uses: actions/download-artifact@v3
-        with:
-          name: wheels-windows-latest
-          path: dist
-
-      - uses: actions/download-artifact@v3
-        with:
-          name: wheels-macos-latest
-          path: dist
-
-      - uses: actions/download-artifact@v3
-        with:
-          name: sdist
-          path: dist
-
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: ${{ secrets.PYPI_API_TOKEN }}
