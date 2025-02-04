@@ -1,71 +1,50 @@
-name: Build and upload to PyPI
+name: CI-build-tests
 
 on:
   push:
-    branches: [ develop ]
+    branches: [ "develop" ]
   pull_request:
-  release:
-    types: [ published ]
-  workflow_dispatch:
+    branches: [ "develop" ]
+
+env:
+  BRANCH: develop
 
 jobs:
-  build_wheels:
-    name: Build wheels (cibuildwheel) on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
+  build:
     strategy:
-      matrix:
-        os: [ubuntu-latest]  # Add macos-latest, windows-latest, etc. if desired
+      matrix: 
+        os: [macos-latest, ubuntu-latest, windows-latest]#, windows-latest, macos-latest]
+        python-version: ["3.10"]
+    runs-on: ${{ matrix.os }}
+    # Placeholder for Docker on our Amazon AWS Runner
+    #container:
+    #  image: ubuntu-latest
+    #  options: --user 1000
+
+
     steps:
-      - uses: actions/checkout@v3
-
-      - uses: actions/setup-python@v4
-        with:
-          python-version: "3.11"
-
-      - name: Upgrade pip and install cibuildwheel
-        run: |
-          python -m pip install --upgrade pip setuptools wheel
-          python -m pip install cibuildwheel==2.22.0
-
-      - name: Build wheels
-        env:
-          # Only build Python 3.11 wheels, but you can allow more if you like (cp310, cp39, etc.)
-          CIBW_BUILD: cp311-*
-
-          # manylinux image to use
-          CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
-
-          # Install build dependencies in the container before building
-          CIBW_BEFORE_BUILD_LINUX: |
-            dnf install -y dnf-plugins-core
-            dnf install -y gcc gcc-c++ make
-            "$PYTHON" -m pip install --upgrade scikit-build-core cmake ninja
-
-          # Environment so that scikit-build (CMake) can find Python dev libs
-          CIBW_ENVIRONMENT_LINUX: |
-            PY_EXE=$(which python)
-            PY_INCLUDE=$(python -c "import sysconfig; print(sysconfig.get_paths()['include'])")
-            PY_LIB_DIR=$(python -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
-            # Adjust if your library file name is different, e.g. libpython3.11m.so on some systems
-            PY_LIB=$PY_LIB_DIR/libpython3.11.so
-
-            export CMAKE_ARGS="-DPython3_EXECUTABLE=${PY_EXE} \
-                               -DPython3_INCLUDE_DIR=${PY_INCLUDE} \
-                               -DPython3_LIBRARY=${PY_LIB} \
-                               -DPython3_FIND_STRATEGY=LOCATION"
-        run: cibuildwheel --output-dir wheelhouse
-
-      - uses: actions/upload-artifact@v3
-        with:
-          name: wheels-${{ matrix.os }}
-          path: wheelhouse/*.whl
-
-      # OPTIONAL: If you want to automatically upload wheels to PyPI on a release:
-      #- name: Upload to PyPI
-      #  if: ${{ github.event_name == 'release' }}  # only run on release event
-      #  env:
-      #    TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
-      #    TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
-      #  run: |
-      #    python -m pip install --upgrade twine
-      #    twine upload wheelhouse/*.whl --skip-existing
+    # VN at 16 March 2023: checkout/v3 causes some weird issues, so went for manual cloning instead...
+    #- uses: actions/checkout@v3
+    - uses: actions/checkout@v2
+    - uses: actions/setup-python@v2
+    #- name: clone repo
+    #  run: git clone https://github.com/dtcc-platform/${{ github.event.repository.name }} -b $BRANCH && pwd
+    - name: pip install MacOS/Ubuntu
+      run: ls -alt && export PATH="$pythonLocation:$PATH" && python --version && export "DEB_PYTHON_INSTALL_LAYOUT=deb_system" && pip install .
+      if: matrix.os != 'windows-latest'
+    - name: pip install Windows
+      run: pip install .  
+      if: matrix.os == 'windows-latest'
+      # ${{ github.event.repository.name }}/
+    #  shell: bash {0}
+    #- name: cmake install
+    #  run: cd ${{ github.event.repository.name }}/build/ && cmake .. && make all && sudo make install && cd ..
+    - name: run tests
+      run: pwd && ls -alt && cd tests/ && pwd && ls -alt && bash run-tests
+      if: matrix.os != 'windows-latest'
+    #- name: cleanup op
+    #  if: always()
+    #  run : sudo find /Runner/Runner/_work/${{ github.event.repository.name }}/. -name . -o -prune -exec rm -rf -- {} + || true
+    # This fails after checkout/v3 was not used
+    #- name: more cleanup ops
+    #  run : pwd && sudo rm -rf /home/ubuntu/Runner/actions-runner/_work/${{ github.event.repository.name }}
