@@ -61,11 +61,11 @@ jobs:
           path: wheelhouse/*.whl
 
       # OPTIONAL: If you want to automatically upload wheels to PyPI on a release:
-      - name: Upload to PyPI
-        if: ${{ github.event_name == 'release' }}  # only run on release event
-        env:
-          TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
-          TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
-        run: |
-          python -m pip install --upgrade twine
-          twine upload wheelhouse/*.whl --skip-existing
+      #- name: Upload to PyPI
+      #  if: ${{ github.event_name == 'release' }}  # only run on release event
+      #  env:
+      #    TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
+      #    TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
+      #  run: |
+      #    python -m pip install --upgrade twine
+      #    twine upload wheelhouse/*.whl --skip-existing
