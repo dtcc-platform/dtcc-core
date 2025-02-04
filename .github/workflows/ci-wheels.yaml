@@ -1,0 +1,97 @@
+name: Build and upload to PyPI
+
+on:
+  push:
+    branches: [ develop ]
+  pull_request:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  build_wheels:
+    name: Build wheels (cibuildwheel) on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Upgrade pip + install cibuildwheel
+        run: |
+          pip install --upgrade pip setuptools wheel
+          pip install cibuildwheel==2.22.0
+
+      - name: Build wheels
+        env:
+          CIBW_BEFORE_BUILD_LINUX: |
+            python -m pip install --upgrade scikit-build-core cmake ninja
+          # Instead of 'export CMAKE_ARGS=...', just set the env variable directly:
+          CIBW_ENVIRONMENT_LINUX: |
+            CMAKE_ARGS="-DPython3_EXECUTABLE=$(which python)"
+        run: cibuildwheel --output-dir wheelhouse
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}
+          path: wheelhouse/*.whl
+
+  build_sdist:
+    name: Build source distribution (sdist)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Upgrade pip + install build
+        run: |
+          pip install --upgrade pip setuptools wheel build
+
+      - name: Build sdist
+        run: python -m build --sdist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+
+  upload_pypi:
+    name: Upload to PyPI
+    needs: [build_wheels, build_sdist]
+    runs-on: ubuntu-latest
+
+    if: github.event_name == 'release' && github.event.action == 'published'
+
+    steps:
+      - uses: actions/download-artifact@v3
+        with:
+          name: wheels-ubuntu-latest
+          path: dist
+
+      - uses: actions/download-artifact@v3
+        with:
+          name: wheels-windows-latest
+          path: dist
+
+      - uses: actions/download-artifact@v3
+        with:
+          name: wheels-macos-latest
+          path: dist
+
+      - uses: actions/download-artifact@v3
+        with:
+          name: sdist
+          path: dist
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}

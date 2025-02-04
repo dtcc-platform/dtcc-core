@@ -178,7 +178,7 @@ private:
     const size_t steps = static_cast<int>(std::log2(rho) + 0.5);
     double min_height = mid / std::pow(2, steps / 2.0);
     std::vector<double> layer_heights;
-    for (int i = 0; i < steps + 1; i++)
+    for (size_t i = 0; i < steps + 1; i++)
       layer_heights.push_back(min_height * std::pow(2.0, i));
     const double max_height = layer_heights.back();
     info("Adjusted layer heights: [" + str(min_height) + ", " + str(max_height) + "]");
