@@ -1,11 +1,9 @@
 name: Build and upload to PyPI
 
 on:
-  # Build on all pushes and pull requests
   push:
     branches: [ develop ]
   pull_request:
-  # Upload only when a release is published
   release:
     types: [published]
   workflow_dispatch:
@@ -26,19 +24,26 @@ jobs:
 
       - name: Upgrade pip + install cibuildwheel
         run: |
-          pip install --upgrade pip setuptools wheel
-          pip install cibuildwheel==2.22.0
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install cibuildwheel==2.22.0
 
       - name: Build wheels
         env:
-          CIBW_BUILD: cp310-*, cp311-*, cp312-*
-          # 1) Install Python dev libs + scikit-build, cmake, ninja
+          # Build only for cp310, cp311, and cp312
+          CIBW_BUILD: cp310-*,cp311-*,cp312-*
+
+          # Use the newer manylinux_2_28 image that includes Python 3.12
+          CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
+
+          # Install scikit-build-core, cmake, ninja in the build container
+          # (this is enough for your compiled code to find Python libs, no yum needed!)
           CIBW_BEFORE_BUILD_LINUX: |
-            yum -y install python3.10-devel python3.11-devel python3.12-devel
-            #python -m pip install --upgrade scikit-build-core cmake ninja
-          # 2) Tell CMake which Python to use
+            python -m pip install --upgrade scikit-build-core cmake ninja
+
+          # Instruct CMake to look in the same directory as the Python
+          # that cibuildwheel is using for this build
           CIBW_ENVIRONMENT_LINUX: |
-            CMAKE_ARGS="-DPython3_EXECUTABLE=$(which python)"
+            CMAKE_ARGS="-DPython3_FIND_STRATEGY=LOCATION -DPython3_ROOT_DIR=$(dirname $(dirname $(which python)))"
         run: cibuildwheel --output-dir wheelhouse
 
       - uses: actions/upload-artifact@v4
