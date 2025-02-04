@@ -21,6 +21,7 @@ from scipy.sparse import lil_matrix
 from scipy.sparse.csgraph import connected_components
 from collections import defaultdict
 from itertools import combinations, groupby
+import copy
 
 from ..logging import debug, info, warning, error, critical
 
@@ -209,7 +210,7 @@ def clean_merge_candidates(
     return merge_candidates
 
 
-def merge_list_of_polygons(mcp: List[Polygon], tolerance=1e-2, min_area=0) -> Polygon:
+def merge_list_of_polygons(mcp: List[Polygon], tolerance=1e-2) -> Polygon:
     if len(mcp) == 1:
         return mcp[0]
     else:
@@ -222,19 +223,17 @@ def merge_list_of_polygons(mcp: List[Polygon], tolerance=1e-2, min_area=0) -> Po
                     m = simp_m
             return m
         else:
-            if min_area > 0:
-                m = MultiPolygon(
-                    [p for p in m.geoms if p.area > min_area and p.is_valid]
-                )
+            m = MultiPolygon([p for p in m.geoms if p.is_valid and (not p.is_empty)])
+
             m = merge_multipolygon(m, tolerance)
             if m.geom_type != "Polygon":
                 warning("Failed to merge polygon list. Falling back to convex hull")
                 m = m.convex_hull
             else:
-
                 simp_m = m.simplify(tolerance / 4, True)
                 if simp_m.is_valid and simp_m.geom_type == "Polygon":
                     m = simp_m
+
             return m
 
 
@@ -256,7 +255,7 @@ def polygon_merger(
 
     merged_polygons = []
     for mcp in merge_candidate_polygons:
-        m = merge_list_of_polygons(mcp, tolerance, min_area=min_area)
+        m = merge_list_of_polygons(mcp, tolerance)
         merged_polygons.append(m)
 
     return merged_polygons, merge_candidates
@@ -407,7 +406,7 @@ def remove_short_edges(p: Polygon, min_length: float) -> Polygon:
 def fix_clearance(
     polygon: Polygon, target_clearance: float, tol: float = 0.9
 ) -> Polygon:
-    original_polygon = Polygon(polygon.exterior, holes=polygon.interiors)
+    original_polygon = copy.deepcopy(polygon)
     min_clearance = shapely.minimum_clearance(polygon)
     # print(f"min_clearance: {min_clearance}")
     if min_clearance > target_clearance:
@@ -443,7 +442,7 @@ def fix_clearance(
         # print(f"buffer clearance: {shapely.minimum_clearance(polygon)}")
         if shapely.minimum_clearance(polygon) > target_clearance * tol:
             return polygon
-    polygon = shapely.convex_hull(original_polygon)
+    warning("failed to fix clearance, returning best attempt")
     return polygon
 
 

@@ -103,7 +103,7 @@ namespace DTCC_BUILDER
       return ground_mesh;
     }
 
-    // build ground mesh for city.
+    // Build ground mesh for city.
     //
     // The mesh is a triangular mesh of the rectangular region
     // defined by (xmin, xmax) x (ymin, ymax). The edges of the mesh respect
@@ -127,7 +127,7 @@ namespace DTCC_BUILDER
                       double min_mesh_angle,
                       bool sort_triangles = true)
     {
-      info("Building ground mesh for city...");
+      info("Building ground mesh...");
       Timer timer("build_ground_mesh");
 
       // print some stats
@@ -136,10 +136,10 @@ namespace DTCC_BUILDER
       const size_t nx = (bounding_box.Q.x - bounding_box.P.x) / max_mesh_size;
       const size_t ny = (bounding_box.Q.y - bounding_box.P.y) / max_mesh_size;
       const size_t n = nx * ny;
-      info("Domain bounding box is " + str(bounding_box));
-      info("Maximum mesh size is " + str(max_mesh_size));
-      info("Estimated number of triangles is " + str(n));
-      info("Number of subdomains (buildings) is " + str(subdomains.size()));
+      info("Bounds: " + str(bounding_box));
+      info("Max mesh size: " + str(max_mesh_size));
+      info("Estimated number of faces: " + str(n));
+      info("Number of subdomains (buildings): " + str(subdomains.size()));
 
       // Extract subdomains (building footprints)
       std::vector<std::vector<Vector2D>> triangle_sub_domains;
@@ -149,7 +149,7 @@ namespace DTCC_BUILDER
         for (auto const &hole : sd.holes)
           triangle_sub_domains.push_back(hole);
       }
-      info("Number of subdomains (buildings + holes) is " +
+      info("Number of subdomains (buildings + holes): " +
            str(triangle_sub_domains.size()));
       // build boundary
       std::vector<Vector2D> boundary{};
@@ -719,7 +719,7 @@ namespace DTCC_BUILDER
     static void compute_domain_markers(Mesh &mesh,
                                        const std::vector<Polygon> &subdomains)
     {
-      info("Computing domain markers");
+      info("Computing domain markers...");
       Timer timer("compute_domain_markers");
 
       // build search tree for subdomains

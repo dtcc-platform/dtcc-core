@@ -215,7 +215,7 @@ def _save_json_city(city: City, filename):
 
 
 def _save_fiona(city: City, out_file, output_format=""):
-    offset = (city.georef.x0, city.georef.y0)
+    offset = (city.transform.offset[0], city.transform.offset[1])
     out_file = Path(out_file)
     output_format = out_file.suffix.lower()
     driver = {
@@ -241,12 +241,9 @@ def _save_fiona(city: City, out_file, output_format=""):
 
     base_properties = {
         "id": "str",
-        "height": "float",
-        "ground_height": "float",
-        "error": "int",
     }
     schema_properties = base_properties.copy()
-    for key, value in buildings[0].properties.items():
+    for key, value in buildings[0].attributes.items():
         if key in base_properties:
             continue
         if isinstance(value, int):
@@ -269,7 +266,7 @@ def _save_fiona(city: City, out_file, output_format=""):
         out_file, "w", driver=driver[output_format], schema=schema, crs=crs
     ) as dst:
         for building in city.buildings:
-            shapely_footprint = building.footprint
+            shapely_footprint = building.get_footprint().to_polygon()
             shapely_footprint = shapely.affinity.translate(
                 shapely_footprint, xoff=offset[0], yoff=offset[1]
             )
@@ -278,16 +275,13 @@ def _save_fiona(city: City, out_file, output_format=""):
                     wgs84_projection.transform, shapely_footprint
                 )
             properties = {
-                "id": building.uuid,
-                "height": building.height,
-                "ground_height": building.ground_level,
-                "error": building.error,
+                "id": building.id,
             }
             for key in schema_properties.keys():
                 if key in base_properties:
                     continue
-                if key in building.properties:
-                    v = building.properties[key]
+                if key in building.attributes:
+                    v = building.attributes[key]
                     if isinstance(v, list):
                         v = ",".join([str(v) for v in v])
                     properties[key] = v

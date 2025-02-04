@@ -63,6 +63,11 @@ class Transform(Model):
                 "Input should be a tuple/list or a numpy array of shape (N, 3)."
             )
 
+    @property
+    def offset(self):
+        """Return the translation part of the affine transform."""
+        return self.affine[:3, 3]
+
     def set_translation(self, dx, dy, dz):
         """Set the translation part of the affine transform."""
         self.affine[0, 3] = dx
