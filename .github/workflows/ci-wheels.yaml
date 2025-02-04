@@ -1,11 +1,9 @@
 name: Build and upload to PyPI
 
 on:
-  # Build on all pushes and pull requests
   push:
     branches: [ develop ]
   pull_request:
-  # Upload only when a release is published
   release:
     types: [published]
   workflow_dispatch:
@@ -31,12 +29,11 @@ jobs:
 
       - name: Build wheels
         env:
-          # 1) Install build dependencies in the manylinux environment
-          # 2) Point CMake to the correct Python interpreter
           CIBW_BEFORE_BUILD_LINUX: |
             python -m pip install --upgrade scikit-build-core cmake ninja
+          # Instead of 'export CMAKE_ARGS=...', just set the env variable directly:
           CIBW_ENVIRONMENT_LINUX: |
-            export CMAKE_ARGS="-DPython3_EXECUTABLE=$(which python)"
+            CMAKE_ARGS="-DPython3_EXECUTABLE=$(which python)"
         run: cibuildwheel --output-dir wheelhouse
 
       - uses: actions/upload-artifact@v4
@@ -71,7 +68,6 @@ jobs:
     needs: [build_wheels, build_sdist]
     runs-on: ubuntu-latest
 
-    # Only run if a release is published:
     if: github.event_name == 'release' && github.event.action == 'published'
 
     steps:
