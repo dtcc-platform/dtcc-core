@@ -8,18 +8,13 @@ from dtcc_core import io
 from dtcc_core.model import Building, Bounds, GeometryType
 
 
-
 class TestCity(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+
+        cls.data_dir = Path(__file__).parent / ".." / "data"
         cls.building_shp_file = str(
-            (
-                Path(__file__).parent
-                / ".."
-                / "data"
-                / "MinimalCase"
-                / "PropertyMap.shp"
-            ).resolve()
+            (cls.data_dir / "MinimalCase" / "PropertyMap.shp").resolve()
         )
 
     def test_load_shp_buildings(self):
@@ -76,6 +71,12 @@ class TestCity(unittest.TestCase):
     #     with open(outfile.name) as f:
     #         data = json.load(f)
     #     self.assertEqual(len(data["features"]), 5)
+
+    def test_load_list_of_files(self):
+        gpk1 = self.data_dir / "geopkg" / "gpk1.gpkg"
+        gpk2 = self.data_dir / "geopkg" / "gpk2.gpkg"
+        buildings = io.load_footprints([gpk1, gpk2], uuid_field="fid")
+        self.assertEqual(len(buildings), 5)
 
 
 if __name__ == "__main__":

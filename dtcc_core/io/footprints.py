@@ -24,16 +24,16 @@ from ..model.geometry import Bounds
 
 from .logging import info, warning, error
 
-from typing import Union
+from typing import Union, List
 
 
-def building_bounds(shp_footprint_file, buffer=0):
+def building_bounds(footprint_file, buffer=0):
     """
     Calculate the bounding box of a shapefile without loading it.
 
     Parameters
     ----------
-    shp_footprint_file : str
+    footprint_file : str
         The path to the shapefile.
     buffer : float, optional
         The buffer distance to add to the bounding box (default 0).
@@ -43,10 +43,10 @@ def building_bounds(shp_footprint_file, buffer=0):
     Bounds
         A `Bounds` object representing the bounding box of the shapefile.
     """
-    shp_footprint_file = Path(shp_footprint_file)
-    if not shp_footprint_file.is_file():
-        raise FileNotFoundError(f"File {shp_footprint_file} not found")
-    with fiona.open(shp_footprint_file) as c:
+    footprint_file = Path(footprint_file)
+    if not footprint_file.is_file():
+        raise FileNotFoundError(f"File {footprint_file} not found")
+    with fiona.open(footprint_file) as c:
         bbox = Bounds(*c.bounds)
     bbox.buffer(buffer)
     return bbox
@@ -155,7 +155,7 @@ def _load_fiona(
 
 
 def load(
-    filename: Union[str, Path],
+    filename: Union[str, List[str], Path, List[Path]],
     uuid_field="id",
     height_field="",
     area_filter=None,
@@ -168,7 +168,7 @@ def load(
     Parameters
     ----------
     filename : str
-        The path to the shapefile.
+        The path to the vector file, or list of files .
     uuid_field : str, optional
         The name of the field containing the UUIDs (default "id").
     height_field : str, optional
@@ -185,6 +185,26 @@ def load(
     City
         A `City` object representing the city loaded from the shapefile.
     """
+    if isinstance(filename, (list, tuple)):
+        buildings = []
+        for f in filename:
+            f = Path(f)
+            if not f.is_file():
+                raise FileNotFoundError(f"File {f} not found")
+            buildings += generic.load(
+                            f,
+                            "city",
+                            City,
+                            _load_formats,
+                            uuid_field=uuid_field,
+                            height_field=height_field,
+                            area_filter=area_filter,
+                            bounds=bounds,
+                            min_edge_distance=min_edge_distance,
+                            )
+        return buildings
+
+
     filename = Path(filename)
     if not filename.is_file():
         raise FileNotFoundError(f"File {filename} not found")
