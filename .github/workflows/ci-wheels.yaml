@@ -1,9 +1,11 @@
 name: Build and upload to PyPI
 
 on:
+  # Build on all pushes and pull requests
   push:
     branches: [ develop ]
   pull_request:
+  # Upload only when a release is published
   release:
     types: [published]
   workflow_dispatch:
@@ -29,9 +31,11 @@ jobs:
 
       - name: Build wheels
         env:
+          # 1) Install Python dev libs + scikit-build, cmake, ninja
           CIBW_BEFORE_BUILD_LINUX: |
+            yum -y install python3-devel
             python -m pip install --upgrade scikit-build-core cmake ninja
-          # Instead of 'export CMAKE_ARGS=...', just set the env variable directly:
+          # 2) Tell CMake which Python to use
           CIBW_ENVIRONMENT_LINUX: |
             CMAKE_ARGS="-DPython3_EXECUTABLE=$(which python)"
         run: cibuildwheel --output-dir wheelhouse
