@@ -37,7 +37,7 @@ jobs:
             dnf install -y python3.11-devel gcc gcc-c++ make
             python -m pip install --upgrade scikit-build-core cmake ninja
           CIBW_ENVIRONMENT_LINUX: |
-            CMAKE_ARGS="-DPython3_FIND_STRATEGY=LOCATION -DPython3_ROOT_DIR=$(dirname $(dirname $(which python)))"
+            CMAKE_ARGS="-DPython3_ROOT_DIR=/opt/python/cp311-cp311 -DPython3_EXECUTABLE=/opt/python/cp311-cp311/bin/python"
         run: cibuildwheel --output-dir wheelhouse
 
       - uses: actions/upload-artifact@v4
