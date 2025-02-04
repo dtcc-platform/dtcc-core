@@ -30,7 +30,7 @@ jobs:
       - name: Build wheels
         env:
           # Build only for cp310, cp311, and cp312
-          CIBW_BUILD: cp310-*,cp311-*,cp312-*
+          CIBW_BUILD: cp311-*
 
           # Use the newer manylinux_2_28 image that includes Python 3.12
           CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
