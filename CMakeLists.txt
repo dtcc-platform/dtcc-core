@@ -58,7 +58,7 @@ endif()
 
 # # set(PYBIND11_FINDPYTHON ON)
 set(Python_FIND_VIRTUALENV ONLY)
-find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
+find_package(Python3 REQUIRED COMPONENTS Interpreter Development.Module)
 message("Python3_EXECUTABLE " ${Python3_EXECUTABLE})
 
 # # Find pybind11
