@@ -29,19 +29,11 @@ jobs:
 
       - name: Build wheels
         env:
-          # Build only for cp310, cp311, and cp312
           CIBW_BUILD: cp311-*
-
-          # Use the newer manylinux_2_28 image that includes Python 3.12
           CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
-
-          # Install scikit-build-core, cmake, ninja in the build container
-          # (this is enough for your compiled code to find Python libs, no yum needed!)
           CIBW_BEFORE_BUILD_LINUX: |
+            yum install -y python3-devel
             python -m pip install --upgrade scikit-build-core cmake ninja
-
-          # Instruct CMake to look in the same directory as the Python
-          # that cibuildwheel is using for this build
           CIBW_ENVIRONMENT_LINUX: |
             CMAKE_ARGS="-DPython3_FIND_STRATEGY=LOCATION -DPython3_ROOT_DIR=$(dirname $(dirname $(which python)))"
         run: cibuildwheel --output-dir wheelhouse
@@ -77,9 +69,7 @@ jobs:
     name: Upload to PyPI
     needs: [build_wheels, build_sdist]
     runs-on: ubuntu-latest
-
     if: github.event_name == 'release' && github.event.action == 'published'
-
     steps:
       - uses: actions/download-artifact@v3
         with:
