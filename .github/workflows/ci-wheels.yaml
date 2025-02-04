@@ -16,14 +16,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest]#, macos-latest, windows-latest]
+        os: [ubuntu-latest]
     steps:
       - uses: actions/checkout@v3
 
       - uses: actions/setup-python@v4
         with:
-          # You only need to pick one "bootstrap" Python.
-          # cibuildwheel will build for many versions automatically.
           python-version: "3.11"
 
       - name: Upgrade pip + install cibuildwheel
@@ -32,7 +30,13 @@ jobs:
           pip install cibuildwheel==2.22.0
 
       - name: Build wheels
-        # Will build wheels for all supported platforms/versions.
+        env:
+          # 1) Install build dependencies in the manylinux environment
+          # 2) Point CMake to the correct Python interpreter
+          CIBW_BEFORE_BUILD_LINUX: |
+            python -m pip install --upgrade scikit-build-core cmake ninja
+          CIBW_ENVIRONMENT_LINUX: |
+            export CMAKE_ARGS="-DPython3_EXECUTABLE=$(which python)"
         run: cibuildwheel --output-dir wheelhouse
 
       - uses: actions/upload-artifact@v4
@@ -91,14 +95,7 @@ jobs:
           name: sdist
           path: dist
 
-      # If you have a protected environment named "pypi", you can uncomment below
-      # environment: pypi
-      # permissions:
-      #   id-token: write
-
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          # If you want to publish to TestPyPI, uncomment next line:
-          # repository_url: https://test.pypi.org/legacy/
           password: ${{ secrets.PYPI_API_TOKEN }}
