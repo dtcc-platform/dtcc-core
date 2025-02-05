@@ -100,7 +100,7 @@ class PointCloud(Geometry):
             )
         return self._bounds
 
-    def remove_points(self, indices: np.ndarray):
+    def remove_points(self, indices: np.ndarray) -> "PointCloud":
         """
         Remove points from the point cloud using the given indices.
 
@@ -114,6 +114,8 @@ class PointCloud(Geometry):
         None
 
         """
+        if len(indices) == 0:
+            return self
         self.points = np.delete(self.points, indices, axis=0)
         if len(self.classification) > 0:
             self.classification = np.delete(self.classification, indices, axis=0)
@@ -125,6 +127,16 @@ class PointCloud(Geometry):
             self.num_returns = np.delete(self.num_returns, indices, axis=0)
         self.calculate_bounds()
         return self
+
+    def keep_points(self, indices: np.ndarray) -> "PointCloud":
+        """
+        Keep only the points specified by the given indices.
+        :param indices: indices of points to keep
+        :return: PointCloud
+        """
+
+        removed_indices = np.setdiff1d(np.arange(len(self.points)), indices)
+        return self.remove_points(removed_indices)
 
     def merge(self, other):
         """

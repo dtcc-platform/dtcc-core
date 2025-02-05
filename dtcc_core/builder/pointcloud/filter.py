@@ -1,7 +1,7 @@
 import numpy as np
 from typing import List
 
-from ...model import PointCloud
+from ...model import PointCloud, Bounds
 from ..logging import info, warning, error
 from ..register import register_model_method
 
@@ -161,3 +161,32 @@ def _find_vegetation(pc: PointCloud, filter_on_return_number=True):
         vegetation_indices = np.where(is_veg)[0]
 
     return vegetation_indices
+
+
+@register_model_method
+def crop(pc: PointCloud, bounds: Bounds, xy_only=True) -> PointCloud:
+    """
+    Crop a `PointCloud` object only include point inside given bounds object
+
+    Args:
+        bounds (Bounds): The bounds to keep.
+
+    Returns:
+        PointCloud: A new `PointCloud` object with all points inside the bounds.
+    """
+    x_min, x_max = bounds.xmin, bounds.xmax
+    y_min, y_max = bounds.ymin, bounds.ymax
+
+    x_keep_idx = np.where((pc.points[:, 0] >= x_min) & (pc.points[:, 0] <= x_max))[0]
+    y_keep_idx = np.where((pc.points[:, 1] >= y_min) & (pc.points[:, 1] <= y_max))[0]
+    keep_idx = np.intersect1d(x_keep_idx, y_keep_idx)
+    if not xy_only:
+        z_min, z_max = bounds.zmin, bounds.zmax
+        z_keep_idx = np.where((pc.points[:, 2] >= z_min) & (pc.points[:, 2] <= z_max))[
+            0
+        ]
+        keep_idx = np.intersect1d(keep_idx, z_keep_idx)
+
+    new_pc = pc.copy()
+    new_pc.keep_points(keep_idx)
+    return new_pc
