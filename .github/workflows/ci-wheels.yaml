@@ -64,7 +64,12 @@ jobs:
         with:
           name: wheels-${{ matrix.os }}
           path: wheelhouse/*.whl
-
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # If you want to publish to TestPyPI, uncomment next line:
+          # repository_url: https://test.pypi.org/legacy/
+          password: ${{ secrets.PYPI_API_TOKEN }}
       # OPTIONAL: If you want to automatically upload wheels to PyPI on a release:
       #- name: Upload to PyPI
       #  if: ${{ github.event_name == 'release' }}  # only run on release event
