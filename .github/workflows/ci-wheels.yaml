@@ -69,7 +69,7 @@ jobs:
 
       - name: Upload to PyPI (twine)
         # Only run this step on a published release (adjust condition as needed)
-        if: ${{ github.event_name == 'release' }}
+        #if: ${{ github.event_name == 'release' }}
         env:
           TWINE_USERNAME: __token__                 # always __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
