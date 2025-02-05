@@ -159,9 +159,6 @@ public:
   // Convert unsigned integer to string
   std::string str(size_t x) { return std::to_string(x); }
 
-  // Convert unsigned integer to string
-  std::string str(unsigned int x) { return std::to_string(x); }
-
   std::string str(bool b) { return b ? "True" : "False"; }
 
   // Convert unsigned integer to string
