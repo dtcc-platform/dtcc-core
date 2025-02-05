@@ -37,11 +37,8 @@ jobs:
 
           # Install build dependencies in the container before building
           CIBW_BEFORE_BUILD_LINUX: |
-            dnf install -y dnf-plugins-core
-            dnf install -y gcc gcc-c++ make
-            "$PYTHON" -m pip install --upgrade scikit-build-core cmake ninja
-
-          # Environment so that scikit-build (CMake) can find Python dev libs
+           yum install -y dnf-plugins-core && yum install -y gcc gcc-c++ make && python -m pip install --upgrade scikit-build-core cmake ninja && echo 'done'
+          
           CIBW_ENVIRONMENT_LINUX: |
             PY_EXE=$(which python)
             PY_INCLUDE=$(python -c "import sysconfig; print(sysconfig.get_paths()['include'])")
@@ -55,7 +52,7 @@ jobs:
                                -DPython3_FIND_STRATEGY=LOCATION"
         run: cibuildwheel --output-dir wheelhouse
 
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
           name: wheels-${{ matrix.os }}
           path: wheelhouse/*.whl
