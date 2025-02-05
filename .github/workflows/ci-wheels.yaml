@@ -62,10 +62,10 @@ jobs:
 
       
       
-      - uses: actions/upload-artifact@v4
-        with:
-          name: wheels
-          path: wheelhouse/*.whl
+      #- uses: actions/upload-artifact@v4
+      #  with:
+      #    name: wheels
+      #    path: wheelhouse/*.whl
 
       - name: Upload to PyPI (twine)
         # Only run this step on a published release (adjust condition as needed)
