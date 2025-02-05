@@ -62,4 +62,5 @@ __all__ = [
     "merge_buildings",
     "fix_building_clearance",
     "clean_building_surfaces",
+    "building_heights_from_pointcloud",
 ]
