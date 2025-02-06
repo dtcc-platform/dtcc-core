@@ -62,14 +62,14 @@ jobs:
 
       
       
-      #- uses: actions/upload-artifact@v4
-      #  with:
-      #    name: wheels
-      #    path: wheelhouse/*.whl
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels
+          path: wheelhouse/*.whl
 
       - name: Upload to PyPI (twine)
         # Only run this step on a published release (adjust condition as needed)
-        #if: ${{ github.event_name == 'release' }}
+        if: ${{ github.event_name == 'release' }}
         env:
           TWINE_USERNAME: __token__                 # always __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
@@ -78,22 +78,3 @@ jobs:
           twine upload wheelhouse/*.whl --skip-existing
       
       
-      #- uses: actions/upload-artifact@v4
-      #  with:
-      #    name: wheels-${{ matrix.os }}
-      #    path: wheelhouse/*.whl
-      #- name: Publish to PyPI
-      #  uses: pypa/gh-action-pypi-publish@release/v1
-      #  with:
-          # If you want to publish to TestPyPI, uncomment next line:
-          # repository_url: https://test.pypi.org/legacy/
-      #    password: ${{ secrets.PYPI_API_TOKEN }}
-      # OPTIONAL: If you want to automatically upload wheels to PyPI on a release:
-      #- name: Upload to PyPI
-      #  if: ${{ github.event_name == 'release' }}  # only run on release event
-      #  env:
-      #    TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
-      #    TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
-      #  run: |
-      #    python -m pip install --upgrade twine
-      #    twine upload wheelhouse/*.whl --skip-existing
