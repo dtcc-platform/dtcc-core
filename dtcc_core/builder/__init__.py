@@ -19,7 +19,7 @@ from . import polygons
 # )
 
 from .geometry_builders.terrain import (
-    build_terrain_mesh,
+    build_terrain,
     build_terrain_raster,
     flat_terrain,
 )
@@ -52,7 +52,7 @@ __all__ = [
     "compute_building_heights",
     "build_lod1_buildings",
     "build_surface_mesh",
-    "build_terrain_mesh",
+    "build_terrain",
     "build_terrain_raster",
     "flat_terrain",
     "merge_building_footprints",
