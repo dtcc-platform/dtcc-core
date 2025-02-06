@@ -22,8 +22,11 @@ public:
     _cell_integral = std::unique_ptr<ufc::cell_integral>(_ufc_form.create_default_cell_integral());
   }
 
-  // Return dimension of element matrix
-  std::size_t dim() const { return 4; }
+  // Return local dimension
+  std::size_t local_dimension() const { return 4; }
+
+  // Return global dimension
+  std::size_t global_dimension(const VolumeMesh &mesh) const { return mesh.vertices.size(); }
 
   // Compute element dofs
   void compute_element_dofs(std::vector<size_t> &dofs, const Simplex3D &cell) const

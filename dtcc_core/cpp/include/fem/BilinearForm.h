@@ -20,8 +20,11 @@ public:
   // Constructor (initialize vertex coordinates)
   BilinearForm() : vertex_coordinates(12, 0.0) {}
 
-  // Return dimension of element matrix (overridden in derived classes)
-  virtual std::size_t dim() const = 0;
+  // Return local dimension (overridden in derived classes)
+  virtual std::size_t local_dimension() const = 0;
+
+  // Return global dimension (overridden in derived classes)
+  virtual std::size_t global_dimension(const VolumeMesh &mesh) const = 0;
 
   // Compute element dofs (overridden in derived classes)
   virtual void compute_element_dofs(std::vector<size_t> &dofs, const Simplex3D &cell) const = 0;
