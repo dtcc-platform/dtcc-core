@@ -20,14 +20,16 @@ public:
   // Assemble a sparse matrix from a bilinear form and a mesh
   static SparseMatrix assemble(const BilinearForm &a, const VolumeMesh &mesh)
   {
-    // FIXME: Incorrect size for elasticity
+    // Get dimensions
+    const size_t n = a.local_dimension();
+    const size_t N = a.global_dimension(mesh);
 
     // Initialize sparse matrix
-    SparseMatrix A(mesh.vertices.size(), mesh.vertices.size());
+    SparseMatrix A(N, N);
 
     // Initialize element dofs and element matrix
-    std::vector<size_t> element_dofs(a.dim(), 0);
-    std::vector<double> element_matrix(a.dim() * a.dim(), 0.0);
+    std::vector<size_t> element_dofs(n, 0);
+    std::vector<double> element_matrix(n * n, 0.0);
 
     // Iterate over elements and assemble
     for (const auto &cell : mesh.cells)
