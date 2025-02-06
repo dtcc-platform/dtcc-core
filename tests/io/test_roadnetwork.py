@@ -5,6 +5,7 @@ import numpy as np
 from dtcc_core.model.object import RoadNetwork, RoadType
 from dtcc_core.model.logging import info
 from dtcc_core.io import roadnetwork
+from dtcc_core.model import Bounds
 from pathlib import Path
 
 datapath = Path(__file__).parent / ".." / "data" / "road_network" / "test_road.shp"
@@ -24,6 +25,16 @@ class LoadRoadnetwork(unittest.TestCase):
         self.assertEqual(len(rn.edges), 244)
         self.assertEqual(len(rn.length), 244)
         self.assertEqual(len(rn.linestrings), len(rn.edges))
+
+    def test_load_bounds(self):
+
+        bounds = Bounds(xmin=58150, ymin=6398226, xmax=59150, ymax=6398984)
+        rn = roadnetwork.load(datapath, bounds=bounds)
+        self.assertIsInstance(rn, RoadNetwork)
+
+        for k, v in rn.attributes.items():
+            self.assertEqual(len(v), len(rn.edges))
+        self.assertEqual(len(rn.edges), 37)
 
     def test_load_no_geometry(self):
         rn = roadnetwork.load(datapath, load_geometry=False)

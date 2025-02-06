@@ -24,17 +24,24 @@ except ImportError:
     warning("Geopandas not found, some functionality may be disabled")
 
 
-def _load_fiona(filename, id_field="id", round_coordinates=2, load_geometry=True):
+def _load_fiona(filename, id_field="id", round_coordinates=2, load_geometry=True, bounds=None):
     road_network = RoadNetwork()
     filename = Path(filename)
     if not filename.is_file():
         raise FileNotFoundError(f"File {filename} not found")
+    bounds_filter = None
+    if bounds is not None:
+        bounds_filter = shapely.geometry.box(*bounds.tuple)
+
     with fiona.open(filename) as src:
-        shapely_geom = [shapely.geometry.shape(f["geometry"]) for f in src]
+        attr_keys = src.schema["properties"].keys()
+        features = [f for f in src if bounds_filter is None or bounds_filter.intersects(shapely.geometry.shape(f["geometry"]))]
+        attrs = [dict(f["properties"]) for f in features]
+
+        shapely_geom = [shapely.geometry.shape(f["geometry"]) for f in features]
         coords = [(r.coords[0], r.coords[-1]) for r in shapely_geom]
         lengths = [r.length for r in shapely_geom]
-        attr_keys = src.schema["properties"].keys()
-        attrs = [dict(f["properties"]) for f in src]
+
 
     if round_coordinates is not None:
         rounded_coords = [
@@ -80,7 +87,7 @@ def _load_fiona(filename, id_field="id", round_coordinates=2, load_geometry=True
 
 
 def load(
-    filename, id_field="id", round_coordinates=2, load_geometry=True
+    filename, id_field="id", round_coordinates=2, load_geometry=True, bounds=None
 ) -> RoadNetwork:
     filename = Path(filename)
     if not filename.is_file():
@@ -93,6 +100,7 @@ def load(
         id_field=id_field,
         round_coordinates=round_coordinates,
         load_geometry=load_geometry,
+        bounds=bounds,
     )
 
 
