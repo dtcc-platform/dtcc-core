@@ -21,7 +21,7 @@ from .. import _dtcc_builder
 from typing import List, Union
 
 
-def build_terrain(
+def build_terrain_mesh(
     data: Union[PointCloud, Raster],
     subdomains: list[Surface] = None,
     subdomain_resolution: Union[float, List[float]] = None,
@@ -29,7 +29,7 @@ def build_terrain(
     min_mesh_angle=25,
     smoothing=3,
     ground_points_only=True,
-) -> Terrain:
+) -> Mesh:
     if isinstance(data, PointCloud):
         dem = build_terrain_raster(
             data, cell_size=max_mesh_size / 2, ground_only=ground_points_only
@@ -59,7 +59,7 @@ def build_terrain(
 
     subdomain_resolution = np.array(subdomain_resolution, dtype=np.float64)
 
-    terrain_mesh = _dtcc_builder.build_terrain(
+    terrain_mesh = _dtcc_builder.build_terrain_mesh(
         subdomains,
         subdomain_resolution,
         _builder_gridfield,
@@ -69,9 +69,7 @@ def build_terrain(
         False,
     )
     terrain_mesh = builder_mesh_to_mesh(terrain_mesh)
-    terrain = Terrain()
-    terrain.add_geometry(terrain_mesh, GeometryType.MESH)
-    return terrain
+    return terrain_mesh
 
 
 def build_terrain_raster(
