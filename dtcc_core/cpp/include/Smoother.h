@@ -4,6 +4,13 @@
 #ifndef DTCC_SMOOTHER_H
 #define DTCC_SMOOTHER_H
 
+// Testing include of new FEM classes
+#include "fem/Assembler.h"
+#include "fem/Elasticity.h"
+#include "fem/LinearSolver.h"
+#include "fem/Poisson.h"
+#include "fem/SparseMatrix.h"
+
 #include "BoundaryConditions.h"
 #include "StiffnessMatrix.h"
 #include "Timer.h"

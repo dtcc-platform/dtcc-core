@@ -1,0 +1,5 @@
+Instructions for generating the forms:
+
+1. Start the FEniCS docker container using the scripts in this directory.
+
+2. Generate the forms by typing make (inside the container).

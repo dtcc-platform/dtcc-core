@@ -1,3 +1,5 @@
+// FIXME: Rename this file --> Simplex.h
+
 // Simplex classes for 1D, 2D and 3D.
 // Copyright (C) 2018 Anders Logg.
 // Licensed under the MIT License
