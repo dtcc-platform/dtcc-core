@@ -54,6 +54,9 @@ def merge_building_footprints(
     max_distance: float = 0.5,
     min_area=10,
 ) -> List[Building]:
+    if len(buildings) <= 1:
+        return buildings
+
     buildings_geom = [building.flatten_geometry(lod) for building in buildings]
     # print(buildings_geom)
     buildings_geom = [geom for geom in buildings_geom if geom is not None]

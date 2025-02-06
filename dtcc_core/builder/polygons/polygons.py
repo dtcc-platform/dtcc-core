@@ -211,6 +211,8 @@ def clean_merge_candidates(
 
 
 def merge_list_of_polygons(mcp: List[Polygon], tolerance=1e-2) -> Polygon:
+    if len(mcp) == 0:
+        return []
     if len(mcp) == 1:
         return mcp[0]
     else:
