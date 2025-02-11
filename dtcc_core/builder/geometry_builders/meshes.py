@@ -39,14 +39,14 @@ from ..meshing.convert import mesh_to_raster
 from ..logging import debug, info, warning, error
 
 
-def build_surface_mesh(
+def build_city_mesh(
     city: City,
     lod: GeometryType = GeometryType.LOD1,
     min_building_detail: float = 0.5,
     min_building_area: float = 15.0,
     merge_buildings: bool = True,
     merge_tolerance: float = 0.5,
-    building_mesh_triangle_size: float = 2.0,
+    building_mesh_triangle_size: float = 5.0,
     max_mesh_size: float = 10.0,
     min_mesh_angle: float = 25.0,
     merge_meshes: bool = True,

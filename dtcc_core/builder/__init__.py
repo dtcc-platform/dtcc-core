@@ -45,13 +45,13 @@ from .city.modify import (
     clean_building_surfaces,
 )
 
-from .geometry_builders.meshes import build_surface_mesh
+from .geometry_builders.meshes import build_city_mesh
 
 __all__ = [
     "extract_roof_points",
     "compute_building_heights",
     "build_lod1_buildings",
-    "build_surface_mesh",
+    "build_city_mesh",
     "build_terrain_mesh",
     "build_terrain_raster",
     "flat_terrain",

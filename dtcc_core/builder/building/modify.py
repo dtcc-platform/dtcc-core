@@ -50,7 +50,7 @@ def get_footprint(building: Building, geom_type: GeometryType = None) -> Surface
 
 def merge_building_footprints(
     buildings: List[Building],
-    lod: GeometryType = None,
+    lod: GeometryType = GeometryType.LOD0,
     max_distance: float = 0.5,
     min_area=10,
 ) -> List[Building]:
