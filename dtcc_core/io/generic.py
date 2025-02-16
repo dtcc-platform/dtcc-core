@@ -23,6 +23,8 @@ def load(path, name, type, formats, *args, **kwargs):
     if isinstance(path, (list, tuple)):
         path = [pathlib.Path(p) for p in path]
         path_suffix = path[0].suffix
+        two_level_suffix = ''.join(path[0].suffixes[-2:]) # e.g. ['.json.zip]
+
     else:
         path = pathlib.Path(path)
         path_suffix = path.suffix
