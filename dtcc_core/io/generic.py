@@ -26,10 +26,17 @@ def load(path, name, type, formats, *args, **kwargs):
     else:
         path = pathlib.Path(path)
         path_suffix = path.suffix
-    if path_suffix not in formats[type]:
+        two_level_suffix = ''.join(path.suffixes[-2:]) # e.g. ['.json.zip]
+    if path_suffix not in formats[type] and two_level_suffix not in formats[type]:
         error(f"Unable to load {name}; format {path.suffix} not supported")
     info(f"Loading {name} ({type.__name__}) from {path}")
-    return formats[type][path_suffix](path, *args, **kwargs)
+    if two_level_suffix in formats[type]:
+        loader = formats[type][two_level_suffix]
+    elif path_suffix in formats[type]:
+        loader = formats[type][path_suffix]
+    else:
+        error(f"Unable to load {name}; format {path.suffix} not supported")
+    return loader(path, *args, **kwargs)
 
 
 def list_io(name, load_formats, save_formats):

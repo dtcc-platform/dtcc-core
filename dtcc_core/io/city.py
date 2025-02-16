@@ -5,6 +5,7 @@ from .logging import info, warning, error
 from .meshes import load_mesh_as_city
 from . import generic
 import json
+import zipfile
 from collections import defaultdict
 
 from shapely.geometry import Polygon
@@ -32,12 +33,20 @@ def _load_json(path):
     if path.suffix == ".json":
         with open(path, "r") as file:
             data = json.load(file)
-        if data.get("type") == "CityJSON":
-            return cityjson.load(path)
-        else:
-            raise ValueError(f"{path} is not a CityJSON file")
+    elif path.suffix == ".zip":
+        with zipfile.ZipFile(path, "r") as z:
+            files = z.namelist()
+            if len(files) != 1 or not files[0].endswith("json"):
+                raise ValueError("Invalid cityjson zip file")
+            with z.open(files[0]) as f:
+                data = json.load(f)
     else:
         raise ValueError(f"Unknown file format: {path.suffix}")
+    if data.get("type") == "CityJSON":
+        return cityjson.load(path)
+    else:
+        raise ValueError(f"{path} is not a CityJSON file")
+
 
 
 def _load_proto_city(filename) -> City:
@@ -99,6 +108,7 @@ _load_formats = {
     City: {".pb": _load_proto_city,
            ".pb2": _load_proto_city,
            ".json": _load_json,
+           ".json.zip": _load_json,
            ".obj": _load_mesh_city,
            ".ply": _load_mesh_city,
            ".stl": _load_mesh_city,

@@ -6,6 +6,7 @@ from ...model.geometry import Bounds
 import numpy as np
 from pathlib import Path
 import json
+import zipfile
 
 
 def setup_city(cj_obj: dict):
@@ -40,8 +41,16 @@ def load(cityjson_path: str | dict) -> City:
         cityjson_path = Path(cityjson_path)
         if not cityjson_path.exists():
             raise FileNotFoundError(f"File {cityjson_path} not found")
-        with open(cityjson_path, "r") as f:
-            cj = json.load(f)
+        if cityjson_path.suffix == ".zip":
+            with zipfile.ZipFile(cityjson_path, "r") as z:
+                files = z.namelist()
+                if len(files) != 1 or not files[0].endswith("json"):
+                    raise ValueError("Invalid cityjson zip file")
+                with z.open(files[0]) as f:
+                    cj = json.load(f)
+        else:
+            with open(cityjson_path, "r") as f:
+                cj = json.load(f)
         if "type" not in cj or cj["type"] != "CityJSON":
             raise ValueError("Not a CityJSON file")
     city, verts = setup_city(cj)
