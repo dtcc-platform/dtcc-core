@@ -22,6 +22,8 @@ except:
     warning("Unable to find pyassimp, some file formats will not be supported")
     HAS_ASSIMP = False
 
+def has_assimp():
+    return HAS_ASSIMP
 
 def _load_proto_mesh(path):
     with open(path, "rb") as f:
@@ -179,6 +181,8 @@ def _save_gltf_mesh(mesh, path):
 
 
 def _load_assimp_mesh(path):
+    if not HAS_ASSIMP:
+        error(f"pyassimp not found, cannot load mesh {path}\nplease install assimp and try again")
     with pyassimp.load(str(path)) as scene:
         _meshes = scene.meshes
     if len(_meshes) == 0:

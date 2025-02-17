@@ -72,6 +72,8 @@ def test_load_mesh_vtk(mesh_paths):
 
 # @pytest.mark.skip(reason="This test segfaults")
 def test_load_mesh_fbx(mesh_paths):
+    if not io.meshes.has_assimp():
+        pytest.skip("pyassimp not found, skipping test")
     mesh = io.load_mesh(mesh_paths["fbx"])
     assert len(mesh.vertices) == 24
     assert len(mesh.faces) == 44
