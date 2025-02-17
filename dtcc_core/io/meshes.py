@@ -7,7 +7,7 @@ import numpy as np
 
 from ..model import Mesh, VolumeMesh, City, Building
 from ..model import GeometryType
-from ..builder.meshing import disjoint_meshes
+from ..builder.meshing import disjoint_meshes, merge_meshes
 
 from ..builder.geometry.multisurface import merge_coplanar
 
@@ -179,9 +179,15 @@ def _save_gltf_mesh(mesh, path):
 
 
 def _load_assimp_mesh(path):
-    scene = pyassimp.load(str(path), pyassimp.postprocess.aiProcess_Triangulate)
-    _mesh = scene.meshes[0]
-    return Mesh(vertices=_mesh.vertices, normals=_mesh.normals, faces=_mesh.faces)
+    with pyassimp.load(str(path)) as scene:
+        _meshes = scene.meshes
+    if len(_meshes) == 0:
+        warning(f"No meshes found in file {path}")
+        return Mesh()
+    meshes = [Mesh(vertices=m.vertices,  faces=m.faces) for m in _meshes]
+
+    mesh = merge_meshes(meshes, weld=True)
+    return mesh
 
 
 def _save_assimp_mesh(mesh, path):
