@@ -2,7 +2,6 @@ import pytest
 import numpy as np
 from pathlib import Path
 from dtcc_core.model.object import RoadNetwork, RoadType
-from dtcc_core.model.logging import info
 from dtcc_core.io import roadnetwork
 from dtcc_core.model import Bounds
 

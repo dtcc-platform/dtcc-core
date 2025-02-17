@@ -1,9 +1,10 @@
-from . import _dtcc_builder
 import dtcc_core.model as model
 from shapely.geometry import Polygon
 from dtcc_core.model import City, PointCloud, Raster
 from typing import Union
 import numpy as np
+from . import _dtcc_builder
+
 
 
 def create_builder_polygon(polygon: Polygon) -> _dtcc_builder.Polygon:
