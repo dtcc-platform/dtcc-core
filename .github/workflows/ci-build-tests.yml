@@ -8,7 +8,7 @@ on:
 
 jobs:
   build-and-test:
-    runs-on: [ubuntu-latest, macos-latest]
+    runs-on: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
       # 1) Check out repository
