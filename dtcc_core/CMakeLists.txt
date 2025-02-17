@@ -27,3 +27,6 @@ if(WIN32)
 endif()
 
 install(TARGETS ${BINDINGS} DESTINATION dtcc_core/builder/)
+
+# also copy it to the source directory for testing
+install(TARGETS ${BINDINGS} DESTINATION ${CMAKE_SOURCE_DIR}/dtcc_core/builder/)
