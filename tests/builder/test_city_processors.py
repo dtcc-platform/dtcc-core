@@ -1,9 +1,24 @@
-import unittest
+import pytest
 from dtcc_core import io, builder
 from pathlib import Path
 
-project_dir = (Path(__file__).parent / "../data" / "MinimalCase").resolve()
 
+@pytest.fixture
+def data_dir():
+    return (Path(__file__).parent / "../data").resolve()
+
+
+@pytest.fixture
+def minimal_case_footprints(data_dir):
+    return data_dir / "MinimalCase" / "PropertyMap.shp"
+
+
+@pytest.fixture
+def minimal_case_pointcloud(data_dir):
+    return data_dir / "MinimalCase" / "pointcloud.las"
+
+
+# TODO: Update to test the new method
 
 # class TestComputePoints(unittest.TestCase):
 #     def test_compute_building_points(self):
@@ -23,3 +38,7 @@ project_dir = (Path(__file__).parent / "../data" / "MinimalCase").resolve()
 #         city = city.compute_building_heights()
 #         self.assertEqual(city.buildings[0].height, 5.0)
 #         self.assertEqual(city.buildings[3].height, 10.0)
+
+
+if __name__ == "__main__":
+    pytest.main()

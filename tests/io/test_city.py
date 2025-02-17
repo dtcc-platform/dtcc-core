@@ -1,36 +1,49 @@
-import unittest
+import pytest
+from pathlib import Path
 from dtcc_core import io
 from dtcc_core.model import City
-from pathlib import Path
-
-testdata = Path(__file__).parent / ".." / "data" / "cityjson" / "DenHaag_01.city.json"
 
 
-class TestLoadCity(unittest.TestCase):
-    def test_load_cityjson(self):
-        city = io.load_city(testdata)
-        self.assertIsInstance(city, City)
-        self.assertEqual(len(city.buildings), 844)
+@pytest.fixture
+def test_data_dir():
+    return Path(__file__).parent / ".." / "data"
 
-    def test_load_city_mesh(self):
-        city = io.load_city(Path(__file__).parent / ".." / "data" / "9_cubes.obj")
-        self.assertIsInstance(city, City)
-        self.assertEqual(len(city.buildings), 9)
 
-    def test_to_df(self):
-        city =io.load_city(testdata)
-        df = io.city.buildings_to_df(city)
-        self.assertEqual(len(df), 844)
+@pytest.fixture
+def cityjson_path(test_data_dir):
+    return test_data_dir / "cityjson" / "DenHaag_01.city.json.zip"
 
-        try:
-            import dtcc_core.builder
 
-            # these tests will fail without dtcc-builder installed
-            self.assertTrue("geometry" in df.columns)
-        except ImportError:
-            print("dtcc-builder not installed, skipping tests")
-            pass
+@pytest.fixture
+def mesh_path(test_data_dir):
+    return test_data_dir / "meshes" / "9_cubes.obj"
+
+
+@pytest.fixture
+def cityjson_city(cityjson_path):
+    return io.load_city(cityjson_path)
+
+
+def test_load_cityjson(cityjson_city):
+    assert isinstance(cityjson_city, City)
+    assert len(cityjson_city.buildings) == 844
+
+
+def test_load_city_mesh(mesh_path):
+    city = io.load_city(mesh_path)
+    assert isinstance(city, City)
+    assert len(city.buildings) == 9
+
+
+def test_buildings_to_df(cityjson_city):
+    df = io.city.buildings_to_df(cityjson_city)
+    assert len(df) == 844
+
+
+def test_buildings_to_df_with_geometry(cityjson_city):
+    df = io.city.buildings_to_df(cityjson_city)
+    assert "geometry" in df.columns
 
 
 if __name__ == "__main__":
-    unittest.main()
+    pytest.main()

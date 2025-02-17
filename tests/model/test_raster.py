@@ -1,38 +1,37 @@
-import unittest
-import numpy as np
+import pytest
 
+import numpy as np
 from dtcc_core.model import Raster
 
 
-class TestCreateRaster(unittest.TestCase):
-    def test_create_empty(self):
-        raster = Raster()
-        self.assertEqual(raster.crs, "")
-        self.assertEqual(raster.bounds.tuple, (0, 0, 0, 0))
-        self.assertEqual(raster.georef.to_gdal(), (0, 1, 0, 0, 0, 1))
+def test_create_empty_raster():
+    raster = Raster()
+    assert raster.crs == ""
+    assert raster.bounds.tuple == (0, 0, 0, 0)
+    assert raster.georef.to_gdal() == (0, 1, 0, 0, 0, 1)
 
 
-class TestCopyRaster(unittest.TestCase):
-    def test_copy(self):
-        raster = Raster()
-        raster.data = np.ones((10, 10), dtype=np.uint8)
-        raster.crs = "EPSG:3857"
+def test_copy_raster():
+    raster = Raster()
+    raster.data = np.ones((10, 10), dtype=np.uint8)
+    raster.crs = "EPSG:3857"
 
-        copy_raster = raster.copy()
+    copy_raster = raster.copy()
 
-        self.assertEqual(copy_raster.data.tolist(), raster.data.tolist())
-        self.assertEqual(copy_raster.crs, raster.crs)
+    assert copy_raster.data.tolist() == raster.data.tolist()
+    assert copy_raster.crs == raster.crs
 
-    def test_copy_nodata(self):
-        raster = Raster()
-        raster.data = np.ones((10, 10), dtype=np.uint8)
-        raster.crs = "EPSG:3857"
 
-        copy_raster = raster.copy(no_data=True)
+def test_copy_raster_nodata():
+    raster = Raster()
+    raster.data = np.ones((10, 10), dtype=np.uint8)
+    raster.crs = "EPSG:3857"
 
-        self.assertEqual(copy_raster.data.shape, ())
-        self.assertEqual(copy_raster.crs, raster.crs)
+    copy_raster = raster.copy(no_data=True)
+
+    assert copy_raster.data.shape == ()
+    assert copy_raster.crs == raster.crs
 
 
 if __name__ == "__main__":
-    unittest.main()
+    pytest.main()

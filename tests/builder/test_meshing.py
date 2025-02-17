@@ -1,225 +1,166 @@
-from dtcc_core.builder.meshing import mesh_multisurface, mesh_surface, mesh_multisurfaces, disjoint_meshes
-from dtcc_core import io
-from dtcc_core.model import Mesh, Building, Surface, MultiSurface
+import pytest
 import numpy as np
-from shapely.geometry import Polygon
-import unittest
 from pathlib import Path
+from shapely.geometry import Polygon
+from dtcc_core.builder.meshing import (
+    mesh_multisurface,
+    mesh_surface,
+    mesh_multisurfaces,
+    disjoint_meshes,
+)
+
+from dtcc_core.model import Mesh, Surface, MultiSurface
 
 
-
-
-project_dir = (Path(__file__).parent / "../data" / "MinimalCase").resolve()
-
-
-# class TestExtrudeBuilding(unittest.TestCase):
-#     def test_extrude_building(self):
-#         city = io.load_city(project_dir / "PropertyMap.shp")
-#         building = city.buildings[0]
-#         building.ground_level = 1
-#         building.height = 5
-#         mesh = extrude_building(building, max_mesh_size=10, min_mesh_angle=25)
-#         self.assertIsInstance(mesh, Mesh)
-#         self.assertEqual(len(mesh.vertices), 8)
-#         self.assertEqual(len(mesh.faces), 10)
-#         self.assertEqual(mesh.vertices[:, 2].min(), 1)
-#         self.assertEqual(mesh.vertices[:, 2].max(), 6)
-
-#     def test_extrude_building_ground_to_zero(self):
-#         city = io.load_city(project_dir / "PropertyMap.shp")
-#         building = city.buildings[0]
-#         building.ground_level = 1
-#         building.height = 5
-#         mesh = extrude_building(
-#             building, max_mesh_size=10, min_mesh_angle=25, ground_to_zero=True
-#         )
-#         self.assertIsInstance(mesh, Mesh)
-#         self.assertEqual(len(mesh.vertices), 8)
-#         self.assertEqual(len(mesh.faces), 10)
-#         self.assertEqual(mesh.vertices[:, 2].min(), 0)
-#         self.assertEqual(mesh.vertices[:, 2].max(), 5)
-
-#     def test_extrude_building_capped(self):
-#         city = io.load_city(project_dir / "PropertyMap.shp")
-#         building = city.buildings[0]
-#         building.ground_level = 1
-#         building.height = 5
-#         mesh = extrude_building(
-#             building, max_mesh_size=10, min_mesh_angle=25, cap_base=True
-#         )
-#         self.assertIsInstance(mesh, Mesh)
-#         self.assertEqual(len(mesh.vertices), 12)
-#         self.assertEqual(len(mesh.faces), 12)
-
-# def test_mesh_per_floor(self):
-#     building = Building(
-#         footprint=Polygon([(0, 0), (0, 10), (10, 10), (10, 0)]),
-#         height=20,
-#         floors=4,
-#         ground_level=5,
-#     )
-#     mesh = extrude_building(
-#         building, max_mesh_size=10, min_mesh_angle=25, per_floor=True, cap_base=True
-#     )
-#     self.assertEqual(
-#         len(mesh.faces), 8 * 4 + 5 * 2
-#     )  # 8 wall faces per floor, 2 roof faces per floor + 2 for the base
-#     self.assertEqual(
-#         len(mesh.vertices), 8 * 4 + 4
-#     )  # 8 vertices per floor + 4 for the base
-
-
-class TestMeshSurfaces(unittest.TestCase):
-    def test_mesh_simple_surface(self):
-        surface = Surface(
-            vertices=np.array(
-                [
-                    [0, 0, 5],
-                    [0, 10, 5],
-                    [10, 10, 8],
-                    [10, 0, 8],
-                ]
-            )
+@pytest.fixture
+def simple_surface():
+    return Surface(
+        vertices=np.array(
+            [
+                [0, 0, 5],
+                [0, 10, 5],
+                [10, 10, 8],
+                [10, 0, 8],
+            ]
         )
-        mesh = mesh_surface(surface)
-        self.assertEqual(len(mesh.vertices), 4)
-        self.assertEqual(len(mesh.faces), 2)
-        self.assertAlmostEqual(mesh.vertices[:, 2].min(), 5)
-        self.assertAlmostEqual(mesh.vertices[:, 2].max(), 8)
+    )
 
-    def test_mesh_triangle_surface(self):
-        surface = Surface(
-            vertices=np.array(
-                [
-                    [0, 0, 5],
-                    [0, 10, 5],
-                    [10, 10, 8],
-                    [10, 0, 8],
-                ]
-            )
+
+@pytest.fixture
+def complex_surface():
+    return Surface(
+        vertices=np.array(
+            [
+                [0, 0, 0],
+                [10, 0, 0],
+                [10, 10, 0],
+                [2, 10, 0],
+                [2, 12, 0],
+                [0, 12, 0],
+            ]
         )
-        mesh = mesh_surface(surface, triangle_size=5)
-        self.assertEqual(len(mesh.vertices), 13)
-        self.assertEqual(len(mesh.faces), 16)
-        self.assertAlmostEqual(mesh.vertices[:, 2].min(), 5)
-        self.assertAlmostEqual(mesh.vertices[:, 2].max(), 8)
+    )
 
 
-class TestMeshMultiSurface(unittest.TestCase):
-    def test_mesh_multisurface(self):
-        surface1 = Surface(
-            vertices=np.array(
-                [
-                    [0, 0, 5],
-                    [0, 10, 5],
-                    [10, 10, 8],
-                    [10, 0, 8],
-                ]
-            )
+@pytest.fixture
+def multi_surface(simple_surface, complex_surface):
+    ms = MultiSurface()
+    ms.surfaces = [simple_surface, complex_surface]
+    return ms
+
+
+@pytest.fixture
+def second_surface_pair():
+    surface3 = Surface(
+        vertices=np.array(
+            [
+                [0, 0, 4],
+                [0, 10, 4],
+                [10, 10, 7],
+                [10, 0, 7],
+            ]
         )
-
-        surface2 = Surface(
-            vertices=np.array(
-                [
-                    [0, 0, 0],
-                    [10, 0, 0],
-                    [10, 10, 0],
-                    [2, 10, 0],
-                    [2, 12, 0],
-                    [0, 12, 0],
-                ]
-            )
+    )
+    surface4 = Surface(
+        vertices=np.array(
+            [
+                [0, 0, 0],
+                [10, 0, 0],
+                [10, 10, 0],
+                [2, 10, 0],
+                [2, 12, 0],
+                [0, 12, 0],
+            ]
         )
-        multisurface = MultiSurface()
-        multisurface.surfaces = [surface1, surface2]
-        mesh = mesh_multisurface(multisurface)
-        self.assertEqual(len(mesh.vertices), 10)
-        self.assertEqual(len(mesh.faces), 6)
-        self.assertAlmostEqual(mesh.vertices[:, 2].min(), 0)
-        self.assertAlmostEqual(mesh.vertices[:, 2].max(), 8)
+    )
+    ms = MultiSurface()
+    ms.surfaces = [surface3, surface4]
+    return ms
 
 
-class TestMeshMultiSurfaces(unittest.TestCase):
-    def test_mesh_multisurfaces(self):
-        surface1 = Surface(
-            vertices=np.array(
-                [
-                    [0, 0, 5],
-                    [0, 10, 5],
-                    [10, 10, 8],
-                    [10, 0, 8],
-                ]
-            )
-        )
-
-        surface2 = Surface(
-            vertices=np.array(
-                [
-                    [0, 0, 1],
-                    [10, 0, 1],
-                    [10, 10, 1],
-                    [2, 10, 1],
-                    [2, 12, 1],
-                    [0, 12, 1],
-                ]
-            )
-        )
-        multisurface1 = MultiSurface()
-        multisurface1.surfaces = [surface1, surface2]
-
-        surface3 = Surface(
-            vertices=np.array(
-                [
-                    [0, 0, 4],
-                    [0, 10, 4],
-                    [10, 10, 7],
-                    [10, 0, 7],
-                ]
-            )
-        )
-
-        surface4 = Surface(
-            vertices=np.array(
-                [
-                    [0, 0, 0],
-                    [10, 0, 0],
-                    [10, 10, 0],
-                    [2, 10, 0],
-                    [2, 12, 0],
-                    [0, 12, 0],
-                ]
-            )
-        )
-        multisurface2 = MultiSurface()
-        multisurface2.surfaces = [surface3, surface4]
-
-        meshes = mesh_multisurfaces([multisurface1, multisurface2])
-        self.assertEqual(len(meshes), 2)
-        self.assertEqual(len(meshes[0].vertices), 10)
-        self.assertEqual(len(meshes[0].faces), 6)
-        self.assertAlmostEqual(meshes[0].vertices[:, 2].min(), 1)
-        self.assertAlmostEqual(meshes[0].vertices[:, 2].max(), 8)
-        self.assertEqual(len(meshes[1].vertices), 10)
-        self.assertEqual(len(meshes[1].faces), 6)
-        self.assertAlmostEqual(meshes[1].vertices[:, 2].min(), 0)
-        self.assertAlmostEqual(meshes[1].vertices[:, 2].max(), 7)
-
-class TestDisjointMesh(unittest.TestCase):
-    def test_disjoint_mesh(self):
-        cube1_vertices = np.array([[0,0,0], [0,1,0], [1,1,0], [1,0,0], [0,0,1], [0,1,1], [1,1,1], [1,0,1]])
-        cube1_faces = [[0,1,2], [0,2,3], [0,4,5], [0,5,1], [1,5,6], [1,6,2], [2,6,7], [2,7,3], [3,7,4], [3,4,0], [4,7,6], [4,6,5]]
-        cube2_vertices = cube1_vertices + np.array([2,2,2])
-        cube2_faces = [[i+8 for i in face] for face in cube1_faces]
-        cubes_vertices = np.vstack([cube1_vertices, cube2_vertices])
-        cubes_faces = np.array(cube1_faces + cube2_faces)
-        cubes_mesh = Mesh(vertices=cubes_vertices, faces = cubes_faces)
-        disjointed_meshes = disjoint_meshes(cubes_mesh)
-        self.assertEqual(len(disjointed_meshes), 2)
-        self.assertEqual(disjointed_meshes[0].faces.max(), 7)
-        self.assertEqual(disjointed_meshes[1].faces.max(), 7)
-        self.assertEqual(len(disjointed_meshes[0].vertices), 8)
-        self.assertEqual(len(disjointed_meshes[1].vertices), 8)
+@pytest.fixture
+def disjoint_cubes_mesh():
+    cube1_vertices = np.array(
+        [
+            [0, 0, 0],
+            [0, 1, 0],
+            [1, 1, 0],
+            [1, 0, 0],
+            [0, 0, 1],
+            [0, 1, 1],
+            [1, 1, 1],
+            [1, 0, 1],
+        ]
+    )
+    cube1_faces = [
+        [0, 1, 2],
+        [0, 2, 3],
+        [0, 4, 5],
+        [0, 5, 1],
+        [1, 5, 6],
+        [1, 6, 2],
+        [2, 6, 7],
+        [2, 7, 3],
+        [3, 7, 4],
+        [3, 4, 0],
+        [4, 7, 6],
+        [4, 6, 5],
+    ]
+    cube2_vertices = cube1_vertices + np.array([2, 2, 2])
+    cube2_faces = [[i + 8 for i in face] for face in cube1_faces]
+    cubes_vertices = np.vstack([cube1_vertices, cube2_vertices])
+    cubes_faces = np.array(cube1_faces + cube2_faces)
+    return Mesh(vertices=cubes_vertices, faces=cubes_faces)
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_mesh_simple_surface(simple_surface):
+    mesh = mesh_surface(simple_surface)
+    assert len(mesh.vertices) == 4
+    assert len(mesh.faces) == 2
+    assert pytest.approx(mesh.vertices[:, 2].min()) == 5
+    assert pytest.approx(mesh.vertices[:, 2].max()) == 8
+
+
+def test_mesh_triangle_surface(simple_surface):
+    mesh = mesh_surface(simple_surface, triangle_size=5)
+    assert len(mesh.vertices) == 13
+    assert len(mesh.faces) == 16
+    assert pytest.approx(mesh.vertices[:, 2].min()) == 5
+    assert pytest.approx(mesh.vertices[:, 2].max()) == 8
+
+
+def test_mesh_multisurface(multi_surface):
+    mesh = mesh_multisurface(multi_surface)
+    assert len(mesh.vertices) == 10
+    assert len(mesh.faces) == 6
+    assert pytest.approx(mesh.vertices[:, 2].min()) == 0
+    assert pytest.approx(mesh.vertices[:, 2].max()) == 8
+
+
+def test_mesh_multisurfaces(multi_surface, second_surface_pair):
+    ms = multi_surface.translate(0, 0, 1)
+    meshes = mesh_multisurfaces([multi_surface, second_surface_pair])
+
+    assert len(meshes) == 2
+
+    # First mesh checks
+    assert len(meshes[0].vertices) == 10
+    assert len(meshes[0].faces) == 6
+    assert pytest.approx(meshes[0].vertices[:, 2].min()) == 1
+    assert pytest.approx(meshes[0].vertices[:, 2].max()) == 9
+
+    # Second mesh checks
+    assert len(meshes[1].vertices) == 10
+    assert len(meshes[1].faces) == 6
+    assert pytest.approx(meshes[1].vertices[:, 2].min()) == 0
+    assert pytest.approx(meshes[1].vertices[:, 2].max()) == 7
+
+
+def test_disjoint_mesh(disjoint_cubes_mesh):
+    disjointed_meshes = disjoint_meshes(disjoint_cubes_mesh)
+
+    assert len(disjointed_meshes) == 2
+    assert disjointed_meshes[0].faces.max() == 7
+    assert disjointed_meshes[1].faces.max() == 7
+    assert len(disjointed_meshes[0].vertices) == 8
+    assert len(disjointed_meshes[1].vertices) == 8

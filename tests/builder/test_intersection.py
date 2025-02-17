@@ -1,76 +1,60 @@
-import unittest
-
+import pytest
 import numpy as np
-
 import dtcc_core.builder
 from dtcc_core.model import Surface, MultiSurface, Mesh
 
 
-class TestSurfaceIntersection(unittest.TestCase):
-    def test_ray_hit(self):
-        surface = Surface(vertices=np.array([(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)]))
-        origin = [0.5, 0.5, 1]
-        direction = [0, 0, -1]
-        intersection = surface.ray_intersection(origin, direction)
-
-        self.assertTrue(isinstance(intersection, np.ndarray))
-        self.assertTrue((intersection == [0.5, 0.5, 0]).all())
-        # self.assertTrue((intersection == [0, 0, 0]).all())
-
-    def test_ray_miss(self):
-        surface = Surface(vertices=np.array([(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)]))
-        origin = [0.5, 0.5, 1]
-        direction = [0, 0, 1]
-        intersection = surface.ray_intersection(origin, direction)
-        self.assertTrue(isinstance(intersection, np.ndarray))
-
-        self.assertTrue(np.isnan(intersection).all())
+@pytest.fixture
+def square_surface():
+    return Surface(vertices=np.array([(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)]))
 
 
-class TestMultiSurfaceIntersection(unittest.TestCase):
-    def test_ray_hit(self):
-        surface1 = Surface(vertices=np.array([(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)]))
-        surface2 = Surface(vertices=np.array([(0, 0, 1), (1, 0, 1), (1, 1, 1), (0, 1, 1)]))
-
-        multisurface = MultiSurface(surfaces=[surface1, surface2])
-        origin = [0.5, 0.5, 2]
-        direction = [0, 0, -1]
-        intersection = multisurface.ray_intersection(origin, direction)
-
-        self.assertTrue(isinstance(intersection, np.ndarray))
-        self.assertTrue((intersection == [0.5, 0.5, 1]).all())
-
-    def test_ray_miss(self):
-        surface1 = Surface(vertices=np.array([(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)]))
-        surface2 = Surface(vertices=np.array([(0, 0, 1), (1, 0, 1), (1, 1, 1), (0, 1, 1)]))
-        multisurface = MultiSurface(surfaces=[surface1, surface2])
-
-        origin = [0.5, 0.5, 2]
-        direction = [0, 0, 1]
-        intersection = multisurface.ray_intersection(origin, direction)
-        self.assertTrue(isinstance(intersection, np.ndarray))
-
-        self.assertTrue(np.isnan(intersection).all())
+@pytest.fixture
+def square_surface_elevated():
+    return Surface(vertices=np.array([(0, 0, 1), (1, 0, 1), (1, 1, 1), (0, 1, 1)]))
 
 
-# class TestMeshIntersection(unittest.TestCase):
-#     def test_mesh_ray_intersection(self):
-#         vertices = np.array(
-#             [
-#                 [0, 0, 0],
-#                 [1, 0, 0],
-#                 [1, 1, 0],
-#                 [0, 1, 0],
-#                 [0, 0, 1],
-#                 [1, 0, 1],
-#                 [1, 1, 1],
-#                 [0, 1, 1],
-#             ]
-#         )
-#         faces = np.array([[0, 1, 2], [0, 2, 3], [4, 5, 6], [4, 6, 7]])
-#         mesh = Mesh(vertices=vertices, faces=faces)
-#         origin = [0.5, 0.5, 2]
-#         direction = [0, 0, -1]
-#         intersection = mesh.ray_intersection(origin, direction)
-#         self.assertTrue(isinstance(intersection, np.ndarray))
-#         self.assertTrue((intersection == [0.5, 0.5, 1]).all())
+@pytest.fixture
+def two_layer_surface(square_surface, square_surface_elevated):
+    return MultiSurface(surfaces=[square_surface, square_surface_elevated])
+
+
+@pytest.fixture
+def test_origin():
+    return [0.5, 0.5, 2]
+
+
+@pytest.mark.parametrize(
+    "direction, expected_intersection, test_id",
+    [([0, 0, -1], [0.5, 0.5, 0], "hit"), ([0, 0, 1], None, "miss")],
+)
+def test_surface_ray_intersection(
+    square_surface, test_origin, direction, expected_intersection, test_id
+):
+    intersection = square_surface.ray_intersection(test_origin, direction)
+    assert isinstance(intersection, np.ndarray)
+
+    if test_id == "hit":
+        assert np.array_equal(intersection, expected_intersection)
+    else:
+        assert np.isnan(intersection).all()
+
+
+@pytest.mark.parametrize(
+    "direction, expected_intersection, test_id",
+    [([0, 0, -1], [0.5, 0.5, 1], "hit"), ([0, 0, 1], None, "miss")],
+)
+def test_multisurface_ray_intersection(
+    two_layer_surface, test_origin, direction, expected_intersection, test_id
+):
+    intersection = two_layer_surface.ray_intersection(test_origin, direction)
+    assert isinstance(intersection, np.ndarray)
+
+    if test_id == "hit":
+        assert np.array_equal(intersection, expected_intersection)
+    else:
+        assert np.isnan(intersection).all()
+
+
+if __name__ == "__main__":
+    pytest.main()

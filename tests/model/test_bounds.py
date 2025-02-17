@@ -1,43 +1,46 @@
-import unittest
-from dtcc_core.model.geometry import Bounds
+import pytest
+from dtcc_core.model import Bounds
 
 
-class TestBounds(unittest.TestCase):
-    def test_create(self):
-        bounds = Bounds(1, 2, 3, 4)
-        self.assertEqual(bounds.xmin, 1)
-        self.assertEqual(bounds.ymin, 2)
-        self.assertEqual(bounds.xmax, 3)
-        self.assertEqual(bounds.ymax, 4)
+def test_create():
+    bounds = Bounds(1, 2, 3, 4)
+    assert bounds.xmin == 1
+    assert bounds.ymin == 2
+    assert bounds.xmax == 3
+    assert bounds.ymax == 4
 
-    def test_area(self):
-        bounds = Bounds(0, 0, 10, 10)
-        self.assertEqual(bounds.area, 100)
 
-    def test_buffer(self):
-        bounds = Bounds(0, 0, 10, 10)
-        bounds.buffer(1)
-        self.assertEqual(bounds.xmin, -1)
-        self.assertEqual(bounds.ymin, -1)
-        self.assertEqual(bounds.xmax, 11)
-        self.assertEqual(bounds.ymax, 11)
+def test_area():
+    bounds = Bounds(0, 0, 10, 10)
+    assert bounds.area == 100
 
-    def test_union(self):
-        bounds = Bounds(0, 0, 10, 10)
-        bounds.union(Bounds(5, 5, 15, 15))
-        self.assertEqual(bounds.xmin, 0)
-        self.assertEqual(bounds.ymin, 0)
-        self.assertEqual(bounds.xmax, 15)
-        self.assertEqual(bounds.ymax, 15)
 
-    def test_intersection(self):
-        bounds = Bounds(0, 0, 10, 10)
-        bounds.intersect(Bounds(5, 5, 15, 15))
-        self.assertEqual(bounds.xmin, 5)
-        self.assertEqual(bounds.ymin, 5)
-        self.assertEqual(bounds.xmax, 10)
-        self.assertEqual(bounds.ymax, 10)
+def test_buffer():
+    bounds = Bounds(0, 0, 10, 10)
+    bounds.buffer(1)
+    assert bounds.xmin == -1
+    assert bounds.ymin == -1
+    assert bounds.xmax == 11
+    assert bounds.ymax == 11
+
+
+def test_union():
+    bounds = Bounds(0, 0, 10, 10)
+    bounds.union(Bounds(5, 5, 15, 15))
+    assert bounds.xmin == 0
+    assert bounds.ymin == 0
+    assert bounds.xmax == 15
+    assert bounds.ymax == 15
+
+
+def test_intersection():
+    bounds = Bounds(0, 0, 10, 10)
+    bounds.intersect(Bounds(5, 5, 15, 15))
+    assert bounds.xmin == 5
+    assert bounds.ymin == 5
+    assert bounds.xmax == 10
+    assert bounds.ymax == 10
 
 
 if __name__ == "__main__":
-    unittest.main()
+    pytest.main()

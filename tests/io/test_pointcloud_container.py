@@ -1,40 +1,48 @@
-import unittest
+import pytest
 from pathlib import Path
-
 from dtcc_core import io
 from dtcc_core.model import Bounds
 
-data_dir = (Path(__file__).parent / ".." / "data").resolve()
+
+@pytest.fixture
+def data_dir():
+    return (Path(__file__).parent / ".." / "data").resolve()
 
 
-class TestPointCloudDirectory(unittest.TestCase):
-    def test_load_pc_directory(self):
-        pcd = io.load_pointcloud_directory(data_dir / "pointclouds")
-        self.assertEqual(len(pcd), 2)
+@pytest.fixture
+def pointcloud_dir(data_dir):
+    return data_dir / "pointclouds"
 
-    def test_bounds(self):
-        pcd = io.load_pointcloud_directory(data_dir / "pointclouds")
-        bounds = pcd.bounds
-        self.assertEqual(bounds.ymin, 0)
-        self.assertEqual(bounds.ymax, 1)
 
-    def test_get_all_points(self):
-        pcd = io.load_pointcloud_directory(data_dir / "pointclouds")
-        pc = pcd.pointcloud(pcd.bounds)
-        self.assertEqual(len(pc), 20)
+@pytest.fixture
+def pointcloud_directory(pointcloud_dir):
+    return io.load_pointcloud_directory(pointcloud_dir)
 
-    def test_get_sub_points_1file(self):
-        pcd = io.load_pointcloud_directory(data_dir / "pointclouds")
-        bounds = Bounds(xmin=0.1, xmax=3.1, ymin=0.1, ymax=1.1)
-        pc = pcd.pointcloud(bounds)
-        self.assertEqual(len(pc), 3)
 
-    def test_get_sub_points_2files(self):
-        pcd = io.load_pointcloud_directory(data_dir / "pointclouds")
-        bounds = Bounds(xmin=0.1, xmax=3.1, ymin=-1, ymax=3)
-        pc = pcd.pointcloud(bounds)
-        self.assertEqual(len(pc), 6)
+@pytest.mark.parametrize(
+    "bounds, expected_count",
+    [
+        (None, 20),  # Get all points
+        (Bounds(xmin=0.1, xmax=3.1, ymin=0.1, ymax=1.1), 3),  # Points from 1 file
+        (Bounds(xmin=0.1, xmax=3.1, ymin=-1, ymax=3), 6),  # Points from 2 files
+    ],
+)
+def test_get_points_with_bounds(pointcloud_directory, bounds, expected_count):
+    if bounds is None:
+        bounds = pointcloud_directory.bounds
+    pc = pointcloud_directory.pointcloud(bounds)
+    assert len(pc) == expected_count
+
+
+def test_load_pointcloud_directory(pointcloud_directory):
+    assert len(pointcloud_directory) == 2
+
+
+def test_pointcloud_directory_bounds(pointcloud_directory):
+    bounds = pointcloud_directory.bounds
+    assert bounds.ymin == 0
+    assert bounds.ymax == 1
 
 
 if __name__ == "__main__":
-    unittest.main()
+    pytest.main()
