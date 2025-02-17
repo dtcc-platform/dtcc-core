@@ -1,53 +1,79 @@
-import unittest
+import pytest
+from pathlib import Path
 from dtcc_core import builder, io
 from dtcc_core.model import RoadNetwork, GeometryType, Surface
 
-from pathlib import Path
 
-test_data = (
-    Path(__file__).parent / ".." / "data" / "road_network" / "test_road.shp"
-).resolve()
-
-assert test_data.is_file()
-
-
-class TestRoadnetwork(unittest.TestCase):
-    def test_bidirectional_to_matrix(self):
-        rn = io.load_roadnetwork(test_data)
-        largest_idx = max([e[0] for e in rn.edges] + [e[1] for e in rn.edges])
-        num_roads = len(rn.edges)
-        rn_matrix = rn.to_matrix()
-        self.assertEqual(rn_matrix.shape, (largest_idx + 1, largest_idx + 1))
-        self.assertEqual(
-            rn_matrix.nnz, (num_roads * 2) - 1
-        )  # bidirectional so each edge is counted twice, minus 1
-        # because we have one loop that starts that shouldn't be counted twice
-
-        r12 = rn.edges[12]
-        l12 = rn.length[12]
-        self.assertEqual(rn_matrix[r12[0], r12[1]], l12)
-        self.assertEqual(rn_matrix[r12[1], r12[0]], l12)
-
-    def test_unidirectional_to_matrix(self):
-        rn = io.load_roadnetwork(test_data)
-        largest_idx = max([e[0] for e in rn.edges] + [e[1] for e in rn.edges])
-        num_roads = len(rn.edges)
-        rn_matrix = rn.to_matrix(bidirectional=False)
-        self.assertEqual(rn_matrix.nnz, num_roads)
-
-    def test_to_polygon(self):
-        rn = io.load_roadnetwork(test_data)
-        rn_poly = rn.to_surfaces(as_shapely=True, widths=4)
-        self.assertEqual(len(rn_poly), len(rn.linestrings))
-        self.assertEqual(rn_poly[0].geom_type, "Polygon")
-        self.assertLessEqual(abs(1 - (rn_poly[0].area / (rn.length[0] * 4))), 0.02)
-
-    def test_to_surfaces(self):
-        rn = io.load_roadnetwork(test_data)
-        rn_surfaces = rn.to_surfaces(widths=4, as_shapely=False)
-        self.assertEqual(len(rn_surfaces), len(rn.linestrings))
-        self.assertTrue(isinstance(rn_surfaces[0], Surface))
+@pytest.fixture
+def test_data():
+    data_path = (
+        Path(__file__).parent / ".." / "data" / "road_network" / "test_road.shp"
+    ).resolve()
+    assert data_path.is_file()
+    return data_path
 
 
-if __name__ == "__main__":
-    unittest.main()
+@pytest.fixture
+def road_network(test_data):
+    return io.load_roadnetwork(test_data)
+
+
+@pytest.fixture
+def network_stats(road_network):
+    """Common statistics used across tests."""
+    edges = road_network.edges
+    return {
+        "largest_idx": max([e[0] for e in edges] + [e[1] for e in edges]),
+        "num_roads": len(edges),
+    }
+
+
+def test_bidirectional_to_matrix(road_network, network_stats):
+    """Test conversion to bidirectional matrix representation."""
+    rn_matrix = road_network.to_matrix()
+
+    # Check matrix dimensions
+    assert rn_matrix.shape == (
+        network_stats["largest_idx"] + 1,
+        network_stats["largest_idx"] + 1,
+    )
+
+    # Check number of non-zero elements
+    # bidirectional so each edge is counted twice, minus 1 because of the loop
+    expected_nnz = (network_stats["num_roads"] * 2) - 1
+    assert rn_matrix.nnz == expected_nnz
+
+    # Check specific edge properties
+    edge_12 = road_network.edges[12]
+    length_12 = road_network.length[12]
+    assert rn_matrix[edge_12[0], edge_12[1]] == length_12
+    assert rn_matrix[edge_12[1], edge_12[0]] == length_12
+
+
+def test_unidirectional_to_matrix(road_network, network_stats):
+    """Test conversion to unidirectional matrix representation."""
+    rn_matrix = road_network.to_matrix(bidirectional=False)
+    assert rn_matrix.nnz == network_stats["num_roads"]
+
+
+def test_to_polygon(road_network):
+    """Test conversion to polygon representation."""
+    road_width = 4
+    rn_poly = road_network.to_surfaces(as_shapely=True, widths=road_width)
+
+    assert len(rn_poly) == len(road_network.linestrings)
+    assert rn_poly[0].geom_type == "Polygon"
+
+    # Check area approximation
+    expected_area = road_network.length[0] * road_width
+    actual_area = rn_poly[0].area
+    area_difference = abs(1 - (actual_area / expected_area))
+    assert area_difference <= 0.02
+
+
+def test_to_surfaces(road_network):
+    """Test conversion to surface objects."""
+    rn_surfaces = road_network.to_surfaces(widths=4, as_shapely=False)
+
+    assert len(rn_surfaces) == len(road_network.linestrings)
+    assert isinstance(rn_surfaces[0], Surface)

@@ -32,6 +32,7 @@ class Mesh(Geometry):
     vertices: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.float64))
     faces: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.int64))
     markers: np.ndarray = field(default_factory=lambda: np.empty(0))
+    normals: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.float64))
 
     def __str__(self):
         """Return a string representation of the DTCC Mesh
@@ -151,6 +152,7 @@ class Mesh(Geometry):
             surface.vertices = self.vertices[f]
             multisurface.surfaces.append(surface)
         return multisurface
+
 
 @dataclass
 class VolumeMesh(Geometry):

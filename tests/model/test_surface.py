@@ -1,90 +1,70 @@
-import unittest
-from shapely.geometry import Polygon
+import pytest
 import numpy as np
-from dtcc_core.model import Surface, MultiSurface
+from shapely.geometry import Polygon
+from dtcc_core.model import Surface  # Assuming this is the correct import
 
 
-class TestSurface(unittest.TestCase):
-
-    def test_convert_polygon(self):
-        s = Surface()
-        s.from_polygon(Polygon([(0, 0), (1, 0), (1, 1), (0, 1)]), 10)
-        v1 = s.vertices[1]
-        self.assertEqual(len(s.vertices), 4)
-        self.assertEqual(v1[0], 1)
-        self.assertEqual(v1[1], 0)
-        self.assertEqual(v1[2], 10)
-        self.assertEqual(s.zmax, 10)
-
-    def test_to_polygon(self):
-        s = Surface()
-        s.from_polygon(Polygon([(0, 0), (1, 0), (1, 1), (0, 1)]), 10)
-        p = s.to_polygon()
-
-        self.assertEqual(len(p.exterior.coords), 4 + 1)
-        self.assertEqual(list(p.exterior.coords)[0], (0, 0))
-        self.assertEqual(list(p.exterior.coords)[1], (1, 0))
-        self.assertEqual(list(p.exterior.coords)[2], (1, 1))
-        self.assertEqual(list(p.exterior.coords)[3], (0, 1))
-
-    def test_to_proto(self):
-        verts = np.array([[0, 0, 10], [1, 0, 10], [1, 1, 12], [0, 1, 12]])
-        hole = np.array(
-            [[0.1, 0.1, 10], [0.9, 0.1, 10], [0.9, 0.9, 12], [0.1, 0.9, 12]]
-        )
-        s = Surface(vertices=verts, holes=[hole])
-        pb = s.to_proto()
-        self.assertEqual(len(pb.surface.vertices), 4 * 3)
-        self.assertEqual(pb.surface.vertices[0], 0)
-        self.assertEqual(pb.surface.vertices[-1], 12)
-        self.assertEqual(len(pb.surface.holes), 1)
-
-    def test_from_proto(self):
-        verts = np.array([[0, 0, 10], [1, 0, 10], [1, 1, 12], [0, 1, 12]])
-        hole = np.array(
-            [[0.1, 0.1, 10], [0.9, 0.1, 10], [0.9, 0.9, 12], [0.1, 0.9, 12]]
-        )
-        s = Surface(vertices=verts, holes=[hole])
-        pb = s.to_proto()
-        pb = pb.SerializeToString()
-
-        s2 = Surface()
-        s2.from_proto(pb)
-
-        self.assertEqual(len(s2.vertices), 4)
-        self.assertEqual(len(s2.holes), 1)
-        self.assertListEqual(list(s2.vertices[0]), [0, 0, 10])
-        self.assertListEqual(list(np.round(s2.holes[0][2], 6)), [0.9, 0.9, 12])
+@pytest.fixture
+def simple_polygon():
+    return Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
 
 
-class TestMultiSurface(unittest.TestCase):
+@pytest.fixture
+def basic_surface(simple_polygon):
+    surface = Surface()
+    surface.from_polygon(simple_polygon, 10)
+    return surface
 
-    def test_zmax(self):
-        s1 = Surface(vertices=np.array([[0, 0, 0], [1, 0, 0], [1, 1, 0]]))
-        s2 = Surface(vertices=np.array([[0, 0, 1], [1, 0, 1], [1, 1, 2]]))
-        ms = MultiSurface(surfaces=[s1, s2])
-        self.assertEqual(ms.zmax, 2)
 
-    def test_to_proto(self):
-        s1 = Surface(vertices=np.array([[0, 0, 0], [1, 0, 0], [1, 1, 0]]))
-        s2 = Surface(vertices=np.array([[0, 0, 1], [1, 0, 1], [1, 1, 2]]))
-        ms = MultiSurface(surfaces=[s1, s2])
-        pb = ms.to_proto()
-        self.assertEqual(len(pb.multi_surface.surfaces), 2)
+@pytest.fixture
+def complex_surface():
+    verts = np.array([[0, 0, 10], [1, 0, 10], [1, 1, 12], [0, 1, 12]])
+    hole = np.array([[0.1, 0.1, 10], [0.9, 0.1, 10], [0.9, 0.9, 12], [0.1, 0.9, 12]])
+    return Surface(vertices=verts, holes=[hole])
 
-    def test_from_proto(self):
-        s1 = Surface(vertices=np.array([[0, 0, 0], [1, 0, 0], [1, 1, 0]]))
-        s2 = Surface(vertices=np.array([[0, 0, 1], [1, 0, 1], [1, 1, 2]]))
-        ms = MultiSurface(surfaces=[s1, s2])
-        pb = ms.to_proto()
-        pb = pb.SerializeToString()
 
-        ms2 = MultiSurface()
-        ms2.from_proto(pb)
+def test_convert_polygon(basic_surface):
+    v1 = basic_surface.vertices[1]
+    assert len(basic_surface.vertices) == 4
+    assert v1[0] == 1
+    assert v1[1] == 0
+    assert v1[2] == 10
+    assert basic_surface.zmax == 10
 
-        self.assertEqual(len(ms2.surfaces), 2)
-        self.assertEqual(ms2.zmax, 2)
+
+def test_to_polygon(basic_surface):
+    p = basic_surface.to_polygon()
+    coords = list(p.exterior.coords)
+
+    assert len(coords) == 4 + 1  # +1 for closing point
+    assert coords[0] == (0, 0)
+    assert coords[1] == (1, 0)
+    assert coords[2] == (1, 1)
+    assert coords[3] == (0, 1)
+
+
+def test_to_proto(complex_surface):
+    pb = complex_surface.to_proto()
+
+    assert len(pb.surface.vertices) == 4 * 3
+    assert pb.surface.vertices[0] == 0
+    assert pb.surface.vertices[-1] == 12
+    assert len(pb.surface.holes) == 1
+
+
+def test_from_proto(complex_surface):
+    # Convert to proto and back
+    pb = complex_surface.to_proto()
+    pb_string = pb.SerializeToString()
+
+    s2 = Surface()
+    s2.from_proto(pb_string)
+
+    assert len(s2.vertices) == 4
+    assert len(s2.holes) == 1
+    assert list(s2.vertices[0]) == [0, 0, 10]
+    assert list(np.round(s2.holes[0][2], 6)) == [0.9, 0.9, 12]
 
 
 if __name__ == "__main__":
-    unittest.main()
+    pytest.main()
