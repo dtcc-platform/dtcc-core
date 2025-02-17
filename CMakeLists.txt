@@ -50,13 +50,7 @@ else()
   set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3")
 endif()
 
-# # Add path to local CMake scripts
-# set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake")
-
-# # Add clang tools
-# include(cmake/clang-cxx-dev-tools.cmake)
-
-# # set(PYBIND11_FINDPYTHON ON)
+# Find Python
 set(Python_FIND_VIRTUALENV ONLY)
 find_package(Python3 REQUIRED COMPONENTS Interpreter Development.Module)
 message("Python3_EXECUTABLE " ${Python3_EXECUTABLE})
@@ -81,18 +75,5 @@ include_directories(SYSTEM ${DTCC_CPP_DIR}/external/triangle)
 # Set installation directory
 set(CMAKE_SKIP_INSTALL_ALL_DEPENDENCY true)
 
-# Add subdirectories
-# add_subdirectory(src/cpp/external/triangle)
 add_subdirectory(dtcc_core)
 
-# if(NOT WIN32)
-# # tests won't build on Windows
-# # TODO: Work out why
-# add_subdirectory(tests/cpp)
-# endif()
-
-# Pre-commit hook
-# MESSAGE("Running pre-commit hook")
-# execute_process(COMMAND bash -c "${CMAKE_SOURCE_DIR}/utils/git/git-pre-commit-format install"
-# OUTPUT_VARIABLE outVar)
-# MESSAGE("${outVar}")
