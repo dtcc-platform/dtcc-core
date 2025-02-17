@@ -1,5 +1,4 @@
 from . import model_conversion
-from . import parameters
 from . import meshing
 from . import pointcloud
 from . import raster
