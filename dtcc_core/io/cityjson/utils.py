@@ -125,10 +125,12 @@ def build_dtcc_building(cj_obj, uuid, cj_building, verts, parent_city, lod=2):
     if building_root_geom is not None:
         geom, ms = building_root_geom
         lod = geom.get("lod", 1)
+        lod = str(lod).split(".")[0]
         lod = GeometryType.from_str(f"lod{lod}")
         building.geometry[lod] = ms
     for geom, ms in building_children:
         lod = geom.get("lod", 1)
+        lod = str(lod).split(".")[0]
         building_part = BuildingPart()
         building.children[BuildingPart].append(building_part)
         lod = GeometryType.from_str(f"lod{lod}")
