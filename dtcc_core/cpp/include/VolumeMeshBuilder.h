@@ -110,8 +110,13 @@ public:
     // Volume mesh smoothing
     Timer t3_3("Step 3.3: Volume mesh smoothing (ground only)");
     info("Smoothing volume mesh...");
-    volume_mesh = Smoother::smooth_volume_mesh(volume_mesh, _buildings, _dem, 0.0, false, false,
-                                               smoother_iterations, smoother_relative_tolerance);
+    const bool fix_top = false;
+    BoundingBox2D mesh_bounds(_ground_mesh.vertices);
+    std::cout << "Ground Mesh bounding box: " << mesh_bounds.__str__() << std::endl;
+    volume_mesh = Smoother::smooth_volume_mesh_elastic(volume_mesh, _buildings, _dem, 0.0, false, fix_top,
+                                               smoother_iterations, smoother_relative_tolerance, mesh_bounds);
+    // volume_mesh = Smoother::smooth_volume_mesh_amgcl(volume_mesh, _buildings, _dem, 0.0, false, false,
+    //                                            smoother_iterations, smoother_relative_tolerance);
     _column_mesh._update_vertices(volume_mesh);
     t3_3.stop();
     t3_3.print();
@@ -138,8 +143,8 @@ public:
     // Smooth volume mesh (again)
     Timer t3_5("Step 3.5: Volume mesh smoothing (ground and buildings)");
     info("Smoothing volume mesh...");
-    volume_mesh = Smoother::smooth_volume_mesh(volume_mesh, _buildings, _dem, 0.0, true, false,
-                                               smoother_iterations, smoother_relative_tolerance);
+    volume_mesh = Smoother::smooth_volume_mesh_elastic(volume_mesh, _buildings, _dem, 0.0, true, false,
+                                               smoother_iterations, smoother_relative_tolerance, mesh_bounds);
     t3_5.stop();
     t3_5.print();
     check_mesh_quality(volume_mesh, 5);
@@ -763,13 +768,36 @@ private:
 
         // Mark top vertices as building
         if (_column_mesh.layer_index(cell.v0) == trimming_layer_indices[marker])
-          _column_mesh.markers[cell.v0.column][cell.v0.index] = marker;
+          { 
+            for (size_t i = 1; i < cell.v0.index ; i++)
+              _column_mesh.markers[cell.v0.column][i] = -5;
+            _column_mesh.markers[cell.v0.column][cell.v0.index] = marker;
+            _column_mesh.markers[cell.v0.column].front() = -1;
+          }
         if (_column_mesh.layer_index(cell.v1) == trimming_layer_indices[marker])
+         {
+          for (size_t i = 1; i < cell.v1.index ; i++)
+            _column_mesh.markers[cell.v1.column][i] = -5;
+
           _column_mesh.markers[cell.v1.column][cell.v1.index] = marker;
+          _column_mesh.markers[cell.v1.column].front() = -1;
+         }
         if (_column_mesh.layer_index(cell.v2) == trimming_layer_indices[marker])
-          _column_mesh.markers[cell.v2.column][cell.v2.index] = marker;
+        {
+          for (size_t i = 1; i < cell.v2.index ; i++)
+            _column_mesh.markers[cell.v2.column][i] = -5;
+
+          _column_mesh.markers[cell.v2.column][cell.v1.index] = marker;
+          _column_mesh.markers[cell.v2.column].front() = -1;
+         }
         if (_column_mesh.layer_index(cell.v3) == trimming_layer_indices[marker])
-          _column_mesh.markers[cell.v3.column][cell.v3.index] = marker;
+        {
+          for (size_t i = 1; i < cell.v3.index ; i++)
+            _column_mesh.markers[cell.v3.column][i] = -5;
+
+          _column_mesh.markers[cell.v3.column][cell.v1.index] = marker;
+          _column_mesh.markers[cell.v3.column].front() = -1;
+         }
       }
     }
 

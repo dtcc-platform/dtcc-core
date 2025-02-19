@@ -16,6 +16,7 @@
 #include "StiffnessMatrix.h"
 #include "model/GridField.h"
 #include "model/Surface.h"
+#include "fem/SparseMatrix.h"
 
 namespace DTCC_BUILDER
 {
@@ -127,6 +128,17 @@ public:
       }
     }
   }
+  // Apply boundary conditions on stiffness matrix
+  void apply(dtcc::SparseMatrix &A)
+  {
+    info("Applying boundary conditions to stiffness Sparse matrix");
+
+    for (size_t v = 0; v < A.num_rows(); v++)
+    {
+        if (values[v].first)
+          A.set_boundary_condition(v);
+    }
+  }
 
   // Apply boundary conditions on load vector
   void apply(std::vector<double> &b)
@@ -136,6 +148,43 @@ public:
     {
       if (values[i].first)
         b[i] = values[i].second;
+    }
+  }
+
+  // // Apply boundary conditions on stiffness matrix for Elastic smoothing
+  // void apply_elastic(dtcc::SparseMatrix &A)
+  // {
+  //   info("Applying boundary conditions to stiffness Sparse matrix for Elastic Smoothing... (test)");
+
+  //   const size_t num_vertices = _volume_mesh.vertices.size();
+  //   for (size_t v = 0; v < num_vertices; v++)
+  //   {
+  //     if (values[v].first){
+  //       A.set_boundary_condition(3*v + 0);
+  //       A.set_boundary_condition(3*v + 1);
+  //       A.set_boundary_condition(3*v + 2);
+  //     }
+  //   }
+  // }
+
+  //  // Apply boundary conditions on load vector
+  //  void apply_elastic(std::vector<double> &b)
+  //  {
+  //    info("Applying boundary conditions to load vector");
+  //    for (size_t i = 0; i < _volume_mesh.vertices.size(); i++)
+  //    {
+  //      if (values[i].first)
+  //        b[i] = values[i].second;
+  //    }
+  //  }
+
+  void apply(std::vector<double> &b, double alpha)
+  {
+    info("Applying boundary conditions to load vector");
+    for (size_t i = 0; i < _volume_mesh.vertices.size(); i++)
+    {
+      if (values[i].first)
+        b[i] = values[i].second*0.2;
     }
   }
 
