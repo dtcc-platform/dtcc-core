@@ -150,7 +150,7 @@ public:
     }
     else
     {
-      call_triangle(mesh, surface, -1, -1);
+      call_earcut(mesh, surface);
     }
   }
 

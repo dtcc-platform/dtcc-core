@@ -644,13 +644,13 @@ namespace DTCC_BUILDER
                              double max_triangle_area_size = -1,
                              double min_mesh_angle = 25)
     // convert 3D Surface to triangle Mesh. If max_triangle_area_size is
-    // greater than 0, triangle will be used for triangulations, otherwise
-    // it will be naively triangulated by connecting the vertices in order.
+    // greater or equal to 0, triangle will be used for triangulations. If negative
+    // earcut will be used.
     {
       Mesh mesh;
       if (surface.vertices.size() < 3)
         return mesh;
-      if (max_triangle_area_size <= 0)
+      if (max_triangle_area_size < 0)
       {
         Triangulate::fast_mesh(mesh, surface);
       }
