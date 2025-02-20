@@ -110,7 +110,7 @@ class Surface(Geometry):
         if len(self.vertices) < 3:
             # warning("Surface has less than 3 vertices.")
             return Polygon()
-        p = Polygon(self.vertices[:, :2], self.holes)
+        p = Polygon(self.vertices[:, :2], self.holes[:, :2])
         if not p.is_valid:
             p = make_valid(p)
         if not p.is_valid and p.geom_type != "Polygon":
@@ -270,7 +270,6 @@ class MultiSurface(Geometry):
                 return False
         return True
 
-
     def to_proto(self) -> proto.Geometry:
         """Return a protobuf representation of the MultiSurface.
 
@@ -315,8 +314,6 @@ class MultiSurface(Geometry):
 
     def __str__(self) -> str:
         return f"DTCC MultiSurface with {len(self.surfaces)} surfaces"
-
-
 
     def find_dups(self):
         """Find duplicate vertices."""

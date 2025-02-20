@@ -1,3 +1,4 @@
+import shapely
 import shapely.affinity
 from shapely.geometry import Polygon, MultiPolygon
 from shapely.validation import make_valid
@@ -36,12 +37,13 @@ def clean_multisurface(ms: MultiSurface, simplify=1e-2) -> MultiSurface:
     return cleaned_ms
 
 
-def clean_surface(s: Surface, tol=1e-2) -> Surface:
+def clean_surface(s: Surface, tol=1e-2, smallest_surface=1e-2) -> Surface:
     """Clean a Surface by removing empty and small holes.
 
     Args:
         s (Surface): The Surface to clean.
         tol (float): The tolerance for simplifying the polygons.
+        smallest_surface (float): The smallest surface to keep.
 
     Returns:
         Surface: The cleaned Surface.
@@ -54,9 +56,24 @@ def clean_surface(s: Surface, tol=1e-2) -> Surface:
     if not surface_poly.is_valid:
         surface_poly = make_valid(surface_poly)
 
+    if surface_poly.geom_type in ("MultiPolygon", "GeometryCollection"):
+        poly = [
+            p
+            for p in shapely.get_parts(surface_poly)
+            if p.geom_type == "Polygon" and p.area > smallest_surface
+        ]
+        if len(poly) == 0:
+            return None
+        # return only largest polygon
+        surface_poly = max(poly, key=lambda x: x.area)
+
     surface_poly = remove_slivers(surface_poly, tol)
     surface_poly.simplify(tol, True)
-    if surface_poly.is_empty or surface_poly.area < tol or not surface_poly.is_valid:
+    if (
+        surface_poly.is_empty
+        or surface_poly.area < smallest_surface
+        or not surface_poly.is_valid
+    ):
         warning(f"Failed to clean surface.")
         return None
     else:
