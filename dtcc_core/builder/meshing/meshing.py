@@ -85,9 +85,8 @@ def mesh_multisurfaces(
 ) -> [Mesh]:
 
     if clean:
-        multisurfaces = [
-            (cms := clean_multisurface(ms)) for ms in multisurfaces if cms is not None
-        ]
+        multisurfaces = [clean_multisurface(ms) for ms in multisurfaces]
+        multisurfaces = [ms for ms in multisurfaces if ms is not None]
 
     if len(multisurfaces) == 0:
         return []
