@@ -110,7 +110,8 @@ class Surface(Geometry):
         if len(self.vertices) < 3:
             # warning("Surface has less than 3 vertices.")
             return Polygon()
-        p = Polygon(self.vertices[:, :2], self.holes[:, :2])
+
+        p = Polygon(self.vertices[:, :2], self.holes)
         if not p.is_valid:
             p = make_valid(p)
         if not p.is_valid and p.geom_type != "Polygon":
