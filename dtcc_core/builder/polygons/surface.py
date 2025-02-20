@@ -31,8 +31,8 @@ def clean_multisurface(ms: MultiSurface, simplify=1e-2) -> MultiSurface:
         if cleaned_surface is not None:
             cleaned_surfaces.append(cleaned_surface)
     failed_surfaces = len(ms.surfaces) - len(cleaned_surfaces)
-    if failed_surfaces > 0:
-        warning(f"Failed to clean {failed_surfaces} surfaces.")
+    # if failed_surfaces > 0:
+    #     warning(f"Failed to clean {failed_surfaces} surfaces.")
     cleaned_ms = ms.copy(surfaces=cleaned_surfaces)
     return cleaned_ms
 
@@ -74,7 +74,7 @@ def clean_surface(s: Surface, tol=1e-2, smallest_surface=1e-2) -> Surface:
         or surface_poly.area < smallest_surface
         or not surface_poly.is_valid
     ):
-        warning(f"Failed to clean surface.")
+        # warning(f"Failed to clean surface.")
         return None
     else:
         # Add the z-coordinate back to the polygon since we lose them in the simplification
