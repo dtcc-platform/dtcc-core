@@ -37,7 +37,7 @@ endif()
 message(STATUS "Build type: " ${CMAKE_BUILD_TYPE})
 
 # Set build flags
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 if(MSVC)
@@ -56,7 +56,7 @@ find_package(Python3 REQUIRED COMPONENTS Interpreter Development.Module)
 message("Python3_EXECUTABLE " ${Python3_EXECUTABLE})
 
 # # Find pybind11
-execute_process(COMMAND python -c "import site; print([s for s in site.getsitepackages() if 'site-packages' in s][0])" OUTPUT_VARIABLE PYTHON_SITE_PACKAGES OUTPUT_STRIP_TRAILING_WHITESPACE)
+execute_process(COMMAND ${Python3_EXECUTABLE} -c "import site; print([s for s in site.getsitepackages() if 'site-packages' in s][0])" OUTPUT_VARIABLE PYTHON_SITE_PACKAGES OUTPUT_STRIP_TRAILING_WHITESPACE)
 message("PYTHON_SITE_PACKAGES " ${PYTHON_SITE_PACKAGES})
 set(pybind11_DIR ${PYTHON_SITE_PACKAGES}/pybind11/share/cmake/pybind11)
 

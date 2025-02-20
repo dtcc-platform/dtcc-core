@@ -11,6 +11,12 @@
 #include <tuple>
 #include <vector>
 
+extern "C"
+{
+#include <triangle.h>
+}
+#include <earcut.hpp>
+
 #include "Eigen/Eigen"
 #include "Eigen/Geometry"
 
@@ -21,10 +27,7 @@
 #include "model/Surface.h"
 #include "model/Vector.h"
 
-extern "C"
-{
-#include <triangle.h>
-}
+
 
 namespace DTCC_BUILDER
 {
@@ -32,6 +35,59 @@ namespace DTCC_BUILDER
 class Triangulate
 {
 public:
+
+  static void call_earcut(Mesh &mesh, const Surface &surface, bool sort_triangles = true) {
+    auto area = Geometry::surface_area(surface);
+    //    info("surface area " + str(area) + " m^2");
+    if (isnan(area) || area < 1e-3)
+      return;
+
+    auto [projected_polygon, transform_inv] = project_surface(surface);
+    std::vector<std::vector<std::array<double,2>>> earcut_polygon;
+    std::vector<std::array<double,2>> shell;
+    for (auto const &v : projected_polygon.vertices)
+    {
+      shell.push_back({v.x, v.y});
+    }
+    earcut_polygon.push_back(shell);
+    for (auto const &hole : projected_polygon.holes)
+    {
+      std::vector<std::array<double,2>> hole_;
+      hole_.reserve(hole.size());
+      for (auto const &v : hole)
+      {
+        hole_.push_back({v.x, v.y});
+      }
+      earcut_polygon.push_back(hole_);
+    }
+    auto tri_indices = mapbox::earcut<std::size_t>(earcut_polygon);
+    mesh.faces.reserve(tri_indices.size() / 3);
+    for (size_t i = 0; i < tri_indices.size(); i += 3)
+    {
+      mesh.faces.emplace_back(tri_indices[i], tri_indices[i + 1], tri_indices[i + 2], false);
+    }
+    for (auto const &linestrings: earcut_polygon)
+    {
+      for (auto const &v : linestrings)
+      {
+        auto e_v = Eigen::Vector3d(v[0], v[1], 0);
+        auto e_v_prime = transform_inv * e_v;
+        mesh.vertices.emplace_back(e_v_prime.x(), e_v_prime.y(), e_v_prime.z());
+      }
+    }
+    mesh.calc_normals();
+    const auto normal = Geometry::surface_normal(surface);
+    for (size_t i = 0; i < mesh.normals.size(); i++)
+    {
+      if (!mesh.normals[i].close_to(normal))
+      {
+        std::swap(mesh.faces[i].v1, mesh.faces[i].v2);
+        mesh.normals[i] = -mesh.normals[i];
+      }
+    }
+
+
+  }
   static void call_triangle(Mesh &mesh, const Surface &surface, double max_mesh_size,
                             double min_mesh_angle, bool sort_triangles = true)
   {
@@ -42,77 +98,12 @@ public:
     if (isnan(area) || area < 1e-3)
       return;
 
-    const auto z_normal = Eigen::Vector3d(0, 0, 1);
-    auto normal = Geometry::surface_normal(surface);
-    auto e_norm = Eigen::Vector3d(normal.x, normal.y, normal.z);
-    auto centroid = Geometry::surface_centroid(surface);
-    auto e_centroid = Eigen::Vector3d(centroid.x, centroid.y, centroid.z);
+    auto [projected_polygon, transform_inv] = project_surface(surface);
 
-    // auto rot_matrix =
-    //     Eigen::Matrix3d(Eigen::Quaterniond::FromTwoVectors(e_norm,
-    //     z_normal));
-    // std::cout << "rot_matrix: " << rot_matrix << std::endl;
-    auto transform = Eigen::Transform<double, 3, Eigen::Isometry>();
-    auto translation = Eigen::Translation3d(-e_centroid);
-    auto rotation = Eigen::Quaterniond::FromTwoVectors(e_norm, z_normal);
 
-    transform = rotation * translation;
-    auto transform_inv = transform.inverse();
-    // std::cout << "trans_matrix " << trans_matrix << std::endl;
-
-    // std::cout << "transform " << transform << std::endl;
-    // auto transform_inv = transform.inverse();
-    // std::cout << "transform inv" << transform_inv << std::endl;
-    std::vector<Vector2D> projected_surface;
-    for (const auto &v : surface.vertices)
-    {
-      auto e_v = Eigen::Vector3d(v.x, v.y, v.z);
-      auto e_v_prime = transform * e_v;
-      auto projected_v = Vector2D(e_v_prime.x(), e_v_prime.y());
-      if (projected_surface.size() == 0 || (!projected_v.close_to(projected_surface.front()) &&
-                                            !projected_v.close_to(projected_surface.back())))
-        projected_surface.push_back(Vector2D(e_v_prime.x(), e_v_prime.y()));
-    }
-    size_t removed_vertices = surface.vertices.size() - projected_surface.size();
-    if (removed_vertices > 0)
-      info("Removed " + str(removed_vertices) + " duplicate vertices");
-    if (projected_surface.size() < 3)
-      return;
-
-    //    info("projected_surface area: " +
-    //    str(Geometry::polygon_area(Polygon(projected_surface)))); info("projected_surface size: "
-    //    + str(projected_surface.size()));
-    //
-    //    bool self_intersecting = Geometry::self_intersects(Polygon(projected_surface));
-    //    if(self_intersecting)
-    //    {
-    //      info("self intersecting polygon");
-    //    }
-
-    //    for (const auto &v : projected_surface)
-    //    {
-    //      info("v: " + str(v));
-    //    }
-
-    for (const auto &hole : surface.holes)
-    {
-      std::vector<Vector2D> projected_hole;
-      for (const auto &v : hole)
-      {
-        auto e_v = Eigen::Vector3d(v.x, v.y, v.z);
-        auto e_v_prime = transform * e_v;
-        auto projected_v = Vector2D(e_v_prime.x(), e_v_prime.y());
-        if (projected_hole.size() == 0 || (!projected_v.close_to(projected_hole.front()) &&
-                                           !projected_v.close_to(projected_surface.back())))
-          projected_hole.push_back(Vector2D(e_v_prime.x(), e_v_prime.y()));
-      }
-      sd.push_back(projected_hole);
-    }
-    if (surface.holes.size() > 0)
-      info("holes: " + str(surface.holes.size()));
 
     std::vector<double> sd_size;
-    call_triangle(mesh, projected_surface, sd, sd_size, max_mesh_size, min_mesh_angle,
+    call_triangle(mesh, projected_polygon.vertices, projected_polygon.holes, sd_size, max_mesh_size, min_mesh_angle,
                   sort_triangles);
     for (auto &v : mesh.vertices)
     {
@@ -122,7 +113,9 @@ public:
       v.y = e_v_prime.y();
       v.z = e_v_prime.z();
     }
+
     mesh.calc_normals();
+    auto normal = Geometry::surface_normal(surface);
     for (size_t i = 0; i < mesh.normals.size(); i++)
     {
       if (!mesh.normals[i].close_to(normal))
@@ -366,6 +359,57 @@ public:
   }
 
 private:
+
+  static std::tuple<Polygon, Eigen::Transform<double,3,1>> project_surface(const Surface &surface)
+  {
+    const auto z_normal = Eigen::Vector3d(0, 0, 1);
+    auto normal = Geometry::surface_normal(surface);
+    auto e_norm = Eigen::Vector3d(normal.x, normal.y, normal.z);
+    auto centroid = Geometry::surface_centroid(surface);
+    auto e_centroid = Eigen::Vector3d(centroid.x, centroid.y, centroid.z);
+
+    auto transform = Eigen::Transform<double, 3, Eigen::Isometry>();
+    auto translation = Eigen::Translation3d(-e_centroid);
+    auto rotation = Eigen::Quaterniond::FromTwoVectors(e_norm, z_normal);
+
+    transform = rotation * translation;
+    auto transform_inv = transform.inverse();
+    // std::cout << "trans_matrix " << trans_matrix << std::endl;
+
+    // std::cout << "transform " << transform << std::endl;
+    // auto transform_inv = transform.inverse();
+    // std::cout << "transform inv" << transform_inv << std::endl;
+    Polygon projected_polygon;
+    for (const auto &v : surface.vertices)
+    {
+      auto e_v = Eigen::Vector3d(v.x, v.y, v.z);
+      auto e_v_prime = transform * e_v;
+      auto projected_v = Vector2D(e_v_prime.x(), e_v_prime.y());
+      if (projected_polygon.vertices.empty() || (!projected_v.close_to(projected_polygon.vertices.front()) &&
+                                            !projected_v.close_to(projected_polygon.vertices.back())))
+        projected_polygon.vertices.push_back(Vector2D(e_v_prime.x(), e_v_prime.y()));
+    }
+    size_t removed_vertices = surface.vertices.size() - projected_polygon.vertices.size();
+    if (removed_vertices > 0)
+      info("Removed " + str(removed_vertices) + " duplicate vertices");
+
+    for (const auto &hole : surface.holes)
+    {
+      std::vector<Vector2D> projected_hole;
+      for (const auto &v : hole)
+      {
+        auto e_v = Eigen::Vector3d(v.x, v.y, v.z);
+        auto e_v_prime = transform * e_v;
+        auto projected_v = Vector2D(e_v_prime.x(), e_v_prime.y());
+        if (projected_hole.size() == 0 || (!projected_v.close_to(projected_hole.front()) &&
+                                           !projected_v.close_to(projected_hole.back())))
+          projected_hole.push_back(Vector2D(e_v_prime.x(), e_v_prime.y()));
+      }
+      projected_polygon.holes.push_back(projected_hole);
+    }
+    return std::make_tuple(projected_polygon, transform_inv);
+  }
+
   // Create and reset Triangle I/O data structure
   static struct triangulateio create_triangle_io()
   {
