@@ -2,7 +2,9 @@ from ...model import Mesh, Surface, MultiSurface
 import numpy as np
 from ..logging import info, warning, error
 
+
 def clean_surface(s: Surface, tol: float = 1e-6) -> Surface:
+    pass
 
 
 def merge_coplanar(ms: MultiSurface, angle: float = 0.1, tol=1e-6) -> MultiSurface:

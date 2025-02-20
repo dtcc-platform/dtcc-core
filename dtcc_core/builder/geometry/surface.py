@@ -8,8 +8,9 @@ from ..model_conversion import create_builder_surface
 
 from .. import _dtcc_builder
 
+
 @register_model_method
-def mesh(s: Surface, triangle_size=None) -> Mesh:
+def mesh(s: Surface, triangle_size=None, clean=False) -> Mesh:
     """
     Mesh a `Surface` object into a `Mesh` object.
 
@@ -21,7 +22,7 @@ def mesh(s: Surface, triangle_size=None) -> Mesh:
         Mesh: A `Mesh` object representing the meshed `Surface`.
     """
 
-    return mesh_surface(s, triangle_size)
+    return mesh_surface(s, triangle_size, clean)
 
 
 @register_model_method
@@ -43,6 +44,7 @@ def ray_intersection(
     origin = np.array(origin, dtype=np.float64)
     direction = np.array(direction, dtype=np.float64)
     return _dtcc_builder.ray_surface_intersection(builder_surface, origin, direction)
+
 
 def are_coplanar(surface1, surface2, tolerance=1e-6):
     """

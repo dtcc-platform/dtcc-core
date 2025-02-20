@@ -18,9 +18,8 @@ from ..logging import error, warning, info
 from .. import _dtcc_builder
 
 
-
 @register_model_method
-def mesh(ms: MultiSurface, triangle_size=None, weld=False) -> Mesh:
+def mesh(ms: MultiSurface, triangle_size=None, weld=False, clean=False) -> Mesh:
     """
     Mesh a `MultiSurface` object into a `Mesh` object.
 
@@ -32,7 +31,7 @@ def mesh(ms: MultiSurface, triangle_size=None, weld=False) -> Mesh:
         Mesh: A `Mesh` object representing the meshed `MultiSurface`.
     """
 
-    return mesh_multisurface(ms, triangle_size, weld)
+    return mesh_multisurface(ms, triangle_size, weld, clean)
 
 
 @register_model_method
@@ -76,6 +75,7 @@ def ray_intersection(
         builder_multisurface, origin, direction
     )
 
+
 def find_edge_connections(ms, tol=1e-6):
     tol_decimals = round(np.log10(1 / tol))
     edge_map = defaultdict(list)
@@ -83,17 +83,18 @@ def find_edge_connections(ms, tol=1e-6):
         for i in range(len(s.vertices)):
             v0 = tuple(np.round(s.vertices[i], tol_decimals))
             v1 = tuple(np.round(s.vertices[(i + 1) % len(s.vertices)], tol_decimals))
-            if v0>v1:
+            if v0 > v1:
                 v0, v1 = v1, v0
             edge = (v0, v1)
             edge_map[edge].append(s_idx)
     adjacent = defaultdict(set)
     for edge, faces in edge_map.items():
         for i in range(len(faces)):
-            for j in range(i+1, len(faces)):
+            for j in range(i + 1, len(faces)):
                 adjacent[faces[i]].add(faces[j])
                 adjacent[faces[j]].add(faces[i])
     return edge_map, adjacent
+
 
 def group_coplanar_surfaces(ms, tol=1e-8):
     visited = set()
@@ -102,14 +103,16 @@ def group_coplanar_surfaces(ms, tol=1e-8):
     edge_map, adjacent = find_edge_connections(ms, tol=tol)
 
     surfaces = ms.surfaces
+
     def dfs(surf_idx, component):
         visited.add(surf_idx)
         component.add(surf_idx)
 
         for neighbor in adjacent[surf_idx]:
-            if neighbor not in visited and are_coplanar(surfaces[surf_idx], surfaces[neighbor], tol):
+            if neighbor not in visited and are_coplanar(
+                surfaces[surf_idx], surfaces[neighbor], tol
+            ):
                 dfs(neighbor, component)
-
 
     for i in range(len(surfaces)):
         if i in visited:
@@ -118,7 +121,6 @@ def group_coplanar_surfaces(ms, tol=1e-8):
         dfs(i, component)
         coplanar_groups.append(component)
     return coplanar_groups
-
 
 
 def merge_coplanar(ms: MultiSurface, tol=1e-6) -> MultiSurface:
@@ -135,6 +137,6 @@ def merge_coplanar(ms: MultiSurface, tol=1e-6) -> MultiSurface:
     coplanar_groups = group_coplanar_surfaces(ms, tol=tol)
     union_ms = MultiSurface()
     for cpg in coplanar_groups:
-        union_surf =union_surfaces([ms.surfaces[i] for i in cpg])
+        union_surf = union_surfaces([ms.surfaces[i] for i in cpg])
         union_ms.surfaces.append(union_surf)
     return union_ms

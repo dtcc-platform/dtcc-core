@@ -20,7 +20,7 @@ from dtcc_core.builder.logging import warning, info
 
 
 def mesh_multisurface(
-    ms: MultiSurface, triangle_size=None, weld=False, clean=True
+    ms: MultiSurface, triangle_size=None, weld=False, clean=False
 ) -> Mesh:
     """
     Mesh a `MultiSurface` object into a `Mesh` object.
@@ -29,8 +29,8 @@ def mesh_multisurface(
         triangle_size (float): The maximum size of the triangles in the mesh (default None, no max size).
         weld (bool): Whether to weld the vertices of the mesh (default False).
         clean (bool): Whether to clean and attempt to fix errors in the multisurface before meshing (default True).
-                      Warning! meshing a multisurface that is invalid may crash the program or produce unexpected
-                      results.
+                      Warning! meshing a multisurface with a max triangle size that is invalid may crash the program
+                      or produce unexpected results.
 
     Returns:
         Mesh: A `Mesh` object representing the meshed `MultiSurface`.
@@ -42,7 +42,7 @@ def mesh_multisurface(
         return Mesh()
     builder_ms = create_builder_multisurface(ms)
     min_mesh_angle = 25
-    if triangle_size is None or triangle_size <= 0:
+    if triangle_size is None or triangle_size < 0:
         triangle_size = -1
     builder_mesh = _dtcc_builder.mesh_multisurface(
         builder_ms, triangle_size, min_mesh_angle, weld
@@ -51,14 +51,14 @@ def mesh_multisurface(
     return mesh
 
 
-def mesh_surface(s: Surface, triangle_size=None, clean=True) -> Mesh:
+def mesh_surface(s: Surface, triangle_size=None, clean=False) -> Mesh:
     """
     Mesh a `Surface` object into a `Mesh` object.
 
     Args:
         triangle_size (float): The maximum size of the triangles in the mesh (default None, no max size).
-        clean (bool): Whether to clean the surface before meshing (default True). Warning! meshing a surface that is not
-        clean may crash the program or produce unexpected results.
+        clean (bool): Whether to clean the surface before meshing (default True). Warning! meshing a surface with a max
+        triangle size that is not clean may crash the program or produce unexpected results.
 
     Returns:
         Mesh: A `Mesh` object representing the meshed `Surface`.
@@ -69,7 +69,7 @@ def mesh_surface(s: Surface, triangle_size=None, clean=True) -> Mesh:
             warning("Failed to clean surface.")
             return Mesh()
     builder_surface = create_builder_surface(s)
-    if triangle_size is None or triangle_size <= 0:
+    if triangle_size is None or triangle_size < 0:
         triangle_size = -1
     builder_mesh = _dtcc_builder.mesh_surface(builder_surface, triangle_size, 25)
     mesh = builder_mesh_to_mesh(builder_mesh)
@@ -81,7 +81,7 @@ def mesh_multisurfaces(
     max_mesh_edge_size=-1,
     min_mesh_angle=25,
     weld=False,
-    clean=True,
+    clean=False,
 ) -> [Mesh]:
 
     if clean:
