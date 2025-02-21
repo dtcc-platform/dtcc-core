@@ -33,6 +33,9 @@ class City(Object):
         else:
             return Terrain()
 
+    def has_terrain(self) -> bool:
+        return Terrain in self.children
+
     @property
     def num_buildings(self):
         """Return number of buildings in city."""

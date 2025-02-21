@@ -7,10 +7,10 @@ from ..polygons.polygons import (
 
 from ..building.modify import clean_building_geometry
 
+import numpy as np
+
 from ..register import register_model_method
-from ...model import City, Bounds
-from ...model.object.building import Building
-from ...model.object.object import GeometryType
+from dtcc_core.model import City, Bounds, Terrain, Building, GeometryType, Raster
 from statistics import mean
 import shapely
 import dataclasses
@@ -175,6 +175,29 @@ def fix_building_clearance(
 def clean_building_surfaces(city: City, lod: GeometryType, tol=1e-2) -> City:
     for building in city.buildings:
         building = clean_building_geometry(building, lod, tol)
+    return city
+
+
+@register_model_method
+def add_flat_terrain(city: City, ground_level: float = None, buffer: float = 0) -> City:
+    """
+    Add flat terrain to a city model.
+
+    ground_level (float): The ground level of the terrain (default None). If None, the ground level will be set to the
+    zmin of the city bounds
+    buffer (float): The buffer to add to the bounds (default 0).
+    """
+
+    terrain = Terrain()
+    raster = Raster()
+    if ground_level is None:
+        ground_level = city.bounds.zmin
+    raster.data = np.ones((1, 1)) * ground_level
+    if buffer != 0:
+        city.bounds.buffer(buffer)
+    raster.set_bounds(city.bounds)
+    terrain.add_geometry(raster, GeometryType.RASTER)
+    city.add_terrain(terrain)
     return city
 
 

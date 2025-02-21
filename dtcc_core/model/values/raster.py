@@ -128,12 +128,12 @@ class Raster(Model):
 
         """
 
-        _xmin=self.georef.c #+ (self.georef.a / 2)
-        _ymin=self.georef.f + self.georef.e * self.height #- (self.georef.e / 2)
-        _xmax=self.georef.c + self.georef.a * self.width #- (self.georef.a / 2)
-        _ymax=self.georef.f #+ (self.georef.e / 2)
-        zmin=0
-        zmax=0
+        _xmin = self.georef.c  # + (self.georef.a / 2)
+        _ymin = self.georef.f + self.georef.e * self.height  # - (self.georef.e / 2)
+        _xmax = self.georef.c + self.georef.a * self.width  # - (self.georef.a / 2)
+        _ymax = self.georef.f  # + (self.georef.e / 2)
+        zmin = 0
+        zmax = 0
 
         xmin = min(_xmin, _xmax)
         ymin = min(_ymin, _ymax)
@@ -141,6 +141,28 @@ class Raster(Model):
         ymax = max(_ymin, _ymax)
         return Bounds(xmin, ymin, xmax, ymax, zmin, zmax)
 
+    def set_bounds(self, bounds: Bounds):
+        """
+        Set the spatial bounds of the raster.
+
+        Parameters
+        ----------
+        bounds : Bounds
+            The spatial bounds to set.
+
+        Returns
+        -------
+        None
+
+        """
+        self.georef = Affine(
+            bounds.width / self.width,
+            0,
+            bounds.xmin,
+            0,
+            -bounds.height / self.height,
+            bounds.ymax,
+        )
 
     def calculate_bounds(self):
         """
