@@ -43,7 +43,7 @@ def _load_json(path):
     else:
         raise ValueError(f"Unknown file format: {path.suffix}")
     if data.get("type") == "CityJSON":
-        return cityjson.load(path)
+        return cityjson.load(data)
     else:
         raise ValueError(f"{path} is not a CityJSON file")
 
