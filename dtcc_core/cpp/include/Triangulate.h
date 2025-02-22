@@ -204,8 +204,8 @@ public:
         duplicate_vertices++;
       }
     }
-    if (duplicate_vertices > 0)
-      debug("Removed " + str(duplicate_vertices) + " duplicate vertices");
+//    if (duplicate_vertices > 0)
+//      debug("Removed " + str(duplicate_vertices) + " duplicate vertices");
 
     // Set number of points
     size_t num_points = boundary.size();
@@ -390,8 +390,8 @@ private:
         projected_polygon.vertices.push_back(Vector2D(e_v_prime.x(), e_v_prime.y()));
     }
     size_t removed_vertices = surface.vertices.size() - projected_polygon.vertices.size();
-    if (removed_vertices > 0)
-      info("Removed " + str(removed_vertices) + " duplicate vertices");
+//    if (removed_vertices > 0)
+//      info("Removed " + str(removed_vertices) + " duplicate vertices");
 
     for (const auto &hole : surface.holes)
     {
