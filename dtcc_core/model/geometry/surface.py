@@ -230,7 +230,7 @@ class MultiSurface(Geometry):
         if not isinstance(other, MultiSurface):
             raise ValueError("Can only merge with another MultiSurface.")
         self.surfaces.extend(other.surfaces)
-        self.calculate_bounds()
+        self._bounds = None
         return self
 
     def calculate_bounds(self):

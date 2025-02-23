@@ -235,6 +235,10 @@ class Object(Model):
         """Returns a single geometry of the specified type, merging all the geometries of the children."""
         if exclude is None:
             exclude = []
+        root_geom = self.geometry.get(geom_type, None)
+        if len(self.children) == 0:
+            return root_geom
+
         geom = deepcopy(self.geometry.get(geom_type, None))
         for child_type, child_list in self.children.items():
             if child_type in exclude:
@@ -243,7 +247,7 @@ class Object(Model):
                 child_geom = deepcopy(child.geometry.get(geom_type, None))
                 if geom is None and child_geom is not None:
                     geom = child_geom
-                if child_geom is not None:
+                elif child_geom is not None:
                     geom.merge(child_geom)
         return geom
 

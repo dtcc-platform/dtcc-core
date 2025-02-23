@@ -193,7 +193,7 @@ public:
     struct triangulateio in = create_triangle_io();
 
     // Check for duplicate points
-    size_t duplicate_vertices = 0;
+    // size_t duplicate_vertices = 0;
     for (auto polygon : sub_domains)
     {
       auto first = polygon.front();
@@ -201,7 +201,7 @@ public:
       if (first.close_to(last))
       {
         polygon.pop_back();
-        duplicate_vertices++;
+        // duplicate_vertices++;
       }
     }
 //    if (duplicate_vertices > 0)
@@ -389,7 +389,7 @@ private:
                                             !projected_v.close_to(projected_polygon.vertices.back())))
         projected_polygon.vertices.push_back(Vector2D(e_v_prime.x(), e_v_prime.y()));
     }
-    size_t removed_vertices = surface.vertices.size() - projected_polygon.vertices.size();
+//    size_t removed_vertices = surface.vertices.size() - projected_polygon.vertices.size();
 //    if (removed_vertices > 0)
 //      info("Removed " + str(removed_vertices) + " duplicate vertices");
 
