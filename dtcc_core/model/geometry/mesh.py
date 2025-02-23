@@ -1,10 +1,11 @@
 # Copyright(C) 2023 Anders Logg
 # Licensed under the MIT License
+from copy import deepcopy
 
 import numpy as np
 from typing import Union, Iterable
 from dataclasses import dataclass, field
-from inspect import getmembers, isfunction, ismethod
+from copy import deepcopy
 
 from .geometry import Geometry, Bounds
 from .surface import Surface, MultiSurface
@@ -96,6 +97,26 @@ class Mesh(Geometry):
         offset = np.array(offset)
         self.vertices += offset
         return self
+
+    def copy(self, geometry_only=False) -> "Mesh":
+        """Return a copy of the Mesh.
+
+        geometry_only : bool (optional) if True, only the geometry is copied.
+        Returns
+        -------
+        Mesh
+            A copy of the Mesh object.
+
+        """
+        if geometry_only:
+            mesh = Mesh()
+            mesh.vertices = self.vertices.copy()
+            mesh.faces = self.faces.copy()
+            mesh.markers = self.markers.copy()
+            mesh.normals = self.normals.copy()
+            return mesh
+        else:
+            return deepcopy(self)
 
     def to_proto(self) -> proto.Geometry:
         """Return a protobuf representation of the Mesh.
