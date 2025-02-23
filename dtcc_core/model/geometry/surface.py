@@ -13,6 +13,7 @@ from .geometry import Geometry, Bounds
 from .. import dtcc_pb2 as proto
 
 from ..logging import info, warning, error, debug
+from copy import deepcopy
 
 
 @dataclass
@@ -143,6 +144,17 @@ class Surface(Geometry):
         """Initialize the Surface from a Shapely Polygon."""
         return self.from_polygon(shape)
 
+    def copy(self, geometry_only=False):
+        """Create a copy of the Surface."""
+        if geometry_only:
+            return Surface(
+                vertices=self.vertices.copy(),
+                normal=self.normal.copy(),
+                holes=[hole.copy() for hole in self.holes],
+            )
+        else:
+            return deepcopy(self)
+
     def to_proto(self) -> proto.Geometry:
         """Return a protobuf representation of the Surface.
 
@@ -270,6 +282,12 @@ class MultiSurface(Geometry):
             if not s.is_planar(tol):
                 return False
         return True
+
+    def copy(self, geometry_only=False):
+        if geometry_only:
+            return MultiSurface(surfaces=[s.copy(True) for s in self.surfaces])
+        else:
+            return deepcopy(self)
 
     def to_proto(self) -> proto.Geometry:
         """Return a protobuf representation of the MultiSurface.

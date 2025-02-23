@@ -238,15 +238,17 @@ class Object(Model):
         root_geom = self.geometry.get(geom_type, None)
         if len(self.children) == 0:
             return root_geom
-
-        geom = deepcopy(root_geom)
+        if root_geom is None:
+            geom = None
+        else:
+            geom = root_geom.copy(geometry_only=True)
         for child_type, child_list in self.children.items():
             if child_type in exclude:
                 continue
             for child in child_list:
                 child_geom = child.geometry.get(geom_type, None)
                 if geom is None and child_geom is not None:
-                    geom = deepcopy(child_geom)
+                    geom = child_geom.copy(geometry_only=True)
                 elif child_geom is not None:
                     geom.merge(child_geom)
         return geom
@@ -261,7 +263,7 @@ class Object(Model):
         for lod in lods:
             geom = self.geometry.get(lod, None)
             if geom is not None:
-                lod_bounds = geom.bounds()
+                lod_bounds = geom.bounds
                 if bounds is None:
                     bounds = lod_bounds
                 else:
@@ -270,11 +272,11 @@ class Object(Model):
                 for child in child_list:
                     child_geom = child.geometry.get(lod, None)
                     if child_geom is not None:
-                        child_bounds = child_geom.bounds()
+                        child_bounds = child_geom.bounds
                         if bounds is None:
                             bounds = child_bounds
-                    else:
-                        bounds = bounds.union(child_bounds)
+                        else:
+                            bounds = bounds.union(child_bounds)
         self._bounds = bounds
         return bounds
 
