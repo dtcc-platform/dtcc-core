@@ -1,5 +1,6 @@
 import numpy as np
 from collections import defaultdict
+from tqdm import tqdm
 
 from ...model import Mesh, MultiSurface, Surface, Building, City
 from ...model.object.city import CityObject
@@ -162,7 +163,9 @@ def set_buildings(
     lod=2,
 ) -> [Building]:
     buildings = []
-    for uuid, v in root_buildings:
+    for uuid, v in tqdm(
+        root_buildings, desc="Loading CityJson", unit=" building", ncols=120
+    ):
         buildings.append(
             build_dtcc_building(cj_obj, uuid, v, verts, parent_city, lod=lod)
         )
