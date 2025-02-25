@@ -33,6 +33,9 @@ def _init_logging(name):
     # Add handler to logger
     _logger.addHandler(handler)
 
+    # Only log at first logger
+    _logger.propagate = False
+
     # Also set the root logger's handlers to stdout to override any previous settings
     _logging.root.handlers.clear()
     _logging.root.addHandler(handler)
