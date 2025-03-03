@@ -117,7 +117,8 @@ def get_building_geometry(cj_obj, building, verts, lod=2):
 
 def build_dtcc_building(cj_obj, uuid, cj_building, verts, parent_city, lod=2):
     building = Building()
-    parent_city.children[Building].append(building)
+    if parent_city is not None:
+        parent_city.children[Building].append(building)
     building.id = uuid
     building.attributes = cj_building.get("attributes", {})
     building_root_geom, building_children = get_building_geometry(
@@ -136,6 +137,7 @@ def build_dtcc_building(cj_obj, uuid, cj_building, verts, parent_city, lod=2):
         building.children[BuildingPart].append(building_part)
         lod = GeometryType.from_str(f"lod{lod}")
         building_part.geometry[lod] = ms
+    return building
 
 
 def get_root_buildings(cj_obj: dict):
