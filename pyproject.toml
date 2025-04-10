@@ -24,7 +24,7 @@ dependencies = [
     "shapely >= 2.0.0, < 3.0.0",
 ]
 
-version = "0.8.1"
+version = "0.9.3dev"
 name = "dtcc-core"
 description = "DTCC Core"
 readme = "README.md"
