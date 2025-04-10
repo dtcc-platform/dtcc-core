@@ -10,9 +10,12 @@
 #include <amgcl/make_solver.hpp>
 #include <amgcl/amg.hpp>
 #include <amgcl/coarsening/smoothed_aggregation.hpp>
+#include <amgcl/coarsening/aggregation.hpp>
 #include <amgcl/relaxation/spai0.hpp>
+#include <amgcl/relaxation/ilu0.hpp>
 #include <amgcl/relaxation/gauss_seidel.hpp>
 #include <amgcl/solver/bicgstab.hpp>
+#include <amgcl/solver/cg.hpp>
 #include <amgcl/solver/gmres.hpp>
 
 #include <amgcl/profiler.hpp>
@@ -124,6 +127,7 @@ public:
     // Compose the solver type
     //   the solver backend:
     typedef amgcl::backend::builtin<double> Backend;
+    typedef amgcl::backend::builtin<float> PBackend;
     // //   the preconditioner backend:
     // #ifdef MIXED_PRECISION
     //     typedef amgcl::backend::builtin<float> PBackend;
@@ -133,7 +137,7 @@ public:
         
     typedef amgcl::make_solver<
             amgcl::amg<
-                Backend,
+                PBackend,
                 amgcl::coarsening::smoothed_aggregation,
                 amgcl::relaxation::spai0
                 >,
@@ -169,13 +173,13 @@ public:
     return x;
   }
 
-  static void solve(const SparseMatrix &A, 
+  static void solve(SparseMatrix &A, 
                   const std::vector<double> &b, 
                   std::vector<double> &u,
                   size_t max_iterations,
                   double relative_tolerance)
   {
-
+    std::cout << "Elastic Smoothing using AMGCL Solver" <<std::endl;
     // The profiler:
     amgcl::profiler<> prof("Smoothing");
     // Get matrix size (assume square matrix)
@@ -189,28 +193,35 @@ public:
     std::vector<ptrdiff_t> ptr(rows + 1, 0);
     std::vector<ptrdiff_t> col;
 
+    std::cout << "AMGCL Solver: To CSR  " <<std::endl;
     prof.tic("To CSR");
     A.to_csr(ptr, col, val);
+    A.clear_matrix(); // Clear the matrix to free memory
+    // delete A 
+    
     prof.toc("To CSR");
-    prof.tic("Check CSR");
-    if (!dtcc::isSolvableCSR(ptr, col, val)){
-      std::cout << "Stiffness Matrix in CSR format is Solvable!" <<std::endl;
-    }
-    prof.toc("Check CSR");
+    // prof.tic("Check CSR");
+    // if (!dtcc::isSolvableCSR(ptr, col, val)){
+    //   std::cout << "Stiffness Matrix in CSR format is Solvable!" <<std::endl;
+    // }
+    // prof.toc("Check CSR");
+    std::cout << "AMGCL Solver: Backend Setup  " <<std::endl;  
+    // typedef amgcl::make_solver<
+    //         amgcl::amg<
+    //             PBackend,
+    //             amgcl::coarsening::aggregation,
+    //             amgcl::relaxation::spai0
+    //             >,
+    //         amgcl::solver::gmres<SBackend>
+    //         > Solver;
 
     // Compose the solver type
     //   the solver backend:
     typedef amgcl::backend::builtin<double> Backend;
-    // //   the preconditioner backend:
-    // #ifdef MIXED_PRECISION
-    //     typedef amgcl::backend::builtin<float> PBackend;
-    // #else
-    //     typedef amgcl::backend::builtin<double> PBackend;
-    // #endif
-        
+    typedef amgcl::backend::builtin<double> PBackend;
     typedef amgcl::make_solver<
             amgcl::amg<
-                Backend,
+                PBackend,
                 amgcl::coarsening::smoothed_aggregation,
                 amgcl::relaxation::spai0
                 >,
@@ -218,9 +229,10 @@ public:
             > Solver;
 
     Solver::params prm; 
-    prm.solver.M = max_iterations;
-    prm.solver.tol = relative_tolerance;
+    // prm.solver.M = max_iterations;
+    // prm.solver.tol = relative_tolerance;
 
+    
     prof.tic("setup");
     Solver solver(std::tie(rows, ptr, col, val),prm);
     prof.toc("setup");

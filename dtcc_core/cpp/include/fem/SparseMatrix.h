@@ -73,6 +73,15 @@ public:
     ptr[row_idx] = col.size();
   }
 
+  void clear_matrix()
+  {
+    for (auto &row : matrix)
+    {
+      row.clear();
+    }
+    matrix.clear();
+  }
+
   bool checkMatrixForZeros( double tol = 1e-12) {
     bool isValid = true;
     

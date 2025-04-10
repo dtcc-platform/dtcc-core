@@ -25,6 +25,13 @@ class BoundaryConditionsElastic
 {
   typedef unsigned int uint;
 
+  struct VertexBC {
+    bool dofX;
+    bool dofY;
+    bool dofZ;
+    };
+
+
 public:
   // Vertex Boundary markers:
   // -4 : Neumann vertices
@@ -36,7 +43,7 @@ public:
   const BoundingBox2D _domain_bounds;
 
   // Boundary values (flag if set and value)
-  std::vector<std::pair<bool, Vector3D>> values;
+  std::vector<std::pair<VertexBC, Vector3D>> values;
 
   // Building centroids
   std::vector<Vector3D> building_centroids;
@@ -50,7 +57,7 @@ public:
                             double top_height, bool fix_buildings, bool fix_top,const BoundingBox2D &domain_bounds)
       : _volume_mesh(volume_mesh), _building_surfaces(building_surfaces), _dtm(dtm),
         top_height(top_height), vertex_markers(volume_mesh.markers), _domain_bounds(domain_bounds),
-        values(volume_mesh.vertices.size(), std::make_pair(false, Vector3D(0, 0, 0))),
+        values(volume_mesh.vertices.size(), std::make_pair(VertexBC{false,false,false}, Vector3D(0, 0, 0))),
         halo_elevations(volume_mesh.vertices.size(), std::numeric_limits<double>::max())
   {
 
@@ -82,28 +89,41 @@ public:
       const int vertex_marker = vertex_markers[i];
       if (vertex_marker >= 0 && fix_buildings) // Building
       {
-        values[i].first = true;
+        values[i].first = {true, true, true};
         const double dz = building_centroids[vertex_marker].z - _volume_mesh.vertices[i].z;
+
+        // std::cout << "Vertex: " << i 
+        //           <<" building: "<< vertex_marker 
+        //           <<" height "<<building_centroids[vertex_marker].z 
+        //           << " dz: " << dz 
+        //           << " z " << _volume_mesh.vertices[i].z 
+        //           << " z' " << _volume_mesh.vertices[i].z + dz
+        //           << std::endl;
         values[i].second = Vector3D(0.0, 0.0, dz);
       }
       else if (vertex_marker == -1) // Halo
       {
-        values[i].first = true;
+        values[i].first = {false, false, true};
         const double dz = halo_elevations[i] - _volume_mesh.vertices[i].z;
         values[i].second = Vector3D(0.0, 0.0, dz);
       }
       else if (vertex_marker == -2) // Ground
       {
         const Vector2D p(_volume_mesh.vertices[i].x, _volume_mesh.vertices[i].y);
-        values[i].first = true;
+        values[i].first = {false, false, true};
         const double dz = _dtm(p) - _volume_mesh.vertices[i].z;
         values[i].second = Vector3D(0.0, 0.0, dz);
       }
       else if (vertex_marker == -3 && fix_top) // Top
       {
-        values[i].first = true;
+        values[i].first = {false, false, true};
         const double dz = top_height - _volume_mesh.vertices[i].z;
         values[i].second = Vector3D(0.0, 0.0, dz);
+      }
+      else if (vertex_marker == -4 ) // Building columns
+      {
+        values[i].first = {true, true, false};
+        values[i].second = Vector3D(0.0, 0.0, 0.0);
       }
     }
   }
@@ -117,26 +137,24 @@ public:
     const size_t num_vertices = _volume_mesh.vertices.size();
     for (size_t v = 0; v < num_vertices; v++)
     {
-      if (values[v].first){
+      if (values[v].first.dofX){
         A.set_boundary_condition(3*v + 0);
-        A.set_boundary_condition(3*v + 1);
-        A.set_boundary_condition(3*v + 2);
-      }else{
-        if (_volume_mesh.vertices[v].x - _domain_bounds.P.x <= epsilon ||  _domain_bounds.Q.x - _volume_mesh.vertices[v].x  <= epsilon )
-        {
-          A.set_boundary_condition(3*v + 0);
-        }
-        if (_volume_mesh.vertices[v].y - _domain_bounds.P.y <= epsilon ||  _domain_bounds.Q.y - _volume_mesh.vertices[v].y  <= epsilon )
-        {
-          A.set_boundary_condition(3*v + 1);
-        }
-        if (_volume_mesh.markers[v] == -5)
-        {
-          A.set_boundary_condition(3*v + 0);
-          A.set_boundary_condition(3*v + 1);
-        }
-        
       }
+      if (values[v].first.dofY)
+      {
+        A.set_boundary_condition(3*v + 1);
+      }
+      if (values[v].first.dofZ)
+      {
+        A.set_boundary_condition(3*v + 2);
+      }
+
+      if (_volume_mesh.vertices[v].x - _domain_bounds.P.x <= epsilon ||  _domain_bounds.Q.x - _volume_mesh.vertices[v].x  <= epsilon )
+          A.set_boundary_condition(3*v + 0);
+      if (_volume_mesh.vertices[v].y - _domain_bounds.P.y <= epsilon ||  _domain_bounds.Q.y - _volume_mesh.vertices[v].y  <= epsilon )
+          A.set_boundary_condition(3*v + 1);
+        
+      
     }
   }
 
@@ -146,7 +164,7 @@ public:
      info("Applying boundary conditions to load vector");
      for (size_t i = 0; i < _volume_mesh.vertices.size(); i++)
      {
-       if (values[i].first){
+       if (values[i].first.dofX || values[i].first.dofX || values[i].first.dofZ){
         b[3*i+0] = values[i].second.x;
         b[3*i+1] = values[i].second.y;
         b[3*i+2] = values[i].second.z;
@@ -156,6 +174,8 @@ public:
 
 
 private:
+  
+
   const VolumeMesh &_volume_mesh;
 
   const std::vector<Surface> &_building_surfaces;

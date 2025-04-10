@@ -428,7 +428,7 @@ PYBIND11_MODULE(_dtcc_builder, m)
   m.def("ray_multisurface_intersection", &DTCC_BUILDER::ray_multisurface_intersection, "Compute ray-multisurface intersection");
 
   m.def("statistical_outlier_finder", &DTCC_BUILDER::statistical_outlier_finder, "Find statistical outliers in point cloud");
-
+  
   py::class_<DTCC_BUILDER::VolumeMeshBuilder>(m, "VolumeMeshBuilder")
       .def(py::init<const std::vector<DTCC_BUILDER::Surface> &, const DTCC_BUILDER::GridField &,
                     DTCC_BUILDER::Mesh &, double>(),
@@ -445,6 +445,5 @@ PYBIND11_MODULE(_dtcc_builder, m)
       // If you need to expose std::vectors or similar, pybind11/stl.h header
       // takes care of this. For custom types like City, GridField, Mesh, ensure
       // you've also provided bindings for them.
-      ;
-
+      ; 
 }

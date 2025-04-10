@@ -67,7 +67,7 @@ public:
   }
 
   // Smooth mesh using Laplacian smoothing
-  static VolumeMesh smooth_volume_mesh_amgcl(const VolumeMesh &volume_mesh,
+  static VolumeMesh smooth_volume_mesh_poisson(const VolumeMesh &volume_mesh,
                                        const std::vector<Surface> &building_surfaces,
                                        const GridField &dem, double top_height, bool fix_buildings,
                                        bool fix_top, size_t max_iterations,
@@ -100,7 +100,7 @@ public:
     return _volume_mesh;
   }
 
-  // Smooth mesh using Laplacian smoothing
+  // Smooth mesh using Elastic smoothing
   static VolumeMesh smooth_volume_mesh_elastic(const VolumeMesh &volume_mesh,
                                        const std::vector<Surface> &building_surfaces,
                                        const GridField &dem, double top_height, bool fix_buildings,
