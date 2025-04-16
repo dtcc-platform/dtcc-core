@@ -17,10 +17,11 @@
 #include <amgcl/solver/bicgstab.hpp>
 #include <amgcl/solver/cg.hpp>
 #include <amgcl/solver/gmres.hpp>
-
 #include <amgcl/profiler.hpp>
 
 #include <vector>
+
+#include "MatrixMarket.h"
 
 namespace dtcc
 {
@@ -97,7 +98,8 @@ public:
   static std::vector<double> solve(const SparseMatrix &A, 
                                   const std::vector<double> &b,
                                   size_t max_iterations,
-                                  double relative_tolerance)
+                                  double relative_tolerance,
+                                  bool debug = true)
   {
 
     // The profiler:
@@ -107,7 +109,7 @@ public:
     ptrdiff_t rows = A.num_rows();
     // ptrdiff_t cols = A.num_cols();
     // std::vector<ptrdiff_t> ptr, col;
-    std::vector<double> val, rhs;
+    std::vector<double> val;
     // Set initial guess
     std::vector<double> x(rows, 0.0);
 
@@ -121,6 +123,11 @@ public:
     prof.tic("Check CSR");
     if (!dtcc::isSolvableCSR(ptr, col, val)){
       std::cout << "Stiffness Matrix in CSR format is not solvable!" << std::endl;
+    }
+    if(debug){
+        std::cout <<"Saving CSR Array to file..." << std::endl;
+        writeMatrixMarketMatrix("CSR_matrix.mtx", val, ptr, col, rows, rows);
+        writeMatrixMarketVector("RHS_vector.mtx", b);
     }
     prof.toc("Check CSR");
 
@@ -177,7 +184,8 @@ public:
                   const std::vector<double> &b, 
                   std::vector<double> &u,
                   size_t max_iterations,
-                  double relative_tolerance)
+                  double relative_tolerance,
+                  bool debug = true)
   {
     std::cout << "Elastic Smoothing using AMGCL Solver" <<std::endl;
     // The profiler:
@@ -197,9 +205,13 @@ public:
     prof.tic("To CSR");
     A.to_csr(ptr, col, val);
     A.clear_matrix(); // Clear the matrix to free memory
-    // delete A 
-    
     prof.toc("To CSR");
+
+    if(debug){
+        std::cout <<"Saving CSR Array to file..." << std::endl;
+        writeMatrixMarketMatrix("CSR_matrix.mtx", val, ptr, col, rows, rows);
+        writeMatrixMarketVector("RHS_vector.mtx", b);
+    }
     // prof.tic("Check CSR");
     // if (!dtcc::isSolvableCSR(ptr, col, val)){
     //   std::cout << "Stiffness Matrix in CSR format is Solvable!" <<std::endl;
