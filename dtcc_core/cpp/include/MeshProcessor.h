@@ -10,6 +10,12 @@
 
 #include "Hashing.h"
 #include "Logging.h"
+
+#include "KDTreeVectorOfVectorsAdaptor.h"
+#include "nanoflann.hpp"
+
+#include "DisjointSet.h"
+
 #include "model/Mesh.h"
 #include "model/Simplices.h"
 #include "model/Vector.h"
@@ -148,7 +154,7 @@ public:
   }
 
   /// Merge meshes into a single mesh
-  static Mesh merge_meshes(const std::vector<Mesh> &meshes, bool weld = false)
+  static Mesh merge_meshes(const std::vector<Mesh> &meshes, bool weld = false, double snap = 0)
   {
     // info("Merging " + str(meshes.size()) + " meshes into a single mesh...");
     Timer timer("merge_meshes");
@@ -187,6 +193,8 @@ public:
       for (size_t j = 0; j < meshes[i].vertices.size(); j++)
         mesh.vertices[k++] = meshes[i].vertices[j];
     }
+    if (snap > 0)
+      mesh = snap_vertices(mesh, snap);
     if (weld)
       mesh = weld_mesh(mesh);
     return mesh;
@@ -259,9 +267,8 @@ public:
     for (size_t i = 0; i < mesh.faces.size(); ++i)
     {
       const Simplex2D &face = mesh.faces[i];
-      welded_mesh.faces.push_back(Simplex2D(vertex_idx_map[face.v0],
-                                            vertex_idx_map[face.v1],
-                                            vertex_idx_map[face.v2]));
+      welded_mesh.faces.push_back(
+          Simplex2D(vertex_idx_map[face.v0], vertex_idx_map[face.v1], vertex_idx_map[face.v2]));
     }
     for (size_t i = 0; i < mesh.normals.size(); ++i)
     {
@@ -276,15 +283,69 @@ public:
     return welded_mesh;
   }
 
+  static Mesh snap_vertices(const Mesh &mesh, double snap_distance)
+  {
+    Mesh snapped_mesh = mesh;
+    // snap_distance *= snap_distance;
+
+    auto merge_candidates = DisjointSet(mesh.vertices.size());
+
+    typedef KDTreeVectorOfVectorsAdaptor<std::vector<Vector3D>, double, 3 /* dims */> my_kd_tree_t;
+    my_kd_tree_t vert_index(3 /*dim*/, mesh.vertices, 10 /* max leaf */);
+    vert_index.index->buildIndex();
+    for (size_t i = 0; i < mesh.vertices.size(); ++i)
+    {
+      auto &pt = mesh.vertices[i];
+      std::vector<double> query_pt{pt.x, pt.y, pt.z};
+      auto neighbours = vert_index.radius_query(&query_pt[0], snap_distance);
+      if (neighbours.size() > 1)
+      {
+        auto first_idx = neighbours[0].first;
+        for (size_t j = 1; j < neighbours.size(); ++j)
+        {
+          size_t idx = neighbours[j].first;
+          merge_candidates.unionSets(first_idx, idx);
+        }
+      }
+    }
+
+    auto merge_sets = merge_candidates.getSets();
+    size_t num_merged = 0;
+    for (const auto &ms : merge_sets)
+    {
+      auto merge_group = ms.second;
+      if (merge_group.size() > 1)
+      {
+        auto target = ms.first;
+        for (auto &face : snapped_mesh.faces)
+        {
+          if (std::find(merge_group.begin(), merge_group.end(), face.v0) != merge_group.end())
+          {
+            face.v0 = target;
+            num_merged++;
+          }
+          if (std::find(merge_group.begin(), merge_group.end(), face.v1) != merge_group.end())
+          {
+            face.v1 = target;
+            num_merged++;
+          }
+          if (std::find(merge_group.begin(), merge_group.end(), face.v2) != merge_group.end())
+          {
+            face.v2 = target;
+            num_merged++;
+          }
+        }
+      }
+    }
+    // find overlapping sets
+    info("Merging " + str(num_merged) + " vertices");
+    return snapped_mesh;
+  }
+
 private:
   // Count face (number of cell neighbors)
-  static void
-  count_face(std::map<Simplex2D, std::pair<size_t, size_t>, CompareSimplex2D>
-                 &face_map,
-             size_t v0,
-             size_t v1,
-             size_t v2,
-             size_t cell_index)
+  static void count_face(std::map<Simplex2D, std::pair<size_t, size_t>, CompareSimplex2D> &face_map,
+                         size_t v0, size_t v1, size_t v2, size_t cell_index)
   {
     // Create ordered simplex
     const Simplex2D simplex(v0, v1, v2, true);
@@ -304,8 +365,7 @@ private:
   }
 
   // Count vertex (assign new vertex indices)
-  static size_t count_vertex(std::unordered_map<size_t, size_t> &vertex_map,
-                             size_t index)
+  static size_t count_vertex(std::unordered_map<size_t, size_t> &vertex_map, size_t index)
   {
     // Check if already added
     auto it = vertex_map.find(index);

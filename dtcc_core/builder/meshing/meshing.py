@@ -103,19 +103,27 @@ def mesh_multisurfaces(
     return meshes
 
 
-def merge_meshes(meshes: [Mesh], weld=False) -> Mesh:
+def merge_meshes(meshes: [Mesh], weld=False, snap=0) -> Mesh:
     builder_meshes = [mesh_to_builder_mesh(mesh) for mesh in meshes]
-    merged_mesh = _dtcc_builder.merge_meshes(builder_meshes, weld)
+    merged_mesh = _dtcc_builder.merge_meshes(builder_meshes, weld, snap)
     mesh = builder_mesh_to_mesh(merged_mesh)
     return mesh
 
 
 @register_model_method
-def merge(mesh: Mesh, other: Mesh, weld=False) -> Mesh:
+def merge(mesh: Mesh, other: Mesh, weld=False, snap=0) -> Mesh:
     builder_mesh = mesh_to_builder_mesh(mesh)
     builder_other = mesh_to_builder_mesh(other)
-    merged_mesh = _dtcc_builder.merge_meshes([builder_mesh, builder_other], weld)
+    merged_mesh = _dtcc_builder.merge_meshes([builder_mesh, builder_other], weld, snap)
     mesh = builder_mesh_to_mesh(merged_mesh)
+    return mesh
+
+
+@register_model_method
+def snap_vertices(mesh: Mesh, snap_distance: float) -> Mesh:
+    builder_mesh = mesh_to_builder_mesh(mesh)
+    snapped_mesh = _dtcc_builder.snap_mesh_vertices(builder_mesh, snap_distance)
+    mesh = builder_mesh_to_mesh(snapped_mesh)
     return mesh
 
 
