@@ -164,3 +164,10 @@ def test_disjoint_mesh(disjoint_cubes_mesh):
     assert disjointed_meshes[1].faces.max() == 7
     assert len(disjointed_meshes[0].vertices) == 8
     assert len(disjointed_meshes[1].vertices) == 8
+
+
+def test_snap_mesh_vertices():
+    vertices = np.array([[0, 0, 0], [1, 0, 0], [1, 1, 0], [2, 0, 0], [1, 1.01, 0]])
+    mesh = Mesh(vertices=vertices, faces=np.array([[0, 1, 2], [1, 3, 4]]))
+    mesh = mesh.snap_vertices(0.1)
+    assert mesh.faces[1][2] == 2  # The last vertex should be snapped to the first one
