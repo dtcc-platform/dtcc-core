@@ -19,19 +19,20 @@ from .. import _dtcc_builder
 
 
 @register_model_method
-def mesh(ms: MultiSurface, triangle_size=None, weld=False, clean=False) -> Mesh:
+def mesh(ms: MultiSurface, triangle_size=None, weld=False, snap=0, clean=False) -> Mesh:
     """
     Mesh a `MultiSurface` object into a `Mesh` object.
 
     Args:
         triangle_size (float): The maximum size of the triangles in the mesh (default None, no max size).
         weld (bool): Whether to weld the vertices of the mesh (default False).
+        snap (float): The snap distance for the mesh vertices (default 0).
 
     Returns:
         Mesh: A `Mesh` object representing the meshed `MultiSurface`.
     """
 
-    return mesh_multisurface(ms, triangle_size, weld, clean)
+    return mesh_multisurface(ms, triangle_size, weld, snap, clean)
 
 
 @register_model_method

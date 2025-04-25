@@ -20,7 +20,7 @@ from dtcc_core.builder.logging import warning, info
 
 
 def mesh_multisurface(
-    ms: MultiSurface, triangle_size=None, weld=False, clean=False
+    ms: MultiSurface, triangle_size=None, weld=False, snap=0, clean=False
 ) -> Mesh:
     """
     Mesh a `MultiSurface` object into a `Mesh` object.
@@ -28,6 +28,7 @@ def mesh_multisurface(
     Args:
         triangle_size (float): The maximum size of the triangles in the mesh (default None, no max size).
         weld (bool): Whether to weld the vertices of the mesh (default False).
+        snap (float): The snap distance for the mesh vertices (default 0).
         clean (bool): Whether to clean and attempt to fix errors in the multisurface before meshing (default True).
                       Warning! meshing a multisurface with a max triangle size that is invalid may crash the program
                       or produce unexpected results.
@@ -45,7 +46,7 @@ def mesh_multisurface(
     if triangle_size is None or triangle_size < 0:
         triangle_size = -1
     builder_mesh = _dtcc_builder.mesh_multisurface(
-        builder_ms, triangle_size, min_mesh_angle, weld
+        builder_ms, triangle_size, min_mesh_angle, weld, snap
     )
     mesh = builder_mesh_to_mesh(builder_mesh)
     return mesh
