@@ -310,7 +310,7 @@ public:
     }
 
     auto merge_sets = merge_candidates.getSets();
-    size_t num_merged = 0;
+//    size_t num_merged = 0;
     for (const auto &ms : merge_sets)
     {
       auto merge_group = ms.second;
@@ -320,26 +320,38 @@ public:
         for (auto &face : snapped_mesh.faces)
         {
 
-          if (std::find(merge_group.begin(), merge_group.end(), face.v0) != merge_group.end())
+          auto face_normal = Geometry::face_normal(face, snapped_mesh);
+          bool snapped = false;
+
+          if ( (face.v0 != target) && (std::find(merge_group.begin(), merge_group.end(), face.v0) != merge_group.end()))
           {
             face.v0 = target;
-            num_merged++;
+            snapped = true;
           }
-          if (std::find(merge_group.begin(), merge_group.end(), face.v1) != merge_group.end())
+          if ((face.v1 != target) && (std::find(merge_group.begin(), merge_group.end(), face.v1) != merge_group.end()))
           {
             face.v1 = target;
-            num_merged++;
+            snapped = true;
           }
-          if (std::find(merge_group.begin(), merge_group.end(), face.v2) != merge_group.end())
+          if ((face.v2 != target) && (std::find(merge_group.begin(), merge_group.end(), face.v2) != merge_group.end()))
           {
             face.v2 = target;
-            num_merged++;
+            snapped = true;
+          }
+          if (snapped)
+          {
+            // check and fix normals
+            auto snapped_face_normal = Geometry::face_normal(face, snapped_mesh);
+            if (face_normal.dot(snapped_face_normal) < 0)
+            {
+              std::swap(face.v1, face.v2);
+            }
+
           }
         }
       }
     }
-    // find overlapping sets
-    info("Merging " + str(num_merged) + " vertices");
+//    info("Merging " + str(num_merged) + " vertices");
     return snapped_mesh;
   }
 
