@@ -316,7 +316,7 @@ public:
       auto merge_group = ms.second;
       if (merge_group.size() > 1)
       {
-        auto target = ms.first;
+        size_t target = ms.first;
         for (auto &face : snapped_mesh.faces)
         {
 
@@ -333,7 +333,7 @@ public:
             face.v1 = target;
             snapped = true;
           }
-          if ((face.v2 != target) && (std::find(merge_group.begin(), merge_group.end(), face.v2) != merge_group.end()))
+          if ((face.v2 != target) && (std::find(merge_group.begin(), merge_group.end(), face.v2) != merge_group.end()) )
           {
             face.v2 = target;
             snapped = true;
