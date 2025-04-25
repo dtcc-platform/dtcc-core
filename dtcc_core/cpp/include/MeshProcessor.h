@@ -319,6 +319,7 @@ public:
         auto target = ms.first;
         for (auto &face : snapped_mesh.faces)
         {
+
           if (std::find(merge_group.begin(), merge_group.end(), face.v0) != merge_group.end())
           {
             face.v0 = target;

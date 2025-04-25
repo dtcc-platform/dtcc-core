@@ -665,7 +665,8 @@ namespace DTCC_BUILDER
     static Mesh mesh_multisurface(const MultiSurface &multi_surface,
                                   double max_triangle_area_size = -1,
                                   double min_mesh_angle = 25,
-                                  bool weld = false)
+                                  bool weld = false,
+                                  double snap = 0)
     {
       std::vector<Mesh> multimesh(multi_surface.surfaces.size());
       //    info("meshing multisurface with " + str(multi_surface.surfaces.size())
@@ -683,8 +684,8 @@ namespace DTCC_BUILDER
       //       mesh_surface(surface, max_triangle_area_size, min_mesh_angle);
       //   multimesh.push_back(surface_mesh);
       // }
-      auto mesh = MeshProcessor::merge_meshes(multimesh, weld);
-      // mesh.normalize_normal_direction();
+      auto mesh = MeshProcessor::merge_meshes(multimesh, weld, snap);
+      mesh.normalize_normal_direction();
       return mesh;
     }
 
