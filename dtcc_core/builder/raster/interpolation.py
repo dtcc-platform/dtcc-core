@@ -5,17 +5,20 @@ from ..register import register_model_method
 from ...model import Raster
 from logging import info, warning, error
 
+import skimage as ski
+
 
 @register_model_method
-def fill_holes(raster: Raster):
+def fill_holes(raster: Raster) -> Raster:
     """
     Fill nodata holes in a `Raster` object using the nearest neighbour.
 
     Returns:
         Raster: A new `Raster` object with the holes filled.
     """
-    data = raster.data
-    nodata = raster.nodata
+    filled_raster = raster.copy()
+    data = filled_raster.data
+    nodata = filled_raster.nodata
     mask = data == nodata
     if np.any(mask):
         info(f"filling {mask.sum()} holes in raster")
@@ -23,8 +26,38 @@ def fill_holes(raster: Raster):
             mask, return_distances=False, return_indices=True
         )
         data = data[tuple(ind)]
-    raster.data = data
-    return raster
+    filled_raster.data = data
+    return filled_raster
+
+
+@register_model_method
+def fill_small_holes(raster: Raster, hole_size=1, nodata=None) -> Raster:
+    """
+    Fill small holes in a `Raster` object using the nearest neighbour.
+
+    Returns:
+        Raster: A new `Raster` object with the holes filled.
+        hole_size (int): The the largest hole size to fill.
+    """
+    if hole_size <= 0:
+        return raster
+
+    if nodata is None:
+        nodata = raster.nodata
+    if nodata is None:
+        raise ValueError("No nodata value provided and raster has no nodata value.")
+    mask_data = raster.data != nodata
+
+    filled_mask_data = ski.morphology.remove_small_holes(
+        mask_data, area_threshold=hole_size, out=mask_data
+    )
+
+    filled_raster = fill_holes(raster)
+    # filled_holes_mask = np.logical_xor(mask_data, filled_mask_data)
+
+    filled_raster.data *= filled_mask_data
+
+    return filled_raster
 
 
 @register_model_method

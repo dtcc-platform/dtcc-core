@@ -70,7 +70,6 @@ message Tree
   repeated float position = 1;
   float height = 2;
   float crown_radius = 3;
-
 }
 
 message Landuse
