@@ -2,6 +2,10 @@ from dtcc_core import io, builder
 from dtcc_core.model import Tree, Raster
 import dtcc_viewer
 
+import scipy.ndimage
+import numpy as np
+import skimage as ski
+
 pc = io.load_pointcloud("../data/helsingborg-residential-2022/pointcloud.las")
 buildings = io.load_footprints("../data/helsingborg-residential-2022/footprints.shp")
 
@@ -28,11 +32,24 @@ tree_raster = tree_raster.erode_small_lines(neighborhood_size=None, nodata=0)
 tree_raster = tree_raster.remove_small_masks(min_size=100, nodata=0)
 tree_raster = tree_raster.fill_small_holes(hole_size=100, nodata=0)
 
+tree_raster.data = scipy.ndimage.gaussian_filter(tree_raster.data, sigma=1.0)
+
 tree_raster.data -= terrain_raster.data
 tree_raster.data[tree_raster.data < shortest_tree] = 0
 
 
-tree_raster.view()
+maxima_footprint = ski.morphology.disk(3, dtype=bool)
+local_max = ski.morphology.local_maxima(
+    tree_raster.data, footprint=np.ones((3, 3))
+).astype(np.float64)
+local_max *= 100
 
+local_max_raster = tree_raster.copy(no_data=True)
+local_max_raster.data = local_max
+tree_raster.data = tree_raster.data + local_max
+
+tree_pc = tree_raster.to_pointcloud(nodata=0)
+
+tree_raster.view()
 
 pass

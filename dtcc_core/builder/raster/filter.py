@@ -38,6 +38,7 @@ def remove_small_masks(raster: Raster, min_size=1, nodata=None) -> Raster:
     # inv_objects = ski.measure.label(inv_mask)
 
     mask_data = ski.morphology.remove_small_objects(objects, min_size=min_size)
+    mask_data = mask_data > 0
     # inv_mask = ski.morphology.remove_small_objects(inv_objects, min_size=min_size)
     # inv_mask = inv_objects ^ inv_mask
     # return inv_mask.astype(bool)
