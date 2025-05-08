@@ -114,6 +114,14 @@ def remove_vegetation(pc: PointCloud) -> PointCloud:
     return new_pc
 
 
+@register_model_method
+def get_vegetation(pc: PointCloud) -> PointCloud:
+    new_pc = pc.copy()
+    veg_indices = _find_vegetation(pc)
+    new_pc.keep_points(veg_indices)
+    return new_pc
+
+
 def _find_vegetation(pc: PointCloud, filter_on_return_number=True):
     """Find the indices of points that belong to vegetation in a point cloud.
 

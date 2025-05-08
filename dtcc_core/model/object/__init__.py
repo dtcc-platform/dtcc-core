@@ -4,6 +4,7 @@ from .city import City, CityObject
 from .terrain import Terrain
 from .roadnetwork import RoadNetwork, RoadType
 from .landuse import Landuse, LanduseClasses
+from .tree import Tree
 
 __all__ = [
     "Object",
@@ -13,6 +14,7 @@ __all__ = [
     "City",
     "CityObject",
     "Terrain",
+    "Tree",
     "RoadNetwork",
     "RoadType",
     "Landuse",

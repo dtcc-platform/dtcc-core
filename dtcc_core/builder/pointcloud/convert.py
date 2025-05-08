@@ -14,6 +14,7 @@ def rasterize(
     window_size: int = 3,
     radius: float = 0,
     ground_only: bool = True,
+    fill_holes: bool = True,
 ) -> model.Raster:
     """
     Rasterize a point cloud into a `Raster` object.
@@ -53,5 +54,6 @@ def rasterize(
     dem_raster.georef = rasterio.transform.from_origin(
         bounds.west, bounds.north, cell_size, cell_size
     )
-    dem_raster = dem_raster.fill_holes()
+    if fill_holes:
+        dem_raster = dem_raster.fill_holes()
     return dem_raster
