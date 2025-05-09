@@ -13,6 +13,40 @@ def tree_raster_from_pointcloud(
     fill_hole_size: float = 100,
     sigma: float = 1.0,
 ) -> Raster:
+    """
+    Generate a tree height raster from a point cloud.
+
+    This function processes a point cloud to create a raster representing tree heights.
+    It optionally uses a terrain raster to subtract ground elevation and applies various
+    filters to clean and smooth the resulting raster.
+
+    Parameters
+    ----------
+    pc : PointCloud
+        The input point cloud containing vegetation points.
+    terrain_raster : Raster, optional
+        A raster representing ground elevation. If not provided, it will be generated
+        from the point cloud.
+    cell_size : float, optional
+        The size of each raster cell in the output raster. Default is 0.5.
+    shortest_tree : float, optional
+        The minimum tree height to include in the raster. Values below this will be set
+        to 0. Default is 2.0.
+    smallest_cluster : float, optional
+        The minimum size of tree clusters to retain (in pixels). Smaller clusters will be removed.
+        Default is 100.
+    fill_hole_size : float, optional
+        The maximum size of holes to fill in the raster (in pixels). Default is 100.
+    sigma : float, optional
+        The standard deviation for the Gaussian filter applied to smooth the raster.
+        Default is 1.0.
+
+    Returns
+    -------
+    Raster
+        A raster representing tree heights, with ground elevation subtracted and
+        cleaned using the specified parameters.
+    """
 
     if terrain_raster is None:
         terrain_raster = builder.build_terrain_raster(
