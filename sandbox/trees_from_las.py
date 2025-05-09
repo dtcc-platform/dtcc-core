@@ -11,44 +11,27 @@ buildings = io.load_footprints("../data/helsingborg-residential-2022/footprints.
 
 pc = pc.remove_global_outliers(3.0)
 
-
-terrain_raster = builder.build_terrain_raster(pc, cell_size=0.5, ground_only=True)
-
-trees = pc.get_vegetation()
-
-building_polygon_footprints = [b.get_footprint().to_polygon() for b in buildings]
-
-tree_raster: Raster = trees.rasterize(
+tree_raster: Raster = builder.tree_raster_from_pointcloud(
+    pc,
     cell_size=0.5,
-    bounds=terrain_raster.bounds,
-    fill_holes=False,
-    window_size=1,
+    shortest_tree=2.0,
+    smallest_cluster=100,
+    fill_hole_size=100,
+    sigma=1.0,
 )
 
-shortest_tree = 2
-
-
-tree_raster = tree_raster.erode_small_lines(neighborhood_size=None, nodata=0)
-tree_raster = tree_raster.remove_small_masks(min_size=100, nodata=0)
-tree_raster = tree_raster.fill_small_holes(hole_size=100, nodata=0)
-
-tree_raster.data = scipy.ndimage.gaussian_filter(tree_raster.data, sigma=1.0)
-
-tree_raster.data -= terrain_raster.data
-tree_raster.data[tree_raster.data < shortest_tree] = 0
-
-
-maxima_footprint = ski.morphology.disk(3, dtype=bool)
-local_max = ski.morphology.local_maxima(
-    tree_raster.data, footprint=np.ones((3, 3))
-).astype(np.float64)
-local_max *= 100
-
-local_max_raster = tree_raster.copy(no_data=True)
-local_max_raster.data = local_max
-tree_raster.data = tree_raster.data + local_max
-
-tree_pc = tree_raster.to_pointcloud(nodata=0)
+#
+# maxima_footprint = ski.morphology.disk(3, dtype=bool)
+# local_max = ski.morphology.local_maxima(
+#     tree_raster.data, footprint=np.ones((3, 3))
+# ).astype(np.float64)
+# local_max *= 100
+#
+# local_max_raster = tree_raster.copy(no_data=True)
+# local_max_raster.data = local_max
+# tree_raster.data = tree_raster.data + local_max
+#
+# tree_pc = tree_raster.to_pointcloud(nodata=0)
 
 tree_raster.view()
 

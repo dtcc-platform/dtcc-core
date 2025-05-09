@@ -7,21 +7,14 @@ from . import city
 from . import building
 from . import roadnetwork
 from . import polygons
-
-# from .builders import (
-#     build,
-#     build_city,
-#     calculate_bounds,
-#     build_building_meshes,
-#     build_city_surface_mesh,
-#     build_volume_mesh,
-# )
+from . import trees
 
 from .geometry_builders.terrain import (
     build_terrain_mesh,
     build_terrain_raster,
     flat_terrain,
 )
+
 from .geometry_builders.buildings import (
     extract_roof_points,
     compute_building_heights,
@@ -29,7 +22,6 @@ from .geometry_builders.buildings import (
     extrude_building,
     building_heights_from_pointcloud,
 )
-
 
 from .building.modify import (
     merge_building_footprints,
@@ -43,6 +35,8 @@ from .city.modify import (
     fix_building_clearance,
     clean_building_surfaces,
 )
+
+from .trees.create import tree_raster_from_pointcloud
 
 from .geometry_builders.meshes import build_city_mesh
 
@@ -62,4 +56,5 @@ __all__ = [
     "fix_building_clearance",
     "clean_building_surfaces",
     "building_heights_from_pointcloud",
+    "tree_raster_from_pointcloud"
 ]
