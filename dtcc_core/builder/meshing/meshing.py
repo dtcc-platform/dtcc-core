@@ -42,7 +42,7 @@ def mesh_multisurface(
         warning("Failed to clean multisurface.")
         return Mesh()
     builder_ms = create_builder_multisurface(ms)
-    min_mesh_angle = 25
+    min_mesh_angle = 20.7
     if triangle_size is None or triangle_size < 0:
         triangle_size = -1
     builder_mesh = _dtcc_builder.mesh_multisurface(
@@ -72,7 +72,7 @@ def mesh_surface(s: Surface, triangle_size=None, clean=False) -> Mesh:
     builder_surface = create_builder_surface(s)
     if triangle_size is None or triangle_size < 0:
         triangle_size = -1
-    builder_mesh = _dtcc_builder.mesh_surface(builder_surface, triangle_size, 25)
+    builder_mesh = _dtcc_builder.mesh_surface(builder_surface, triangle_size, 20.7)
     mesh = builder_mesh_to_mesh(builder_mesh)
     return mesh
 
@@ -80,7 +80,7 @@ def mesh_surface(s: Surface, triangle_size=None, clean=False) -> Mesh:
 def mesh_multisurfaces(
     multisurfaces: [MultiSurface],
     max_mesh_edge_size=-1,
-    min_mesh_angle=25,
+    min_mesh_angle=20.7,
     weld=False,
     clean=False,
 ) -> [Mesh]:

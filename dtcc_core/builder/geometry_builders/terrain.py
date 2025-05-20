@@ -26,10 +26,17 @@ def build_terrain_mesh(
     subdomains: list[Surface] = None,
     subdomain_resolution: Union[float, List[float]] = None,
     max_mesh_size=10,
-    min_mesh_angle=25,
+    min_mesh_angle=20.7,
     smoothing=3,
     ground_points_only=True,
 ) -> Mesh:
+
+    if min_mesh_angle > 33:
+        raise ValueError(
+            "min_mesh_angle must be less than or equal to 33 degrees. "
+            "This is a limitation of the meshing algorithm."
+        )
+
     if isinstance(data, PointCloud):
         dem = build_terrain_raster(
             data, cell_size=max_mesh_size / 2, ground_only=ground_points_only
