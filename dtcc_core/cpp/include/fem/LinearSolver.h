@@ -99,7 +99,7 @@ public:
                                   const std::vector<double> &b,
                                   size_t max_iterations,
                                   double relative_tolerance,
-                                  bool debug = true)
+                                  bool debug = false)
   {
 
     // The profiler:
@@ -185,7 +185,7 @@ public:
                   std::vector<double> &u,
                   size_t max_iterations,
                   double relative_tolerance,
-                  bool debug = true)
+                  bool debug = false)
   {
     std::cout << "Elastic Smoothing using AMGCL Solver" <<std::endl;
     // The profiler:

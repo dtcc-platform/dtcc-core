@@ -22,7 +22,7 @@
 #include "model/ColumnMesh.h"
 
 #include "meshing/DomainPadding.h"
-#include "meshing/VolumeMeshRefinement.h"
+#include "meshing/MeshImprovement.h"
 
 namespace DTCC_BUILDER
 {
@@ -287,9 +287,9 @@ public:
     if (debug_step == 5)
       return volume_mesh;
     
-    Timer t3_6("Step 3.6: Volume mesh Refinement (Removing slivers)");
+    Timer t3_6("Step 3.6: Volume mesh improvement (Removing slivers)");
     info("Refining volume mesh...");
-    volume_mesh = VolumeMeshRefinement::remove_tetrahedra(volume_mesh,aspect_ratio_threshold);
+    volume_mesh = VolumeMeshImprovement::remove_tetrahedra(volume_mesh,aspect_ratio_threshold);
     t3_6.stop();
     t3_6.print();
     check_mesh_quality(volume_mesh, 6);
