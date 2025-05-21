@@ -429,7 +429,7 @@ private:
   }
 
   // Check mesh quality
-  void check_mesh_quality(const VolumeMesh &volume_mesh, int step)
+  void check_mesh_quality(const VolumeMesh &volume_mesh, int step, bool write_to_file = false)
   {
     // Compute aspect ratios
     const auto aspect_ratios = Geometry::aspect_ratio(volume_mesh);
@@ -439,11 +439,13 @@ private:
 
     // Write aspect ratios to file for debugging
     const auto _aspect_rations = Geometry::aspect_ratios(volume_mesh);
-    std::ofstream file("aspect_ratios_" + str(step) + ".txt");
-    for (const auto &ar : _aspect_rations)
-      file << ar << std::endl;
-    file.close();
-
+    if (write_to_file)
+    {
+      std::ofstream file("aspect_ratios_" + str(step) + ".txt");
+      for (const auto &ar : _aspect_rations)
+        file << ar << std::endl;
+      file.close();
+    }
     // Print aspect ratios
     info("Mesh quality (aspect ratio): min = " + str(min, 3L) + ", max = " + str(max, 3L) +
          ", median = " + str(median, 3L));
