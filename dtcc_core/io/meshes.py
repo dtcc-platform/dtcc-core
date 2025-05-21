@@ -19,7 +19,7 @@ try:
 
     HAS_ASSIMP = True
 except:
-    warning("Unable to find pyassimp, some file formats will not be supported")
+    warning("Unable to find assimp, reading and writing .dae and .fbx files will not work\n To install assimp please see the instructions at https://www.assimp.org")
     HAS_ASSIMP = False
 
 def has_assimp():
