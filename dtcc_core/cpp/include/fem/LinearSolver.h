@@ -7,6 +7,7 @@
 #include "SparseMatrix.h"
 #include <amgcl/backend/builtin.hpp>
 #include <amgcl/adapter/crs_tuple.hpp>
+#include <amgcl/adapter/zero_copy.hpp>
 #include <amgcl/make_solver.hpp>
 #include <amgcl/amg.hpp>
 #include <amgcl/coarsening/smoothed_aggregation.hpp>
@@ -133,8 +134,8 @@ public:
 
     // Compose the solver type
     //   the solver backend:
-    typedef amgcl::backend::builtin<double> Backend;
-    typedef amgcl::backend::builtin<float> PBackend;
+    typedef amgcl::backend::builtin<double> SBackend;
+    typedef amgcl::backend::builtin<double> PBackend;
     // //   the preconditioner backend:
     // #ifdef MIXED_PRECISION
     //     typedef amgcl::backend::builtin<float> PBackend;
@@ -148,26 +149,24 @@ public:
                 amgcl::coarsening::smoothed_aggregation,
                 amgcl::relaxation::spai0
                 >,
-            amgcl::solver::gmres<Backend>
+            amgcl::solver::gmres<SBackend>
             > Solver;
 
     Solver::params prm; 
     prm.solver.M = max_iterations;
     prm.solver.tol = relative_tolerance;
     
-    // Define the AMGCL solver (BiCGStab + Smoothed Aggregation)
-    // using Solver = amgcl::make_solver<
-    //    amgcl::preconditioner::dummy<amgcl::backend::builtin<double>>,
-    //    amgcl::solver::bicgstab<amgcl::backend::builtin<double>>>;
 
     prof.tic("setup");
-    Solver solver(std::tie(rows, ptr, col, val),prm);
+    auto A_amgcl = amgcl::adapter::zero_copy(rows, ptr.data(), col.data(), val.data());
+    Solver solve(A_amgcl,prm);
+    // Solver solver(std::tie(rows, ptr, col, val),prm);
     prof.toc("setup");
     // // Solve the system
     size_t iters;
     double residual;
     prof.tic("solving");
-    std::tie(iters, residual) = solver(b, x);
+    std::tie(iters, residual) = solve(b, x);
     prof.toc("solving");
     // Output the number of iterations, the relative error,
     // and the profiling data:
@@ -229,7 +228,7 @@ public:
 
     // Compose the solver type
     //   the solver backend:
-    typedef amgcl::backend::builtin<double> Backend;
+    typedef amgcl::backend::builtin<double> SBackend;
     typedef amgcl::backend::builtin<double> PBackend;
     typedef amgcl::make_solver<
             amgcl::amg<
@@ -237,22 +236,23 @@ public:
                 amgcl::coarsening::smoothed_aggregation,
                 amgcl::relaxation::spai0
                 >,
-            amgcl::solver::gmres<Backend>
+            amgcl::solver::gmres<SBackend>
             > Solver;
 
     Solver::params prm; 
     // prm.solver.M = max_iterations;
-    // prm.solver.tol = relative_tolerance;
-
-    
+    prm.solver.tol = relative_tolerance;
+   
     prof.tic("setup");
-    Solver solver(std::tie(rows, ptr, col, val),prm);
+    auto A_amgcl = amgcl::adapter::zero_copy(rows, ptr.data(), col.data(), val.data());
+    Solver solve(A_amgcl,prm);
+    // Solver solver(std::tie(rows, ptr, col, val),prm);
     prof.toc("setup");
     // // Solve the system
     size_t iters;
     double residual;
     prof.tic("solving");
-    std::tie(iters, residual) = solver(b, u);
+    std::tie(iters, residual) = solve(b, u);
     prof.toc("solving");
     // Output the number of iterations, the relative error,
     // and the profiling data:
