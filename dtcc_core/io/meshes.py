@@ -197,6 +197,7 @@ _load_formats = {
         ".stl": _load_meshio_mesh,
         ".vtk": _load_meshio_mesh,
         ".vtu": _load_meshio_mesh,
+        ".xdmf":  _load_meshio_mesh,
     },
     VolumeMesh: {
         ".pb": _load_proto_volume_mesh,
@@ -208,6 +209,7 @@ _load_formats = {
         ".vtu": _load_meshio_volume_mesh,
         ".bdf": _load_meshio_volume_mesh,
         ".inp": _load_meshio_volume_mesh,
+        ".xdmf":  _load_meshio_volume_mesh,
     },
     City: {
         ".obj": _load_meshio_city_mesh,
@@ -230,6 +232,7 @@ _save_formats = {
         ".gltf": _save_gltf_mesh,
         ".gltf2": _save_gltf_mesh,
         ".glb": _save_gltf_mesh,
+        ".xdmf": _save_meshio_mesh,
     },
     VolumeMesh: {
         ".pb": _save_proto_volume_mesh,
@@ -241,6 +244,7 @@ _save_formats = {
         ".vtu": _save_meshio_volume_mesh,
         ".bdf": _save_meshio_volume_mesh,
         ".inp": _save_meshio_volume_mesh,
+        ".xdmf": _save_meshio_volume_mesh,
     },
 }
 
