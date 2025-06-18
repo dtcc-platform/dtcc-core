@@ -64,6 +64,12 @@ public:
 
   ~BuilderMesh() {}
 
+  void translate(const Vector3D &t)
+    {
+      for (auto &v : vertices)
+        v += t;
+    }
+  
   // Build mapping from vertices to faces
   void build_vertex_to_face_mapping()
   {
@@ -167,7 +173,8 @@ private:
   // // Stores vertex to face mapping for ground mesh.
   // std::vector<std::unordered_set<int>> ff;
 
-  Vector2D mesh_center;
+  Vector3D mesh_center;
+  Vector3D mesh_origin;
   // std::vector<int> face_colors;
   // std::vector<int> vertex_colors;
 
@@ -186,8 +193,10 @@ public:
     assert((!_ground_mesh.markers.empty()) && "Ground mesh has no markers");
 
     mesh_bounds = BoundingBox2D(ground_mesh.vertices);
-    mesh_center = Vector2D((mesh_bounds.P.x + mesh_bounds.Q.x) / 2.0,
-                           (mesh_bounds.P.y + mesh_bounds.Q.y) / 2.0);
+    mesh_center = Vector3D((mesh_bounds.P.x + mesh_bounds.Q.x) / 2.0,
+                           (mesh_bounds.P.y + mesh_bounds.Q.y) / 2.0,0.0);
+    mesh_origin = Vector3D(mesh_bounds.P.x, mesh_bounds.P.y, 0.0); 
+    
 
     compute_building_ground_heights();
   }
@@ -229,7 +238,6 @@ public:
     info("Smoothing volume mesh...");
     const bool fix_top = false;
 
-    std::cout << "Ground Mesh bounding box: " << mesh_bounds.__str__() << std::endl;
     volume_mesh = Smoother::smooth_volume_mesh_elastic(volume_mesh, _buildings, _dem, 0.0, false,
                                                        fix_top, smoother_iterations,
                                                        smoother_relative_tolerance, mesh_bounds);
@@ -295,7 +303,7 @@ public:
     t3_7.print();
     report(volume_mesh,t3_7.time(),7);
     // check_mesh_quality(volume_mesh, 7);
-
+    
     return volume_mesh;
   }
 
@@ -889,7 +897,8 @@ void report(const VolumeMesh &volume_mesh, double elapsed_time, int step)
       // -5 (Other)
       if (mesh_vertex_markers[i] >= 0)
       {
-        markers.resize(_column_mesh.vertices[i].size(), -4);
+        // markers.resize(_column_mesh.vertices[i].size(), -4);
+        markers.resize(_column_mesh.vertices[i].size(), mesh_vertex_markers[i]);
       }
       else
       {
@@ -1021,15 +1030,17 @@ void report(const VolumeMesh &volume_mesh, double elapsed_time, int step)
           if (_column_mesh.layer_index(vertex) == trimming_layer_indices[marker])
           {
             // Mark this vertex with the given marker.
-            _column_mesh.markers[vertex.column][vertex.index] = marker;
+            //_column_mesh.markers[vertex.column][vertex.index] = marker;
+            _column_mesh.markers[vertex.column][vertex.index] = _buildings.size() + marker;
 
-            // // Comment in the following to change marker types above buildings.
-            // const size_t col_size = _column_mesh.vertices[vertex.column].size();
-            // for (size_t v = vertex.index + 1; v < col_size; v++)
-            // {
-            //   _column_mesh.markers[vertex.column][v] = -4;
-            // }
-            // _column_mesh.markers[vertex.column].back() = -3;
+            // Comment in the following to change marker types above buildings.
+            const size_t col_size = _column_mesh.vertices[vertex.column].size();
+            for (size_t v = vertex.index + 1; v < col_size; v++)
+            { 
+              _column_mesh.markers[vertex.column][v] = -4;
+              //_column_mesh.markers[vertex.column][v] = -5;
+            }
+            _column_mesh.markers[vertex.column].back() = -3;
           }
         }
       }
@@ -1097,8 +1108,13 @@ void report(const VolumeMesh &volume_mesh, double elapsed_time, int step)
     const double padding_height = top_height - top_surface_mesh_z;
 
     // Number of Max height layers needed to cover padding height.
-    const size_t n = static_cast<size_t>(2 * padding_height / (max_layer_height * (max_scale + 1)));
+    // const size_t n =  static_cast<size_t>(2 * padding_height / (max_layer_height * (max_scale + 1)));
+    const size_t n = std::max(
+        static_cast<size_t>(2u),
+        static_cast<size_t>(2 * padding_height / (max_layer_height * (max_scale + 1)))
+      );
 
+    info("Top surface max z:" + str(top_surface_mesh_z) + " Top domain height " + str(top_height));
     info("Padding Domain with " + str(n) + " max layers scaled from 1 to " + str(max_scale));
     // std::vector<size_t> offset_before_padding = _column_mesh.vertices_offset;
 
@@ -1140,8 +1156,19 @@ void report(const VolumeMesh &volume_mesh, double elapsed_time, int step)
 
     connect_column_mesh_cells(mesh, padding_mesh);
 
-    auto _padding_mesh = padding_mesh.to_volume_mesh();
+    padding_mesh.markers.resize(mesh.vertices.size());
+    for (size_t i = 0; i < mesh.vertices.size(); i++)
+    {
+      auto &markers = padding_mesh.markers[i];
 
+      // Initialize all markers to Other (-5)
+      markers.resize(padding_mesh.vertices[i].size(), -5);
+      // Set last (top) marker to Top (-3)
+      markers.back() = -3;
+    }
+    auto _padding_mesh = padding_mesh.to_volume_mesh();
+    info("Volume Mesh " + str(volume_mesh));
+    info("Padding Mesh " + str(_padding_mesh));
     return weld_meshes(volume_mesh, _padding_mesh, vertex_matches);
   }
 
@@ -1156,8 +1183,15 @@ void report(const VolumeMesh &volume_mesh, double elapsed_time, int step)
                                 volume_mesh.vertices.end());
     merged_mesh.cells.insert(merged_mesh.cells.end(), volume_mesh.cells.begin(),
                              volume_mesh.cells.end());
-    // merged_mesh.markers.insert(merged_mesh.markers.end(), volume_mesh.markers.begin(),
-    // volume_mesh.markers.end());
+    merged_mesh.markers.insert(merged_mesh.markers.end(), volume_mesh.markers.begin(),
+    volume_mesh.markers.end());
+
+    // Replace old top vertex markers
+    for (auto &m : merged_mesh.markers)
+    {
+      if (m == -3)
+        m = -5;
+    }
 
     size_t vertices_added = 0;
     for (size_t i = 0; i < padding_mesh.vertices.size(); i++)
@@ -1165,6 +1199,7 @@ void report(const VolumeMesh &volume_mesh, double elapsed_time, int step)
       if (vertex_matches[i] < 0)
       {
         merged_mesh.vertices.push_back(padding_mesh.vertices[i]);
+        merged_mesh.markers.push_back(padding_mesh.markers[i]);
         vertex_matches[i] = volume_mesh_num_vertices + vertices_added;
         ++vertices_added;
       }

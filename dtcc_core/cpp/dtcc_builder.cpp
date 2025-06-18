@@ -262,6 +262,25 @@ py::array_t<size_t> statistical_outlier_finder(py::array_t<double> &points, size
     return py::array_t<size_t>(outliers.size(), outliers.data());
   }
 
+
+  py::dict compute_boundary_face_markers(const VolumeMesh &mesh)
+    {
+      auto data = MeshProcessor::compute_boundary_facet_markers(mesh);
+      py::dict out;
+      // out.reserve(data.size());
+      for (auto const &kv : data) {
+        const Simplex2D &f = kv.first;
+        int   marker = kv.second.first;
+        // auto  &n     = kv.second.second;
+
+        py::tuple key    = py::make_tuple(f.v0, f.v1, f.v2);
+        // py::tuple normal = py::make_tuple(n.x, n.y, n.z);
+        // py::tuple val    = py::make_tuple(marker, normal);
+        out[key] = marker;
+        }
+        return out;
+    }
+
 } // namespace DTCC_BUILDER
 
 PYBIND11_MODULE(_dtcc_builder, m)
@@ -398,6 +417,14 @@ PYBIND11_MODULE(_dtcc_builder, m)
 
   // m.def("extrude_footprint", &DTCC_BUILDER::MeshBuilder::extrude_footprint,
   //       "Extrude footprint to a mesh");
+
+  m.def("compute_boundary_mesh",
+        &DTCC_BUILDER::MeshProcessor::compute_boundary_mesh,
+        "Compute boundary mesh from volume mesh");
+
+  m.def("compute_boundary_face_markers",
+        &DTCC_BUILDER::compute_boundary_face_markers,
+        "Compute markers and outward normals for volume mesh boundary faces");
 
   m.def("compute_boundary_mesh",
         &DTCC_BUILDER::MeshProcessor::compute_boundary_mesh,

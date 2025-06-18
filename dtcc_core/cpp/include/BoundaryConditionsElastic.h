@@ -83,51 +83,68 @@ public:
     // Compute halo elevations
     compute_halo_elevations();
 
-    // Set boundary values (difference)
-    for (size_t i = 0; i < _volume_mesh.vertices.size(); i++)
-    {
-      const int vertex_marker = vertex_markers[i];
-      if (vertex_marker >= 0 && fix_buildings) // Building
-      {
-        values[i].first = {true, true, true};
-        const double dz = building_centroids[vertex_marker].z - _volume_mesh.vertices[i].z;
+    const int N = static_cast<int>(building_centroids.size());
 
-        // std::cout << "Vertex: " << i 
-        //           <<" building: "<< vertex_marker 
-        //           <<" height "<<building_centroids[vertex_marker].z 
-        //           << " dz: " << dz 
-        //           << " z " << _volume_mesh.vertices[i].z 
-        //           << " z' " << _volume_mesh.vertices[i].z + dz
-        //           << std::endl;
-        values[i].second = Vector3D(0.0, 0.0, dz);
-      }
-      else if (vertex_marker == -1) // Halo
+    for (size_t i = 0; i < _volume_mesh.vertices.size(); ++i)
+    {
+      int m = vertex_markers[i];
+      auto &bc = values[i];
+
+      // reset to “free” by default
+      bc.first = {false, false, false};
+      bc.second = Vector3D(0.0, 0.0, 0.0);
+
+      if (m >= 0 && m < N)
       {
-        values[i].first = {false, false, true};
-        const double dz = halo_elevations[i] - _volume_mesh.vertices[i].z;
-        values[i].second = Vector3D(0.0, 0.0, dz);
+        // wall of building k
+        bc.first = {true, true, false}; // pin x,y
       }
-      else if (vertex_marker == -2) // Ground
+      else if (m >= N && m < 2 * N && fix_buildings)
       {
-        const Vector2D p(_volume_mesh.vertices[i].x, _volume_mesh.vertices[i].y);
-        values[i].first = {false, false, true};
-        const double dz = _dtm(p) - _volume_mesh.vertices[i].z;
-        values[i].second = Vector3D(0.0, 0.0, dz);
+        // roof of building k
+        bc.first = {true, true, true}; // pin x,y,z
+        double dz = building_centroids[m - N].z - _volume_mesh.vertices[i].z;
+        bc.second = Vector3D(0.0, 0.0, dz); // snap up to roof plane
       }
-      else if (vertex_marker == -3 && fix_top) // Top
+      else if (m == -1)
       {
-        values[i].first = {false, false, true};
-        const double dz = top_height - _volume_mesh.vertices[i].z;
-        values[i].second = Vector3D(0.0, 0.0, dz);
+        // halo
+        bc.first = {false, false, true};
+        double dz = halo_elevations[i] - _volume_mesh.vertices[i].z;
+        bc.second = Vector3D(0.0, 0.0, dz);
       }
-      else if (vertex_marker == -4 ) // Building columns
+      else if (m == -2)
       {
-        values[i].first = {true, true, false};
-        values[i].second = Vector3D(0.0, 0.0, 0.0);
+        // ground
+        bc.first = {false, false, true};
+        Vector2D p(_volume_mesh.vertices[i].x, _volume_mesh.vertices[i].y);
+        double dz = _dtm(p) - _volume_mesh.vertices[i].z;
+        bc.second = Vector3D(0.0, 0.0, dz);
+      }
+      else if (m == -3 && fix_top)
+      {
+        // top of domain
+        bc.first = {false, false, true};
+        double dz = top_height - _volume_mesh.vertices[i].z;
+        bc.second = Vector3D(0.0, 0.0, dz);
+      }
+      else if (m == -4)
+      {
+        // building columns
+        bc.first = {true, true, false};
+      }
+      else if (m == -5)
+      {
+        // fully free interior
+        bc.first = {false, false, false};
+      }
+      else
+      {
+        // unexpected marker → maybe warn or assert
+        assert(false && "Unknown vertex_marker");
       }
     }
   }
-
 
   // Apply boundary conditions on stiffness matrix for Elastic smoothing
   void apply(dtcc::SparseMatrix &A)
