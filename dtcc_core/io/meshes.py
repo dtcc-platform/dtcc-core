@@ -4,6 +4,8 @@
 import meshio
 import pygltflib
 import numpy as np
+import h5py
+from os.path import splitext, basename
 
 from ..model import Mesh, VolumeMesh, City, Building
 from ..model import GeometryType
@@ -13,6 +15,7 @@ from ..builder.geometry.multisurface import merge_coplanar
 
 from .logging import info, warning, error
 from . import generic
+from .xdmf import XDMF_TEMPLATE
 
 try:
     import pyassimp
@@ -109,6 +112,43 @@ def _save_meshio_volume_mesh(mesh, path):
     _mesh = meshio.Mesh(mesh.vertices, [("tetra", mesh.cells)])
     meshio.write(path, _mesh)
 
+def _save_xdmf_volume_mesh(mesh,path):
+    if not hasattr(mesh, "boundary_markers"):
+        _save_meshio_volume_mesh(mesh, path)
+        return
+    
+    facets   = np.array(list(mesh.boundary_markers.keys()),   dtype=int)
+    markers  = np.array(list(mesh.boundary_markers.values()), dtype=int)
+    ids      = np.sort(facets, axis=1)
+    idx      = np.lexsort(ids.T)
+    facet_cells   = facets[idx]
+    facet_markers = markers[idx]  
+
+    base, ext = splitext(path)
+    h5_path = base + ".h5"
+    with h5py.File(h5_path, "w") as h5_file:
+      # — prepare the groups —
+      mesh_grp = h5_file.require_group("Mesh/mesh")
+      tags_grp = h5_file.require_group("MeshTags/boundary_markers")
+
+      # — write volume datasets (you already have) —
+      mesh_grp.create_dataset("geometry", data=mesh.vertices, dtype="float64")
+      mesh_grp.create_dataset("topology", data=mesh.cells,    dtype="int64")
+
+      # — write facet topology & markers —
+      tags_grp.create_dataset("topology", data=facet_cells,     dtype="int64")
+      tags_grp.create_dataset("values",   data=facet_markers,   dtype="int32")
+
+      
+    xdmf_content = XDMF_TEMPLATE.format(
+        h5file=basename(h5_path),
+        n_tets=len(mesh.cells),
+        n_pts=len(mesh.vertices),
+        n_facets=len(mesh.boundary_markers),
+    )
+
+    with open(path, "w") as xdmf_file:
+        xdmf_file.write(xdmf_content)
 
 def _save_gltf_mesh(mesh, path):
     triangles_binary_blob = mesh.faces.flatten().tobytes()
@@ -209,7 +249,7 @@ _load_formats = {
         ".vtu": _load_meshio_volume_mesh,
         ".bdf": _load_meshio_volume_mesh,
         ".inp": _load_meshio_volume_mesh,
-        ".xdmf":  _load_meshio_volume_mesh,
+        ".xdmf":_load_meshio_volume_mesh,
     },
     City: {
         ".obj": _load_meshio_city_mesh,
@@ -244,7 +284,7 @@ _save_formats = {
         ".vtu": _save_meshio_volume_mesh,
         ".bdf": _save_meshio_volume_mesh,
         ".inp": _save_meshio_volume_mesh,
-        ".xdmf": _save_meshio_volume_mesh,
+        ".xdmf": _save_xdmf_volume_mesh, #_save_meshio_volume_mesh,
     },
 }
 
