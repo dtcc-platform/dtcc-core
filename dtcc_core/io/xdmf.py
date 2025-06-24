@@ -35,7 +35,7 @@ XDMF_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
                  Center="Cell">
         <DataItem Format="HDF"
                   NumberType="Int"
-                  Dimensions="{n_facets} 1">
+                  Dimensions="{n_facets}">
           {h5file}:/MeshTags/boundary_markers/values
         </DataItem>
       </Attribute>
