@@ -185,13 +185,18 @@ def extract_roof_points(
 def building_heights_from_pointcloud(
     buildings: [Building],
     pointcloud: PointCloud,
+    terrain_raster: Raster = None,
     statistical_outlier_remover=True,
     roof_outlier_neighbors=5,
     roof_outlier_margin=1.5,
     overwrite=False,
+    keep_roof_points=False,
 ) -> List[Building]:
 
-    terrain_raster = build_terrain_raster(pointcloud, cell_size=2, ground_only=True)
+    if terrain_raster is None:
+        info("No terrain raster provided, building terrain raster from point cloud.")
+        terrain_raster = build_terrain_raster(pointcloud, cell_size=2, ground_only=True)
+
     buildings = extract_roof_points(
         buildings,
         pointcloud,
@@ -200,6 +205,7 @@ def building_heights_from_pointcloud(
         roof_outlier_margin,
     )
     buildings = compute_building_heights(buildings, terrain_raster, overwrite=overwrite)
-    for building in buildings:
-        building.remove_geometry(GeometryType.POINT_CLOUD)
+    if not keep_roof_points:
+        for building in buildings:
+            building.remove_geometry(GeometryType.POINT_CLOUD)
     return buildings

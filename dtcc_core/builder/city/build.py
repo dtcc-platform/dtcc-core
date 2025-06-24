@@ -1,6 +1,8 @@
 from dtcc_core.builder.register import register_model_method
 
 from dtcc_core.model import Terrain, City, Building, Bounds, PointCloud
+from dtcc_core.logging import info, warning, error
+import numpy as np
 
 
 @register_model_method
@@ -51,4 +53,104 @@ def build_terrain(
         terrain.add_mesh(mesh)
 
     city.add_terrain(terrain)
+    return city
+
+
+@register_model_method
+def build_lod1_buildings(
+    city: City,
+    default_ground_height: float = 0.0,
+    min_building_height: float = 2.5,
+    always_use_default=False,
+    rebuild=True,
+    calculate_heights=True,
+    building_height_attribute: str = "height",
+) -> City:
+    """
+    Build LOD1 buildings for a city.
+
+    Args:
+        city (City): The city object to build LOD1 buildings for.
+        default_ground_height (float): The default ground height to use if no terrain is available.
+        always_use_default (bool): Whether to always use the default ground height or use the ground_height from
+        the terrain if available.
+        rebuild (bool): Whether to rebuild the LOD1 buildings if they already exist.
+        calculate_heights (bool): Whether to calculate building heights from the point cloud or get it from an attribute.
+        building_height_attribute (str): The attribute to use for building heights if calculate_heights is False.
+
+    Returns:
+        City: The city object with LOD1 buildings added.
+    """
+    from dtcc_core.builder import building_heights_from_pointcloud, build_lod1_buildings
+
+    if not isinstance(city, City):
+        raise ValueError("city must be a City object")
+
+    if len(city.buildings) == 0:
+        raise ValueError(
+            "City has no buildings to build LOD1 geometry for\nload building footprints first."
+        )
+
+    if not always_use_default and city.terrain.raster is None:
+        info("City has no terrain, generating terrain from point cloud")
+        city.build_terrain(pc=city.pointcloud)
+
+    if calculate_heights:
+        if city.pointcloud is None:
+            raise ValueError(
+                "City has no point cloud geometry\nAdd a point cloud to the city to calculate building heights."
+            )
+
+        buildings_with_heights = building_heights_from_pointcloud(
+            city.buildings,
+            city.pointcloud,
+            city.terrain.raster,
+            statistical_outlier_remover=True,
+            roof_outlier_neighbors=5,
+            roof_outlier_margin=1.5,
+            overwrite=True,
+        )
+        city.remove_buildings()
+        city.add_buildings(buildings_with_heights)
+        building_height_attribute = "height"
+    else:
+        for b in city.buildings:
+            footprint = b.lod0
+            if footprint is None:
+                warning(f"Building {b.id} has no LOD0 geometry.")
+                continue
+            if always_use_default:
+                ground_height = default_ground_height
+            else:
+                centroid = footprint.centroid
+                if np.isnan(centroid[0]) or np.isnan(centroid[1]):
+                    warning(f"Building {b.id} has an invalid centroid.")
+                    ground_height = default_ground_height
+                else:
+                    ground_height = city.terrain.raster.terrain.get_value(
+                        centroid[0], centroid[1]
+                    )
+            b.attributes["ground_height"] = ground_height
+            height = b.attributes.get(building_height_attribute, None)
+            if height is None:
+                warning(
+                    f"Building {b.id} has no {building_height_attribute} attribute. Using default ground height."
+                )
+                height = default_ground_height
+            if height < min_building_height:
+                warning(
+                    f"Building {b.id} has a height of {height}, which is less than the minimum building height of {min_building_height}. Setting height to {min_building_height}."
+                )
+                height = min_building_height
+            footprint.set_z(ground_height + height)
+            b.attributes["height"] = height
+    lod1_buildings = build_lod1_buildings(
+        city.buildings,
+        default_ground_height=default_ground_height,
+        always_use_default_ground=always_use_default,
+        rebuild=rebuild,
+    )
+    city.remove_buildings()
+    city.add_buildings(lod1_buildings)
+
     return city
