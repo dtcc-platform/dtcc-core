@@ -12,6 +12,9 @@ from copy import copy, deepcopy
 
 import dtcc_core
 
+
+from ..values import Raster
+
 from ..model import Model
 from ..geometry import (
     Geometry,
@@ -199,6 +202,24 @@ class Object(Model):
         if not isinstance(geometry_type, GeometryType):
             warning(f"Invalid geometry type (but I'll allow it): {geometry_type}")
         self.geometry[geometry_type] = geometry
+
+    def add_mesh(self, mesh: Mesh):
+        """Add a Mesh geometry to the object."""
+        if not isinstance(mesh, Mesh):
+            raise TypeError(f"Expected a Mesh instance, got {type(mesh)}")
+        self.add_geometry(mesh, GeometryType.MESH)
+
+    def add_point_cloud(self, point_cloud: PointCloud):
+        """Add a PointCloud geometry to the object."""
+        if not isinstance(point_cloud, PointCloud):
+            raise TypeError(f"Expected a PointCloud instance, got {type(point_cloud)}")
+        self.add_geometry(point_cloud, GeometryType.POINT_CLOUD)
+
+    def add_raster(self, raster):
+        """Add a Raster geometry to the object."""
+        if not isinstance(raster, (Raster, Grid)):
+            raise TypeError(f"Expected a Raster or Grid instance, got {type(raster)}")
+        self.add_geometry(raster, GeometryType.RASTER)
 
     def remove_geometry(self, geometry_type: Union[GeometryType, str]):
         """Remove geometry from object."""

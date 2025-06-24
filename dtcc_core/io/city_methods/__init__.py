@@ -2,7 +2,9 @@ from skimage.measure import regionprops_table
 
 from dtcc_core.model import City, Building, PointCloud, Bounds, Terrain, GeometryType
 
+
 from dtcc_core.builder import register_model_method
+
 import dtcc_core.io as io
 
 from pathlib import Path
@@ -41,7 +43,12 @@ def load_footprints(city: City, path: Union[str, Path], user_city_bounds=False) 
 
 
 @register_model_method
-def load_pointcloud(city: City, path: Union[Path, str], user_city_bounds=False) -> City:
+def load_pointcloud(
+    city: City,
+    path: Union[Path, str],
+    remove_global_outliers: float = 3.0,
+    user_city_bounds=False,
+) -> City:
     """
     Load pointcloud from las or csv file into city object
     """
@@ -58,6 +65,8 @@ def load_pointcloud(city: City, path: Union[Path, str], user_city_bounds=False) 
             city.bounds = bounds
         else:
             city.bounds.union(bounds)
+    if remove_global_outliers > 0:
+        pc = pc.remove_global_outliers(remove_global_outliers)
     city.add_geometry(pc, GeometryType.POINT_CLOUD)
     return city
 
