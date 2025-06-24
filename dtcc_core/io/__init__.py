@@ -12,6 +12,8 @@ from . import landuse
 from . import pointcloud_directory
 from .cityjson import cityjson
 
+from . import city_methods
+
 load_pointcloud = pointcloud.load
 save_pointcloud = pointcloud.save
 

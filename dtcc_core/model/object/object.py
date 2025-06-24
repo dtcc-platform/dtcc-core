@@ -152,6 +152,11 @@ class Object(Model):
         return self.geometry.get(GeometryType.POINT_CLOUD, None)
 
     @property
+    def pointcloud(self):
+        """Return POINT_CLOUD geometry."""
+        return self.geometry.get(GeometryType.POINT_CLOUD, None)
+
+    @property
     def raster(self):
         """Return RASTER geometry."""
         return self.geometry.get(GeometryType.RASTER, None)

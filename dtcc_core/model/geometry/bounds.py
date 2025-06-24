@@ -155,6 +155,16 @@ class Bounds(Model):
         """
         return self.width * self.height
 
+    def is_point(self) -> bool:
+        """Check if the bounds represent a point (zero area).
+
+        Returns
+        -------
+        bool
+            True if the bounds represent a point, False otherwise.
+        """
+        return self.width == 0 and self.height == 0 and self.depth == 0
+
     @property
     def volume(self) -> float:
         """Returns the volume enclosed by the bounds.
@@ -201,6 +211,16 @@ class Bounds(Model):
         other : Bounds
             The other bounds to merge with.
         """
+
+        if self.is_point():
+            self.xmin = other.xmin
+            self.ymin = other.ymin
+            self.zmin = other.zmin
+            self.xmax = other.xmax
+            self.ymax = other.ymax
+            self.zmax = other.zmax
+            return self
+
         self.xmin = min(self.xmin, other.xmin)
         self.ymin = min(self.ymin, other.ymin)
         self.zmin = min(self.zmin, other.zmin)

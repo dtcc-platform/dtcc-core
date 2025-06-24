@@ -36,6 +36,8 @@ from .city.modify import (
     clean_building_surfaces,
 )
 
+from .register import register_model_method
+
 from .trees.create import tree_raster_from_pointcloud
 
 from .geometry_builders.meshes import build_city_mesh
@@ -56,5 +58,6 @@ __all__ = [
     "fix_building_clearance",
     "clean_building_surfaces",
     "building_heights_from_pointcloud",
-    "tree_raster_from_pointcloud"
+    "tree_raster_from_pointcloud",
+
 ]
