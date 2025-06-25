@@ -1,4 +1,4 @@
-from dtcc_core import io, builder
+from dtcc_core import builder
 from dtcc_core.model import Tree, Raster, PointCloud
 
 import scipy.ndimage

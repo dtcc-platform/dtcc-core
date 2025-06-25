@@ -23,6 +23,10 @@ def _load_proto_raster(path, **kwargs):
 def _load_rasterio(path: Union[Path, List], **kwargs):
     raster = Raster()
     if not isinstance(path, list):
+        path = Path(path)
+        if not path.is_file():
+            error(f"File {path} does not exist or is not a file.")
+            return raster
         with rasterio.open(path) as src:
             data = src.read()
             data = data.squeeze()
@@ -69,6 +73,10 @@ def load(path, delimiter=",") -> Raster:
     Returns:
         Raster: A `Raster` object representing the raster file loaded.
     """
+
+
+
+
     return generic.load(path, "raster", Raster, _load_formats, delimiter=delimiter)
 
 
