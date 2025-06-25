@@ -24,6 +24,10 @@ dependencies = [
     "scipy >= 1.13.0, < 2.0.0",
     "shapely >= 2.0.0, < 3.0.0",
     "tqdm>=4.66.1",
+    "requests",
+    "platformdirs",
+    "aiohttp",
+    "folium",
 ]
 
 version = "0.9.3dev"
