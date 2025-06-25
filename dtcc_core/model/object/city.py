@@ -15,9 +15,11 @@ from ..geometry import Bounds
 from .. import dtcc_pb2 as proto
 from ..logging import info, warning, error, debug
 
+from ..city_mixins import CityLoaderMixin, CityDownloadMixin, CityBuilderMixin
+
 
 @dataclass
-class City(Object):
+class City(CityLoaderMixin, CityDownloadMixin, CityBuilderMixin, Object):
     """Represents a city, the top-level container class for city models."""
 
     @property
