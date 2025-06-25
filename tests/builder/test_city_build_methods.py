@@ -30,3 +30,16 @@ def test_build_terrain(las_path):
     assert city.terrain is not None
     assert city.terrain.raster is not None
     assert city.terrain.mesh is not None
+
+
+def test_lod1_buildings(building_shp_path, las_path):
+    city = City()
+    city.load_footprints(building_shp_path)
+    city.load_pointcloud(las_path)
+    city.build_lod1_buildings()
+
+    assert len(city.buildings) == 5
+    for building in city.buildings:
+        assert building.lod1 is not None
+        assert building.attributes.get("height") is not None
+        assert building.attributes.get("ground_height") is not None
