@@ -167,18 +167,9 @@ private:
 
   BoundingBox2D mesh_bounds;
 
-  // // Stores vertex to face mapping for ground mesh.
-  // std::vector<std::unordered_set<int>> vf;
-
-  // // Stores vertex to face mapping for ground mesh.
-  // std::vector<std::unordered_set<int>> ff;
-
   Vector3D mesh_center;
-  Vector3D mesh_origin;
-  // std::vector<int> face_colors;
-  // std::vector<int> vertex_colors;
 
-  // std::vector<int> face_partitions;
+  Vector3D mesh_origin;
 
 public:
   // Constructor
@@ -449,65 +440,6 @@ private:
 
     return std::tie(min,max,median);
   }
-
-  // void report(const VolumeMesh &volume_mesh, double elapsed_time, int step)
-  // {
-  //   constexpr char const* PREFIX = "MESH_REPORT";
-  //   double  min_ar,max_ar,median_ar = -1.0;
-    
-  //   std::tie(min_ar,max_ar,median_ar) = check_mesh_quality(volume_mesh,step);
-
-  //   std::cout
-  //       << PREFIX
-  //       << " step="           << step
-  //       << " vertices="       << volume_mesh.vertices.size()
-  //       << " cells="          << volume_mesh.cells.size()
-  //       << " time_s="         << std::fixed << std::setprecision(3) << elapsed_time
-  //       << " min_ar="         << std::fixed << std::setprecision(3) << min_ar
-  //       << " median_ar="      << std::fixed << std::setprecision(3) << median_ar
-  //       << " max_ar="         << std::fixed << std::setprecision(3) << max_ar
-  //       << "\n";
-
-  // }
-
-  void report2(const VolumeMesh &volume_mesh, double elapsed_time, int step)
-{
-    
-    double min_ar, max_ar, median_ar;
-    std::tie(min_ar, max_ar, median_ar) = check_mesh_quality(volume_mesh, step);
-
-    // one‐time initialization of the log file
-    static std::ofstream ofs;
-    // static bool first_call = true;
-    if (step == 2 ) {
-        // open in truncation mode on first call
-        ofs.open("mesh_report.txt", std::ofstream::out);
-        if (!ofs) {
-            std::cerr << "[MESH REPORT] " << " ERROR: Unable to open mesh_report.txt for writing\n";
-        }
-        // first_call = false;
-    }
-
-    // build the line
-    std::ostringstream line;
-    line << " step="      << step
-         << " vertices="  << volume_mesh.vertices.size()
-         << " cells="     << volume_mesh.cells.size()
-         << " time_s="    << std::fixed << std::setprecision(3) << elapsed_time
-         << " min_ar="    << std::fixed << std::setprecision(3) << min_ar
-         << " median_ar=" << std::fixed << std::setprecision(3) << median_ar
-         << " max_ar="    << std::fixed << std::setprecision(3) << max_ar
-         << "\n";
-
-    // echo to console
-    std::cout << "[MESH REPORT] " << line.str();
-
-    // append to file
-    if (ofs) {
-        ofs << line.str();
-        ofs.flush();
-    }
-}
 
 void report(const VolumeMesh &volume_mesh, double elapsed_time, int step)
 {

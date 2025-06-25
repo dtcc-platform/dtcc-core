@@ -45,7 +45,7 @@ from .city.modify import (
     clean_building_surfaces,
 )
 
-from .geometry_builders.meshes import build_surface_mesh
+from .geometry_builders.meshes import build_surface_mesh,build_volume_mesh
 
 __all__ = [
     "extract_roof_points",
@@ -63,4 +63,5 @@ __all__ = [
     "fix_building_clearance",
     "clean_building_surfaces",
     "building_heights_from_pointcloud",
+    "build_volume_mesh",
 ]
