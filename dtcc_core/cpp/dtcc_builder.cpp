@@ -17,6 +17,7 @@
 #include "VertexSmoother.h"
 #include "model/GridField.h"
 #include "model/Mesh.h"
+#include "model/VolumeMesh.h"
 #include "model/Polygon.h"
 #include "model/Simplices.h"
 #include "model/Vector.h"
@@ -75,6 +76,38 @@ namespace DTCC_BUILDER
     {
       mesh.faces.push_back(
           Simplex2D(faces_r(i, 0), faces_r(i, 1), faces_r(i, 2)));
+    }
+
+    for (size_t i = 0; i < num_markers; i++)
+    {
+      mesh.markers.push_back(markers_r(i));
+    }
+
+    return mesh;
+  }
+
+  VolumeMesh create_volume_mesh(py::array_t<double> vertices,
+                   py::array_t<size_t> cells,
+                   py::array_t<int> markers)
+  {
+    VolumeMesh mesh;
+    auto verts_r = vertices.unchecked<2>();
+    auto cells_r = cells.unchecked<2>();
+    auto markers_r = markers.unchecked<1>();
+    size_t num_vertices = verts_r.shape(0);
+    size_t num_cells = cells_r.shape(0);
+    size_t num_markers = markers_r.size();
+
+    for (size_t i = 0; i < num_vertices; i++)
+    {
+      mesh.vertices.push_back(
+          Vector3D(verts_r(i, 0), verts_r(i, 1), verts_r(i, 2)));
+    }
+
+    for (size_t i = 0; i < num_cells; i++)
+    {
+      mesh.cells.push_back(
+          Simplex3D(cells_r(i, 0), cells_r(i, 1), cells_r(i, 2), cells_r(i, 3)));
     }
 
     for (size_t i = 0; i < num_markers; i++)
@@ -379,6 +412,8 @@ PYBIND11_MODULE(_dtcc_builder, m)
   m.def("create_polygon", &DTCC_BUILDER::create_polygon, "Create C++ polygon");
 
   m.def("create_mesh", &DTCC_BUILDER::create_mesh, "Create C++ mesh");
+
+   m.def("create_volume_mesh", &DTCC_BUILDER::create_volume_mesh, "Create C++ volume mesh");
 
   m.def("mesh_as_arrays", &DTCC_BUILDER::mesh_as_arrays, "Create C++ mesh");
 

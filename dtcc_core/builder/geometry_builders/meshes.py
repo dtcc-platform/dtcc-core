@@ -152,10 +152,82 @@ def build_volume_mesh(
     merge_buildings: bool = True,
     boundary_face_markers: bool = True,
 ) -> VolumeMesh:
+    """
+    Build a 3D tetrahedral volume mesh for a city terrain with embedded building volumes.
 
+    This function generates a ground mesh from the city terrain and extrudes building
+    footprints to produce a full volume mesh, optionally merging adjacent buildings
+    and marking boundary faces.
+
+    Parameters
+    ----------
+    city : City
+        City object containing terrain and building data. Terrain must have either
+        a raster or mesh representation.
+    lod : GeometryType, optional
+        Level of detail for building footprints. Defaults to GeometryType.LOD1.
+    domain_height : float, optional
+        Height of the mesh domain above the terrain (in the same units as city coordinates).
+        Defaults to 100.0.
+    max_mesh_size : float, optional
+        Maximum allowed mesh element size. Used both for ground mesh cell sizing
+        and to cap subdomain resolutions. Defaults to 10.0.
+    merge_buildings : bool, optional
+        If True, merge adjacent building footprints into larger blocks before meshing.
+        Defaults to True.
+    boundary_face_markers : bool, optional
+        If True, add integer markers to the boundary faces of the volume mesh as a
+        post-processing step. Defaults to True. See Notes for marker conventions.
+
+    Returns
+    -------
+    VolumeMesh
+        A VolumeMesh instance representing the 3D tetrahedral mesh of the city domain, including
+        building volumes.
+
+    Raises
+    ------
+    ValueError
+        If the city has no terrain data (neither raster nor mesh).
+    ValueError
+        If the terrain object exists but has no usable raster or mesh data.
+
+    Boundary Face Markers
+    ---------------------
+    When `boundary_face_markers=True`, integer markers are added as follows (for
+    a domain containing N buildings):
+
+    - `0` to `N-1`:  Wall faces of the N buildings  
+    - `N` to `2*N-1`:  Roof faces of the N buildings  
+    - `-1`:  Ground (terrain) faces  
+    - `-2`:  Top faces of the volume domain  
+    - `-3`, `-4`, `-5`, `-6`:  The four vertical boundary faces of the domain  
+
+    Notes
+    -----
+    - Building footprints are extracted at the specified `lod` level (or LOD0 if
+      `merge_buildings` is True), optionally merged and simplified using internal
+      area/detail thresholds.
+    - Subdomain resolution for each building is set to the minimum of its height
+      and `max_mesh_size`.
+    - Ground mesh is built via the internal DTCC builder, and building surfaces
+      are extruded into the volume domain of height `domain_height`.
+    - Mesh smoothing and quality parameters (angles, iterations, tolerances, aspect
+      ratios) are applied internally.
+
+    Examples
+    --------
+    >>> mesh = build_volume_mesh(my_city,
+    ...                          lod=GeometryType.LOD1,
+    ...                          domain_height=150.0,
+    ...                          max_mesh_size=5.0,
+    ...                          merge_buildings=False,
+    ...                          boundary_face_markers=True)
+    """
+
+    # FIXME: Where do we set these parameters?
     min_building_area = 10.0
     min_building_detail = 0.5
-    # FIXME: Where do we set these parameters?
     min_mesh_angle = 30
     smoother_max_iterations = 5000
     smoothing_relative_tolerance = 0.005
@@ -164,14 +236,8 @@ def build_volume_mesh(
     
 
     buildings = city.buildings
-
-    #  # Extract roof points
-    # footprints = extract_roof_points(
-    #     buildings, pointcloud, statistical_outlier_remover=True
-    # )
-
-    # # Compute building heights
-    # buildings = compute_building_heights(buildings, terrain, overwrite=True)
+    if not buildings:
+        warning("City has no buildings.")
 
     if merge_buildings:
         info(f"Merging {len(buildings)} buildings...")
