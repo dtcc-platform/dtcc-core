@@ -15,7 +15,7 @@ from ..geometry import Bounds
 from .. import dtcc_pb2 as proto
 from ..logging import info, warning, error, debug
 
-from ..city_mixins import CityLoaderMixin, CityDownloadMixin, CityBuilderMixin
+from ..mixins.city import CityLoaderMixin, CityDownloadMixin, CityBuilderMixin
 
 
 @dataclass

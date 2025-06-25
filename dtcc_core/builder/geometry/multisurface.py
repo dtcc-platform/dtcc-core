@@ -54,7 +54,6 @@ def to_polygon(ms: MultiSurface, simplify=1e-2) -> Polygon:
     return merged
 
 
-@register_model_method
 def ray_intersection(
     ms: MultiSurface, origin: np.ndarray, direction: np.ndarray
 ) -> np.ndarray:

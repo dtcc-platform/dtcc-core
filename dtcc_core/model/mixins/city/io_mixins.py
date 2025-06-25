@@ -5,12 +5,12 @@ from pathlib import Path
 from typing import Union
 from typing import TypeVar, TYPE_CHECKING
 
-from ...model.object import GeometryType
-from ...model.geometry import PointCloud, Bounds
-from ...model.values import Raster
+from ....model.object import GeometryType
+from ....model.geometry import PointCloud, Bounds
+from ....model.values import Raster
 
 if TYPE_CHECKING:
-    from ...model.object import City
+    from ....model.object import City
 
     T_City = TypeVar("T_City", bound=City)
 

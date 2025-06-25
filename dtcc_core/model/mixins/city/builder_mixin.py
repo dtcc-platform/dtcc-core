@@ -5,11 +5,11 @@ from pathlib import Path
 from typing import Union
 from typing import TypeVar, TYPE_CHECKING
 
-from ...model.geometry import PointCloud, Bounds
-from ...model.values import Raster
+from ....model.geometry import PointCloud, Bounds
+from ....model.values import Raster
 
 if TYPE_CHECKING:
-    from ...model.object import City
+    from ....model.object import City
 
     T_City = TypeVar("T_City", bound=City)
 
@@ -36,7 +36,7 @@ class CityBuilderMixin:
             City: The city object with the terrain added.
         """
         from dtcc_core.builder import build_terrain_raster, build_terrain_mesh
-        from ...model.object import Terrain
+        from ....model.object import Terrain
 
         if pc is not None and not isinstance(pc, PointCloud):
             raise ValueError("pc must be a PointCloud object")

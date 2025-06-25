@@ -6,7 +6,6 @@ from ...model import PointCloud, Bounds
 from ..register import register_model_method
 
 
-@register_model_method
 def rasterize(
     pc: PointCloud,
     cell_size: float,

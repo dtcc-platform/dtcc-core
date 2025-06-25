@@ -3,6 +3,13 @@ import numpy as np
 import dtcc_core.builder
 from dtcc_core.model import Surface, MultiSurface, Mesh
 
+from dtcc_core.builder.geometry.multisurface import (
+    ray_intersection as multisurface_ray_intersection,
+)
+from dtcc_core.builder.geometry.surface import (
+    ray_intersection as surface_ray_intersection,
+)
+
 
 @pytest.fixture
 def square_surface():
@@ -31,7 +38,7 @@ def test_origin():
 def test_surface_ray_intersection(
     square_surface, test_origin, direction, expected_intersection, test_id
 ):
-    intersection = square_surface.ray_intersection(test_origin, direction)
+    intersection = surface_ray_intersection(square_surface, test_origin, direction)
     assert isinstance(intersection, np.ndarray)
 
     if test_id == "hit":
@@ -47,7 +54,9 @@ def test_surface_ray_intersection(
 def test_multisurface_ray_intersection(
     two_layer_surface, test_origin, direction, expected_intersection, test_id
 ):
-    intersection = two_layer_surface.ray_intersection(test_origin, direction)
+    intersection = multisurface_ray_intersection(
+        two_layer_surface, test_origin, direction
+    )
     assert isinstance(intersection, np.ndarray)
 
     if test_id == "hit":

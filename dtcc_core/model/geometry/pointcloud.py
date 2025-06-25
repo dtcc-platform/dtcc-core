@@ -10,9 +10,11 @@ from .geometry import Geometry
 from .bounds import Bounds
 from .. import dtcc_pb2 as proto
 
+from ..mixins.pointcloud.mixins import PointCloudBuilderMixin
+
 
 @dataclass
-class PointCloud(Geometry):
+class PointCloud(PointCloudBuilderMixin, Geometry):
     """Represents a set of points in 3D.
 
 
