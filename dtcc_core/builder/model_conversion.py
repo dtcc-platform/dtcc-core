@@ -172,7 +172,7 @@ def builder_mesh_to_mesh(_mesh: _dtcc_builder.Mesh):
     mesh.markers = markers
     return mesh
 
-def volume_mesh_to_builder_volume_mesh(volume_mesh: model.VolumeMesh):
+def volume_mesh_to_builder_volume_mesh(volume_mesh: model.VolumeMesh)-> _dtcc_builder.VolumeMesh:
     """
     Convert a model VolumeMesh to a DTCC builder VolumeMesh through the pybind exposed C++
     `DTCC_BUILDER::create_volume_mesh()` function.
