@@ -1,5 +1,5 @@
 import numpy as np
-from typing import List
+from typing import List, Union
 
 from ...model import PointCloud, Bounds
 from ..logging import info, warning, error
@@ -8,8 +8,7 @@ from ..register import register_model_method
 from .. import _dtcc_builder
 
 
-@register_model_method
-def remove_global_outliers(pc: PointCloud, margin: float):
+def find_global_outliers(pc: PointCloud, margin: float) -> np.ndarray:
     """
     Remove outliers from a `PointCloud` whose Z-values are more than `margin`
     standard deviations from the mean.
@@ -25,12 +24,34 @@ def remove_global_outliers(pc: PointCloud, margin: float):
     z_mean = np.mean(z_pts)
     z_std = np.std(z_pts)
     outliers = np.where(np.abs(z_pts - z_mean) > margin * z_std)[0]
+    return outliers
+
+
+def remove_global_outliers(pc: PointCloud, margin: float = 3.0) -> PointCloud:
+    """
+    Remove global outliers from a `PointCloud` object based on Z-value deviations.
+
+    Args:
+        pc (PointCloud): The `PointCloud` object to remove outliers from.
+        margin (float): The margin in standard deviations to consider a point an outlier.
+
+    Returns:
+        PointCloud: A new `PointCloud` object with the outliers removed.
+    """
+    outliers = find_global_outliers(pc, margin)
     new_pc = pc.copy()
-    new_pc.remove_points(outliers)
-    return new_pc
+    return new_pc.remove_points(outliers)
 
 
-@register_model_method
+def find_statistical_outliers(
+    pc: PointCloud, neighbours: int, outlier_margin: float
+) -> np.ndarray:
+    outliers = _dtcc_builder.statistical_outlier_finder(
+        pc.points, neighbours, outlier_margin
+    )
+    return outliers
+
+
 def statistical_outlier_filter(pc: PointCloud, neighbours, outlier_margin):
     """
     Remove statistical outliers from a `PointCloud` object.
@@ -44,14 +65,35 @@ def statistical_outlier_filter(pc: PointCloud, neighbours, outlier_margin):
         PointCloud: A new `PointCloud` object with the outliers removed.
     """
 
-    outliers = _dtcc_builder.statistical_outlier_finder(
-        pc.points, neighbours, outlier_margin
-    )
-    return pc.remove_points(outliers)
+    outliers = find_statistical_outliers(pc, neighbours, outlier_margin)
+    new_pc = pc.copy()
+    return new_pc.remove_points(outliers)
 
 
-@register_model_method
-def classification_filter(pc: PointCloud, classes: List[int], keep: bool = False):
+def find_classification(pc: PointCloud, classes: Union[int, List[int]]) -> np.ndarray:
+    """
+    Find the indices of points in a `PointCloud` object that match the specified classification values.
+
+    Args:
+        classes (List[int]): The classification values to find.
+
+    Returns:
+        np.ndarray: A 1D NumPy array of indices of points that match the specified classification values.
+    """
+    if len(pc.points) != len(pc.classification):
+        warning("Pointcloud not classified")
+        return np.array([])
+    if isinstance(classes, int):
+        classes = [classes]
+
+    cls_indices = np.where(np.isin(pc.classification, classes))[0]
+
+    return cls_indices
+
+
+def classification_filter(
+    pc: PointCloud, classes: Union[int, List[int]], keep: bool = False
+):
     """
     Filter a `PointCloud` object based on its classification.
 
@@ -63,16 +105,19 @@ def classification_filter(pc: PointCloud, classes: List[int], keep: bool = False
         PointCloud: A new `PointCloud` object with the specified points removed.
     """
     if len(pc.points) != len(pc.classification):
-        warning("Pointcloud not classified, returning original pointcloud.")
+        error("Pointcloud not classified")
         return pc
-    mask = np.isin(pc.classification, classes)
+    cls_indices = find_classification(pc, classes)
+
+    new_pc = pc.copy()
     if keep:
-        mask = np.logical_not(mask)
-    pc.remove_points(mask)
-    return pc
+        new_pc.keep_points(cls_indices)
+    else:
+        new_pc.remove_points(cls_indices)
+
+    return new_pc
 
 
-@register_model_method
 def z_range_filter(pc: PointCloud, min=None, max=None):
     """
     Filter a `PointCloud` object based on its Z-values.
@@ -97,7 +142,6 @@ def z_range_filter(pc: PointCloud, min=None, max=None):
     return pc
 
 
-@register_model_method
 def remove_vegetation(pc: PointCloud) -> PointCloud:
     """
     Return a pioint cloud with vegetation removed.
@@ -114,7 +158,6 @@ def remove_vegetation(pc: PointCloud) -> PointCloud:
     return new_pc
 
 
-@register_model_method
 def get_vegetation(pc: PointCloud) -> PointCloud:
     new_pc = pc.copy()
     veg_indices = _find_vegetation(pc)
@@ -171,17 +214,7 @@ def _find_vegetation(pc: PointCloud, filter_on_return_number=True):
     return vegetation_indices
 
 
-@register_model_method
-def crop(pc: PointCloud, bounds: Bounds, xy_only=True) -> PointCloud:
-    """
-    Crop a `PointCloud` object only include point inside given bounds object
-
-    Args:
-        bounds (Bounds): The bounds to keep.
-
-    Returns:
-        PointCloud: A new `PointCloud` object with all points inside the bounds.
-    """
+def pts_in_bounds(pc: PointCloud, bounds: Bounds, xy_only=True) -> np.ndarray:
     x_min, x_max = bounds.xmin, bounds.xmax
     y_min, y_max = bounds.ymin, bounds.ymax
 
@@ -194,7 +227,21 @@ def crop(pc: PointCloud, bounds: Bounds, xy_only=True) -> PointCloud:
             0
         ]
         keep_idx = np.intersect1d(keep_idx, z_keep_idx)
+    return keep_idx
+
+
+def crop(pc: PointCloud, bounds: Bounds, xy_only=True) -> PointCloud:
+    """
+    Crop a `PointCloud` object only include point inside given bounds object
+
+    Args:
+        bounds (Bounds): The bounds to keep.
+
+    Returns:
+        PointCloud: A new `PointCloud` object with all points inside the bounds.
+    """
 
     new_pc = pc.copy()
-    new_pc.keep_points(keep_idx)
+    indices = pts_in_bounds(new_pc, bounds, xy_only=xy_only)
+    new_pc.keep_points(indices)
     return new_pc
