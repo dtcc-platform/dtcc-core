@@ -199,6 +199,7 @@ class Object(Model):
             geometry_type = GeometryType.from_str(type(geometry).__name__)
         if not isinstance(geometry_type, GeometryType):
             warning(f"Invalid geometry type (but I'll allow it): {geometry_type}")
+        info(f"Adding geometry of type {geometry_type} to object")
         self.geometry[geometry_type] = geometry
 
     def remove_geometry(self, geometry_type: Union[GeometryType, str]):
