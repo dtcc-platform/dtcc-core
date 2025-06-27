@@ -61,15 +61,15 @@ class Mesh(Geometry):
         """Calculate the bounding box of the mesh."""
         if len(self.vertices) < 3:
             self._bounds = Bounds()
-            return self._bounds
-        self._bounds = Bounds(
-            xmin=np.min(self.vertices[:, 0]),
-            ymin=np.min(self.vertices[:, 1]),
-            zmin=np.min(self.vertices[:, 2]),
-            xmax=np.max(self.vertices[:, 0]),
-            ymax=np.max(self.vertices[:, 1]),
-            zmax=np.max(self.vertices[:, 2]),
-        )
+        else:
+            self._bounds = Bounds(
+                xmin=np.min(self.vertices[:, 0]),
+                ymin=np.min(self.vertices[:, 1]),
+                zmin=np.min(self.vertices[:, 2]),
+                xmax=np.max(self.vertices[:, 0]),
+                ymax=np.max(self.vertices[:, 1]),
+                zmax=np.max(self.vertices[:, 2]),
+            )
         return self._bounds
 
     @property
@@ -197,14 +197,17 @@ class VolumeMesh(Geometry):
 
     def calculate_bounds(self) -> Bounds:
         """Calculate the bounding box of the mesh."""
-        self._bounds = Bounds(
-            xmin=np.min(self.vertices[:, 0]),
-            ymin=np.min(self.vertices[:, 1]),
-            zmin=np.min(self.vertices[:, 2]),
-            xmax=np.max(self.vertices[:, 0]),
-            ymax=np.max(self.vertices[:, 1]),
-            zmax=np.max(self.vertices[:, 2]),
-        )
+        if len(self.vertices) < 3:
+            self._bounds = Bounds()
+        else:
+            self._bounds = Bounds(
+                xmin=np.min(self.vertices[:, 0]),
+                ymin=np.min(self.vertices[:, 1]),
+                zmin=np.min(self.vertices[:, 2]),
+                xmax=np.max(self.vertices[:, 0]),
+                ymax=np.max(self.vertices[:, 1]),
+                zmax=np.max(self.vertices[:, 2]),
+            )
         return self._bounds
 
     @property
@@ -267,7 +270,7 @@ class VolumeMesh(Geometry):
         _pb = proto.VolumeMesh()
         _pb.vertices.extend(self.vertices.flatten())
         _pb.cells.extend(self.cells.flatten())
-        pb.mesh.CopyFrom(_pb)
+        pb.volume_mesh.CopyFrom(_pb)
 
         return pb
 
