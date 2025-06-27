@@ -106,16 +106,16 @@ class Object(Model):
         Unique identifier of the object.
     attributes : dict
         Dictionary of attributes.
-    children : dict of lists
-        Dictionary of child objects (key is type).
     geometry : dict
         Dictionary of geometries.
+    children : dict of lists
+        Dictionary of child objects (key is type).
     """
 
     id: str = field(default_factory=lambda: str(uuid4()))
     attributes: dict = field(default_factory=dict)
-    children: dict = field(default_factory=lambda: defaultdict(list))
     geometry: dict = field(default_factory=dict)
+    children: dict = field(default_factory=lambda: defaultdict(list))
     transform: Transform = field(default_factory=Transform)
     _bounds: Bounds = None
 
@@ -290,6 +290,29 @@ class Object(Model):
     def defined_attributes(self):
         """Return a list of the attributes defined on this object."""
         return sorted(list(self.attributes.keys()))
+
+    def tree(self, indent=""):
+        """Print a summary of the object including its children."""
+        class_name = type(self).__name__
+        num_attributes = len(self.attributes)
+        num_children = len(self.children)
+        num_geometries = len(self.geometry)
+        print(
+            f"{indent}{class_name} with id = {self.id}, {num_attributes} attributes, {num_geometries} geometries, and {num_children} children"
+        )
+        if num_attributes > 0:
+            print(f"{indent}  Attributes:")
+            for key, value in self.attributes.items():
+                print(f"{indent}    {key}: {value}")
+        if num_geometries > 0:
+            print(f"{indent}  Geometries:")
+            for geometry_type, geometry in self.geometry.items():
+                geometry.tree(geometry_type=geometry_type, indent=(indent + "    "))
+        if num_children > 0:
+            print(f"{indent}  Children:")
+            for _, _children in self.children.items():
+                for child in _children:
+                    child.tree(indent=(indent + "    "))
 
     def to_proto(self) -> proto.Object:
         """Return a protobuf representation of the Object.

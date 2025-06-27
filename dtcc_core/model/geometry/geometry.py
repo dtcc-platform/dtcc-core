@@ -64,6 +64,20 @@ class Geometry(Model):
         """
         self.fields.append(field)
 
+    def tree(self, indent="", geometry_type=None):
+        """Print a summary of the geometry including its fields."""
+        if geometry_type is None:
+            print(f"{indent}{self}")
+        else:
+            print(f"{indent}{geometry_type}: {self}")
+        if len(self.fields) > 0:
+            print(f"{indent}  Fields:")
+            for field in self.fields:
+                print(f"{indent}    {field.name} ({field.unit}), {field.description}")
+
+    # transform: Transform = field(default_factory=Transform)
+    # fields: list[Field] = field(default_factory=list)
+
     def to_proto(self) -> proto.Geometry:
         """Return a protobuf representation of the Geometry.
 
