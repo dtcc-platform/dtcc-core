@@ -4,7 +4,7 @@
 
 from dataclasses import dataclass, field
 from collections import defaultdict
-from typing import Union
+from typing import Union, Optional
 from enum import Enum, auto
 import json
 
@@ -182,7 +182,11 @@ class Object(Model):
         for child in children:
             self.add_child(child)
 
-    def add_geometry(self, geometry: Geometry, geometry_type: Union[GeometryType, str]):
+    def add_geometry(
+        self,
+        geometry: Geometry,
+        geometry_type: Optional[Union[GeometryType, str]] = None,
+    ):
         """Add geometry to object."""
         if isinstance(geometry_type, str) and geometry_type.startswith("GeometryType."):
             geometry_type = GeometryType.from_str(geometry_type[13:])
@@ -191,6 +195,8 @@ class Object(Model):
                 geometry_type = GeometryType.from_str(geometry_type)
             except ValueError:
                 pass
+        elif geometry_type is None:
+            geometry_type = GeometryType.from_str(type(geometry).__name__)
         if not isinstance(geometry_type, GeometryType):
             warning(f"Invalid geometry type (but I'll allow it): {geometry_type}")
         self.geometry[geometry_type] = geometry
