@@ -216,6 +216,8 @@ class Object(Model):
 
     def add_field(self, field, geometry_type):
         """Add a field to a geometry of the object."""
+        if isinstance(geometry_type, type):
+            geometry_type = GeometryType.from_str(geometry_type.__name__)
         geometry = self.geometry.get(geometry_type, None)
         if geometry is None:
             error("No geometry of type {geometry_type} defined on object")
