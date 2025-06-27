@@ -40,7 +40,7 @@ class Field(Model):
     unit: str = ""
     description: str = ""
     values: np.ndarray = field(default_factory=lambda: np.empty(0))
-    dim: int = 0
+    dim: int = 1
 
     def to_proto(self) -> proto.Field:
         """Return a protobuf representation of the Field.

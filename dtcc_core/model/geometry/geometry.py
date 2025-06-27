@@ -72,10 +72,12 @@ class Geometry(Model):
         proto.Geometry
             A protobuf representation of the Geometry.
         """
-        pb = proto.Geometry()
-        pb.bounds.CopyFrom(self.bounds.to_proto())
-        pb.transform.CopyFrom(self.transform.to_proto())
-        return pb
+        _pb = proto.Geometry()
+        _pb.bounds.CopyFrom(self.bounds.to_proto())
+        _pb.transform.CopyFrom(self.transform.to_proto())
+        _pb.fields.extend([f.to_proto() for f in self.fields])
+
+        return _pb
 
     def from_proto(self, pb: Union[proto.Geometry, bytes]):
         """Initialize Geometry from a protobuf representation.
@@ -89,3 +91,7 @@ class Geometry(Model):
             pb = proto.Geometry.FromString(pb)
         self.bounds.from_proto(pb.bounds)
         self.transform.from_proto(pb.transform)
+        for _field in pb.fields:
+            field = Field()
+            field.from_proto(_field)
+            self.fields.append(field)

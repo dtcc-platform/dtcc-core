@@ -53,12 +53,20 @@ class GeometryType(Enum):
 
     @staticmethod
     def from_str(s):
-        s = re.sub(r"(?<!^)(?=[A-Z])", "_", s).upper()
+        s = s.upper()
         try:
             t = GeometryType[s]
         except KeyError:
             raise ValueError(f"Unknown geometry type: {s}")
         return t
+
+    @staticmethod
+    def from_class_name(s):
+        return GeometryType.from_str(re.sub(r"(?<!^)(?=[A-Z])", "_", s).upper())
+
+    @staticmethod
+    def from_class(s):
+        return GeometryType.from_class_name(s.__name__)
 
 
 def _proto_type_to_object_class(_type):
@@ -196,7 +204,7 @@ class Object(Model):
             except ValueError:
                 pass
         elif geometry_type is None:
-            geometry_type = GeometryType.from_str(type(geometry).__name__)
+            geometry_type = GeometryType.from_class(type(geometry))
         if not isinstance(geometry_type, GeometryType):
             warning(f"Invalid geometry type (but I'll allow it): {geometry_type}")
         info(f"Adding geometry of type {geometry_type} to object")
@@ -217,7 +225,7 @@ class Object(Model):
     def add_field(self, field, geometry_type):
         """Add a field to a geometry of the object."""
         if isinstance(geometry_type, type):
-            geometry_type = GeometryType.from_str(geometry_type.__name__)
+            geometry_type = GeometryType.from_class(geometry_type)
         geometry = self.geometry.get(geometry_type, None)
         if geometry is None:
             error("No geometry of type {geometry_type} defined on object")
