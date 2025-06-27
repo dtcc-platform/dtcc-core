@@ -285,7 +285,7 @@ class VolumeMesh(Geometry):
 
         # Handle byte representation
         if isinstance(pb, bytes):
-            pb = proto.FromString(pb)
+            pb = proto.Geometry.FromString(pb)
 
         # Handle Geometry fields
         Geometry.from_proto(self, pb)
@@ -293,4 +293,4 @@ class VolumeMesh(Geometry):
         # Handle specific fields
         _pb = pb.volume_mesh
         self.vertices = np.array(_pb.vertices).reshape((-1, 3))
-        self.cells = np.array(_pb.faces, dtype=np.int64).reshape((-1, 4))
+        self.cells = np.array(_pb.cells, dtype=np.int64).reshape((-1, 4))

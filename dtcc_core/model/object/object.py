@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from collections import defaultdict
 from typing import Union, Optional
 from enum import Enum, auto
-import json
+import json, re
 
 from copy import copy, deepcopy
 
@@ -53,11 +53,12 @@ class GeometryType(Enum):
 
     @staticmethod
     def from_str(s):
-        s = s.upper()
+        s = re.sub(r"(?<!^)(?=[A-Z])", "_", s).upper()
         try:
             t = GeometryType[s]
         except KeyError:
             raise ValueError(f"Unknown geometry type: {s}")
+        print("CHECK:", t)
         return t
 
 
