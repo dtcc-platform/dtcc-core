@@ -58,7 +58,6 @@ class GeometryType(Enum):
             t = GeometryType[s]
         except KeyError:
             raise ValueError(f"Unknown geometry type: {s}")
-        print("CHECK:", t)
         return t
 
 
