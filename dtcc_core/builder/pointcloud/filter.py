@@ -104,6 +104,7 @@ def classification_filter(
     Returns:
         PointCloud: A new `PointCloud` object with the specified points removed.
     """
+
     if len(pc.points) != len(pc.classification):
         error("Pointcloud not classified")
         return pc

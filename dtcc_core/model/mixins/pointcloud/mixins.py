@@ -57,102 +57,99 @@ class PointcloudFilterMixin:
         self: "T_Pointcloud", margin: float = 3.0
     ) -> "T_Pointcloud":
         """
-        Remove outliers from the point cloud based on Z-value deviations.
+        Remove outliers from the point cloud based on Z-value deviations. This method is non-mutating
+        (does not modify data in-place).
 
         Args:
             margin (float): The margin in standard deviations to consider a point an outlier.
 
         Returns:
-            T_Pointcloud: The point cloud with the outliers removed.
+            T_Pointcloud: A new pointcloud with the outliers removed.
         """
-        from dtcc_core.builder.pointcloud.filter import find_global_outliers
+        from dtcc_core.builder.pointcloud.filter import (
+            find_global_outliers,
+            remove_global_outliers,
+        )
 
-        outliers = find_global_outliers(self, margin)
-        self.remove_points(outliers)
-        return self
+        return remove_global_outliers(self, margin)
 
     def statistical_outlier_filter(
-        self: "T_Pointcloud", neighbours: int, outlier_margin: float
+        self: "T_Pointcloud", neighbours: int = 5, outlier_margin: float = 1.0
     ) -> "T_Pointcloud":
         """
-        Remove statistical outliers from the point cloud.
+        Remove statistical outliers from the point cloud. This method is non-mutating
+        (does not modify data in-place).
 
         Args:
             neighbours (int): The number of neighbours to consider for the outlier detection.
             outlier_margin (float): The margin in standard deviations to consider a point an outlier.
 
         Returns:
-            T_Pointcloud:The point cloud with the outliers removed.
+            T_Pointcloud: A new point cloud with the outliers removed.
         """
-        from dtcc_core.builder.pointcloud.filter import find_statistical_outliers
+        from dtcc_core.builder.pointcloud.filter import (
+            find_statistical_outliers,
+            statistical_outlier_filter,
+        )
 
-        outliers = find_statistical_outliers(self, neighbours, outlier_margin)
-        self.remove_points(outliers)
-
-        return self
+        return statistical_outlier_filter(self, neighbours, outlier_margin)
 
     def classification_filter(
         self: "T_Pointcloud", classes: Union[int, List[int]], keep: bool = False
     ) -> "T_Pointcloud":
         """
-        Filter the point cloud based on classification.
+        Filter the point cloud based on classification. This method is non-mutating
+        (does not modify data in-place).
 
         Args:
             classes (Union[int, List[int]]): The classification(s) to filter by.
             keep (bool): If True, keep points with the specified classification(s); otherwise, remove them.
 
         Returns:
-            T_Pointcloud: The filtered point cloud.
+            T_Pointcloud: A new point cloud with the specified classification(s) filtered out or kept.
         """
-        from dtcc_core.builder.pointcloud.filter import find_classification
+        from dtcc_core.builder.pointcloud.filter import (
+            find_classification,
+            classification_filter,
+        )
 
-        indices = find_classification(self, classes)
-        if keep:
-            self.keep_points(indices)
-        else:
-            self.remove_points(indices)
-        return self
+        return classification_filter(self, classes, keep)
 
     def crop(self: "T_Pointcloud", bounds: Bounds) -> "T_Pointcloud":
         """
-        Crop the point cloud to the specified bounds.
+        Crop the point cloud to the specified bounds. This method is non-mutating
+        (does not modify data in-place).
 
         Args:
             bounds (Bounds): The bounds to crop the point cloud to.
 
         Returns:
-            T_Pointcloud: The cropped point cloud.
+            T_Pointcloud: A new point cloud cropped to the specified bounds.
         """
-        from dtcc_core.builder.pointcloud.filter import pts_in_bounds
+        from dtcc_core.builder.pointcloud.filter import pts_in_bounds, crop
 
-        keep_pts = pts_in_bounds(self, bounds)
-        self.keep_points(keep_pts)
-
-        return self
+        return crop(self, bounds)
 
     def remove_vegetation(self: "T_Pointcloud") -> "T_Pointcloud":
         """
-        Remove vegetation points from the point cloud.
+        Remove vegetation points from a point cloud. This method is non-mutating
+        (does not modify data in-place).
 
         Returns:
-            T_Pointcloud: The point cloud with vegetation points removed.
+            T_Pointcloud: A new point cloud with vegetation points removed.
         """
-        from dtcc_core.builder.pointcloud.filter import _find_vegetation
+        from dtcc_core.builder.pointcloud.filter import remove_vegetation
 
-        indices = _find_vegetation(self)
-        self.remove_points(indices)
-
-        return self
+        return remove_vegetation(self)
 
     def get_vegetation(self: "T_Pointcloud") -> "T_Pointcloud":
         """
-        Get the vegetation points from the point cloud.
+        Get the vegetation points from the point cloud and return as a new pointcloud. This method is non-mutating
+        (does not modify data in-place).
 
         Returns:
             T_Pointcloud: A new point cloud containing only the vegetation points.
         """
-        from dtcc_core.builder.pointcloud.filter import _find_vegetation
+        from dtcc_core.builder.pointcloud.filter import get_vegetation
 
-        indices = _find_vegetation(self)
-        self.keep_points(indices)
-        return self
+        return get_vegetation(self)
