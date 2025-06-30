@@ -11,9 +11,11 @@ from .geometry import Geometry, Bounds
 from .surface import Surface, MultiSurface
 from .. import dtcc_pb2 as proto
 
+from ..mixins.mesh.mixins import MeshProcessingMixin
+
 
 @dataclass
-class Mesh(Geometry):
+class Mesh(MeshProcessingMixin, Geometry):
     """Represents an unstructured triangular mesh in 3D.
 
     The Mesh class represents a 3D triangular mesh, which consists of vertices

@@ -5,4 +5,5 @@ from .meshing import (
     merge_meshes,
     disjoint_meshes,
     snap_vertices,
+    merge,
 )

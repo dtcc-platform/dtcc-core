@@ -111,7 +111,6 @@ def merge_meshes(meshes: [Mesh], weld=False, snap=0) -> Mesh:
     return mesh
 
 
-@register_model_method
 def merge(mesh: Mesh, other: Mesh, weld=False, snap=0) -> Mesh:
     builder_mesh = mesh_to_builder_mesh(mesh)
     builder_other = mesh_to_builder_mesh(other)
@@ -120,12 +119,11 @@ def merge(mesh: Mesh, other: Mesh, weld=False, snap=0) -> Mesh:
     return mesh
 
 
-@register_model_method
 def snap_vertices(mesh: Mesh, snap_distance: float) -> Mesh:
     builder_mesh = mesh_to_builder_mesh(mesh)
     snapped_mesh = _dtcc_builder.snap_mesh_vertices(builder_mesh, snap_distance)
-    mesh = builder_mesh_to_mesh(snapped_mesh)
-    return mesh
+    snapped_mesh = builder_mesh_to_mesh(snapped_mesh)
+    return snapped_mesh
 
 
 def disjoint_meshes(mesh: Mesh) -> List[Mesh]:
