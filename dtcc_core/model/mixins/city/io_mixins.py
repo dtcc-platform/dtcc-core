@@ -136,17 +136,22 @@ class CityDownloadMixin:
 
         footprints = io.data.download_footprints(bounds=download_bounds)
         self.add_buildings(footprints)
-        self.calculate_bounds()
         return self
 
-    def download_pointcloud(self: "City", bounds: Union[Bounds, None] = None) -> "City":
+    def download_pointcloud(
+        self: "City",
+        bounds: Union[Bounds, None] = None,
+        filter_on_z_bounds: bool = False,
+        remove_global_outliers: float = 3.0,
+    ) -> "City":
         """
         Download pointcloud from a URL and load it into a City object.
 
         Args:
             self (City): The City object to load the pointcloud into.
             bounds (Bounds, optional): The bounds to filter the pointcloud.
-
+            filter_on_z_bounds (bool, optional): If True, use the z bounds of the city to filter the pointcloud.
+            remove_global_outliers (float, optional):  if greater than 0, remove global outliers from the pointcloud
         Returns:
             City: The updated City object with the loaded pointcloud.
         """
@@ -157,6 +162,15 @@ class CityDownloadMixin:
         download_bounds = _get_download_bounds(self.bounds, bounds)
 
         pc = io.data.download_pointcloud(bounds=download_bounds)
+        if filter_on_z_bounds:
+            if download_bounds.zmax - download_bounds.zmin <= 0.0:
+                warning("Z bounds are invalid, not filtering point cloud on z bounds")
+            else:
+                pc = pc.z_filter(download_bounds.zmin, download_bounds.zmax)
+        if remove_global_outliers > 0:
+            info(
+                f"Removing global outliers from point cloud with threshold {remove_global_outliers}"
+            )
+            pc = pc.remove_global_outliers(remove_global_outliers)
         self.add_point_cloud(pc)
-        self.calculate_bounds()
         return self
