@@ -130,6 +130,22 @@ class PointcloudFilterMixin:
 
         return crop(self, bounds)
 
+    def z_filter(self: "T_Pointcloud", zmin, zmax) -> "T_Pointcloud":
+        """
+        Filter the point cloud based on Z-values. This method is non-mutating
+        (does not modify data in-place).
+
+        Args:
+            zmin (float): The minimum Z-value to keep.
+            zmax (float): The maximum Z-value to keep.
+
+        Returns:
+            Pointcloud: A new point cloud with points outside the specified Z-range removed.
+        """
+        from dtcc_core.builder.pointcloud.filter import z_range_filter
+
+        return z_range_filter(self, zmin, zmax)
+
     def remove_vegetation(self: "T_Pointcloud") -> "T_Pointcloud":
         """
         Remove vegetation points from a point cloud. This method is non-mutating
