@@ -101,7 +101,6 @@ class LineString(Geometry):
 
 
 @dataclass
-@dataclass
 class MultiLineString(Geometry):
     """
     Represents a geometry composed of multiple LineString objects.
