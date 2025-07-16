@@ -116,6 +116,24 @@ def simplify_building_footprints(
     tolerance: float = 0.5,
     lod: GeometryType = GeometryType.LOD0,
 ) -> List[Building]:
+    """
+    Simplify the building footprints by reducing the number of vertices while maintaining the overall shape.
+
+    Parameters
+    ----------
+    buildings : List[Building]
+        A list of `Building` objects whose footprints need to be simplified.
+    tolerance : float, optional
+        The tolerance for simplification. A higher value results in a more simplified footprint (default is 0.5).
+    lod : GeometryType, optional
+        The level of detail of the geometry to simplify. Typically set to `GeometryType.LOD0` (default).
+
+    Returns
+    -------
+    List[Building]
+        A list of `Building` objects with simplified LOD0 footprints.
+    """
+
     simplified_buildings = []
     for building in buildings:
         lod0 = building.lod0
@@ -160,6 +178,29 @@ def fix_building_footprint_clearance(
 def split_footprint_walls(
     buildings: List[Building], max_wall_length: Union[float, List[float]] = 10
 ) -> List[Building]:
+    """
+    Splits the walls of the building footprints to ensure they do not exceed the maximum wall length.
+
+    Parameters
+    ----------
+    buildings : List[Building]
+        List of buildings whose footprints need to be processed.
+    max_wall_length : Union[float, List[float]], optional
+        Maximum allowable length for the walls of the building footprints. Can be a single value 
+        applied to all buildings or a list specifying a different maximum length for each building.
+
+    Returns
+    -------
+    List[Building]
+        A new list of buildings with their LOD0 footprints split according to the specified maximum
+        wall lengths.
+        
+    Raises
+    ------
+    ValueError
+        If `max_wall_length` is provided as a list and its length does not match the number of buildings.
+    """
+
     split_buildings = []
     if isinstance(max_wall_length, (int, float)):
         max_wall_length = [max_wall_length] * len(buildings)
