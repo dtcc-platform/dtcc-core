@@ -173,6 +173,24 @@ def fix_building_clearance(
 
 
 def clean_building_surfaces(city: City, lod: GeometryType, tol=1e-2) -> City:
+    """
+    Clean the building surfaces of a city model by removing invalid or degenerate
+    surface geometries.
+
+    Parameters
+    ----------
+    city : City
+        The city model to clean
+    lod : GeometryType
+        The level of detail to use when cleaning the building surfaces
+    tol : float, optional
+        The tolerance to use when cleaning the building surfaces. Defaults to 1e-2.
+
+    Returns
+    -------
+    City
+        The cleaned city model
+    """
     for building in city.buildings:
         building = clean_building_geometry(building, lod, tol)
     return city

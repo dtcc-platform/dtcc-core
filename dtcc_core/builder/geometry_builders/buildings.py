@@ -62,6 +62,28 @@ def compute_building_heights(
     roof_percentile=0.9,
     overwrite=False,
 ) -> List[Building]:
+    """
+    Compute the heights of a list of buildings by finding the highest point in the point cloud
+    for each building and subtracting the ground height from the terrain.
+
+    Parameters
+    ----------
+    `buildings` : List[Building]
+        The list of buildings to compute the heights for.
+    `terrain` : Raster
+        The terrain raster to use for computing ground heights.
+    `min_building_height` : float, optional
+        The minimum height to use for a building if the computed height is too low, by default 2.5.
+    `roof_percentile` : float, optional
+        The percentile to use for computing the roof height from the point cloud, by default 0.9.
+    `overwrite` : bool, optional
+        Whether to overwrite the existing height attribute of the building or not, by default False.
+
+    Returns
+    -------
+    List[Building]
+        The list of buildings with their heights computed.
+    """
     info("Computing building heights...")
     for building in buildings:
         footprint = building.lod0
@@ -148,6 +170,34 @@ def extract_roof_points(
     ransac_outlier_margin=3.0,
     ransac_iterations=250,
 ) -> List[Building]:
+    """
+    Extract roof points from a point cloud for a list of buildings.
+
+    Parameters
+    ----------
+    buildings : list[Building]
+        The list of buildings to extract roof points for.
+    pointcloud : PointCloud
+        The point cloud to extract roof points from.
+    statistical_outlier_remover : bool, optional
+        Whether to use a statistical outlier remover on the roof points. Default is True.
+    roof_outlier_neighbors : int, optional
+        The number of neighbors to consider for statistical outlier removal. Default is 5.
+    roof_outlier_margin : float, optional
+        The margin for statistical outlier removal. Default is 1.5.
+    ransac_outlier_remover : bool, optional
+        Whether to use a RANSAC outlier remover on the roof points. Default is False.
+    ransac_outlier_margin : float, optional
+        The margin for RANSAC outlier removal. Default is 3.0.
+    ransac_iterations : int, optional
+        The number of iterations for RANSAC outlier removal. Default is 250.
+
+    Returns
+    -------
+    list[Building]
+        The list of buildings with roof points extracted.
+    """
+    
     footprint_polygons = [b.get_footprint() for b in buildings]
 
     builder_polygon = [
@@ -192,6 +242,37 @@ def building_heights_from_pointcloud(
     overwrite=False,
     keep_roof_points=False,
 ) -> List[Building]:
+
+    """
+    Calculate building heights from a point cloud and optionally a terrain raster.
+
+    This function extracts roof points from a point cloud, computes building heights,
+    and optionally removes roof points from the building geometries.
+
+    Parameters
+    ----------
+    buildings : list[Building]
+        The buildings for which to calculate heights.
+    pointcloud : PointCloud
+        The point cloud used for extracting roof points.
+    terrain_raster : Raster, optional
+        A raster representing ground elevation. If not provided, it will be generated from the point cloud.
+    statistical_outlier_remover : bool, optional
+        Whether to use a statistical outlier remover on the roof points. Default is True.
+    roof_outlier_neighbors : int, optional
+        The number of neighbors to consider for statistical outlier removal. Default is 5.
+    roof_outlier_margin : float, optional
+        The margin for statistical outlier removal. Default is 1.5.
+    overwrite : bool, optional
+        Whether to overwrite existing building heights. Default is False.
+    keep_roof_points : bool, optional
+        Whether to retain the roof points in the building geometries. Default is False.
+
+    Returns
+    -------
+    list[Building]
+        The buildings with updated heights.
+    """
 
     if terrain_raster is None:
         info("No terrain raster provided, building terrain raster from point cloud.")
