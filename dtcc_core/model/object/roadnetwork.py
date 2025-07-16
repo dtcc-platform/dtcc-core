@@ -28,6 +28,22 @@ class RoadType(Enum):
 
 @dataclass
 class RoadNetwork(Object):
+    """
+    Represents a road network as a graph of vertices and edges with associated lengths.
+
+    Attributes
+    ----------
+    vertices : np.ndarray
+        An array of vertex coordinates in the road network (shape: [n_vertices, dim]).
+    
+    edges : np.ndarray
+        An array of edge indices representing connections between vertices 
+        (shape: [n_edges, 2], each row is [start_idx, end_idx]).
+    
+    length : np.ndarray
+        An array of lengths corresponding to each edge in the network 
+        (shape: [n_edges]).
+    """
     vertices: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.float64))
     edges: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.int64)

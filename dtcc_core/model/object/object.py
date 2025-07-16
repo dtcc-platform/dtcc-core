@@ -39,6 +39,35 @@ from ..logging import info, warning, error, debug
 
 
 class GeometryType(Enum):
+    """
+    Enumeration of different geometry types used in spatial or 3D data modeling.
+
+    This enum defines a range of geometry representations including:
+    - Levels of Detail (LOD0 to LOD3) commonly used in city models and 3D visualization.
+    - Mesh-based representations such as `MESH` and `VOLUME_MESH`.
+    - Point-based and raster formats like `POINT_CLOUD` and `RASTER`.
+    - Vector geometries including `POLYGON`, `LINESTRING`, and their multi-geometry equivalents.
+    - General categories like `BOUNDS` for bounding volumes and `UNKNOWN` for undefined or unsupported types.
+
+    Attributes:
+        UNKNOWN: Unspecified or unrecognized geometry type.
+        BOUNDS: A bounding volume or extent.
+        LOD0 to LOD3: Levels of detail, typically used for hierarchical geometry representations.
+        MESH: A general mesh-based geometry.
+        VOLUME_MESH: A volumetric mesh, potentially used for solid modeling or simulations.
+        POINT_CLOUD: A collection of points in space.
+        RASTER: Raster data, such as elevation models or images.
+        POLYGON: A planar polygon geometry.
+        SURFACE: A single surface geometry.
+        MULTISURFACE: A collection of surfaces.
+        LINESTRING: A sequence of points forming a line.
+        MULTILINESTRING: A collection of lines.
+
+    Methods:
+        from_str(s: str) -> GeometryType:
+            Converts a string to a corresponding `GeometryType` enum member.
+            Raises ValueError if the string does not match any known type.
+    """
     BOUNDS = auto()
     LOD0 = auto()
     LOD1 = auto()
