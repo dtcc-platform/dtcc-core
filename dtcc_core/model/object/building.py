@@ -76,7 +76,11 @@ class Building(Object):
 
 
 class BuildingPart(Object):
-
+    """Represents a building part object with protobuf serialization support.
+    
+        A specialized Object subclass that provides conversion methods for 
+        protobuf serialization and deserialization of building part data.
+    """
     def to_proto(self) -> proto.Object:
         """Return a protobuf representation of the BuildingPart.
 

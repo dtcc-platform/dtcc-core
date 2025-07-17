@@ -22,14 +22,14 @@ import numpy as np
 def get_footprint(building: Building, geom_type: GeometryType = None) -> Surface:
     """
     Extract footprint surface from building geometry.
-    
+
     Parameters
     ----------
     building : Building
         The building to extract footprint from.
     geom_type : GeometryType, optional
         Specific geometry type to use. If None, uses highest available LOD.
-        
+
     Returns
     -------
     Surface
@@ -71,7 +71,7 @@ def merge_building_footprints(
 ) -> List[Building]:
     """
     Merge nearby building footprints into single buildings.
-    
+
     Parameters
     ----------
     buildings : List[Building]
@@ -82,7 +82,7 @@ def merge_building_footprints(
         Maximum distance between buildings to merge.
     min_area : float, default 10
         Minimum area threshold for merged footprints.
-        
+
     Returns
     -------
     List[Building]
@@ -139,12 +139,12 @@ def merge_building_footprints(
 def merge_building_attributes(buildings: List[Building]) -> dict:
     """
     Merge attributes from multiple buildings into a single dictionary.
-    
+
     Parameters
     ----------
     buildings : List[Building]
         List of buildings whose attributes to merge.
-        
+
     Returns
     -------
     dict
@@ -164,22 +164,23 @@ def simplify_building_footprints(
     lod: GeometryType = GeometryType.LOD0,
 ) -> List[Building]:
     """
-    Simplify building footprints by reducing vertex count.
-    
+    Simplify the building footprints by reducing the number of vertices while maintaining the overall shape.
+
     Parameters
     ----------
     buildings : List[Building]
-        List of buildings to simplify.
-    tolerance : float, default 0.5
-        Simplification tolerance in meters.
-    lod : GeometryType, default GeometryType.LOD0
-        Level of detail to simplify.
-        
+        A list of `Building` objects whose footprints need to be simplified.
+    tolerance : float, optional
+        The tolerance for simplification. A higher value results in a more simplified footprint (default is 0.5).
+    lod : GeometryType, optional
+        The level of detail of the geometry to simplify. Typically set to `GeometryType.LOD0` (default).
+
     Returns
     -------
     List[Building]
-        List of buildings with simplified footprints.
+        A list of `Building` objects with simplified LOD0 footprints.
     """
+
     simplified_buildings = []
     for building in buildings:
         lod0 = building.lod0
@@ -205,7 +206,7 @@ def fix_building_footprint_clearance(
 ) -> List[Building]:
     """
     Fix clearance issues in building footprints.
-    
+
     Parameters
     ----------
     buildings : List[Building]
@@ -214,7 +215,7 @@ def fix_building_footprint_clearance(
         Minimum clearance distance in meters.
     lod : GeometryType, default GeometryType.LOD0
         Level of detail to fix.
-        
+
     Returns
     -------
     List[Building]
@@ -243,14 +244,14 @@ def split_footprint_walls(
 ) -> List[Building]:
     """
     Split long walls in building footprints into shorter segments.
-    
+
     Parameters
     ----------
     buildings : List[Building]
         List of buildings to process.
     max_wall_length : Union[float, List[float]], default 10
         Maximum wall length in meters. Can be single value or list per building.
-        
+
     Returns
     -------
     List[Building]
@@ -288,7 +289,7 @@ def clean_building_geometry(
 ) -> Building:
     """
     Clean building geometry by removing degenerate elements.
-    
+
     Parameters
     ----------
     building : Building
@@ -297,7 +298,7 @@ def clean_building_geometry(
         Level of detail to clean.
     tol : float, default 1e-2
         Tolerance for cleaning operations.
-        
+
     Returns
     -------
     Building

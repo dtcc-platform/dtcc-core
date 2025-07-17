@@ -16,6 +16,17 @@ from .. import dtcc_pb2 as proto
 
 @dataclass
 class LineString(Geometry):
+    """
+    Represents a geometric line composed of an ordered set of vertices.
+
+    This class models a LineString geometry, typically used in vector-based spatial data,
+    where a sequence of points forms a continuous line in 2D or 3D space.
+
+    Attributes:
+        vertices (np.ndarray): A NumPy array of shape (N, 2) or (N, 3) representing the
+            coordinates of the line string's vertices. Each row corresponds to a point
+            in 2D (x, y) or 3D (x, y, z) space.
+    """
     vertices: np.ndarray = field(default_factory=lambda: np.empty(0))
 
     def calculate_bounds(self):
@@ -91,6 +102,14 @@ class LineString(Geometry):
 
 @dataclass
 class MultiLineString(Geometry):
+    """
+    Represents a geometry composed of multiple LineString objects.
+
+    Attributes
+    ----------
+    linestrings : list[LineString]
+        A list of LineString instances that make up the MultiLineString geometry.
+    """
     linestrings: list[LineString] = field(default_factory=lambda: [])
 
     def calculate_bounds(self):

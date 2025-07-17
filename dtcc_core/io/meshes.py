@@ -281,12 +281,39 @@ def load_mesh_as_city(path, lod = GeometryType.LOD1, merge_coplanar_surfaces=Tru
 
 
 def save(mesh, path):
+    """
+    Save a mesh to a file
+
+    Parameters
+    ----------
+    mesh : Mesh
+        The mesh to save
+    path : str or Path
+        The path to save the mesh to
+    """
     generic.save(mesh, path, "mesh", _save_formats)
 
 
 def list_io():
+    
+    """
+    Return a dictionary with the formats supported by load_mesh and save_mesh
+
+    Returns
+    -------
+    dict
+        A dictionary with the following keys
+
+        - load_formats: A list of file extensions supported by load_mesh
+        - save_formats: A list of file extensions supported by save_mesh
+    """
     return generic.list_io("mesh", _load_formats, _save_formats)
 
 
 def print_io():
+    """
+    Print a table of the supported formats for load_mesh and save_mesh
+
+    """
+    
     generic.print_io("mesh", _load_formats, _save_formats)

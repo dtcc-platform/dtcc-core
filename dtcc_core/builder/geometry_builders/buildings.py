@@ -64,10 +64,10 @@ def compute_building_heights(
 ) -> List[Building]:
     """
     Compute building heights from roof points and terrain elevation.
-    
+
     This function calculates building heights by determining the ground elevation
     from the terrain raster and the roof elevation from building roof points.
-    
+
     Parameters
     ----------
     buildings : List[Building]
@@ -80,7 +80,7 @@ def compute_building_heights(
         Percentile of roof points to use for determining roof elevation.
     overwrite : bool, default False
         Whether to overwrite existing height values.
-        
+
     Returns
     -------
     List[Building]
@@ -173,36 +173,33 @@ def extract_roof_points(
     ransac_iterations=250,
 ) -> List[Building]:
     """
-    Extract roof points from a point cloud for each building footprint.
-    
-    This function filters the point cloud to find points that fall within each
-    building's footprint and are likely to be roof points, applying outlier
-    removal to clean the results.
-    
+    Extract roof points from a point cloud for a list of buildings.
+
     Parameters
     ----------
-    buildings : List[Building]
-        List of buildings to extract roof points for.
+    buildings : list[Building]
+        The list of buildings to extract roof points for.
     pointcloud : PointCloud
-        Point cloud containing building points.
-    statistical_outlier_remover : bool, default True
-        Whether to apply statistical outlier removal.
-    roof_outlier_neighbors : int, default 5
-        Number of neighbors to consider for outlier detection.
-    roof_outlier_margin : float, default 1.5
-        Margin for statistical outlier removal.
-    ransac_outlier_remover : bool, default False
-        Whether to apply RANSAC outlier removal.
-    ransac_outlier_margin : float, default 3.0
-        Margin for RANSAC outlier removal.
-    ransac_iterations : int, default 250
-        Number of RANSAC iterations.
-        
+        The point cloud to extract roof points from.
+    statistical_outlier_remover : bool, optional
+        Whether to use a statistical outlier remover on the roof points. Default is True.
+    roof_outlier_neighbors : int, optional
+        The number of neighbors to consider for statistical outlier removal. Default is 5.
+    roof_outlier_margin : float, optional
+        The margin for statistical outlier removal. Default is 1.5.
+    ransac_outlier_remover : bool, optional
+        Whether to use a RANSAC outlier remover on the roof points. Default is False.
+    ransac_outlier_margin : float, optional
+        The margin for RANSAC outlier removal. Default is 3.0.
+    ransac_iterations : int, optional
+        The number of iterations for RANSAC outlier removal. Default is 250.
+
     Returns
     -------
-    List[Building]
-        List of buildings with extracted roof points as point clouds.
+    list[Building]
+        The list of buildings with roof points extracted.
     """
+
     footprint_polygons = [b.get_footprint() for b in buildings]
 
     builder_polygon = [
@@ -249,11 +246,11 @@ def building_heights_from_pointcloud(
 ) -> List[Building]:
     """
     Compute building heights from point cloud data.
-    
+
     This function combines roof point extraction and height computation to determine
     building heights from LiDAR or similar point cloud data. It first extracts roof
     points, then computes heights using terrain elevation.
-    
+
     Parameters
     ----------
     buildings : List[Building]
@@ -272,7 +269,7 @@ def building_heights_from_pointcloud(
         Whether to overwrite existing height values.
     keep_roof_points : bool, default False
         Whether to keep extracted roof points as building geometry.
-        
+
     Returns
     -------
     List[Building]

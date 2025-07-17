@@ -39,6 +39,9 @@ from ..logging import info, warning, error, debug
 
 
 class GeometryType(Enum):
+    """
+    Enumeration of different geometry types used in spatial or 3D data modeling.
+    """
     BOUNDS = auto()
     LOD0 = auto()
     LOD1 = auto()
