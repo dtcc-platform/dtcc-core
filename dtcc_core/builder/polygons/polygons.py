@@ -27,11 +27,47 @@ from ..logging import debug, info, warning, error, critical
 
 
 def merge_polygons_convexhull(p1, p2):
+    """
+    Merge two polygons by taking their convex hull.
+    
+    This function creates a convex hull around two polygons as a fallback
+    method when other merge approaches fail.
+    
+    Parameters
+    ----------
+    p1 : Polygon
+        First polygon to merge.
+    p2 : Polygon
+        Second polygon to merge.
+        
+    Returns
+    -------
+    Polygon
+        Convex hull of the two polygons.
+    """
     mp = MultiPolygon([p1, p2])
     return mp.convex_hull
 
 
 def merge_polygon_hulls(p1, p2):
+    """
+    Merge two polygons by unioning their convex hulls.
+    
+    This function attempts to merge polygons by first creating convex hulls
+    and then performing a union operation.
+    
+    Parameters
+    ----------
+    p1 : Polygon
+        First polygon to merge.
+    p2 : Polygon
+        Second polygon to merge.
+        
+    Returns
+    -------
+    Polygon or None
+        Merged polygon if successful, None if merge fails.
+    """
     p1_hull = p1.convex_hull
     p2_hull = p2.convex_hull
     mp = p1.union(p2)
@@ -43,6 +79,26 @@ def merge_polygon_hulls(p1, p2):
 
 
 def merge_polygons_buffering(p1, p2, tol):
+    """
+    Merge two polygons using buffering technique.
+    
+    This function buffers both polygons by a tolerance distance, unions them,
+    then shrinks the result back to attempt a clean merge.
+    
+    Parameters
+    ----------
+    p1 : Polygon
+        First polygon to merge.
+    p2 : Polygon
+        Second polygon to merge.
+    tol : float
+        Tolerance distance for buffering operations.
+        
+    Returns
+    -------
+    Polygon or None
+        Merged polygon if successful, None if merge fails.
+    """
     b1 = p1.buffer(tol, 1, join_style=JOIN_STYLE.mitre)
     b2 = p2.buffer(tol, 1, join_style=JOIN_STYLE.mitre)
     m = b1.union(b2)
@@ -55,6 +111,26 @@ def merge_polygons_buffering(p1, p2, tol):
 
 
 def merge_polygons_snapping(p1, p2, tol):
+    """
+    Merge two polygons by snapping close vertices together.
+    
+    This function identifies vertices that are within tolerance distance
+    of each other and snaps them together before attempting union.
+    
+    Parameters
+    ----------
+    p1 : Polygon
+        First polygon to merge.
+    p2 : Polygon
+        Second polygon to merge.
+    tol : float
+        Tolerance distance for vertex snapping.
+        
+    Returns
+    -------
+    Polygon or None
+        Merged polygon if successful, None if merge fails.
+    """
     coords = p2.exterior.coords[:]
     for idx, vertex in enumerate(coords):
         p = Point(vertex)
@@ -81,6 +157,26 @@ def merge_polygons_snapping(p1, p2, tol):
 
 
 def merge_polygons(p1, p2, tol):
+    """
+    Merge two polygons using multiple fallback strategies.
+    
+    This function attempts to merge polygons using various approaches:
+    union, buffering, hull merging, and convex hull as fallbacks.
+    
+    Parameters
+    ----------
+    p1 : Polygon
+        First polygon to merge.
+    p2 : Polygon
+        Second polygon to merge.
+    tol : float
+        Tolerance for merge operations.
+        
+    Returns
+    -------
+    Polygon
+        Merged polygon using the most appropriate method.
+    """
     mp = p1.union(p2)
     # if mp.geom_type != "Polygon":
     #     info("Failed to merge polygons. Trying snapping")
@@ -97,6 +193,24 @@ def merge_polygons(p1, p2, tol):
 
 
 def simplify_polygon(p: Polygon, tol):
+    """
+    Simplify a polygon by reducing vertex count.
+    
+    This function attempts to simplify a polygon while preserving its
+    essential shape and topology.
+    
+    Parameters
+    ----------
+    p : Polygon
+        Polygon to simplify.
+    tol : float
+        Tolerance for simplification operations.
+        
+    Returns
+    -------
+    Polygon
+        Simplified polygon or original if simplification fails.
+    """
     sp = p.simplify(tol)
     if not sp.is_valid or sp.geom_type != "Polygon":
         sp = p.simplify(tol, preserve_topology=True)
@@ -106,6 +220,24 @@ def simplify_polygon(p: Polygon, tol):
 
 
 def remove_slivers(p: Polygon, tol):
+    """
+    Remove thin sliver areas from a polygon.
+    
+    This function uses buffering operations to remove narrow features
+    that are considered slivers based on the tolerance.
+    
+    Parameters
+    ----------
+    p : Polygon
+        Polygon to process.
+    tol : float
+        Tolerance for sliver removal.
+        
+    Returns
+    -------
+    Polygon
+        Polygon with slivers removed.
+    """
     # info("Removing slivers")
     b_p = p.buffer(tol, 1, join_style=JOIN_STYLE.mitre).buffer(
         -tol, 1, join_style=JOIN_STYLE.mitre
@@ -119,10 +251,44 @@ def remove_slivers(p: Polygon, tol):
 
 
 def remove_holes(p: Polygon):
+    """
+    Remove all holes from a polygon.
+    
+    This function creates a new polygon using only the exterior ring,
+    effectively removing all interior holes.
+    
+    Parameters
+    ----------
+    p : Polygon
+        Polygon to process.
+        
+    Returns
+    -------
+    Polygon
+        Polygon with all holes removed.
+    """
     return Polygon(p.exterior)
 
 
 def merge_multipolygon(multipolygon, tol=0.1):
+    """
+    Merge a multipolygon into a single polygon.
+    
+    This function attempts to merge multiple polygon geometries into
+    a single polygon by finding intersecting parts and merging them.
+    
+    Parameters
+    ----------
+    multipolygon : MultiPolygon
+        MultiPolygon to merge.
+    tol : float, default 0.1
+        Tolerance for merge operations.
+        
+    Returns
+    -------
+    Polygon
+        Single merged polygon.
+    """
     polygons = list(multipolygon.geoms)
     merged = []
     # orig_polygons = polygons.copy()
@@ -211,6 +377,24 @@ def clean_merge_candidates(
 
 
 def merge_list_of_polygons(mcp: List[Polygon], tolerance=1e-2) -> Polygon:
+    """
+    Merge a list of polygons into a single polygon.
+    
+    This function takes a list of polygons and attempts to merge them
+    into a single polygon using union operations and fallback strategies.
+    
+    Parameters
+    ----------
+    mcp : List[Polygon]
+        List of polygons to merge.
+    tolerance : float, default 1e-2
+        Tolerance for merge operations.
+        
+    Returns
+    -------
+    Polygon
+        Single merged polygon.
+    """
     if len(mcp) == 0:
         return []
     if len(mcp) == 1:
@@ -264,6 +448,26 @@ def polygon_merger(
 
 
 def buffer_intersect_bounds(p: Polygon, tol: float, use_convex_hull=False) -> Polygon:
+    """
+    Buffer a polygon and intersect with its bounds.
+    
+    This function buffers a polygon and then intersects it with either
+    its convex hull or oriented envelope to constrain the result.
+    
+    Parameters
+    ----------
+    p : Polygon
+        Polygon to buffer.
+    tol : float
+        Buffer distance.
+    use_convex_hull : bool, default False
+        Whether to use convex hull (True) or oriented envelope (False) for intersection.
+        
+    Returns
+    -------
+    Polygon
+        Buffered polygon intersected with bounds.
+    """
     b: Polygon = p.buffer(tol, 1, join_style=JOIN_STYLE.mitre, cap_style=CAP_STYLE.flat)
     if use_convex_hull:
         b = shapely.intersection(b, p.convex_hull)
@@ -273,6 +477,24 @@ def buffer_intersect_bounds(p: Polygon, tol: float, use_convex_hull=False) -> Po
 
 
 def widen_gaps(fp: Polygon, tol: float) -> Polygon:
+    """
+    Widen narrow gaps in a polygon footprint.
+    
+    This function identifies narrow gaps between edges and attempts to
+    widen them by adding geometry at the closest points.
+    
+    Parameters
+    ----------
+    fp : Polygon
+        Polygon footprint to process.
+    tol : float
+        Tolerance for gap widening.
+        
+    Returns
+    -------
+    Polygon
+        Polygon with widened gaps.
+    """
     if shapely.minimum_clearance(fp) > tol:
         return fp
     edges = [
@@ -301,6 +523,24 @@ def widen_gaps(fp: Polygon, tol: float) -> Polygon:
 
 
 def lengthen_edges(fp: Polygon, tol: float) -> Polygon:
+    """
+    Lengthen short edges in a polygon by adjusting vertices.
+    
+    This function identifies edges that are too close together and
+    adjusts their vertices to increase the distance between them.
+    
+    Parameters
+    ----------
+    fp : Polygon
+        Polygon footprint to process.
+    tol : float
+        Tolerance for edge lengthening.
+        
+    Returns
+    -------
+    Polygon
+        Polygon with lengthened edges.
+    """
     extr_verts = list(fp.exterior.coords)
     vertex_count = len(extr_verts) - 1
     edges = [
@@ -353,6 +593,26 @@ def lengthen_edges(fp: Polygon, tol: float) -> Polygon:
 
 
 def flatten_sharp_angles(fp: Polygon, min_angle: float, tol: float) -> Polygon:
+    """
+    Flatten sharp angles in a polygon by inserting vertices.
+    
+    This function identifies angles that are too sharp and inserts
+    vertices to create more gradual transitions.
+    
+    Parameters
+    ----------
+    fp : Polygon
+        Polygon footprint to process.
+    min_angle : float
+        Minimum angle threshold in degrees.
+    tol : float
+        Tolerance for vertex insertion.
+        
+    Returns
+    -------
+    Polygon
+        Polygon with flattened sharp angles.
+    """
     exterior_ring = list(fp.exterior.coords)
     updated = False
     inserted_verts = []
@@ -384,6 +644,24 @@ def flatten_sharp_angles(fp: Polygon, min_angle: float, tol: float) -> Polygon:
 
 
 def remove_short_edges(p: Polygon, min_length: float) -> Polygon:
+    """
+    Remove edges shorter than minimum length from a polygon.
+    
+    This function identifies and removes edges that are shorter than
+    the specified minimum length, keeping only longer edges.
+    
+    Parameters
+    ----------
+    p : Polygon
+        Polygon to process.
+    min_length : float
+        Minimum edge length to keep.
+        
+    Returns
+    -------
+    Polygon
+        Polygon with short edges removed.
+    """
     extr_verts = list(p.exterior.coords)
     vertex_count = len(extr_verts) - 1
     edges = [
@@ -408,6 +686,26 @@ def remove_short_edges(p: Polygon, min_length: float) -> Polygon:
 def fix_clearance(
     polygon: Polygon, target_clearance: float, tol: float = 0.9
 ) -> Polygon:
+    """
+    Fix clearance issues in a polygon to meet minimum distance requirements.
+    
+    This function applies various techniques to ensure minimum clearance
+    between polygon features, including sliver removal, gap widening, and buffering.
+    
+    Parameters
+    ----------
+    polygon : Polygon
+        Polygon to fix clearance for.
+    target_clearance : float
+        Target minimum clearance distance.
+    tol : float, default 0.9
+        Tolerance fraction of target clearance to accept.
+        
+    Returns
+    -------
+    Polygon
+        Polygon with improved clearance.
+    """
     original_polygon = copy.deepcopy(polygon)
     min_clearance = shapely.minimum_clearance(polygon)
     # print(f"min_clearance: {min_clearance}")
@@ -484,6 +782,24 @@ def _split_boundary(boundary, max_length):
 
 
 def split_polygon_sides(polygon, max_length):
+    """
+    Split long polygon sides into shorter segments.
+    
+    This function divides polygon edges that are longer than the maximum
+    length into multiple shorter segments while preserving the overall shape.
+    
+    Parameters
+    ----------
+    polygon : Polygon
+        Polygon to split sides for.
+    max_length : float
+        Maximum allowed edge length.
+        
+    Returns
+    -------
+    Polygon
+        Polygon with split sides.
+    """
     # Handle exterior
     new_exterior_points = _split_boundary(polygon.exterior, max_length)
     new_exterior = Polygon(new_exterior_points)

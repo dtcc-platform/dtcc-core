@@ -56,6 +56,27 @@ class GeometryType(Enum):
 
     @staticmethod
     def from_str(s):
+        """
+        Create a GeometryType enum value from a string.
+        
+        Converts a string representation to the corresponding GeometryType enum value,
+        handling case-insensitive matching.
+        
+        Parameters
+        ----------
+        s : str
+            String representation of the geometry type (e.g., 'lod1', 'mesh', 'pointcloud').
+        
+        Returns
+        -------
+        GeometryType
+            The corresponding GeometryType enum value.
+        
+        Raises
+        ------
+        ValueError
+            If the string does not match any known geometry type.
+        """
         s = s.upper()
         try:
             t = GeometryType[s]
@@ -150,12 +171,12 @@ class Object(Model):
         return self.geometry.get(GeometryType.VOLUME_MESH, None)
 
     @property
-    def point_cloud(self):
+    def point_cloud(self) -> Union[PointCloud, None]:
         """Return POINT_CLOUD geometry."""
         return self.geometry.get(GeometryType.POINT_CLOUD, None)
 
     @property
-    def pointcloud(self):
+    def pointcloud(self) -> Union[PointCloud, None]:
         """Return POINT_CLOUD geometry."""
         return self.geometry.get(GeometryType.POINT_CLOUD, None)
 
@@ -174,6 +195,21 @@ class Object(Model):
 
     @bounds.setter
     def bounds(self, bounds: Bounds):
+        """
+        Set the bounding box for this object.
+        
+        Sets the spatial bounds of the object, overriding any calculated bounds.
+        
+        Parameters
+        ----------
+        bounds : Bounds
+            The bounding box to set for this object.
+        
+        Raises
+        ------
+        TypeError
+            If bounds is not an instance of Bounds class.
+        """
         if not isinstance(bounds, Bounds):
             raise TypeError("Expected value to be an instance of Bounds")
         self._bounds = bounds
@@ -241,9 +277,46 @@ class Object(Model):
         geometry.add_field(field)
 
     def get_children(self, child_type):
+        """
+        Get all child objects of a specific type.
+        
+        Retrieves all child objects that match the specified type from the
+        object's children dictionary.
+        
+        Parameters
+        ----------
+        child_type : type
+            The type of child objects to retrieve.
+        
+        Returns
+        -------
+        list
+            List of child objects of the specified type, or empty list if none exist.
+        """
         return self.children.get(child_type, [])
 
     def set_child_attributues(self, child_type, attribute, values):
+        """
+        Set an attribute value for all child objects of a specific type.
+        
+        Sets the specified attribute to the corresponding value for each child
+        object of the given type. Values are assigned in order.
+        
+        Parameters
+        ----------
+        child_type : type
+            The type of child objects to modify.
+        attribute : str
+            The name of the attribute to set.
+        values : list
+            List of values to assign to the attribute. Must have same length as
+            number of children of the specified type.
+        
+        Raises
+        ------
+        ValueError
+            If the number of values doesn't match the number of children.
+        """
         children = self.get_children(child_type)
         if not len(children) == len(values):
             raise ValueError(
@@ -254,6 +327,27 @@ class Object(Model):
             c.attributes[attribute] = v
 
     def get_child_attributes(self, child_type, attribute, default=None):
+        """
+        Get an attribute value from all child objects of a specific type.
+        
+        Retrieves the specified attribute from all child objects of the given type,
+        returning a list of values in the same order as the children.
+        
+        Parameters
+        ----------
+        child_type : type
+            The type of child objects to query.
+        attribute : str
+            The name of the attribute to retrieve.
+        default : Any, optional
+            Default value to return if attribute is not found on a child object.
+        
+        Returns
+        -------
+        list
+            List of attribute values from child objects, with default value used
+            for children that don't have the attribute.
+        """
         children = self.get_children(child_type)
         return [c.attributes.get(attribute, default) for c in children]
 

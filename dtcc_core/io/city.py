@@ -66,14 +66,65 @@ def _save_proto_city(city: City, filename):
 
 
 def load(path):
+    """
+    Load a City object from a file.
+    
+    Supports various formats including protobuf, CityJSON, and mesh formats.
+    The format is automatically detected based on the file extension.
+    
+    Parameters
+    ----------
+    path : str or Path
+        Path to the file to load.
+    
+    Returns
+    -------
+    City
+        The loaded city object.
+    """
     return generic.load(path, "city", City, _load_formats)
 
 
 def save(city, path):
+    """
+    Save a City object to a file.
+    
+    Supports protobuf format (.pb, .pb2) for binary serialization.
+    The format is automatically determined from the file extension.
+    
+    Parameters
+    ----------
+    city : City
+        The city object to save.
+    path : str or Path
+        Path where the city will be saved.
+    """
     return generic.save(city, path, "city", _save_formats)
 
 
 def buildings_to_df(city: City, include_geometry=True, crs=None):
+    """
+    Convert city buildings to a pandas DataFrame or GeoDataFrame.
+    
+    Creates a tabular representation of building data with optional geometry
+    information. Requires geopandas for geometric operations.
+    
+    Parameters
+    ----------
+    city : City
+        The city object containing buildings to convert.
+    include_geometry : bool, default=True
+        If True, includes building footprint geometry in the DataFrame.
+        Results in a GeoDataFrame if geopandas is available.
+    crs : str or CRS object, optional
+        Coordinate reference system for the geometry. Not currently used.
+    
+    Returns
+    -------
+    pandas.DataFrame or geopandas.GeoDataFrame or None
+        DataFrame with building attributes and optionally geometry.
+        Returns None if geopandas is not available when geometry is requested.
+    """
     if not HAS_GEOPANDAS:
         warning("Geopandas not found, cannot convert buildings to dataframe")
         return None
