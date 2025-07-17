@@ -20,6 +20,21 @@ import numpy as np
 
 @register_model_method
 def get_footprint(building: Building, geom_type: GeometryType = None) -> Surface:
+    """
+    Extract footprint surface from building geometry.
+    
+    Parameters
+    ----------
+    building : Building
+        The building to extract footprint from.
+    geom_type : GeometryType, optional
+        Specific geometry type to use. If None, uses highest available LOD.
+        
+    Returns
+    -------
+    Surface
+        The building footprint as a surface, or None if no geometry found.
+    """
     geom = None
     if geom_type is not None:
         geom = building.flatten_geometry(geom_type)
@@ -54,6 +69,25 @@ def merge_building_footprints(
     max_distance: float = 0.5,
     min_area=10,
 ) -> List[Building]:
+    """
+    Merge nearby building footprints into single buildings.
+    
+    Parameters
+    ----------
+    buildings : List[Building]
+        List of buildings to merge.
+    lod : GeometryType, default GeometryType.LOD0
+        Level of detail to use for footprint extraction.
+    max_distance : float, default 0.5
+        Maximum distance between buildings to merge.
+    min_area : float, default 10
+        Minimum area threshold for merged footprints.
+        
+    Returns
+    -------
+    List[Building]
+        List of merged buildings.
+    """
     if len(buildings) <= 1:
         return buildings
 
@@ -103,6 +137,19 @@ def merge_building_footprints(
 
 
 def merge_building_attributes(buildings: List[Building]) -> dict:
+    """
+    Merge attributes from multiple buildings into a single dictionary.
+    
+    Parameters
+    ----------
+    buildings : List[Building]
+        List of buildings whose attributes to merge.
+        
+    Returns
+    -------
+    dict
+        Merged attributes dictionary.
+    """
     attributes = {}
     for building in buildings:
         for k, v in building.attributes.items():
@@ -116,6 +163,23 @@ def simplify_building_footprints(
     tolerance: float = 0.5,
     lod: GeometryType = GeometryType.LOD0,
 ) -> List[Building]:
+    """
+    Simplify building footprints by reducing vertex count.
+    
+    Parameters
+    ----------
+    buildings : List[Building]
+        List of buildings to simplify.
+    tolerance : float, default 0.5
+        Simplification tolerance in meters.
+    lod : GeometryType, default GeometryType.LOD0
+        Level of detail to simplify.
+        
+    Returns
+    -------
+    List[Building]
+        List of buildings with simplified footprints.
+    """
     simplified_buildings = []
     for building in buildings:
         lod0 = building.lod0
@@ -139,6 +203,23 @@ def fix_building_footprint_clearance(
     clearance: float = 0.5,
     lod: GeometryType = GeometryType.LOD0,
 ) -> List[Building]:
+    """
+    Fix clearance issues in building footprints.
+    
+    Parameters
+    ----------
+    buildings : List[Building]
+        List of buildings to fix.
+    clearance : float, default 0.5
+        Minimum clearance distance in meters.
+    lod : GeometryType, default GeometryType.LOD0
+        Level of detail to fix.
+        
+    Returns
+    -------
+    List[Building]
+        List of buildings with fixed clearances.
+    """
     fixed_buildings = []
     for building in buildings:
         lod0 = building.lod0
@@ -160,6 +241,21 @@ def fix_building_footprint_clearance(
 def split_footprint_walls(
     buildings: List[Building], max_wall_length: Union[float, List[float]] = 10
 ) -> List[Building]:
+    """
+    Split long walls in building footprints into shorter segments.
+    
+    Parameters
+    ----------
+    buildings : List[Building]
+        List of buildings to process.
+    max_wall_length : Union[float, List[float]], default 10
+        Maximum wall length in meters. Can be single value or list per building.
+        
+    Returns
+    -------
+    List[Building]
+        List of buildings with split walls.
+    """
     split_buildings = []
     if isinstance(max_wall_length, (int, float)):
         max_wall_length = [max_wall_length] * len(buildings)
@@ -190,6 +286,23 @@ def split_footprint_walls(
 def clean_building_geometry(
     building: Building, lod=GeometryType.LOD2, tol=1e-2
 ) -> Building:
+    """
+    Clean building geometry by removing degenerate elements.
+    
+    Parameters
+    ----------
+    building : Building
+        Building to clean.
+    lod : GeometryType, default GeometryType.LOD2
+        Level of detail to clean.
+    tol : float, default 1e-2
+        Tolerance for cleaning operations.
+        
+    Returns
+    -------
+    Building
+        Building with cleaned geometry.
+    """
     building_geom = building.geometry.get(lod, None)
     if building_geom is None:
         return building

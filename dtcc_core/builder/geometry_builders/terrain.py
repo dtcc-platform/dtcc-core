@@ -30,6 +30,39 @@ def build_terrain_mesh(
     smoothing=3,
     ground_points_only=True,
 ) -> Mesh:
+    """
+    Build a triangular mesh from terrain data.
+    
+    This function creates a triangular mesh representation of terrain from either
+    point cloud or raster data, with optional subdomains for varying resolution.
+    
+    Parameters
+    ----------
+    data : Union[PointCloud, Raster]
+        Input terrain data to mesh.
+    subdomains : list[Surface], optional
+        List of surface subdomains for varying mesh resolution.
+    subdomain_resolution : Union[float, List[float]], optional
+        Resolution for each subdomain. If float, applies to all subdomains.
+    max_mesh_size : float, default 10
+        Maximum triangle size in meters.
+    min_mesh_angle : float, default 20.7
+        Minimum angle in degrees for mesh triangles (must be <= 33).
+    smoothing : int, default 3
+        Number of smoothing iterations to apply.
+    ground_points_only : bool, default True
+        Whether to use only ground-classified points from point cloud.
+        
+    Returns
+    -------
+    Mesh
+        Triangular mesh representation of the terrain.
+        
+    Raises
+    ------
+    ValueError
+        If min_mesh_angle > 33 degrees or data type is invalid.
+    """
 
     if min_mesh_angle > 33:
         raise ValueError(

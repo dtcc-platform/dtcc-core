@@ -77,6 +77,26 @@ def ray_intersection(
 
 
 def find_edge_connections(ms, tol=1e-6):
+    """
+    Find edge connections between surfaces in a MultiSurface.
+
+    This function identifies which surfaces share edges by building a map of edges
+    to the surfaces that contain them, and then determining adjacency relationships.
+
+    Parameters
+    ----------
+    ms : MultiSurface
+        The MultiSurface object to analyze.
+    tol : float, default 1e-6
+        Tolerance for considering vertices equal when rounding coordinates.
+
+    Returns
+    -------
+    tuple[dict, dict]
+        A tuple containing (edge_map, adjacent) where:
+        - edge_map: dict mapping edge tuples to lists of surface indices
+        - adjacent: dict mapping surface indices to sets of adjacent surface indices
+    """
     tol_decimals = round(np.log10(1 / tol))
     edge_map = defaultdict(list)
     for s_idx, s in enumerate(ms.surfaces):
@@ -97,6 +117,26 @@ def find_edge_connections(ms, tol=1e-6):
 
 
 def group_coplanar_surfaces(ms, tol=1e-8):
+    """
+    Group coplanar surfaces that are connected by edges.
+
+    This function uses depth-first search to find connected components of coplanar
+    surfaces within the MultiSurface, identifying surfaces that lie on the same plane
+    and are connected through shared edges.
+
+    Parameters
+    ----------
+    ms : MultiSurface
+        The MultiSurface object containing surfaces to group.
+    tol : float, default 1e-8
+        Tolerance for determining if surfaces are coplanar.
+
+    Returns
+    -------
+    list[set]
+        List of sets, where each set contains indices of surfaces that are
+        coplanar and connected.
+    """
     visited = set()
     coplanar_groups = []
 

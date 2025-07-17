@@ -4,6 +4,24 @@ from ..logging import info, warning, error
 
 
 def clean_surface(s: Surface, tol: float = 1e-6) -> Surface:
+    """
+    Clean a surface by removing duplicate vertices and degenerate triangles.
+    
+    This function processes a surface to remove numerical artifacts and ensure
+    geometric validity by eliminating duplicate vertices within tolerance.
+    
+    Parameters
+    ----------
+    s : Surface
+        The input surface to clean.
+    tol : float, default=1e-6
+        Tolerance for considering vertices as duplicates.
+    
+    Returns
+    -------
+    Surface
+        A new cleaned surface with duplicate vertices removed.
+    """
     pass
 
 

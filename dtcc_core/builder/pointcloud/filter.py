@@ -46,6 +46,26 @@ def remove_global_outliers(pc: PointCloud, margin: float = 3.0) -> PointCloud:
 def find_statistical_outliers(
     pc: PointCloud, neighbours: int, outlier_margin: float
 ) -> np.ndarray:
+    """
+    Find statistical outliers in a point cloud using nearest neighbor analysis.
+    
+    This function identifies points that are statistical outliers based on their
+    distance to neighboring points using a k-nearest neighbor approach.
+    
+    Parameters
+    ----------
+    pc : PointCloud
+        The point cloud to analyze for outliers.
+    neighbours : int
+        Number of nearest neighbors to consider for each point.
+    outlier_margin : float
+        Standard deviation margin for outlier detection.
+        
+    Returns
+    -------
+    np.ndarray
+        Array of indices of points identified as statistical outliers.
+    """
     outliers = _dtcc_builder.statistical_outlier_finder(
         pc.points, neighbours, outlier_margin
     )
@@ -160,6 +180,22 @@ def remove_vegetation(pc: PointCloud) -> PointCloud:
 
 
 def get_vegetation(pc: PointCloud) -> PointCloud:
+    """
+    Extract vegetation points from a point cloud.
+    
+    This function creates a new point cloud containing only points classified
+    as vegetation, either through LiDAR classification codes or return number analysis.
+    
+    Parameters
+    ----------
+    pc : PointCloud
+        The point cloud to extract vegetation from.
+        
+    Returns
+    -------
+    PointCloud
+        A new point cloud containing only vegetation points.
+    """
     new_pc = pc.copy()
     veg_indices = _find_vegetation(pc)
     new_pc.keep_points(veg_indices)
@@ -216,6 +252,26 @@ def _find_vegetation(pc: PointCloud, filter_on_return_number=True):
 
 
 def pts_in_bounds(pc: PointCloud, bounds: Bounds, xy_only=True) -> np.ndarray:
+    """
+    Find indices of points within specified bounds.
+    
+    This function identifies which points in a point cloud fall within the given
+    bounds, with options to consider only XY coordinates or include Z dimension.
+    
+    Parameters
+    ----------
+    pc : PointCloud
+        The point cloud to filter.
+    bounds : Bounds
+        The bounds object defining the spatial extent.
+    xy_only : bool, default True
+        Whether to consider only XY coordinates (True) or include Z dimension (False).
+        
+    Returns
+    -------
+    np.ndarray
+        Array of indices of points within the specified bounds.
+    """
     x_min, x_max = bounds.xmin, bounds.xmax
     y_min, y_max = bounds.ymin, bounds.ymax
 

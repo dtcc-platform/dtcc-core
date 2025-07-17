@@ -84,6 +84,30 @@ def mesh_multisurfaces(
     weld=False,
     clean=False,
 ) -> [Mesh]:
+    """
+    Mesh multiple MultiSurface objects into a list of Mesh objects.
+    
+    This function processes multiple MultiSurface objects simultaneously,
+    creating triangular meshes for each one with consistent parameters.
+    
+    Parameters
+    ----------
+    multisurfaces : List[MultiSurface]
+        List of MultiSurface objects to mesh.
+    max_mesh_edge_size : float, default -1
+        Maximum edge size for mesh triangles. If -1, no size limit.
+    min_mesh_angle : float, default 20.7
+        Minimum angle in degrees for mesh triangles.
+    weld : bool, default False
+        Whether to weld vertices during meshing.
+    clean : bool, default False
+        Whether to clean MultiSurfaces before meshing.
+        
+    Returns
+    -------
+    List[Mesh]
+        List of meshes corresponding to input MultiSurfaces.
+    """
 
     if clean:
         multisurfaces = [clean_multisurface(ms) for ms in multisurfaces]
@@ -105,6 +129,26 @@ def mesh_multisurfaces(
 
 
 def merge_meshes(meshes: [Mesh], weld=False, snap=0) -> Mesh:
+    """
+    Merge multiple meshes into a single mesh.
+    
+    This function combines multiple mesh objects into one unified mesh,
+    with optional vertex welding and snapping operations.
+    
+    Parameters
+    ----------
+    meshes : List[Mesh]
+        List of meshes to merge.
+    weld : bool, default False
+        Whether to weld vertices during merge.
+    snap : float, default 0
+        Snap distance for vertex snapping.
+        
+    Returns
+    -------
+    Mesh
+        Single merged mesh containing all input meshes.
+    """
     builder_meshes = [mesh_to_builder_mesh(mesh) for mesh in meshes]
     merged_mesh = _dtcc_builder.merge_meshes(builder_meshes, weld, snap)
     mesh = builder_mesh_to_mesh(merged_mesh)
@@ -112,6 +156,28 @@ def merge_meshes(meshes: [Mesh], weld=False, snap=0) -> Mesh:
 
 
 def merge(mesh: Mesh, other: Mesh, weld=False, snap=0) -> Mesh:
+    """
+    Merge two meshes into a single mesh.
+    
+    This function combines two mesh objects into one unified mesh,
+    with optional vertex welding and snapping operations.
+    
+    Parameters
+    ----------
+    mesh : Mesh
+        First mesh to merge.
+    other : Mesh
+        Second mesh to merge.
+    weld : bool, default False
+        Whether to weld vertices during merge.
+    snap : float, default 0
+        Snap distance for vertex snapping.
+        
+    Returns
+    -------
+    Mesh
+        Single merged mesh containing both input meshes.
+    """
     builder_mesh = mesh_to_builder_mesh(mesh)
     builder_other = mesh_to_builder_mesh(other)
     merged_mesh = _dtcc_builder.merge_meshes([builder_mesh, builder_other], weld, snap)
@@ -120,6 +186,24 @@ def merge(mesh: Mesh, other: Mesh, weld=False, snap=0) -> Mesh:
 
 
 def snap_vertices(mesh: Mesh, snap_distance: float) -> Mesh:
+    """
+    Snap mesh vertices within a specified distance.
+    
+    This function merges vertices that are within the snap distance of each other,
+    helping to clean up mesh topology and reduce duplicate vertices.
+    
+    Parameters
+    ----------
+    mesh : Mesh
+        The mesh to snap vertices for.
+    snap_distance : float
+        Maximum distance between vertices to be snapped together.
+        
+    Returns
+    -------
+    Mesh
+        Mesh with snapped vertices.
+    """
     builder_mesh = mesh_to_builder_mesh(mesh)
     snapped_mesh = _dtcc_builder.snap_mesh_vertices(builder_mesh, snap_distance)
     snapped_mesh = builder_mesh_to_mesh(snapped_mesh)
@@ -127,6 +211,22 @@ def snap_vertices(mesh: Mesh, snap_distance: float) -> Mesh:
 
 
 def disjoint_meshes(mesh: Mesh) -> List[Mesh]:
+    """
+    Separate a mesh into disconnected components.
+    
+    This function analyzes mesh connectivity and splits it into separate
+    mesh objects for each disconnected component using graph analysis.
+    
+    Parameters
+    ----------
+    mesh : Mesh
+        The mesh to separate into components.
+        
+    Returns
+    -------
+    List[Mesh]
+        List of meshes, each containing one connected component.
+    """
     num_vertices = len(mesh.vertices)
     edges = np.vstack(
         [

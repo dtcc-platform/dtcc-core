@@ -173,6 +173,26 @@ def fix_building_clearance(
 
 
 def clean_building_surfaces(city: City, lod: GeometryType, tol=1e-2) -> City:
+    """
+    Clean building surfaces in a city by removing degenerate geometry elements.
+    
+    This function applies geometry cleaning operations to all buildings in the city
+    to remove invalid or degenerate surfaces, vertices, and other problematic elements.
+    
+    Parameters
+    ----------
+    city : City
+        The city object containing buildings to clean.
+    lod : GeometryType
+        The level of detail geometry to clean (e.g., LOD0, LOD1, LOD2).
+    tol : float, default 1e-2
+        Tolerance value for cleaning operations in meters.
+        
+    Returns
+    -------
+    City
+        The city object with cleaned building surfaces.
+    """
     for building in city.buildings:
         building = clean_building_geometry(building, lod, tol)
     return city
