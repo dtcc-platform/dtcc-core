@@ -80,7 +80,7 @@ def main():
     missing_docstrings = find_missing_docstrings(src_dir)
 
     if missing_docstrings:
-        with open(root_dir / "MISSING_DCSTRING.md", "w", encoding="utf-8") as f:
+        with open(root_dir / "MISSING_DOCSTRINGS.md", "w", encoding="utf-8") as f:
 
             print(
                 f"Found {len(missing_docstrings)} functions/methods missing docstrings:\n"
