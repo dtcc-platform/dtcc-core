@@ -15,6 +15,69 @@ namespace DTCC_BUILDER
 
 class VolumeMeshImprovement
 {
+public:
+  static VolumeMesh remove_tetrahedra(const VolumeMesh &volume_mesh,
+                                const double aspect_ratio_threshold = 10.0
+                                )
+  {
+
+    const auto _aspect_ratios = Geometry::aspect_ratios(volume_mesh);
+
+    std::vector<size_t> _tetrahedra_to_remove;
+    for (size_t i = 0; i < volume_mesh.cells.size(); i++)
+    {
+      if (_aspect_ratios[i] > aspect_ratio_threshold)
+      {
+        _tetrahedra_to_remove.push_back(i);
+      }
+    }
+    // Sort the tetrahedra to remove based on their aspect ratios
+    // This is optional, but it can help in prioritizing which tetrahedra to remove first.
+    std::sort(_tetrahedra_to_remove.begin(), _tetrahedra_to_remove.end(),
+          [&_aspect_ratios](size_t a, size_t b) {
+              return _aspect_ratios[a] > _aspect_ratios[b]; // descending order
+          });
+
+    std::cout << "Number of tetrahedra to remove: " << _tetrahedra_to_remove.size() << std::endl;
+  
+    std::vector<std::pair<size_t,size_t>> vertex_pairs = get_candidate_vertices_pairs(volume_mesh,_tetrahedra_to_remove);
+    
+    std::vector<size_t> _vertex_map = computeUnionFindMapping(volume_mesh,vertex_pairs);
+
+    // Now _vertex_map contains the mapping from old vertex indices to their new representative.
+    // The next step would be to update the connectivity of your tetrahedral cells:
+    // For each cell, replace its vertex indices with _vertex_map[vertex_index].
+    // Also, you might need to remove any tetrahedra that become degenerate
+    // (i.e., if after mapping two or more of its vertices are the same).
+
+    // === End Union-Find ===
+
+    // At this point, you can continue by rebuilding the mesh:
+    //   - Create a new vertex list that contains only the unique representatives.
+    //   - Update each cell’s connectivity using _vertex_map.
+    //   - Remove cells that are now degenerate (e.g., have duplicate vertex indices).
+    VolumeMesh _refined_volume_mesh; 
+    _refined_volume_mesh.vertices = volume_mesh.vertices;
+    _refined_volume_mesh.markers = volume_mesh.markers;
+    
+    for (size_t i = 0; i < volume_mesh.cells.size(); i++)
+    {
+       size_t v0 =_vertex_map[volume_mesh.cells[i].v0];
+       size_t v1 =_vertex_map[volume_mesh.cells[i].v1];
+       size_t v2 =_vertex_map[volume_mesh.cells[i].v2];
+       size_t v3 =_vertex_map[volume_mesh.cells[i].v3];
+
+      if (count_unique(v0,v1,v2,v3) == 4)
+      {
+        _refined_volume_mesh.cells.push_back(Simplex3D(v0,v1,v2,v3));
+      }
+    }
+    
+    // Erase non-connected vertices and renumber mesh
+    _update_mesh(_refined_volume_mesh);
+
+    return _refined_volume_mesh;
+  }
 private:
 
   static std::vector<std::pair<size_t,size_t>> get_candidate_vertices_pairs(const VolumeMesh &volume_mesh,
@@ -70,7 +133,7 @@ private:
   }
 
   // Helper function: computes the union-find mapping given the merging pairs.
-  static std::vector<size_t> computeUnionFindMapping(
+  static std::vector<size_t> computeUnionFindMapping2(
       const VolumeMesh &volume_mesh,
       const std::vector<std::pair<size_t, size_t>> &vertexPairs)
   {
@@ -146,6 +209,65 @@ private:
     return vertexMap;
   }
 
+
+  static std::vector<size_t> computeUnionFindMapping(
+    const VolumeMesh &volume_mesh,
+    const std::vector<std::pair<size_t, size_t>> &vertexPairs)
+{
+    size_t n = volume_mesh.vertices.size();
+    std::vector<size_t> parent(n), rank(n, 0);
+    for (size_t i = 0; i < n; ++i) parent[i] = i;
+
+    // Standard find with path‐compression deferred until the end
+    std::function<size_t(size_t)> findNoCompress = [&](size_t x) -> size_t {
+        return parent[x] == x ? x : findNoCompress(parent[x]);
+    };
+
+    // Union by marker (no rank here—optional)
+    auto unionSets = [&](size_t a, size_t b) {
+        size_t ra = findNoCompress(a);
+        size_t rb = findNoCompress(b);
+        if (ra == rb) return;
+        // prefer higher marker
+        if (volume_mesh.markers[ra] < volume_mesh.markers[rb]) std::swap(ra, rb);
+        parent[rb] = ra;
+    };
+
+    // Track which vertices have already been merged in this pass
+    std::vector<bool> used(n, false);
+
+    // Process sorted pairs one by one, rejecting any that reuse an endpoint
+    for (const auto &p : vertexPairs) {
+        size_t i = p.first;
+        size_t j = p.second;
+        // skip if either vertex is already involved in another merge
+        if (used[i] || used[j]) continue;
+        // skip if they’re already in same set (i.e. transitive)
+        if (findNoCompress(i) == findNoCompress(j)) continue;
+
+        // commit this merge
+        unionSets(i, j);
+        used[i] = used[j] = true;
+    }
+
+    // Now do one final pass of path‐compression to flatten sets
+    std::vector<size_t> vertexMap(n);
+    for (size_t i = 0; i < n; ++i) {
+        // fully compress each chain
+        size_t root = i;
+        while (parent[root] != root) root = parent[root];
+        size_t cur = i;
+        while (parent[cur] != root) {
+            size_t next = parent[cur];
+            parent[cur] = root;
+            cur = next;
+        }
+        vertexMap[i] = root;
+    }
+    return vertexMap;
+}
+
+
   static std::pair<size_t, size_t> get_smallest_edge(const std::array<Vector3D, 4> &vertices)
   {
     std::pair<size_t, size_t> best_pair = {0, 1};
@@ -209,71 +331,6 @@ private:
 
     volume_mesh.vertices = new_vertices;
     volume_mesh.markers = new_markers;
-  }
-
-
-
-public:
-  static VolumeMesh remove_tetrahedra(const VolumeMesh &volume_mesh,
-                                const double aspect_ratio_threshold = 10.0)
-  {
-
-    const auto _aspect_ratios = Geometry::aspect_ratios(volume_mesh);
-
-    std::vector<size_t> _tetrahedra_to_remove;
-    for (size_t i = 0; i < volume_mesh.cells.size(); i++)
-    {
-      if (_aspect_ratios[i] > aspect_ratio_threshold)
-      {
-        _tetrahedra_to_remove.push_back(i);
-      }
-    }
-    // Sort the tetrahedra to remove based on their aspect ratios
-    // This is optional, but it can help in prioritizing which tetrahedra to remove first.
-    std::sort(_tetrahedra_to_remove.begin(), _tetrahedra_to_remove.end(),
-          [&_aspect_ratios](size_t a, size_t b) {
-              return _aspect_ratios[a] > _aspect_ratios[b]; // descending order
-          });
-
-    std::cout << "Number of tetrahedra to remove: " << _tetrahedra_to_remove.size() << std::endl;
-  
-    std::vector<std::pair<size_t,size_t>> vertex_pairs = get_candidate_vertices_pairs(volume_mesh,_tetrahedra_to_remove);
-    
-    std::vector<size_t> _vertex_map = computeUnionFindMapping(volume_mesh,vertex_pairs);
-
-    // Now _vertex_map contains the mapping from old vertex indices to their new representative.
-    // The next step would be to update the connectivity of your tetrahedral cells:
-    // For each cell, replace its vertex indices with _vertex_map[vertex_index].
-    // Also, you might need to remove any tetrahedra that become degenerate
-    // (i.e., if after mapping two or more of its vertices are the same).
-
-    // === End Union-Find ===
-
-    // At this point, you can continue by rebuilding the mesh:
-    //   - Create a new vertex list that contains only the unique representatives.
-    //   - Update each cell’s connectivity using _vertex_map.
-    //   - Remove cells that are now degenerate (e.g., have duplicate vertex indices).
-    VolumeMesh _refined_volume_mesh; 
-    _refined_volume_mesh.vertices = volume_mesh.vertices;
-    _refined_volume_mesh.markers = volume_mesh.markers;
-    
-    for (size_t i = 0; i < volume_mesh.cells.size(); i++)
-    {
-       size_t v0 =_vertex_map[volume_mesh.cells[i].v0];
-       size_t v1 =_vertex_map[volume_mesh.cells[i].v1];
-       size_t v2 =_vertex_map[volume_mesh.cells[i].v2];
-       size_t v3 =_vertex_map[volume_mesh.cells[i].v3];
-
-      if (count_unique(v0,v1,v2,v3) == 4)
-      {
-        _refined_volume_mesh.cells.push_back(Simplex3D(v0,v1,v2,v3));
-      }
-    }
-    
-    // Erase non-connected vertices and renumber mesh
-    _update_mesh(_refined_volume_mesh);
-
-    return _refined_volume_mesh;
   }
 };
 

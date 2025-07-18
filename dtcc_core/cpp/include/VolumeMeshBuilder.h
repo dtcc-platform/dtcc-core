@@ -796,7 +796,7 @@ void report(const VolumeMesh &volume_mesh, double elapsed_time, int step)
     }
 
     // Compute number of layers of max height and min height
-    _column_mesh.num_max_layers = std::ceil(max_building_height / layer_heights.back()) + 1;
+    _column_mesh.num_max_layers = std::ceil(max_building_height / layer_heights.back()) + 2;
     _column_mesh.num_min_layers = _column_mesh.num_max_layers << (layer_heights.size() - 1);
 
     std::cout << "Number of layers [MAX LAYER HEIGHT]: " << _column_mesh.num_max_layers
@@ -1012,18 +1012,32 @@ void report(const VolumeMesh &volume_mesh, double elapsed_time, int step)
     }
   }
 
-  VolumeMesh layer_padding_mesh(const VolumeMesh &volume_mesh, const double top_height,
-                                double max_scale = 3.0)
+  VolumeMesh layer_padding_mesh(const VolumeMesh &volume_mesh, double top_height,
+                                double max_scale = 2.0)
   {
     // Get max layer height
     std::vector<size_t> new_to_old_index;
     Mesh _top_mesh = VolumeMeshDomainPadding::extract_top_mesh(volume_mesh, new_to_old_index);
     BuilderMesh mesh(_top_mesh);
+    double top_surface_max_z = 0.0;
+    double top_surface_min_z = std::numeric_limits<double>::max();
+    for (auto v : mesh.vertices)
+    {
+      top_surface_max_z = std::max(top_surface_max_z, v.z);
+      top_surface_min_z = std::min(top_surface_min_z, v.z);
+    }
+
+    
     const auto layer_heights = compute_layer_heights(mesh);
-
     const double max_layer_height = layer_heights.back();
-    std::vector<int> vertex_matches;
 
+    if (top_height <= top_surface_max_z){
+      info("Domain is taller than input top height!");
+      top_height = top_surface_max_z + max_layer_height;
+    }
+    double padding_height = top_height - top_surface_max_z;
+    
+    std::vector<int> vertex_matches;
     if (new_to_old_index.size() != mesh.vertices.size())
     {
       std::cout << "number of vertices between old and new mesh " << new_to_old_index.size()
@@ -1032,13 +1046,8 @@ void report(const VolumeMesh &volume_mesh, double elapsed_time, int step)
     }
 
     ColumnMesh padding_mesh(_top_mesh);
-    double top_surface_mesh_z = 0.0;
-    for (auto v : mesh.vertices)
-    {
-      top_surface_mesh_z = std::max(top_surface_mesh_z, v.z);
-    }
-    const double padding_height = top_height - top_surface_mesh_z;
-
+    
+    
     // Number of Max height layers needed to cover padding height.
     // const size_t n =  static_cast<size_t>(2 * padding_height / (max_layer_height * (max_scale + 1)));
     const size_t n = std::max(
@@ -1046,7 +1055,7 @@ void report(const VolumeMesh &volume_mesh, double elapsed_time, int step)
         static_cast<size_t>(2 * padding_height / (max_layer_height * (max_scale + 1)))
       );
 
-    info("Top surface max z:" + str(top_surface_mesh_z) + " Top domain height " + str(top_height));
+    info("Top surface max z:" + str(top_surface_max_z) + " Top domain height " + str(top_height) + " Padding Height: " + str(padding_height));
     info("Padding Domain with " + str(n) + " max layers scaled from 1 to " + str(max_scale));
     // std::vector<size_t> offset_before_padding = _column_mesh.vertices_offset;
 
@@ -1101,6 +1110,7 @@ void report(const VolumeMesh &volume_mesh, double elapsed_time, int step)
     auto _padding_mesh = padding_mesh.to_volume_mesh();
     info("Volume Mesh " + str(volume_mesh));
     info("Padding Mesh " + str(_padding_mesh));
+    
     return weld_meshes(volume_mesh, _padding_mesh, vertex_matches);
   }
 
