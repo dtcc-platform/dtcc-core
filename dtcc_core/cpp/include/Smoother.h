@@ -139,6 +139,7 @@ public:
     return _volume_mesh;
   }
 
+
 private:
   // Solve linear system using unassembled Gauss-Seidel iterations
   static void solve_unassembled_gauss_seidel(const VolumeMesh &volume_mesh, StiffnessMatrix &AK,
@@ -266,7 +267,7 @@ private:
   }
 
   // Compute the number of cells to which each vertex belongs
-  static void compute_vertex_degrees(std::vector<uint> &vertex_degrees,
+  static inline void compute_vertex_degrees(std::vector<uint> &vertex_degrees,
                                      const VolumeMesh &volume_mesh)
   {
     for (size_t c = 0; c < volume_mesh.cells.size(); c++)
@@ -281,4 +282,4 @@ private:
 
 } // namespace DTCC_BUILDER
 
-#endif // DTCC_LAPLACIAN_SMOOTHER_NEW_H
+#endif // DTCC_SMOOTHER_H

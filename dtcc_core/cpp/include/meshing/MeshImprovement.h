@@ -12,8 +12,10 @@
 
 namespace DTCC_BUILDER
 {
+namespace VolumeMeshing
+{
 
-class VolumeMeshImprovement
+class MeshImprovement
 {
 public:
   static VolumeMesh remove_tetrahedra(const VolumeMesh &volume_mesh,
@@ -333,7 +335,7 @@ private:
     volume_mesh.markers = new_markers;
   }
 };
-
+} // namespace VolumeMeshing
 } // namespace DTCC_BUILDER
 
 #endif

@@ -91,7 +91,7 @@ public:
   virtual ~ColumnMesh() {}
 
   // Get vertex by column index
-  const Vector3D &vertex(const ColumnIndex &index) const
+  inline const Vector3D &vertex(const ColumnIndex &index) const
   {
     return vertices[index.column][index.index];
   }
@@ -119,7 +119,7 @@ public:
   }
 
   // Get layer index of vertex
-  size_t layer_index(const ColumnIndex &index) const
+  inline size_t layer_index(const ColumnIndex &index) const
   {
     const size_t layer_step = num_min_layers / (vertices[index.column].size() - 1);
     return index.index * layer_step;
@@ -241,6 +241,23 @@ public:
     }
   }
 
+  void _update_vertices(const std::vector<Vector3D> &u)
+  {
+    for (size_t i = 0; i < this->vertices.size(); i++)
+    {
+      const size_t start_index = this->vertices_offset[i];
+      const size_t end_index = this->vertices_offset[i + 1];
+      const size_t num_vertices = end_index - start_index;
+
+      // this->vertices[i].clear();
+      // this->vertices[i].reserve(num_vertices); // Reserve space to avoid reallocations
+
+      for (size_t j = 0; j < num_vertices; j++)
+      {
+        this->vertices[i][j]+= u[start_index + j];
+      }
+    }
+  }
   // Pretty-print
   std::string __str__() const override
   {
