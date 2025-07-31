@@ -137,7 +137,7 @@ class Surface(Geometry):
             )
             self.holes.append(hole_verts)
         self.calculate_bounds()
-
+        self.set_z(height)
         return self
 
     def from_shapely(self, shape):

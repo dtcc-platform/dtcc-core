@@ -250,6 +250,7 @@ def build_volume_mesh(
         clearance_fix = fix_building_footprint_clearance(
             simplifed_footprints, min_building_detail
         )
+        
         building_footprints = [
             b.get_footprint(GeometryType.LOD0) for b in clearance_fix
         ]
@@ -262,7 +263,7 @@ def build_volume_mesh(
     subdomain_resolution = [
         min(building.height, max_mesh_size) for building in buildings
     ]
-    
+
     terrain = city.terrain
     if terrain is None:
         raise ValueError("City has no terrain data. Please compute terrain first.")
@@ -298,13 +299,13 @@ def build_volume_mesh(
 
     # FIXME: Should not need to convert from C++ to Python mesh.
     # Convert from Python to C++
-    print("Teeest",type(building_footprints[0]))
+    
     _surfaces = [
         create_builder_surface(footprint)
         for footprint in building_footprints
         if footprint is not None
     ]
-
+    
     # Convert from C++ to Python
     # ground_mesh = builder_mesh_to_mesh(_ground_mesh)
     _dem = raster_to_builder_gridfield(terrain.raster)
