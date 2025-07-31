@@ -60,5 +60,5 @@ __all__ = [
     "clean_building_surfaces",
     "building_heights_from_pointcloud",
     "tree_raster_from_pointcloud",
-
+    "build_volume_mesh",
 ]

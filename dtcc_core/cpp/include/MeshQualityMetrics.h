@@ -758,20 +758,23 @@ public:
     {
       auto ar = face_aspect_ratio(volume_mesh);
       auto max = std::max_element(ar.begin(), ar.end());
-      if (max != ar.end())
-        info("Face aspect ratio MAX (1-inf, 1 is optimal):\t" +
+      auto min = std::min_element(ar.begin(), ar.end());
+      if (max != ar.end()  && min != ar.end() )
+        info("Face aspect ratio MAX (1-inf, 1 is optimal):\t min: " + std::to_string(*min)+ "\tmax: "+
              std::to_string(*max));
     }
     {
       auto sk = skewness(volume_mesh);
       auto max = std::max_element(sk.begin(), sk.end());
+      auto min = std::min_element(sk.begin(), sk.end());
       if (max != sk.end())
-        info("Cell skewness MAX(0-1, 0 is optimal):\t" + std::to_string(*max));
+        info("Cell skewness MAX(0-1, 0 is optimal):\t min: " + std::to_string(*min)+ "\tmax: "+
+             std::to_string(*max));
     }
   }
 
   static void check_volume_mesh(const VolumeMesh &volume_mesh,
-                                const int metrics_code)
+                                const int metrics_code = 0)
   {
     if (metrics_code == 0)
     {

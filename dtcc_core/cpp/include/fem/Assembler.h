@@ -7,6 +7,7 @@
 #include "BilinearForm.h"
 #include "SparseMatrix.h"
 #include "model/VolumeMesh.h"
+#include "model/ColumnMesh.h"
 
 // FIXME: Should be namespace dtcc
 using namespace DTCC_BUILDER;
@@ -50,6 +51,7 @@ public:
 
     return A;
   }
+
 };
 
 } // namespace dtcc

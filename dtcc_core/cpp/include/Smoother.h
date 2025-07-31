@@ -12,6 +12,7 @@
 #include "fem/SparseMatrix.h"
 
 #include "BoundaryConditions.h"
+#include "BoundaryConditionsElastic.h"
 #include "StiffnessMatrix.h"
 #include "Timer.h"
 #include "model/Mesh.h"
@@ -65,6 +66,80 @@ public:
     return _volume_mesh;
   }
 
+  // Smooth mesh using Laplacian smoothing
+  static VolumeMesh smooth_volume_mesh_poisson(const VolumeMesh &volume_mesh,
+                                       const std::vector<Surface> &building_surfaces,
+                                       const GridField &dem, double top_height, bool fix_buildings,
+                                       bool fix_top, size_t max_iterations,
+                                       double relative_tolerance)
+
+  {
+    info("Smoothing volume mesh using amgcl...");
+    info(volume_mesh.__str__());
+
+    dtcc::Poisson bilinear_form;
+
+    // Compute (local) stiffness matrices
+    dtcc::SparseMatrix A = dtcc::Assembler::assemble(bilinear_form,volume_mesh);
+
+    std::vector<double> b(volume_mesh.vertices.size(),0.0);
+    std::vector<double> u = b; 
+
+    // Apply boundary conditions
+    BoundaryConditions bc(volume_mesh, building_surfaces, dem, top_height, fix_buildings, fix_top);
+    bc.apply(A);
+    bc.apply(b);
+
+    dtcc::LinearSolver::solve(A,b,u,max_iterations, relative_tolerance);
+
+    // Update mesh coordinates
+    VolumeMesh _volume_mesh{volume_mesh};
+    for (std::size_t i = 0; i < volume_mesh.vertices.size(); i++)
+      _volume_mesh.vertices[i].z += u[i];
+
+    return _volume_mesh;
+  }
+
+  // Smooth mesh using Elastic smoothing
+  static VolumeMesh smooth_volume_mesh_elastic(const VolumeMesh &volume_mesh,
+                                       const std::vector<Surface> &building_surfaces,
+                                       const GridField &dem, double top_height, bool fix_buildings,
+                                       bool fix_top, size_t max_iterations,
+                                       double relative_tolerance,
+                                       const BoundingBox2D &domain_bounds)
+
+  {
+    info("Elastic Smoothing volume mesh using amgcl...");
+    info(volume_mesh.__str__());
+
+    dtcc::Elasticity bilinear_form;
+
+    // Compute (local) stiffness matrices
+    dtcc::SparseMatrix A = dtcc::Assembler::assemble(bilinear_form,volume_mesh);
+
+    // N = 3 * volume_mesh.vertices.size()
+    const size_t N = bilinear_form.global_dimension(volume_mesh);
+    std::vector<double> b(N,0.0);
+    std::vector<double> u(N,0.0);
+
+    // Apply boundary conditions
+    BoundaryConditionsElastic bc(volume_mesh, building_surfaces, dem, top_height, fix_buildings, fix_top, domain_bounds);
+    bc.apply(A);
+    bc.apply(b);
+    VolumeMesh _volume_mesh{volume_mesh};
+    
+    
+    
+    dtcc::LinearSolver::solve(A,b,u,max_iterations,relative_tolerance);
+    for (std::size_t i = 0; i < volume_mesh.vertices.size(); i++){
+      _volume_mesh.vertices[i].x += u[3*i+0];
+      _volume_mesh.vertices[i].y += u[3*i+1];
+      _volume_mesh.vertices[i].z += u[3*i+2];
+    }
+    return _volume_mesh;
+  }
+
+
 private:
   // Solve linear system using unassembled Gauss-Seidel iterations
   static void solve_unassembled_gauss_seidel(const VolumeMesh &volume_mesh, StiffnessMatrix &AK,
@@ -73,7 +148,9 @@ private:
                                              const double relative_tolerance)
   {
     info("Solving linear system using unassembled Gauss-Seidel");
-
+    // The profiler:
+    amgcl::profiler<> prof("Unassembled Gauss-Seidel");
+    
     // Sum of non-diagonal elements
     std::vector<double> C(volume_mesh.vertices.size());
 
@@ -83,9 +160,12 @@ private:
     // Compute the number of cells that each vertex belongs
     std::vector<uint> vertex_degrees(volume_mesh.vertices.size());
     std::vector<uint> _vertex_degrees(volume_mesh.vertices.size());
+    prof.tic("Compute Vertex degrees");
     compute_vertex_degrees(vertex_degrees, volume_mesh);
+    prof.toc("Compute Vertex degrees");
 
     // Gauss-Seidel iterations
+    prof.tic("Gauss-Seidel iterations");
     size_t iterations;
     double residual;
     for (iterations = 0; iterations < max_iterations; iterations++)
@@ -130,7 +210,7 @@ private:
       if (residual < relative_tolerance)
         break;
     }
-
+    prof.toc("Gauss-Seidel iterations");
     // Check convergence
     if (iterations == max_iterations)
     {
@@ -142,6 +222,7 @@ private:
       info("Converged in " + str(iterations) + "/" + str(max_iterations) +
            " iterations with residual " + str(residual));
     }
+    std::cout << prof << std::endl;
   }
 
   // Set initial guess for solution vector
@@ -186,7 +267,7 @@ private:
   }
 
   // Compute the number of cells to which each vertex belongs
-  static void compute_vertex_degrees(std::vector<uint> &vertex_degrees,
+  static inline void compute_vertex_degrees(std::vector<uint> &vertex_degrees,
                                      const VolumeMesh &volume_mesh)
   {
     for (size_t c = 0; c < volume_mesh.cells.size(); c++)
@@ -201,4 +282,4 @@ private:
 
 } // namespace DTCC_BUILDER
 
-#endif // DTCC_LAPLACIAN_SMOOTHER_NEW_H
+#endif // DTCC_SMOOTHER_H
