@@ -105,6 +105,8 @@ class Surface(Geometry):
         self.vertices[:, 2] = z
         for hole in self.holes:
             hole[:, 2] = z
+        self.bounds.zmax = z
+        self.bounds.zmin = z
 
     def to_polygon(self, simplify=1e-2) -> Polygon:
         """Convert the surface to a Shapely Polygon."""
