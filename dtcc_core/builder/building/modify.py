@@ -39,6 +39,10 @@ def get_footprint(building: Building, geom_type: GeometryType = None) -> Surface
         warning(f"Building {building.id} has no LOD geometry.")
         return None
     height = geom.bounds.zmax
+    # if geom.bounds.zmax ==0 and geom.bounds.zmin == 0:
+    #     height = building.attributes.get("height", 0) +  building.attributes.get("ground_height", 0)
+    # if height == 0:
+    #     warning(f"Building {building.id} has no height defined.")
     footprint = geom.to_polygon()
     if footprint.geom_type == "MultiPolygon":
         geom.to_polygon()
