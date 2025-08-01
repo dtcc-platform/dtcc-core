@@ -144,7 +144,7 @@ def build_city_mesh(
     return result_mesh
 
 
-def build_volume_mesh(
+def build_city_volume_mesh(
     city: City,
     lod: GeometryType = GeometryType.LOD1,
     domain_height: float = 100.0,
@@ -325,7 +325,7 @@ def build_volume_mesh(
         aspect_ratio_threshold,
         debug_step,
     )
-    volume_mesh = builder_volume_mesh_to_volume_mesh(_volume_mesh)
+    volume_mesh = _volume_mesh.from_cpp()
 
 
     if boundary_face_markers:

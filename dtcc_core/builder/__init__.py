@@ -41,7 +41,7 @@ from .register import register_model_method
 
 from .trees.create import tree_raster_from_pointcloud
 
-from .geometry_builders.meshes import build_city_mesh,build_volume_mesh
+from .geometry_builders.meshes import build_city_mesh,build_city_volume_mesh
 
 __all__ = [
     "extract_roof_points",
@@ -60,5 +60,5 @@ __all__ = [
     "clean_building_surfaces",
     "building_heights_from_pointcloud",
     "tree_raster_from_pointcloud",
-    "build_volume_mesh",
+    "build_city_volume_mesh",
 ]

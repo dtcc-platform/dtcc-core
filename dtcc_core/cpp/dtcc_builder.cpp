@@ -365,14 +365,38 @@ PYBIND11_MODULE(_dtcc_builder, m)
       .def_readonly("vertices", &DTCC_BUILDER::Mesh::vertices)
       .def_readonly("faces", &DTCC_BUILDER::Mesh::faces)
       .def_readonly("normals", &DTCC_BUILDER::Mesh::normals)
-      .def_readonly("markers", &DTCC_BUILDER::Mesh::markers);
+      .def_readonly("markers", &DTCC_BUILDER::Mesh::markers)
+      .def("from_cpp",[](const DTCC_BUILDER::Mesh &m) {
+                 // cache the Python converter lookup once:
+                 static py::object conv = 
+                     py::module::import("dtcc_core.builder.model_conversion")
+                       .attr("builder_mesh_to_mesh");
+                 // call it, passing ourselves:
+                 return conv(m);
+             },
+             R"pbdoc(
+                 Convert this C++ Mesh back into a Python model.Mesh.
+             )pbdoc"
+        );;
 
   py::class_<DTCC_BUILDER::VolumeMesh>(m, "VolumeMesh")
       .def(py::init<>())
       .def_readonly("num_layers", &DTCC_BUILDER::VolumeMesh::num_layers)
       .def_readonly("vertices", &DTCC_BUILDER::VolumeMesh::vertices)
       .def_readonly("cells", &DTCC_BUILDER::VolumeMesh::cells)
-      .def_readonly("markers", &DTCC_BUILDER::VolumeMesh::markers);
+      .def_readonly("markers", &DTCC_BUILDER::VolumeMesh::markers)
+      .def("from_cpp",[](const DTCC_BUILDER::VolumeMesh &m) {
+                 // cache the Python converter lookup once:
+                 static py::object conv = 
+                     py::module::import("dtcc_core.builder.model_conversion")
+                       .attr("builder_volume_mesh_to_volume_mesh");
+                 // call it, passing ourselves:
+                 return conv(m);
+             },
+             R"pbdoc(
+                 Convert this C++ Volume Mesh back into a Python model.VolumeMesh.
+             )pbdoc"
+        );
 
   py::class_<DTCC_BUILDER::Surface>(m, "Surface")
       .def(py::init<>())

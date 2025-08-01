@@ -5,10 +5,10 @@ from typing import TypeVar, TYPE_CHECKING, Union, List
 from ....model.geometry import Bounds
 
 if TYPE_CHECKING:
-    from ....model.geometry import Mesh
+    from ....model.geometry import Mesh,VolumeMesh
 
     T_Mesh = TypeVar("T_Mesh", bound=Mesh)
-
+    T_VolumeMesh = TypeVar("T_VolumeMesh", bound=VolumeMesh)
 
 class MeshProcessingMixin:
     """
@@ -48,3 +48,31 @@ class MeshProcessingMixin:
         snapped_mesh = snap_vertices(self, snap_distance)
 
         return snapped_mesh
+
+    def to_cpp(self: "T_Mesh") -> "_dtcc_builder.Mesh":
+        """
+        Convert the Mesh to a DTCC builder Mesh.
+
+        Returns
+        -------
+        _dtcc_builder.Mesh
+            A DTCC builder Mesh object.
+        """
+        from dtcc_core.builder.model_conversion import mesh_to_builder_mesh
+
+        return mesh_to_builder_mesh(self.vertices, self.faces, self.markers)
+    
+
+class VolumeMeshProcessingMixin:
+    def to_cpp(self: "T_VolumeMesh") -> "_dtcc_builder.VolumeMesh":
+        """
+        Convert the VolumeMesh to a DTCC builder VolumeMesh.
+
+        Returns
+        -------
+        _dtcc_builder.VolumeMesh
+            A DTCC builder VolumeMesh object.
+        """
+        from dtcc_core.builder.model_conversion import volume_mesh_to_builder_volume_mesh
+
+        return volume_mesh_to_builder_volume_mesh(self.vertices, self.cells, self.markers)
