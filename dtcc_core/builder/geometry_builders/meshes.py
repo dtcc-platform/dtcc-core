@@ -138,9 +138,9 @@ def build_city_mesh(
         sort_triangles,
     )
     if merge_meshes:
-        result_mesh = builder_mesh_to_mesh(builder_mesh[0])
+        result_mesh = builder_mesh[0].from_cpp()
     else:
-        result_mesh = [builder_mesh_to_mesh(bm) for bm in builder_mesh]
+        result_mesh = [bm.from_cpp() for bm in builder_mesh]
     return result_mesh
 
 
