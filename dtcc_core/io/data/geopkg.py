@@ -6,7 +6,7 @@ import json
 import aiohttp
 import requests
 from platformdirs import user_cache_dir
-from .logging import info, warning, debug, error
+from .dtcc_logging import info, warning, debug, error
 
 CACHE_DIR = user_cache_dir(appname="dtcc-data")
 os.makedirs(CACHE_DIR,exist_ok=True)
@@ -14,7 +14,7 @@ os.makedirs(CACHE_DIR,exist_ok=True)
 CACHE_FILE = os.path.join(CACHE_DIR,"tile_cache_superset.json")
 
 # The FastAPI endpoint
-DEFAULT_SERVER_URL = "http://127.0.0.1:8000/tiles"
+DEFAULT_SERVER_URL = "http://127.0.0.1:8001"
 
 try:
     import nest_asyncio
@@ -118,20 +118,21 @@ async def download_gpkg_file(session, base_url, filename, output_dir):
         else:
             warning(f"Failed to download {filename}, status code={resp.status}")
 
-async def download_all_gpkg_files(base_url, filenames, output_dir="downloaded_gpkg"):
+async def download_all_gpkg_files(base_url, filenames, auth_headers, output_dir="downloaded_gpkg"):
     """
     Given a list of filenames, downloads them all asynchronously from
     base_url/get/lidar/<filename> using aiohttp, skipping any local cache hits.
     """
-        
-    async with aiohttp.ClientSession() as session:
+    connector = aiohttp.TCPConnector()
+    headers = auth_headers
+    async with aiohttp.ClientSession(connector=connector, headers=headers) as session:
         tasks = []
         for fname in filenames:
             tasks.append(download_gpkg_file(session, base_url, fname, output_dir))
         # Run all downloads concurrently
         await asyncio.gather(*tasks)
 
-def run_download_files(base_url, filenames, output_dir="downloaded_gpkg"):
+def run_download_files(base_url, filenames, auth_headers, output_dir="downloaded_gpkg"):
     """
     Entry point to run the async download with asyncio, skipping already cached files.
     """
@@ -139,7 +140,7 @@ def run_download_files(base_url, filenames, output_dir="downloaded_gpkg"):
         info("No files to download.")
         return
     debug(f"Downloading {len(filenames)} files in parallel (with cache check)...")
-    asyncio.run(download_all_gpkg_files(base_url, filenames, output_dir))
+    asyncio.run(download_all_gpkg_files(base_url, filenames, auth_headers, output_dir))
     info("All downloads finished.")
 
 def download_tiles(user_bbox, session, server_url=DEFAULT_SERVER_URL):
@@ -167,7 +168,81 @@ def download_tiles(user_bbox, session, server_url=DEFAULT_SERVER_URL):
     output_dir = os.path.join(CACHE_DIR,'downloaded-gpkg')
     # D) Download files in parallel (with local cache)
     # filenames_to_download = [tile["filename"] for tile in returned_tiles]
-    run_download_files(server_url, returned_tiles, output_dir=output_dir)
+    auth_headers = dict(session.headers)
+    run_download_files(server_url, returned_tiles, auth_headers, output_dir=output_dir)
+    return [os.path.join(output_dir, filename) for filename in returned_tiles]
+
+
+# Dataset-aware helpers
+def post_gpkg_request_dataset(base_url, session, dataset: str, xmin: float, ymin: float, xmax: float, ymax: float):
+    payload = {"minx": xmin, "miny": ymin, "maxx": xmax, "maxy": ymax}
+    url = f"{base_url.rstrip('/')}/gpkg/{dataset}/tiles"
+    debug(f"[POST] to {url} with payload={payload}")
+    resp = session.post(url, json=payload, timeout=30)
+    if resp.status_code != 200:
+        raise RuntimeError(f"Request failed with status {resp.status_code}:\n{resp.text}")
+    return resp.json()
+
+
+async def download_gpkg_file_dataset(session, base_url, dataset: str, filename: str, output_dir: str):
+    url = f"{base_url.rstrip('/')}/get/gpkg/{dataset}/{filename}"
+    os.makedirs(output_dir, exist_ok=True)
+    out_path = os.path.join(output_dir, filename)
+    if os.path.exists(out_path):
+        info(f"File {filename} already in cache, skipping download.")
+        return
+    info(f"Downloading {filename} from {url}")
+    async with session.get(url) as resp:
+        if resp.status == 200:
+            content = await resp.read()
+            with open(out_path, "wb") as f:
+                f.write(content)
+            info(f"Saved {filename} to {out_path}")
+        else:
+            warning(f"Failed to download {filename}, status code={resp.status}")
+
+
+async def download_all_gpkg_files_dataset(base_url, dataset: str, filenames, auth_headers, output_dir="downloaded_gpkg"):
+    """
+    Given a list of filenames, downloads them all asynchronously from
+    base_url/get/gpkg/<dataset>/<filename> using aiohttp, skipping any local cache hits.
+    """
+    connector = aiohttp.TCPConnector()
+    headers = auth_headers
+    async with aiohttp.ClientSession(connector=connector, headers=headers) as session:
+        tasks = [download_gpkg_file_dataset(session, base_url, dataset, fname, output_dir) for fname in filenames]
+        await asyncio.gather(*tasks)
+
+
+def run_download_files_dataset(base_url, dataset: str, filenames, auth_headers, output_dir="downloaded_gpkg"):
+    """
+    Entry point to run the async download with asyncio, skipping already cached files.
+    """
+    if not filenames:
+        info("No files to download.")
+        return
+    debug(f"Downloading {len(filenames)} files for dataset {dataset} in parallel (with cache check)...")
+    asyncio.run(download_all_gpkg_files_dataset(base_url, dataset, filenames, auth_headers, output_dir))
+    info("All downloads finished.")
+
+
+def download_tiles_dataset(user_bbox, session, dataset: str, server_url=DEFAULT_SERVER_URL):
+    """
+    Dataset-aware version of download_tiles with authentication support.
+    """
+    try:
+        response_data = post_gpkg_request_dataset(
+            server_url, session, dataset,
+            xmin=user_bbox[0], ymin=user_bbox[1], xmax=user_bbox[2], ymax=user_bbox[3]
+        )
+    except Exception as e:
+        warning(f"Error occurred: {e}")
+        return
+    returned_tiles = response_data["tiles"]
+    output_dir = os.path.join(CACHE_DIR, f'downloaded-gpkg-{dataset}')
+    # Extract auth headers from session (same as in download_tiles)
+    auth_headers = dict(session.headers)
+    run_download_files_dataset(server_url, dataset, returned_tiles, auth_headers, output_dir=output_dir)
     return [os.path.join(output_dir, filename) for filename in returned_tiles]
 
 

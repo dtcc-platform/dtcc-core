@@ -7,7 +7,7 @@ import pyproj
 import geopandas as gpd
 from shapely.geometry import box, Polygon, LineString
 from platformdirs import user_cache_dir
-from .logging import info, warning, debug, error
+from .dtcc_logging import info, warning, debug, error
 
 # ------------------------------------------------------------------------
 # 1) Global constants/paths

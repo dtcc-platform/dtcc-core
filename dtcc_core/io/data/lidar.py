@@ -8,7 +8,7 @@ import pyproj
 import asyncio
 import aiohttp
 from platformdirs import user_cache_dir
-from .logging import info, debug, warning, error
+from .dtcc_logging import info, debug, warning, error
 
 try:
     import nest_asyncio
@@ -141,6 +141,8 @@ def plot_bboxes_folium(user_bbox, tiles, out_html="client_map.html", crs_from="E
 # ------------------------------------------------------------------------
 # Async download with caching
 # ------------------------------------------------------------------------
+# Modified functions to handle authentication
+
 async def download_laz_file(session, base_url, filename, output_dir):
     """
     Download a single .laz file asynchronously with aiohttp if not already cached.
@@ -167,20 +169,23 @@ async def download_laz_file(session, base_url, filename, output_dir):
         else:
             warning(f"Failed to download {filename}, status code={resp.status}")
 
-async def download_all_lidar_files(base_url, filenames, output_dir="downloaded_laz"):
+async def download_all_lidar_files(base_url, filenames, output_dir="downloaded_laz", auth_headers=None):
     """
     Given a list of filenames, downloads them all asynchronously from
     base_url/get/lidar/<filename> using aiohttp, skipping any local cache hits.
     """
-        
-    async with aiohttp.ClientSession() as session:
+    # Create connector with custom headers if auth_headers provided
+    connector = aiohttp.TCPConnector()
+    headers = auth_headers or {}
+    
+    async with aiohttp.ClientSession(connector=connector, headers=headers) as session:
         tasks = []
         for fname in filenames:
             tasks.append(download_laz_file(session, base_url, fname, output_dir))
         # Run all downloads concurrently
         await asyncio.gather(*tasks)
 
-def run_download_files(base_url, filenames, output_dir="downloaded_laz"):
+def run_download_files(base_url, filenames, output_dir="downloaded_laz", auth_headers=None):
     """
     Entry point to run the async download with asyncio, skipping already cached files.
     """
@@ -188,15 +193,11 @@ def run_download_files(base_url, filenames, output_dir="downloaded_laz"):
         info("No files to download.")
         return
     debug(f"Downloading {len(filenames)} files in parallel (with cache check)...")
-    asyncio.run(download_all_lidar_files(base_url, filenames, output_dir))
+    asyncio.run(download_all_lidar_files(base_url, filenames, output_dir, auth_headers))
     info("All downloads finished.")
 
-
-# ------------------------------------------------------------------------
-# The single function that does everything for the user
-# ------------------------------------------------------------------------
 def download_lidar(user_bbox, session, buffer_val=0, base_url="http://127.0.0.1:8000",
-                   output_map="client_map.html", output_dir= None):
+                   output_map="client_map.html", output_dir=None):
     """
     1) POST the bounding box + buffer to the server -> get intersecting tiles
     2) Plot user bbox + tile bboxes in a Folium map
@@ -206,6 +207,7 @@ def download_lidar(user_bbox, session, buffer_val=0, base_url="http://127.0.0.1:
         cache_dir = user_cache_dir(appname="dtcc-data")
         os.makedirs(cache_dir, exist_ok=True)
         output_dir = os.path.join(cache_dir,'downloaded_laz')
+    
     # A) Prepare endpoint
     endpoint_post = f"{base_url}/get_lidar"
 
@@ -228,19 +230,12 @@ def download_lidar(user_bbox, session, buffer_val=0, base_url="http://127.0.0.1:
 
     # C) Plot bboxes
     returned_tiles = response_data["tiles"]
-    output_map = os.path.join(cache_dir,output_map)
+    output_map = os.path.join(cache_dir, output_map)
     plot_bboxes_folium(user_bbox, returned_tiles, out_html=output_map, crs_from="EPSG:3006")
 
-    # D) Download files in parallel (with local cache)
+    # D) Extract auth headers from requests session and pass to async download
+    auth_headers = dict(session.headers)  # Copy headers from requests session
     filenames_to_download = [tile["filename"] for tile in returned_tiles]
-    run_download_files(base_url, filenames_to_download, output_dir=output_dir)
+    run_download_files(base_url, filenames_to_download, output_dir=output_dir, auth_headers=auth_headers)
+    
     return [os.path.join(output_dir, filename) for filename in filenames_to_download]
-
-
-# ------------------------------------------------------------------------
-# Example usage: only 3 lines needed
-# ------------------------------------------------------------------------
-#if __name__ == "__main__":
-#    user_bbox = (267000, 6519000, 268000, 6521000)
-#    buffer_val = 100
-#    download_lidar(user_bbox, buffer_val)
