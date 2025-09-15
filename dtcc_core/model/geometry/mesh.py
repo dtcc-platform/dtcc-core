@@ -245,6 +245,25 @@ class VolumeMesh(VolumeMeshProcessingMixin,Geometry):
 
         """
         return len(self.cells)
+    
+    def offset(self, offset: Iterable):
+        """Offset the vertices of the mesh.
+
+        Parameters
+        ----------
+        offset :
+            The offset to apply to the vertices.
+
+        """
+        offset = np.array(offset)
+        self.vertices += offset
+        return self
+
+    def offset_to_origin(self):
+        """Offset the vertices of the mesh so that the lower left corner is moved to the origin."""
+        bounds = self.bounds
+        offset = (-bounds.xmin, -bounds.ymin, -bounds.zmin)
+        return self.offset(offset)
 
     def to_proto(self) -> proto.Geometry:
         """Return a protobuf representation of the VolumeMesh.
