@@ -44,5 +44,6 @@ jobs:
             --cov-report=term-missing --cov-report=json:coverage.json
           cd ..
           python scripts/check_public_api_calls.py \
+            --strict \
             --package dtcc_core \
             --coverage-file tests/coverage.json
