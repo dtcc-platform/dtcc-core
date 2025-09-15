@@ -5,6 +5,7 @@
 #define DTCC_MESH_PROCESSOR_H
 
 #include <map>
+#include <set>
 #include <unordered_map>
 #include <utility>
 
@@ -97,6 +98,161 @@ public:
     }
 
     return mesh;
+  }
+
+  // If our test case has N buildings then markers from 0 to N-1 mark the vertices on walls 
+  // for building from 0 to N-1 and markers from N to 2N-1 indicate the roof vertices of buildings
+  // from 0 to N-1
+  // (-5, -5, -5) -> -5
+  // (-5, -5, -3) -> -5
+  // (-5, -5, -2) -> -5
+  // (-5, -5, -1) -> -5
+  // (-5, -3, -3) -> -5
+  // (-5, -2, -2) -> -5
+  // (-5, -2, -1) -> -5
+  // (-5, -1, -1) -> -5
+  // (-3, -3, -3) -> -3
+  // (-2, -2, -2) -> -2
+  // (-2, -2, -1) -> -2
+  // (-2, -1, -1) -> -2
+  // (-1, -1, -1) -> -2
+
+  // (-1, -1, b1) -> -1  // one nonnegative
+  // (-1, b1, b1) -> -1 // two identical nonnegatives
+  // (-1, b1, b2) -> -1 (two distinct nonnegatives)
+  // (b1, b1, b1) -> b1 // three identical nonnegatives
+  // (b1, b1, b2) -> b1 if b2 = b1 + N else -1 // two identical + one distinct
+  // (b1, b2, b2) -> b1 if b2 = b1 + N else -1 // one distinct + two identical
+  // (b1, b2, b3) -> -1 // three distinct nonnegatives
+  static   std::unordered_map<Simplex2D,std::pair<int, Vector3D>,Simplex2DHash>  compute_boundary_facet_markers(const VolumeMesh &volume_mesh)
+  {
+    info("Computing markers for boundary facets of 3D mesh...");
+    Timer timer("ComputeBoundaryMarkers");
+
+    // Map from face --> (num cell neighbors, cell index)
+    std::map<Simplex2D, std::pair<size_t, size_t>, CompareSimplex2D> face_map;
+
+    // Iterate over cells and count cell neighbors of faces
+    for (size_t i = 0; i < volume_mesh.cells.size(); i++)
+    {
+      const Simplex3D &cell = volume_mesh.cells[i];
+      count_face(face_map, cell.v0, cell.v1, cell.v2, i);
+      count_face(face_map, cell.v0, cell.v1, cell.v3, i);
+      count_face(face_map, cell.v0, cell.v2, cell.v3, i);
+      count_face(face_map, cell.v1, cell.v2, cell.v3, i);
+    }
+
+    // Map from old vertex index --> new vertex index
+    std::unordered_map<size_t, size_t> vertex_map;
+
+
+    std::unordered_map<Simplex2D,std::pair<int, Vector3D>,Simplex2DHash> boundary_face_markers;
+    boundary_face_markers.reserve(face_map.size()/2);
+    std::set<std::array<int,3>> marker_sets;
+    
+    // Get the number of buildings by finding the max marker used 
+    int max_marker = std::numeric_limits<int>::min();
+    for (int m : volume_mesh.markers) {
+      max_marker = std::max(max_marker, m);
+    }
+    const int num_buildings = (max_marker + 1) / 2;
+
+    // Extract faces with exactly one cell neighbor
+    for (const auto &it : face_map)
+    {
+      // Skip if not on boundary
+      if (it.second.first != 1)
+        continue;
+
+      // Get face and neighboring cell
+      const Simplex2D &face = it.first;
+      // const Simplex3D &cell = volume_mesh.cells[it.second.second];
+
+      // // Count vertices (assign new vertex indices)
+      const int m0 = volume_mesh.markers[face.v0];
+      const int m1 = volume_mesh.markers[face.v1];
+      const int m2 = volume_mesh.markers[face.v2];
+
+      // Compute face normal and orientation
+      const Simplex3D &cell = volume_mesh.cells[it.second.second];
+      Vector3D n = Geometry::face_normal_3d(face, volume_mesh);
+      const Vector3D cc = Geometry::cell_center_3d(cell, volume_mesh);
+      const Vector3D w = Vector3D(volume_mesh.vertices[face.v0]) - Vector3D(cc);
+      const int orientation = (Geometry::dot_3d(n, w) > 0.0 ? 1 : -1);
+      
+      n = (orientation == 1 ? n : -n);
+
+      std::array<int,3> t = { m0, m1, m2 };
+      std::sort(t.begin(), t.end());    // so {-5,-3,-3} and {-3,-3,-5} become equal
+      max_marker = (max_marker < t[2]) ? t[2]: max_marker;
+      marker_sets.insert(t);
+
+      int a = t[0], b = t[1], c = t[2];
+      
+      // This pair stores the facet's initial marker and normal vector
+      std::pair<int, Vector3D> face_data;
+      // —— case A: at least two negatives — negative “dominates” — pick the most negative,
+      //             except for the special triple (-1,-1,-1) → -2
+      if (a < 0 && b < 0) {
+        face_data.first = a;
+      // —— case B: all non-negative → wall/roof building logic
+      } else if (a >= 0) {
+        // triple‐identical → that building
+        if (a == c) {
+          face_data.first = a;
+        // two identical + one distinct
+        } else if (a == b) {
+          // if the “odd” marker c is exactly the roof of building a, keep wall‐marker a
+          face_data.first = (c == a + num_buildings ? a : -1);
+
+        // one distinct + two identical
+        } else if (b == c) {
+          // if the two identical b==(roof) and a==(wall), keep wall a
+          face_data.first = (b == a + num_buildings ? a : -1);
+
+        // three distinct buildings → shared corner → no single building → interior
+        } else {
+          face_data.first = -1;
+        }
+
+      // —— case C: exactly one negative and two non-negatives
+      } else /* a<0 && b>=0 */ {
+        // no special rule given, but negative “dominates” when there’s only one
+        face_data.first = a;
+      }
+      face_data.second = n;
+      boundary_face_markers.emplace(face, face_data); 
+    }
+
+    for (auto &kv : boundary_face_markers) {
+      // const Simplex2D &face = kv.first;  // the 2D face
+      auto &marker = kv.second.first; 
+      const auto &normal = kv.second.second;
+      
+      if (marker >=-1){
+        continue;
+      }
+      else if (marker == -2) {
+        marker = -1;
+      }
+      else if (marker == -3){
+        marker = -2;
+      }
+      else if (marker == -5){
+        const double nx = normal.x;
+        const double ny = normal.y;
+
+        // 4) pick the dominant component
+        if (std::abs(nx) > std::abs(ny)) {
+          // East/West face
+          marker =  (nx > 0) ? -4 : -6;
+        } else {
+          // North/South face
+          marker =  (ny > 0) ? -3 : -5;
+        }
+      }
+    }
+    return boundary_face_markers;
   }
 
   /// Compute open mesh from boundary, excluding top and sides

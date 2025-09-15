@@ -125,7 +125,7 @@ namespace DTCC_BUILDER
                       double ymax,
                       double max_mesh_size,
                       double min_mesh_angle,
-                      bool sort_triangles = true)
+                      bool sort_triangles = false)
     {
       info("Building ground mesh...");
       Timer timer("build_ground_mesh");
@@ -504,7 +504,7 @@ namespace DTCC_BUILDER
                             double min_mesh_angle,
                             size_t smooth_ground = 0,
                             bool merge_meshes = true,
-                            bool sort_triangles = true)
+                            bool sort_triangles = false)
     {
       auto build_city_surface_t = Timer("build_city_surface_mesh");
       auto terrain_time = Timer("build_city_surface_mesh: step 1 terrain");
@@ -588,7 +588,7 @@ namespace DTCC_BUILDER
           wall_mesh.vertices = {ground_v0, ground_v1, roof_v0, roof_v1};
           auto wall_normal =
               Geometry::triangle_normal(ground_v0, ground_v1, roof_v1);
-          if (Geometry::dot_3d(wall_normal, face_center - ground_v0) > 0)
+          if (Geometry::dot_3d(wall_normal, face_center - ground_v0) < 0)
           {
             wall_mesh.faces = {Simplex2D(0, 1, 3), Simplex2D(0, 3, 2)};
           }

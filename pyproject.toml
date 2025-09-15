@@ -28,6 +28,7 @@ dependencies = [
     "platformdirs",
     "aiohttp",
     "folium",
+    "h5py"
 ]
 
 version = "0.9.3dev"

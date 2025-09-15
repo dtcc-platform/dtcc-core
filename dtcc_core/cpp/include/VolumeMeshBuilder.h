@@ -1,3 +1,4 @@
+#pragma once
 #ifndef DTCC_VOLUME_MESH_BUILDER_H
 #define DTCC_VOLUME_MESH_BUILDER_H
 
@@ -9,18 +10,24 @@
 #include <tuple>
 #include <vector>
 
-#include "Geometry.h"
 #include "Logging.h"
-#include "MeshProcessor.h"
 #include "Smoother.h"
 #include "Timer.h"
-#include "VertexSmoother.h"
+
+#include "model/ColumnMesh.h"
 #include "model/GridField.h"
 #include "model/Mesh.h"
 #include "model/Surface.h"
 #include "model/Vector.h"
 
-#include "model/ColumnMesh.h"
+#include "meshing/DomainPadding.h"
+#include "meshing/BuilderMesh.h"
+#include "meshing/LayerHeights.h"
+#include "meshing/MeshImprovement.h"
+#include "meshing/ColumnMeshProcessing.h"
+#include "meshing/MeshLogging.h"
+
+#include "MeshQualityMetrics.h"
 
 namespace DTCC_BUILDER
 {
@@ -45,22 +52,13 @@ private:
 
   const GridField &_dem;
 
-  Mesh &_ground_mesh;
+  BuilderMesh _ground_mesh;
 
-  // Stores vertex to face mapping for ground mesh.
-  std::vector<std::unordered_set<int>> vf;
+  BoundingBox2D mesh_bounds;
 
-  // Stores vertex to face mapping for ground mesh.
-  std::vector<std::unordered_set<int>> ff;
+  Vector3D mesh_center;
 
-  std::vector<int> vertex_markers;
-
-  std::vector<int> face_colors;
-  std::vector<int> vertex_colors;
-
-  std::vector<size_t> vert_skip;
-
-  std::vector<int> face_partitions;
+  Vector3D mesh_origin;
 
 public:
   // Constructor
@@ -69,9 +67,16 @@ public:
       : _buildings(buildings), _dem(dem), _ground_mesh(ground_mesh), domain_height(domain_height),
         _column_mesh(ground_mesh)
   {
+
     assert((!_ground_mesh.vertices.empty()) && "Ground mesh has no vertices");
     assert((!_ground_mesh.faces.empty()) && "Ground mesh has no faces");
     assert((!_ground_mesh.markers.empty()) && "Ground mesh has no markers");
+
+    mesh_bounds = BoundingBox2D(ground_mesh.vertices);
+    mesh_center = Vector3D((mesh_bounds.P.x + mesh_bounds.Q.x) / 2.0,
+                           (mesh_bounds.P.y + mesh_bounds.Q.y) / 2.0,0.0);
+    mesh_origin = Vector3D(mesh_bounds.P.x, mesh_bounds.P.y, 0.0); 
+    
 
     compute_building_ground_heights();
   }
@@ -81,53 +86,51 @@ public:
 
   VolumeMesh build(const size_t smoother_iterations = 1000,
                    const double smoother_relative_tolerance = 0.001,
-                   const double domain_padding_height = 0.0, const size_t debug_step = 5)
+                   const double domain_padding_height = 0.0,
+                   const double aspect_ratio_threshold = 10.0, const size_t debug_step = 6)
   {
     info("Building volume mesh...");
 
-    Timer t3_1("Step 3.1: Layer height computation");
-    info("Computing layer heights...");
-    const auto layer_heights = compute_layer_heights(_ground_mesh);
-    t3_1.stop();
-    t3_1.print();
-
-    // Check if layer heights are empty
-    if (layer_heights.empty())
-      error("Empty layer heights vector");
-
+    MeshLogger logger;
+    double min_ar, max_ar, median_ar = 0.0;
     // Layer ground mesh
-    Timer t3_2("Step 3.2: Ground mesh layering");
-    info("Layering ground mesh...");
-    VolumeMesh volume_mesh = layer_ground_mesh(layer_heights);
-    t3_2.stop();
-    t3_2.print();
-    check_mesh_quality(volume_mesh, 2);
+    logger.step_begin("1: Ground mesh layering");
+    VolumeMesh volume_mesh = layer_ground_mesh(_ground_mesh);
+    logger.step_stop();
+    std::tie(min_ar, max_ar, median_ar) = Geometry::aspect_ratio(volume_mesh);
+    logger.log_step(min_ar,median_ar,max_ar);
 
     // Debugging
     if (debug_step == 2)
       return volume_mesh;
 
     // Volume mesh smoothing
-    Timer t3_3("Step 3.3: Volume mesh smoothing (ground only)");
-    info("Smoothing volume mesh...");
-    volume_mesh = Smoother::smooth_volume_mesh(volume_mesh, _buildings, _dem, 0.0, false, false,
-                                               smoother_iterations, smoother_relative_tolerance);
+    logger.step_begin("2: Volume mesh smoothing (ground only)");
+    const bool fix_top = false;
+    // volume_mesh = Smoother::smooth_volume_mesh_poisson(volume_mesh, _buildings, _dem, 0.0, false,
+    //                                                    fix_top, smoother_iterations,
+    //                                                    smoother_relative_tolerance);
+    volume_mesh = Smoother::smooth_volume_mesh_elastic(volume_mesh, _buildings, _dem, 0.0, false,
+                                                       fix_top, smoother_iterations,
+                                                       smoother_relative_tolerance, mesh_bounds);
     _column_mesh._update_vertices(volume_mesh);
-    t3_3.stop();
-    t3_3.print();
-    check_mesh_quality(volume_mesh, 3);
+    logger.step_stop();
+    std::tie(min_ar, max_ar, median_ar) = Geometry::aspect_ratio(volume_mesh);
+    logger.log_step(min_ar,median_ar,max_ar);
+    // check_mesh_quality(volume_mesh, 3);
 
     // Debugging
     if (debug_step == 3)
       return volume_mesh;
 
     // Trim volume mesh
-    Timer t3_4("Step 3.4: Volume mesh trimming");
+    logger.step_begin("3: Volume mesh trimming");
     info("Trimming volume mesh...");
     volume_mesh = trim_volume_mesh();
-    t3_4.stop();
-    t3_4.print();
-    check_mesh_quality(volume_mesh, 4);
+    logger.step_stop();
+    std::tie(min_ar, max_ar, median_ar) = Geometry::aspect_ratio(volume_mesh);
+    logger.log_step(min_ar,median_ar,max_ar);
+    
 
     // Debugging
     if (debug_step == 4)
@@ -136,139 +139,43 @@ public:
     // FIXME: Smooth mesh in-place instead of returning a new mesh
 
     // Smooth volume mesh (again)
-    Timer t3_5("Step 3.5: Volume mesh smoothing (ground and buildings)");
-    info("Smoothing volume mesh...");
-    volume_mesh = Smoother::smooth_volume_mesh(volume_mesh, _buildings, _dem, 0.0, true, false,
-                                               smoother_iterations, smoother_relative_tolerance);
-    t3_5.stop();
-    t3_5.print();
-    check_mesh_quality(volume_mesh, 5);
+    logger.step_begin("4: Volume mesh smoothing (ground and buildings)");
+    volume_mesh = Smoother::smooth_volume_mesh_elastic(volume_mesh, _buildings, _dem, 0.0, true,
+                                                       false, smoother_iterations,
+                                                       smoother_relative_tolerance, mesh_bounds);
+    logger.step_stop();
+    std::tie(min_ar, max_ar, median_ar) = Geometry::aspect_ratio(volume_mesh);
+    logger.log_step(min_ar,median_ar,max_ar);
 
-    // FIXME: Not used yet (only for padding)
+    if (debug_step == 5)
+      return volume_mesh;
+
+    logger.step_begin("5: Volume mesh improvement (Removing slivers)");
+    volume_mesh = VolumeMeshing::MeshImprovement::remove_tetrahedra(volume_mesh, aspect_ratio_threshold);
+    logger.step_stop();
+    std::tie(min_ar, max_ar, median_ar) = Geometry::aspect_ratio(volume_mesh);
+    logger.log_step(min_ar,median_ar,max_ar);
+
+    if (debug_step == 6)
+      return volume_mesh;
+
+    logger.step_begin("6: Add Volume mesh Domain padding");
     top_height = domain_height + _dem.max();
+    volume_mesh = layer_padding_mesh(volume_mesh, domain_height, 2.0);
+    logger.step_stop();
+    std::tie(min_ar, max_ar, median_ar) = Geometry::aspect_ratio(volume_mesh);
+    logger.log_step(min_ar,median_ar,max_ar);
 
+    logger.summary();
+
+    TetrahedronMeshQuality::check_volume_mesh(volume_mesh);
     return volume_mesh;
   }
 
 private:
-  // Compute layer heights for all faces in the ground mesh
-  std::vector<double> compute_layer_heights(Mesh &ground_mesh)
-  {
-    // Compute face areas
-    const size_t num_faces = ground_mesh.faces.size();
-    std::vector<double> areas(num_faces);
-    for (std::size_t i = 0; i < num_faces; i++)
-    {
-      const auto &v0 = ground_mesh.vertices[ground_mesh.faces[i].v0];
-      const auto &v1 = ground_mesh.vertices[ground_mesh.faces[i].v1];
-      const auto &v2 = ground_mesh.vertices[ground_mesh.faces[i].v2];
-      areas[i] = Geometry::triangle_area(v0, v1, v2);
-    }
-
-    // Compute ideal min and max layer heights based on areas
-    const double min_area = *std::min_element(areas.begin(), areas.end());
-    const double max_area = *std::max_element(areas.begin(), areas.end());
-    const double _min_height = ideal_layer_height(min_area);
-    const double _max_height = ideal_layer_height(max_area);
-    info("Ideal layer heights: [" + str(_min_height) + ", " + str(_max_height) + "]");
-
-    // Compute optimal dyadic layer heights based on ideal min and max
-    const double rho = _max_height / _min_height;
-    const double mid = std::sqrt(_min_height * _max_height);
-    const size_t steps = static_cast<int>(std::log2(rho) + 0.5);
-    double min_height = mid / std::pow(2, steps / 2.0);
-    std::vector<double> layer_heights;
-    for (size_t i = 0; i < steps + 1; i++)
-      layer_heights.push_back(min_height * std::pow(2.0, i));
-    const double max_height = layer_heights.back();
-    info("Adjusted layer heights: [" + str(min_height) + ", " + str(max_height) + "]");
-    info("Number of layers: " + str(layer_heights.size()));
-
-    // Assign face colors (closest layer height index)
-    info("Assigning face colors...");
-    assign_face_colors(areas, layer_heights);
-    check_layer_heights(areas, layer_heights);
-
-    // Build vertex and face mappings
-    info("Building mapping from vertices to faces...");
-    build_vertex_to_face_mapping();
-    info("Building mapping from faces to faces...");
-    build_face_to_face_mapping();
-
-    // Iteratively reassign colors to avoid big jumps
-    info("Reassigning colors to avoid big jumps...");
-    size_t iteration = 0;
-    const size_t max_color_iterations = 10;
-    while (check_face_colors() > 0)
-    {
-      reassign_face_colors();
-      if (++iteration == max_color_iterations)
-      {
-        error("Reached max color iterations");
-      }
-    }
-    check_layer_heights(areas, layer_heights);
-
-    // Assign vertex colors and sort by color
-    info("Assigning vertex colors...");
-    assign_vertex_colors(layer_heights);
-    sort_faces_by_vertex_color_and_index();
-
-    // Assign face partitions
-    info("Assigning face partitions...");
-    assign_face_partitions();
-
-    // Eliminate type 3 partitions
-    info("Eliminating type 3 partitions...");
-    eliminate_type_3_partitions();
-
-    // Double-check face colors
-    if (check_face_colors() > 0)
-      error("Found big jumps after partition elimination");
-
-    return layer_heights;
-  }
-
-  // Compute ideal layer height for a regular tetrahedron
-  double ideal_layer_height(double area)
-  {
-    return std::pow(2.0, 1.5) * std::pow(3.0, -0.75) * std::sqrt(area);
-  }
-
-  // Compute closest layer height index to a given height
-  size_t closest_layer_height(double h, const std::vector<double> &layer_heights)
-  {
-    size_t min_index = 0;
-    double min_diff = std::abs(std::log(h / layer_heights[0]));
-    for (size_t i = 1; i < layer_heights.size(); i++)
-    {
-      const double diff = std::abs(std::log(h / layer_heights[i]));
-      if (diff < min_diff)
-      {
-        min_index = i;
-        min_diff = diff;
-      }
-    }
-    return min_index;
-  }
-
-  // Check layer heights (deviation from ideal)
-  void check_layer_heights(const std::vector<double> &areas,
-                           const std::vector<double> &layer_heights)
-  {
-    double max_error = 0.0;
-    for (size_t i = 0; i < areas.size(); i++)
-    {
-      const double h = ideal_layer_height(areas[i]);
-      const double H = layer_heights[face_colors[i]];
-      const double e = std::abs(h - H) / h;
-      max_error = std::max(max_error, e);
-    }
-    info("Max layer height error: " + str(100 * max_error, 2L) + "%");
-  }
 
   // Check mesh quality
-  void check_mesh_quality(const VolumeMesh &volume_mesh, int step)
+  std::tuple<double,double,double> check_mesh_quality(const VolumeMesh &volume_mesh, int step, bool write_to_file = false)
   {
     // Compute aspect ratios
     const auto aspect_ratios = Geometry::aspect_ratio(volume_mesh);
@@ -277,200 +184,82 @@ private:
     const double median = std::get<2>(aspect_ratios);
 
     // Write aspect ratios to file for debugging
-    const auto _aspect_rations = Geometry::aspect_ratios(volume_mesh);
-    std::ofstream file("aspect_ratios_" + str(step) + ".txt");
-    for (const auto &ar : _aspect_rations)
-      file << ar << std::endl;
-    file.close();
-
+    const auto _aspect_ratios = Geometry::aspect_ratios(volume_mesh);
+    if (write_to_file)
+    {
+      std::ofstream file("aspect_ratios_" + str(step) + ".txt");
+      for (const auto &ar : _aspect_ratios)
+        file << ar << std::endl;
+      file.close();
+    }
     // Print aspect ratios
     info("Mesh quality (aspect ratio): min = " + str(min, 3L) + ", max = " + str(max, 3L) +
          ", median = " + str(median, 3L));
+
+    return std::tie(min,max,median);
   }
 
-  // Assign face colors (closest layer height index)
-  void assign_face_colors(const std::vector<double> &areas,
-                          const std::vector<double> &layer_heights)
-  {
-    // Iterate over ground faces
-    face_colors.resize(areas.size());
-    for (size_t i = 0; i < areas.size(); i++)
-    {
-      // Assign closest layer height index
-      const double h = ideal_layer_height(areas[i]);
-      const size_t face_color = closest_layer_height(h, layer_heights);
-      face_colors[i] = face_color;
-    }
-  }
+void report(const VolumeMesh &volume_mesh, double elapsed_time, int step)
+{
+    // compute your mesh quality metrics as before
+    double min_ar, max_ar, median_ar;
+    std::tie(min_ar, max_ar, median_ar) = check_mesh_quality(volume_mesh, step);
 
-  // Reassign face colors to avoid big jumps
-  void reassign_face_colors()
-  {
-    for (size_t i = 0; i < ff.size(); i++)
-    {
-      for (const auto &j : ff[i])
-      {
-        const auto diff = face_colors[i] - face_colors[j];
-        if (diff > 1)
-        {
-          face_colors[i] -= diff - 1;
+    // single static stream object, reused across calls
+    static std::ofstream ofs;
+
+    if (step == 2) {
+        // every time we hit step 2, start fresh
+        if (ofs.is_open()) {
+            ofs.close();
         }
-      }
-    }
-  }
-
-  // Check face colors (big jumps)
-  size_t check_face_colors()
-  {
-    size_t num_big_jumps = 0;
-    for (size_t i = 0; i < ff.size(); i++)
-    {
-      size_t _num_big_jumps = 0;
-      for (const auto &j : ff[i])
-      {
-        const auto jump = face_colors[i] - face_colors[j];
-        if (jump > 1)
-          _num_big_jumps++;
-      }
-      if (_num_big_jumps > 0)
-        num_big_jumps++;
-    }
-
-    double percentage = 100.0 * num_big_jumps / ff.size();
-    info("Big jumps: " + str(num_big_jumps) + " / " + str(ff.size()) + " (" + str(percentage, 2L) +
-         "%)");
-
-    return num_big_jumps;
-  }
-
-  /// Assign vertex colors based on minimum neighbor face color
-  void assign_vertex_colors(const std::vector<double> &layer_heights)
-  {
-    const size_t num_vertices = _ground_mesh.vertices.size();
-    const size_t num_faces = _ground_mesh.faces.size();
-    vertex_colors.resize(num_vertices, layer_heights.size());
-    for (size_t i = 0; i < num_faces; i++)
-    {
-      const auto &face = _ground_mesh.faces[i];
-      for (const auto &j : {face.v0, face.v1, face.v2})
-        vertex_colors[j] = std::min(vertex_colors[j], face_colors[i]);
-    }
-  }
-
-  // Sort faces by vertex color and index
-  void sort_faces_by_vertex_color_and_index()
-  {
-    for (auto &face : _ground_mesh.faces)
-    {
-      size_t c0 = vertex_colors[face.v0];
-      size_t c1 = vertex_colors[face.v1];
-      size_t c2 = vertex_colors[face.v2];
-      if (c0 > c1)
-      {
-        std::swap(c0, c1);
-        std::swap(face.v0, face.v1);
-      }
-      if (c0 > c2)
-      {
-        std::swap(c0, c2);
-        std::swap(face.v0, face.v2);
-      }
-      if (c1 > c2)
-      {
-        std::swap(c1, c2);
-        std::swap(face.v1, face.v2);
-      }
-      // Compare and swap first and second elements
-      if (c0 > c1 || (c0 == c1 && face.v0 > face.v1))
-      {
-        std::swap(c0, c1);
-        std::swap(face.v0, face.v1);
-      }
-
-      // Compare and swap first and third elements
-      if (c0 > c2 || (c0 == c2 && face.v0 > face.v2))
-      {
-        std::swap(c0, c2);
-        std::swap(face.v0, face.v2);
-      }
-
-      // Compare and swap second and third elements
-      if (c1 > c2 || (c1 == c2 && face.v1 > face.v2))
-      {
-        std::swap(c1, c2);
-        std::swap(face.v1, face.v2);
-      }
-    }
-  }
-
-  // Assign face (prism) partitions based on face and vertex colors.
-  //
-  // Partition 0: 6 vertices, 3 tetrahedrons
-  // Partition 1: 7 vertices, 4 tetrahedrons
-  // Partition 2: 8 vertices, 5 tetrahedrons
-  // Partition 3: 9 vertices, 6 tetrahedrons (reduntant)
-  void assign_face_partitions()
-  {
-    const size_t num_faces = _ground_mesh.faces.size();
-    face_partitions.resize(num_faces);
-    for (size_t i = 0; i < num_faces; i++)
-    {
-      const auto &face = _ground_mesh.faces[i];
-      const size_t c0 = vertex_colors[face.v0];
-      const size_t c1 = vertex_colors[face.v1];
-      const size_t c2 = vertex_colors[face.v2];
-      face_partitions[i] = 3 * face_colors[i] - (c0 + c1 + c2);
-    }
-  }
-
-  // Eliminate type 3 partitions which are just two stacked prisms of type 0
-  void eliminate_type_3_partitions()
-  {
-    const size_t num_faces = _ground_mesh.faces.size();
-    for (size_t i = 0; i < num_faces; i++)
-    {
-      if (face_partitions[i] == 3)
-      {
-        face_colors[i]--;
-        face_partitions[i] = 0;
-      }
-    }
-  }
-
-  // Build mapping from vertices to faces
-  void build_vertex_to_face_mapping()
-  {
-    const size_t num_faces = _ground_mesh.faces.size();
-    vf.resize(num_faces);
-    for (size_t i = 0; i < num_faces; i++)
-    {
-      vf[_ground_mesh.faces[i].v0].insert(i);
-      vf[_ground_mesh.faces[i].v1].insert(i);
-      vf[_ground_mesh.faces[i].v2].insert(i);
-    }
-  }
-
-  /// Build mapping from faces to faces
-  void build_face_to_face_mapping()
-  {
-    const size_t num_faces = _ground_mesh.faces.size();
-    ff.resize(num_faces);
-    for (size_t i = 0; i < num_faces; i++)
-    {
-      for (size_t j = 0; j < 3; j++)
-      {
-        for (const int &v : vf[_ground_mesh.faces[i][j]])
-        {
-          ff[i].insert(v);
+        ofs.clear();  // clear any flags
+        ofs.open("mesh_report.txt", std::ios::out | std::ios::trunc);
+        if (!ofs) {
+            std::cerr << "[MESH REPORT] ERROR: cannot open mesh_report.txt for truncate\n";
         }
-      }
     }
-  }
+    else {
+        // for steps > 2, make sure it's open in append mode
+        if (!ofs.is_open()) {
+            ofs.open("mesh_report.txt", std::ios::out | std::ios::app);
+            if (!ofs) {
+                std::cerr << "[MESH REPORT] ERROR: cannot open mesh_report.txt for append\n";
+            }
+        }
+    }
+
+    // build a single formatted line
+    std::ostringstream line;
+    line << "step="      << step
+         << " vertices=" << volume_mesh.vertices.size()
+         << " cells="    << volume_mesh.cells.size()
+         << " time_s="   << std::fixed << std::setprecision(3) << elapsed_time
+         << " min_ar="   << std::fixed << std::setprecision(3) << min_ar
+         << " median_ar="<< std::fixed << std::setprecision(3) << median_ar
+         << " max_ar="   << std::fixed << std::setprecision(3) << max_ar
+         << "\n";
+
+    // always echo to console
+    std::cout << "[MESH REPORT] " << line.str();
+
+    // write (and flush) to file
+    if (ofs) {
+        ofs << line.str();
+        ofs.flush();
+    }
+}
 
   // Layer ground mesh
-  VolumeMesh layer_ground_mesh(const std::vector<double> &layer_heights)
-  {
+  VolumeMesh layer_ground_mesh(BuilderMesh &mesh)
+  { 
+    
+    const std::vector<double> layer_heights = VolumeMeshingUtilities::compute_layer_heights(_ground_mesh);
+    // Check if layer heights are empty
+    if (layer_heights.empty())
+      error("Empty layer heights vector");
     // Compute max building height
+
     double max_building_height = layer_heights.back();
     for (size_t i = 0; i < _buildings.size(); i++)
     {
@@ -486,15 +275,17 @@ private:
     }
 
     // Compute number of layers of max height and min height
-    _column_mesh.num_max_layers = std::ceil(max_building_height / layer_heights.back());
+    _column_mesh.num_max_layers = std::ceil(max_building_height / layer_heights.back()) + 2;
     _column_mesh.num_min_layers = _column_mesh.num_max_layers << (layer_heights.size() - 1);
 
+    info("Layers used (Min layer heigt): "+ str(_column_mesh.num_min_layers));
+    info("Layers used (Max layer heigt): "+ str(_column_mesh.num_max_layers));
     // Layer vertices in columns
-    for (size_t j = 0; j < _ground_mesh.vertices.size(); j++)
+    for (size_t j = 0; j < mesh.vertices.size(); j++)
     {
-      const Vector3D &vg = _ground_mesh.vertices[j];
-      const double h = layer_heights[vertex_colors[j]];
-      const size_t col_size = (_column_mesh.num_min_layers >> vertex_colors[j]) + 1;
+      const Vector3D &vg = mesh.vertices[j];
+      const double h = layer_heights[mesh.vertex_colors[j]];
+      const size_t col_size = (_column_mesh.num_min_layers >> mesh.vertex_colors[j]) + 1;
       for (size_t i = 0; i < col_size; i++)
       {
         Vector3D v(vg.x, vg.y, i * h);
@@ -503,151 +294,31 @@ private:
       _column_mesh.vertices_offset[j + 1] = _column_mesh.vertices_offset[j] + col_size;
     }
 
-    // Layer cells in columns
-    for (size_t i = 0; i < _ground_mesh.faces.size(); i++)
-    {
-      // Get face vertices and colors
-      const Simplex2D face_simplex = _ground_mesh.faces[i];
-      const std::array<size_t, 3> face = {face_simplex.v0, face_simplex.v1, face_simplex.v2};
-      const std::array<int, 3> _vertex_colors = {vertex_colors[face_simplex.v0],
-                                                 vertex_colors[face_simplex.v1],
-                                                 vertex_colors[face_simplex.v2]};
-
-      // Calculate offsets and sizes
-      const std::array<size_t, 3> col_offsets = {0, 0, 0};
-      const std::array<size_t, 3> col_sizes = {
-          _column_mesh.vertices_offset[face[0] + 1] - _column_mesh.vertices_offset[face[0]],
-          _column_mesh.vertices_offset[face[1] + 1] - _column_mesh.vertices_offset[face[1]],
-          _column_mesh.vertices_offset[face[2] + 1] - _column_mesh.vertices_offset[face[2]]};
-
-      // Calculate number of prisms
-      const size_t num_prisms =
-          (col_sizes.back() - 1) / (1 << (face_colors[i] - _vertex_colors[2]));
-      _column_mesh.num_prisms[i] = num_prisms;
-
-      // Create prism iterator
-      std::vector<std::array<size_t, 4>> prism_iterator(num_prisms);
-      for (size_t j = 0; j < num_prisms; j++)
-      {
-        const size_t layer_index = (j + 1) * _column_mesh.num_min_layers / num_prisms;
-        prism_iterator[j] = {col_offsets[0] + j * (1 << (face_colors[i] - _vertex_colors[0])),
-                             col_offsets[1] + j * (1 << (face_colors[i] - _vertex_colors[1])),
-                             col_offsets[2] + j * (1 << (face_colors[i] - _vertex_colors[2])),
-                             layer_index};
-      }
-
-      // Add tetrahedrons based on face partition type
-      switch (face_partitions[i])
-      {
-      case 0: // 6 vertices, 3 tetrahedrons
-      {
-        for (const auto &ar : prism_iterator)
-        {
-          const size_t k = ar[0];
-          const size_t l = ar[1];
-          const size_t m = ar[2];
-          const size_t n = ar[3];
-
-          ColumnIndex bot_triangle_0(face[0], k);
-          ColumnIndex bot_triangle_1(face[1], l);
-          ColumnIndex bot_triangle_2(face[2], m);
-          ColumnIndex top_triangle_0(face[0], k + 1);
-          ColumnIndex top_triangle_1(face[1], l + 1);
-          ColumnIndex top_triangle_2(face[2], m + 1);
-
-          ColumnSimplex K0(bot_triangle_0, bot_triangle_1, bot_triangle_2, top_triangle_2, n);
-          ColumnSimplex K1(bot_triangle_0, top_triangle_1, bot_triangle_1, top_triangle_2, n);
-          ColumnSimplex K2(bot_triangle_0, top_triangle_0, top_triangle_1, top_triangle_2, n);
-
-          _column_mesh.cells[i].emplace_back(K0);
-          _column_mesh.cells[i].emplace_back(K1);
-          _column_mesh.cells[i].emplace_back(K2);
-        }
-      }
-      break;
-
-      case 1: // 7 vertices, 4 tetrahedrons
-      {
-        for (const auto &ar : prism_iterator)
-        {
-          const size_t k = ar[0];
-          const size_t l = ar[1];
-          const size_t m = ar[2];
-          const size_t n = ar[3];
-
-          ColumnIndex bot_triangle_0(face[0], k);
-          ColumnIndex bot_triangle_1(face[1], l);
-          ColumnIndex bot_triangle_2(face[2], m);
-          ColumnIndex mid_triangle_0(face[0], k + 1);
-          ColumnIndex top_triangle_0(face[0], k + 2);
-          ColumnIndex top_triangle_1(face[1], l + 1);
-          ColumnIndex top_triangle_2(face[2], m + 1);
-
-          ColumnSimplex K0(bot_triangle_0, bot_triangle_1, bot_triangle_2, mid_triangle_0, n);
-          ColumnSimplex K1(bot_triangle_1, top_triangle_2, bot_triangle_2, mid_triangle_0, n);
-          ColumnSimplex K2(bot_triangle_1, top_triangle_2, mid_triangle_0, top_triangle_1, n);
-          ColumnSimplex K3(mid_triangle_0, top_triangle_0, top_triangle_1, top_triangle_2, n);
-
-          _column_mesh.cells[i].emplace_back(K0);
-          _column_mesh.cells[i].emplace_back(K1);
-          _column_mesh.cells[i].emplace_back(K2);
-          _column_mesh.cells[i].emplace_back(K3);
-        }
-      }
-      break;
-
-      case 2: // 8 vertices, 5 tetrahedrons
-      {
-        for (const auto &ar : prism_iterator)
-        {
-          const size_t k = ar[0];
-          const size_t l = ar[1];
-          const size_t m = ar[2];
-          const size_t n = ar[3];
-
-          ColumnIndex bot_triangle_0(face[0], k);
-          ColumnIndex bot_triangle_1(face[1], l);
-          ColumnIndex bot_triangle_2(face[2], m);
-          ColumnIndex mid_triangle_0(face[0], k + 1);
-          ColumnIndex mid_triangle_1(face[1], l + 1);
-          ColumnIndex top_triangle_0(face[0], k + 2);
-          ColumnIndex top_triangle_1(face[1], l + 2);
-          ColumnIndex top_triangle_2(face[2], m + 1);
-
-          ColumnSimplex K0(bot_triangle_0, bot_triangle_1, bot_triangle_2, mid_triangle_1, n);
-          ColumnSimplex K1(bot_triangle_0, bot_triangle_2, mid_triangle_0, mid_triangle_1, n);
-          ColumnSimplex K2(bot_triangle_2, top_triangle_2, mid_triangle_0, mid_triangle_1, n);
-          ColumnSimplex K3(top_triangle_0, top_triangle_2, top_triangle_1, mid_triangle_0, n);
-          ColumnSimplex K4(top_triangle_1, top_triangle_2, mid_triangle_1, mid_triangle_0, n);
-
-          _column_mesh.cells[i].emplace_back(K0);
-          _column_mesh.cells[i].emplace_back(K1);
-          _column_mesh.cells[i].emplace_back(K2);
-          _column_mesh.cells[i].emplace_back(K3);
-          _column_mesh.cells[i].emplace_back(K4);
-        }
-      }
-      break;
-
-      default:
-        error("Unhandled partition type: " + str(face_partitions[i]));
-        break;
-      }
-    }
+    // Set Column Mesh Cells
+    VolumeMeshingUtilities::connect_column_mesh_cells(mesh, _column_mesh);
 
     // Set markers
-    auto mesh_vertex_markers = face_to_vertex_markers();
-    for (size_t i = 0; i < _ground_mesh.vertices.size(); i++)
+    auto mesh_vertex_markers = mesh.face_to_vertex_markers();
+    for (size_t i = 0; i < mesh.vertices.size(); i++)
     {
-      // Initialize all markers to Other (-4)
       auto &markers = _column_mesh.markers[i];
-      markers.resize(_column_mesh.vertices[i].size(), -4);
+      // Choose default marker: if mesh_vertex_markers[i] is >= 0 then -4 (building wall), otherwise
+      // -5 (Other)
+      if (mesh_vertex_markers[i] >= 0)
+      {
+        // markers.resize(_column_mesh.vertices[i].size(), -4);
+        markers.resize(_column_mesh.vertices[i].size(), mesh_vertex_markers[i]);
+      }
+      else
+      {
+        // Initialize all markers to Other (-5)
+        markers.resize(_column_mesh.vertices[i].size(), -5);
+        // Set first (bottom) marker to Ground (-2) if ground otherwise Halo (-1)
+        markers.front() = mesh_vertex_markers[i] == -2 ? -2 : -1;
+      }
 
       // Set last (top) marker to Top (-3)
       markers.back() = -3;
-
-      // Set first (bottom) marker to Ground (-2) if ground otherwise Halo (-1)
-      markers.front() = mesh_vertex_markers[i] == -2 ? -2 : -1;
     }
 
     return _column_mesh.to_volume_mesh();
@@ -761,23 +432,49 @@ private:
         if (cell.layer_index <= trimming_layer_indices[marker])
           keep_cells[i][j] = false;
 
-        // Mark top vertices as building
-        if (_column_mesh.layer_index(cell.v0) == trimming_layer_indices[marker])
-          _column_mesh.markers[cell.v0.column][cell.v0.index] = marker;
-        if (_column_mesh.layer_index(cell.v1) == trimming_layer_indices[marker])
-          _column_mesh.markers[cell.v1.column][cell.v1.index] = marker;
-        if (_column_mesh.layer_index(cell.v2) == trimming_layer_indices[marker])
-          _column_mesh.markers[cell.v2.column][cell.v2.index] = marker;
-        if (_column_mesh.layer_index(cell.v3) == trimming_layer_indices[marker])
-          _column_mesh.markers[cell.v3.column][cell.v3.index] = marker;
+        // // Mark top vertices as building
+        // Assuming cell.v0, cell.v1, cell.v2, cell.v3 have the same type
+        for (const auto &vertex : {cell.v0, cell.v1, cell.v2, cell.v3})
+        {
+          if (_column_mesh.layer_index(vertex) == trimming_layer_indices[marker])
+          {
+            // Mark this vertex with the given marker.
+            //_column_mesh.markers[vertex.column][vertex.index] = marker;
+            _column_mesh.markers[vertex.column][vertex.index] = _buildings.size() + marker;
+
+            // Comment in the following to change marker types above buildings.
+            const size_t col_size = _column_mesh.vertices[vertex.column].size();
+            for (size_t v = vertex.index + 1; v < col_size; v++)
+            { 
+              _column_mesh.markers[vertex.column][v] = -4;
+              //_column_mesh.markers[vertex.column][v] = -5;
+            }
+            _column_mesh.markers[vertex.column].back() = -3;
+          }
+        }
       }
     }
+
+    // auto mesh_vertex_markers = face_to_vertex_markers();
+    // for (size_t i = 0; i < _ground_mesh.vertices.size(); i++)
+    // {
+    //   const int marker = mesh_vertex_markers[i];
+    //   if (marker < -1)
+    //     continue;
+
+    //   // std::cout<< "Vertex Column: " << i << " Ground Marker: "<< marker << "\t| ";
+    //   for (size_t j = 0; j < _column_mesh.vertices[i].size(); j++)
+    //   {
+    //     std::cout << _column_mesh.vertices[i][j].x <<", "<< _column_mesh.vertices[i][j].y << ","
+    //     <<_column_mesh.vertices[i][j].z << "," << _column_mesh.markers[i][j] << std::endl;
+    //   }
+    // }
 
     return _column_mesh.to_volume_mesh(keep_cells);
   }
 
   /// Computes ground heights at the building centroids
-  void compute_building_ground_heights()
+ void compute_building_ground_heights()
   {
 
     const size_t num_buildings = _buildings.size();
@@ -792,238 +489,108 @@ private:
     }
   }
 
-  /// Mapping face markers to Vertex markers for ground mesh.
-  ///
-  /// Each vertex adopts the max marker value from the faces it belongs to.
-  ///
-  /// Ground Mesh Markers:
-  /// -2: Ground
-  /// -1: Building halos
-  ///  0: Building 0
-  ///  1: Building 1
-  ///  etc (non-negative integers mark faces inside buildings)
-  std::vector<int> face_to_vertex_markers()
-  {
-    const size_t num_vertices = _ground_mesh.vertices.size();
-    const size_t num_faces = _ground_mesh.faces.size();
-
-    vertex_markers.resize(num_vertices, -2);
-
-    if (!_ground_mesh.markers.size())
-    {
-      error("Ground mesh has no face Markers. Treating all "
-            "faces as "
-            "ground");
-      return vertex_markers;
-    }
-
-    for (size_t f = 0; f < num_faces; f++)
-    {
-      if (_ground_mesh.markers[f] < -2)
-      {
-        info("Problem problem with marker:" + str(_ground_mesh.markers[f]));
-      }
-
-      const std::array<size_t, 3> I = {_ground_mesh.faces[f].v0, _ground_mesh.faces[f].v1,
-                                       _ground_mesh.faces[f].v2};
-
-      vertex_markers[I[0]] = std::max(vertex_markers[I[0]], _ground_mesh.markers[f]);
-      vertex_markers[I[1]] = std::max(vertex_markers[I[1]], _ground_mesh.markers[f]);
-      vertex_markers[I[2]] = std::max(vertex_markers[I[2]], _ground_mesh.markers[f]);
-    }
-
-    return vertex_markers;
-  }
-
-  VolumeMesh add_domain_padding(const std::vector<double> &layer_heights,
-                                const double padding_height, double max_scale = 3.0)
+  VolumeMesh layer_padding_mesh(const VolumeMesh &volume_mesh, double top_height,
+                                double max_scale = 2.0)
   {
     // Get max layer height
+    std::vector<size_t> new_to_old_index;
+    Mesh _top_mesh = VolumeMeshing::DomainPaddingUtilities::extract_top_mesh(volume_mesh, new_to_old_index);
+    BuilderMesh mesh(_top_mesh);
+    double top_surface_max_z = 0.0;
+    double top_surface_min_z = std::numeric_limits<double>::max();
+    for (auto v : mesh.vertices)
+    {
+      top_surface_max_z = std::max(top_surface_max_z, v.z);
+      top_surface_min_z = std::min(top_surface_min_z, v.z);
+    }
+
+    
+    const auto layer_heights = VolumeMeshingUtilities::compute_layer_heights(mesh);
     const double max_layer_height = layer_heights.back();
 
-    // Number of Max height layers needed to cover padding height.
-    const size_t n = static_cast<size_t>(2 * padding_height / (max_layer_height * (max_scale + 1)));
-
-    info("Padding Domain with " + str(n) + " max layers scaled from 1 to " + str(max_scale));
-    std::vector<size_t> offset_before_padding = _column_mesh.vertices_offset;
-
-    for (size_t i = 0; i < _ground_mesh.vertices.size(); i++)
+    if (top_height <= top_surface_max_z){
+      info("Domain is taller than input top height!");
+      top_height = top_surface_max_z + max_layer_height;
+    }
+    double padding_height = top_height - top_surface_max_z;
+    
+    std::vector<int> vertex_matches;
+    if (new_to_old_index.size() != mesh.vertices.size())
     {
-      // Z coordinate of the last vertex of each column.
-      const double top_vertex_z = _column_mesh.vertices[i].back().z;
+      std::cout << "number of vertices between old and new mesh " << new_to_old_index.size()
+                << " | " << mesh.vertices.size() << std::endl;
+      error("Mismatch in number of vertices between old and new mesh");
+    }
 
-      const size_t n_k = static_cast<size_t>(max_layer_height / layer_heights[vertex_colors[i]]);
-      double layer_h = 0.0;
-      const double s_1 = n > 1 ? (max_scale - 1) / (n - 1) : 0;
+    ColumnMesh padding_mesh(_top_mesh);
+    
+    
+    // Number of Max height layers needed to cover padding height.
+    // const size_t n =  static_cast<size_t>(2 * padding_height / (max_layer_height * (max_scale + 1)));
+    const size_t n = std::max(
+        static_cast<size_t>(2u),
+        static_cast<size_t>(2 * padding_height / (max_layer_height * (max_scale + 1)))
+      );
+
+    info("Top surface max z:" + str(top_surface_max_z) + " Top domain height " + str(top_height) + " Padding Height: " + str(padding_height));
+    info("Padding Domain with " + str(n) + " max layers scaled from 1 to " + str(max_scale));
+    // std::vector<size_t> offset_before_padding = _column_mesh.vertices_offset;
+
+    for (size_t i = 0; i < mesh.vertices.size(); i++)
+    {
+      const double top_vertex_z = mesh.vertices[i].z;
+      const size_t color = mesh.vertex_colors[i];
+
+      // Number of sub-layers for this column
+      const size_t n_k = static_cast<size_t>(max_layer_height / layer_heights[color]);
+      const double s_1 = n > 1 ? (max_scale - 1) / static_cast<double>(n - 1) : 0.0;
+
+      // Precompute the expected unscaled total increment (H) for this column.
+      double H = n_k * layer_heights[color] * ((n - 1) + s_1 * ((n - 1) * n / 2.0));
+
+      // Compute the normalization scale factor.
+      double scale_norm_factor = (H > 0.0) ? ((top_height - top_vertex_z) / H) : 1.0;
+
+      // Now, generate vertices using the scaled increments.
+      double cumulative_height = 0.0;
+      padding_mesh.vertices[i].push_back(mesh.vertices[i]);
+      vertex_matches.push_back(new_to_old_index[i]);
       for (size_t j = 1; j < n; j++)
       {
         // const double s = 1.0 + j*(max_scale - 1)/(n-1);
-        const double s = 1.0 + j * s_1;
+        const double s = (1.0 + j * s_1) * scale_norm_factor;
 
         for (size_t k = 0; k < n_k; k++)
         {
-          layer_h += s * layer_heights[vertex_colors[i]];
-          Vector3D v(_ground_mesh.vertices[i].x, _ground_mesh.vertices[i].y,
-                     top_vertex_z + layer_h);
-          _column_mesh.vertices[i].push_back(v);
+          cumulative_height += s * layer_heights[color];
+          Vector3D v(mesh.vertices[i].x, mesh.vertices[i].y, top_vertex_z + cumulative_height);
+          padding_mesh.vertices[i].push_back(v);
+          vertex_matches.push_back(-1);
         }
       }
-      _column_mesh.vertices_offset[i + 1] =
-          _column_mesh.vertices_offset[i] + _column_mesh.vertices[i].size();
+      padding_mesh.vertices_offset[i + 1] =
+          padding_mesh.vertices_offset[i] + padding_mesh.vertices[i].size();
     }
 
-    size_t volume_mesh_num_cells = 0;
-    for (size_t i = 0; i < _ground_mesh.faces.size(); i++)
+    VolumeMeshingUtilities::connect_column_mesh_cells(mesh, padding_mesh);
+
+    padding_mesh.markers.resize(mesh.vertices.size());
+    for (size_t i = 0; i < mesh.vertices.size(); i++)
     {
-      const Simplex2D face_simplex = _ground_mesh.faces[i];
-      std::array<size_t, 3> face = {face_simplex.v0, face_simplex.v1, face_simplex.v2};
-      std::array<int, 3> v_colors = {vertex_colors[face_simplex.v0], vertex_colors[face_simplex.v1],
-                                     vertex_colors[face_simplex.v2]};
+      auto &markers = padding_mesh.markers[i];
 
-      const std::array<size_t, 3> column_offsets = {
-          offset_before_padding[face[0] + 1] - offset_before_padding[face[0]] - 1,
-          offset_before_padding[face[1] + 1] - offset_before_padding[face[1]] - 1,
-          offset_before_padding[face[2] + 1] - offset_before_padding[face[2]] - 1,
-      };
-      const std::array<size_t, 3> column_len = {
-          _column_mesh.vertices_offset[face[0] + 1] - _column_mesh.vertices_offset[face[0]],
-          _column_mesh.vertices_offset[face[1] + 1] - _column_mesh.vertices_offset[face[1]],
-          _column_mesh.vertices_offset[face[2] + 1] - _column_mesh.vertices_offset[face[2]]};
-      const size_t num_prisms =
-          (column_len.back() - column_offsets.back() - 1) / (1 << (face_colors[i] - v_colors[2]));
-
-      std::vector<std::array<size_t, 3>> prism_iterator(num_prisms);
-
-      for (size_t j = 0; j < num_prisms; j++)
-      {
-        prism_iterator[j] = {column_offsets[0] + j * (1 << (face_colors[i] - v_colors[0])),
-                             column_offsets[1] + j * (1 << (face_colors[i] - v_colors[1])),
-                             column_offsets[2] + j * (1 << (face_colors[i] - v_colors[2]))};
-      }
-      switch (face_partitions[i])
-      {
-      case 0:
-      {
-        for (const auto &ar : prism_iterator)
-        {
-          const size_t k = ar[0];
-          const size_t l = ar[1];
-          const size_t m = ar[2];
-
-          ColumnIndex bot_triangle_0(face[0], k), bot_triangle_1(face[1], l),
-              bot_triangle_2(face[2], m);
-          ColumnIndex top_triangle_0(face[0], k + 1), top_triangle_1(face[1], l + 1),
-              top_triangle_2(face[2], m + 1);
-
-          ColumnSimplex K0(bot_triangle_0, bot_triangle_1, bot_triangle_2, top_triangle_2, 0);
-          ColumnSimplex K1(bot_triangle_0, top_triangle_1, bot_triangle_1, top_triangle_2, 0);
-          ColumnSimplex K2(bot_triangle_0, top_triangle_0, top_triangle_1, top_triangle_2, 0);
-
-          _column_mesh.cells[i].emplace_back(K0);
-          _column_mesh.cells[i].emplace_back(K1);
-          _column_mesh.cells[i].emplace_back(K2);
-          volume_mesh_num_cells += 3;
-        }
-      }
-      break;
-      case 1:
-      {
-        for (const auto &ar : prism_iterator)
-        {
-          const size_t k = ar[0];
-          const size_t l = ar[1];
-          const size_t m = ar[2];
-
-          ColumnIndex bot_triangle_0(face[0], k), bot_triangle_1(face[1], l),
-              bot_triangle_2(face[2], m);
-          ColumnIndex mid_triangle_0(face[0], k + 1);
-          ColumnIndex top_triangle_0(face[0], k + 2), top_triangle_1(face[1], l + 1),
-              top_triangle_2(face[2], m + 1);
-
-          ColumnSimplex K0(bot_triangle_0, bot_triangle_1, bot_triangle_2, mid_triangle_0, 0);
-          ColumnSimplex K1(bot_triangle_1, top_triangle_2, bot_triangle_2, mid_triangle_0, 0);
-          ColumnSimplex K2(bot_triangle_1, top_triangle_2, mid_triangle_0, top_triangle_1, 0);
-          ColumnSimplex K3(mid_triangle_0, top_triangle_0, top_triangle_1, top_triangle_2, 0);
-
-          _column_mesh.cells[i].emplace_back(K0);
-          _column_mesh.cells[i].emplace_back(K1);
-          _column_mesh.cells[i].emplace_back(K2);
-          _column_mesh.cells[i].emplace_back(K3);
-          volume_mesh_num_cells += 4;
-        }
-      }
-      break;
-      case 2:
-      {
-        for (const auto &ar : prism_iterator)
-        {
-          const size_t k = ar[0];
-          const size_t l = ar[1];
-          const size_t m = ar[2];
-
-          ColumnIndex bot_triangle_0(face[0], k), bot_triangle_1(face[1], l),
-              bot_triangle_2(face[2], m);
-          ColumnIndex mid_triangle_0(face[0], k + 1), mid_triangle_1(face[1], l + 1);
-          ColumnIndex top_triangle_0(face[0], k + 2), top_triangle_1(face[1], l + 2),
-              top_triangle_2(face[2], m + 1);
-
-          ColumnSimplex K0(bot_triangle_0, bot_triangle_1, bot_triangle_2, mid_triangle_1, 0);
-          ColumnSimplex K1(bot_triangle_0, bot_triangle_2, mid_triangle_0, mid_triangle_1, 0);
-          ColumnSimplex K2(bot_triangle_2, top_triangle_2, mid_triangle_0, mid_triangle_1, 0);
-          ColumnSimplex K3(top_triangle_0, top_triangle_2, top_triangle_1, mid_triangle_0, 0);
-          ColumnSimplex K4(top_triangle_1, top_triangle_2, mid_triangle_1, mid_triangle_0, 0);
-
-          _column_mesh.cells[i].emplace_back(K0);
-          _column_mesh.cells[i].emplace_back(K1);
-          _column_mesh.cells[i].emplace_back(K2);
-          _column_mesh.cells[i].emplace_back(K3);
-          _column_mesh.cells[i].emplace_back(K4);
-          volume_mesh_num_cells += 5;
-        }
-      }
-      break;
-
-      case 3:
-      {
-        for (const auto &ar : prism_iterator)
-        {
-          const size_t k = ar[0];
-          const size_t l = ar[1];
-          const size_t m = ar[2];
-
-          ColumnIndex bot_triangle_0(face[0], k), bot_triangle_1(face[1], l),
-              bot_triangle_2(face[2], m);
-          ColumnIndex mid_triangle_0(face[0], k + 1), mid_triangle_1(face[1], l + 1),
-              mid_triangle_2(face[2], m + 1);
-          ColumnIndex top_triangle_0(face[0], k + 2), top_triangle_1(face[1], l + 2),
-              top_triangle_2(face[2], m + 2);
-
-          ColumnSimplex K0(bot_triangle_0, bot_triangle_1, bot_triangle_2, mid_triangle_2, 0);
-          ColumnSimplex K1(bot_triangle_0, mid_triangle_1, bot_triangle_1, mid_triangle_2, 0);
-          ColumnSimplex K2(bot_triangle_0, mid_triangle_0, mid_triangle_1, mid_triangle_2, 0);
-          ColumnSimplex K3(mid_triangle_0, mid_triangle_1, mid_triangle_2, top_triangle_2, 0);
-          ColumnSimplex K4(mid_triangle_0, top_triangle_1, mid_triangle_1, top_triangle_2, 0);
-          ColumnSimplex K5(mid_triangle_0, top_triangle_0, top_triangle_1, top_triangle_2, 0);
-
-          _column_mesh.cells[i].emplace_back(K0);
-          _column_mesh.cells[i].emplace_back(K1);
-          _column_mesh.cells[i].emplace_back(K2);
-          _column_mesh.cells[i].emplace_back(K3);
-          _column_mesh.cells[i].emplace_back(K4);
-          _column_mesh.cells[i].emplace_back(K5);
-          volume_mesh_num_cells += 6;
-        }
-        break;
-      }
-      default:
-        error("Face Coloring Error: Large layer height "
-              "difference");
-        break;
-      }
+      // Initialize all markers to Other (-5)
+      markers.resize(padding_mesh.vertices[i].size(), -5);
+      // Set last (top) marker to Top (-3)
+      markers.back() = -3;
     }
-    info("Cells added to the Volume Mesh during domain padding: " + str(volume_mesh_num_cells));
-    return _column_mesh.to_volume_mesh();
+    auto _padding_mesh = padding_mesh.to_volume_mesh();
+    info("Volume Mesh " + str(volume_mesh));
+    info("Padding Mesh " + str(_padding_mesh));
+    
+    return VolumeMeshing::DomainPaddingUtilities::weld_meshes(volume_mesh, _padding_mesh, vertex_matches);
   }
+
 };
 
 } // namespace DTCC_BUILDER

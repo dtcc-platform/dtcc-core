@@ -7,6 +7,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include <iostream>
+
 namespace dtcc
 {
 
@@ -55,7 +57,7 @@ public:
   }
 
   // Convert the sparse matrix to CSR format
-  void to_csr(std::vector<int> &ptr, std::vector<int> &col, std::vector<double> &val) const
+  void to_csr(std::vector<ptrdiff_t> &ptr, std::vector<ptrdiff_t> &col, std::vector<double> &val) const
   {
     size_t row_idx = 0;
     for (const auto &row : matrix)
@@ -70,6 +72,54 @@ public:
     }
     ptr[row_idx] = col.size();
   }
+
+  void clear_matrix()
+  {
+    for (auto &row : matrix)
+    {
+      row.clear();
+    }
+    matrix.clear();
+  }
+
+  bool checkMatrixForZeros( double tol = 1e-12) {
+    bool isValid = true;
+    
+    // Loop over each row.
+    for (size_t i = 0; i < matrix.size(); ++i) {
+        const auto& row = matrix[i];
+        
+        // Check if the row is empty (i.e. a zero row).
+        if (row.empty()) {
+            std::cout << "Row " << i << " is empty (zero row)." << std::endl;
+            isValid = false;
+        } else {
+            // Optionally: Check if the sum of the absolute values in the row is nearly zero.
+            double rowSum = 0.0;
+            for (const auto& entry : row) {
+                rowSum += std::abs(entry.second);
+            }
+            if (rowSum < tol) {
+                std::cout << "Row " << i << " is nearly zero (sum = " << rowSum << ")." << std::endl;
+                isValid = false;
+            }
+        }
+        
+        // Check if the diagonal entry exists and is not nearly zero.
+        auto diagIt = row.find(i);
+        if (diagIt == row.end()) {
+            std::cout << "Diagonal element at (" << i << "," << i << ") is missing." << std::endl;
+            isValid = false;
+        } else if (std::abs(diagIt->second) < tol) {
+            std::cout << "Diagonal element at (" << i << "," << i << ") is nearly zero (value = " 
+                      << diagIt->second << ")." << std::endl;
+            isValid = false;
+        }
+    }
+    
+    return isValid;
+}
+
 
 private:
   // Matrix dimensions

@@ -64,6 +64,22 @@ message("pybind11_DIR " ${pybind11_DIR})
 find_package(pybind11 REQUIRED)
 message("pybind11_INCLUDE_DIRS " ${pybind11_INCLUDE_DIRS})
 
+# *** BOOST SUPPORT: Find and include Boost ***
+# find_package(Boost REQUIRED)
+# message("Boost include dirs: ${Boost_INCLUDE_DIRS}")
+# include_directories(SYSTEM ${Boost_INCLUDE_DIRS})
+
+# Try to find Boost (without REQUIRED, so we can handle its absence)
+find_package(Boost)
+
+if(Boost_FOUND)
+  message("Boost include dirs: ${Boost_INCLUDE_DIRS}")
+  include_directories(SYSTEM ${Boost_INCLUDE_DIRS})
+else()
+  message(STATUS "Boost not found. Defining AMGCL_NO_BOOST to disable Boost-dependent features in AMGCL.")
+  add_compile_definitions(AMGCL_NO_BOOST)
+endif()
+
 # Set include directories
 set(DTCC_CPP_DIR ${CMAKE_SOURCE_DIR}/dtcc_core/cpp)
 include_directories(${pybind11_INCLUDE_DIRS})
@@ -71,6 +87,7 @@ include_directories(${DTCC_CPP_DIR}/include)
 include_directories(${DTCC_CPP_DIR}/include/citymodel)
 include_directories(SYSTEM ${DTCC_CPP_DIR}/external)
 include_directories(SYSTEM ${DTCC_CPP_DIR}/external/triangle)
+include_directories(SYSTEM ${DTCC_CPP_DIR}/external/amgcl)
 
 # Set installation directory
 set(CMAKE_SKIP_INSTALL_ALL_DEPENDENCY true)

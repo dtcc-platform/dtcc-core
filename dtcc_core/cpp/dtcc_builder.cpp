@@ -17,6 +17,7 @@
 #include "VolumeMeshBuilder.h"
 #include "model/GridField.h"
 #include "model/Mesh.h"
+#include "model/VolumeMesh.h"
 #include "model/Polygon.h"
 #include "model/Simplices.h"
 #include "model/Vector.h"
@@ -76,8 +77,40 @@ Mesh create_mesh(py::array_t<double> vertices, py::array_t<size_t> faces, py::ar
     mesh.markers.push_back(markers_r(i));
   }
 
-  return mesh;
-}
+    return mesh;
+  }
+
+  VolumeMesh create_volume_mesh(py::array_t<double> vertices,
+                   py::array_t<size_t> cells,
+                   py::array_t<int> markers)
+  {
+    VolumeMesh mesh;
+    auto verts_r = vertices.unchecked<2>();
+    auto cells_r = cells.unchecked<2>();
+    auto markers_r = markers.unchecked<1>();
+    size_t num_vertices = verts_r.shape(0);
+    size_t num_cells = cells_r.shape(0);
+    size_t num_markers = markers_r.size();
+
+    for (size_t i = 0; i < num_vertices; i++)
+    {
+      mesh.vertices.push_back(
+          Vector3D(verts_r(i, 0), verts_r(i, 1), verts_r(i, 2)));
+    }
+
+    for (size_t i = 0; i < num_cells; i++)
+    {
+      mesh.cells.push_back(
+          Simplex3D(cells_r(i, 0), cells_r(i, 1), cells_r(i, 2), cells_r(i, 3)));
+    }
+
+    for (size_t i = 0; i < num_markers; i++)
+    {
+      mesh.markers.push_back(markers_r(i));
+    }
+
+    return mesh;
+  }
 
 py::tuple mesh_as_arrays(const Mesh &mesh)
 {
@@ -238,9 +271,28 @@ py::array_t<size_t> statistical_outlier_finder(py::array_t<double> &points, size
     pc.push_back(Vector3D(points_r(i, 0), points_r(i, 1), points_r(i, 2)));
   }
 
-  auto outliers = PointCloudProcessor::statistical_outlier_finder(pc, neighbors, outlier_margin);
-  return py::array_t<size_t>(outliers.size(), outliers.data());
-}
+    auto outliers = PointCloudProcessor::statistical_outlier_finder(pc, neighbors, outlier_margin);
+    return py::array_t<size_t>(outliers.size(), outliers.data());
+  }
+
+
+  py::dict compute_boundary_face_markers(const VolumeMesh &mesh)
+    {
+      auto data = MeshProcessor::compute_boundary_facet_markers(mesh);
+      py::dict out;
+      // out.reserve(data.size());
+      for (auto const &kv : data) {
+        const Simplex2D &f = kv.first;
+        int   marker = kv.second.first;
+        // auto  &n     = kv.second.second;
+
+        py::tuple key    = py::make_tuple(f.v0, f.v1, f.v2);
+        // py::tuple normal = py::make_tuple(n.x, n.y, n.z);
+        // py::tuple val    = py::make_tuple(marker, normal);
+        out[key] = marker;
+        }
+        return out;
+    }
 
 } // namespace DTCC_BUILDER
 
@@ -313,14 +365,38 @@ PYBIND11_MODULE(_dtcc_builder, m)
       .def_readonly("vertices", &DTCC_BUILDER::Mesh::vertices)
       .def_readonly("faces", &DTCC_BUILDER::Mesh::faces)
       .def_readonly("normals", &DTCC_BUILDER::Mesh::normals)
-      .def_readonly("markers", &DTCC_BUILDER::Mesh::markers);
+      .def_readonly("markers", &DTCC_BUILDER::Mesh::markers)
+      .def("from_cpp",[](const DTCC_BUILDER::Mesh &m) {
+                 // cache the Python converter lookup once:
+                 static py::object conv = 
+                     py::module::import("dtcc_core.builder.model_conversion")
+                       .attr("builder_mesh_to_mesh");
+                 // call it, passing ourselves:
+                 return conv(m);
+             },
+             R"pbdoc(
+                 Convert this C++ Mesh back into a Python model.Mesh.
+             )pbdoc"
+        );;
 
   py::class_<DTCC_BUILDER::VolumeMesh>(m, "VolumeMesh")
       .def(py::init<>())
       .def_readonly("num_layers", &DTCC_BUILDER::VolumeMesh::num_layers)
       .def_readonly("vertices", &DTCC_BUILDER::VolumeMesh::vertices)
       .def_readonly("cells", &DTCC_BUILDER::VolumeMesh::cells)
-      .def_readonly("markers", &DTCC_BUILDER::VolumeMesh::markers);
+      .def_readonly("markers", &DTCC_BUILDER::VolumeMesh::markers)
+      .def("from_cpp",[](const DTCC_BUILDER::VolumeMesh &m) {
+                 // cache the Python converter lookup once:
+                 static py::object conv = 
+                     py::module::import("dtcc_core.builder.model_conversion")
+                       .attr("builder_volume_mesh_to_volume_mesh");
+                 // call it, passing ourselves:
+                 return conv(m);
+             },
+             R"pbdoc(
+                 Convert this C++ Volume Mesh back into a Python model.VolumeMesh.
+             )pbdoc"
+        );
 
   py::class_<DTCC_BUILDER::Surface>(m, "Surface")
       .def(py::init<>())
@@ -334,6 +410,8 @@ PYBIND11_MODULE(_dtcc_builder, m)
   m.def("create_polygon", &DTCC_BUILDER::create_polygon, "Create C++ polygon");
 
   m.def("create_mesh", &DTCC_BUILDER::create_mesh, "Create C++ mesh");
+
+   m.def("create_volume_mesh", &DTCC_BUILDER::create_volume_mesh, "Create C++ volume mesh");
 
   m.def("mesh_as_arrays", &DTCC_BUILDER::mesh_as_arrays, "Create C++ mesh");
 
@@ -364,7 +442,16 @@ PYBIND11_MODULE(_dtcc_builder, m)
   // m.def("extrude_footprint", &DTCC_BUILDER::MeshBuilder::extrude_footprint,
   //       "Extrude footprint to a mesh");
 
-  m.def("compute_boundary_mesh", &DTCC_BUILDER::MeshProcessor::compute_boundary_mesh,
+  m.def("compute_boundary_mesh",
+        &DTCC_BUILDER::MeshProcessor::compute_boundary_mesh,
+        "Compute boundary mesh from volume mesh");
+
+  m.def("compute_boundary_face_markers",
+        &DTCC_BUILDER::compute_boundary_face_markers,
+        "Compute markers and outward normals for volume mesh boundary faces");
+
+  m.def("compute_boundary_mesh",
+        &DTCC_BUILDER::MeshProcessor::compute_boundary_mesh,
         "Compute boundary mesh from volume mesh");
 
   m.def("compute_open_mesh", &DTCC_BUILDER::MeshProcessor::compute_open_mesh,
@@ -393,9 +480,8 @@ PYBIND11_MODULE(_dtcc_builder, m)
   m.def("ray_multisurface_intersection", &DTCC_BUILDER::ray_multisurface_intersection,
         "Compute ray-multisurface intersection");
 
-  m.def("statistical_outlier_finder", &DTCC_BUILDER::statistical_outlier_finder,
-        "Find statistical outliers in point cloud");
-
+  m.def("statistical_outlier_finder", &DTCC_BUILDER::statistical_outlier_finder, "Find statistical outliers in point cloud");
+  
   py::class_<DTCC_BUILDER::VolumeMeshBuilder>(m, "VolumeMeshBuilder")
       .def(py::init<const std::vector<DTCC_BUILDER::Surface> &, const DTCC_BUILDER::GridField &,
                     DTCC_BUILDER::Mesh &, double>(),

@@ -11,8 +11,7 @@ from .geometry import Geometry, Bounds
 from .surface import Surface, MultiSurface
 from .. import dtcc_pb2 as proto
 
-from ..mixins.mesh.mixins import MeshProcessingMixin
-
+from ..mixins.mesh.mixins import MeshProcessingMixin,VolumeMeshProcessingMixin
 
 @dataclass
 class Mesh(MeshProcessingMixin, Geometry):
@@ -178,7 +177,7 @@ class Mesh(MeshProcessingMixin, Geometry):
 
 
 @dataclass
-class VolumeMesh(Geometry):
+class VolumeMesh(VolumeMeshProcessingMixin,Geometry):
     """Represents an unstructured tetrahedral mesh in 3D.
 
     The VolumeMesh class represents a 3D volumetric mesh, which consists of
