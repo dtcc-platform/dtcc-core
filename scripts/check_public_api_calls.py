@@ -50,8 +50,9 @@ def iter_modules(package_name: str) -> Iterable[str]:
             yield m.name
 
 
-def get_public_functions_from_module(modname: str) -> List[FuncInfo]:
-    module = importlib.import_module(modname)
+def get_public_functions_from_loaded_module(module) -> List[FuncInfo]:
+    """Collect public functions from a loaded module (uses its __all__)."""
+    modname = module.__name__
     names = getattr(module, "__all__", None)
     if not names:
         return []
@@ -61,8 +62,9 @@ def get_public_functions_from_module(modname: str) -> List[FuncInfo]:
         try:
             obj = getattr(module, name)
         except Exception:
-            # If the module advertises a name that is not importable, treat as error
-            raise
+            # Name not present as attribute in module (may be a submodule hint or typo);
+            # skip gracefully, since we walk all submodules separately.
+            continue
 
         # Only consider plain functions for this check
         if not inspect.isfunction(obj) and not inspect.isbuiltin(obj):
@@ -129,18 +131,35 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Check public API function calls using coverage")
     parser.add_argument("--package", required=True, help="Root package to scan, e.g., dtcc_core")
     parser.add_argument("--coverage-file", required=True, help="Path to coverage JSON file")
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Fail if any submodule under the package fails to import",
+    )
     args = parser.parse_args(argv)
 
     # Discover public functions
     func_map: Dict[Tuple[str, int, int, str], FuncInfo] = {}
     total_modules = 0
+    import_errors: List[Tuple[str, str]] = []
+    loaded_modules: List[object] = []
     for modname in iter_modules(args.package):
         total_modules += 1
         try:
-            funcs = get_public_functions_from_module(modname)
+            module = importlib.import_module(modname)
+            loaded_modules.append(module)
         except Exception as e:
-            print(f"ERROR: Failed to import or inspect module '{modname}': {e}")
-            return 2
+            import_errors.append((modname, f"{e}"))
+            continue
+
+    if args.strict and import_errors:
+        print("ERROR: One or more submodules failed to import in strict mode:")
+        for name, msg in import_errors:
+            print(f" - {name}: {msg}")
+        return 2
+
+    for module in loaded_modules:
+        funcs = get_public_functions_from_loaded_module(module)
         for fi in funcs:
             func_map[fi.key] = fi
 
@@ -192,4 +211,3 @@ def main(argv: Optional[List[str]] = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

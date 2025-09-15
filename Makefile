@@ -1,8 +1,8 @@
-PYTHON ?= python
+PYTHON ?= python3.11
 PIP ?= $(PYTHON) -m pip
 COVERAGE_JSON := tests/coverage.json
 
-.PHONY: install test coverage check-public-api verify-public-api clean
+.PHONY: install test coverage check-public-api verify-public-api check-public-api-strict verify-public-api-strict clean
 
 install:
 	$(PIP) install -e .
@@ -22,8 +22,13 @@ check-public-api:
 # Runs tests with coverage and verifies that all public API functions are executed
 verify-public-api: coverage check-public-api
 
+check-public-api-strict:
+	$(PYTHON) scripts/check_public_api_calls.py --strict --package dtcc_core \
+	  --coverage-file $(COVERAGE_JSON)
+
+verify-public-api-strict: coverage check-public-api-strict
+
 clean:
 	rm -f $(COVERAGE_JSON)
 	find . -name __pycache__ -type d -exec rm -rf {} + || true
 	find . -name .pytest_cache -type d -exec rm -rf {} + || true
-
