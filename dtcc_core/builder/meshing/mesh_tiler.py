@@ -115,36 +115,6 @@ class SurfaceMeshClipper:
 
         # Build STRtree (R-tree variant)
         self.spatial_index = STRtree(geometries)
-        # self.geometry_to_info = {
-        #     info.index: info for geom, info in zip(geometries, self.triangle_infos)
-        # }
-
-    #
-    # def _build_adjacency(self):
-    #     """Build triangle adjacency for connected components."""
-    #     # Create edge to triangle mapping
-    #     edge_to_triangles = {}
-    #
-    #     for i, face in enumerate(self.mesh.faces):
-    #         # Sort vertex indices for each edge
-    #         edges = [
-    #             tuple(sorted([face[0], face[1]])),
-    #             tuple(sorted([face[1], face[2]])),
-    #             tuple(sorted([face[2], face[0]])),
-    #         ]
-    #
-    #         for edge in edges:
-    #             if edge not in edge_to_triangles:
-    #                 edge_to_triangles[edge] = []
-    #             edge_to_triangles[edge].append(i)
-    #
-    #     # Build adjacency list
-    #     self.adjacency = {i: set() for i in range(len(self.mesh.faces))}
-    #     for triangles in edge_to_triangles.values():
-    #         for i in range(len(triangles)):
-    #             for j in range(i + 1, len(triangles)):
-    #                 self.adjacency[triangles[i]].add(triangles[j])
-    #                 self.adjacency[triangles[j]].add(triangles[i])
 
     def clip_to_bounds(self, bounds: Bounds) -> Mesh:
         """
@@ -169,11 +139,11 @@ class SurfaceMeshClipper:
         # Process only relevant triangles
         clipper = SingleBBoxClipper(bbox)
 
-        for info in potential_triangles:
-            if info.is_vertical:
-                clipper.process_vertical_triangle(info)
+        for pt in potential_triangles:
+            if pt.is_vertical:
+                clipper.process_vertical_triangle(pt)
             else:
-                clipper.process_normal_triangle(info)
+                clipper.process_normal_triangle(pt)
 
         return clipper.get_result()
 
