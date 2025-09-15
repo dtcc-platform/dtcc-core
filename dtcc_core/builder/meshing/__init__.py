@@ -7,3 +7,6 @@ from .meshing import (
     snap_vertices,
     merge,
 )
+
+from .tile_mesh import tile_surface_mesh
+from .mesh_tiler import SurfaceMeshClipper
