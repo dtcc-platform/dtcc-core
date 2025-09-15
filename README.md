@@ -36,3 +36,22 @@ each source file.
 
 Comments, contributions, and questions are welcome. Please engage with
 us through Issues, Pull Requests, and Discussions on our GitHub page.
+
+## Local Function-Call Check
+
+CI enforces that every public API function (exported via `__all__`) in `dtcc_core` is executed at least once by the test suite. You can run the same check locally:
+
+- Create a virtual environment and install the project and test tools:
+  - `python -m venv .venv && source .venv/bin/activate`  (Windows: `python -m venv .venv && .venv\\Scripts\\activate`)
+  - `pip install -e .`
+  - `pip install pytest pytest-cov`
+
+- Run tests with coverage to produce `tests/coverage.json` (run from the `tests` directory to match CI):
+  - `cd tests`
+  - `pytest --maxfail=1 --disable-warnings --cov=dtcc_core --cov-report=term-missing --cov-report=json:coverage.json`
+
+- From the project root, run the function-call checker:
+  - `cd ..`
+  - `python scripts/check_public_api_calls.py --package dtcc_core --coverage-file tests/coverage.json`
+
+Exit status `0` means all public functions were exercised by tests. A non‑zero exit prints the list of missed functions with their source locations so you can add or adjust tests.
