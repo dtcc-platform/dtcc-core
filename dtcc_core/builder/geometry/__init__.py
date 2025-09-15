@@ -1,3 +1,3 @@
 from . import multisurface, surface
 
-__all__ = ["multisurface", "surface", "mesh"]
+__all__ = ["multisurface", "surface"]
