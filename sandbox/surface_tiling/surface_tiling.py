@@ -3,6 +3,7 @@ import dtcc_data
 import dtcc_viewer
 from dtcc_core.model import Bounds, City
 
+
 from dtcc_core.builder.meshing import tile_surface_mesh
 from time import time
 
@@ -22,7 +23,14 @@ surface_mesh = city.build_city_surface_mesh()
 
 
 start = time()
-tiles = tile_surface_mesh(surface_mesh, tile_size=100)
+tiles = tile_surface_mesh(surface_mesh, tile_size=250)
 print(f"Tiling took {time()-start:.2f} seconds for {len(tiles)} tiles")
 
-dtcc_core.builder.meshing.merge_meshes(tiles).view()
+view_tiles = [t for idx, t in enumerate(tiles) if idx % 3 == 0]
+
+# dtcc_core.builder.meshing.merge_meshes(view_tiles).view()
+
+test_tile = tiles[14]
+capped_tile = test_tile.create_printable_solid(extrusion_depth=20)
+
+capped_tile.view()

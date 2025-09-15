@@ -33,3 +33,16 @@ def tile_surface_mesh(
         tiled_mesh = clipper.clip_to_bounds(tile)
         tiled_meshes.append(tiled_mesh)
     return tiled_meshes
+
+
+def extrude_mesh_base(mesh: Mesh, extrude_to=0) -> Mesh:
+    """
+    Extrude a surface mesh downwards to create a closed mesh
+
+    Args:
+        mesh (Mesh): The input surface mesh to be extruded.
+        z_base (float): The Z value to extrude the mesh down to.
+
+    Returns:
+        Mesh: The resulting volume mesh.
+    """

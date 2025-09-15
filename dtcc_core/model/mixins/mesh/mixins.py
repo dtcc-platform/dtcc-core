@@ -49,6 +49,50 @@ class MeshProcessingMixin:
 
         return snapped_mesh
 
+    def extrude_to_solid(self: "T_Mesh", extrusion_depth: float = None, 
+                        base_z: float = None) -> "T_Mesh":
+        """
+        Extrude this surface mesh downwards to create a solid mesh suitable for 3D printing.
+        This method is non-mutating (does not modify data in-place).
+
+        This function creates a solid by:
+        1. Finding the boundary edges of the surface
+        2. Extruding the boundary downwards to create side walls
+        3. Creating a bottom cap at the specified depth
+
+        Args:
+            extrusion_depth (float, optional): How far down to extrude. If None, uses 10% of mesh height.
+            base_z (float, optional): Z-coordinate for the bottom. If None, uses min_z - extrusion_depth.
+
+        Returns:
+            Mesh: A new solid mesh with extruded sides and bottom cap, suitable for 3D printing.
+        """
+        from dtcc_core.builder.meshing import extrude_surface_to_solid
+
+        solid_mesh = extrude_surface_to_solid(self, extrusion_depth, base_z)
+
+        return solid_mesh
+
+    def create_printable_solid(self: "T_Mesh", extrusion_depth: float = None,
+                              base_z: float = None, minimum_thickness: float = 0.001) -> "T_Mesh":
+        """
+        Create a solid mesh suitable for 3D printing with additional validation and fixes.
+        This method is non-mutating (does not modify data in-place).
+
+        Args:
+            extrusion_depth (float, optional): Depth of extrusion
+            base_z (float, optional): Base Z coordinate
+            minimum_thickness (float): Minimum wall thickness for 3D printing
+
+        Returns:
+            Mesh: A new solid mesh optimized for 3D printing
+        """
+        from dtcc_core.builder.meshing import create_printable_surface_mesh
+
+        printable_mesh = create_printable_surface_mesh(self, extrusion_depth, base_z, minimum_thickness)
+
+        return printable_mesh
+
     def to_cpp(self: "T_Mesh") -> "_dtcc_builder.Mesh":
         """
         Convert the Mesh to a DTCC builder Mesh.
