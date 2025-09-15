@@ -43,9 +43,6 @@ class SurfaceMeshClipper:
         # Build spatial index
         self._build_spatial_index()
 
-        # Precompute triangle adjacency for connected component analysis
-        self._build_adjacency()
-
     def _preprocess_triangles(self) -> List[TriangleInfo]:
         """Preprocess all triangles to avoid repeated calculations."""
         infos = []
@@ -122,31 +119,32 @@ class SurfaceMeshClipper:
         #     info.index: info for geom, info in zip(geometries, self.triangle_infos)
         # }
 
-    def _build_adjacency(self):
-        """Build triangle adjacency for connected components."""
-        # Create edge to triangle mapping
-        edge_to_triangles = {}
-
-        for i, face in enumerate(self.mesh.faces):
-            # Sort vertex indices for each edge
-            edges = [
-                tuple(sorted([face[0], face[1]])),
-                tuple(sorted([face[1], face[2]])),
-                tuple(sorted([face[2], face[0]])),
-            ]
-
-            for edge in edges:
-                if edge not in edge_to_triangles:
-                    edge_to_triangles[edge] = []
-                edge_to_triangles[edge].append(i)
-
-        # Build adjacency list
-        self.adjacency = {i: set() for i in range(len(self.mesh.faces))}
-        for triangles in edge_to_triangles.values():
-            for i in range(len(triangles)):
-                for j in range(i + 1, len(triangles)):
-                    self.adjacency[triangles[i]].add(triangles[j])
-                    self.adjacency[triangles[j]].add(triangles[i])
+    #
+    # def _build_adjacency(self):
+    #     """Build triangle adjacency for connected components."""
+    #     # Create edge to triangle mapping
+    #     edge_to_triangles = {}
+    #
+    #     for i, face in enumerate(self.mesh.faces):
+    #         # Sort vertex indices for each edge
+    #         edges = [
+    #             tuple(sorted([face[0], face[1]])),
+    #             tuple(sorted([face[1], face[2]])),
+    #             tuple(sorted([face[2], face[0]])),
+    #         ]
+    #
+    #         for edge in edges:
+    #             if edge not in edge_to_triangles:
+    #                 edge_to_triangles[edge] = []
+    #             edge_to_triangles[edge].append(i)
+    #
+    #     # Build adjacency list
+    #     self.adjacency = {i: set() for i in range(len(self.mesh.faces))}
+    #     for triangles in edge_to_triangles.values():
+    #         for i in range(len(triangles)):
+    #             for j in range(i + 1, len(triangles)):
+    #                 self.adjacency[triangles[i]].add(triangles[j])
+    #                 self.adjacency[triangles[j]].add(triangles[i])
 
     def clip_to_bounds(self, bounds: Bounds) -> Mesh:
         """
@@ -178,61 +176,6 @@ class SurfaceMeshClipper:
                 clipper.process_normal_triangle(info)
 
         return clipper.get_result()
-
-    def clip_to_multiple_bboxes(
-        self, bboxes: List[Tuple[float, float, float, float]]
-    ) -> List[Mesh]:
-        """
-        Clip the mesh to multiple bounding boxes efficiently.
-
-        Args:
-            bboxes: List of bounding boxes
-
-        Returns:
-            List of clipped meshes
-        """
-        results = []
-
-        # Process in batches to optimize cache usage
-        for bbox in bboxes:
-            results.append(self.clip_to_bounds(bbox))
-
-        return results
-
-    def clip_to_grid(
-        self, grid_bounds: Tuple[float, float, float, float], nx: int, ny: int
-    ) -> Dict[Tuple[int, int], Mesh]:
-        """
-        Clip mesh to a regular grid of bounding boxes.
-
-        Args:
-            grid_bounds: Overall bounds (xmin, ymin, xmax, ymax)
-            nx: Number of grid cells in X direction
-            ny: Number of grid cells in Y direction
-
-        Returns:
-            Dictionary mapping (i, j) grid indices to clipped meshes
-        """
-        xmin, ymin, xmax, ymax = grid_bounds
-        dx = (xmax - xmin) / nx
-        dy = (ymax - ymin) / ny
-
-        results = {}
-
-        for i in range(nx):
-            for j in range(ny):
-                cell_bbox = Bounds(
-                    xmin=xmin + i * dx,
-                    ymin=ymin + j * dy,
-                    xmax=xmin + (i + 1) * dx,
-                    ymax=ymin + (j + 1) * dy,
-                )
-
-                clipped = self.clip_to_bounds(cell_bbox)
-                if len(clipped.vertices) > 0:
-                    results[(i, j)] = clipped
-
-        return results
 
     def _query_triangles(self, clip_box: Polygon) -> List[TriangleInfo]:
         """Query spatial index for triangles that might intersect the clip box."""
@@ -272,13 +215,13 @@ class SingleBBoxClipper:
         # For vertical triangles, we need to handle the full 3D geometry
         # Create a 2D line for horizontal clipping
         line_2d = LineString(info.vertices[:, :2])
-        
+
         # Check if the triangle is completely inside the bounding box
         if self.clip_box.contains(line_2d):
             # Triangle is completely inside - add it as-is without modification
             self._add_triangle(info.vertices, info.normal_up)
             return
-            
+
         # Clip the line against the bounding box
         clipped = line_2d.intersection(self.clip_box)
 
@@ -299,7 +242,7 @@ class SingleBBoxClipper:
                 if abs(c1[0] - c2[0]) > 1e-10 or abs(c1[1] - c2[1]) > 1e-10:
                     coords_match = False
                     break
-            
+
             if coords_match:
                 # No actual clipping occurred - add original triangle
                 self._add_triangle(info.vertices, info.normal_up)
@@ -374,32 +317,32 @@ class SingleBBoxClipper:
 
     def _triangulate_clipped_vertical(self, info: TriangleInfo, clipped_coords):
         """Properly triangulate a clipped vertical triangle.
-        
+
         Args:
             info: Original triangle information
             clipped_coords: The clipped line coordinates in 2D
         """
         # Get the Z values from the original triangle
         z_values = sorted(info.vertices[:, 2])  # Sort Z values
-        
+
         # For a vertical triangle, we need to determine which part was clipped
         # The clipped_coords represent the intersection of the vertical line with the bbox
-        
+
         # Create vertices for the clipped portion
         # We need to create triangles that span the full Z range of the original triangle
-        
+
         # Get the endpoints of the clipped line
         p_start = clipped_coords[0]
         p_end = clipped_coords[-1]
-        
+
         # For a vertical triangle, if it's clipped, we typically have a vertical line segment
         # that needs to be triangulated with the full Z range
-        
+
         # Check if we have a point or a line
         dx = p_end[0] - p_start[0]
         dy = p_end[1] - p_start[1]
         line_length = np.sqrt(dx * dx + dy * dy)
-        
+
         if line_length < 1e-10:
             # Single point - create a vertical triangle at this point
             v0 = np.array([p_start[0], p_start[1], z_values[0]])
@@ -410,13 +353,13 @@ class SingleBBoxClipper:
             # We have a line segment - need to create triangles along this line
             # For a vertical triangle intersecting with a bbox edge, we typically get
             # a vertical rectangle that needs to be triangulated
-            
+
             # Create vertices at the intersection points with different Z values
             vertices_3d = []
             for coord in [p_start, p_end]:
                 for z in z_values:
                     vertices_3d.append(np.array([coord[0], coord[1], z]))
-            
+
             # Now triangulate this set of vertices
             # For 2 points with 3 Z values each, we have 6 vertices forming a vertical surface
             if len(vertices_3d) == 6:
@@ -424,7 +367,7 @@ class SingleBBoxClipper:
                 # v0, v1, v2 are at p_start with z_values[0], [1], [2]
                 # v3, v4, v5 are at p_end with z_values[0], [1], [2]
                 v = vertices_3d
-                
+
                 # Create 4 triangles to cover the rectangular surface
                 self._add_triangle(np.array([v[0], v[1], v[3]]), info.normal_up)
                 self._add_triangle(np.array([v[1], v[4], v[3]]), info.normal_up)
