@@ -221,11 +221,11 @@ class SurfaceMeshClipper:
 
         for i in range(nx):
             for j in range(ny):
-                cell_bbox = (
-                    xmin + i * dx,
-                    ymin + j * dy,
-                    xmin + (i + 1) * dx,
-                    ymin + (j + 1) * dy,
+                cell_bbox = Bounds(
+                    xmin=xmin + i * dx,
+                    ymin=ymin + j * dy,
+                    xmax=xmin + (i + 1) * dx,
+                    ymax=ymin + (j + 1) * dy,
                 )
 
                 clipped = self.clip_to_bounds(cell_bbox)
@@ -269,7 +269,17 @@ class SingleBBoxClipper:
 
     def process_vertical_triangle(self, info: TriangleInfo):
         """Process a vertical triangle."""
+        # For vertical triangles, we need to handle the full 3D geometry
+        # Create a 2D line for horizontal clipping
         line_2d = LineString(info.vertices[:, :2])
+        
+        # Check if the triangle is completely inside the bounding box
+        if self.clip_box.contains(line_2d):
+            # Triangle is completely inside - add it as-is without modification
+            self._add_triangle(info.vertices, info.normal_up)
+            return
+            
+        # Clip the line against the bounding box
         clipped = line_2d.intersection(self.clip_box)
 
         if clipped.is_empty or clipped.geom_type != "LineString":
@@ -279,13 +289,28 @@ class SingleBBoxClipper:
         if len(coords) < 2:
             return
 
-        # Interpolate Z values
-        z_start = self._interpolate_z_on_line(coords[0], info.vertices)
-        z_end = self._interpolate_z_on_line(coords[-1], info.vertices)
+        # Check if the clipped line is the same as the original
+        # (This handles edge cases where intersection returns the original but contains() fails)
+        original_coords = list(line_2d.coords)
+        if len(coords) == len(original_coords):
+            # Compare coordinates with small tolerance
+            coords_match = True
+            for c1, c2 in zip(coords, original_coords):
+                if abs(c1[0] - c2[0]) > 1e-10 or abs(c1[1] - c2[1]) > 1e-10:
+                    coords_match = False
+                    break
+            
+            if coords_match:
+                # No actual clipping occurred - add original triangle
+                self._add_triangle(info.vertices, info.normal_up)
+                return
 
-        self._create_vertical_quad(
-            coords[0], coords[-1], z_start, z_end, info.normal_up
-        )
+        # Triangle was actually clipped - create a quad for the clipped portion
+        # Get the actual Z range from the original vertical triangle
+        z_min = info.vertices[:, 2].min()
+        z_max = info.vertices[:, 2].max()
+
+        self._create_vertical_quad(coords[0], coords[-1], z_min, z_max, info.normal_up)
 
     def get_result(self) -> Mesh:
         """Get the final clipped mesh."""
@@ -351,28 +376,53 @@ class SingleBBoxClipper:
                 tri = np.array([vertices_3d[0], vertices_3d[i], vertices_3d[i + 1]])
                 self._add_triangle(tri, original_up)
 
+    def _get_z_for_vertical_point(
+        self, point_2d: np.ndarray, vertices: np.ndarray
+    ) -> float:
+        """Get appropriate Z value for a point on a vertical triangle."""
+        # For a truly vertical triangle, all vertices share similar X,Y coordinates
+        # Return the Z value of the closest vertex
+        dists = np.linalg.norm(vertices[:, :2] - point_2d, axis=1)
+        closest_idx = np.argmin(dists)
+        return vertices[closest_idx, 2]
+
     def _create_vertical_quad(
-        self, p0_2d: Tuple, p1_2d: Tuple, z0: float, z1: float, original_up: bool
+        self, p0_2d: Tuple, p1_2d: Tuple, z_min: float, z_max: float, original_up: bool
     ):
-        """Create thin quad for vertical triangle."""
+        """Create vertical quad for vertical triangle.
+
+        Args:
+            p0_2d, p1_2d: The 2D endpoints of the clipped line
+            z_min, z_max: The Z range for the vertical surface
+            original_up: Whether the original triangle normal pointed up
+        """
         dx = p1_2d[0] - p0_2d[0]
         dy = p1_2d[1] - p0_2d[1]
         length = np.sqrt(dx * dx + dy * dy)
 
         if length < 1e-10:
-            return
+            # For a point-like vertical triangle, create a small vertical quad
+            # Use a small offset in both X and Y directions
+            offset = 1e-6
+            v0 = np.array([p0_2d[0] - offset, p0_2d[1] - offset, z_min])
+            v1 = np.array([p0_2d[0] + offset, p0_2d[1] - offset, z_min])
+            v2 = np.array([p0_2d[0] - offset, p0_2d[1] + offset, z_max])
+            v3 = np.array([p0_2d[0] + offset, p0_2d[1] + offset, z_max])
+        else:
+            # Normal case: create a thin quad perpendicular to the line direction
+            offset = 1e-6
+            perp_x = -dy / length * offset
+            perp_y = dx / length * offset
 
-        offset = 1e-6
-        perp_x = -dy / length * offset
-        perp_y = dx / length * offset
+            v0 = np.array([p0_2d[0] - perp_x, p0_2d[1] - perp_y, z_min])
+            v1 = np.array([p0_2d[0] + perp_x, p0_2d[1] + perp_y, z_min])
+            v2 = np.array([p1_2d[0] - perp_x, p1_2d[1] - perp_y, z_max])
+            v3 = np.array([p1_2d[0] + perp_x, p1_2d[1] + perp_y, z_max])
 
-        v0 = np.array([p0_2d[0] - perp_x, p0_2d[1] - perp_y, z0])
-        v1 = np.array([p0_2d[0] + perp_x, p0_2d[1] + perp_y, z0])
-        v2 = np.array([p1_2d[0] - perp_x, p1_2d[1] - perp_y, z1])
-        v3 = np.array([p1_2d[0] + perp_x, p1_2d[1] + perp_y, z1])
-
-        self._add_triangle(np.array([v0, v2, v1]), original_up)
-        self._add_triangle(np.array([v1, v2, v3]), original_up)
+        # Create two triangles to form the quad
+        # Ensure correct winding order for upward-facing normals
+        self._add_triangle(np.array([v0, v1, v2]), original_up)
+        self._add_triangle(np.array([v1, v3, v2]), original_up)
 
     def _add_triangle(self, tri: np.ndarray, should_face_up: bool):
         """Add triangle with correct normal."""
