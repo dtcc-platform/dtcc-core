@@ -15,15 +15,22 @@ from ..geometry import Bounds
 from .. import dtcc_pb2 as proto
 from ..logging import info, warning, error, debug
 
-from ..mixins.city import CityLoaderMixin, CityDownloadMixin, CityBuilderMixin
+from ..mixins.city import (
+    CityLoaderMixin,
+    CityDownloadMixin,
+    CityBuilderMixin,
+    CityModifyingMixin,
+)
 
 
 @dataclass
-class City(CityLoaderMixin, CityDownloadMixin, CityBuilderMixin, Object):
+class City(
+    CityLoaderMixin, CityDownloadMixin, CityBuilderMixin, CityModifyingMixin, Object
+):
     """Represents a city, the top-level container class for city models."""
 
     @property
-    def buildings(self):
+    def buildings(self) -> list[Building]:
         """Return list of buildings in city."""
         return self.children[Building] if Building in self.children else []
 
@@ -96,6 +103,11 @@ class City(CityLoaderMixin, CityDownloadMixin, CityBuilderMixin, Object):
     def add_building(self, building: Building):
         """Add building to city."""
         self.add_child(building)
+
+    def replace_buildings(self, buildings: list[Building]):
+        """Replace all buildings in city with new list of buildings."""
+        self.remove_buildings()
+        self.add_buildings(buildings)
 
     def add_buildings(
         self, buildings: list[Building], remove_outside_terrain: bool = False

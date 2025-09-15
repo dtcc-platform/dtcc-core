@@ -53,7 +53,7 @@ from ..logging import debug, info, warning, error
 
 def build_city_mesh(
     city: City,
-    lod: GeometryType = GeometryType.LOD1,
+    lod: GeometryType = GeometryType.LOD0,
     min_building_detail: float = 0.5,
     min_building_area: float = 15.0,
     merge_buildings: bool = True,
@@ -119,7 +119,12 @@ def build_city_mesh(
     terrain_raster = terrain.raster
     terrain_mesh = terrain.mesh
     if terrain_raster is None and terrain_mesh is None:
-        raise ValueError("City terrain has no data. Please compute terrain first.")
+        warning("City terrain has no data. Attempting to build terrain")
+        city.build_terrain()
+        terrain_raster = city.terrain.raster
+        terrain_mesh = city.terrain.mesh
+        if terrain_raster is None and terrain_mesh is None:
+            raise ValueError("Failed to build city terrain")
     if terrain_raster is None and terrain_mesh is not None:
         terrain_raster = mesh_to_raster(terrain_mesh, cell_size=max_mesh_size)
     builder_dem = raster_to_builder_gridfield(terrain_raster)
@@ -197,11 +202,11 @@ def build_city_volume_mesh(
     When `boundary_face_markers=True`, integer markers are added as follows (for
     a domain containing N buildings):
 
-    - `0` to `N-1`:  Wall faces of the N buildings  
-    - `N` to `2*N-1`:  Roof faces of the N buildings  
-    - `-1`:  Ground (terrain) faces  
-    - `-2`:  Top faces of the volume domain  
-    - `-3`, `-4`, `-5`, `-6`:  The four vertical boundary faces of the domain  
+    - `0` to `N-1`:  Wall faces of the N buildings
+    - `N` to `2*N-1`:  Roof faces of the N buildings
+    - `-1`:  Ground (terrain) faces
+    - `-2`:  Top faces of the volume domain
+    - `-3`, `-4`, `-5`, `-6`:  The four vertical boundary faces of the domain
 
     Notes
     -----
@@ -233,7 +238,6 @@ def build_city_volume_mesh(
     smoothing_relative_tolerance = 0.005
     aspect_ratio_threshold = 10.0
     debug_step = 7
-    
 
     buildings = city.buildings
     if not buildings:
@@ -250,16 +254,15 @@ def build_city_volume_mesh(
         clearance_fix = fix_building_footprint_clearance(
             simplifed_footprints, min_building_detail
         )
-        
+
         building_footprints = [
             b.get_footprint(GeometryType.LOD0) for b in clearance_fix
         ]
         info(f"After merging: {len(building_footprints)} buildings.")
     else:
         building_footprints = [b.get_footprint(lod) for b in buildings]
-    
 
-     # Set subdomain resolution to half the building height
+    # Set subdomain resolution to half the building height
     subdomain_resolution = [
         min(building.height, max_mesh_size) for building in buildings
     ]
@@ -273,9 +276,7 @@ def build_city_volume_mesh(
         raise ValueError("City terrain has no data. Please compute terrain first.")
     if terrain_raster is None and terrain_mesh is not None:
         terrain_raster = mesh_to_raster(terrain_mesh, cell_size=max_mesh_size)
-   
-    
-    
+
     # Convert from Python to C++
     _building_polygons = [
         create_builder_polygon(footprint.to_polygon())
@@ -299,13 +300,13 @@ def build_city_volume_mesh(
 
     # FIXME: Should not need to convert from C++ to Python mesh.
     # Convert from Python to C++
-    
+
     _surfaces = [
         create_builder_surface(footprint)
         for footprint in building_footprints
         if footprint is not None
     ]
-    
+
     # Convert from C++ to Python
     # ground_mesh = builder_mesh_to_mesh(_ground_mesh)
     _dem = raster_to_builder_gridfield(terrain.raster)
@@ -327,11 +328,11 @@ def build_city_volume_mesh(
     )
     volume_mesh = _volume_mesh.from_cpp()
 
-
     if boundary_face_markers:
-        boundary_face_markers = _dtcc_builder.compute_boundary_face_markers(_volume_mesh)
+        boundary_face_markers = _dtcc_builder.compute_boundary_face_markers(
+            _volume_mesh
+        )
         if boundary_face_markers is not None:
             volume_mesh.boundary_markers = boundary_face_markers
-    
 
     return volume_mesh
