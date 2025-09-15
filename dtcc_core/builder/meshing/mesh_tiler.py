@@ -305,12 +305,8 @@ class SingleBBoxClipper:
                 self._add_triangle(info.vertices, info.normal_up)
                 return
 
-        # Triangle was actually clipped - create a quad for the clipped portion
-        # Get the actual Z range from the original vertical triangle
-        z_min = info.vertices[:, 2].min()
-        z_max = info.vertices[:, 2].max()
-
-        self._create_vertical_quad(coords[0], coords[-1], z_min, z_max, info.normal_up)
+        # Triangle was actually clipped - need to properly triangulate the clipped portion
+        self._triangulate_clipped_vertical(info, coords)
 
     def get_result(self) -> Mesh:
         """Get the final clipped mesh."""
@@ -375,6 +371,65 @@ class SingleBBoxClipper:
             for i in range(1, len(vertices_3d) - 1):
                 tri = np.array([vertices_3d[0], vertices_3d[i], vertices_3d[i + 1]])
                 self._add_triangle(tri, original_up)
+
+    def _triangulate_clipped_vertical(self, info: TriangleInfo, clipped_coords):
+        """Properly triangulate a clipped vertical triangle.
+        
+        Args:
+            info: Original triangle information
+            clipped_coords: The clipped line coordinates in 2D
+        """
+        # Get the Z values from the original triangle
+        z_values = sorted(info.vertices[:, 2])  # Sort Z values
+        
+        # For a vertical triangle, we need to determine which part was clipped
+        # The clipped_coords represent the intersection of the vertical line with the bbox
+        
+        # Create vertices for the clipped portion
+        # We need to create triangles that span the full Z range of the original triangle
+        
+        # Get the endpoints of the clipped line
+        p_start = clipped_coords[0]
+        p_end = clipped_coords[-1]
+        
+        # For a vertical triangle, if it's clipped, we typically have a vertical line segment
+        # that needs to be triangulated with the full Z range
+        
+        # Check if we have a point or a line
+        dx = p_end[0] - p_start[0]
+        dy = p_end[1] - p_start[1]
+        line_length = np.sqrt(dx * dx + dy * dy)
+        
+        if line_length < 1e-10:
+            # Single point - create a vertical triangle at this point
+            v0 = np.array([p_start[0], p_start[1], z_values[0]])
+            v1 = np.array([p_start[0], p_start[1], z_values[1]])
+            v2 = np.array([p_start[0], p_start[1], z_values[2]])
+            self._add_triangle(np.array([v0, v1, v2]), info.normal_up)
+        else:
+            # We have a line segment - need to create triangles along this line
+            # For a vertical triangle intersecting with a bbox edge, we typically get
+            # a vertical rectangle that needs to be triangulated
+            
+            # Create vertices at the intersection points with different Z values
+            vertices_3d = []
+            for coord in [p_start, p_end]:
+                for z in z_values:
+                    vertices_3d.append(np.array([coord[0], coord[1], z]))
+            
+            # Now triangulate this set of vertices
+            # For 2 points with 3 Z values each, we have 6 vertices forming a vertical surface
+            if len(vertices_3d) == 6:
+                # Create triangles for the vertical surface
+                # v0, v1, v2 are at p_start with z_values[0], [1], [2]
+                # v3, v4, v5 are at p_end with z_values[0], [1], [2]
+                v = vertices_3d
+                
+                # Create 4 triangles to cover the rectangular surface
+                self._add_triangle(np.array([v[0], v[1], v[3]]), info.normal_up)
+                self._add_triangle(np.array([v[1], v[4], v[3]]), info.normal_up)
+                self._add_triangle(np.array([v[1], v[2], v[4]]), info.normal_up)
+                self._add_triangle(np.array([v[2], v[5], v[4]]), info.normal_up)
 
     def _get_z_for_vertical_point(
         self, point_2d: np.ndarray, vertices: np.ndarray
