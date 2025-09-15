@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Union
 from typing import TypeVar, TYPE_CHECKING
 
-from ....model.geometry import PointCloud, Bounds
+from ....model.geometry import PointCloud, Mesh
 from ....model.values import Raster
 
 if TYPE_CHECKING:
@@ -162,3 +162,56 @@ class CityBuilderMixin:
         self.add_buildings(lod1_buildings)
 
         return self
+
+    def build_city_surface_mesh(
+        self: "T_City",
+        min_building_detail: float = 0.5,
+        min_building_area: float = 15.0,
+        merge_buildings: bool = True,
+        merge_tolerance: float = 0.5,
+        building_mesh_triangle_size: float = 5.0,
+        max_mesh_size: float = 10.0,
+        min_mesh_angle: float = 25.0,
+        merge_meshes: bool = True,
+        smoothing: int = 0,
+    ) -> Mesh:
+        """
+            Build a city surface mesh from the buildings and terrain.
+
+             Parameters
+        ----------
+        `min_building_detail` : float, optional
+            The minimum detail of the buildin to resolve, by default 0.5.
+        `min_building_area` : float, optional
+            The smallest building to include, by default 15.0.
+        `merge_buildings` : bool, optional
+            merge building footprints, by default True.
+        `max_mesh_size` : float, optional
+            The maximum size of the mesh, by default 1.0.
+        `min_mesh_angle` : float, optional
+            The minimum angle of the mesh, by default 30.0.
+        `merge_meshes` : bool, optional
+            Whether to merge the meshes to a single mesh, by default True.
+
+        `smoothing` : float, optional
+            The smoothing of the mesh, by default 0.0.
+
+        Returns
+        -------
+        `Mesh` : The city surface mesh.
+        """
+        from dtcc_core.builder import build_city_mesh
+
+        surface_mesh = build_city_mesh(
+            self,
+            min_building_detail=min_building_detail,
+            min_building_area=min_building_area,
+            merge_buildings=merge_buildings,
+            merge_tolerance=merge_tolerance,
+            building_mesh_triangle_size=building_mesh_triangle_size,
+            max_mesh_size=max_mesh_size,
+            min_mesh_angle=min_mesh_angle,
+            merge_meshes=merge_meshes,
+            smoothing=smoothing,
+        )
+        return surface_mesh
