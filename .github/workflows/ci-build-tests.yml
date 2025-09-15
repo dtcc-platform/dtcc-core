@@ -31,7 +31,8 @@ jobs:
           python -m pip install -e .  # editable install ensures coverage paths match sources
 
       # 4) Run tests (assuming pytest is used)
-      - name: Run tests
+      - name: Run tests (macOS/Windows)
+        if: matrix.os != 'ubuntu-latest'
         run: |
           cd tests && pytest
 
