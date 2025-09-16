@@ -94,7 +94,38 @@ def to_cityjson_mesh(mesh: Mesh, vertices: List, scale: float) -> Dict:
     }
 
 
-def to_cityjson(city: City, scale: float = 1.0) -> Dict:
+def to_cityjson_terrain_mesh(mesh: Mesh, vertices: List, scale: float) -> Dict:
+    """Convert a DTCC terrain Mesh to CityJSON CompositeSurface format.
+    
+    According to CityJSON specification, TINRelief objects should use
+    CompositeSurface geometry type with GroundSurface semantics.
+    """
+    vert_offset = len(vertices)
+    # Scale and convert vertices to integers
+    scaled_vertices = np.round(mesh.vertices * scale).astype(int)
+    vertices.extend(scaled_vertices.tolist())
+
+    # Convert faces to boundaries (each face becomes a surface in the composite)
+    boundaries = []
+    for face in mesh.faces:
+        # Adjust indices to account for vertex offset
+        face_indices = (face + vert_offset).tolist()
+        # For CompositeSurface, each face is represented as [exterior_ring]
+        boundaries.append([face_indices])
+
+    # Create semantic information for terrain faces
+    # All faces in terrain should be GroundSurface
+    semantic_surfaces = [{"type": "GroundSurface"}] * len(mesh.faces)
+    semantic_values = list(range(len(mesh.faces)))
+
+    return {
+        "type": "CompositeSurface",
+        "boundaries": boundaries,
+        "semantics": {"surfaces": semantic_surfaces, "values": semantic_values},
+    }
+
+
+def to_cityjson(city: City, scale: float = 0.001) -> Dict:
     """Convert a DTCC City to CityJSON format.
 
     Parameters
@@ -192,6 +223,9 @@ def to_cityjson(city: City, scale: float = 1.0) -> Dict:
 
 def _add_object_geometries(obj, obj_data: Dict, vertices: List, scale_factor: float):
     """Add geometries from a DTCC object to CityJSON object data."""
+    # Check if this is a terrain object to use appropriate converter
+    is_terrain = obj_data.get("type") == "TINRelief"
+    
     for geom_type, geometry in obj.geometry.items():
         if geometry is None:
             continue
@@ -209,7 +243,11 @@ def _add_object_geometries(obj, obj_data: Dict, vertices: List, scale_factor: fl
         lod = _geometry_type_to_lod(geom_type)
 
         if isinstance(geometry, Mesh):
-            geom_data = to_cityjson_mesh(geometry, vertices, scale_factor)
+            # Use terrain-specific converter for terrain objects
+            if is_terrain:
+                geom_data = to_cityjson_terrain_mesh(geometry, vertices, scale_factor)
+            else:
+                geom_data = to_cityjson_mesh(geometry, vertices, scale_factor)
             geom_data["lod"] = lod
             obj_data["geometry"].append(geom_data)
 
@@ -238,7 +276,7 @@ def _geometry_type_to_lod(geom_type: GeometryType) -> float:
     return lod_mapping.get(geom_type, 2.0)
 
 
-def save(city: City, path: Path, scale: float = 1.0):
+def save(city: City, path: Path, scale: float = 0.001):
     """Save a city to a CityJSON file.
 
     Parameters
