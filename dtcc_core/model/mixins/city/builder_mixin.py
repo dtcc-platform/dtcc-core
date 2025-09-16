@@ -163,7 +163,7 @@ class CityBuilderMixin:
 
         return self
 
-    def build_city_surface_mesh(
+    def build_surface_mesh(
         self: "T_City",
         min_building_detail: float = 0.5,
         min_building_area: float = 15.0,
