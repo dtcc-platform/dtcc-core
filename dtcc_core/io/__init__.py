@@ -11,6 +11,8 @@ from . import roadnetwork
 from . import landuse
 from . import pointcloud_directory
 from .cityjson import cityjson
+from .cityjson import write_cityjson
+
 from .data import download_data, download_pointcloud, download_footprints, download_roadnetwork, empty_cache
 
 load_pointcloud = pointcloud.load
