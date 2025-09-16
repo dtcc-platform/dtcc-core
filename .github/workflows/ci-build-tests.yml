@@ -27,10 +27,24 @@ jobs:
       #    First, upgrade build tools, then install the package
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip setuptools wheel pytest
-          python -m pip install .  # or `pip install -e .` for editable install
+          python -m pip install --upgrade pip setuptools wheel pytest pytest-cov
+          python -m pip install -e .  # editable install ensures coverage paths match sources
 
       # 4) Run tests (assuming pytest is used)
-      - name: Run tests
+      - name: Run tests (macOS/Windows)
+        if: matrix.os != 'ubuntu-latest'
         run: |
           cd tests && pytest
+
+      # 5) On Ubuntu only: run tests with coverage and verify public API calls
+      - name: Run coverage and check public API calls
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          cd tests
+          pytest --maxfail=1 --disable-warnings --cov=dtcc_core \
+            --cov-report=term-missing --cov-report=json:coverage.json
+          cd ..
+          python scripts/check_public_api_calls.py \
+            --strict \
+            --package dtcc_core \
+            --coverage-file tests/coverage.json

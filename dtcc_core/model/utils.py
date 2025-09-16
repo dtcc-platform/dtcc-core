@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 # Copyright(C) 2023 Dag Wästberg
 # Licensed under the MIT License
 
