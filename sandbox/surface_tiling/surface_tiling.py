@@ -21,16 +21,24 @@ city.building_heights_from_pointcloud()
 
 surface_mesh = city.build_city_surface_mesh()
 
+# move to (0,0,0)
+
+surface_mesh.offset(
+    [-surface_mesh.bounds.xmin, -surface_mesh.bounds.ymin, -surface_mesh.bounds.zmin]
+)
+
+surface_mesh.offset([0, 0, 1])  # lift 1m above ground since we extrude to 0 by default
 
 start = time()
-tiles = tile_surface_mesh(surface_mesh, tile_size=250)
+tiles = surface_mesh.tile(tile_size=100, progress=True)
 print(f"Tiling took {time()-start:.2f} seconds for {len(tiles)} tiles")
 
-view_tiles = [t for idx, t in enumerate(tiles) if idx % 3 == 0]
+start = time()
+print_tiles = [t.create_printable_solid() for t in tiles]
+print(f"extruding took {time()-start:.2f} seconds")
 
 # dtcc_core.builder.meshing.merge_meshes(view_tiles).view()
 
-test_tile = tiles[14]
-capped_tile = test_tile.create_printable_solid(extrusion_depth=20)
+test_tile = print_tiles[21]
 
-capped_tile.view()
+test_tile.view()

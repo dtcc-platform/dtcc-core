@@ -1,13 +1,13 @@
 from dtcc_core.model import Mesh, Bounds
 from typing import Tuple, Union, List
-from shapely.geometry import Polygon, Point, LineString, box
-from shapely.ops import triangulate
-import numpy as np
+
+from tqdm import tqdm
 
 
 def tile_surface_mesh(
     mesh: Mesh,
     tile_size: Union[float, Tuple[float, float]] = 100.0,
+    progress: bool = False,
 ) -> list[Mesh]:
     """
     Tile a surface mesh into smaller meshes of a specified size.
@@ -28,8 +28,12 @@ def tile_surface_mesh(
     tiled_meshes = []
     clipper = SurfaceMeshClipper(mesh)
 
-    for idx, tile in enumerate(surface_tile_bounds):
-        print(f"Tiling mesh: {idx+1}/{len(surface_tile_bounds)}")
+    for idx, tile in tqdm(
+        enumerate(surface_tile_bounds),
+        total=len(surface_tile_bounds),
+        desc="Tiling mesh",
+        disable=not progress,
+    ):
         tiled_mesh = clipper.clip_to_bounds(tile)
         tiled_meshes.append(tiled_mesh)
     return tiled_meshes

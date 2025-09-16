@@ -5,10 +5,11 @@ from typing import TypeVar, TYPE_CHECKING, Union, List
 from ....model.geometry import Bounds
 
 if TYPE_CHECKING:
-    from ....model.geometry import Mesh,VolumeMesh
+    from ....model.geometry import Mesh, VolumeMesh
 
     T_Mesh = TypeVar("T_Mesh", bound=Mesh)
     T_VolumeMesh = TypeVar("T_VolumeMesh", bound=VolumeMesh)
+
 
 class MeshProcessingMixin:
     """
@@ -49,8 +50,30 @@ class MeshProcessingMixin:
 
         return snapped_mesh
 
-    def extrude_to_solid(self: "T_Mesh", extrusion_depth: float = None, 
-                        base_z: float = None) -> "T_Mesh":
+    def tile(
+        self: "T_Mesh",
+        tile_size: Union[float, List[float]] = 100.0,
+        progress: bool = False,
+    ) -> List["T_Mesh"]:
+        """
+        Tile a surface mesh into smaller meshes of a specified size.
+
+        Args:
+            tile_size (float|list): The size of each tile (in the same units as the mesh coordinates). if a single float
+            is provided, it will be used for both width and height.
+
+        Returns:
+            list[Mesh]: A list of tiled mesh objects.
+        """
+        from dtcc_core.builder.meshing import tile_surface_mesh
+
+        tiled_meshes = tile_surface_mesh(self, tile_size, progress=progress)
+
+        return tiled_meshes
+
+    def extrude_to_solid(
+        self: "T_Mesh", extrusion_depth: float = None, base_z: float = None
+    ) -> "T_Mesh":
         """
         Extrude this surface mesh downwards to create a solid mesh suitable for 3D printing.
         This method is non-mutating (does not modify data in-place).
@@ -73,8 +96,12 @@ class MeshProcessingMixin:
 
         return solid_mesh
 
-    def create_printable_solid(self: "T_Mesh", extrusion_depth: float = None,
-                              base_z: float = None, minimum_thickness: float = 0.001) -> "T_Mesh":
+    def create_printable_solid(
+        self: "T_Mesh",
+        extrusion_depth: float = None,
+        base_z: float = 0,
+        minimum_thickness: float = 0.001,
+    ) -> "T_Mesh":
         """
         Create a solid mesh suitable for 3D printing with additional validation and fixes.
         This method is non-mutating (does not modify data in-place).
@@ -89,7 +116,9 @@ class MeshProcessingMixin:
         """
         from dtcc_core.builder.meshing import create_printable_surface_mesh
 
-        printable_mesh = create_printable_surface_mesh(self, extrusion_depth, base_z, minimum_thickness)
+        printable_mesh = create_printable_surface_mesh(
+            self, extrusion_depth, base_z, minimum_thickness
+        )
 
         return printable_mesh
 
@@ -105,7 +134,7 @@ class MeshProcessingMixin:
         from dtcc_core.builder.model_conversion import mesh_to_builder_mesh
 
         return mesh_to_builder_mesh(self.vertices, self.faces, self.markers)
-    
+
 
 class VolumeMeshProcessingMixin:
     def to_cpp(self: "T_VolumeMesh") -> "_dtcc_builder.VolumeMesh":
@@ -117,6 +146,10 @@ class VolumeMeshProcessingMixin:
         _dtcc_builder.VolumeMesh
             A DTCC builder VolumeMesh object.
         """
-        from dtcc_core.builder.model_conversion import volume_mesh_to_builder_volume_mesh
+        from dtcc_core.builder.model_conversion import (
+            volume_mesh_to_builder_volume_mesh,
+        )
 
-        return volume_mesh_to_builder_volume_mesh(self.vertices, self.cells, self.markers)
+        return volume_mesh_to_builder_volume_mesh(
+            self.vertices, self.cells, self.markers
+        )
