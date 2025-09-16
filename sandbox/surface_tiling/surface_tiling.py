@@ -22,9 +22,7 @@ city.building_heights_from_pointcloud()
 surface_mesh = city.build_surface_mesh()
 
 # move to (0,0,0)
-surface_mesh.offset(
-    [-surface_mesh.bounds.xmin, -surface_mesh.bounds.ymin, -surface_mesh.bounds.zmin]
-)
+surface_mesh.offset_to_origin()
 surface_mesh.offset([0, 0, 1])  # lift 1m above ground since we extrude to 0 by default
 
 start = time()
