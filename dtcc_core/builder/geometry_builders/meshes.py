@@ -53,7 +53,7 @@ from ..logging import debug, info, warning, error
 
 def build_city_mesh(
     city: City,
-    lod: GeometryType = GeometryType.LOD0,
+    lod: GeometryType = None,
     min_building_detail: float = 0.5,
     min_building_area: float = 15.0,
     merge_buildings: bool = True,
@@ -93,6 +93,14 @@ def build_city_mesh(
     `model.Mesh`
     """
     buildings = city.buildings
+    if lod is None:
+        lods = [GeometryType.LOD2, GeometryType.LOD1, GeometryType.LOD0]
+        for test_lod in lods:
+            if buildings and buildings[0].get_footprint(test_lod) is not None:
+                lod = test_lod
+                info(f"Using LOD {lod.name} for building footprints")
+                break
+
     if merge_buildings:
         info(f"Merging {len(buildings)} buildings...")
         merged_buildings = merge_building_footprints(
@@ -109,6 +117,7 @@ def build_city_mesh(
         ]
         info(f"After merging: {len(building_footprints)} buildings.")
     else:
+
         building_footprints = [b.get_footprint(lod) for b in buildings]
 
     subdomain_resolution = [building_mesh_triangle_size] * len(building_footprints)

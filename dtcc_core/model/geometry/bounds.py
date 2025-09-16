@@ -2,7 +2,7 @@
 # Licensed under the MIT License
 
 from dataclasses import dataclass
-from typing import Union
+from typing import Union, Tuple
 import numpy as np
 
 from ..model import Model
@@ -134,7 +134,7 @@ class Bounds(Model):
         return self.xmin
 
     @property
-    def tuple(self) -> tuple:
+    def tuple(self) -> Tuple[float, float, float, float]:
         """Returns the bounds as a tuple.
 
         Returns
@@ -178,7 +178,7 @@ class Bounds(Model):
 
     # FIXME: How to handle z-axis?
     @property
-    def center(self) -> tuple:
+    def center(self) -> Tuple[float, float]:
         """Returns the center point of the bounds.
 
         Returns
@@ -302,6 +302,51 @@ class Bounds(Model):
                 and self.zmin <= other.zmin
                 and self.zmax >= other.zmax
             )
+
+    def tiles(
+        self, tile_size: Union[float, Tuple[float, float]], expand_bounds=False
+    ) -> list["Bounds"]:
+        """Divide the bounds into smaller tiles of a specified size.
+
+        Parameters
+        ----------
+        tile_size : Union[float, Tuple[float, float]]
+            The size of each tile. If a single float is provided, tiles will be square.
+            If a tuple is provided, it should be (tile_size_x, tile_size_y).
+        expand_bounds : bool, optional
+            If True, expand the bounds to fit an integer number of tiles, by default False.
+
+        """
+        if isinstance(tile_size, (int, float)):
+            tile_size_x = tile_size
+            tile_size_y = tile_size
+        else:
+            tile_size_x = tile_size[0]
+            tile_size_y = tile_size[1]
+
+        tiles = []
+        if expand_bounds:
+            xmax = self.xmin + np.ceil(self.width / tile_size_x) * tile_size_x
+            ymax = self.ymin + np.ceil(self.height / tile_size_y) * tile_size_y
+        else:
+            xmax = self.xmax
+            ymax = self.ymax
+        x_starts = np.arange(self.xmin, xmax, tile_size_x)
+        y_starts = np.arange(self.ymin, ymax, tile_size_y)
+
+        for x in x_starts:
+            for y in y_starts:
+                tile = Bounds(
+                    xmin=x,
+                    ymin=y,
+                    xmax=min(x + tile_size_x, self.xmax),
+                    ymax=min(y + tile_size_y, self.ymax),
+                    zmin=self.zmin,
+                    zmax=self.zmax,
+                )
+                tiles.append(tile)
+
+        return tiles
 
     def to_proto(self) -> proto.Bounds:
         """Return a protobuf representation of the Bounds.

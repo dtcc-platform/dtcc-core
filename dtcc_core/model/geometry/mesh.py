@@ -11,7 +11,8 @@ from .geometry import Geometry, Bounds
 from .surface import Surface, MultiSurface
 from .. import dtcc_pb2 as proto
 
-from ..mixins.mesh.mixins import MeshProcessingMixin,VolumeMeshProcessingMixin
+from ..mixins.mesh.mixins import MeshProcessingMixin, VolumeMeshProcessingMixin
+
 
 @dataclass
 class Mesh(MeshProcessingMixin, Geometry):
@@ -97,6 +98,7 @@ class Mesh(MeshProcessingMixin, Geometry):
         """
         offset = np.array(offset)
         self.vertices += offset
+        self._bounds = None
         return self
 
     def copy(self, geometry_only=False) -> "Mesh":
@@ -177,7 +179,7 @@ class Mesh(MeshProcessingMixin, Geometry):
 
 
 @dataclass
-class VolumeMesh(VolumeMeshProcessingMixin,Geometry):
+class VolumeMesh(VolumeMeshProcessingMixin, Geometry):
     """Represents an unstructured tetrahedral mesh in 3D.
 
     The VolumeMesh class represents a 3D volumetric mesh, which consists of
