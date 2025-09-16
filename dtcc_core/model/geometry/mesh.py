@@ -100,6 +100,12 @@ class Mesh(MeshProcessingMixin, Geometry):
         self.vertices += offset
         self._bounds = None
         return self
+    
+    def offset_to_origin(self):
+        """Offset the vertices of the mesh so that the lower left corner is moved to the origin."""
+        bounds = self.bounds
+        offset = (-bounds.xmin, -bounds.ymin, -bounds.zmin)
+        return self.offset(offset)
 
     def copy(self, geometry_only=False) -> "Mesh":
         """Return a copy of the Mesh.
