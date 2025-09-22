@@ -65,6 +65,10 @@ class Mesh(MeshProcessingMixin, Geometry):
         if len(self.vertices) < 3:
             self._bounds = Bounds()
             return self._bounds
+
+        print("Mesh vertices: ")
+        print(self.vertices.shape)
+
         self._bounds = Bounds(
             xmin=np.min(self.vertices[:, 0]),
             ymin=np.min(self.vertices[:, 1]),
@@ -100,7 +104,7 @@ class Mesh(MeshProcessingMixin, Geometry):
         self.vertices += offset
         self._bounds = None
         return self
-    
+
     def offset_to_origin(self):
         """Offset the vertices of the mesh so that the lower left corner is moved to the origin."""
         bounds = self.bounds
@@ -220,6 +224,14 @@ class VolumeMesh(VolumeMeshProcessingMixin, Geometry):
 
     def calculate_bounds(self) -> Bounds:
         """Calculate the bounding box of the mesh."""
+
+        if len(self.vertices) < 4:
+            self._bounds = Bounds()
+            return self._bounds
+
+        print("VolumeMesh vertices: ")
+        print(self.vertices.shape)
+
         self._bounds = Bounds(
             xmin=np.min(self.vertices[:, 0]),
             ymin=np.min(self.vertices[:, 1]),
@@ -253,7 +265,7 @@ class VolumeMesh(VolumeMeshProcessingMixin, Geometry):
 
         """
         return len(self.cells)
-    
+
     def offset(self, offset: Iterable):
         """Offset the vertices of the mesh.
 
@@ -289,7 +301,7 @@ class VolumeMesh(VolumeMeshProcessingMixin, Geometry):
         _pb = proto.VolumeMesh()
         _pb.vertices.extend(self.vertices.flatten())
         _pb.cells.extend(self.cells.flatten())
-        pb.mesh.CopyFrom(_pb)
+        pb.volume_mesh.CopyFrom(_pb)
 
         return pb
 
@@ -304,7 +316,7 @@ class VolumeMesh(VolumeMeshProcessingMixin, Geometry):
 
         # Handle byte representation
         if isinstance(pb, bytes):
-            pb = proto.FromString(pb)
+            pb = proto.Geometry.FromString(pb)
 
         # Handle Geometry fields
         Geometry.from_proto(self, pb)
@@ -312,4 +324,7 @@ class VolumeMesh(VolumeMeshProcessingMixin, Geometry):
         # Handle specific fields
         _pb = pb.volume_mesh
         self.vertices = np.array(_pb.vertices).reshape((-1, 3))
-        self.cells = np.array(_pb.faces, dtype=np.int64).reshape((-1, 4))
+        self.cells = np.array(_pb.cells, dtype=np.int64).reshape((-1, 4))
+
+        # Handle Geometry fields
+        Geometry.from_proto(self, pb)

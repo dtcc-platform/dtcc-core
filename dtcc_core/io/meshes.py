@@ -22,11 +22,15 @@ try:
 
     HAS_ASSIMP = True
 except:
-    warning("Unable to find assimp, reading and writing .dae and .fbx files will not work\n To install assimp please see the instructions at https://www.assimp.org")
+    warning(
+        "Unable to find assimp, reading and writing .dae and .fbx files will not work\n To install assimp please see the instructions at https://www.assimp.org"
+    )
     HAS_ASSIMP = False
+
 
 def has_assimp():
     return HAS_ASSIMP
+
 
 def _load_proto_mesh(path):
     with open(path, "rb") as f:
@@ -37,9 +41,9 @@ def _load_proto_mesh(path):
 
 def _load_proto_volume_mesh(path):
     with open(path, "rb") as f:
-        mesh = VolumeMesh()
-        mesh.from_proto(f.read())
-    return mesh
+        volume_mesh = VolumeMesh()
+        volume_mesh.from_proto(f.read())
+    return volume_mesh
 
 
 def _save_proto_mesh(mesh, path):
@@ -47,9 +51,9 @@ def _save_proto_mesh(mesh, path):
         f.write(mesh.to_proto().SerializeToString())
 
 
-def _save_proto_volume_mesh(mesh, path):
+def _save_proto_volume_mesh(volume_mesh, path):
     with open(path, "wb") as f:
-        f.write(mesh.to_proto().SerializeToString())
+        f.write(volume_mesh.to_proto().SerializeToString())
 
 
 def _load_meshio_mesh(path):
@@ -80,7 +84,10 @@ def _load_meshio_volume_mesh(path):
     cells = mesh.cells[0].data.astype(np.int64)
     return VolumeMesh(vertices=vertices, cells=cells)
 
-def _load_meshio_city_mesh(path, lod = GeometryType.LOD1, merge_coplanar_surfaces =  True ) -> City:
+
+def _load_meshio_city_mesh(
+    path, lod=GeometryType.LOD1, merge_coplanar_surfaces=True
+) -> City:
     city = City()
 
     mesh = _load_meshio_mesh(path)
@@ -89,7 +96,7 @@ def _load_meshio_city_mesh(path, lod = GeometryType.LOD1, merge_coplanar_surface
     buildings = []
     for m in disjointed_mesh:
         b = Building()
-        building_ms =m.to_multisurface()
+        building_ms = m.to_multisurface()
         if merge_coplanar_surfaces:
             building_ms = merge_coplanar(building_ms)
         b.add_geometry(building_ms, lod)
@@ -97,9 +104,6 @@ def _load_meshio_city_mesh(path, lod = GeometryType.LOD1, merge_coplanar_surface
     city.add_buildings(buildings)
     city.calculate_bounds()
     return city
-
-
-
 
 
 def _save_meshio_mesh(mesh, path):
@@ -114,34 +118,34 @@ def _save_meshio_volume_mesh(mesh, path):
     _mesh = meshio.Mesh(mesh.vertices, [("tetra", mesh.cells)])
     meshio.write(path, _mesh)
 
-def _save_xdmf_volume_mesh(mesh,path):
+
+def _save_xdmf_volume_mesh(mesh, path):
     if not hasattr(mesh, "boundary_markers"):
         _save_meshio_volume_mesh(mesh, path)
         return
-    
-    facets   = np.array(list(mesh.boundary_markers.keys()),   dtype=int)
-    markers  = np.array(list(mesh.boundary_markers.values()), dtype=int)
-    ids      = np.sort(facets, axis=1)
-    idx      = np.lexsort(ids.T)
-    facet_cells   = facets[idx]
-    facet_markers = markers[idx]  
+
+    facets = np.array(list(mesh.boundary_markers.keys()), dtype=int)
+    markers = np.array(list(mesh.boundary_markers.values()), dtype=int)
+    ids = np.sort(facets, axis=1)
+    idx = np.lexsort(ids.T)
+    facet_cells = facets[idx]
+    facet_markers = markers[idx]
 
     base, ext = splitext(path)
     h5_path = base + ".h5"
     with h5py.File(h5_path, "w") as h5_file:
-      # — prepare the groups —
-      mesh_grp = h5_file.require_group("Mesh/mesh")
-      tags_grp = h5_file.require_group("MeshTags/boundary_markers")
+        # — prepare the groups —
+        mesh_grp = h5_file.require_group("Mesh/mesh")
+        tags_grp = h5_file.require_group("MeshTags/boundary_markers")
 
-      # — write volume datasets (you already have) —
-      mesh_grp.create_dataset("geometry", data=mesh.vertices, dtype="float64")
-      mesh_grp.create_dataset("topology", data=mesh.cells,    dtype="int64")
+        # — write volume datasets (you already have) —
+        mesh_grp.create_dataset("geometry", data=mesh.vertices, dtype="float64")
+        mesh_grp.create_dataset("topology", data=mesh.cells, dtype="int64")
 
-      # — write facet topology & markers —
-      tags_grp.create_dataset("topology", data=facet_cells,     dtype="int64")
-      tags_grp.create_dataset("values",   data=facet_markers,   dtype="int32")
+        # — write facet topology & markers —
+        tags_grp.create_dataset("topology", data=facet_cells, dtype="int64")
+        tags_grp.create_dataset("values", data=facet_markers, dtype="int32")
 
-      
     xdmf_content = XDMF_TEMPLATE.format(
         h5file=basename(h5_path),
         n_tets=len(mesh.cells),
@@ -151,6 +155,7 @@ def _save_xdmf_volume_mesh(mesh,path):
 
     with open(path, "w") as xdmf_file:
         xdmf_file.write(xdmf_content)
+
 
 def _save_gltf_mesh(mesh, path):
     triangles_binary_blob = mesh.faces.flatten().tobytes()
@@ -222,13 +227,15 @@ def _save_gltf_mesh(mesh, path):
 
 def _load_assimp_mesh(path):
     if not HAS_ASSIMP:
-        error(f"pyassimp not found, cannot load mesh {path}\nplease install assimp and try again")
+        error(
+            f"pyassimp not found, cannot load mesh {path}\nplease install assimp and try again"
+        )
     with pyassimp.load(str(path)) as scene:
         _meshes = scene.meshes
     if len(_meshes) == 0:
         warning(f"No meshes found in file {path}")
         return Mesh()
-    meshes = [Mesh(vertices=m.vertices,  faces=m.faces) for m in _meshes]
+    meshes = [Mesh(vertices=m.vertices, faces=m.faces) for m in _meshes]
 
     mesh = merge_meshes(meshes, weld=True)
     return mesh
@@ -247,7 +254,7 @@ _load_formats = {
         ".stl": _load_meshio_mesh,
         ".vtk": _load_meshio_mesh,
         ".vtu": _load_meshio_mesh,
-        ".xdmf":  _load_meshio_mesh,
+        ".xdmf": _load_meshio_mesh,
     },
     VolumeMesh: {
         ".pb": _load_proto_volume_mesh,
@@ -259,7 +266,7 @@ _load_formats = {
         ".vtu": _load_meshio_volume_mesh,
         ".bdf": _load_meshio_volume_mesh,
         ".inp": _load_meshio_volume_mesh,
-        ".xdmf":_load_meshio_volume_mesh,
+        ".xdmf": _load_meshio_volume_mesh,
     },
     City: {
         ".obj": _load_meshio_city_mesh,
@@ -267,7 +274,7 @@ _load_formats = {
         ".stl": _load_meshio_city_mesh,
         ".vtk": _load_meshio_city_mesh,
         ".vtu": _load_meshio_city_mesh,
-    }
+    },
 }
 
 _save_formats = {
@@ -294,7 +301,7 @@ _save_formats = {
         ".vtu": _save_meshio_volume_mesh,
         ".bdf": _save_meshio_volume_mesh,
         ".inp": _save_meshio_volume_mesh,
-        ".xdmf": _save_xdmf_volume_mesh, #_save_meshio_volume_mesh,
+        ".xdmf": _save_xdmf_volume_mesh,  # _save_meshio_volume_mesh,
     },
 }
 
@@ -320,8 +327,18 @@ def load_mesh(path):
 def load_volume_mesh(path):
     return generic.load(path, "mesh", VolumeMesh, _load_formats)
 
-def load_mesh_as_city(path, lod = GeometryType.LOD1, merge_coplanar_surfaces=True) -> City:
-    return generic.load(path, "city_mesh", City, _load_formats, lod = lod, merge_coplanar_surfaces = merge_coplanar_surfaces)
+
+def load_mesh_as_city(
+    path, lod=GeometryType.LOD1, merge_coplanar_surfaces=True
+) -> City:
+    return generic.load(
+        path,
+        "city_mesh",
+        City,
+        _load_formats,
+        lod=lod,
+        merge_coplanar_surfaces=merge_coplanar_surfaces,
+    )
 
 
 def save(mesh, path):
@@ -339,7 +356,6 @@ def save(mesh, path):
 
 
 def list_io():
-    
     """
     Return a dictionary with the formats supported by load_mesh and save_mesh
 
@@ -359,5 +375,5 @@ def print_io():
     Print a table of the supported formats for load_mesh and save_mesh
 
     """
-    
+
     generic.print_io("mesh", _load_formats, _save_formats)

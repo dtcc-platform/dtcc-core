@@ -190,7 +190,7 @@ class CityObject(Object):
 
         # Handle specific fields (currently none)
         _pb = proto.CityObject()
-        pb.city.CopyFrom(_pb)
+        pb.city_object.CopyFrom(_pb)
 
         return pb
 
