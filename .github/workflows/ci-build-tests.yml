@@ -48,7 +48,7 @@ jobs:
             --strict \
             --package dtcc_core \
             --coverage-file tests/coverage.json
-notify:
+  notify:
     needs: build-and-test
     runs-on: ubuntu-latest
     if: always()  # always run even if build fails
