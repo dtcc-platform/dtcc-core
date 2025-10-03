@@ -26,7 +26,7 @@ surface_mesh.offset_to_origin()
 surface_mesh.offset([0, 0, 1])  # lift 1m above ground since we extrude to 0 by default
 
 start = time()
-tiles = surface_mesh.tile(tile_size=100, progress=True)
+tiles = surface_mesh.tile(tile_size=250, progress=True)
 print(f"Tiling took {time()-start:.2f} seconds for {len(tiles)} tiles")
 
 print_tiles = [t.create_printable_solid() for t in tiles]

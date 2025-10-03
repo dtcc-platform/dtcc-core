@@ -66,9 +66,6 @@ class Mesh(MeshProcessingMixin, Geometry):
             self._bounds = Bounds()
             return self._bounds
 
-        print("Mesh vertices: ")
-        print(self.vertices.shape)
-
         self._bounds = Bounds(
             xmin=np.min(self.vertices[:, 0]),
             ymin=np.min(self.vertices[:, 1]),
