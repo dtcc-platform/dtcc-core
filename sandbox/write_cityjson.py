@@ -22,4 +22,4 @@ city.build_terrain(
 
 city.build_lod1_buildings()
 
-city.save("test_city.json")
+city.save("test_city4.json")

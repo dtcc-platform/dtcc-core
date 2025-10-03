@@ -1,4 +1,5 @@
 import json
+import zipfile
 from pathlib import Path
 from typing import Dict, List
 
@@ -13,8 +14,6 @@ from dtcc_core.model import (
     GeometryType,
 )
 
-import numpy as np
-
 from .converters import (
     get_converter,
     get_terrain_converter,
@@ -24,14 +23,19 @@ from .converters import (
     convert_multisurface,
     convert_mesh,
     convert_terrain_mesh,
+    VertexIndexer,
 )
 
 
 def to_cityjson_surface(
-    surface: Surface, vertices: List, scale: float, config: CityJSONConfig = None
+    surface: Surface,
+    vertices: List,
+    scale: float,
+    config: CityJSONConfig = None,
+    indexer=None,
 ) -> Dict:
     """Convert a DTCC Surface to CityJSON geometry format."""
-    return convert_surface(surface, vertices, scale, config)
+    return convert_surface(surface, vertices, scale, config, indexer=indexer)
 
 
 def to_cityjson_multisurface(
@@ -39,27 +43,36 @@ def to_cityjson_multisurface(
     vertices: List,
     scale: float,
     config: CityJSONConfig = None,
+    indexer=None,
 ) -> Dict:
     """Convert a DTCC MultiSurface to CityJSON geometry format."""
-    return convert_multisurface(multisurface, vertices, scale, config)
+    return convert_multisurface(multisurface, vertices, scale, config, indexer=indexer)
 
 
 def to_cityjson_mesh(
-    mesh: Mesh, vertices: List, scale: float, config: CityJSONConfig = None
+    mesh: Mesh,
+    vertices: List,
+    scale: float,
+    config: CityJSONConfig = None,
+    indexer=None,
 ) -> Dict:
     """Convert a DTCC Mesh to CityJSON geometry format."""
-    return convert_mesh(mesh, vertices, scale, config)
+    return convert_mesh(mesh, vertices, scale, config, indexer=indexer)
 
 
 def to_cityjson_terrain_mesh(
-    mesh: Mesh, vertices: List, scale: float, config: CityJSONConfig = None
+    mesh: Mesh,
+    vertices: List,
+    scale: float,
+    config: CityJSONConfig = None,
+    indexer=None,
 ) -> Dict:
     """Convert a DTCC terrain Mesh to CityJSON CompositeSurface format.
 
     According to CityJSON specification, TINRelief objects should use
     CompositeSurface geometry type with GroundSurface semantics.
     """
-    return convert_terrain_mesh(mesh, vertices, scale, config)
+    return convert_terrain_mesh(mesh, vertices, scale, config, indexer=indexer)
 
 
 def to_cityjson(
@@ -72,7 +85,7 @@ def to_cityjson(
     city : City
         The DTCC City object to convert
     scale : float, optional
-        Scale factor for coordinate compression (default 0.001)
+        CityJSON transform scale (default 0.001). Quantization factor is 1/scale.
     config : CityJSONConfig, optional
         Configuration for conversion settings
 
@@ -82,6 +95,10 @@ def to_cityjson(
         CityJSON formatted dictionary
     """
     config = config or CityJSONConfig()
+
+    # Validate scale
+    if scale <= 0 or not (scale == scale):
+        raise ValueError("Transform scale must be a positive finite number")
 
     # Initialize CityJSON structure
     cityjson = {
@@ -95,7 +112,6 @@ def to_cityjson(
     # Add metadata if city has bounds
     if city.bounds is not None:
         cityjson["metadata"] = {
-            "referenceSystem": "https://www.opengis.net/def/crs/EPSG/0/7415",
             "geographicalExtent": [
                 float(city.bounds.xmin),
                 float(city.bounds.ymin),
@@ -105,52 +121,66 @@ def to_cityjson(
                 float(city.bounds.zmax),
             ],
         }
+        # Optional CRS if available on city
+        try:
+            crs = getattr(city, "crs", None)
+        except Exception:
+            crs = None
+        if not crs and hasattr(city, "attributes"):
+            crs = city.attributes.get("crs")
+        if crs:
+            cityjson["metadata"]["referenceSystem"] = crs
 
-    # Convert scale to multiplication factor for vertex transformation
-    scale_factor = 1.0 / scale
-    vertices = []
+    # Quantization factor for integer vertices
+    quantize_factor = 1.0 / scale
+    indexer = VertexIndexer()
+    vertices = indexer.vertices  # keep alias for converters that expect a list
 
-    # Process buildings
+    # Process buildings deterministically
     if Building in city.children:
-        for building in city.children[Building]:
+        buildings = list(city.children[Building])
+        buildings.sort(key=lambda b: getattr(b, "id", ""))
+
+        for building in buildings:
             building_data = {
                 "type": "Building",
                 "attributes": building.attributes.copy(),
                 "geometry": [],
             }
 
-            # Add building children if they exist
-            if building.children:
+            # Process BuildingParts deterministically
+            if building.children and BuildingPart in building.children:
                 building_data["children"] = []
+                parts = list(building.children[BuildingPart])
+                parts.sort(key=lambda p: getattr(p, "id", ""))
+                for part in parts:
+                    part_data = {
+                        "type": "BuildingPart",
+                        "attributes": part.attributes.copy(),
+                        "geometry": [],
+                        "parents": [building.id],
+                    }
 
-                # Process BuildingParts
-                if BuildingPart in building.children:
-                    for part in building.children[BuildingPart]:
-                        part_data = {
-                            "type": "BuildingPart",
-                            "attributes": part.attributes.copy(),
-                            "geometry": [],
-                            "parents": [building.id],
-                        }
+                    # Add geometries from the part
+                    _add_object_geometries(
+                        part, part_data, vertices, quantize_factor, config, indexer=indexer
+                    )
 
-                        # Add geometries from the part
-                        _add_object_geometries(
-                            part, part_data, vertices, scale_factor, config
-                        )
-
-                        cityjson["CityObjects"][part.id] = part_data
-                        building_data["children"].append(part.id)
+                    cityjson["CityObjects"][part.id] = part_data
+                    building_data["children"].append(part.id)
 
             # Add geometries directly attached to the building
             _add_object_geometries(
-                building, building_data, vertices, scale_factor, config
+                building, building_data, vertices, quantize_factor, config, indexer=indexer
             )
 
             cityjson["CityObjects"][building.id] = building_data
 
-    # Process terrain
+    # Process terrain deterministically
     if Terrain in city.children:
-        for terrain in city.children[Terrain]:
+        terrains = list(city.children[Terrain])
+        terrains.sort(key=lambda t: getattr(t, "id", ""))
+        for terrain in terrains:
             terrain_data = {
                 "type": "TINRelief",
                 "attributes": terrain.attributes.copy(),
@@ -159,13 +189,13 @@ def to_cityjson(
 
             # Add terrain geometries
             _add_object_geometries(
-                terrain, terrain_data, vertices, scale_factor, config
+                terrain, terrain_data, vertices, quantize_factor, config, indexer=indexer
             )
 
             cityjson["CityObjects"][terrain.id] = terrain_data
 
     # Add all processed vertices to the final structure
-    cityjson["vertices"] = vertices
+    cityjson["vertices"] = indexer.vertices
 
     return cityjson
 
@@ -176,11 +206,14 @@ def _add_object_geometries(
     vertices: List,
     scale_factor: float,
     config: CityJSONConfig = None,
+    indexer=None,
 ):
     """Add geometries from a DTCC object to CityJSON object data."""
     config = config or CityJSONConfig()
 
-    for geom_type, geometry in obj.geometry.items():
+    # Iterate deterministically by geometry type
+    for geom_type in sorted(list(obj.geometry.keys()), key=lambda gt: getattr(gt, "name", str(gt))):
+        geometry = obj.geometry.get(geom_type)
         if geometry is None:
             continue
 
@@ -200,27 +233,38 @@ def _add_object_geometries(
             # Use terrain-specific converter for terrain objects
             if obj_data.get("type") == "TINRelief":
                 geom_data = to_cityjson_terrain_mesh(
-                    geometry, vertices, scale_factor, config
+                    geometry, vertices, scale_factor, config, indexer=indexer
                 )
             else:
-                geom_data = to_cityjson_mesh(geometry, vertices, scale_factor, config)
+                geom_data = to_cityjson_mesh(
+                    geometry, vertices, scale_factor, config, indexer=indexer
+                )
             geom_data["lod"] = lod
             obj_data["geometry"].append(geom_data)
 
         elif isinstance(geometry, Surface):
-            geom_data = to_cityjson_surface(geometry, vertices, scale_factor, config)
+            geom_data = to_cityjson_surface(
+                geometry, vertices, scale_factor, config, indexer=indexer
+            )
             geom_data["lod"] = lod
             obj_data["geometry"].append(geom_data)
 
         elif isinstance(geometry, MultiSurface):
             geom_data = to_cityjson_multisurface(
-                geometry, vertices, scale_factor, config
+                geometry, vertices, scale_factor, config, indexer=indexer
             )
             geom_data["lod"] = lod
             obj_data["geometry"].append(geom_data)
 
 
-def save(city: City, path: Path, scale: float = 0.001, config: CityJSONConfig = None):
+def save(
+    city: City,
+    path: Path,
+    scale: float = 0.001,
+    config: CityJSONConfig = None,
+    indent: int | None = 2,
+    ensure_ascii: bool = False,
+):
     """Save a city to a CityJSON file.
 
     Parameters
@@ -230,9 +274,13 @@ def save(city: City, path: Path, scale: float = 0.001, config: CityJSONConfig = 
     path : str or Path
         Path to the file.
     scale : float, optional
-        Scale factor for coordinate compression (default 0.001)
+        CityJSON transform scale (default 0.001). Quantization factor is 1/scale.
     config : CityJSONConfig, optional
         Configuration for conversion settings
+    indent : int | None, optional
+        Indentation for pretty JSON. Use None for compact JSON.
+    ensure_ascii : bool, optional
+        If False (default), write UTF-8 characters directly. If True, escape non-ASCII.
 
     Raises
     ------
@@ -242,10 +290,25 @@ def save(city: City, path: Path, scale: float = 0.001, config: CityJSONConfig = 
     cj = to_cityjson(city, scale=scale, config=config)
     path = Path(path)
 
-    if path.suffix.lower() == ".json":
-        with open(path, "w") as file:
-            json.dump(cj, file, indent=2)
+    suffix = path.suffix.lower()
+    two_level = "".join([s.lower() for s in path.suffixes[-2:]])
+
+    if suffix == ".json":
+        with open(path, "w", encoding="utf-8") as file:
+            json.dump(cj, file, indent=indent, ensure_ascii=ensure_ascii)
+    elif suffix == ".zip" or two_level == ".json.zip":
+        # Determine inner JSON name
+        if two_level == ".json.zip":
+            # Drop the trailing .json.zip and add .json
+            base = path.name
+            inner_name = base[: -len(".json.zip")] + ".json"
+        else:
+            inner_name = path.with_suffix("").name + ".json"
+
+        json_bytes = json.dumps(cj, indent=indent, ensure_ascii=ensure_ascii).encode("utf-8")
+        with zipfile.ZipFile(path, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr(inner_name, json_bytes)
     else:
         raise ValueError(
-            f"Unsupported file format: {path.suffix}. Only .json is supported."
+            f"Unsupported file format: {path.suffix}. Only .json and .json.zip are supported."
         )

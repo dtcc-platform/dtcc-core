@@ -18,6 +18,8 @@ class CityJSONConfig:
 
     semantic_types: Dict[str, str] = None
     lod_mapping: Dict[GeometryType, float] = None
+    # Rounding mode for quantization: "round" (default), "floor", or "ceil"
+    rounding_mode: str = "round"
 
     def __post_init__(self):
         if self.semantic_types is None:
@@ -42,16 +44,42 @@ class CityJSONConfig:
         else:
             self.lod_mapping = {**default_lod_mapping, **self.lod_mapping}
 
+        # Validate rounding_mode
+        if self.rounding_mode not in ("round", "floor", "ceil"):
+            raise ValueError(f"Invalid rounding_mode: {self.rounding_mode}")
+
 
 # Utility functions (shared by all converters)
-def scale_vertices(vertices: np.ndarray, scale: float, vertices_list: List) -> int:
-    """Scale vertices and add to global vertices list. Returns offset."""
+def scale_vertices(vertices: np.ndarray, scale: float, vertices_list: List, rounding_mode: str = "round") -> int:
+    """Scale vertices and add to global vertices list. Returns offset.
+
+    Parameters
+    ----------
+    vertices : np.ndarray
+        Float coordinates (N x 3)
+    scale : float
+        Quantization multiplier (usually 1/transform_scale)
+    vertices_list : List
+        Global list of quantized integer vertices (mutated)
+    rounding_mode : str
+        "round" (default), "floor", or "ceil"
+    """
     if not isinstance(vertices, np.ndarray) or vertices.size == 0:
         raise ValueError("Invalid vertices: must be non-empty numpy array")
 
     vert_offset = len(vertices_list)
     try:
-        scaled_vertices = np.round(vertices * scale).astype(int)
+        q = vertices * scale
+        if rounding_mode == "round":
+            q = np.round(q)
+        elif rounding_mode == "floor":
+            q = np.floor(q)
+        elif rounding_mode == "ceil":
+            q = np.ceil(q)
+        else:
+            raise ValueError(f"Unknown rounding_mode: {rounding_mode}")
+
+        scaled_vertices = q.astype(int)
         # Convert NumPy int64 to Python int for JSON serialization
         python_int_vertices = [[int(x), int(y), int(z)] for x, y, z in scaled_vertices.tolist()]
         vertices_list.extend(python_int_vertices)
@@ -74,21 +102,85 @@ def create_boundary(indices: np.ndarray, offset: int) -> List:
         raise ValueError(f"Error creating boundary: {e}")
 
 
+class VertexIndexer:
+    """
+    Global vertex indexer that quantizes coordinates and deduplicates vertices.
+
+    Maintains:
+    - vertices: List[List[int]] of unique quantized vertices
+    - _index: Dict[(int,int,int) -> int] mapping vertex to global index
+    """
+
+    def __init__(self):
+        self.vertices: List[List[int]] = []
+        self._index = {}
+
+    def _quantize(self, points: np.ndarray, factor: float, rounding_mode: str = "round") -> np.ndarray:
+        if not isinstance(points, np.ndarray) or points.size == 0:
+            raise ValueError("Invalid vertices: must be non-empty numpy array")
+        q = points * factor
+        if rounding_mode == "round":
+            q = np.round(q)
+        elif rounding_mode == "floor":
+            q = np.floor(q)
+        elif rounding_mode == "ceil":
+            q = np.ceil(q)
+        else:
+            raise ValueError(f"Unknown rounding_mode: {rounding_mode}")
+        return q.astype(int)
+
+    def add_points(self, points: np.ndarray, factor: float, rounding_mode: str = "round") -> List[int]:
+        q = self._quantize(points, factor, rounding_mode)
+        indices: List[int] = []
+        for x, y, z in q.tolist():
+            key = (int(x), int(y), int(z))
+            idx = self._index.get(key)
+            if idx is None:
+                idx = len(self.vertices)
+                self.vertices.append([int(x), int(y), int(z)])
+                self._index[key] = idx
+            indices.append(idx)
+        return indices
+
+
 # Converter functions (one per geometry type)
 def convert_surface(
-    surface: Surface, vertices: List, scale: float, config: CityJSONConfig = None
+    surface: Surface,
+    vertices: List,
+    scale: float,
+    config: CityJSONConfig = None,
+    indexer=None,
 ) -> Dict:
-    """Convert Surface to CityJSON format."""
+    """Convert Surface to CityJSON format.
+
+    Parameters
+    ----------
+    surface : Surface
+    vertices : list
+        Global vertices list (mutated). When using indexer, this should reference
+        indexer.vertices for consistency.
+    scale : float
+        Quantization multiplier (1/transform_scale)
+    config : CityJSONConfig
+    indexer : VertexIndexer, optional
+        If provided, global deduplication and quantization are handled by the indexer.
+    """
     config = config or CityJSONConfig()
-    vert_offset = scale_vertices(surface.vertices, scale, vertices)
 
-    # Create boundary array for the surface (exterior ring)
-    boundary = [create_boundary(np.arange(len(surface.vertices)), vert_offset)]
-
-    # Add holes if they exist
-    for hole in surface.holes:
-        hole_offset = scale_vertices(hole, scale, vertices)
-        boundary.append(create_boundary(np.arange(len(hole)), hole_offset))
+    if indexer is not None:
+        # Exterior ring
+        outer_idx = indexer.add_points(surface.vertices, scale, config.rounding_mode)
+        boundary = [outer_idx]
+        # Holes
+        for hole in surface.holes:
+            hole_idx = indexer.add_points(hole, scale, config.rounding_mode)
+            boundary.append(hole_idx)
+    else:
+        vert_offset = scale_vertices(surface.vertices, scale, vertices, config.rounding_mode)
+        boundary = [create_boundary(np.arange(len(surface.vertices)), vert_offset)]
+        for hole in surface.holes:
+            hole_offset = scale_vertices(hole, scale, vertices, config.rounding_mode)
+            boundary.append(create_boundary(np.arange(len(hole)), hole_offset))
 
     return {
         "type": "MultiSurface",
@@ -105,6 +197,7 @@ def convert_multisurface(
     vertices: List,
     scale: float,
     config: CityJSONConfig = None,
+    indexer=None,
 ) -> Dict:
     """Convert MultiSurface to CityJSON format."""
     config = config or CityJSONConfig()
@@ -113,15 +206,20 @@ def convert_multisurface(
     semantic_values = []
 
     for i, surface in enumerate(multisurface.surfaces):
-        vert_offset = scale_vertices(surface.vertices, scale, vertices)
-
-        # Create boundary for this surface (exterior ring)
-        boundary = [create_boundary(np.arange(len(surface.vertices)), vert_offset)]
-
-        # Add holes if they exist
-        for hole in surface.holes:
-            hole_offset = scale_vertices(hole, scale, vertices)
-            boundary.append(create_boundary(np.arange(len(hole)), hole_offset))
+        if indexer is not None:
+            # Exterior ring
+            outer_idx = indexer.add_points(surface.vertices, scale, config.rounding_mode)
+            boundary = [outer_idx]
+            # Holes
+            for hole in surface.holes:
+                hole_idx = indexer.add_points(hole, scale, config.rounding_mode)
+                boundary.append(hole_idx)
+        else:
+            vert_offset = scale_vertices(surface.vertices, scale, vertices, config.rounding_mode)
+            boundary = [create_boundary(np.arange(len(surface.vertices)), vert_offset)]
+            for hole in surface.holes:
+                hole_offset = scale_vertices(hole, scale, vertices, config.rounding_mode)
+                boundary.append(create_boundary(np.arange(len(hole)), hole_offset))
 
         boundaries.append(boundary)
         semantic_surfaces.append({"type": config.semantic_types["surface"]})
@@ -135,19 +233,24 @@ def convert_multisurface(
 
 
 def convert_mesh(
-    mesh: Mesh, vertices: List, scale: float, config: CityJSONConfig = None
+    mesh: Mesh, vertices: List, scale: float, config: CityJSONConfig = None, indexer=None
 ) -> Dict:
     """Convert Mesh to CityJSON format."""
     config = config or CityJSONConfig()
-    vert_offset = scale_vertices(mesh.vertices, scale, vertices)
 
-    # Convert faces to boundaries (each face becomes a surface)
     boundaries = []
-    for face in mesh.faces:
-        # Adjust indices to account for vertex offset
-        face_indices = create_boundary(face, vert_offset)
-        # CityJSON expects boundaries as [[exterior_ring]]
-        boundaries.append([face_indices])
+    if indexer is not None:
+        # Add all mesh vertices and get their global indices
+        global_indices = indexer.add_points(mesh.vertices, scale, config.rounding_mode)
+        # Convert faces to boundaries using mapped indices
+        for face in mesh.faces:
+            face_list = [int(global_indices[int(i)]) for i in np.asarray(face).tolist()]
+            boundaries.append([face_list])
+    else:
+        vert_offset = scale_vertices(mesh.vertices, scale, vertices, config.rounding_mode)
+        for face in mesh.faces:
+            face_indices = create_boundary(face, vert_offset)
+            boundaries.append([face_indices])
 
     # Create semantic information for mesh faces
     semantic_surfaces = [{"type": config.semantic_types["surface"]}] * len(mesh.faces)
@@ -161,19 +264,22 @@ def convert_mesh(
 
 
 def convert_terrain_mesh(
-    mesh: Mesh, vertices: List, scale: float, config: CityJSONConfig = None
+    mesh: Mesh, vertices: List, scale: float, config: CityJSONConfig = None, indexer=None
 ) -> Dict:
     """Convert terrain Mesh to CityJSON format."""
     config = config or CityJSONConfig()
-    vert_offset = scale_vertices(mesh.vertices, scale, vertices)
 
-    # Convert faces to boundaries (each face becomes a surface in the composite)
     boundaries = []
-    for face in mesh.faces:
-        # Adjust indices to account for vertex offset
-        face_indices = create_boundary(face, vert_offset)
-        # For CompositeSurface, each face is represented as [exterior_ring]
-        boundaries.append([face_indices])
+    if indexer is not None:
+        global_indices = indexer.add_points(mesh.vertices, scale, config.rounding_mode)
+        for face in mesh.faces:
+            face_list = [int(global_indices[int(i)]) for i in np.asarray(face).tolist()]
+            boundaries.append([face_list])
+    else:
+        vert_offset = scale_vertices(mesh.vertices, scale, vertices, config.rounding_mode)
+        for face in mesh.faces:
+            face_indices = create_boundary(face, vert_offset)
+            boundaries.append([face_indices])
 
     # Create semantic information for terrain faces
     # All faces in terrain should be GroundSurface
