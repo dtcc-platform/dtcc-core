@@ -9,12 +9,24 @@ def save(object, path, name, formats, *args, **kwargs):
     if not type(object) in formats:
         error(f'Unable to save {name}; type "{type(object)}" not supported')
     path = pathlib.Path(path)
-    if path.suffix not in formats[type(object)]:
+
+    path_suffix = path.suffix
+    two_level_suffix = ''.join(path.suffixes[-2:]) if len(path.suffixes) >= 2 else path_suffix
+
+    if path_suffix not in formats[type(object)] and two_level_suffix not in formats[type(object)]:
         error(
             f"Unable to save {name} ({type(object).__name__}); format {path.suffix} not supported"
         )
+
     info(f"Saving {name} ({type(object).__name__}) to {path}")
-    formats[type(object)][path.suffix](object, path, *args, **kwargs)
+    if two_level_suffix in formats[type(object)]:
+        saver = formats[type(object)][two_level_suffix]
+    elif path_suffix in formats[type(object)]:
+        saver = formats[type(object)][path_suffix]
+    else:
+        error(f"Unable to save {name}; format {path.suffix} not supported")
+
+    saver(object, path, *args, **kwargs)
 
 
 def load(path, name, type, formats, *args, **kwargs):

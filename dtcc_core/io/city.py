@@ -8,6 +8,8 @@ import json
 import zipfile
 from collections import defaultdict
 
+from .cityjson import write_cityjson
+
 from shapely.geometry import Polygon
 
 HAS_GEOPANDAS = False
@@ -154,17 +156,29 @@ def buildings_to_df(city: City, include_geometry=True, crs=None):
     df = gpd.GeoDataFrame(building_attributes, geometry=building_footprints)
     return df
 
+def _save_cityjson(city: City, filename: str, scale: float = 0.001):
+    filename = Path(filename)
+    write_cityjson.save(city, filename, scale=scale)
 
 _load_formats = {
-    City: {".pb": _load_proto_city,
-           ".pb2": _load_proto_city,
-           ".json": _load_json,
-           ".json.zip": _load_json,
-           ".obj": _load_mesh_city,
-           ".ply": _load_mesh_city,
-           ".stl": _load_mesh_city,
-           ".vtk": _load_mesh_city,
-           ".vtu": _load_mesh_city
-           }}
+    City: {
+        ".pb": _load_proto_city,
+        ".pb2": _load_proto_city,
+        ".json": _load_json,
+        ".json.zip": _load_json,
+        ".obj": _load_mesh_city,
+        ".ply": _load_mesh_city,
+        ".stl": _load_mesh_city,
+        ".vtk": _load_mesh_city,
+        ".vtu": _load_mesh_city,
+    }
+}
 
-_save_formats = {City: {".pb": _save_proto_city, ".pb2": _save_proto_city}}
+_save_formats = {
+    City: {
+        ".pb": _save_proto_city,
+        ".pb2": _save_proto_city,
+        ".json": _save_cityjson,
+        ".json.zip": _save_cityjson,
+    }
+}
