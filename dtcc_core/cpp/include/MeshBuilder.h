@@ -23,6 +23,7 @@
 #include "model/Mesh.h"
 #include "model/Surface.h"
 #include "model/Vector.h"
+#include "spade/triangulate.hpp"
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -47,7 +48,7 @@ namespace DTCC_BUILDER
       // Get bounding box
       const BoundingBox2D &bbox = dtm.grid.bounding_box;
       // build boundary
-      Mesh ground_mesh = build_ground_mesh(
+      Mesh ground_mesh = spade_build_ground_mesh(
           subdomains, subdomain_triangle_size, bbox.P.x, bbox.P.y, bbox.Q.x,
           bbox.Q.y, max_mesh_size, min_mesh_angle, sort_triangles);
       // Displace ground surface. Fill all points with maximum height. This is
