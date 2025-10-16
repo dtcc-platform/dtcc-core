@@ -128,7 +128,7 @@ namespace DTCC_BUILDER
                       double min_mesh_angle,
                       bool sort_triangles = false)
     {
-      info("Building ground mesh...");
+      info("TRIANGLE: Building ground mesh...");
       Timer timer("build_ground_mesh");
 
       // print some stats

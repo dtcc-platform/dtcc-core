@@ -29,10 +29,10 @@ city.add_terrain(raster)
 city.add_buildings(buildings, remove_outside_terrain=True)
 
 # Build surface mesh
-timer_start = time.time()
+timer_start = time.perf_counter()
 mesh = dtcc.build_city_mesh(city, lod=dtcc.GeometryType.LOD0)
-timer_end = time.time()
-print(f"Mesh built in {timer_end - timer_start:.1f} seconds")
+timer_end = time.perf_counter()
+print(f"Mesh built in {timer_end - timer_start:.4f} seconds")
 # Offset to origin
 # mesh.offset_to_origin()
 
