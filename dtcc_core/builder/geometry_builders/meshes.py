@@ -327,6 +327,11 @@ def build_city_volume_mesh(
         # else:
         #     result_mesh = [bm.from_cpp() for bm in builder_mesh]
 
+        if surface_mesh.faces is None or len(surface_mesh.faces) == 0:
+            raise ValueError("Surface mesh has no faces. Cannot build volume mesh.")
+        if surface_mesh.markers is None or len(surface_mesh.markers) == 0:
+            raise ValueError("Surface mesh has no face markers. Cannot build volume mesh.")
+        
         switches_params = {
         "plc": True,
         "quality": (

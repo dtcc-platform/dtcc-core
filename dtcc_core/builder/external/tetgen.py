@@ -48,11 +48,14 @@ def build_volume_mesh(mesh: Mesh,
 
     if mesh.faces is None or len(mesh.faces) == 0:
         raise ValueError("Input mesh must have faces defined.")
-    
+
+    if mesh.markers is None or len(mesh.markers) == 0:
+        raise ValueError("Input mesh must have face markers defined.")
+
     b_facets = None
     if build_top_sidewalls:
         new_vertices, boundary_facets = tetgen_utils.compute_boundary_facets(mesh, top_height=top_height)
-        mesh = Mesh(vertices=new_vertices, faces=mesh.faces)
+        mesh = Mesh(vertices=new_vertices, faces=mesh.faces ,markers=mesh.markers)
         b_facets = [facet for facet in boundary_facets.values()]
     
     if b_facets is None:
@@ -64,6 +67,7 @@ def build_volume_mesh(mesh: Mesh,
     # Call tetwrap to build the volume mesh
     tetgen_out: tetwrap.TetwrapIO = tetwrap.tetrahedralize(vertices= mesh.vertices, 
                                              faces= mesh.faces,
+                                             face_markers = mesh.markers,
                                              boundary_facets= b_facets, 
                                              switches_params=switches_params,
                                              switches_overrides=switches_overrides,
@@ -79,5 +83,8 @@ def build_volume_mesh(mesh: Mesh,
     if tetgen_out.boundary_tri_faces is not None:
         boundary_faces = np.asarray(tetgen_out.boundary_tri_faces)
         volume_mesh.boundary_faces = boundary_faces
+    if tetgen_out.boundary_tri_markers is not None:
+        boundary_markers = np.asarray(tetgen_out.boundary_tri_markers)
+        volume_mesh.boundary_markers = boundary_markers
 
     return volume_mesh
