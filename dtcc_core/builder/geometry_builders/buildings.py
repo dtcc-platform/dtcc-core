@@ -55,6 +55,89 @@ def extrude_building(
     return extrusion
 
 
+def set_building_heights_from_attribute(
+    buildings: List[Building],
+    terrain: Raster,
+    height_attribute: str = "height",
+    default_ground_height: float = 0,
+    always_use_default_ground: bool = False,
+    min_building_height: float = 2.5,
+    default_building_height: float = 10.0,
+    ground_height_strategy: str = "centroid",
+) -> List[Building]:
+    """Calculates ground level and absolute height for each building footprint from a given height attribute.
+
+    Parameters
+    ----------
+    buildings : List[Building]
+        List of buildings to set heights for.
+    terrain : Raster
+        Terrain raster used to determine ground elevation.
+    height_attribute : str, default "height"
+        Attribute name to use for building height.
+    default_ground_height : float, default 0
+        Default ground height if not available from terrain.
+    always_use_default_ground : bool, default False
+        Whether to always use the default ground height.
+    min_building_height : float, default 2.5
+        Minimum height in meters for buildings.
+    default_building_height : float, default 10.0
+        Default building height if attribute is missing.
+    ground_height_strategy : str, default "centroid"
+        Strategy to determine ground height from terrain ("centroid", "vertex").
+    """
+    for building in buildings:
+        footprint = building.lod0
+        if footprint is None:
+            warning(f"Building {building.id} has no LOD0 geometry.")
+            continue
+        if len(footprint.vertices) < 3:
+            warning(
+                f"Building {building.id} has an invalid footprint with only {len(footprint.vertices)} vertices."
+            )
+            continue
+        if always_use_default_ground:
+            ground_height = default_ground_height
+        else:
+            ground_height_strategy = ground_height_strategy.lower()
+            if ground_height_strategy == "centroid":
+                centroid = footprint.centroid
+                if np.isnan(centroid[0]) or np.isnan(centroid[1]):
+                    warning(f"Building {building.id} has an invalid centroid.")
+                    ground_height = default_ground_height
+                else:
+                    ground_height = terrain.get_value(centroid[0], centroid[1])
+            elif ground_height_strategy == "vertex":
+                z_values = []
+                for vertex in footprint.vertices:
+                    z = terrain.get_value(vertex[0], vertex[1])
+                    if not np.isnan(z):
+                        z_values.append(z)
+                if len(z_values) == 0:
+                    warning(
+                        f"Building {building.id} has no valid terrain values at its vertices."
+                    )
+                    ground_height = default_ground_height
+                else:
+                    ground_height = min(z_values)
+            else:
+                warning(
+                    f"Unknown ground height strategy '{ground_height_strategy}'. Using default ground height."
+                )
+                ground_height = default_ground_height
+        building.attributes["ground_height"] = ground_height
+
+        height = building.attributes.get(height_attribute, default_building_height)
+        if height < min_building_height:
+            warning(
+                f"Building {building.id} has a height of {height}, which is less than the minimum building height of {min_building_height}. Setting height to {min_building_height}."
+            )
+            height = min_building_height
+        footprint.set_z(ground_height + height)
+        building.attributes["height"] = height
+    return buildings
+
+
 def compute_building_heights(
     buildings: List[Building],
     terrain: Raster,
