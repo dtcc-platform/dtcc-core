@@ -50,8 +50,8 @@ from ..meshing.convert import mesh_to_raster
 
 from ..logging import debug, info, warning, error
 
-from ..external.tetgen import build_volume_mesh as tetgen_build_volume_mesh
-from ..external.tetgen import is_tetgen_available
+from ..meshing.tetgen import build_volume_mesh as tetgen_build_volume_mesh
+from ..meshing.tetgen import is_tetgen_available
 
 
 
