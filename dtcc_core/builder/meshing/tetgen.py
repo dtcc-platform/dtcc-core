@@ -1,29 +1,42 @@
 from ...model import Mesh, VolumeMesh
 import numpy as np
-from typing import Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Union
 
 from . import tetgen_utils
 
 from ..logging import info
 
 HAS_TETGEN = False
+_tetgen_switch_module = None
 try:
     import dtcc_wrapper_tetgen as tetwrap
+
+    _tetgen_switch_module = tetwrap.switches
     HAS_TETGEN = True
     info("TetGen is available for volume meshing.")
 except ImportError:
+    _tetgen_switch_module = None
     raise Warning("TetGen not available. Volume meshing fallback to dtcc base method.")
 
-def is_tetgen_available():
-        return HAS_TETGEN
+def is_tetgen_available() -> bool:
+    return HAS_TETGEN
+
+
+def get_default_tetgen_switches() -> Dict[str, Any]:
+    """
+    Return a fresh copy of TetGen switch defaults if TetGen is available.
+    """
+    if not HAS_TETGEN or _tetgen_switch_module is None:
+        raise RuntimeError("TetGen switch defaults requested but TetGen is not available.")
+    return _tetgen_switch_module.tetgen_defaults()
 
 
 def build_volume_mesh(mesh: Mesh, 
                       build_top_sidewalls: bool=True, 
                       top_height: float=100.0, 
                       return_boundary_faces: bool=True, 
-                      switches_params=None, 
-                      switches_overrides=None) -> Union[VolumeMesh, Tuple[VolumeMesh, Optional[np.ndarray]]] :
+                      switches_params: Optional[Dict[str, Any]] = None, 
+                      switches_overrides: Optional[Dict[str, Any]] = None) -> Union[VolumeMesh, Tuple[VolumeMesh, Optional[np.ndarray]]] :
     """
     Build a volume mesh from a surface mesh using TetGen via tetwrap.
 
@@ -64,12 +77,19 @@ def build_volume_mesh(mesh: Mesh,
             "Set build_top_sidewalls=True or provide facets via future extensions."
         )
 
+    # Prepare TetGen switches
+    base_switches: Dict[str, Any] = {}
+    if _tetgen_switch_module is not None:
+        base_switches = get_default_tetgen_switches()
+    if switches_params:
+        base_switches.update(switches_params)
+
     # Call tetwrap to build the volume mesh
     tetgen_out: tetwrap.TetwrapIO = tetwrap.tetrahedralize(vertices= mesh.vertices, 
                                              faces= mesh.faces,
                                              face_markers = mesh.markers,
                                              boundary_facets= b_facets, 
-                                             switches_params=switches_params,
+                                             switches_params=base_switches,
                                              switches_overrides=switches_overrides,
                                              return_io = True,
                                              return_faces = False,
