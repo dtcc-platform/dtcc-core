@@ -39,53 +39,32 @@ else()
   target_compile_definitions(${BINDINGS} PRIVATE AMGCL_NO_BOOST)
 endif()
 
-if(DTCC_USE_SPADE AND DEFINED DTCC_SPADE_DIR)
-  set(_dtcc_spade_ready TRUE)
+if(DTCC_HAVE_SPADE AND TARGET pyspade_native::spade_wrapper)
+  # Link against the pyspade_native::spade_wrapper target
+  # This automatically adds include directories, libraries, and dependencies
+  target_link_libraries(${BINDINGS} PRIVATE pyspade_native::spade_wrapper)
 
-  if(NOT EXISTS "${DTCC_SPADE_WRAPPER_SRC}")
-    message(WARNING "SPADE wrapper source not found at ${DTCC_SPADE_WRAPPER_SRC}")
-    set(_dtcc_spade_ready FALSE)
-  endif()
+  # Define DTCC_HAVE_SPADE so the code knows SPADE is available
+  target_compile_definitions(${BINDINGS} PRIVATE DTCC_HAVE_SPADE)
 
-  if(NOT EXISTS "${DTCC_SPADE_INCLUDE_DIR}")
-    message(WARNING "SPADE include directory missing at ${DTCC_SPADE_INCLUDE_DIR}")
-    set(_dtcc_spade_ready FALSE)
-  endif()
-
-  if(_dtcc_spade_ready)
-    if(TARGET spade_ffi_build)
-      add_dependencies(${BINDINGS} spade_ffi_build)
-    endif()
-
-    target_sources(${BINDINGS} PRIVATE "${DTCC_SPADE_WRAPPER_SRC}")
-    target_include_directories(${BINDINGS} PRIVATE "${DTCC_SPADE_INCLUDE_DIR}")
-
-    if(NOT TARGET dtcc_spade_ffi AND DTCC_SPADE_STATIC_LIB)
-      add_library(dtcc_spade_ffi STATIC IMPORTED GLOBAL)
-      set_target_properties(dtcc_spade_ffi PROPERTIES IMPORTED_LOCATION "${DTCC_SPADE_STATIC_LIB}")
-      if(TARGET spade_ffi_build)
-        add_dependencies(dtcc_spade_ffi spade_ffi_build)
-      endif()
-    endif()
-
-    if(TARGET dtcc_spade_ffi)
-      target_link_libraries(${BINDINGS} PRIVATE dtcc_spade_ffi)
-    else()
-      message(WARNING "Unable to configure SPADE static library; disabling SPADE integration")
-      set(_dtcc_spade_ready FALSE)
-    endif()
-  endif()
-
-  if(_dtcc_spade_ready)
+  # Set RPATH so the module can find pyspade_native libraries at runtime
+  if(PYSPADE_NATIVE_LIBRARY_DIR)
     if(APPLE)
-      target_link_libraries(${BINDINGS} PRIVATE "-framework CoreFoundation" "-framework Security")
-    elseif(UNIX)
-      target_link_libraries(${BINDINGS} PRIVATE pthread dl m)
+      set_target_properties(${BINDINGS} PROPERTIES
+        BUILD_RPATH "${PYSPADE_NATIVE_LIBRARY_DIR}"
+        INSTALL_RPATH "${PYSPADE_NATIVE_LIBRARY_DIR};@loader_path/../../../pyspade_native/lib"
+      )
+    else()
+      set_target_properties(${BINDINGS} PROPERTIES
+        BUILD_RPATH "${PYSPADE_NATIVE_LIBRARY_DIR}"
+        INSTALL_RPATH "${PYSPADE_NATIVE_LIBRARY_DIR}:\$ORIGIN/../../../pyspade_native/lib"
+      )
     endif()
-    target_compile_definitions(${BINDINGS} PRIVATE DTCC_HAVE_SPADE)
-  else()
-    message(STATUS "SPADE integration disabled for ${BINDINGS}")
   endif()
+
+  message(STATUS "SPADE integration enabled for ${BINDINGS}")
+else()
+  message(STATUS "SPADE integration disabled for ${BINDINGS}")
 endif()
 
 if(APPLE)

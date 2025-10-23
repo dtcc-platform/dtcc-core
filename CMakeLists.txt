@@ -95,48 +95,33 @@ else()
 endif()
 
 # ------------------------------------------------------------------------------
-# SPADE integration (sibling checkout)
+# SPADE integration (via pip-installed dtcc-pyspade-native)
 # ------------------------------------------------------------------------------
 if(DTCC_USE_SPADE)
-  set(DTCC_SPADE_DIR
-    "${CMAKE_CURRENT_SOURCE_DIR}/../dtcc-wrapper-spade/cppspade"
-    CACHE PATH "Location of the dtcc-wrapper-spade/cppspade directory"
+  # Add Python site-packages to CMAKE_PREFIX_PATH so find_package can find pyspade_native
+  execute_process(
+    COMMAND ${Python3_EXECUTABLE} -c "import sysconfig; print(sysconfig.get_path('platlib'))"
+    OUTPUT_VARIABLE PYTHON_SITE_PACKAGES
+    ERROR_QUIET
+    OUTPUT_STRIP_TRAILING_WHITESPACE
   )
 
-  if(EXISTS "${DTCC_SPADE_DIR}/CMakeLists.txt")
-    find_program(CARGO_EXECUTABLE cargo)
-    if(CARGO_EXECUTABLE)
-      set(DTCC_SPADE_INCLUDE_DIR "${DTCC_SPADE_DIR}/include"
-        CACHE PATH "SPADE wrapper include directory")
-      set(DTCC_SPADE_WRAPPER_SRC "${DTCC_SPADE_DIR}/src/spade_wrapper.cpp"
-        CACHE FILEPATH "SPADE wrapper source file")
+  if(PYTHON_SITE_PACKAGES)
+    list(APPEND CMAKE_PREFIX_PATH "${PYTHON_SITE_PACKAGES}/pyspade_native")
+    message(STATUS "Added Python site-packages to CMAKE_PREFIX_PATH: ${PYTHON_SITE_PACKAGES}/pyspade_native")
+  endif()
 
-      if(APPLE)
-        set(DTCC_SPADE_STATIC_LIB "${DTCC_SPADE_DIR}/target/release/libspade_ffi.a")
-      elseif(UNIX)
-        set(DTCC_SPADE_STATIC_LIB "${DTCC_SPADE_DIR}/target/release/libspade_ffi.a")
-      else()
-        set(DTCC_SPADE_STATIC_LIB "${DTCC_SPADE_DIR}/target/release/spade_ffi.lib")
-      endif()
-      set(DTCC_SPADE_STATIC_LIB ${DTCC_SPADE_STATIC_LIB}
-        CACHE FILEPATH "Prebuilt SPADE static library")
+  # Find the pyspade_native package
+  find_package(pyspade_native QUIET)
 
-      add_custom_command(
-        OUTPUT ${DTCC_SPADE_STATIC_LIB}
-        COMMAND ${CARGO_EXECUTABLE} build --release
-        WORKING_DIRECTORY ${DTCC_SPADE_DIR}
-        COMMENT "Building Rust SPADE FFI library"
-        VERBATIM
-      )
-      add_custom_target(spade_ffi_build DEPENDS ${DTCC_SPADE_STATIC_LIB})
-      message(STATUS "SPADE integration enabled (${DTCC_SPADE_DIR})")
-    else()
-      message(WARNING "cargo not available; disabling SPADE integration")
-      set(DTCC_USE_SPADE OFF CACHE BOOL "" FORCE)
-    endif()
+  if(pyspade_native_FOUND)
+    message(STATUS "Found dtcc-pyspade-native: ${PYSPADE_NATIVE_INCLUDE_DIR}")
+    set(DTCC_HAVE_SPADE TRUE)
   else()
-    message(WARNING "dtcc-wrapper-spade not detected at ${DTCC_SPADE_DIR}; disabling SPADE integration")
+    message(WARNING "dtcc-pyspade-native not found. Install it with: pip install dtcc-pyspade-native")
+    message(WARNING "Disabling SPADE integration")
     set(DTCC_USE_SPADE OFF CACHE BOOL "" FORCE)
+    set(DTCC_HAVE_SPADE FALSE)
   endif()
 endif()
 
