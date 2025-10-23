@@ -346,14 +346,8 @@ def build_city_volume_mesh(
             raise ValueError("Surface mesh has no face markers. Cannot build volume mesh.")
         
         switches_params = get_default_tetgen_switches()
-        switches_params.update(
-            {
-                "plc": True,
-                "quiet": True,
-                "coarsen": True,
-                "refine": True,
-            }
-        )
+        
+        
         if max_tet_volume is not None:
             switches_params["max_volume"] = max_tet_volume
         if max_edge_radius_ratio is not None or min_dihedral_angle is not None:
