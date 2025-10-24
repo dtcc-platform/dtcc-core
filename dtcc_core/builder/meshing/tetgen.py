@@ -4,7 +4,7 @@ from typing import Any, Dict, Optional, Tuple, Union
 
 from . import tetgen_utils
 
-from ..logging import info
+from ..logging import info,warning
 
 HAS_TETGEN = False
 _tetgen_switch_module = None
@@ -16,7 +16,7 @@ try:
     info("TetGen is available for volume meshing.")
 except ImportError:
     _tetgen_switch_module = None
-    raise Warning("TetGen not available. Volume meshing fallback to dtcc base method.")
+    warning("TetGen not available. Volume meshing fallback to dtcc base method.")
 
 def is_tetgen_available() -> bool:
     return HAS_TETGEN

@@ -259,7 +259,9 @@ def build_city_volume_mesh(
     # FIXME: Where do we set these parameters?
     min_building_area = 10.0
     min_building_detail = 0.5
-    min_mesh_angle = 30
+    min_mesh_angle = 30.0
+
+    # Fallback dtcc volume meshing parameters
     smoother_max_iterations = 5000
     smoothing_relative_tolerance = 0.005
     aspect_ratio_threshold = 10.0
@@ -335,10 +337,6 @@ def build_city_volume_mesh(
         )
 
         surface_mesh = builder_mesh[0].from_cpp()
-        # if merge_meshes:
-        #     surface_mesh = builder_mesh[0].from_cpp()
-        # else:
-        #     result_mesh = [bm.from_cpp() for bm in builder_mesh]
 
         if surface_mesh.faces is None or len(surface_mesh.faces) == 0:
             raise ValueError("Surface mesh has no faces. Cannot build volume mesh.")
@@ -346,8 +344,6 @@ def build_city_volume_mesh(
             raise ValueError("Surface mesh has no face markers. Cannot build volume mesh.")
         
         switches_params = get_default_tetgen_switches()
-        
-        
         if max_tet_volume is not None:
             switches_params["max_volume"] = max_tet_volume
         if max_edge_radius_ratio is not None or min_dihedral_angle is not None:
