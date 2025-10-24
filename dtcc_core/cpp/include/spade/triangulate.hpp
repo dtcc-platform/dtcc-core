@@ -7,9 +7,7 @@
 #include <stdexcept>
 #include <vector>
 
-#ifdef DTCC_HAVE_SPADE
-#include "spade_wrapper.h"
-#endif
+#include <spade_wrapper.h>
 
 #include "BoundingBox.h"
 #include "BoundingBoxTree.h"
@@ -26,7 +24,6 @@ namespace DTCC_BUILDER
 // Simple smoke test to verify SPADE integration is available at runtime.
 inline void spade_wrapper_smoke_test()
 {
-#ifdef DTCC_HAVE_SPADE
   std::vector<spade::Point> outer = {
       {0.0, 0.0, 0.0},
       {1.0, 0.0, 0.0},
@@ -41,12 +38,8 @@ inline void spade_wrapper_smoke_test()
   {
     throw std::runtime_error("SPADE triangulation returned an unexpected result");
   }
-#else
-  throw std::runtime_error("SPADE support is not enabled in this build of dtcc-core");
-#endif
 }
 
-#ifdef DTCC_HAVE_SPADE
 namespace detail
 {
 inline void compute_spade_domain_markers(Mesh &mesh, const std::vector<Polygon> &subdomains)
@@ -106,7 +99,6 @@ inline void compute_spade_domain_markers(Mesh &mesh, const std::vector<Polygon> 
   }
 }
 } // namespace detail
-#endif
 
 inline Mesh spade_build_ground_mesh(const std::vector<Polygon> &subdomains,
                               const std::vector<double> subdomain_triangle_size,
@@ -217,18 +209,6 @@ inline Mesh spade_build_ground_mesh(const std::vector<Polygon> &subdomains,
   detail::compute_spade_domain_markers(mesh, subdomains);
 
   return mesh;
-// #else
-//   (void)subdomains;
-//   (void)subdomain_triangle_size;
-//   (void)xmin;
-//   (void)ymin;
-//   (void)xmax;
-//   (void)ymax;
-//   (void)max_mesh_size;
-//   (void)min_mesh_angle;
-//   (void)sort_triangles;
-//   throw std::runtime_error("SPADE support is not enabled in this build of dtcc-core");
-// #endif
 }
 
 } // namespace DTCC_BUILDER
