@@ -18,7 +18,7 @@ if(APPLE)
   find_program(HOMEBREW_CLANGXX /opt/homebrew/opt/llvm/bin/clang++XX)
 
   # Set Homebrew compiler paths, if found, and set OpenMP flags
-  if(AND HOMEBREW_CLANG AND HOMEBREW_CLANGXX)
+  if(HOMEBREW_CLANG AND HOMEBREW_CLANGXX)
     # set(CMAKE_PREFIX_PATH $(brew --prefix libomp))
     # Get Homebrew prefix path for libomp
     execute_process(COMMAND brew --prefix libomp OUTPUT_VARIABLE HOMEBREW_LIBOMP_PREFIX)
