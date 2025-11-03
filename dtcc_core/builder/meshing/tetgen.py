@@ -9,7 +9,7 @@ from ..logging import info,warning
 HAS_TETGEN = False
 _tetgen_switch_module = None
 try:
-    import dtcc_wrapper_tetgen as tetwrap
+    import dtcc_tetgen_wrapper as tetwrap
 
     _tetgen_switch_module = tetwrap.switches
     HAS_TETGEN = True
