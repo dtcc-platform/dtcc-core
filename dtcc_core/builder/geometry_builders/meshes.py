@@ -73,6 +73,10 @@ def build_city_mesh(
     merge_meshes: bool = True,
     smoothing: int = 0,
     sort_triangles: bool = False,
+    use_tiling: bool = False,
+    tile_size: float = 1000.0,
+    tile_overlap: float = 50.0,
+    n_workers: int = None,
 ) -> Mesh:
     """
     Build a mesh from the surfaces of the buildings in the city.
@@ -82,7 +86,7 @@ def build_city_mesh(
     `city` : model.City
         The city to build the mesh from.
     `min_building_detail` : float, optional
-        The minimum detail of the buildin to resolve, by default 0.5.
+        The minimum detail of the building to resolve, by default 0.5.
     `min_building_area` : float, optional
         The smallest building to include, by default 15.0.
     `merge_buildings` : bool, optional
@@ -93,14 +97,42 @@ def build_city_mesh(
         The minimum angle of the mesh, by default 30.0.
     `merge_meshes` : bool, optional
         Whether to merge the meshes to a single mesh, by default True.
-
     `smoothing` : float, optional
         The smoothing of the mesh, by default 0.0.
+    `use_tiling` : bool, optional
+        Use spatial tiling for memory efficiency on large cities, by default False.
+    `tile_size` : float, optional
+        Size of tiles when using tiling, by default 1000.0.
+    `tile_overlap` : float, optional
+        Overlap between tiles to handle boundary objects, by default 50.0.
+    `n_workers` : int, optional
+        Number of worker processes for parallel tiling, by default None (auto-detect).
 
     Returns
     -------
     `model.Mesh`
     """
+    # Check if we should use tiling
+    if use_tiling:
+        from ..meshing.tiled_mesh_builder import build_city_mesh_tiled
+        info("Using spatial tiling for mesh building")
+        return build_city_mesh_tiled(
+            city=city,
+            lod=lod,
+            tile_size=tile_size,
+            overlap=tile_overlap,
+            n_workers=n_workers,
+            min_building_detail=min_building_detail,
+            min_building_area=min_building_area,
+            merge_buildings=merge_buildings,
+            merge_tolerance=merge_tolerance,
+            building_mesh_triangle_size=building_mesh_triangle_size,
+            max_mesh_size=max_mesh_size,
+            min_mesh_angle=min_mesh_angle,
+            smoothing=smoothing,
+            sort_triangles=sort_triangles,
+        )
+
     buildings = city.buildings
     if lod is None:
         lods = [GeometryType.LOD2, GeometryType.LOD1, GeometryType.LOD0]

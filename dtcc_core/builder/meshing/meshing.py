@@ -271,3 +271,203 @@ def disjoint_meshes(mesh: Mesh) -> List[Mesh]:
         disjointed_meshes.append(Mesh(vertices=new_vertices, faces=new_faces))
 
     return disjointed_meshes
+
+
+def remove_degenerate_faces(mesh: Mesh, min_area: float = 1e-8) -> Mesh:
+    """
+    Remove triangles with near-zero area (degenerate faces).
+
+    These are created during snapping operations when vertices merge together,
+    collapsing triangles to a line or point.
+
+    Parameters
+    ----------
+    mesh : Mesh
+        The mesh to clean.
+    min_area : float, default 1e-8
+        Minimum area threshold. Triangles with area < min_area are removed.
+
+    Returns
+    -------
+    Mesh
+        Mesh with degenerate faces removed.
+    """
+    if len(mesh.faces) == 0:
+        return mesh
+
+    # Compute face areas using cross product: area = |AB × AC| / 2
+    v0 = mesh.vertices[mesh.faces[:, 0]]  # All first vertices
+    v1 = mesh.vertices[mesh.faces[:, 1]]  # All second vertices
+    v2 = mesh.vertices[mesh.faces[:, 2]]  # All third vertices
+
+    # Edge vectors
+    edge1 = v1 - v0  # AB
+    edge2 = v2 - v0  # AC
+
+    # Cross product (area normal)
+    cross = np.cross(edge1, edge2)
+
+    # Area = |cross| / 2
+    areas = np.linalg.norm(cross, axis=1) / 2.0
+
+    # Keep only non-degenerate faces
+    valid_mask = areas >= min_area
+    valid_faces = mesh.faces[valid_mask]
+
+    if len(valid_faces) == 0:
+        info(f"All faces removed as degenerate (area < {min_area})")
+        return Mesh(vertices=mesh.vertices, faces=np.array([], dtype=np.int32))
+
+    removed_count = len(mesh.faces) - len(valid_faces)
+    if removed_count > 0:
+        info(f"Removed {removed_count} degenerate faces (area < {min_area})")
+
+    return Mesh(vertices=mesh.vertices, faces=valid_faces)
+
+
+def remove_duplicate_faces(mesh: Mesh) -> Mesh:
+    """
+    Remove exact duplicate faces (same 3 vertices).
+
+    Parameters
+    ----------
+    mesh : Mesh
+        The mesh to clean.
+
+    Returns
+    -------
+    Mesh
+        Mesh with duplicate faces removed.
+    """
+    if len(mesh.faces) == 0:
+        return mesh
+
+    # Create sorted face representation for comparison
+    # Sort vertex indices in each face to normalize (0,1,2) == (1,0,2) etc.
+    sorted_faces = np.sort(mesh.faces, axis=1)
+
+    # Convert to tuple for hashing
+    face_tuples = [tuple(f) for f in sorted_faces]
+
+    # Track unique faces
+    unique_faces = []
+    seen = set()
+
+    for i, face_tuple in enumerate(face_tuples):
+        if face_tuple not in seen:
+            seen.add(face_tuple)
+            unique_faces.append(mesh.faces[i])  # Keep original (unsorted) face
+
+    if len(unique_faces) == len(mesh.faces):
+        return mesh
+
+    unique_faces = np.array(unique_faces, dtype=np.int32)
+    removed_count = len(mesh.faces) - len(unique_faces)
+    info(f"Removed {removed_count} exact duplicate faces")
+
+    return Mesh(vertices=mesh.vertices, faces=unique_faces)
+
+
+def remove_internal_faces(mesh: Mesh, angle_threshold: float = 170.0) -> Mesh:
+    """
+    Remove internal faces (back-to-back triangles) from merged meshes.
+
+    When meshes are merged, duplicate geometry from building interiors creates
+    back-to-back faces (opposite normal directions). This function removes them.
+
+    Algorithm:
+    1. Compute face normal for each triangle
+    2. Build adjacency: which faces share edges
+    3. For each face, check adjacent faces for opposite normals
+    4. Remove faces that are back-to-back with adjacent face
+
+    Parameters
+    ----------
+    mesh : Mesh
+        The mesh to clean.
+    angle_threshold : float, default 170.0
+        Angle threshold (degrees) for detecting opposite normals.
+        Default 170° catches nearly-opposite normals (internal faces).
+        Use 179° for very strict, 160° for loose.
+
+    Returns
+    -------
+    Mesh
+        Mesh with internal faces removed.
+    """
+    if len(mesh.faces) == 0:
+        return mesh
+
+    # Step 1: Compute face normals
+    v0 = mesh.vertices[mesh.faces[:, 0]]
+    v1 = mesh.vertices[mesh.faces[:, 1]]
+    v2 = mesh.vertices[mesh.faces[:, 2]]
+
+    edge1 = v1 - v0
+    edge2 = v2 - v0
+
+    normals = np.cross(edge1, edge2)
+
+    # Normalize (handle near-zero length normals)
+    norms = np.linalg.norm(normals, axis=1, keepdims=True)
+    # Avoid division by zero
+    norms[norms < 1e-10] = 1.0
+    normals = normals / norms
+
+    # Step 2: Build edge-to-faces mapping
+    edge_to_faces = {}
+
+    for face_id, face in enumerate(mesh.faces):
+        # Three edges of the triangle (normalized: smaller vertex index first)
+        edges = [
+            tuple(sorted([face[0], face[1]])),
+            tuple(sorted([face[1], face[2]])),
+            tuple(sorted([face[2], face[0]])),
+        ]
+
+        for edge in edges:
+            if edge not in edge_to_faces:
+                edge_to_faces[edge] = []
+            edge_to_faces[edge].append(face_id)
+
+    # Step 3: Find internal faces (back-to-back pairs)
+    internal_faces = set()
+
+    for edge, face_ids in edge_to_faces.items():
+        if len(face_ids) == 2:
+            # Two faces share this edge
+            face1_id, face2_id = face_ids[0], face_ids[1]
+
+            # Compute angle between normals
+            dot_product = np.dot(normals[face1_id], normals[face2_id])
+            # Clamp to [-1, 1] to handle numerical errors
+            dot_product = np.clip(dot_product, -1.0, 1.0)
+            angle_rad = np.arccos(dot_product)
+            angle_deg = np.degrees(angle_rad)
+
+            # If normals point opposite directions, these are back-to-back (internal)
+            if angle_deg > angle_threshold:
+                # Mark both as internal (remove pairs)
+                internal_faces.add(face1_id)
+                internal_faces.add(face2_id)
+        elif len(face_ids) > 2:
+            # More than 2 faces share an edge (non-manifold or merged duplicates)
+            # Mark all as suspicious
+            for face_id in face_ids:
+                internal_faces.add(face_id)
+
+    # Step 4: Keep only non-internal faces
+    external_mask = np.array([i not in internal_faces for i in range(len(mesh.faces))])
+    external_faces = mesh.faces[external_mask]
+
+    if len(external_faces) == len(mesh.faces):
+        return mesh
+
+    removed_count = len(mesh.faces) - len(external_faces)
+    info(f"Removed {removed_count} internal faces (angle_threshold={angle_threshold}°)")
+
+    if len(external_faces) == 0:
+        warning("All faces removed as internal - mesh is now empty!")
+        return Mesh(vertices=mesh.vertices, faces=np.array([], dtype=np.int32))
+
+    return Mesh(vertices=mesh.vertices, faces=external_faces)

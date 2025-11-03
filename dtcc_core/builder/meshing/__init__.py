@@ -14,3 +14,10 @@ from .extrude_surface_mesh import (
     extrude_surface_to_solid,
     create_printable_surface_mesh,
 )
+
+from .shared_memory_backend import SharedMeshStore, MemoryMappedMeshArray, TileMetadata
+from .tiled_mesh_builder import (
+    build_city_mesh_tiled,
+    calculate_optimal_tile_size,
+    should_use_tiling,
+)
