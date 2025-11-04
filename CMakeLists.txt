@@ -34,6 +34,7 @@ if(DTCC_USE_HOMEBREW_LLVM AND APPLE)
     message(WARNING "Homebrew Clang and Clang++ compilers not found. Using default compilers. 
                       OpenMP will be disabled.")
   endif()
+  message(STATUS "Not using Homebrew build toolchain and. OpenMP support will be disabled.")
 endif()
 
 message(STATUS "Build type: " ${CMAKE_BUILD_TYPE})
