@@ -13,7 +13,7 @@
 
 extern "C"
 {
-#include <triangle.h>
+#include "triangle/triangle.h"
 }
 #include <earcut.hpp>
 

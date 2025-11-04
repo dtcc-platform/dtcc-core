@@ -9,11 +9,13 @@ if(NOT CMAKE_BUILD_TYPE)
   message(STATUS "Build type not specified, using Release by default")
 endif()
 
+option(DTCC_USE_HOMEBREW_LLVM "Use the Homebrew LLVM toolchain on macOS" OFF)
+
 # MacOS doesn't ship with OpenMP, so we need to use Homebrew's Clang
 # if we want OpenMP support. To get OpenMP support on Mac run:
 # brew install llvm
 # brew install libomp
-if(APPLE)
+if(APPLE AND DTCC_USE_HOMEBREW_LLVM)
   find_program(HOMEBREW_CLANG /opt/homebrew/opt/llvm/bin/clang)
   find_program(HOMEBREW_CLANGXX /opt/homebrew/opt/llvm/bin/clang++)
 
@@ -86,7 +88,6 @@ include_directories(${pybind11_INCLUDE_DIRS})
 include_directories(${DTCC_CPP_DIR}/include)
 include_directories(${DTCC_CPP_DIR}/include/citymodel)
 include_directories(SYSTEM ${DTCC_CPP_DIR}/external)
-include_directories(SYSTEM ${DTCC_CPP_DIR}/external/triangle)
 include_directories(SYSTEM ${DTCC_CPP_DIR}/external/amgcl)
 
 # Set installation directory
