@@ -52,12 +52,12 @@ if(DTCC_HAVE_SPADE AND TARGET pyspade_native::spade_wrapper)
     if(APPLE)
       set_target_properties(${BINDINGS} PROPERTIES
         BUILD_RPATH "${PYSPADE_NATIVE_LIBRARY_DIR}"
-        INSTALL_RPATH "${PYSPADE_NATIVE_LIBRARY_DIR};@loader_path/../../../pyspade_native/lib"
+        INSTALL_RPATH "${PYSPADE_NATIVE_LIBRARY_DIR};@loader_path/../../pyspade_native/lib"
       )
     else()
       set_target_properties(${BINDINGS} PROPERTIES
         BUILD_RPATH "${PYSPADE_NATIVE_LIBRARY_DIR}"
-        INSTALL_RPATH "${PYSPADE_NATIVE_LIBRARY_DIR}:\$ORIGIN/../../../pyspade_native/lib"
+        INSTALL_RPATH "${PYSPADE_NATIVE_LIBRARY_DIR}:\$ORIGIN/../../pyspade_native/lib"
       )
     endif()
   endif()

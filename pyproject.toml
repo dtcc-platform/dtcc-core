@@ -1,5 +1,5 @@
 [build-system]
-requires = ["scikit-build-core", "pybind11==2.13.*", "wheel"]
+requires = ["scikit-build-core", "pybind11==2.13.*", "wheel", "dtcc-pyspade-native"]
 build-backend = "scikit_build_core.build"
 
 [project]
@@ -29,6 +29,7 @@ dependencies = [
     "aiohttp",
     "folium",
     "h5py == 3.14.0",
+    "dtcc-pyspade-native"
 ]
 
 version = "0.9.3dev"
