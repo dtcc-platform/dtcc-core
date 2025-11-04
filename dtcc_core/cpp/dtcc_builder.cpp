@@ -15,6 +15,7 @@
 #include "Smoother.h"
 #include "VertexSmoother.h"
 #include "VolumeMeshBuilder.h"
+#include "spade/triangulate.hpp"
 #include "model/GridField.h"
 #include "model/Mesh.h"
 #include "model/VolumeMesh.h"
@@ -420,12 +421,17 @@ PYBIND11_MODULE(_dtcc_builder, m)
   m.def("extract_building_points", &DTCC_BUILDER::extract_building_points,
         "Compute building points from point cloud");
 
+  m.def("spade_wrapper_smoke_test", &DTCC_BUILDER::spade_wrapper_smoke_test,
+        "Run a minimal SPADE triangulation to verify wrapper linkage");
+
   m.def("smooth_field", &DTCC_BUILDER::VertexSmoother::smooth_field, "Smooth grid field");
 
   // m.def("build_mesh", &DTCC_BUILDER::MeshBuilder::build_mesh,
   //       "build mesh for city, returning a list of meshes");
 
   m.def("build_ground_mesh", &DTCC_BUILDER::MeshBuilder::build_ground_mesh, "build ground mesh");
+  // m.def("build_ground_mesh_spade", &DTCC_BUILDER::build_ground_mesh,
+  //       "build ground mesh using SPADE triangulation");
 
   m.def("build_terrain_mesh", &DTCC_BUILDER::MeshBuilder::build_terrain_mesh, "build terrain mesh");
 
