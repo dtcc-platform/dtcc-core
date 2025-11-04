@@ -15,7 +15,7 @@ option(DTCC_USE_HOMEBREW_LLVM "Use the Homebrew LLVM toolchain on macOS" OFF)
 # if we want OpenMP support. To get OpenMP support on Mac run:
 # brew install llvm
 # brew install libomp
-if(APPLE AND DTCC_USE_HOMEBREW_LLVM)
+if(DTCC_USE_HOMEBREW_LLVM AND APPLE)
   find_program(HOMEBREW_CLANG /opt/homebrew/opt/llvm/bin/clang)
   find_program(HOMEBREW_CLANGXX /opt/homebrew/opt/llvm/bin/clang++)
 
