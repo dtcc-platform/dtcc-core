@@ -1,4 +1,5 @@
 from typing import Any, Dict, Optional
+from enum import Enum, auto
 
 from ...model import (
     Mesh,
@@ -58,11 +59,16 @@ from ..meshing.tetgen import (
     is_tetgen_available,
 )
 
-
+class LoD(Enum):
+    
+    GeometryType.LOD0 = auto()
+    GeometryType.LOD1 = auto()
+    GeometryType.LOD2 = auto()
+    GeometryType.LOD3 = auto()
 
 def build_city_mesh(
     city: City,
-    lod: GeometryType = None,
+    lod: GeometryType | list[GeometryType] = GeometryType.LOD1 ,
     min_building_detail: float = 0.5,
     min_building_area: float = 15.0,
     merge_buildings: bool = True,
@@ -93,7 +99,6 @@ def build_city_mesh(
         The minimum angle of the mesh, by default 30.0.
     `merge_meshes` : bool, optional
         Whether to merge the meshes to a single mesh, by default True.
-
     `smoothing` : float, optional
         The smoothing of the mesh, by default 0.0.
 
@@ -101,33 +106,59 @@ def build_city_mesh(
     -------
     `model.Mesh`
     """
+    
+    _LOD_PRIORITY = {
+    GeometryType.LOD0: 0,
+    GeometryType.LOD1: 1,
+    GeometryType.LOD2: 2,
+    GeometryType.LOD3: 3,
+    }
     buildings = city.buildings
-    if lod is None:
-        lods = [GeometryType.LOD2, GeometryType.LOD1, GeometryType.LOD0]
-        for test_lod in lods:
-            if buildings and buildings[0].get_footprint(test_lod) is not None:
-                lod = test_lod
-                info(f"Using LOD {lod.name} for building footprints")
-                break
-
+    
+    n_buildings = len(buildings)
+    if isinstance(lod, GeometryType):
+        # single value -> broadcast to all
+        lod = [lod] * n_buildings
+    elif isinstance(lod, (list, tuple)):
+        if len(lod) != n_buildings:
+            raise ValueError(f"lod list length {len(lod)} != number of buildings {n_buildings}")
+        if not all(isinstance(x, GeometryType) for x in lod):
+            raise TypeError("all elements in lod list must be GeometryType instances")
+        lod = list(lod)
+    else:
+        raise TypeError(
+            f"lod must be a single GeometryType or a list/tuple of {n_buildings} GeometryType values, "
+            f"got {type(lod).__name__}"
+        )
+    
     if merge_buildings:
         info(f"Merging {len(buildings)} buildings...")
-        merged_buildings = merge_building_footprints(
-            buildings, lod, min_area=min_building_area
+        merged_buildings, index_map = merge_building_footprints(
+            buildings, 
+            lod=GeometryType.LOD0,
+            max_distance= merge_tolerance, 
+            min_area=min_building_area,
+            return_index_map= True
         )
+        merged_lod = [GeometryType.LOD0] * len(merged_buildings)
+        for idx, local_indices in enumerate(index_map):
+            merged_lod[idx] = min([lod[i] for i in local_indices],key=lambda x: _LOD_PRIORITY[x])
+        
+        print("Number of buildings after merging: ", len(merged_buildings))
         simplifed_footprints = simplify_building_footprints(
             merged_buildings, min_building_detail / 2, lod=GeometryType.LOD0
         )
+        print("Number of buildings after simplification: ", len(simplifed_footprints))
         clearance_fix = fix_building_footprint_clearance(
             simplifed_footprints, min_building_detail
         )
+        print("Number of buildings after clearance fix: ", len(clearance_fix))
         building_footprints = [
             b.get_footprint(GeometryType.LOD0) for b in clearance_fix
         ]
         info(f"After merging: {len(building_footprints)} buildings.")
     else:
-
-        building_footprints = [b.get_footprint(lod) for b in buildings]
+        building_footprints = [b.get_footprint(b_lod) for b,b_lod in zip(buildings,lod)]
 
     subdomain_resolution = [building_mesh_triangle_size] * len(building_footprints)
 
@@ -137,12 +168,7 @@ def build_city_mesh(
     terrain_raster = terrain.raster
     terrain_mesh = terrain.mesh
     if terrain_raster is None and terrain_mesh is None:
-        warning("City terrain has no data. Attempting to build terrain")
-        city.build_terrain()
-        terrain_raster = city.terrain.raster
-        terrain_mesh = city.terrain.mesh
-        if terrain_raster is None and terrain_mesh is None:
-            raise ValueError("Failed to build city terrain")
+        raise ValueError("City terrain has no data. Please compute terrain first.")
     if terrain_raster is None and terrain_mesh is not None:
         terrain_raster = mesh_to_raster(terrain_mesh, cell_size=max_mesh_size)
     builder_dem = raster_to_builder_gridfield(terrain_raster)
@@ -153,6 +179,7 @@ def build_city_mesh(
     builder_mesh = _dtcc_builder.build_city_surface_mesh(
         builder_surfaces,
         subdomain_resolution,
+        [_LOD_PRIORITY[x] for x in merged_lod],
         builder_dem,
         max_mesh_size,
         min_mesh_angle,
@@ -160,6 +187,7 @@ def build_city_mesh(
         merge_meshes,
         sort_triangles,
     )
+    
     if merge_meshes:
         result_mesh = builder_mesh[0].from_cpp()
     else:
