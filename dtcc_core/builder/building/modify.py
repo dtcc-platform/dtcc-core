@@ -1,4 +1,4 @@
-from ...model import Building, GeometryType, MultiSurface, Surface, GeometryType
+from ...model import Building, GeometryType, MultiSurface, Surface
 from ..polygons.polygons import (
     polygon_merger,
     simplify_polygon,
@@ -14,8 +14,6 @@ from shapely.geometry import Polygon
 from ..logging import debug, info, warning, error
 
 from typing import List, Tuple, Union
-from statistics import mean
-import numpy as np
 
 
 @register_model_method
@@ -72,7 +70,8 @@ def merge_building_footprints(
     lod: GeometryType = GeometryType.LOD0,
     max_distance: float = 0.5,
     min_area=10,
-) -> List[Building]:
+    return_index_map: bool = False,
+) -> List[Building] | Tuple[List[Building], List[List[int]]]:
     """
     Merge nearby building footprints into single buildings.
 
@@ -86,59 +85,80 @@ def merge_building_footprints(
         Maximum distance between buildings to merge.
     min_area : float, default 10
         Minimum area threshold for merged footprints.
+    return_index_map : bool, default False
+        When True, also return the mapping from each merged building to the
+        original building indices it represents.
 
     Returns
     -------
-    List[Building]
-        List of merged buildings.
+    Union[List[Building], Tuple[List[Building], List[List[int]]]]
+        Merged buildings, optionally paired with the index map.
     """
-    if len(buildings) <= 1:
-        return buildings
+    source_indices: List[int] = []
+    heights: List[float] = []
+    footprints: List[Polygon] = []
 
-    buildings_geom = [building.flatten_geometry(lod) for building in buildings]
-    # print(buildings_geom)
-    buildings_geom = [geom for geom in buildings_geom if geom is not None]
-    building_heights = [geom.zmax for geom in buildings_geom]
-    footprints = [geom.to_polygon(max_distance / 4) for geom in buildings_geom]
-    merged_footprint, merged_indices = polygon_merger(
+    for idx, building in enumerate(buildings):
+        flattened_geom = building.flatten_geometry(lod)
+        if flattened_geom is None:
+            warning(f"Building {building.id} has no geometry at LOD {lod}. Skipping.")
+            continue
+        footprint = flattened_geom.to_polygon(max_distance / 4)
+        if footprint is None or footprint.is_empty:
+            warning(f"Building {building.id} produced an empty footprint. Skipping.")
+            continue
+        source_indices.append(idx)
+        heights.append(flattened_geom.zmax)
+        footprints.append(footprint)
+
+    if not footprints:
+        if return_index_map:
+            return [], []
+        return []
+
+    merged_footprints, merged_indices = polygon_merger(
         footprints, max_distance, min_area=min_area
     )
-    merged_buildings = []
-    for idx, footprint in enumerate(merged_footprint):
+
+    merged_buildings: List[Building] = []
+    merged_indices_global: List[List[int]] = []
+
+    for idx, footprint in enumerate(merged_footprints):
         if footprint.geom_type == "MultiPolygon":
-            ValueError("Merged footprint is a MultiPolygon")
+            raise ValueError("Merged footprint is a MultiPolygon")
         footprint = footprint.simplify(1e-2, True)
         if footprint.geom_type == "MultiPolygon":
-            ValueError("simplified footprint is a MultiPolygon")
+            raise ValueError("simplified footprint is a MultiPolygon")
         footprint = remove_slivers(footprint, max_distance / 2)
         if footprint.geom_type == "MultiPolygon":
-            ValueError("de-slivered footprint is a MultiPolygon")
+            raise ValueError("de-slivered footprint is a MultiPolygon")
 
         if footprint.is_empty or footprint.area < min_area:
             warning(f"Empty or too small footprint: {footprint.area}")
             continue
-        indices = merged_indices[idx]
 
-        original_buildings = [buildings[i] for i in indices]
-        original_footprints = [footprints[i] for i in indices]
-        area_argsort = np.argsort([footprint.area for footprint in original_footprints])
+        local_indices = merged_indices[idx]
+        global_indices = [source_indices[i] for i in local_indices]
 
-        original_buildings = [original_buildings[i] for i in area_argsort]
-        building_attributes = merge_building_attributes(original_buildings)
-
-        height = sum([building_heights[i] * footprints[i].area for i in indices]) / sum(
-            [footprints[i].area for i in indices]
-        )
+        num = sum(heights[i] * footprints[i].area for i in local_indices)
+        den = sum(footprints[i].area for i in local_indices)
+        height = num / den if den > 0 else 0.0
 
         building_surface = Surface()
         building_surface.from_polygon(footprint, height)
 
         building = Building()
         building.add_geometry(building_surface, GeometryType.LOD0)
-        building.attributes = building_attributes
-        merged_buildings.append(building)
-    return merged_buildings
 
+        original_buildings = [buildings[i] for i in global_indices]
+        building.attributes = merge_building_attributes(original_buildings)
+
+        merged_buildings.append(building)
+        merged_indices_global.append(global_indices)
+
+    if return_index_map:
+        return merged_buildings, merged_indices_global
+    return merged_buildings
 
 def merge_building_attributes(buildings: List[Building]) -> dict:
     """
@@ -166,7 +186,8 @@ def simplify_building_footprints(
     buildings: List[Building],
     tolerance: float = 0.5,
     lod: GeometryType = GeometryType.LOD0,
-) -> List[Building]:
+    return_index_map: bool = False,
+) -> Union[List[Building], Tuple[List[Building], List[List[int]]]]:
     """
     Simplify the building footprints by reducing the number of vertices while maintaining the overall shape.
 
@@ -178,28 +199,44 @@ def simplify_building_footprints(
         The tolerance for simplification. A higher value results in a more simplified footprint (default is 0.5).
     lod : GeometryType, optional
         The level of detail of the geometry to simplify. Typically set to `GeometryType.LOD0` (default).
+    return_index_map : bool, optional
+        When True, also return a mapping from each simplified building to its
+        original index in `buildings`.
 
     Returns
     -------
-    List[Building]
-        A list of `Building` objects with simplified LOD0 footprints.
+    Union[List[Building], Tuple[List[Building], List[List[int]]]]
+        Simplified buildings, optionally paired with the index map.
     """
 
-    simplified_buildings = []
-    for building in buildings:
-        lod0 = building.lod0
-        if lod0 is None:
+    simplified_buildings: List[Building] = []
+    index_map: List[List[int]] = []
+
+    for idx, building in enumerate(buildings):
+        lod_geom = building.flatten_geometry(lod)
+        if lod_geom is None:
             continue
-        footprint = lod0.to_polygon()
+        footprint = lod_geom.to_polygon()
         if footprint is None or footprint.is_empty:
             continue
-        footprint = footprint.simplify(tolerance, True)
+        simplified_fp = footprint.simplify(tolerance, True)
+        if simplified_fp is None or simplified_fp.is_empty:
+            continue
+        if simplified_fp.geom_type != "Polygon":
+            warning("Simplification produced non-polygon geometry; skipping.")
+            continue
+
         building_surface = Surface()
-        building_surface.from_polygon(footprint, lod0.zmax)
+        building_surface.from_polygon(simplified_fp, lod_geom.zmax)
         simplified_building = building.copy()
         simplified_building.add_geometry(building_surface, GeometryType.LOD0)
         simplified_building.calculate_bounds()
         simplified_buildings.append(simplified_building)
+        if return_index_map:
+            index_map.append([idx])
+
+    if return_index_map:
+        return simplified_buildings, index_map
     return simplified_buildings
 
 
@@ -207,7 +244,8 @@ def fix_building_footprint_clearance(
     buildings: List[Building],
     clearance: float = 0.5,
     lod: GeometryType = GeometryType.LOD0,
-) -> List[Building]:
+    return_index_map: bool = False,
+) -> Union[List[Building], Tuple[List[Building], List[List[int]]]]:
     """
     Fix clearance issues in building footprints.
 
@@ -219,27 +257,43 @@ def fix_building_footprint_clearance(
         Minimum clearance distance in meters.
     lod : GeometryType, default GeometryType.LOD0
         Level of detail to fix.
+    return_index_map : bool, optional
+        When True, also return a mapping from each fixed building to its
+        original index in `buildings`.
 
     Returns
     -------
-    List[Building]
-        List of buildings with fixed clearances.
+    Union[List[Building], Tuple[List[Building], List[List[int]]]]
+        Buildings with fixed clearances, optionally paired with the index map.
     """
-    fixed_buildings = []
-    for building in buildings:
-        lod0 = building.lod0
-        if lod0 is None:
+    fixed_buildings: List[Building] = []
+    index_map: List[List[int]] = []
+
+    for idx, building in enumerate(buildings):
+        lod_geom = building.flatten_geometry(lod)
+        if lod_geom is None:
             continue
-        footprint = lod0.to_polygon()
+        footprint = lod_geom.to_polygon()
         if footprint is None or footprint.is_empty:
             continue
-        footprint = fix_clearance(footprint, clearance)
+        fixed_fp = fix_clearance(footprint, clearance)
+        if fixed_fp is None or fixed_fp.is_empty:
+            continue
+        if fixed_fp.geom_type != "Polygon":
+            warning("Clearance fix produced non-polygon geometry; skipping.")
+            continue
+
         building_surface = Surface()
-        building_surface.from_polygon(footprint, lod0.zmax)
+        building_surface.from_polygon(fixed_fp, lod_geom.zmax)
         fixed_building = building.copy()
         fixed_building.add_geometry(building_surface, GeometryType.LOD0)
         fixed_building.calculate_bounds()
         fixed_buildings.append(fixed_building)
+        if return_index_map:
+            index_map.append([idx])
+
+    if return_index_map:
+        return fixed_buildings, index_map
     return fixed_buildings
 
 

@@ -101,14 +101,15 @@ inline void compute_spade_domain_markers(Mesh &mesh, const std::vector<Polygon> 
 } // namespace detail
 
 inline Mesh spade_build_ground_mesh(const std::vector<Polygon> &subdomains,
-                              const std::vector<double> subdomain_triangle_size,
-                              double xmin,
-                              double ymin,
-                              double xmax,
-                              double ymax,
-                              double max_mesh_size,
-                              double min_mesh_angle,
-                              bool sort_triangles = false)
+                                    const std::vector<Polygon> &holes,
+                                    const std::vector<double> &subdomain_triangle_size,
+                                    double xmin,
+                                    double ymin,
+                                    double xmax,
+                                    double ymax,
+                                    double max_mesh_size,
+                                    double min_mesh_angle,
+                                    bool sort_triangles = false)
 {
 
   info("SPADE Triangulation: Building ground mesh...");
@@ -124,17 +125,36 @@ inline Mesh spade_build_ground_mesh(const std::vector<Polygon> &subdomains,
   info("Max mesh size: " + str(max_mesh_size));
   info("Estimated number of faces: " + str(n));
   info("Number of subdomains (buildings): " + str(subdomains.size()));
+  info("Number of explicit holes: " + str(holes.size()));
 
   std::vector<std::vector<Vector2D>> triangle_sub_domains;
   triangle_sub_domains.reserve(subdomains.size());
   for (const auto &sd : subdomains)
   {
-    triangle_sub_domains.push_back(sd.vertices);
+    if (!sd.vertices.empty())
+      triangle_sub_domains.push_back(sd.vertices);
     for (const auto &hole : sd.holes)
-      triangle_sub_domains.push_back(hole);
+    {
+      if (!hole.empty())
+        triangle_sub_domains.push_back(hole);
+    }
   }
-  info("Number of subdomains (buildings + holes): " + str(triangle_sub_domains.size()));
+  info("Number of subdomains (buildings + building holes): " + str(triangle_sub_domains.size()));
 
+  std::vector<std::vector<Vector2D>> triangle_holes;
+  triangle_holes.reserve(holes.size());
+  for (const auto &hole_polygon : holes)
+  {
+    if (!hole_polygon.vertices.empty())
+      triangle_holes.push_back(hole_polygon.vertices);
+    for (const auto &nested : hole_polygon.holes)
+    {
+      if (!nested.empty())
+        triangle_holes.push_back(nested);
+    }
+  }
+  info("Number of explicit hole loops (including nested): " + str(triangle_holes.size()));
+  
   std::vector<Vector2D> boundary{};
   boundary.push_back(bounding_box.P);
   boundary.push_back(Vector2D(bounding_box.Q.x, bounding_box.P.y));
@@ -165,6 +185,15 @@ inline Mesh spade_build_ground_mesh(const std::vector<Polygon> &subdomains,
       inner_loops.push_back(std::move(loop));
   }
 
+  std::vector<std::vector<spade::Point>> hole_loops;
+  hole_loops.reserve(triangle_holes.size());
+  for (const auto &polygon : triangle_holes)
+  {
+    auto loop = make_loop(polygon);
+    if (loop.size() >= 3)
+      hole_loops.push_back(std::move(loop));
+  }
+
   double effective_maxh = max_mesh_size;
   if (!subdomain_triangle_size.empty())
   {
@@ -186,7 +215,7 @@ inline Mesh spade_build_ground_mesh(const std::vector<Polygon> &subdomains,
   spade::Quality quality =
       (min_mesh_angle >= 25.0) ? spade::Quality::Moderate : spade::Quality::Default;
 
-  auto result = spade::triangulate(outer_loop,{}, inner_loops, effective_maxh, quality, true);
+  auto result = spade::triangulate(outer_loop, hole_loops, inner_loops, effective_maxh, quality, true);
 
   if (result.points.size() < 3 || result.triangles.empty())
   {

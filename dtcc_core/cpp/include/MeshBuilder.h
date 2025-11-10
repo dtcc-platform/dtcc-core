@@ -39,7 +39,8 @@ namespace DTCC_BUILDER
   public:
     static Mesh
     build_terrain_mesh(const std::vector<Polygon> &subdomains,
-                       const std::vector<double> subdomain_triangle_size,
+                       const std::vector<Polygon> &holes,
+                       const std::vector<double> &subdomain_triangle_size,
                        const GridField &dtm,
                        double max_mesh_size,
                        double min_mesh_angle,
@@ -50,9 +51,10 @@ namespace DTCC_BUILDER
       // Get bounding box
       const BoundingBox2D &bbox = dtm.grid.bounding_box;
       // build boundary
-      Mesh ground_mesh = spade_build_ground_mesh(
-          subdomains, subdomain_triangle_size, bbox.P.x, bbox.P.y, bbox.Q.x,
-          bbox.Q.y, max_mesh_size, min_mesh_angle, sort_triangles);
+      Mesh ground_mesh = build_ground_mesh(subdomains, holes, subdomain_triangle_size,
+                                           bbox.P.x, bbox.P.y, bbox.Q.x,
+                                           bbox.Q.y, max_mesh_size, min_mesh_angle,
+                                           sort_triangles);
       // Displace ground surface. Fill all points with maximum height. This is
       // used to always choose the smallest height for each point since each point
       // may be visited multiple times.
@@ -121,7 +123,8 @@ namespace DTCC_BUILDER
     //  etc (non-negative integers mark cells inside buildings)
     static Mesh
     build_ground_mesh(const std::vector<Polygon> &subdomains,
-                      const std::vector<double> subdomain_triangle_size,
+                      const std::vector<Polygon> &holes,
+                      const std::vector<double> &subdomain_triangle_size,
                       double xmin,
                       double ymin,
                       double xmax,
@@ -130,47 +133,10 @@ namespace DTCC_BUILDER
                       double min_mesh_angle,
                       bool sort_triangles = false)
     {
-      info("TRIANGLE: Building ground mesh...");
-      Timer timer("build_ground_mesh");
-
-      // print some stats
-      const BoundingBox2D bounding_box(Vector2D(xmin, ymin),
-                                       Vector2D(xmax, ymax));
-      const size_t nx = (bounding_box.Q.x - bounding_box.P.x) / max_mesh_size;
-      const size_t ny = (bounding_box.Q.y - bounding_box.P.y) / max_mesh_size;
-      const size_t n = nx * ny;
-      info("Bounds: " + str(bounding_box));
-      info("Max mesh size: " + str(max_mesh_size));
-      info("Estimated number of faces: " + str(n));
-      info("Number of subdomains (buildings): " + str(subdomains.size()));
-
-      // Extract subdomains (building footprints)
-      std::vector<std::vector<Vector2D>> triangle_sub_domains;
-      for (auto const &sd : subdomains)
-      {
-        triangle_sub_domains.push_back(sd.vertices);
-        for (auto const &hole : sd.holes)
-          triangle_sub_domains.push_back(hole);
-      }
-      info("Number of subdomains (buildings + holes): " +
-           str(triangle_sub_domains.size()));
-      // build boundary
-      std::vector<Vector2D> boundary{};
-      boundary.push_back(bounding_box.P);
-      boundary.push_back(Vector2D(bounding_box.Q.x, bounding_box.P.y));
-      boundary.push_back(bounding_box.Q);
-      boundary.push_back(Vector2D(bounding_box.P.x, bounding_box.Q.y));
-
-      // build 2D mesh
-      Mesh mesh;
-      Triangulate::call_triangle(mesh, boundary, triangle_sub_domains,
-                                 subdomain_triangle_size, max_mesh_size,
-                                 min_mesh_angle, sort_triangles);
-
-      // Mark subdomains
-      compute_domain_markers(mesh, subdomains);
-
-      return mesh;
+      return spade_build_ground_mesh(subdomains, holes, subdomain_triangle_size,
+                                     xmin, ymin, xmax, ymax,
+                                     max_mesh_size, min_mesh_angle,
+                                     sort_triangles);
     }
 
     // Layer ground mesh to create a volume mesh.
@@ -501,7 +467,9 @@ namespace DTCC_BUILDER
 
     static std::vector<Mesh>
     build_city_surface_mesh(const std::vector<Surface> &buildings,
-                            const std::vector<double> subdomain_triangle_size,
+                            const std::vector<Surface> &holes,
+                            const std::vector<int> meshing_directive,
+                            const std::vector<double> &subdomain_triangle_size,
                             const GridField &dtm,
                             double max_mesh_size,
                             double min_mesh_angle,
@@ -512,11 +480,18 @@ namespace DTCC_BUILDER
       auto build_city_surface_t = Timer("build_city_surface_mesh");
       auto terrain_time = Timer("build_city_surface_mesh: step 1 terrain");
       std::vector<Polygon> subdomains;
+      subdomains.reserve(buildings.size());
       for (const auto &b : buildings)
       {
         subdomains.push_back(b.to_polygon());
       }
-      Mesh terrain_mesh = build_terrain_mesh(subdomains, subdomain_triangle_size,
+      std::vector<Polygon> hole_domains;
+      hole_domains.reserve(holes.size());
+      for (const auto &h : holes)
+      {
+        hole_domains.push_back(h.to_polygon());
+      }
+      Mesh terrain_mesh = build_terrain_mesh(subdomains,hole_domains, subdomain_triangle_size,
                                              dtm, max_mesh_size, min_mesh_angle,
                                              smooth_ground, sort_triangles);
       terrain_time.stop();
@@ -526,28 +501,70 @@ namespace DTCC_BUILDER
 
       std::map<size_t, std::vector<Simplex2D>> building_faces;
       std::vector<size_t> building_indices;
+
+      std::map<size_t, std::vector<Simplex2D>> platform_faces;
+      std::map<size_t, double> platform_min_z; 
+
       info("finding markes");
       auto find_markers_t = Timer("build_city_surface_mesh: step 2 find markers");
       for (size_t i = 0; i < terrain_mesh.markers.size(); i++)
       {
         auto marker = terrain_mesh.markers[i];
+        if (marker < 0) continue;
 
-        if (marker >= 0)
-        {
-          // info("marker: " + str(marker) + " i: " + str(i));
-          building_faces[marker].push_back(terrain_mesh.faces[i]);
+        const auto &face = terrain_mesh.faces[i];
+        
+        if (meshing_directive[marker] > 0) {
+          building_faces[marker].push_back(face);
           building_indices.push_back(i);
+        } else {
+          platform_faces[marker].push_back(face);
+
+          const auto &v0 = terrain_mesh.vertices[face.v0];
+          const auto &v1 = terrain_mesh.vertices[face.v1];
+          const auto &v2 = terrain_mesh.vertices[face.v2];
+
+          auto [it, _] = platform_min_z.try_emplace(marker, std::numeric_limits<double>::infinity());
+          double &minz = it->second;
+          minz = std::min({minz, v0.z, v1.z, v2.z});
         }
-      }
+        
+        }
+      
       find_markers_t.stop();
 
+      info("build_city_surface_mesh: step 3 flatten platforms");
+      for (const auto &kv : platform_faces) {
+        const size_t marker = kv.first;
+        const auto  &faces  = kv.second;
+        auto it = platform_min_z.find(marker);
+        if (it == platform_min_z.end()) continue; // no faces? skip
+        const double zflat = it->second;
+
+        // Collect unique vertex indices used by these faces
+        std::unordered_set<size_t> vset;
+        vset.reserve(faces.size() * 3);
+        for (const auto &f : faces) {
+          vset.insert(static_cast<size_t>(f.v0));
+          vset.insert(static_cast<size_t>(f.v1));
+          vset.insert(static_cast<size_t>(f.v2));
+        }
+        // Set their z to zflat
+        for (size_t vi : vset) {
+          terrain_mesh.vertices[vi].z = zflat;
+        }
+      }
+      
+      if (smooth_ground){
+        VertexSmoother::smooth_mesh(terrain_mesh,smooth_ground,false,true);
+      }
+
       info("building meshes");
-      const size_t num_buildings = buildings.size();
       auto building_meshes_t =
           Timer("build_city_surface_mesh: step 3 building meshes");
       for (auto it = building_faces.begin(); it != building_faces.end(); ++it)
       {
-        const int marker = it->first;
+        auto marker = it->first;
         auto faces = it->second;
         auto building = buildings[marker];
         auto roof_height = building.max_height();
@@ -573,7 +590,6 @@ namespace DTCC_BUILDER
           //     str(face.v2));
           building_mesh.faces.push_back(
               Simplex2D(num_vertices, num_vertices + 1, num_vertices + 2));
-          building_mesh.markers.push_back(marker);
         }
 
         // add walls
@@ -593,7 +609,7 @@ namespace DTCC_BUILDER
           wall_mesh.vertices = {ground_v0, ground_v1, roof_v0, roof_v1};
           auto wall_normal =
               Geometry::triangle_normal(ground_v0, ground_v1, roof_v1);
-          if (Geometry::dot_3d(wall_normal, face_center - ground_v0) < 0)
+          if (Geometry::dot_3d(wall_normal, face_center - ground_v0) > 0)
           {
             wall_mesh.faces = {Simplex2D(0, 1, 3), Simplex2D(0, 3, 2)};
           }
@@ -601,8 +617,7 @@ namespace DTCC_BUILDER
           {
             wall_mesh.faces = {Simplex2D(0, 3, 1), Simplex2D(0, 2, 3)};
           }
-          const int wall_marker = num_buildings + marker + 1;
-          wall_mesh.markers = { wall_marker, wall_marker};
+
           building_mesh = MeshProcessor::merge_meshes({building_mesh, wall_mesh});
         }
 
@@ -614,41 +629,20 @@ namespace DTCC_BUILDER
       auto remove_inside_t =
           Timer("build_city_surface_mesh: step 4 remove inside");
       std::sort(building_indices.begin(), building_indices.end());
-      building_indices.erase(
-          std::unique(building_indices.begin(), building_indices.end()),
-          building_indices.end());
 
-      std::vector<char> remove_mask(terrain_mesh.faces.size(), 0);
-      for (size_t idx : building_indices)
-      {
-        if (idx < remove_mask.size())
-          remove_mask[idx] = 1;
-      }
-
-      std::vector<Simplex2D> filtered_faces;
-      std::vector<int> filtered_markers;
-      const size_t faces_to_keep =
-          terrain_mesh.faces.empty()
-              ? 0
-              : terrain_mesh.faces.size() -
-                    std::min(terrain_mesh.faces.size(), building_indices.size());
-      filtered_faces.reserve(faces_to_keep);
-      filtered_markers.reserve(faces_to_keep);
-
-      for (size_t i = 0; i < terrain_mesh.faces.size(); ++i)
-      {
-        if (!remove_mask[i])
-        {
-          filtered_faces.push_back(terrain_mesh.faces[i]);
-          int marker = std::numeric_limits<int>::lowest();
-          if (i < terrain_mesh.markers.size())
-            marker = terrain_mesh.markers[i];
-          filtered_markers.push_back(marker);
-        }
-      }
-
-      terrain_mesh.faces.swap(filtered_faces);
-      terrain_mesh.markers.swap(filtered_markers);
+      // if index is in list of building indices, move to the end of the list
+      auto new_end = std::remove_if(
+          terrain_mesh.faces.begin(), terrain_mesh.faces.end(),
+          [&](const auto &face)
+          {
+            return std::binary_search(
+                building_indices.begin(), building_indices.end(),
+                &face -
+                    &terrain_mesh.faces[0]); // calculate the index of the face in
+                                             // the terrain_mesh.faces vector.
+          });
+      // remove all elements that have been moved
+      terrain_mesh.faces.erase(new_end, terrain_mesh.faces.end());
       remove_inside_t.stop();
 
       auto final_merger_t = Timer("build_city_surface_mesh: step 5 final merge");
