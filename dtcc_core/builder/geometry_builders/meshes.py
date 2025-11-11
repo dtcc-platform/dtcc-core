@@ -87,6 +87,8 @@ def build_city_mesh(
     ----------
     `city` : model.City
         The city to build the mesh from.
+    `lod` : GeometryType or list of GeometryType, optional
+        The level of detail (meshing directive) for each building. If a single value is provided,
     `min_building_detail` : float, optional
         The minimum detail of the buildin to resolve, by default 0.5.
     `min_building_area` : float, optional
