@@ -257,7 +257,6 @@ def build_city_mesh(
         hole_surfaces,
         building_lod_switches,
         building_resolution,
-        building_lod_switches,
         builder_dem,
         max_mesh_size,
         min_mesh_angle,
@@ -437,8 +436,8 @@ def build_city_volume_mesh(
         builder_mesh = _dtcc_builder.build_city_surface_mesh(
             _surfaces,
             hole_surfaces,
-            subdomain_resolution,
             meshing_directives,
+            subdomain_resolution,
             _dem,
             max_mesh_size,
             min_mesh_angle,
