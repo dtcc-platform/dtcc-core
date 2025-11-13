@@ -255,7 +255,6 @@ class Object(Model):
             geometry_type = GeometryType.from_class(type(geometry))
         if not isinstance(geometry_type, GeometryType):
             warning(f"Invalid geometry type (but I'll allow it): {geometry_type}")
-        info(f"Adding geometry of type {geometry_type} to object")
         self.geometry[geometry_type] = geometry
 
     def add_mesh(self, mesh: Mesh):

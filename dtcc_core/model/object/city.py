@@ -18,6 +18,7 @@ from ..logging import info, warning, error, debug
 from ..mixins.city import (
     CityLoaderMixin,
     CityDownloadMixin,
+    CitySaveMixin,
     CityBuilderMixin,
     CityModifyingMixin,
 )
@@ -25,7 +26,12 @@ from ..mixins.city import (
 
 @dataclass
 class City(
-    CityLoaderMixin, CityDownloadMixin, CityBuilderMixin, CityModifyingMixin, Object
+    CityLoaderMixin,
+    CitySaveMixin,
+    CityDownloadMixin,
+    CityBuilderMixin,
+    CityModifyingMixin,
+    Object,
 ):
     """Represents a city, the top-level container class for city models."""
 

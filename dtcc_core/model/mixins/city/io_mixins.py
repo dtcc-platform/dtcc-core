@@ -174,3 +174,35 @@ class CityDownloadMixin:
             pc = pc.remove_global_outliers(remove_global_outliers)
         self.add_point_cloud(pc)
         return self
+
+
+class CitySaveMixin:
+    def save_building_footprints(self: "City", path: Union[str, Path]):
+        """
+        Save city buildings as 2D footprints to a shapefile, geojson or geopackage.
+        """
+
+        import dtcc_core.io as io
+
+        io.footprints.save(self, path)
+
+    def save_pointcloud(self: "City", path: Union[str, Path]):
+        """
+        Save city pointcloud to a las or csv file.
+        """
+
+        import dtcc_core.io as io
+
+        pc = self.pointcloud
+        if pc is None:
+            raise ValueError("City has no pointcloud to save")
+        io.pointcloud.save(pc, path)
+
+    def save_geojson(self: "City", path: Union[str, Path]):
+        """
+        Save city buildings as GeoJSON.
+        """
+
+        import dtcc_core.io as io
+
+        io.city.save(self, path)
