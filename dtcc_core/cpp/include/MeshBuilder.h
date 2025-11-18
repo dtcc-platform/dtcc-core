@@ -4,7 +4,9 @@
 #ifndef DTCC_MESH_BUILDER_H
 #define DTCC_MESH_BUILDER_H
 
+#include <algorithm>
 #include <cmath>
+#include <limits>
 #include <iostream>
 #include <map>
 #include <stack>
@@ -23,6 +25,7 @@
 #include "model/Mesh.h"
 #include "model/Surface.h"
 #include "model/Vector.h"
+#include "spade/triangulate.hpp"
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -47,7 +50,7 @@ namespace DTCC_BUILDER
       // Get bounding box
       const BoundingBox2D &bbox = dtm.grid.bounding_box;
       // build boundary
-      Mesh ground_mesh = build_ground_mesh(
+      Mesh ground_mesh = spade_build_ground_mesh(
           subdomains, subdomain_triangle_size, bbox.P.x, bbox.P.y, bbox.Q.x,
           bbox.Q.y, max_mesh_size, min_mesh_angle, sort_triangles);
       // Displace ground surface. Fill all points with maximum height. This is
@@ -127,7 +130,7 @@ namespace DTCC_BUILDER
                       double min_mesh_angle,
                       bool sort_triangles = false)
     {
-      info("Building ground mesh...");
+      info("TRIANGLE: Building ground mesh...");
       Timer timer("build_ground_mesh");
 
       // print some stats
@@ -539,11 +542,12 @@ namespace DTCC_BUILDER
       find_markers_t.stop();
 
       info("building meshes");
+      const size_t num_buildings = buildings.size();
       auto building_meshes_t =
           Timer("build_city_surface_mesh: step 3 building meshes");
       for (auto it = building_faces.begin(); it != building_faces.end(); ++it)
       {
-        auto marker = it->first;
+        const int marker = it->first;
         auto faces = it->second;
         auto building = buildings[marker];
         auto roof_height = building.max_height();
@@ -569,6 +573,7 @@ namespace DTCC_BUILDER
           //     str(face.v2));
           building_mesh.faces.push_back(
               Simplex2D(num_vertices, num_vertices + 1, num_vertices + 2));
+          building_mesh.markers.push_back(marker);
         }
 
         // add walls
@@ -596,7 +601,8 @@ namespace DTCC_BUILDER
           {
             wall_mesh.faces = {Simplex2D(0, 3, 1), Simplex2D(0, 2, 3)};
           }
-
+          const int wall_marker = num_buildings + marker + 1;
+          wall_mesh.markers = { wall_marker, wall_marker};
           building_mesh = MeshProcessor::merge_meshes({building_mesh, wall_mesh});
         }
 
@@ -608,20 +614,41 @@ namespace DTCC_BUILDER
       auto remove_inside_t =
           Timer("build_city_surface_mesh: step 4 remove inside");
       std::sort(building_indices.begin(), building_indices.end());
+      building_indices.erase(
+          std::unique(building_indices.begin(), building_indices.end()),
+          building_indices.end());
 
-      // if index is in list of building indices, move to the end of the list
-      auto new_end = std::remove_if(
-          terrain_mesh.faces.begin(), terrain_mesh.faces.end(),
-          [&](const auto &face)
-          {
-            return std::binary_search(
-                building_indices.begin(), building_indices.end(),
-                &face -
-                    &terrain_mesh.faces[0]); // calculate the index of the face in
-                                             // the terrain_mesh.faces vector.
-          });
-      // remove all elements that have been moved
-      terrain_mesh.faces.erase(new_end, terrain_mesh.faces.end());
+      std::vector<char> remove_mask(terrain_mesh.faces.size(), 0);
+      for (size_t idx : building_indices)
+      {
+        if (idx < remove_mask.size())
+          remove_mask[idx] = 1;
+      }
+
+      std::vector<Simplex2D> filtered_faces;
+      std::vector<int> filtered_markers;
+      const size_t faces_to_keep =
+          terrain_mesh.faces.empty()
+              ? 0
+              : terrain_mesh.faces.size() -
+                    std::min(terrain_mesh.faces.size(), building_indices.size());
+      filtered_faces.reserve(faces_to_keep);
+      filtered_markers.reserve(faces_to_keep);
+
+      for (size_t i = 0; i < terrain_mesh.faces.size(); ++i)
+      {
+        if (!remove_mask[i])
+        {
+          filtered_faces.push_back(terrain_mesh.faces[i]);
+          int marker = std::numeric_limits<int>::lowest();
+          if (i < terrain_mesh.markers.size())
+            marker = terrain_mesh.markers[i];
+          filtered_markers.push_back(marker);
+        }
+      }
+
+      terrain_mesh.faces.swap(filtered_faces);
+      terrain_mesh.markers.swap(filtered_markers);
       remove_inside_t.stop();
 
       auto final_merger_t = Timer("build_city_surface_mesh: step 5 final merge");

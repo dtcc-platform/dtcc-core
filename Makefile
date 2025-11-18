@@ -5,6 +5,7 @@ COVERAGE_JSON := tests/coverage.json
 .PHONY: install test coverage check-public-api verify-public-api check-public-api-strict verify-public-api-strict clean
 
 install:
+	$(PIP) install "dtcc-pyspade-native@git+https://github.com/dtcc-platform/dtcc-pyspade-native.git@main"
 	$(PIP) install -e .
 	$(PIP) install pytest pytest-cov
 

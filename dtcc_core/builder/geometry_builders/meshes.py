@@ -1,3 +1,5 @@
+from typing import Any, Dict, Optional
+
 from ...model import (
     Mesh,
     VolumeMesh,
@@ -49,6 +51,13 @@ from ..building.modify import (
 from ..meshing.convert import mesh_to_raster
 
 from ..logging import debug, info, warning, error
+
+from ..meshing.tetgen import (
+    build_volume_mesh as tetgen_build_volume_mesh,
+    get_default_tetgen_switches,
+    is_tetgen_available,
+)
+
 
 
 def build_city_mesh(
@@ -165,6 +174,8 @@ def build_city_volume_mesh(
     max_mesh_size: float = 10.0,
     merge_buildings: bool = True,
     boundary_face_markers: bool = True,
+    tetgen_switches: Optional[Dict[str, Any]] = None,
+    tetgen_switch_overrides: Optional[Dict[str, Any]] = None,
 ) -> VolumeMesh:
     """
     Build a 3D tetrahedral volume mesh for a city terrain with embedded building volumes.
@@ -192,6 +203,12 @@ def build_city_volume_mesh(
     boundary_face_markers : bool, optional
         If True, add integer markers to the boundary faces of the volume mesh as a
         post-processing step. Defaults to True. See Notes for marker conventions.
+    tetgen_switches : dict, optional
+        Optional TetGen switch parameters passed through to ``dtcc_wrapper_tetgen``.
+        Provide keys as defined by ``dtcc_wrapper_tetgen.switches.DEFAULT_TETGEN_PARAMS``.
+    tetgen_switch_overrides : dict, optional
+        Optional low-level overrides forwarded to ``build_tetgen_switches`` for custom
+        text-based switch assembly.
 
     Returns
     -------
@@ -242,7 +259,9 @@ def build_city_volume_mesh(
     # FIXME: Where do we set these parameters?
     min_building_area = 10.0
     min_building_detail = 0.5
-    min_mesh_angle = 30
+    min_mesh_angle = 30.0
+
+    # Fallback dtcc volume meshing parameters
     smoother_max_iterations = 5000
     smoothing_relative_tolerance = 0.005
     aspect_ratio_threshold = 10.0
@@ -286,6 +305,66 @@ def build_city_volume_mesh(
     if terrain_raster is None and terrain_mesh is not None:
         terrain_raster = mesh_to_raster(terrain_mesh, cell_size=max_mesh_size)
 
+    _surfaces = [
+        create_builder_surface(footprint)
+        for footprint in building_footprints
+        if footprint is not None
+    ]
+
+    # Convert from C++ to Python
+    # ground_mesh = builder_mesh_to_mesh(_ground_mesh)
+    _dem = raster_to_builder_gridfield(terrain.raster)
+
+    if is_tetgen_available():
+
+        #FIXME: Where do we set these parameters?
+        smoothing = 1
+        merge_meshes = True
+        sort_triangles = False
+        max_edge_radius_ratio = None  # 1.414
+        min_dihedral_angle = None  # 30.0
+        max_tet_volume = 20.0
+
+        builder_mesh = _dtcc_builder.build_city_surface_mesh(
+        _surfaces,
+        subdomain_resolution,
+        _dem,
+        max_mesh_size,
+        min_mesh_angle,
+        smoothing,
+        merge_meshes,
+        sort_triangles,
+        )
+
+        surface_mesh = builder_mesh[0].from_cpp()
+
+        if surface_mesh.faces is None or len(surface_mesh.faces) == 0:
+            raise ValueError("Surface mesh has no faces. Cannot build volume mesh.")
+        if surface_mesh.markers is None or len(surface_mesh.markers) == 0:
+            raise ValueError("Surface mesh has no face markers. Cannot build volume mesh.")
+        
+        switches_params = get_default_tetgen_switches()
+        if max_tet_volume is not None:
+            switches_params["max_volume"] = max_tet_volume
+        if max_edge_radius_ratio is not None or min_dihedral_angle is not None:
+            switches_params["quality"] = (
+                max_edge_radius_ratio,
+                min_dihedral_angle,
+            )
+        if tetgen_switches:
+            switches_params.update(tetgen_switches)
+
+        info("Building volume mesh with TetGen...")
+        volume_mesh = tetgen_build_volume_mesh(
+            mesh=surface_mesh,
+            build_top_sidewalls=True,
+            top_height=domain_height,
+            switches_params=switches_params,
+            switches_overrides=tetgen_switch_overrides,
+            return_boundary_faces=boundary_face_markers, # Boundary face markers not implemented but returning boundary faces for now
+        )
+        return volume_mesh
+        
     # Convert from Python to C++
     _building_polygons = [
         create_builder_polygon(footprint.to_polygon())
@@ -310,23 +389,12 @@ def build_city_volume_mesh(
     # FIXME: Should not need to convert from C++ to Python mesh.
     # Convert from Python to C++
 
-    _surfaces = [
-        create_builder_surface(footprint)
-        for footprint in building_footprints
-        if footprint is not None
-    ]
-
-    # Convert from C++ to Python
-    # ground_mesh = builder_mesh_to_mesh(_ground_mesh)
-    _dem = raster_to_builder_gridfield(terrain.raster)
-
     # Create volume mesh builder
     volume_mesh_builder = _dtcc_builder.VolumeMeshBuilder(
         _surfaces, _dem, _ground_mesh, domain_height
     )
 
     # FIXME: How do we handle parameters?
-
     # Build volume mesh
     _volume_mesh = volume_mesh_builder.build(
         smoother_max_iterations,
