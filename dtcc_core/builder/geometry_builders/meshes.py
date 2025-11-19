@@ -296,17 +296,31 @@ def build_city_volume_mesh(
     if merge_buildings:
         info(f"Merging {len(buildings)} buildings...")
         merged_buildings = merge_building_footprints(
-            buildings, GeometryType.LOD0, min_area=min_building_area
+            buildings,
+            GeometryType.LOD0,
+            min_area=min_building_area,
         )
+
+        smallest_hole = max(min_building_detail, min_building_detail**2)
+        cleaned_footprints = clean_building_footprints(
+            merged_buildings,
+            clearance=min_building_detail,
+            smallest_hole_area=smallest_hole,
+        )
+
+        merged_buildings = merge_building_footprints(
+            cleaned_footprints,
+            GeometryType.LOD0,
+            max_distance=0,
+            min_area=min_building_area,
+        )
+
         simplifed_footprints = simplify_building_footprints(
             merged_buildings, min_building_detail / 2, lod=GeometryType.LOD0
         )
-        clearance_fix = fix_building_footprint_clearance(
-            simplifed_footprints, min_building_detail
-        )
 
         building_footprints = [
-            b.get_footprint(GeometryType.LOD0) for b in clearance_fix
+            b.get_footprint(GeometryType.LOD0) for b in simplifed_footprints
         ]
         info(f"After merging: {len(building_footprints)} buildings.")
     else:
