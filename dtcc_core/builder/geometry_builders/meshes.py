@@ -46,6 +46,7 @@ from ..building.modify import (
     merge_building_footprints,
     simplify_building_footprints,
     fix_building_footprint_clearance,
+    clean_building_footprints,
 )
 
 from ..meshing.convert import mesh_to_raster
@@ -57,7 +58,6 @@ from ..meshing.tetgen import (
     get_default_tetgen_switches,
     is_tetgen_available,
 )
-
 
 
 def build_city_mesh(
@@ -113,16 +113,38 @@ def build_city_mesh(
     if merge_buildings:
         info(f"Merging {len(buildings)} buildings...")
         merged_buildings = merge_building_footprints(
-            buildings, lod, min_area=min_building_area
+            buildings, lod, max_distance=merge_tolerance, min_area=min_building_area
         )
+
+        city.replace_buildings(merged_buildings)
+        # city.save_building_footprints("footprints_merged_mesher.gpkg")
+
+        smallest_hole = max(min_building_detail, min_building_detail**2)
+        cleaned_footprints = clean_building_footprints(
+            merged_buildings,
+            clearance=min_building_detail,
+            smallest_hole_area=smallest_hole,
+        )
+
+        city.replace_buildings(cleaned_footprints)
+        # city.save_building_footprints("footprints_merged_cleaned_mesher.gpkg")
+
+        merged_buildings = merge_building_footprints(
+            cleaned_footprints,
+            GeometryType.LOD0,
+            max_distance=0,
+            min_area=min_building_area,
+        )
+
+        city.replace_buildings(merged_buildings)
+        # city.save_building_footprints("footprints_merged_cleaned_merged_mesher.gpkg")
+
         simplifed_footprints = simplify_building_footprints(
             merged_buildings, min_building_detail / 2, lod=GeometryType.LOD0
         )
-        clearance_fix = fix_building_footprint_clearance(
-            simplifed_footprints, min_building_detail
-        )
+
         building_footprints = [
-            b.get_footprint(GeometryType.LOD0) for b in clearance_fix
+            b.get_footprint(GeometryType.LOD0) for b in simplifed_footprints
         ]
         info(f"After merging: {len(building_footprints)} buildings.")
     else:
@@ -317,7 +339,7 @@ def build_city_volume_mesh(
 
     if is_tetgen_available():
 
-        #FIXME: Where do we set these parameters?
+        # FIXME: Where do we set these parameters?
         smoothing = 1
         merge_meshes = True
         sort_triangles = False
@@ -326,14 +348,14 @@ def build_city_volume_mesh(
         max_tet_volume = 20.0
 
         builder_mesh = _dtcc_builder.build_city_surface_mesh(
-        _surfaces,
-        subdomain_resolution,
-        _dem,
-        max_mesh_size,
-        min_mesh_angle,
-        smoothing,
-        merge_meshes,
-        sort_triangles,
+            _surfaces,
+            subdomain_resolution,
+            _dem,
+            max_mesh_size,
+            min_mesh_angle,
+            smoothing,
+            merge_meshes,
+            sort_triangles,
         )
 
         surface_mesh = builder_mesh[0].from_cpp()
@@ -341,8 +363,10 @@ def build_city_volume_mesh(
         if surface_mesh.faces is None or len(surface_mesh.faces) == 0:
             raise ValueError("Surface mesh has no faces. Cannot build volume mesh.")
         if surface_mesh.markers is None or len(surface_mesh.markers) == 0:
-            raise ValueError("Surface mesh has no face markers. Cannot build volume mesh.")
-        
+            raise ValueError(
+                "Surface mesh has no face markers. Cannot build volume mesh."
+            )
+
         switches_params = get_default_tetgen_switches()
         if max_tet_volume is not None:
             switches_params["max_volume"] = max_tet_volume
@@ -361,10 +385,10 @@ def build_city_volume_mesh(
             top_height=domain_height,
             switches_params=switches_params,
             switches_overrides=tetgen_switch_overrides,
-            return_boundary_faces=boundary_face_markers, # Boundary face markers not implemented but returning boundary faces for now
+            return_boundary_faces=boundary_face_markers,  # Boundary face markers not implemented but returning boundary faces for now
         )
         return volume_mesh
-        
+
     # Convert from Python to C++
     _building_polygons = [
         create_builder_polygon(footprint.to_polygon())

@@ -241,6 +241,7 @@ def clean_building_footprints(
         must_be_valid=True,
         min_clearance=clearance,
         min_hole_area=smallest_hole_area,
+        allow_multipolygon=False,
     )
 
     for building in buildings:
@@ -250,9 +251,9 @@ def clean_building_footprints(
         footprint = lod0.to_polygon()
         if footprint is None or footprint.is_empty:
             continue
-        fixed_building = robust_fix_geometry(footprint, constraints=constraints)
+        fixed_footprint, _ = robust_fix_geometry(footprint, constraints=constraints)
         building_surface = Surface()
-        building_surface.from_polygon(footprint, lod0.zmax)
+        building_surface.from_polygon(fixed_footprint, lod0.zmax)
         fixed_building = building.copy()
         fixed_building.add_geometry(building_surface, GeometryType.LOD0)
         fixed_building.calculate_bounds()
