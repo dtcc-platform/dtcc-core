@@ -1,3 +1,5 @@
+from typing import Any, Dict, Optional
+
 from ...model import (
     Mesh,
     VolumeMesh,
@@ -9,6 +11,13 @@ from ...model import (
     GeometryType,
     PointCloud,
 )
+
+_LOD_PRIORITY: dict[GeometryType, int] = {
+    GeometryType.LOD0: 0,
+    GeometryType.LOD1: 1,
+    GeometryType.LOD2: 2,
+    GeometryType.LOD3: 3,
+}
 
 from ..model_conversion import (
     create_builder_polygon,
@@ -50,10 +59,15 @@ from ..meshing.convert import mesh_to_raster
 
 from ..logging import debug, info, warning, error
 
+from ..meshing.tetgen import (
+    build_volume_mesh as tetgen_build_volume_mesh,
+    get_default_tetgen_switches,
+    is_tetgen_available,
+)
 
 def build_city_mesh(
     city: City,
-    lod: GeometryType = None,
+    lod: GeometryType | list[GeometryType] = GeometryType.LOD1 ,
     min_building_detail: float = 0.5,
     min_building_area: float = 15.0,
     merge_buildings: bool = True,
@@ -64,6 +78,7 @@ def build_city_mesh(
     merge_meshes: bool = True,
     smoothing: int = 0,
     sort_triangles: bool = False,
+    treat_lod0_as_holes: bool = False,
 ) -> Mesh:
     """
     Build a mesh from the surfaces of the buildings in the city.
@@ -72,6 +87,8 @@ def build_city_mesh(
     ----------
     `city` : model.City
         The city to build the mesh from.
+    `lod` : GeometryType or list of GeometryType, optional
+        The level of detail (meshing directive) for each building. If a single value is provided,
     `min_building_detail` : float, optional
         The minimum detail of the buildin to resolve, by default 0.5.
     `min_building_area` : float, optional
@@ -84,43 +101,147 @@ def build_city_mesh(
         The minimum angle of the mesh, by default 30.0.
     `merge_meshes` : bool, optional
         Whether to merge the meshes to a single mesh, by default True.
-
     `smoothing` : float, optional
         The smoothing of the mesh, by default 0.0.
+    `treat_lod0_as_holes` : bool, optional
+        When True, building directives resolved to LOD0 are sent to the mesher
+        as hole surfaces instead of meshed buildings.
 
     Returns
     -------
     `model.Mesh`
     """
-    buildings = city.buildings
-    if lod is None:
-        lods = [GeometryType.LOD2, GeometryType.LOD1, GeometryType.LOD0]
-        for test_lod in lods:
-            if buildings and buildings[0].get_footprint(test_lod) is not None:
-                lod = test_lod
-                info(f"Using LOD {lod.name} for building footprints")
-                break
 
+    def compose_index_map(
+        parent_map: list[list[int]], child_map: list[list[int]]
+    ) -> list[list[int]]:
+        """
+        Combine index maps so that the resulting entries always reference
+        the original building indices.
+        """
+        if not child_map:
+            return []
+        if parent_map is None:
+            raise ValueError("Parent index map is undefined for composition.")
+        composed: list[list[int]] = []
+        for child_indices in child_map:
+            combined: list[int] = []
+            for idx in child_indices:
+                if idx < 0 or idx >= len(parent_map):
+                    warning(
+                        f"Index map mismatch: child index {idx} outside parent range {len(parent_map)}."
+                    )
+                    continue
+                combined.extend(parent_map[idx])
+            if not combined:
+                raise ValueError(
+                    "Failed to compose index maps: child entry produced no original indices."
+                )
+            composed.append(combined)
+        return composed
+
+    def lod_from_index_map(index_map: list[list[int]]) -> list[GeometryType]:
+        """
+        Derive a single LoD directive per processed building by reducing the
+        directives of the contributing original buildings.
+        """
+        reduced: list[GeometryType] = []
+        for indices in index_map:
+            if not indices:
+                raise ValueError("Index map entry is empty; cannot determine LoD.")
+            subset = [lod[i] for i in indices]
+            reduced.append(min(subset, key=lambda x: _LOD_PRIORITY[x]))
+        return reduced
+
+    buildings = city.buildings
+    
+    n_buildings = len(buildings)
+    if isinstance(lod, GeometryType):
+        # single value -> broadcast to all
+        lod = [lod] * n_buildings
+    elif isinstance(lod, (list, tuple)):
+        if len(lod) != n_buildings:
+            raise ValueError(f"lod list length {len(lod)} != number of buildings {n_buildings}")
+        if not all(isinstance(x, GeometryType) for x in lod):
+            raise TypeError("all elements in lod list must be GeometryType instances")
+        lod = list(lod)
+    else:
+        raise TypeError(
+            f"lod must be a single GeometryType or a list/tuple of {n_buildings} GeometryType values, "
+            f"got {type(lod).__name__}"
+        )
+    
+    processed_buildings = list(buildings)
+    current_index_map: list[list[int]] | None = None
+    
     if merge_buildings:
         info(f"Merging {len(buildings)} buildings...")
-        merged_buildings = merge_building_footprints(
-            buildings, lod, min_area=min_building_area
+        merged_buildings, index_map = merge_building_footprints(
+            buildings, 
+            lod=GeometryType.LOD0,
+            max_distance= merge_tolerance, 
+            min_area=min_building_area,
+            return_index_map= True
         )
-        simplifed_footprints = simplify_building_footprints(
-            merged_buildings, min_building_detail / 2, lod=GeometryType.LOD0
+        current_index_map = index_map
+        processed_buildings = merged_buildings
+        
+        print("Number of buildings after merging: ", len(merged_buildings))
+        simplifed_footprints, simplify_index_map = simplify_building_footprints(
+            processed_buildings,
+            min_building_detail / 2,
+            lod=GeometryType.LOD0,
+            return_index_map=True,
         )
-        clearance_fix = fix_building_footprint_clearance(
-            simplifed_footprints, min_building_detail
+        current_index_map = compose_index_map(current_index_map, simplify_index_map)
+        print("Number of buildings after simplification: ", len(simplifed_footprints))
+        processed_buildings = simplifed_footprints
+
+        clearance_fix, clearance_index_map = fix_building_footprint_clearance(
+            processed_buildings,
+            min_building_detail,
+            return_index_map=True,
+        )
+        current_index_map = compose_index_map(current_index_map, clearance_index_map)
+        print("Number of buildings after clearance fix: ", len(clearance_fix))
+        processed_buildings = clearance_fix
+        info(f"After merging: {len(processed_buildings)} buildings.")
+    
+    if merge_buildings:
+        target_lods = (
+            lod_from_index_map(current_index_map) if current_index_map is not None else []
         )
         building_footprints = [
-            b.get_footprint(GeometryType.LOD0) for b in clearance_fix
+            b.get_footprint(GeometryType.LOD0) for b in processed_buildings
         ]
-        info(f"After merging: {len(building_footprints)} buildings.")
     else:
+        target_lods = lod
+        building_footprints = [
+            b.get_footprint(b_lod) for b, b_lod in zip(processed_buildings, target_lods)
+        ]
+    
+    base_resolution = [building_mesh_triangle_size] * len(building_footprints)
+    building_surfaces = []
+    hole_surfaces = []
+    building_resolution = []
+    building_lod_switches = []
+    default_priority = _LOD_PRIORITY[GeometryType.LOD3]
 
-        building_footprints = [b.get_footprint(lod) for b in buildings]
+    for footprint, resolution, lod_value in zip(
+        building_footprints, base_resolution, target_lods
+    ):
+        if footprint is None:
+            continue
+        builder_surface = create_builder_surface(footprint)
+        if treat_lod0_as_holes and lod_value == GeometryType.LOD0:
+            hole_surfaces.append(builder_surface)
+            continue
+        building_surfaces.append(builder_surface)
+        building_resolution.append(resolution)
+        building_lod_switches.append(_LOD_PRIORITY.get(lod_value, default_priority))
 
-    subdomain_resolution = [building_mesh_triangle_size] * len(building_footprints)
+    if not building_surfaces and not hole_surfaces:
+        raise ValueError("No valid building footprints available for meshing.")
 
     terrain = city.terrain
     if terrain is None:
@@ -128,22 +249,16 @@ def build_city_mesh(
     terrain_raster = terrain.raster
     terrain_mesh = terrain.mesh
     if terrain_raster is None and terrain_mesh is None:
-        warning("City terrain has no data. Attempting to build terrain")
-        city.build_terrain()
-        terrain_raster = city.terrain.raster
-        terrain_mesh = city.terrain.mesh
-        if terrain_raster is None and terrain_mesh is None:
-            raise ValueError("Failed to build city terrain")
+        raise ValueError("City terrain has no data. Please compute terrain first.")
     if terrain_raster is None and terrain_mesh is not None:
         terrain_raster = mesh_to_raster(terrain_mesh, cell_size=max_mesh_size)
     builder_dem = raster_to_builder_gridfield(terrain_raster)
 
-    builder_surfaces = [
-        create_builder_surface(p) for p in building_footprints if p is not None
-    ]
     builder_mesh = _dtcc_builder.build_city_surface_mesh(
-        builder_surfaces,
-        subdomain_resolution,
+        building_surfaces,
+        hole_surfaces,
+        building_lod_switches,
+        building_resolution,
         builder_dem,
         max_mesh_size,
         min_mesh_angle,
@@ -151,6 +266,7 @@ def build_city_mesh(
         merge_meshes,
         sort_triangles,
     )
+    
     if merge_meshes:
         result_mesh = builder_mesh[0].from_cpp()
     else:
@@ -165,6 +281,8 @@ def build_city_volume_mesh(
     max_mesh_size: float = 10.0,
     merge_buildings: bool = True,
     boundary_face_markers: bool = True,
+    tetgen_switches: Optional[Dict[str, Any]] = None,
+    tetgen_switch_overrides: Optional[Dict[str, Any]] = None,
 ) -> VolumeMesh:
     """
     Build a 3D tetrahedral volume mesh for a city terrain with embedded building volumes.
@@ -192,6 +310,12 @@ def build_city_volume_mesh(
     boundary_face_markers : bool, optional
         If True, add integer markers to the boundary faces of the volume mesh as a
         post-processing step. Defaults to True. See Notes for marker conventions.
+    tetgen_switches : dict, optional
+        Optional TetGen switch parameters passed through to ``dtcc_wrapper_tetgen``.
+        Provide keys as defined by ``dtcc_wrapper_tetgen.switches.DEFAULT_TETGEN_PARAMS``.
+    tetgen_switch_overrides : dict, optional
+        Optional low-level overrides forwarded to ``build_tetgen_switches`` for custom
+        text-based switch assembly.
 
     Returns
     -------
@@ -242,7 +366,9 @@ def build_city_volume_mesh(
     # FIXME: Where do we set these parameters?
     min_building_area = 10.0
     min_building_detail = 0.5
-    min_mesh_angle = 30
+    min_mesh_angle = 30.0
+
+    # Fallback dtcc volume meshing parameters
     smoother_max_iterations = 5000
     smoothing_relative_tolerance = 0.005
     aspect_ratio_threshold = 10.0
@@ -286,6 +412,71 @@ def build_city_volume_mesh(
     if terrain_raster is None and terrain_mesh is not None:
         terrain_raster = mesh_to_raster(terrain_mesh, cell_size=max_mesh_size)
 
+    _surfaces = [
+        create_builder_surface(footprint)
+        for footprint in building_footprints
+        if footprint is not None
+    ]
+    hole_surfaces: list = []
+    lod_switch_value = _LOD_PRIORITY.get(lod, _LOD_PRIORITY[GeometryType.LOD3])
+    meshing_directives = [lod_switch_value] * len(_surfaces)
+
+    # Convert from C++ to Python
+    # ground_mesh = builder_mesh_to_mesh(_ground_mesh)
+    _dem = raster_to_builder_gridfield(terrain.raster)
+
+    if is_tetgen_available():
+
+        #FIXME: Where do we set these parameters?
+        smoothing = 1
+        merge_meshes = True
+        sort_triangles = False
+        max_edge_radius_ratio = None  # 1.414
+        min_dihedral_angle = None  # 30.0
+        max_tet_volume = 20.0
+
+        builder_mesh = _dtcc_builder.build_city_surface_mesh(
+            _surfaces,
+            hole_surfaces,
+            meshing_directives,
+            subdomain_resolution,
+            _dem,
+            max_mesh_size,
+            min_mesh_angle,
+            smoothing,
+            merge_meshes,
+            sort_triangles,
+        )
+
+        surface_mesh = builder_mesh[0].from_cpp()
+
+        if surface_mesh.faces is None or len(surface_mesh.faces) == 0:
+            raise ValueError("Surface mesh has no faces. Cannot build volume mesh.")
+        if surface_mesh.markers is None or len(surface_mesh.markers) == 0:
+            raise ValueError("Surface mesh has no face markers. Cannot build volume mesh.")
+        
+        switches_params = get_default_tetgen_switches()
+        if max_tet_volume is not None:
+            switches_params["max_volume"] = max_tet_volume
+        if max_edge_radius_ratio is not None or min_dihedral_angle is not None:
+            switches_params["quality"] = (
+                max_edge_radius_ratio,
+                min_dihedral_angle,
+            )
+        if tetgen_switches:
+            switches_params.update(tetgen_switches)
+
+        info("Building volume mesh with TetGen...")
+        volume_mesh = tetgen_build_volume_mesh(
+            mesh=surface_mesh,
+            build_top_sidewalls=True,
+            top_height=domain_height,
+            switches_params=switches_params,
+            switches_overrides=tetgen_switch_overrides,
+            return_boundary_faces=boundary_face_markers, # Boundary face markers not implemented but returning boundary faces for now
+        )
+        return volume_mesh
+        
     # Convert from Python to C++
     _building_polygons = [
         create_builder_polygon(footprint.to_polygon())
@@ -297,6 +488,7 @@ def build_city_volume_mesh(
     # Build ground mesh
     _ground_mesh = _dtcc_builder.build_ground_mesh(
         _building_polygons,
+        [],
         subdomain_resolution,
         terrain.bounds.xmin,
         terrain.bounds.ymin,
@@ -310,23 +502,12 @@ def build_city_volume_mesh(
     # FIXME: Should not need to convert from C++ to Python mesh.
     # Convert from Python to C++
 
-    _surfaces = [
-        create_builder_surface(footprint)
-        for footprint in building_footprints
-        if footprint is not None
-    ]
-
-    # Convert from C++ to Python
-    # ground_mesh = builder_mesh_to_mesh(_ground_mesh)
-    _dem = raster_to_builder_gridfield(terrain.raster)
-
     # Create volume mesh builder
     volume_mesh_builder = _dtcc_builder.VolumeMeshBuilder(
         _surfaces, _dem, _ground_mesh, domain_height
     )
 
     # FIXME: How do we handle parameters?
-
     # Build volume mesh
     _volume_mesh = volume_mesh_builder.build(
         smoother_max_iterations,

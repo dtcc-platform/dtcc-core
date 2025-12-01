@@ -24,6 +24,7 @@ from typing import List, Union
 def build_terrain_mesh(
     data: Union[PointCloud, Raster],
     subdomains: list[Surface] = None,
+    holes: list[Surface] = None,
     subdomain_resolution: Union[float, List[float]] = None,
     max_mesh_size=10,
     min_mesh_angle=20.7,
@@ -42,6 +43,8 @@ def build_terrain_mesh(
         Input terrain data to mesh.
     subdomains : list[Surface], optional
         List of surface subdomains for varying mesh resolution.
+    holes : list[Surface], optional
+        Surfaces that should be treated as holes (excised from the mesh).
     subdomain_resolution : Union[float, List[float]], optional
         Resolution for each subdomain. If float, applies to all subdomains.
     max_mesh_size : float, default 10
@@ -112,6 +115,10 @@ def build_terrain_mesh(
         subdomain_resolution = None
     else:
         subdomains = [create_builder_polygon(sub.to_polygon()) for sub in subdomains]
+    if holes is None:
+        hole_polygons: list = []
+    else:
+        hole_polygons = [create_builder_polygon(sub.to_polygon()) for sub in holes]
     if subdomain_resolution is None:
         subdomain_resolution = []
     elif isinstance(subdomain_resolution, (float, int)):
@@ -129,6 +136,7 @@ def build_terrain_mesh(
 
     terrain_mesh = _dtcc_builder.build_terrain_mesh(
         subdomains,
+        hole_polygons,
         subdomain_resolution,
         _builder_gridfield,
         max_mesh_size,
