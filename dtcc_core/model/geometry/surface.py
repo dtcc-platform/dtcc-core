@@ -114,7 +114,9 @@ class Surface(Geometry):
             # warning("Surface has less than 3 vertices.")
             return Polygon()
 
-        p = Polygon(self.vertices[:, :2], self.holes)
+        # Convert holes to 2D coordinates (shapely expects 2D for polygon creation)
+        holes_2d = [hole[:, :2] for hole in self.holes] if self.holes else []
+        p = Polygon(self.vertices[:, :2], holes_2d)
         if not p.is_valid:
             p = make_valid(p)
         if not p.is_valid and p.geom_type != "Polygon":

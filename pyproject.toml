@@ -29,6 +29,7 @@ dependencies = [
     "aiohttp",
     "folium",
     "h5py == 3.14.0",
+    "polyforge@git+https://github.com/dwastberg/polyforge.git",
     "dtcc-pyspade-native"
 ]
 

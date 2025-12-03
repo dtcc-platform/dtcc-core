@@ -3,9 +3,17 @@ from ..polygons.polygons import (
     polygon_merger,
     simplify_polygon,
     remove_slivers,
-    fix_clearance,
     split_polygon_sides,
 )
+
+from polyforge import (
+    merge_close_polygons,
+    fix_clearance,
+    simplify_rdp,
+    simplify_vwp,
+    robust_fix_geometry,
+)
+from polyforge import MergeStrategy, GeometryConstraints
 
 from ..polygons.surface import clean_multisurface, clean_surface
 
@@ -94,30 +102,22 @@ def merge_building_footprints(
     Union[List[Building], Tuple[List[Building], List[List[int]]]]
         Merged buildings, optionally paired with the index map.
     """
-    source_indices: List[int] = []
-    heights: List[float] = []
-    footprints: List[Polygon] = []
+    if len(buildings) <= 1:
+        return buildings
 
-    for idx, building in enumerate(buildings):
-        flattened_geom = building.flatten_geometry(lod)
-        if flattened_geom is None:
-            warning(f"Building {building.id} has no geometry at LOD {lod}. Skipping.")
-            continue
-        footprint = flattened_geom.to_polygon(max_distance / 4)
-        if footprint is None or footprint.is_empty:
-            warning(f"Building {building.id} produced an empty footprint. Skipping.")
-            continue
-        source_indices.append(idx)
-        heights.append(flattened_geom.zmax)
-        footprints.append(footprint)
+    buildings_geom = [building.flatten_geometry(lod) for building in buildings]
+    # print(buildings_geom)
+    buildings_geom = [geom for geom in buildings_geom if geom is not None]
+    building_heights = [geom.zmax for geom in buildings_geom]
+    footprints = [geom.to_polygon() for geom in buildings_geom]
 
-    if not footprints:
-        if return_index_map:
-            return [], []
-        return []
-
-    merged_footprints, merged_indices = polygon_merger(
-        footprints, max_distance, min_area=min_area
+    merged_footprint, merged_indices = merge_close_polygons(
+        footprints,
+        max_distance,
+        merge_strategy=MergeStrategy.SELECTIVE_BUFFER,
+        preserve_holes=True,
+        return_mapping=True,
+        insert_vertices=True,
     )
 
     merged_buildings: List[Building] = []
@@ -125,14 +125,7 @@ def merge_building_footprints(
 
     for idx, footprint in enumerate(merged_footprints):
         if footprint.geom_type == "MultiPolygon":
-            raise ValueError("Merged footprint is a MultiPolygon")
-        footprint = footprint.simplify(1e-2, True)
-        if footprint.geom_type == "MultiPolygon":
-            raise ValueError("simplified footprint is a MultiPolygon")
-        footprint = remove_slivers(footprint, max_distance / 2)
-        if footprint.geom_type == "MultiPolygon":
-            raise ValueError("de-slivered footprint is a MultiPolygon")
-
+            ValueError("Merged footprint is a MultiPolygon")
         if footprint.is_empty or footprint.area < min_area:
             warning(f"Empty or too small footprint: {footprint.area}")
             continue
@@ -185,6 +178,7 @@ def merge_building_attributes(buildings: List[Building]) -> dict:
 def simplify_building_footprints(
     buildings: List[Building],
     tolerance: float = 0.5,
+    method: str = "vwp",
     lod: GeometryType = GeometryType.LOD0,
     return_index_map: bool = False,
 ) -> Union[List[Building], Tuple[List[Building], List[List[int]]]]:
@@ -197,6 +191,9 @@ def simplify_building_footprints(
         A list of `Building` objects whose footprints need to be simplified.
     tolerance : float, optional
         The tolerance for simplification. A higher value results in a more simplified footprint (default is 0.5).
+    method : str, optional
+        The simplification method to use. Options are 'rdp' for Ramer-Douglas-Peucker algorithm, 'vw' for
+        Visvalingam-Whyatt algorithm or 'vwp' for topology preserving Visvalingam-Whyatt (default is 'vwp').
     lod : GeometryType, optional
         The level of detail of the geometry to simplify. Typically set to `GeometryType.LOD0` (default).
     return_index_map : bool, optional
@@ -219,13 +216,7 @@ def simplify_building_footprints(
         footprint = lod_geom.to_polygon()
         if footprint is None or footprint.is_empty:
             continue
-        simplified_fp = footprint.simplify(tolerance, True)
-        if simplified_fp is None or simplified_fp.is_empty:
-            continue
-        if simplified_fp.geom_type != "Polygon":
-            warning("Simplification produced non-polygon geometry; skipping.")
-            continue
-
+        footprint = simplify_vwp(footprint, tolerance)
         building_surface = Surface()
         building_surface.from_polygon(simplified_fp, lod_geom.zmax)
         simplified_building = building.copy()
@@ -238,6 +229,53 @@ def simplify_building_footprints(
     if return_index_map:
         return simplified_buildings, index_map
     return simplified_buildings
+
+
+def clean_building_footprints(
+    buildings: List[Building],
+    clearance: float = 0.5,
+    smallest_hole_area: float = 1.0,
+) -> List[Building]:
+    """
+    Clean building footprints by removing overlaps, small holes, and ensuring clearance.
+
+    Parameters
+    ----------
+    buildings : List[Building]
+        List of buildings to clean.
+    clearance : float, default 0.5
+        Minimum clearance distance in meters.
+    remove_overlaps : bool, default True
+        Whether to remove overlapping footprints.
+    smallest_hole_area : float, default 1.0
+        Minimum area of holes to keep.
+    Returns : List[Building]
+        List of cleaned buildings.
+    """
+
+    fixed_buildings = []
+    constraints = GeometryConstraints(
+        must_be_valid=True,
+        min_clearance=clearance,
+        min_hole_area=smallest_hole_area,
+        allow_multipolygon=False,
+    )
+
+    for building in buildings:
+        lod0 = building.lod0
+        if lod0 is None:
+            continue
+        footprint = lod0.to_polygon()
+        if footprint is None or footprint.is_empty:
+            continue
+        fixed_footprint, _ = robust_fix_geometry(footprint, constraints=constraints)
+        building_surface = Surface()
+        building_surface.from_polygon(fixed_footprint, lod0.zmax)
+        fixed_building = building.copy()
+        fixed_building.add_geometry(building_surface, GeometryType.LOD0)
+        fixed_building.calculate_bounds()
+        fixed_buildings.append(fixed_building)
+    return fixed_buildings
 
 
 def fix_building_footprint_clearance(
@@ -276,13 +314,8 @@ def fix_building_footprint_clearance(
         footprint = lod_geom.to_polygon()
         if footprint is None or footprint.is_empty:
             continue
-        fixed_fp = fix_clearance(footprint, clearance)
-        if fixed_fp is None or fixed_fp.is_empty:
-            continue
-        if fixed_fp.geom_type != "Polygon":
-            warning("Clearance fix produced non-polygon geometry; skipping.")
-            continue
-
+        clean_surface
+        footprint = fix_clearance(footprint, clearance)
         building_surface = Surface()
         building_surface.from_polygon(fixed_fp, lod_geom.zmax)
         fixed_building = building.copy()
