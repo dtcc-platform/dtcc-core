@@ -25,12 +25,8 @@ else()
   message(STATUS "OpenMP not available; continuing without it")
 endif()
 
-target_compile_definitions(${BINDINGS} PRIVATE
-  TRILIBRARY
-  ANSI_DECLARATORS
-)
-if(WIN32)
-  target_compile_definitions(${BINDINGS} PRIVATE NO_TIMER)
+if(DTCC_CORE_LINK_LIBS)
+  target_link_libraries(${BINDINGS} PRIVATE ${DTCC_CORE_LINK_LIBS})
 endif()
 
 if(DTCC_HAVE_BOOST)
@@ -65,6 +61,16 @@ if(DTCC_HAVE_SPADE AND TARGET pyspade_native::spade_wrapper)
   message(STATUS "SPADE integration enabled for ${BINDINGS}")
 else()
   message(STATUS "SPADE integration disabled for ${BINDINGS}")
+endif()
+
+if(DTCC_HAVE_TRIANGLE)
+  target_include_directories(${BINDINGS} SYSTEM PRIVATE ${TRIANGLE_INCLUDE_DIR})
+  target_link_libraries(${BINDINGS} PRIVATE ${TRIANGLE_LIBRARY})
+  target_compile_definitions(${BINDINGS} PRIVATE DTCC_HAVE_TRIANGLE TRILIBRARY ANSI_DECLARATORS)
+endif()
+
+if(WIN32)
+  target_compile_definitions(${BINDINGS} PRIVATE NO_TIMER)
 endif()
 
 if(APPLE)

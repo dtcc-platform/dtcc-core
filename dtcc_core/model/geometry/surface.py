@@ -124,7 +124,7 @@ class Surface(Geometry):
             p = p.simplify(simplify, True)
         return p
 
-    def from_polygon(self, polygon: Polygon, height=0):
+    def from_polygon(self, polygon: Polygon, height: float = 0.0):
         """Convert a Shapely Polygon to a surface."""
         if polygon.geom_type != "Polygon":
             error(f"Can only convert Polygon to Surface. Got {polygon.geom_type}")

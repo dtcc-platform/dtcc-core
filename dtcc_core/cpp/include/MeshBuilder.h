@@ -13,8 +13,7 @@
 #include <tuple>
 #include <vector>
 
-#include "BoundingBox.h"
-#include "BoundingBoxTree.h"
+
 #include "Geometry.h"
 #include "Logging.h"
 #include "MeshProcessor.h"
@@ -25,7 +24,7 @@
 #include "model/Mesh.h"
 #include "model/Surface.h"
 #include "model/Vector.h"
-#include "spade/triangulate.hpp"
+// #include "spade/triangulate.hpp"
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -121,22 +120,85 @@ namespace DTCC_BUILDER
     //  0: building 0 (cells inside building 0)
     //  1: building 1 (cells inside building 1)
     //  etc (non-negative integers mark cells inside buildings)
-    static Mesh
-    build_ground_mesh(const std::vector<Polygon> &subdomains,
-                      const std::vector<Polygon> &holes,
-                      const std::vector<double> &subdomain_triangle_size,
-                      double xmin,
-                      double ymin,
-                      double xmax,
-                      double ymax,
-                      double max_mesh_size,
-                      double min_mesh_angle,
-                      bool sort_triangles = false)
+    static Mesh build_ground_mesh(const std::vector<Polygon> &subdomains,
+                                  const std::vector<Polygon> &holes,
+                                  const std::vector<double> &subdomain_triangle_size, double xmin,
+                                  double ymin, double xmax, double ymax, double max_mesh_size,
+                                  double min_mesh_angle, bool sort_triangles = false)
     {
-      return spade_build_ground_mesh(subdomains, holes, subdomain_triangle_size,
-                                     xmin, ymin, xmax, ymax,
-                                     max_mesh_size, min_mesh_angle,
-                                     sort_triangles);
+      info("SPADE Triangulation: Building ground mesh...");
+      Timer timer("build_ground_mesh");
+
+      const BoundingBox2D bounding_box(Vector2D(xmin, ymin), Vector2D(xmax, ymax));
+      const size_t nx = static_cast<size_t>((bounding_box.Q.x - bounding_box.P.x) / max_mesh_size);
+      const size_t ny = static_cast<size_t>((bounding_box.Q.y - bounding_box.P.y) / max_mesh_size);
+      const size_t n = nx * ny;
+      info("Bounds: " + str(bounding_box));
+      info("Max mesh size: " + str(max_mesh_size));
+      info("Estimated number of faces: " + str(n));
+      info("Number of subdomains (buildings): " + str(subdomains.size()));
+      info("Number of explicit holes: " + str(holes.size()));
+
+      std::vector<std::vector<Vector2D>> triangle_sub_domains;
+      triangle_sub_domains.reserve(subdomains.size());
+      for (const auto &sd : subdomains)
+      {
+        if (!sd.vertices.empty())
+          triangle_sub_domains.push_back(sd.vertices);
+        for (const auto &hole : sd.holes)
+        {
+          if (!hole.empty())
+            triangle_sub_domains.push_back(hole);
+        }
+      }
+      info("Number of subdomains (buildings + building holes): " +
+           str(triangle_sub_domains.size()));
+
+      std::vector<std::vector<Vector2D>> triangle_holes;
+      triangle_holes.reserve(holes.size());
+      for (const auto &hole_polygon : holes)
+      {
+        if (!hole_polygon.vertices.empty())
+          triangle_holes.push_back(hole_polygon.vertices);
+        for (const auto &nested : hole_polygon.holes)
+        {
+          if (!nested.empty())
+            triangle_holes.push_back(nested);
+        }
+      }
+      info("Number of explicit hole loops (including nested): " + str(triangle_holes.size()));
+
+      std::vector<Vector2D> boundary{};
+      boundary.push_back(bounding_box.P);
+      boundary.push_back(Vector2D(bounding_box.Q.x, bounding_box.P.y));
+      boundary.push_back(bounding_box.Q);
+      boundary.push_back(Vector2D(bounding_box.P.x, bounding_box.Q.y));
+
+      double effective_maxh = max_mesh_size;
+      if (!subdomain_triangle_size.empty())
+      {
+        double min_subdomain = std::numeric_limits<double>::max();
+        for (double h : subdomain_triangle_size)
+        {
+          if (h > 0.0)
+            min_subdomain = std::min(min_subdomain, h);
+        }
+        if (min_subdomain < std::numeric_limits<double>::max())
+        {
+          if (effective_maxh > 0.0)
+            effective_maxh = std::min(effective_maxh, min_subdomain);
+          else
+            effective_maxh = min_subdomain;
+        }
+      }
+
+      Mesh mesh;
+      Triangulate::call_spade(mesh, boundary, triangle_holes, triangle_sub_domains, effective_maxh,
+                              min_mesh_angle, sort_triangles);
+      
+      MeshProcessor::compute_mesh_domain_markers(mesh, subdomains);
+
+      return mesh;
     }
 
     // Layer ground mesh to create a volume mesh.
@@ -677,8 +739,13 @@ namespace DTCC_BUILDER
       }
       else
       {
+#ifdef DTCC_HAVE_TRIANGLE
         Triangulate::call_triangle(mesh, surface, max_triangle_area_size,
                                    min_mesh_angle);
+#else
+        warning("Triangle backend not available; falling back to earcut meshing");
+        Triangulate::fast_mesh(mesh, surface);
+#endif
       }
       return mesh;
     }

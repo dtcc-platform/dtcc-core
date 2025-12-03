@@ -69,7 +69,7 @@ def merge_building_footprints(
     buildings: List[Building],
     lod: GeometryType = GeometryType.LOD0,
     max_distance: float = 0.5,
-    min_area=10,
+    min_area: float = 10.0,
     return_index_map: bool = False,
 ) -> List[Building] | Tuple[List[Building], List[List[int]]]:
     """
@@ -142,7 +142,7 @@ def merge_building_footprints(
 
         num = sum(heights[i] * footprints[i].area for i in local_indices)
         den = sum(footprints[i].area for i in local_indices)
-        height = num / den if den > 0 else 0.0
+        height: float = num / den if den > 0 else 0.0
 
         building_surface = Surface()
         building_surface.from_polygon(footprint, height)

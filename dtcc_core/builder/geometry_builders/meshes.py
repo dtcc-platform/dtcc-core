@@ -186,7 +186,7 @@ def build_city_mesh(
         current_index_map = index_map
         processed_buildings = merged_buildings
         
-        print("Number of buildings after merging: ", len(merged_buildings))
+        info(f"Number of buildings after merging: {len(merged_buildings)}")
         simplifed_footprints, simplify_index_map = simplify_building_footprints(
             processed_buildings,
             min_building_detail / 2,
@@ -194,7 +194,7 @@ def build_city_mesh(
             return_index_map=True,
         )
         current_index_map = compose_index_map(current_index_map, simplify_index_map)
-        print("Number of buildings after simplification: ", len(simplifed_footprints))
+        info(f"Number of buildings after simplification: {len(simplifed_footprints)}")
         processed_buildings = simplifed_footprints
 
         clearance_fix, clearance_index_map = fix_building_footprint_clearance(
@@ -203,7 +203,7 @@ def build_city_mesh(
             return_index_map=True,
         )
         current_index_map = compose_index_map(current_index_map, clearance_index_map)
-        print("Number of buildings after clearance fix: ", len(clearance_fix))
+        info("Number of buildings after clearance fix: ", len(clearance_fix))
         processed_buildings = clearance_fix
         info(f"After merging: {len(processed_buildings)} buildings.")
     

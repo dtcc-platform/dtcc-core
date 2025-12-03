@@ -16,7 +16,9 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(DTCC_ENABLE_WARNINGS "Enable recommended warning flags" ON)
 option(DTCC_USE_SPADE "Enable SPADE triangulation" ON)
+option(DTCC_USE_TRIANGLE "Enable external Triangle" OFF)
 option(DTCC_USE_HOMEBREW_LLVM "Use the Homebrew LLVM toolchain on macOS" OFF)
+set(DTCC_TRIANGLE_DIR "" CACHE PATH "Prefix for Triangle installation (with include/triangle/triangle.h)")
 
 if(APPLE AND NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET)
   set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0" CACHE STRING "Minimum macOS version to target" FORCE)
@@ -80,9 +82,9 @@ set(DTCC_CORE_PUBLIC_INCLUDE_DIRS
   ${DTCC_CPP_DIR}/include
   ${DTCC_CPP_DIR}/include/citymodel
 )
+set(DTCC_CORE_LINK_LIBS "")
 set(DTCC_CORE_SYSTEM_INCLUDE_DIRS
   ${DTCC_CPP_DIR}/external
-  ${DTCC_CPP_DIR}/external/triangle
   ${DTCC_CPP_DIR}/external/amgcl
 )
 
@@ -94,6 +96,24 @@ if(Boost_FOUND)
 else()
   message(STATUS "Boost not found; building AMGCL without Boost support")
   set(DTCC_HAVE_BOOST FALSE)
+endif()
+
+# ------------------------------------------------------------------------------
+# Triangle integration (optional, external)
+# ------------------------------------------------------------------------------
+set(DTCC_HAVE_TRIANGLE FALSE)
+if(DTCC_USE_TRIANGLE)
+  find_path(TRIANGLE_INCLUDE_DIR triangle.h
+    HINTS ${DTCC_TRIANGLE_DIR} $ENV{TRIANGLE_DIR}
+    PATH_SUFFIXES include
+  )
+  if(TRIANGLE_INCLUDE_DIR)
+    message(STATUS "Triangle enabled: include at ${TRIANGLE_INCLUDE_DIR}")
+    set(DTCC_HAVE_TRIANGLE TRUE)
+    list(APPEND DTCC_CORE_SYSTEM_INCLUDE_DIRS ${TRIANGLE_INCLUDE_DIR})
+  else()
+    message(FATAL_ERROR "DTCC_USE_TRIANGLE=ON but Triangle not found. Set DTCC_TRIANGLE_DIR or TRIANGLE_DIR to its prefix.")
+  endif()
 endif()
 
 # ------------------------------------------------------------------------------

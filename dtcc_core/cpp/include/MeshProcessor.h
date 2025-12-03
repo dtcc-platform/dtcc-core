@@ -17,9 +17,12 @@
 #include "nanoflann.hpp"
 
 #include "DisjointSet.h"
+#include "BoundingBox.h"
+#include "BoundingBoxTree.h"
 
 #include "model/Mesh.h"
 #include "model/Simplices.h"
+#include "model/Polygon.h"
 #include "model/Vector.h"
 #include "model/VolumeMesh.h"
 
@@ -29,6 +32,64 @@ namespace DTCC_BUILDER
 class MeshProcessor
 {
 public:
+
+
+static inline void compute_mesh_domain_markers(Mesh &mesh, const std::vector<Polygon> &subdomains)
+{
+  info("Computing domain markers...");
+  Timer timer("compute_domain_markers");
+
+  BoundingBoxTree2D search_tree;
+  std::vector<BoundingBox2D> bounding_boxes;
+  bounding_boxes.reserve(subdomains.size());
+  for (const auto &subdomain : subdomains)
+  {
+    bounding_boxes.emplace_back(subdomain);
+  }
+  search_tree.build(bounding_boxes);
+
+  mesh.markers.resize(mesh.faces.size());
+  std::fill(mesh.markers.begin(), mesh.markers.end(), -2);
+
+  std::vector<bool> is_building_vertex(mesh.vertices.size());
+  std::fill(is_building_vertex.begin(), is_building_vertex.end(), false);
+
+  if (!subdomains.empty())
+  {
+    for (size_t i = 0; i < mesh.faces.size(); i++)
+    {
+      const Vector3D c_3d = mesh.mid_point(i);
+      const Vector2D c_2d(c_3d.x, c_3d.y);
+      std::vector<size_t> indices = search_tree.find(Vector2D(c_2d));
+
+      if (!indices.empty())
+      {
+        for (const auto &index : indices)
+        {
+          if (Geometry::polygon_contains_2d(subdomains[index], c_2d))
+          {
+            mesh.markers[i] = index;
+            const Simplex2D &T = mesh.faces[i];
+            is_building_vertex[T.v0] = true;
+            is_building_vertex[T.v1] = true;
+            is_building_vertex[T.v2] = true;
+            break;
+          }
+        }
+      }
+    }
+
+    for (size_t i = 0; i < mesh.faces.size(); i++)
+    {
+      const Simplex2D &T = mesh.faces[i];
+      const bool touches_building =
+          (is_building_vertex[T.v0] || is_building_vertex[T.v1] || is_building_vertex[T.v2]);
+
+      if (touches_building && mesh.markers[i] == -2)
+        mesh.markers[i] = -1;
+    }
+  }
+}
   /// Compute boundary mesh from volume mesh
   static Mesh compute_boundary_mesh(const VolumeMesh &volume_mesh)
   {

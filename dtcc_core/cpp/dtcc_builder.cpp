@@ -300,6 +300,37 @@ py::array_t<size_t> statistical_outlier_finder(py::array_t<double> &points, size
 PYBIND11_MODULE(_dtcc_builder, m)
 {
 
+#ifdef DTCC_HAVE_TRIANGLE
+  constexpr bool have_triangle = true;
+#else
+  constexpr bool have_triangle = false;
+#endif
+
+#ifdef DTCC_HAVE_SPADE
+  constexpr bool have_spade = true;
+#else
+  constexpr bool have_spade = false;
+#endif
+
+  m.attr("HAVE_TRIANGLE") = py::bool_(have_triangle);
+  m.attr("HAVE_SPADE") = py::bool_(have_spade);
+
+  m.def("triangulation_backends",
+        []()
+        {
+          std::vector<std::string> backends;
+          if (have_triangle)
+            backends.emplace_back("triangle");
+          if (have_spade)
+            backends.emplace_back("spade");
+          if (backends.empty())
+            backends.emplace_back("earcut");
+          return backends;
+        },
+        R"pbdoc(
+            Report available triangulation backends compiled into the extension.
+        )pbdoc");
+
   py::class_<DTCC_BUILDER::Vector2D>(m, "Vector2D")
       .def(py::init<>())
       .def(
@@ -430,8 +461,6 @@ PYBIND11_MODULE(_dtcc_builder, m)
   //       "build mesh for city, returning a list of meshes");
 
   m.def("build_ground_mesh", &DTCC_BUILDER::MeshBuilder::build_ground_mesh, "build ground mesh");
-  // m.def("build_ground_mesh_spade", &DTCC_BUILDER::build_ground_mesh,
-  //       "build ground mesh using SPADE triangulation");
 
   m.def("build_terrain_mesh", &DTCC_BUILDER::MeshBuilder::build_terrain_mesh, "build terrain mesh");
 
