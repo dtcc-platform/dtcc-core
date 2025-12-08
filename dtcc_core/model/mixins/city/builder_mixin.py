@@ -5,7 +5,8 @@ from pathlib import Path
 from typing import Union
 from typing import TypeVar, TYPE_CHECKING
 
-from ....model.geometry import PointCloud, Mesh
+from ....model.geometry import PointCloud, Mesh 
+from ....model.object import GeometryType
 from ....model.values import Raster
 
 if TYPE_CHECKING:
@@ -165,6 +166,7 @@ class CityBuilderMixin:
 
     def build_surface_mesh(
         self: "T_City",
+        lod: GeometryType | list[GeometryType] = GeometryType.LOD1 ,
         min_building_detail: float = 0.5,
         min_building_area: float = 15.0,
         merge_buildings: bool = True,
@@ -174,6 +176,8 @@ class CityBuilderMixin:
         min_mesh_angle: float = 25.0,
         merge_meshes: bool = True,
         smoothing: int = 0,
+        sort_triangles: bool = False,
+        treat_lod0_as_holes: bool = False,
     ) -> Mesh:
         """
             Build a city surface mesh from the buildings and terrain.
@@ -204,6 +208,7 @@ class CityBuilderMixin:
 
         surface_mesh = build_city_mesh(
             self,
+            lod=lod,
             min_building_detail=min_building_detail,
             min_building_area=min_building_area,
             merge_buildings=merge_buildings,
@@ -213,5 +218,7 @@ class CityBuilderMixin:
             min_mesh_angle=min_mesh_angle,
             merge_meshes=merge_meshes,
             smoothing=smoothing,
+            sort_triangles=sort_triangles,
+            treat_lod0_as_holes=treat_lod0_as_holes,
         )
         return surface_mesh

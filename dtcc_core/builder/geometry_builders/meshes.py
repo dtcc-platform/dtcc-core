@@ -178,44 +178,61 @@ def build_city_mesh(
     
     if merge_buildings:
         info(f"Merging {len(buildings)} buildings...")
-        merged_buildings = merge_building_footprints(
-            buildings, lod, max_distance=merge_tolerance, min_area=min_building_area
+        merged_buildings, index_map = merge_building_footprints(
+            buildings, 
+            lod= GeometryType.LOD0, 
+            max_distance=merge_tolerance, 
+            min_area=min_building_area,
+            return_index_map=True,
         )
-
-        city.replace_buildings(merged_buildings)
+        current_index_map = index_map
+        # processed_buildings = merged_buildings
+        
+        # city.replace_buildings(merged_buildings)
         # city.save_building_footprints("footprints_merged_mesher.gpkg")
 
         smallest_hole = max(min_building_detail, min_building_detail**2)
-        cleaned_footprints = clean_building_footprints(
+        cleaned_footprints, cleaned_index_map = clean_building_footprints(
             merged_buildings,
             clearance=min_building_detail,
             smallest_hole_area=smallest_hole,
+            return_index_map=True,
         )
+        current_index_map = compose_index_map(current_index_map, cleaned_index_map)
 
-        city.replace_buildings(cleaned_footprints)
+        # city.replace_buildings(cleaned_footprints)
         # city.save_building_footprints("footprints_merged_cleaned_mesher.gpkg")
 
-        merged_buildings = merge_building_footprints(
+        merged_buildings, merged_index_map = merge_building_footprints(
             cleaned_footprints,
             GeometryType.LOD0,
-            max_distance=0,
+            max_distance=0.000001,
             min_area=min_building_area,
+            return_index_map=True,
         )
+        current_index_map = compose_index_map(current_index_map, merged_index_map)
 
-        city.replace_buildings(merged_buildings)
+        # city.replace_buildings(merged_buildings)
         # city.save_building_footprints("footprints_merged_cleaned_merged_mesher.gpkg")
 
-        simplifed_footprints = simplify_building_footprints(
-            merged_buildings, min_building_detail / 2, lod=GeometryType.LOD0
+        simplifed_footprints, simplified_index_map = simplify_building_footprints(
+            merged_buildings, min_building_detail / 2, lod=GeometryType.LOD0, return_index_map=True
+        )
+        current_index_map = compose_index_map(current_index_map, simplified_index_map)
+
+        target_lods = (
+            lod_from_index_map(current_index_map) if current_index_map is not None else []
         )
 
         building_footprints = [
             b.get_footprint(GeometryType.LOD0) for b in simplifed_footprints
         ]
+        
     else:
         target_lods = lod
+        
         building_footprints = [
-            b.get_footprint(b_lod) for b, b_lod in zip(processed_buildings, target_lods)
+            b.get_footprint() for b, b_lod in zip(buildings, target_lods)
         ]
     
     base_resolution = [building_mesh_triangle_size] * len(building_footprints)
@@ -231,6 +248,7 @@ def build_city_mesh(
         if footprint is None:
             continue
         builder_surface = create_builder_surface(footprint)
+        
         if treat_lod0_as_holes and lod_value == GeometryType.LOD0:
             hole_surfaces.append(builder_surface)
             continue

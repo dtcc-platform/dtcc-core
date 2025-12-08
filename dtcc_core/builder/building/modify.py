@@ -41,16 +41,19 @@ def get_footprint(building: Building, geom_type: GeometryType = None) -> Surface
     Surface
         The building footprint as a surface, or None if no geometry found.
     """
+    lod_levels = [
+        GeometryType.LOD0,
+        GeometryType.LOD1,
+        GeometryType.LOD2,
+        GeometryType.LOD3,
+    ]
+
     geom = None
+
     if geom_type is not None:
         geom = building.flatten_geometry(geom_type)
-    else:
-        lod_levels = [
-            GeometryType.LOD0,
-            GeometryType.LOD1,
-            GeometryType.LOD2,
-            GeometryType.LOD3,
-        ]
+
+    if geom is None:
         for lod in lod_levels:
             geom = building.flatten_geometry(lod)
             if geom is not None:
@@ -103,13 +106,27 @@ def merge_building_footprints(
         Merged buildings, optionally paired with the index map.
     """
     if len(buildings) <= 1:
+        if return_index_map:
+            return buildings, [[i] for i in range(len(buildings))]
         return buildings
 
-    buildings_geom = [building.flatten_geometry(lod) for building in buildings]
-    # print(buildings_geom)
-    buildings_geom = [geom for geom in buildings_geom if geom is not None]
-    building_heights = [geom.zmax for geom in buildings_geom]
-    footprints = [geom.to_polygon() for geom in buildings_geom]
+    source_indices: List[int] = []
+    footprints: List[Polygon] = []
+    building_heights: List[float] = []
+
+    for idx, building in enumerate(buildings):
+        flattened_geom = building.get_footprint(lod)
+        if flattened_geom is None:
+            warning(f"Building {building.id} has no geometry at LOD {lod}. Skipping.")
+            continue
+        footprint = flattened_geom.to_polygon()
+        if footprint is None or footprint.is_empty:
+            warning(f"Building {building.id} produced an empty footprint. Skipping.")
+            continue
+        source_indices.append(idx)
+        building_heights.append(flattened_geom.zmax)
+        footprints.append(footprint)
+    
 
     merged_footprint, merged_indices = merge_close_polygons(
         footprints,
@@ -123,7 +140,7 @@ def merge_building_footprints(
     merged_buildings: List[Building] = []
     merged_indices_global: List[List[int]] = []
 
-    for idx, footprint in enumerate(merged_footprints):
+    for idx, footprint in enumerate(merged_footprint):
         if footprint.geom_type == "MultiPolygon":
             ValueError("Merged footprint is a MultiPolygon")
         if footprint.is_empty or footprint.area < min_area:
@@ -133,7 +150,7 @@ def merge_building_footprints(
         local_indices = merged_indices[idx]
         global_indices = [source_indices[i] for i in local_indices]
 
-        num = sum(heights[i] * footprints[i].area for i in local_indices)
+        num = sum(building_heights[i] * footprints[i].area for i in local_indices)
         den = sum(footprints[i].area for i in local_indices)
         height: float = num / den if den > 0 else 0.0
 
@@ -218,7 +235,7 @@ def simplify_building_footprints(
             continue
         footprint = simplify_vwp(footprint, tolerance)
         building_surface = Surface()
-        building_surface.from_polygon(simplified_fp, lod_geom.zmax)
+        building_surface.from_polygon(footprint, lod_geom.zmax)
         simplified_building = building.copy()
         simplified_building.add_geometry(building_surface, GeometryType.LOD0)
         simplified_building.calculate_bounds()
@@ -235,7 +252,8 @@ def clean_building_footprints(
     buildings: List[Building],
     clearance: float = 0.5,
     smallest_hole_area: float = 1.0,
-) -> List[Building]:
+    return_index_map: bool = False,
+) -> Union[List[Building], Tuple[List[Building], List[List[int]]]]:
     """
     Clean building footprints by removing overlaps, small holes, and ensuring clearance.
 
@@ -254,6 +272,7 @@ def clean_building_footprints(
     """
 
     fixed_buildings = []
+    index_map: List[List[int]] = []
     constraints = GeometryConstraints(
         must_be_valid=True,
         min_clearance=clearance,
@@ -261,7 +280,7 @@ def clean_building_footprints(
         allow_multipolygon=False,
     )
 
-    for building in buildings:
+    for idx, building in enumerate(buildings):
         lod0 = building.lod0
         if lod0 is None:
             continue
@@ -275,6 +294,11 @@ def clean_building_footprints(
         fixed_building.add_geometry(building_surface, GeometryType.LOD0)
         fixed_building.calculate_bounds()
         fixed_buildings.append(fixed_building)
+        if return_index_map:
+            index_map.append([idx])
+
+    if return_index_map:
+        return fixed_buildings, index_map
     return fixed_buildings
 
 
@@ -314,10 +338,10 @@ def fix_building_footprint_clearance(
         footprint = lod_geom.to_polygon()
         if footprint is None or footprint.is_empty:
             continue
-        clean_surface
+        # clean_surface
         footprint = fix_clearance(footprint, clearance)
         building_surface = Surface()
-        building_surface.from_polygon(fixed_fp, lod_geom.zmax)
+        building_surface.from_polygon(footprint, lod_geom.zmax)
         fixed_building = building.copy()
         fixed_building.add_geometry(building_surface, GeometryType.LOD0)
         fixed_building.calculate_bounds()

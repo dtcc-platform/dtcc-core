@@ -94,7 +94,7 @@ namespace DTCC_BUILDER
       }
       info("smooth ground...");
       if (smooth_ground > 0)
-        VertexSmoother::smooth_mesh(ground_mesh, smooth_ground, true);
+        VertexSmoother::smooth_mesh(ground_mesh, smooth_ground, true, true);
 
       // for (size_t i = 0; i < ground_mesh.faces.size(); i++)
       // {
@@ -122,8 +122,11 @@ namespace DTCC_BUILDER
     //  etc (non-negative integers mark cells inside buildings)
     static Mesh build_ground_mesh(const std::vector<Polygon> &subdomains,
                                   const std::vector<Polygon> &holes,
-                                  const std::vector<double> &subdomain_triangle_size, double xmin,
-                                  double ymin, double xmax, double ymax, double max_mesh_size,
+                                  const std::vector<double> &subdomain_triangle_size, 
+                                  double xmin,
+                                  double ymin, 
+                                  double xmax,
+                                  double ymax, double max_mesh_size,
                                   double min_mesh_angle, bool sort_triangles = false)
     {
       info("SPADE Triangulation: Building ground mesh...");
@@ -195,6 +198,7 @@ namespace DTCC_BUILDER
       Mesh mesh;
       Triangulate::call_spade(mesh, boundary, triangle_holes, triangle_sub_domains, effective_maxh,
                               min_mesh_angle, sort_triangles);
+                        
       
       MeshProcessor::compute_mesh_domain_markers(mesh, subdomains);
 
@@ -624,26 +628,30 @@ namespace DTCC_BUILDER
       info("building meshes");
       auto building_meshes_t =
           Timer("build_city_surface_mesh: step 3 building meshes");
-      for (auto it = building_faces.begin(); it != building_faces.end(); ++it)
+      for (const auto &kv : building_faces)
       {
-        auto marker = it->first;
-        auto faces = it->second;
-        auto building = buildings[marker];
-        auto roof_height = building.max_height();
+        const auto marker = kv.first;
+        const auto &faces = kv.second;
+        const auto &building = buildings[marker];
+        const auto roof_height = building.max_height();
+
+        auto naked_edges = MeshProcessor::find_naked_edges(faces);
 
         Mesh building_mesh;
+        building_mesh.vertices.reserve(faces.size() * 3 + naked_edges.size() * 4);
+        building_mesh.faces.reserve(faces.size() + naked_edges.size() * 2);
 
         // add roofs
         for (const auto &face : faces)
         {
-          auto v0 = terrain_mesh.vertices[face.v0];
-          auto v1 = terrain_mesh.vertices[face.v1];
-          auto v2 = terrain_mesh.vertices[face.v2];
-          auto v3 = Vector3D(v0.x, v0.y, roof_height);
-          auto v4 = Vector3D(v1.x, v1.y, roof_height);
-          auto v5 = Vector3D(v2.x, v2.y, roof_height);
+          const auto v0 = terrain_mesh.vertices[face.v0];
+          const auto v1 = terrain_mesh.vertices[face.v1];
+          const auto v2 = terrain_mesh.vertices[face.v2];
+          const auto v3 = Vector3D(v0.x, v0.y, roof_height);
+          const auto v4 = Vector3D(v1.x, v1.y, roof_height);
+          const auto v5 = Vector3D(v2.x, v2.y, roof_height);
 
-          auto num_vertices = building_mesh.vertices.size();
+          const auto num_vertices = building_mesh.vertices.size();
           building_mesh.vertices.push_back(v3);
           building_mesh.vertices.push_back(v4);
           building_mesh.vertices.push_back(v5);
@@ -655,32 +663,39 @@ namespace DTCC_BUILDER
         }
 
         // add walls
-        auto naked_edges = MeshProcessor::find_naked_edges(faces);
         for (const auto &edge_faces : naked_edges)
         {
-          Simplex1D edge = edge_faces.first;
-          Simplex2D edge_face = edge_faces.second;
-          auto face_center = Geometry::face_center(edge_face, terrain_mesh);
+          const Simplex1D edge = edge_faces.first;
+          const Simplex2D edge_face = edge_faces.second;
+          const auto face_center = Geometry::face_center(edge_face, terrain_mesh);
 
-          auto ground_v0 = terrain_mesh.vertices[edge.v0];
-          auto ground_v1 = terrain_mesh.vertices[edge.v1];
-          auto roof_v0 = Vector3D(ground_v0.x, ground_v0.y, roof_height);
-          auto roof_v1 = Vector3D(ground_v1.x, ground_v1.y, roof_height);
+          const auto ground_v0 = terrain_mesh.vertices[edge.v0];
+          const auto ground_v1 = terrain_mesh.vertices[edge.v1];
+          const auto roof_v0 = Vector3D(ground_v0.x, ground_v0.y, roof_height);
+          const auto roof_v1 = Vector3D(ground_v1.x, ground_v1.y, roof_height);
 
-          Mesh wall_mesh;
-          wall_mesh.vertices = {ground_v0, ground_v1, roof_v0, roof_v1};
-          auto wall_normal =
+          const auto base = building_mesh.vertices.size();
+          building_mesh.vertices.push_back(ground_v0);
+          building_mesh.vertices.push_back(ground_v1);
+          building_mesh.vertices.push_back(roof_v0);
+          building_mesh.vertices.push_back(roof_v1);
+
+          const auto wall_normal =
               Geometry::triangle_normal(ground_v0, ground_v1, roof_v1);
           if (Geometry::dot_3d(wall_normal, face_center - ground_v0) > 0)
           {
-            wall_mesh.faces = {Simplex2D(0, 1, 3), Simplex2D(0, 3, 2)};
+            building_mesh.faces.push_back(
+                Simplex2D(base, base + 1, base + 3));
+            building_mesh.faces.push_back(
+                Simplex2D(base, base + 3, base + 2));
           }
           else
           {
-            wall_mesh.faces = {Simplex2D(0, 3, 1), Simplex2D(0, 2, 3)};
+            building_mesh.faces.push_back(
+                Simplex2D(base, base + 3, base + 1));
+            building_mesh.faces.push_back(
+                Simplex2D(base, base + 2, base + 3));
           }
-
-          building_mesh = MeshProcessor::merge_meshes({building_mesh, wall_mesh});
         }
 
         building_meshes.push_back(MeshProcessor::weld_mesh(building_mesh));
@@ -718,7 +733,7 @@ namespace DTCC_BUILDER
       }
       final_merger_t.stop();
       build_city_surface_t.stop();
-      // Timer::report("city surface");
+      Timer::report("city surface");
       return city_mesh;
     }
 

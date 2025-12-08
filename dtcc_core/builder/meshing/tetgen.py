@@ -69,9 +69,12 @@ def build_volume_mesh(mesh: Mesh,
     if build_top_sidewalls:
         new_vertices, boundary_facets = tetgen_utils.compute_boundary_facets(mesh, top_height=top_height)
         mesh = Mesh(vertices=new_vertices, faces=mesh.faces ,markers=mesh.markers)
-        b_facets = [facet for facet in boundary_facets.values()]
+        if isinstance(boundary_facets, dict):
+            b_facets = [facet for facet in boundary_facets.values()]
+        else:
+            b_facets = list(boundary_facets)
     
-    if b_facets is None:
+    if not b_facets:
         raise ValueError(
             "TetGen volume meshing requires boundary facets. "
             "Set build_top_sidewalls=True or provide facets via future extensions."
