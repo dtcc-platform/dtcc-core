@@ -1,4 +1,5 @@
 from typing import Any, Dict, Optional
+import numpy as np
 
 from ...model import (
     Mesh,
@@ -206,7 +207,7 @@ def build_city_mesh(
         merged_buildings, merged_index_map = merge_building_footprints(
             cleaned_footprints,
             GeometryType.LOD0,
-            max_distance=0.000001,
+            max_distance=0.0,
             min_area=min_building_area,
             return_index_map=True,
         )

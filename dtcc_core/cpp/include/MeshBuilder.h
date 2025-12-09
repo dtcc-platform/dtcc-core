@@ -129,7 +129,7 @@ namespace DTCC_BUILDER
                                   double ymax, double max_mesh_size,
                                   double min_mesh_angle, bool sort_triangles = false)
     {
-      info("SPADE Triangulation: Building ground mesh...");
+      info("Building ground mesh...");
       Timer timer("build_ground_mesh");
 
       const BoundingBox2D bounding_box(Vector2D(xmin, ymin), Vector2D(xmax, ymax));
@@ -177,6 +177,15 @@ namespace DTCC_BUILDER
       boundary.push_back(bounding_box.Q);
       boundary.push_back(Vector2D(bounding_box.P.x, bounding_box.Q.y));
 
+      
+      Mesh mesh;
+#ifdef DTCC_HAVE_TRIANGLE
+        info("Triangulation Backend: Triangle");
+        Triangulate::call_triangle(mesh, boundary, triangle_sub_domains,
+                                   triangle_holes, subdomain_triangle_size,
+                                   max_mesh_size, min_mesh_angle, sort_triangles);
+#else
+      info("Triangulation Backend: Spade");
       double effective_maxh = max_mesh_size;
       if (!subdomain_triangle_size.empty())
       {
@@ -195,10 +204,9 @@ namespace DTCC_BUILDER
         }
       }
 
-      Mesh mesh;
       Triangulate::call_spade(mesh, boundary, triangle_holes, triangle_sub_domains, effective_maxh,
                               min_mesh_angle, sort_triangles);
-                        
+#endif
       
       MeshProcessor::compute_mesh_domain_markers(mesh, subdomains);
 
@@ -640,6 +648,7 @@ namespace DTCC_BUILDER
         Mesh building_mesh;
         building_mesh.vertices.reserve(faces.size() * 3 + naked_edges.size() * 4);
         building_mesh.faces.reserve(faces.size() + naked_edges.size() * 2);
+        building_mesh.markers.reserve(faces.size() + naked_edges.size() * 2);
 
         // add roofs
         for (const auto &face : faces)
@@ -660,6 +669,7 @@ namespace DTCC_BUILDER
           //     str(face.v2));
           building_mesh.faces.push_back(
               Simplex2D(num_vertices, num_vertices + 1, num_vertices + 2));
+          building_mesh.markers.push_back(static_cast<int>(marker));
         }
 
         // add walls
@@ -688,6 +698,8 @@ namespace DTCC_BUILDER
                 Simplex2D(base, base + 1, base + 3));
             building_mesh.faces.push_back(
                 Simplex2D(base, base + 3, base + 2));
+            building_mesh.markers.push_back(static_cast<int>(marker));
+            building_mesh.markers.push_back(static_cast<int>(marker));
           }
           else
           {
@@ -695,6 +707,8 @@ namespace DTCC_BUILDER
                 Simplex2D(base, base + 3, base + 1));
             building_mesh.faces.push_back(
                 Simplex2D(base, base + 2, base + 3));
+            building_mesh.markers.push_back(static_cast<int>(marker));
+            building_mesh.markers.push_back(static_cast<int>(marker));
           }
         }
 
@@ -707,19 +721,36 @@ namespace DTCC_BUILDER
           Timer("build_city_surface_mesh: step 4 remove inside");
       std::sort(building_indices.begin(), building_indices.end());
 
-      // if index is in list of building indices, move to the end of the list
-      auto new_end = std::remove_if(
-          terrain_mesh.faces.begin(), terrain_mesh.faces.end(),
-          [&](const auto &face)
-          {
-            return std::binary_search(
-                building_indices.begin(), building_indices.end(),
-                &face -
-                    &terrain_mesh.faces[0]); // calculate the index of the face in
-                                             // the terrain_mesh.faces vector.
-          });
-      // remove all elements that have been moved
-      terrain_mesh.faces.erase(new_end, terrain_mesh.faces.end());
+      // keep faces/markers/normals aligned while removing building triangles
+      std::vector<Simplex2D> filtered_faces;
+      std::vector<int> filtered_markers;
+      std::vector<Vector3D> filtered_normals;
+      const bool copy_normals = terrain_mesh.normals.size() == terrain_mesh.faces.size();
+      filtered_faces.reserve(terrain_mesh.faces.size());
+      filtered_markers.reserve(terrain_mesh.markers.size());
+      if (copy_normals)
+        filtered_normals.reserve(terrain_mesh.normals.size());
+
+      size_t bpos = 0;
+      for (size_t i = 0; i < terrain_mesh.faces.size(); ++i)
+      {
+        while (bpos < building_indices.size() && building_indices[bpos] < i)
+          ++bpos;
+        if (bpos < building_indices.size() && building_indices[bpos] == i)
+        {
+          ++bpos;
+          continue;
+        }
+        filtered_faces.push_back(terrain_mesh.faces[i]);
+        filtered_markers.push_back(terrain_mesh.markers[i]);
+        if (copy_normals)
+          filtered_normals.push_back(terrain_mesh.normals[i]);
+      }
+
+      terrain_mesh.faces.swap(filtered_faces);
+      terrain_mesh.markers.swap(filtered_markers);
+      if (copy_normals)
+        terrain_mesh.normals.swap(filtered_normals);
       remove_inside_t.stop();
 
       auto final_merger_t = Timer("build_city_surface_mesh: step 5 final merge");
@@ -733,7 +764,7 @@ namespace DTCC_BUILDER
       }
       final_merger_t.stop();
       build_city_surface_t.stop();
-      Timer::report("city surface");
+      // Timer::report("city surface");
       return city_mesh;
     }
 
