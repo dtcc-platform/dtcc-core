@@ -5,31 +5,32 @@ from ...model import Mesh
 
 def get_east_boundary_vertices(vertices, xmax=None, tol=1e-3):
     """
-    Return indices on the EAST boundary (x ≈ xmax), sorted from SOUTH→NORTH.
-    
-    Sorting:
-        - 2D: by y ascending
-        - 3D: by (y, then z) ascending
-
-    Building the EAST wall polygon with OUTWARD normal (+x):
-        Let g = indices on ground (z = zmin), r = corresponding indices on roof (z = zmax).
-        Use CCW order as seen from +x (looking toward -x):
-            [ g (south→north), r (north→south) ]
-        i.e., append the roof sequence in REVERSE to close the quad loop.
-        This CCW ordering (right-hand rule) makes the facet normal point to +x (outward).
+    Return indices on the east boundary (x near ``xmax``), sorted south to north.
 
     Parameters
     ----------
-    vertices : (N,2) or (N,3) array-like
-    xmax : float or None
-        If None, computed from vertices[:,0].max()
-    tol : float
-        Tolerance for boundary membership.
+    vertices : array_like, shape (N, 2) or (N, 3)
+        Vertex coordinates.
+    xmax : float, optional
+        Boundary reference. If ``None``, uses ``vertices[:, 0].max()``.
+    tol : float, optional
+        Tolerance for boundary membership (default is 1e-3).
 
     Returns
     -------
-    idx : (K,) ndarray of int
-        Vertex indices, sorted south→north.
+    numpy.ndarray
+        Vertex indices sorted south to north.
+
+    Notes
+    -----
+    Sorting:
+    - 2D: by ``y`` ascending
+    - 3D: by ``(y, then z)`` ascending
+
+    Building the east wall polygon with outward normal ``+x``:
+    let ``g`` be indices on ground (``z = zmin``), ``r`` the corresponding roof
+    indices (``z = zmax``). Use CCW order as seen from ``+x``:
+    ``[ g (south to north), r (north to south) ]``.
     """
     V = np.asarray(vertices)
     if xmax is None:
@@ -47,28 +48,31 @@ def get_east_boundary_vertices(vertices, xmax=None, tol=1e-3):
 
 def get_west_boundary_vertices(vertices, ymin=None, ymax=None, xmin=None, tol=1e-3):
     """
-    Return indices on the WEST boundary (x ≈ xmin), sorted from NORTH→SOUTH.
-
-    Why NORTH→SOUTH?
-        For the WEST wall (outward normal -x), a convenient CCW ordering (seen from -x)
-        is: [ g (north→south), r (south→north) ]. This yields outward normal (-x).
-
-    Sorting:
-        - 2D: by y descending
-        - 3D: by (y descending, then z ascending)
+    Return indices on the west boundary (x near ``xmin``), sorted north to south.
 
     Parameters
     ----------
-    vertices : (N,2) or (N,3) array-like
-    xmin : float or None
-        If None, computed from vertices[:,0].min()
-    tol : float
-        Tolerance for boundary membership.
+    vertices : array_like, shape (N, 2) or (N, 3)
+        Vertex coordinates.
+    xmin : float, optional
+        Boundary reference. If ``None``, uses ``vertices[:, 0].min()``.
+    tol : float, optional
+        Tolerance for boundary membership (default is 1e-3).
 
     Returns
     -------
-    idx : (K,) ndarray of int
-        Vertex indices, sorted north→south.
+    numpy.ndarray
+        Vertex indices sorted north to south.
+
+    Notes
+    -----
+    Sorting:
+    - 2D: by ``y`` descending
+    - 3D: by ``(y`` descending, then ``z`` ascending)
+
+    For the west wall (outward normal ``-x``), a CCW ordering seen from ``-x`` is
+    ``[ g (north to south), r (south to north) ]``, which yields outward normal
+    ``-x``.
     """
     V = np.asarray(vertices)
     if xmin is None:
@@ -87,29 +91,31 @@ def get_west_boundary_vertices(vertices, ymin=None, ymax=None, xmin=None, tol=1e
 
 def get_south_boundary_vertices(vertices, ymin=None, tol=1e-3):
     """
-    Return indices on the SOUTH boundary (y ≈ ymin), sorted from WEST→EAST.
-
-    Building the SOUTH wall polygon with OUTWARD normal (-y):
-        View from -y (outside). CCW ordering:
-            [ g (west→east), r (east→west) ]
-        i.e., append roof indices in REVERSE to close the quad; normal points to -y.
-
-    Sorting:
-        - 2D: by x ascending
-        - 3D: by (x ascending, then z ascending)
+    Return indices on the south boundary (y near ``ymin``), sorted west to east.
 
     Parameters
     ----------
-    vertices : (N,2) or (N,3) array-like
-    ymin : float or None
-        If None, computed from vertices[:,1].min()
-    tol : float
-        Tolerance for boundary membership.
+    vertices : array_like, shape (N, 2) or (N, 3)
+        Vertex coordinates.
+    ymin : float, optional
+        Boundary reference. If ``None``, uses ``vertices[:, 1].min()``.
+    tol : float, optional
+        Tolerance for boundary membership (default is 1e-3).
 
     Returns
     -------
-    idx : (K,) ndarray of int
-        Vertex indices, sorted west→east.
+    numpy.ndarray
+        Vertex indices sorted west to east.
+
+    Notes
+    -----
+    Sorting:
+    - 2D: by ``x`` ascending
+    - 3D: by ``(x, then z)`` ascending
+
+    For the south wall (outward normal ``-y``), viewed from ``-y``, a CCW ordering is
+    ``[ g (west to east), r (east to west) ]``; reversing the roof indices closes
+    the quad and keeps the normal pointing outward.
     """
     V = np.asarray(vertices)
     if ymin is None:
@@ -127,29 +133,31 @@ def get_south_boundary_vertices(vertices, ymin=None, tol=1e-3):
 
 def get_north_boundary_vertices(vertices, ymax=None, tol=1e-3):
     """
-    Return indices on the NORTH boundary (y ≈ ymax), sorted from EAST→WEST.
-
-    Why EAST→WEST?
-        For the NORTH wall (outward normal +y), viewing from +y, a CCW ordering is:
-            [ g (east→west), r (west→east) ]
-        Reversing the roof segment closes the quad and yields outward normal (+y).
-
-    Sorting:
-        - 2D: by x descending
-        - 3D: by (x descending, then z ascending)
+    Return indices on the north boundary (y near ``ymax``), sorted east to west.
 
     Parameters
     ----------
-    vertices : (N,2) or (N,3) array-like
-    ymax : float or None
-        If None, computed from vertices[:,1].max()
-    tol : float
-        Tolerance for boundary membership.
+    vertices : array_like, shape (N, 2) or (N, 3)
+        Vertex coordinates.
+    ymax : float, optional
+        Boundary reference. If ``None``, uses ``vertices[:, 1].max()``.
+    tol : float, optional
+        Tolerance for boundary membership (default is 1e-3).
 
     Returns
     -------
-    idx : (K,) ndarray of int
-        Vertex indices, sorted east→west.
+    numpy.ndarray
+        Vertex indices sorted east to west.
+
+    Notes
+    -----
+    Sorting:
+    - 2D: by ``x`` descending
+    - 3D: by ``(x`` descending, then ``z`` ascending)
+
+    For the north wall (outward normal ``+y``), viewed from ``+y``, a CCW ordering is
+    ``[ g (east to west), r (west to east) ]``; reversing the roof segment closes
+    the quad and yields outward normal ``+y``.
     """
     V = np.asarray(vertices)
     if ymax is None:
@@ -171,22 +179,32 @@ import numpy as np
 
 def compute_boundary_facets(mesh: Mesh, top_height=100.0, tol=1e-3):
     """
-    Build five PLC facet polygons (south, east, north, west, top) for a rectangular box
-    around the mesh domain, using 4 new top-corner points. Polygons are wound CCW as seen
-    from *outside* so their normals point outward (right-hand rule), i.e.:
-      - South  -> outward -y
-      - East   -> outward +x
-      - North  -> outward +y
-      - West   -> outward -x
-      - Top    -> outward +z
+    Build PLC facet polygons for a rectangular box around the mesh domain.
+
+    Polygons are wound CCW as seen from outside so normals point outward
+    (right-hand rule):
+    - South -> outward ``-y``
+    - East  -> outward ``+x``
+    - North -> outward ``+y``
+    - West  -> outward ``-x``
+    - Top   -> outward ``+z``
+
+    Parameters
+    ----------
+    mesh : Mesh
+        Input mesh used to derive the domain bounds.
+    top_height : float, optional
+        Height of the top cap above ``zmin``; defaults to 100.0.
+    tol : float, optional
+        Tolerance for boundary membership (default is 1e-3).
 
     Returns
     -------
-    vertices : (N+4,3) float64
-        Original vertices with the 4 added top points appended at the end.
-    facets : dict[str, list[int]]
+    numpy.ndarray
+        Vertices with the four added top points appended at the end.
+    dict[str, numpy.ndarray]
         Indices of the five polygons with outward normals:
-        {'south': [...], 'east': [...], 'north': [...], 'west': [...], 'top': [...]}
+        ``{"south": [...], "east": [...], "north": [...], "west": [...], "top": [...]}``.
     """
     V = np.asarray(mesh.vertices, dtype=float)
     xmin, ymin, zmin = np.min(V, axis=0)

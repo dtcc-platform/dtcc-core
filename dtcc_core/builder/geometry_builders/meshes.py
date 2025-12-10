@@ -91,7 +91,10 @@ def build_city_mesh(
     `city` : model.City
         The city to build the mesh from.
     `lod` : GeometryType or list of GeometryType, optional
-        The level of detail (meshing directive) for each building. If a single value is provided,
+        The meshing directive (Level of Detail) to apply to the buildings.  
+        If a single value is provided, it is applied uniformly to all buildings.  
+        If a list is provided, it must have the same length as the number of buildings
+        in the city, and each entry specifies the directive for the corresponding building.
     `min_building_detail` : float, optional
         The minimum detail of the buildin to resolve, by default 0.5.
     `min_building_area` : float, optional
@@ -174,7 +177,6 @@ def build_city_mesh(
             f"got {type(lod).__name__}"
         )
     
-    processed_buildings = list(buildings)
     current_index_map: list[list[int]] | None = None
     
     if merge_buildings:
@@ -187,7 +189,6 @@ def build_city_mesh(
             return_index_map=True,
         )
         current_index_map = index_map
-        # processed_buildings = merged_buildings
         
         # city.replace_buildings(merged_buildings)
         # city.save_building_footprints("footprints_merged_mesher.gpkg")
@@ -291,12 +292,18 @@ def build_city_mesh(
     return result_mesh
 
 
+
 def build_city_volume_mesh(
     city: City,
     lod: GeometryType = GeometryType.LOD1,
     domain_height: float = 100.0,
     max_mesh_size: float = 10.0,
+    min_mesh_angle: float = 25.0,
     merge_buildings: bool = True,
+    min_building_detail: float = 0.5,
+    min_building_area: float = 15.0,
+    merge_tolerance: float = 0.5,
+    smoothing: int = 0,
     boundary_face_markers: bool = True,
     tetgen_switches: Optional[Dict[str, Any]] = None,
     tetgen_switch_overrides: Optional[Dict[str, Any]] = None,
@@ -311,28 +318,50 @@ def build_city_volume_mesh(
     Parameters
     ----------
     city : City
-        City object containing terrain and building data. Terrain must have either
-        a raster or mesh representation.
+        City object containing terrain and building data. The terrain must provide
+        either a raster or a mesh representation to support domain surface generation.
     lod : GeometryType, optional
-        Level of detail for building footprints. Defaults to GeometryType.LOD1.
+        The meshing directive (Level of Detail) applied to building footprints.
+        If a single value is provided, it is applied uniformly to all buildings.
+        Defaults to ``GeometryType.LOD1``.
     domain_height : float, optional
-        Height of the mesh domain above the terrain (in the same units as city coordinates).
-        Defaults to 100.0.
+        The vertical height of the volume domain above the terrain surface, in the
+        same coordinate units as the city. Defaults to 100.0.
     max_mesh_size : float, optional
-        Maximum allowed mesh element size. Used both for ground mesh cell sizing
-        and to cap subdomain resolutions. Defaults to 10.0.
+        Maximum allowed mesh element size. This value governs both the underlying
+        ground mesh resolution and the upper bound of element sizing within the
+        extruded volume. Defaults to 10.0.
+    min_mesh_angle : float, optional
+        Minimum allowable mesh angle used as a quality constraint in the TetGen call.
+        Defaults to 25.0.
     merge_buildings : bool, optional
-        If True, merge adjacent building footprints into larger blocks before meshing.
-        Defaults to True.
+        Whether to merge adjacent or overlapping building footprints into larger
+        composite blocks prior to meshing. Defaults to True.
+    min_building_detail : float, optional
+        Minimum geometric feature size to resolve within building footprints.
+        Defaults to 0.5.
+    min_building_area : float, optional
+        Minimum footprint area required for a building to be included in the mesh.
+        Buildings below this threshold are omitted. Defaults to 15.0.
+    merge_tolerance : float, optional
+        Distance tolerance used when merging building footprints and terrain boundaries.
+        Defaults to 0.5.
+    smoothing : int, optional
+        Number of mesh-smoothing iterations applied to the terrain and building
+        surface meshes prior to volume meshing. Defaults to 0 (no smoothing).
     boundary_face_markers : bool, optional
-        If True, add integer markers to the boundary faces of the volume mesh as a
-        post-processing step. Defaults to True. See Notes for marker conventions.
+        If True, annotate boundary faces of the resulting volume mesh with integer
+        markers as a post-processing step. This supports downstream workflows such
+        as boundary-condition assignment. Defaults to True. See Notes for marker
+        conventions.
     tetgen_switches : dict, optional
-        Optional TetGen switch parameters passed through to ``dtcc_wrapper_tetgen``.
-        Provide keys as defined by ``dtcc_wrapper_tetgen.switches.DEFAULT_TETGEN_PARAMS``.
+        Optional high-level TetGen parameter dictionary. Keys must correspond to
+        those defined in ``dtcc_wrapper_tetgen.switches.DEFAULT_TETGEN_PARAMS``.
+        These values are passed directly to ``dtcc_wrapper_tetgen``.
     tetgen_switch_overrides : dict, optional
-        Optional low-level overrides forwarded to ``build_tetgen_switches`` for custom
-        text-based switch assembly.
+        Optional low-level overrides for custom text-based switch assembly via
+        ``build_tetgen_switches``. Use this when direct control of TetGen's
+        command-string switches is required.
 
     Returns
     -------
@@ -369,6 +398,9 @@ def build_city_volume_mesh(
       are extruded into the volume domain of height `domain_height`.
     - Mesh smoothing and quality parameters (angles, iterations, tolerances, aspect
       ratios) are applied internally.
+    - TetGen can be used as the tetrahedralization backend through
+      ``dtcc_tetgen_wrapper``, which exposes both high-level parameter dictionaries
+      and low-level switch-string overrides for advanced configuration.
 
     Examples
     --------
@@ -380,17 +412,6 @@ def build_city_volume_mesh(
     ...                          boundary_face_markers=True)
     """
 
-    # FIXME: Where do we set these parameters?
-    min_building_area = 10.0
-    min_building_detail = 0.5
-    min_mesh_angle = 30.0
-
-    # Fallback dtcc volume meshing parameters
-    smoother_max_iterations = 5000
-    smoothing_relative_tolerance = 0.005
-    aspect_ratio_threshold = 10.0
-    debug_step = 7
-
     buildings = city.buildings
     if not buildings:
         warning("City has no buildings.")
@@ -401,6 +422,7 @@ def build_city_volume_mesh(
             buildings,
             GeometryType.LOD0,
             min_area=min_building_area,
+            max_distance= merge_tolerance
         )
 
         smallest_hole = max(min_building_detail, min_building_detail**2)
@@ -413,7 +435,7 @@ def build_city_volume_mesh(
         merged_buildings = merge_building_footprints(
             cleaned_footprints,
             GeometryType.LOD0,
-            max_distance=0,
+            max_distance=0.0,
             min_area=min_building_area,
         )
 
@@ -532,6 +554,11 @@ def build_city_volume_mesh(
         True,
     )
 
+    # Fallback dtcc volume meshing parameters
+    smoother_max_iterations = 5000
+    smoothing_relative_tolerance = 0.005
+    aspect_ratio_threshold = 10.0
+    debug_step = 7
     # FIXME: Should not need to convert from C++ to Python mesh.
     # Convert from Python to C++
 

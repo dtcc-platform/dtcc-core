@@ -1,3 +1,19 @@
+"""
+XDMF template for writing a tetrahedral volume mesh with boundary faces and markers.
+
+The template expects three HDF5 datasets:
+- Mesh geometry at `{h5file}:/Mesh/mesh/geometry` (n_pts x 3)
+- Mesh topology at `{h5file}:/Mesh/mesh/topology` (n_tets x 4)
+- Boundary face topology and markers at `{h5file}:/MeshTags/boundary_markers/topology` (n_facets x 3)
+  and `{h5file}:/MeshTags/boundary_markers/values` (n_facets)
+
+Placeholders:
+- `h5file`: Path to the HDF5 file (as referenced from the XDMF)
+- `n_pts`: Number of points
+- `n_tets`: Number of tetrahedra
+- `n_facets`: Number of boundary facets
+"""
+
 
 XDMF_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
 <Xdmf Version="3.0" xmlns:xi="https://www.w3.org/2001/XInclude">

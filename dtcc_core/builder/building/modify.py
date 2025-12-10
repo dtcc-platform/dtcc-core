@@ -63,14 +63,11 @@ def get_footprint(building: Building, geom_type: GeometryType = None) -> Surface
         warning(f"Building {building.id} has no LOD geometry.")
         return None
     height = geom.bounds.zmax
-    # if geom.bounds.zmax ==0 and geom.bounds.zmin == 0:
-    #     height = building.attributes.get("height", 0) +  building.attributes.get("ground_height", 0)
-    # if height == 0:
-    #     warning(f"Building {building.id} has no height defined.")
+    
     footprint = geom.to_polygon()
     if footprint.geom_type == "MultiPolygon":
         geom.to_polygon()
-    # print(f"get footprint has {len(footprint.exterior.coords)} vertices")
+
     s = Surface()
     s.from_polygon(footprint, height)
     return s
@@ -133,8 +130,8 @@ def merge_building_footprints(
         max_distance,
         merge_strategy=MergeStrategy.SELECTIVE_BUFFER,
         preserve_holes=True,
-        return_mapping=True,
         insert_vertices=True,
+        return_mapping=True,
     )
 
     merged_buildings: List[Building] = []
@@ -225,6 +222,9 @@ def simplify_building_footprints(
 
     simplified_buildings: List[Building] = []
     index_map: List[List[int]] = []
+    if method not in ['vwp','rdp']:
+        warning(f"Unknown polygon simplification method: {method}. Falling back to 'vwp")
+        method = 'vwp'
 
     for idx, building in enumerate(buildings):
         lod_geom = building.flatten_geometry(lod)
@@ -233,7 +233,12 @@ def simplify_building_footprints(
         footprint = lod_geom.to_polygon()
         if footprint is None or footprint.is_empty:
             continue
-        footprint = simplify_vwp(footprint, tolerance)
+        
+        if method == 'vwp':
+            footprint = simplify_vwp(footprint, tolerance)
+        elif method == 'rdp':
+            footprint = simplify_vwp(footprint, tolerance)
+
         building_surface = Surface()
         building_surface.from_polygon(footprint, lod_geom.zmax)
         simplified_building = building.copy()
@@ -355,7 +360,7 @@ def fix_building_footprint_clearance(
 
 
 def split_footprint_walls(
-    buildings: List[Building], max_wall_length: Union[float, List[float]] = 10
+    buildings: List[Building], max_wall_length: Union[float, List[float]] = 10.0
 ) -> List[Building]:
     """
     Split long walls in building footprints into shorter segments.

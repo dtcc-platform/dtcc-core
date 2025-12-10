@@ -319,7 +319,22 @@ def merge_multipolygon(multipolygon, tol=0.1):
 
 
 def find_merge_candidates(polygons: List[Polygon], tol: float) -> List[List[int]]:
-    """Find all polygons closer than _tolerance_ in a list of polygons and return a list of indices of polygons to be merged."""
+    """
+    Group polygons that lie within a given tolerance of each other.
+
+    Parameters
+    ----------
+    polygons : list[Polygon]
+        Polygons to analyze.
+    tol : float
+        Distance threshold for considering polygons as merge candidates.
+
+    Returns
+    -------
+    list[list[int]]
+        Lists of polygon indices representing connected components of
+        polygons within ``tol`` distance.
+    """
     rtree = shapely.strtree.STRtree(polygons)
     merge_idxs = rtree.query(polygons, predicate="dwithin", distance=tol)
     merge_idxs = merge_idxs.T
@@ -345,9 +360,25 @@ def clean_merge_candidates(
     tol: float,
     min_area: float,
 ) -> List[List[int]]:
-    """Sometimes after you have removed small isolated polygons, you end up with
-    polygons that are no longer close enough to be merged. This attempts to correct
-    for that by splitting the merge candidates into smaller isolated merge candidates.
+    """
+    Refine merge groups after removing small isolated polygons.
+
+    Parameters
+    ----------
+    polygons : list[Polygon]
+        Original polygons.
+    merge_candidates : list[list[int]]
+        Initial merge groups (index lists).
+    tol : float
+        Distance threshold for splitting groups.
+    min_area : float
+        Area threshold below which polygons are considered small.
+
+    Returns
+    -------
+    list[list[int]]
+        Cleaned merge groups; small isolated polygons are dropped or split into
+        separate groups when no longer within ``tol`` of the others.
     """
     removals = defaultdict(list)
     for i, idxs in enumerate(merge_candidates):
@@ -426,7 +457,23 @@ def merge_list_of_polygons(mcp: List[Polygon], tolerance=1e-2) -> Polygon:
 def polygon_merger(
     polygons: List[Polygon], tolerance: float = 1e-2, min_area: float = 0
 ) -> Tuple[List[Polygon], List[List[int]]]:
-    """Merge all polygons closer than _tolerance_ in a list of polygons into a list of polygons and a list of indices of merged polygons."""
+    """
+    Merge polygons that are within a given tolerance of each other.
+
+    Parameters
+    ----------
+    polygons : list[Polygon]
+        Input polygons to merge.
+    tolerance : float, optional
+        Distance threshold for merging polygons; default is 1e-2.
+    min_area : float, optional
+        Minimum area below which polygons may be excluded from groups; default is 0.
+
+    Returns
+    -------
+    tuple[list[Polygon], list[list[int]]]
+        Merged polygons and the corresponding index groups that were merged.
+    """
     merge_candidates = find_merge_candidates(polygons, tolerance)
     merge_candidates = clean_merge_candidates(
         polygons, merge_candidates, tolerance, min_area

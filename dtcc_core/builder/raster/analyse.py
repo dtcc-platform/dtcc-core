@@ -51,8 +51,11 @@ def TRI(dem: Raster) -> Raster:
     """
     Compute the Terrain Roughness Index (TRI) of a DEM using optimized array operations.
 
-    Parameters:
-    - dem: a Raster object representing the DEM.
+    Parameters
+    ----------
+
+    - dem : Raster
+      a Raster object representing the DEM.
 
     Returns:
     - A Raster object representing the TRI.

@@ -38,23 +38,34 @@ def build_volume_mesh(mesh: Mesh,
                       switches_params: Optional[Dict[str, Any]] = None, 
                       switches_overrides: Optional[Dict[str, Any]] = None) -> Union[VolumeMesh, Tuple[VolumeMesh, Optional[np.ndarray]]] :
     """
-    Build a volume mesh from a surface mesh using TetGen via tetwrap.
+    Build a tetrahedral volume mesh from a surface mesh using TetGen.
 
     Parameters
     ----------
-    mesh : dtcc.VolumeMesh
-        The input surface mesh.
+    mesh : Mesh
+        Input surface mesh with faces and face markers.
+    build_top_sidewalls : bool, optional
+        Whether to add top cap and side wall facets around the domain before meshing.
+    top_height : float, optional
+        Height of the top cap above ``zmin`` when ``build_top_sidewalls`` is True.
+    return_boundary_faces : bool, optional
+        Request TetGen to return boundary faces; stored on the resulting VolumeMesh.
     switches_params : dict, optional
-        Parameters for TetGen switches.
+        Base parameters passed to TetGen switches.
     switches_overrides : dict, optional
-        Overrides for TetGen switches.
+        Overrides applied to the TetGen switches after ``switches_params``.
 
     Returns
     -------
-    vertices : ndarray
-        The vertices of the volume mesh.
-    cells : ndarray
-        The cells (tetrahedra) of the volume mesh.
+    VolumeMesh
+        Volume mesh populated with tetrahedra and, when requested, boundary faces and markers.
+
+    Raises
+    ------
+    TypeError
+        If ``mesh`` is not a ``Mesh`` instance.
+    ValueError
+        If the input mesh lacks faces, face markers, or required boundary facets.
     """
     if not isinstance(mesh, Mesh):
         raise TypeError("Input must be a dtcc.Mesh instance.")

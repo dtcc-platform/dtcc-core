@@ -7,23 +7,22 @@ import skimage as ski
 
 @register_model_method
 def remove_small_masks(raster: Raster, min_size=1, nodata=None) -> Raster:
-    """Remove small objects from a binary mask.
+    """
+    Remove small connected components from a raster mask.
 
-    This function removes objects smaller than `min_size` from a raster. An object is defined as a connected
-    pixels not equal to `nodata`.
+    Parameters
+    ----------
+    raster : Raster
+        Input raster whose non-nodata pixels form the mask.
+    min_size : int, optional
+        Minimum component size to keep; smaller components are removed. Default is 1.
+    nodata : float, optional
+        Value treated as nodata. If ``None``, uses the raster nodata value.
 
-
-    Args:
-        raster (Raster): The input raster where you want to remove small objects.
-        min_size (int, optional): The minimum size of objects to retain in the mask. Objects smaller than this will be removed.
-                                  The default is 1, which means that objects with 1 pixel will be removed.
-
-        nodata: (float): which value to consider nodata. Any other value will be considered valid. If None, the nodata
-        value of the raster will be used.
-
-
-    Returns:
-        ndarray: The binary mask array with small objects removed.
+    Returns
+    -------
+    Raster
+        Raster copy with small components removed (nodata preserved).
     """
 
     if min_size <= 0:
