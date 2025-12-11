@@ -412,6 +412,17 @@ def build_city_volume_mesh(
     ...                          boundary_face_markers=True)
     """
 
+        # FIXME: Where do we set these parameters?
+    min_building_area = 10.0
+    min_building_detail = 0.5
+    min_mesh_angle = 30.0
+
+    # Fallback dtcc volume meshing parameters
+    smoother_max_iterations = 5000
+    smoothing_relative_tolerance = 0.005
+    aspect_ratio_threshold = 10.0
+    debug_step = 7
+
     buildings = city.buildings
     if not buildings:
         warning("City has no buildings.")
@@ -419,32 +430,17 @@ def build_city_volume_mesh(
     if merge_buildings:
         info(f"Merging {len(buildings)} buildings...")
         merged_buildings = merge_building_footprints(
-            buildings,
-            GeometryType.LOD0,
-            min_area=min_building_area,
-            max_distance= merge_tolerance
+            buildings, GeometryType.LOD0, min_area=min_building_area
         )
-
-        smallest_hole = max(min_building_detail, min_building_detail**2)
-        cleaned_footprints = clean_building_footprints(
-            merged_buildings,
-            clearance=min_building_detail,
-            smallest_hole_area=smallest_hole,
-        )
-
-        merged_buildings = merge_building_footprints(
-            cleaned_footprints,
-            GeometryType.LOD0,
-            max_distance=0.0,
-            min_area=min_building_area,
-        )
-
         simplifed_footprints = simplify_building_footprints(
             merged_buildings, min_building_detail / 2, lod=GeometryType.LOD0
         )
+        clearance_fix = fix_building_footprint_clearance(
+            simplifed_footprints, min_building_detail
+        )
 
         building_footprints = [
-            b.get_footprint(GeometryType.LOD0) for b in simplifed_footprints
+            b.get_footprint(GeometryType.LOD0) for b in clearance_fix
         ]
         info(f"After merging: {len(building_footprints)} buildings.")
     else:
@@ -480,7 +476,7 @@ def build_city_volume_mesh(
 
     if is_tetgen_available():
 
-        # FIXME: Where do we set these parameters?
+        #FIXME: Where do we set these parameters?
         smoothing = 1
         merge_meshes = True
         sort_triangles = False
@@ -506,10 +502,8 @@ def build_city_volume_mesh(
         if surface_mesh.faces is None or len(surface_mesh.faces) == 0:
             raise ValueError("Surface mesh has no faces. Cannot build volume mesh.")
         if surface_mesh.markers is None or len(surface_mesh.markers) == 0:
-            raise ValueError(
-                "Surface mesh has no face markers. Cannot build volume mesh."
-            )
-
+            raise ValueError("Surface mesh has no face markers. Cannot build volume mesh.")
+        
         switches_params = get_default_tetgen_switches()
         if max_tet_volume is not None:
             switches_params["max_volume"] = max_tet_volume
@@ -528,7 +522,7 @@ def build_city_volume_mesh(
             top_height=domain_height,
             switches_params=switches_params,
             switches_overrides=tetgen_switch_overrides,
-            return_boundary_faces=boundary_face_markers,  # Boundary face markers not implemented but returning boundary faces for now
+            return_boundary_faces=boundary_face_markers, # Boundary face markers not implemented but returning boundary faces for now
         )
         return volume_mesh
 
