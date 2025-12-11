@@ -41,30 +41,44 @@ class Surface(Geometry):
 
     @property
     def xmin(self):
+        """Minimum x-coordinate among surface vertices."""
         return self.bounds.xmin
 
     @property
     def ymin(self):
+        """Minimum y-coordinate among surface vertices."""
         return self.bounds.ymin
 
     @property
     def zmin(self):
+        """Minimum z-coordinate among surface vertices."""
         return self.bounds.zmin
 
     @property
     def xmax(self):
+        """Maximum x-coordinate among surface vertices."""
         return self.bounds.xmax
 
     @property
     def ymax(self):
+        """Maximum y-coordinate among surface vertices."""
         return self.bounds.ymax
 
     @property
     def zmax(self):
+        """Maximum z-coordinate among surface vertices."""
         return self.bounds.zmax
 
     @property
     def centroid(self):
+        """
+        Arithmetic centroid of the surface vertices.
+
+        Returns
+        -------
+        np.ndarray
+            Mean of vertex coordinates along each axis.
+        """
         return np.mean(self.vertices, axis=0)
 
     def calculate_normal(self) -> np.ndarray:
@@ -239,6 +253,14 @@ class MultiSurface(Geometry):
     surfaces: list[Surface] = field(default_factory=list)
 
     def __len__(self):
+        """
+        Return the number of surfaces contained in the MultiSurface.
+
+        Returns
+        -------
+        int
+            The number of ``Surface`` objects stored in the ``surfaces`` list.
+        """
         return len(self.surfaces)
 
     def merge(self, other):
@@ -264,6 +286,7 @@ class MultiSurface(Geometry):
 
     @property
     def zmax(self):
+        """Maximum z-coordinate across all child surfaces."""
         return max([s.zmax for s in self.surfaces])
 
     def translate(self, x=0, y=0, z=0):
@@ -288,6 +311,19 @@ class MultiSurface(Geometry):
         return True
 
     def copy(self, geometry_only=False):
+        """
+        Create a deep copy of the MultiSurface.
+
+        Parameters
+        ----------
+        geometry_only : bool, default False
+            When ``True``, copy only geometry components; otherwise perform a full deep copy.
+
+        Returns
+        -------
+        MultiSurface
+            Copied multi-surface instance.
+        """
         if geometry_only:
             return MultiSurface(surfaces=[s.copy(True) for s in self.surfaces])
         else:

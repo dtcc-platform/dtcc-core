@@ -31,6 +31,14 @@ class Grid(Geometry):
         )
 
     def calculate_bounds(self):
+        """
+        Compute the grid bounds based on width and height.
+
+        Returns
+        -------
+        Bounds
+            Bounding box from (0,0) to (width, height).
+        """
         self._bounds = Bounds(xmin=0, ymin=0, xmax=self.width, ymax=self.height)
         return self._bounds
 
@@ -160,6 +168,14 @@ class VolumeGrid(Geometry):
         return f"DTCC VolumeGrid on {self.bounds.bndstr} with {self.width} x {self.height} x {self.depth} cells"
 
     def calculate_bounds(self):
+        """
+        Compute the volume grid bounds based on dimensions.
+
+        Returns
+        -------
+        Bounds
+            Bounding box from (0,0,0) to (width, height, depth).
+        """
         self._bounds = Bounds(
             xmin=0, ymin=0, zmin=0, xmax=self.width, ymax=self.height, zmax=self.depth
         )

@@ -164,6 +164,15 @@ class SingleBBoxClipper:
     """Handles clipping for a single bounding box."""
 
     def __init__(self, bbox: Tuple[float, float, float, float]):
+        """
+        Prepare a clipper for one bounding box.
+
+        Parameters
+        ----------
+        bbox : tuple of float
+            Bounding box as ``(xmin, ymin, xmax, ymax)`` used for clipping
+            input triangles.
+        """
         self.bbox = bbox
         self.clip_box = box(*bbox)
         self.vertices = []

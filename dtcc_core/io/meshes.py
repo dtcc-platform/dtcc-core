@@ -29,6 +29,14 @@ except:
 
 
 def has_assimp():
+    """
+    Check whether pyassimp is available for mesh I/O.
+
+    Returns
+    -------
+    bool
+        ``True`` if pyassimp was imported successfully; otherwise ``False``.
+    """
     return HAS_ASSIMP
 
 
@@ -325,16 +333,59 @@ if HAS_ASSIMP:
 
 
 def load_mesh(path):
+    """
+    Load a surface mesh from file.
+
+    Parameters
+    ----------
+    path : str or Path
+        Path to the mesh file.
+
+    Returns
+    -------
+    Mesh
+        Loaded mesh instance.
+    """
     return generic.load(path, "mesh", Mesh, _load_formats)
 
 
 def load_volume_mesh(path):
+    """
+    Load a volume mesh from file.
+
+    Parameters
+    ----------
+    path : str or Path
+        Path to the mesh file.
+
+    Returns
+    -------
+    VolumeMesh
+        Loaded volume mesh instance.
+    """
     return generic.load(path, "mesh", VolumeMesh, _load_formats)
 
 
 def load_mesh_as_city(
     path, lod=GeometryType.LOD1, merge_coplanar_surfaces=True
 ) -> City:
+    """
+    Load a mesh and wrap it as a City object.
+
+    Parameters
+    ----------
+    path : str or Path
+        Path to the mesh file.
+    lod : GeometryType, default GeometryType.LOD1
+        Level of detail assigned to the imported geometry.
+    merge_coplanar_surfaces : bool, default True
+        Whether to merge coplanar surfaces on load.
+
+    Returns
+    -------
+    City
+        City containing the mesh geometry.
+    """
     return generic.load(
         path,
         "city_mesh",

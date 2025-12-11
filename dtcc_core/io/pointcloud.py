@@ -60,7 +60,22 @@ def calc_las_bounds(las_path):
     return bbox
 
 
-def bounds_filter_poinst(pts, bounds):
+def bounds_filter_points(pts, bounds):
+    """
+    Mask points lying inside the provided bounds.
+
+    Parameters
+    ----------
+    pts : np.ndarray
+        Array of point coordinates shaped (N, 3).
+    bounds : Bounds or None
+        Bounding box to filter against; when ``None`` all points are kept.
+
+    Returns
+    -------
+    np.ndarray
+        Boolean mask of valid points.
+    """
     if bounds is not None:
         valid_pts = (pts[:, 0] >= bounds.xmin) * (pts[:, 0] <= bounds.xmax)  # valid X
         valid_pts *= (pts[:, 1] >= bounds.ymin) * (pts[:, 1] <= bounds.ymax)  # valid Y
@@ -134,6 +149,27 @@ def load_list(
     delimiter=",",
     bounds=None,
 ):
+    """
+    Load and merge multiple point cloud files.
+
+    Parameters
+    ----------
+    path : list[pathlib.Path]
+        Collection of LAS/LAZ/CSV file paths.
+    points_only : bool, default False
+        When ``True``, load only coordinates.
+    points_classification_only : bool, default False
+        When ``True``, load only classification values.
+    delimiter : str, default ","
+        Delimiter used for CSV inputs.
+    bounds : Bounds, optional
+        Bounding box filter applied to each file.
+
+    Returns
+    -------
+    PointCloud
+        Combined point cloud containing data from all inputs.
+    """
     pc = PointCloud()
     for f in path:
         t_pc = load(
@@ -150,7 +186,7 @@ def load_list(
 
 def _load_csv(path, point_only=False, delimiter=",", bounds=None, **kwargs):
     pts = np.loadtxt(path, delimiter=delimiter)
-    valid_pts = bounds_filter_poinst(pts, bounds)
+    valid_pts = bounds_filter_points(pts, bounds)
     if len(valid_pts) == 0:
         warning(f"Pointcloud {path} has no points")
         return PointCloud()
@@ -193,7 +229,7 @@ def _load_las(
     pts = np.array(las.xyz)
 
     if use_bounds_filter:
-        valid_pts = bounds_filter_poinst(pts, bounds)
+        valid_pts = bounds_filter_points(pts, bounds)
         pts = pts[valid_pts]
 
     if len(pts) == 0:
@@ -232,6 +268,16 @@ def _load_proto_pointcloud(path, **kwargs):
 
 
 def save(pointcloud, outfile):
+    """
+    Save a point cloud to disk using a registered format.
+
+    Parameters
+    ----------
+    pointcloud : PointCloud
+        Point cloud to serialize.
+    outfile : str or Path
+        Output path with extension determining the format.
+    """
     generic.save(pointcloud, outfile, "pointcloud", _save_formats)
 
 
@@ -266,10 +312,26 @@ def _save_json_pointcloud(pointcloud, outfile):
 
 
 def list_io():
+    """
+    List supported load/save formats for point clouds.
+
+    Returns
+    -------
+    dict
+        Dictionary describing load and save handlers.
+    """
     return generic.list_io("pointcloud", _load_formats, _save_formats)
 
 
 def print_io():
+    """
+    Print supported formats for point cloud I/O.
+
+    Returns
+    -------
+    None
+        Output is printed to stdout.
+    """
     generic.print_io("pointcloud", _load_formats, _save_formats)
 
 

@@ -19,6 +19,15 @@ except ImportError:
     warning("TetGen not available. Volume meshing fallback to dtcc base method.")
 
 def is_tetgen_available() -> bool:
+    """
+    Indicate whether the TetGen wrapper is importable.
+
+    Returns
+    -------
+    bool
+        ``True`` when ``dtcc_tetgen_wrapper`` is available and switches are
+        initialized; otherwise ``False``.
+    """
     return HAS_TETGEN
 
 

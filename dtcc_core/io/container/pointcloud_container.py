@@ -54,6 +54,14 @@ class PointCloudDirectory:
 
     @property
     def bounds(self) -> Bounds:
+        """
+        Aggregate bounds spanning all point cloud tiles.
+
+        Returns
+        -------
+        Bounds
+            Bounding box covering every entry in ``bounds_list``.
+        """
         return self._bounds
 
     def pointcloud(
@@ -86,10 +94,39 @@ class PointCloudDirectory:
         return f"PointCloudDirectory with {len(self.file_list)} files"
 
     def __len__(self):
+        """
+        Return number of point cloud files tracked by the container.
+
+        Returns
+        -------
+        int
+            Count of items in ``file_list``.
+        """
         return len(self.file_list)
 
     def to_proto(self):
+        """
+        Serialize the container to a protobuf message.
+
+        Returns
+        -------
+        Any
+            Serialized protobuf representation. Not yet implemented.
+        """
         pass
 
     def from_proto(self, pb):
+        """
+        Initialize the container from a protobuf message.
+
+        Parameters
+        ----------
+        pb : Any
+            Protobuf message representing a point cloud container.
+
+        Returns
+        -------
+        None
+            Not yet implemented; placeholder for future deserialization logic.
+        """
         pass

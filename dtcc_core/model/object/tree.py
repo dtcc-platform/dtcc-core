@@ -29,7 +29,23 @@ class Tree(Object):
     crown_radius: float = 0.0
 
     def to_proto(self) -> proto.Object:
+        """
+        Convert the tree to a protobuf Object message.
+
+        Returns
+        -------
+        proto.Object
+            Serialized tree representation.
+        """
         pass
 
     def from_proto(self, pb: Union[proto.Object, bytes]):
+        """
+        Populate the tree from a protobuf Object message.
+
+        Parameters
+        ----------
+        pb : proto.Object or bytes
+            Protobuf message or serialized bytes containing a tree.
+        """
         pass

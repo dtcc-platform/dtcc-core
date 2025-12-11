@@ -83,6 +83,19 @@ class CityLoaderMixin:
         return self
 
     def load_terrain_raster(self: "City", path: Union[Path, str]) -> "City":
+        """
+        Load a raster file and attach it as terrain geometry.
+
+        Parameters
+        ----------
+        path : str or Path
+            File path to the raster dataset.
+
+        Returns
+        -------
+        City
+            Self, with terrain raster added.
+        """
         # non-model imports must go here to avoid circular imports
         import dtcc_core.io as io
 

@@ -22,6 +22,14 @@ class CityJSONConfig:
     rounding_mode: str = "round"
 
     def __post_init__(self):
+        """
+        Populate default mappings and validate rounding behavior.
+
+        Raises
+        ------
+        ValueError
+            If ``rounding_mode`` is not one of ``\"round\"``, ``\"floor\"``, or ``\"ceil\"``.
+        """
         if self.semantic_types is None:
             self.semantic_types = {
                 "surface": "WallSurface",
@@ -112,6 +120,7 @@ class VertexIndexer:
     """
 
     def __init__(self):
+        """Initialize empty vertex storage and lookup index."""
         self.vertices: List[List[int]] = []
         self._index = {}
 
@@ -130,6 +139,28 @@ class VertexIndexer:
         return q.astype(int)
 
     def add_points(self, points: np.ndarray, factor: float, rounding_mode: str = "round") -> List[int]:
+        """
+        Quantize and add points to the global vertex list.
+
+        Parameters
+        ----------
+        points : np.ndarray
+            Array of shape (N, 3) with floating point coordinates.
+        factor : float
+            Quantization multiplier applied before rounding.
+        rounding_mode : str, default "round"
+            Rounding strategy: ``\"round\"``, ``\"floor\"``, or ``\"ceil\"``.
+
+        Returns
+        -------
+        list[int]
+            Global indices corresponding to the (de-duplicated) quantized vertices.
+
+        Raises
+        ------
+        ValueError
+            If ``rounding_mode`` is invalid.
+        """
         q = self._quantize(points, factor, rounding_mode)
         indices: List[int] = []
         for x, y, z in q.tolist():
@@ -309,6 +340,23 @@ def get_converter(geometry_type: type, config: CityJSONConfig = None):
 
     # Return a partial function with config baked in
     def converter(geometry, vertices, scale):
+        """
+        Convert a geometry to CityJSON using the registered converter.
+
+        Parameters
+        ----------
+        geometry : Surface or MultiSurface or Mesh
+            Geometry instance to convert.
+        vertices : list
+            Shared vertex accumulator mutated during conversion.
+        scale : float
+            Quantization multiplier (1/transform_scale).
+
+        Returns
+        -------
+        dict
+            CityJSON geometry representation.
+        """
         return converter_func(geometry, vertices, scale, config)
 
     return converter
@@ -318,6 +366,23 @@ def get_terrain_converter(config: CityJSONConfig = None):
     """Get terrain-specific mesh converter."""
 
     def converter(geometry, vertices, scale):
+        """
+        Convert a terrain mesh to CityJSON.
+
+        Parameters
+        ----------
+        geometry : Mesh
+            Terrain mesh to convert.
+        vertices : list
+            Shared vertex accumulator mutated during conversion.
+        scale : float
+            Quantization multiplier (1/transform_scale).
+
+        Returns
+        -------
+        dict
+            CityJSON geometry representation tailored for terrain meshes.
+        """
         return convert_terrain_mesh(geometry, vertices, scale, config)
 
     return converter

@@ -52,6 +52,14 @@ class RoadNetwork(Object):
 
     @property
     def linestrings(self) -> List[LineString]:
+        """
+        Access individual LineString geometries if present.
+
+        Returns
+        -------
+        list[LineString]
+            Line strings stored under the MultiLineString geometry, or an empty list.
+        """
         geom = self.geometry.get(GeometryType.MULTILINESTRING)
         if geom is None:
             return []
@@ -59,11 +67,28 @@ class RoadNetwork(Object):
 
     @property
     def multilinestrings(self) -> MultiLineString:
+        """
+        Access the MultiLineString geometry representation.
+
+        Returns
+        -------
+        MultiLineString or None
+            Stored multilinestring geometry if available.
+        """
         geom = self.geometry.get(GeometryType.MULTILINESTRING)
         return geom
 
     @property
     def bounds(self):
+        """
+        Compute bounds from geometry or vertex coordinates.
+
+        Returns
+        -------
+        Bounds
+            Bounding box derived from the MultiLineString geometry when present,
+            otherwise computed from vertex extrema.
+        """
         geom = self.geometry.get(GeometryType.MULTILINESTRING)
         if geom is None:
             xmin = np.min(self.vertices[:, 0])
@@ -74,12 +99,28 @@ class RoadNetwork(Object):
         return geom.bounds
 
     def to_shapely(self):
+        """
+        Convert the road network geometry to a Shapely MultiLineString.
+
+        Returns
+        -------
+        shapely.geometry.MultiLineString or None
+            Shapely representation when geometry exists, else ``None``.
+        """
         multilinestring = self.geometry.get(GeometryType.MULTILINESTRING)
         if multilinestring is None:
             return None
         return multilinestring.to_shapely()
 
     def to_proto(self):
+        """
+        Convert the road network to a protobuf Object message.
+
+        Returns
+        -------
+        proto.Object
+            Serialized road network including vertices, edges, and lengths.
+        """
         pb = Object.to_proto(self)
         _pb = proto.RoadNetwork()
         dim = self.vertices.shape[1]
@@ -92,6 +133,14 @@ class RoadNetwork(Object):
         return pb
 
     def from_proto(self, pb):
+        """
+        Populate the road network from a protobuf Object message.
+
+        Parameters
+        ----------
+        pb : proto.Object or bytes
+            Protobuf message or serialized bytes containing a road network.
+        """
         if isinstance(pb, bytes):
             pb = proto.Object.FromString(pb)
         Object.from_proto(self, pb)

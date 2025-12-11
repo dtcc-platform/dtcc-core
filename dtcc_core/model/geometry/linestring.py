@@ -87,6 +87,16 @@ class LineString(Geometry):
         return pb
 
     def from_proto(self, pb: Union[proto.Geometry, bytes], only_linestring_field=False):
+        """
+        Initialize the LineString from a protobuf Geometry or LineString field.
+
+        Parameters
+        ----------
+        pb : proto.Geometry or bytes
+            Protobuf message or serialized bytes containing a LineString.
+        only_linestring_field : bool, default False
+            When ``True``, interpret ``pb`` as a LineString message instead of a full Geometry wrapper.
+        """
         # Handle byte representation
         if isinstance(pb, bytes):
             pb = proto.Geometry.FromString(pb)
@@ -161,6 +171,14 @@ class MultiLineString(Geometry):
         return pb
 
     def from_proto(self, pb: Union[proto.Geometry, bytes]):
+        """
+        Initialize the MultiLineString from a protobuf Geometry message.
+
+        Parameters
+        ----------
+        pb : proto.Geometry or bytes
+            Protobuf message or serialized bytes containing a MultiLineString.
+        """
         # Handle byte representation
         if isinstance(pb, bytes):
             pb = proto.Geometry.FromString(pb)

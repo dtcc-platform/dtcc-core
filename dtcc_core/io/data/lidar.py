@@ -64,6 +64,19 @@ def plot_bboxes_folium(user_bbox, tiles, out_html="client_map.html", crs_from="E
     all_lats = []
 
     def add_bbox_coords(x1, y1, x2, y2):
+        """
+        Transform bounding box corners to WGS84 and record extent.
+
+        Parameters
+        ----------
+        x1, y1, x2, y2 : float
+            Corner coordinates in the source CRS (defaults to EPSG:3006).
+
+        Returns
+        -------
+        tuple[float, float, float, float]
+            Bounding box in longitude/latitude order suitable for Folium.
+        """
         # Convert corners to lat/lon, add them to extents
         min_lon, min_lat = transformer.transform(x1, y1)
         max_lon, max_lat = transformer.transform(x2, y2)

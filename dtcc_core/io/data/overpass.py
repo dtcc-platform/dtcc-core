@@ -51,12 +51,40 @@ def filter_gdf_to_bbox(gdf, bbox_3006):
 # 3) Metadata I/O
 # ------------------------------------------------------------------------
 def load_cache_metadata(meta_path=CACHE_METADATA_FILE):
+    """
+    Load cached Overpass metadata records from disk.
+
+    Parameters
+    ----------
+    meta_path : str, default CACHE_METADATA_FILE
+        Path to the JSON file containing cached metadata.
+
+    Returns
+    -------
+    list
+        Parsed list of cache records; empty list if the file does not exist.
+    """
     if not os.path.exists(meta_path):
         return []
     with open(meta_path, "r", encoding="utf-8") as f:
         return json.load(f)
 
 def save_cache_metadata(records, meta_path=CACHE_METADATA_FILE):
+    """
+    Persist Overpass cache metadata to disk.
+
+    Parameters
+    ----------
+    records : list
+        Metadata entries to serialize.
+    meta_path : str, default CACHE_METADATA_FILE
+        Destination JSON file path.
+
+    Returns
+    -------
+    None
+        Metadata is written to ``meta_path``.
+    """
     with open(meta_path, "w", encoding="utf-8") as f:
         json.dump(records, f, indent=2)
 

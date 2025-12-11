@@ -331,10 +331,26 @@ def save(city, filename):
 
 
 def list_io():
+    """
+    List supported load/save formats for city footprints.
+
+    Returns
+    -------
+    dict
+        Dictionary containing supported load and save format mappings.
+    """
     return generic.list_io("city", _load_formats, _save_formats)
 
 
 def print_io():
+    """
+    Print supported formats for loading and saving city footprints.
+
+    Returns
+    -------
+    None
+        Output is printed to stdout.
+    """
     generic.print_io("city", _load_formats, _save_formats)
 
 

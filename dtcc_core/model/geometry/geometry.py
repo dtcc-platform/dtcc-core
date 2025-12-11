@@ -42,16 +42,40 @@ class Geometry(Model):
 
     @abstractmethod
     def calculate_bounds(self):
+        """
+        Compute and cache the bounding box for the geometry.
+
+        Returns
+        -------
+        Bounds
+            Calculated bounds for the geometry.
+        """
         pass
 
     @property
     def bounds(self) -> Bounds:
+        """
+        Bounding box of the geometry in local coordinates.
+
+        Returns
+        -------
+        Bounds
+            Cached bounds; computed on demand when missing.
+        """
         if self._bounds is None or self._bounds.area == 0:
             self.calculate_bounds()
         return self._bounds
 
     @bounds.setter
     def bounds(self, bounds: Bounds):
+        """
+        Set the cached bounds for the geometry.
+
+        Parameters
+        ----------
+        bounds : Bounds
+            Bounding box to assign.
+        """
         self._bounds = bounds
 
     def add_field(self, field: Field):

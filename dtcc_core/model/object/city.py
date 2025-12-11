@@ -49,6 +49,14 @@ class City(
             return Terrain()
 
     def has_terrain(self) -> bool:
+        """
+        Check whether the city has a terrain child.
+
+        Returns
+        -------
+        bool
+            ``True`` if a terrain object is present, otherwise ``False``.
+        """
         return Terrain in self.children
 
     @property
@@ -70,6 +78,14 @@ class City(
             b.attributes[attribute] = v
 
     def get_building_attributes(self):
+        """
+        Collect attributes from all buildings in the city.
+
+        Returns
+        -------
+        dict[str, list]
+            Mapping of attribute names to lists of values across buildings.
+        """
 
         city_buildings = self.buildings
         if len(city_buildings) == 0:
@@ -99,10 +115,12 @@ class City(
             self.add_child(terrain_object)
 
     def remove_terrain(self):
+        """Remove any terrain objects from the city."""
         if Terrain in self.children:
             self.children[Terrain] = []
 
     def remove_buildings(self):
+        """Remove all buildings from the city."""
         if Building in self.children:
             self.children[Building] = []
 

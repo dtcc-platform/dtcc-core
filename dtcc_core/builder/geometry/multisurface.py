@@ -168,6 +168,22 @@ def group_coplanar_surfaces(ms, tol=1e-8):
     surfaces = ms.surfaces
 
     def dfs(surf_idx, component):
+        """
+        Depth-first search that collects connected coplanar surfaces.
+
+        Parameters
+        ----------
+        surf_idx : int
+            Index of the starting surface.
+        component : set[int]
+            Accumulator for surface indices that are coplanar and connected
+            to ``surf_idx``.
+
+        Returns
+        -------
+        None
+            The function modifies ``component`` and ``visited`` in place.
+        """
         visited.add(surf_idx)
         component.add(surf_idx)
 
