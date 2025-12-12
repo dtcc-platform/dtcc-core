@@ -553,6 +553,7 @@ namespace DTCC_BUILDER
     {
       auto build_city_surface_t = Timer("build_city_surface_mesh");
       auto terrain_time = Timer("build_city_surface_mesh: step 1 terrain");
+      const size_t num_buildings = buildings.size();
       std::vector<Polygon> subdomains;
       subdomains.reserve(buildings.size());
       for (const auto &b : buildings)
@@ -669,7 +670,7 @@ namespace DTCC_BUILDER
           //     str(face.v2));
           building_mesh.faces.push_back(
               Simplex2D(num_vertices, num_vertices + 1, num_vertices + 2));
-          building_mesh.markers.push_back(static_cast<int>(marker));
+          building_mesh.markers.push_back(static_cast<int>(num_buildings + marker));
         }
 
         // add walls
