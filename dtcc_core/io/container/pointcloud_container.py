@@ -71,12 +71,15 @@ class PointCloudDirectory:
         Retrieve a point cloud within the specified bounds.
 
         Args:
-            bounds (Bounds): The bounds within which to retrieve the point cloud.
-            points_only (bool, optional): If True, only retrieve point coordinates. Defaults to False.
-            points_classification_only (bool, optional): If True, only retrieve point classifications. Defaults to False.
+            bounds : Bounds
+              The bounds within which to retrieve the point cloud.
+            points_only :bool  (optional)
+              If True, only retrieve point coordinates. Defaults to False.
+            points_classification_only : bool (optional)
+              If True, only retrieve point classifications. Defaults to False.
 
         Returns:
-            Po
+            Pointcloud
         """
         needed_files = self._rtree.query(
             box(bounds.xmin, bounds.ymin, bounds.xmax, bounds.ymax)
