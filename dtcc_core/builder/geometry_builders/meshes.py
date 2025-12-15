@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List, cast
 import numpy as np
 
 from ...model import (
@@ -55,6 +55,7 @@ from ..building.modify import (
     simplify_building_footprints,
     fix_building_footprint_clearance,
     clean_building_footprints,
+    get_footprint,
 )
 
 from ..meshing.convert import mesh_to_raster
@@ -307,6 +308,11 @@ def build_city_volume_mesh(
     boundary_face_markers: bool = True,
     tetgen_switches: Optional[Dict[str, Any]] = None,
     tetgen_switch_overrides: Optional[Dict[str, Any]] = None,
+    # Fallback DTCC volume mesher parameters
+    smoother_max_iterations: int = 5000,
+    smoothing_relative_tolerance: float = 0.005,
+    aspect_ratio_threshold: float = 10.0,
+    debug_step: int = 7,
 ) -> VolumeMesh:
     """
     Build a 3D tetrahedral volume mesh for a city terrain with embedded building volumes.
@@ -322,7 +328,6 @@ def build_city_volume_mesh(
         either a raster or a mesh representation to support domain surface generation.
     lod : GeometryType, optional
         The meshing directive (Level of Detail) applied to building footprints.
-        If a single value is provided, it is applied uniformly to all buildings.
         Defaults to ``GeometryType.LOD1``.
     domain_height : float, optional
         The vertical height of the volume domain above the terrain surface, in the
@@ -332,8 +337,7 @@ def build_city_volume_mesh(
         ground mesh resolution and the upper bound of element sizing within the
         extruded volume. Defaults to 10.0.
     min_mesh_angle : float, optional
-        Minimum allowable mesh angle used as a quality constraint in the TetGen call.
-        Defaults to 25.0.
+        Minimum allowable mesh angle used as a quality constraint. Defaults to 25.0.
     merge_buildings : bool, optional
         Whether to merge adjacent or overlapping building footprints into larger
         composite blocks prior to meshing. Defaults to True.
@@ -344,8 +348,7 @@ def build_city_volume_mesh(
         Minimum footprint area required for a building to be included in the mesh.
         Buildings below this threshold are omitted. Defaults to 15.0.
     merge_tolerance : float, optional
-        Distance tolerance used when merging building footprints and terrain boundaries.
-        Defaults to 0.5.
+        Distance tolerance used when merging building footprints. Defaults to 0.5.
     smoothing : int, optional
         Number of mesh-smoothing iterations applied to the terrain and building
         surface meshes prior to volume meshing. Defaults to 0 (no smoothing).
@@ -362,6 +365,14 @@ def build_city_volume_mesh(
         Optional low-level overrides for custom text-based switch assembly via
         ``build_tetgen_switches``. Use this when direct control of TetGen's
         command-string switches is required.
+    smoother_max_iterations : int, optional
+        Maximum iterations for fallback volume mesh smoother. Defaults to 5000.
+    smoothing_relative_tolerance : float, optional
+        Relative tolerance for fallback volume mesh smoothing. Defaults to 0.005.
+    aspect_ratio_threshold : float, optional
+        Aspect ratio threshold for fallback volume mesher. Defaults to 10.0.
+    debug_step : int, optional
+        Debug step parameter for fallback volume mesher. Defaults to 7.
 
     Returns
     -------
@@ -375,6 +386,8 @@ def build_city_volume_mesh(
         If the city has no terrain data (neither raster nor mesh).
     ValueError
         If the terrain object exists but has no usable raster or mesh data.
+    ValueError
+        If no valid building footprints are available after preprocessing.
 
     Boundary Face Markers
     ---------------------
@@ -396,60 +409,25 @@ def build_city_volume_mesh(
       and `max_mesh_size`.
     - Ground mesh is built via the internal DTCC builder, and building surfaces
       are extruded into the volume domain of height `domain_height`.
-    - Mesh smoothing and quality parameters (angles, iterations, tolerances, aspect
-      ratios) are applied internally.
-    - TetGen can be used as the tetrahedralization backend through
-      ``dtcc_tetgen_wrapper``, which exposes both high-level parameter dictionaries
-      and low-level switch-string overrides for advanced configuration.
+    - TetGen is preferred when available. If not available, falls back to the
+      internal DTCC volume mesh builder.
 
     Examples
     --------
-    >>> mesh = build_volume_mesh(my_city,
-    ...                          lod=GeometryType.LOD1,
-    ...                          domain_height=150.0,
-    ...                          max_mesh_size=5.0,
-    ...                          merge_buildings=False,
-    ...                          boundary_face_markers=True)
+    >>> mesh = build_city_volume_mesh(my_city,
+    ...                               lod=GeometryType.LOD1,
+    ...                               domain_height=150.0,
+    ...                               max_mesh_size=5.0,
+    ...                               merge_buildings=False,
+    ...                               boundary_face_markers=True)
     """
 
-        # FIXME: Where do we set these parameters?
-    min_building_area = 10.0
-    min_building_detail = 0.5
-    min_mesh_angle = 30.0
 
-    # Fallback dtcc volume meshing parameters
-    smoother_max_iterations = 5000
-    smoothing_relative_tolerance = 0.005
-    aspect_ratio_threshold = 10.0
-    debug_step = 7
+    # 1. VALIDATE INPUT AND TERRAIN
 
     buildings = city.buildings
     if not buildings:
         warning("City has no buildings.")
-
-    if merge_buildings:
-        info(f"Merging {len(buildings)} buildings...")
-        merged_buildings = merge_building_footprints(
-            buildings, GeometryType.LOD0, min_area=min_building_area
-        )
-        simplifed_footprints = simplify_building_footprints(
-            merged_buildings, min_building_detail / 2, lod=GeometryType.LOD0
-        )
-        clearance_fix = fix_building_footprint_clearance(
-            simplifed_footprints, min_building_detail
-        )
-
-        building_footprints = [
-            b.get_footprint(GeometryType.LOD0) for b in clearance_fix
-        ]
-        info(f"After merging: {len(building_footprints)} buildings.")
-    else:
-        building_footprints = [b.get_footprint(lod) for b in buildings]
-
-    # Set subdomain resolution to half the building height
-    subdomain_resolution = [
-        min(building.height, max_mesh_size) for building in buildings
-    ]
 
     terrain = city.terrain
     if terrain is None:
@@ -461,28 +439,131 @@ def build_city_volume_mesh(
     if terrain_raster is None and terrain_mesh is not None:
         terrain_raster = mesh_to_raster(terrain_mesh, cell_size=max_mesh_size)
 
-    _surfaces = [
-        create_builder_surface(footprint)
-        for footprint in building_footprints
-        if footprint is not None
-    ]
+    # 2. PREPROCESS BUILDINGS
+    # Note: For volume meshing, we use a simplified preprocessing pipeline
+    # to avoid geometry issues that cause crashes in the C++ surface mesher
+    if merge_buildings:
+        info(f"Merging {len(buildings)} buildings...")
+
+        # First merge pass
+        step1_buildings = cast(
+            List[Building],
+            merge_building_footprints(
+                buildings,
+                lod=GeometryType.LOD0,
+                max_distance=merge_tolerance,
+                min_area=min_building_area,
+                return_index_map=False,
+            ),
+        )
+
+        # Second merge pass (merge touching buildings) - skip cleaning step
+        step2_buildings = cast(
+            List[Building],
+            merge_building_footprints(
+                step1_buildings,
+                GeometryType.LOD0,
+                max_distance=0.0,
+                min_area=min_building_area,
+                return_index_map=False,
+            ),
+        )
+
+        # Simplify footprints
+        simplified_footprints = cast(
+            List[Building],
+            simplify_building_footprints(
+                step2_buildings,
+                min_building_detail,
+                lod=GeometryType.LOD0,
+                return_index_map=False,
+            ),
+        )
+
+        # Extract footprints and use processed buildings
+        building_footprints = [
+            b.get_footprint(GeometryType.LOD0) for b in simplified_footprints
+        ]
+        processed_buildings = simplified_footprints
+
+        info(f"After merging: {len(building_footprints)} buildings.")
+    else:
+        # No merging - use original buildings with requested LOD
+        building_footprints = [b.get_footprint(lod) for b in buildings]
+        processed_buildings = buildings
+
+    # Filter out None and invalid footprints
+    valid_indices = []
+    for i, fp in enumerate(building_footprints):
+        if fp is None:
+            continue
+        # Validate geometry is not empty and has valid bounds
+        try:
+            if hasattr(fp, 'is_valid') and not fp.is_valid():
+                warning(f"Skipping invalid footprint at index {i}")
+                continue
+            if hasattr(fp, 'is_empty') and fp.is_empty():
+                warning(f"Skipping empty footprint at index {i}")
+                continue
+            # Check if geometry has area
+            if hasattr(fp, 'area') and fp.area <= 0:
+                warning(f"Skipping zero-area footprint at index {i}")
+                continue
+            valid_indices.append(i)
+        except Exception as e:
+            warning(f"Skipping footprint at index {i} due to validation error: {e}")
+            continue
+
+    if not valid_indices:
+        raise ValueError("No valid building footprints available for meshing.")
+
+    building_footprints = [building_footprints[i] for i in valid_indices]
+    processed_buildings = [processed_buildings[i] for i in valid_indices]
+
+    info(f"Using {len(valid_indices)} valid building footprints for meshing.")
+
+    # Set subdomain resolution based on processed buildings
+    # Use building heights with validation and fallback to max_mesh_size
+    subdomain_resolution = []
+    for building in processed_buildings:
+        try:
+            height = building.height
+            if height is None or height <= 0:
+                height = max_mesh_size
+            subdomain_resolution.append(min(height, max_mesh_size))
+        except (AttributeError, TypeError):
+            # Fallback if height is not accessible
+            subdomain_resolution.append(max_mesh_size)
+
+
+    # 3. prepare builder objects
+   
+
+    _surfaces = [create_builder_surface(footprint) for footprint in building_footprints]
     hole_surfaces: list = []
     lod_switch_value = _LOD_PRIORITY.get(lod, _LOD_PRIORITY[GeometryType.LOD3])
     meshing_directives = [lod_switch_value] * len(_surfaces)
+    _dem = raster_to_builder_gridfield(terrain_raster)
 
-    # Convert from C++ to Python
-    # ground_mesh = builder_mesh_to_mesh(_ground_mesh)
-    _dem = raster_to_builder_gridfield(terrain.raster)
+
+    # 4. BUILD VOLUME MESH - TETGEN PATH
 
     if is_tetgen_available():
+        info("Building volume mesh with TetGen...")
 
-        #FIXME: Where do we set these parameters?
-        smoothing = 1
+        # Validate inputs before calling C++ mesher
+        info(f"Number of surfaces: {len(_surfaces)}")
+        info(f"Number of subdomain resolutions: {len(subdomain_resolution)}")
+        info(f"Max mesh size: {max_mesh_size}, Min angle: {min_mesh_angle}, Smoothing: {smoothing}")
+
+        if len(_surfaces) != len(subdomain_resolution):
+            raise ValueError(
+                f"Mismatch: {len(_surfaces)} surfaces but {len(subdomain_resolution)} resolution values"
+            )
+
+        # Build surface mesh
         merge_meshes = True
         sort_triangles = False
-        max_edge_radius_ratio = None  # 1.414
-        min_dihedral_angle = None  # 30.0
-        max_tet_volume = 20.0
 
         builder_mesh = _dtcc_builder.build_city_surface_mesh(
             _surfaces,
@@ -499,40 +580,38 @@ def build_city_volume_mesh(
 
         surface_mesh = builder_mesh[0].from_cpp()
 
+        # Validate surface mesh
         if surface_mesh.faces is None or len(surface_mesh.faces) == 0:
             raise ValueError("Surface mesh has no faces. Cannot build volume mesh.")
         if surface_mesh.markers is None or len(surface_mesh.markers) == 0:
             raise ValueError("Surface mesh has no face markers. Cannot build volume mesh.")
-        
+
+        # Configure TetGen switches
         switches_params = get_default_tetgen_switches()
-        if max_tet_volume is not None:
-            switches_params["max_volume"] = max_tet_volume
-        if max_edge_radius_ratio is not None or min_dihedral_angle is not None:
-            switches_params["quality"] = (
-                max_edge_radius_ratio,
-                min_dihedral_angle,
-            )
         if tetgen_switches:
             switches_params.update(tetgen_switches)
 
-        info("Building volume mesh with TetGen...")
+        # Build volume mesh with TetGen
         volume_mesh = tetgen_build_volume_mesh(
             mesh=surface_mesh,
             build_top_sidewalls=True,
             top_height=domain_height,
             switches_params=switches_params,
             switches_overrides=tetgen_switch_overrides,
-            return_boundary_faces=boundary_face_markers, # Boundary face markers not implemented but returning boundary faces for now
+            return_boundary_faces=boundary_face_markers,
         )
+
         return volume_mesh
 
-    # Convert from Python to C++
+
+    # 5. BUILD VOLUME MESH - FALLBACK DTCC PATH
+    info("Building volume mesh with fallback DTCC volume mesher...")
+
+    # Convert footprints to builder polygons for ground mesh
     _building_polygons = [
         create_builder_polygon(footprint.to_polygon())
         for footprint in building_footprints
-        if footprint is not None
     ]
-    # FIXME: Pass bounds as argument (not xmin, ymin, xmax, ymax).
 
     # Build ground mesh
     _ground_mesh = _dtcc_builder.build_ground_mesh(
@@ -548,20 +627,11 @@ def build_city_volume_mesh(
         True,
     )
 
-    # Fallback dtcc volume meshing parameters
-    smoother_max_iterations = 5000
-    smoothing_relative_tolerance = 0.005
-    aspect_ratio_threshold = 10.0
-    debug_step = 7
-    # FIXME: Should not need to convert from C++ to Python mesh.
-    # Convert from Python to C++
-
     # Create volume mesh builder
     volume_mesh_builder = _dtcc_builder.VolumeMeshBuilder(
         _surfaces, _dem, _ground_mesh, domain_height
     )
 
-    # FIXME: How do we handle parameters?
     # Build volume mesh
     _volume_mesh = volume_mesh_builder.build(
         smoother_max_iterations,
@@ -572,11 +642,10 @@ def build_city_volume_mesh(
     )
     volume_mesh = _volume_mesh.from_cpp()
 
+    # Add boundary face markers if requested
     if boundary_face_markers:
-        boundary_face_markers = _dtcc_builder.compute_boundary_face_markers(
-            _volume_mesh
-        )
-        if boundary_face_markers is not None:
-            volume_mesh.boundary_markers = boundary_face_markers
+        computed_markers = _dtcc_builder.compute_boundary_face_markers(_volume_mesh)
+        if computed_markers is not None:
+            volume_mesh.boundary_markers = computed_markers
 
     return volume_mesh
