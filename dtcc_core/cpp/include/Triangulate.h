@@ -473,6 +473,50 @@ public:
       mesh.faces.emplace_back(tri.v0, tri.v1, tri.v2, sort_triangles);
   }
 
+  static void call_spade(Mesh &mesh,
+                         const Surface &surface,
+                         double max_mesh_size,
+                         double min_mesh_angle,
+                         bool sort_triangles = true)
+  {
+    std::vector<std::vector<Vector2D>> sd;
+
+    auto area = Geometry::surface_area(surface);
+    if (isnan(area) || area < 1e-3)
+      return;
+
+    auto [projected_polygon, transform_inv] = project_surface(surface);
+
+    std::vector<double> sd_size;
+    call_spade(mesh,
+               projected_polygon.vertices,
+               projected_polygon.holes,
+               std::vector<std::vector<Vector2D>>{},
+               max_mesh_size,
+               min_mesh_angle,
+               sort_triangles);
+
+    for (auto &v : mesh.vertices)
+    {
+      auto e_v = Eigen::Vector3d(v.x, v.y, 0);
+      auto e_v_prime = transform_inv * e_v;
+      v.x = e_v_prime.x();
+      v.y = e_v_prime.y();
+      v.z = e_v_prime.z();
+    }
+
+    mesh.calc_normals();
+    auto normal = Geometry::surface_normal(surface);
+    for (size_t i = 0; i < mesh.normals.size(); i++)
+    {
+      if (!mesh.normals[i].close_to(normal))
+      {
+        std::swap(mesh.faces[i].v1, mesh.faces[i].v2);
+        mesh.normals[i] = -mesh.normals[i];
+      }
+    }
+  }
+
 private:
 
   static std::tuple<Polygon, Eigen::Transform<double,3,1>> project_surface(const Surface &surface)

@@ -773,9 +773,11 @@ namespace DTCC_BUILDER
 
                              double max_triangle_area_size = -1,
                              double min_mesh_angle = 25)
-    // convert 3D Surface to triangle Mesh. If max_triangle_area_size is
-    // greater or equal to 0, triangle will be used for triangulations. If negative
-    // earcut will be used.
+    // Convert 3D Surface to triangle Mesh.
+    // - If max_triangle_area_size < 0: uses fast_mesh (earcut/fan triangulation)
+    // - If max_triangle_area_size >= 0:
+    //   - With DTCC_HAVE_TRIANGLE: uses Triangle library (preferred)
+    //   - Without DTCC_HAVE_TRIANGLE: uses SPADE library (default)
     {
       Mesh mesh;
       if (surface.vertices.size() < 3)
@@ -790,8 +792,8 @@ namespace DTCC_BUILDER
         Triangulate::call_triangle(mesh, surface, max_triangle_area_size,
                                    min_mesh_angle);
 #else
-        warning("Triangle backend not available; falling back to earcut meshing");
-        Triangulate::fast_mesh(mesh, surface);
+        Triangulate::call_spade(mesh, surface, max_triangle_area_size,
+                                min_mesh_angle);
 #endif
       }
       return mesh;
