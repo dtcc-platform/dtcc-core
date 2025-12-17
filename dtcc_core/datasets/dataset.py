@@ -1,12 +1,14 @@
 import dtcc_core
 from abc import ABC, abstractmethod
 from typing import Any, Dict
+from pydantic import BaseModel
 
 
 class DatasetDescriptor(ABC):
     """Callable, self-describing dataset."""
 
     name: str
+    ArgsModel: BaseModel
 
     def __call__(self, **kwargs):
         args = self.validate(kwargs)
@@ -22,7 +24,5 @@ class DatasetDescriptor(ABC):
         """Resolve the dataset and return the result."""
         raise NotImplementedError
 
-    @abstractmethod
-    def show_options(self) -> Dict[str, Any]:
-        """Return a structured description of valid arguments."""
-        raise NotImplementedError
+    def show_options(self):
+        return self.ArgsModel.model_json_schema()

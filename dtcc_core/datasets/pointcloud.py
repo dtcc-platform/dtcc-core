@@ -1,12 +1,9 @@
-import os
-
 import dtcc_core
 from dtcc_core.model import PointCloud, Bounds
 from typing import Literal, Optional, List, Tuple, Sequence, Union
 from pydantic import BaseModel, Field
 import tempfile
 
-from io import BytesIO
 from .dataset import DatasetDescriptor
 
 
@@ -99,6 +96,3 @@ class PointCloudDataset(DatasetDescriptor):
                 pc_data = buffer_file.read()
             return pc_data
         return pc
-
-    def show_options(self):
-        return self.ArgsModel.model_json_schema()
