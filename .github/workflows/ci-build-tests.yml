@@ -31,6 +31,15 @@ jobs:
         run: |
           python -m pip install --upgrade pip setuptools wheel pytest pytest-cov
           python -m pip install scikit-build-core "pybind11==2.13.*" dtcc-pyspade-native
+
+      # Debug: Show pyspade_native installation contents
+      - name: Debug pyspade_native installation
+        run: |
+          python -c "import pyspade_native; import os; root = os.path.dirname(pyspade_native.__file__); print(f'Package root: {root}')"
+          python -c "import pyspade_native; import os; root = os.path.dirname(pyspade_native.__file__); [print(f'{d}/{f}') for d, _, files in os.walk(root) for f in files]"
+
+      - name: Install dtcc-core
+        run: |
           python -m pip install -e . --no-build-isolation
 
       # 4) Run tests (assuming pytest is used)
