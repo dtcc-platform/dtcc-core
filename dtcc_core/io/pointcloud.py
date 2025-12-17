@@ -267,7 +267,7 @@ def _load_proto_pointcloud(path, **kwargs):
     return pc
 
 
-def save(pointcloud, outfile):
+def save(pointcloud, outfile, format=None):
     """
     Save a point cloud to disk using a registered format.
 
@@ -278,7 +278,7 @@ def save(pointcloud, outfile):
     outfile : str or Path
         Output path with extension determining the format.
     """
-    generic.save(pointcloud, outfile, "pointcloud", _save_formats)
+    generic.save(pointcloud, outfile, "pointcloud", _save_formats, format=format)
 
 
 def _save_csv(pointcloud, outfile):
@@ -297,7 +297,7 @@ def _save_las(pointcloud, las_file):
     outfile.y = pointcloud.points[:, 1]
     outfile.z = pointcloud.points[:, 2]
     if len(pointcloud.classification) == len(pointcloud.points):
-        outfile.classification = pointcloud.classification
+        outfile.classification = pointcloud.classification.astype(np.uint8)
     outfile.write(las_file)
 
 
