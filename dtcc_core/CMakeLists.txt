@@ -44,18 +44,18 @@ if(DTCC_HAVE_SPADE AND TARGET pyspade_native::spade_wrapper)
   target_compile_definitions(${BINDINGS} PRIVATE DTCC_HAVE_SPADE)
 
   # Set RPATH so the module can find pyspade_native libraries at runtime
-  if(PYSPADE_NATIVE_LIBRARY_DIR)
-    if(APPLE)
-      set_target_properties(${BINDINGS} PROPERTIES
-        BUILD_RPATH "${PYSPADE_NATIVE_LIBRARY_DIR}"
-        INSTALL_RPATH "${PYSPADE_NATIVE_LIBRARY_DIR};@loader_path/../../pyspade_native/lib"
-      )
-    else()
-      set_target_properties(${BINDINGS} PROPERTIES
-        BUILD_RPATH "${PYSPADE_NATIVE_LIBRARY_DIR}"
-        INSTALL_RPATH "${PYSPADE_NATIVE_LIBRARY_DIR}:\$ORIGIN/../../pyspade_native/lib"
-      )
-    endif()
+  # Use only relative paths for INSTALL_RPATH since the absolute build-time path
+  # won't exist after installation
+  if(APPLE)
+    set_target_properties(${BINDINGS} PROPERTIES
+      BUILD_RPATH "${PYSPADE_NATIVE_LIBRARY_DIR}"
+      INSTALL_RPATH "@loader_path/../../pyspade_native/lib"
+    )
+  else()
+    set_target_properties(${BINDINGS} PROPERTIES
+      BUILD_RPATH "${PYSPADE_NATIVE_LIBRARY_DIR}"
+      INSTALL_RPATH "\$ORIGIN/../../pyspade_native/lib"
+    )
   endif()
 
   message(STATUS "SPADE integration enabled for ${BINDINGS}")
