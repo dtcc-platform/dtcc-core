@@ -213,7 +213,7 @@ class CitySaveMixin:
 
     def save_cityjson(self: "City", path: Union[str, Path]):
         """
-        Save city buildings as GeoJSON.
+        Save city buildings as CityJSON.
         """
 
         import dtcc_core.io as io
