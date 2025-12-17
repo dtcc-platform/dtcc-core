@@ -36,29 +36,51 @@ else()
 endif()
 
 if(DTCC_HAVE_SPADE AND TARGET pyspade_native::spade_wrapper)
-  # Link against the pyspade_native::spade_wrapper target
-  # This automatically adds include directories, libraries, and dependencies
-  target_link_libraries(${BINDINGS} PRIVATE pyspade_native::spade_wrapper)
+  # Get the include directories from the spade_wrapper target
+  get_target_property(_spade_include_dirs pyspade_native::spade_wrapper INTERFACE_INCLUDE_DIRECTORIES)
+  if(_spade_include_dirs)
+    target_include_directories(${BINDINGS} PRIVATE ${_spade_include_dirs})
+  endif()
+
+  # Link directly to spade_wrapper library file (not the CMake target) to avoid
+  # transitive linking to spade_ffi with absolute paths. The spade_wrapper library
+  # has its own RPATH set to find spade_ffi at runtime.
+  target_link_libraries(${BINDINGS} PRIVATE ${PYSPADE_NATIVE_LIBRARY})
+
+  # Add platform-specific libraries that spade_wrapper needs
+  if(APPLE)
+    target_link_libraries(${BINDINGS} PRIVATE "-framework CoreFoundation" "-framework Security")
+  elseif(UNIX)
+    target_link_libraries(${BINDINGS} PRIVATE pthread dl m)
+  endif()
 
   # Define DTCC_HAVE_SPADE so the code knows SPADE is available
   target_compile_definitions(${BINDINGS} PRIVATE DTCC_HAVE_SPADE)
 
   # Set RPATH so the module can find pyspade_native libraries at runtime
-  # Use only relative paths for INSTALL_RPATH since the absolute build-time path
-  # won't exist after installation
+  # The relative path goes from dtcc_core/builder/ to pyspade_native/lib/
+  # INSTALL_RPATH_USE_LINK_PATH must be OFF to prevent absolute build-time paths
+  # from being added to the RPATH
   if(APPLE)
     set_target_properties(${BINDINGS} PROPERTIES
       BUILD_RPATH "${PYSPADE_NATIVE_LIBRARY_DIR}"
       INSTALL_RPATH "@loader_path/../../pyspade_native/lib"
+      INSTALL_RPATH_USE_LINK_PATH OFF
+      BUILD_WITH_INSTALL_RPATH OFF
+      SKIP_BUILD_RPATH OFF
     )
   else()
     set_target_properties(${BINDINGS} PROPERTIES
       BUILD_RPATH "${PYSPADE_NATIVE_LIBRARY_DIR}"
       INSTALL_RPATH "\$ORIGIN/../../pyspade_native/lib"
+      INSTALL_RPATH_USE_LINK_PATH OFF
+      BUILD_WITH_INSTALL_RPATH OFF
+      SKIP_BUILD_RPATH OFF
     )
   endif()
 
   message(STATUS "SPADE integration enabled for ${BINDINGS}")
+  message(STATUS "PYSPADE_NATIVE_LIBRARY_DIR: ${PYSPADE_NATIVE_LIBRARY_DIR}")
 else()
   message(STATUS "SPADE integration disabled for ${BINDINGS}")
 endif()
