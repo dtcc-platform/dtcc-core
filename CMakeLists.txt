@@ -120,20 +120,25 @@ endif()
 # SPADE integration (via pip-installed dtcc-pyspade-native)
 # ------------------------------------------------------------------------------
 if(DTCC_USE_SPADE)
-  # Use pyspade_native's get_cmake_dir() to find the package (recommended approach)
+  # Add Python site-packages to CMAKE_PREFIX_PATH so find_package can find pyspade_native
   execute_process(
-    COMMAND ${Python3_EXECUTABLE} -c "import pyspade_native; print(pyspade_native.get_cmake_dir())"
-    OUTPUT_VARIABLE PYSPADE_CMAKE_DIR
+    COMMAND ${Python3_EXECUTABLE} -c "import sysconfig; print(sysconfig.get_path('platlib'))"
+    OUTPUT_VARIABLE PYTHON_SITE_PACKAGES
     ERROR_QUIET
     OUTPUT_STRIP_TRAILING_WHITESPACE
-    RESULT_VARIABLE PYSPADE_IMPORT_RESULT
   )
 
-  if(PYSPADE_IMPORT_RESULT EQUAL 0 AND PYSPADE_CMAKE_DIR)
-    message(STATUS "Found pyspade_native cmake dir: ${PYSPADE_CMAKE_DIR}")
-    find_package(pyspade_native REQUIRED PATHS ${PYSPADE_CMAKE_DIR} NO_DEFAULT_PATH)
-    set(DTCC_HAVE_SPADE TRUE)
+  if(PYTHON_SITE_PACKAGES)
+    list(APPEND CMAKE_PREFIX_PATH "${PYTHON_SITE_PACKAGES}/pyspade_native")
+    message(STATUS "Added Python site-packages to CMAKE_PREFIX_PATH: ${PYTHON_SITE_PACKAGES}/pyspade_native")
+  endif()
+
+  # Find the pyspade_native package
+  find_package(pyspade_native QUIET)
+
+  if(pyspade_native_FOUND)
     message(STATUS "Found dtcc-pyspade-native: ${PYSPADE_NATIVE_INCLUDE_DIR}")
+    set(DTCC_HAVE_SPADE TRUE)
   else()
     message(WARNING "dtcc-pyspade-native not found. Install it with: pip install dtcc-pyspade-native")
     message(WARNING "Disabling SPADE integration")

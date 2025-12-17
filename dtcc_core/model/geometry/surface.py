@@ -137,7 +137,7 @@ class Surface(Geometry):
             warning("Cannot convert surface to valid polygon.")
             return Polygon()
         if simplify > 0:
-            p = p.simplify(simplify, True)
+            p = p.simplify(simplify, preserve_topology=True)
         return p
 
     def from_polygon(self, polygon: Polygon, height: float = 0.0):
