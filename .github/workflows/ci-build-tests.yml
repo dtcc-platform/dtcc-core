@@ -25,10 +25,13 @@ jobs:
 
       # 3) Install dependencies from pyproject.toml
       #    First, upgrade build tools, then install the package
+      #    We use --no-build-isolation to ensure pyspade_native is in the real
+      #    site-packages during build, so RPATH resolves correctly at runtime.
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip setuptools wheel pytest pytest-cov
-          python -m pip install -e .  # editable install ensures coverage paths match sources
+          python -m pip install scikit-build-core "pybind11==2.13.*" dtcc-pyspade-native
+          python -m pip install -e . --no-build-isolation
 
       # 4) Run tests (assuming pytest is used)
       - name: Run tests (macOS/Windows)
