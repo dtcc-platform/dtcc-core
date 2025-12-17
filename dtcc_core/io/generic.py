@@ -5,7 +5,7 @@ import pathlib
 from .logging import info, warning, error
 
 
-def save(object, path, name, formats, *args, **kwargs):
+def save(object, path, name, formats, format:str=None, *args, **kwargs):
     """
     Save an object using a registered format handler.
 
@@ -19,6 +19,8 @@ def save(object, path, name, formats, *args, **kwargs):
         Logical resource name (used in messages).
     formats : dict
         Mapping of supported types to extension-handler dictionaries.
+    format : str, optional
+        Force a specific format (file extension), by default None.
     *args, **kwargs :
         Passed through to the selected saver.
 
@@ -29,23 +31,31 @@ def save(object, path, name, formats, *args, **kwargs):
     """
     if not type(object) in formats:
         error(f'Unable to save {name}; type "{type(object)}" not supported')
-    path = pathlib.Path(path)
+    if isinstance(path, str):
+        path = pathlib.Path(path)
 
-    path_suffix = path.suffix
-    two_level_suffix = ''.join(path.suffixes[-2:]) if len(path.suffixes) >= 2 else path_suffix
-
-    if path_suffix not in formats[type(object)] and two_level_suffix not in formats[type(object)]:
-        error(
-            f"Unable to save {name} ({type(object).__name__}); format {path.suffix} not supported"
-        )
-
-    info(f"Saving {name} ({type(object).__name__}) to {path}")
-    if two_level_suffix in formats[type(object)]:
-        saver = formats[type(object)][two_level_suffix]
-    elif path_suffix in formats[type(object)]:
-        saver = formats[type(object)][path_suffix]
+    if format is not None:
+        if not format.startswith('.'):
+            format = '.' + format
+        saver = formats[type(object)].get(format, None)
+        if saver is None:
+            error(f"Unable to save {name} ({type(object).__name__}); format {format} not supported")
     else:
-        error(f"Unable to save {name}; format {path.suffix} not supported")
+        path_suffix = path.suffix
+        two_level_suffix = ''.join(path.suffixes[-2:]) if len(path.suffixes) >= 2 else path_suffix
+
+        if path_suffix not in formats[type(object)] and two_level_suffix not in formats[type(object)]:
+            error(
+                f"Unable to save {name} ({type(object).__name__}); format {path.suffix} not supported"
+            )
+
+        info(f"Saving {name} ({type(object).__name__}) to {path}")
+        if two_level_suffix in formats[type(object)]:
+            saver = formats[type(object)][two_level_suffix]
+        elif path_suffix in formats[type(object)]:
+            saver = formats[type(object)][path_suffix]
+        else:
+            error(f"Unable to save {name}; format {path.suffix} not supported")
 
     saver(object, path, *args, **kwargs)
 
