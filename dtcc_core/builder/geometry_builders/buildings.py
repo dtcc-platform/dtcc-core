@@ -55,6 +55,89 @@ def extrude_building(
     return extrusion
 
 
+def set_building_heights_from_attribute(
+    buildings: List[Building],
+    terrain: Raster,
+    height_attribute: str = "height",
+    default_ground_height: float = 0,
+    always_use_default_ground: bool = False,
+    min_building_height: float = 2.5,
+    default_building_height: float = 10.0,
+    ground_height_strategy: str = "centroid",
+) -> List[Building]:
+    """Calculates ground level and absolute height for each building footprint from a given height attribute.
+
+    Parameters
+    ----------
+    buildings : List[Building]
+        List of buildings to set heights for.
+    terrain : Raster
+        Terrain raster used to determine ground elevation.
+    height_attribute : str, default "height"
+        Attribute name to use for building height.
+    default_ground_height : float, default 0
+        Default ground height if not available from terrain.
+    always_use_default_ground : bool, default False
+        Whether to always use the default ground height.
+    min_building_height : float, default 2.5
+        Minimum height in meters for buildings.
+    default_building_height : float, default 10.0
+        Default building height if attribute is missing.
+    ground_height_strategy : str, default "centroid"
+        Strategy to determine ground height from terrain ("centroid", "vertex").
+    """
+    for building in buildings:
+        footprint = building.lod0
+        if footprint is None:
+            warning(f"Building {building.id} has no LOD0 geometry.")
+            continue
+        if len(footprint.vertices) < 3:
+            warning(
+                f"Building {building.id} has an invalid footprint with only {len(footprint.vertices)} vertices."
+            )
+            continue
+        if always_use_default_ground:
+            ground_height = default_ground_height
+        else:
+            ground_height_strategy = ground_height_strategy.lower()
+            if ground_height_strategy == "centroid":
+                centroid = footprint.centroid
+                if np.isnan(centroid[0]) or np.isnan(centroid[1]):
+                    warning(f"Building {building.id} has an invalid centroid.")
+                    ground_height = default_ground_height
+                else:
+                    ground_height = terrain.get_value(centroid[0], centroid[1])
+            elif ground_height_strategy == "vertex":
+                z_values = []
+                for vertex in footprint.vertices:
+                    z = terrain.get_value(vertex[0], vertex[1])
+                    if not np.isnan(z):
+                        z_values.append(z)
+                if len(z_values) == 0:
+                    warning(
+                        f"Building {building.id} has no valid terrain values at its vertices."
+                    )
+                    ground_height = default_ground_height
+                else:
+                    ground_height = min(z_values)
+            else:
+                warning(
+                    f"Unknown ground height strategy '{ground_height_strategy}'. Using default ground height."
+                )
+                ground_height = default_ground_height
+        building.attributes["ground_height"] = ground_height
+
+        height = building.attributes.get(height_attribute, default_building_height)
+        if height < min_building_height:
+            warning(
+                f"Building {building.id} has a height of {height}, which is less than the minimum building height of {min_building_height}. Setting height to {min_building_height}."
+            )
+            height = min_building_height
+        footprint.set_z(ground_height + height)
+        building.attributes["height"] = height
+    return buildings
+
+
 def compute_building_heights(
     buildings: List[Building],
     terrain: Raster,
@@ -62,6 +145,30 @@ def compute_building_heights(
     roof_percentile=0.9,
     overwrite=False,
 ) -> List[Building]:
+    """
+    Compute building heights from roof points and terrain elevation.
+
+    This function calculates building heights by determining the ground elevation
+    from the terrain raster and the roof elevation from building roof points.
+
+    Parameters
+    ----------
+    buildings : List[Building]
+        List of buildings to compute heights for.
+    terrain : Raster
+        Terrain raster used to determine ground elevation.
+    min_building_height : float, default 2.5
+        Minimum height in meters for buildings.
+    roof_percentile : float, default 0.9
+        Percentile of roof points to use for determining roof elevation.
+    overwrite : bool, default False
+        Whether to overwrite existing height values.
+
+    Returns
+    -------
+    List[Building]
+        List of buildings with computed heights.
+    """
     info("Computing building heights...")
     for building in buildings:
         footprint = building.lod0
@@ -148,6 +255,34 @@ def extract_roof_points(
     ransac_outlier_margin=3.0,
     ransac_iterations=250,
 ) -> List[Building]:
+    """
+    Extract roof points from a point cloud for a list of buildings.
+
+    Parameters
+    ----------
+    buildings : list[Building]
+        The list of buildings to extract roof points for.
+    pointcloud : PointCloud
+        The point cloud to extract roof points from.
+    statistical_outlier_remover : bool, optional
+        Whether to use a statistical outlier remover on the roof points. Default is True.
+    roof_outlier_neighbors : int, optional
+        The number of neighbors to consider for statistical outlier removal. Default is 5.
+    roof_outlier_margin : float, optional
+        The margin for statistical outlier removal. Default is 1.5.
+    ransac_outlier_remover : bool, optional
+        Whether to use a RANSAC outlier remover on the roof points. Default is False.
+    ransac_outlier_margin : float, optional
+        The margin for RANSAC outlier removal. Default is 3.0.
+    ransac_iterations : int, optional
+        The number of iterations for RANSAC outlier removal. Default is 250.
+
+    Returns
+    -------
+    list[Building]
+        The list of buildings with roof points extracted.
+    """
+
     footprint_polygons = [b.get_footprint() for b in buildings]
 
     builder_polygon = [
@@ -185,13 +320,49 @@ def extract_roof_points(
 def building_heights_from_pointcloud(
     buildings: [Building],
     pointcloud: PointCloud,
+    terrain_raster: Raster = None,
     statistical_outlier_remover=True,
     roof_outlier_neighbors=5,
     roof_outlier_margin=1.5,
     overwrite=False,
+    keep_roof_points=False,
 ) -> List[Building]:
+    """
+    Compute building heights from point cloud data.
 
-    terrain_raster = build_terrain_raster(pointcloud, cell_size=2, ground_only=True)
+    This function combines roof point extraction and height computation to determine
+    building heights from LiDAR or similar point cloud data. It first extracts roof
+    points, then computes heights using terrain elevation.
+
+    Parameters
+    ----------
+    buildings : List[Building]
+        List of buildings to compute heights for.
+    pointcloud : PointCloud
+        Point cloud containing building and terrain points.
+    terrain_raster : Raster, optional
+        Terrain raster for ground elevation. If None, creates one from point cloud.
+    statistical_outlier_remover : bool, default True
+        Whether to apply statistical outlier removal to roof points.
+    roof_outlier_neighbors : int, default 5
+        Number of neighbors for outlier detection.
+    roof_outlier_margin : float, default 1.5
+        Margin for statistical outlier removal.
+    overwrite : bool, default False
+        Whether to overwrite existing height values.
+    keep_roof_points : bool, default False
+        Whether to keep extracted roof points as building geometry.
+
+    Returns
+    -------
+    List[Building]
+        List of buildings with computed heights.
+    """
+
+    if terrain_raster is None:
+        info("No terrain raster provided, building terrain raster from point cloud.")
+        terrain_raster = build_terrain_raster(pointcloud, cell_size=2, ground_only=True)
+
     buildings = extract_roof_points(
         buildings,
         pointcloud,
@@ -200,6 +371,7 @@ def building_heights_from_pointcloud(
         roof_outlier_margin,
     )
     buildings = compute_building_heights(buildings, terrain_raster, overwrite=overwrite)
-    for building in buildings:
-        building.remove_geometry(GeometryType.POINT_CLOUD)
+    if not keep_roof_points:
+        for building in buildings:
+            building.remove_geometry(GeometryType.POINT_CLOUD)
     return buildings

@@ -5,17 +5,27 @@ from ..register import register_model_method
 from ...model import Raster
 from logging import info, warning, error
 
+import skimage as ski
+
 
 @register_model_method
-def fill_holes(raster: Raster):
+def fill_holes(raster: Raster) -> Raster:
     """
-    Fill nodata holes in a `Raster` object using the nearest neighbour.
+    Fill nodata holes in a raster using nearest-neighbor values.
 
-    Returns:
-        Raster: A new `Raster` object with the holes filled.
+    Parameters
+    ----------
+    raster : Raster
+        Raster with nodata holes to fill.
+
+    Returns
+    -------
+    Raster
+        Copy of the raster with nodata pixels filled.
     """
-    data = raster.data
-    nodata = raster.nodata
+    filled_raster = raster.copy()
+    data = filled_raster.data
+    nodata = filled_raster.nodata
     mask = data == nodata
     if np.any(mask):
         info(f"filling {mask.sum()} holes in raster")
@@ -23,22 +33,80 @@ def fill_holes(raster: Raster):
             mask, return_distances=False, return_indices=True
         )
         data = data[tuple(ind)]
-    raster.data = data
-    return raster
+    filled_raster.data = data
+    return filled_raster
+
+
+@register_model_method
+def fill_small_holes(raster: Raster, hole_size=1, nodata=None) -> Raster:
+    """
+    Fill small holes in a raster using nearest-neighbor interpolation.
+
+    Parameters
+    ----------
+    raster : Raster
+        Raster with nodata holes to fill.
+    hole_size : int, optional
+        Largest hole area to fill; non-positive values skip filling. Default is 1.
+    nodata : float, optional
+        Value treated as nodata. If ``None``, uses the raster nodata value.
+
+    Returns
+    -------
+    Raster
+        Raster with small holes filled.
+
+    Raises
+    ------
+    ValueError
+        If no nodata value is provided and the raster has no nodata.
+    """
+    if hole_size <= 0:
+        return raster
+
+    if nodata is None:
+        nodata = raster.nodata
+    if nodata is None:
+        raise ValueError("No nodata value provided and raster has no nodata value.")
+    mask_data = raster.data != nodata
+
+    filled_mask_data = ski.morphology.remove_small_holes(
+        mask_data, area_threshold=hole_size, out=mask_data
+    )
+
+    filled_raster = fill_holes(raster)
+    # filled_holes_mask = np.logical_xor(mask_data, filled_mask_data)
+
+    filled_raster.data *= filled_mask_data
+
+    return filled_raster
 
 
 @register_model_method
 def resample(raster: Raster, cell_size=None, scale=None, method="bilinear"):
     """
-    Resample a `Raster` object to a new cell size or scale.
+    Resample a raster to a new cell size or by a scale factor.
 
-    Args:
-        cell_size (float): The new cell size in meters (default None).
-        scale (float): The scaling factor for the cell size (default None).
-        method (str): The resampling method to use, one of "bilinear", "nearest", or "cubic" (default "bilinear").
+    Parameters
+    ----------
+    raster : Raster
+        Raster to resample.
+    cell_size : float, optional
+        New cell size in meters; overrides ``scale`` if provided.
+    scale : float, optional
+        Multiplicative factor for cell size; required if ``cell_size`` is None.
+    method : {"bilinear", "nearest", "cubic"}, optional
+        Resampling method; default is "bilinear".
 
-    Returns:
-        Raster: A new `Raster` object with the resampled data.
+    Returns
+    -------
+    Raster
+        Resampled raster.
+
+    Raises
+    ------
+    ValueError
+        If neither ``cell_size`` nor ``scale`` is provided, or if ``method`` is invalid.
     """
     sample_methods = {
         "bilinear": 1,

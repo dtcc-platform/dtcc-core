@@ -11,15 +11,22 @@ def burn_polygons(
     raster: Raster, poly_values: tuple, all_touched: bool = True
 ) -> Raster:
     """
-    Burn polygons into a raster.
+    Burn polygons into a raster with specified values.
 
-    Args:
-        raster (Raster): The input raster.
-        poly_values (tuple): A tuple of (polygon, value) pairs to burn into the raster.
-        all_touched (bool, optional): Whether to rasterize all pixels touched by the polygon, or just those whose center is within the polygon. Defaults to True.
+    Parameters
+    ----------
+    raster : Raster
+        Input raster to copy and burn values into.
+    poly_values : tuple
+        Iterable of ``(Polygon, value)`` pairs to burn.
+    all_touched : bool, optional
+        If True, rasterize all pixels touched by polygons; if False, only pixels
+        whose center lies inside. Default is True.
 
-    Returns:
-        Raster: A new raster with the polygons burned in.
+    Returns
+    -------
+    Raster
+        Copy of the input raster with polygons burned in.
     """
     out_raster = raster.copy()
     arr = out_raster.data

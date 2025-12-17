@@ -41,30 +41,44 @@ class Surface(Geometry):
 
     @property
     def xmin(self):
+        """Minimum x-coordinate among surface vertices."""
         return self.bounds.xmin
 
     @property
     def ymin(self):
+        """Minimum y-coordinate among surface vertices."""
         return self.bounds.ymin
 
     @property
     def zmin(self):
+        """Minimum z-coordinate among surface vertices."""
         return self.bounds.zmin
 
     @property
     def xmax(self):
+        """Maximum x-coordinate among surface vertices."""
         return self.bounds.xmax
 
     @property
     def ymax(self):
+        """Maximum y-coordinate among surface vertices."""
         return self.bounds.ymax
 
     @property
     def zmax(self):
+        """Maximum z-coordinate among surface vertices."""
         return self.bounds.zmax
 
     @property
     def centroid(self):
+        """
+        Arithmetic centroid of the surface vertices.
+
+        Returns
+        -------
+        np.ndarray
+            Mean of vertex coordinates along each axis.
+        """
         return np.mean(self.vertices, axis=0)
 
     def calculate_normal(self) -> np.ndarray:
@@ -105,6 +119,8 @@ class Surface(Geometry):
         self.vertices[:, 2] = z
         for hole in self.holes:
             hole[:, 2] = z
+        self.bounds.zmax = z
+        self.bounds.zmin = z
 
     def to_polygon(self, simplify=1e-2) -> Polygon:
         """Convert the surface to a Shapely Polygon."""
@@ -112,7 +128,9 @@ class Surface(Geometry):
             # warning("Surface has less than 3 vertices.")
             return Polygon()
 
-        p = Polygon(self.vertices[:, :2], self.holes)
+        # Convert holes to 2D coordinates (shapely expects 2D for polygon creation)
+        holes_2d = [hole[:, :2] for hole in self.holes] if self.holes else []
+        p = Polygon(self.vertices[:, :2], holes_2d)
         if not p.is_valid:
             p = make_valid(p)
         if not p.is_valid and p.geom_type != "Polygon":
@@ -122,7 +140,7 @@ class Surface(Geometry):
             p = p.simplify(simplify, True)
         return p
 
-    def from_polygon(self, polygon: Polygon, height=0):
+    def from_polygon(self, polygon: Polygon, height: float = 0.0):
         """Convert a Shapely Polygon to a surface."""
         if polygon.geom_type != "Polygon":
             error(f"Can only convert Polygon to Surface. Got {polygon.geom_type}")
@@ -137,7 +155,7 @@ class Surface(Geometry):
             )
             self.holes.append(hole_verts)
         self.calculate_bounds()
-
+        self.set_z(height)
         return self
 
     def from_shapely(self, shape):
@@ -235,6 +253,14 @@ class MultiSurface(Geometry):
     surfaces: list[Surface] = field(default_factory=list)
 
     def __len__(self):
+        """
+        Return the number of surfaces contained in the MultiSurface.
+
+        Returns
+        -------
+        int
+            The number of ``Surface`` objects stored in the ``surfaces`` list.
+        """
         return len(self.surfaces)
 
     def merge(self, other):
@@ -260,6 +286,7 @@ class MultiSurface(Geometry):
 
     @property
     def zmax(self):
+        """Maximum z-coordinate across all child surfaces."""
         return max([s.zmax for s in self.surfaces])
 
     def translate(self, x=0, y=0, z=0):
@@ -284,6 +311,19 @@ class MultiSurface(Geometry):
         return True
 
     def copy(self, geometry_only=False):
+        """
+        Create a deep copy of the MultiSurface.
+
+        Parameters
+        ----------
+        geometry_only : bool, default False
+            When ``True``, copy only geometry components; otherwise perform a full deep copy.
+
+        Returns
+        -------
+        MultiSurface
+            Copied multi-surface instance.
+        """
         if geometry_only:
             return MultiSurface(surfaces=[s.copy(True) for s in self.surfaces])
         else:

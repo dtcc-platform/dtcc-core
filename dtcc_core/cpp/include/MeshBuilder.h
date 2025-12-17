@@ -4,15 +4,16 @@
 #ifndef DTCC_MESH_BUILDER_H
 #define DTCC_MESH_BUILDER_H
 
+#include <algorithm>
 #include <cmath>
+#include <limits>
 #include <iostream>
 #include <map>
 #include <stack>
 #include <tuple>
 #include <vector>
 
-#include "BoundingBox.h"
-#include "BoundingBoxTree.h"
+
 #include "Geometry.h"
 #include "Logging.h"
 #include "MeshProcessor.h"
@@ -23,6 +24,7 @@
 #include "model/Mesh.h"
 #include "model/Surface.h"
 #include "model/Vector.h"
+// #include "spade/triangulate.hpp"
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -36,7 +38,8 @@ namespace DTCC_BUILDER
   public:
     static Mesh
     build_terrain_mesh(const std::vector<Polygon> &subdomains,
-                       const std::vector<double> subdomain_triangle_size,
+                       const std::vector<Polygon> &holes,
+                       const std::vector<double> &subdomain_triangle_size,
                        const GridField &dtm,
                        double max_mesh_size,
                        double min_mesh_angle,
@@ -47,9 +50,10 @@ namespace DTCC_BUILDER
       // Get bounding box
       const BoundingBox2D &bbox = dtm.grid.bounding_box;
       // build boundary
-      Mesh ground_mesh = build_ground_mesh(
-          subdomains, subdomain_triangle_size, bbox.P.x, bbox.P.y, bbox.Q.x,
-          bbox.Q.y, max_mesh_size, min_mesh_angle, sort_triangles);
+      Mesh ground_mesh = build_ground_mesh(subdomains, holes, subdomain_triangle_size,
+                                           bbox.P.x, bbox.P.y, bbox.Q.x,
+                                           bbox.Q.y, max_mesh_size, min_mesh_angle,
+                                           sort_triangles);
       // Displace ground surface. Fill all points with maximum height. This is
       // used to always choose the smallest height for each point since each point
       // may be visited multiple times.
@@ -90,7 +94,7 @@ namespace DTCC_BUILDER
       }
       info("smooth ground...");
       if (smooth_ground > 0)
-        VertexSmoother::smooth_mesh(ground_mesh, smooth_ground, true);
+        VertexSmoother::smooth_mesh(ground_mesh, smooth_ground, true, true);
 
       // for (size_t i = 0; i < ground_mesh.faces.size(); i++)
       // {
@@ -116,56 +120,95 @@ namespace DTCC_BUILDER
     //  0: building 0 (cells inside building 0)
     //  1: building 1 (cells inside building 1)
     //  etc (non-negative integers mark cells inside buildings)
-    static Mesh
-    build_ground_mesh(const std::vector<Polygon> &subdomains,
-                      const std::vector<double> subdomain_triangle_size,
-                      double xmin,
-                      double ymin,
-                      double xmax,
-                      double ymax,
-                      double max_mesh_size,
-                      double min_mesh_angle,
-                      bool sort_triangles = true)
+    static Mesh build_ground_mesh(const std::vector<Polygon> &subdomains,
+                                  const std::vector<Polygon> &holes,
+                                  const std::vector<double> &subdomain_triangle_size, 
+                                  double xmin,
+                                  double ymin, 
+                                  double xmax,
+                                  double ymax, double max_mesh_size,
+                                  double min_mesh_angle, bool sort_triangles = false)
     {
       info("Building ground mesh...");
       Timer timer("build_ground_mesh");
 
-      // print some stats
-      const BoundingBox2D bounding_box(Vector2D(xmin, ymin),
-                                       Vector2D(xmax, ymax));
-      const size_t nx = (bounding_box.Q.x - bounding_box.P.x) / max_mesh_size;
-      const size_t ny = (bounding_box.Q.y - bounding_box.P.y) / max_mesh_size;
+      const BoundingBox2D bounding_box(Vector2D(xmin, ymin), Vector2D(xmax, ymax));
+      const size_t nx = static_cast<size_t>((bounding_box.Q.x - bounding_box.P.x) / max_mesh_size);
+      const size_t ny = static_cast<size_t>((bounding_box.Q.y - bounding_box.P.y) / max_mesh_size);
       const size_t n = nx * ny;
       info("Bounds: " + str(bounding_box));
       info("Max mesh size: " + str(max_mesh_size));
       info("Estimated number of faces: " + str(n));
       info("Number of subdomains (buildings): " + str(subdomains.size()));
+      info("Number of explicit holes: " + str(holes.size()));
 
-      // Extract subdomains (building footprints)
       std::vector<std::vector<Vector2D>> triangle_sub_domains;
-      for (auto const &sd : subdomains)
+      triangle_sub_domains.reserve(subdomains.size());
+      for (const auto &sd : subdomains)
       {
-        triangle_sub_domains.push_back(sd.vertices);
-        for (auto const &hole : sd.holes)
-          triangle_sub_domains.push_back(hole);
+        if (!sd.vertices.empty())
+          triangle_sub_domains.push_back(sd.vertices);
+        for (const auto &hole : sd.holes)
+        {
+          if (!hole.empty())
+            triangle_sub_domains.push_back(hole);
+        }
       }
-      info("Number of subdomains (buildings + holes): " +
+      info("Number of subdomains (buildings + building holes): " +
            str(triangle_sub_domains.size()));
-      // build boundary
+
+      std::vector<std::vector<Vector2D>> triangle_holes;
+      triangle_holes.reserve(holes.size());
+      for (const auto &hole_polygon : holes)
+      {
+        if (!hole_polygon.vertices.empty())
+          triangle_holes.push_back(hole_polygon.vertices);
+        for (const auto &nested : hole_polygon.holes)
+        {
+          if (!nested.empty())
+            triangle_holes.push_back(nested);
+        }
+      }
+      info("Number of explicit hole loops (including nested): " + str(triangle_holes.size()));
+
       std::vector<Vector2D> boundary{};
       boundary.push_back(bounding_box.P);
       boundary.push_back(Vector2D(bounding_box.Q.x, bounding_box.P.y));
       boundary.push_back(bounding_box.Q);
       boundary.push_back(Vector2D(bounding_box.P.x, bounding_box.Q.y));
 
-      // build 2D mesh
+      
       Mesh mesh;
-      Triangulate::call_triangle(mesh, boundary, triangle_sub_domains,
-                                 subdomain_triangle_size, max_mesh_size,
-                                 min_mesh_angle, sort_triangles);
+#ifdef DTCC_HAVE_TRIANGLE
+        info("Triangulation Backend: Triangle");
+        Triangulate::call_triangle(mesh, boundary, triangle_sub_domains,
+                                   triangle_holes, subdomain_triangle_size,
+                                   max_mesh_size, min_mesh_angle, sort_triangles);
+#else
+      info("Triangulation Backend: Spade");
+      double effective_maxh = max_mesh_size;
+      if (!subdomain_triangle_size.empty())
+      {
+        double min_subdomain = std::numeric_limits<double>::max();
+        for (double h : subdomain_triangle_size)
+        {
+          if (h > 0.0)
+            min_subdomain = std::min(min_subdomain, h);
+        }
+        if (min_subdomain < std::numeric_limits<double>::max())
+        {
+          if (effective_maxh > 0.0)
+            effective_maxh = std::min(effective_maxh, min_subdomain);
+          else
+            effective_maxh = min_subdomain;
+        }
+      }
 
-      // Mark subdomains
-      compute_domain_markers(mesh, subdomains);
+      Triangulate::call_spade(mesh, boundary, triangle_holes, triangle_sub_domains, effective_maxh,
+                              min_mesh_angle, sort_triangles);
+#endif
+      
+      MeshProcessor::compute_mesh_domain_markers(mesh, subdomains);
 
       return mesh;
     }
@@ -498,22 +541,32 @@ namespace DTCC_BUILDER
 
     static std::vector<Mesh>
     build_city_surface_mesh(const std::vector<Surface> &buildings,
-                            const std::vector<double> subdomain_triangle_size,
+                            const std::vector<Surface> &holes,
+                            const std::vector<int> meshing_directive,
+                            const std::vector<double> &subdomain_triangle_size,
                             const GridField &dtm,
                             double max_mesh_size,
                             double min_mesh_angle,
                             size_t smooth_ground = 0,
                             bool merge_meshes = true,
-                            bool sort_triangles = true)
+                            bool sort_triangles = false)
     {
       auto build_city_surface_t = Timer("build_city_surface_mesh");
       auto terrain_time = Timer("build_city_surface_mesh: step 1 terrain");
+      const size_t num_buildings = buildings.size();
       std::vector<Polygon> subdomains;
+      subdomains.reserve(buildings.size());
       for (const auto &b : buildings)
       {
         subdomains.push_back(b.to_polygon());
       }
-      Mesh terrain_mesh = build_terrain_mesh(subdomains, subdomain_triangle_size,
+      std::vector<Polygon> hole_domains;
+      hole_domains.reserve(holes.size());
+      for (const auto &h : holes)
+      {
+        hole_domains.push_back(h.to_polygon());
+      }
+      Mesh terrain_mesh = build_terrain_mesh(subdomains,hole_domains, subdomain_triangle_size,
                                              dtm, max_mesh_size, min_mesh_angle,
                                              smooth_ground, sort_triangles);
       terrain_time.stop();
@@ -523,44 +576,92 @@ namespace DTCC_BUILDER
 
       std::map<size_t, std::vector<Simplex2D>> building_faces;
       std::vector<size_t> building_indices;
+
+      std::map<size_t, std::vector<Simplex2D>> platform_faces;
+      std::map<size_t, double> platform_min_z; 
+
       info("finding markes");
       auto find_markers_t = Timer("build_city_surface_mesh: step 2 find markers");
       for (size_t i = 0; i < terrain_mesh.markers.size(); i++)
       {
         auto marker = terrain_mesh.markers[i];
+        if (marker < 0) continue;
 
-        if (marker >= 0)
-        {
-          // info("marker: " + str(marker) + " i: " + str(i));
-          building_faces[marker].push_back(terrain_mesh.faces[i]);
+        const auto &face = terrain_mesh.faces[i];
+        
+        if (meshing_directive[marker] > 0) {
+          building_faces[marker].push_back(face);
           building_indices.push_back(i);
+        } else {
+          platform_faces[marker].push_back(face);
+
+          const auto &v0 = terrain_mesh.vertices[face.v0];
+          const auto &v1 = terrain_mesh.vertices[face.v1];
+          const auto &v2 = terrain_mesh.vertices[face.v2];
+
+          auto [it, _] = platform_min_z.try_emplace(marker, std::numeric_limits<double>::infinity());
+          double &minz = it->second;
+          minz = std::min({minz, v0.z, v1.z, v2.z});
+        }
+        
+        }
+      
+      find_markers_t.stop();
+
+      info("build_city_surface_mesh: step 3 flatten platforms");
+      for (const auto &kv : platform_faces) {
+        const size_t marker = kv.first;
+        const auto  &faces  = kv.second;
+        auto it = platform_min_z.find(marker);
+        if (it == platform_min_z.end()) continue; // no faces? skip
+        const double zflat = it->second;
+
+        // Collect unique vertex indices used by these faces
+        std::unordered_set<size_t> vset;
+        vset.reserve(faces.size() * 3);
+        for (const auto &f : faces) {
+          vset.insert(static_cast<size_t>(f.v0));
+          vset.insert(static_cast<size_t>(f.v1));
+          vset.insert(static_cast<size_t>(f.v2));
+        }
+        // Set their z to zflat
+        for (size_t vi : vset) {
+          terrain_mesh.vertices[vi].z = zflat;
         }
       }
-      find_markers_t.stop();
+      
+      if (smooth_ground){
+        VertexSmoother::smooth_mesh(terrain_mesh,smooth_ground,false,true);
+      }
 
       info("building meshes");
       auto building_meshes_t =
           Timer("build_city_surface_mesh: step 3 building meshes");
-      for (auto it = building_faces.begin(); it != building_faces.end(); ++it)
+      for (const auto &kv : building_faces)
       {
-        auto marker = it->first;
-        auto faces = it->second;
-        auto building = buildings[marker];
-        auto roof_height = building.max_height();
+        const auto marker = kv.first;
+        const auto &faces = kv.second;
+        const auto &building = buildings[marker];
+        const auto roof_height = building.max_height();
+
+        auto naked_edges = MeshProcessor::find_naked_edges(faces);
 
         Mesh building_mesh;
+        building_mesh.vertices.reserve(faces.size() * 3 + naked_edges.size() * 4);
+        building_mesh.faces.reserve(faces.size() + naked_edges.size() * 2);
+        building_mesh.markers.reserve(faces.size() + naked_edges.size() * 2);
 
         // add roofs
         for (const auto &face : faces)
         {
-          auto v0 = terrain_mesh.vertices[face.v0];
-          auto v1 = terrain_mesh.vertices[face.v1];
-          auto v2 = terrain_mesh.vertices[face.v2];
-          auto v3 = Vector3D(v0.x, v0.y, roof_height);
-          auto v4 = Vector3D(v1.x, v1.y, roof_height);
-          auto v5 = Vector3D(v2.x, v2.y, roof_height);
+          const auto v0 = terrain_mesh.vertices[face.v0];
+          const auto v1 = terrain_mesh.vertices[face.v1];
+          const auto v2 = terrain_mesh.vertices[face.v2];
+          const auto v3 = Vector3D(v0.x, v0.y, roof_height);
+          const auto v4 = Vector3D(v1.x, v1.y, roof_height);
+          const auto v5 = Vector3D(v2.x, v2.y, roof_height);
 
-          auto num_vertices = building_mesh.vertices.size();
+          const auto num_vertices = building_mesh.vertices.size();
           building_mesh.vertices.push_back(v3);
           building_mesh.vertices.push_back(v4);
           building_mesh.vertices.push_back(v5);
@@ -569,35 +670,47 @@ namespace DTCC_BUILDER
           //     str(face.v2));
           building_mesh.faces.push_back(
               Simplex2D(num_vertices, num_vertices + 1, num_vertices + 2));
+          building_mesh.markers.push_back(static_cast<int>(num_buildings + marker));
         }
 
         // add walls
-        auto naked_edges = MeshProcessor::find_naked_edges(faces);
         for (const auto &edge_faces : naked_edges)
         {
-          Simplex1D edge = edge_faces.first;
-          Simplex2D edge_face = edge_faces.second;
-          auto face_center = Geometry::face_center(edge_face, terrain_mesh);
+          const Simplex1D edge = edge_faces.first;
+          const Simplex2D edge_face = edge_faces.second;
+          const auto face_center = Geometry::face_center(edge_face, terrain_mesh);
 
-          auto ground_v0 = terrain_mesh.vertices[edge.v0];
-          auto ground_v1 = terrain_mesh.vertices[edge.v1];
-          auto roof_v0 = Vector3D(ground_v0.x, ground_v0.y, roof_height);
-          auto roof_v1 = Vector3D(ground_v1.x, ground_v1.y, roof_height);
+          const auto ground_v0 = terrain_mesh.vertices[edge.v0];
+          const auto ground_v1 = terrain_mesh.vertices[edge.v1];
+          const auto roof_v0 = Vector3D(ground_v0.x, ground_v0.y, roof_height);
+          const auto roof_v1 = Vector3D(ground_v1.x, ground_v1.y, roof_height);
 
-          Mesh wall_mesh;
-          wall_mesh.vertices = {ground_v0, ground_v1, roof_v0, roof_v1};
-          auto wall_normal =
+          const auto base = building_mesh.vertices.size();
+          building_mesh.vertices.push_back(ground_v0);
+          building_mesh.vertices.push_back(ground_v1);
+          building_mesh.vertices.push_back(roof_v0);
+          building_mesh.vertices.push_back(roof_v1);
+
+          const auto wall_normal =
               Geometry::triangle_normal(ground_v0, ground_v1, roof_v1);
           if (Geometry::dot_3d(wall_normal, face_center - ground_v0) > 0)
           {
-            wall_mesh.faces = {Simplex2D(0, 1, 3), Simplex2D(0, 3, 2)};
+            building_mesh.faces.push_back(
+                Simplex2D(base, base + 1, base + 3));
+            building_mesh.faces.push_back(
+                Simplex2D(base, base + 3, base + 2));
+            building_mesh.markers.push_back(static_cast<int>(marker));
+            building_mesh.markers.push_back(static_cast<int>(marker));
           }
           else
           {
-            wall_mesh.faces = {Simplex2D(0, 3, 1), Simplex2D(0, 2, 3)};
+            building_mesh.faces.push_back(
+                Simplex2D(base, base + 3, base + 1));
+            building_mesh.faces.push_back(
+                Simplex2D(base, base + 2, base + 3));
+            building_mesh.markers.push_back(static_cast<int>(marker));
+            building_mesh.markers.push_back(static_cast<int>(marker));
           }
-
-          building_mesh = MeshProcessor::merge_meshes({building_mesh, wall_mesh});
         }
 
         building_meshes.push_back(MeshProcessor::weld_mesh(building_mesh));
@@ -609,19 +722,36 @@ namespace DTCC_BUILDER
           Timer("build_city_surface_mesh: step 4 remove inside");
       std::sort(building_indices.begin(), building_indices.end());
 
-      // if index is in list of building indices, move to the end of the list
-      auto new_end = std::remove_if(
-          terrain_mesh.faces.begin(), terrain_mesh.faces.end(),
-          [&](const auto &face)
-          {
-            return std::binary_search(
-                building_indices.begin(), building_indices.end(),
-                &face -
-                    &terrain_mesh.faces[0]); // calculate the index of the face in
-                                             // the terrain_mesh.faces vector.
-          });
-      // remove all elements that have been moved
-      terrain_mesh.faces.erase(new_end, terrain_mesh.faces.end());
+      // keep faces/markers/normals aligned while removing building triangles
+      std::vector<Simplex2D> filtered_faces;
+      std::vector<int> filtered_markers;
+      std::vector<Vector3D> filtered_normals;
+      const bool copy_normals = terrain_mesh.normals.size() == terrain_mesh.faces.size();
+      filtered_faces.reserve(terrain_mesh.faces.size());
+      filtered_markers.reserve(terrain_mesh.markers.size());
+      if (copy_normals)
+        filtered_normals.reserve(terrain_mesh.normals.size());
+
+      size_t bpos = 0;
+      for (size_t i = 0; i < terrain_mesh.faces.size(); ++i)
+      {
+        while (bpos < building_indices.size() && building_indices[bpos] < i)
+          ++bpos;
+        if (bpos < building_indices.size() && building_indices[bpos] == i)
+        {
+          ++bpos;
+          continue;
+        }
+        filtered_faces.push_back(terrain_mesh.faces[i]);
+        filtered_markers.push_back(terrain_mesh.markers[i]);
+        if (copy_normals)
+          filtered_normals.push_back(terrain_mesh.normals[i]);
+      }
+
+      terrain_mesh.faces.swap(filtered_faces);
+      terrain_mesh.markers.swap(filtered_markers);
+      if (copy_normals)
+        terrain_mesh.normals.swap(filtered_normals);
       remove_inside_t.stop();
 
       auto final_merger_t = Timer("build_city_surface_mesh: step 5 final merge");
@@ -643,9 +773,11 @@ namespace DTCC_BUILDER
 
                              double max_triangle_area_size = -1,
                              double min_mesh_angle = 25)
-    // convert 3D Surface to triangle Mesh. If max_triangle_area_size is
-    // greater or equal to 0, triangle will be used for triangulations. If negative
-    // earcut will be used.
+    // Convert 3D Surface to triangle Mesh.
+    // - If max_triangle_area_size < 0: uses fast_mesh (earcut/fan triangulation)
+    // - If max_triangle_area_size >= 0:
+    //   - With DTCC_HAVE_TRIANGLE: uses Triangle library (preferred)
+    //   - Without DTCC_HAVE_TRIANGLE: uses SPADE library (default)
     {
       Mesh mesh;
       if (surface.vertices.size() < 3)
@@ -656,8 +788,13 @@ namespace DTCC_BUILDER
       }
       else
       {
+#ifdef DTCC_HAVE_TRIANGLE
         Triangulate::call_triangle(mesh, surface, max_triangle_area_size,
                                    min_mesh_angle);
+#else
+        Triangulate::call_spade(mesh, surface, max_triangle_area_size,
+                                min_mesh_angle);
+#endif
       }
       return mesh;
     }
@@ -665,7 +802,8 @@ namespace DTCC_BUILDER
     static Mesh mesh_multisurface(const MultiSurface &multi_surface,
                                   double max_triangle_area_size = -1,
                                   double min_mesh_angle = 25,
-                                  bool weld = false)
+                                  bool weld = false,
+                                  double snap = 0)
     {
       std::vector<Mesh> multimesh(multi_surface.surfaces.size());
       //    info("meshing multisurface with " + str(multi_surface.surfaces.size())
@@ -683,8 +821,8 @@ namespace DTCC_BUILDER
       //       mesh_surface(surface, max_triangle_area_size, min_mesh_angle);
       //   multimesh.push_back(surface_mesh);
       // }
-      auto mesh = MeshProcessor::merge_meshes(multimesh, weld);
-      // mesh.normalize_normal_direction();
+      auto mesh = MeshProcessor::merge_meshes(multimesh, weld, snap);
+      mesh.normalize_normal_direction();
       return mesh;
     }
 

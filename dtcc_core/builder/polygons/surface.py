@@ -16,14 +16,20 @@ from ..logging import info, warning, error, debug
 
 
 def clean_multisurface(ms: MultiSurface, simplify=1e-2) -> MultiSurface:
-    """Clean a MultiSurface by removing empty and small surfaces.
+    """
+    Clean a MultiSurface by removing empty and small surfaces.
 
-    Args:
-        ms (MultiSurface): The MultiSurface to clean.
-        simplify (float): The tolerance for simplifying the polygons.
+    Parameters
+    ----------
+    ms : MultiSurface
+        MultiSurface to clean.
+    simplify : float, optional
+        Simplification tolerance passed to polygon cleaning; default is 1e-2.
 
-    Returns:
-        MultiSurface: The cleaned MultiSurface.
+    Returns
+    -------
+    MultiSurface
+        Cleaned MultiSurface containing only valid, simplified surfaces.
     """
     cleaned_surfaces = []
     for s in ms.surfaces:
@@ -38,15 +44,22 @@ def clean_multisurface(ms: MultiSurface, simplify=1e-2) -> MultiSurface:
 
 
 def clean_surface(s: Surface, tol=1e-2, smallest_surface=1e-2) -> Surface:
-    """Clean a Surface by removing empty and small holes.
+    """
+    Clean a Surface by simplifying and removing empty or tiny holes.
 
-    Args:
-        s (Surface): The Surface to clean.
-        tol (float): The tolerance for simplifying the polygons.
-        smallest_surface (float): The smallest surface to keep.
+    Parameters
+    ----------
+    s : Surface
+        Surface to clean.
+    tol : float, optional
+        Simplification tolerance applied to polygons; default is 1e-2.
+    smallest_surface : float, optional
+        Minimum area to keep; polygons below are discarded. Default is 1e-2.
 
-    Returns:
-        Surface: The cleaned Surface.
+    Returns
+    -------
+    Surface or None
+        Cleaned Surface, or ``None`` if cleaning fails or geometry is too small.
     """
     trans, inv_trans = _transform_to_planar(s)
     if trans is None:
@@ -87,14 +100,20 @@ def clean_surface(s: Surface, tol=1e-2, smallest_surface=1e-2) -> Surface:
 
 
 def subdivide_surface(s: Surface, longest_edge=2) -> MultiSurface:
-    """Subdivide a Surface into smaller surfaces.
+    """
+    Subdivide a Surface into smaller surfaces.
 
-    Args:
-        s (Surface): The Surface to subdivide.
-        longest_edge (float): The maximum length of the edges of the new surfaces.
+    Parameters
+    ----------
+    s : Surface
+        Surface to subdivide.
+    longest_edge : float, optional
+        Maximum edge length of the resulting tiles; default is 2.
 
-    Returns:
-        MultiSurface: The subdivided Surface
+    Returns
+    -------
+    MultiSurface
+        Subdivided surface tiles.
     """
     trans, inv_trans = _transform_to_planar(s)
     surface_poly = _to_polygon(s, trans)
@@ -130,14 +149,20 @@ def subdivide_surface(s: Surface, longest_edge=2) -> MultiSurface:
 
 
 def surface_sample_points(s: Surface, spacing=1.0) -> PointCloud:
-    """Sample a Surface to a PointCloud.
+    """
+    Sample a Surface into a grid of points.
 
-    Args:
-        s (Surface): The Surface to sample.
-        spacing (float): spacing between the points.
+    Parameters
+    ----------
+    s : Surface
+        Surface to sample.
+    spacing : float, optional
+        Spacing between sampled points; default is 1.0.
 
-    Returns:
-        PointCloud: The sampled Point
+    Returns
+    -------
+    PointCloud
+        Point cloud of sampled points on the surface.
     """
     trans, inv_trans = _transform_to_planar(s)
     if trans is None:
@@ -175,11 +200,18 @@ def surface_sample_points(s: Surface, spacing=1.0) -> PointCloud:
 
 
 def union_surfaces(ms: MultiSurface | List[Surface]) -> Surface:
-    """Union a list of surfaces into a single Surface. Assumes that all surfaces are co-planar
-    and connected. If this is not the case, the result is undefined.
+    """
+    Union a list of coplanar, connected surfaces into a single Surface.
 
-    Args:
-        ms (MultiSurface|List[Surface]): The MultiSurface or list of Surfaces to union.
+    Parameters
+    ----------
+    ms : MultiSurface or list[Surface]
+        Surfaces to union; all must be coplanar and connected.
+
+    Returns
+    -------
+    Surface
+        Combined surface geometry.
     """
 
     if isinstance(ms, MultiSurface):
@@ -208,7 +240,21 @@ def union_surfaces(ms: MultiSurface | List[Surface]) -> Surface:
 
 
 def _to_polygon(s: Surface, transform) -> Polygon:
-    """Convert a Surface to a Polygon."""
+    """
+    Convert a 3D Surface to a 2D Polygon using a transform.
+
+    Parameters
+    ----------
+    s : Surface
+        Surface to convert.
+    transform : numpy.ndarray
+        4x4 transform matrix mapping surface coordinates to planar coordinates.
+
+    Returns
+    -------
+    Polygon
+        Planar polygon representation.
+    """
     transformed_vertices = np.dot(s.vertices, transform[:3, :3].T) + transform[:3, 3]
     transformed_holes = [
         np.dot(h, transform[:3, :3].T) + transform[:3, 3] for h in s.holes
@@ -218,7 +264,21 @@ def _to_polygon(s: Surface, transform) -> Polygon:
 
 
 def _to_surface(p: Polygon, inv_transform) -> Surface:
-    """Convert a Polygon to a Surface."""
+    """
+    Convert a planar Polygon back to a 3D Surface.
+
+    Parameters
+    ----------
+    p : Polygon
+        Planar polygon to convert.
+    inv_transform : numpy.ndarray
+        Inverse 4x4 transform mapping planar coordinates back to 3D.
+
+    Returns
+    -------
+    Surface
+        Surface reconstructed from the polygon.
+    """
     transformed_vertices = (
         np.dot(np.array(p.exterior.coords), inv_transform[:3, :3].T)
         + inv_transform[:3, 3]
@@ -235,7 +295,20 @@ def _to_surface(p: Polygon, inv_transform) -> Surface:
 
 
 def _transform_to_planar(s: Surface) -> (np.ndarray, np.ndarray):
-    """Transform a Surface to a planar Surface."""
+    """
+    Compute transforms between a Surface and a planar frame aligned with its normal.
+
+    Parameters
+    ----------
+    s : Surface
+        Surface to align to the plane.
+
+    Returns
+    -------
+    tuple[numpy.ndarray, numpy.ndarray]
+        Forward and inverse 4x4 transforms (to planar space and back). Returns
+        ``(None, None)`` if the surface normal is zero.
+    """
     z_normal = np.array([0, 0, 1])
     normal = s.calculate_normal()
     if np.allclose(normal, 0):

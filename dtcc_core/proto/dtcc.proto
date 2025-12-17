@@ -26,6 +26,7 @@ message Object
         BuildingPart building_part = 10;
         RoadNetwork road_network = 11;
         Landuse landuse = 12;
+        Tree tree = 13;
     }
 
 
@@ -62,6 +63,13 @@ message RoadNetwork
   uint32 dim = 2;
   repeated uint32 edges = 3;
   repeated float lengths = 4;
+}
+
+message Tree
+{
+  repeated float position = 1;
+  float height = 2;
+  float crown_radius = 3;
 }
 
 message Landuse

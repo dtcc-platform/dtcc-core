@@ -20,20 +20,30 @@ from dtcc_core.builder.logging import warning, info
 
 
 def mesh_multisurface(
-    ms: MultiSurface, triangle_size=None, weld=False, clean=False
+    ms: MultiSurface, triangle_size=None, weld=False, snap=0, clean=False
 ) -> Mesh:
     """
-    Mesh a `MultiSurface` object into a `Mesh` object.
+    Mesh a MultiSurface into a triangular Mesh.
 
-    Args:
-        triangle_size (float): The maximum size of the triangles in the mesh (default None, no max size).
-        weld (bool): Whether to weld the vertices of the mesh (default False).
-        clean (bool): Whether to clean and attempt to fix errors in the multisurface before meshing (default True).
-                      Warning! meshing a multisurface with a max triangle size that is invalid may crash the program
-                      or produce unexpected results.
+    Parameters
+    ----------
+    ms : MultiSurface
+        MultiSurface to mesh.
+    triangle_size : float, optional
+        Maximum triangle size; ``None`` leaves it unconstrained.
+    weld : bool, optional
+        Whether to weld mesh vertices.
+    snap : float, optional
+        Snap distance for mesh vertices.
+    clean : bool, optional
+        Whether to clean the MultiSurface before meshing. Warning: meshing an
+        invalid MultiSurface with a max triangle size may crash or produce
+        unexpected results.
 
-    Returns:
-        Mesh: A `Mesh` object representing the meshed `MultiSurface`.
+    Returns
+    -------
+    Mesh
+        Triangular mesh representation of the MultiSurface.
     """
     if clean:
         ms = clean_multisurface(ms)
@@ -41,11 +51,11 @@ def mesh_multisurface(
         warning("Failed to clean multisurface.")
         return Mesh()
     builder_ms = create_builder_multisurface(ms)
-    min_mesh_angle = 25
+    min_mesh_angle = 20.7
     if triangle_size is None or triangle_size < 0:
         triangle_size = -1
     builder_mesh = _dtcc_builder.mesh_multisurface(
-        builder_ms, triangle_size, min_mesh_angle, weld
+        builder_ms, triangle_size, min_mesh_angle, weld, snap
     )
     mesh = builder_mesh_to_mesh(builder_mesh)
     return mesh
@@ -53,15 +63,23 @@ def mesh_multisurface(
 
 def mesh_surface(s: Surface, triangle_size=None, clean=False) -> Mesh:
     """
-    Mesh a `Surface` object into a `Mesh` object.
+    Mesh a Surface into a triangular Mesh.
 
-    Args:
-        triangle_size (float): The maximum size of the triangles in the mesh (default None, no max size).
-        clean (bool): Whether to clean the surface before meshing (default True). Warning! meshing a surface with a max
-        triangle size that is not clean may crash the program or produce unexpected results.
+    Parameters
+    ----------
+    s : Surface
+        Surface to mesh.
+    triangle_size : float, optional
+        Maximum triangle size; ``None`` leaves it unconstrained.
+    clean : bool, optional
+        Whether to clean the surface before meshing. Warning: meshing an
+        unclean surface with a max triangle size may crash or produce
+        unexpected results.
 
-    Returns:
-        Mesh: A `Mesh` object representing the meshed `Surface`.
+    Returns
+    -------
+    Mesh
+        Triangular mesh representation of the Surface.
     """
     if clean:
         s = clean_surface(s)
@@ -71,7 +89,7 @@ def mesh_surface(s: Surface, triangle_size=None, clean=False) -> Mesh:
     builder_surface = create_builder_surface(s)
     if triangle_size is None or triangle_size < 0:
         triangle_size = -1
-    builder_mesh = _dtcc_builder.mesh_surface(builder_surface, triangle_size, 25)
+    builder_mesh = _dtcc_builder.mesh_surface(builder_surface, triangle_size, 20.7)
     mesh = builder_mesh_to_mesh(builder_mesh)
     return mesh
 
@@ -79,10 +97,31 @@ def mesh_surface(s: Surface, triangle_size=None, clean=False) -> Mesh:
 def mesh_multisurfaces(
     multisurfaces: [MultiSurface],
     max_mesh_edge_size=-1,
-    min_mesh_angle=25,
+    min_mesh_angle=20.7,
     weld=False,
     clean=False,
 ) -> [Mesh]:
+    """
+    Mesh multiple MultiSurface objects into a list of Mesh objects.
+
+    Parameters
+    ----------
+    multisurfaces : list[MultiSurface]
+        MultiSurface objects to mesh.
+    max_mesh_edge_size : float, optional
+        Maximum edge size for mesh triangles; ``-1`` means no limit.
+    min_mesh_angle : float, optional
+        Minimum triangle angle in degrees.
+    weld : bool, optional
+        Whether to weld vertices during meshing.
+    clean : bool, optional
+        Whether to clean MultiSurfaces before meshing.
+
+    Returns
+    -------
+    list[Mesh]
+        Meshes corresponding to each input MultiSurface.
+    """
 
     if clean:
         multisurfaces = [clean_multisurface(ms) for ms in multisurfaces]
@@ -103,23 +142,93 @@ def mesh_multisurfaces(
     return meshes
 
 
-def merge_meshes(meshes: [Mesh], weld=False) -> Mesh:
+def merge_meshes(meshes: [Mesh], weld=False, snap=0) -> Mesh:
+    """
+    Merge multiple meshes into a single mesh.
+
+    Parameters
+    ----------
+    meshes : list[Mesh]
+        Meshes to merge.
+    weld : bool, optional
+        Whether to weld vertices during merge.
+    snap : float, optional
+        Snap distance for vertex snapping.
+
+    Returns
+    -------
+    Mesh
+        Merged mesh containing all input meshes.
+    """
     builder_meshes = [mesh_to_builder_mesh(mesh) for mesh in meshes]
-    merged_mesh = _dtcc_builder.merge_meshes(builder_meshes, weld)
+    merged_mesh = _dtcc_builder.merge_meshes(builder_meshes, weld, snap)
     mesh = builder_mesh_to_mesh(merged_mesh)
     return mesh
 
 
-@register_model_method
-def merge(mesh: Mesh, other: Mesh, weld=False) -> Mesh:
+def merge(mesh: Mesh, other: Mesh, weld=False, snap=0) -> Mesh:
+    """
+    Merge two meshes into a single mesh.
+
+    Parameters
+    ----------
+    mesh : Mesh
+        First mesh to merge.
+    other : Mesh
+        Second mesh to merge.
+    weld : bool, optional
+        Whether to weld vertices during merge.
+    snap : float, optional
+        Snap distance for vertex snapping.
+
+    Returns
+    -------
+    Mesh
+        Merged mesh containing both input meshes.
+    """
     builder_mesh = mesh_to_builder_mesh(mesh)
     builder_other = mesh_to_builder_mesh(other)
-    merged_mesh = _dtcc_builder.merge_meshes([builder_mesh, builder_other], weld)
+    merged_mesh = _dtcc_builder.merge_meshes([builder_mesh, builder_other], weld, snap)
     mesh = builder_mesh_to_mesh(merged_mesh)
     return mesh
+
+
+def snap_vertices(mesh: Mesh, snap_distance: float) -> Mesh:
+    """
+    Snap mesh vertices within a specified distance.
+
+    Parameters
+    ----------
+    mesh : Mesh
+        Mesh to snap vertices for.
+    snap_distance : float
+        Maximum distance between vertices to be snapped together.
+
+    Returns
+    -------
+    Mesh
+        Mesh with snapped vertices.
+    """
+    builder_mesh = mesh_to_builder_mesh(mesh)
+    snapped_mesh = _dtcc_builder.snap_mesh_vertices(builder_mesh, snap_distance)
+    snapped_mesh = builder_mesh_to_mesh(snapped_mesh)
+    return snapped_mesh
 
 
 def disjoint_meshes(mesh: Mesh) -> List[Mesh]:
+    """
+    Separate a mesh into disconnected components.
+
+    Parameters
+    ----------
+    mesh : Mesh
+        Mesh to separate into components.
+
+    Returns
+    -------
+    list[Mesh]
+        Meshes, each containing one connected component.
+    """
     num_vertices = len(mesh.vertices)
     edges = np.vstack(
         [

@@ -11,9 +11,11 @@ from .geometry import Geometry, Bounds
 from .surface import Surface, MultiSurface
 from .. import dtcc_pb2 as proto
 
+from ..mixins.mesh.mixins import MeshProcessingMixin, VolumeMeshProcessingMixin
+
 
 @dataclass
-class Mesh(Geometry):
+class Mesh(MeshProcessingMixin, Geometry):
     """Represents an unstructured triangular mesh in 3D.
 
     The Mesh class represents a 3D triangular mesh, which consists of vertices
@@ -63,6 +65,7 @@ class Mesh(Geometry):
         if len(self.vertices) < 3:
             self._bounds = Bounds()
             return self._bounds
+
         self._bounds = Bounds(
             xmin=np.min(self.vertices[:, 0]),
             ymin=np.min(self.vertices[:, 1]),
@@ -96,7 +99,14 @@ class Mesh(Geometry):
         """
         offset = np.array(offset)
         self.vertices += offset
+        self._bounds = None
         return self
+
+    def offset_to_origin(self):
+        """Offset the vertices of the mesh so that the lower left corner is moved to the origin."""
+        bounds = self.bounds
+        offset = (-bounds.xmin, -bounds.ymin, -bounds.zmin)
+        return self.offset(offset)
 
     def copy(self, geometry_only=False) -> "Mesh":
         """Return a copy of the Mesh.
@@ -176,7 +186,7 @@ class Mesh(Geometry):
 
 
 @dataclass
-class VolumeMesh(Geometry):
+class VolumeMesh(VolumeMeshProcessingMixin, Geometry):
     """Represents an unstructured tetrahedral mesh in 3D.
 
     The VolumeMesh class represents a 3D volumetric mesh, which consists of
@@ -211,6 +221,14 @@ class VolumeMesh(Geometry):
 
     def calculate_bounds(self) -> Bounds:
         """Calculate the bounding box of the mesh."""
+
+        if len(self.vertices) < 4:
+            self._bounds = Bounds()
+            return self._bounds
+
+        print("VolumeMesh vertices: ")
+        print(self.vertices.shape)
+
         self._bounds = Bounds(
             xmin=np.min(self.vertices[:, 0]),
             ymin=np.min(self.vertices[:, 1]),
@@ -245,6 +263,25 @@ class VolumeMesh(Geometry):
         """
         return len(self.cells)
 
+    def offset(self, offset: Iterable):
+        """Offset the vertices of the mesh.
+
+        Parameters
+        ----------
+        offset :
+            The offset to apply to the vertices.
+
+        """
+        offset = np.array(offset)
+        self.vertices += offset
+        return self
+
+    def offset_to_origin(self):
+        """Offset the vertices of the mesh so that the lower left corner is moved to the origin."""
+        bounds = self.bounds
+        offset = (-bounds.xmin, -bounds.ymin, -bounds.zmin)
+        return self.offset(offset)
+
     def to_proto(self) -> proto.Geometry:
         """Return a protobuf representation of the VolumeMesh.
 
@@ -261,7 +298,7 @@ class VolumeMesh(Geometry):
         _pb = proto.VolumeMesh()
         _pb.vertices.extend(self.vertices.flatten())
         _pb.cells.extend(self.cells.flatten())
-        pb.mesh.CopyFrom(_pb)
+        pb.volume_mesh.CopyFrom(_pb)
 
         return pb
 
@@ -276,7 +313,7 @@ class VolumeMesh(Geometry):
 
         # Handle byte representation
         if isinstance(pb, bytes):
-            pb = proto.FromString(pb)
+            pb = proto.Geometry.FromString(pb)
 
         # Handle Geometry fields
         Geometry.from_proto(self, pb)
@@ -284,4 +321,7 @@ class VolumeMesh(Geometry):
         # Handle specific fields
         _pb = pb.volume_mesh
         self.vertices = np.array(_pb.vertices).reshape((-1, 3))
-        self.cells = np.array(_pb.faces, dtype=np.int64).reshape((-1, 4))
+        self.cells = np.array(_pb.cells, dtype=np.int64).reshape((-1, 4))
+
+        # Handle Geometry fields
+        Geometry.from_proto(self, pb)

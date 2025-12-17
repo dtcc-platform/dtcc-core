@@ -15,10 +15,26 @@ class Model(ABC):
 
     @abstractmethod
     def to_proto(self):
+        """
+        Convert the model to its protobuf representation.
+
+        Returns
+        -------
+        google.protobuf.message.Message
+            Protobuf message encoding the model.
+        """
         pass
 
     @abstractmethod
     def from_proto(self, pb):
+        """
+        Populate the model from a protobuf message.
+
+        Parameters
+        ----------
+        pb : google.protobuf.message.Message or bytes
+            Serialized or in-memory protobuf message representing the model.
+        """
         pass
 
     def to_json(self) -> str:

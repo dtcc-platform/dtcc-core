@@ -4,13 +4,16 @@
 
 from dataclasses import dataclass, field
 from collections import defaultdict
-from typing import Union
+from typing import Optional, Union
 from enum import Enum, auto
-import json
+import json, re
 
 from copy import copy, deepcopy
 
 import dtcc_core
+
+
+from ..values import Raster
 
 from ..model import Model
 from ..geometry import (
@@ -36,6 +39,10 @@ from ..logging import info, warning, error, debug
 
 
 class GeometryType(Enum):
+    """
+    Enumeration of different geometry types used in spatial or 3D data modeling.
+    """
+
     BOUNDS = auto()
     LOD0 = auto()
     LOD1 = auto()
@@ -53,12 +60,67 @@ class GeometryType(Enum):
 
     @staticmethod
     def from_str(s):
+        """
+        Create a GeometryType enum value from a string.
+
+        Converts a string representation to the corresponding GeometryType enum value,
+        handling case-insensitive matching.
+
+        Parameters
+        ----------
+        s : str
+            String representation of the geometry type (e.g., 'lod1', 'mesh', 'pointcloud').
+
+        Returns
+        -------
+        GeometryType
+            The corresponding GeometryType enum value.
+
+        Raises
+        ------
+        ValueError
+            If the string does not match any known geometry type.
+        """
         s = s.upper()
         try:
             t = GeometryType[s]
         except KeyError:
             raise ValueError(f"Unknown geometry type: {s}")
         return t
+
+    @staticmethod
+    def from_class_name(s):
+        """
+        Convert a class name string to a GeometryType.
+
+        Parameters
+        ----------
+        s : str
+            CamelCase class name to convert (e.g., ``MultiSurface``).
+
+        Returns
+        -------
+        GeometryType
+            Corresponding geometry type enum.
+        """
+        return GeometryType.from_str(re.sub(r"(?<!^)(?=[A-Z])", "_", s).upper())
+
+    @staticmethod
+    def from_class(s):
+        """
+        Convert a geometry class to a GeometryType.
+
+        Parameters
+        ----------
+        s : type
+            Geometry class whose name maps to a GeometryType.
+
+        Returns
+        -------
+        GeometryType
+            Enum derived from the class name.
+        """
+        return GeometryType.from_class_name(s.__name__)
 
 
 def _proto_type_to_object_class(_type):
@@ -147,7 +209,12 @@ class Object(Model):
         return self.geometry.get(GeometryType.VOLUME_MESH, None)
 
     @property
-    def point_cloud(self):
+    def point_cloud(self) -> Union[PointCloud, None]:
+        """Return POINT_CLOUD geometry."""
+        return self.geometry.get(GeometryType.POINT_CLOUD, None)
+
+    @property
+    def pointcloud(self) -> Union[PointCloud, None]:
         """Return POINT_CLOUD geometry."""
         return self.geometry.get(GeometryType.POINT_CLOUD, None)
 
@@ -166,6 +233,21 @@ class Object(Model):
 
     @bounds.setter
     def bounds(self, bounds: Bounds):
+        """
+        Set the bounding box for this object.
+
+        Sets the spatial bounds of the object, overriding any calculated bounds.
+
+        Parameters
+        ----------
+        bounds : Bounds
+            The bounding box to set for this object.
+
+        Raises
+        ------
+        TypeError
+            If bounds is not an instance of Bounds class.
+        """
         if not isinstance(bounds, Bounds):
             raise TypeError("Expected value to be an instance of Bounds")
         self._bounds = bounds
@@ -182,7 +264,11 @@ class Object(Model):
         for child in children:
             self.add_child(child)
 
-    def add_geometry(self, geometry: Geometry, geometry_type: Union[GeometryType, str]):
+    def add_geometry(
+        self,
+        geometry: Geometry,
+        geometry_type: Optional[Union[GeometryType, str]] = None,
+    ):
         """Add geometry to object."""
         if isinstance(geometry_type, str) and geometry_type.startswith("GeometryType."):
             geometry_type = GeometryType.from_str(geometry_type[13:])
@@ -191,9 +277,29 @@ class Object(Model):
                 geometry_type = GeometryType.from_str(geometry_type)
             except ValueError:
                 pass
+        elif geometry_type is None:
+            geometry_type = GeometryType.from_class(type(geometry))
         if not isinstance(geometry_type, GeometryType):
             warning(f"Invalid geometry type (but I'll allow it): {geometry_type}")
         self.geometry[geometry_type] = geometry
+
+    def add_mesh(self, mesh: Mesh):
+        """Add a Mesh geometry to the object."""
+        if not isinstance(mesh, Mesh):
+            raise TypeError(f"Expected a Mesh instance, got {type(mesh)}")
+        self.add_geometry(mesh, GeometryType.MESH)
+
+    def add_point_cloud(self, point_cloud: PointCloud):
+        """Add a PointCloud geometry to the object."""
+        if not isinstance(point_cloud, PointCloud):
+            raise TypeError(f"Expected a PointCloud instance, got {type(point_cloud)}")
+        self.add_geometry(point_cloud, GeometryType.POINT_CLOUD)
+
+    def add_raster(self, raster):
+        """Add a Raster geometry to the object."""
+        if not isinstance(raster, (Raster, Grid)):
+            raise TypeError(f"Expected a Raster or Grid instance, got {type(raster)}")
+        self.add_geometry(raster, GeometryType.RASTER)
 
     def remove_geometry(self, geometry_type: Union[GeometryType, str]):
         """Remove geometry from object."""
@@ -209,15 +315,54 @@ class Object(Model):
 
     def add_field(self, field, geometry_type):
         """Add a field to a geometry of the object."""
+        if isinstance(geometry_type, type):
+            geometry_type = GeometryType.from_class(geometry_type)
         geometry = self.geometry.get(geometry_type, None)
         if geometry is None:
             error("No geometry of type {geometry_type} defined on object")
         geometry.add_field(field)
 
     def get_children(self, child_type):
+        """
+        Get all child objects of a specific type.
+
+        Retrieves all child objects that match the specified type from the
+        object's children dictionary.
+
+        Parameters
+        ----------
+        child_type : type
+            The type of child objects to retrieve.
+
+        Returns
+        -------
+        list
+            List of child objects of the specified type, or empty list if none exist.
+        """
         return self.children.get(child_type, [])
 
     def set_child_attributues(self, child_type, attribute, values):
+        """
+        Set an attribute value for all child objects of a specific type.
+
+        Sets the specified attribute to the corresponding value for each child
+        object of the given type. Values are assigned in order.
+
+        Parameters
+        ----------
+        child_type : type
+            The type of child objects to modify.
+        attribute : str
+            The name of the attribute to set.
+        values : list
+            List of values to assign to the attribute. Must have same length as
+            number of children of the specified type.
+
+        Raises
+        ------
+        ValueError
+            If the number of values doesn't match the number of children.
+        """
         children = self.get_children(child_type)
         if not len(children) == len(values):
             raise ValueError(
@@ -228,6 +373,27 @@ class Object(Model):
             c.attributes[attribute] = v
 
     def get_child_attributes(self, child_type, attribute, default=None):
+        """
+        Get an attribute value from all child objects of a specific type.
+
+        Retrieves the specified attribute from all child objects of the given type,
+        returning a list of values in the same order as the children.
+
+        Parameters
+        ----------
+        child_type : type
+            The type of child objects to query.
+        attribute : str
+            The name of the attribute to retrieve.
+        default : Any, optional
+            Default value to return if attribute is not found on a child object.
+
+        Returns
+        -------
+        list
+            List of attribute values from child objects, with default value used
+            for children that don't have the attribute.
+        """
         children = self.get_children(child_type)
         return [c.attributes.get(attribute, default) for c in children]
 
@@ -288,6 +454,29 @@ class Object(Model):
     def defined_attributes(self):
         """Return a list of the attributes defined on this object."""
         return sorted(list(self.attributes.keys()))
+
+    def tree(self, indent=""):
+        """Print a summary of the object including its children."""
+        class_name = type(self).__name__
+        num_attributes = len(self.attributes)
+        num_children = len(self.children)
+        num_geometries = len(self.geometry)
+        print(
+            f"{indent}{class_name} with id = {self.id}, {num_attributes} attributes, {num_geometries} geometries, and {num_children} children"
+        )
+        if num_attributes > 0:
+            print(f"{indent}  Attributes:")
+            for key, value in self.attributes.items():
+                print(f"{indent}    {key}: {value}")
+        if num_geometries > 0:
+            print(f"{indent}  Geometries:")
+            for geometry_type, geometry in self.geometry.items():
+                geometry.tree(geometry_type=geometry_type, indent=(indent + "    "))
+        if num_children > 0:
+            print(f"{indent}  Children:")
+            for _, _children in self.children.items():
+                for child in _children:
+                    child.tree(indent=(indent + "    "))
 
     def to_proto(self) -> proto.Object:
         """Return a protobuf representation of the Object.

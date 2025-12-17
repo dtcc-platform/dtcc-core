@@ -24,12 +24,83 @@ from typing import List, Union
 def build_terrain_mesh(
     data: Union[PointCloud, Raster],
     subdomains: list[Surface] = None,
+    holes: list[Surface] = None,
     subdomain_resolution: Union[float, List[float]] = None,
     max_mesh_size=10,
-    min_mesh_angle=25,
+    min_mesh_angle=20.7,
     smoothing=3,
     ground_points_only=True,
 ) -> Mesh:
+    """
+    Build a triangular mesh from terrain data.
+    
+    This function creates a triangular mesh representation of terrain from either
+    point cloud or raster data, with optional subdomains for varying resolution.
+    
+    Parameters
+    ----------
+    data : Union[PointCloud, Raster]
+        Input terrain data to mesh.
+    subdomains : list[Surface], optional
+        List of surface subdomains for varying mesh resolution.
+    holes : list[Surface], optional
+        Surfaces that should be treated as holes (excised from the mesh).
+    subdomain_resolution : Union[float, List[float]], optional
+        Resolution for each subdomain. If float, applies to all subdomains.
+    max_mesh_size : float, default 10
+        Maximum triangle size in meters.
+    min_mesh_angle : float, default 20.7
+        Minimum angle in degrees for mesh triangles (must be <= 33).
+    smoothing : int, default 3
+        Number of smoothing iterations to apply.
+    ground_points_only : bool, default True
+        Whether to use only ground-classified points from point cloud.
+        
+    Returns
+    -------
+    Mesh
+        Triangular mesh representation of the terrain.
+        
+    Raises
+    ------
+    ValueError
+        If min_mesh_angle > 33 degrees or data type is invalid.
+    """
+
+    """
+    Build a mesh of the terrain from a point cloud.
+
+    Parameters
+    ----------
+    data : PointCloud or Raster
+        The point cloud or raster to build the terrain from.
+    subdomains : list[Surface]
+        The list of surface to use as subdomains.
+    subdomain_resolution : Union[float, List[float]]
+        The resolution of the subdomains. If a single value is given, it is
+        used for all subdomains. If a list is given, it must have the same length
+        as the subdomains list.
+    max_mesh_size : float
+        The maximum size of the triangles in the mesh.
+    min_mesh_angle : float
+        The minimum angle of the triangles in the mesh. Must be less than or equal
+        to 33 degrees.
+    smoothing : int
+        The number of smoothing iterations to apply to the mesh.
+    ground_points_only : bool
+        If True, only ground points are used to build the terrain.
+
+    Returns
+    -------
+    Mesh
+        The mesh of the terrain.
+    """
+    if min_mesh_angle > 33:
+        raise ValueError(
+            "min_mesh_angle must be less than or equal to 33 degrees. "
+            "This is a limitation of the meshing algorithm."
+        )
+
     if isinstance(data, PointCloud):
         dem = build_terrain_raster(
             data, cell_size=max_mesh_size / 2, ground_only=ground_points_only
@@ -44,6 +115,10 @@ def build_terrain_mesh(
         subdomain_resolution = None
     else:
         subdomains = [create_builder_polygon(sub.to_polygon()) for sub in subdomains]
+    if holes is None:
+        hole_polygons: list = []
+    else:
+        hole_polygons = [create_builder_polygon(sub.to_polygon()) for sub in holes]
     if subdomain_resolution is None:
         subdomain_resolution = []
     elif isinstance(subdomain_resolution, (float, int)):
@@ -61,6 +136,7 @@ def build_terrain_mesh(
 
     terrain_mesh = _dtcc_builder.build_terrain_mesh(
         subdomains,
+        hole_polygons,
         subdomain_resolution,
         _builder_gridfield,
         max_mesh_size,

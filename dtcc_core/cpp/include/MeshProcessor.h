@@ -4,14 +4,25 @@
 #ifndef DTCC_MESH_PROCESSOR_H
 #define DTCC_MESH_PROCESSOR_H
 
+#include <limits>
 #include <map>
+#include <set>
 #include <unordered_map>
 #include <utility>
 
 #include "Hashing.h"
 #include "Logging.h"
+
+#include "KDTreeVectorOfVectorsAdaptor.h"
+#include "nanoflann.hpp"
+
+#include "DisjointSet.h"
+#include "BoundingBox.h"
+#include "BoundingBoxTree.h"
+
 #include "model/Mesh.h"
 #include "model/Simplices.h"
+#include "model/Polygon.h"
 #include "model/Vector.h"
 #include "model/VolumeMesh.h"
 
@@ -21,6 +32,64 @@ namespace DTCC_BUILDER
 class MeshProcessor
 {
 public:
+
+
+static inline void compute_mesh_domain_markers(Mesh &mesh, const std::vector<Polygon> &subdomains)
+{
+  info("Computing domain markers...");
+  Timer timer("compute_domain_markers");
+
+  BoundingBoxTree2D search_tree;
+  std::vector<BoundingBox2D> bounding_boxes;
+  bounding_boxes.reserve(subdomains.size());
+  for (const auto &subdomain : subdomains)
+  {
+    bounding_boxes.emplace_back(subdomain);
+  }
+  search_tree.build(bounding_boxes);
+
+  mesh.markers.resize(mesh.faces.size());
+  std::fill(mesh.markers.begin(), mesh.markers.end(), -2);
+
+  std::vector<bool> is_building_vertex(mesh.vertices.size());
+  std::fill(is_building_vertex.begin(), is_building_vertex.end(), false);
+
+  if (!subdomains.empty())
+  {
+    for (size_t i = 0; i < mesh.faces.size(); i++)
+    {
+      const Vector3D c_3d = mesh.mid_point(i);
+      const Vector2D c_2d(c_3d.x, c_3d.y);
+      std::vector<size_t> indices = search_tree.find(Vector2D(c_2d));
+
+      if (!indices.empty())
+      {
+        for (const auto &index : indices)
+        {
+          if (Geometry::polygon_contains_2d(subdomains[index], c_2d))
+          {
+            mesh.markers[i] = index;
+            const Simplex2D &T = mesh.faces[i];
+            is_building_vertex[T.v0] = true;
+            is_building_vertex[T.v1] = true;
+            is_building_vertex[T.v2] = true;
+            break;
+          }
+        }
+      }
+    }
+
+    for (size_t i = 0; i < mesh.faces.size(); i++)
+    {
+      const Simplex2D &T = mesh.faces[i];
+      const bool touches_building =
+          (is_building_vertex[T.v0] || is_building_vertex[T.v1] || is_building_vertex[T.v2]);
+
+      if (touches_building && mesh.markers[i] == -2)
+        mesh.markers[i] = -1;
+    }
+  }
+}
   /// Compute boundary mesh from volume mesh
   static Mesh compute_boundary_mesh(const VolumeMesh &volume_mesh)
   {
@@ -93,6 +162,161 @@ public:
     return mesh;
   }
 
+  // If our test case has N buildings then markers from 0 to N-1 mark the vertices on walls 
+  // for building from 0 to N-1 and markers from N to 2N-1 indicate the roof vertices of buildings
+  // from 0 to N-1
+  // (-5, -5, -5) -> -5
+  // (-5, -5, -3) -> -5
+  // (-5, -5, -2) -> -5
+  // (-5, -5, -1) -> -5
+  // (-5, -3, -3) -> -5
+  // (-5, -2, -2) -> -5
+  // (-5, -2, -1) -> -5
+  // (-5, -1, -1) -> -5
+  // (-3, -3, -3) -> -3
+  // (-2, -2, -2) -> -2
+  // (-2, -2, -1) -> -2
+  // (-2, -1, -1) -> -2
+  // (-1, -1, -1) -> -2
+
+  // (-1, -1, b1) -> -1  // one nonnegative
+  // (-1, b1, b1) -> -1 // two identical nonnegatives
+  // (-1, b1, b2) -> -1 (two distinct nonnegatives)
+  // (b1, b1, b1) -> b1 // three identical nonnegatives
+  // (b1, b1, b2) -> b1 if b2 = b1 + N else -1 // two identical + one distinct
+  // (b1, b2, b2) -> b1 if b2 = b1 + N else -1 // one distinct + two identical
+  // (b1, b2, b3) -> -1 // three distinct nonnegatives
+  static   std::unordered_map<Simplex2D,std::pair<int, Vector3D>,Simplex2DHash>  compute_boundary_facet_markers(const VolumeMesh &volume_mesh)
+  {
+    info("Computing markers for boundary facets of 3D mesh...");
+    Timer timer("ComputeBoundaryMarkers");
+
+    // Map from face --> (num cell neighbors, cell index)
+    std::map<Simplex2D, std::pair<size_t, size_t>, CompareSimplex2D> face_map;
+
+    // Iterate over cells and count cell neighbors of faces
+    for (size_t i = 0; i < volume_mesh.cells.size(); i++)
+    {
+      const Simplex3D &cell = volume_mesh.cells[i];
+      count_face(face_map, cell.v0, cell.v1, cell.v2, i);
+      count_face(face_map, cell.v0, cell.v1, cell.v3, i);
+      count_face(face_map, cell.v0, cell.v2, cell.v3, i);
+      count_face(face_map, cell.v1, cell.v2, cell.v3, i);
+    }
+
+    // Map from old vertex index --> new vertex index
+    std::unordered_map<size_t, size_t> vertex_map;
+
+
+    std::unordered_map<Simplex2D,std::pair<int, Vector3D>,Simplex2DHash> boundary_face_markers;
+    boundary_face_markers.reserve(face_map.size()/2);
+    std::set<std::array<int,3>> marker_sets;
+    
+    // Get the number of buildings by finding the max marker used 
+    int max_marker = std::numeric_limits<int>::min();
+    for (int m : volume_mesh.markers) {
+      max_marker = std::max(max_marker, m);
+    }
+    const int num_buildings = (max_marker + 1) / 2;
+
+    // Extract faces with exactly one cell neighbor
+    for (const auto &it : face_map)
+    {
+      // Skip if not on boundary
+      if (it.second.first != 1)
+        continue;
+
+      // Get face and neighboring cell
+      const Simplex2D &face = it.first;
+      // const Simplex3D &cell = volume_mesh.cells[it.second.second];
+
+      // // Count vertices (assign new vertex indices)
+      const int m0 = volume_mesh.markers[face.v0];
+      const int m1 = volume_mesh.markers[face.v1];
+      const int m2 = volume_mesh.markers[face.v2];
+
+      // Compute face normal and orientation
+      const Simplex3D &cell = volume_mesh.cells[it.second.second];
+      Vector3D n = Geometry::face_normal_3d(face, volume_mesh);
+      const Vector3D cc = Geometry::cell_center_3d(cell, volume_mesh);
+      const Vector3D w = Vector3D(volume_mesh.vertices[face.v0]) - Vector3D(cc);
+      const int orientation = (Geometry::dot_3d(n, w) > 0.0 ? 1 : -1);
+      
+      n = (orientation == 1 ? n : -n);
+
+      std::array<int,3> t = { m0, m1, m2 };
+      std::sort(t.begin(), t.end());    // so {-5,-3,-3} and {-3,-3,-5} become equal
+      max_marker = (max_marker < t[2]) ? t[2]: max_marker;
+      marker_sets.insert(t);
+
+      int a = t[0], b = t[1], c = t[2];
+      
+      // This pair stores the facet's initial marker and normal vector
+      std::pair<int, Vector3D> face_data;
+      // —— case A: at least two negatives — negative “dominates” — pick the most negative,
+      //             except for the special triple (-1,-1,-1) → -2
+      if (a < 0 && b < 0) {
+        face_data.first = a;
+      // —— case B: all non-negative → wall/roof building logic
+      } else if (a >= 0) {
+        // triple‐identical → that building
+        if (a == c) {
+          face_data.first = a;
+        // two identical + one distinct
+        } else if (a == b) {
+          // if the “odd” marker c is exactly the roof of building a, keep wall‐marker a
+          face_data.first = (c == a + num_buildings ? a : -1);
+
+        // one distinct + two identical
+        } else if (b == c) {
+          // if the two identical b==(roof) and a==(wall), keep wall a
+          face_data.first = (b == a + num_buildings ? a : -1);
+
+        // three distinct buildings → shared corner → no single building → interior
+        } else {
+          face_data.first = -1;
+        }
+
+      // —— case C: exactly one negative and two non-negatives
+      } else /* a<0 && b>=0 */ {
+        // no special rule given, but negative “dominates” when there’s only one
+        face_data.first = a;
+      }
+      face_data.second = n;
+      boundary_face_markers.emplace(face, face_data); 
+    }
+
+    for (auto &kv : boundary_face_markers) {
+      // const Simplex2D &face = kv.first;  // the 2D face
+      auto &marker = kv.second.first; 
+      const auto &normal = kv.second.second;
+      
+      if (marker >=-1){
+        continue;
+      }
+      else if (marker == -2) {
+        marker = -1;
+      }
+      else if (marker == -3){
+        marker = -2;
+      }
+      else if (marker == -5){
+        const double nx = normal.x;
+        const double ny = normal.y;
+
+        // 4) pick the dominant component
+        if (std::abs(nx) > std::abs(ny)) {
+          // East/West face
+          marker =  (nx > 0) ? -4 : -6;
+        } else {
+          // North/South face
+          marker =  (ny > 0) ? -3 : -5;
+        }
+      }
+    }
+    return boundary_face_markers;
+  }
+
   /// Compute open mesh from boundary, excluding top and sides
   static Mesh compute_open_mesh(const Mesh &boundary)
   {
@@ -148,7 +372,7 @@ public:
   }
 
   /// Merge meshes into a single mesh
-  static Mesh merge_meshes(const std::vector<Mesh> &meshes, bool weld = false)
+  static Mesh merge_meshes(const std::vector<Mesh> &meshes, bool weld = false, double snap = 0)
   {
     // info("Merging " + str(meshes.size()) + " meshes into a single mesh...");
     Timer timer("merge_meshes");
@@ -159,34 +383,46 @@ public:
     // Count the number of vertices and cells
     size_t num_vertices = 0;
     size_t num_cells = 0;
-    for (size_t i = 0; i < meshes.size(); i++)
+    for (const auto &m : meshes)
     {
-      // info("Mesh " + str(i) + " has " + str(meshes[i].vertices.size()) +
-      //      " vertices and " + str(meshes[i].faces.size()) + " cells.");
-      num_vertices += meshes[i].vertices.size();
-      num_cells += meshes[i].faces.size();
+      num_vertices += m.vertices.size();
+      num_cells += m.faces.size();
     }
 
     // Allocate arrays
     mesh.vertices.resize(num_vertices);
     mesh.faces.resize(num_cells);
-
+    mesh.markers.resize(num_cells, default_marker());
     // Merge data
-    size_t k = 0;
-    size_t l = 0;
-    for (size_t i = 0; i < meshes.size(); i++)
+    size_t vertex_offset = 0;
+    size_t face_offset = 0;
+    for (const auto &src_mesh : meshes)
     {
-      for (size_t j = 0; j < meshes[i].faces.size(); j++)
+      const size_t current_vertex_offset = vertex_offset;
+
+      for (size_t j = 0; j < src_mesh.faces.size(); ++j)
       {
-        Simplex2D c = meshes[i].faces[j];
-        c.v0 += k;
-        c.v1 += k;
-        c.v2 += k;
-        mesh.faces[l++] = c;
+        Simplex2D c = src_mesh.faces[j];
+        c.v0 += current_vertex_offset;
+        c.v1 += current_vertex_offset;
+        c.v2 += current_vertex_offset;
+        mesh.faces[face_offset] = c;
+
+        int marker = default_marker();
+        if (j < src_mesh.markers.size())
+          marker = src_mesh.markers[j];
+        mesh.markers[face_offset] = marker;
+
+        ++face_offset;
       }
-      for (size_t j = 0; j < meshes[i].vertices.size(); j++)
-        mesh.vertices[k++] = meshes[i].vertices[j];
+
+      for (size_t j = 0; j < src_mesh.vertices.size(); ++j)
+        mesh.vertices[current_vertex_offset + j] = src_mesh.vertices[j];
+
+      vertex_offset += src_mesh.vertices.size();
     }
+    if (snap > 0)
+      mesh = snap_vertices(mesh, snap);
     if (weld)
       mesh = weld_mesh(mesh);
     return mesh;
@@ -256,35 +492,108 @@ public:
         vertex_idx_map.insert({i, vertex_map[vertex]});
       }
     }
+    welded_mesh.markers.reserve(mesh.faces.size());
     for (size_t i = 0; i < mesh.faces.size(); ++i)
     {
       const Simplex2D &face = mesh.faces[i];
-      welded_mesh.faces.push_back(Simplex2D(vertex_idx_map[face.v0],
-                                            vertex_idx_map[face.v1],
+      welded_mesh.faces.push_back(Simplex2D(vertex_idx_map[face.v0], vertex_idx_map[face.v1],
                                             vertex_idx_map[face.v2]));
+
+      int marker = default_marker();
+      if (i < mesh.markers.size())
+        marker = mesh.markers[i];
+      welded_mesh.markers.push_back(marker);
     }
     for (size_t i = 0; i < mesh.normals.size(); ++i)
     {
       welded_mesh.normals.push_back(mesh.normals[i]);
-    }
-    for (size_t i = 0; i < mesh.markers.size(); ++i)
-    {
-      welded_mesh.markers.push_back(mesh.markers[i]);
     }
     // info("welded " + str(num_vertices) + " vertices to " +
     //     str(welded_mesh.vertices.size()) + " vertices");
     return welded_mesh;
   }
 
+  static Mesh snap_vertices(const Mesh &mesh, double snap_distance)
+  {
+    Mesh snapped_mesh = mesh;
+    // snap_distance *= snap_distance;
+
+    auto merge_candidates = DisjointSet(mesh.vertices.size());
+
+    typedef KDTreeVectorOfVectorsAdaptor<std::vector<Vector3D>, double, 3 /* dims */> my_kd_tree_t;
+    my_kd_tree_t vert_index(3 /*dim*/, mesh.vertices, 10 /* max leaf */);
+    vert_index.index->buildIndex();
+    for (size_t i = 0; i < mesh.vertices.size(); ++i)
+    {
+      auto &pt = mesh.vertices[i];
+      std::vector<double> query_pt{pt.x, pt.y, pt.z};
+      auto neighbours = vert_index.radius_query(&query_pt[0], snap_distance);
+      if (neighbours.size() > 1)
+      {
+        auto first_idx = neighbours[0].first;
+        for (size_t j = 1; j < neighbours.size(); ++j)
+        {
+          size_t idx = neighbours[j].first;
+          merge_candidates.unionSets(first_idx, idx);
+        }
+      }
+    }
+
+    auto merge_sets = merge_candidates.getSets();
+//    size_t num_merged = 0;
+    for (const auto &ms : merge_sets)
+    {
+      auto merge_group = ms.second;
+      if (merge_group.size() > 1)
+      {
+        size_t target = ms.first;
+        for (auto &face : snapped_mesh.faces)
+        {
+
+          auto face_normal = Geometry::face_normal(face, snapped_mesh);
+          bool snapped = false;
+
+          if ( (face.v0 != target) && (std::find(merge_group.begin(), merge_group.end(), face.v0) != merge_group.end()))
+          {
+            face.v0 = target;
+            snapped = true;
+          }
+          if ((face.v1 != target) && (std::find(merge_group.begin(), merge_group.end(), face.v1) != merge_group.end()))
+          {
+            face.v1 = target;
+            snapped = true;
+          }
+          if ((face.v2 != target) && (std::find(merge_group.begin(), merge_group.end(), face.v2) != merge_group.end()) )
+          {
+            face.v2 = target;
+            snapped = true;
+          }
+          if (snapped)
+          {
+            // check and fix normals
+            auto snapped_face_normal = Geometry::face_normal(face, snapped_mesh);
+            if (face_normal.dot(snapped_face_normal) < 0)
+            {
+              std::swap(face.v1, face.v2);
+            }
+
+          }
+        }
+      }
+    }
+//    info("Merging " + str(num_merged) + " vertices");
+    if (snapped_mesh.markers.size() < snapped_mesh.faces.size())
+      snapped_mesh.markers.resize(snapped_mesh.faces.size(), default_marker());
+    else if (snapped_mesh.markers.size() > snapped_mesh.faces.size())
+      snapped_mesh.markers.resize(snapped_mesh.faces.size());
+
+    return snapped_mesh;
+  }
+
 private:
   // Count face (number of cell neighbors)
-  static void
-  count_face(std::map<Simplex2D, std::pair<size_t, size_t>, CompareSimplex2D>
-                 &face_map,
-             size_t v0,
-             size_t v1,
-             size_t v2,
-             size_t cell_index)
+  static void count_face(std::map<Simplex2D, std::pair<size_t, size_t>, CompareSimplex2D> &face_map,
+                         size_t v0, size_t v1, size_t v2, size_t cell_index)
   {
     // Create ordered simplex
     const Simplex2D simplex(v0, v1, v2, true);
@@ -304,8 +613,7 @@ private:
   }
 
   // Count vertex (assign new vertex indices)
-  static size_t count_vertex(std::unordered_map<size_t, size_t> &vertex_map,
-                             size_t index)
+  static size_t count_vertex(std::unordered_map<size_t, size_t> &vertex_map, size_t index)
   {
     // Check if already added
     auto it = vertex_map.find(index);
@@ -319,6 +627,11 @@ private:
     }
     else
       return it->second;
+  }
+
+  static int default_marker()
+  {
+    return std::numeric_limits<int>::lowest();
   }
 };
 

@@ -10,6 +10,26 @@ from typing import Any, Union, List, Tuple
 
 @register_model_method
 def to_matrix(roadnetwork: RoadNetwork, bidirectional=True) -> csr_matrix:
+    """
+    Convert a road network to a sparse adjacency matrix representation.
+    
+    Creates a sparse matrix where entries represent road connections between vertices,
+    with weights corresponding to road segment lengths.
+    
+    Parameters
+    ----------
+    roadnetwork : RoadNetwork
+        The road network to convert to matrix format.
+    bidirectional : bool, default=True
+        If True, creates a symmetric matrix by adding reverse edges for all connections.
+        Self-loops are only added once to avoid duplication.
+    
+    Returns
+    -------
+    csr_matrix
+        Sparse adjacency matrix where (i,j) entry contains the length of the road
+        segment connecting vertices i and j.
+    """
     edges = roadnetwork.edges
 
     if bidirectional:
@@ -34,6 +54,36 @@ def to_surfaces(
     cap_style="round",
     as_shapely=False,
 ):
+    """
+    Convert road network linestrings to polygon surfaces with specified widths.
+    
+    Creates polygon surfaces by buffering each road linestring with the specified
+    width, allowing for variable road widths based on attributes or fixed values.
+    
+    Parameters
+    ----------
+    roadnetwork : RoadNetwork
+        The road network containing linestrings to convert.
+    width_attribute : str, default=""
+        Name of the attribute containing road widths. If empty, uses the widths parameter.
+    widths : Union[float, List[float]], default=4
+        Road width(s) in coordinate units. Can be a single value for all roads or
+        a list with one width per road segment.
+    cap_style : str, default="round"
+        End cap style for buffered polygons ('round', 'square', or 'flat').
+    as_shapely : bool, default=False
+        If True, returns Shapely polygons; if False, returns DTCC Surface objects.
+    
+    Returns
+    -------
+    List[Union[Surface, Polygon]]
+        List of road surface polygons, either as DTCC Surface objects or Shapely polygons.
+    
+    Raises
+    ------
+    ValueError
+        If the number of widths doesn't match the number of road segments.
+    """
     roadlines = [ls.to_shapely() for ls in roadnetwork.linestrings]
 
     road_widths = None

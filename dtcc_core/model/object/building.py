@@ -21,6 +21,17 @@ class Building(Object):
 
     @property
     def height(self):
+        """
+        Get the height of the building.
+        
+        Returns the height from the building's attributes, or calculates it
+        from the bounds if no height attribute is set.
+        
+        Returns
+        -------
+        float
+            The height of the building in meters.
+        """
         height = self.attributes.get("height", None)
         if height is None:
             height = self.bounds.zmax - self.bounds.zmin
@@ -65,7 +76,11 @@ class Building(Object):
 
 
 class BuildingPart(Object):
-
+    """Represents a building part object with protobuf serialization support.
+    
+        A specialized Object subclass that provides conversion methods for 
+        protobuf serialization and deserialization of building part data.
+    """
     def to_proto(self) -> proto.Object:
         """Return a protobuf representation of the BuildingPart.
 

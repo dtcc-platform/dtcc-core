@@ -9,13 +9,24 @@ from ..register import register_model_method
 @register_model_method
 def stats(raster: Raster, polygons: Union[Polygon, List[Polygon]], stats=["mean"]):
     """
-    Compute statistics for a raster within a polygon.
+    Compute zonal statistics for a raster within one or more polygons.
 
-    Args:
-        polygons: A Polygon or a list of Polygons.
-        stats: A list of statistics to compute. Supported statistics are:
-        ['count', 'min', 'max', 'mean', 'median', 'majority', 'minority', 'unique',  'sum', 'std', 'var', 'percentile_X' (where X is a number between 0 and 100)]
+    Parameters
+    ----------
+    raster : Raster
+        Raster to sample.
+    polygons : Polygon or list[Polygon]
+        Polygon(s) defining zones for statistics.
+    stats : list[str], optional
+        Statistics to compute. Supported: ``["count", "min", "max", "mean",
+        "median", "majority", "minority", "unique", "sum", "std", "var",
+        "percentile_X"]`` where ``X`` is between 0 and 100. Default is ``["mean"]``.
 
+    Returns
+    -------
+    Any
+        If one polygon and one stat: scalar; if one polygon and multiple stats:
+        dict; if multiple polygons: list of dicts/scalars matching the request.
     """
     if isinstance(polygons, Polygon):
         polygons = [polygons]

@@ -15,13 +15,28 @@ from ..geometry import Bounds
 from .. import dtcc_pb2 as proto
 from ..logging import info, warning, error, debug
 
+from ..mixins.city import (
+    CityLoaderMixin,
+    CityDownloadMixin,
+    CitySaveMixin,
+    CityBuilderMixin,
+    CityModifyingMixin,
+)
+
 
 @dataclass
-class City(Object):
+class City(
+    CityLoaderMixin,
+    CitySaveMixin,
+    CityDownloadMixin,
+    CityBuilderMixin,
+    CityModifyingMixin,
+    Object,
+):
     """Represents a city, the top-level container class for city models."""
 
     @property
-    def buildings(self):
+    def buildings(self) -> list[Building]:
         """Return list of buildings in city."""
         return self.children[Building] if Building in self.children else []
 
@@ -34,6 +49,14 @@ class City(Object):
             return Terrain()
 
     def has_terrain(self) -> bool:
+        """
+        Check whether the city has a terrain child.
+
+        Returns
+        -------
+        bool
+            ``True`` if a terrain object is present, otherwise ``False``.
+        """
         return Terrain in self.children
 
     @property
@@ -55,6 +78,14 @@ class City(Object):
             b.attributes[attribute] = v
 
     def get_building_attributes(self):
+        """
+        Collect attributes from all buildings in the city.
+
+        Returns
+        -------
+        dict[str, list]
+            Mapping of attribute names to lists of values across buildings.
+        """
 
         city_buildings = self.buildings
         if len(city_buildings) == 0:
@@ -84,16 +115,23 @@ class City(Object):
             self.add_child(terrain_object)
 
     def remove_terrain(self):
+        """Remove any terrain objects from the city."""
         if Terrain in self.children:
             self.children[Terrain] = []
 
     def remove_buildings(self):
+        """Remove all buildings from the city."""
         if Building in self.children:
             self.children[Building] = []
 
     def add_building(self, building: Building):
         """Add building to city."""
         self.add_child(building)
+
+    def replace_buildings(self, buildings: list[Building]):
+        """Replace all buildings in city with new list of buildings."""
+        self.remove_buildings()
+        self.add_buildings(buildings)
 
     def add_buildings(
         self, buildings: list[Building], remove_outside_terrain: bool = False
@@ -176,7 +214,7 @@ class CityObject(Object):
 
         # Handle specific fields (currently none)
         _pb = proto.CityObject()
-        pb.city.CopyFrom(_pb)
+        pb.city_object.CopyFrom(_pb)
 
         return pb
 

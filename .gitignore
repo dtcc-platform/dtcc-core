@@ -47,6 +47,8 @@ htmlcov/
 .cache
 nosetests.xml
 coverage.xml
+coverage.json
+/tests/coverage.json
 *.cover
 *.py,cover
 .hypothesis/
@@ -164,3 +166,7 @@ cython_debug/
 .idea/
 
 /data/
+.aider*
+.DS_Store
+
+sandbox/snapping

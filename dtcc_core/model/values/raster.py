@@ -246,6 +246,19 @@ class Raster(Model):
         return data
 
     def copy(self, no_data=False):
+        """
+        Create a copy of the raster.
+
+        Parameters
+        ----------
+        no_data : bool, default False
+            When ``True``, copy only metadata (georef, nodata, crs) and omit data array.
+
+        Returns
+        -------
+        Raster
+            Deep copy of the raster or metadata-only copy when ``no_data`` is set.
+        """
         if not no_data:
             return deepcopy(self)
         else:

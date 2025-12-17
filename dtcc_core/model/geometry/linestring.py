@@ -16,6 +16,17 @@ from .. import dtcc_pb2 as proto
 
 @dataclass
 class LineString(Geometry):
+    """
+    Represents a geometric line composed of an ordered set of vertices.
+
+    This class models a LineString geometry, typically used in vector-based spatial data,
+    where a sequence of points forms a continuous line in 2D or 3D space.
+
+    Attributes:
+        vertices (np.ndarray): A NumPy array of shape (N, 2) or (N, 3) representing the
+            coordinates of the line string's vertices. Each row corresponds to a point
+            in 2D (x, y) or 3D (x, y, z) space.
+    """
     vertices: np.ndarray = field(default_factory=lambda: np.empty(0))
 
     def calculate_bounds(self):
@@ -76,6 +87,16 @@ class LineString(Geometry):
         return pb
 
     def from_proto(self, pb: Union[proto.Geometry, bytes], only_linestring_field=False):
+        """
+        Initialize the LineString from a protobuf Geometry or LineString field.
+
+        Parameters
+        ----------
+        pb : proto.Geometry or bytes
+            Protobuf message or serialized bytes containing a LineString.
+        only_linestring_field : bool, default False
+            When ``True``, interpret ``pb`` as a LineString message instead of a full Geometry wrapper.
+        """
         # Handle byte representation
         if isinstance(pb, bytes):
             pb = proto.Geometry.FromString(pb)
@@ -91,6 +112,14 @@ class LineString(Geometry):
 
 @dataclass
 class MultiLineString(Geometry):
+    """
+    Represents a geometry composed of multiple LineString objects.
+
+    Attributes
+    ----------
+    linestrings : list[LineString]
+        A list of LineString instances that make up the MultiLineString geometry.
+    """
     linestrings: list[LineString] = field(default_factory=lambda: [])
 
     def calculate_bounds(self):
@@ -142,6 +171,14 @@ class MultiLineString(Geometry):
         return pb
 
     def from_proto(self, pb: Union[proto.Geometry, bytes]):
+        """
+        Initialize the MultiLineString from a protobuf Geometry message.
+
+        Parameters
+        ----------
+        pb : proto.Geometry or bytes
+            Protobuf message or serialized bytes containing a MultiLineString.
+        """
         # Handle byte representation
         if isinstance(pb, bytes):
             pb = proto.Geometry.FromString(pb)

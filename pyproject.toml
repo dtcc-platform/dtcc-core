@@ -1,12 +1,12 @@
 [build-system]
-requires = ["scikit-build-core", "pybind11==2.13.*", "wheel"]
+requires = ["scikit-build-core", "pybind11==2.13.*", "wheel", "dtcc-pyspade-native"]
 build-backend = "scikit_build_core.build"
 
 [project]
 dependencies = [
     "Fiona >= 1.8.0, < 2.0.0",
     "affine",
-    "geopandas >= 0.14.0, < 1.0.0",
+    "geopandas >= 1.0.1",
     "laspy[lazrs] >= 2.3.0, < 3.0.0",
     "meshio >= 5.0.0, < 6.0.0",
     "numpy >= 1.20.0, < 3.0.0",
@@ -20,12 +20,20 @@ dependencies = [
     "pyproj >= 3.1.0, < 4.0.0",
     "rasterio >= 1.2.0, < 2.0.0",
     "rasterstats >= 0.19.0, < 1.0.0",
+    "scikit-image>=0.25.2",
     "scipy >= 1.13.0, < 2.0.0",
     "shapely >= 2.0.0, < 3.0.0",
     "tqdm>=4.66.1",
+    "requests",
+    "platformdirs",
+    "aiohttp",
+    "folium",
+    "h5py == 3.14.0",
+    "polyforge@git+https://github.com/dwastberg/polyforge.git",
+    "dtcc-pyspade-native"
 ]
 
-version = "0.9.3"
+version = "0.9.4dev"
 name = "dtcc-core"
 description = "DTCC Core"
 readme = "README.md"
@@ -50,3 +58,6 @@ test = ["pytest"]
 
 [tool.scikit-build]
 wheel.expand-macos-universal-tags = true
+
+[tool.uv.sources]
+pyspade = { git = "https://github.com/dtcc-platform/pyspade.git" }

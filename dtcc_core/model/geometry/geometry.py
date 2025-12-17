@@ -42,16 +42,40 @@ class Geometry(Model):
 
     @abstractmethod
     def calculate_bounds(self):
+        """
+        Compute and cache the bounding box for the geometry.
+
+        Returns
+        -------
+        Bounds
+            Calculated bounds for the geometry.
+        """
         pass
 
     @property
     def bounds(self) -> Bounds:
+        """
+        Bounding box of the geometry in local coordinates.
+
+        Returns
+        -------
+        Bounds
+            Cached bounds; computed on demand when missing.
+        """
         if self._bounds is None or self._bounds.area == 0:
             self.calculate_bounds()
         return self._bounds
 
     @bounds.setter
     def bounds(self, bounds: Bounds):
+        """
+        Set the cached bounds for the geometry.
+
+        Parameters
+        ----------
+        bounds : Bounds
+            Bounding box to assign.
+        """
         self._bounds = bounds
 
     def add_field(self, field: Field):
@@ -64,6 +88,17 @@ class Geometry(Model):
         """
         self.fields.append(field)
 
+    def tree(self, indent="", geometry_type=None):
+        """Print a summary of the geometry including its fields."""
+        if geometry_type is None:
+            print(f"{indent}{self}")
+        else:
+            print(f"{indent}{geometry_type}: {self}")
+        if len(self.fields) > 0:
+            print(f"{indent}  Fields:")
+            for field in self.fields:
+                print(f"{indent}    {field.name} ({field.unit}), {field.description}")
+
     def to_proto(self) -> proto.Geometry:
         """Return a protobuf representation of the Geometry.
 
@@ -72,10 +107,11 @@ class Geometry(Model):
         proto.Geometry
             A protobuf representation of the Geometry.
         """
-        pb = proto.Geometry()
-        pb.bounds.CopyFrom(self.bounds.to_proto())
-        pb.transform.CopyFrom(self.transform.to_proto())
-        return pb
+        _pb = proto.Geometry()
+        _pb.bounds.CopyFrom(self.bounds.to_proto())
+        _pb.transform.CopyFrom(self.transform.to_proto())
+        _pb.fields.extend([f.to_proto() for f in self.fields])
+        return _pb
 
     def from_proto(self, pb: Union[proto.Geometry, bytes]):
         """Initialize Geometry from a protobuf representation.
@@ -89,3 +125,7 @@ class Geometry(Model):
             pb = proto.Geometry.FromString(pb)
         self.bounds.from_proto(pb.bounds)
         self.transform.from_proto(pb.transform)
+        for _field in pb.fields:
+            field = Field()
+            field.from_proto(_field)
+            self.fields.append(field)

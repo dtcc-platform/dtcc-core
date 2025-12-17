@@ -1,10 +1,10 @@
-import dtcc_core.model as model
-from shapely.geometry import Polygon
-from dtcc_core.model import City, PointCloud, Raster
+from ..model import Surface, MultiSurface, Mesh, City, PointCloud, Raster, Mesh, VolumeMesh
+
 from typing import Union
 import numpy as np
 from . import _dtcc_builder
 
+from shapely.geometry import Polygon
 
 
 def create_builder_polygon(polygon: Polygon) -> _dtcc_builder.Polygon:
@@ -28,7 +28,7 @@ def create_builder_polygon(polygon: Polygon) -> _dtcc_builder.Polygon:
 
     return _dtcc_builder.create_polygon(shell, holes)
 
-def create_builder_surface(surface: model.Surface):
+def create_builder_surface(surface: Surface):
     """
     Create a DTCC builder Surface object through the pybind exposed C++
     `DTCC_BUILDER::create_surface()` function.
@@ -47,7 +47,7 @@ def create_builder_surface(surface: model.Surface):
     return _dtcc_builder.create_surface(surface.vertices, surface.holes)
 
 
-def create_builder_multisurface(multisurface: model.MultiSurface):
+def create_builder_multisurface(multisurface: MultiSurface):
     """
     Create a DTCC builder MultiSurface object through the pybind exposed C++
     `DTCC_BUILDER::create_multisurface()` function.
@@ -132,7 +132,7 @@ def create_builder_city(city: City):
     )
 
 
-def mesh_to_builder_mesh(mesh: model.Mesh):
+def mesh_to_builder_mesh(mesh:Mesh):
     """
     Convert a model Mesh to a DTCC builder Mesh through the pybind exposed C++
     `DTCC_BUILDER::create_mesh()` function.
@@ -166,13 +166,30 @@ def builder_mesh_to_mesh(_mesh: _dtcc_builder.Mesh):
         A model Mesh object.
 
     """
-    mesh = model.Mesh()
+    mesh = Mesh()
     vertices, faces, markers = _dtcc_builder.mesh_as_arrays(_mesh)
     mesh.vertices = vertices.reshape((-1, 3))
     mesh.faces = faces.reshape((-1, 3))
     mesh.markers = markers
     return mesh
 
+def volume_mesh_to_builder_volume_mesh(volume_mesh: VolumeMesh)-> _dtcc_builder.VolumeMesh:
+    """
+    Convert a model VolumeMesh to a DTCC builder VolumeMesh through the pybind exposed C++
+    `DTCC_BUILDER::create_volume_mesh()` function.
+
+    Parameters
+    ----------
+    volume_mesh : model.VolumeMesh
+        The input model VolumeMesh object.
+
+    Returns
+    -------
+    _dtcc_builder.Mesh
+        A DTCC builder VolumeMesh object.
+
+    """
+    return _dtcc_builder.create_volume_mesh(volume_mesh.vertices, volume_mesh.cells, volume_mesh.markers)
 
 def builder_volume_mesh_to_volume_mesh(_volume_mesh: _dtcc_builder.Mesh):
     """
@@ -189,7 +206,7 @@ def builder_volume_mesh_to_volume_mesh(_volume_mesh: _dtcc_builder.Mesh):
         A model VolumeMesh object.
 
     """
-    volume_mesh = model.VolumeMesh()
+    volume_mesh = VolumeMesh()
     volume_mesh.vertices = np.array([[v.x, v.y, v.z] for v in _volume_mesh.vertices])
     volume_mesh.cells = np.array([[c.v0, c.v1, c.v2, c.v3] for c in _volume_mesh.cells])
     volume_mesh.markers = np.array(_volume_mesh.markers)

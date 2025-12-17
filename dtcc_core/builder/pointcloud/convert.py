@@ -6,7 +6,6 @@ from ...model import PointCloud, Bounds
 from ..register import register_model_method
 
 
-@register_model_method
 def rasterize(
     pc: PointCloud,
     cell_size: float,
@@ -14,19 +13,32 @@ def rasterize(
     window_size: int = 3,
     radius: float = 0,
     ground_only: bool = True,
+    fill_holes: bool = True,
 ) -> model.Raster:
     """
-    Rasterize a point cloud into a `Raster` object.
+    Rasterize a point cloud into a Raster.
 
-    Args:
-        cell_size (float): The size of the raster cells in meters.
-        bounds (Bounds): The bounds of the area to rasterize (default None, uses the bounds of the point cloud).
-        window_size (int): The size of the window for the interpolation (default 3).
-        radius (float): The radius of the search for the interpolation (default 0).
-        ground_only (bool): Whether to only use ground points for the rasterization (default True).
+    Parameters
+    ----------
+    pc : PointCloud
+        Input point cloud.
+    cell_size : float
+        Size of the raster cells in meters.
+    bounds : Bounds, optional
+        Bounds of the raster area; defaults to the point cloud bounds.
+    window_size : int, optional
+        Interpolation window size; default is 3.
+    radius : float, optional
+        Search radius for interpolation; default is 0.
+    ground_only : bool, optional
+        Use only ground points (classes 2 and 9) if available; default is True.
+    fill_holes : bool, optional
+        Fill holes in the resulting raster; default is True.
 
-    Returns:
-        Raster: A `Raster` object representing the rasterized point cloud.
+    Returns
+    -------
+    Raster
+        Rasterized representation of the point cloud.
     """
     if (
         ground_only
@@ -53,5 +65,6 @@ def rasterize(
     dem_raster.georef = rasterio.transform.from_origin(
         bounds.west, bounds.north, cell_size, cell_size
     )
-    dem_raster = dem_raster.fill_holes()
+    if fill_holes:
+        dem_raster = dem_raster.fill_holes()
     return dem_raster
