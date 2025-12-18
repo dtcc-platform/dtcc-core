@@ -1,9 +1,10 @@
 import numpy as np
 from typing import List, Union
 
-from ...model import PointCloud, Bounds
+from ...model import PointCloud, Bounds, Surface
 from ..logging import info, warning, error
 from ..register import register_model_method
+from ..model_conversion import create_builder_polygon
 
 from .. import _dtcc_builder
 
@@ -58,10 +59,10 @@ def find_statistical_outliers(
 ) -> np.ndarray:
     """
     Find statistical outliers in a point cloud using nearest neighbor analysis.
-    
+
     This function identifies points that are statistical outliers based on their
     distance to neighboring points using a k-nearest neighbor approach.
-    
+
     Parameters
     ----------
     pc : PointCloud
@@ -70,7 +71,7 @@ def find_statistical_outliers(
         Number of nearest neighbors to consider for each point.
     outlier_margin : float
         Standard deviation margin for outlier detection.
-        
+
     Returns
     -------
     np.ndarray
@@ -222,15 +223,15 @@ def remove_vegetation(pc: PointCloud) -> PointCloud:
 def get_vegetation(pc: PointCloud) -> PointCloud:
     """
     Extract vegetation points from a point cloud.
-    
+
     This function creates a new point cloud containing only points classified
     as vegetation, either through LiDAR classification codes or return number analysis.
-    
+
     Parameters
     ----------
     pc : PointCloud
         The point cloud to extract vegetation from.
-        
+
     Returns
     -------
     PointCloud
@@ -300,10 +301,10 @@ def _find_vegetation(pc: PointCloud, filter_on_return_number=True):
 def pts_in_bounds(pc: PointCloud, bounds: Bounds, xy_only=True) -> np.ndarray:
     """
     Find indices of points within specified bounds.
-    
+
     This function identifies which points in a point cloud fall within the given
     bounds, with options to consider only XY coordinates or include Z dimension.
-    
+
     Parameters
     ----------
     pc : PointCloud
@@ -312,7 +313,7 @@ def pts_in_bounds(pc: PointCloud, bounds: Bounds, xy_only=True) -> np.ndarray:
         The bounds object defining the spatial extent.
     xy_only : bool, default True
         Whether to consider only XY coordinates (True) or include Z dimension (False).
-        
+
     Returns
     -------
     np.ndarray
@@ -355,4 +356,84 @@ def crop(pc: PointCloud, bounds: Bounds, xy_only=True) -> PointCloud:
     new_pc = pc.copy()
     indices = pts_in_bounds(new_pc, bounds, xy_only=xy_only)
     new_pc.keep_points(indices)
+    return new_pc
+
+
+def points_in_polygons(
+    pc: PointCloud, polygons: List[Surface], flatten=True
+) -> Union[np.ndarray, List[np.ndarray]]:
+    """
+    Find indices of points within a specified polygon.
+
+    Parameters
+    ----------
+    pc : PointCloud
+        The point cloud to filter.
+    polygon : Surface
+        The polygon to check points against. Checks only the XY coordinates.
+    flatten : bool, optional
+        If True, returns a single array of indices for all polygons; if False,
+        returns a list of arrays for each polygon. Default is True.
+
+    Returns
+    -------
+    numpy.ndarray
+        Array of indices of points within the polygon.
+    """
+    builder_polygons = [
+        create_builder_polygon(p.to_polygon()) for p in polygons if p is not None
+    ]
+    points = pc.points
+    pip = _dtcc_builder.extract_building_points(
+        builder_polygons,
+        points,
+    )
+
+    if flatten:
+        pip = np.sort(np.unique(np.concatenate(pip)))
+
+    return pip
+
+
+def filter_points_in_polygons(pc: PointCloud, polygons: List[Surface]) -> PointCloud:
+    """
+    Filter a point cloud to keep or remove points within specified polygons.
+
+    Parameters
+    ----------
+    pc : PointCloud
+        Point cloud to filter.
+    polygons : list[Surface]
+        List of polygons to check points against.
+
+    Returns
+    -------
+    PointCloud
+        Filtered point cloud.
+    """
+    new_pc = pc.copy()
+    indices = points_in_polygons(new_pc, polygons, flatten=True)
+    new_pc.keep_points(indices)
+    return new_pc
+
+
+def remove_points_in_polygons(pc: PointCloud, polygons: List[Surface]) -> PointCloud:
+    """
+    Remove points from a point cloud that are within specified polygons.
+
+    Parameters
+    ----------
+    pc : PointCloud
+        Point cloud to filter.
+    polygons : list[Surface]
+        List of polygons to check points against.
+
+    Returns
+    -------
+    PointCloud
+        Filtered point cloud with points inside the polygons removed.
+    """
+    new_pc = pc.copy()
+    indices = points_in_polygons(new_pc, polygons, flatten=True)
+    new_pc.remove_points(indices)
     return new_pc
