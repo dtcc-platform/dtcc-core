@@ -67,7 +67,7 @@ class BuildingDataset(DatasetDescriptor):
         if args.format is None:
             return city.buildings
         elif args.format == "cityjson":
-            with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmpfile:
+            with tempfile.NamedTemporaryFile(suffix=".json", delete=True) as tmpfile:
                 city.save_cityjson(tmpfile.name)
                 with open(tmpfile.name, "r") as f:
                     cityjson_data = f.read()
