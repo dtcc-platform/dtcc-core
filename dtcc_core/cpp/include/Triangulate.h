@@ -412,7 +412,8 @@ public:
                          const std::vector<std::vector<Vector2D>> &sub_domains,
                          double max_mesh_size,
                          double min_mesh_angle,
-                         bool sort_triangles = false)
+                         bool sort_triangles = false
+                         )
   {
     Timer timer("call_spade");
 
@@ -526,30 +527,30 @@ public:
       const size_t additional_needed =
           (target_total_vertices > input_vertices) ? (target_total_vertices - input_vertices) : 0;
 
-      const double safety_factor = (min_angle_deg > 0.0) ? 2.0 : 1.5;
+      const double safety_factor = (min_angle_deg > 0.0) ? 1.0 : 0.5;
       max_additional_vertices = static_cast<size_t>(std::ceil(static_cast<double>(additional_needed) * safety_factor));
 
       // Ensure we have at least some headroom when refinement is requested.
       if (max_additional_vertices == 0 && (min_angle_deg > 0.0))
         max_additional_vertices = std::max<size_t>(10, input_vertices);
     }
-
+    const bool exclude_outer_faces = false;
     spade::RefinementOptions refinement;
     refinement.max_allowed_area = max_allowed_area;
     refinement.min_required_area = 0.0;
     refinement.min_angle_deg = min_angle_deg;
     refinement.max_additional_vertices = max_additional_vertices;
     refinement.keep_constraint_edges = false;
-    refinement.exclude_outer_faces = true;
+    refinement.exclude_outer_faces = exclude_outer_faces;
 
     spade::RefinementInfo refinement_info{};
 
     info("SPADE refine request: domain_area=" + str(domain_area, 3) +
-         ", max_allowed_area=" + str(max_allowed_area, 6) +
-         ", min_angle_deg=" + str(min_angle_deg, 3) +
-         ", input_vertices~=" + str(input_vertices) +
-         ", max_additional_vertices=" + str(max_additional_vertices) +
-         ", exclude_outer_faces=True.");
+         "\n max_allowed_area = " + str(max_allowed_area, 6) +
+         "\n min_angle_deg = " + str(min_angle_deg, 3) +
+         "\n input_vertices ~= " + str(input_vertices) +
+         "\n max_additional_vertices = " + str(max_additional_vertices) +
+         "\n exclude_outer_faces = "+ str(exclude_outer_faces));
 
     auto result = spade::triangulate(outer_loop, hole_loops, sub_domains_spade,
                                      refinement, true, &refinement_info);
