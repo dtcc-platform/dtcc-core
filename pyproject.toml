@@ -30,7 +30,7 @@ dependencies = [
     "folium",
     "h5py == 3.14.0",
     "polyforge@git+https://github.com/dwastberg/polyforge.git",
-    "dtcc-pyspade-native == 1.1b"
+    "dtcc-pyspade-native == 0.1.2"
 ]
 
 version = "0.9.4"

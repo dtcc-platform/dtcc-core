@@ -4,6 +4,7 @@
 #ifndef DTCC_TRIANGULATE_BUILDER_H
 #define DTCC_TRIANGULATE_BUILDER_H
 
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <map>
@@ -419,6 +420,29 @@ public:
     mesh.faces.clear();
     mesh.markers.clear();
 
+    auto loop_vertex_count = [](const std::vector<Vector2D> &polygon) -> size_t {
+      if (polygon.empty())
+        return 0;
+      if (polygon.size() >= 2 && polygon.front().close_to(polygon.back()))
+        return polygon.size() - 1;
+      return polygon.size();
+    };
+
+    auto polygon_area = [&](const std::vector<Vector2D> &polygon) -> double {
+      const size_t n = loop_vertex_count(polygon);
+      if (n < 3)
+        return 0.0;
+
+      double twice_area = 0.0;
+      for (size_t i = 0; i < n; ++i)
+      {
+        const auto &p0 = polygon[i];
+        const auto &p1 = polygon[(i + 1) % n];
+        twice_area += p0.x * p1.y - p1.x * p0.y;
+      }
+      return 0.5 * twice_area;
+    };
+
     auto make_loop = [](const std::vector<Vector2D> &polygon) -> std::vector<spade::Point> {
       std::vector<spade::Point> loop;
       if (polygon.empty())
@@ -453,11 +477,104 @@ public:
         sub_domains_spade.push_back(std::move(loop));
     }
 
-    spade::Quality quality =
-        (min_mesh_angle >= 25.0) ? spade::Quality::Moderate : spade::Quality::Default;
+    const double domain_area = std::max(
+        0.0,
+        std::abs(polygon_area(boundary)) -
+            [&]() {
+              double hole_area = 0.0;
+              for (const auto &hole : holes)
+                hole_area += std::abs(polygon_area(hole));
+              return hole_area;
+            }());
+
+    const size_t input_vertices =
+        loop_vertex_count(boundary) +
+        [&]() {
+          size_t count = 0;
+          for (const auto &hole : holes)
+            count += loop_vertex_count(hole);
+          return count;
+        }() +
+        [&]() {
+          size_t count = 0;
+          for (const auto &polygon : sub_domains)
+            count += loop_vertex_count(polygon);
+          return count;
+        }();
+
+    // Interpret max_mesh_size as a maximum triangle area.
+    const double max_allowed_area = max_mesh_size;
+
+    // Clamp angle limit to Spade's recommended upper bound.
+    double min_angle_deg = min_mesh_angle;
+    if (min_angle_deg > 30.0)
+    {
+      warning("SPADE: clamping min_mesh_angle from " + str(min_angle_deg, 3) +
+              " to 30.0 degrees (Spade may not terminate reliably above 30 degrees).");
+      min_angle_deg = 30.0;
+    }
+    if (min_angle_deg < 0.0)
+      min_angle_deg = 0.0;
+
+    // DTCC-side estimate of required steiner point budget.
+    size_t max_additional_vertices = 0;
+    if (max_allowed_area > 0.0 && domain_area > 0.0)
+    {
+      const double estimated_triangles = std::ceil(domain_area / max_allowed_area);
+      const double estimated_total_vertices = std::ceil(estimated_triangles / 2.0);
+      const size_t target_total_vertices = static_cast<size_t>(std::max(0.0, estimated_total_vertices));
+      const size_t additional_needed =
+          (target_total_vertices > input_vertices) ? (target_total_vertices - input_vertices) : 0;
+
+      const double safety_factor = (min_angle_deg > 0.0) ? 2.0 : 1.5;
+      max_additional_vertices = static_cast<size_t>(std::ceil(static_cast<double>(additional_needed) * safety_factor));
+
+      // Ensure we have at least some headroom when refinement is requested.
+      if (max_additional_vertices == 0 && (min_angle_deg > 0.0))
+        max_additional_vertices = std::max<size_t>(10, input_vertices);
+    }
+
+    spade::RefinementOptions refinement;
+    refinement.max_allowed_area = max_allowed_area;
+    refinement.min_required_area = 0.0;
+    refinement.min_angle_deg = min_angle_deg;
+    refinement.max_additional_vertices = max_additional_vertices;
+    refinement.keep_constraint_edges = false;
+    refinement.exclude_outer_faces = true;
+
+    spade::RefinementInfo refinement_info{};
+
+    info("SPADE refine request: domain_area=" + str(domain_area, 3) +
+         ", max_allowed_area=" + str(max_allowed_area, 6) +
+         ", min_angle_deg=" + str(min_angle_deg, 3) +
+         ", input_vertices~=" + str(input_vertices) +
+         ", max_additional_vertices=" + str(max_additional_vertices) +
+         ", exclude_outer_faces=True.");
 
     auto result = spade::triangulate(outer_loop, hole_loops, sub_domains_spade,
-                                     max_mesh_size, quality, true);
+                                     refinement, true, &refinement_info);
+
+    if (refinement_info.was_performed)
+    {
+      const size_t inserted =
+          (refinement_info.num_final_vertices > refinement_info.num_initial_vertices)
+              ? (refinement_info.num_final_vertices - refinement_info.num_initial_vertices)
+              : 0;
+
+      if (refinement_info.refinement_complete)
+      {
+        info("SPADE refine complete: inserted " + str(inserted) +
+             " steiner points (vertices: " + str(refinement_info.num_initial_vertices) + " -> " +
+             str(refinement_info.num_final_vertices) + ").");
+      }
+      else
+      {
+        warning("SPADE refine aborted: reached vertex budget (inserted " + str(inserted) +
+                ", max_additional_vertices=" + str(refinement_info.max_additional_vertices) +
+                ", max_total_vertices=" + str(refinement_info.max_allowed_vertices) +
+                "). Consider increasing the DTCC steiner budget or relaxing max_allowed_area/min_angle.");
+      }
+    }
 
     if (result.points.size() < 3 || result.triangles.empty())
     {
