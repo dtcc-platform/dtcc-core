@@ -211,9 +211,9 @@ class CitySaveMixin:
             raise ValueError("City has no pointcloud to save")
         io.pointcloud.save(pc, path)
 
-    def save_geojson(self: "City", path: Union[str, Path]):
+    def save_cityjson(self: "City", path: Union[str, Path]):
         """
-        Save city buildings as GeoJSON.
+        Save city buildings as CityJSON.
         """
 
         import dtcc_core.io as io

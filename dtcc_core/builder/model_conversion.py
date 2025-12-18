@@ -2,6 +2,15 @@ from ..model import Surface, MultiSurface, Mesh, City, PointCloud, Raster, Mesh,
 
 from typing import Union
 import numpy as np
+import sys
+import os
+
+# On Windows, add pyspade_native library directory to DLL search path
+# This must be done BEFORE importing _dtcc_builder which links against spade
+if sys.platform == 'win32':
+    import pyspade_native
+    os.add_dll_directory(pyspade_native.get_library_dir())
+
 from . import _dtcc_builder
 
 from shapely.geometry import Polygon
