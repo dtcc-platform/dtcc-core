@@ -92,7 +92,7 @@ class PointCloudDataset(DatasetDescriptor):
                 suffix="." + args.format, delete=True
             ) as buffer_file:
                 pc.save(buffer_file.name, format=args.format)
-                buffer_file.seek(0)
-                pc_data = buffer_file.read()
+                with open(buffer_file.name, "rb") as f:
+                    pc_data = f.read()
             return pc_data
         return pc
