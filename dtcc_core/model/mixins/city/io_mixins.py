@@ -219,3 +219,12 @@ class CitySaveMixin:
         import dtcc_core.io as io
 
         io.city.save(self, path)
+
+    def save(self: "City", path: Union[str, Path]):
+        """
+        Save city to file based on file extension.
+        """
+
+        import dtcc_core.io as io
+
+        io.city.save(self, path)

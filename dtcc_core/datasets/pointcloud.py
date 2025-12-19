@@ -4,19 +4,15 @@ from typing import Literal, Optional, List, Tuple, Sequence, Union
 from pydantic import BaseModel, Field
 import tempfile
 
-from .dataset import DatasetDescriptor
+from .dataset import DatasetDescriptor, DatasetBaseArgs
 
 
-class PointCloudArgs(BaseModel):
-    bounds: Sequence[float] = Field(
-        ...,
-        description="Bounding box [minx, miny, [optional_minz], maxx, maxy, [optional_maxz]]",
-    )
+class PointCloudArgs(DatasetBaseArgs):
     classifications: Union[
         int, list[int], Literal["all", "terrain", "buildings", "vegetation"]
     ] = Field(
         None,
-        description="Which classifications to include (e.g., [2, 5] for ground and vegetation)",
+        description="Which classifications to include (e.g., [2, 9] for ground and water, or 'vegetation' for all vegetation classes). 'all' includes all points.",
     )
     source: Literal["LM"] = Field("LM", description="Data source")
     format: Optional[Literal["copc", "las", "laz"]] = Field(
@@ -39,30 +35,8 @@ class PointCloudDataset(DatasetDescriptor):
     name = "pointcloud"
     ArgsModel = PointCloudArgs
 
-    def validate(self, kwargs) -> PointCloudArgs:
-        args = self.ArgsModel(**kwargs)
-        if len(args.bounds) not in (4, 6):
-            raise ValueError("Bounds must be a list of 4 or 6 floats.")
-
-        return args
-
     def build(self, args: PointCloudArgs):
-        if len(args.bounds) == 4:
-            bounds = Bounds(
-                xmin=args.bounds[0],
-                ymin=args.bounds[1],
-                xmax=args.bounds[2],
-                ymax=args.bounds[3],
-            )
-        else:
-            bounds = Bounds(
-                xmin=args.bounds[0],
-                ymin=args.bounds[1],
-                zmin=args.bounds[2],
-                xmax=args.bounds[3],
-                ymax=args.bounds[4],
-                zmax=args.bounds[5],
-            )
+        bounds = self.parse_bounds(args.bounds)
         pc: PointCloud = dtcc_core.io.data.download_pointcloud(bounds=bounds)
         if args.classifications is not None and args.classifications not in (
             "all",
@@ -88,11 +62,5 @@ class PointCloudDataset(DatasetDescriptor):
             pc = pc.remove_global_outliers(args.remove_outlier_threshold)
 
         if args.format is not None:
-            with tempfile.NamedTemporaryFile(
-                suffix="." + args.format, delete=True
-            ) as buffer_file:
-                pc.save(buffer_file.name, format=args.format)
-                with open(buffer_file.name, "rb") as f:
-                    pc_data = f.read()
-            return pc_data
+            return self.export_to_bytes(pc, args.format)
         return pc
