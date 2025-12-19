@@ -213,7 +213,16 @@ class CitySaveMixin:
 
     def save_cityjson(self: "City", path: Union[str, Path]):
         """
-        Save city buildings as GeoJSON.
+        Save city buildings as CityJSON.
+        """
+
+        import dtcc_core.io as io
+
+        io.city.save(self, path)
+
+    def save(self: "City", path: Union[str, Path]):
+        """
+        Save city to file based on file extension.
         """
 
         import dtcc_core.io as io

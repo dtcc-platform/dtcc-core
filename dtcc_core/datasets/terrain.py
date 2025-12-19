@@ -4,15 +4,10 @@ from typing import Literal, Optional, List, Tuple, Sequence, Union
 from pydantic import BaseModel, Field
 import tempfile
 
-from .dataset import DatasetDescriptor
+from .dataset import DatasetDescriptor, DatasetBaseArgs
 
 
-class TerrainArgs(BaseModel):
-    bounds: Sequence[float] = Field(
-        ...,
-        description="Bounding box [minx, miny, [optional_minz], maxx, maxy, [optional_maxz]]",
-    )
-
+class TerrainArgs(DatasetBaseArgs):
     raster_resolution: float = Field(
         2, description="Resolution of the terrain raster in meters"
     )
@@ -38,30 +33,8 @@ class TerrainDataset(DatasetDescriptor):
     name = "terrain"
     ArgsModel = TerrainArgs
 
-    def validate(self, kwargs) -> TerrainArgs:
-        args = self.ArgsModel(**kwargs)
-        if len(args.bounds) not in (4, 6):
-            raise ValueError("Bounds must be a list of 4 or 6 floats.")
-        return args
-
     def build(self, args: TerrainArgs):
-        if len(args.bounds) == 4:
-            bounds = Bounds(
-                xmin=args.bounds[0],
-                ymin=args.bounds[1],
-                xmax=args.bounds[2],
-                ymax=args.bounds[3],
-            )
-        else:
-            bounds = Bounds(
-                xmin=args.bounds[0],
-                ymin=args.bounds[1],
-                zmin=args.bounds[2],
-                xmax=args.bounds[3],
-                ymax=args.bounds[4],
-                zmax=args.bounds[5],
-            )
-
+        bounds = self.parse_bounds(args.bounds)
         pc = dtcc_core.io.data.download_pointcloud(bounds=bounds)
         if args.remove_outliers:
             pc = pc.remove_global_outliers(args.remove_outlier_threshold)
@@ -69,25 +42,14 @@ class TerrainDataset(DatasetDescriptor):
             raster = dtcc_core.builder.build_terrain_raster(
                 pc, cell_size=args.raster_resolution
             )
-            with tempfile.NamedTemporaryFile(suffix=".tif", delete=True) as tmpfile:
-                raster.save(tmpfile.name)
-                with open(tmpfile.name, "rb") as f:
-                    raster_data = f.read()
-
-            return raster_data
+            self.export_to_bytes(raster, "tif")
         else:
             terrain_mesh = dtcc_core.builder.build_terrain_mesh(
                 pc,
-                max_mesh_size=5,
+                max_mesh_size=args.mesh_resolution,
                 smoothing=args.smoothing,
             )
             if args.format is None:
                 return terrain_mesh
             elif args.format in ("obj", "stl"):
-                with tempfile.NamedTemporaryFile(
-                    suffix="." + args.format, delete=True
-                ) as tmpfile:
-                    terrain_mesh.save(tmpfile.name)
-                    with open(tmpfile.name, "rb") as f:
-                        mesh_data = f.read()
-                return mesh_data
+                return self.export_to_bytes(terrain_mesh, args.format)
