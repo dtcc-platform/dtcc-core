@@ -97,7 +97,7 @@ class DatasetDescriptor(ABC):
             File contents as bytes
         """
         with tempfile.NamedTemporaryFile(suffix=f".{format}", delete=True) as tmpfile:
-            obj.save(tmpfile.name, format=format, **save_kwargs)
+            obj.save(tmpfile.name, **save_kwargs)
             if as_text:
                 return Path(tmpfile.name).read_text()
             else:
