@@ -31,6 +31,7 @@ class TerrainArgs(DatasetBaseArgs):
 
 class TerrainDataset(DatasetDescriptor):
     name = "terrain"
+    description = "Generate terrain raster or mesh from point cloud data."
     ArgsModel = TerrainArgs
 
     def build(self, args: TerrainArgs):
