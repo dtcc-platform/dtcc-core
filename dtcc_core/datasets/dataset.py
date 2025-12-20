@@ -37,6 +37,7 @@ class DatasetDescriptor(ABC):
     """Callable, self-describing dataset."""
 
     name: str
+    description: str = ""
     ArgsModel: BaseModel
 
     def __call__(self, **kwargs):
