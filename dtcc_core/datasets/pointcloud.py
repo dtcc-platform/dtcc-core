@@ -11,7 +11,7 @@ class PointCloudArgs(DatasetBaseArgs):
     classifications: Union[
         int, list[int], Literal["all", "terrain", "buildings", "vegetation"]
     ] = Field(
-        None,
+        "all",
         description="Which classifications to include (e.g., [2, 9] for ground and water, or 'vegetation' for all vegetation classes). 'all' includes all points.",
     )
     source: Literal["LM"] = Field("LM", description="Data source")
