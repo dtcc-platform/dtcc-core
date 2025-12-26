@@ -134,7 +134,7 @@ if(DTCC_USE_SPADE)
   endif()
 
   # Find the pyspade_native package
-  find_package(pyspade_native QUIET)
+  find_package(pyspade_native)
 
   if(pyspade_native_FOUND)
     message(STATUS "Found dtcc-pyspade-native: ${PYSPADE_NATIVE_INCLUDE_DIR}")
