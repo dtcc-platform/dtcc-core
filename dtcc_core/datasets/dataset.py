@@ -40,6 +40,25 @@ class DatasetDescriptor(ABC):
     description: str = ""
     ArgsModel: BaseModel
 
+    def __init_subclass__(cls, register=True, **kwargs):
+        """
+        Auto-register dataset subclasses when they're defined.
+
+        Args:
+            register: Whether to auto-register this dataset (default: True).
+                     Set to False for abstract base classes.
+            **kwargs: Additional keyword arguments passed to super().__init_subclass__
+        """
+        super().__init_subclass__(**kwargs)
+
+        # Only register if:
+        # - registration is enabled (register=True)
+        # - class has a name attribute
+        # - name is not empty
+        if register and hasattr(cls, 'name') and cls.name:
+            from dtcc_core.datasets import _register_dataset_class
+            _register_dataset_class(cls.name, cls)
+
     def __call__(self, **kwargs):
         args = self.validate(kwargs)
         return self.build(args)
