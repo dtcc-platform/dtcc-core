@@ -56,7 +56,7 @@ class DatasetDescriptor(ABC):
         # - class has a name attribute
         # - name is not empty
         if register and hasattr(cls, 'name') and cls.name:
-            from dtcc_core.datasets import _register_dataset_class
+            from dtcc_core.datasets.registry import _register_dataset_class
             _register_dataset_class(cls.name, cls)
 
     def __call__(self, **kwargs):
@@ -77,7 +77,7 @@ class DatasetDescriptor(ABC):
 
     @staticmethod
     def parse_bounds(bounds: Sequence[float]) -> Bounds:
-        """Convert bounds list to Bounds object.
+        """Convert bounds list to a Bounds object.
 
         Args:
             bounds: [minx, miny, maxx, maxy] or
@@ -111,6 +111,7 @@ class DatasetDescriptor(ABC):
         Args:
             obj: Object with .save() method
             format: File format extension
+            as_text: Return as text instead of bytes
             **save_kwargs: Passed to obj.save()
 
         Returns:

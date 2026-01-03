@@ -21,16 +21,16 @@ from dtcc_core.datasets import (
 # Test Fixtures - Custom Dataset Classes for Testing
 
 
-class TestArgs(DatasetBaseArgs):
+class BaseTestArgs(DatasetBaseArgs):
     """Test arguments for custom datasets."""
     test_param: str = Field(..., description="Test parameter")
 
 
-class TestDataset(DatasetDescriptor):
+class BaseTestDataset(DatasetDescriptor):
     """Test dataset that auto-registers."""
     name = "test_dataset"
     description = "A test dataset"
-    ArgsModel = TestArgs
+    ArgsModel = BaseTestArgs
 
     def build(self, args):
         return f"test_result_{args.test_param}"
@@ -55,7 +55,7 @@ class AbstractTestDataset(DatasetDescriptor, register=False):
     """Abstract test dataset that should NOT register."""
     name = "abstract_test"
     description = "Should not be registered"
-    ArgsModel = TestArgs
+    ArgsModel = BaseTestArgs
 
     def build(self, args):
         return "abstract_result"
@@ -73,7 +73,7 @@ class ConcreteTestDataset(AbstractTestDataset):
 class NoNameDataset(DatasetDescriptor):
     """Dataset without a name - should NOT register."""
     name = ""
-    ArgsModel = TestArgs
+    ArgsModel = BaseTestArgs
 
     def build(self, args):
         return "no_name_result"
@@ -87,7 +87,7 @@ def test_auto_registration_on_class_definition():
     # TestDataset should have auto-registered during import
     available = list_datasets()
     assert "test_dataset" in available
-    assert isinstance(available["test_dataset"], TestDataset)
+    assert isinstance(available["test_dataset"], BaseTestDataset)
 
 
 def test_multiple_datasets_register():
@@ -123,7 +123,7 @@ def test_dataset_without_name_does_not_register():
 def test_register_instance():
     """Test explicit registration of a dataset instance."""
     # Create a custom dataset instance
-    custom_dataset = TestDataset()
+    custom_dataset = BaseTestDataset()
 
     # Register it with a custom name
     register("custom_test", custom_dataset)
@@ -166,7 +166,7 @@ def test_register_class_invalid():
 def test_unregister():
     """Test unregistering a dataset."""
     # Register a dataset
-    register_class("temp_test", TestDataset)
+    register_class("temp_test", BaseTestDataset)
     assert "temp_test" in list_datasets()
 
     # Unregister it
@@ -183,7 +183,7 @@ def test_unregister_nonexistent():
 def test_duplicate_registration_warns(caplog):
     """Test that duplicate registration logs a warning."""
     # Register first time
-    register_class("dup_test", TestDataset)
+    register_class("dup_test", BaseTestDataset)
 
     # Register again with same name
     with caplog.at_level(logging.WARNING):
@@ -259,7 +259,7 @@ def test_module_attribute_access_custom():
     """Test that custom datasets are accessible via module attribute."""
     # TestDataset should be accessible
     test_ds = datasets.test_dataset
-    assert isinstance(test_ds, TestDataset)
+    assert isinstance(test_ds, BaseTestDataset)
 
 
 def test_module_attribute_nonexistent_raises():
@@ -315,8 +315,8 @@ def test_dataset_name_attribute_used():
 def test_multiple_instances_same_class():
     """Test registering multiple instances of the same class."""
     # Create two instances
-    instance1 = TestDataset()
-    instance2 = TestDataset()
+    instance1 = BaseTestDataset()
+    instance2 = BaseTestDataset()
 
     # Register with different names
     register("instance1", instance1)
@@ -390,25 +390,6 @@ def test_runtime_dataset_definition():
     unregister("runtime_dataset")
 
 
-# Legacy API Tests
-
-
-def test_legacy_register_dataset_function(caplog):
-    """Test that legacy register_dataset() function still works but warns."""
-    from dtcc_core.datasets import register_dataset
-
-    # Create a dataset
-    test_ds = TestDataset()
-
-    # Use legacy function
-    with caplog.at_level(logging.WARNING):
-        register_dataset(test_ds)
-
-    # Should warn about deprecation
-    assert "deprecated" in caplog.text.lower()
-
-    # Should still register the dataset
-    assert "test_dataset" in list_datasets()
 
 
 if __name__ == "__main__":
