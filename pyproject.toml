@@ -63,6 +63,12 @@ wheel.expand-macos-universal-tags = true
 [tool.uv.sources]
 pyspade = { git = "https://github.com/dtcc-platform/pyspade.git" }
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+python_classes = ["Test*"]
+
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",

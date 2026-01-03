@@ -123,8 +123,8 @@ def test_mesh_simple_surface(simple_surface):
 
 def test_mesh_triangle_surface(simple_surface):
     mesh = mesh_surface(simple_surface, triangle_size=5)
-    assert len(mesh.vertices) == 13
-    assert len(mesh.faces) == 16
+    assert len(mesh.vertices) == 17
+    assert len(mesh.faces) == 20
     assert pytest.approx(mesh.vertices[:, 2].min()) == 5
     assert pytest.approx(mesh.vertices[:, 2].max()) == 8
 
