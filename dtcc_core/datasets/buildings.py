@@ -11,7 +11,6 @@ class BuildingArgs(DatasetBaseArgs):
     source: Literal["OSM", "LM"] = Field(
         "LM", description="Data source for building footprints"
     )
-    lod: Literal[1] = Field(1, description="Level of Detail for building")
     smallest_building_size: float = Field(
         15.0, description="Smallest building size to include (in square meters)"
     )
@@ -24,7 +23,7 @@ class BuildingArgs(DatasetBaseArgs):
 
 
 class BuildingDataset(DatasetDescriptor):
-    name = "buildings"
+    name = "Buildings LoD1"
     description = "Generate 3D buildings from point cloud and building footprints."
     ArgsModel = BuildingArgs
 

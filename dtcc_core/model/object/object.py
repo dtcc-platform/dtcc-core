@@ -199,7 +199,7 @@ class Object(Model):
         return self.geometry.get(GeometryType.LOD3, None)
 
     @property
-    def mesh(self):
+    def mesh(self) -> Union[Mesh, None]:
         """Return LOD0 geometry."""
         return self.geometry.get(GeometryType.MESH, None)
 
@@ -219,12 +219,12 @@ class Object(Model):
         return self.geometry.get(GeometryType.POINT_CLOUD, None)
 
     @property
-    def raster(self):
+    def raster(self) -> Union[Raster, None]:
         """Return RASTER geometry."""
         return self.geometry.get(GeometryType.RASTER, None)
 
     @property
-    def bounds(self):
+    def bounds(self) -> Bounds:
         """Return BOUNDS geometry."""
         if self._bounds is not None:
             return self._bounds
