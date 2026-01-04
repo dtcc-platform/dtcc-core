@@ -435,7 +435,7 @@ def merge_list_of_polygons(mcp: List[Polygon], tolerance=1e-2) -> Polygon:
         m = shapely.make_valid(m)
         if m.geom_type == "Polygon":
             if tolerance > 0:
-                simp_m = m.simplify(tolerance / 4, True)
+                simp_m = m.simplify(tolerance / 4, preserve_topology=True)
                 if simp_m.is_valid and simp_m.geom_type == "Polygon":
                     m = simp_m
             return m
@@ -447,7 +447,7 @@ def merge_list_of_polygons(mcp: List[Polygon], tolerance=1e-2) -> Polygon:
                 warning("Failed to merge polygon list. Falling back to convex hull")
                 m = m.convex_hull
             else:
-                simp_m = m.simplify(tolerance / 4, True)
+                simp_m = m.simplify(tolerance / 4, preserve_topology=True)
                 if simp_m.is_valid and simp_m.geom_type == "Polygon":
                     m = simp_m
 
