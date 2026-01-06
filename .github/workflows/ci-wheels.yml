@@ -36,8 +36,8 @@ jobs:
           # manylinux image to use
           CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
           CIBW_SKIP: "*-musllinux_*"
-          CIBW_ARCHS_MACOS: universal2
-          
+          CIBW_ARCHS_MACOS: x86_64 arm64
+       
           # Install build dependencies in the container before building
           CIBW_BEFORE_BUILD_LINUX: |
            yum install -y dnf-plugins-core && yum install -y gcc gcc-c++ make && python -m pip install --upgrade scikit-build-core cmake ninja && echo 'done'
