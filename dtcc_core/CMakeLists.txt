@@ -42,32 +42,33 @@ if(DTCC_HAVE_SPADE AND TARGET pyspade_native::spade_wrapper)
     target_include_directories(${BINDINGS} SYSTEM PRIVATE ${SPADE_INCLUDE_DIRS})
   endif()
 
-  # Link using library names (not full paths) to avoid embedding build paths in DT_NEEDED
-  # Add the library directory to the linker search path
-  target_link_directories(${BINDINGS} PRIVATE ${PYSPADE_NATIVE_LIBRARY_DIR})
-
-  # Link with just the library names - linker will record these in DT_NEEDED
-  # instead of full paths like /tmp/pip-build-env-.../libspade_ffi.so
-  target_link_libraries(${BINDINGS} PRIVATE spade_wrapper spade_ffi)
-
   # Define DTCC_HAVE_SPADE so the code knows SPADE is available
   target_compile_definitions(${BINDINGS} PRIVATE DTCC_HAVE_SPADE)
 
-  # Set RPATH so the module can find pyspade_native libraries at runtime
-  # Only use relative paths in INSTALL_RPATH to ensure portability
-  # The library will be at: site-packages/pyspade_native/lib/
-  # This module installs to: site-packages/dtcc_core/builder/
-  # So relative path is: ../../pyspade_native/lib
-  if(APPLE)
-    set_target_properties(${BINDINGS} PROPERTIES
-      BUILD_RPATH "${PYSPADE_NATIVE_LIBRARY_DIR}"
-      INSTALL_RPATH "@loader_path/../../pyspade_native/lib"
-    )
+  if(WIN32)
+    # On Windows, use the imported target directly - it has the proper .lib files
+    target_link_libraries(${BINDINGS} PRIVATE pyspade_native::spade_wrapper)
   else()
-    set_target_properties(${BINDINGS} PROPERTIES
-      BUILD_RPATH "${PYSPADE_NATIVE_LIBRARY_DIR}"
-      INSTALL_RPATH "\$ORIGIN/../../pyspade_native/lib"
-    )
+    # On Linux/macOS, link using library names (not full paths) to avoid
+    # embedding build paths in DT_NEEDED entries
+    target_link_directories(${BINDINGS} PRIVATE ${PYSPADE_NATIVE_LIBRARY_DIR})
+    target_link_libraries(${BINDINGS} PRIVATE spade_wrapper spade_ffi)
+
+    # Set RPATH so the module can find pyspade_native libraries at runtime
+    # The library will be at: site-packages/pyspade_native/lib/
+    # This module installs to: site-packages/dtcc_core/builder/
+    # So relative path is: ../../pyspade_native/lib
+    if(APPLE)
+      set_target_properties(${BINDINGS} PROPERTIES
+        BUILD_RPATH "${PYSPADE_NATIVE_LIBRARY_DIR}"
+        INSTALL_RPATH "@loader_path/../../pyspade_native/lib"
+      )
+    else()
+      set_target_properties(${BINDINGS} PROPERTIES
+        BUILD_RPATH "${PYSPADE_NATIVE_LIBRARY_DIR}"
+        INSTALL_RPATH "\$ORIGIN/../../pyspade_native/lib"
+      )
+    endif()
   endif()
 
   message(STATUS "SPADE integration enabled for ${BINDINGS}")
