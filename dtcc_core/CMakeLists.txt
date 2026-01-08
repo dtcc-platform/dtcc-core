@@ -36,9 +36,19 @@ else()
 endif()
 
 if(DTCC_HAVE_SPADE AND TARGET pyspade_native::spade_wrapper)
-  # Link against the pyspade_native::spade_wrapper target
-  # This automatically adds include directories, libraries, and dependencies
-  target_link_libraries(${BINDINGS} PRIVATE pyspade_native::spade_wrapper)
+  # Get include directories from the imported target
+  get_target_property(SPADE_INCLUDE_DIRS pyspade_native::spade_wrapper INTERFACE_INCLUDE_DIRECTORIES)
+  if(SPADE_INCLUDE_DIRS)
+    target_include_directories(${BINDINGS} SYSTEM PRIVATE ${SPADE_INCLUDE_DIRS})
+  endif()
+
+  # Link using library names (not full paths) to avoid embedding build paths in DT_NEEDED
+  # Add the library directory to the linker search path
+  target_link_directories(${BINDINGS} PRIVATE ${PYSPADE_NATIVE_LIBRARY_DIR})
+
+  # Link with just the library names - linker will record these in DT_NEEDED
+  # instead of full paths like /tmp/pip-build-env-.../libspade_ffi.so
+  target_link_libraries(${BINDINGS} PRIVATE spade_wrapper spade_ffi)
 
   # Define DTCC_HAVE_SPADE so the code knows SPADE is available
   target_compile_definitions(${BINDINGS} PRIVATE DTCC_HAVE_SPADE)
@@ -61,6 +71,8 @@ if(DTCC_HAVE_SPADE AND TARGET pyspade_native::spade_wrapper)
   endif()
 
   message(STATUS "SPADE integration enabled for ${BINDINGS}")
+  message(STATUS "  Library dir: ${PYSPADE_NATIVE_LIBRARY_DIR}")
+  message(STATUS "  Include dirs: ${SPADE_INCLUDE_DIRS}")
 else()
   message(STATUS "SPADE integration disabled for ${BINDINGS}")
 endif()
