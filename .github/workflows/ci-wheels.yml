@@ -52,8 +52,9 @@ jobs:
             {wheel}
 
           # Install build dependencies in the container before building
+          # Note: patchelf is installed via pip (not available in default AlmaLinux repos)
           CIBW_BEFORE_BUILD_LINUX: |
-           yum install -y dnf-plugins-core && yum install -y gcc gcc-c++ make patchelf && python -m pip install --upgrade scikit-build-core cmake ninja auditwheel && echo 'done'
+           yum install -y dnf-plugins-core && yum install -y gcc gcc-c++ make && python -m pip install --upgrade scikit-build-core cmake ninja auditwheel patchelf && echo 'done'
           
           CIBW_ENVIRONMENT_LINUX: |
             PY_EXE=$(which python)
