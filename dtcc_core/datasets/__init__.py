@@ -20,7 +20,7 @@ from .registry import (
 # This is necessary because importing from submodules makes the submodules
 # themselves available as attributes, which would shadow the registered instances
 pointcloud = get_dataset("pointcloud")
-buildings = get_dataset("buildings")
+buildings = get_dataset("Buildings LoD1")
 terrain = get_dataset("terrain")
 
 
@@ -44,6 +44,7 @@ def __getattr__(name):
         return dataset
 
     raise AttributeError(f"module 'dtcc_core.datasets' has no attribute '{name}'")
+
 
 __all__ = [
     "DatasetDescriptor",
