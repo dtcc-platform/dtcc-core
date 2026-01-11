@@ -23,11 +23,13 @@ from dtcc_core.datasets import (
 
 class BaseTestArgs(DatasetBaseArgs):
     """Test arguments for custom datasets."""
+
     test_param: str = Field(..., description="Test parameter")
 
 
 class BaseTestDataset(DatasetDescriptor):
     """Test dataset that auto-registers."""
+
     name = "test_dataset"
     description = "A test dataset"
     ArgsModel = BaseTestArgs
@@ -38,11 +40,13 @@ class BaseTestDataset(DatasetDescriptor):
 
 class AnotherTestArgs(DatasetBaseArgs):
     """Arguments for another test dataset."""
+
     value: int = Field(default=42, description="Test value")
 
 
 class AnotherTestDataset(DatasetDescriptor):
     """Another test dataset."""
+
     name = "another_test"
     description = "Another test dataset"
     ArgsModel = AnotherTestArgs
@@ -53,6 +57,7 @@ class AnotherTestDataset(DatasetDescriptor):
 
 class AbstractTestDataset(DatasetDescriptor, register=False):
     """Abstract test dataset that should NOT register."""
+
     name = "abstract_test"
     description = "Should not be registered"
     ArgsModel = BaseTestArgs
@@ -63,6 +68,7 @@ class AbstractTestDataset(DatasetDescriptor, register=False):
 
 class ConcreteTestDataset(AbstractTestDataset):
     """Concrete dataset inheriting from abstract - should register."""
+
     name = "concrete_test"
     description = "Concrete test dataset"
 
@@ -72,6 +78,7 @@ class ConcreteTestDataset(AbstractTestDataset):
 
 class NoNameDataset(DatasetDescriptor):
     """Dataset without a name - should NOT register."""
+
     name = ""
     ArgsModel = BaseTestArgs
 
@@ -209,7 +216,7 @@ def test_list_returns_all_datasets():
 
     # Should include built-in datasets
     assert "pointcloud" in available
-    assert "buildings" in available
+    assert "Buildings LoD1" in available
     assert "terrain" in available
 
     # Should include test datasets
@@ -245,7 +252,7 @@ def test_module_attribute_access_buildings():
     """Test backward-compatible access to buildings dataset."""
     buildings = datasets.buildings
     assert isinstance(buildings, DatasetDescriptor)
-    assert buildings.name == "buildings"
+    assert buildings.name == "Buildings LoD1"
 
 
 def test_module_attribute_access_terrain():
@@ -341,6 +348,7 @@ def test_multiple_instances_same_class():
 
 def test_external_plugin_pattern():
     """Test that external plugins can register datasets."""
+
     # Simulate an external plugin defining a dataset
     class ExternalPluginArgs(DatasetBaseArgs):
         plugin_param: str = Field(..., description="Plugin parameter")
@@ -367,6 +375,7 @@ def test_external_plugin_pattern():
 
 def test_runtime_dataset_definition():
     """Test defining and using a dataset at runtime."""
+
     # Define a dataset class at runtime
     class RuntimeArgs(DatasetBaseArgs):
         runtime_value: int = Field(default=100, description="Runtime value")
@@ -388,8 +397,6 @@ def test_runtime_dataset_definition():
 
     # Cleanup
     unregister("runtime_dataset")
-
-
 
 
 if __name__ == "__main__":
