@@ -1,7 +1,15 @@
 import numpy as np
 import pyproj
 from pyproj import Transformer
-from dtcc_core.model import PointCloud, Building, Object, Surface, Mesh, MultiSurface
+from dtcc_core.model import (
+    PointCloud,
+    Building,
+    Object,
+    Surface,
+    Mesh,
+    MultiSurface,
+    City,
+)
 from dtcc_core.common import warning
 
 
