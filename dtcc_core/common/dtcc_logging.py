@@ -43,12 +43,38 @@ def _init_logging(name):
 
     # Define error and critical as print + exit
     def error(message):
+        """
+        Log an error and terminate the process.
+
+        Parameters
+        ----------
+        message : str
+            Error message to log before exiting.
+
+        Raises
+        ------
+        SystemExit
+            Always raised after logging the message.
+        """
         _logger.error(message)
-        exit(1)
+        raise RuntimeError(message)
 
     def critical(message):
+        """
+        Log a critical error and terminate the process.
+
+        Parameters
+        ----------
+        message : str
+            Critical message to log before exiting.
+
+        Raises
+        ------
+        SystemExit
+            Always raised after logging the message.
+        """
         _logger.critical(message)
-        exit(1)
+        raise RuntimeError(message)
 
     return (_logger.debug, _logger.info, _logger.warning, error, critical)
 

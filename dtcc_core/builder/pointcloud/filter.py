@@ -10,14 +10,19 @@ from .. import _dtcc_builder
 
 def find_global_outliers(pc: PointCloud, margin: float) -> np.ndarray:
     """
-    Remove outliers from a `PointCloud` whose Z-values are more than `margin`
-    standard deviations from the mean.
+    Find points whose Z is farther than ``margin`` standard deviations from the mean.
 
-    Args:
-        margin (float): The margin in standard deviations to consider a point an outlier.
+    Parameters
+    ----------
+    pc : PointCloud
+        Point cloud to analyze.
+    margin : float
+        Standard deviation threshold for outlier detection.
 
-    Returns:
-        PointCloud: A new `PointCloud` object with the outliers removed.
+    Returns
+    -------
+    numpy.ndarray
+        Indices of outlier points.
     """
 
     z_pts = pc.points[:, 2]
@@ -29,14 +34,19 @@ def find_global_outliers(pc: PointCloud, margin: float) -> np.ndarray:
 
 def remove_global_outliers(pc: PointCloud, margin: float = 3.0) -> PointCloud:
     """
-    Remove global outliers from a `PointCloud` object based on Z-value deviations.
+    Remove points whose Z is farther than ``margin`` standard deviations from the mean.
 
-    Args:
-        pc (PointCloud): The `PointCloud` object to remove outliers from.
-        margin (float): The margin in standard deviations to consider a point an outlier.
+    Parameters
+    ----------
+    pc : PointCloud
+        Point cloud to filter.
+    margin : float, optional
+        Standard deviation threshold for outlier detection; default is 3.0.
 
-    Returns:
-        PointCloud: A new `PointCloud` object with the outliers removed.
+    Returns
+    -------
+    PointCloud
+        Point cloud with outliers removed.
     """
     outliers = find_global_outliers(pc, margin)
     new_pc = pc.copy()
@@ -74,15 +84,21 @@ def find_statistical_outliers(
 
 def statistical_outlier_filter(pc: PointCloud, neighbours, outlier_margin):
     """
-    Remove statistical outliers from a `PointCloud` object.
+    Remove statistical outliers from a point cloud.
 
-    Args:
-        pc (PointCloud): The `PointCloud` object to remove outliers from.
-        neighbours (int): The number of neighbours to consider for the outlier detection.
-        outlier_margin (float): The margin in standard deviations to consider a point an outlier.
+    Parameters
+    ----------
+    pc : PointCloud
+        Point cloud to filter.
+    neighbours : int
+        Number of nearest neighbors used in detection.
+    outlier_margin : float
+        Standard deviation margin for outlier detection.
 
-    Returns:
-        PointCloud: A new `PointCloud` object with the outliers removed.
+    Returns
+    -------
+    PointCloud
+        Point cloud with statistical outliers removed.
     """
 
     outliers = find_statistical_outliers(pc, neighbours, outlier_margin)
@@ -92,13 +108,19 @@ def statistical_outlier_filter(pc: PointCloud, neighbours, outlier_margin):
 
 def find_classification(pc: PointCloud, classes: Union[int, List[int]]) -> np.ndarray:
     """
-    Find the indices of points in a `PointCloud` object that match the specified classification values.
+    Find point indices that match given classification codes.
 
-    Args:
-        classes (List[int]): The classification values to find.
+    Parameters
+    ----------
+    pc : PointCloud
+        Point cloud with classification set.
+    classes : int or list[int]
+        Classification code(s) to match.
 
-    Returns:
-        np.ndarray: A 1D NumPy array of indices of points that match the specified classification values.
+    Returns
+    -------
+    numpy.ndarray
+        Indices of points with the requested classification.
     """
     if len(pc.points) != len(pc.classification):
         warning("Pointcloud not classified")
@@ -115,14 +137,21 @@ def classification_filter(
     pc: PointCloud, classes: Union[int, List[int]], keep: bool = False
 ):
     """
-    Filter a `PointCloud` object based on its classification.
+    Filter a point cloud by classification.
 
-    Args:
-        classes (List[int]): The classification values to keep or remove.
-        keep (bool): Whether to keep the points with the specified classification values (default False, remove them).
+    Parameters
+    ----------
+    pc : PointCloud
+        Point cloud to filter.
+    classes : int or list[int]
+        Classification code(s) to keep or remove.
+    keep : bool, optional
+        If True, keep matching points; otherwise remove them. Default is False.
 
-    Returns:
-        PointCloud: A new `PointCloud` object with the specified points removed.
+    Returns
+    -------
+    PointCloud
+        Filtered point cloud.
     """
 
     if len(pc.points) != len(pc.classification):
@@ -141,14 +170,21 @@ def classification_filter(
 
 def z_range_filter(pc: PointCloud, min=None, max=None):
     """
-    Filter a `PointCloud` object based on its Z-values.
+    Filter points outside a Z-value range.
 
-    Args:
-        min (float): The minimum Z-value to keep.
-        max (float): The maximum Z-value to keep.
+    Parameters
+    ----------
+    pc : PointCloud
+        Point cloud to filter in place.
+    min : float, optional
+        Minimum Z to keep.
+    max : float, optional
+        Maximum Z to keep.
 
-    Returns:
-        PointCloud: A new `PointCloud` object with the specified points removed.
+    Returns
+    -------
+    PointCloud
+        Point cloud with points outside the range removed.
     """
     mask = np.ones(len(pc.points), dtype=bool)
     filtered = False
@@ -165,13 +201,17 @@ def z_range_filter(pc: PointCloud, min=None, max=None):
 
 def remove_vegetation(pc: PointCloud) -> PointCloud:
     """
-    Return a pioint cloud with vegetation removed.
+    Remove vegetation points from a point cloud.
 
-    Args:
-        pc (PointCloud): The `PointCloud` object to remove vegetation from.
+    Parameters
+    ----------
+    pc : PointCloud
+        Point cloud to filter.
 
-    Returns:
-        PointCloud: A new `PointCloud` object with the vegetation removed.
+    Returns
+    -------
+    PointCloud
+        Point cloud with vegetation removed.
     """
     new_pc = pc.copy()
     veg_indices = _find_vegetation(pc)
@@ -203,14 +243,20 @@ def get_vegetation(pc: PointCloud) -> PointCloud:
 
 
 def _find_vegetation(pc: PointCloud, filter_on_return_number=True):
-    """Find the indices of points that belong to vegetation in a point cloud.
+    """
+    Find indices of points classified as vegetation.
 
-    Args:
-        pc: A `PointCloud` object representing the point cloud to filter.
-        filter_on_return_number: A boolean indicating whether to filter on return number (default True).
+    Parameters
+    ----------
+    pc : PointCloud
+        Point cloud to inspect.
+    filter_on_return_number : bool, optional
+        If True and classifications are absent, use return number to infer vegetation.
 
-    Returns:
-        A 1D NumPy array of indices of points that belong to vegetation.
+    Returns
+    -------
+    numpy.ndarray
+        Indices of vegetation points.
     """
 
     has_classification = len(pc.classification) == len(pc.points)
@@ -289,13 +335,21 @@ def pts_in_bounds(pc: PointCloud, bounds: Bounds, xy_only=True) -> np.ndarray:
 
 def crop(pc: PointCloud, bounds: Bounds, xy_only=True) -> PointCloud:
     """
-    Crop a `PointCloud` object only include point inside given bounds object
+    Crop a point cloud to the given bounds.
 
-    Args:
-        bounds (Bounds): The bounds to keep.
+    Parameters
+    ----------
+    pc : PointCloud
+        Point cloud to crop.
+    bounds : Bounds
+        Bounds to keep.
+    xy_only : bool, optional
+        If True, filter on XY only; if False, include Z. Default is True.
 
-    Returns:
-        PointCloud: A new `PointCloud` object with all points inside the bounds.
+    Returns
+    -------
+    PointCloud
+        Point cloud with points inside the bounds retained.
     """
 
     new_pc = pc.copy()

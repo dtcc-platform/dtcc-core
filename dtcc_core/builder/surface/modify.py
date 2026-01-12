@@ -29,12 +29,17 @@ def merge_coplanar(ms: MultiSurface, angle: float = 0.1, tol=1e-6) -> MultiSurfa
     """
     Merge coplanar surfaces in a MultiSurface.
 
-    Args:
-        ms (MultiSurface): The input MultiSurface object.
-        angle (float): The angle in radians to consider two surfaces coplanar (default 0.1).
-        tol (float): The tolerance to consider two vertices equal (default 1e-6
+    Parameters
+    ----------
+        ms : MultiSurface
+          The input MultiSurface object.
+        angle : float 
+          The angle in radians to consider two surfaces coplanar (default 0.1).
+        tol :float
+          The tolerance to consider two vertices equal (default 1e-6
 
-    Returns:
+    Returns
+    -------
         MultiSurface: A new MultiSurface object with coplanar surfaces merged.
     """
     tol_decimals = round(np.log10(1 / tol))

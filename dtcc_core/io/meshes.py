@@ -29,6 +29,14 @@ except:
 
 
 def has_assimp():
+    """
+    Check whether pyassimp is available for mesh I/O.
+
+    Returns
+    -------
+    bool
+        ``True`` if pyassimp was imported successfully; otherwise ``False``.
+    """
     return HAS_ASSIMP
 
 
@@ -124,8 +132,12 @@ def _save_xdmf_volume_mesh(mesh, path):
         _save_meshio_volume_mesh(mesh, path)
         return
 
-    facets = np.array(list(mesh.boundary_markers.keys()), dtype=int)
-    markers = np.array(list(mesh.boundary_markers.values()), dtype=int)
+    if type(mesh.boundary_markers) is dict:
+        facets = np.array(list(mesh.boundary_markers.keys()), dtype=int)
+        markers = np.array(list(mesh.boundary_markers.values()), dtype=int)
+    else:
+        facets =  np.array(mesh.boundary_faces, dtype=int)
+        markers = np.array(mesh.boundary_markers, dtype=int)
     ids = np.sort(facets, axis=1)
     idx = np.lexsort(ids.T)
     facet_cells = facets[idx]
@@ -321,16 +333,59 @@ if HAS_ASSIMP:
 
 
 def load_mesh(path):
+    """
+    Load a surface mesh from file.
+
+    Parameters
+    ----------
+    path : str or Path
+        Path to the mesh file.
+
+    Returns
+    -------
+    Mesh
+        Loaded mesh instance.
+    """
     return generic.load(path, "mesh", Mesh, _load_formats)
 
 
 def load_volume_mesh(path):
+    """
+    Load a volume mesh from file.
+
+    Parameters
+    ----------
+    path : str or Path
+        Path to the mesh file.
+
+    Returns
+    -------
+    VolumeMesh
+        Loaded volume mesh instance.
+    """
     return generic.load(path, "mesh", VolumeMesh, _load_formats)
 
 
 def load_mesh_as_city(
     path, lod=GeometryType.LOD1, merge_coplanar_surfaces=True
 ) -> City:
+    """
+    Load a mesh and wrap it as a City object.
+
+    Parameters
+    ----------
+    path : str or Path
+        Path to the mesh file.
+    lod : GeometryType, default GeometryType.LOD1
+        Level of detail assigned to the imported geometry.
+    merge_coplanar_surfaces : bool, default True
+        Whether to merge coplanar surfaces on load.
+
+    Returns
+    -------
+    City
+        City containing the mesh geometry.
+    """
     return generic.load(
         path,
         "city_mesh",

@@ -89,6 +89,32 @@ def _load_fiona(filename, id_field="id", round_coordinates=2, load_geometry=True
 def load(
     filename, id_field="id", round_coordinates=2, load_geometry=True, bounds=None
 ) -> RoadNetwork:
+    """
+    Load a road network from a supported vector file.
+
+    Parameters
+    ----------
+    filename : str or Path
+        Path to the input file.
+    id_field : str, default "id"
+        Attribute field containing edge identifiers.
+    round_coordinates : int, default 2
+        Number of decimal places to round coordinates to when building topology.
+    load_geometry : bool, default True
+        Whether to populate geometry on the resulting road network.
+    bounds : Bounds, optional
+        Bounding box filter; only features intersecting the bounds are loaded.
+
+    Returns
+    -------
+    RoadNetwork
+        Parsed road network.
+
+    Raises
+    ------
+    FileNotFoundError
+        If ``filename`` does not exist.
+    """
     filename = Path(filename)
     if not filename.is_file():
         raise FileNotFoundError(f"File {filename} not found")
@@ -105,6 +131,21 @@ def load(
 
 
 def to_dataframe(road_network: RoadNetwork, crs=None):
+    """
+    Convert a road network to a GeoPandas DataFrame.
+
+    Parameters
+    ----------
+    road_network : RoadNetwork
+        Network to convert.
+    crs : str or CRS, optional
+        Coordinate reference system to set on the resulting GeoDataFrame.
+
+    Returns
+    -------
+    geopandas.GeoDataFrame or None
+        DataFrame with road geometry and attributes, or ``None`` if GeoPandas is unavailable.
+    """
     if HAS_GEOPANDAS is False:
         warning("Geopandas not found, unable to convert to dataframe")
         return None

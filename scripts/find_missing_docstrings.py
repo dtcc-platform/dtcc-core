@@ -65,6 +65,9 @@ def find_missing_docstrings(root_dir: str) -> List[Tuple[str, str, int]]:
     all_missing = []
 
     for root, dirs, files in os.walk(root_dir):
+        # Skip external dependencies and cache directories
+        if "external" in root or "__pycache__" in root:
+            continue
         for file in files:
             if file.endswith(".py"):
                 file_path = os.path.join(root, file)
@@ -86,24 +89,32 @@ def main():
                 f"Found {len(missing_docstrings)} functions/methods missing docstrings:\n"
             )
             f.write(
-                f"Found {len(missing_docstrings)} functions/methods missing docstrings:\n\n"
+                f"# Missing Docstrings\n\n"
+            )
+            f.write(
+                f"Found {len(missing_docstrings)} functions/methods missing docstrings.\n\n"
+            )
+            f.write(
+                f"Run `python scripts/find_missing_docstrings.py` to regenerate this file.\n\n"
             )
 
             # Group by file for better readability
             by_file = {}
             for file_path, func_name, line_no in missing_docstrings:
-                if file_path not in by_file:
-                    by_file[file_path] = []
-                by_file[file_path].append((func_name, line_no))
+                # Convert absolute path to relative path from repo root
+                rel_path = os.path.relpath(file_path, root_dir)
+                if rel_path not in by_file:
+                    by_file[rel_path] = []
+                by_file[rel_path].append((func_name, line_no))
 
             for file_path in sorted(by_file.keys()):
                 print(f"File: {file_path}")
-                f.write(f"File: {file_path}\n")
+                f.write(f"## {file_path}\n\n")
                 for func_name, line_no in sorted(
                     by_file[file_path], key=lambda x: x[1]
                 ):
                     print(f"  - {func_name} (line {line_no})")
-                    f.write(f"  - {func_name} (line {line_no})\n")
+                    f.write(f"- `{func_name}` (line {line_no})\n")
                 print()
                 f.write("\n")
     else:

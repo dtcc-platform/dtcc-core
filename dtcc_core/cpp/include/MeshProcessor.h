@@ -4,6 +4,7 @@
 #ifndef DTCC_MESH_PROCESSOR_H
 #define DTCC_MESH_PROCESSOR_H
 
+#include <limits>
 #include <map>
 #include <set>
 #include <unordered_map>
@@ -16,9 +17,12 @@
 #include "nanoflann.hpp"
 
 #include "DisjointSet.h"
+#include "BoundingBox.h"
+#include "BoundingBoxTree.h"
 
 #include "model/Mesh.h"
 #include "model/Simplices.h"
+#include "model/Polygon.h"
 #include "model/Vector.h"
 #include "model/VolumeMesh.h"
 
@@ -28,6 +32,64 @@ namespace DTCC_BUILDER
 class MeshProcessor
 {
 public:
+
+
+static inline void compute_mesh_domain_markers(Mesh &mesh, const std::vector<Polygon> &subdomains)
+{
+  info("Computing domain markers...");
+  Timer timer("compute_domain_markers");
+
+  BoundingBoxTree2D search_tree;
+  std::vector<BoundingBox2D> bounding_boxes;
+  bounding_boxes.reserve(subdomains.size());
+  for (const auto &subdomain : subdomains)
+  {
+    bounding_boxes.emplace_back(subdomain);
+  }
+  search_tree.build(bounding_boxes);
+
+  mesh.markers.resize(mesh.faces.size());
+  std::fill(mesh.markers.begin(), mesh.markers.end(), -2);
+
+  std::vector<bool> is_building_vertex(mesh.vertices.size());
+  std::fill(is_building_vertex.begin(), is_building_vertex.end(), false);
+
+  if (!subdomains.empty())
+  {
+    for (size_t i = 0; i < mesh.faces.size(); i++)
+    {
+      const Vector3D c_3d = mesh.mid_point(i);
+      const Vector2D c_2d(c_3d.x, c_3d.y);
+      std::vector<size_t> indices = search_tree.find(Vector2D(c_2d));
+
+      if (!indices.empty())
+      {
+        for (const auto &index : indices)
+        {
+          if (Geometry::polygon_contains_2d(subdomains[index], c_2d))
+          {
+            mesh.markers[i] = index;
+            const Simplex2D &T = mesh.faces[i];
+            is_building_vertex[T.v0] = true;
+            is_building_vertex[T.v1] = true;
+            is_building_vertex[T.v2] = true;
+            break;
+          }
+        }
+      }
+    }
+
+    for (size_t i = 0; i < mesh.faces.size(); i++)
+    {
+      const Simplex2D &T = mesh.faces[i];
+      const bool touches_building =
+          (is_building_vertex[T.v0] || is_building_vertex[T.v1] || is_building_vertex[T.v2]);
+
+      if (touches_building && mesh.markers[i] == -2)
+        mesh.markers[i] = -1;
+    }
+  }
+}
   /// Compute boundary mesh from volume mesh
   static Mesh compute_boundary_mesh(const VolumeMesh &volume_mesh)
   {
@@ -321,33 +383,43 @@ public:
     // Count the number of vertices and cells
     size_t num_vertices = 0;
     size_t num_cells = 0;
-    for (size_t i = 0; i < meshes.size(); i++)
+    for (const auto &m : meshes)
     {
-      // info("Mesh " + str(i) + " has " + str(meshes[i].vertices.size()) +
-      //      " vertices and " + str(meshes[i].faces.size()) + " cells.");
-      num_vertices += meshes[i].vertices.size();
-      num_cells += meshes[i].faces.size();
+      num_vertices += m.vertices.size();
+      num_cells += m.faces.size();
     }
 
     // Allocate arrays
     mesh.vertices.resize(num_vertices);
     mesh.faces.resize(num_cells);
-
+    mesh.markers.resize(num_cells, default_marker());
     // Merge data
-    size_t k = 0;
-    size_t l = 0;
-    for (size_t i = 0; i < meshes.size(); i++)
+    size_t vertex_offset = 0;
+    size_t face_offset = 0;
+    for (const auto &src_mesh : meshes)
     {
-      for (size_t j = 0; j < meshes[i].faces.size(); j++)
+      const size_t current_vertex_offset = vertex_offset;
+
+      for (size_t j = 0; j < src_mesh.faces.size(); ++j)
       {
-        Simplex2D c = meshes[i].faces[j];
-        c.v0 += k;
-        c.v1 += k;
-        c.v2 += k;
-        mesh.faces[l++] = c;
+        Simplex2D c = src_mesh.faces[j];
+        c.v0 += current_vertex_offset;
+        c.v1 += current_vertex_offset;
+        c.v2 += current_vertex_offset;
+        mesh.faces[face_offset] = c;
+
+        int marker = default_marker();
+        if (j < src_mesh.markers.size())
+          marker = src_mesh.markers[j];
+        mesh.markers[face_offset] = marker;
+
+        ++face_offset;
       }
-      for (size_t j = 0; j < meshes[i].vertices.size(); j++)
-        mesh.vertices[k++] = meshes[i].vertices[j];
+
+      for (size_t j = 0; j < src_mesh.vertices.size(); ++j)
+        mesh.vertices[current_vertex_offset + j] = src_mesh.vertices[j];
+
+      vertex_offset += src_mesh.vertices.size();
     }
     if (snap > 0)
       mesh = snap_vertices(mesh, snap);
@@ -420,19 +492,21 @@ public:
         vertex_idx_map.insert({i, vertex_map[vertex]});
       }
     }
+    welded_mesh.markers.reserve(mesh.faces.size());
     for (size_t i = 0; i < mesh.faces.size(); ++i)
     {
       const Simplex2D &face = mesh.faces[i];
-      welded_mesh.faces.push_back(
-          Simplex2D(vertex_idx_map[face.v0], vertex_idx_map[face.v1], vertex_idx_map[face.v2]));
+      welded_mesh.faces.push_back(Simplex2D(vertex_idx_map[face.v0], vertex_idx_map[face.v1],
+                                            vertex_idx_map[face.v2]));
+
+      int marker = default_marker();
+      if (i < mesh.markers.size())
+        marker = mesh.markers[i];
+      welded_mesh.markers.push_back(marker);
     }
     for (size_t i = 0; i < mesh.normals.size(); ++i)
     {
       welded_mesh.normals.push_back(mesh.normals[i]);
-    }
-    for (size_t i = 0; i < mesh.markers.size(); ++i)
-    {
-      welded_mesh.markers.push_back(mesh.markers[i]);
     }
     // info("welded " + str(num_vertices) + " vertices to " +
     //     str(welded_mesh.vertices.size()) + " vertices");
@@ -508,6 +582,11 @@ public:
       }
     }
 //    info("Merging " + str(num_merged) + " vertices");
+    if (snapped_mesh.markers.size() < snapped_mesh.faces.size())
+      snapped_mesh.markers.resize(snapped_mesh.faces.size(), default_marker());
+    else if (snapped_mesh.markers.size() > snapped_mesh.faces.size())
+      snapped_mesh.markers.resize(snapped_mesh.faces.size());
+
     return snapped_mesh;
   }
 
@@ -548,6 +627,11 @@ private:
     }
     else
       return it->second;
+  }
+
+  static int default_marker()
+  {
+    return std::numeric_limits<int>::lowest();
   }
 };
 

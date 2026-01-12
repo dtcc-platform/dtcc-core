@@ -83,6 +83,19 @@ class CityLoaderMixin:
         return self
 
     def load_terrain_raster(self: "City", path: Union[Path, str]) -> "City":
+        """
+        Load a raster file and attach it as terrain geometry.
+
+        Parameters
+        ----------
+        path : str or Path
+            File path to the raster dataset.
+
+        Returns
+        -------
+        City
+            Self, with terrain raster added.
+        """
         # non-model imports must go here to avoid circular imports
         import dtcc_core.io as io
 
@@ -198,9 +211,9 @@ class CitySaveMixin:
             raise ValueError("City has no pointcloud to save")
         io.pointcloud.save(pc, path)
 
-    def save_geojson(self: "City", path: Union[str, Path]):
+    def save_cityjson(self: "City", path: Union[str, Path]):
         """
-        Save city buildings as GeoJSON.
+        Save city buildings as CityJSON.
         """
 
         import dtcc_core.io as io

@@ -6,6 +6,27 @@ from .logging import info, warning, error
 
 
 def save(object, path, name, formats, *args, **kwargs):
+    """
+    Save an object using a registered format handler.
+
+    Parameters
+    ----------
+    object : Any
+        Object to serialize.
+    path : str or pathlib.Path
+        Output path including extension.
+    name : str
+        Logical resource name (used in messages).
+    formats : dict
+        Mapping of supported types to extension-handler dictionaries.
+    *args, **kwargs :
+        Passed through to the selected saver.
+
+    Raises
+    ------
+    SystemExit
+        If the object type or file extension is unsupported (via ``error``).
+    """
     if not type(object) in formats:
         error(f'Unable to save {name}; type "{type(object)}" not supported')
     path = pathlib.Path(path)
@@ -30,6 +51,32 @@ def save(object, path, name, formats, *args, **kwargs):
 
 
 def load(path, name, type, formats, *args, **kwargs):
+    """
+    Load an object using a registered format handler.
+
+    Parameters
+    ----------
+    path : str or pathlib.Path or list[str | pathlib.Path]
+        Path(s) to read from.
+    name : str
+        Logical resource name (used in messages).
+    type : type
+        Expected target class key in ``formats``.
+    formats : dict
+        Mapping of supported types to extension-handler dictionaries.
+    *args, **kwargs :
+        Passed through to the selected loader.
+
+    Returns
+    -------
+    Any
+        Object returned by the loader.
+
+    Raises
+    ------
+    SystemExit
+        If the type or file extension is unsupported (via ``error``).
+    """
     if not type in formats:
         error(f'Unable to load {name}; type "{type.__name__}" not supported')
     if isinstance(path, (list, tuple)):
@@ -54,6 +101,23 @@ def load(path, name, type, formats, *args, **kwargs):
 
 
 def list_io(name, load_formats, save_formats):
+    """
+    Summarize supported load/save formats for a resource.
+
+    Parameters
+    ----------
+    name : str
+        Logical resource name.
+    load_formats : dict
+        Supported loaders keyed by type.
+    save_formats : dict
+        Supported savers keyed by type.
+
+    Returns
+    -------
+    dict
+        Mapping with ``load_formats`` and ``save_formats`` keys.
+    """
     return {
         "load_formats": load_formats.keys(),
         "save_formats": save_formats.keys(),
@@ -61,6 +125,23 @@ def list_io(name, load_formats, save_formats):
 
 
 def print_io(name, load_formats, save_formats):
+    """
+    Print supported formats for loading and saving a resource.
+
+    Parameters
+    ----------
+    name : str
+        Logical resource name.
+    load_formats : dict
+        Supported loaders keyed by type.
+    save_formats : dict
+        Supported savers keyed by type.
+
+    Returns
+    -------
+    None
+        Output is printed to stdout.
+    """
     print(f"load_{name}() supports the following data types and formats:")
     print("")
     N = max([len(t.__name__) for t in load_formats])

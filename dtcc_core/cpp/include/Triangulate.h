@@ -4,18 +4,24 @@
 #ifndef DTCC_TRIANGULATE_BUILDER_H
 #define DTCC_TRIANGULATE_BUILDER_H
 
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <map>
 #include <stack>
+#include <stdexcept>
 #include <tuple>
 #include <vector>
 
+#ifdef DTCC_HAVE_TRIANGLE
 extern "C"
 {
-#include "triangle/triangle.h"
+#include "triangle.h"
 }
+#endif
 #include <earcut.hpp>
+
+#include <spade_wrapper.h>
 
 #include "Eigen/Eigen"
 #include "Eigen/Geometry"
@@ -88,8 +94,12 @@ public:
 
 
   }
-  static void call_triangle(Mesh &mesh, const Surface &surface, double max_mesh_size,
-                            double min_mesh_angle, bool sort_triangles = true)
+#ifdef DTCC_HAVE_TRIANGLE
+  static void call_triangle(Mesh &mesh,
+                            const Surface &surface,
+                            double max_mesh_size,
+                            double min_mesh_angle,
+                            bool sort_triangles = true)
   {
     std::vector<std::vector<Vector2D>> sd;
 
@@ -103,8 +113,15 @@ public:
 
 
     std::vector<double> sd_size;
-    call_triangle(mesh, projected_polygon.vertices, projected_polygon.holes, sd_size, max_mesh_size, min_mesh_angle,
+    call_triangle(mesh,
+                  projected_polygon.vertices,
+                  projected_polygon.holes,
+                  std::vector<std::vector<Vector2D>>{},
+                  sd_size,
+                  max_mesh_size,
+                  min_mesh_angle,
                   sort_triangles);
+
     for (auto &v : mesh.vertices)
     {
       auto e_v = Eigen::Vector3d(v.x, v.y, 0);
@@ -125,6 +142,18 @@ public:
       }
     }
   }
+#else
+  static void call_triangle(Mesh &mesh,
+                            const Surface &,
+                            double,
+                            double,
+                            bool = true)
+  {
+    throw std::runtime_error(
+        "Triangle support not built; reinstall with -DDTCC_USE_TRIANGLE=ON "
+        "-DDTCC_TRIANGLE_DIR=/path");
+  }
+#endif
 
   static void fast_mesh(Mesh &mesh, const Surface &surface)
   {
@@ -155,10 +184,14 @@ public:
   }
 
   // Call Triangle to compute 2D mesh
+#ifdef DTCC_HAVE_TRIANGLE
   static void call_triangle(Mesh &mesh, const std::vector<Vector2D> &boundary,
                             const std::vector<std::vector<Vector2D>> &sub_domains,
+                            const std::vector<std::vector<Vector2D>> &holes,
                             const std::vector<double> &subdomain_triangle_size,
-                            double max_mesh_size, double min_mesh_angle, bool sort_triangles)
+                            double max_mesh_size, 
+                            double min_mesh_angle, 
+                            bool sort_triangles = false)
   {
     Timer timer("call_triangle");
 
@@ -296,9 +329,9 @@ public:
     // Note: This is how set holes but it's not used here since we
     // need the triangles for the interior *above* the buildings.
 
-    /*
+    
     // Set number of holes
-    const size_t numHoles = SubDomains.size();
+    const size_t numHoles = holes.size();
     in.numberofholes = numHoles;
 
     // Set holes. Note that we assume that we can get an
@@ -308,7 +341,7 @@ public:
     {
     size_t k = 0;
     Vector2D c;
-    for (auto const & InnerPolygon : SubDomains)
+    for (auto const & InnerPolygon : holes)
     {
     for (auto const & p : InnerPolygon)
     {
@@ -319,7 +352,7 @@ public:
     in.holelist[k++] = c.y;
     }
     }
-    */
+    
 
     // Prepare output data for Triangl;e
     struct triangulateio out = create_triangle_io();
@@ -356,6 +389,250 @@ public:
     delete[] in.pointlist;
     delete[] in.segmentlist;
     delete[] in.holelist;
+  }
+#else
+  static void call_triangle(Mesh &,
+                            const std::vector<Vector2D> &,
+                            const std::vector<std::vector<Vector2D>> &,
+                            const std::vector<std::vector<Vector2D>> &,
+                            const std::vector<double> &,
+                            double,
+                            double,
+                            bool = false)
+  {
+    throw std::runtime_error(
+        "Triangle support not built; reinstall with -DDTCC_USE_TRIANGLE=ON "
+        "-DDTCC_TRIANGLE_DIR=/path");
+  }
+#endif
+
+  static void call_spade(Mesh &mesh,
+                         const std::vector<Vector2D> &boundary,
+                         const std::vector<std::vector<Vector2D>> &holes,
+                         const std::vector<std::vector<Vector2D>> &sub_domains,
+                         double max_mesh_size,
+                         double min_mesh_angle,
+                         bool sort_triangles = false
+                         )
+  {
+    Timer timer("call_spade");
+
+    mesh.vertices.clear();
+    mesh.faces.clear();
+    mesh.markers.clear();
+
+    auto loop_vertex_count = [](const std::vector<Vector2D> &polygon) -> size_t {
+      if (polygon.empty())
+        return 0;
+      if (polygon.size() >= 2 && polygon.front().close_to(polygon.back()))
+        return polygon.size() - 1;
+      return polygon.size();
+    };
+
+    auto polygon_area = [&](const std::vector<Vector2D> &polygon) -> double {
+      const size_t n = loop_vertex_count(polygon);
+      if (n < 3)
+        return 0.0;
+
+      double twice_area = 0.0;
+      for (size_t i = 0; i < n; ++i)
+      {
+        const auto &p0 = polygon[i];
+        const auto &p1 = polygon[(i + 1) % n];
+        twice_area += p0.x * p1.y - p1.x * p0.y;
+      }
+      return 0.5 * twice_area;
+    };
+
+    auto make_loop = [](const std::vector<Vector2D> &polygon) -> std::vector<spade::Point> {
+      std::vector<spade::Point> loop;
+      if (polygon.empty())
+        return loop;
+      loop.reserve(polygon.size() + 1);
+      for (const auto &p : polygon)
+        loop.push_back({p.x, p.y, 0.0});
+      const Vector2D &first = polygon.front();
+      const Vector2D &last = polygon.back();
+      if (std::abs(first.x - last.x) > 1e-10 || std::abs(first.y - last.y) > 1e-10)
+        loop.push_back({first.x, first.y, 0.0});
+      return loop;
+    };
+
+    std::vector<spade::Point> outer_loop = make_loop(boundary);
+
+    std::vector<std::vector<spade::Point>> hole_loops;
+    hole_loops.reserve(holes.size());
+    for (const auto &polygon : holes)
+    {
+      auto loop = make_loop(polygon);
+      if (loop.size() >= 3)
+        hole_loops.push_back(std::move(loop));
+    }
+
+    std::vector<std::vector<spade::Point>> sub_domains_spade;
+    sub_domains_spade.reserve(sub_domains.size());
+    for (const auto &polygon : sub_domains)
+    {
+      auto loop = make_loop(polygon);
+      if (loop.size() >= 3)
+        sub_domains_spade.push_back(std::move(loop));
+    }
+
+    const double domain_area = std::max(
+        0.0,
+        std::abs(polygon_area(boundary)) -
+            [&]() {
+              double hole_area = 0.0;
+              for (const auto &hole : holes)
+                hole_area += std::abs(polygon_area(hole));
+              return hole_area;
+            }());
+
+    const size_t input_vertices =
+        loop_vertex_count(boundary) +
+        [&]() {
+          size_t count = 0;
+          for (const auto &hole : holes)
+            count += loop_vertex_count(hole);
+          return count;
+        }() +
+        [&]() {
+          size_t count = 0;
+          for (const auto &polygon : sub_domains)
+            count += loop_vertex_count(polygon);
+          return count;
+        }();
+
+    // Interpret max_mesh_size as a maximum triangle area.
+    const double max_allowed_area = max_mesh_size;
+
+    // Clamp angle limit to Spade's recommended upper bound.
+    double min_angle_deg = min_mesh_angle;
+    if (min_angle_deg > 30.0)
+    {
+      warning("SPADE: clamping min_mesh_angle from " + str(min_angle_deg, 3) +
+              " to 30.0 degrees (Spade may not terminate reliably above 30 degrees).");
+      min_angle_deg = 30.0;
+    }
+    if (min_angle_deg < 0.0)
+      min_angle_deg = 0.0;
+
+    // DTCC-side estimate of required steiner point budget.
+    size_t max_additional_vertices = 0;
+    if (max_allowed_area > 0.0 && domain_area > 0.0)
+    {
+      const double estimated_triangles = std::ceil(domain_area / max_allowed_area);
+      const double estimated_total_vertices = std::ceil(estimated_triangles / 2.0);
+      const size_t target_total_vertices = static_cast<size_t>(std::max(0.0, estimated_total_vertices));
+      const size_t additional_needed =
+          (target_total_vertices > input_vertices) ? (target_total_vertices - input_vertices) : 0;
+
+      const double safety_factor = (min_angle_deg > 0.0) ? 1.0 : 0.5;
+      max_additional_vertices = static_cast<size_t>(std::ceil(static_cast<double>(additional_needed) * safety_factor));
+
+      // Ensure we have at least some headroom when refinement is requested.
+      if (max_additional_vertices == 0 && (min_angle_deg > 0.0))
+        max_additional_vertices = std::max<size_t>(10, input_vertices);
+    }
+    const bool exclude_outer_faces = false;
+    spade::RefinementOptions refinement;
+    refinement.max_allowed_area = max_allowed_area;
+    refinement.min_required_area = 0.0;
+    refinement.min_angle_deg = min_angle_deg;
+    refinement.max_additional_vertices = max_additional_vertices;
+    refinement.keep_constraint_edges = false;
+    refinement.exclude_outer_faces = exclude_outer_faces;
+
+    spade::RefinementInfo refinement_info{};
+
+    info("SPADE refine request: domain_area=" + str(domain_area, 3) +
+         "\n max_allowed_area = " + str(max_allowed_area, 6) +
+         "\n min_angle_deg = " + str(min_angle_deg, 3) +
+         "\n input_vertices ~= " + str(input_vertices) +
+         "\n max_additional_vertices = " + str(max_additional_vertices) +
+         "\n exclude_outer_faces = "+ str(exclude_outer_faces));
+
+    auto result = spade::triangulate(outer_loop, hole_loops, sub_domains_spade,
+                                     refinement, true, &refinement_info);
+
+    if (refinement_info.was_performed)
+    {
+      const size_t inserted =
+          (refinement_info.num_final_vertices > refinement_info.num_initial_vertices)
+              ? (refinement_info.num_final_vertices - refinement_info.num_initial_vertices)
+              : 0;
+
+      if (refinement_info.refinement_complete)
+      {
+        info("SPADE refine complete: inserted " + str(inserted) +
+             " steiner points (vertices: " + str(refinement_info.num_initial_vertices) + " -> " +
+             str(refinement_info.num_final_vertices) + ").");
+      }
+      else
+      {
+        warning("SPADE refine aborted: reached vertex budget (inserted " + str(inserted) +
+                ", max_additional_vertices=" + str(refinement_info.max_additional_vertices) +
+                ", max_total_vertices=" + str(refinement_info.max_allowed_vertices) +
+                "). Consider increasing the DTCC steiner budget or relaxing max_allowed_area/min_angle.");
+      }
+    }
+
+    if (result.points.size() < 3 || result.triangles.empty())
+    {
+      throw std::runtime_error("SPADE triangulation returned an unexpected result");
+    }
+
+    mesh.vertices.reserve(result.points.size());
+    for (const auto &p : result.points)
+      mesh.vertices.emplace_back(p.x, p.y, p.z);
+
+    mesh.faces.reserve(result.triangles.size());
+    for (const auto &tri : result.triangles)
+      mesh.faces.emplace_back(tri.v0, tri.v1, tri.v2, sort_triangles);
+  }
+
+  static void call_spade(Mesh &mesh,
+                         const Surface &surface,
+                         double max_mesh_size,
+                         double min_mesh_angle,
+                         bool sort_triangles = true)
+  {
+    std::vector<std::vector<Vector2D>> sd;
+
+    auto area = Geometry::surface_area(surface);
+    if (isnan(area) || area < 1e-3)
+      return;
+
+    auto [projected_polygon, transform_inv] = project_surface(surface);
+
+    std::vector<double> sd_size;
+    call_spade(mesh,
+               projected_polygon.vertices,
+               projected_polygon.holes,
+               std::vector<std::vector<Vector2D>>{},
+               max_mesh_size,
+               min_mesh_angle,
+               sort_triangles);
+
+    for (auto &v : mesh.vertices)
+    {
+      auto e_v = Eigen::Vector3d(v.x, v.y, 0);
+      auto e_v_prime = transform_inv * e_v;
+      v.x = e_v_prime.x();
+      v.y = e_v_prime.y();
+      v.z = e_v_prime.z();
+    }
+
+    mesh.calc_normals();
+    auto normal = Geometry::surface_normal(surface);
+    for (size_t i = 0; i < mesh.normals.size(); i++)
+    {
+      if (!mesh.normals[i].close_to(normal))
+      {
+        std::swap(mesh.faces[i].v1, mesh.faces[i].v2);
+        mesh.normals[i] = -mesh.normals[i];
+      }
+    }
   }
 
 private:
@@ -411,6 +688,7 @@ private:
   }
 
   // Create and reset Triangle I/O data structure
+#ifdef DTCC_HAVE_TRIANGLE
   static struct triangulateio create_triangle_io()
   {
     struct triangulateio io;
@@ -488,6 +766,7 @@ private:
     info("  normlist = " + str(reinterpret_cast<std::uintptr_t>(io.normlist)));
     info("  numberofedges = " + str(io.numberofedges));
   }
+#endif
 };
 
 } // namespace DTCC_BUILDER

@@ -14,6 +14,9 @@ supported by Sweden’s Innovation Agency Vinnova under Grant No. 2019-421 00041
 This project is documented as part of the
 [DTCC Platform Documentation](https://platform.dtcc.chalmers.se/).
 
+
+
+
 ## Authors (in order of appearance)
 
 * [Anders Logg](http://anders.logg.org)
@@ -56,6 +59,31 @@ CI enforces that every public API function (exported via `__all__`) in `dtcc_cor
 
 Exit status `0` means all public functions were exercised by tests. A non‑zero exit prints the list of missed functions with their source locations so you can add or adjust tests.
 
+## Installation Notes
+
+* **Surface meshing backends**:
+  SPADE is used by default via [`dtcc-pyspade-native`](https://github.com/dtcc-platform/dtcc-pyspade-native). Earcut is provided as a fast alternative for cases where a lightweight triangulation method is preferred. Support for the Triangle backend is optional and disabled by default to keep the standard installation minimal.
+
+* **Enabling Triangle**:
+  If you wish to build with Triangle support, ensure that the Triangle library is available on your system (a header-only setup is sufficient) and install `dtcc-core` with:
+
+  ```
+  pip install . \
+    --config-settings=cmake.define.DTCC_USE_TRIANGLE=ON \
+    --config-settings=cmake.define.DTCC_TRIANGLE_DIR=/path/to/triangle/prefix
+  ```
+
+  If these options are omitted, the build will proceed without Triangle and will use SPADE or earcut depending on configuration and availability.
+
+* **Volume meshing with TetGen**:
+  TetGen can be used for tetrahedral meshing through the minimal wrapper provided in the [`dtcc-tetgen-wrapper`](https://github.com/dtcc-platform/dtcc-tetgen-wrapper) repository:
+
+  ```
+  git clone https://github.com/dtcc-platform/dtcc-tetgen-wrapper.git
+  cd dtcc-tetgen-wrapper
+  pip install .
+  ```
+  
 ### Makefile shortcuts
 
 If you have `make` available, you can use these shortcuts from the repository root:

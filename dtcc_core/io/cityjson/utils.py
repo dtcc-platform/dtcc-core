@@ -221,6 +221,19 @@ def build_dtcc_building(cj_obj, uuid, cj_building, verts, parent_city, lod=2):
 
 
 def get_root_buildings(cj_obj: dict):
+    """
+    Extract top-level building entries from a CityJSON CityObject map.
+
+    Parameters
+    ----------
+    cj_obj : dict
+        Mapping of CityJSON object ids to object dictionaries.
+
+    Returns
+    -------
+    list[tuple[str, dict]]
+        List of ``(uuid, building_obj)`` pairs where objects have no parents and type ``\"Building\"``.
+    """
     cj_root_buildings = []
     for k, v in cj_obj.items():
         if "parents" not in v:
@@ -230,6 +243,19 @@ def get_root_buildings(cj_obj: dict):
 
 
 def get_root_objects(cj_obj: dict):
+    """
+    Group top-level CityJSON objects by type.
+
+    Parameters
+    ----------
+    cj_obj : dict
+        Mapping of CityJSON object ids to object dictionaries.
+
+    Returns
+    -------
+    dict[str, list[tuple[str, dict]]]
+        Dictionary keyed by CityJSON type with lists of ``(uuid, object)`` pairs that lack parents.
+    """
     root_objects = defaultdict(list)
     for k, v in cj_obj.items():
         if "parents" not in v:
@@ -244,6 +270,27 @@ def set_buildings(
     parent_city: City,
     lod=2,
 ) -> [Building]:
+    """
+    Build DTCC buildings from root CityJSON entries and attach to a city.
+
+    Parameters
+    ----------
+    cj_obj : dict
+        CityJSON CityObject dictionary.
+    root_buildings : iterable[tuple[str, dict]]
+        Root building entries as ``(uuid, obj)`` pairs (e.g., output of ``get_root_buildings``).
+    verts : np.ndarray
+        Global vertex array used to construct geometries.
+    parent_city : City
+        City instance to which constructed buildings are added as children.
+    lod : int, default 2
+        Level of detail to extract when building geometries.
+
+    Returns
+    -------
+    None
+        Buildings are instantiated and appended to ``parent_city``; the function does not return a value.
+    """
     buildings = []
     for uuid, v in tqdm(
         root_buildings, desc="Loading CityJson", unit=" building", ncols=120

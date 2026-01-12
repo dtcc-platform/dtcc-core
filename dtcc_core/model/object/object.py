@@ -90,10 +90,36 @@ class GeometryType(Enum):
 
     @staticmethod
     def from_class_name(s):
+        """
+        Convert a class name string to a GeometryType.
+
+        Parameters
+        ----------
+        s : str
+            CamelCase class name to convert (e.g., ``MultiSurface``).
+
+        Returns
+        -------
+        GeometryType
+            Corresponding geometry type enum.
+        """
         return GeometryType.from_str(re.sub(r"(?<!^)(?=[A-Z])", "_", s).upper())
 
     @staticmethod
     def from_class(s):
+        """
+        Convert a geometry class to a GeometryType.
+
+        Parameters
+        ----------
+        s : type
+            Geometry class whose name maps to a GeometryType.
+
+        Returns
+        -------
+        GeometryType
+            Enum derived from the class name.
+        """
         return GeometryType.from_class_name(s.__name__)
 
 

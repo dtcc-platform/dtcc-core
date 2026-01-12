@@ -60,13 +60,37 @@ class Landuse(Object):
 
     @property
     def surfaces(self) -> List[Surface]:
+        """
+        Access the list of surfaces representing land use polygons.
+
+        Returns
+        -------
+        list[Surface]
+            Surfaces stored under the MultiSurface geometry, or an empty list.
+        """
         geom = self.geometry.get(GeometryType.MULTISURFACE)
         if geom is None:
             return []
         return geom.surfaces
 
     def to_proto(self) -> proto.Object:
+        """
+        Convert the Landuse object to a protobuf representation.
+
+        Returns
+        -------
+        proto.Object
+            Protobuf message encoding the land use data.
+        """
         pass
 
     def from_proto(self, pb: Union[proto.Object, bytes]):
+        """
+        Populate the Landuse object from a protobuf message.
+
+        Parameters
+        ----------
+        pb : proto.Object or bytes
+            Protobuf message or serialized bytes containing land use data.
+        """
         pass

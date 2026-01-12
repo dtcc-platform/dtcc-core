@@ -69,6 +69,28 @@ def _load_fiona(filename, landuse_field="DETALJTYP", landuse_datasource="LM"):
 
 
 def load(filename, landuse_field="DETALJTYP", landuse_datasource="LM"):
+    """
+    Load land use data from supported vector formats.
+
+    Parameters
+    ----------
+    filename : str or Path
+        Path to a GIS file (e.g., SHP, GeoJSON, GPKG).
+    landuse_field : str, default "DETALJTYP"
+        Attribute field used to classify land use.
+    landuse_datasource : str, default "LM"
+        Key selecting the land use mapping dictionary.
+
+    Returns
+    -------
+    Landuse
+        Parsed land use dataset with geometries attached.
+
+    Raises
+    ------
+    FileNotFoundError
+        If ``filename`` does not exist.
+    """
     filename = Path(filename)
     if not filename.is_file():
         raise FileNotFoundError(f"File {filename} not found")
