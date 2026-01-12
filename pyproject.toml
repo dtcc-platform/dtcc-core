@@ -33,7 +33,7 @@ dependencies = [
     "dtcc-pyspade-native == 0.1.3"
 ]
 
-version = "0.9.5"
+version = "0.9.6"
 name = "dtcc-core"
 description = "DTCC Core"
 readme = "README.md"
