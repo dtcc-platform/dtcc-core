@@ -15,7 +15,7 @@ jobs:
 
       - uses: actions/setup-python@v4
         with:
-          python-version: "3.13"
+          python-version: "3.12"
 
       - name: Upgrade pip and install cibuildwheel
         run: |
@@ -31,7 +31,7 @@ jobs:
       - name: Build wheels
         env:
           # Only build Python 3.11 wheels, but you can allow more if you like (cp310, cp39, etc.)
-          CIBW_BUILD: cp310-* cp311-* cp312-* cp312-*
+          CIBW_BUILD: cp310-* cp311-* cp312-* cp312-* 
 
           # manylinux image to use
           CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
