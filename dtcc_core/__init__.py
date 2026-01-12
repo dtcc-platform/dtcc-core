@@ -4,5 +4,6 @@ from dtcc_core import model
 from dtcc_core import builder
 from dtcc_core import io
 from dtcc_core import datasets
+from dtcc_core import reproject
 
 from dtcc_core.builder.register import register_model_method

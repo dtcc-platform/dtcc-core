@@ -64,6 +64,13 @@ class Transform(Model):
             )
 
     @property
+    def is_identity(self) -> bool:
+        if np.allclose(self.affine, np.eye(4)):
+            return True
+        return False
+
+
+    @property
     def offset(self):
         """Return the translation part of the affine transform."""
         return self.affine[:3, 3]
