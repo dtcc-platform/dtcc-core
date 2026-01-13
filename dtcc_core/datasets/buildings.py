@@ -39,7 +39,7 @@ class BuildingDataset(DatasetDescriptor):
         if args.format is None:
             return city.buildings
         elif args.format in ("cityjson", "json"):
-            self.export_to_bytes(city, "json", as_text=True)
+            return self.export_to_bytes(city, "json", as_text=True)
         elif args.format in ("obj", "stl"):
             building_meshes = [
                 b.lod1.mesh(weld=True, snap=0.005) for b in city.buildings

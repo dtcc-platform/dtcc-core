@@ -39,11 +39,13 @@ class TerrainDataset(DatasetDescriptor):
         pc = dtcc_core.io.data.download_pointcloud(bounds=bounds)
         if args.remove_outliers:
             pc = pc.remove_global_outliers(args.remove_outlier_threshold)
+        print(args.format)
         if args.format == "tif":
             raster = dtcc_core.builder.build_terrain_raster(
                 pc, cell_size=args.raster_resolution
             )
-            self.export_to_bytes(raster, "tif")
+            print(f"raster {raster}")
+            return self.export_to_bytes(raster, "tif")
         else:
             terrain_mesh = dtcc_core.builder.build_terrain_mesh(
                 pc,
