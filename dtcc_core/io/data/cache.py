@@ -36,7 +36,7 @@ def empty_cache(cache_type = None):
                 continue
             if item.is_symlink():
                 item.unlink()
-            elif item.is_dir(follow_symlinks=False):
+            elif item.is_dir():
                 shutil.rmtree(item)
             elif item.is_file():
                 item.unlink()
