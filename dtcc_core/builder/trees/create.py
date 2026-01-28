@@ -1,12 +1,15 @@
-from dtcc_core import builder
-from dtcc_core.model import Tree, Raster, PointCloud
+import numpy as np
 
+from dtcc_core import builder
+from dtcc_core.model import Tree, Raster, PointCloud, Building
+import sys
 import scipy.ndimage
 
 
 def tree_raster_from_pointcloud(
     pc: PointCloud,
     terrain_raster: Raster = None,
+    buildings: [Building] = None,
     cell_size: float = 0.5,
     shortest_tree: float = 2.0,
     smallest_cluster: float = 100,
@@ -27,6 +30,9 @@ def tree_raster_from_pointcloud(
     terrain_raster : Raster, optional
         A raster representing ground elevation. If not provided, it will be generated
         from the point cloud.
+    buildings : list[Building], optional
+        If a list of buildings is provided, points within building footprints will be excluded
+        from the tree rasterization.
     cell_size : float, optional
         The size of each raster cell in the output raster. Default is 0.5.
     shortest_tree : float, optional
@@ -55,6 +61,13 @@ def tree_raster_from_pointcloud(
 
     trees = pc.get_vegetation()
 
+    if buildings is not None:
+        building_footprints = [b.get_footprint() for b in buildings]
+        building_footprints = [b for b in building_footprints if b is not None]
+        trees = builder.pointcloud.filter.remove_points_in_polygons(
+            trees, building_footprints
+        )
+
     tree_raster: Raster = trees.rasterize(
         cell_size=abs(terrain_raster.cell_size[0]),
         bounds=terrain_raster.bounds,
@@ -74,7 +87,10 @@ def tree_raster_from_pointcloud(
     if sigma > 0:
         tree_raster.data = scipy.ndimage.gaussian_filter(tree_raster.data, sigma=1.0)
 
+    tree_raster_mask = np.zeros_like(tree_raster.data, dtype=bool)
+    tree_raster_mask[tree_raster.data > 0] = True
     tree_raster.data -= terrain_raster.data
     tree_raster.data[tree_raster.data < shortest_tree] = 0
+    tree_raster.data *= tree_raster_mask
 
     return tree_raster

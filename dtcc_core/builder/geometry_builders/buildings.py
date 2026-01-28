@@ -16,7 +16,7 @@ def extrude_building(
     building: Building, default_ground_height=0, always_use_default=False
 ) -> MultiSurface:
     """
-    Extrudes the LOD0 representation of a building from its height to the ground leve.
+    Extrudes the LOD0 representation of a building from its height to the ground level.
 
     Parameters
     ----------
@@ -228,7 +228,7 @@ def build_lod1_buildings(
     [model.Building]
         The buildings with the LOD1 representation built.
     """
-    info(f"Building LOD1 representations of {len(buildings )} buildings...")
+    info(f"Building LOD1 representations of {len(buildings)} buildings...")
     for building in buildings:
         if building.lod1 is not None and not rebuild:
             continue

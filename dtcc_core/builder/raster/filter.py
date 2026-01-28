@@ -54,10 +54,10 @@ def remove_small_masks(raster: Raster, min_size=1, nodata=None) -> Raster:
 def erode_small_lines(raster: Raster, neighborhood_size=0, nodata=None) -> Raster:
     """
     Remove small linear features from a raster using morphological operations.
-    
+
     This function applies binary erosion followed by dilation to remove thin
     linear features and small objects from a raster while preserving larger features.
-    
+
     Parameters
     ----------
     raster : Raster
@@ -66,12 +66,12 @@ def erode_small_lines(raster: Raster, neighborhood_size=0, nodata=None) -> Raste
         Size of the morphological neighborhood. If 0, uses default 3x3 neighborhood.
     nodata : float, optional
         Value to consider as nodata. If None, uses raster's nodata value.
-        
+
     Returns
     -------
     Raster
         Processed raster with small lines removed.
-        
+
     Raises
     ------
     ValueError
@@ -87,8 +87,8 @@ def erode_small_lines(raster: Raster, neighborhood_size=0, nodata=None) -> Raste
     else:
         neighborhood_size = np.ones((neighborhood_size, neighborhood_size), dtype=bool)
 
-    erosion_mask = ski.morphology.binary_erosion(mask_data, neighborhood_size)
-    erosion_mask = ski.morphology.binary_dilation(erosion_mask, neighborhood_size)
+    erosion_mask = ski.morphology.erosion(mask_data, neighborhood_size)
+    erosion_mask = ski.morphology.dilation(erosion_mask, neighborhood_size)
 
     masked_raster = raster.copy(no_data=True)
     masked_raster.data = erosion_mask * raster.data

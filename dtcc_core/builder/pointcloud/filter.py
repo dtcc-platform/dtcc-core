@@ -398,9 +398,9 @@ def points_in_polygons(
     return pip
 
 
-def filter_points_in_polygons(pc: PointCloud, polygons: List[Surface]) -> PointCloud:
+def find_points_in_polygons(pc: PointCloud, polygons: List[Surface]) -> PointCloud:
     """
-    Filter a point cloud to keep or remove points within specified polygons.
+    Filter a point cloud to keep only points within specified polygons.
 
     Parameters
     ----------

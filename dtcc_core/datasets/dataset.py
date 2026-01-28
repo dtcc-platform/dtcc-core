@@ -55,8 +55,9 @@ class DatasetDescriptor(ABC):
         # - registration is enabled (register=True)
         # - class has a name attribute
         # - name is not empty
-        if register and hasattr(cls, 'name') and cls.name:
+        if register and hasattr(cls, "name") and cls.name:
             from dtcc_core.datasets.registry import _register_dataset_class
+
             _register_dataset_class(cls.name, cls)
 
     def __call__(self, **kwargs):
@@ -64,6 +65,8 @@ class DatasetDescriptor(ABC):
         return self.build(args)
 
     def validate(self, kwargs):
+        if isinstance(kwargs.get("bounds"), Bounds):
+            kwargs["bounds"] = kwargs["bounds"].tuple
         args = self.ArgsModel(**kwargs)
         return args
 

@@ -160,11 +160,34 @@ Surface create_surface(py::array_t<double> vertices, py::list holes)
   return surface;
 }
 
+py::list points_in_polygons(const py::array_t<double> &pts,const std::vector<Polygon> &polygons)
+{
+  py::list in_polygons;
+  auto pts_r = pts.unchecked<2>();
+  size_t pt_count = pts_r.shape(0);
+  std::vector<Vector3D> pc;
+  for (size_t i = 0; i < pt_count; i++)
+  {
+    pc.push_back(Vector3D(pts_r(i, 0), pts_r(i, 1), pts_r(i, 2)));
+  }
+  auto pips = PointCloudProcessor::points_in_polygons(pc,polygons);
+  py::list in_polygons_list;
+  for (auto const &pip : pips) {
+    py::array_t<size_t> indices(pip.size());
+    for (size_t i = 0; i < pip.size(); i++) {
+      indices.mutable_at(i) = pip[i];
+    }
+    in_polygons_list.append(indices);
+  }
+
+  return in_polygons_list;
+}
+
 py::list extract_building_points(std::vector<Polygon> &buildings, const py::array_t<double> &pts,
                                  bool statistical_outlier_remover, size_t neighbors,
                                  double outlier_margin)
 {
-  py::list roof_points;
+  py::list roof_points; 
   auto pts_r = pts.unchecked<2>();
   size_t pt_count = pts_r.shape(0);
   std::vector<Vector3D> pc;
@@ -450,6 +473,9 @@ PYBIND11_MODULE(_dtcc_builder, m)
 
   m.def("extract_building_points", &DTCC_BUILDER::extract_building_points,
         "Compute building points from point cloud");
+
+  m.def ("points_in_polygons", &DTCC_BUILDER::points_in_polygons,
+         "Find points inside polygons");
 
   m.def("smooth_field", &DTCC_BUILDER::VertexSmoother::smooth_field, "Smooth grid field");
 
