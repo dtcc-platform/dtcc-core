@@ -384,10 +384,7 @@ def points_in_polygons(
         create_builder_polygon(p.to_polygon()) for p in polygons if p is not None
     ]
     points = pc.points
-    pip = _dtcc_builder.extract_building_points(
-        builder_polygons,
-        points,
-    )
+    pip = _dtcc_builder.points_in_polygons(points, builder_polygons)
 
     if flatten:
         pip = np.sort(np.unique(np.concatenate(pip)))
@@ -395,9 +392,9 @@ def points_in_polygons(
     return pip
 
 
-def filter_points_in_polygons(pc: PointCloud, polygons: List[Surface]) -> PointCloud:
+def find_points_in_polygons(pc: PointCloud, polygons: List[Surface]) -> PointCloud:
     """
-    Filter a point cloud to keep or remove points within specified polygons.
+    Filter a point cloud to keep only points within specified polygons.
 
     Parameters
     ----------

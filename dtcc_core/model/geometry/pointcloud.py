@@ -116,6 +116,7 @@ class PointCloud(PointCloudBuilderMixin, PointcloudFilterMixin, Geometry):
         None
 
         """
+        indices = np.array(indices).astype(int)
         if len(indices) == 0:
             return self
         self.points = np.delete(self.points, indices, axis=0)

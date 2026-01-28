@@ -181,6 +181,44 @@ public:
     return neighbour_dist;
   }
 
+  static std::vector<std::vector<size_t>> points_in_polygons(const std::vector<Vector3D> &points, const std::vector<Polygon> &polygons)
+  {
+    if (points.empty())
+    {
+      warning("empty point cloud");
+      return std::vector<std::vector<size_t>>();
+    }
+
+    typedef KDTreeVectorOfVectorsAdaptor<std::vector<Vector3D>, double,
+                                         2 /* dims */> my_kd_tree_t;
+    my_kd_tree_t pc_index(2, points, 20 /* max leaf */);
+    std::vector<std::vector<size_t>> pip_indices;
+
+    for (auto &polygon : polygons)
+    {
+
+      auto centerPoint = Geometry::polygon_center_2d(polygon);
+      double radius = Geometry::polygon_radius_2d(polygon, centerPoint);
+      radius *= radius;
+      std::vector<double> query_pt{centerPoint.x, centerPoint.y};
+      auto indices_dists = pc_index.radius_query(&query_pt[0], radius);
+      std::vector<size_t> poly_points;
+
+      for (auto const &ind_pt : indices_dists)
+      {
+        size_t idx = ind_pt.first;
+        const Vector3D &p_3d = points[idx];
+        const Vector2D p_2d{p_3d.x, p_3d.y};
+        if (Geometry::polygon_contains_2d(polygon, p_2d))
+        {
+         poly_points.push_back(idx);
+        }
+      }
+      pip_indices.push_back(poly_points);
+    }
+    return pip_indices;
+  }
+
   /// Finds outliers from vector of points by removing all points more than a
   /// given number of standard deviations from the mean distance to their N
   /// nearest neighbours
