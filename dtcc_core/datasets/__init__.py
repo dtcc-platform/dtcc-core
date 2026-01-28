@@ -24,6 +24,31 @@ buildings = get_dataset("Buildings LoD1")
 terrain = get_dataset("terrain")
 
 
+def info():
+    """
+    Print information about all available datasets.
+    
+    This function iterates over all registered datasets and prints
+    a nicely formatted summary of each one.
+    
+    Example:
+        >>> import dtcc_core.datasets as datasets
+        >>> datasets.info()
+    """
+    datasets = list()
+    
+    if not datasets:
+        print("No datasets are currently registered.")
+        return
+    
+    print(f"\nAvailable Datasets: {len(datasets)}")
+    print("=" * 70)
+    
+    for name, dataset in datasets.items():
+        print(f"\n{dataset}")
+        print()
+
+
 def __getattr__(name):
     """
     Dynamic attribute lookup for registered datasets.
@@ -53,6 +78,7 @@ __all__ = [
     "register_class",
     "unregister",
     "list",
+    "info",
     "pointcloud",
     "buildings",
     "terrain",
