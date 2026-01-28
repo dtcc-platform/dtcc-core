@@ -5,6 +5,7 @@ from .dataset import DatasetDescriptor, DatasetBaseArgs
 from .pointcloud import PointCloudDataset
 from .buildings import BuildingDataset
 from .terrain import TerrainDataset
+from .volumemesh import VolumeMeshDataset
 
 # Import registry infrastructure from separate module to avoid circular imports
 from .registry import (
@@ -22,6 +23,7 @@ from .registry import (
 pointcloud = get_dataset("pointcloud")
 buildings = get_dataset("Buildings LoD1")
 terrain = get_dataset("terrain")
+volumemesh = get_dataset("volumemesh")
 
 
 def info():
@@ -82,4 +84,5 @@ __all__ = [
     "pointcloud",
     "buildings",
     "terrain",
+    "volumemesh",
 ]
