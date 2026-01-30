@@ -78,6 +78,54 @@ class DatasetDescriptor(ABC):
     def show_options(self):
         return self.ArgsModel.model_json_schema()
 
+    def __str__(self):
+        """Return a nicely formatted summary of the dataset."""
+        lines = []
+        lines.append("=" * 70)
+        lines.append(f"Dataset: {self.name}")
+        lines.append("=" * 70)
+
+        if self.description:
+            lines.append(f"\nDescription:")
+            lines.append(f"  {self.description}")
+
+        lines.append(f"\nAvailable Parameters:")
+        lines.append("-" * 70)
+
+        # Get schema information from ArgsModel
+        schema = self.ArgsModel.model_json_schema()
+        properties = schema.get("properties", {})
+        required_fields = schema.get("required", [])
+
+        if properties:
+            for param_name, param_info in properties.items():
+                param_type = param_info.get("type", "any")
+                param_desc = param_info.get("description", "")
+                is_required = param_name in required_fields
+
+                # Format parameter type
+                if "anyOf" in param_info:
+                    # Handle union types
+                    types = [t.get("type", str(t)) for t in param_info["anyOf"]]
+                    param_type = " | ".join(str(t) for t in types)
+                elif "items" in param_info:
+                    # Handle array types
+                    item_type = param_info["items"].get("type", "any")
+                    param_type = f"array of {item_type}"
+
+                # Format the line
+                required_marker = "*" if is_required else " "
+                lines.append(f"  {required_marker} {param_name} ({param_type})")
+                if param_desc:
+                    lines.append(f"      {param_desc}")
+        else:
+            lines.append("  No parameters defined")
+
+        lines.append("\n" + "=" * 70)
+        lines.append("* = required parameter")
+
+        return "\n".join(lines)
+
     @staticmethod
     def parse_bounds(bounds: Sequence[float]) -> Bounds:
         """Convert bounds list to a Bounds object.

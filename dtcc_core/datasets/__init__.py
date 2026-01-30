@@ -5,6 +5,7 @@ from .dataset import DatasetDescriptor, DatasetBaseArgs
 from .pointcloud import PointCloudDataset
 from .buildings import BuildingDataset
 from .terrain import TerrainDataset
+from .volumemesh import VolumeMeshDataset
 
 # Import registry infrastructure from separate module to avoid circular imports
 from .registry import (
@@ -22,6 +23,32 @@ from .registry import (
 pointcloud = get_dataset("pointcloud")
 buildings = get_dataset("Buildings LoD1")
 terrain = get_dataset("terrain")
+volumemesh = get_dataset("volumemesh")
+
+
+def info():
+    """
+    Print information about all available datasets.
+    
+    This function iterates over all registered datasets and prints
+    a nicely formatted summary of each one.
+    
+    Example:
+        >>> import dtcc_core.datasets as datasets
+        >>> datasets.info()
+    """
+    datasets = list()
+    
+    if not datasets:
+        print("No datasets are currently registered.")
+        return
+    
+    print(f"\nAvailable Datasets: {len(datasets)}")
+    print("=" * 70)
+    
+    for name, dataset in datasets.items():
+        print(f"\n{dataset}")
+        print()
 
 
 def __getattr__(name):
@@ -53,7 +80,9 @@ __all__ = [
     "register_class",
     "unregister",
     "list",
+    "info",
     "pointcloud",
     "buildings",
     "terrain",
+    "volumemesh",
 ]

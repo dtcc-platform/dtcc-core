@@ -70,6 +70,9 @@ def fill_small_holes(raster: Raster, hole_size=1, nodata=None) -> Raster:
         raise ValueError("No nodata value provided and raster has no nodata value.")
     mask_data = raster.data != nodata
 
+    # convert hole_size from area to pixel count
+    hole_size = abs(hole_size / (raster.cell_size[0] * raster.cell_size[1]))
+
     filled_mask_data = ski.morphology.remove_small_holes(
         mask_data, area_threshold=hole_size, out=mask_data
     )
