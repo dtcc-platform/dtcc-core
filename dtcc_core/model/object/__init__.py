@@ -5,6 +5,7 @@ from .terrain import Terrain
 from .roadnetwork import RoadNetwork, RoadType
 from .landuse import Landuse, LanduseClasses
 from .tree import Tree
+from .sensor_collection import SensorCollection
 
 __all__ = [
     "Object",
@@ -19,4 +20,5 @@ __all__ = [
     "RoadType",
     "Landuse",
     "LanduseClasses",
+    "SensorCollection",
 ]
