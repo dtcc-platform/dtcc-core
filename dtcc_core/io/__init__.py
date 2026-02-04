@@ -10,10 +10,17 @@ from . import city
 from . import roadnetwork
 from . import landuse
 from . import pointcloud_directory
+from . import trees
 from .cityjson import cityjson
 from .cityjson import write_cityjson
 
-from .data import download_data, download_pointcloud, download_footprints, download_roadnetwork, empty_cache
+from .data import (
+    download_data,
+    download_pointcloud,
+    download_footprints,
+    download_roadnetwork,
+    empty_cache,
+)
 
 load_pointcloud = pointcloud.load
 save_pointcloud = pointcloud.save
@@ -77,5 +84,5 @@ __all__ = [
     "download_pointcloud",
     "download_footprints",
     "download_roadnetwork",
-    "empty_cache"
+    "empty_cache",
 ]

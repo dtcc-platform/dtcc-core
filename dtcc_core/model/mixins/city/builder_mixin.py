@@ -5,18 +5,19 @@ from pathlib import Path
 from typing import Union
 from typing import TypeVar, TYPE_CHECKING
 
-from ....model.geometry import PointCloud, Mesh 
+from ....model.geometry import PointCloud, Mesh
 from ....model.object import GeometryType
 from ....model.values import Raster
 
 if TYPE_CHECKING:
     from ....model.object import City
+    from ....model.object.tree import Tree
 
     T_City = TypeVar("T_City", bound=City)
+    T_Tree = TypeVar("T_Tree", bound=Tree)
 
 
 class CityBuilderMixin:
-
     def build_terrain(
         self: "T_City",
         pc: PointCloud = None,
@@ -166,7 +167,7 @@ class CityBuilderMixin:
 
     def build_surface_mesh(
         self: "T_City",
-        lod: GeometryType | list[GeometryType] = GeometryType.LOD1 ,
+        lod: GeometryType | list[GeometryType] = GeometryType.LOD1,
         min_building_detail: float = 0.5,
         min_building_area: float = 15.0,
         merge_buildings: bool = True,
@@ -222,3 +223,26 @@ class CityBuilderMixin:
             treat_lod0_as_holes=treat_lod0_as_holes,
         )
         return surface_mesh
+
+    def build_trees_from_pointcloud(
+        self: "T_City", tree_type: str = "urban"
+    ) -> list["T_Tree"]:
+        from dtcc_core.builder import trees_from_pointcloud
+
+        pc: PointCloud = self.pointcloud
+        if pc is None or len(pc.points) == 0:
+            raise ValueError(
+                "City has no point cloud geometry. Please add a point cloud first."
+            )
+        terrain = self.terrain
+
+        if terrain is None or terrain.raster is None:
+            info("building city terrain raster from point cloud")
+            self.build_terrain(cell_size=0.5, build_mesh=False)
+        terrain_raster = self.terrain.raster
+        if terrain_raster is None:
+            raise ValueError("Failed to find or build terrain raster")
+
+        trees = trees_from_pointcloud(pc, terrain_raster, tree_type=tree_type)
+        self.add_trees(trees)
+        return trees

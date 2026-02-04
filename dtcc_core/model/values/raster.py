@@ -215,6 +215,11 @@ class Raster(Model):
         """
         return self.data.max()
 
+    def pixel_to_georef(self, x: float, y: float):
+        """get the georeferenced coordinate of a given pixel"""
+
+        return self.georef * (y, x)
+
     def get_value(self, x: float, y: float):
         """
         Get the value at the given coordinate.
