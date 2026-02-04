@@ -2,6 +2,7 @@ from .geometry import Geometry
 from .bounds import Bounds
 from .grid import Grid, VolumeGrid
 from .mesh import Mesh, VolumeMesh
+from .point import Point
 from .pointcloud import PointCloud
 from .surface import Surface, MultiSurface
 from .transform import Transform
@@ -15,6 +16,7 @@ __all__ = [
     "Grid",
     "Mesh",
     "MultiSurface",
+    "Point",
     "PointCloud",
     "Surface",
     "Transform",
