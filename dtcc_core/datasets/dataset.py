@@ -87,7 +87,10 @@ class DatasetDescriptor(ABC):
 
         if self.description:
             lines.append(f"\nDescription:")
-            lines.append(f"  {self.description}")
+            # Wrap long descriptions nicely
+            desc_lines = self.description.split('\n')
+            for desc_line in desc_lines:
+                lines.append(f"  {desc_line}")
 
         lines.append(f"\nAvailable Parameters:")
         lines.append("-" * 70)
@@ -101,6 +104,7 @@ class DatasetDescriptor(ABC):
             for param_name, param_info in properties.items():
                 param_type = param_info.get("type", "any")
                 param_desc = param_info.get("description", "")
+                default_val = param_info.get("default")
                 is_required = param_name in required_fields
 
                 # Format parameter type
@@ -115,7 +119,13 @@ class DatasetDescriptor(ABC):
 
                 # Format the line
                 required_marker = "*" if is_required else " "
-                lines.append(f"  {required_marker} {param_name} ({param_type})")
+                param_line = f"  {required_marker} {param_name} ({param_type})"
+                
+                # Add default value if present
+                if default_val is not None and not is_required:
+                    param_line += f" = {default_val}"
+                
+                lines.append(param_line)
                 if param_desc:
                     lines.append(f"      {param_desc}")
         else:

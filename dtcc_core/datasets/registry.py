@@ -5,7 +5,9 @@ This module contains the registry and registration functions for datasets.
 It's separate from __init__.py to avoid circular import issues during
 module initialization.
 """
+
 import logging
+from ..common import info
 
 # Registry storage
 _dataset_classes = {}  # Maps name -> class (for class-level access)
@@ -33,6 +35,7 @@ def _register_dataset_class(name: str, cls: type):
     # Eagerly instantiate and cache
     instance = cls()
     _datasets_by_name[name] = instance
+    info(f"Registered dataset: '{name}' ({cls.__name__})")
 
     # Add to registry list if not already present
     if instance not in _datasets_registry:
@@ -65,6 +68,7 @@ def register(name: str, instance):
         logging.warning(f"Dataset '{name}' already registered, replacing it.")
 
     _datasets_by_name[name] = instance
+    info(f"Registered dataset instance: '{name}' ({type(instance).__name__})")
 
     # Add to registry list if not already present
     if instance not in _datasets_registry:
@@ -89,9 +93,7 @@ def register_class(name: str, cls: type, **init_kwargs):
     from .dataset import DatasetDescriptor
 
     if not issubclass(cls, DatasetDescriptor):
-        raise TypeError(
-            f"Expected DatasetDescriptor subclass, got {cls.__name__}"
-        )
+        raise TypeError(f"Expected DatasetDescriptor subclass, got {cls.__name__}")
 
     instance = cls(**init_kwargs)
     register(name, instance)
@@ -139,11 +141,15 @@ def get_dataset(name: str):
         name: Name of the dataset
 
     Returns:
-        Dataset instance if found, None otherwise
+        Dataset instance if found
+
+    Raises:
+        KeyError: If dataset name is not registered
 
     Example:
         >>> dataset = get_dataset('pointcloud')
-        >>> if dataset:
-        ...     result = dataset(bounds=[...])
+        >>> result = dataset(bounds=[...])
     """
-    return _datasets_by_name.get(name)
+    if name not in _datasets_by_name:
+        raise KeyError(f"Dataset '{name}' not found in registry")
+    return _datasets_by_name[name]
