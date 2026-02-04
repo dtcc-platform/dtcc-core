@@ -406,7 +406,7 @@ class AirQualityDataset(DatasetDescriptor):
     -------
     >>> import dtcc_core.datasets as datasets
     >>> # Fetch NO2 measurements in Stockholm area (SWEREF99 TM)
-    >>> sensors = datasets.airquality(
+    >>> sensors = datasets.air_quality(
     ...     bounds=(674000, 6580000, 676000, 6582000),
     ...     phenomenon="NO2"
     ... )
@@ -417,7 +417,7 @@ class AirQualityDataset(DatasetDescriptor):
     >>> print(f"NO2 range: {values.min():.1f} - {values.max():.1f}")
     """
 
-    name = "airquality"
+    name = "air_quality"
     description = (
         "Air quality sensor measurements from datavardluft.smhi.se. "
         "Returns a SensorCollection with latest snapshot readings from stations "

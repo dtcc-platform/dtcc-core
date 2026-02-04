@@ -24,7 +24,7 @@ print()
 
 try:
     # Fetch air quality data (default CRS is EPSG:3006)
-    sensors = datasets.airquality(bounds=stockholm_bounds, phenomenon="NO2")
+    sensors = datasets.air_quality(bounds=stockholm_bounds, phenomenon="NO2")
 
     print(f"✓ Fetched sensor collection")
     print(f"  Source: {sensors.attributes.get('source')}")
