@@ -125,23 +125,22 @@ def _resolve_phenomenon_id(base_url: str, phenomenon_str: str, timeout_s: float)
     return phenomenon_str
 
 
-
-
-def _transform_bounds_to_wgs84(bounds: Tuple[float, float, float, float], 
-                                crs: str) -> Tuple[float, float, float, float]:
+def _transform_bounds_to_wgs84(
+    bounds: Tuple[float, float, float, float], crs: str
+) -> Tuple[float, float, float, float]:
     """Transform bounds to WGS84 (CRS84) for API requests.
-    
+
     The SMHI API expects coordinates in WGS84/CRS84 (longitude, latitude).
     This function transforms bounds from the specified CRS to WGS84 using
     the existing reproject_array function.
-    
+
     Parameters
     ----------
     bounds : tuple
         (xmin, ymin, xmax, ymax) bounding box in source CRS
     crs : str
         Source coordinate reference system (e.g., "EPSG:3006", "CRS84")
-        
+
     Returns
     -------
     tuple
@@ -150,14 +149,13 @@ def _transform_bounds_to_wgs84(bounds: Tuple[float, float, float, float],
     # If already in CRS84/WGS84, return as-is
     if crs.upper() in ["CRS84", "EPSG:4326", "WGS84"]:
         return bounds
-    
+
     # Transform corner points using existing reproject functionality
     xmin, ymin, xmax, ymax = bounds
     corners = np.array([[xmin, ymin, 0], [xmax, ymax, 0]])
     transformed = reproject_array(corners, crs, "EPSG:4326")
-    
-    return (transformed[0, 0], transformed[0, 1], transformed[1, 0], transformed[1, 1])
 
+    return (transformed[0, 0], transformed[0, 1], transformed[1, 0], transformed[1, 1])
 
 
 def _fetch_stations(
@@ -186,9 +184,11 @@ def _fetch_stations(
 
     # Transform bounds to WGS84 if necessary
     wgs84_bounds = _transform_bounds_to_wgs84(bounds, crs)
-    
+
     # API expects bbox as: xmin,ymin,xmax,ymax in WGS84/CRS84
-    bbox_str = f"{wgs84_bounds[0]},{wgs84_bounds[1]},{wgs84_bounds[2]},{wgs84_bounds[3]}"
+    bbox_str = (
+        f"{wgs84_bounds[0]},{wgs84_bounds[1]},{wgs84_bounds[2]},{wgs84_bounds[3]}"
+    )
 
     params = {
         "bbox": bbox_str,
@@ -289,6 +289,9 @@ def _extract_latest_value(
 
                 dt = datetime.fromtimestamp(timestamp_ms / 1000.0)
                 timestamp_iso = dt.isoformat()
+                info(
+                    f"Extracted value {value} with timestamp {timestamp_iso} (raw: {timestamp_ms} ms)"
+                )
 
             unit = timeseries_dict.get("uom", "")
             return (value, timestamp_iso, unit)
@@ -319,10 +322,13 @@ def _fallback_get_latest_from_getData(
     """
     url = f"{base_url}/timeseries/{timeseries_id}/getData"
 
-    # Request only the last data point
-    params = {"timespan": "PT1H"}  # Last hour
+    # Request recent data - try last 7 days to get more recent measurements
+    params = {"timespan": "P7D"}  # Last 7 days
 
     try:
+        info(
+            f"Fallback: Fetching recent data from getData endpoint for timeseries {timeseries_id}"
+        )
         data = _get_json(url, params=params, timeout_s=timeout_s)
         values = data.get("values", [])
 
@@ -332,9 +338,12 @@ def _fallback_get_latest_from_getData(
             value = float(last["value"])
             timestamp = last.get("timestamp", "")
             unit = data.get("uom", "")
+            info(f"Fallback: Got value {value} with timestamp {timestamp} from getData")
             return (value, timestamp, unit)
-    except Exception:
-        pass
+        else:
+            info(f"Fallback: No values returned from getData endpoint")
+    except Exception as e:
+        info(f"Fallback: Failed to get data from getData endpoint: {e}")
 
     return None
 
@@ -433,7 +442,9 @@ class AirQualityDataset(DatasetDescriptor):
         # Parse bounds
         bounds = self.parse_bounds(args.bounds)
         bounds_tuple = (bounds.xmin, bounds.ymin, bounds.xmax, bounds.ymax)
-        info(f"Fetching air quality data for {args.phenomenon} within bounds {bounds_tuple}")
+        info(
+            f"Fetching air quality data for {args.phenomenon} within bounds {bounds_tuple}"
+        )
 
         # Resolve phenomenon
         phenomenon_id = _resolve_phenomenon_id(
@@ -503,6 +514,23 @@ class AirQualityDataset(DatasetDescriptor):
                 result = _extract_latest_value(ts)
                 if result:
                     value, timestamp, unit = result
+                    # Check if data is old (more than 7 days)
+                    if timestamp:
+                        from datetime import timedelta
+
+                        try:
+                            ts_dt = datetime.fromisoformat(
+                                timestamp.replace("Z", "+00:00")
+                            )
+                            age = datetime.now(timezone.utc) - ts_dt.replace(
+                                tzinfo=timezone.utc
+                            )
+                            if age > timedelta(days=7):
+                                info(
+                                    f"Warning: Station {station_id} has old data (age: {age.days} days)"
+                                )
+                        except Exception:
+                            pass
                     break
 
                 # Fallback: fetch from getData
@@ -568,7 +596,9 @@ class AirQualityDataset(DatasetDescriptor):
 
         info(f"Successfully retrieved {stations_used} stations with measurements")
         if stations_skipped_no_value > 0:
-            info(f"Skipped {stations_skipped_no_value} stations with no current measurements")
+            info(
+                f"Skipped {stations_skipped_no_value} stations with no current measurements"
+            )
         # Calculate bounds for collection
         sensor_collection.calculate_bounds()
 
