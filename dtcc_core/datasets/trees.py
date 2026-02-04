@@ -2,7 +2,8 @@ import dtcc_core
 from dtcc_core import datasets
 from dtcc_core.builder import tree_raster_from_pointcloud
 from dtcc_core.model import PointCloud, Building, Raster
-from pydantic import BaseModel, Field, Literal, Optional
+from pydantic import BaseModel, Field
+from typing import Optional, Literal
 
 from dtcc_core.datasets import DatasetDescriptor, DatasetBaseArgs
 
