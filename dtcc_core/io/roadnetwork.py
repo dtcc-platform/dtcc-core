@@ -13,6 +13,14 @@ from pathlib import Path
 import numpy as np
 
 from .logging import info, warning, error
+from .vector_utils import (
+    validate_vector_file,
+    create_bounds_filter,
+    determine_io_crs,
+    safe_reproject_geometry,
+    set_geometry_crs,
+)
+from .utils import get_epsg
 
 HAS_GEOPANDAS = False
 try:
@@ -24,21 +32,25 @@ except ImportError:
     warning("Geopandas not found, some functionality may be disabled")
 
 
-def _load_fiona(filename, id_field="id", round_coordinates=2, load_geometry=True, bounds=None):
+def _load_fiona(filename, id_field="id", round_coordinates=2, load_geometry=True, bounds=None, target_crs=None):
     road_network = RoadNetwork()
-    filename = Path(filename)
-    if not filename.is_file():
-        raise FileNotFoundError(f"File {filename} not found")
-    bounds_filter = None
-    if bounds is not None:
-        bounds_filter = shapely.geometry.box(*bounds.tuple)
+    filename = validate_vector_file(filename)
+    bounds_filter = create_bounds_filter(bounds, strategy='intersects')
 
     with fiona.open(filename) as src:
+        # Read source CRS
+        source_crs = get_epsg(src.crs)
+        target_crs = determine_io_crs(source_crs, target_crs, context="road network")
+
         attr_keys = src.schema["properties"].keys()
-        features = [f for f in src if bounds_filter is None or bounds_filter.intersects(shapely.geometry.shape(f["geometry"]))]
+        features = [f for f in src if not bounds_filter or bounds_filter['strategy'](bounds_filter['geometry'], shapely.geometry.shape(f["geometry"]))]
         attrs = [dict(f["properties"]) for f in features]
 
         shapely_geom = [shapely.geometry.shape(f["geometry"]) for f in features]
+        shapely_geom = safe_reproject_geometry(
+            shapely_geom, source_crs, target_crs, error_context="road network"
+        )
+
         coords = [(r.coords[0], r.coords[-1]) for r in shapely_geom]
         lengths = [r.length for r in shapely_geom]
 
@@ -83,11 +95,14 @@ def _load_fiona(filename, id_field="id", round_coordinates=2, load_geometry=True
 
         road_network.geometry[GeometryType.MULTILINESTRING] = rn_geom
 
+    # Set CRS on road network
+    set_geometry_crs(road_network, target_crs)
+
     return road_network
 
 
 def load(
-    filename, id_field="id", round_coordinates=2, load_geometry=True, bounds=None
+    filename, id_field="id", round_coordinates=2, load_geometry=True, bounds=None, target_crs=None
 ) -> RoadNetwork:
     """
     Load a road network from a supported vector file.
@@ -104,6 +119,10 @@ def load(
         Whether to populate geometry on the resulting road network.
     bounds : Bounds, optional
         Bounding box filter; only features intersecting the bounds are loaded.
+    target_crs : str, optional
+        Target coordinate reference system (e.g., "EPSG:4326").
+        If specified and different from source CRS, geometries will be
+        automatically reprojected. If None, uses the file's native CRS.
 
     Returns
     -------
@@ -115,9 +134,7 @@ def load(
     FileNotFoundError
         If ``filename`` does not exist.
     """
-    filename = Path(filename)
-    if not filename.is_file():
-        raise FileNotFoundError(f"File {filename} not found")
+    filename = validate_vector_file(filename)
     return generic.load(
         filename,
         "road_network",
@@ -127,6 +144,7 @@ def load(
         round_coordinates=round_coordinates,
         load_geometry=load_geometry,
         bounds=bounds,
+        target_crs=target_crs,
     )
 
 
