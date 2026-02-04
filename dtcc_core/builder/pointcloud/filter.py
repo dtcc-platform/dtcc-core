@@ -363,31 +363,37 @@ def points_in_polygons(
     pc: PointCloud, polygons: List[Surface], flatten=True
 ) -> Union[np.ndarray, List[np.ndarray]]:
     """
-    Find indices of points within a specified polygon.
+    Extract points within specified polygons.
 
     Parameters
     ----------
     pc : PointCloud
         The point cloud to filter.
-    polygon : Surface
-        The polygon to check points against. Checks only the XY coordinates.
+    polygons : List[Surface]
+        The polygons to check points against. Checks only the XY coordinates.
     flatten : bool, optional
-        If True, returns a single array of indices for all polygons; if False,
+        If True, returns a single array of points for all polygons; if False,
         returns a list of arrays for each polygon. Default is True.
 
     Returns
     -------
-    numpy.ndarray
-        Array of indices of points within the polygon.
+    numpy.ndarray or List[numpy.ndarray]
+        Array of points within the polygons (Nx3), or list of arrays if flatten=False.
     """
     builder_polygons = [
         create_builder_polygon(p.to_polygon()) for p in polygons if p is not None
     ]
     points = pc.points
-    pip = _dtcc_builder.points_in_polygons(points, builder_polygons)
+    pip = _dtcc_builder.extract_building_points(
+        builder_polygons,
+        points,
+        False,  # statistical_outlier_remover - disabled for simple point-in-polygon
+        5,      # roof_outlier_neighbors - default value (unused when outlier removal is False)
+        1.0,    # roof_outlier_margin - default value (unused when outlier removal is False)
+    )
 
     if flatten:
-        pip = np.sort(np.unique(np.concatenate(pip)))
+        pip = np.unique(np.concatenate(pip), axis=0)
 
     return pip
 

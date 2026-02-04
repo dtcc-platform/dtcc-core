@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Union
 from collections import defaultdict
 
+from .tree import Tree
 from .object import Object, GeometryType
 from .building import Building
 from .terrain import Terrain
@@ -47,6 +48,11 @@ class City(
             return self.children[Terrain][0]
         else:
             return Terrain()
+
+    @property
+    def trees(self):
+        """Return trees in city."""
+        return self.children[Tree] if Tree in self.children else []
 
     def has_terrain(self) -> bool:
         """
@@ -157,6 +163,14 @@ class City(
                     f"Removed {initial_count - len(buildings)} buildings outside terrain."
                 )
         self.add_children(buildings)
+
+    def add_trees(self, trees: list[Tree]):
+        """Add trees to city
+        args:
+            trees: list[Tree]
+                List of tree objects to add to the city.
+        """
+        self.add_children(trees)
 
     def to_proto(self) -> proto.Object:
         """Return a protobuf representation of the City.

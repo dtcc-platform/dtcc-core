@@ -220,6 +220,18 @@ class CitySaveMixin:
 
         io.city.save(self, path)
 
+    def save_trees(self: "City", path: Union[str, Path], save_as_circles: bool = False):
+        """
+        Save city trees to a file.
+        """
+
+        import dtcc_core.io as io
+
+        trees = self.trees
+        if len(trees) == 0:
+            raise ValueError("City has no trees to save")
+        io.trees.save_trees(trees, path, as_circles=save_as_circles)
+
     def save(self: "City", path: Union[str, Path]):
         """
         Save city to file based on file extension.

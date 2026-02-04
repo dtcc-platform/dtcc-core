@@ -74,7 +74,7 @@ def fill_small_holes(raster: Raster, hole_size=1, nodata=None) -> Raster:
     hole_size = abs(hole_size / (raster.cell_size[0] * raster.cell_size[1]))
 
     filled_mask_data = ski.morphology.remove_small_holes(
-        mask_data, area_threshold=hole_size, out=mask_data
+        mask_data, max_size=hole_size, out=mask_data
     )
 
     filled_raster = fill_holes(raster)

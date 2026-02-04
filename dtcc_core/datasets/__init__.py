@@ -7,6 +7,7 @@ from .buildings import BuildingDataset
 from .terrain import TerrainDataset
 from .volumemesh import VolumeMeshDataset
 from .air_quality import AirQualityDataset
+from .trees import TreesDataset
 
 # Import registry infrastructure from separate module to avoid circular imports
 from .registry import (
@@ -26,7 +27,7 @@ buildings = get_dataset("Buildings LoD1")
 terrain = get_dataset("terrain")
 volumemesh = get_dataset("volumemesh")
 air_quality = get_dataset("air_quality")
-
+trees = get_dataset("trees")
 
 def info():
     """
@@ -62,7 +63,11 @@ def info():
     print("Available datasets:")
     print("-" * 70)
     for name, dataset in datasets_dict.items():
-        desc = dataset.description[:50] + "..." if len(dataset.description) > 50 else dataset.description
+        desc = (
+            dataset.description[:50] + "..."
+            if len(dataset.description) > 50
+            else dataset.description
+        )
         print(f"  • {name:20s} - {desc}")
 
     print()

@@ -88,7 +88,7 @@ class DatasetDescriptor(ABC):
         if self.description:
             lines.append(f"\nDescription:")
             # Wrap long descriptions nicely
-            desc_lines = self.description.split('\n')
+            desc_lines = self.description.split("\n")
             for desc_line in desc_lines:
                 lines.append(f"  {desc_line}")
 
@@ -120,11 +120,11 @@ class DatasetDescriptor(ABC):
                 # Format the line
                 required_marker = "*" if is_required else " "
                 param_line = f"  {required_marker} {param_name} ({param_type})"
-                
+
                 # Add default value if present
                 if default_val is not None and not is_required:
                     param_line += f" = {default_val}"
-                
+
                 lines.append(param_line)
                 if param_desc:
                     lines.append(f"      {param_desc}")
@@ -165,22 +165,31 @@ class DatasetDescriptor(ABC):
 
     @staticmethod
     def export_to_bytes(
-        obj: Union[DTCCObject, DTCCGeometry], format: str, as_text=False, **save_kwargs
+        obj: Union[DTCCObject, DTCCGeometry, list[DTCCObject], list[DTCCGeometry]],
+        format: str,
+        as_text=False,
+        save_callable=None,
+        **save_kwargs,
     ) -> Union[bytes, str]:
         """Export object to bytes.
 
         Args:
             obj: Object with .save() method
             format: File format extension
+            save_callable: Custom save function
             as_text: Return as text instead of bytes
             **save_kwargs: Passed to obj.save()
 
         Returns:
             File contents as bytes
         """
-        with tempfile.NamedTemporaryFile(suffix=f".{format}", delete=True) as tmpfile:
-            obj.save(tmpfile.name, **save_kwargs)
-            if as_text:
-                return Path(tmpfile.name).read_text()
+        with tempfile.TemporaryDirectory(delete=True) as tmpdir:
+            tmpfile = Path(tmpdir) / f"data.{format}"
+            if save_callable is not None:
+                save_callable(obj, tmpfile, **save_kwargs)
             else:
-                return Path(tmpfile.name).read_bytes()
+                obj.save(tmpfile, **save_kwargs)
+            if as_text:
+                return Path(tmpfile).read_text()
+            else:
+                return Path(tmpfile).read_bytes()
