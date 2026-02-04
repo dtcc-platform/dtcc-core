@@ -691,23 +691,18 @@ namespace DTCC_BUILDER
           building_mesh.vertices.push_back(roof_v0);
           building_mesh.vertices.push_back(roof_v1);
 
-          const auto wall_normal =
-              Geometry::triangle_normal(ground_v0, ground_v1, roof_v1);
+          const auto wall_normal = Geometry::triangle_normal(ground_v0, ground_v1, roof_v1);
           if (Geometry::dot_3d(wall_normal, face_center - ground_v0) > 0)
           {
-            building_mesh.faces.push_back(
-                Simplex2D(base, base + 1, base + 3));
-            building_mesh.faces.push_back(
-                Simplex2D(base, base + 3, base + 2));
+            building_mesh.faces.push_back(Simplex2D(base, base + 3, base + 1));
+            building_mesh.faces.push_back(Simplex2D(base, base + 2, base + 3));
             building_mesh.markers.push_back(static_cast<int>(marker));
             building_mesh.markers.push_back(static_cast<int>(marker));
           }
           else
           {
-            building_mesh.faces.push_back(
-                Simplex2D(base, base + 3, base + 1));
-            building_mesh.faces.push_back(
-                Simplex2D(base, base + 2, base + 3));
+            building_mesh.faces.push_back(Simplex2D(base, base + 1, base + 3));
+            building_mesh.faces.push_back(Simplex2D(base, base + 3, base + 2));
             building_mesh.markers.push_back(static_cast<int>(marker));
             building_mesh.markers.push_back(static_cast<int>(marker));
           }
