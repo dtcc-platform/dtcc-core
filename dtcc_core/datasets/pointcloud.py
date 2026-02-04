@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 import tempfile
 
 from .dataset import DatasetDescriptor, DatasetBaseArgs
-
+from dtcc_core.common.progress import ProgressTracker, report_progress
 
 class PointCloudArgs(DatasetBaseArgs):
     classifications: Union[
@@ -37,31 +37,49 @@ class PointCloudDataset(DatasetDescriptor):
     ArgsModel = PointCloudArgs
 
     def build(self, args: PointCloudArgs):
-        bounds = self.parse_bounds(args.bounds)
-        pc: PointCloud = dtcc_core.io.data.download_pointcloud(bounds=bounds)
-        if args.classifications is not None and args.classifications not in (
-            "all",
-            "vegetation",
-        ):
-            classifications: List[int] = []
-            if isinstance(args.classifications, int):
-                classifications = [args.classifications]
-            elif isinstance(args.classifications, list):
-                classifications = args.classifications
-            if isinstance(args.classifications, str):
-                if args.classifications == "terrain":
-                    classifications = [2, 8]
-                elif args.classifications == "buildings":
-                    classifications = [6, 9]
-                elif args.classifications == "vegetation":
-                    classifications = [3, 4, 5, 7]
-            if len(classifications) > 0:
-                pc = pc.classification_filter(classifications)
-        if args.classifications == "vegetation":
-            pc = pc.get_vegetation()
-        if args.remove_outliers:
-            pc = pc.remove_global_outliers(args.remove_outlier_threshold)
+        
+        progress_phases = {
+            "download_pointcloud": 0.30,
+            "preprocess": 0.20,
+            "extract_vegetation": 0.10,
+            "remove_outliers": 0.20,
+            "extract": 0.20,  # The big one
+        }
+        with ProgressTracker(total=1.0, phases=progress_phases, mode='json') as progress:
+            bounds = self.parse_bounds(args.bounds)
+            
+            with progress.phase("download_pointcloud", "Downloading point cloud..."):
+                pc: PointCloud = dtcc_core.io.data.download_pointcloud(bounds=bounds)
 
-        if args.format is not None:
-            return self.export_to_bytes(pc, args.format)
-        return pc
+            with progress.phase("preprocess", "Preprocessing point cloud..."):
+                if args.classifications is not None and args.classifications not in (
+                    "all",
+                    "vegetation",
+                ):
+                    classifications: List[int] = []
+                    if isinstance(args.classifications, int):
+                        classifications = [args.classifications]
+                    elif isinstance(args.classifications, list):
+                        classifications = args.classifications
+                    if isinstance(args.classifications, str):
+                        if args.classifications == "terrain":
+                            classifications = [2, 8]
+                        elif args.classifications == "buildings":
+                            classifications = [6, 9]
+                        elif args.classifications == "vegetation":
+                            classifications = [3, 4, 5, 7]
+                    if len(classifications) > 0:
+                        pc = pc.classification_filter(classifications)
+
+            with progress.phase("extract_vegetation", "Extracting vegetation points..."):
+                if args.classifications == "vegetation":
+                    pc = pc.get_vegetation()
+
+            with progress.phase("remove_outliers", "Removing outliers..."):
+                if args.remove_outliers:
+                    pc = pc.remove_global_outliers(args.remove_outlier_threshold)
+
+            with progress.phase("extract", "Extracting point cloud data..."):
+                if args.format is not None:
+                    return self.export_to_bytes(pc, args.format)
+                return pc

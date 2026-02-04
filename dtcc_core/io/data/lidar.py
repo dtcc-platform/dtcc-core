@@ -9,6 +9,7 @@ import asyncio
 import aiohttp
 from platformdirs import user_cache_dir
 from .logging import info, debug, warning, error
+from dtcc_core.common.progress import report_progress
 
 try:
     import nest_asyncio
@@ -185,11 +186,24 @@ async def download_all_lidar_files(base_url, filenames, output_dir="downloaded_l
     Given a list of filenames, downloads them all asynchronously from
     base_url/get/lidar/<filename> using aiohttp, skipping any local cache hits.
     """
-        
+    total_files = len(filenames)
+    completed = [0]  # Use list to allow modification in nested function
+
+    async def download_with_progress(session, base_url, filename, output_dir):
+        await download_laz_file(session, base_url, filename, output_dir)
+        completed[0] += 1
+        report_progress(
+            current=completed[0],
+            total=total_files,
+            message=f"Downloading files ({completed[0]}/{total_files})..."
+        )
+
+    report_progress(percent=0, message=f"Downloading {total_files} files...")
+
     async with aiohttp.ClientSession() as session:
         tasks = []
         for fname in filenames:
-            tasks.append(download_laz_file(session, base_url, fname, output_dir))
+            tasks.append(download_with_progress(session, base_url, fname, output_dir))
         # Run all downloads concurrently
         await asyncio.gather(*tasks)
 

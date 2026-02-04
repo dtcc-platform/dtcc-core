@@ -10,6 +10,7 @@ import numpy as np
 from typing import List, Tuple
 
 from .surface import extrude_surface
+from dtcc_core.common.progress import report_progress
 
 
 def extrude_building(
@@ -228,8 +229,11 @@ def build_lod1_buildings(
     [model.Building]
         The buildings with the LOD1 representation built.
     """
-    info(f"Building LOD1 representations of {len(buildings)} buildings...")
-    for building in buildings:
+    total_buildings = len(buildings)
+    info(f"Building LOD1 representations of {total_buildings} buildings...")
+    report_progress(percent=0, message=f"Building LOD1 for {total_buildings} buildings...")
+
+    for i, building in enumerate(buildings):
         if building.lod1 is not None and not rebuild:
             continue
         if building.lod0 is None:
@@ -242,6 +246,15 @@ def build_lod1_buildings(
             building.add_geometry(geometry, GeometryType.LOD1)
         else:
             warning(f"Building {building.id} LOD1 geometry could not be built.")
+
+        # Report progress every 10 buildings or on last building
+        if (i + 1) % 10 == 0 or i + 1 == total_buildings:
+            report_progress(
+                current=i + 1,
+                total=total_buildings,
+                message=f"Building LOD1 ({i + 1}/{total_buildings})..."
+            )
+
     return buildings
 
 

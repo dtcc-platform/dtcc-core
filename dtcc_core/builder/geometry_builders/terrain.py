@@ -19,6 +19,7 @@ from pypoints2grid import points2grid
 from affine import Affine
 from .. import _dtcc_builder
 from typing import List, Union
+from dtcc_core.common.progress import report_progress
 
 
 def build_terrain_mesh(
@@ -101,7 +102,10 @@ def build_terrain_mesh(
             "This is a limitation of the meshing algorithm."
         )
 
+    report_progress(percent=0, message="Preparing terrain data...")
+
     if isinstance(data, PointCloud):
+        report_progress(percent=10, message="Building terrain raster from point cloud...")
         dem = build_terrain_raster(
             data, cell_size=max_mesh_size / 2, ground_only=ground_points_only
         )
@@ -109,7 +113,10 @@ def build_terrain_mesh(
         dem = data
     else:
         raise ValueError("data must be a PointCloud or a Raster.")
+
+    report_progress(percent=30, message="Converting raster to grid field...")
     _builder_gridfield = raster_to_builder_gridfield(dem)
+
     if subdomains is None:
         subdomains = []
         subdomain_resolution = None
@@ -134,6 +141,8 @@ def build_terrain_mesh(
 
     subdomain_resolution = np.array(subdomain_resolution, dtype=np.float64)
 
+    report_progress(percent=40, message="Building terrain mesh (this may take a while)...")
+
     terrain_mesh = _dtcc_builder.build_terrain_mesh(
         subdomains,
         hole_polygons,
@@ -144,7 +153,11 @@ def build_terrain_mesh(
         smoothing,
         False,
     )
+
+    report_progress(percent=90, message="Converting mesh format...")
     terrain_mesh = builder_mesh_to_mesh(terrain_mesh)
+
+    report_progress(percent=100, message="Terrain mesh complete")
     return terrain_mesh
 
 
@@ -164,6 +177,8 @@ def build_terrain_raster(
     Returns:
         Raster: A `Raster` object representing the rasterized point cloud.
     """
+    report_progress(percent=0, message="Filtering ground points...")
+
     if (
         ground_only
         and (len(pc.classification) == len(pc.points))
@@ -177,16 +192,26 @@ def build_terrain_raster(
         if pc.bounds is None or pc.bounds.area == 0:
             pc.calculate_bounds()
         bounds = pc.bounds
+
+    report_progress(percent=30, message="Rasterizing points to grid...")
+
     dem = points2grid(
         ground_points, cell_size, bounds.tuple, window_size=window_size, radius=radius
     )
+
+    report_progress(percent=70, message="Creating raster object...")
+
     dem_raster = Raster()
     dem_raster.data = dem
     dem_raster.nodata = 0
     dem_raster.georef = Affine.translation(bounds.xmin, bounds.ymax) * Affine.scale(
         cell_size, -cell_size
     )
+
+    report_progress(percent=90, message="Filling holes in raster...")
     dem_raster = dem_raster.fill_holes()
+
+    report_progress(percent=100, message="Raster complete")
     return dem_raster
 
 
