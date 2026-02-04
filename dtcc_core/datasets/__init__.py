@@ -6,6 +6,7 @@ from .pointcloud import PointCloudDataset
 from .buildings import BuildingDataset
 from .terrain import TerrainDataset
 from .volumemesh import VolumeMeshDataset
+from .airquality import AirQualityDataset
 
 # Import registry infrastructure from separate module to avoid circular imports
 from .registry import (
@@ -24,6 +25,7 @@ pointcloud = get_dataset("pointcloud")
 buildings = get_dataset("Buildings LoD1")
 terrain = get_dataset("terrain")
 volumemesh = get_dataset("volumemesh")
+airquality = get_dataset("airquality")
 
 
 def info():
@@ -37,18 +39,38 @@ def info():
         >>> import dtcc_core.datasets as datasets
         >>> datasets.info()
     """
-    datasets = list()
+    datasets_dict = list()
     
-    if not datasets:
+    if not datasets_dict:
+        print("=" * 70)
+        print("DTCC Datasets")
+        print("=" * 70)
         print("No datasets are currently registered.")
+        print("=" * 70)
         return
     
-    print(f"\nAvailable Datasets: {len(datasets)}")
+    print()
     print("=" * 70)
+    print(f"DTCC Datasets ({len(datasets_dict)} available)")
+    print("=" * 70)
+    print()
+    print("Use datasets.<name>() to access a dataset.")
+    print("Use print(datasets.<name>) to see dataset parameters.")
+    print()
     
-    for name, dataset in datasets.items():
-        print(f"\n{dataset}")
-        print()
+    # Print a summary table
+    print("Available datasets:")
+    print("-" * 70)
+    for name, dataset in datasets_dict.items():
+        desc = dataset.description[:50] + "..." if len(dataset.description) > 50 else dataset.description
+        print(f"  • {name:20s} - {desc}")
+    
+    print()
+    print("=" * 70)
+    print()
+    print("For detailed information on a specific dataset, use:")
+    print("  print(datasets.<name>)")
+    print()
 
 
 def __getattr__(name):
@@ -58,31 +80,15 @@ def __getattr__(name):
     This enables access like `datasets.pointcloud`.
 
     Args:
-        name: Attribute name to look up
+        name (str): The attribute name being accessed.
 
     Returns:
-        Dataset instance if found
+        The registered dataset instance, if found.
 
     Raises:
-        AttributeError: If dataset not found
+        AttributeError: If the attribute is not a registered dataset.
     """
-    dataset = get_dataset(name)
-    if dataset is not None:
-        return dataset
-
-    raise AttributeError(f"module 'dtcc_core.datasets' has no attribute '{name}'")
-
-
-__all__ = [
-    "DatasetDescriptor",
-    "DatasetBaseArgs",
-    "register",
-    "register_class",
-    "unregister",
-    "list",
-    "info",
-    "pointcloud",
-    "buildings",
-    "terrain",
-    "volumemesh",
-]
+    try:
+        return get_dataset(name)
+    except KeyError:
+        raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
