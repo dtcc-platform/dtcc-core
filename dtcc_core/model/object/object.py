@@ -295,6 +295,10 @@ class Object(Model):
             raise TypeError(f"Expected a PointCloud instance, got {type(point_cloud)}")
         self.add_geometry(point_cloud, GeometryType.POINT_CLOUD)
 
+    def add_pointcloud(self, pointcloud: PointCloud):
+        """Add a PointCloud geometry to the object."""
+        self.add_point_cloud(pointcloud)
+
     def add_raster(self, raster):
         """Add a Raster geometry to the object."""
         if not isinstance(raster, (Raster, Grid)):

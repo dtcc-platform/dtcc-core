@@ -1,52 +1,71 @@
 import dtcc_core
 from dtcc_core import datasets
 from dtcc_core.builder import tree_raster_from_pointcloud
-from dtcc_core.model import PointCloud, Building, Raster
+from dtcc_core.model import PointCloud, Building, Raster, City
+from dtcc_core.io.trees import save_trees
 from pydantic import BaseModel, Field
 from typing import Optional, Literal
 
 from dtcc_core.datasets import DatasetDescriptor, DatasetBaseArgs
 
+import tempfile
+
 
 class TreeArgs(DatasetBaseArgs):
-    min_height: float = Field(
-        2.0, description="Minimum height of trees to include (in meters)"
+    tree_type: Literal["urban", "mixed", "dense", "arid"] = Field(
+        "urban", description="Type of trees to detect"
     )
     cell_size: float = Field(
         0.5, description="Cell size of the output tree raster (in meters)"
     )
-    smallest_cluster: float = Field(
-        4, description="Minimum size of tree clusters to retain (in m^2)"
-    )
-    fill_hole_size: float = Field(
-        1.5, description="Maximum size of holes to fill in the raster (in m^2)"
-    )
 
-    sigma: float = Field(
-        0.5, description="Standard deviation for Gaussian filter to smooth the raster"
+    vector_geometry: Literal["point", "circle"] = Field(
+        "point",
+        description="Save trees as points or circles when exporting to vector format",
     )
 
-    format: Optional[Literal["tif"]] = Field("tif", description="Output file format")
+    format: Optional[Literal["tif", "gpkg", "geojson"]] = Field(
+        None, description="Output file format"
+    )
 
 
-class TreeDataset(DatasetDescriptor):
+class TreesDataset(DatasetDescriptor):
     name = "trees"
-    description = "Generate a raster of tree heights from point cloud data."
+    description = "Generate a raster of tree heights or vector points representing trees from point cloud data."
     ArgsModel = TreeArgs
 
     def build(self, args: TreeArgs):
         bounds = self.parse_bounds(args.bounds)
         pc: PointCloud = dtcc_core.io.data.download_pointcloud(bounds=bounds)
-
-        tree_raster: Raster = tree_raster_from_pointcloud(
-            pc,
-            cell_size=args.cell_size,
-            shortest_tree=args.min_height,
-            smallest_cluster=args.smallest_cluster,
-            fill_hole_size=args.fill_hole_size,
-            sigma=args.sigma,
-        )
-
-        if args.format is not None:
-            return self.export_to_bytes(tree_raster, args.format)
-        return tree_raster
+        if args.format == "tif":
+            raster = tree_raster_from_pointcloud(
+                pc,
+                None,
+                tree_type=args.tree_type,
+                cell_size=args.cell_size,
+            )
+            return self.export_to_bytes(raster, "tif")
+        else:
+            city = City()
+            city.add_point_cloud(pc)
+            city.bounds = bounds
+            trees = city.build_trees_from_pointcloud(tree_type=args.tree_type)
+            if args.format is None:
+                return trees
+            elif args.format in ("gpkg", "geojson", "json"):
+                if args.format == "geojson" or args.format == "json":
+                    as_text = True
+                    args.format = "json"
+                else:
+                    as_text = False
+                if args.vector_geometry == "circle":
+                    as_circles = True
+                else:
+                    as_circles = False
+                return self.export_to_bytes(
+                    trees,
+                    args.format,
+                    as_text=as_text,
+                    save_callable=save_trees,
+                    as_circles=as_circles,
+                )

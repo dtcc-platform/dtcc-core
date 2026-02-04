@@ -69,7 +69,6 @@ def tree_raster_from_pointcloud(
         to 0. Default is 2.0.
     smallest_cluster : float, optional
         The minimum size of tree clusters to retain (in pixels). Smaller clusters will be removed.
-        Default is 100.
     fill_hole_size : float, optional
         The maximum size of holes to fill in the raster (in pixels). Default is 100.
     sigma : float, optional

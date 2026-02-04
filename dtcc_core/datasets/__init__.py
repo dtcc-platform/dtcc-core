@@ -7,6 +7,7 @@ from .buildings import BuildingDataset
 from .terrain import TerrainDataset
 from .volumemesh import VolumeMeshDataset
 from .airquality import AirQualityDataset
+from .trees import TreesDataset
 
 # Import registry infrastructure from separate module to avoid circular imports
 from .registry import (
@@ -26,21 +27,22 @@ buildings = get_dataset("Buildings LoD1")
 terrain = get_dataset("terrain")
 volumemesh = get_dataset("volumemesh")
 airquality = get_dataset("airquality")
+trees = get_dataset("trees")
 
 
 def info():
     """
     Print information about all available datasets.
-    
+
     This function iterates over all registered datasets and prints
     a nicely formatted summary of each one.
-    
+
     Example:
         >>> import dtcc_core.datasets as datasets
         >>> datasets.info()
     """
     datasets_dict = list()
-    
+
     if not datasets_dict:
         print("=" * 70)
         print("DTCC Datasets")
@@ -48,7 +50,7 @@ def info():
         print("No datasets are currently registered.")
         print("=" * 70)
         return
-    
+
     print()
     print("=" * 70)
     print(f"DTCC Datasets ({len(datasets_dict)} available)")
@@ -57,14 +59,18 @@ def info():
     print("Use datasets.<name>() to access a dataset.")
     print("Use print(datasets.<name>) to see dataset parameters.")
     print()
-    
+
     # Print a summary table
     print("Available datasets:")
     print("-" * 70)
     for name, dataset in datasets_dict.items():
-        desc = dataset.description[:50] + "..." if len(dataset.description) > 50 else dataset.description
+        desc = (
+            dataset.description[:50] + "..."
+            if len(dataset.description) > 50
+            else dataset.description
+        )
         print(f"  • {name:20s} - {desc}")
-    
+
     print()
     print("=" * 70)
     print()
