@@ -42,7 +42,7 @@ class TerrainDataset(DatasetDescriptor):
             "build_terrain": 0.35,
             "export": 0.10,
         }
-        with ProgressTracker(total=1.0, phases=progress_phases, mode='json') as progress:
+        with ProgressTracker(total=1.0, phases=progress_phases) as progress:
             bounds = self.parse_bounds(args.bounds)
 
             with progress.phase("download_pointcloud", "Downloading point cloud..."):

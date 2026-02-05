@@ -36,7 +36,7 @@ class BuildingDataset(DatasetDescriptor):
             "build_lod1": 0.30,
             "export": 0.10,
         }
-        with ProgressTracker(total=1.0, phases=progress_phases, mode='json') as progress:
+        with ProgressTracker(total=1.0, phases=progress_phases) as progress:
             bounds = self.parse_bounds(args.bounds)
             city = City()
             city.bounds = bounds

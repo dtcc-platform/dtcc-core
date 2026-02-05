@@ -71,7 +71,7 @@ class VolumeMeshDataset(DatasetDescriptor):
             "build_mesh": 0.25,
             "export": 0.05,
         }
-        with ProgressTracker(total=1.0, phases=progress_phases, mode='json') as progress:
+        with ProgressTracker(total=1.0, phases=progress_phases) as progress:
             bounds = self.parse_bounds(args.bounds)
 
             with progress.phase("download_data", "Downloading point cloud and footprints..."):

@@ -26,6 +26,7 @@ Usage in nested functions (no changes needed to function signatures):
 
 """
 
+import os
 import sys
 import time
 import json
@@ -56,6 +57,27 @@ _console = Console(stderr=True)
 def get_console() -> Console:
     """Get the shared rich Console instance for logging integration."""
     return _console
+
+
+# ============================================================
+# Thread-Local Callback Storage
+# ============================================================
+
+_thread_local = threading.local()
+
+
+def set_progress_callback(callback: Callable[[dict], None] = None):
+    """Set a progress callback for the current thread.
+
+    This allows nested ProgressTrackers to inherit the callback
+    even across threading boundaries where contextvars don't propagate.
+    """
+    _thread_local.callback = callback
+
+
+def get_progress_callback() -> Optional[Callable[[dict], None]]:
+    """Get the progress callback for the current thread."""
+    return getattr(_thread_local, 'callback', None)
 
 
 class ProgressMode(Enum):
@@ -206,11 +228,24 @@ class ProgressTracker:
     ):
         self.state = ProgressState(total=total)
         self.output = output or sys.stderr
-        self.callback = callback
         self.min_update_interval = min_update_interval
         self._lock = threading.Lock()
         self._token = None
         self._last_render_time = 0
+
+        # Inherit callback from parent tracker if not provided
+        if callback is None:
+            # Try thread-local callback first (works across threading boundaries)
+            callback = get_progress_callback()
+            if callback:
+                print(f"[ProgressTracker] Using thread-local callback")
+            else:
+                # Fall back to parent context var (works within same async context)
+                parent = _current_progress.get()
+                if parent is not None and parent.callback is not None:
+                    callback = parent.callback
+                    print(f"[ProgressTracker] Inherited callback from parent tracker")
+        self.callback = callback
 
         # Rich progress components
         self._rich_progress: Optional[Progress] = None
@@ -226,22 +261,33 @@ class ProgressTracker:
                 for name, w in phases.items()
             }
 
-        # Determine output mode
-        if mode == "auto":
-            if callback:
-                self._mode = ProgressMode.CALLBACK
-            else:
-                try:
-                    self._mode = ProgressMode.TERMINAL if self.output.isatty() else ProgressMode.JSON
-                except AttributeError:
-                    self._mode = ProgressMode.JSON
-        else:
+        # Determine output mode (priority: explicit param > env var > auto-detect)
+        if mode != "auto":
+            # Explicit mode passed - use it directly
             self._mode = {
                 "terminal": ProgressMode.TERMINAL,
                 "json": ProgressMode.JSON,
                 "silent": ProgressMode.SILENT,
                 "callback": ProgressMode.CALLBACK,
-            }.get(mode, ProgressMode.JSON)
+            }.get(mode.lower(), ProgressMode.JSON)
+        else:
+            # Check environment variable
+            env_mode = os.environ.get("DTCC_PROGRESS_MODE", "").lower()
+            if env_mode in ("terminal", "json", "silent", "callback"):
+                self._mode = {
+                    "terminal": ProgressMode.TERMINAL,
+                    "json": ProgressMode.JSON,
+                    "silent": ProgressMode.SILENT,
+                    "callback": ProgressMode.CALLBACK,
+                }[env_mode]
+            elif callback:
+                self._mode = ProgressMode.CALLBACK
+            else:
+                # Auto-detect from TTY
+                try:
+                    self._mode = ProgressMode.TERMINAL if self.output.isatty() else ProgressMode.JSON
+                except AttributeError:
+                    self._mode = ProgressMode.JSON
 
     # ---- Context Manager ----
 
@@ -453,7 +499,9 @@ class ProgressTracker:
         elif self._mode == ProgressMode.JSON:
             self._render_json()
         elif self._mode == ProgressMode.CALLBACK and self.callback:
-            self.callback(self._get_state_dict())
+            state = self._get_state_dict()
+            print(f"[ProgressTracker] Calling callback: {state.get('percent', 0):.1f}%")
+            self.callback(state)
 
     def _render_json(self):
         """Render machine-readable JSON output."""

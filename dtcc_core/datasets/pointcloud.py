@@ -45,7 +45,7 @@ class PointCloudDataset(DatasetDescriptor):
             "remove_outliers": 0.20,
             "extract": 0.20,  # The big one
         }
-        with ProgressTracker(total=1.0, phases=progress_phases, mode='json') as progress:
+        with ProgressTracker(total=1.0, phases=progress_phases) as progress:
             bounds = self.parse_bounds(args.bounds)
             
             with progress.phase("download_pointcloud", "Downloading point cloud..."):
