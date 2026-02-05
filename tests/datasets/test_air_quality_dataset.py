@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 import numpy as np
 
 
-def test_airquality_dataset_with_mocked_api():
+def test_air_quality_dataset_with_mocked_api():
     """Test AirQuality dataset with fully mocked HTTP API."""
 
     # Mock API responses that match the real API structure
@@ -81,7 +81,7 @@ def test_airquality_dataset_with_mocked_api():
         mock_response.json = json_side_effect
         mock_get.return_value = mock_response
 
-        from dtcc_core.datasets.airquality import (
+        from dtcc_core.datasets.air_quality import (
             AirQualityDataset,
             AirQualityDatasetArgs,
         )
@@ -108,9 +108,9 @@ def test_airquality_dataset_with_mocked_api():
             assert len(station.geometry) > 0
 
 
-def test_airquality_dataset_phenomenon_resolution():
+def test_air_quality_dataset_phenomenon_resolution():
     """Test phenomenon name to ID resolution."""
-    from dtcc_core.datasets.airquality import _resolve_phenomenon_id
+    from dtcc_core.datasets.air_quality import _resolve_phenomenon_id
 
     # Test numeric ID (should return as-is)
     assert _resolve_phenomenon_id("https://test.api", "1", 10.0) == "1"
@@ -121,7 +121,7 @@ def test_airquality_dataset_phenomenon_resolution():
     assert _resolve_phenomenon_id("https://test.api", "O3", 10.0) == "7"
 
 
-def test_airquality_dataset_format_pb():
+def test_air_quality_dataset_format_pb():
     """Test that format='pb' is handled (even if it doesn't fully work yet)."""
 
     mock_stations = [
@@ -165,7 +165,7 @@ def test_airquality_dataset_format_pb():
         mock_response.json = json_func
         mock_get.return_value = mock_response
 
-        from dtcc_core.datasets.airquality import (
+        from dtcc_core.datasets.air_quality import (
             AirQualityDataset,
             AirQualityDatasetArgs,
         )

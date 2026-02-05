@@ -6,7 +6,7 @@ from .pointcloud import PointCloudDataset
 from .buildings import BuildingDataset
 from .terrain import TerrainDataset
 from .volumemesh import VolumeMeshDataset
-from .airquality import AirQualityDataset
+from .air_quality import AirQualityDataset
 from .trees import TreesDataset
 
 # Import registry infrastructure from separate module to avoid circular imports
@@ -26,9 +26,8 @@ pointcloud = get_dataset("pointcloud")
 buildings = get_dataset("Buildings LoD1")
 terrain = get_dataset("terrain")
 volumemesh = get_dataset("volumemesh")
-airquality = get_dataset("airquality")
+air_quality = get_dataset("air_quality")
 trees = get_dataset("trees")
-
 
 def info():
     """
