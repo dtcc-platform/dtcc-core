@@ -1,7 +1,6 @@
 # Copyright (C) 2022 Dag Wästberg
 # Licensed under the MIT License
 
-# %%
 import json
 from pathlib import Path
 
@@ -10,15 +9,21 @@ import shapely.ops
 import shapely.affinity
 import fiona
 import pyproj
-from logging import info, warning, error
 from ..model import City, Building, GeometryType, Surface
 import numpy as np
 
 from . import generic
 from .utils import get_epsg
+from .vector_utils import (
+    validate_vector_file,
+    create_bounds_filter,
+    get_vector_driver,
+    determine_io_crs,
+    safe_reproject_geometry,
+    get_format_required_crs,
+    get_geometry_crs,
+)
 
-
-# from ..model import Polygon, Building, LinearRing, Vector2D, City
 from ..model import Building
 from ..model.geometry import Bounds
 
@@ -53,7 +58,7 @@ def building_bounds(footprint_file, buffer=0):
 
 
 def _building_from_fiona(
-    s, uuid_field="id", height_field="", crs="", overwrite_height=False
+    s, uuid_field="id", height_field="", crs="", overwrite_height=False, geometry=None
 ):
     building = Building()
 
@@ -67,7 +72,11 @@ def _building_from_fiona(
             height = 0.0
     else:
         height = 0.0
-    polygon_footprint = shapely.geometry.shape(s["geometry"])
+    # Use provided geometry if available (e.g., already reprojected), otherwise extract from feature
+    if geometry is not None:
+        polygon_footprint = geometry
+    else:
+        polygon_footprint = shapely.geometry.shape(s["geometry"])
     if not polygon_footprint.is_valid:
         warning(f"Invalid polygon {building.id} attempting to fix...")
         polygon_footprint = polygon_footprint.buffer(0)
@@ -106,15 +115,12 @@ def _load_fiona(
     area_filter=None,
     bounds=None,
     min_edge_distance=2.0,
+    target_crs=None,
 ) -> [Building]:
-    filename = Path(filename)
-    if not filename.is_file():
-        raise FileNotFoundError(f"File {filename} not found")
+    filename = validate_vector_file(filename)
     buildings = []
     has_height_field = len(height_field) > 0
-    bounds_filter = None
-    if bounds is not None:
-        bounds_filter = shapely.geometry.box(*bounds.tuple).buffer(-min_edge_distance)
+    bounds_filter = create_bounds_filter(bounds, buffer=-min_edge_distance, strategy='contains')
     try:
         f = fiona.open(filename)
         f.close()
@@ -122,18 +128,23 @@ def _load_fiona(
         raise ValueError(f"File {filename} is not a valid file format")
     with fiona.open(filename) as src:
         info(f"Reading {len(src)} geometries from {filename}")
-        crs = get_epsg(src.crs)
+        source_crs = get_epsg(src.crs)
+        target_crs = determine_io_crs(source_crs, target_crs, context="footprints")
+
         for s in src:
             building_shape = shapely.geometry.shape(s["geometry"])
+            building_shape = safe_reproject_geometry(building_shape, source_crs, target_crs)
+
             if area_filter is not None and area_filter > 0:
                 if building_shape.area < area_filter:
                     continue
-            if bounds_filter is not None:
-                if not bounds_filter.contains(building_shape):
-                    continue
+            if bounds_filter and not bounds_filter['strategy'](bounds_filter['geometry'], building_shape):
+                continue
             geom_type = s["geometry"]["type"]
             if geom_type == "Polygon":
-                building = _building_from_fiona(s, uuid_field, height_field, crs)
+                building = _building_from_fiona(
+                    s, uuid_field, height_field, target_crs, geometry=building_shape
+                )
 
                 buildings.append(building)
             if geom_type == "MultiPolygon":
@@ -145,12 +156,12 @@ def _load_fiona(
                         "properties": s["properties"],
                     }
                     building = _building_from_fiona(
-                        split_feature, uuid_field, height_field, crs
+                        split_feature, uuid_field, height_field, target_crs, geometry=polygon
                     )
 
                     buildings.append(building)
 
-    info(f"Loaded {len(buildings)} building footprints")
+    info(f"Loaded {len(buildings)} building footprints in {target_crs}")
     return buildings
 
 
@@ -161,6 +172,7 @@ def load(
     area_filter=None,
     bounds=None,
     min_edge_distance=2.0,
+    target_crs=None,
 ) -> [Building]:
     """
     Load the buildings from a supported file and return a `City` object.
@@ -179,6 +191,10 @@ def load(
         The bounding box to filter the buildings (default None).
     min_edge_distance : float, optional
         The minimum distance between a building and the bounding box (default 2.0).
+    target_crs : str, optional
+        Target coordinate reference system (e.g., "EPSG:4326").
+        If specified and different from source CRS, geometries will be
+        automatically reprojected. If None, uses the file's native CRS.
 
     Returns
     -------
@@ -201,13 +217,12 @@ def load(
                             area_filter=area_filter,
                             bounds=bounds,
                             min_edge_distance=min_edge_distance,
+                            target_crs=target_crs,
                             )
         return buildings
 
 
-    filename = Path(filename)
-    if not filename.is_file():
-        raise FileNotFoundError(f"File {filename} not found")
+    filename = validate_vector_file(filename, allow_multiple=True)
     return generic.load(
         filename,
         "city",
@@ -218,6 +233,7 @@ def load(
         area_filter=area_filter,
         bounds=bounds,
         min_edge_distance=min_edge_distance,
+        target_crs=target_crs,
     )
 
 
@@ -234,30 +250,23 @@ def _save_json_city(city: City, filename):
         dst.write(city.to_json())
 
 
-def _save_fiona(city: City, out_file, output_format=""):
+def _save_fiona(city: City, out_file, output_format="", output_crs=None):
     offset = (city.transform.offset[0], city.transform.offset[1])
     out_file = Path(out_file)
+    driver = get_vector_driver(out_file)
     output_format = out_file.suffix.lower()
-    driver = {
-        ".shp": "ESRI Shapefile",
-        ".geojson": "GeoJSON",
-        ".json": "GeoJSON",
-        ".gpkg": "GPKG",
-    }
     buildings = city.buildings
     if buildings is None or len(buildings) == 0:
         warning("No buildings to save")
         return
 
-    crs = "EPSG:3006"  # current dtcc default
-
-    if driver[output_format] == "GeoJSON" and crs:
-        # geojson needs to be in lat/lon
-        info(f"Converting from {crs} to EPSG:4326")
-        wgs84 = pyproj.CRS("EPSG:4326")
-        cm_crs = pyproj.CRS(crs)
-        wgs84_projection = pyproj.Transformer.from_crs(cm_crs, wgs84, always_xy=True)
-        crs = "EPSG:4326"
+    # Get current CRS from buildings
+    source_crs = get_geometry_crs(buildings[0], fallback="EPSG:3006")
+    output_crs = determine_io_crs(
+        source_crs, output_crs,
+        output_filepath=out_file,
+        context="footprints"
+    )
 
     base_properties = {
         "id": "str",
@@ -283,17 +292,20 @@ def _save_fiona(city: City, out_file, output_format=""):
 
     schema = {"geometry": "Polygon", "properties": schema_properties}
     with fiona.open(
-        out_file, "w", driver=driver[output_format], schema=schema, crs=crs
+        out_file, "w", driver=driver, schema=schema, crs=output_crs
     ) as dst:
         for building in city.buildings:
             shapely_footprint = building.get_footprint().to_polygon()
+            shapely_footprint = safe_reproject_geometry(
+                shapely_footprint, source_crs, output_crs,
+                error_context=f"building {building.id}"
+            )
+
+            # Apply offset (in target CRS coordinates)
             shapely_footprint = shapely.affinity.translate(
                 shapely_footprint, xoff=offset[0], yoff=offset[1]
             )
-            if driver[output_format] == "GeoJSON":
-                shapely_footprint = shapely.ops.transform(
-                    wgs84_projection.transform, shapely_footprint
-                )
+
             properties = {
                 "id": building.id,
             }
@@ -316,7 +328,7 @@ def _save_fiona(city: City, out_file, output_format=""):
             )
 
 
-def save(city, filename):
+def save(city, filename, output_crs=None):
     """
     Save the buildings in a `City` object to a supported file.
 
@@ -326,8 +338,14 @@ def save(city, filename):
         A `City` object.
     filename : str or path
         The path to the output file.
+    output_crs : str, optional
+        Output coordinate reference system (e.g., "EPSG:4326").
+        If specified and different from data CRS, geometries will be
+        automatically reprojected. If None:
+        - GeoJSON files use EPSG:4326 (WGS84) per spec
+        - Other formats use data's current CRS
     """
-    generic.save(city, filename, "city", _save_formats)
+    generic.save(city, filename, "city", _save_formats, output_crs=output_crs)
 
 
 def list_io():
