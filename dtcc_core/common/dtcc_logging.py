@@ -2,10 +2,10 @@
 # Licensed under the MIT License
 
 import logging as _logging
-import sys
 
-from rich.logging import RichHandler
 from rich.console import Console
+
+from .dtcc_handler import DTCCHandler
 
 # Import the shared console from progress module for coordination
 # This ensures log messages appear above the progress bar
@@ -35,14 +35,11 @@ def _init_logging(name):
     # Remove all existing handlers
     _logger.handlers.clear()
 
-    # Create a RichHandler that uses the shared console
+    # Create custom DTCC handler that uses the shared console
     # This ensures log messages coordinate with progress bar display
-    handler = RichHandler(
+    handler = DTCCHandler(
+        source_name=name,
         console=_console,
-        show_time=True,
-        show_path=False,
-        rich_tracebacks=True,
-        markup=True,
     )
 
     # Add handler to logger
