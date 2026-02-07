@@ -63,22 +63,30 @@ class VolumeMeshDataset(DatasetDescriptor):
             VolumeMesh object or bytes if format is specified
         """
         progress_phases = {
-            "download_data": 0.25,
-            "remove_outliers": 0.10,
-            "build_terrain": 0.15,
-            "process_buildings": 0.15,
-            "build_city": 0.05,
-            "build_mesh": 0.25,
+            "download_pointcloud": 0.15,
+            "download_footprints": 0.10,
+            "remove_outliers": 0.05,
+            "build_terrain": 0.10,
+            "extract_roof_points": 0.05,
+            "compute_building_heights": 0.05,
+            "build_city": 0.03,
+            "build_mesh": 0.42,
             "export": 0.05,
         }
         with ProgressTracker(total=1.0, phases=progress_phases) as progress:
             bounds = self.parse_bounds(args.bounds)
 
-            with progress.phase("download_data", "Downloading point cloud and footprints..."):
+            with progress.phase("download_pointcloud", "Downloading point cloud data..."):
                 pointcloud = dtcc_core.io.data.download_pointcloud(bounds=bounds)
+
+            with progress.phase("download_footprints", "Downloading building footprints..."):
                 buildings = dtcc_core.io.data.download_footprints(bounds=bounds)
 
-            with progress.phase("remove_outliers", "Removing outliers..."):
+            with progress.phase(
+                "remove_outliers",
+                "Removing outliers..." if args.remove_outliers
+                else "Skipping outlier removal...",
+            ):
                 if args.remove_outliers:
                     pointcloud = pointcloud.remove_global_outliers(args.outlier_threshold)
 
@@ -87,16 +95,18 @@ class VolumeMeshDataset(DatasetDescriptor):
                     pointcloud,
                     cell_size=args.raster_cell_size,
                     radius=args.raster_radius,
-                    ground_only=True
+                    ground_only=True,
                 )
 
-            with progress.phase("process_buildings", "Processing buildings..."):
+            with progress.phase("extract_roof_points", "Extracting roof points..."):
                 buildings = dtcc_core.builder.extract_roof_points(buildings, pointcloud)
+
+            with progress.phase("compute_building_heights", "Computing building heights..."):
                 buildings = dtcc_core.builder.compute_building_heights(
                     buildings, raster, overwrite=True
                 )
 
-            with progress.phase("build_city", "Creating city model..."):
+            with progress.phase("build_city", "Assembling city model..."):
                 city = City()
                 city.add_terrain(raster)
                 city.add_buildings(buildings, remove_outside_terrain=True)
@@ -114,7 +124,11 @@ class VolumeMeshDataset(DatasetDescriptor):
                     },
                 )
 
-            with progress.phase("export", "Exporting..."):
+            with progress.phase(
+                "export",
+                f"Exporting to {args.format}..." if args.format
+                else "Preparing volume mesh...",
+            ):
                 if args.format is not None:
                     return self.export_to_bytes(volume_mesh, args.format)
                 return volume_mesh

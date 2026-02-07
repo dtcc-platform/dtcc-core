@@ -68,6 +68,8 @@ from ..meshing.tetgen import (
     is_tetgen_available,
 )
 
+from dtcc_core.common.progress import report_progress
+
 
 def build_city_mesh(
     city: City,
@@ -521,6 +523,7 @@ def build_city_volume_mesh(
     processed_buildings = [processed_buildings[i] for i in valid_indices]
 
     info(f"Using {len(valid_indices)} valid building footprints for meshing.")
+    report_progress(percent=10, message=f"Preprocessed {len(valid_indices)} building footprints")
 
     # Set subdomain resolution based on processed buildings
     # Use building heights with validation and fallback to max_mesh_size
@@ -550,6 +553,7 @@ def build_city_volume_mesh(
 
     if is_tetgen_available():
         info("Building volume mesh with TetGen...")
+        report_progress(percent=30, message="Preparing builder objects...")
 
         # Validate inputs before calling C++ mesher
         info(f"Number of surfaces: {len(_surfaces)}")
@@ -564,6 +568,7 @@ def build_city_volume_mesh(
         # Build surface mesh
         merge_meshes = True
         sort_triangles = False
+        report_progress(percent=40, message="Building surface mesh (C++)...")
 
         builder_mesh = _dtcc_builder.build_city_surface_mesh(
             _surfaces,
@@ -579,6 +584,7 @@ def build_city_volume_mesh(
         )
 
         surface_mesh = builder_mesh[0].from_cpp()
+        report_progress(percent=55, message="Surface mesh built, preparing volume mesh...")
 
         # Validate surface mesh
         if surface_mesh.faces is None or len(surface_mesh.faces) == 0:
@@ -592,6 +598,7 @@ def build_city_volume_mesh(
             switches_params.update(tetgen_switches)
 
         # Build volume mesh with TetGen
+        report_progress(percent=60, message="Running TetGen volume mesher...")
         volume_mesh = tetgen_build_volume_mesh(
             mesh=surface_mesh,
             build_top_sidewalls=True,
@@ -600,12 +607,14 @@ def build_city_volume_mesh(
             switches_overrides=tetgen_switch_overrides,
             return_boundary_faces=boundary_face_markers,
         )
+        report_progress(percent=95, message="Volume mesh complete")
 
         return volume_mesh
 
 
     # 5. BUILD VOLUME MESH - FALLBACK DTCC PATH
     info("Building volume mesh with fallback DTCC volume mesher...")
+    report_progress(percent=40, message="Building volume mesh (fallback mesher)...")
 
     # Convert footprints to builder polygons for ground mesh
     _building_polygons = [
@@ -641,6 +650,7 @@ def build_city_volume_mesh(
         debug_step,
     )
     volume_mesh = _volume_mesh.from_cpp()
+    report_progress(percent=90, message="Volume mesh built, finalizing...")
 
     # Add boundary face markers if requested
     if boundary_face_markers:

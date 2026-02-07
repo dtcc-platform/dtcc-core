@@ -382,7 +382,7 @@ class ProgressTracker:
                 if increment is not None:
                     phase.progress = min(1.0, phase.progress + increment / 100)
                 elif percent is not None:
-                    phase.progress = min(1.0, percent / 100)
+                    phase.progress = max(phase.progress, min(1.0, percent / 100))
 
                 if message:
                     phase.message = message

@@ -107,7 +107,8 @@ def build_terrain_mesh(
     if isinstance(data, PointCloud):
         report_progress(percent=10, message="Building terrain raster from point cloud...")
         dem = build_terrain_raster(
-            data, cell_size=max_mesh_size / 2, ground_only=ground_points_only
+            data, cell_size=max_mesh_size / 2, ground_only=ground_points_only,
+            _report_progress=False,
         )
     elif isinstance(data, Raster):
         dem = data
@@ -162,7 +163,8 @@ def build_terrain_mesh(
 
 
 def build_terrain_raster(
-    pc: PointCloud, cell_size, bounds=None, window_size=3, radius=0, ground_only=True
+    pc: PointCloud, cell_size, bounds=None, window_size=3, radius=0, ground_only=True,
+    _report_progress=True,
 ) -> Raster:
     """
     Rasterize a point cloud into a `Raster` object.
@@ -177,7 +179,8 @@ def build_terrain_raster(
     Returns:
         Raster: A `Raster` object representing the rasterized point cloud.
     """
-    report_progress(percent=0, message="Filtering ground points...")
+    if _report_progress:
+        report_progress(percent=0, message="Filtering ground points...")
 
     if (
         ground_only
@@ -193,13 +196,15 @@ def build_terrain_raster(
             pc.calculate_bounds()
         bounds = pc.bounds
 
-    report_progress(percent=30, message="Rasterizing points to grid...")
+    if _report_progress:
+        report_progress(percent=30, message="Rasterizing points to grid...")
 
     dem = points2grid(
         ground_points, cell_size, bounds.tuple, window_size=window_size, radius=radius
     )
 
-    report_progress(percent=70, message="Creating raster object...")
+    if _report_progress:
+        report_progress(percent=70, message="Creating raster object...")
 
     dem_raster = Raster()
     dem_raster.data = dem
@@ -208,10 +213,12 @@ def build_terrain_raster(
         cell_size, -cell_size
     )
 
-    report_progress(percent=90, message="Filling holes in raster...")
+    if _report_progress:
+        report_progress(percent=90, message="Filling holes in raster...")
     dem_raster = dem_raster.fill_holes()
 
-    report_progress(percent=100, message="Raster complete")
+    if _report_progress:
+        report_progress(percent=100, message="Raster complete")
     return dem_raster
 
 

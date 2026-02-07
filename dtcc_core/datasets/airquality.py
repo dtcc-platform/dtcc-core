@@ -24,6 +24,7 @@ from ..model.object import Object, SensorCollection
 from ..model.geometry import Point
 from ..model.values import Field as DtccField
 from ..common import info
+from ..common.progress import ProgressTracker, report_progress
 from ..reproject.reproject import reproject_array
 
 
@@ -439,174 +440,193 @@ class AirQualityDataset(DatasetDescriptor):
         SensorCollection or bytes
             SensorCollection object, or protobuf bytes if format="pb"
         """
-        # Parse bounds
-        bounds = self.parse_bounds(args.bounds)
-        bounds_tuple = (bounds.xmin, bounds.ymin, bounds.xmax, bounds.ymax)
-        info(
-            f"Fetching air quality data for {args.phenomenon} within bounds {bounds_tuple}"
-        )
-
-        # Resolve phenomenon
-        phenomenon_id = _resolve_phenomenon_id(
-            args.base_url, args.phenomenon, args.timeout_s
-        )
-        info(f"Resolved phenomenon {args.phenomenon} to ID {phenomenon_id}")
-
-        # Fetch stations
-        stations_data = _fetch_stations(
-            args.base_url, bounds_tuple, args.crs, args.timeout_s
-        )
-        info(f"Found {len(stations_data)} stations in the specified area")
-
-        # Create sensor collection
-        sensor_collection = SensorCollection()
-        sensor_collection.attributes = {
-            "dtcc_type": "sensor_collection",
-            "source": "datavardluft.smhi.se",
-            "phenomenon": args.phenomenon,
-            "phenomenon_id": phenomenon_id,
-            "crs": args.crs,
-            "bounds": f"{bounds_tuple}",
-            "retrieval_time": datetime.now(timezone.utc).isoformat(),
-            "total_stations_found": len(stations_data),
+        progress_phases = {
+            "resolve_api": 0.05,
+            "fetch_stations": 0.15,
+            "fetch_measurements": 0.65,
+            "build_collection": 0.10,
+            "export": 0.05,
         }
+        with ProgressTracker(total=1.0, phases=progress_phases) as progress:
+            bounds = self.parse_bounds(args.bounds)
+            bounds_tuple = (bounds.xmin, bounds.ymin, bounds.xmax, bounds.ymax)
 
-        stations_used = 0
-        stations_skipped_no_coords = 0
-        stations_skipped_no_timeseries = 0
-        stations_skipped_no_value = 0
+            with progress.phase("resolve_api", f"Resolving phenomenon '{args.phenomenon}'..."):
+                phenomenon_id = _resolve_phenomenon_id(
+                    args.base_url, args.phenomenon, args.timeout_s
+                )
+                info(f"Resolved phenomenon {args.phenomenon} to ID {phenomenon_id}")
 
-        processing_logged = False
-        for station_data in stations_data[: args.max_stations]:
-            if not processing_logged:
-                info(f"Processing stations and fetching measurements...")
-                processing_logged = True
-            station_id = str(station_data.get("id", ""))
+            with progress.phase("fetch_stations", "Fetching stations within bounds..."):
+                stations_data = _fetch_stations(
+                    args.base_url, bounds_tuple, args.crs, args.timeout_s
+                )
+                report_progress(
+                    percent=100,
+                    message=f"Found {len(stations_data)} stations",
+                )
 
-            # Extract coordinates
-            geometry = station_data.get("geometry", {})
-            coordinates = geometry.get("coordinates", [])
+            with progress.phase("fetch_measurements", "Fetching measurements from stations..."):
+                sensor_collection = SensorCollection()
+                sensor_collection.attributes = {
+                    "dtcc_type": "sensor_collection",
+                    "source": "datavardluft.smhi.se",
+                    "phenomenon": args.phenomenon,
+                    "phenomenon_id": phenomenon_id,
+                    "crs": args.crs,
+                    "bounds": f"{bounds_tuple}",
+                    "retrieval_time": datetime.now(timezone.utc).isoformat(),
+                    "total_stations_found": len(stations_data),
+                }
 
-            if len(coordinates) < 2:
-                stations_skipped_no_coords += 1
-                continue
+                stations_used = 0
+                stations_skipped_no_coords = 0
+                stations_skipped_no_timeseries = 0
+                stations_skipped_no_value = 0
 
-            x, y = coordinates[0], coordinates[1]
-            z = coordinates[2] if len(coordinates) > 2 else 0.0
+                stations_to_process = stations_data[: args.max_stations]
+                total_stations = len(stations_to_process)
 
-            # Fetch timeseries for this station
-            timeseries_list = _fetch_timeseries_for_station(
-                args.base_url, station_id, phenomenon_id, args.timeout_s
-            )
-            # Progress logged per station would be too verbose
-
-            if not timeseries_list:
-                stations_skipped_no_timeseries += 1
-                continue
-
-            # Try to get latest value
-            value = None
-            timestamp = ""
-            unit = ""
-
-            for ts in timeseries_list:
-                # First try to extract from metadata
-                result = _extract_latest_value(ts)
-                if result:
-                    value, timestamp, unit = result
-                    # Check if data is old (more than 7 days)
-                    if timestamp:
-                        from datetime import timedelta
-
-                        try:
-                            ts_dt = datetime.fromisoformat(
-                                timestamp.replace("Z", "+00:00")
-                            )
-                            age = datetime.now(timezone.utc) - ts_dt.replace(
-                                tzinfo=timezone.utc
-                            )
-                            if age > timedelta(days=7):
-                                info(
-                                    f"Warning: Station {station_id} has old data (age: {age.days} days)"
-                                )
-                        except Exception:
-                            pass
-                    break
-
-                # Fallback: fetch from getData
-                ts_id = str(ts.get("id", ""))
-                if ts_id:
-                    result = _fallback_get_latest_from_getData(
-                        args.base_url, ts_id, args.timeout_s
+                for i, station_data in enumerate(stations_to_process):
+                    report_progress(
+                        current=i,
+                        total=total_stations,
+                        message=f"Processing station {i + 1}/{total_stations}...",
                     )
-                    if result:
-                        value, timestamp, unit = result
-                        break
+                    station_id = str(station_data.get("id", ""))
 
-            if value is None:
-                if args.drop_missing:
-                    stations_skipped_no_value += 1
-                    continue
+                    # Extract coordinates
+                    geometry = station_data.get("geometry", {})
+                    coordinates = geometry.get("coordinates", [])
+
+                    if len(coordinates) < 2:
+                        stations_skipped_no_coords += 1
+                        continue
+
+                    x, y = coordinates[0], coordinates[1]
+                    z = coordinates[2] if len(coordinates) > 2 else 0.0
+
+                    # Fetch timeseries for this station
+                    timeseries_list = _fetch_timeseries_for_station(
+                        args.base_url, station_id, phenomenon_id, args.timeout_s
+                    )
+
+                    if not timeseries_list:
+                        stations_skipped_no_timeseries += 1
+                        continue
+
+                    # Try to get latest value
+                    value = None
+                    timestamp = ""
+                    unit = ""
+
+                    for ts in timeseries_list:
+                        # First try to extract from metadata
+                        result = _extract_latest_value(ts)
+                        if result:
+                            value, timestamp, unit = result
+                            # Check if data is old (more than 7 days)
+                            if timestamp:
+                                from datetime import timedelta
+
+                                try:
+                                    ts_dt = datetime.fromisoformat(
+                                        timestamp.replace("Z", "+00:00")
+                                    )
+                                    age = datetime.now(timezone.utc) - ts_dt.replace(
+                                        tzinfo=timezone.utc
+                                    )
+                                    if age > timedelta(days=7):
+                                        info(
+                                            f"Warning: Station {station_id} has old data (age: {age.days} days)"
+                                        )
+                                except Exception:
+                                    pass
+                            break
+
+                        # Fallback: fetch from getData
+                        ts_id = str(ts.get("id", ""))
+                        if ts_id:
+                            result = _fallback_get_latest_from_getData(
+                                args.base_url, ts_id, args.timeout_s
+                            )
+                            if result:
+                                value, timestamp, unit = result
+                                break
+
+                    if value is None:
+                        if args.drop_missing:
+                            stations_skipped_no_value += 1
+                            continue
+                        else:
+                            value = np.nan
+
+                    # Create station object
+                    station = Object()
+                    station_props = station_data.get("properties", {})
+                    station.attributes = {
+                        "station_id": station_id,
+                        "station_name": station_props.get("label", ""),
+                        "operator": station_props.get("operator", ""),
+                        "phenomenon": args.phenomenon,
+                        "phenomenon_id": phenomenon_id,
+                        "unit": unit,
+                        "timestamp": timestamp,
+                        "value": value,
+                    }
+
+                    # Create Point geometry
+                    point = Point(x=x, y=y, z=z)
+
+                    # Create Field with value
+                    field = DtccField()
+                    field.name = args.phenomenon
+                    field.unit = unit
+                    field.dim = 1
+                    field.values = np.array([value], dtype=np.float32)
+
+                    # Attach field to geometry
+                    point.fields = [field]
+
+                    # Add geometry to station
+                    station.geometry["location"] = point
+
+                    # Add station to collection
+                    sensor_collection.add_station(station)
+                    stations_used += 1
+
+                report_progress(
+                    percent=100,
+                    message=f"Processed {stations_used} stations with measurements",
+                )
+
+            with progress.phase("build_collection", "Building sensor collection..."):
+                sensor_collection.attributes.update(
+                    {
+                        "stations_used": stations_used,
+                        "stations_skipped_no_coords": stations_skipped_no_coords,
+                        "stations_skipped_no_timeseries": stations_skipped_no_timeseries,
+                        "stations_skipped_no_value": stations_skipped_no_value,
+                    }
+                )
+
+                info(f"Successfully retrieved {stations_used} stations with measurements")
+                if stations_skipped_no_value > 0:
+                    info(
+                        f"Skipped {stations_skipped_no_value} stations with no current measurements"
+                    )
+                report_progress(percent=50, message="Calculating bounds...")
+                sensor_collection.calculate_bounds()
+
+            with progress.phase(
+                "export",
+                "Exporting to protobuf..." if args.format == "pb"
+                else "Preparing sensor collection...",
+            ):
+                if args.format == "pb":
+                    return self.export_to_bytes(sensor_collection, "pb")
                 else:
-                    value = np.nan
-
-            # Create station object
-            station = Object()
-            station_props = station_data.get("properties", {})
-            station.attributes = {
-                "station_id": station_id,
-                "station_name": station_props.get("label", ""),
-                "operator": station_props.get("operator", ""),
-                "phenomenon": args.phenomenon,
-                "phenomenon_id": phenomenon_id,
-                "unit": unit,
-                "timestamp": timestamp,
-                "value": value,
-            }
-
-            # Create Point geometry
-            point = Point(x=x, y=y, z=z)
-
-            # Create Field with value
-            field = DtccField()
-            field.name = args.phenomenon
-            field.unit = unit
-            field.dim = 1
-            field.values = np.array([value], dtype=np.float32)
-
-            # Attach field to geometry
-            point.fields = [field]
-
-            # Add geometry to station
-            station.geometry["location"] = point
-
-            # Add station to collection
-            sensor_collection.add_station(station)
-            stations_used += 1
-
-        # Update collection attributes with statistics
-        sensor_collection.attributes.update(
-            {
-                "stations_used": stations_used,
-                "stations_skipped_no_coords": stations_skipped_no_coords,
-                "stations_skipped_no_timeseries": stations_skipped_no_timeseries,
-                "stations_skipped_no_value": stations_skipped_no_value,
-            }
-        )
-
-        info(f"Successfully retrieved {stations_used} stations with measurements")
-        if stations_skipped_no_value > 0:
-            info(
-                f"Skipped {stations_skipped_no_value} stations with no current measurements"
-            )
-        # Calculate bounds for collection
-        sensor_collection.calculate_bounds()
-
-        # Return based on format
-        if args.format == "pb":
-            return self.export_to_bytes(sensor_collection, "pb")
-        else:
-            return sensor_collection
+                    return sensor_collection
 
 
 __all__ = ["AirQualityDatasetArgs", "AirQualityDataset"]

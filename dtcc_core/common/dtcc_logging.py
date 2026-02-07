@@ -5,7 +5,7 @@ import logging as _logging
 
 from rich.console import Console
 
-from .dtcc_handler import DTCCHandler
+from .handler import LoggingHandler
 
 # Import the shared console from progress module for coordination
 # This ensures log messages appear above the progress bar
@@ -14,13 +14,14 @@ try:
     _console = get_console()
 except ImportError:
     # Fallback if progress module not available
-    _console = Console(stderr=True)
+    _console = Console(stderr=True,
+                       soft_wrap=False)
 
 # Global logger dictionary
 loggers = {}
 
 # Global logger object
-_logger = None
+_logger: _logging.Logger = None
 
 
 def _init_logging(name):
@@ -37,7 +38,7 @@ def _init_logging(name):
 
     # Create custom DTCC handler that uses the shared console
     # This ensures log messages coordinate with progress bar display
-    handler = DTCCHandler(
+    handler = LoggingHandler(
         source_name=name,
         console=_console,
     )
