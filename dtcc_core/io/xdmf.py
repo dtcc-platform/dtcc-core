@@ -5,7 +5,6 @@ XDMF_TEMPLATE: Tetrahedral volume mesh with boundary face markers.
 XDMF_SURFACE_TEMPLATE: Triangle surface mesh with optional cell markers.
 """
 
-
 XDMF_SURFACE_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
 <Xdmf Version="3.0" xmlns:xi="https://www.w3.org/2001/XInclude">
   <Domain>

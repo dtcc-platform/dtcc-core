@@ -163,7 +163,7 @@ def _save_xdmf_volume_mesh(mesh, path):
         facets = np.array(list(mesh.boundary_markers.keys()), dtype=int)
         markers = np.array(list(mesh.boundary_markers.values()), dtype=int)
     else:
-        facets =  np.array(mesh.boundary_faces, dtype=int)
+        facets = np.array(mesh.boundary_faces, dtype=int)
         markers = np.array(mesh.boundary_markers, dtype=int)
     ids = np.sort(facets, axis=1)
     idx = np.lexsort(ids.T)
