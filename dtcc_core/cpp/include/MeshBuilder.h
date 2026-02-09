@@ -47,8 +47,8 @@ public:
     const BoundingBox2D &bbox = dtm.grid.bounding_box;
     // build boundary
     Mesh ground_mesh =
-        build_ground_mesh(subdomains, holes, subdomain_triangle_size, bbox.P.x, bbox.P.y, bbox.Q.x,
-                          bbox.Q.y, max_mesh_size, min_mesh_angle, sort_triangles);
+        build_city_flat_mesh(subdomains, holes, subdomain_triangle_size, bbox.P.x, bbox.P.y, bbox.Q.x,
+                             bbox.Q.y, max_mesh_size, min_mesh_angle, sort_triangles);
     // Displace ground surface. Fill all points with maximum height. This is
     // used to always choose the smallest height for each point since each point
     // may be visited multiple times.
@@ -115,14 +115,14 @@ public:
   //  0: building 0 (cells inside building 0)
   //  1: building 1 (cells inside building 1)
   //  etc (non-negative integers mark cells inside buildings)
-  static Mesh build_ground_mesh(const std::vector<Polygon> &subdomains,
-                                const std::vector<Polygon> &holes,
-                                const std::vector<double> &subdomain_triangle_size, double xmin,
-                                double ymin, double xmax, double ymax, double max_mesh_size,
-                                double min_mesh_angle, bool sort_triangles = false)
+  static Mesh build_city_flat_mesh(const std::vector<Polygon> &subdomains,
+                                  const std::vector<Polygon> &holes,
+                                  const std::vector<double> &subdomain_triangle_size, double xmin,
+                                  double ymin, double xmax, double ymax, double max_mesh_size,
+                                  double min_mesh_angle, bool sort_triangles = false)
   {
-    info("Building ground mesh...");
-    Timer timer("build_ground_mesh");
+    info("Building city flat mesh...");
+    Timer timer("build_city_flat_mesh");
 
     const BoundingBox2D bounding_box(Vector2D(xmin, ymin), Vector2D(xmax, ymax));
     const size_t nx = static_cast<size_t>((bounding_box.Q.x - bounding_box.P.x) / max_mesh_size);

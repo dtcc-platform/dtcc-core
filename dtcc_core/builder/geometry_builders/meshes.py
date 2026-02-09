@@ -71,6 +71,134 @@ from ..meshing.tetgen import (
 from dtcc_core.common.progress import report_progress
 
 
+def _preprocess_buildings(
+    buildings: List[Building],
+    lod: GeometryType,
+    merge_buildings: bool,
+    merge_tolerance: float,
+    min_building_area: float,
+    min_building_detail: float,
+    max_mesh_size: float,
+) -> tuple[list, list[Building], list[float]]:
+    """Merge, simplify and validate building footprints for meshing.
+
+    This is the shared preprocessing pipeline used by
+    :func:`build_city_flat_mesh` and :func:`build_city_volume_mesh`.
+
+    Parameters
+    ----------
+    buildings : list[Building]
+        Raw buildings from the city.
+    lod : GeometryType
+        Level-of-Detail used to extract footprints when *merge_buildings* is
+        False.
+    merge_buildings : bool
+        Whether to merge adjacent/overlapping footprints.
+    merge_tolerance : float
+        Distance tolerance for the merge pass.
+    min_building_area : float
+        Minimum area threshold — smaller buildings are dropped.
+    min_building_detail : float
+        Minimum geometric feature size to resolve.
+    max_mesh_size : float
+        Fallback subdomain resolution when a building has no usable height.
+
+    Returns
+    -------
+    building_footprints : list
+        Validated footprint geometries ready for meshing.
+    processed_buildings : list[Building]
+        The corresponding Building objects (same order/length).
+    subdomain_resolution : list[float]
+        Per-building mesh resolution (min of height, max_mesh_size).
+    """
+    if merge_buildings:
+        info(f"Merging {len(buildings)} buildings...")
+
+        step1_buildings = cast(
+            List[Building],
+            merge_building_footprints(
+                buildings,
+                lod=GeometryType.LOD0,
+                max_distance=merge_tolerance,
+                min_area=min_building_area,
+                return_index_map=False,
+            ),
+        )
+
+        step2_buildings = cast(
+            List[Building],
+            merge_building_footprints(
+                step1_buildings,
+                GeometryType.LOD0,
+                max_distance=0.0,
+                min_area=min_building_area,
+                return_index_map=False,
+            ),
+        )
+
+        simplified_footprints = cast(
+            List[Building],
+            simplify_building_footprints(
+                step2_buildings,
+                min_building_detail,
+                lod=GeometryType.LOD0,
+                return_index_map=False,
+            ),
+        )
+
+        building_footprints = [
+            b.get_footprint(GeometryType.LOD0) for b in simplified_footprints
+        ]
+        processed_buildings = simplified_footprints
+
+        info(f"After merging: {len(building_footprints)} buildings.")
+    else:
+        building_footprints = [b.get_footprint(lod) for b in buildings]
+        processed_buildings = buildings
+
+    # Filter out None and invalid footprints
+    valid_indices = []
+    for i, fp in enumerate(building_footprints):
+        if fp is None:
+            continue
+        try:
+            if hasattr(fp, "is_valid") and not fp.is_valid():
+                warning(f"Skipping invalid footprint at index {i}")
+                continue
+            if hasattr(fp, "is_empty") and fp.is_empty():
+                warning(f"Skipping empty footprint at index {i}")
+                continue
+            if hasattr(fp, "area") and fp.area <= 0:
+                warning(f"Skipping zero-area footprint at index {i}")
+                continue
+            valid_indices.append(i)
+        except Exception as e:
+            warning(f"Skipping footprint at index {i} due to validation error: {e}")
+            continue
+
+    if not valid_indices:
+        raise ValueError("No valid building footprints available for meshing.")
+
+    building_footprints = [building_footprints[i] for i in valid_indices]
+    processed_buildings = [processed_buildings[i] for i in valid_indices]
+
+    info(f"Using {len(valid_indices)} valid building footprints for meshing.")
+
+    # Set subdomain resolution based on building heights
+    subdomain_resolution = []
+    for building in processed_buildings:
+        try:
+            height = building.height
+            if height is None or height <= 0:
+                height = max_mesh_size
+            subdomain_resolution.append(min(height, max_mesh_size))
+        except (AttributeError, TypeError):
+            subdomain_resolution.append(max_mesh_size)
+
+    return building_footprints, processed_buildings, subdomain_resolution
+
+
 def build_city_surface_mesh(
     city: City,
     lod: GeometryType | list[GeometryType] = GeometryType.LOD1,
@@ -302,6 +430,109 @@ def build_city_surface_mesh(
     return result_mesh
 
 
+def build_city_flat_mesh(
+    city: City,
+    lod: GeometryType = GeometryType.LOD1,
+    max_mesh_size: float = 10.0,
+    min_mesh_angle: float = 25.0,
+    merge_buildings: bool = True,
+    min_building_detail: float = 0.5,
+    min_building_area: float = 15.0,
+    merge_tolerance: float = 0.5,
+) -> Mesh:
+    """Build a flat 2D triangular mesh of the city with building footprints marked.
+
+    The mesh lies in the z = 0 plane. Triangle edges conform to building
+    footprint boundaries and each triangle carries an integer marker:
+
+    * ``-2`` — ground (outside buildings and halos)
+    * ``-1`` — halo (triangles that touch a building but are not inside one)
+    * ``0, 1, 2, …`` — index of the building whose footprint contains the
+      triangle
+
+    Parameters
+    ----------
+    city : City
+        City object containing terrain bounds and building data.
+    lod : GeometryType, optional
+        Level-of-Detail used when *merge_buildings* is False (default LOD1).
+    max_mesh_size : float, optional
+        Maximum triangle size (default 10.0).
+    min_mesh_angle : float, optional
+        Minimum angle quality constraint in degrees (default 25.0).
+    merge_buildings : bool, optional
+        Merge adjacent/overlapping building footprints (default True).
+    min_building_detail : float, optional
+        Minimum feature size to resolve in footprints (default 0.5).
+    min_building_area : float, optional
+        Minimum footprint area; smaller buildings are dropped (default 15.0).
+    merge_tolerance : float, optional
+        Distance tolerance for merging footprints (default 0.5).
+
+    Returns
+    -------
+    Mesh
+        A flat (z = 0) triangular mesh with per-face markers indicating
+        building membership.
+
+    Raises
+    ------
+    ValueError
+        If the city has no terrain data or no valid building footprints.
+    """
+    # Validate terrain (needed for domain bounds)
+    terrain = city.terrain
+    if terrain is None:
+        raise ValueError("City has no terrain data. Please compute terrain first.")
+
+    buildings = city.buildings
+    if not buildings:
+        warning("City has no buildings.")
+
+    # Preprocess buildings
+    building_footprints, _processed_buildings, subdomain_resolution = (
+        _preprocess_buildings(
+            buildings,
+            lod=lod,
+            merge_buildings=merge_buildings,
+            merge_tolerance=merge_tolerance,
+            min_building_area=min_building_area,
+            min_building_detail=min_building_detail,
+            max_mesh_size=max_mesh_size,
+        )
+    )
+
+    report_progress(
+        percent=10,
+        message=f"Preprocessed {len(building_footprints)} building footprints",
+    )
+
+    # Convert footprints to builder polygons
+    _building_polygons = [
+        create_builder_polygon(footprint.to_polygon())
+        for footprint in building_footprints
+    ]
+
+    # Call C++ mesher
+    report_progress(percent=30, message="Building city flat mesh (C++)...")
+    _flat_mesh = _dtcc_builder.build_city_flat_mesh(
+        _building_polygons,
+        [],
+        subdomain_resolution,
+        terrain.bounds.xmin,
+        terrain.bounds.ymin,
+        terrain.bounds.xmax,
+        terrain.bounds.ymax,
+        max_mesh_size,
+        min_mesh_angle,
+        True,
+    )
+
+    flat_mesh = _flat_mesh.from_cpp()
+    report_progress(percent=100, message="City flat mesh complete")
+    return flat_mesh
+
+
 def build_city_volume_mesh(
     city: City,
     lod: GeometryType = GeometryType.LOD1,
@@ -447,103 +678,22 @@ def build_city_volume_mesh(
         terrain_raster = mesh_to_raster(terrain_mesh, cell_size=max_mesh_size)
 
     # 2. PREPROCESS BUILDINGS
-    # Note: For volume meshing, we use a simplified preprocessing pipeline
-    # to avoid geometry issues that cause crashes in the C++ surface mesher
-    if merge_buildings:
-        info(f"Merging {len(buildings)} buildings...")
-
-        # First merge pass
-        step1_buildings = cast(
-            List[Building],
-            merge_building_footprints(
-                buildings,
-                lod=GeometryType.LOD0,
-                max_distance=merge_tolerance,
-                min_area=min_building_area,
-                return_index_map=False,
-            ),
+    building_footprints, processed_buildings, subdomain_resolution = (
+        _preprocess_buildings(
+            buildings,
+            lod=lod,
+            merge_buildings=merge_buildings,
+            merge_tolerance=merge_tolerance,
+            min_building_area=min_building_area,
+            min_building_detail=min_building_detail,
+            max_mesh_size=max_mesh_size,
         )
-
-        # Second merge pass (merge touching buildings) - skip cleaning step
-        step2_buildings = cast(
-            List[Building],
-            merge_building_footprints(
-                step1_buildings,
-                GeometryType.LOD0,
-                max_distance=0.0,
-                min_area=min_building_area,
-                return_index_map=False,
-            ),
-        )
-
-        # Simplify footprints
-        simplified_footprints = cast(
-            List[Building],
-            simplify_building_footprints(
-                step2_buildings,
-                min_building_detail,
-                lod=GeometryType.LOD0,
-                return_index_map=False,
-            ),
-        )
-
-        # Extract footprints and use processed buildings
-        building_footprints = [
-            b.get_footprint(GeometryType.LOD0) for b in simplified_footprints
-        ]
-        processed_buildings = simplified_footprints
-
-        info(f"After merging: {len(building_footprints)} buildings.")
-    else:
-        # No merging - use original buildings with requested LOD
-        building_footprints = [b.get_footprint(lod) for b in buildings]
-        processed_buildings = buildings
-
-    # Filter out None and invalid footprints
-    valid_indices = []
-    for i, fp in enumerate(building_footprints):
-        if fp is None:
-            continue
-        # Validate geometry is not empty and has valid bounds
-        try:
-            if hasattr(fp, "is_valid") and not fp.is_valid():
-                warning(f"Skipping invalid footprint at index {i}")
-                continue
-            if hasattr(fp, "is_empty") and fp.is_empty():
-                warning(f"Skipping empty footprint at index {i}")
-                continue
-            # Check if geometry has area
-            if hasattr(fp, "area") and fp.area <= 0:
-                warning(f"Skipping zero-area footprint at index {i}")
-                continue
-            valid_indices.append(i)
-        except Exception as e:
-            warning(f"Skipping footprint at index {i} due to validation error: {e}")
-            continue
-
-    if not valid_indices:
-        raise ValueError("No valid building footprints available for meshing.")
-
-    building_footprints = [building_footprints[i] for i in valid_indices]
-    processed_buildings = [processed_buildings[i] for i in valid_indices]
-
-    info(f"Using {len(valid_indices)} valid building footprints for meshing.")
-    report_progress(
-        percent=10, message=f"Preprocessed {len(valid_indices)} building footprints"
     )
 
-    # Set subdomain resolution based on processed buildings
-    # Use building heights with validation and fallback to max_mesh_size
-    subdomain_resolution = []
-    for building in processed_buildings:
-        try:
-            height = building.height
-            if height is None or height <= 0:
-                height = max_mesh_size
-            subdomain_resolution.append(min(height, max_mesh_size))
-        except (AttributeError, TypeError):
-            # Fallback if height is not accessible
-            subdomain_resolution.append(max_mesh_size)
+    report_progress(
+        percent=10,
+        message=f"Preprocessed {len(building_footprints)} building footprints",
+    )
 
     # 3. prepare builder objects
 
@@ -631,8 +781,8 @@ def build_city_volume_mesh(
         for footprint in building_footprints
     ]
 
-    # Build ground mesh
-    _ground_mesh = _dtcc_builder.build_ground_mesh(
+    # Build flat mesh (ground mesh with building markers)
+    _ground_mesh = _dtcc_builder.build_city_flat_mesh(
         _building_polygons,
         [],
         subdomain_resolution,

@@ -224,6 +224,61 @@ class CityBuilderMixin:
         )
         return surface_mesh
 
+    def build_flat_mesh(
+        self: "T_City",
+        lod: GeometryType = GeometryType.LOD1,
+        max_mesh_size: float = 10.0,
+        min_mesh_angle: float = 25.0,
+        merge_buildings: bool = True,
+        min_building_detail: float = 0.5,
+        min_building_area: float = 15.0,
+        merge_tolerance: float = 0.5,
+    ) -> Mesh:
+        """Build a flat 2D triangular mesh of the city with building markers.
+
+        Delegates to :func:`dtcc_core.builder.build_city_flat_mesh`,
+        passing ``self`` as the *city* argument.
+
+        The mesh lies in the z = 0 plane. Triangle edges conform to
+        building footprint boundaries and each triangle carries an
+        integer marker indicating building membership.
+
+        Parameters
+        ----------
+        lod : GeometryType, optional
+            Level-of-Detail for footprint extraction (default LOD1).
+        max_mesh_size : float, optional
+            Maximum triangle size (default 10.0).
+        min_mesh_angle : float, optional
+            Minimum angle quality constraint (default 25.0).
+        merge_buildings : bool, optional
+            Merge adjacent building footprints (default True).
+        min_building_detail : float, optional
+            Minimum feature size to resolve (default 0.5).
+        min_building_area : float, optional
+            Minimum footprint area threshold (default 15.0).
+        merge_tolerance : float, optional
+            Distance tolerance for merging (default 0.5).
+
+        Returns
+        -------
+        Mesh
+            A flat (z = 0) triangular mesh with per-face building markers.
+        """
+        from dtcc_core.builder import build_city_flat_mesh
+
+        flat_mesh = build_city_flat_mesh(
+            self,
+            lod=lod,
+            max_mesh_size=max_mesh_size,
+            min_mesh_angle=min_mesh_angle,
+            merge_buildings=merge_buildings,
+            min_building_detail=min_building_detail,
+            min_building_area=min_building_area,
+            merge_tolerance=merge_tolerance,
+        )
+        return flat_mesh
+
     def build_volume_mesh(
         self: "T_City",
         lod: GeometryType = GeometryType.LOD1,

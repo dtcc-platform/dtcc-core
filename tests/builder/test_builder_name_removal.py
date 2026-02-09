@@ -43,8 +43,14 @@ class TestCanonicalNamesExist:
     def test_build_city_volume_mesh_exists(self):
         assert hasattr(dtcc_core.builder, "build_city_volume_mesh")
 
+    def test_build_city_flat_mesh_exists(self):
+        assert hasattr(dtcc_core.builder, "build_city_flat_mesh")
+
     def test_import_build_terrain_surface_mesh(self):
         from dtcc_core.builder import build_terrain_surface_mesh  # noqa: F401
 
     def test_import_build_city_surface_mesh(self):
         from dtcc_core.builder import build_city_surface_mesh  # noqa: F401
+
+    def test_import_build_city_flat_mesh(self):
+        from dtcc_core.builder import build_city_flat_mesh  # noqa: F401
