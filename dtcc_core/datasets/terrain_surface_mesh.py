@@ -8,7 +8,7 @@ from .dataset import DatasetDescriptor, DatasetBaseArgs
 from dtcc_core.common.progress import ProgressTracker, report_progress
 
 
-class TerrainArgs(DatasetBaseArgs):
+class TerrainSurfaceMeshArgs(DatasetBaseArgs):
     raster_resolution: float = Field(
         2, description="Resolution of the terrain raster in meters"
     )
@@ -30,12 +30,12 @@ class TerrainArgs(DatasetBaseArgs):
     )
 
 
-class TerrainDataset(DatasetDescriptor):
-    name = "terrain"
-    description = "Generate terrain raster or mesh from point cloud data."
-    ArgsModel = TerrainArgs
+class TerrainSurfaceMeshDataset(DatasetDescriptor):
+    name = "terrain_surface_mesh"
+    description = "Generate a terrain surface mesh from point cloud data."
+    ArgsModel = TerrainSurfaceMeshArgs
 
-    def build(self, args: TerrainArgs):
+    def build(self, args: TerrainSurfaceMeshArgs):
         progress_phases = {
             "download_pointcloud": 0.40,
             "remove_outliers": 0.10,

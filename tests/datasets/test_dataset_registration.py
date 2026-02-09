@@ -217,7 +217,7 @@ def test_list_returns_all_datasets():
     # Should include built-in datasets
     assert "pointcloud" in available
     assert "Buildings LoD1" in available
-    assert "terrain" in available
+    assert "terrain_surface_mesh" in available
 
     # Should include test datasets
     assert "test_dataset" in available
@@ -256,10 +256,10 @@ def test_module_attribute_access_buildings():
 
 
 def test_module_attribute_access_terrain():
-    """Test backward-compatible access to terrain dataset."""
-    terrain = datasets.terrain
-    assert isinstance(terrain, DatasetDescriptor)
-    assert terrain.name == "terrain"
+    """Test backward-compatible access to terrain surface mesh dataset."""
+    terrain_surface_mesh = datasets.terrain_surface_mesh
+    assert isinstance(terrain_surface_mesh, DatasetDescriptor)
+    assert terrain_surface_mesh.name == "terrain_surface_mesh"
 
 
 def test_module_attribute_access_custom():

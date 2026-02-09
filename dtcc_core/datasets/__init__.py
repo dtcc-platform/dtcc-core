@@ -4,8 +4,10 @@ from .dataset import DatasetDescriptor, DatasetBaseArgs
 # Import dataset classes to trigger auto-registration
 from .pointcloud import PointCloudDataset
 from .buildings import BuildingDataset
-from .terrain import TerrainDataset
-from .volumemesh import VolumeMeshDataset
+from .terrain_surface_mesh import TerrainSurfaceMeshDataset
+from .city_surface_mesh import CitySurfaceMeshDataset
+from .city_flat_mesh import CityFlatMeshDataset
+from .city_volume_mesh import CityVolumeMeshDataset
 from .air_quality import AirQualityDataset
 from .trees import TreesDataset
 
@@ -24,8 +26,10 @@ from .registry import (
 # themselves available as attributes, which would shadow the registered instances
 pointcloud = get_dataset("pointcloud")
 buildings = get_dataset("Buildings LoD1")
-terrain = get_dataset("terrain")
-volumemesh = get_dataset("volumemesh")
+terrain_surface_mesh = get_dataset("terrain_surface_mesh")
+city_surface_mesh = get_dataset("city_surface_mesh")
+city_flat_mesh = get_dataset("city_flat_mesh")
+city_volume_mesh = get_dataset("city_volume_mesh")
 air_quality = get_dataset("air_quality")
 trees = get_dataset("trees")
 

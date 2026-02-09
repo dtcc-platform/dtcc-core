@@ -7,7 +7,7 @@ from .dataset import DatasetDescriptor, DatasetBaseArgs
 from dtcc_core.common.progress import ProgressTracker, report_progress
 
 
-class VolumeMeshArgs(DatasetBaseArgs):
+class CityVolumeMeshArgs(DatasetBaseArgs):
     max_mesh_size: float = Field(
         25.0, description="Maximum mesh size (h parameter) in meters"
     )
@@ -40,12 +40,12 @@ class VolumeMeshArgs(DatasetBaseArgs):
     )
 
 
-class VolumeMeshDataset(DatasetDescriptor):
-    name = "volumemesh"
+class CityVolumeMeshDataset(DatasetDescriptor):
+    name = "city_volume_mesh"
     description = "Generate a tetrahedral volume mesh from point cloud and building data, suitable for CFD/FEM simulations."
-    ArgsModel = VolumeMeshArgs
+    ArgsModel = CityVolumeMeshArgs
 
-    def build(self, args: VolumeMeshArgs):
+    def build(self, args: CityVolumeMeshArgs):
         """Build a volume mesh from point cloud and building data.
 
         This method:

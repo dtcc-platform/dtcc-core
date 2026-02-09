@@ -484,7 +484,8 @@ PYBIND11_MODULE(_dtcc_builder, m)
   // m.def("build_mesh", &DTCC_BUILDER::MeshBuilder::build_mesh,
   //       "build mesh for city, returning a list of meshes");
 
-  m.def("build_city_flat_mesh", &DTCC_BUILDER::MeshBuilder::build_city_flat_mesh, "build city flat mesh");
+  m.def("build_city_flat_mesh", &DTCC_BUILDER::MeshBuilder::build_city_flat_mesh,
+        "build city flat mesh");
 
   m.def("build_terrain_surface_mesh", &DTCC_BUILDER::MeshBuilder::build_terrain_surface_mesh,
         "build terrain surface mesh");
