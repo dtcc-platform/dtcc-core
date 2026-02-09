@@ -7,6 +7,7 @@ import tempfile
 from .dataset import DatasetDescriptor, DatasetBaseArgs
 from dtcc_core.common.progress import ProgressTracker, report_progress
 
+
 class PointCloudArgs(DatasetBaseArgs):
     classifications: Union[
         int, list[int], Literal["all", "terrain", "buildings", "vegetation"]
@@ -33,7 +34,9 @@ class PointCloudArgs(DatasetBaseArgs):
 
 class PointCloudDataset(DatasetDescriptor):
     name = "point_cloud"
-    description = "Point cloud data with optional classification filtering and outlier removal."
+    description = (
+        "Point cloud data with optional classification filtering and outlier removal."
+    )
     ArgsModel = PointCloudArgs
 
     @staticmethod
@@ -62,20 +65,28 @@ class PointCloudDataset(DatasetDescriptor):
         with ProgressTracker(total=1.0, phases=progress_phases) as progress:
             bounds = self.parse_bounds(args.bounds)
 
-            with progress.phase("download_pointcloud", "Downloading point cloud data..."):
+            with progress.phase(
+                "download_pointcloud", "Downloading point cloud data..."
+            ):
                 pc: PointCloud = dtcc_core.io.data.download_pointcloud(bounds=bounds)
 
             with progress.phase(
                 "filter_classifications",
-                "Filtering point cloud classifications..."
-                if args.classifications not in ("all", None)
-                else "Using all classifications",
+                (
+                    "Filtering point cloud classifications..."
+                    if args.classifications not in ("all", None)
+                    else "Using all classifications"
+                ),
             ):
                 if args.classifications == "vegetation":
-                    report_progress(percent=30, message="Extracting vegetation points...")
+                    report_progress(
+                        percent=30, message="Extracting vegetation points..."
+                    )
                     pc = pc.get_vegetation()
                 elif args.classifications not in ("all", None):
-                    classifications = self._resolve_classifications(args.classifications)
+                    classifications = self._resolve_classifications(
+                        args.classifications
+                    )
                     if classifications:
                         report_progress(
                             percent=30,
@@ -85,17 +96,22 @@ class PointCloudDataset(DatasetDescriptor):
 
             with progress.phase(
                 "remove_outliers",
-                f"Removing outliers (threshold={args.remove_outlier_threshold})..."
-                if args.remove_outliers
-                else "Skipping outlier removal",
+                (
+                    f"Removing outliers (threshold={args.remove_outlier_threshold})..."
+                    if args.remove_outliers
+                    else "Skipping outlier removal"
+                ),
             ):
                 if args.remove_outliers:
                     pc = pc.remove_global_outliers(args.remove_outlier_threshold)
 
             with progress.phase(
                 "export",
-                f"Exporting to {args.format}..." if args.format
-                else "Preparing point cloud result...",
+                (
+                    f"Exporting to {args.format}..."
+                    if args.format
+                    else "Preparing point cloud result..."
+                ),
             ):
                 if args.format is not None:
                     return self.export_to_bytes(pc, args.format)

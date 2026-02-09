@@ -30,10 +30,12 @@ class CityVolumeMeshArgs(DatasetBaseArgs):
         True, description="Whether to add boundary face markers to the mesh"
     )
     max_volume: Optional[float] = Field(
-        None, description="Maximum tetrahedron volume (defaults to max_mesh_size if not set)"
+        None,
+        description="Maximum tetrahedron volume (defaults to max_mesh_size if not set)",
     )
     tetgen_extra: str = Field(
-        " -VV", description="Extra switches to pass to TetGen (e.g., ' -VV' for verbose output)"
+        " -VV",
+        description="Extra switches to pass to TetGen (e.g., ' -VV' for verbose output)",
     )
     format: Optional[Literal["xdmf", "vtu"]] = Field(
         None, description="Output file format"
@@ -76,19 +78,28 @@ class CityVolumeMeshDataset(DatasetDescriptor):
         with ProgressTracker(total=1.0, phases=progress_phases) as progress:
             bounds = self.parse_bounds(args.bounds)
 
-            with progress.phase("download_pointcloud", "Downloading point cloud data..."):
+            with progress.phase(
+                "download_pointcloud", "Downloading point cloud data..."
+            ):
                 pointcloud = dtcc_core.io.data.download_pointcloud(bounds=bounds)
 
-            with progress.phase("download_footprints", "Downloading building footprints..."):
+            with progress.phase(
+                "download_footprints", "Downloading building footprints..."
+            ):
                 buildings = dtcc_core.io.data.download_footprints(bounds=bounds)
 
             with progress.phase(
                 "remove_outliers",
-                "Removing outliers..." if args.remove_outliers
-                else "Skipping outlier removal...",
+                (
+                    "Removing outliers..."
+                    if args.remove_outliers
+                    else "Skipping outlier removal..."
+                ),
             ):
                 if args.remove_outliers:
-                    pointcloud = pointcloud.remove_global_outliers(args.outlier_threshold)
+                    pointcloud = pointcloud.remove_global_outliers(
+                        args.outlier_threshold
+                    )
 
             with progress.phase("build_terrain", "Building terrain raster..."):
                 raster = dtcc_core.builder.build_terrain_raster(
@@ -101,7 +112,9 @@ class CityVolumeMeshDataset(DatasetDescriptor):
             with progress.phase("extract_roof_points", "Extracting roof points..."):
                 buildings = dtcc_core.builder.extract_roof_points(buildings, pointcloud)
 
-            with progress.phase("compute_building_heights", "Computing building heights..."):
+            with progress.phase(
+                "compute_building_heights", "Computing building heights..."
+            ):
                 buildings = dtcc_core.builder.compute_building_heights(
                     buildings, raster, overwrite=True
                 )
@@ -112,7 +125,11 @@ class CityVolumeMeshDataset(DatasetDescriptor):
                 city.add_buildings(buildings, remove_outside_terrain=True)
 
             with progress.phase("build_mesh", "Building volume mesh..."):
-                max_vol = args.max_volume if args.max_volume is not None else args.max_mesh_size
+                max_vol = (
+                    args.max_volume
+                    if args.max_volume is not None
+                    else args.max_mesh_size
+                )
                 volume_mesh = dtcc_core.builder.build_city_volume_mesh(
                     city,
                     max_mesh_size=args.max_mesh_size,
@@ -126,8 +143,11 @@ class CityVolumeMeshDataset(DatasetDescriptor):
 
             with progress.phase(
                 "export",
-                f"Exporting to {args.format}..." if args.format
-                else "Preparing volume mesh...",
+                (
+                    f"Exporting to {args.format}..."
+                    if args.format
+                    else "Preparing volume mesh..."
+                ),
             ):
                 if args.format is not None:
                     return self.export_to_bytes(volume_mesh, args.format)

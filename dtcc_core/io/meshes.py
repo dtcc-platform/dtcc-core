@@ -115,7 +115,10 @@ def _load_meshio_city_mesh(
 
 
 def _save_meshio_mesh(mesh, path):
-    _mesh = meshio.Mesh(mesh.vertices, [("triangle", mesh.faces)])
+    cell_data = {}
+    if mesh.markers is not None and len(mesh.markers) > 0:
+        cell_data["markers"] = [mesh.markers]
+    _mesh = meshio.Mesh(mesh.vertices, [("triangle", mesh.faces)], cell_data=cell_data)
     kwargs = {}
     if path.suffix == ".stl":
         kwargs["binary"] = True

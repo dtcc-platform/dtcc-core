@@ -450,7 +450,9 @@ class AirQualityDataset(DatasetDescriptor):
             bounds = self.parse_bounds(args.bounds)
             bounds_tuple = (bounds.xmin, bounds.ymin, bounds.xmax, bounds.ymax)
 
-            with progress.phase("resolve_api", f"Resolving phenomenon '{args.phenomenon}'..."):
+            with progress.phase(
+                "resolve_api", f"Resolving phenomenon '{args.phenomenon}'..."
+            ):
                 phenomenon_id = _resolve_phenomenon_id(
                     args.base_url, args.phenomenon, args.timeout_s
                 )
@@ -465,7 +467,9 @@ class AirQualityDataset(DatasetDescriptor):
                     message=f"Found {len(stations_data)} stations",
                 )
 
-            with progress.phase("fetch_measurements", "Fetching measurements from stations..."):
+            with progress.phase(
+                "fetch_measurements", "Fetching measurements from stations..."
+            ):
                 sensor_collection = SensorCollection()
                 sensor_collection.attributes = {
                     "dtcc_type": "sensor_collection",
@@ -609,7 +613,9 @@ class AirQualityDataset(DatasetDescriptor):
                     }
                 )
 
-                info(f"Successfully retrieved {stations_used} stations with measurements")
+                info(
+                    f"Successfully retrieved {stations_used} stations with measurements"
+                )
                 if stations_skipped_no_value > 0:
                     info(
                         f"Skipped {stations_skipped_no_value} stations with no current measurements"
@@ -619,8 +625,11 @@ class AirQualityDataset(DatasetDescriptor):
 
             with progress.phase(
                 "export",
-                "Exporting to protobuf..." if args.format == "pb"
-                else "Preparing sensor collection...",
+                (
+                    "Exporting to protobuf..."
+                    if args.format == "pb"
+                    else "Preparing sensor collection..."
+                ),
             ):
                 if args.format == "pb":
                     return self.export_to_bytes(sensor_collection, "pb")

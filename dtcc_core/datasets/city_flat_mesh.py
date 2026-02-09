@@ -8,12 +8,8 @@ from dtcc_core.common.progress import ProgressTracker, report_progress
 
 
 class CityFlatMeshArgs(DatasetBaseArgs):
-    max_mesh_size: float = Field(
-        10.0, description="Maximum triangle size in meters"
-    )
-    min_mesh_angle: float = Field(
-        25.0, description="Minimum triangle angle in degrees"
-    )
+    max_mesh_size: float = Field(10.0, description="Maximum triangle size in meters")
+    min_mesh_angle: float = Field(25.0, description="Minimum triangle angle in degrees")
     raster_cell_size: float = Field(
         2.0, description="Cell size for terrain raster in meters"
     )
@@ -42,7 +38,9 @@ class CityFlatMeshArgs(DatasetBaseArgs):
 
 class CityFlatMeshDataset(DatasetDescriptor):
     name = "city_flat_mesh"
-    description = "Flat 2D triangular mesh at z=0 with building footprints marked as subdomains."
+    description = (
+        "Flat 2D triangular mesh at z=0 with building footprints marked as subdomains."
+    )
     ArgsModel = CityFlatMeshArgs
 
     def build(self, args: CityFlatMeshArgs):
@@ -76,19 +74,28 @@ class CityFlatMeshDataset(DatasetDescriptor):
         with ProgressTracker(total=1.0, phases=progress_phases) as progress:
             bounds = self.parse_bounds(args.bounds)
 
-            with progress.phase("download_pointcloud", "Downloading point cloud data..."):
+            with progress.phase(
+                "download_pointcloud", "Downloading point cloud data..."
+            ):
                 pointcloud = dtcc_core.io.data.download_pointcloud(bounds=bounds)
 
-            with progress.phase("download_footprints", "Downloading building footprints..."):
+            with progress.phase(
+                "download_footprints", "Downloading building footprints..."
+            ):
                 buildings = dtcc_core.io.data.download_footprints(bounds=bounds)
 
             with progress.phase(
                 "remove_outliers",
-                "Removing outliers..." if args.remove_outliers
-                else "Skipping outlier removal...",
+                (
+                    "Removing outliers..."
+                    if args.remove_outliers
+                    else "Skipping outlier removal..."
+                ),
             ):
                 if args.remove_outliers:
-                    pointcloud = pointcloud.remove_global_outliers(args.outlier_threshold)
+                    pointcloud = pointcloud.remove_global_outliers(
+                        args.outlier_threshold
+                    )
 
             with progress.phase("build_terrain", "Building terrain raster..."):
                 raster = dtcc_core.builder.build_terrain_raster(
@@ -101,7 +108,9 @@ class CityFlatMeshDataset(DatasetDescriptor):
             with progress.phase("extract_roof_points", "Extracting roof points..."):
                 buildings = dtcc_core.builder.extract_roof_points(buildings, pointcloud)
 
-            with progress.phase("compute_building_heights", "Computing building heights..."):
+            with progress.phase(
+                "compute_building_heights", "Computing building heights..."
+            ):
                 buildings = dtcc_core.builder.compute_building_heights(
                     buildings, raster, overwrite=True
                 )
@@ -123,8 +132,11 @@ class CityFlatMeshDataset(DatasetDescriptor):
 
             with progress.phase(
                 "export",
-                f"Exporting to {args.format}..." if args.format
-                else "Preparing flat mesh...",
+                (
+                    f"Exporting to {args.format}..."
+                    if args.format
+                    else "Preparing flat mesh..."
+                ),
             ):
                 if args.format is not None:
                     return self.export_to_bytes(flat_mesh, args.format)

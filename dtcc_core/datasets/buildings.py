@@ -42,25 +42,36 @@ class BuildingDataset(DatasetDescriptor):
             city = City()
             city.bounds = bounds
 
-            with progress.phase("download_pointcloud", "Downloading point cloud data..."):
+            with progress.phase(
+                "download_pointcloud", "Downloading point cloud data..."
+            ):
                 city.download_pointcloud()
 
-            with progress.phase("download_footprints", "Downloading building footprints..."):
+            with progress.phase(
+                "download_footprints", "Downloading building footprints..."
+            ):
                 city.download_footprints()
 
             with progress.phase("remove_outliers", "Removing point cloud outliers..."):
                 city.add_point_cloud(city.pointcloud.remove_global_outliers(3.0))
 
-            with progress.phase("compute_building_heights", "Computing building heights..."):
+            with progress.phase(
+                "compute_building_heights", "Computing building heights..."
+            ):
                 report_progress(percent=10, message="Building terrain raster...")
                 terrain_raster = dtcc_core.builder.build_terrain_raster(
-                    city.pointcloud, cell_size=2.0, ground_only=True, _report_progress=False
+                    city.pointcloud,
+                    cell_size=2.0,
+                    ground_only=True,
+                    _report_progress=False,
                 )
                 report_progress(percent=40, message="Extracting roof points...")
                 buildings = dtcc_core.builder.extract_roof_points(
                     city.buildings, city.pointcloud
                 )
-                report_progress(percent=70, message="Computing heights from roof points...")
+                report_progress(
+                    percent=70, message="Computing heights from roof points..."
+                )
                 buildings = dtcc_core.builder.compute_building_heights(
                     buildings, terrain_raster, overwrite=True
                 )
@@ -70,8 +81,11 @@ class BuildingDataset(DatasetDescriptor):
 
             with progress.phase(
                 "export",
-                f"Exporting buildings to {args.format}..." if args.format
-                else "Preparing building result...",
+                (
+                    f"Exporting buildings to {args.format}..."
+                    if args.format
+                    else "Preparing building result..."
+                ),
             ):
                 if args.format is None:
                     return buildings
@@ -86,6 +100,8 @@ class BuildingDataset(DatasetDescriptor):
                         for b in building_meshes:
                             b.offset([0, 0, -b.bounds.zmin])
                     report_progress(percent=60, message="Merging meshes...")
-                    merged_mesh = dtcc_core.builder.meshing.merge_meshes(building_meshes)
+                    merged_mesh = dtcc_core.builder.meshing.merge_meshes(
+                        building_meshes
+                    )
                     report_progress(percent=80, message=f"Writing {args.format}...")
                     return self.export_to_bytes(merged_mesh, args.format)
