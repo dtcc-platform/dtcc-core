@@ -46,7 +46,7 @@ from .buildings import (
 )
 
 from .terrain import (
-    build_terrain_mesh,
+    build_terrain_surface_mesh,
     build_terrain_raster,
 )
 
@@ -71,7 +71,7 @@ from ..meshing.tetgen import (
 from dtcc_core.common.progress import report_progress
 
 
-def build_city_mesh(
+def build_city_surface_mesh(
     city: City,
     lod: GeometryType | list[GeometryType] = GeometryType.LOD1 ,
     min_building_detail: float = 0.5,
@@ -87,7 +87,7 @@ def build_city_mesh(
     treat_lod0_as_holes: bool = False,
 ) -> Mesh:
     """
-    Build a mesh from the surfaces of the buildings in the city.
+    Build a surface mesh from the surfaces of the buildings in the city.
 
     Parameters
     ----------

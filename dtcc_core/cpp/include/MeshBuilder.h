@@ -37,7 +37,7 @@ namespace DTCC_BUILDER
   {
   public:
     static Mesh
-    build_terrain_mesh(const std::vector<Polygon> &subdomains,
+    build_terrain_surface_mesh(const std::vector<Polygon> &subdomains,
                        const std::vector<Polygon> &holes,
                        const std::vector<double> &subdomain_triangle_size,
                        const GridField &dtm,
@@ -566,7 +566,7 @@ namespace DTCC_BUILDER
       {
         hole_domains.push_back(h.to_polygon());
       }
-      Mesh terrain_mesh = build_terrain_mesh(subdomains,hole_domains, subdomain_triangle_size,
+      Mesh terrain_mesh = build_terrain_surface_mesh(subdomains,hole_domains, subdomain_triangle_size,
                                              dtm, max_mesh_size, min_mesh_angle,
                                              smooth_ground, sort_triangles);
       terrain_time.stop();

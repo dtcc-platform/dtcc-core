@@ -60,14 +60,14 @@ class TerrainDataset(DatasetDescriptor):
             with progress.phase(
                 "build_terrain",
                 "Building terrain raster..." if args.format == "tif"
-                else "Building terrain mesh...",
+                else "Building terrain surface mesh...",
             ):
                 if args.format == "tif":
                     result = dtcc_core.builder.build_terrain_raster(
                         pc, cell_size=args.raster_resolution
                     )
                 else:
-                    result = dtcc_core.builder.build_terrain_mesh(
+                    result = dtcc_core.builder.build_terrain_surface_mesh(
                         pc,
                         max_mesh_size=args.mesh_resolution,
                         smoothing=args.smoothing,

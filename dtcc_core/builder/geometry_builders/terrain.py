@@ -22,7 +22,7 @@ from typing import List, Union
 from dtcc_core.common.progress import report_progress
 
 
-def build_terrain_mesh(
+def build_terrain_surface_mesh(
     data: Union[PointCloud, Raster],
     subdomains: list[Surface] = None,
     holes: list[Surface] = None,
@@ -33,9 +33,9 @@ def build_terrain_mesh(
     ground_points_only=True,
 ) -> Mesh:
     """
-    Build a triangular mesh from terrain data.
+    Build a triangular surface mesh from terrain data.
     
-    This function creates a triangular mesh representation of terrain from either
+    This function creates a triangular surface mesh representation of terrain from either
     point cloud or raster data, with optional subdomains for varying resolution.
     
     Parameters
@@ -69,7 +69,7 @@ def build_terrain_mesh(
     """
 
     """
-    Build a mesh of the terrain from a point cloud.
+    Build a surface mesh of the terrain from a point cloud.
 
     Parameters
     ----------
@@ -94,7 +94,7 @@ def build_terrain_mesh(
     Returns
     -------
     Mesh
-        The mesh of the terrain.
+        The surface mesh of the terrain.
     """
     if min_mesh_angle > 33:
         raise ValueError(
@@ -142,9 +142,9 @@ def build_terrain_mesh(
 
     subdomain_resolution = np.array(subdomain_resolution, dtype=np.float64)
 
-    report_progress(percent=40, message="Building terrain mesh (this may take a while)...")
+    report_progress(percent=40, message="Building terrain surface mesh (this may take a while)...")
 
-    terrain_mesh = _dtcc_builder.build_terrain_mesh(
+    terrain_mesh = _dtcc_builder.build_terrain_surface_mesh(
         subdomains,
         hole_polygons,
         subdomain_resolution,
@@ -158,7 +158,7 @@ def build_terrain_mesh(
     report_progress(percent=90, message="Converting mesh format...")
     terrain_mesh = builder_mesh_to_mesh(terrain_mesh)
 
-    report_progress(percent=100, message="Terrain mesh complete")
+    report_progress(percent=100, message="Terrain surface mesh complete")
     return terrain_mesh
 
 

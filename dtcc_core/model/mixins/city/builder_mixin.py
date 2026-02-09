@@ -37,7 +37,7 @@ class CityBuilderMixin:
         Returns:
             City: The city object with the terrain added.
         """
-        from dtcc_core.builder import build_terrain_raster, build_terrain_mesh
+        from dtcc_core.builder import build_terrain_raster, build_terrain_surface_mesh
         from ....model.object import Terrain
 
         if pc is not None and not isinstance(pc, PointCloud):
@@ -58,7 +58,7 @@ class CityBuilderMixin:
         terrain = Terrain()
         terrain.add_raster(raster)
         if build_mesh:
-            mesh = build_terrain_mesh(
+            mesh = build_terrain_surface_mesh(
                 raster,
                 max_mesh_size=max_triangle_size,
                 smoothing=smoothing,
@@ -205,9 +205,9 @@ class CityBuilderMixin:
         -------
         `Mesh` : The city surface mesh.
         """
-        from dtcc_core.builder import build_city_mesh
+        from dtcc_core.builder import build_city_surface_mesh
 
-        surface_mesh = build_city_mesh(
+        surface_mesh = build_city_surface_mesh(
             self,
             lod=lod,
             min_building_detail=min_building_detail,
