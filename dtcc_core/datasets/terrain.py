@@ -45,22 +45,29 @@ class TerrainDataset(DatasetDescriptor):
         with ProgressTracker(total=1.0, phases=progress_phases) as progress:
             bounds = self.parse_bounds(args.bounds)
 
-            with progress.phase("download_pointcloud", "Downloading point cloud data..."):
+            with progress.phase(
+                "download_pointcloud", "Downloading point cloud data..."
+            ):
                 pc = dtcc_core.io.data.download_pointcloud(bounds=bounds)
 
             with progress.phase(
                 "remove_outliers",
-                f"Removing outliers (threshold={args.remove_outlier_threshold})..."
-                if args.remove_outliers
-                else "Skipping outlier removal",
+                (
+                    f"Removing outliers (threshold={args.remove_outlier_threshold})..."
+                    if args.remove_outliers
+                    else "Skipping outlier removal"
+                ),
             ):
                 if args.remove_outliers:
                     pc = pc.remove_global_outliers(args.remove_outlier_threshold)
 
             with progress.phase(
                 "build_terrain",
-                "Building terrain raster..." if args.format == "tif"
-                else "Building terrain surface mesh...",
+                (
+                    "Building terrain raster..."
+                    if args.format == "tif"
+                    else "Building terrain surface mesh..."
+                ),
             ):
                 if args.format == "tif":
                     result = dtcc_core.builder.build_terrain_raster(
@@ -75,8 +82,11 @@ class TerrainDataset(DatasetDescriptor):
 
             with progress.phase(
                 "export",
-                f"Exporting terrain to {args.format}..." if args.format
-                else "Preparing terrain result...",
+                (
+                    f"Exporting terrain to {args.format}..."
+                    if args.format
+                    else "Preparing terrain result..."
+                ),
             ):
                 if args.format == "tif":
                     return self.export_to_bytes(result, "tif")

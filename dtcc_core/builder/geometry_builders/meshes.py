@@ -73,7 +73,7 @@ from dtcc_core.common.progress import report_progress
 
 def build_city_surface_mesh(
     city: City,
-    lod: GeometryType | list[GeometryType] = GeometryType.LOD1 ,
+    lod: GeometryType | list[GeometryType] = GeometryType.LOD1,
     min_building_detail: float = 0.5,
     min_building_area: float = 15.0,
     merge_buildings: bool = True,
@@ -94,8 +94,8 @@ def build_city_surface_mesh(
     `city` : model.City
         The city to build the mesh from.
     `lod` : GeometryType or list of GeometryType, optional
-        The meshing directive (Level of Detail) to apply to the buildings.  
-        If a single value is provided, it is applied uniformly to all buildings.  
+        The meshing directive (Level of Detail) to apply to the buildings.
+        If a single value is provided, it is applied uniformly to all buildings.
         If a list is provided, it must have the same length as the number of buildings
         in the city, and each entry specifies the directive for the corresponding building.
     `min_building_detail` : float, optional
@@ -163,14 +163,16 @@ def build_city_surface_mesh(
         return reduced
 
     buildings = city.buildings
-    
+
     n_buildings = len(buildings)
     if isinstance(lod, GeometryType):
         # single value -> broadcast to all
         lod = [lod] * n_buildings
     elif isinstance(lod, (list, tuple)):
         if len(lod) != n_buildings:
-            raise ValueError(f"lod list length {len(lod)} != number of buildings {n_buildings}")
+            raise ValueError(
+                f"lod list length {len(lod)} != number of buildings {n_buildings}"
+            )
         if not all(isinstance(x, GeometryType) for x in lod):
             raise TypeError("all elements in lod list must be GeometryType instances")
         lod = list(lod)
@@ -179,20 +181,20 @@ def build_city_surface_mesh(
             f"lod must be a single GeometryType or a list/tuple of {n_buildings} GeometryType values, "
             f"got {type(lod).__name__}"
         )
-    
+
     current_index_map: list[list[int]] | None = None
-    
+
     if merge_buildings:
         info(f"Merging {len(buildings)} buildings...")
         merged_buildings, index_map = merge_building_footprints(
-            buildings, 
-            lod= GeometryType.LOD0, 
-            max_distance=merge_tolerance, 
+            buildings,
+            lod=GeometryType.LOD0,
+            max_distance=merge_tolerance,
             min_area=min_building_area,
             return_index_map=True,
         )
         current_index_map = index_map
-        
+
         # city.replace_buildings(merged_buildings)
         # city.save_building_footprints("footprints_merged_mesher.gpkg")
 
@@ -221,25 +223,30 @@ def build_city_surface_mesh(
         # city.save_building_footprints("footprints_merged_cleaned_merged_mesher.gpkg")
 
         simplifed_footprints, simplified_index_map = simplify_building_footprints(
-            merged_buildings, min_building_detail / 2, lod=GeometryType.LOD0, return_index_map=True
+            merged_buildings,
+            min_building_detail / 2,
+            lod=GeometryType.LOD0,
+            return_index_map=True,
         )
         current_index_map = compose_index_map(current_index_map, simplified_index_map)
 
         target_lods = (
-            lod_from_index_map(current_index_map) if current_index_map is not None else []
+            lod_from_index_map(current_index_map)
+            if current_index_map is not None
+            else []
         )
 
         building_footprints = [
             b.get_footprint(GeometryType.LOD0) for b in simplifed_footprints
         ]
-        
+
     else:
         target_lods = lod
-        
+
         building_footprints = [
             b.get_footprint() for b, b_lod in zip(buildings, target_lods)
         ]
-    
+
     base_resolution = [building_mesh_triangle_size] * len(building_footprints)
     building_surfaces = []
     hole_surfaces = []
@@ -253,7 +260,7 @@ def build_city_surface_mesh(
         if footprint is None:
             continue
         builder_surface = create_builder_surface(footprint)
-        
+
         if treat_lod0_as_holes and lod_value == GeometryType.LOD0:
             hole_surfaces.append(builder_surface)
             continue
@@ -287,13 +294,12 @@ def build_city_surface_mesh(
         merge_meshes,
         sort_triangles,
     )
-    
+
     if merge_meshes:
         result_mesh = builder_mesh[0].from_cpp()
     else:
         result_mesh = [bm.from_cpp() for bm in builder_mesh]
     return result_mesh
-
 
 
 def build_city_volume_mesh(
@@ -424,7 +430,6 @@ def build_city_volume_mesh(
     ...                               boundary_face_markers=True)
     """
 
-
     # 1. VALIDATE INPUT AND TERRAIN
 
     buildings = city.buildings
@@ -501,14 +506,14 @@ def build_city_volume_mesh(
             continue
         # Validate geometry is not empty and has valid bounds
         try:
-            if hasattr(fp, 'is_valid') and not fp.is_valid():
+            if hasattr(fp, "is_valid") and not fp.is_valid():
                 warning(f"Skipping invalid footprint at index {i}")
                 continue
-            if hasattr(fp, 'is_empty') and fp.is_empty():
+            if hasattr(fp, "is_empty") and fp.is_empty():
                 warning(f"Skipping empty footprint at index {i}")
                 continue
             # Check if geometry has area
-            if hasattr(fp, 'area') and fp.area <= 0:
+            if hasattr(fp, "area") and fp.area <= 0:
                 warning(f"Skipping zero-area footprint at index {i}")
                 continue
             valid_indices.append(i)
@@ -523,7 +528,9 @@ def build_city_volume_mesh(
     processed_buildings = [processed_buildings[i] for i in valid_indices]
 
     info(f"Using {len(valid_indices)} valid building footprints for meshing.")
-    report_progress(percent=10, message=f"Preprocessed {len(valid_indices)} building footprints")
+    report_progress(
+        percent=10, message=f"Preprocessed {len(valid_indices)} building footprints"
+    )
 
     # Set subdomain resolution based on processed buildings
     # Use building heights with validation and fallback to max_mesh_size
@@ -538,16 +545,13 @@ def build_city_volume_mesh(
             # Fallback if height is not accessible
             subdomain_resolution.append(max_mesh_size)
 
-
     # 3. prepare builder objects
-   
 
     _surfaces = [create_builder_surface(footprint) for footprint in building_footprints]
     hole_surfaces: list = []
     lod_switch_value = _LOD_PRIORITY.get(lod, _LOD_PRIORITY[GeometryType.LOD3])
     meshing_directives = [lod_switch_value] * len(_surfaces)
     _dem = raster_to_builder_gridfield(terrain_raster)
-
 
     # 4. BUILD VOLUME MESH - TETGEN PATH
 
@@ -558,7 +562,9 @@ def build_city_volume_mesh(
         # Validate inputs before calling C++ mesher
         info(f"Number of surfaces: {len(_surfaces)}")
         info(f"Number of subdomain resolutions: {len(subdomain_resolution)}")
-        info(f"Max mesh size: {max_mesh_size}, Min angle: {min_mesh_angle}, Smoothing: {smoothing}")
+        info(
+            f"Max mesh size: {max_mesh_size}, Min angle: {min_mesh_angle}, Smoothing: {smoothing}"
+        )
 
         if len(_surfaces) != len(subdomain_resolution):
             raise ValueError(
@@ -584,13 +590,17 @@ def build_city_volume_mesh(
         )
 
         surface_mesh = builder_mesh[0].from_cpp()
-        report_progress(percent=55, message="Surface mesh built, preparing volume mesh...")
+        report_progress(
+            percent=55, message="Surface mesh built, preparing volume mesh..."
+        )
 
         # Validate surface mesh
         if surface_mesh.faces is None or len(surface_mesh.faces) == 0:
             raise ValueError("Surface mesh has no faces. Cannot build volume mesh.")
         if surface_mesh.markers is None or len(surface_mesh.markers) == 0:
-            raise ValueError("Surface mesh has no face markers. Cannot build volume mesh.")
+            raise ValueError(
+                "Surface mesh has no face markers. Cannot build volume mesh."
+            )
 
         # Configure TetGen switches
         switches_params = get_default_tetgen_switches()
@@ -610,7 +620,6 @@ def build_city_volume_mesh(
         report_progress(percent=95, message="Volume mesh complete")
 
         return volume_mesh
-
 
     # 5. BUILD VOLUME MESH - FALLBACK DTCC PATH
     info("Building volume mesh with fallback DTCC volume mesher...")

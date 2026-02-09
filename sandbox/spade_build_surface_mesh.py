@@ -38,4 +38,3 @@ print(f"Mesh built in {timer_end - timer_start:.4f} seconds")
 
 # Save mesh to file
 mesh.save("spade_surface_mesh.vtu")
-

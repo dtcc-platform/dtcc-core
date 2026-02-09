@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Union
 from typing import TypeVar, TYPE_CHECKING
 
-from ....model.geometry import PointCloud, Mesh
+from ....model.geometry import PointCloud, Mesh, VolumeMesh
 from ....model.object import GeometryType
 from ....model.values import Raster
 
@@ -223,6 +223,93 @@ class CityBuilderMixin:
             treat_lod0_as_holes=treat_lod0_as_holes,
         )
         return surface_mesh
+
+    def build_volume_mesh(
+        self: "T_City",
+        lod: GeometryType = GeometryType.LOD1,
+        domain_height: float = 100.0,
+        max_mesh_size: float = 10.0,
+        min_mesh_angle: float = 25.0,
+        merge_buildings: bool = True,
+        min_building_detail: float = 0.5,
+        min_building_area: float = 15.0,
+        merge_tolerance: float = 0.5,
+        smoothing: int = 0,
+        boundary_face_markers: bool = True,
+        tetgen_switches=None,
+        tetgen_switch_overrides=None,
+        smoother_max_iterations: int = 5000,
+        smoothing_relative_tolerance: float = 0.005,
+        aspect_ratio_threshold: float = 10.0,
+        debug_step: int = 7,
+    ) -> VolumeMesh:
+        """Build a 3D tetrahedral volume mesh for the city.
+
+        Delegates to :func:`dtcc_core.builder.build_city_volume_mesh`,
+        passing ``self`` as the *city* argument.
+
+        Parameters
+        ----------
+        lod : GeometryType, optional
+            Level-of-Detail directive for building footprints (default LOD1).
+        domain_height : float, optional
+            Height of the volume domain above terrain (default 100.0).
+        max_mesh_size : float, optional
+            Maximum element size (default 10.0).
+        min_mesh_angle : float, optional
+            Minimum mesh angle quality constraint (default 25.0).
+        merge_buildings : bool, optional
+            Merge adjacent building footprints (default True).
+        min_building_detail : float, optional
+            Minimum feature size to resolve in footprints (default 0.5).
+        min_building_area : float, optional
+            Minimum footprint area threshold (default 15.0).
+        merge_tolerance : float, optional
+            Distance tolerance for merging footprints (default 0.5).
+        smoothing : int, optional
+            Number of smoothing iterations (default 0).
+        boundary_face_markers : bool, optional
+            Annotate boundary faces with integer markers (default True).
+        tetgen_switches : dict, optional
+            High-level TetGen parameters.
+        tetgen_switch_overrides : dict, optional
+            Low-level TetGen switch overrides.
+        smoother_max_iterations : int, optional
+            Max iterations for fallback smoother (default 5000).
+        smoothing_relative_tolerance : float, optional
+            Relative tolerance for fallback smoothing (default 0.005).
+        aspect_ratio_threshold : float, optional
+            Aspect ratio threshold for fallback mesher (default 10.0).
+        debug_step : int, optional
+            Debug step for fallback mesher (default 7).
+
+        Returns
+        -------
+        VolumeMesh
+            The 3D tetrahedral volume mesh.
+        """
+        from dtcc_core.builder import build_city_volume_mesh
+
+        volume_mesh = build_city_volume_mesh(
+            self,
+            lod=lod,
+            domain_height=domain_height,
+            max_mesh_size=max_mesh_size,
+            min_mesh_angle=min_mesh_angle,
+            merge_buildings=merge_buildings,
+            min_building_detail=min_building_detail,
+            min_building_area=min_building_area,
+            merge_tolerance=merge_tolerance,
+            smoothing=smoothing,
+            boundary_face_markers=boundary_face_markers,
+            tetgen_switches=tetgen_switches,
+            tetgen_switch_overrides=tetgen_switch_overrides,
+            smoother_max_iterations=smoother_max_iterations,
+            smoothing_relative_tolerance=smoothing_relative_tolerance,
+            aspect_ratio_threshold=aspect_ratio_threshold,
+            debug_step=debug_step,
+        )
+        return volume_mesh
 
     def build_trees_from_pointcloud(
         self: "T_City", tree_type: str = "urban"

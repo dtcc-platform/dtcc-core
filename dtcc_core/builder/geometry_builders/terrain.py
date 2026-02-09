@@ -34,10 +34,10 @@ def build_terrain_surface_mesh(
 ) -> Mesh:
     """
     Build a triangular surface mesh from terrain data.
-    
+
     This function creates a triangular surface mesh representation of terrain from either
     point cloud or raster data, with optional subdomains for varying resolution.
-    
+
     Parameters
     ----------
     data : Union[PointCloud, Raster]
@@ -56,12 +56,12 @@ def build_terrain_surface_mesh(
         Number of smoothing iterations to apply.
     ground_points_only : bool, default True
         Whether to use only ground-classified points from point cloud.
-        
+
     Returns
     -------
     Mesh
         Triangular mesh representation of the terrain.
-        
+
     Raises
     ------
     ValueError
@@ -105,9 +105,13 @@ def build_terrain_surface_mesh(
     report_progress(percent=0, message="Preparing terrain data...")
 
     if isinstance(data, PointCloud):
-        report_progress(percent=10, message="Building terrain raster from point cloud...")
+        report_progress(
+            percent=10, message="Building terrain raster from point cloud..."
+        )
         dem = build_terrain_raster(
-            data, cell_size=max_mesh_size / 2, ground_only=ground_points_only,
+            data,
+            cell_size=max_mesh_size / 2,
+            ground_only=ground_points_only,
             _report_progress=False,
         )
     elif isinstance(data, Raster):
@@ -142,7 +146,9 @@ def build_terrain_surface_mesh(
 
     subdomain_resolution = np.array(subdomain_resolution, dtype=np.float64)
 
-    report_progress(percent=40, message="Building terrain surface mesh (this may take a while)...")
+    report_progress(
+        percent=40, message="Building terrain surface mesh (this may take a while)..."
+    )
 
     terrain_mesh = _dtcc_builder.build_terrain_surface_mesh(
         subdomains,
@@ -163,7 +169,12 @@ def build_terrain_surface_mesh(
 
 
 def build_terrain_raster(
-    pc: PointCloud, cell_size, bounds=None, window_size=3, radius=0, ground_only=True,
+    pc: PointCloud,
+    cell_size,
+    bounds=None,
+    window_size=3,
+    radius=0,
+    ground_only=True,
     _report_progress=True,
 ) -> Raster:
     """
