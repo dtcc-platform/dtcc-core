@@ -420,10 +420,9 @@ class AirQualityDataset(DatasetDescriptor):
 
     name = "air_quality"
     description = (
-        "Air quality sensor measurements from datavardluft.smhi.se. "
-        "Returns a SensorCollection with latest snapshot readings from stations "
-        "within the specified bounds. Each station Object has Point geometry and "
-        "Field with measured value plus metadata attributes."
+        "Air quality sensor measurements from datavardluft.smhi.se "
+        "as a SensorCollection with latest snapshot readings from stations "
+        "within the specified bounds."
     )
     ArgsModel = AirQualityDatasetArgs
 

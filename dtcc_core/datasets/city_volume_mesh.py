@@ -42,7 +42,7 @@ class CityVolumeMeshArgs(DatasetBaseArgs):
 
 class CityVolumeMeshDataset(DatasetDescriptor):
     name = "city_volume_mesh"
-    description = "Generate a tetrahedral volume mesh from point cloud and building data, suitable for CFD/FEM simulations."
+    description = "Tetrahedral volume mesh from point cloud and building data, suitable for CFD/FEM simulations."
     ArgsModel = CityVolumeMeshArgs
 
     def build(self, args: CityVolumeMeshArgs):

@@ -31,7 +31,7 @@ class TreeArgs(DatasetBaseArgs):
 
 class TreesDataset(DatasetDescriptor):
     name = "trees"
-    description = "Generate a raster of tree heights or vector points representing trees from point cloud data."
+    description = "Raster of tree heights or vector points representing trees from point cloud data."
     ArgsModel = TreeArgs
 
     def build(self, args: TreeArgs):

@@ -32,8 +32,8 @@ class PointCloudArgs(DatasetBaseArgs):
 
 
 class PointCloudDataset(DatasetDescriptor):
-    name = "pointcloud"
-    description = "Download point cloud data with optional classification filtering and outlier removal."
+    name = "point_cloud"
+    description = "Point cloud data with optional classification filtering and outlier removal."
     ArgsModel = PointCloudArgs
 
     @staticmethod

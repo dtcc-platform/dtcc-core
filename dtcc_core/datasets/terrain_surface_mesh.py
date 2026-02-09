@@ -32,7 +32,7 @@ class TerrainSurfaceMeshArgs(DatasetBaseArgs):
 
 class TerrainSurfaceMeshDataset(DatasetDescriptor):
     name = "terrain_surface_mesh"
-    description = "Generate a terrain surface mesh from point cloud data."
+    description = "Terrain surface mesh from point cloud data."
     ArgsModel = TerrainSurfaceMeshArgs
 
     def build(self, args: TerrainSurfaceMeshArgs):

@@ -24,8 +24,8 @@ class BuildingArgs(DatasetBaseArgs):
 
 
 class BuildingDataset(DatasetDescriptor):
-    name = "Buildings LoD1"
-    description = "Generate 3D buildings from point cloud and building footprints."
+    name = "buildings"
+    description = "3D buildings (LoD1) from point cloud and building footprints."
     ArgsModel = BuildingArgs
 
     def build(self, args: BuildingArgs):

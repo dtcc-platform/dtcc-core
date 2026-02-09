@@ -42,7 +42,7 @@ class CityFlatMeshArgs(DatasetBaseArgs):
 
 class CityFlatMeshDataset(DatasetDescriptor):
     name = "city_flat_mesh"
-    description = "Generate a flat 2D triangular mesh at z=0 with building footprints marked as subdomains."
+    description = "Flat 2D triangular mesh at z=0 with building footprints marked as subdomains."
     ArgsModel = CityFlatMeshArgs
 
     def build(self, args: CityFlatMeshArgs):

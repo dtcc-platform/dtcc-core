@@ -24,8 +24,8 @@ from .registry import (
 # Override module attributes with registered dataset instances
 # This is necessary because importing from submodules makes the submodules
 # themselves available as attributes, which would shadow the registered instances
-pointcloud = get_dataset("pointcloud")
-buildings = get_dataset("Buildings LoD1")
+point_cloud = get_dataset("point_cloud")
+buildings = get_dataset("buildings")
 terrain_surface_mesh = get_dataset("terrain_surface_mesh")
 city_surface_mesh = get_dataset("city_surface_mesh")
 city_flat_mesh = get_dataset("city_flat_mesh")

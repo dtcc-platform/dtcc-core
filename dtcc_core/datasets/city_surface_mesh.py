@@ -45,7 +45,7 @@ class CitySurfaceMeshArgs(DatasetBaseArgs):
 
 class CitySurfaceMeshDataset(DatasetDescriptor):
     name = "city_surface_mesh"
-    description = "Generate a triangular surface mesh of a city with terrain and extruded buildings."
+    description = "Triangular surface mesh of a city with terrain and extruded buildings."
     ArgsModel = CitySurfaceMeshArgs
 
     def build(self, args: CitySurfaceMeshArgs):
