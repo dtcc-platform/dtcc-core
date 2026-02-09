@@ -1,17 +1,54 @@
 """
-XDMF template for writing a tetrahedral volume mesh with boundary faces and markers.
+XDMF templates for writing meshes compatible with FEniCSx.
 
-The template expects three HDF5 datasets:
-- Mesh geometry at `{h5file}:/Mesh/mesh/geometry` (n_pts x 3)
-- Mesh topology at `{h5file}:/Mesh/mesh/topology` (n_tets x 4)
-- Boundary face topology and markers at `{h5file}:/MeshTags/boundary_markers/topology` (n_facets x 3)
-  and `{h5file}:/MeshTags/boundary_markers/values` (n_facets)
+XDMF_TEMPLATE: Tetrahedral volume mesh with boundary face markers.
+XDMF_SURFACE_TEMPLATE: Triangle surface mesh with optional cell markers.
+"""
 
-Placeholders:
-- `h5file`: Path to the HDF5 file (as referenced from the XDMF)
-- `n_pts`: Number of points
-- `n_tets`: Number of tetrahedra
-- `n_facets`: Number of boundary facets
+
+XDMF_SURFACE_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
+<Xdmf Version="3.0" xmlns:xi="https://www.w3.org/2001/XInclude">
+  <Domain>
+
+    <!-- 1) Surface mesh -->
+    <Grid Name="mesh" GridType="Uniform">
+      <Topology TopologyType="Triangle"
+                NumberOfElements="{n_triangles}" NodesPerElement="3">
+        <DataItem Format="HDF" NumberType="Int" Dimensions="{n_triangles} 3">
+          {h5file}:/Mesh/mesh/topology
+        </DataItem>
+      </Topology>
+      <Geometry GeometryType="XYZ">
+        <DataItem Format="HDF" NumberType="Float" Dimensions="{n_pts} 3">
+          {h5file}:/Mesh/mesh/geometry
+        </DataItem>
+      </Geometry>
+    </Grid>
+
+    <!-- 2) Cell markers -->
+    <Grid Name="boundary_markers" GridType="Uniform">
+      <xi:include xpointer="xpointer(/Xdmf/Domain/Grid/Geometry)"/>
+
+      <Topology TopologyType="Triangle"
+                NumberOfElements="{n_triangles}" NodesPerElement="3">
+        <DataItem Format="HDF" NumberType="Int" Dimensions="{n_triangles} 3">
+          {h5file}:/MeshTags/boundary_markers/topology
+        </DataItem>
+      </Topology>
+
+      <Attribute Name="boundary_markers"
+                 AttributeType="Scalar"
+                 Center="Cell">
+        <DataItem Format="HDF"
+                  NumberType="Int"
+                  Dimensions="{n_triangles}">
+          {h5file}:/MeshTags/boundary_markers/values
+        </DataItem>
+      </Attribute>
+    </Grid>
+
+  </Domain>
+</Xdmf>
 """
 
 

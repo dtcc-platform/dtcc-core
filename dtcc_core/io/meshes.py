@@ -15,7 +15,7 @@ from ..builder.geometry.multisurface import merge_coplanar
 
 from .logging import info, warning, error
 from . import generic
-from .xdmf import XDMF_TEMPLATE
+from .xdmf import XDMF_TEMPLATE, XDMF_SURFACE_TEMPLATE
 
 try:
     import pyassimp
@@ -128,6 +128,30 @@ def _save_meshio_mesh(mesh, path):
 def _save_meshio_volume_mesh(mesh, path):
     _mesh = meshio.Mesh(mesh.vertices, [("tetra", mesh.cells)])
     meshio.write(path, _mesh)
+
+
+def _save_xdmf_mesh(mesh, path):
+    """Save a surface Mesh to XDMF/HDF5 in a FEniCSx-compatible layout."""
+    base, ext = splitext(path)
+    h5_path = base + ".h5"
+    with h5py.File(h5_path, "w") as h5_file:
+        mesh_grp = h5_file.require_group("Mesh/mesh")
+        mesh_grp.create_dataset("geometry", data=mesh.vertices, dtype="float64")
+        mesh_grp.create_dataset("topology", data=mesh.faces, dtype="int64")
+
+        if mesh.markers is not None and len(mesh.markers) > 0:
+            tags_grp = h5_file.require_group("MeshTags/boundary_markers")
+            tags_grp.create_dataset("topology", data=mesh.faces, dtype="int64")
+            tags_grp.create_dataset("values", data=mesh.markers, dtype="int32")
+
+    xdmf_content = XDMF_SURFACE_TEMPLATE.format(
+        h5file=basename(h5_path),
+        n_triangles=len(mesh.faces),
+        n_pts=len(mesh.vertices),
+    )
+
+    with open(path, "w") as xdmf_file:
+        xdmf_file.write(xdmf_content)
 
 
 def _save_xdmf_volume_mesh(mesh, path):
@@ -304,7 +328,7 @@ _save_formats = {
         ".gltf": _save_gltf_mesh,
         ".gltf2": _save_gltf_mesh,
         ".glb": _save_gltf_mesh,
-        ".xdmf": _save_meshio_mesh,
+        ".xdmf": _save_xdmf_mesh,
     },
     VolumeMesh: {
         ".pb": _save_proto_volume_mesh,
