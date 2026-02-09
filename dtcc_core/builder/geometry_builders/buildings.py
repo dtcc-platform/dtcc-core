@@ -10,6 +10,7 @@ import numpy as np
 from typing import List, Tuple
 
 from .surface import extrude_surface
+from dtcc_core.common.progress import report_progress
 
 
 def extrude_building(
@@ -169,8 +170,10 @@ def compute_building_heights(
     List[Building]
         List of buildings with computed heights.
     """
+    total_buildings = len(buildings)
     info("Computing building heights...")
-    for building in buildings:
+    report_progress(percent=0, message=f"Computing heights for {total_buildings} buildings...")
+    for i, building in enumerate(buildings):
         footprint = building.lod0
         if footprint is None:
             warning(f"Building {building.id} has no LOD0 geometry.")
@@ -200,6 +203,12 @@ def compute_building_heights(
                     height = min_building_height
                 footprint.set_z(ground_height + height)
                 building.attributes["height"] = height
+        if (i + 1) % 20 == 0 or i + 1 == total_buildings:
+            report_progress(
+                current=i + 1,
+                total=total_buildings,
+                message=f"Computing heights ({i + 1}/{total_buildings})...",
+            )
     return buildings
 
 
@@ -228,8 +237,11 @@ def build_lod1_buildings(
     [model.Building]
         The buildings with the LOD1 representation built.
     """
-    info(f"Building LOD1 representations of {len(buildings)} buildings...")
-    for building in buildings:
+    total_buildings = len(buildings)
+    info(f"Building LOD1 representations of {total_buildings} buildings...")
+    report_progress(percent=0, message=f"Building LOD1 for {total_buildings} buildings...")
+
+    for i, building in enumerate(buildings):
         if building.lod1 is not None and not rebuild:
             continue
         if building.lod0 is None:
@@ -242,6 +254,15 @@ def build_lod1_buildings(
             building.add_geometry(geometry, GeometryType.LOD1)
         else:
             warning(f"Building {building.id} LOD1 geometry could not be built.")
+
+        # Report progress every 10 buildings or on last building
+        if (i + 1) % 10 == 0 or i + 1 == total_buildings:
+            report_progress(
+                current=i + 1,
+                total=total_buildings,
+                message=f"Building LOD1 ({i + 1}/{total_buildings})..."
+            )
+
     return buildings
 
 
@@ -283,6 +304,7 @@ def extract_roof_points(
         The list of buildings with roof points extracted.
     """
 
+    report_progress(percent=10, message="Preparing building footprints...")
     footprint_polygons = [b.get_footprint() for b in buildings]
 
     builder_polygon = [
@@ -298,6 +320,7 @@ def extract_roof_points(
         points = pointcloud.points[not_ground_mask]
     else:
         points = pointcloud.points
+    report_progress(percent=30, message="Extracting roof points (C++)...")
     roof_points = _dtcc_builder.extract_building_points(
         builder_polygon,
         points,
@@ -306,6 +329,7 @@ def extract_roof_points(
         roof_outlier_margin,
     )
 
+    report_progress(percent=80, message="Assigning roof points to buildings...")
     idx = 0
     # some buildings may not have a footprint, and thus not have roof points
     for fp in footprint_polygons:
@@ -361,7 +385,7 @@ def building_heights_from_pointcloud(
 
     if terrain_raster is None:
         info("No terrain raster provided, building terrain raster from point cloud.")
-        terrain_raster = build_terrain_raster(pointcloud, cell_size=2, ground_only=True)
+        terrain_raster = build_terrain_raster(pointcloud, cell_size=2, ground_only=True, _report_progress=False)
 
     buildings = extract_roof_points(
         buildings,

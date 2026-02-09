@@ -2,6 +2,8 @@
 #!/usr/bin/env python3
 import requests
 import getpass
+import sys
+import os
 from .overpass import get_roads_for_bbox, get_buildings_for_bbox
 from .geopkg import download_tiles
 from .lidar import download_lidar
@@ -55,14 +57,30 @@ def _ssh_connect_if_needed():
     Ensures we're authenticated via SSH to data.dtcc.chalmers.se.
     If not connected, prompts user for username/password, tries to connect.
     On success, we store the SSH client in memory for future calls.
+
+    In non-interactive mode (e.g., when running as a server), credentials
+    can be provided via DTCC_SSH_USERNAME and DTCC_SSH_PASSWORD environment
+    variables.
     """
     global SSH_CLIENT, SSH_CREDS
     global sessions
     # If no credentials, prompt user
     if not sessions:
-        info("SSH Authentication required for dtcc provider.")
-        USERNAME = input("Enter SSH username: ")
-        PASSWORD = getpass.getpass("Enter SSH password: ")
+        # Check for environment variables first
+        USERNAME = os.environ.get("DTCC_SSH_USERNAME")
+        PASSWORD = os.environ.get("DTCC_SSH_PASSWORD")
+
+        if not USERNAME or not PASSWORD:
+            # Only prompt if in an interactive terminal
+            if sys.stdin.isatty():
+                info("SSH Authentication required for dtcc provider.")
+                USERNAME = input("Enter SSH username: ")
+                PASSWORD = getpass.getpass("Enter SSH password: ")
+            else:
+                warning("Non-interactive mode: SSH authentication skipped. "
+                       "Set DTCC_SSH_USERNAME and DTCC_SSH_PASSWORD environment variables.")
+                return None
+
         lidar_session = get_authenticated_session('http://compute.dtcc.chalmers.se:8000', USERNAME, PASSWORD)
         gpkg_session = get_authenticated_session('http://compute.dtcc.chalmers.se:8001', USERNAME, PASSWORD)
         return lidar_session, gpkg_session

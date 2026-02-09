@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 import tempfile
 
 from .dataset import DatasetDescriptor, DatasetBaseArgs
-
+from dtcc_core.common.progress import ProgressTracker, report_progress
 
 class PointCloudArgs(DatasetBaseArgs):
     classifications: Union[
@@ -36,32 +36,67 @@ class PointCloudDataset(DatasetDescriptor):
     description = "Download point cloud data with optional classification filtering and outlier removal."
     ArgsModel = PointCloudArgs
 
-    def build(self, args: PointCloudArgs):
-        bounds = self.parse_bounds(args.bounds)
-        pc: PointCloud = dtcc_core.io.data.download_pointcloud(bounds=bounds)
-        if args.classifications is not None and args.classifications not in (
-            "all",
-            "vegetation",
-        ):
-            classifications: List[int] = []
-            if isinstance(args.classifications, int):
-                classifications = [args.classifications]
-            elif isinstance(args.classifications, list):
-                classifications = args.classifications
-            if isinstance(args.classifications, str):
-                if args.classifications == "terrain":
-                    classifications = [2, 8]
-                elif args.classifications == "buildings":
-                    classifications = [6, 9]
-                elif args.classifications == "vegetation":
-                    classifications = [3, 4, 5, 7]
-            if len(classifications) > 0:
-                pc = pc.classification_filter(classifications)
-        if args.classifications == "vegetation":
-            pc = pc.get_vegetation()
-        if args.remove_outliers:
-            pc = pc.remove_global_outliers(args.remove_outlier_threshold)
+    @staticmethod
+    def _resolve_classifications(classifications) -> List[int]:
+        """Resolve classification parameter to a list of class IDs."""
+        if isinstance(classifications, int):
+            return [classifications]
+        elif isinstance(classifications, list):
+            return classifications
+        elif isinstance(classifications, str):
+            mapping = {
+                "terrain": [2, 8],
+                "buildings": [6, 9],
+                "vegetation": [3, 4, 5, 7],
+            }
+            return mapping.get(classifications, [])
+        return []
 
-        if args.format is not None:
-            return self.export_to_bytes(pc, args.format)
-        return pc
+    def build(self, args: PointCloudArgs):
+        progress_phases = {
+            "download_pointcloud": 0.50,
+            "filter_classifications": 0.15,
+            "remove_outliers": 0.15,
+            "export": 0.20,
+        }
+        with ProgressTracker(total=1.0, phases=progress_phases) as progress:
+            bounds = self.parse_bounds(args.bounds)
+
+            with progress.phase("download_pointcloud", "Downloading point cloud data..."):
+                pc: PointCloud = dtcc_core.io.data.download_pointcloud(bounds=bounds)
+
+            with progress.phase(
+                "filter_classifications",
+                "Filtering point cloud classifications..."
+                if args.classifications not in ("all", None)
+                else "Using all classifications",
+            ):
+                if args.classifications == "vegetation":
+                    report_progress(percent=30, message="Extracting vegetation points...")
+                    pc = pc.get_vegetation()
+                elif args.classifications not in ("all", None):
+                    classifications = self._resolve_classifications(args.classifications)
+                    if classifications:
+                        report_progress(
+                            percent=30,
+                            message=f"Filtering to classes {classifications}...",
+                        )
+                        pc = pc.classification_filter(classifications)
+
+            with progress.phase(
+                "remove_outliers",
+                f"Removing outliers (threshold={args.remove_outlier_threshold})..."
+                if args.remove_outliers
+                else "Skipping outlier removal",
+            ):
+                if args.remove_outliers:
+                    pc = pc.remove_global_outliers(args.remove_outlier_threshold)
+
+            with progress.phase(
+                "export",
+                f"Exporting to {args.format}..." if args.format
+                else "Preparing point cloud result...",
+            ):
+                if args.format is not None:
+                    return self.export_to_bytes(pc, args.format)
+                return pc

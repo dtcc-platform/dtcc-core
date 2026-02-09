@@ -2,22 +2,32 @@
 # Licensed under the MIT License
 
 import logging as _logging
-import sys
+
+from rich.console import Console
+
+from .handler import LoggingHandler
+
+# Import the shared console from progress module for coordination
+# This ensures log messages appear above the progress bar
+try:
+    from .progress import get_console
+    _console = get_console()
+except ImportError:
+    # Fallback if progress module not available
+    _console = Console(stderr=True,
+                       soft_wrap=False)
 
 # Global logger dictionary
 loggers = {}
 
 # Global logger object
-_logger = None
+_logger: _logging.Logger = None
 
 
 def _init_logging(name):
     "Internal function for initializing logging"
 
     global _logger
-
-    # Set log format
-    format = "%(asctime)s [%(name)s] [%(levelname)s] %(message)s"
 
     # Initialize logger
     _logger = _logging.getLogger(name)
@@ -26,9 +36,12 @@ def _init_logging(name):
     # Remove all existing handlers
     _logger.handlers.clear()
 
-    # Create a new handler explicitly using stdout
-    handler = _logging.StreamHandler(sys.stdout)
-    handler.setFormatter(_logging.Formatter(format))
+    # Create custom DTCC handler that uses the shared console
+    # This ensures log messages coordinate with progress bar display
+    handler = LoggingHandler(
+        source_name=name,
+        console=_console,
+    )
 
     # Add handler to logger
     _logger.addHandler(handler)
@@ -36,7 +49,7 @@ def _init_logging(name):
     # Only log at first logger
     _logger.propagate = False
 
-    # Also set the root logger's handlers to stdout to override any previous settings
+    # Also set the root logger's handlers to use rich
     _logging.root.handlers.clear()
     _logging.root.addHandler(handler)
     _logging.root.setLevel(_logging.INFO)

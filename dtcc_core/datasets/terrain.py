@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 import tempfile
 
 from .dataset import DatasetDescriptor, DatasetBaseArgs
+from dtcc_core.common.progress import ProgressTracker, report_progress
 
 
 class TerrainArgs(DatasetBaseArgs):
@@ -35,24 +36,51 @@ class TerrainDataset(DatasetDescriptor):
     ArgsModel = TerrainArgs
 
     def build(self, args: TerrainArgs):
-        bounds = self.parse_bounds(args.bounds)
-        pc = dtcc_core.io.data.download_pointcloud(bounds=bounds)
-        if args.remove_outliers:
-            pc = pc.remove_global_outliers(args.remove_outlier_threshold)
-        print(args.format)
-        if args.format == "tif":
-            raster = dtcc_core.builder.build_terrain_raster(
-                pc, cell_size=args.raster_resolution
-            )
-            print(f"raster {raster}")
-            return self.export_to_bytes(raster, "tif")
-        else:
-            terrain_mesh = dtcc_core.builder.build_terrain_mesh(
-                pc,
-                max_mesh_size=args.mesh_resolution,
-                smoothing=args.smoothing,
-            )
-            if args.format is None:
-                return terrain_mesh
-            elif args.format in ("obj", "stl"):
-                return self.export_to_bytes(terrain_mesh, args.format)
+        progress_phases = {
+            "download_pointcloud": 0.40,
+            "remove_outliers": 0.10,
+            "build_terrain": 0.40,
+            "export": 0.10,
+        }
+        with ProgressTracker(total=1.0, phases=progress_phases) as progress:
+            bounds = self.parse_bounds(args.bounds)
+
+            with progress.phase("download_pointcloud", "Downloading point cloud data..."):
+                pc = dtcc_core.io.data.download_pointcloud(bounds=bounds)
+
+            with progress.phase(
+                "remove_outliers",
+                f"Removing outliers (threshold={args.remove_outlier_threshold})..."
+                if args.remove_outliers
+                else "Skipping outlier removal",
+            ):
+                if args.remove_outliers:
+                    pc = pc.remove_global_outliers(args.remove_outlier_threshold)
+
+            with progress.phase(
+                "build_terrain",
+                "Building terrain raster..." if args.format == "tif"
+                else "Building terrain mesh...",
+            ):
+                if args.format == "tif":
+                    result = dtcc_core.builder.build_terrain_raster(
+                        pc, cell_size=args.raster_resolution
+                    )
+                else:
+                    result = dtcc_core.builder.build_terrain_mesh(
+                        pc,
+                        max_mesh_size=args.mesh_resolution,
+                        smoothing=args.smoothing,
+                    )
+
+            with progress.phase(
+                "export",
+                f"Exporting terrain to {args.format}..." if args.format
+                else "Preparing terrain result...",
+            ):
+                if args.format == "tif":
+                    return self.export_to_bytes(result, "tif")
+                elif args.format is None:
+                    return result
+                elif args.format in ("obj", "stl"):
+                    return self.export_to_bytes(result, args.format)

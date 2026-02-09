@@ -1,13 +1,10 @@
 // Copyright (C) 2020 ReSpace AB
 // Licensed under the MIT License
 //
-// Simple logging system for use in DTCC C++ code modeled after the standard
-// standard Python logging module with the following configuration:
+// Simple logging system for use in DTCC C++ code modeled after the Python
+// DTCCHandler format:
 //
-// import logging
-// format = "%(asctime)s [%(name)s] [%(levelname)s] %(message)s"
-// logging.basicConfig(format=format)
-// logging.addLevelName(25, 'PROGRESS')
+// HH:MM:SS dtcc-core     ∙ info     ∙ Message text here
 
 #ifndef DTCC_LOGGING_H
 #define DTCC_LOGGING_H
@@ -49,48 +46,48 @@ public:
   // Return current time
   std::string current_time()
   {
-    // Stackoverflow: get-current-time-in-milliseconds-or-hhmmssmmm-format
     using namespace std::chrono;
     auto now = system_clock::now();
-    auto ms = duration_cast<milliseconds>(now.time_since_epoch()) % 1000;
     auto timer = system_clock::to_time_t(now);
     std::tm bt = *std::localtime(&timer);
     std::ostringstream oss;
-    oss << std::put_time(&bt, "%Y-%m-%d %H:%M:%S");
-    oss << '.' << std::setfill('0') << std::setw(3) << ms.count();
+    oss << std::put_time(&bt, "%H:%M:%S");
     return oss.str();
   }
 
-  // Format message
+  // Format message (matches Python DTCCHandler style)
   std::string __format__(LogLevel log_level, const std::string &message)
   {
-    // Set component (hard-coded for now)
-    std::string component{"[dtcc-core]"};
+    // Set component, left-padded to 12 chars (matches Python ljust(12))
+    std::string component = "dtcc-core";
+    component.resize(12, ' ');
 
-    // Format level
+    // Format level as lowercase, left-padded to 8 chars
     std::string level{};
     switch (log_level)
     {
     case DEBUG:
-      level = "[DEBUG]";
+      level = "debug";
       break;
     case INFO:
-      level = "[INFO]";
+      level = "info";
       break;
     case WARNING:
-      level = "[WARNING]";
+      level = "warning";
       break;
     case ERROR:
-      level = "[ERROR]";
+      level = "error";
       break;
     case PROGRESS:
-      level = "[PROGRESS]";
+      level = "progress";
       break;
     default:
-      level = "[UNKNOWN]";
+      level = "unknown";
     };
+    level.resize(8, ' ');
 
-    return current_time() + " " + component + " " + level + " " + message;
+    // Format: HH:MM:SS dtcc-core     ∙ info     ∙ Message
+    return current_time() + " " + component + " \u2219" + level + "\u2219 " + message;
   }
 
   // print message to stdout
