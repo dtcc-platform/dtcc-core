@@ -430,7 +430,11 @@ def build_city_surface_mesh(
         result_mesh = [bm.from_cpp() for bm in builder_mesh]
 
     if report_mesh_quality:
-        from dtcc_core.model.mixins.mesh.quality import triangle_mesh_quality, report_quality
+        from dtcc_core.model.mixins.mesh.quality import (
+            triangle_mesh_quality,
+            report_quality,
+        )
+
         if merge_meshes:
             q = triangle_mesh_quality(result_mesh.vertices, result_mesh.faces)
             report_quality(q, log_fn=info)
@@ -544,7 +548,11 @@ def build_city_flat_mesh(
     flat_mesh = _flat_mesh.from_cpp()
 
     if report_mesh_quality:
-        from dtcc_core.model.mixins.mesh.quality import triangle_mesh_quality, report_quality
+        from dtcc_core.model.mixins.mesh.quality import (
+            triangle_mesh_quality,
+            report_quality,
+        )
+
         q = triangle_mesh_quality(flat_mesh.vertices, flat_mesh.faces)
         report_quality(q, log_fn=info)
 
@@ -790,7 +798,11 @@ def build_city_volume_mesh(
         report_progress(percent=95, message="Volume mesh complete")
 
         if report_mesh_quality:
-            from dtcc_core.model.mixins.mesh.quality import tetrahedron_mesh_quality, report_quality
+            from dtcc_core.model.mixins.mesh.quality import (
+                tetrahedron_mesh_quality,
+                report_quality,
+            )
+
             q = tetrahedron_mesh_quality(volume_mesh.vertices, volume_mesh.cells)
             report_quality(q, log_fn=info)
 
@@ -843,7 +855,11 @@ def build_city_volume_mesh(
             volume_mesh.boundary_markers = computed_markers
 
     if report_mesh_quality:
-        from dtcc_core.model.mixins.mesh.quality import tetrahedron_mesh_quality, report_quality
+        from dtcc_core.model.mixins.mesh.quality import (
+            tetrahedron_mesh_quality,
+            report_quality,
+        )
+
         q = tetrahedron_mesh_quality(volume_mesh.vertices, volume_mesh.cells)
         report_quality(q, log_fn=info)
 

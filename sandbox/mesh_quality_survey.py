@@ -36,6 +36,12 @@ BOX_SIZE = 500  # metres
 MAX_MESH_SIZE = 10.0
 MIN_MESH_ANGLE = 25.0
 
+# Delay between meshes (seconds) to avoid rate-limiting by dtcc-data.
+# The server defaults to 5 requests per 30 s per IP.  Each mesh needs
+# ~2 requests (pointcloud + footprints), so 8 s is a safe minimum.
+# Set to 0 if rate-limiting is disabled (ENABLE_RATE_LIMIT=false).
+DELAY_BETWEEN_MESHES = 8
+
 # Output
 OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
 
@@ -56,11 +62,13 @@ def print_summary_table(results):
 
     # Header
     print()
-    print(f"{'#':>4}  {'Bounds (xmin, ymin)':>22}  {'Cells':>8}  "
-          f"{'ElemQ min':>9}  {'ElemQ mean':>10}  "
-          f"{'AR max':>8}  {'AR mean':>8}  "
-          f"{'ER max':>8}  {'ER mean':>8}  "
-          f"{'Skew max':>8}")
+    print(
+        f"{'#':>4}  {'Bounds (xmin, ymin)':>22}  {'Cells':>8}  "
+        f"{'ElemQ min':>9}  {'ElemQ mean':>10}  "
+        f"{'AR max':>8}  {'AR mean':>8}  "
+        f"{'ER max':>8}  {'ER mean':>8}  "
+        f"{'Skew max':>8}"
+    )
     print(sep)
 
     eq_mins, eq_means = [], []
@@ -103,11 +111,17 @@ def print_summary_table(results):
     print(f"  Total cells            : {total_cells}")
     print()
     print(f"  Element quality  min   : {np.min(eq_mins):.4f}  (worst single element)")
-    print(f"  Element quality  mean  : {np.mean(eq_means):.4f}  (avg of per-mesh means)")
+    print(
+        f"  Element quality  mean  : {np.mean(eq_means):.4f}  (avg of per-mesh means)"
+    )
     print(f"  Aspect ratio     max   : {np.max(ar_maxs):.4f}  (worst single element)")
-    print(f"  Aspect ratio     mean  : {np.mean(ar_means):.4f}  (avg of per-mesh means)")
+    print(
+        f"  Aspect ratio     mean  : {np.mean(ar_means):.4f}  (avg of per-mesh means)"
+    )
     print(f"  Edge ratio       max   : {np.max(er_maxs):.4f}  (worst single element)")
-    print(f"  Edge ratio       mean  : {np.mean(er_means):.4f}  (avg of per-mesh means)")
+    print(
+        f"  Edge ratio       mean  : {np.mean(er_means):.4f}  (avg of per-mesh means)"
+    )
     print(f"  Skewness         max   : {np.max(sk_maxs):.4f}  (worst single element)")
     print(sep)
 
@@ -127,10 +141,14 @@ def main():
     for iy in range(NY):
         for ix in range(NX):
             number += 1
+            if number > 1 and DELAY_BETWEEN_MESHES > 0:
+                time.sleep(DELAY_BETWEEN_MESHES)
             bounds = make_bounds(ix, iy)
-            label = (f"[{number:3d}/{total}]  "
-                     f"({bounds.xmin:.0f}, {bounds.ymin:.0f}) – "
-                     f"({bounds.xmax:.0f}, {bounds.ymax:.0f})")
+            label = (
+                f"[{number:3d}/{total}]  "
+                f"({bounds.xmin:.0f}, {bounds.ymin:.0f}) – "
+                f"({bounds.xmax:.0f}, {bounds.ymax:.0f})"
+            )
 
             try:
                 print(f"{label}  generating...", end="", flush=True)
@@ -149,26 +167,32 @@ def main():
                 filename = f"{number:03d}.vtu"
                 mesh.save(os.path.join(OUTPUT_DIR, filename))
 
-                results.append({
-                    "number": number,
-                    "bounds": bounds,
-                    "quality": q,
-                    "time": dt,
-                    "file": filename,
-                })
+                results.append(
+                    {
+                        "number": number,
+                        "bounds": bounds,
+                        "quality": q,
+                        "time": dt,
+                        "file": filename,
+                    }
+                )
 
                 eq = q["element_quality"]
-                print(f"  {q['num_cells']:>6} cells  "
-                      f"elemQ {eq['min']:.3f}/{eq['mean']:.3f}  "
-                      f"{dt:.1f}s")
+                print(
+                    f"  {q['num_cells']:>6} cells  "
+                    f"elemQ {eq['min']:.3f}/{eq['mean']:.3f}  "
+                    f"{dt:.1f}s"
+                )
 
             except Exception as e:
                 dt = time.time() - t1
-                failures.append({
-                    "number": number,
-                    "bounds": bounds,
-                    "error": str(e),
-                })
+                failures.append(
+                    {
+                        "number": number,
+                        "bounds": bounds,
+                        "error": str(e),
+                    }
+                )
                 print(f"  FAILED ({dt:.1f}s): {e}")
                 traceback.print_exc()
 
@@ -176,8 +200,10 @@ def main():
 
     # ── Summary ──────────────────────────────────────────────────────
     print()
-    print(f"Completed in {elapsed:.0f}s  "
-          f"({len(results)} succeeded, {len(failures)} failed)")
+    print(
+        f"Completed in {elapsed:.0f}s  "
+        f"({len(results)} succeeded, {len(failures)} failed)"
+    )
 
     if results:
         print_summary_table(results)

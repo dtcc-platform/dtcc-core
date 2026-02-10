@@ -48,9 +48,7 @@ def _summarize(values: np.ndarray) -> Dict[str, float]:
 _4_SQRT3 = 4.0 * np.sqrt(3.0)  # ≈ 6.928
 
 
-def tri_element_quality(
-    vertices: np.ndarray, faces: np.ndarray
-) -> np.ndarray:
+def tri_element_quality(vertices: np.ndarray, faces: np.ndarray) -> np.ndarray:
     """Normalised element quality: 4*sqrt(3)*A / sum(l_i^2).  Range 0-1, 1 = equilateral."""
     v0, v1, v2 = vertices[faces[:, 0]], vertices[faces[:, 1]], vertices[faces[:, 2]]
     areas = _tri_areas(v0, v1, v2)
@@ -60,9 +58,7 @@ def tri_element_quality(
     return _4_SQRT3 * areas / denom
 
 
-def tri_aspect_ratio(
-    vertices: np.ndarray, faces: np.ndarray
-) -> np.ndarray:
+def tri_aspect_ratio(vertices: np.ndarray, faces: np.ndarray) -> np.ndarray:
     """Aspect ratio: l_max*(l0+l1+l2) / (4*sqrt(3)*A).  Range 1-inf, 1 = optimal."""
     v0, v1, v2 = vertices[faces[:, 0]], vertices[faces[:, 1]], vertices[faces[:, 2]]
     areas = _tri_areas(v0, v1, v2)
@@ -72,9 +68,7 @@ def tri_aspect_ratio(
     return l_max * (l0 + l1 + l2) / (_4_SQRT3 * safe_areas)
 
 
-def tri_edge_ratio(
-    vertices: np.ndarray, faces: np.ndarray
-) -> np.ndarray:
+def tri_edge_ratio(vertices: np.ndarray, faces: np.ndarray) -> np.ndarray:
     """Edge ratio: max_edge / min_edge.  Range 1-inf, 1 = optimal."""
     v0, v1, v2 = vertices[faces[:, 0]], vertices[faces[:, 1]], vertices[faces[:, 2]]
     l0, l1, l2 = _tri_edge_lengths(v0, v1, v2)
@@ -84,9 +78,7 @@ def tri_edge_ratio(
     return l_max / l_min
 
 
-def tri_skewness(
-    vertices: np.ndarray, faces: np.ndarray
-) -> np.ndarray:
+def tri_skewness(vertices: np.ndarray, faces: np.ndarray) -> np.ndarray:
     """Skewness: 1 - A / A_ideal.  Range 0-1, 0 = optimal."""
     v0, v1, v2 = vertices[faces[:, 0]], vertices[faces[:, 1]], vertices[faces[:, 2]]
     areas = _tri_areas(v0, v1, v2)
@@ -125,9 +117,7 @@ def triangle_mesh_quality(
 _TETRA_COEFF = 124.70765802  # = 6 * sqrt(2) * 12^(3/2) normalisation constant
 
 
-def tet_element_quality(
-    vertices: np.ndarray, cells: np.ndarray
-) -> np.ndarray:
+def tet_element_quality(vertices: np.ndarray, cells: np.ndarray) -> np.ndarray:
     """Normalised element quality for tets.  Range 0-1, 1 = regular."""
     v0 = vertices[cells[:, 0]]
     v1 = vertices[cells[:, 1]]
@@ -159,9 +149,7 @@ def tet_element_quality(
     return _TETRA_COEFF * V / denom
 
 
-def tet_aspect_ratio(
-    vertices: np.ndarray, cells: np.ndarray
-) -> np.ndarray:
+def tet_aspect_ratio(vertices: np.ndarray, cells: np.ndarray) -> np.ndarray:
     """Aspect ratio for tets: R / (3*r).  Range 1-inf, 1 = optimal.
 
     R = circumradius, r = inradius = 3*V / A_total.
@@ -231,18 +219,14 @@ def tet_aspect_ratio(
     return R / (3.0 * safe_r)
 
 
-def tet_edge_ratio(
-    vertices: np.ndarray, cells: np.ndarray
-) -> np.ndarray:
+def tet_edge_ratio(vertices: np.ndarray, cells: np.ndarray) -> np.ndarray:
     """Edge ratio for tets: max_edge / min_edge.  Range 1-inf, 1 = optimal."""
     v0 = vertices[cells[:, 0]]
     v1 = vertices[cells[:, 1]]
     v2 = vertices[cells[:, 2]]
     v3 = vertices[cells[:, 3]]
 
-    edges = np.stack(
-        [v1 - v0, v2 - v0, v3 - v0, v2 - v1, v3 - v1, v3 - v2], axis=1
-    )
+    edges = np.stack([v1 - v0, v2 - v0, v3 - v0, v2 - v1, v3 - v1, v3 - v2], axis=1)
     lengths = np.linalg.norm(edges, axis=2)
     l_max = lengths.max(axis=1)
     l_min = lengths.min(axis=1)
@@ -250,18 +234,14 @@ def tet_edge_ratio(
     return l_max / l_min
 
 
-def tet_skewness(
-    vertices: np.ndarray, cells: np.ndarray
-) -> np.ndarray:
+def tet_skewness(vertices: np.ndarray, cells: np.ndarray) -> np.ndarray:
     """Skewness for tets: 1 - V / V_ideal.  Range 0-1, 0 = optimal."""
     v0 = vertices[cells[:, 0]]
     v1 = vertices[cells[:, 1]]
     v2 = vertices[cells[:, 2]]
     v3 = vertices[cells[:, 3]]
 
-    edges = np.stack(
-        [v1 - v0, v2 - v0, v3 - v0, v2 - v1, v3 - v1, v3 - v2], axis=1
-    )
+    edges = np.stack([v1 - v0, v2 - v0, v3 - v0, v2 - v1, v3 - v1, v3 - v2], axis=1)
     lengths = np.linalg.norm(edges, axis=2)
 
     cross = np.cross(edges[:, 1], edges[:, 2])
@@ -307,15 +287,15 @@ def tetrahedron_mesh_quality(
 
 _METRIC_LABELS = {
     "element_quality": "Element quality (0-1, 1 optimal)",
-    "aspect_ratio":    "Aspect ratio (1-∞, 1 optimal)",
-    "edge_ratio":      "Edge ratio (1-∞, 1 optimal)",
-    "skewness":        "Skewness (0-1, 0 optimal)",
+    "aspect_ratio": "Aspect ratio (1-∞, 1 optimal)",
+    "edge_ratio": "Edge ratio (1-∞, 1 optimal)",
+    "skewness": "Skewness (0-1, 0 optimal)",
 }
 
 
 def format_quality(q: Dict[str, Union[int, Dict[str, float]]]) -> str:
     """Return a human-readable table from a quality dict."""
-    n = q['num_cells']
+    n = q["num_cells"]
     col_w = 38  # label column width
     header = f"{'Mesh quality (' + str(n) + ' cells)':<{col_w}} {'Min':>10} {'Max':>10} {'Mean':>10}"
     sep = "-" * (col_w + 33)
@@ -347,9 +327,11 @@ def report_quality(
     if log_fn is None:
         from dtcc_core.logging import info as log_fn
 
-    n = q['num_cells']
+    n = q["num_cells"]
     col_w = 38
-    log_fn(f"{'Mesh quality (' + str(n) + ' cells)':<{col_w}} {'Min':>10} {'Max':>10} {'Mean':>10}")
+    log_fn(
+        f"{'Mesh quality (' + str(n) + ' cells)':<{col_w}} {'Min':>10} {'Max':>10} {'Mean':>10}"
+    )
     log_fn("-" * (col_w + 33))
     for key, label in _METRIC_LABELS.items():
         d = q[key]

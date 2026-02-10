@@ -23,6 +23,7 @@ from dtcc_core.model.mixins.mesh.quality import (
 # Fixtures
 # -----------------------------------------------------------------------
 
+
 @pytest.fixture
 def equilateral_tri_mesh():
     """Single equilateral triangle (side = 2)."""
@@ -43,9 +44,7 @@ def right_tri_mesh():
 @pytest.fixture
 def two_tri_mesh():
     """Two triangles forming a unit square."""
-    vertices = np.array(
-        [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]], dtype=np.float64
-    )
+    vertices = np.array([[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]], dtype=np.float64)
     faces = np.array([[0, 1, 2], [0, 2, 3]])
     return Mesh(vertices=vertices, faces=faces)
 
@@ -95,23 +94,17 @@ class TestTriangleMeshQuality:
 
     def test_equilateral_aspect_ratio(self, equilateral_tri_mesh):
         """Equilateral triangle should have aspect ratio ≈ 1.0."""
-        ar = tri_aspect_ratio(
-            equilateral_tri_mesh.vertices, equilateral_tri_mesh.faces
-        )
+        ar = tri_aspect_ratio(equilateral_tri_mesh.vertices, equilateral_tri_mesh.faces)
         assert pytest.approx(ar[0], abs=1e-10) == 1.0
 
     def test_equilateral_edge_ratio(self, equilateral_tri_mesh):
         """Equilateral triangle should have edge ratio ≈ 1.0."""
-        er = tri_edge_ratio(
-            equilateral_tri_mesh.vertices, equilateral_tri_mesh.faces
-        )
+        er = tri_edge_ratio(equilateral_tri_mesh.vertices, equilateral_tri_mesh.faces)
         assert pytest.approx(er[0], abs=1e-10) == 1.0
 
     def test_equilateral_skewness(self, equilateral_tri_mesh):
         """Equilateral triangle should have skewness ≈ 0.0."""
-        sk = tri_skewness(
-            equilateral_tri_mesh.vertices, equilateral_tri_mesh.faces
-        )
+        sk = tri_skewness(equilateral_tri_mesh.vertices, equilateral_tri_mesh.faces)
         assert pytest.approx(sk[0], abs=1e-10) == 0.0
 
     def test_right_triangle_quality_less_than_equilateral(self, right_tri_mesh):
