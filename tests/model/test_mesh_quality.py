@@ -197,7 +197,7 @@ class TestFormatQuality:
     def test_format_quality(self, equilateral_tri_mesh):
         q = equilateral_tri_mesh.quality()
         s = format_quality(q)
-        assert "Number of cells: 1" in s
+        assert "Mesh quality (1 cells)" in s
         assert "Element quality" in s
         assert "Aspect ratio" in s
         assert "Edge ratio" in s
@@ -206,7 +206,6 @@ class TestFormatQuality:
     def test_report_quality(self, equilateral_tri_mesh):
         q = equilateral_tri_mesh.quality()
         logged = []
-        report_quality(q, title="Test mesh", log_fn=logged.append)
-        assert any("Test mesh" in line for line in logged)
+        report_quality(q, log_fn=logged.append)
+        assert any("Mesh quality (1 cells)" in line for line in logged)
         assert any("Element quality" in line for line in logged)
-        assert any("Number of cells: 1" in line for line in logged)
