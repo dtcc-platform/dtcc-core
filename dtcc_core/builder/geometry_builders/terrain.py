@@ -20,6 +20,7 @@ from affine import Affine
 from .. import _dtcc_builder
 from typing import List, Union
 from dtcc_core.common.progress import report_progress
+from ..logging import info
 
 
 def build_terrain_surface_mesh(
@@ -31,6 +32,7 @@ def build_terrain_surface_mesh(
     min_mesh_angle=20.7,
     smoothing=3,
     ground_points_only=True,
+    report_mesh_quality=True,
 ) -> Mesh:
     """
     Build a triangular surface mesh from terrain data.
@@ -163,6 +165,11 @@ def build_terrain_surface_mesh(
 
     report_progress(percent=90, message="Converting mesh format...")
     terrain_mesh = builder_mesh_to_mesh(terrain_mesh)
+
+    if report_mesh_quality:
+        from dtcc_core.model.mixins.mesh.quality import triangle_mesh_quality, format_quality
+        q = triangle_mesh_quality(terrain_mesh.vertices, terrain_mesh.faces)
+        info(f"Terrain surface mesh quality:\n{format_quality(q)}")
 
     report_progress(percent=100, message="Terrain surface mesh complete")
     return terrain_mesh

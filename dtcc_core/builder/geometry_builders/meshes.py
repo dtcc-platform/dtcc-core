@@ -213,6 +213,7 @@ def build_city_surface_mesh(
     smoothing: int = 0,
     sort_triangles: bool = False,
     treat_lod0_as_holes: bool = False,
+    report_mesh_quality: bool = True,
 ) -> Mesh:
     """
     Build a surface mesh from the surfaces of the buildings in the city.
@@ -427,6 +428,17 @@ def build_city_surface_mesh(
         result_mesh = builder_mesh[0].from_cpp()
     else:
         result_mesh = [bm.from_cpp() for bm in builder_mesh]
+
+    if report_mesh_quality:
+        from dtcc_core.model.mixins.mesh.quality import triangle_mesh_quality, format_quality
+        if merge_meshes:
+            q = triangle_mesh_quality(result_mesh.vertices, result_mesh.faces)
+            info(f"City surface mesh quality:\n{format_quality(q)}")
+        else:
+            for i, m in enumerate(result_mesh):
+                q = triangle_mesh_quality(m.vertices, m.faces)
+                info(f"City surface mesh {i} quality:\n{format_quality(q)}")
+
     return result_mesh
 
 
@@ -439,6 +451,7 @@ def build_city_flat_mesh(
     min_building_detail: float = 0.5,
     min_building_area: float = 15.0,
     merge_tolerance: float = 0.5,
+    report_mesh_quality: bool = True,
 ) -> Mesh:
     """Build a flat 2D triangular mesh of the city with building footprints marked.
 
@@ -529,6 +542,12 @@ def build_city_flat_mesh(
     )
 
     flat_mesh = _flat_mesh.from_cpp()
+
+    if report_mesh_quality:
+        from dtcc_core.model.mixins.mesh.quality import triangle_mesh_quality, format_quality
+        q = triangle_mesh_quality(flat_mesh.vertices, flat_mesh.faces)
+        info(f"City flat mesh quality:\n{format_quality(q)}")
+
     report_progress(percent=100, message="City flat mesh complete")
     return flat_mesh
 
@@ -552,6 +571,7 @@ def build_city_volume_mesh(
     smoothing_relative_tolerance: float = 0.005,
     aspect_ratio_threshold: float = 10.0,
     debug_step: int = 7,
+    report_mesh_quality: bool = True,
 ) -> VolumeMesh:
     """
     Build a 3D tetrahedral volume mesh for a city terrain with embedded building volumes.
@@ -769,6 +789,11 @@ def build_city_volume_mesh(
         )
         report_progress(percent=95, message="Volume mesh complete")
 
+        if report_mesh_quality:
+            from dtcc_core.model.mixins.mesh.quality import tetrahedron_mesh_quality, format_quality
+            q = tetrahedron_mesh_quality(volume_mesh.vertices, volume_mesh.cells)
+            info(f"City volume mesh quality:\n{format_quality(q)}")
+
         return volume_mesh
 
     # 5. BUILD VOLUME MESH - FALLBACK DTCC PATH
@@ -816,5 +841,10 @@ def build_city_volume_mesh(
         computed_markers = _dtcc_builder.compute_boundary_face_markers(_volume_mesh)
         if computed_markers is not None:
             volume_mesh.boundary_markers = computed_markers
+
+    if report_mesh_quality:
+        from dtcc_core.model.mixins.mesh.quality import tetrahedron_mesh_quality, format_quality
+        q = tetrahedron_mesh_quality(volume_mesh.vertices, volume_mesh.cells)
+        info(f"City volume mesh quality:\n{format_quality(q)}")
 
     return volume_mesh

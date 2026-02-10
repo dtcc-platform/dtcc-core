@@ -122,6 +122,20 @@ class MeshProcessingMixin:
 
         return printable_mesh
 
+    def quality(self: "T_Mesh") -> dict:
+        """Compute mesh quality metrics.
+
+        Returns
+        -------
+        dict
+            Dictionary with ``num_cells`` and summary stats (min, max, mean)
+            for ``element_quality``, ``aspect_ratio``, ``edge_ratio``, and
+            ``skewness``.
+        """
+        from .quality import triangle_mesh_quality
+
+        return triangle_mesh_quality(self.vertices, self.faces)
+
     def to_cpp(self: "T_Mesh") -> "_dtcc_builder.Mesh":
         """
         Convert the Mesh to a DTCC builder Mesh.
@@ -137,6 +151,20 @@ class MeshProcessingMixin:
 
 
 class VolumeMeshProcessingMixin:
+    def quality(self: "T_VolumeMesh") -> dict:
+        """Compute mesh quality metrics.
+
+        Returns
+        -------
+        dict
+            Dictionary with ``num_cells`` and summary stats (min, max, mean)
+            for ``element_quality``, ``aspect_ratio``, ``edge_ratio``, and
+            ``skewness``.
+        """
+        from .quality import tetrahedron_mesh_quality
+
+        return tetrahedron_mesh_quality(self.vertices, self.cells)
+
     def to_cpp(self: "T_VolumeMesh") -> "_dtcc_builder.VolumeMesh":
         """
         Convert the VolumeMesh to a DTCC builder VolumeMesh.
