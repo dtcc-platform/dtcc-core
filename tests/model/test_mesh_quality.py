@@ -15,6 +15,7 @@ from dtcc_core.model.mixins.mesh.quality import (
     tet_edge_ratio,
     tet_skewness,
     format_quality,
+    report_quality,
 )
 
 
@@ -196,8 +197,16 @@ class TestFormatQuality:
     def test_format_quality(self, equilateral_tri_mesh):
         q = equilateral_tri_mesh.quality()
         s = format_quality(q)
-        assert "num_cells: 1" in s
-        assert "element_quality" in s
-        assert "aspect_ratio" in s
-        assert "edge_ratio" in s
-        assert "skewness" in s
+        assert "Number of cells: 1" in s
+        assert "Element quality" in s
+        assert "Aspect ratio" in s
+        assert "Edge ratio" in s
+        assert "Skewness" in s
+
+    def test_report_quality(self, equilateral_tri_mesh):
+        q = equilateral_tri_mesh.quality()
+        logged = []
+        report_quality(q, title="Test mesh", log_fn=logged.append)
+        assert any("Test mesh" in line for line in logged)
+        assert any("Element quality" in line for line in logged)
+        assert any("Number of cells: 1" in line for line in logged)

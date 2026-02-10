@@ -167,9 +167,9 @@ def build_terrain_surface_mesh(
     terrain_mesh = builder_mesh_to_mesh(terrain_mesh)
 
     if report_mesh_quality:
-        from dtcc_core.model.mixins.mesh.quality import triangle_mesh_quality, format_quality
+        from dtcc_core.model.mixins.mesh.quality import triangle_mesh_quality, report_quality
         q = triangle_mesh_quality(terrain_mesh.vertices, terrain_mesh.faces)
-        info(f"Terrain surface mesh quality:\n{format_quality(q)}")
+        report_quality(q, title="Terrain surface mesh quality", log_fn=info)
 
     report_progress(percent=100, message="Terrain surface mesh complete")
     return terrain_mesh

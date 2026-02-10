@@ -305,10 +305,64 @@ def tetrahedron_mesh_quality(
 # Pretty-print helper
 # ---------------------------------------------------------------------------
 
+_METRIC_LABELS = {
+    "element_quality": "Element quality (0-1, 1 optimal)",
+    "aspect_ratio":    "Aspect ratio (1-∞, 1 optimal)",
+    "edge_ratio":      "Edge ratio (1-∞, 1 optimal)",
+    "skewness":        "Skewness (0-1, 0 optimal)",
+}
+
+
 def format_quality(q: Dict[str, Union[int, Dict[str, float]]]) -> str:
-    """Return a human-readable multi-line string from a quality dict."""
-    lines = [f"  num_cells: {q['num_cells']}"]
-    for key in ("element_quality", "aspect_ratio", "edge_ratio", "skewness"):
+    """Return a human-readable table from a quality dict."""
+    col_w = 38  # label column width
+    header = f"  {'Metric':<{col_w}} {'Min':>10} {'Max':>10} {'Mean':>10}"
+    sep = "  " + "-" * (col_w + 33)
+    lines = [
+        f"  Number of cells: {q['num_cells']}",
+        "",
+        header,
+        sep,
+    ]
+    for key, label in _METRIC_LABELS.items():
         d = q[key]
-        lines.append(f"  {key}: min={d['min']:.4f}  max={d['max']:.4f}  mean={d['mean']:.4f}")
+        lines.append(
+            f"  {label:<{col_w}} {d['min']:>10.4f} {d['max']:>10.4f} {d['mean']:>10.4f}"
+        )
+    lines.append(sep)
     return "\n".join(lines)
+
+
+def report_quality(
+    q: Dict[str, Union[int, Dict[str, float]]],
+    title: str = "Mesh quality",
+    log_fn=None,
+) -> None:
+    """Log mesh quality metrics line by line via the logging system.
+
+    Parameters
+    ----------
+    q : dict
+        Quality dict as returned by ``triangle_mesh_quality`` or
+        ``tetrahedron_mesh_quality``.
+    title : str
+        Header printed above the table.
+    log_fn : callable, optional
+        Logging function (e.g. ``info``).  If *None*, falls back to
+        ``dtcc_core.logging.info``.
+    """
+    if log_fn is None:
+        from dtcc_core.logging import info as log_fn
+
+    log_fn(title)
+    log_fn(f"  Number of cells: {q['num_cells']}")
+
+    col_w = 38
+    log_fn(f"  {'Metric':<{col_w}} {'Min':>10} {'Max':>10} {'Mean':>10}")
+    log_fn("  " + "-" * (col_w + 33))
+    for key, label in _METRIC_LABELS.items():
+        d = q[key]
+        log_fn(
+            f"  {label:<{col_w}} {d['min']:>10.4f} {d['max']:>10.4f} {d['mean']:>10.4f}"
+        )
+    log_fn("  " + "-" * (col_w + 33))
