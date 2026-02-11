@@ -120,7 +120,9 @@ def _load_fiona(
     filename = validate_vector_file(filename)
     buildings = []
     has_height_field = len(height_field) > 0
-    bounds_filter = create_bounds_filter(bounds, buffer=-min_edge_distance, strategy='contains')
+    bounds_filter = create_bounds_filter(
+        bounds, buffer=-min_edge_distance, strategy="contains"
+    )
     try:
         f = fiona.open(filename)
         f.close()
@@ -133,12 +135,16 @@ def _load_fiona(
 
         for s in src:
             building_shape = shapely.geometry.shape(s["geometry"])
-            building_shape = safe_reproject_geometry(building_shape, source_crs, target_crs)
+            building_shape = safe_reproject_geometry(
+                building_shape, source_crs, target_crs
+            )
 
             if area_filter is not None and area_filter > 0:
                 if building_shape.area < area_filter:
                     continue
-            if bounds_filter and not bounds_filter['strategy'](bounds_filter['geometry'], building_shape):
+            if bounds_filter and not bounds_filter["strategy"](
+                bounds_filter["geometry"], building_shape
+            ):
                 continue
             geom_type = s["geometry"]["type"]
             if geom_type == "Polygon":
@@ -156,7 +162,11 @@ def _load_fiona(
                         "properties": s["properties"],
                     }
                     building = _building_from_fiona(
-                        split_feature, uuid_field, height_field, target_crs, geometry=polygon
+                        split_feature,
+                        uuid_field,
+                        height_field,
+                        target_crs,
+                        geometry=polygon,
                     )
 
                     buildings.append(building)
@@ -173,7 +183,7 @@ def load(
     bounds=None,
     min_edge_distance=2.0,
     target_crs=None,
-) -> [Building]:
+) -> list[Building]:
     """
     Load the buildings from a supported file and return a `City` object.
 
@@ -208,19 +218,18 @@ def load(
             if not f.is_file():
                 raise FileNotFoundError(f"File {f} not found")
             buildings += generic.load(
-                            f,
-                            "city",
-                            City,
-                            _load_formats,
-                            uuid_field=uuid_field,
-                            height_field=height_field,
-                            area_filter=area_filter,
-                            bounds=bounds,
-                            min_edge_distance=min_edge_distance,
-                            target_crs=target_crs,
-                            )
+                f,
+                "city",
+                City,
+                _load_formats,
+                uuid_field=uuid_field,
+                height_field=height_field,
+                area_filter=area_filter,
+                bounds=bounds,
+                min_edge_distance=min_edge_distance,
+                target_crs=target_crs,
+            )
         return buildings
-
 
     filename = validate_vector_file(filename, allow_multiple=True)
     return generic.load(
@@ -254,7 +263,6 @@ def _save_fiona(city: City, out_file, output_format="", output_crs=None):
     offset = (city.transform.offset[0], city.transform.offset[1])
     out_file = Path(out_file)
     driver = get_vector_driver(out_file)
-    output_format = out_file.suffix.lower()
     buildings = city.buildings
     if buildings is None or len(buildings) == 0:
         warning("No buildings to save")
@@ -263,9 +271,7 @@ def _save_fiona(city: City, out_file, output_format="", output_crs=None):
     # Get current CRS from buildings
     source_crs = get_geometry_crs(buildings[0], fallback="EPSG:3006")
     output_crs = determine_io_crs(
-        source_crs, output_crs,
-        output_filepath=out_file,
-        context="footprints"
+        source_crs, output_crs, output_filepath=out_file, context="footprints"
     )
 
     base_properties = {
@@ -291,14 +297,14 @@ def _save_fiona(city: City, out_file, output_format="", output_crs=None):
             warning(f"Cannot determine type of attribute {key}, assuming 'str'")
 
     schema = {"geometry": "Polygon", "properties": schema_properties}
-    with fiona.open(
-        out_file, "w", driver=driver, schema=schema, crs=output_crs
-    ) as dst:
+    with fiona.open(out_file, "w", driver=driver, schema=schema, crs=output_crs) as dst:
         for building in city.buildings:
             shapely_footprint = building.get_footprint().to_polygon()
             shapely_footprint = safe_reproject_geometry(
-                shapely_footprint, source_crs, output_crs,
-                error_context=f"building {building.id}"
+                shapely_footprint,
+                source_crs,
+                output_crs,
+                error_context=f"building {building.id}",
             )
 
             # Apply offset (in target CRS coordinates)
@@ -389,6 +395,7 @@ _save_formats = {
         ".pb2": _save_proto_footprints,
         ".json": _save_json_city,
         ".shp": _save_fiona,
+        ".shp.zip": _save_fiona,
         ".geojson": _save_fiona,
         ".gpkg": _save_fiona,
     }

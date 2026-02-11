@@ -143,7 +143,8 @@ class Surface(Geometry):
     def from_polygon(self, polygon: Polygon, height: float = 0.0):
         """Convert a Shapely Polygon to a surface."""
         if polygon.geom_type != "Polygon":
-            error(f"Can only convert Polygon to Surface. Got {polygon.geom_type}")
+            warning(f"Can only convert Polygon to Surface. Got {polygon.geom_type}")
+
         verts = np.array(polygon.exterior.coords)[
             :-1, :2
         ]  # remove last duplicate vertex

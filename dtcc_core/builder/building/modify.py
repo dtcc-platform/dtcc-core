@@ -18,7 +18,8 @@ from polyforge import MergeStrategy, GeometryConstraints
 from ..polygons.surface import clean_multisurface, clean_surface
 
 from ..register import register_model_method
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon, MultiPolygon
+from shapely.ops import unary_union
 from ..logging import debug, info, warning, error
 
 from typing import List, Tuple, Union
@@ -63,10 +64,19 @@ def get_footprint(building: Building, geom_type: GeometryType = None) -> Surface
         warning(f"Building {building.id} has no LOD geometry.")
         return None
     height = geom.bounds.zmax
-    
+
     footprint = geom.to_polygon()
     if footprint.geom_type == "MultiPolygon":
-        geom.to_polygon()
+        # Merge all polygons and return the largest by area
+        if not footprint.geoms:
+            warning(f"Building {building.id} MultiPolygon is empty.")
+            return None
+        merged = unary_union(footprint.geoms)
+        if merged.geom_type == "MultiPolygon":
+            largest = max(merged.geoms, key=lambda p: p.area)
+            footprint = largest
+        else:
+            footprint = merged
 
     s = Surface()
     s.from_polygon(footprint, height)
@@ -123,7 +133,6 @@ def merge_building_footprints(
         source_indices.append(idx)
         building_heights.append(flattened_geom.zmax)
         footprints.append(footprint)
-    
 
     merged_footprint, merged_indices = merge_close_polygons(
         footprints,
@@ -166,6 +175,7 @@ def merge_building_footprints(
     if return_index_map:
         return merged_buildings, merged_indices_global
     return merged_buildings
+
 
 def merge_building_attributes(buildings: List[Building]) -> dict:
     """
@@ -222,9 +232,11 @@ def simplify_building_footprints(
 
     simplified_buildings: List[Building] = []
     index_map: List[List[int]] = []
-    if method not in ['vwp','rdp']:
-        warning(f"Unknown polygon simplification method: {method}. Falling back to 'vwp")
-        method = 'vwp'
+    if method not in ["vwp", "rdp"]:
+        warning(
+            f"Unknown polygon simplification method: {method}. Falling back to 'vwp"
+        )
+        method = "vwp"
 
     for idx, building in enumerate(buildings):
         lod_geom = building.flatten_geometry(lod)
@@ -233,10 +245,10 @@ def simplify_building_footprints(
         footprint = lod_geom.to_polygon()
         if footprint is None or footprint.is_empty:
             continue
-        
-        if method == 'vwp':
+
+        if method == "vwp":
             footprint = simplify_vwp(footprint, tolerance)
-        elif method == 'rdp':
+        elif method == "rdp":
             footprint = simplify_vwp(footprint, tolerance)
 
         building_surface = Surface()
