@@ -347,12 +347,194 @@ def main():
     if missing > 0:
         missing_cases = sorted(set(range(1, total + 1)) - set(results.keys()))
         print(
-            f"Missing cases ({missing}): "
-            f"{', '.join(str(c) for c in missing_cases)}"
+            f"Missing cases ({missing}): " f"{', '.join(str(c) for c in missing_cases)}"
         )
 
     if results:
         print_summary_table(results)
+        plot_results(results)
+
+
+def plot_results(results_dict):
+    """Generate matplotlib visualisations of mesh quality results."""
+
+    import matplotlib.pyplot as plt
+    from matplotlib.gridspec import GridSpec
+
+    plt.style.use("dark_background")
+
+    items = sorted(results_dict.items())
+    if not items:
+        print("No results to plot.")
+        return
+
+    # ── Extract per-tile metrics ─────────────────────────────────────
+    numbers, eq_means, eq_mins = [], [], []
+    ar_means, ar_maxs = [], []
+    er_means, sk_maxs = [], []
+    num_cells_list = []
+
+    for num, r in items:
+        q = r["quality"]
+        numbers.append(num)
+        eq_means.append(q["element_quality"]["mean"])
+        eq_mins.append(q["element_quality"]["min"])
+        ar_means.append(q["aspect_ratio"]["mean"])
+        ar_maxs.append(q["aspect_ratio"]["max"])
+        er_means.append(q["edge_ratio"]["mean"])
+        sk_maxs.append(q["skewness"]["max"])
+        num_cells_list.append(q["num_cells"])
+
+    # ── Helper: build NX×NY grid from flat metric list ───────────────
+    def build_grid(values):
+        grid = np.full((NY, NX), np.nan)
+        for num, val in zip(numbers, values):
+            ix, iy = case_to_grid(num)
+            grid[iy, ix] = val
+        return grid
+
+    def annotate_heatmap(ax, grid, fmt=".3f"):
+        for iy in range(NY):
+            for ix in range(NX):
+                v = grid[iy, ix]
+                if not np.isnan(v):
+                    ax.text(
+                        ix,
+                        iy,
+                        f"{v:{fmt}}",
+                        ha="center",
+                        va="center",
+                        fontsize=7,
+                        color=(
+                            "black"
+                            if v > (np.nanmin(grid) + np.nanmax(grid)) / 2
+                            else "white"
+                        ),
+                    )
+
+    def setup_grid_axes(ax, title):
+        ax.set_title(title, fontsize=11, pad=8)
+        ax.set_xticks(range(NX))
+        ax.set_yticks(range(NY))
+        ax.set_xlabel("Grid X")
+        ax.set_ylabel("Grid Y")
+
+    # ── Normalise an array to [0, 1] ─────────────────────────────────
+    def normalise(arr):
+        a = np.asarray(arr, dtype=float)
+        lo, hi = a.min(), a.max()
+        return np.zeros_like(a) if hi - lo < 1e-12 else (a - lo) / (hi - lo)
+
+    # ── Build grids ──────────────────────────────────────────────────
+    eq_mean_grid = build_grid(eq_means)
+    ar_mean_grid = build_grid(ar_means)
+    er_mean_grid = build_grid(er_means)
+    sk_max_grid = build_grid(sk_maxs)
+
+    # ── Create figure (3 rows × 3 columns) ──────────────────────────
+    fig = plt.figure(figsize=(18, 15))
+    fig.suptitle(
+        "Mesh Quality Survey — Central Stockholm (10×10 grid, 500 m tiles)",
+        fontsize=15,
+        fontweight="bold",
+        y=0.98,
+    )
+    gs = GridSpec(3, 3, figure=fig, hspace=0.38, wspace=0.35)
+
+    # ── Row 1: four spatial heat-maps (first three columns of row 0,
+    #    plus first column of row 1) ──────────────────────────────────
+
+    heatmaps = [
+        (gs[0, 0], eq_mean_grid, "Element Quality (mean)", "RdYlGn", ".3f"),
+        (gs[0, 1], ar_mean_grid, "Aspect Ratio (mean)", "RdYlGn_r", ".2f"),
+        (gs[0, 2], sk_max_grid, "Skewness (max)", "RdYlGn_r", ".3f"),
+        (gs[1, 0], er_mean_grid, "Edge Ratio (mean)", "RdYlGn_r", ".2f"),
+    ]
+    for spec, grid, title, cmap, fmt in heatmaps:
+        ax = fig.add_subplot(spec)
+        im = ax.imshow(grid, origin="lower", cmap=cmap, aspect="equal")
+        annotate_heatmap(ax, grid, fmt)
+        setup_grid_axes(ax, title)
+        fig.colorbar(im, ax=ax, shrink=0.82, pad=0.04)
+
+    # ── Row 1 col 1: histogram of element quality means ──────────────
+    ax_hist = fig.add_subplot(gs[1, 1])
+    ax_hist.hist(eq_means, bins=15, color="#00cc88", edgecolor="white", alpha=0.85)
+    ax_hist.axvline(
+        np.mean(eq_means),
+        color="#ff6644",
+        ls="--",
+        lw=1.5,
+        label=f"mean = {np.mean(eq_means):.3f}",
+    )
+    ax_hist.set_title("Distribution of Element Quality (mean)", fontsize=11, pad=8)
+    ax_hist.set_xlabel("Element Quality (mean)")
+    ax_hist.set_ylabel("Count")
+    ax_hist.legend(fontsize=9)
+
+    # ── Row 1 col 2: CDF of element quality min (worst element) ──────
+    ax_cdf = fig.add_subplot(gs[1, 2])
+    sorted_eq = np.sort(eq_mins)
+    cdf = np.arange(1, len(sorted_eq) + 1) / len(sorted_eq)
+    ax_cdf.plot(sorted_eq, cdf, color="#ff6644", linewidth=2)
+    ax_cdf.fill_between(sorted_eq, cdf, alpha=0.15, color="#ff6644")
+    ax_cdf.set_title("CDF of Element Quality (min per tile)", fontsize=11, pad=8)
+    ax_cdf.set_xlabel("Element Quality (min)")
+    ax_cdf.set_ylabel("Cumulative Fraction")
+    ax_cdf.grid(True, alpha=0.3)
+
+    # ── Row 2 left: scatter of num_cells vs element quality mean ─────
+    ax_sc = fig.add_subplot(gs[2, 0])
+    sc = ax_sc.scatter(
+        num_cells_list,
+        eq_means,
+        c=ar_means,
+        cmap="plasma",
+        s=55,
+        edgecolors="white",
+        linewidth=0.5,
+        alpha=0.9,
+    )
+    ax_sc.set_title("Cells vs Quality (colour = AR mean)", fontsize=11, pad=8)
+    ax_sc.set_xlabel("Number of Cells")
+    ax_sc.set_ylabel("Element Quality (mean)")
+    fig.colorbar(sc, ax=ax_sc, shrink=0.82, pad=0.04, label="Aspect Ratio (mean)")
+    ax_sc.grid(True, alpha=0.3)
+
+    # ── Row 2 right (spanning 2 cols): ranked bar chart ──────────────
+    ax_bar = fig.add_subplot(gs[2, 1:])
+    ranked = np.argsort(eq_means)  # worst first
+    tile_labels = [str(numbers[i]) for i in ranked]
+    x_pos = np.arange(len(ranked))
+
+    bw = 0.2
+    eq_n = normalise([eq_means[i] for i in ranked])
+    ar_n = normalise([ar_means[i] for i in ranked])
+    er_n = normalise([er_means[i] for i in ranked])
+    sk_n = normalise([sk_maxs[i] for i in ranked])
+
+    ax_bar.bar(x_pos - 1.5 * bw, eq_n, bw, label="Elem Quality (mean)", color="#00cc88")
+    ax_bar.bar(x_pos - 0.5 * bw, ar_n, bw, label="Aspect Ratio (mean)", color="#ff6644")
+    ax_bar.bar(x_pos + 0.5 * bw, er_n, bw, label="Edge Ratio (mean)", color="#4488ff")
+    ax_bar.bar(x_pos + 1.5 * bw, sk_n, bw, label="Skewness (max)", color="#ffcc00")
+
+    ax_bar.set_title(
+        "Tiles Ranked by Element Quality (normalised metrics, worst → best)",
+        fontsize=11,
+        pad=8,
+    )
+    ax_bar.set_xlabel("Tile (case number)")
+    ax_bar.set_ylabel("Normalised Value")
+    ax_bar.set_xticks(x_pos)
+    ax_bar.set_xticklabels(tile_labels, fontsize=7, rotation=45)
+    ax_bar.legend(loc="upper left", fontsize=8, framealpha=0.6)
+    ax_bar.grid(True, axis="y", alpha=0.3)
+
+    # ── Save & show ──────────────────────────────────────────────────
+    out_path = os.path.join(OUTPUT_DIR, "mesh_quality_survey.png")
+    plt.savefig(out_path, dpi=150, bbox_inches="tight", facecolor=fig.get_facecolor())
+    print(f"\nPlot saved to {out_path}")
+    plt.show()
 
 
 if __name__ == "__main__":
