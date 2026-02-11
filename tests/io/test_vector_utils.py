@@ -160,6 +160,13 @@ class TestGetVectorDriver:
             driver = get_vector_driver(f"test{ext}")
             assert driver == expected_driver
 
+    def test_get_driver_two_level_extension(self):
+        """Test driver mapping for .shp.zip files."""
+        driver = get_vector_driver("test.shp.zip")
+        assert driver == "ESRI Shapefile"
+        driver = get_vector_driver("test.json.zip")
+        assert driver == "GeoJSON"
+
 
 class TestCreateBoundsFilter:
     """Tests for create_bounds_filter function."""
@@ -172,30 +179,30 @@ class TestCreateBoundsFilter:
     def test_create_filter_contains_strategy(self):
         """Test creating filter with contains strategy."""
         bounds = Bounds(0, 0, 100, 100)
-        result = create_bounds_filter(bounds, strategy='contains')
+        result = create_bounds_filter(bounds, strategy="contains")
 
         assert result is not None
-        assert 'geometry' in result
-        assert 'strategy' in result
-        assert isinstance(result['geometry'], shapely.geometry.Polygon)
-        assert callable(result['strategy'])
+        assert "geometry" in result
+        assert "strategy" in result
+        assert isinstance(result["geometry"], shapely.geometry.Polygon)
+        assert callable(result["strategy"])
 
     def test_create_filter_intersects_strategy(self):
         """Test creating filter with intersects strategy."""
         bounds = Bounds(0, 0, 100, 100)
-        result = create_bounds_filter(bounds, strategy='intersects')
+        result = create_bounds_filter(bounds, strategy="intersects")
 
         assert result is not None
-        assert 'geometry' in result
-        assert 'strategy' in result
-        assert callable(result['strategy'])
+        assert "geometry" in result
+        assert "strategy" in result
+        assert callable(result["strategy"])
 
     def test_create_filter_invalid_strategy(self):
         """Test error for invalid strategy."""
         bounds = Bounds(0, 0, 100, 100)
 
         with pytest.raises(ValueError) as exc_info:
-            create_bounds_filter(bounds, strategy='invalid')
+            create_bounds_filter(bounds, strategy="invalid")
 
         assert "unknown strategy" in str(exc_info.value).lower()
         assert "invalid" in str(exc_info.value)
@@ -205,7 +212,7 @@ class TestCreateBoundsFilter:
         bounds = Bounds(10, 20, 110, 120)
         result = create_bounds_filter(bounds)
 
-        geom = result['geometry']
+        geom = result["geometry"]
         bbox = geom.bounds  # (minx, miny, maxx, maxy)
 
         assert bbox[0] == pytest.approx(10)
@@ -218,7 +225,7 @@ class TestCreateBoundsFilter:
         bounds = Bounds(0, 0, 100, 100)
         result = create_bounds_filter(bounds, buffer=10)
 
-        geom = result['geometry']
+        geom = result["geometry"]
         bbox = geom.bounds
 
         # Buffer expands by 10 on all sides
@@ -232,7 +239,7 @@ class TestCreateBoundsFilter:
         bounds = Bounds(0, 0, 100, 100)
         result = create_bounds_filter(bounds, buffer=-10)
 
-        geom = result['geometry']
+        geom = result["geometry"]
         bbox = geom.bounds
 
         # Buffer contracts by 10 on all sides
@@ -246,7 +253,7 @@ class TestCreateBoundsFilter:
         bounds = Bounds(0, 0, 100, 100)
         result = create_bounds_filter(bounds, buffer=0)
 
-        geom = result['geometry']
+        geom = result["geometry"]
         bbox = geom.bounds
 
         assert bbox[0] == pytest.approx(0)
@@ -257,10 +264,10 @@ class TestCreateBoundsFilter:
     def test_contains_strategy_behavior(self):
         """Test contains strategy actually tests containment."""
         bounds = Bounds(0, 0, 100, 100)
-        filter_dict = create_bounds_filter(bounds, strategy='contains')
+        filter_dict = create_bounds_filter(bounds, strategy="contains")
 
-        filter_geom = filter_dict['geometry']
-        strategy = filter_dict['strategy']
+        filter_geom = filter_dict["geometry"]
+        strategy = filter_dict["strategy"]
 
         # Geometry fully inside bounds
         inside = shapely.geometry.Point(50, 50).buffer(10)
@@ -277,10 +284,10 @@ class TestCreateBoundsFilter:
     def test_intersects_strategy_behavior(self):
         """Test intersects strategy tests for any overlap."""
         bounds = Bounds(0, 0, 100, 100)
-        filter_dict = create_bounds_filter(bounds, strategy='intersects')
+        filter_dict = create_bounds_filter(bounds, strategy="intersects")
 
-        filter_geom = filter_dict['geometry']
-        strategy = filter_dict['strategy']
+        filter_geom = filter_dict["geometry"]
+        strategy = filter_dict["strategy"]
 
         # Geometry fully inside bounds
         inside = shapely.geometry.Point(50, 50).buffer(10)
@@ -299,15 +306,19 @@ class TestCreateBoundsFilter:
         bounds = Bounds(0, 0, 100, 100)
 
         # Contains strategy
-        filter_contains = create_bounds_filter(bounds, strategy='contains')
+        filter_contains = create_bounds_filter(bounds, strategy="contains")
         line_inside = shapely.geometry.LineString([(10, 10), (90, 90)])
-        assert filter_contains['strategy'](filter_contains['geometry'], line_inside)
+        assert filter_contains["strategy"](filter_contains["geometry"], line_inside)
 
         # Intersects strategy
-        filter_intersects = create_bounds_filter(bounds, strategy='intersects')
+        filter_intersects = create_bounds_filter(bounds, strategy="intersects")
         line_crossing = shapely.geometry.LineString([(50, 50), (150, 150)])
-        assert filter_intersects['strategy'](filter_intersects['geometry'], line_crossing)
-        assert not filter_contains['strategy'](filter_contains['geometry'], line_crossing)
+        assert filter_intersects["strategy"](
+            filter_intersects["geometry"], line_crossing
+        )
+        assert not filter_contains["strategy"](
+            filter_contains["geometry"], line_crossing
+        )
 
     def test_filter_usage_pattern(self):
         """Test recommended usage pattern with None checking."""
@@ -317,7 +328,7 @@ class TestCreateBoundsFilter:
         # Pattern: if filter_dict and filter_dict['strategy'](...)
         test_geom = shapely.geometry.Point(50, 50).buffer(5)
 
-        if filter_dict and filter_dict['strategy'](filter_dict['geometry'], test_geom):
+        if filter_dict and filter_dict["strategy"](filter_dict["geometry"], test_geom):
             result = "passes"
         else:
             result = "fails"
@@ -330,7 +341,7 @@ class TestCreateBoundsFilter:
         test_geom = shapely.geometry.Point(50, 50).buffer(5)
 
         # Pattern should handle None gracefully
-        if filter_dict and filter_dict['strategy'](filter_dict['geometry'], test_geom):
+        if filter_dict and filter_dict["strategy"](filter_dict["geometry"], test_geom):
             result = "passes"
         else:
             result = "no filter"
@@ -354,62 +365,47 @@ class TestDetermineIOCrs:
     def test_save_to_geojson_auto_wgs84(self):
         """Test save to GeoJSON automatically uses WGS84."""
         result = determine_io_crs(
-            "EPSG:3006", None,
-            output_filepath="data.geojson",
-            context="trees"
+            "EPSG:3006", None, output_filepath="data.geojson", context="trees"
         )
         assert result == "EPSG:4326"
 
     def test_save_to_geojson_json_extension(self):
         """Test save to .json file also uses WGS84."""
         result = determine_io_crs(
-            "EPSG:3006", None,
-            output_filepath="data.json",
-            context="landuse"
+            "EPSG:3006", None, output_filepath="data.json", context="landuse"
         )
         assert result == "EPSG:4326"
 
     def test_save_to_shapefile_preserve_crs(self):
         """Test save to shapefile preserves source CRS."""
         result = determine_io_crs(
-            "EPSG:3006", None,
-            output_filepath="data.shp",
-            context="footprints"
+            "EPSG:3006", None, output_filepath="data.shp", context="footprints"
         )
         assert result == "EPSG:3006"
 
     def test_save_to_gpkg_preserve_crs(self):
         """Test save to GeoPackage preserves source CRS."""
         result = determine_io_crs(
-            "EPSG:32633", None,
-            output_filepath="data.gpkg",
-            context="roadnetwork"
+            "EPSG:32633", None, output_filepath="data.gpkg", context="roadnetwork"
         )
         assert result == "EPSG:32633"
 
     def test_explicit_output_crs_overrides_format(self):
         """Test explicit output_crs overrides format requirements."""
         result = determine_io_crs(
-            "EPSG:3006", "EPSG:32633",
-            output_filepath="data.geojson",
-            context="trees"
+            "EPSG:3006", "EPSG:32633", output_filepath="data.geojson", context="trees"
         )
         assert result == "EPSG:32633"
 
     def test_no_log_when_same_crs(self):
         """Test no reprojection when source equals target."""
-        result = determine_io_crs(
-            "EPSG:3006", "EPSG:3006",
-            context="footprints"
-        )
+        result = determine_io_crs("EPSG:3006", "EPSG:3006", context="footprints")
         assert result == "EPSG:3006"
 
     def test_log_reprojection_disabled(self):
         """Test log_reprojection=False parameter accepted."""
         result = determine_io_crs(
-            "EPSG:3006", "EPSG:4326",
-            context="trees",
-            log_reprojection=False
+            "EPSG:3006", "EPSG:4326", context="trees", log_reprojection=False
         )
         assert result == "EPSG:4326"
 
@@ -432,8 +428,7 @@ class TestDetermineIOCrs:
     def test_path_object_accepted(self):
         """Test Path objects are accepted for output_filepath."""
         result = determine_io_crs(
-            "EPSG:3006", None,
-            output_filepath=Path("data.geojson")
+            "EPSG:3006", None, output_filepath=Path("data.geojson")
         )
         assert result == "EPSG:4326"
 
@@ -483,8 +478,7 @@ class TestSafeReprojectGeometry:
 
         with pytest.raises(RuntimeError):
             safe_reproject_geometry(
-                point, "EPSG:3006", "INVALID:CRS",
-                error_context="building 123"
+                point, "EPSG:3006", "INVALID:CRS", error_context="building 123"
             )
 
     def test_raise_on_error_true(self):
@@ -499,8 +493,7 @@ class TestSafeReprojectGeometry:
         point = shapely.geometry.Point(0, 0)
 
         result = safe_reproject_geometry(
-            point, "EPSG:3006", "INVALID:CRS",
-            raise_on_error=False
+            point, "EPSG:3006", "INVALID:CRS", raise_on_error=False
         )
 
         assert result is point  # Should return original
@@ -510,8 +503,7 @@ class TestSafeReprojectGeometry:
         points = [shapely.geometry.Point(0, 0), shapely.geometry.Point(1, 1)]
 
         result = safe_reproject_geometry(
-            points, "EPSG:3006", "INVALID:CRS",
-            raise_on_error=False
+            points, "EPSG:3006", "INVALID:CRS", raise_on_error=False
         )
 
         assert result is points  # Should return original
@@ -546,6 +538,5 @@ class TestSafeReprojectGeometry:
 
         with pytest.raises(RuntimeError):
             safe_reproject_geometry(
-                lines, "EPSG:3006", "INVALID:CRS",
-                error_context="road network"
+                lines, "EPSG:3006", "INVALID:CRS", error_context="road network"
             )

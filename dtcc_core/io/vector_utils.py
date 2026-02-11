@@ -13,8 +13,10 @@ from .logging import info, warning, error
 # Supported vector formats and their Fiona drivers
 VECTOR_DRIVERS = {
     ".shp": "ESRI Shapefile",
+    ".shp.zip": "ESRI Shapefile",
     ".geojson": "GeoJSON",
     ".json": "GeoJSON",
+    ".json.zip": "GeoJSON",
     ".gpkg": "GPKG",
 }
 
@@ -57,6 +59,10 @@ def get_vector_driver(filepath):
     filepath = Path(filepath)
     extension = filepath.suffix.lower()
     driver = VECTOR_DRIVERS.get(extension)
+    if driver is None:
+        # check two-level suffixes for formats like .shp.zip
+        two_level_suffix = "".join(filepath.suffixes[-2:]).lower()
+        driver = VECTOR_DRIVERS.get(two_level_suffix)
 
     if driver is None:
         supported = ", ".join(VECTOR_DRIVERS.keys())
