@@ -12,6 +12,7 @@ from .air_quality import AirQualityDataset
 from .trees import TreesDataset
 from .weather import WeatherDataset
 from .hydrology import HydrologyDataset
+from .ocean import OceanDataset
 
 # Import registry infrastructure from separate module to avoid circular imports
 from .registry import (
@@ -36,6 +37,7 @@ air_quality = get_dataset("air_quality")
 trees = get_dataset("trees")
 weather = get_dataset("weather")
 hydrology = get_dataset("hydrology")
+ocean = get_dataset("ocean")
 
 
 def info():
