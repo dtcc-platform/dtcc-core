@@ -110,7 +110,9 @@ class TestParseLatestHourCsv:
     def test_negative_value(self):
         """Negative values (e.g. -0.52°C) should parse correctly."""
         _, records = _parse_latest_hour_csv(SAMPLE_CSV_PARAM5)
-        krossholmen = [r for r in records if r["station_name"] == "Göteborg-Krossholmen"][0]
+        krossholmen = [
+            r for r in records if r["station_name"] == "Göteborg-Krossholmen"
+        ][0]
         assert krossholmen["value"] == pytest.approx(-0.52)
 
     def test_sea_level_csv(self):
@@ -269,6 +271,7 @@ class TestOceanBuild:
     @patch("dtcc_core.datasets.ocean._get_text", side_effect=_mock_get_text)
     def test_drop_missing(self, mock_text):
         """Stations with NaN values should be dropped when drop_missing=True."""
+
         # Use the missing-values fixture by injecting it for param 5
         def mock_missing(url, timeout_s=10.0):
             if "/parameter/5/" in url:
@@ -292,6 +295,7 @@ class TestOceanBuild:
     @patch("dtcc_core.datasets.ocean._get_text", side_effect=_mock_get_text)
     def test_keep_missing(self, mock_text):
         """Stations with NaN values kept when drop_missing=False."""
+
         def mock_missing(url, timeout_s=10.0):
             if "/parameter/5/" in url:
                 return SAMPLE_CSV_MISSING_VALUES
@@ -428,6 +432,7 @@ class TestOceanBuild:
     @patch("dtcc_core.datasets.ocean._get_text", side_effect=_mock_get_text)
     def test_http_failure_graceful(self, mock_text):
         """Fetch failure for a parameter should be skipped gracefully."""
+
         def _fail_on_p6(url, timeout_s=10.0):
             if "/parameter/6/" in url:
                 raise RuntimeError("Network error")

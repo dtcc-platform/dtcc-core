@@ -190,8 +190,9 @@ def _transform_bounds_to_wgs84(
 # ── Station list + data fetchers ─────────────────────────────────────────
 
 
-def _fetch_station_list(base_url: str, version: str, param_id: int,
-                        timeout_s: float) -> List[Dict[str, Any]]:
+def _fetch_station_list(
+    base_url: str, version: str, param_id: int, timeout_s: float
+) -> List[Dict[str, Any]]:
     """Fetch the station list for a given parameter.
 
     Returns
@@ -206,8 +207,9 @@ def _fetch_station_list(base_url: str, version: str, param_id: int,
     return data.get("station", [])
 
 
-def _fetch_latest_day(base_url: str, version: str, param_id: int,
-                      station_key: str, timeout_s: float) -> Dict[str, Any]:
+def _fetch_latest_day(
+    base_url: str, version: str, param_id: int, station_key: str, timeout_s: float
+) -> Dict[str, Any]:
     """Fetch latest-day data for a single station and parameter.
 
     Returns
@@ -366,7 +368,9 @@ class HydrologyDataset(DatasetDescriptor):
                     args.base_url, args.version, pid, args.timeout_s
                 )
             except RuntimeError as exc:
-                info(f"  Warning: failed to fetch station list for parameter {pid}: {exc}")
+                info(
+                    f"  Warning: failed to fetch station list for parameter {pid}: {exc}"
+                )
                 continue
 
             # Filter by active status and bounding box
