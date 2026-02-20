@@ -787,14 +787,46 @@ def build_city_volume_mesh(
 
         # Build volume mesh with TetGen
         report_progress(percent=60, message="Running TetGen volume mesher...")
-        volume_mesh = tetgen_build_volume_mesh(
-            mesh=surface_mesh,
-            build_top_sidewalls=True,
-            top_height=domain_height,
-            switches_params=switches_params,
-            switches_overrides=tetgen_switch_overrides,
-            return_boundary_faces=boundary_face_markers,
-        )
+        try:
+            volume_mesh = tetgen_build_volume_mesh(
+                mesh=surface_mesh,
+                build_top_sidewalls=True,
+                top_height=domain_height,
+                switches_params=switches_params,
+                switches_overrides=tetgen_switch_overrides,
+                return_boundary_faces=boundary_face_markers,
+            )
+        except RuntimeError as exc:
+            msg = str(exc)
+            # Merged footprints can occasionally create degenerate/overlapping
+            # facets that TetGen reports as self-intersections. Retry once
+            # without building-merge preprocessing for robustness.
+            if merge_buildings and "self-intersections" in msg:
+                warning(
+                    "TetGen failed with self-intersections after merging buildings; "
+                    "retrying once with merge_buildings=False."
+                )
+                return build_city_volume_mesh(
+                    city=city,
+                    lod=lod,
+                    domain_height=domain_height,
+                    max_mesh_size=max_mesh_size,
+                    min_mesh_angle=min_mesh_angle,
+                    merge_buildings=False,
+                    min_building_detail=min_building_detail,
+                    min_building_area=min_building_area,
+                    merge_tolerance=merge_tolerance,
+                    smoothing=smoothing,
+                    boundary_face_markers=boundary_face_markers,
+                    tetgen_switches=tetgen_switches,
+                    tetgen_switch_overrides=tetgen_switch_overrides,
+                    smoother_max_iterations=smoother_max_iterations,
+                    smoothing_relative_tolerance=smoothing_relative_tolerance,
+                    aspect_ratio_threshold=aspect_ratio_threshold,
+                    debug_step=debug_step,
+                    report_mesh_quality=report_mesh_quality,
+                )
+            raise
         report_progress(percent=95, message="Volume mesh complete")
 
         if report_mesh_quality:

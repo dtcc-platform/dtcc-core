@@ -34,8 +34,8 @@ class CityVolumeMeshArgs(DatasetBaseArgs):
         description="Maximum tetrahedron volume (defaults to max_mesh_size if not set)",
     )
     tetgen_extra: str = Field(
-        " -VV",
-        description="Extra switches to pass to TetGen (e.g., ' -VV' for verbose output)",
+        "",
+        description="Extra switches to pass to TetGen (e.g., 'VV' for verbose output)",
     )
     format: Optional[Literal["xdmf", "vtu"]] = Field(
         None, description="Output file format"
