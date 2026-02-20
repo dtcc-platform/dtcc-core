@@ -588,6 +588,7 @@ public:
     find_markers_t.stop();
 
     info("build_city_surface_mesh: step 3 flatten platforms");
+    std::vector<char> platform_freeze(terrain_mesh.vertices.size(), 0);
     for (const auto &kv : platform_faces)
     {
       const size_t marker = kv.first;
@@ -606,16 +607,17 @@ public:
         vset.insert(static_cast<size_t>(f.v1));
         vset.insert(static_cast<size_t>(f.v2));
       }
-      // Set their z to zflat
+      // Set their z to zflat and mark as frozen
       for (size_t vi : vset)
       {
         terrain_mesh.vertices[vi].z = zflat;
+        platform_freeze[vi] = 1;
       }
     }
 
     if (smooth_ground)
     {
-      VertexSmoother::smooth_mesh(terrain_mesh, smooth_ground, false, true);
+      VertexSmoother::smooth_mesh(terrain_mesh, smooth_ground, platform_freeze, true);
     }
 
     info("building meshes");
