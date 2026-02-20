@@ -1,3 +1,3 @@
 from dtcc_core.common import init_logging
 
-debug, info, warning, error, critical = init_logging("dtcc-data")
+debug, info, warning, error, critical = init_logging("dtcc-core")

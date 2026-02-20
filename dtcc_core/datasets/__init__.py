@@ -1,4 +1,3 @@
-import logging
 from .dataset import DatasetDescriptor, DatasetBaseArgs
 
 # Import dataset classes to trigger auto-registration

@@ -23,6 +23,7 @@ from shapely.ops import unary_union
 from ..logging import debug, info, warning, error
 
 from typing import List, Tuple, Union
+import warnings
 
 
 @register_model_method
@@ -304,7 +305,14 @@ def clean_building_footprints(
         footprint = lod0.to_polygon()
         if footprint is None or footprint.is_empty:
             continue
-        fixed_footprint, _ = robust_fix_geometry(footprint, constraints=constraints)
+        with warnings.catch_warnings(record=True) as caught_warnings:
+            warnings.simplefilter("always", UserWarning)
+            fixed_footprint, _ = robust_fix_geometry(footprint, constraints=constraints)
+        for caught_warning in caught_warnings:
+            if issubclass(caught_warning.category, UserWarning):
+                warning(
+                    f"Building {building.id}: {str(caught_warning.message).strip()}"
+                )
         building_surface = Surface()
         building_surface.from_polygon(fixed_footprint, lod0.zmax)
         fixed_building = building.copy()

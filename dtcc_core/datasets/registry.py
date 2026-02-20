@@ -6,8 +6,7 @@ It's separate from __init__.py to avoid circular import issues during
 module initialization.
 """
 
-import logging
-from ..common import info
+from ..common import info, warning
 
 # Registry storage
 _dataset_classes = {}  # Maps name -> class (for class-level access)
@@ -24,7 +23,7 @@ def _register_dataset_class(name: str, cls: type):
         cls: Dataset class to register
     """
     if name in _dataset_classes:
-        logging.warning(
+        warning(
             f"Dataset '{name}' already registered (class: {_dataset_classes[name].__name__}), "
             f"replacing with {cls.__name__}"
         )
@@ -65,7 +64,7 @@ def register(name: str, instance):
         )
 
     if name in _datasets_by_name:
-        logging.warning(f"Dataset '{name}' already registered, replacing it.")
+        warning(f"Dataset '{name}' already registered, replacing it.")
 
     _datasets_by_name[name] = instance
     info(f"Registered dataset instance: '{name}' ({type(instance).__name__})")

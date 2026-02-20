@@ -26,7 +26,7 @@ class LoggingHandler(RichHandler):
     """Custom logging handler with DTCC-style formatting.
 
     Output format:
-        13:24:20 dtcc-core ∙ info     ∙ Message text here
+        [13:24:20] [dtcc-core] [info] Message text here
     """
 
     def __init__(
@@ -48,7 +48,6 @@ class LoggingHandler(RichHandler):
         )
         self.source_name = source_name
 
-
     def emit(self, record: LogRecord) -> None:
         """Emit a log record with DTCC formatting."""
         try:
@@ -69,39 +68,20 @@ class LoggingHandler(RichHandler):
             # Handle multiline messages
             lines = message.split("\n")
 
-            # Build the first line
-            # line = Text()
-            # line.append(time_str, style="dim")
-            # line.append(" ")
-            # line.append(self.source_name.ljust(12), style="dim")
-            # line.append(" ")
-            # line.append("\u2219", style="dim")  # ∙ bullet operator
-            # line.append(" ")
-            # line.append(level_name, style=level_style)
-            # line.append(" \u2219", style="dim")  # ∙ bullet operator
-            # line.append(" ")
-
-            line = Text.assemble(
-                (time_str, "dim"),
-                " ",
-                (self.source_name.ljust(12), "dim"),
-                (" \u2219", "dim"),
-                (level_name.ljust(8), level_style),
-                ("\u2219 ", "dim"),
-                (lines[0], msg_style or ""),
-            )
-
-            # Print the first line
-            self.console.print(line)
-
-            # Print continuation lines with proper indentation
-            for continuation in lines[1:]:
-                cont_line = Text()
-                if msg_style:
-                    cont_line.append(continuation, style=msg_style)
-                else:
-                    cont_line.append(continuation)
-                self.console.print(cont_line)
+            for line_text in lines:
+                line = Text.assemble(
+                    ("[", "dim"),
+                    (time_str, "dim"),
+                    ("] ", "dim"),
+                    ("[", "dim"),
+                    (self.source_name, "dim"),
+                    ("] ", "dim"),
+                    ("[", "dim"),
+                    (level_name, level_style),
+                    ("] ", "dim"),
+                    (line_text, msg_style or ""),
+                )
+                self.console.print(line)
 
             # Handle exceptions/tracebacks
             if record.exc_info:
