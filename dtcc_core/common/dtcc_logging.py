@@ -2,6 +2,7 @@
 # Licensed under the MIT License
 
 import logging as _logging
+from typing import Dict, Tuple, Callable
 
 from rich.console import Console
 
@@ -17,107 +18,113 @@ except ImportError:
     _console = Console(stderr=True,
                        soft_wrap=False)
 
-# Global logger dictionary
-loggers = {}
+# Global logger dictionary (name -> function tuple)
+loggers: Dict[str, Tuple[Callable, Callable, Callable, Callable, Callable]] = {}
+
+# Global logger objects (name -> logging.Logger)
+_logger_objects: Dict[str, _logging.Logger] = {}
 
 # Global logger object
 _logger: _logging.Logger = None
 
 
-def _init_logging(name):
-    "Internal function for initializing logging"
-
-    global _logger
-
-    # Initialize logger
-    _logger = _logging.getLogger(name)
-    _logger.setLevel(_logging.INFO)
-
-    # Remove all existing handlers
-    _logger.handlers.clear()
-
-    # Create custom DTCC handler that uses the shared console
-    # This ensures log messages coordinate with progress bar display
-    handler = LoggingHandler(
-        source_name=name,
-        console=_console,
+def _coerce_level(level: str | int) -> int:
+    """Convert a string/int log level to logging level int."""
+    if isinstance(level, int):
+        return level
+    if isinstance(level, str):
+        value = _logging.getLevelName(level.upper())
+        if isinstance(value, int):
+            return value
+    raise ValueError(
+        f"Invalid log level {level!r}. Valid levels are DEBUG, INFO, WARNING, ERROR, CRITICAL."
     )
 
-    # Add handler to logger
-    _logger.addHandler(handler)
 
-    # Only log at first logger
-    _logger.propagate = False
+_global_log_level: int = _logging.INFO
 
-    # Also set the root logger's handlers to use rich
-    _logging.root.handlers.clear()
-    _logging.root.addHandler(handler)
-    _logging.root.setLevel(_logging.INFO)
 
-    # Define error and critical as print + exit
+def _ensure_logger(name: str) -> _logging.Logger:
+    """Return a configured logger with DTCC formatting for this source name."""
+    logger = _logger_objects.get(name)
+    if logger is not None:
+        return logger
+
+    logger = _logging.getLogger(name)
+    logger.setLevel(_global_log_level)
+    logger.propagate = False
+
+    # Remove stale DTCC handlers for this source before attaching one.
+    logger.handlers = [
+        handler
+        for handler in logger.handlers
+        if not (isinstance(handler, LoggingHandler) and handler.source_name == name)
+    ]
+    logger.addHandler(
+        LoggingHandler(
+            source_name=name,
+            console=_console,
+        )
+    )
+
+    _logger_objects[name] = logger
+    return logger
+
+
+def _callbacks_for(logger: _logging.Logger):
+    """Build helper callbacks with legacy DTCC API."""
     def error(message):
-        """
-        Log an error and terminate the process.
-
-        Parameters
-        ----------
-        message : str
-            Error message to log before exiting.
-
-        Raises
-        ------
-        SystemExit
-            Always raised after logging the message.
-        """
-        _logger.error(message)
+        logger.error(message)
         raise RuntimeError(message)
 
     def critical(message):
-        """
-        Log a critical error and terminate the process.
-
-        Parameters
-        ----------
-        message : str
-            Critical message to log before exiting.
-
-        Raises
-        ------
-        SystemExit
-            Always raised after logging the message.
-        """
-        _logger.critical(message)
+        logger.critical(message)
         raise RuntimeError(message)
 
-    return (_logger.debug, _logger.info, _logger.warning, error, critical)
+    return (logger.debug, logger.info, logger.warning, error, critical)
 
 
-debug, info, warning, error, critical = _init_logging("dtcc-common")
+def _init_logging(name):
+    "Internal function for initializing logging."
+
+    global _logger
+
+    _logger = _ensure_logger(name)
+    return _callbacks_for(_logger)
+
+
+debug, info, warning, error, critical = _init_logging("dtcc-core")
 
 
 def init_logging(name="dtcc-core"):
-    "Initialize logging for given package"
-    return _init_logging(name)
+    "Initialize logging for given package."
+    callbacks = _init_logging(name)
+    loggers[name] = callbacks
+    return callbacks
 
 
 def get_logger(name="dtcc-core"):
-    "Get logger for given package"
+    "Get logger callback tuple for given package."
     if name not in loggers:
-        loggers[name] = _init_logging(name)
+        loggers[name] = init_logging(name)
     return loggers[name]
 
 
+def get_python_logger(name: str = "dtcc-core") -> _logging.Logger:
+    """Get configured Python logger object for a given package source name."""
+    return _ensure_logger(name)
+
+
 def set_log_level(level):
-    """Set log level. Valid levels are:
-
-    "DEBUG"
-    "INFO"
-    "WARNING"
-    "ERROR"
-    "CRITICAL"
-
-    """
+    """Set log level for all configured DTCC loggers."""
     global _logger
+    global _global_log_level
+
+    _global_log_level = _coerce_level(level)
+
     if _logger is None:
-        _init_logging("dtcc-core")
-    _logger.setLevel(level)
+        _logger = _ensure_logger("dtcc-core")
+    _logger.setLevel(_global_log_level)
+
+    for logger in _logger_objects.values():
+        logger.setLevel(_global_log_level)

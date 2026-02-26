@@ -4,7 +4,7 @@
 // Simple logging system for use in DTCC C++ code modeled after the Python
 // DTCCHandler format:
 //
-// HH:MM:SS dtcc-core     ∙ info     ∙ Message text here
+// [HH:MM:SS] [dtcc-core] [info] Message text here
 
 #ifndef DTCC_LOGGING_H
 #define DTCC_LOGGING_H
@@ -58,11 +58,9 @@ public:
   // Format message (matches Python DTCCHandler style)
   std::string __format__(LogLevel log_level, const std::string &message)
   {
-    // Set component, left-padded to 12 chars (matches Python ljust(12))
     std::string component = "dtcc-core";
-    component.resize(12, ' ');
 
-    // Format level as lowercase, left-padded to 8 chars
+    // Format level as lowercase
     std::string level{};
     switch (log_level)
     {
@@ -84,10 +82,29 @@ public:
     default:
       level = "unknown";
     };
-    level.resize(8, ' ');
 
-    // Format: HH:MM:SS dtcc-core     ∙ info     ∙ Message
-    return current_time() + " " + component + " \u2219" + level + "\u2219 " + message;
+    // Format: [HH:MM:SS] [dtcc-core] [info] Message
+    const std::string prefix =
+        "[" + current_time() + "] [" + component + "] [" + level + "] ";
+
+    // Prefix every line for multiline messages
+    std::istringstream lines(message);
+    std::string line;
+    std::ostringstream out;
+    bool first = true;
+    while (std::getline(lines, line))
+    {
+      if (!first)
+        out << "\n";
+      out << prefix << line;
+      first = false;
+    }
+
+    // Handle empty message
+    if (first)
+      out << prefix;
+
+    return out.str();
   }
 
   // print message to stdout

@@ -191,6 +191,61 @@ public:
     }
   }
 
+  // Smooth mesh with explicit per-vertex freeze mask.
+  // Vertices where freeze_vertex[i] != 0 are left unchanged.
+  static void smooth_mesh(Mesh &mesh, size_t num_smoothings,
+                          const std::vector<char> &freeze_vertex,
+                          bool z_only = false)
+  {
+    info("Smoothing mesh (with freeze mask)...");
+    Timer timer("smooth_mesh");
+
+    const size_t num_vertices = mesh.vertices.size();
+    const size_t num_faces = mesh.faces.size();
+    if (num_faces == 0 || num_vertices == 0)
+      return;
+
+    auto vert_con_t = Timer("vertex connectivity");
+    std::vector<std::unordered_set<size_t>> vertex_neighbors(num_vertices);
+
+    for (const auto &T : mesh.faces)
+    {
+      vertex_neighbors[T.v0].insert(T.v1);
+      vertex_neighbors[T.v0].insert(T.v2);
+      vertex_neighbors[T.v1].insert(T.v0);
+      vertex_neighbors[T.v1].insert(T.v2);
+      vertex_neighbors[T.v2].insert(T.v0);
+      vertex_neighbors[T.v2].insert(T.v1);
+    }
+    vert_con_t.stop();
+
+    for (size_t it = 0; it < num_smoothings; ++it)
+    {
+      info("Smoothing iteration " + str(it));
+      for (size_t i = 0; i < num_vertices; ++i)
+      {
+        if (i < freeze_vertex.size() && freeze_vertex[i])
+          continue;
+
+        const auto &N = vertex_neighbors[i];
+        if (N.empty())
+          continue;
+
+        Vector3D avg{0, 0, 0};
+        for (size_t j : N)
+          avg += Vector3D(mesh.vertices[j]);
+
+        const double invN = 1.0 / static_cast<double>(N.size());
+        avg *= invN;
+
+        if (z_only)
+          mesh.vertices[i].z = avg.z;
+        else
+          mesh.vertices[i] = avg;
+      }
+    }
+  }
+
   // Smooth grid field
   static GridField smooth_field(const GridField &field, size_t num_smoothings)
   {

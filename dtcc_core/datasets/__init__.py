@@ -1,4 +1,3 @@
-import logging
 from .dataset import DatasetDescriptor, DatasetBaseArgs
 
 # Import dataset classes to trigger auto-registration
@@ -10,6 +9,9 @@ from .city_flat_mesh import CityFlatMeshDataset
 from .city_volume_mesh import CityVolumeMeshDataset
 from .air_quality import AirQualityDataset
 from .trees import TreesDataset
+from .weather import WeatherDataset
+from .hydrology import HydrologyDataset
+from .ocean import OceanDataset
 
 # Import registry infrastructure from separate module to avoid circular imports
 from .registry import (
@@ -32,6 +34,9 @@ city_flat_mesh = get_dataset("city_flat_mesh")
 city_volume_mesh = get_dataset("city_volume_mesh")
 air_quality = get_dataset("air_quality")
 trees = get_dataset("trees")
+weather = get_dataset("weather")
+hydrology = get_dataset("hydrology")
+ocean = get_dataset("ocean")
 
 
 def info():

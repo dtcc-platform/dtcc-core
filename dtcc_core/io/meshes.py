@@ -23,7 +23,7 @@ try:
     HAS_ASSIMP = True
 except:
     warning(
-        "Unable to find assimp, reading and writing .dae and .fbx files will not work\n To install assimp please see the instructions at https://www.assimp.org"
+        "Unable to find assimp, reading and writing .dae and .fbx files will not work\nTo install assimp please see the instructions at https://www.assimp.org"
     )
     HAS_ASSIMP = False
 

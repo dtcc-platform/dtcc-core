@@ -546,11 +546,11 @@ public:
     spade::RefinementInfo refinement_info{};
 
     info("SPADE refine request: domain_area=" + str(domain_area, 3) +
-         "\n max_allowed_area = " + str(max_allowed_area, 6) +
-         "\n min_angle_deg = " + str(min_angle_deg, 3) +
-         "\n input_vertices ~= " + str(input_vertices) +
-         "\n max_additional_vertices = " + str(max_additional_vertices) +
-         "\n exclude_outer_faces = "+ str(exclude_outer_faces));
+         "\nmax_allowed_area = " + str(max_allowed_area, 6) +
+         "\nmin_angle_deg = " + str(min_angle_deg, 3) +
+         "\ninput_vertices ~= " + str(input_vertices) +
+         "\nmax_additional_vertices = " + str(max_additional_vertices) +
+         "\nexclude_outer_faces = "+ str(exclude_outer_faces));
 
     auto result = spade::triangulate(outer_loop, hole_loops, sub_domains_spade,
                                      refinement, true, &refinement_info);

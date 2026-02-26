@@ -4,9 +4,9 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from inspect import getmembers, isfunction, ismethod, ismodule
-import logging
 from google.protobuf.json_format import MessageToJson
 from copy import deepcopy
+from ..common import warning
 
 
 @dataclass
@@ -121,7 +121,7 @@ def _add_method(cls, function, name=None):
         name = function.__name__
     for idx, (function_name, _, _) in enumerate(cls._methods):
         if function_name == name:
-            logging.warn(
+            warning(
                 f"{function} Method {function_name} already exists, replacing it."
             )
             cls._methods.pop(idx)
