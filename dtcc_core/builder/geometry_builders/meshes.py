@@ -1,6 +1,7 @@
 from typing import Any, Dict, Optional, List, cast
 import numpy as np
 
+import dtcc_core.io
 from ...model import (
     Mesh,
     VolumeMesh,
@@ -112,45 +113,35 @@ def _preprocess_buildings(
     subdomain_resolution : list[float]
         Per-building mesh resolution (min of height, max_mesh_size).
     """
+    if len(buildings) == 0:
+        warning("No buildings to preprocess.")
+        return [], [], []
     if merge_buildings:
         info(f"Merging {len(buildings)} buildings...")
 
-        step1_buildings = cast(
-            List[Building],
-            merge_building_footprints(
-                buildings,
-                lod=GeometryType.LOD0,
-                max_distance=merge_tolerance,
-                min_area=min_building_area,
-                return_index_map=False,
-            ),
+        fixed_buildings = merge_building_footprints(
+            buildings,
+            lod=GeometryType.LOD0,
+            max_distance=merge_tolerance,
+            min_area=min_building_area,
+            return_index_map=False,
         )
 
-        step2_buildings = cast(
-            List[Building],
-            merge_building_footprints(
-                step1_buildings,
-                GeometryType.LOD0,
-                max_distance=0.0,
-                min_area=min_building_area,
-                return_index_map=False,
-            ),
+        fixed_buildings = fix_building_footprint_clearance(
+            fixed_buildings, min_building_detail, return_index_map=False
         )
 
-        simplified_footprints = cast(
-            List[Building],
-            simplify_building_footprints(
-                step2_buildings,
-                min_building_detail,
-                lod=GeometryType.LOD0,
-                return_index_map=False,
-            ),
+        fixed_buildings = simplify_building_footprints(
+            fixed_buildings,
+            min_building_detail,
+            lod=GeometryType.LOD0,
+            return_index_map=False,
         )
 
         building_footprints = [
-            b.get_footprint(GeometryType.LOD0) for b in simplified_footprints
+            b.get_footprint(GeometryType.LOD0) for b in fixed_buildings
         ]
-        processed_buildings = simplified_footprints
+        processed_buildings = fixed_buildings
 
         info(f"After merging: {len(building_footprints)} buildings.")
     else:
@@ -518,6 +509,10 @@ def build_city_flat_mesh(
             max_mesh_size=max_mesh_size,
         )
     )
+
+    city = City()
+    city.add_buildings(_processed_buildings)
+    city.save_building_footprints("sandbox/output/processed_footprints.gpkg")
 
     report_progress(
         percent=10,

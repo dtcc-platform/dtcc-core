@@ -1,10 +1,5 @@
 from ...model import Building, GeometryType, MultiSurface, Surface
-from ..polygons.polygons import (
-    polygon_merger,
-    simplify_polygon,
-    remove_slivers,
-    split_polygon_sides,
-)
+from ..polygons.polygons import split_polygon_sides
 
 from polyforge import (
     merge_close_polygons,
@@ -12,7 +7,11 @@ from polyforge import (
     simplify_rdp,
     simplify_vwp,
     robust_fix_geometry,
+    remove_narrow_protrusions,
 )
+
+from polyforge.ops.clearance.protrusions import remove_narrow_wedges
+
 from polyforge import MergeStrategy, GeometryConstraints
 
 from ..polygons.surface import clean_multisurface, clean_surface
@@ -353,10 +352,27 @@ def fix_building_footprint_clearance(
         if lod_geom is None:
             continue
         footprint = lod_geom.to_polygon()
+        if footprint.geom_type == "MultiPolygon":
+            warning(f"Building {building.id} has MultiPolygon footprint. Skipping.")
+            continue
         if footprint is None or footprint.is_empty:
             continue
         # clean_surface
         footprint = fix_clearance(footprint, clearance)
+        if footprint.geom_type == "MultiPolygon":
+            warning(
+                f"Building {building.id} has MultiPolygon footprint after cleaning. Coercing to Polygon."
+            )
+            footprints = [g for g in footprint.geoms if isinstance(g, Polygon)]
+            footprint = unary_union(footprints)
+            if footprint.geom_type == "MultiPolygon":
+                footprint = max(footprint.geoms, key=lambda p: p.area)
+        if footprint.geom_type != "Polygon":
+            warning(
+                f"Building {building.id} footprint could not be coerced to Polygon. Skipping."
+            )
+            continue
+        footprint = remove_narrow_wedges(footprint, min_depth=clearance)
         building_surface = Surface()
         building_surface.from_polygon(footprint, lod_geom.zmax)
         fixed_building = building.copy()

@@ -8,6 +8,7 @@ from inspect import getmembers, isfunction, ismethod
 
 from shapely.geometry import Polygon
 from shapely.validation import make_valid
+from shapely.ops import unary_union
 
 from .geometry import Geometry, Bounds
 from .. import dtcc_pb2 as proto
@@ -133,9 +134,14 @@ class Surface(Geometry):
         p = Polygon(self.vertices[:, :2], holes_2d)
         if not p.is_valid:
             p = make_valid(p)
+        if p.geom_type == "MultiPolygon":
+            warning("Surface converted to MultiPolygon, taking largest component.")
+            p = unary_union(p.geoms)
+            p = max(p.geoms, key=lambda g: g.area)
         if not p.is_valid and p.geom_type != "Polygon":
             warning("Cannot convert surface to valid polygon.")
             return Polygon()
+
         if simplify > 0:
             p = p.simplify(simplify, preserve_topology=True)
         return p
