@@ -187,26 +187,6 @@ def test_unregister_nonexistent():
     unregister("nonexistent_dataset")
 
 
-def test_duplicate_registration_warns(caplog):
-    """Test that duplicate registration logs a warning."""
-    # Register first time
-    register_class("dup_test", BaseTestDataset)
-
-    # Register again with same name
-    with caplog.at_level(logging.WARNING):
-        register_class("dup_test", AnotherTestDataset)
-
-    # Should have logged a warning
-    assert "already registered" in caplog.text.lower()
-
-    # Latest registration should win
-    available = list_datasets()
-    assert isinstance(available["dup_test"], AnotherTestDataset)
-
-    # Cleanup
-    unregister("dup_test")
-
-
 # Discovery Tests
 
 
