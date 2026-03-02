@@ -53,19 +53,12 @@ class TreesDataset(DatasetDescriptor):
             if args.format is None:
                 return trees
             elif args.format in ("gpkg", "geojson", "json"):
-                if args.format == "geojson" or args.format == "json":
-                    as_text = True
+                if args.format in ("geojson", "json"):
                     args.format = "json"
-                else:
-                    as_text = False
-                if args.vector_geometry == "circle":
-                    as_circles = True
-                else:
-                    as_circles = False
+                as_circles = args.vector_geometry == "circle"
                 return self.export_to_bytes(
                     trees,
                     args.format,
-                    as_text=as_text,
                     save_callable=save_trees,
                     as_circles=as_circles,
                 )

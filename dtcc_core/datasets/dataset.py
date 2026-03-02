@@ -167,17 +167,15 @@ class DatasetDescriptor(ABC):
     def export_to_bytes(
         obj: Union[DTCCObject, DTCCGeometry, list[DTCCObject], list[DTCCGeometry]],
         format: str,
-        as_text=False,
         save_callable=None,
         **save_kwargs,
-    ) -> Union[bytes, str]:
+    ) -> bytes:
         """Export object to bytes.
 
         Args:
             obj: Object with .save() method
             format: File format extension
             save_callable: Custom save function
-            as_text: Return as text instead of bytes
             **save_kwargs: Passed to obj.save()
 
         Returns:
@@ -189,7 +187,4 @@ class DatasetDescriptor(ABC):
                 save_callable(obj, tmpfile, **save_kwargs)
             else:
                 obj.save(tmpfile, **save_kwargs)
-            if as_text:
-                return Path(tmpfile).read_text()
-            else:
-                return Path(tmpfile).read_bytes()
+            return Path(tmpfile).read_bytes()

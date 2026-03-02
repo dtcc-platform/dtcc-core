@@ -90,7 +90,7 @@ class BuildingDataset(DatasetDescriptor):
                 if args.format is None:
                     return buildings
                 elif args.format in ("cityjson", "json"):
-                    return self.export_to_bytes(city, "json", as_text=True)
+                    return self.export_to_bytes(city, "json")
                 elif args.format in ("obj", "stl"):
                     report_progress(percent=20, message="Extracting building meshes...")
                     building_meshes = [
