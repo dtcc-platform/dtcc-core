@@ -12,7 +12,7 @@ class FootprintsArgs(DatasetBaseArgs):
         "LM", description="Data source for building footprints"
     )
     smallest_building_size: float = Field(
-        15.0, description="Smallest building size to include (in square meters)"
+        0.0, description="Smallest building size to include (in square meters)"
     )
     calculate_heights: bool = Field(
         False, description="Whether to calculate building heights from point cloud"
