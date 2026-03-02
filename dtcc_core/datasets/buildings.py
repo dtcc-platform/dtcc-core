@@ -18,7 +18,7 @@ class BuildingArgs(DatasetBaseArgs):
     place_on_zero: bool = Field(
         False, description="Whether to place buildings on Z=0 plane"
     )
-    format: Optional[Literal["obj", "stl", "cityjson", "json"]] = Field(
+    format: Optional[Literal["obj", "stl"]] = Field(
         None, description="Output file format"
     )
 
@@ -89,8 +89,6 @@ class BuildingDataset(DatasetDescriptor):
             ):
                 if args.format is None:
                     return buildings
-                elif args.format in ("cityjson", "json"):
-                    return self.export_to_bytes(city, "json", as_text=True)
                 elif args.format in ("obj", "stl"):
                     report_progress(percent=20, message="Extracting building meshes...")
                     building_meshes = [
