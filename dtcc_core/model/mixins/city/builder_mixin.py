@@ -1,5 +1,5 @@
 from dtcc_core.logging import info, warning, error
-
+import numpy as np
 
 from pathlib import Path
 from typing import Union
@@ -12,6 +12,8 @@ from ....model.values import Raster
 if TYPE_CHECKING:
     from ....model.object import City
     from ....model.object.tree import Tree
+
+    from shapely.geometry import Polygon
 
     T_City = TypeVar("T_City", bound=City)
     T_Tree = TypeVar("T_Tree", bound=Tree)
@@ -388,3 +390,16 @@ class CityBuilderMixin:
         trees = trees_from_pointcloud(pc, terrain_raster, tree_type=tree_type)
         self.add_trees(trees)
         return trees
+
+    def footprint_polygons(self: "T_City") -> list["Polygon"]:
+        buildings = self.buildings
+        if not buildings:
+            return []
+
+        footprints = [b.get_footprint() for b in buildings]
+        footprint_polygons = [fp.to_polygon() for fp in footprints if fp is not None]
+        if len(footprint_polygons) != len(footprints):
+            warning(
+                f"failed to create polygons for {len(buildings) - len(footprint_polygons)} buildings."
+            )
+        return footprint_polygons

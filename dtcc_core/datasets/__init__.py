@@ -3,6 +3,7 @@ from .dataset import DatasetDescriptor, DatasetBaseArgs
 # Import dataset classes to trigger auto-registration
 from .pointcloud import PointCloudDataset
 from .buildings import BuildingDataset
+from .city import CityDataset
 from .terrain_surface_mesh import TerrainSurfaceMeshDataset
 from .city_surface_mesh import CitySurfaceMeshDataset
 from .city_flat_mesh import CityFlatMeshDataset
@@ -12,6 +13,7 @@ from .trees import TreesDataset
 from .weather import WeatherDataset
 from .hydrology import HydrologyDataset
 from .ocean import OceanDataset
+from .footprints import FootprintsDataset
 
 # Import registry infrastructure from separate module to avoid circular imports
 from .registry import (
@@ -28,6 +30,9 @@ from .registry import (
 # themselves available as attributes, which would shadow the registered instances
 point_cloud = get_dataset("point_cloud")
 buildings = get_dataset("buildings")
+building_footprints = get_dataset("building_footprints")
+city = get_dataset("city")
+
 terrain_surface_mesh = get_dataset("terrain_surface_mesh")
 city_surface_mesh = get_dataset("city_surface_mesh")
 city_flat_mesh = get_dataset("city_flat_mesh")
