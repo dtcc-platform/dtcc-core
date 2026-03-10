@@ -58,4 +58,4 @@ class CityDataset(DatasetDescriptor):
                 if args.format is None:
                     return city
                 else:
-                    return self.export_to_bytes(city, "json", as_text=True)
+                    return self.export_to_bytes(city, "json")
