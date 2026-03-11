@@ -3,6 +3,7 @@ from ..polygons.polygons import split_polygon_sides
 
 from polyforge import (
     merge_close_polygons,
+    find_close_polygon_groups,
     fix_clearance,
     simplify_rdp,
     simplify_vwp,
@@ -137,10 +138,11 @@ def merge_building_footprints(
     merged_footprint, merged_indices = merge_close_polygons(
         footprints,
         max_distance,
-        merge_strategy=MergeStrategy.SELECTIVE_BUFFER,
+        merge_strategy=MergeStrategy.BOUNDARY_EXTENSION,
         preserve_holes=True,
         insert_vertices=True,
         return_mapping=True,
+        buffer_cleaning=True,
     )
 
     merged_buildings: List[Building] = []

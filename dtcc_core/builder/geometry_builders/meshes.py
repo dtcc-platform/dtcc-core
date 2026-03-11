@@ -127,9 +127,19 @@ def _preprocess_buildings(
             return_index_map=False,
         )
 
+        # city = City()
+        # city.add_buildings(fixed_buildings)
+        # city.save_building_footprints("footprints_first_merger.gpkg")
+
+        # print(f"After merging: {len(fixed_buildings)} buildings.")
+
         fixed_buildings = fix_building_footprint_clearance(
             fixed_buildings, min_building_detail, return_index_map=False
         )
+        # print(f"After fixing clearance: {len(fixed_buildings)} buildings.")
+        # city = City()
+        # city.add_buildings(fixed_buildings)
+        # city.save_building_footprints("footprints_fix_clearance.gpkg")
 
         # sometimes fixing clearance can bring footprints closer together than they were, or even make them overlap
         # If no building are closer, this is a no op
@@ -140,6 +150,7 @@ def _preprocess_buildings(
             min_area=min_building_area,
             return_index_map=False,
         )
+        # print(f"After second merging: {len(fixed_buildings)} buildings.")
 
         fixed_buildings = simplify_building_footprints(
             fixed_buildings,
@@ -147,6 +158,10 @@ def _preprocess_buildings(
             lod=GeometryType.LOD0,
             return_index_map=False,
         )
+
+        # city = City()
+        # city.add_buildings(fixed_buildings)
+        # city.save_building_footprints("footprints_second_merger.gpkg")
 
         building_footprints = [
             b.get_footprint(GeometryType.LOD0) for b in fixed_buildings
