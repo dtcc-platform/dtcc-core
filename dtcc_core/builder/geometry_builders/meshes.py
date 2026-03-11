@@ -131,6 +131,16 @@ def _preprocess_buildings(
             fixed_buildings, min_building_detail, return_index_map=False
         )
 
+        # sometimes fixing clearance can bring footprints closer together than they were, or even make them overlap
+        # If no building are closer, this is a no op
+        fixed_buildings = merge_building_footprints(
+            fixed_buildings,
+            lod=GeometryType.LOD0,
+            max_distance=merge_tolerance,
+            min_area=min_building_area,
+            return_index_map=False,
+        )
+
         fixed_buildings = simplify_building_footprints(
             fixed_buildings,
             min_building_detail,
@@ -510,9 +520,9 @@ def build_city_flat_mesh(
         )
     )
 
-    # city = City()
-    # city.add_buildings(_processed_buildings)
-    # city.save_building_footprints("sandbox/output/processed_footprints.gpkg")
+    city = City()
+    city.add_buildings(_processed_buildings)
+    city.save_building_footprints("sandbox/output/processed_footprints.gpkg")
 
     report_progress(
         percent=10,
