@@ -535,9 +535,9 @@ def build_city_flat_mesh(
         )
     )
 
-    city = City()
-    city.add_buildings(_processed_buildings)
-    city.save_building_footprints("sandbox/output/processed_footprints.gpkg")
+    # city = City()
+    # city.add_buildings(_processed_buildings)
+    # city.save_building_footprints("sandbox/output/processed_footprints.gpkg")
 
     report_progress(
         percent=10,
