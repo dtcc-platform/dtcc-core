@@ -5,7 +5,7 @@ import pathlib
 from .logging import info, warning, error
 
 
-def save(object, path, name, formats, format:str=None, *args, **kwargs):
+def save(object, path, name, formats, format: str = None, *args, **kwargs):
     """
     Save an object using a registered format handler.
 
@@ -34,17 +34,28 @@ def save(object, path, name, formats, format:str=None, *args, **kwargs):
     if isinstance(path, str):
         path = pathlib.Path(path)
 
+    root_path = path.parent
+    if not root_path.exists():
+        root_path.mkdir(parents=True, exist_ok=True)
+
     if format is not None:
-        if not format.startswith('.'):
-            format = '.' + format
+        if not format.startswith("."):
+            format = "." + format
         saver = formats[type(object)].get(format, None)
         if saver is None:
-            error(f"Unable to save {name} ({type(object).__name__}); format {format} not supported")
+            error(
+                f"Unable to save {name} ({type(object).__name__}); format {format} not supported"
+            )
     else:
         path_suffix = path.suffix
-        two_level_suffix = ''.join(path.suffixes[-2:]) if len(path.suffixes) >= 2 else path_suffix
+        two_level_suffix = (
+            "".join(path.suffixes[-2:]) if len(path.suffixes) >= 2 else path_suffix
+        )
 
-        if path_suffix not in formats[type(object)] and two_level_suffix not in formats[type(object)]:
+        if (
+            path_suffix not in formats[type(object)]
+            and two_level_suffix not in formats[type(object)]
+        ):
             error(
                 f"Unable to save {name} ({type(object).__name__}); format {path.suffix} not supported"
             )
@@ -92,12 +103,12 @@ def load(path, name, type, formats, *args, **kwargs):
     if isinstance(path, (list, tuple)):
         path = [pathlib.Path(p) for p in path]
         path_suffix = path[0].suffix
-        two_level_suffix = ''.join(path[0].suffixes[-2:]) # e.g. ['.json.zip]
+        two_level_suffix = "".join(path[0].suffixes[-2:])  # e.g. ['.json.zip]
 
     else:
         path = pathlib.Path(path)
         path_suffix = path.suffix
-        two_level_suffix = ''.join(path.suffixes[-2:]) # e.g. ['.json.zip]
+        two_level_suffix = "".join(path.suffixes[-2:])  # e.g. ['.json.zip]
     if path_suffix not in formats[type] and two_level_suffix not in formats[type]:
         error(f"Unable to load {name}; format {path.suffix} not supported")
     info(f"Loading {name} ({type.__name__}) from {path}")
@@ -158,7 +169,7 @@ def print_io(name, load_formats, save_formats):
     for t in load_formats:
         n = N - len(t.__name__)
         formats = ", ".join([f for f in load_formats[t]])
-        print(f"  {t.__name__}: {n*' '}{formats}")
+        print(f"  {t.__name__}: {n * ' '}{formats}")
     print("")
     N = max([len(t.__name__) for t in save_formats])
     print(f"save_{name}() supports the following data types and formats:")
@@ -166,4 +177,4 @@ def print_io(name, load_formats, save_formats):
     for t in save_formats:
         n = N - len(t.__name__)
         formats = ", ".join([f for f in save_formats[t]])
-        print(f"  {t.__name__}: {n*' '} {formats}")
+        print(f"  {t.__name__}: {n * ' '} {formats}")
