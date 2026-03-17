@@ -1,0 +1,710 @@
+"""
+Compare Stockholm flat-mesh preprocessing outputs across branches.
+
+This manual harness downloads a few Stockholm tiles, extracts raw building
+footprints, conditions them with either the legacy or new pipeline, builds a
+flat mesh, and saves visual artifacts for branch-to-branch comparison.
+
+Examples
+--------
+python sandbox/compare_stockholm_flat_mesh.py --cases 45 46 55 56 --label current --mode legacy
+python sandbox/compare_stockholm_flat_mesh.py --cases 45 46 55 56 --label new --mode new
+python sandbox/compare_stockholm_flat_mesh.py --cases 45 46 55 56 --label new --mode legacy
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import hashlib
+import importlib
+import json
+import subprocess
+import sys
+import time
+from pathlib import Path
+from typing import Any
+
+import geopandas as gpd
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib.collections import LineCollection
+from shapely import get_parts
+from shapely.geometry import Polygon, box
+from shapely.geometry.base import BaseGeometry
+from shapely.validation import make_valid
+
+import dtcc_core
+from dtcc_core.builder import (
+    build_city_flat_mesh,
+    build_terrain_raster,
+    compute_building_heights,
+    extract_roof_points,
+)
+from dtcc_core.builder.building.modify import (
+    fix_building_footprint_clearance,
+    merge_building_footprints,
+    simplify_building_footprints,
+)
+from dtcc_core.model import Bounds, Building, City, GeometryType, Surface
+
+
+X_MIN = 673_000
+Y_MIN = 6_578_500
+NX = 10
+NY = 10
+BOX_SIZE = 500
+
+DEFAULT_CASES = [45, 46, 55, 56]
+DEFAULT_DELAY = 8.0
+
+DEFAULT_MAX_MESH_SIZE = 10.0
+DEFAULT_MIN_MESH_ANGLE = 25.0
+DEFAULT_MIN_BUILDING_DETAIL = 0.5
+DEFAULT_MIN_BUILDING_AREA = 15.0
+DEFAULT_MERGE_TOLERANCE = 0.5
+DEFAULT_RASTER_CELL_SIZE = 2.0
+DEFAULT_RASTER_RADIUS = 3.0
+
+OUTPUT_ROOT = (
+    Path(__file__).resolve().parent / "output" / "stockholm_flat_mesh_compare"
+)
+EPSG = "EPSG:3006"
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--cases",
+        nargs="+",
+        type=int,
+        default=DEFAULT_CASES,
+        help="1-based Stockholm grid case numbers to process.",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["auto", "legacy", "new"],
+        default="auto",
+        help="Conditioning pipeline to use.",
+    )
+    parser.add_argument(
+        "--label",
+        default=None,
+        help="Output label. Defaults to the current git branch when available.",
+    )
+    parser.add_argument(
+        "--delay",
+        type=float,
+        default=DEFAULT_DELAY,
+        help="Delay in seconds between cases to avoid dataset rate limiting.",
+    )
+    parser.add_argument(
+        "--output-root",
+        type=Path,
+        default=OUTPUT_ROOT,
+        help="Root directory for comparison artifacts.",
+    )
+    parser.add_argument(
+        "--max-mesh-size",
+        type=float,
+        default=DEFAULT_MAX_MESH_SIZE,
+    )
+    parser.add_argument(
+        "--min-mesh-angle",
+        type=float,
+        default=DEFAULT_MIN_MESH_ANGLE,
+    )
+    parser.add_argument(
+        "--min-building-detail",
+        type=float,
+        default=DEFAULT_MIN_BUILDING_DETAIL,
+    )
+    parser.add_argument(
+        "--min-building-area",
+        type=float,
+        default=DEFAULT_MIN_BUILDING_AREA,
+    )
+    parser.add_argument(
+        "--merge-tolerance",
+        type=float,
+        default=DEFAULT_MERGE_TOLERANCE,
+    )
+    parser.add_argument(
+        "--raster-cell-size",
+        type=float,
+        default=DEFAULT_RASTER_CELL_SIZE,
+    )
+    parser.add_argument(
+        "--raster-radius",
+        type=float,
+        default=DEFAULT_RASTER_RADIUS,
+    )
+    parser.add_argument(
+        "--no-merge-buildings",
+        action="store_true",
+        help="Disable gap-closing/merge behavior in the conditioning stage.",
+    )
+    return parser.parse_args()
+
+
+def case_to_grid(number: int) -> tuple[int, int]:
+    iy, ix = divmod(number - 1, NX)
+    return ix, iy
+
+
+def make_bounds(ix: int, iy: int) -> Bounds:
+    x0 = X_MIN + ix * BOX_SIZE
+    y0 = Y_MIN + iy * BOX_SIZE
+    return Bounds(x0, y0, x0 + BOX_SIZE, y0 + BOX_SIZE)
+
+
+def bounds_to_dict(bounds: Bounds) -> dict[str, float]:
+    return {
+        "xmin": bounds.xmin,
+        "ymin": bounds.ymin,
+        "xmax": bounds.xmax,
+        "ymax": bounds.ymax,
+    }
+
+
+def run_git_command(args: list[str]) -> str | None:
+    try:
+        result = subprocess.run(
+            args,
+            check=True,
+            capture_output=True,
+            text=True,
+            cwd=Path(__file__).resolve().parent.parent,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    value = result.stdout.strip()
+    return value or None
+
+
+def get_git_metadata() -> dict[str, str | None]:
+    return {
+        "branch": run_git_command(["git", "rev-parse", "--abbrev-ref", "HEAD"]),
+        "commit": run_git_command(["git", "rev-parse", "HEAD"]),
+    }
+
+
+def sanitize_label(label: str) -> str:
+    cleaned = "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in label)
+    return cleaned.strip("._") or "unknown"
+
+
+def try_load_new_cleaner(mode: str):
+    try:
+        return importlib.import_module("dtcc_core.builder.cleaning")
+    except ModuleNotFoundError:
+        if mode == "new":
+            raise RuntimeError(
+                "--mode new requires dtcc_core.builder.cleaning, but that module is not available on this branch."
+            ) from None
+        return None
+
+
+def extract_polygon_parts(geometry: BaseGeometry) -> list[Polygon]:
+    polygons: list[Polygon] = []
+    for part in get_parts(geometry):
+        if isinstance(part, Polygon):
+            polygons.append(part)
+        elif hasattr(part, "geom_type") and "Polygon" in part.geom_type:
+            polygons.extend(extract_polygon_parts(part))
+    return [poly for poly in polygons if not poly.is_empty and poly.area > 0]
+
+
+def extract_raw_footprints(buildings: list[Building]) -> tuple[list[Polygon], list[list[int]]]:
+    polygons: list[Polygon] = []
+    source_map: list[list[int]] = []
+    for index, building in enumerate(buildings):
+        geom = building.flatten_geometry(GeometryType.LOD0)
+        if geom is None:
+            continue
+        polygon = geom.to_polygon()
+        if polygon.is_empty:
+            continue
+        for part in extract_polygon_parts(make_valid(polygon)):
+            polygons.append(part)
+            source_map.append([index])
+    return polygons, source_map
+
+
+def compose_index_map(
+    parent_map: list[list[int]],
+    child_map: list[list[int]],
+) -> list[list[int]]:
+    composed: list[list[int]] = []
+    for child_indices in child_map:
+        combined: list[int] = []
+        for idx in child_indices:
+            if idx < 0 or idx >= len(parent_map):
+                continue
+            combined.extend(parent_map[idx])
+        if combined:
+            composed.append(sorted(set(combined)))
+    return composed
+
+
+def extract_lod0_polygons(buildings: list[Building]) -> list[Polygon]:
+    polygons: list[Polygon] = []
+    for building in buildings:
+        geom = building.flatten_geometry(GeometryType.LOD0)
+        if geom is None:
+            continue
+        polygon = geom.to_polygon(simplify=0.0)
+        if polygon.is_empty:
+            continue
+        polygons.extend(extract_polygon_parts(make_valid(polygon)))
+    return polygons
+
+
+def run_legacy_conditioning(
+    buildings: list[Building],
+    *,
+    merge_buildings: bool,
+    merge_tolerance: float,
+    min_building_area: float,
+    min_building_detail: float,
+) -> tuple[list[Polygon], list[list[int]], dict[str, Any]]:
+    if merge_buildings:
+        merged_buildings, merged_index_map = merge_building_footprints(
+            buildings,
+            lod=GeometryType.LOD0,
+            max_distance=merge_tolerance,
+            min_area=min_building_area,
+            return_index_map=True,
+        )
+        cleared_buildings, cleared_index_map = fix_building_footprint_clearance(
+            merged_buildings,
+            clearance=min_building_detail,
+            lod=GeometryType.LOD0,
+            return_index_map=True,
+        )
+        current_index_map = compose_index_map(merged_index_map, cleared_index_map)
+        merged_again, merged_again_index_map = merge_building_footprints(
+            cleared_buildings,
+            lod=GeometryType.LOD0,
+            max_distance=merge_tolerance,
+            min_area=min_building_area,
+            return_index_map=True,
+        )
+        current_index_map = compose_index_map(current_index_map, merged_again_index_map)
+        simplified_buildings, simplified_index_map = simplify_building_footprints(
+            merged_again,
+            tolerance=min_building_detail,
+            lod=GeometryType.LOD0,
+            return_index_map=True,
+        )
+        source_map = compose_index_map(current_index_map, simplified_index_map)
+        conditioned_polygons = extract_lod0_polygons(simplified_buildings)
+    else:
+        simplified_buildings, source_map = simplify_building_footprints(
+            buildings,
+            tolerance=min_building_detail,
+            lod=GeometryType.LOD0,
+            return_index_map=True,
+        )
+        conditioned_polygons = extract_lod0_polygons(simplified_buildings)
+
+    diagnostics = {
+        "pipeline": "legacy",
+        "output_count": len(conditioned_polygons),
+    }
+    return conditioned_polygons, source_map, diagnostics
+
+
+def run_new_conditioning(
+    cleaner_module,
+    buildings: list[Building],
+    *,
+    merge_buildings: bool,
+    merge_tolerance: float,
+    min_building_area: float,
+    min_building_detail: float,
+) -> tuple[list[Polygon], list[list[int]], dict[str, Any]]:
+    options = cleaner_module.ConditioningOptions(
+        precision_grid=None,
+        min_feature_size=min_building_detail,
+        merge_distance=merge_tolerance if merge_buildings else 0.0,
+        min_area=min_building_area,
+        min_hole_area=min_building_detail**2,
+    )
+    result = cleaner_module.condition_building_footprints(
+        buildings,
+        lod=GeometryType.LOD0,
+        options=options,
+    )
+    return result.polygons, result.source_map, result.diagnostics
+
+
+def resolve_mode(mode: str):
+    cleaner_module = try_load_new_cleaner(mode)
+    if mode == "auto":
+        return ("new", cleaner_module) if cleaner_module is not None else ("legacy", None)
+    if mode == "new":
+        return "new", cleaner_module
+    return "legacy", None
+
+
+def height_for_sources(
+    buildings: list[Building],
+    source_indices: list[int],
+) -> float:
+    heights: list[float] = []
+    weights: list[float] = []
+    for index in source_indices:
+        if index < 0 or index >= len(buildings):
+            continue
+        building = buildings[index]
+        geom = building.flatten_geometry(GeometryType.LOD0)
+        if geom is None:
+            continue
+        polygon = geom.to_polygon(simplify=0.0)
+        area = float(max(polygon.area, 0.0))
+        height = getattr(building, "height", None)
+        if height is None or height <= 0:
+            continue
+        heights.append(float(height))
+        weights.append(area if area > 0 else 1.0)
+    if not heights:
+        return DEFAULT_MAX_MESH_SIZE
+    return float(np.average(heights, weights=weights))
+
+
+def make_conditioned_buildings(
+    polygons: list[Polygon],
+    source_map: list[list[int]],
+    original_buildings: list[Building],
+) -> list[Building]:
+    conditioned_buildings: list[Building] = []
+    for polygon, indices in zip(polygons, source_map):
+        surface = Surface()
+        surface.from_polygon(polygon, 0.0)
+        building = Building()
+        building.add_geometry(surface, GeometryType.LOD0)
+        building.attributes["height"] = height_for_sources(original_buildings, indices)
+        building.attributes["source_map"] = list(indices)
+        conditioned_buildings.append(building)
+    return conditioned_buildings
+
+
+def build_mesh_from_conditioned_footprints(
+    terrain_raster,
+    conditioned_polygons: list[Polygon],
+    source_map: list[list[int]],
+    source_buildings: list[Building],
+    *,
+    max_mesh_size: float,
+    min_mesh_angle: float,
+):
+    conditioned_city = City()
+    conditioned_city.add_terrain(terrain_raster)
+    conditioned_city.add_buildings(
+        make_conditioned_buildings(conditioned_polygons, source_map, source_buildings)
+    )
+    return build_city_flat_mesh(
+        conditioned_city,
+        lod=GeometryType.LOD0,
+        max_mesh_size=max_mesh_size,
+        min_mesh_angle=min_mesh_angle,
+        merge_buildings=False,
+        min_building_detail=0.0,
+        min_building_area=0.0,
+        merge_tolerance=0.0,
+        report_mesh_quality=False,
+    )
+
+
+def color_from_key(key: str) -> str:
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
+    r = int(digest[0:2], 16) / 255.0
+    g = int(digest[2:4], 16) / 255.0
+    b = int(digest[4:6], 16) / 255.0
+    rgb = np.array([r, g, b])
+    rgb = 0.25 + 0.65 * rgb
+    return "#{:02x}{:02x}{:02x}".format(*(np.round(rgb * 255).astype(int)))
+
+
+def make_geodataframe(
+    polygons: list[Polygon],
+    source_map: list[list[int]],
+    *,
+    key_mode: str,
+) -> gpd.GeoDataFrame:
+    records: list[dict[str, Any]] = []
+    for idx, (polygon, indices) in enumerate(zip(polygons, source_map)):
+        records.append(
+            {
+                "footprint_id": idx,
+                "source_map": ",".join(str(i) for i in indices),
+                "source_count": len(indices),
+                "color_key": idx if key_mode == "raw" else tuple(indices),
+                "color": color_from_key(
+                    str(idx) if key_mode == "raw" else ",".join(str(i) for i in indices)
+                ),
+                "area": float(polygon.area),
+                "geometry": polygon,
+            }
+        )
+    return gpd.GeoDataFrame(records, geometry="geometry", crs=EPSG)
+
+
+def make_bounds_geodataframe(bounds: Bounds) -> gpd.GeoDataFrame:
+    polygon = box(bounds.xmin, bounds.ymin, bounds.xmax, bounds.ymax)
+    return gpd.GeoDataFrame(
+        [{"name": "bounds", "geometry": polygon}],
+        geometry="geometry",
+        crs=EPSG,
+    )
+
+
+def save_geopackage(
+    path: Path,
+    raw_gdf: gpd.GeoDataFrame,
+    conditioned_gdf: gpd.GeoDataFrame,
+    bounds: Bounds,
+) -> None:
+    if path.exists():
+        path.unlink()
+    raw_gdf.to_file(path, layer="raw", driver="GPKG")
+    conditioned_gdf.to_file(path, layer="conditioned", driver="GPKG")
+    make_bounds_geodataframe(bounds).to_file(path, layer="bounds", driver="GPKG")
+
+
+def save_source_map_csv(path: Path, source_map: list[list[int]]) -> None:
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=["conditioned_polygon_id", "source_indices", "source_count"],
+        )
+        writer.writeheader()
+        for polygon_id, indices in enumerate(source_map):
+            writer.writerow(
+                {
+                    "conditioned_polygon_id": polygon_id,
+                    "source_indices": ",".join(str(i) for i in indices),
+                    "source_count": len(indices),
+                }
+            )
+
+
+def mesh_edge_segments(mesh) -> list[np.ndarray]:
+    segments: list[np.ndarray] = []
+    if mesh.faces is None or mesh.vertices is None:
+        return segments
+    xy = mesh.vertices[:, :2]
+    for face in mesh.faces:
+        points = xy[np.asarray(face, dtype=int)]
+        segments.append(points[[0, 1]])
+        segments.append(points[[1, 2]])
+        segments.append(points[[2, 0]])
+    return segments
+
+
+def set_panel_extent(axes, bounds: Bounds) -> None:
+    padding = 0.05 * BOX_SIZE
+    xmin = bounds.xmin - padding
+    xmax = bounds.xmax + padding
+    ymin = bounds.ymin - padding
+    ymax = bounds.ymax + padding
+    for ax in axes:
+        ax.set_xlim(xmin, xmax)
+        ax.set_ylim(ymin, ymax)
+        ax.set_aspect("equal", adjustable="box")
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+
+def plot_case(
+    output_path: Path,
+    bounds: Bounds,
+    raw_gdf: gpd.GeoDataFrame,
+    conditioned_gdf: gpd.GeoDataFrame,
+    flat_mesh,
+    title: str,
+) -> None:
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6), constrained_layout=True)
+
+    for ax, gdf, panel_title in [
+        (axes[0], raw_gdf, "Raw footprints"),
+        (axes[1], conditioned_gdf, "Conditioned footprints"),
+        (axes[2], conditioned_gdf, "Conditioned + flat mesh"),
+    ]:
+        if not gdf.empty:
+            gdf.plot(
+                ax=ax,
+                color=gdf["color"].tolist(),
+                edgecolor="black",
+                linewidth=0.6,
+            )
+        ax.set_title(panel_title)
+
+    segments = mesh_edge_segments(flat_mesh)
+    if segments:
+        axes[2].add_collection(
+            LineCollection(segments, colors="black", linewidths=0.25, alpha=0.6)
+        )
+
+    set_panel_extent(axes, bounds)
+    fig.suptitle(title)
+    fig.savefig(output_path, dpi=200)
+    plt.close(fig)
+
+
+def prepare_city(bounds: Bounds, raster_cell_size: float, raster_radius: float) -> tuple[Any, list[Building], dict[str, float]]:
+    timings: dict[str, float] = {}
+
+    t0 = time.perf_counter()
+    pointcloud = dtcc_core.io.data.download_pointcloud(bounds=bounds)
+    buildings = dtcc_core.io.data.download_footprints(bounds=bounds)
+    timings["download"] = time.perf_counter() - t0
+
+    t0 = time.perf_counter()
+    terrain_raster = build_terrain_raster(
+        pointcloud,
+        cell_size=raster_cell_size,
+        radius=raster_radius,
+        ground_only=True,
+    )
+    buildings = extract_roof_points(buildings, pointcloud)
+    buildings = compute_building_heights(buildings, terrain_raster, overwrite=True)
+    timings["terrain_and_buildings"] = time.perf_counter() - t0
+
+    return terrain_raster, buildings, timings
+
+
+def run_case(number: int, args: argparse.Namespace, git_metadata: dict[str, str | None]) -> None:
+    ix, iy = case_to_grid(number)
+    bounds = make_bounds(ix, iy)
+    label = sanitize_label(args.label or git_metadata["branch"] or "unknown")
+
+    mode_name, cleaner_module = resolve_mode(args.mode)
+    case_dir = (
+        args.output_root
+        / label
+        / mode_name
+        / f"case_{number:03d}"
+    )
+    case_dir.mkdir(parents=True, exist_ok=True)
+
+    terrain_raster, buildings, timings = prepare_city(
+        bounds,
+        raster_cell_size=args.raster_cell_size,
+        raster_radius=args.raster_radius,
+    )
+
+    raw_polygons, raw_source_map = extract_raw_footprints(buildings)
+
+    t0 = time.perf_counter()
+    if mode_name == "legacy":
+        conditioned_polygons, source_map, diagnostics = run_legacy_conditioning(
+            buildings,
+            merge_buildings=not args.no_merge_buildings,
+            merge_tolerance=args.merge_tolerance,
+            min_building_area=args.min_building_area,
+            min_building_detail=args.min_building_detail,
+        )
+    else:
+        conditioned_polygons, source_map, diagnostics = run_new_conditioning(
+            cleaner_module,
+            buildings,
+            merge_buildings=not args.no_merge_buildings,
+            merge_tolerance=args.merge_tolerance,
+            min_building_area=args.min_building_area,
+            min_building_detail=args.min_building_detail,
+        )
+    timings["conditioning"] = time.perf_counter() - t0
+
+    t0 = time.perf_counter()
+    flat_mesh = build_mesh_from_conditioned_footprints(
+        terrain_raster,
+        conditioned_polygons,
+        source_map,
+        buildings,
+        max_mesh_size=args.max_mesh_size,
+        min_mesh_angle=args.min_mesh_angle,
+    )
+    mesh_quality = flat_mesh.quality()
+    flat_mesh.save(case_dir / "flat_mesh.vtu")
+    timings["meshing"] = time.perf_counter() - t0
+
+    raw_gdf = make_geodataframe(raw_polygons, raw_source_map, key_mode="raw")
+    conditioned_gdf = make_geodataframe(
+        conditioned_polygons,
+        [sorted(set(indices)) for indices in source_map],
+        key_mode="conditioned",
+    )
+
+    save_geopackage(case_dir / "footprints.gpkg", raw_gdf, conditioned_gdf, bounds)
+    save_source_map_csv(case_dir / "source_map.csv", source_map)
+
+    t0 = time.perf_counter()
+    plot_case(
+        case_dir / "comparison.png",
+        bounds,
+        raw_gdf,
+        conditioned_gdf,
+        flat_mesh,
+        title=f"Case {number:03d} | {mode_name}",
+    )
+    timings["plotting"] = time.perf_counter() - t0
+
+    summary = {
+        "git_branch": git_metadata["branch"],
+        "git_commit": git_metadata["commit"],
+        "mode": mode_name,
+        "requested_mode": args.mode,
+        "case": number,
+        "bounds": bounds_to_dict(bounds),
+        "input_building_count": len(buildings),
+        "raw_polygon_count": len(raw_polygons),
+        "conditioned_polygon_count": len(conditioned_polygons),
+        "source_map_sizes": [len(indices) for indices in source_map],
+        "conditioning_diagnostics": diagnostics,
+        "flat_mesh_quality": mesh_quality,
+        "timings_seconds": {name: round(value, 3) for name, value in timings.items()},
+        "artifacts": {
+            "comparison_png": "comparison.png",
+            "flat_mesh_vtu": "flat_mesh.vtu",
+            "footprints_gpkg": "footprints.gpkg",
+            "source_map_csv": "source_map.csv",
+        },
+    }
+    with (case_dir / "summary.json").open("w", encoding="utf-8") as handle:
+        json.dump(summary, handle, indent=2)
+
+    print(
+        f"Case {number:03d}: {mode_name} | raw={len(raw_polygons)} conditioned={len(conditioned_polygons)} -> {case_dir}"
+    )
+
+
+def validate_cases(cases: list[int]) -> None:
+    total = NX * NY
+    invalid = [number for number in cases if number < 1 or number > total]
+    if invalid:
+        joined = ", ".join(str(number) for number in invalid)
+        raise ValueError(f"Invalid case numbers: {joined}. Expected values in 1..{total}.")
+
+
+def main() -> int:
+    args = parse_args()
+    validate_cases(args.cases)
+
+    git_metadata = get_git_metadata()
+    args.output_root.mkdir(parents=True, exist_ok=True)
+
+    for index, number in enumerate(args.cases):
+        run_case(number, args, git_metadata)
+        if index < len(args.cases) - 1 and args.delay > 0:
+            time.sleep(args.delay)
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except Exception as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        raise
