@@ -29,7 +29,6 @@ dependencies = [
     "aiohttp",
     "folium",
     "h5py == 3.14.0",
-    "polyforge == 0.1.0a8",
     "dtcc-pyspade-native == 0.1.3",
     "pydantic>=2.12.5",
     "rich>=13.0.0",

@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, List, cast
+from typing import Any, Dict, Optional, List, Sequence
 import numpy as np
 
 import dtcc_core.io
@@ -6,12 +6,9 @@ from ...model import (
     Mesh,
     VolumeMesh,
     Building,
-    Terrain,
     City,
     Surface,
-    MultiSurface,
     GeometryType,
-    PointCloud,
 )
 
 _LOD_PRIORITY: dict[GeometryType, int] = {
@@ -24,39 +21,15 @@ _LOD_PRIORITY: dict[GeometryType, int] = {
 from ..model_conversion import (
     create_builder_polygon,
     create_builder_surface,
-    create_builder_multisurface,
-    builder_mesh_to_mesh,
-    builder_volume_mesh_to_volume_mesh,
-    mesh_to_builder_mesh,
-    create_builder_city,
     raster_to_builder_gridfield,
 )
 
 from .. import _dtcc_builder
 
-from ..polygons.polygons import (
-    polygon_merger,
-    simplify_polygon,
-    remove_slivers,
-    fix_clearance,
-)
-
-from .buildings import (
-    extract_roof_points,
-    compute_building_heights,
-)
-
-from .terrain import (
-    build_terrain_surface_mesh,
-    build_terrain_raster,
-)
-
-from ..building.modify import (
-    merge_building_footprints,
-    simplify_building_footprints,
-    fix_building_footprint_clearance,
-    clean_building_footprints,
-    get_footprint,
+from ..cleaning import (
+    ConditioningOptions,
+    condition_building_footprints,
+    condition_polygon_coverage,
 )
 
 from ..meshing.convert import mesh_to_raster
@@ -72,147 +45,156 @@ from ..meshing.tetgen import (
 from dtcc_core.common.progress import report_progress
 
 
-def _preprocess_buildings(
-    buildings: List[Building],
+def _normalize_lod_values(
+    buildings: list[Building],
+    lod: GeometryType | Sequence[GeometryType],
+) -> list[GeometryType]:
+    if isinstance(lod, GeometryType):
+        return [lod] * len(buildings)
+    if len(lod) != len(buildings):
+        raise ValueError(
+            f"lod list length {len(lod)} != number of buildings {len(buildings)}"
+        )
+    if not all(isinstance(value, GeometryType) for value in lod):
+        raise TypeError("all elements in lod list must be GeometryType instances")
+    return list(lod)
+
+
+def _extract_meshing_polygon(
+    building: Building,
     lod: GeometryType,
-    merge_buildings: bool,
-    merge_tolerance: float,
-    min_building_area: float,
+):
+    geometry = building.flatten_geometry(lod)
+    if geometry is None:
+        return None, 0.0, None, 0.0
+
+    polygon = geometry.to_polygon(simplify=0.0)
+    if polygon is None or polygon.is_empty:
+        return None, 0.0, None, 0.0
+
+    roof_z = 0.0
+    try:
+        roof_z = float(geometry.bounds.zmax)
+    except (AttributeError, TypeError):
+        roof_z = 0.0
+
+    try:
+        height = float(building.height)
+    except (AttributeError, TypeError):
+        height = None
+
+    if height is not None and height <= 0:
+        height = None
+
+    return polygon, float(max(polygon.area, 0.0)), height, roof_z
+
+
+def _area_weighted_value(
+    source_indices: Sequence[int],
+    source_areas: Sequence[float],
+    values: Sequence[float | None],
+    *,
+    default: float,
+) -> float:
+    weighted_values: list[float] = []
+    weights: list[float] = []
+    for index in source_indices:
+        if index < 0 or index >= len(values):
+            continue
+        value = values[index]
+        if value is None:
+            continue
+        weight = source_areas[index] if source_areas[index] > 0 else 1.0
+        weighted_values.append(float(value))
+        weights.append(float(weight))
+    if not weighted_values:
+        return default
+    return float(np.average(weighted_values, weights=weights))
+
+
+def _condition_meshing_footprints(
+    buildings: list[Building],
+    *,
+    lod: GeometryType | list[GeometryType],
     min_building_detail: float,
+    min_building_area: float,
+    merge_tolerance: float,
+    merge_buildings: bool,
     max_mesh_size: float,
-) -> tuple[list, list[Building], list[float]]:
-    """Merge, simplify and validate building footprints for meshing.
-
-    This is the shared preprocessing pipeline used by
-    :func:`build_city_flat_mesh` and :func:`build_city_volume_mesh`.
-
-    Parameters
-    ----------
-    buildings : list[Building]
-        Raw buildings from the city.
-    lod : GeometryType
-        Level-of-Detail used to extract footprints when *merge_buildings* is
-        False.
-    merge_buildings : bool
-        Whether to merge adjacent/overlapping footprints.
-    merge_tolerance : float
-        Distance tolerance for the merge pass.
-    min_building_area : float
-        Minimum area threshold — smaller buildings are dropped.
-    min_building_detail : float
-        Minimum geometric feature size to resolve.
-    max_mesh_size : float
-        Fallback subdomain resolution when a building has no usable height.
-
-    Returns
-    -------
-    building_footprints : list
-        Validated footprint geometries ready for meshing.
-    processed_buildings : list[Building]
-        The corresponding Building objects (same order/length).
-    subdomain_resolution : list[float]
-        Per-building mesh resolution (min of height, max_mesh_size).
-    """
-    if len(buildings) == 0:
+) -> tuple[list[Surface], list[list[int]], list[float], dict[str, Any]]:
+    if not buildings:
         warning("No buildings to preprocess.")
-        return [], [], []
-    if merge_buildings:
-        info(f"Merging {len(buildings)} buildings...")
+        return [], [], [], {}
 
-        fixed_buildings = merge_building_footprints(
+    lod_values = _normalize_lod_values(buildings, lod)
+    extracted_polygons = []
+    initial_source_map: list[list[int]] = []
+    source_areas = [0.0] * len(buildings)
+    source_heights: list[float | None] = [None] * len(buildings)
+    source_roof_z = [0.0] * len(buildings)
+
+    for index, (building, lod_value) in enumerate(zip(buildings, lod_values)):
+        polygon, area, height, roof_z = _extract_meshing_polygon(building, lod_value)
+        source_areas[index] = area
+        source_heights[index] = height
+        source_roof_z[index] = roof_z
+        if polygon is None:
+            continue
+        extracted_polygons.append(polygon)
+        initial_source_map.append([index])
+
+    options = ConditioningOptions(
+        precision_grid=None,
+        min_feature_size=min_building_detail,
+        merge_distance=merge_tolerance if merge_buildings else 0.0,
+        min_area=min_building_area,
+        min_hole_area=min_building_detail**2,
+    )
+
+    if isinstance(lod, GeometryType):
+        result = condition_building_footprints(
             buildings,
-            lod=GeometryType.LOD0,
-            max_distance=merge_tolerance,
-            min_area=min_building_area,
-            return_index_map=False,
+            lod=lod,
+            options=options,
         )
-
-        # city = City()
-        # city.add_buildings(fixed_buildings)
-        # city.save_building_footprints("footprints_first_merger.gpkg")
-
-        # print(f"After merging: {len(fixed_buildings)} buildings.")
-
-        fixed_buildings = fix_building_footprint_clearance(
-            fixed_buildings, min_building_detail, return_index_map=False
-        )
-        # print(f"After fixing clearance: {len(fixed_buildings)} buildings.")
-        # city = City()
-        # city.add_buildings(fixed_buildings)
-        # city.save_building_footprints("footprints_fix_clearance.gpkg")
-
-        # sometimes fixing clearance can bring footprints closer together than they were, or even make them overlap
-        # If no building are closer, this is a no op
-        fixed_buildings = merge_building_footprints(
-            fixed_buildings,
-            lod=GeometryType.LOD0,
-            max_distance=merge_tolerance,
-            min_area=min_building_area,
-            return_index_map=False,
-        )
-        # print(f"After second merging: {len(fixed_buildings)} buildings.")
-
-        fixed_buildings = simplify_building_footprints(
-            fixed_buildings,
-            min_building_detail,
-            lod=GeometryType.LOD0,
-            return_index_map=False,
-        )
-
-        # city = City()
-        # city.add_buildings(fixed_buildings)
-        # city.save_building_footprints("footprints_second_merger.gpkg")
-
-        building_footprints = [
-            b.get_footprint(GeometryType.LOD0) for b in fixed_buildings
-        ]
-        processed_buildings = fixed_buildings
-
-        info(f"After merging: {len(building_footprints)} buildings.")
     else:
-        building_footprints = [b.get_footprint(lod) for b in buildings]
-        processed_buildings = buildings
+        result = condition_polygon_coverage(
+            extracted_polygons,
+            source_map=initial_source_map,
+            options=options,
+        )
 
-    # Filter out None and invalid footprints
-    valid_indices = []
-    for i, fp in enumerate(building_footprints):
-        if fp is None:
-            continue
-        try:
-            if hasattr(fp, "is_valid") and not fp.is_valid():
-                warning(f"Skipping invalid footprint at index {i}")
-                continue
-            if hasattr(fp, "is_empty") and fp.is_empty():
-                warning(f"Skipping empty footprint at index {i}")
-                continue
-            if hasattr(fp, "area") and fp.area <= 0:
-                warning(f"Skipping zero-area footprint at index {i}")
-                continue
-            valid_indices.append(i)
-        except Exception as e:
-            warning(f"Skipping footprint at index {i} due to validation error: {e}")
-            continue
+    conditioned_surfaces: list[Surface] = []
+    subdomain_resolution: list[float] = []
 
-    if not valid_indices:
-        raise ValueError("No valid building footprints available for meshing.")
+    for polygon, source_indices in zip(result.polygons, result.source_map):
+        roof_z = _area_weighted_value(
+            source_indices,
+            source_areas,
+            source_roof_z,
+            default=0.0,
+        )
+        height = _area_weighted_value(
+            source_indices,
+            source_areas,
+            source_heights,
+            default=max_mesh_size,
+        )
 
-    building_footprints = [building_footprints[i] for i in valid_indices]
-    processed_buildings = [processed_buildings[i] for i in valid_indices]
+        surface = Surface()
+        surface.from_polygon(polygon, roof_z)
+        conditioned_surfaces.append(surface)
+        subdomain_resolution.append(min(height, max_mesh_size))
 
-    info(f"Using {len(valid_indices)} valid building footprints for meshing.")
-
-    # Set subdomain resolution based on building heights
-    subdomain_resolution = []
-    for building in processed_buildings:
-        try:
-            height = building.height
-            if height is None or height <= 0:
-                height = max_mesh_size
-            subdomain_resolution.append(min(height, max_mesh_size))
-        except (AttributeError, TypeError):
-            subdomain_resolution.append(max_mesh_size)
-
-    return building_footprints, processed_buildings, subdomain_resolution
+    info(
+        f"Conditioned {len(buildings)} buildings into {len(conditioned_surfaces)} meshing footprints."
+    )
+    return (
+        conditioned_surfaces,
+        result.source_map,
+        subdomain_resolution,
+        result.diagnostics,
+    )
 
 
 def build_city_surface_mesh(
@@ -266,133 +248,26 @@ def build_city_surface_mesh(
     `model.Mesh`
     """
 
-    def compose_index_map(
-        parent_map: list[list[int]], child_map: list[list[int]]
-    ) -> list[list[int]]:
-        """
-        Combine index maps so that the resulting entries always reference
-        the original building indices.
-        """
-        if not child_map:
-            return []
-        if parent_map is None:
-            raise ValueError("Parent index map is undefined for composition.")
-        composed: list[list[int]] = []
-        for child_indices in child_map:
-            combined: list[int] = []
-            for idx in child_indices:
-                if idx < 0 or idx >= len(parent_map):
-                    warning(
-                        f"Index map mismatch: child index {idx} outside parent range {len(parent_map)}."
-                    )
-                    continue
-                combined.extend(parent_map[idx])
-            if not combined:
-                raise ValueError(
-                    "Failed to compose index maps: child entry produced no original indices."
-                )
-            composed.append(combined)
-        return composed
-
-    def lod_from_index_map(index_map: list[list[int]]) -> list[GeometryType]:
-        """
-        Derive a single LoD directive per processed building by reducing the
-        directives of the contributing original buildings.
-        """
-        reduced: list[GeometryType] = []
-        for indices in index_map:
-            if not indices:
-                raise ValueError("Index map entry is empty; cannot determine LoD.")
-            subset = [lod[i] for i in indices]
-            reduced.append(min(subset, key=lambda x: _LOD_PRIORITY[x]))
-        return reduced
-
     buildings = city.buildings
-
-    n_buildings = len(buildings)
-    if isinstance(lod, GeometryType):
-        # single value -> broadcast to all
-        lod = [lod] * n_buildings
-    elif isinstance(lod, (list, tuple)):
-        if len(lod) != n_buildings:
-            raise ValueError(
-                f"lod list length {len(lod)} != number of buildings {n_buildings}"
-            )
-        if not all(isinstance(x, GeometryType) for x in lod):
-            raise TypeError("all elements in lod list must be GeometryType instances")
-        lod = list(lod)
-    else:
-        raise TypeError(
-            f"lod must be a single GeometryType or a list/tuple of {n_buildings} GeometryType values, "
-            f"got {type(lod).__name__}"
-        )
-
-    current_index_map: list[list[int]] | None = None
-
-    if merge_buildings:
-        info(f"Merging {len(buildings)} buildings...")
-        merged_buildings, index_map = merge_building_footprints(
+    lod_values = _normalize_lod_values(buildings, lod)
+    building_footprints, source_map, conditioned_resolution, conditioning_diagnostics = (
+        _condition_meshing_footprints(
             buildings,
-            lod=GeometryType.LOD0,
-            max_distance=merge_tolerance,
-            min_area=min_building_area,
-            return_index_map=True,
+            lod=lod if isinstance(lod, GeometryType) else lod_values,
+            min_building_detail=min_building_detail,
+            min_building_area=min_building_area,
+            merge_tolerance=merge_tolerance,
+            merge_buildings=merge_buildings,
+            max_mesh_size=max_mesh_size,
         )
-        current_index_map = index_map
-
-        # city.replace_buildings(merged_buildings)
-        # city.save_building_footprints("footprints_merged_mesher.gpkg")
-
-        smallest_hole = max(min_building_detail, min_building_detail**2)
-        cleaned_footprints, cleaned_index_map = clean_building_footprints(
-            merged_buildings,
-            clearance=min_building_detail,
-            smallest_hole_area=smallest_hole,
-            return_index_map=True,
-        )
-        current_index_map = compose_index_map(current_index_map, cleaned_index_map)
-
-        # city.replace_buildings(cleaned_footprints)
-        # city.save_building_footprints("footprints_merged_cleaned_mesher.gpkg")
-
-        merged_buildings, merged_index_map = merge_building_footprints(
-            cleaned_footprints,
-            GeometryType.LOD0,
-            max_distance=0.0,
-            min_area=min_building_area,
-            return_index_map=True,
-        )
-        current_index_map = compose_index_map(current_index_map, merged_index_map)
-
-        # city.replace_buildings(merged_buildings)
-        # city.save_building_footprints("footprints_merged_cleaned_merged_mesher.gpkg")
-
-        simplifed_footprints, simplified_index_map = simplify_building_footprints(
-            merged_buildings,
-            min_building_detail / 2,
-            lod=GeometryType.LOD0,
-            return_index_map=True,
-        )
-        current_index_map = compose_index_map(current_index_map, simplified_index_map)
-
-        target_lods = (
-            lod_from_index_map(current_index_map)
-            if current_index_map is not None
-            else []
-        )
-
-        building_footprints = [
-            b.get_footprint(GeometryType.LOD0) for b in simplifed_footprints
-        ]
-
-    else:
-        target_lods = lod
-
-        building_footprints = [
-            b.get_footprint() for b, b_lod in zip(buildings, target_lods)
-        ]
-
-    base_resolution = [building_mesh_triangle_size] * len(building_footprints)
+    )
+    target_lods = [
+        min((lod_values[index] for index in indices), key=lambda value: _LOD_PRIORITY[value])
+        for indices in source_map
+    ]
+    base_resolution = [
+        min(resolution, building_mesh_triangle_size) for resolution in conditioned_resolution
+    ]
     building_surfaces = []
     hole_surfaces = []
     building_resolution = []
@@ -415,6 +290,7 @@ def build_city_surface_mesh(
 
     if not building_surfaces and not hole_surfaces:
         raise ValueError("No valid building footprints available for meshing.")
+    debug(f"Surface meshing footprint diagnostics: {conditioning_diagnostics}")
 
     terrain = city.terrain
     if terrain is None:
@@ -522,27 +398,26 @@ def build_city_flat_mesh(
     if not buildings:
         warning("City has no buildings.")
 
-    # Preprocess buildings
-    building_footprints, _processed_buildings, subdomain_resolution = (
-        _preprocess_buildings(
+    building_footprints, _source_map, subdomain_resolution, diagnostics = (
+        _condition_meshing_footprints(
             buildings,
             lod=lod,
-            merge_buildings=merge_buildings,
-            merge_tolerance=merge_tolerance,
-            min_building_area=min_building_area,
             min_building_detail=min_building_detail,
+            min_building_area=min_building_area,
+            merge_tolerance=merge_tolerance,
+            merge_buildings=merge_buildings,
             max_mesh_size=max_mesh_size,
         )
     )
 
-    # city = City()
-    # city.add_buildings(_processed_buildings)
-    # city.save_building_footprints("sandbox/output/processed_footprints.gpkg")
+    if not building_footprints:
+        raise ValueError("No valid building footprints available for meshing.")
 
     report_progress(
         percent=10,
         message=f"Preprocessed {len(building_footprints)} building footprints",
     )
+    debug(f"Flat meshing footprint diagnostics: {diagnostics}")
 
     # Convert footprints to builder polygons
     _building_polygons = [
@@ -726,29 +601,33 @@ def build_city_volume_mesh(
         terrain_raster = mesh_to_raster(terrain_mesh, cell_size=max_mesh_size)
 
     # 2. PREPROCESS BUILDINGS
-    building_footprints, processed_buildings, subdomain_resolution = (
-        _preprocess_buildings(
+    building_footprints, source_map, subdomain_resolution, diagnostics = (
+        _condition_meshing_footprints(
             buildings,
             lod=lod,
-            merge_buildings=merge_buildings,
-            merge_tolerance=merge_tolerance,
-            min_building_area=min_building_area,
             min_building_detail=min_building_detail,
+            min_building_area=min_building_area,
+            merge_tolerance=merge_tolerance,
+            merge_buildings=merge_buildings,
             max_mesh_size=max_mesh_size,
         )
     )
+    if not building_footprints:
+        raise ValueError("No valid building footprints available for meshing.")
 
     report_progress(
         percent=10,
         message=f"Preprocessed {len(building_footprints)} building footprints",
     )
+    debug(f"Volume meshing footprint diagnostics: {diagnostics}")
 
     # 3. prepare builder objects
 
     _surfaces = [create_builder_surface(footprint) for footprint in building_footprints]
     hole_surfaces: list = []
-    lod_switch_value = _LOD_PRIORITY.get(lod, _LOD_PRIORITY[GeometryType.LOD3])
-    meshing_directives = [lod_switch_value] * len(_surfaces)
+    meshing_directives = [
+        _LOD_PRIORITY.get(lod, _LOD_PRIORITY[GeometryType.LOD3])
+    ] * len(_surfaces)
     _dem = raster_to_builder_gridfield(terrain_raster)
 
     # 4. BUILD VOLUME MESH - TETGEN PATH
