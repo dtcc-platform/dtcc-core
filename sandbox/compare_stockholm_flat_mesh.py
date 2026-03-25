@@ -18,6 +18,7 @@ import argparse
 import csv
 import hashlib
 import importlib
+import inspect
 import json
 import subprocess
 import sys
@@ -432,8 +433,7 @@ def build_mesh_from_conditioned_footprints(
     conditioned_city.add_buildings(
         make_conditioned_buildings(conditioned_polygons, source_map, source_buildings)
     )
-    return build_city_flat_mesh(
-        conditioned_city,
+    mesh_kwargs = dict(
         lod=GeometryType.LOD0,
         max_mesh_size=max_mesh_size,
         min_mesh_angle=min_mesh_angle,
@@ -442,7 +442,12 @@ def build_mesh_from_conditioned_footprints(
         min_building_area=0.0,
         merge_tolerance=0.0,
         report_mesh_quality=False,
-        cleaning_diagnostics=not disable_cleaning_diagnostics,
+    )
+    if "cleaning_diagnostics" in inspect.signature(build_city_flat_mesh).parameters:
+        mesh_kwargs["cleaning_diagnostics"] = not disable_cleaning_diagnostics
+    return build_city_flat_mesh(
+        conditioned_city,
+        **mesh_kwargs,
     )
 
 
