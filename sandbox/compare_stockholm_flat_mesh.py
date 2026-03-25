@@ -22,16 +22,19 @@ import json
 import subprocess
 import sys
 import time
+import traceback
 from pathlib import Path
 from typing import Any
 
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 from matplotlib.collections import LineCollection
 from shapely import get_parts
-from shapely.geometry import Polygon, box
+from shapely.geometry import GeometryCollection, Polygon, box
 from shapely.geometry.base import BaseGeometry
+from shapely.ops import unary_union
 from shapely.validation import make_valid
 
 import dtcc_core
@@ -70,6 +73,8 @@ OUTPUT_ROOT = (
     Path(__file__).resolve().parent / "output" / "stockholm_flat_mesh_compare"
 )
 EPSG = "EPSG:3006"
+CACHE_ROOT = Path.home() / "Library" / "Caches" / "dtcc-data"
+CACHED_FOOTPRINTS_DIR = CACHE_ROOT / "downloaded-gpkg"
 
 
 def parse_args() -> argparse.Namespace:
@@ -103,6 +108,17 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=OUTPUT_ROOT,
         help="Root directory for comparison artifacts.",
+    )
+    parser.add_argument(
+        "--git-root",
+        type=Path,
+        default=None,
+        help="Repo root used for git metadata. Defaults to this script's repo root.",
+    )
+    parser.add_argument(
+        "--summary-only",
+        action="store_true",
+        help="Write per-case summary JSON only; skip mesh/plot/geopackage artifacts.",
     )
     parser.add_argument(
         "--max-mesh-size",
@@ -144,6 +160,14 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Disable gap-closing/merge behavior in the conditioning stage.",
     )
+    parser.add_argument(
+        "--disable-cleaning-diagnostics",
+        action="store_true",
+        help=(
+            "Disable cleaner stage metrics and cleaner log output. "
+            "Useful for runtime comparisons."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -167,14 +191,14 @@ def bounds_to_dict(bounds: Bounds) -> dict[str, float]:
     }
 
 
-def run_git_command(args: list[str]) -> str | None:
+def run_git_command(args: list[str], cwd: Path) -> str | None:
     try:
         result = subprocess.run(
             args,
             check=True,
             capture_output=True,
             text=True,
-            cwd=Path(__file__).resolve().parent.parent,
+            cwd=cwd,
         )
     except (OSError, subprocess.CalledProcessError):
         return None
@@ -182,10 +206,10 @@ def run_git_command(args: list[str]) -> str | None:
     return value or None
 
 
-def get_git_metadata() -> dict[str, str | None]:
+def get_git_metadata(repo_root: Path) -> dict[str, str | None]:
     return {
-        "branch": run_git_command(["git", "rev-parse", "--abbrev-ref", "HEAD"]),
-        "commit": run_git_command(["git", "rev-parse", "HEAD"]),
+        "branch": run_git_command(["git", "rev-parse", "--abbrev-ref", "HEAD"], repo_root),
+        "commit": run_git_command(["git", "rev-parse", "HEAD"], repo_root),
     }
 
 
@@ -323,6 +347,7 @@ def run_new_conditioning(
     merge_tolerance: float,
     min_building_area: float,
     min_building_detail: float,
+    disable_cleaning_diagnostics: bool = False,
 ) -> tuple[list[Polygon], list[list[int]], dict[str, Any]]:
     options = cleaner_module.ConditioningOptions(
         precision_grid=None,
@@ -330,6 +355,8 @@ def run_new_conditioning(
         merge_distance=merge_tolerance if merge_buildings else 0.0,
         min_area=min_building_area,
         min_hole_area=min_building_detail**2,
+        collect_stage_metrics=not disable_cleaning_diagnostics,
+        enable_logging=not disable_cleaning_diagnostics,
     )
     result = cleaner_module.condition_building_footprints(
         buildings,
@@ -398,6 +425,7 @@ def build_mesh_from_conditioned_footprints(
     *,
     max_mesh_size: float,
     min_mesh_angle: float,
+    disable_cleaning_diagnostics: bool = False,
 ):
     conditioned_city = City()
     conditioned_city.add_terrain(terrain_raster)
@@ -414,6 +442,7 @@ def build_mesh_from_conditioned_footprints(
         min_building_area=0.0,
         merge_tolerance=0.0,
         report_mesh_quality=False,
+        cleaning_diagnostics=not disable_cleaning_diagnostics,
     )
 
 
@@ -447,6 +476,20 @@ def make_geodataframe(
                 "area": float(polygon.area),
                 "geometry": polygon,
             }
+        )
+    if not records:
+        return gpd.GeoDataFrame(
+            {
+                "footprint_id": pd.Series(dtype=int),
+                "source_map": pd.Series(dtype=str),
+                "source_count": pd.Series(dtype=int),
+                "color_key": pd.Series(dtype=object),
+                "color": pd.Series(dtype=str),
+                "area": pd.Series(dtype=float),
+                "geometry": gpd.GeoSeries([], crs=EPSG),
+            },
+            geometry="geometry",
+            crs=EPSG,
         )
     return gpd.GeoDataFrame(records, geometry="geometry", crs=EPSG)
 
@@ -490,6 +533,201 @@ def save_source_map_csv(path: Path, source_map: list[list[int]]) -> None:
             )
 
 
+def coverage_metrics(polygons: list[Polygon]) -> dict[str, float | int | None]:
+    if not polygons:
+        return {
+            "polygon_count": 0,
+            "total_area": 0.0,
+            "union_area": 0.0,
+            "overlap_area": 0.0,
+            "minimum_clearance": None,
+        }
+
+    total_area = float(sum(polygon.area for polygon in polygons))
+    union_geom = unary_union(polygons)
+    union_area = float(union_geom.area)
+    overlap_area = float(max(total_area - union_area, 0.0))
+
+    clearances: list[float] = []
+    for polygon in polygons:
+        try:
+            clearance = polygon.minimum_clearance
+        except Exception:
+            continue
+        if np.isfinite(clearance):
+            clearances.append(float(clearance))
+
+    return {
+        "polygon_count": len(polygons),
+        "total_area": total_area,
+        "union_area": union_area,
+        "overlap_area": overlap_area,
+        "minimum_clearance": min(clearances) if clearances else None,
+    }
+
+
+def coverage_difference_metrics(
+    reference_polygons: list[Polygon],
+    candidate_polygons: list[Polygon],
+) -> dict[str, float]:
+    reference = unary_union(reference_polygons) if reference_polygons else GeometryCollection()
+    candidate = unary_union(candidate_polygons) if candidate_polygons else GeometryCollection()
+    return {
+        "union_area_delta": float(candidate.area - reference.area),
+        "symmetric_difference_area": float(reference.symmetric_difference(candidate).area),
+        "reference_minus_candidate_area": float(reference.difference(candidate).area),
+        "candidate_minus_reference_area": float(candidate.difference(reference).area),
+    }
+
+
+def polygon_boundary_metrics(
+    polygons: list[Polygon],
+    *,
+    short_edge_threshold: float,
+) -> dict[str, float | int | None]:
+    if not polygons:
+        return {
+            "polygon_count": 0,
+            "vertex_count": 0,
+            "edge_count": 0,
+            "mean_edge_length": None,
+            "min_edge_length": None,
+            "short_edge_count": 0,
+            "mean_clearance": None,
+            "min_clearance": None,
+        }
+
+    vertex_count = 0
+    edge_count = 0
+    edge_lengths: list[float] = []
+    short_edge_count = 0
+    clearances: list[float] = []
+
+    for polygon in polygons:
+        rings = [polygon.exterior, *polygon.interiors]
+        for ring in rings:
+            coords = list(ring.coords)
+            vertex_count += len(coords) - 1
+            for start, end in zip(coords, coords[1:]):
+                length = float(np.hypot(end[0] - start[0], end[1] - start[1]))
+                edge_count += 1
+                edge_lengths.append(length)
+                if short_edge_threshold > 0 and length + 1e-12 < short_edge_threshold:
+                    short_edge_count += 1
+        try:
+            clearance = polygon.minimum_clearance
+        except Exception:
+            continue
+        if np.isfinite(clearance):
+            clearances.append(float(clearance))
+
+    return {
+        "polygon_count": len(polygons),
+        "vertex_count": vertex_count,
+        "edge_count": edge_count,
+        "mean_edge_length": float(np.mean(edge_lengths)) if edge_lengths else None,
+        "min_edge_length": float(np.min(edge_lengths)) if edge_lengths else None,
+        "short_edge_count": short_edge_count,
+        "mean_clearance": float(np.mean(clearances)) if clearances else None,
+        "min_clearance": float(np.min(clearances)) if clearances else None,
+    }
+
+
+def mesh_quality_summary(mesh_quality: dict[str, Any]) -> dict[str, float]:
+    return {
+        "element_quality_mean": float(mesh_quality["element_quality"]["mean"]),
+        "element_quality_worst": float(mesh_quality["element_quality"]["min"]),
+        "aspect_ratio_mean": float(mesh_quality["aspect_ratio"]["mean"]),
+        "aspect_ratio_worst": float(mesh_quality["aspect_ratio"]["max"]),
+        "edge_ratio_mean": float(mesh_quality["edge_ratio"]["mean"]),
+        "edge_ratio_worst": float(mesh_quality["edge_ratio"]["max"]),
+        "skewness_mean": float(mesh_quality["skewness"]["mean"]),
+        "skewness_worst": float(mesh_quality["skewness"]["max"]),
+    }
+
+
+def empty_mesh_quality_summary() -> dict[str, float | None]:
+    return {
+        "element_quality_mean": None,
+        "element_quality_worst": None,
+        "aspect_ratio_mean": None,
+        "aspect_ratio_worst": None,
+        "edge_ratio_mean": None,
+        "edge_ratio_worst": None,
+        "skewness_mean": None,
+        "skewness_worst": None,
+    }
+
+
+def timing_summary(timings_seconds: dict[str, float]) -> dict[str, float]:
+    conditioning = float(timings_seconds.get("conditioning", 0.0))
+    meshing = float(timings_seconds.get("meshing", 0.0))
+    return {
+        "conditioning_seconds": conditioning,
+        "meshing_seconds": meshing,
+        "core_seconds": conditioning + meshing,
+    }
+
+
+def error_details(stage: str, exc: Exception) -> dict[str, str]:
+    return {
+        "stage": stage,
+        "type": type(exc).__name__,
+        "message": str(exc),
+        "traceback": traceback.format_exc(),
+    }
+
+
+def _fmt_metric(value: float | int | None, digits: int = 2) -> str:
+    if value is None:
+        return "n/a"
+    if isinstance(value, int):
+        return str(value)
+    return f"{value:.{digits}f}"
+
+
+def polygon_metrics_text(
+    metrics: dict[str, float | int | None],
+    *,
+    short_edge_threshold: float,
+    delta_metrics: dict[str, float] | None = None,
+) -> str:
+    lines = [
+        f"polys {metrics['polygon_count']}  verts {metrics['vertex_count']}",
+        f"edge mean {_fmt_metric(metrics['mean_edge_length'])}  min {_fmt_metric(metrics['min_edge_length'])}",
+        f"short < {short_edge_threshold:.2f}m: {metrics['short_edge_count']}  clear {_fmt_metric(metrics['min_clearance'])}",
+    ]
+    if delta_metrics is not None:
+        lines.extend(
+            [
+                f"symdiff {_fmt_metric(delta_metrics['symmetric_difference_area'])} m2",
+                f"missing {_fmt_metric(delta_metrics['reference_minus_candidate_area'])}  extra {_fmt_metric(delta_metrics['candidate_minus_reference_area'])}",
+            ]
+        )
+    return "\n".join(lines)
+
+
+def mesh_metrics_text(metrics: dict[str, float]) -> str:
+    return "\n".join(
+        [
+            f"EQ mean {metrics['element_quality_mean']:.3f}  worst {metrics['element_quality_worst']:.3f}",
+            f"AR mean {metrics['aspect_ratio_mean']:.3f}  worst {metrics['aspect_ratio_worst']:.3f}",
+            f"ER mean {metrics['edge_ratio_mean']:.3f}  worst {metrics['edge_ratio_worst']:.3f}",
+            f"Skew mean {metrics['skewness_mean']:.3f}  worst {metrics['skewness_worst']:.3f}",
+        ]
+    )
+
+
+def timing_metrics_text(metrics: dict[str, float]) -> str:
+    return "\n".join(
+        [
+            f"Cond {metrics['conditioning_seconds']:.3f}s",
+            f"Mesh {metrics['meshing_seconds']:.3f}s",
+            f"Core {metrics['core_seconds']:.3f}s",
+        ]
+    )
+
+
 def mesh_edge_segments(mesh) -> list[np.ndarray]:
     segments: list[np.ndarray] = []
     if mesh.faces is None or mesh.vertices is None:
@@ -523,9 +761,15 @@ def plot_case(
     raw_gdf: gpd.GeoDataFrame,
     conditioned_gdf: gpd.GeoDataFrame,
     flat_mesh,
+    raw_polygon_metrics: dict[str, float | int | None],
+    conditioned_polygon_metrics: dict[str, float | int | None],
+    delta_metrics: dict[str, float],
+    mesh_metrics: dict[str, float],
+    timing_metrics: dict[str, float],
+    short_edge_threshold: float,
     title: str,
 ) -> None:
-    fig, axes = plt.subplots(1, 3, figsize=(18, 6), constrained_layout=True)
+    fig, axes = plt.subplots(1, 3, figsize=(18, 7.5), constrained_layout=True)
 
     for ax, gdf, panel_title in [
         (axes[0], raw_gdf, "Raw footprints"),
@@ -547,6 +791,45 @@ def plot_case(
             LineCollection(segments, colors="black", linewidths=0.25, alpha=0.6)
         )
 
+    text_kwargs = {
+        "transform": axes[0].transAxes,
+        "va": "bottom",
+        "ha": "left",
+        "fontsize": 9,
+        "bbox": {
+            "boxstyle": "round,pad=0.35",
+            "facecolor": "white",
+            "alpha": 0.88,
+            "edgecolor": "black",
+            "linewidth": 0.4,
+        },
+    }
+    axes[0].text(
+        0.02,
+        0.02,
+        polygon_metrics_text(
+            raw_polygon_metrics,
+            short_edge_threshold=short_edge_threshold,
+        ),
+        **text_kwargs,
+    )
+    axes[1].text(
+        0.02,
+        0.02,
+        polygon_metrics_text(
+            conditioned_polygon_metrics,
+            short_edge_threshold=short_edge_threshold,
+            delta_metrics=delta_metrics,
+        ),
+        **{**text_kwargs, "transform": axes[1].transAxes},
+    )
+    axes[2].text(
+        0.02,
+        0.02,
+        mesh_metrics_text(mesh_metrics) + "\n" + timing_metrics_text(timing_metrics),
+        **{**text_kwargs, "transform": axes[2].transAxes},
+    )
+
     set_panel_extent(axes, bounds)
     fig.suptitle(title)
     fig.savefig(output_path, dpi=200)
@@ -558,7 +841,15 @@ def prepare_city(bounds: Bounds, raster_cell_size: float, raster_radius: float) 
 
     t0 = time.perf_counter()
     pointcloud = dtcc_core.io.data.download_pointcloud(bounds=bounds)
-    buildings = dtcc_core.io.data.download_footprints(bounds=bounds)
+    cached_footprint_files = sorted(CACHED_FOOTPRINTS_DIR.glob("*.gpkg"))
+    buildings = []
+    if cached_footprint_files:
+        for path in cached_footprint_files:
+            buildings = dtcc_core.io.load_footprints(str(path), bounds=bounds)
+            if buildings:
+                break
+    if not buildings:
+        buildings = dtcc_core.io.data.download_footprints(bounds=bounds)
     timings["download"] = time.perf_counter() - t0
 
     t0 = time.perf_counter()
@@ -596,88 +887,146 @@ def run_case(number: int, args: argparse.Namespace, git_metadata: dict[str, str 
     )
 
     raw_polygons, raw_source_map = extract_raw_footprints(buildings)
+    conditioned_polygons: list[Polygon] = []
+    source_map: list[list[int]] = []
+    diagnostics: dict[str, Any] = {}
+    flat_mesh = None
+    mesh_quality: dict[str, Any] = {}
+    mesh_metrics: dict[str, float | None] = empty_mesh_quality_summary()
+    case_status = "completed"
+    error_info: dict[str, str] | None = None
 
     t0 = time.perf_counter()
-    if mode_name == "legacy":
-        conditioned_polygons, source_map, diagnostics = run_legacy_conditioning(
-            buildings,
-            merge_buildings=not args.no_merge_buildings,
-            merge_tolerance=args.merge_tolerance,
-            min_building_area=args.min_building_area,
-            min_building_detail=args.min_building_detail,
-        )
-    else:
-        conditioned_polygons, source_map, diagnostics = run_new_conditioning(
-            cleaner_module,
-            buildings,
-            merge_buildings=not args.no_merge_buildings,
-            merge_tolerance=args.merge_tolerance,
-            min_building_area=args.min_building_area,
-            min_building_detail=args.min_building_detail,
-        )
+    try:
+        if mode_name == "legacy":
+            conditioned_polygons, source_map, diagnostics = run_legacy_conditioning(
+                buildings,
+                merge_buildings=not args.no_merge_buildings,
+                merge_tolerance=args.merge_tolerance,
+                min_building_area=args.min_building_area,
+                min_building_detail=args.min_building_detail,
+            )
+        else:
+            conditioned_polygons, source_map, diagnostics = run_new_conditioning(
+                cleaner_module,
+                buildings,
+                merge_buildings=not args.no_merge_buildings,
+                merge_tolerance=args.merge_tolerance,
+                min_building_area=args.min_building_area,
+                min_building_detail=args.min_building_detail,
+                disable_cleaning_diagnostics=args.disable_cleaning_diagnostics,
+            )
+    except Exception as exc:
+        case_status = "failed"
+        error_info = error_details("conditioning", exc)
     timings["conditioning"] = time.perf_counter() - t0
 
-    t0 = time.perf_counter()
-    flat_mesh = build_mesh_from_conditioned_footprints(
-        terrain_raster,
+    if case_status == "completed":
+        t0 = time.perf_counter()
+        try:
+            flat_mesh = build_mesh_from_conditioned_footprints(
+                terrain_raster,
+                conditioned_polygons,
+                source_map,
+                buildings,
+                max_mesh_size=args.max_mesh_size,
+                min_mesh_angle=args.min_mesh_angle,
+                disable_cleaning_diagnostics=args.disable_cleaning_diagnostics,
+            )
+            mesh_quality = flat_mesh.quality()
+            mesh_metrics = mesh_quality_summary(mesh_quality)
+            if not args.summary_only:
+                flat_mesh.save(case_dir / "flat_mesh.vtu")
+        except Exception as exc:
+            case_status = "failed"
+            error_info = error_details("meshing", exc)
+        timings["meshing"] = time.perf_counter() - t0
+    timing_metrics = timing_summary(timings)
+
+    if not args.summary_only:
+        raw_gdf = make_geodataframe(raw_polygons, raw_source_map, key_mode="raw")
+        conditioned_gdf = make_geodataframe(
+            conditioned_polygons,
+            [sorted(set(indices)) for indices in source_map],
+            key_mode="conditioned",
+        )
+        save_geopackage(case_dir / "footprints.gpkg", raw_gdf, conditioned_gdf, bounds)
+        save_source_map_csv(case_dir / "source_map.csv", source_map)
+
+    raw_metrics = coverage_metrics(raw_polygons)
+    conditioned_metrics = coverage_metrics(conditioned_polygons)
+    delta_metrics = coverage_difference_metrics(raw_polygons, conditioned_polygons)
+    raw_boundary_metrics = polygon_boundary_metrics(
+        raw_polygons,
+        short_edge_threshold=args.min_building_detail,
+    )
+    conditioned_boundary_metrics = polygon_boundary_metrics(
         conditioned_polygons,
-        source_map,
-        buildings,
-        max_mesh_size=args.max_mesh_size,
-        min_mesh_angle=args.min_mesh_angle,
-    )
-    mesh_quality = flat_mesh.quality()
-    flat_mesh.save(case_dir / "flat_mesh.vtu")
-    timings["meshing"] = time.perf_counter() - t0
-
-    raw_gdf = make_geodataframe(raw_polygons, raw_source_map, key_mode="raw")
-    conditioned_gdf = make_geodataframe(
-        conditioned_polygons,
-        [sorted(set(indices)) for indices in source_map],
-        key_mode="conditioned",
+        short_edge_threshold=args.min_building_detail,
     )
 
-    save_geopackage(case_dir / "footprints.gpkg", raw_gdf, conditioned_gdf, bounds)
-    save_source_map_csv(case_dir / "source_map.csv", source_map)
+    if not args.summary_only and flat_mesh is not None:
+        t0 = time.perf_counter()
+        plot_case(
+            case_dir / "comparison.png",
+            bounds,
+            raw_gdf,
+            conditioned_gdf,
+            flat_mesh,
+            raw_boundary_metrics,
+            conditioned_boundary_metrics,
+            delta_metrics,
+            mesh_metrics,
+            timing_metrics,
+            args.min_building_detail,
+            title=f"Case {number:03d} | {mode_name}",
+        )
+        timings["plotting"] = time.perf_counter() - t0
 
-    t0 = time.perf_counter()
-    plot_case(
-        case_dir / "comparison.png",
-        bounds,
-        raw_gdf,
-        conditioned_gdf,
-        flat_mesh,
-        title=f"Case {number:03d} | {mode_name}",
-    )
-    timings["plotting"] = time.perf_counter() - t0
+    artifacts: dict[str, str] = {}
+    if not args.summary_only:
+        if flat_mesh is not None:
+            artifacts["comparison_png"] = "comparison.png"
+            artifacts["flat_mesh_vtu"] = "flat_mesh.vtu"
+        artifacts["footprints_gpkg"] = "footprints.gpkg"
+        artifacts["source_map_csv"] = "source_map.csv"
 
     summary = {
         "git_branch": git_metadata["branch"],
         "git_commit": git_metadata["commit"],
         "mode": mode_name,
         "requested_mode": args.mode,
+        "status": case_status,
+        "error": error_info,
         "case": number,
         "bounds": bounds_to_dict(bounds),
         "input_building_count": len(buildings),
         "raw_polygon_count": len(raw_polygons),
         "conditioned_polygon_count": len(conditioned_polygons),
         "source_map_sizes": [len(indices) for indices in source_map],
+        "raw_coverage_metrics": raw_metrics,
+        "raw_polygon_boundary_metrics": raw_boundary_metrics,
+        "conditioned_coverage_metrics": conditioned_metrics,
+        "conditioned_polygon_boundary_metrics": conditioned_boundary_metrics,
+        "raw_to_conditioned_difference_metrics": delta_metrics,
         "conditioning_diagnostics": diagnostics,
         "flat_mesh_quality": mesh_quality,
+        "flat_mesh_quality_summary": mesh_metrics,
+        "mesh_available": flat_mesh is not None,
+        "timing_summary": timing_metrics,
         "timings_seconds": {name: round(value, 3) for name, value in timings.items()},
-        "artifacts": {
-            "comparison_png": "comparison.png",
-            "flat_mesh_vtu": "flat_mesh.vtu",
-            "footprints_gpkg": "footprints.gpkg",
-            "source_map_csv": "source_map.csv",
-        },
+        "summary_only": args.summary_only,
+        "artifacts": artifacts,
     }
     with (case_dir / "summary.json").open("w", encoding="utf-8") as handle:
         json.dump(summary, handle, indent=2)
 
-    print(
-        f"Case {number:03d}: {mode_name} | raw={len(raw_polygons)} conditioned={len(conditioned_polygons)} -> {case_dir}"
-    )
+    status_bits = [f"Case {number:03d}: {mode_name}", f"raw={len(raw_polygons)}", f"conditioned={len(conditioned_polygons)}"]
+    if case_status != "completed" and error_info is not None:
+        status_bits.append(f"status={case_status}")
+        status_bits.append(f"stage={error_info['stage']}")
+        status_bits.append(f"error={error_info['type']}")
+    print(" | ".join(status_bits) + f" -> {case_dir}")
 
 
 def validate_cases(cases: list[int]) -> None:
@@ -692,7 +1041,8 @@ def main() -> int:
     args = parse_args()
     validate_cases(args.cases)
 
-    git_metadata = get_git_metadata()
+    repo_root = args.git_root or Path(__file__).resolve().parent.parent
+    git_metadata = get_git_metadata(repo_root)
     args.output_root.mkdir(parents=True, exist_ok=True)
 
     for index, number in enumerate(args.cases):

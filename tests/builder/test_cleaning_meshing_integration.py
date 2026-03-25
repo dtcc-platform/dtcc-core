@@ -94,6 +94,88 @@ def test_build_city_flat_mesh_handles_pathological_footprints(monkeypatch):
     assert mesh.faces.shape[0] > 0
 
 
+def test_build_city_flat_mesh_forwards_cleaning_diagnostics_flag(monkeypatch):
+    captured = {}
+    original = meshes_module._condition_meshing_footprints
+
+    def wrapped(*args, **kwargs):
+        captured["cleaning_diagnostics"] = kwargs.get("cleaning_diagnostics")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(meshes_module, "_condition_meshing_footprints", wrapped)
+
+    city = make_flat_city(
+        [make_building(box(8, 8, 18, 18), roof_z=10.0)]
+    )
+
+    mesh = build_city_flat_mesh(
+        city,
+        lod=GeometryType.LOD0,
+        merge_buildings=True,
+        min_building_detail=0.3,
+        min_building_area=1.0,
+        merge_tolerance=0.25,
+        max_mesh_size=5.0,
+        min_mesh_angle=20.0,
+        report_mesh_quality=False,
+        cleaning_diagnostics=False,
+    )
+
+    assert captured["cleaning_diagnostics"] is False
+    assert mesh.vertices.shape[0] > 0
+    assert mesh.faces.shape[0] > 0
+
+
+def test_build_city_flat_mesh_allows_empty_conditioned_footprints(monkeypatch):
+    captured = {}
+
+    def fake_condition(*args, **kwargs):
+        return [], [], [], {"output_count": 0}
+
+    class DummyCppMesh:
+        def from_cpp(self):
+            return Mesh(
+                vertices=np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]),
+                faces=np.array([[0, 1, 2]], dtype=int),
+            )
+
+    def fake_build_flat_mesh(
+        building_polygons,
+        holes,
+        subdomain_resolution,
+        xmin,
+        ymin,
+        xmax,
+        ymax,
+        max_mesh_size,
+        min_mesh_angle,
+        sort_triangles,
+    ):
+        captured["building_polygons"] = building_polygons
+        captured["subdomain_resolution"] = subdomain_resolution
+        return DummyCppMesh()
+
+    monkeypatch.setattr(meshes_module, "_condition_meshing_footprints", fake_condition)
+    monkeypatch.setattr(meshes_module._dtcc_builder, "build_city_flat_mesh", fake_build_flat_mesh)
+
+    city = make_flat_city([])
+    mesh = build_city_flat_mesh(
+        city,
+        lod=GeometryType.LOD0,
+        merge_buildings=True,
+        min_building_detail=0.5,
+        min_building_area=1.0,
+        merge_tolerance=0.5,
+        max_mesh_size=5.0,
+        min_mesh_angle=20.0,
+        report_mesh_quality=False,
+    )
+
+    assert captured["building_polygons"] == []
+    assert captured["subdomain_resolution"] == []
+    assert mesh.faces.shape[0] == 1
+
+
 def test_build_city_surface_mesh_reduces_lod_from_source_map(monkeypatch):
     surfaces = [
         make_surface(box(10, 10, 20, 20), 10.0),

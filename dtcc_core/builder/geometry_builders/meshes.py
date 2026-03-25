@@ -121,10 +121,14 @@ def _condition_meshing_footprints(
     merge_tolerance: float,
     merge_buildings: bool,
     max_mesh_size: float,
+    cleaning_diagnostics: bool = True,
 ) -> tuple[list[Surface], list[list[int]], list[float], dict[str, Any]]:
     if not buildings:
         warning("No buildings to preprocess.")
         return [], [], [], {}
+
+    if cleaning_diagnostics:
+        info(f"Starting meshing footprint conditioning for {len(buildings)} buildings.")
 
     lod_values = _normalize_lod_values(buildings, lod)
     extracted_polygons = []
@@ -149,6 +153,8 @@ def _condition_meshing_footprints(
         merge_distance=merge_tolerance if merge_buildings else 0.0,
         min_area=min_building_area,
         min_hole_area=min_building_detail**2,
+        collect_stage_metrics=cleaning_diagnostics,
+        enable_logging=cleaning_diagnostics,
     )
 
     if isinstance(lod, GeometryType):
@@ -186,9 +192,13 @@ def _condition_meshing_footprints(
         conditioned_surfaces.append(surface)
         subdomain_resolution.append(min(height, max_mesh_size))
 
-    info(
-        f"Conditioned {len(buildings)} buildings into {len(conditioned_surfaces)} meshing footprints."
-    )
+    if cleaning_diagnostics:
+        info(
+            "Meshing footprint conditioning complete: "
+            f"{len(buildings)} buildings -> {len(conditioned_surfaces)} footprints, "
+            f"groups={result.diagnostics.get('merged_group_count', 0)}, "
+            f"output_grid={result.diagnostics.get('output_grid')} m."
+        )
     return (
         conditioned_surfaces,
         result.source_map,
@@ -212,6 +222,7 @@ def build_city_surface_mesh(
     sort_triangles: bool = False,
     treat_lod0_as_holes: bool = False,
     report_mesh_quality: bool = True,
+    cleaning_diagnostics: bool = True,
 ) -> Mesh:
     """
     Build a surface mesh from the surfaces of the buildings in the city.
@@ -259,6 +270,7 @@ def build_city_surface_mesh(
             merge_tolerance=merge_tolerance,
             merge_buildings=merge_buildings,
             max_mesh_size=max_mesh_size,
+            cleaning_diagnostics=cleaning_diagnostics,
         )
     )
     target_lods = [
@@ -348,6 +360,7 @@ def build_city_flat_mesh(
     min_building_area: float = 15.0,
     merge_tolerance: float = 0.5,
     report_mesh_quality: bool = True,
+    cleaning_diagnostics: bool = True,
 ) -> Mesh:
     """Build a flat 2D triangular mesh of the city with building footprints marked.
 
@@ -387,7 +400,7 @@ def build_city_flat_mesh(
     Raises
     ------
     ValueError
-        If the city has no terrain data or no valid building footprints.
+        If the city has no terrain data.
     """
     # Validate terrain (needed for domain bounds)
     terrain = city.terrain
@@ -407,15 +420,20 @@ def build_city_flat_mesh(
             merge_tolerance=merge_tolerance,
             merge_buildings=merge_buildings,
             max_mesh_size=max_mesh_size,
+            cleaning_diagnostics=cleaning_diagnostics,
         )
     )
 
-    if not building_footprints:
-        raise ValueError("No valid building footprints available for meshing.")
+    footprint_count = len(building_footprints)
+    if footprint_count == 0:
+        warning(
+            "No valid building footprints available after conditioning. "
+            "Building ground-only flat mesh."
+        )
 
     report_progress(
         percent=10,
-        message=f"Preprocessed {len(building_footprints)} building footprints",
+        message=f"Preprocessed {footprint_count} building footprints",
     )
     debug(f"Flat meshing footprint diagnostics: {diagnostics}")
 
@@ -475,6 +493,7 @@ def build_city_volume_mesh(
     aspect_ratio_threshold: float = 10.0,
     debug_step: int = 7,
     report_mesh_quality: bool = True,
+    cleaning_diagnostics: bool = True,
 ) -> VolumeMesh:
     """
     Build a 3D tetrahedral volume mesh for a city terrain with embedded building volumes.
@@ -610,6 +629,7 @@ def build_city_volume_mesh(
             merge_tolerance=merge_tolerance,
             merge_buildings=merge_buildings,
             max_mesh_size=max_mesh_size,
+            cleaning_diagnostics=cleaning_diagnostics,
         )
     )
     if not building_footprints:

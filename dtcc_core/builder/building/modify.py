@@ -7,6 +7,7 @@ from ..polygons.surface import clean_multisurface, clean_surface
 from ..register import register_model_method
 import shapely
 from shapely.geometry import Polygon
+from shapely.ops import unary_union
 from shapely.validation import make_valid
 from ..logging import debug, info, warning, error
 
@@ -206,6 +207,36 @@ def _build_conditioned_buildings(
     return conditioned_buildings
 
 
+def _condition_buildings_with_shared_cleaner(
+    buildings: List[Building],
+    *,
+    lod: GeometryType,
+    options: ConditioningOptions,
+    operation_name: str,
+    return_index_map: bool = False,
+) -> Union[List[Building], Tuple[List[Building], List[List[int]]]]:
+    info(
+        f"{operation_name}: running shared footprint conditioner on {len(buildings)} buildings."
+    )
+    result = condition_building_footprints(
+        buildings,
+        lod=lod,
+        options=options,
+    )
+    conditioned_buildings = _build_conditioned_buildings(
+        buildings,
+        result.polygons,
+        result.source_map,
+        lod=lod,
+    )
+    info(
+        f"{operation_name}: produced {len(conditioned_buildings)} conditioned buildings."
+    )
+    if return_index_map:
+        return conditioned_buildings, result.source_map
+    return conditioned_buildings
+
+
 def merge_building_footprints(
     buildings: List[Building],
     lod: GeometryType = GeometryType.LOD0,
@@ -235,7 +266,7 @@ def merge_building_footprints(
     Union[List[Building], Tuple[List[Building], List[List[int]]]]
         Merged buildings, optionally paired with the index map.
     """
-    result = condition_building_footprints(
+    return _condition_buildings_with_shared_cleaner(
         buildings,
         lod=lod,
         options=ConditioningOptions(
@@ -245,16 +276,9 @@ def merge_building_footprints(
             min_area=min_area,
             min_hole_area=0.0,
         ),
+        operation_name="merge_building_footprints",
+        return_index_map=return_index_map,
     )
-    merged_buildings = _build_conditioned_buildings(
-        buildings,
-        result.polygons,
-        result.source_map,
-        lod=lod,
-    )
-    if return_index_map:
-        return merged_buildings, result.source_map
-    return merged_buildings
 
 
 def merge_building_attributes(buildings: List[Building]) -> dict:
@@ -310,37 +334,31 @@ def simplify_building_footprints(
         Simplified buildings, optionally paired with the index map.
     """
 
-    if method not in ["vwp", "rdp"]:
+    if method not in ["vwp", "vw", "rdp"]:
         warning(
-            f"Unknown polygon simplification method: {method}. Falling back to Shapely simplify."
+            f"Unknown polygon simplification method: {method}. "
+            "The shared footprint conditioner ignores this argument."
         )
     if tolerance < 0:
         raise ValueError("tolerance must be non-negative.")
 
-    simplified_polygons: list[Polygon] = []
-    index_map: List[List[int]] = []
-    for idx, building in enumerate(buildings):
-        lod_geom = building.flatten_geometry(lod)
-        if lod_geom is None:
-            continue
-        footprint = lod_geom.to_polygon(simplify=0.0)
-        if footprint is None or footprint.is_empty:
-            continue
-        simplified = shapely.simplify(footprint, tolerance, preserve_topology=True)
-        for part in _extract_polygon_parts(make_valid(simplified)):
-            simplified_polygons.append(part)
-            index_map.append([idx])
-
-    simplified_buildings = _build_conditioned_buildings(
-        buildings,
-        simplified_polygons,
-        index_map,
-        lod=lod,
+    info(
+        "simplify_building_footprints() delegates to the shared conditioner; "
+        "the 'method' argument is retained for API compatibility only."
     )
-
-    if return_index_map:
-        return simplified_buildings, index_map
-    return simplified_buildings
+    return _condition_buildings_with_shared_cleaner(
+        buildings,
+        lod=lod,
+        options=ConditioningOptions(
+            precision_grid=None,
+            min_feature_size=tolerance,
+            merge_distance=0.0,
+            min_area=0.0,
+            min_hole_area=0.0,
+        ),
+        operation_name="simplify_building_footprints",
+        return_index_map=return_index_map,
+    )
 
 
 def clean_building_footprints(
@@ -366,7 +384,7 @@ def clean_building_footprints(
         List of cleaned buildings.
     """
 
-    result = condition_building_footprints(
+    return _condition_buildings_with_shared_cleaner(
         buildings,
         lod=GeometryType.LOD0,
         options=ConditioningOptions(
@@ -376,17 +394,9 @@ def clean_building_footprints(
             min_area=0.0,
             min_hole_area=smallest_hole_area,
         ),
+        operation_name="clean_building_footprints",
+        return_index_map=return_index_map,
     )
-    fixed_buildings = _build_conditioned_buildings(
-        buildings,
-        result.polygons,
-        result.source_map,
-        lod=GeometryType.LOD0,
-    )
-
-    if return_index_map:
-        return fixed_buildings, result.source_map
-    return fixed_buildings
 
 
 def fix_building_footprint_clearance(
@@ -415,7 +425,7 @@ def fix_building_footprint_clearance(
     Union[List[Building], Tuple[List[Building], List[List[int]]]]
         Buildings with fixed clearances, optionally paired with the index map.
     """
-    result = condition_building_footprints(
+    return _condition_buildings_with_shared_cleaner(
         buildings,
         lod=lod,
         options=ConditioningOptions(
@@ -425,17 +435,9 @@ def fix_building_footprint_clearance(
             min_area=0.0,
             min_hole_area=0.0,
         ),
+        operation_name="fix_building_footprint_clearance",
+        return_index_map=return_index_map,
     )
-    fixed_buildings = _build_conditioned_buildings(
-        buildings,
-        result.polygons,
-        result.source_map,
-        lod=lod,
-    )
-
-    if return_index_map:
-        return fixed_buildings, result.source_map
-    return fixed_buildings
 
 
 def split_footprint_walls(

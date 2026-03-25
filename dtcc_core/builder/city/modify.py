@@ -6,11 +6,13 @@ from ..polygons.polygons import (
 )
 
 from ..building.modify import (
+    _condition_buildings_with_shared_cleaner,
     clean_building_geometry,
     fix_building_footprint_clearance,
     merge_building_footprints,
     simplify_building_footprints,
 )
+from ..cleaning import ConditioningOptions
 
 import numpy as np
 
@@ -104,20 +106,19 @@ def merge_buildings(
         "legacy property and height merge strategies are no longer applied separately."
     )
     merged_city = deepcopy(city)
-    merged = merge_building_footprints(
+    merged = _condition_buildings_with_shared_cleaner(
         city.buildings,
         lod=GeometryType.LOD0,
-        max_distance=max_distance,
-        min_area=min_area,
+        options=ConditioningOptions(
+            precision_grid=None,
+            min_feature_size=max(max_distance / 2.0, 1e-3) if simplify else 0.0,
+            merge_distance=max_distance,
+            min_area=min_area,
+            min_hole_area=0.0,
+        ),
+        operation_name="merge_buildings",
         return_index_map=False,
     )
-    if simplify:
-        merged = simplify_building_footprints(
-            merged,
-            tolerance=max(max_distance / 2.0, 1e-3),
-            lod=GeometryType.LOD0,
-            return_index_map=False,
-        )
     merged_city.replace_buildings(merged)
     return merged_city
 
