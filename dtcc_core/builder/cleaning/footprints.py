@@ -639,9 +639,47 @@ def _clean_ring_coords(
     coords: Sequence[Sequence[float]],
     grid: float,
 ) -> list[tuple[float, float]] | None:
+    ring = [(float(x), float(y)) for x, y, *_ in coords]
+    if ring:
+        if ring[0] != ring[-1]:
+            ring.append(ring[0])
+    if len(ring) < 4:
+        return None
+
+    unique_count = len(ring) - 1
+    if unique_count < 3:
+        return None
+
+    closure_tolerance = max(4.0 * grid, 1e-9)
+    tolerance = max(grid * grid * 0.25, 1e-12)
+    needs_cleanup = False
+    for index in range(unique_count):
+        point = ring[index]
+        next_point = ring[index + 1]
+        if point == next_point and index + 1 < len(ring) - 1:
+            needs_cleanup = True
+            break
+        prev_point = ring[index - 1] if index > 0 else ring[-2]
+        next_unique = ring[index + 1] if index + 1 < unique_count else ring[0]
+        cross = (
+            (point[0] - prev_point[0]) * (next_unique[1] - point[1])
+            - (point[1] - prev_point[1]) * (next_unique[0] - point[0])
+        )
+        if abs(cross) <= tolerance:
+            needs_cleanup = True
+            break
+    if not needs_cleanup:
+        closing_length = float(
+            np.hypot(
+                ring[0][0] - ring[-2][0],
+                ring[0][1] - ring[-2][1],
+            )
+        )
+        if closing_length > closure_tolerance:
+            return ring
+
     unique: list[tuple[float, float]] = []
-    for x, y, *_ in coords:
-        point = (float(x), float(y))
+    for point in ring:
         if unique and point == unique[-1]:
             continue
         unique.append(point)
@@ -2625,6 +2663,26 @@ def _derive_source_recovery_distance(
     return max(2.0 * grid, 0.05 * max(min_segment_length, 0.0), 1e-6)
 
 
+@dataclass(frozen=True)
+class _SupportVertexIndex:
+    cell_size: float
+    buckets: dict[tuple[int, int], list[tuple[float, float]]]
+
+
+def _build_support_vertex_index(
+    vertices: Sequence[tuple[float, float]],
+    *,
+    distance_tolerance: float,
+) -> _SupportVertexIndex:
+    cell_size = max(distance_tolerance, 1e-9)
+    buckets: dict[tuple[int, int], list[tuple[float, float]]] = {}
+    inverse = 1.0 / cell_size
+    for x, y in vertices:
+        key = (int(np.floor(x * inverse)), int(np.floor(y * inverse)))
+        buckets.setdefault(key, []).append((x, y))
+    return _SupportVertexIndex(cell_size=cell_size, buckets=buckets)
+
+
 def _boundary_vertices(geometry: BaseGeometry) -> list[tuple[float, float]]:
     vertices: list[tuple[float, float]] = []
     seen: set[tuple[float, float]] = set()
@@ -2643,6 +2701,7 @@ def _recover_ring_vertices_from_support(
     coords: Sequence[Sequence[float]],
     *,
     support_vertices: Sequence[tuple[float, float]],
+    support_vertex_index: _SupportVertexIndex | None = None,
     distance_tolerance: float,
 ) -> tuple[list[tuple[float, float]], int]:
     recovered: list[tuple[float, float]] = []
@@ -2654,7 +2713,21 @@ def _recover_ring_vertices_from_support(
         current = (float(x), float(y))
         best_vertex: tuple[float, float] | None = None
         best_distance: float | None = None
-        for support_vertex in support_vertices:
+        if support_vertex_index is None:
+            candidate_vertices = support_vertices
+        else:
+            inverse = 1.0 / support_vertex_index.cell_size
+            cell_x = int(np.floor(current[0] * inverse))
+            cell_y = int(np.floor(current[1] * inverse))
+            bucketed: list[tuple[float, float]] = []
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    bucketed.extend(
+                        support_vertex_index.buckets.get((cell_x + dx, cell_y + dy), ())
+                    )
+            candidate_vertices = bucketed
+
+        for support_vertex in candidate_vertices:
             distance = float(
                 np.hypot(
                     support_vertex[0] - current[0],
@@ -2681,6 +2754,7 @@ def _recover_polygon_vertices_from_support(
     polygon: Polygon,
     *,
     support_vertices: Sequence[tuple[float, float]],
+    support_vertex_index: _SupportVertexIndex | None = None,
     grid: float,
 ) -> tuple[Polygon | None, int]:
     if not support_vertices:
@@ -2689,6 +2763,7 @@ def _recover_polygon_vertices_from_support(
     shell, shell_count = _recover_ring_vertices_from_support(
         polygon.exterior.coords,
         support_vertices=support_vertices,
+        support_vertex_index=support_vertex_index,
         distance_tolerance=_derive_source_recovery_distance(0.0, grid),
     )
     if shell_count == 0:
@@ -2703,6 +2778,7 @@ def _recover_polygon_vertices_from_support(
         recovered_hole, hole_count = _recover_ring_vertices_from_support(
             ring.coords,
             support_vertices=support_vertices,
+            support_vertex_index=support_vertex_index,
             distance_tolerance=_derive_source_recovery_distance(0.0, grid),
         )
         recovered_count += hole_count
@@ -2721,6 +2797,8 @@ def _recover_polygon_source_coordinates(
     polygon: Polygon,
     *,
     support: BaseGeometry,
+    support_vertices: Sequence[tuple[float, float]] | None,
+    support_vertex_index: _SupportVertexIndex | None,
     min_segment_length: float,
     grid: float,
 ) -> tuple[Polygon | None, str | None, dict[str, float] | None]:
@@ -2776,10 +2854,12 @@ def _recover_polygon_source_coordinates(
     if best_exact is not None:
         return best_exact[1], "exact_source_polygon", best_exact[2]
 
-    support_vertices = _boundary_vertices(support)
+    if support_vertices is None:
+        support_vertices = _boundary_vertices(support)
     candidate, recovered_count = _recover_polygon_vertices_from_support(
         polygon,
         support_vertices=support_vertices,
+        support_vertex_index=support_vertex_index,
         grid=grid,
     )
     if candidate is None or recovered_count == 0:
@@ -2991,10 +3071,6 @@ def _reclaim_source_supported_area(
         candidate_polygons.append(current)
         candidate_sources.append(indices)
 
-    after_stats = _segment_length_stats(
-        candidate_polygons,
-        short_edge_threshold=min_segment_length,
-    )
     diagnostics["source_reclaim_candidate_count"] = candidate_count
     diagnostics["source_reclaim_applied_count"] = applied_count
     diagnostics["source_reclaim_component_count"] = component_count
@@ -3004,8 +3080,22 @@ def _reclaim_source_supported_area(
     diagnostics["source_reclaim_rejected_non_improving_count"] = (
         rejected_non_improving_count
     )
+    if applied_count == 0:
+        diagnostics["source_reclaim_short_edge_count_after"] = before_stats[
+            "short_edge_count"
+        ]
+        diagnostics["source_reclaim_applied"] = False
+        diagnostics["source_reclaim_reference_minus_candidate_area"] = 0.0
+        diagnostics["source_reclaim_candidate_minus_reference_area"] = 0.0
+        diagnostics["source_reclaim_signed_area_delta"] = 0.0
+        return polygons, source_map
+
+    after_stats = _segment_length_stats(
+        candidate_polygons,
+        short_edge_threshold=min_segment_length,
+    )
     diagnostics["source_reclaim_short_edge_count_after"] = after_stats["short_edge_count"]
-    diagnostics["source_reclaim_applied"] = applied_count > 0
+    diagnostics["source_reclaim_applied"] = True
     difference_metrics = _difference_area_metrics(
         unary_union(polygons),
         unary_union(candidate_polygons),
@@ -3346,13 +3436,16 @@ def _recover_source_supported_coordinates(
     operator_applied: dict[str, int] = {}
     overlap_tolerance = max(grid * grid, 1e-9)
     recovery_query_radius = max(min_segment_length, grid, 1e-9)
-    support_cache: dict[tuple[int, ...], BaseGeometry] = {}
+    support_cache: dict[
+        tuple[int, ...],
+        tuple[BaseGeometry, list[tuple[float, float]], _SupportVertexIndex],
+    ] = {}
     proposal_map: dict[int, tuple[Polygon, str, dict[str, float]]] = {}
 
     for polygon_index, (polygon, indices) in enumerate(zip(polygons, source_map)):
         support_key = tuple(indices)
-        support = support_cache.get(support_key)
-        if support is None:
+        cached_support = support_cache.get(support_key)
+        if cached_support is None:
             support_parts = [
                 source_lookup[source_index]
                 for source_index in indices
@@ -3360,8 +3453,21 @@ def _recover_source_supported_coordinates(
             ]
             if not support_parts:
                 continue
-            support = unary_union(support_parts)
-            support_cache[support_key] = support
+            if len(support_parts) == 1:
+                support = support_parts[0]
+            else:
+                support = unary_union(support_parts)
+            support_vertices = _boundary_vertices(support)
+            support_vertex_index = _build_support_vertex_index(
+                support_vertices,
+                distance_tolerance=_derive_source_recovery_distance(
+                    min_segment_length,
+                    grid,
+                ),
+            )
+            cached_support = (support, support_vertices, support_vertex_index)
+            support_cache[support_key] = cached_support
+        support, support_vertices, support_vertex_index = cached_support
         if support.is_empty:
             continue
         candidate_count += 1
@@ -3369,6 +3475,8 @@ def _recover_source_supported_coordinates(
         candidate, operator, support_metrics = _recover_polygon_source_coordinates(
             polygon,
             support=support,
+            support_vertices=support_vertices,
+            support_vertex_index=support_vertex_index,
             min_segment_length=min_segment_length,
             grid=grid,
         )
@@ -3463,18 +3571,10 @@ def _recover_source_supported_coordinates(
                 if tree_geometry_changed:
                     dirty_indices.add(polygon_index)
 
-    current_polygons, current_sources = _stable_sort(current_polygons, current_sources)
-    after_stats = _segment_length_stats(
-        current_polygons,
-        short_edge_threshold=min_segment_length,
-    )
     diagnostics["source_coordinate_recovery_candidate_count"] = candidate_count
     diagnostics["source_coordinate_recovery_applied_count"] = applied_count
     diagnostics["source_coordinate_recovery_exact_count"] = exact_count
     diagnostics["source_coordinate_recovery_vertex_count"] = vertex_count
-    diagnostics["source_coordinate_recovery_short_edge_count_after"] = after_stats[
-        "short_edge_count"
-    ]
     diagnostics["source_coordinate_recovery_rejected_overlap_count"] = (
         rejected_overlap_count
     )
@@ -3483,7 +3583,25 @@ def _recover_source_supported_coordinates(
     )
     diagnostics["source_coordinate_recovery_operator_attempts"] = operator_attempts
     diagnostics["source_coordinate_recovery_operator_applied"] = operator_applied
-    diagnostics["source_coordinate_recovery_applied"] = applied_count > 0
+    if applied_count == 0:
+        diagnostics["source_coordinate_recovery_short_edge_count_after"] = before_stats[
+            "short_edge_count"
+        ]
+        diagnostics["source_coordinate_recovery_applied"] = False
+        diagnostics["source_coordinate_recovery_reference_minus_candidate_area"] = 0.0
+        diagnostics["source_coordinate_recovery_candidate_minus_reference_area"] = 0.0
+        diagnostics["source_coordinate_recovery_signed_area_delta"] = 0.0
+        return polygons, source_map
+
+    current_polygons, current_sources = _stable_sort(current_polygons, current_sources)
+    after_stats = _segment_length_stats(
+        current_polygons,
+        short_edge_threshold=min_segment_length,
+    )
+    diagnostics["source_coordinate_recovery_short_edge_count_after"] = after_stats[
+        "short_edge_count"
+    ]
+    diagnostics["source_coordinate_recovery_applied"] = True
     difference_metrics = _difference_area_metrics(
         unary_union(polygons),
         unary_union(current_polygons),
@@ -3509,8 +3627,10 @@ def _regularize_coverage_for_meshing(
     min_area: float,
     min_hole_area: float,
     diagnostics: dict[str, Any],
+    cache: _CoverageEvalCache | None = None,
 ) -> tuple[list[Polygon], list[list[int]]]:
-    cache = _CoverageEvalCache()
+    if cache is None:
+        cache = _CoverageEvalCache()
     before_signature = _cached_coverage_defect_signature(
         cache,
         polygons,
@@ -5902,6 +6022,7 @@ def _evaluate_post_coverage_branch(
     output_min_area: float,
     min_hole_area: float,
     apply_coverage_meshing_regularization: bool = True,
+    cache: _CoverageEvalCache | None = None,
 ) -> _PostCoverageBranch:
     diagnostics = _empty_diagnostics(len(coverage_candidate.polygons))
     diagnostics["collect_stage_metrics"] = False
@@ -5971,6 +6092,7 @@ def _evaluate_post_coverage_branch(
                 min_area=min_area,
                 min_hole_area=min_hole_area,
                 diagnostics=diagnostics,
+                cache=cache,
             )
         )
     else:
@@ -5987,13 +6109,14 @@ def _evaluate_post_coverage_branch(
         final_output_polygons,
         final_output_sources,
     )
-    final_signature = _coverage_defect_signature(
+    final_signature = _cached_coverage_defect_signature(
+        cache,
         final_polygons,
         target_scale=min_feature_size,
     )
     final_difference_metrics = _difference_area_metrics(
         reference_union,
-        unary_union(final_polygons),
+        _cached_union(cache, final_polygons),
     )
     return _PostCoverageBranch(
         label=coverage_candidate.label,
@@ -6151,8 +6274,35 @@ def _apply_local_polygon_repairs(
         min_segment_length
     )
     diagnostics[_candidate_metric_key(stage_prefix, "tolerance")] = min_segment_length
+    if (
+        enable_simplify_operators
+        and not enable_defect_operators
+        and before_stats["short_edge_count"] == 0
+    ):
+        diagnostics[_candidate_metric_key(stage_prefix, "candidate_count")] = 0
+        diagnostics[_candidate_metric_key(stage_prefix, "applied_count")] = 0
+        diagnostics[_candidate_metric_key(stage_prefix, "edit_zone_area")] = 0.0
+        diagnostics[_candidate_metric_key(stage_prefix, "change_outside_edit_zone")] = 0.0
+        diagnostics[_candidate_metric_key(stage_prefix, "rejected_nonlocal_count")] = 0
+        diagnostics[
+            _candidate_metric_key(stage_prefix, "rejected_area_imbalance_count")
+        ] = 0
+        diagnostics[
+            _candidate_metric_key(stage_prefix, "rejected_non_improving_count")
+        ] = 0
+        diagnostics[_candidate_metric_key(stage_prefix, "overlap_area")] = 0.0
+        diagnostics[_candidate_metric_key(stage_prefix, "short_edge_count_after")] = 0
+        diagnostics[_candidate_metric_key(stage_prefix, "applied")] = False
+        diagnostics[_candidate_metric_key(stage_prefix, "segment_length_after")] = (
+            before_stats
+        )
+        diagnostics[_candidate_metric_key(stage_prefix, "area_balance_budget")] = 0.0
+        diagnostics[_candidate_metric_key(stage_prefix, "symmetric_difference_area")] = 0.0
+        diagnostics[_candidate_metric_key(stage_prefix, "reference_minus_candidate_area")] = 0.0
+        diagnostics[_candidate_metric_key(stage_prefix, "candidate_minus_reference_area")] = 0.0
+        diagnostics[_candidate_metric_key(stage_prefix, "signed_area_delta")] = 0.0
+        return polygons, source_map
 
-    reference_union = unary_union(polygons)
     candidate_polygons: list[Polygon] = []
     candidate_sources: list[list[int]] = []
     edit_zone_area = 0.0
@@ -6268,8 +6418,6 @@ def _apply_local_polygon_repairs(
         candidate_polygons.append(polygon)
         candidate_sources.append(indices)
 
-    overlap_area = _coverage_overlap_area(candidate_polygons)
-    diagnostics[_candidate_metric_key(stage_prefix, "overlap_area")] = overlap_area
     diagnostics[_candidate_metric_key(stage_prefix, "candidate_count")] = candidate_count
     diagnostics[_candidate_metric_key(stage_prefix, "applied_count")] = applied_count
     diagnostics[_candidate_metric_key(stage_prefix, "edit_zone_area")] = edit_zone_area
@@ -6285,6 +6433,26 @@ def _apply_local_polygon_repairs(
     diagnostics[
         _candidate_metric_key(stage_prefix, "rejected_non_improving_count")
     ] = rejected_non_improving_count
+
+    if applied_count == 0:
+        diagnostics[_candidate_metric_key(stage_prefix, "overlap_area")] = 0.0
+        diagnostics[_candidate_metric_key(stage_prefix, "short_edge_count_after")] = (
+            before_stats["short_edge_count"]
+        )
+        diagnostics[_candidate_metric_key(stage_prefix, "applied")] = False
+        diagnostics[_candidate_metric_key(stage_prefix, "segment_length_after")] = (
+            before_stats
+        )
+        diagnostics[_candidate_metric_key(stage_prefix, "area_balance_budget")] = 0.0
+        diagnostics[_candidate_metric_key(stage_prefix, "symmetric_difference_area")] = 0.0
+        diagnostics[_candidate_metric_key(stage_prefix, "reference_minus_candidate_area")] = 0.0
+        diagnostics[_candidate_metric_key(stage_prefix, "candidate_minus_reference_area")] = 0.0
+        diagnostics[_candidate_metric_key(stage_prefix, "signed_area_delta")] = 0.0
+        return polygons, source_map
+
+    reference_union = unary_union(polygons)
+    overlap_area = _coverage_overlap_area(candidate_polygons)
+    diagnostics[_candidate_metric_key(stage_prefix, "overlap_area")] = overlap_area
 
     if overlap_area > max(grid * grid, 1e-9):
         diagnostics[_candidate_metric_key(stage_prefix, "failed")] = True
@@ -6466,6 +6634,11 @@ def _regularize_low_clearance_polygons(
     diagnostics["clearance_regularization_candidate_count"] = candidate_count
     diagnostics["clearance_regularization_improved_count"] = improved_count
     diagnostics["clearance_regularization_failed_count"] = failed_count
+    if improved_count == 0:
+        diagnostics["clearance_regularization_overlap_area"] = 0.0
+        diagnostics["clearance_regularization_applied"] = False
+        return polygons, source_map
+
     if overlap_area > overlap_tolerance:
         diagnostics["clearance_regularization_applied"] = False
         return polygons, source_map
@@ -6843,6 +7016,7 @@ def condition_polygon_coverage(
             min_area=0.0,
             output_min_area=options.min_area,
             min_hole_area=options.min_hole_area,
+            cache=coverage_eval_cache,
         )
         for candidate in candidates_to_evaluate
     }
