@@ -23,6 +23,7 @@ import math
 import os
 import subprocess
 import sys
+import sysconfig
 from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any
@@ -182,6 +183,15 @@ def parse_args() -> argparse.Namespace:
             "and cleaner log output for runtime comparisons."
         ),
     )
+    parser.add_argument(
+        "--legacy-pythonpath-prefix",
+        type=Path,
+        default=None,
+        help=(
+            "Optional path prepended to PYTHONPATH for legacy runs, for example "
+            "a vendored Polyforge checkout."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -223,6 +233,25 @@ def _dyld_fallback_library_path() -> str:
     return ":".join(piece for piece in pieces if piece)
 
 
+def _python_site_packages() -> str:
+    return sysconfig.get_paths()["purelib"]
+
+
+def _isolated_python_command(
+    *,
+    script_path: Path,
+    argv: list[str],
+    pythonpath_entries: list[str],
+) -> list[str]:
+    launcher = (
+        "import runpy, sys\n"
+        f"sys.path[:0] = {pythonpath_entries!r}\n"
+        f"sys.argv = {argv!r}\n"
+        f"runpy.run_path({str(script_path)!r}, run_name='__main__')\n"
+    )
+    return [sys.executable, "-S", "-c", launcher]
+
+
 def _mode_root(output_root: Path, label: str, mode: str) -> Path:
     return output_root / label / mode
 
@@ -251,6 +280,7 @@ def run_harness(
     cases: list[int],
     delay: float,
     disable_cleaning_diagnostics: bool,
+    pythonpath_prefix: Path | None = None,
 ) -> None:
     if not cases:
         return
@@ -258,11 +288,14 @@ def run_harness(
     (repo_root / "sandbox" / "output").mkdir(parents=True, exist_ok=True)
 
     env = os.environ.copy()
-    env["PYTHONPATH"] = str(repo_root)
+    pythonpath_entries: list[str] = []
+    if pythonpath_prefix is not None:
+        pythonpath_entries.append(str(pythonpath_prefix))
+    pythonpath_entries.append(str(repo_root))
+    pythonpath_entries.append(_python_site_packages())
     env["DYLD_FALLBACK_LIBRARY_PATH"] = _dyld_fallback_library_path()
 
-    cmd = [
-        sys.executable,
+    argv = [
         str(COMPARE_SCRIPT),
         "--output-root",
         str(output_root),
@@ -279,7 +312,13 @@ def run_harness(
         *[str(case) for case in cases],
     ]
     if disable_cleaning_diagnostics and mode == "new":
-        cmd.append("--disable-cleaning-diagnostics")
+        argv.append("--disable-cleaning-diagnostics")
+
+    cmd = _isolated_python_command(
+        script_path=COMPARE_SCRIPT,
+        argv=argv,
+        pythonpath_entries=pythonpath_entries,
+    )
     subprocess.run(cmd, cwd=repo_root, env=env, check=True)
 
 
@@ -443,6 +482,7 @@ def write_combined_json(
     *,
     legacy_commit: str,
     legacy_root: Path,
+    legacy_pythonpath_prefix: Path | None,
     case_records: list[dict[str, Any]],
     aggregate_summary: dict[str, Any],
 ) -> Path:
@@ -451,6 +491,9 @@ def write_combined_json(
         "repo_root": str(REPO_ROOT),
         "legacy_root": str(legacy_root),
         "legacy_commit": legacy_commit,
+        "legacy_pythonpath_prefix": (
+            str(legacy_pythonpath_prefix) if legacy_pythonpath_prefix is not None else None
+        ),
         "new_commit": _git(["git", "rev-parse", "HEAD"], cwd=REPO_ROOT),
         "new_branch": _git(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=REPO_ROOT),
         "case_count": len(case_records),
@@ -798,6 +841,7 @@ def main() -> int:
             cases=legacy_missing,
             delay=args.delay,
             disable_cleaning_diagnostics=args.disable_cleaning_diagnostics,
+            pythonpath_prefix=args.legacy_pythonpath_prefix,
         )
         run_harness(
             repo_root=REPO_ROOT,
@@ -808,6 +852,7 @@ def main() -> int:
             cases=new_missing,
             delay=args.delay,
             disable_cleaning_diagnostics=args.disable_cleaning_diagnostics,
+            pythonpath_prefix=None,
         )
 
     case_records = build_case_records(args.output_root)
@@ -818,6 +863,7 @@ def main() -> int:
         args.output_root,
         legacy_commit=args.legacy_commit,
         legacy_root=args.legacy_root,
+        legacy_pythonpath_prefix=args.legacy_pythonpath_prefix,
         case_records=case_records,
         aggregate_summary=aggregate_summary,
     )

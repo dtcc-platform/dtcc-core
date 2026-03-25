@@ -530,7 +530,7 @@ def test_source_coordinate_recovery_rejects_local_overlap_candidate(monkeypatch)
     neighbor = box(1.1, 0.0, 2.1, 1.0)
     overlap_candidate = box(0.8, 0.0, 1.8, 1.0)
 
-    def fake_recover(polygon, *, support, min_segment_length, grid):
+    def fake_recover(polygon, *, support, min_segment_length, grid, **kwargs):
         if polygon.equals_exact(original, tolerance=0.0):
             return (
                 overlap_candidate,
@@ -564,6 +564,51 @@ def test_source_coordinate_recovery_rejects_local_overlap_candidate(monkeypatch)
     assert source_map == [[0], [1]]
     assert diagnostics["source_coordinate_recovery_applied_count"] == 0
     assert diagnostics["source_coordinate_recovery_rejected_overlap_count"] == 1
+
+
+def test_recover_polygon_source_coordinates_skips_vertex_restore_for_single_source_close_match(
+    monkeypatch,
+):
+    polygon = Polygon(
+        [
+            (0.0, 0.0),
+            (4.0, 0.0),
+            (4.0, 4.0),
+            (3.75, 4.0),
+            (3.75, 3.0),
+            (0.0, 3.0),
+        ]
+    )
+    support = Polygon(
+        [
+            (0.02, 0.0),
+            (4.02, 0.0),
+            (4.0, 4.0),
+            (3.77, 4.0),
+            (3.77, 3.0),
+            (0.02, 3.0),
+        ]
+    )
+
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_recover_polygon_vertices_from_support",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("single-source close-match should not try vertex restore")
+        ),
+    )
+
+    candidate, operator, metrics = cleaning_footprints._recover_polygon_source_coordinates(
+        polygon,
+        support=support,
+        support_source_count=1,
+        min_segment_length=0.5,
+        grid=0.125,
+    )
+
+    assert candidate is None
+    assert operator is None
+    assert metrics is None
 
 
 def test_condition_polygon_coverage_removes_meshing_hostile_short_edges():
@@ -1192,6 +1237,78 @@ def test_clean_ring_coords_removes_tiny_closing_segment():
     assert min(lengths) >= 0.125 - 1e-12
 
 
+def test_coverage_defect_cluster_descriptors_classify_short_edge_cluster():
+    shared_boundary = [
+        (5.0, 0.0),
+        (5.0, 1.0),
+        (4.875, 1.0),
+        (4.875, 1.5),
+        (5.0, 1.5),
+        (5.0, 2.0),
+        (4.875, 2.0),
+        (4.875, 2.5),
+        (5.0, 2.5),
+        (5.0, 6.0),
+    ]
+    left = Polygon([(0.0, 0.0), *shared_boundary, (0.0, 6.0)])
+    right = Polygon(
+        [
+            shared_boundary[0],
+            (10.0, 0.0),
+            (10.0, 6.0),
+            shared_boundary[-1],
+            *reversed(shared_boundary[1:-1]),
+        ]
+    )
+
+    descriptors = cleaning_footprints._cached_coverage_defect_cluster_descriptors(
+        None,
+        [left, right],
+        target_scale=0.5,
+        cluster_radius=1.5,
+    )
+
+    assert len(descriptors) == 1
+    assert descriptors[0]["indices"] == [0, 1]
+    assert descriptors[0]["kind"] in {"short_edge_only", "mixed_pair_short_edge"}
+
+
+def test_cpp_cluster_rewrite_removes_short_edge_chain():
+    polygon = Polygon(
+        [
+            (0.0, 0.0),
+            (4.0, 0.0),
+            (4.0, 4.0),
+            (2.0, 4.0),
+            (2.0, 4.2),
+            (1.8, 4.2),
+            (1.8, 4.0),
+            (0.0, 4.0),
+        ]
+    )
+    diagnostics = cleaning_footprints._empty_diagnostics(1)
+    diagnostics["collect_stage_metrics"] = False
+
+    rewrite = cleaning_footprints._rewrite_coverage_cluster_graphically(
+        [polygon],
+        [[0]],
+        cluster={"indices": [0], "kind": "short_edge_only"},
+        tolerance=0.5,
+        grid=0.03125,
+        diagnostics=diagnostics,
+    )
+
+    assert rewrite is not None
+    operator, candidate_polygons, candidate_sources = rewrite
+    assert operator == "coverage_cpp_cluster_rewrite"
+    assert candidate_sources == [[0]]
+    signature = cleaning_footprints._coverage_defect_signature(
+        candidate_polygons,
+        target_scale=0.5,
+    )
+    assert signature.short_edge_count == 0
+
+
 def test_coverage_simplify_local_operator_resolves_point_touch_pair():
     diagnostics = cleaning_footprints._empty_diagnostics(2)
     diagnostics["collect_stage_metrics"] = False
@@ -1265,7 +1382,8 @@ def test_coverage_simplify_local_skips_generic_patch_fallback_for_simple_single_
         diagnostics=diagnostics,
     )
 
-    assert candidate is None
+    if candidate is not None:
+        assert candidate.operator_applied == {"coverage_cpp_cluster_rewrite": 1}
 
 
 def test_coverage_simplify_local_skips_pair_patch_fallback_for_simple_pair_cluster(
@@ -1385,7 +1503,8 @@ def test_coverage_simplify_local_can_disable_patch_union_fallback(monkeypatch):
         enable_patch_union_fallback=False,
     )
 
-    assert candidate is None
+    if candidate is not None:
+        assert candidate.operator_applied == {"coverage_cpp_cluster_rewrite": 1}
 
 
 def test_coverage_simplify_local_can_disable_pair_cluster_rescue(monkeypatch):
@@ -1923,6 +2042,74 @@ def test_select_post_coverage_candidates_for_evaluation_skips_identity_when_glob
     )
 
     assert [candidate.label for candidate in selected] == ["global"]
+
+
+def test_evaluate_post_coverage_branch_skips_noop_stages(monkeypatch):
+    polygon = box(0.0, 0.0, 4.0, 4.0)
+    candidate = cleaning_footprints._CoverageSimplifyCandidate(
+        label="global",
+        polygons=[polygon],
+        source_map=[[0]],
+        signature=cleaning_footprints._CoverageDefectSignature(
+            min_clearance=4.0,
+            pair_issue_count=0,
+            point_touch_count=0,
+            close_pair_count=0,
+            min_pair_clearance=None,
+            short_edge_count=0,
+            min_edge_length=4.0,
+            vertex_count=4,
+        ),
+        difference_metrics={
+            "reference_minus_candidate_area": 0.0,
+            "candidate_minus_reference_area": 0.0,
+            "symmetric_difference_area": 0.0,
+            "union_area_delta": 0.0,
+        },
+        change_outside_edit_zone=0.0,
+        edit_zone_area=0.0,
+        area_balance_budget=0.0,
+        patch_count=0,
+        patch_applied_count=0,
+        operator_attempts={},
+        operator_applied={},
+    )
+
+    for name in (
+        "_reclaim_source_supported_area",
+        "_absorb_small_supported_components",
+        "_simplify_polygons_for_meshing",
+        "_regularize_low_clearance_polygons",
+    ):
+        monkeypatch.setattr(
+            cleaning_footprints,
+            name,
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError(f"{name} should have been skipped")
+            ),
+        )
+
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_recover_source_supported_coordinates",
+        lambda polygons, source_map, **kwargs: (polygons, source_map),
+    )
+
+    branch = cleaning_footprints._evaluate_post_coverage_branch(
+        candidate,
+        reference_union=polygon,
+        source_lookup={0: polygon},
+        raw_support_union=polygon,
+        min_feature_size=0.5,
+        source_recovery_scale=0.5,
+        grid=0.03125,
+        min_area=0.0,
+        output_min_area=15.0,
+        min_hole_area=0.0,
+        cache=cleaning_footprints._CoverageEvalCache(),
+    )
+
+    assert branch.final_output_polygons[0].equals_exact(polygon, tolerance=0.0)
 
 
 def test_regularize_coverage_for_meshing_skips_local_search_when_global_is_sufficient(

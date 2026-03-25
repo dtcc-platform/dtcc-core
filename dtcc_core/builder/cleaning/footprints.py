@@ -59,6 +59,11 @@ from shapely.ops import polygonize_full, unary_union
 from shapely.strtree import STRtree
 from shapely.validation import make_valid
 
+try:
+    from .. import _dtcc_builder
+except Exception:  # pragma: no cover - import fallback for partial builds
+    _dtcc_builder = None
+
 from ..logging import info
 
 
@@ -166,6 +171,14 @@ class _CoverageEvalCache:
     defect_cluster_cache: dict[
         tuple[tuple[int, ...], float, float],
         list[list[int]],
+    ] = field(default_factory=dict)
+    boundary_payload_cache: dict[
+        tuple[int, ...],
+        list[tuple[list[tuple[float, float]], list[list[tuple[float, float]]]]],
+    ] = field(default_factory=dict)
+    boundary_descriptor_cache: dict[
+        tuple[tuple[int, ...], float, float],
+        list[dict[str, Any]],
     ] = field(default_factory=dict)
     difference_metrics_cache: dict[
         tuple[tuple[int, ...], tuple[int, ...]], dict[str, float]
@@ -285,6 +298,58 @@ def _cached_coverage_defect_clusters(
     return value
 
 
+def _cached_coverage_defect_cluster_descriptors(
+    cache: _CoverageEvalCache | None,
+    polygons: Sequence[Polygon],
+    *,
+    target_scale: float,
+    cluster_radius: float,
+) -> list[dict[str, Any]]:
+    # Large coverage snapshots are where Python-side defect clustering starts to
+    # become noticeable. Use the native helper only there and keep the existing
+    # Python path for smaller inputs, where it is simpler and just as fast.
+    if len(polygons) >= 64:
+        builder_clusters = _builder_boundary_defect_clusters(
+            polygons,
+            target_scale=target_scale,
+            pair_tolerance=cluster_radius,
+            cache=cache,
+        )
+        if builder_clusters is not None:
+            return builder_clusters
+
+    clusters = _cached_coverage_defect_clusters(
+        cache,
+        polygons,
+        target_scale=target_scale,
+        cluster_radius=cluster_radius,
+    )
+    descriptors: list[dict[str, Any]] = []
+    for indices in clusters:
+        subset_polygons = [polygons[index] for index in indices]
+        signature = _cached_coverage_defect_signature(
+            cache,
+            subset_polygons,
+            target_scale=target_scale,
+        )
+        kind = "short_edge_only"
+        if signature.pair_issue_count > 0 and signature.short_edge_count > 0:
+            kind = "mixed_pair_short_edge"
+        elif signature.point_touch_count > 0 and signature.close_pair_count == 0:
+            kind = "point_touch_pair"
+        elif signature.pair_issue_count > 0:
+            kind = "close_pair"
+        descriptors.append(
+            {
+                "indices": list(indices),
+                "kind": kind,
+                "short_edge_count": signature.short_edge_count,
+                "pair_issue_count": signature.pair_issue_count,
+            }
+        )
+    return descriptors
+
+
 def _zero_difference_metrics() -> dict[str, float]:
     return {
         "reference_minus_candidate_area": 0.0,
@@ -349,6 +414,108 @@ def _cached_coverage_edit_zone(
     )
     cache.edit_zone_cache[key] = value
     return value
+
+
+def _polygon_boundary_payload(
+    polygon: Polygon,
+) -> tuple[list[tuple[float, float]], list[list[tuple[float, float]]]]:
+    return (
+        [(float(x), float(y)) for x, y, *_ in polygon.exterior.coords],
+        [
+            [(float(x), float(y)) for x, y, *_ in ring.coords]
+            for ring in polygon.interiors
+        ],
+    )
+
+
+def _cached_polygon_boundary_payload(
+    cache: _CoverageEvalCache | None,
+    polygons: Sequence[Polygon],
+) -> list[tuple[list[tuple[float, float]], list[list[tuple[float, float]]]]]:
+    if cache is None:
+        return [_polygon_boundary_payload(polygon) for polygon in polygons]
+
+    key = _polygon_sequence_key(polygons)
+    cached = cache.boundary_payload_cache.get(key)
+    if cached is not None:
+        return cached
+
+    payload = [_polygon_boundary_payload(polygon) for polygon in polygons]
+    cache.boundary_payload_cache[key] = payload
+    return payload
+
+
+def _builder_boundary_defect_clusters(
+    polygons: Sequence[Polygon],
+    *,
+    target_scale: float,
+    pair_tolerance: float,
+    cache: _CoverageEvalCache | None = None,
+) -> list[dict[str, Any]] | None:
+    if _dtcc_builder is None:
+        return None
+    if cache is not None:
+        key = (_polygon_sequence_key(polygons), float(target_scale), float(pair_tolerance))
+        cached = cache.boundary_descriptor_cache.get(key)
+        if cached is not None:
+            return cached
+    try:
+        clusters = list(
+            _dtcc_builder.boundary_defect_clusters(
+                _cached_polygon_boundary_payload(cache, polygons),
+                float(target_scale),
+                float(pair_tolerance),
+            )
+        )
+    except Exception:
+        return None
+
+    normalized_clusters: list[dict[str, Any]] = []
+    for cluster in clusters:
+        normalized_clusters.append(
+            {
+                "indices": [int(index) for index in cluster.get("indices", [])],
+                "kind": str(cluster.get("kind", "short_edge_only")),
+                "short_edge_count": int(cluster.get("short_edge_count", 0)),
+                "pair_issue_count": int(cluster.get("pair_issue_count", 0)),
+            }
+        )
+    if cache is not None:
+        cache.boundary_descriptor_cache[key] = normalized_clusters
+    return normalized_clusters
+
+
+def _builder_rewrite_defect_cluster(
+    polygons: Sequence[Polygon],
+    cluster: dict[str, Any],
+    *,
+    target_scale: float,
+    grid: float,
+    cache: _CoverageEvalCache | None = None,
+) -> tuple[list[int], list[Polygon]] | None:
+    if _dtcc_builder is None:
+        return None
+    try:
+        payload = _dtcc_builder.rewrite_defect_cluster(
+            _cached_polygon_boundary_payload(cache, polygons),
+            cluster,
+            float(target_scale),
+            float(grid),
+        )
+    except Exception:
+        return None
+    if not payload or not bool(payload.get("supported", False)):
+        return None
+
+    changed_indices = [int(index) for index in payload.get("changed_indices", [])]
+    polygon_payloads = list(payload.get("polygons", []))
+    if not changed_indices or len(changed_indices) != len(polygon_payloads):
+        return None
+
+    rewritten_polygons: list[Polygon] = []
+    for shell, holes in polygon_payloads:
+        rewritten_polygons.append(Polygon(shell, holes))
+    return changed_indices, rewritten_polygons
 
 
 def _validate_options(options: ConditioningOptions) -> None:
@@ -2312,6 +2479,18 @@ def _select_post_coverage_candidates_for_evaluation(
         selected.append(best_candidate)
         if (
             len(ranked_candidates) > 1
+            and ranked_candidates[1] is not best_candidate
+            and (
+                ranked_candidates[1].signature.pair_issue_count
+                <= best_candidate.signature.pair_issue_count + 1
+            )
+            and (
+                ranked_candidates[1].signature.short_edge_count
+                <= best_candidate.signature.short_edge_count + 4
+            )
+            and ranked_candidates[1].difference_metrics["reference_minus_candidate_area"]
+            <= best_candidate.difference_metrics["reference_minus_candidate_area"]
+            + max(target_scale * target_scale, 16.0 * grid * grid, 1e-9)
             and _should_evaluate_additional_post_coverage_candidate(
                 best_candidate,
                 ranked_candidates[1],
@@ -2797,8 +2976,9 @@ def _recover_polygon_source_coordinates(
     polygon: Polygon,
     *,
     support: BaseGeometry,
-    support_vertices: Sequence[tuple[float, float]] | None,
-    support_vertex_index: _SupportVertexIndex | None,
+    support_vertices: Sequence[tuple[float, float]] | None = None,
+    support_vertex_index: _SupportVertexIndex | None = None,
+    support_source_count: int = 1,
     min_segment_length: float,
     grid: float,
 ) -> tuple[Polygon | None, str | None, dict[str, float] | None]:
@@ -2853,6 +3033,9 @@ def _recover_polygon_source_coordinates(
             best_exact = (score, part, _difference_area_metrics(part, part))
     if best_exact is not None:
         return best_exact[1], "exact_source_polygon", best_exact[2]
+
+    if support_source_count <= 1 and exact_parts:
+        return None, None, None
 
     if support_vertices is None:
         support_vertices = _boundary_vertices(support)
@@ -3477,6 +3660,7 @@ def _recover_source_supported_coordinates(
             support=support,
             support_vertices=support_vertices,
             support_vertex_index=support_vertex_index,
+            support_source_count=len(indices),
             min_segment_length=min_segment_length,
             grid=grid,
         )
@@ -4958,6 +5142,55 @@ def _simplify_coverage_short_edge_graphically(
     )
 
 
+def _rewrite_coverage_cluster_graphically(
+    subset_polygons: Sequence[Polygon],
+    subset_sources: Sequence[Sequence[int]],
+    *,
+    cluster: dict[str, Any],
+    tolerance: float,
+    grid: float,
+    diagnostics: dict[str, Any],
+    cache: _CoverageEvalCache | None = None,
+) -> tuple[str, list[Polygon], list[list[int]]] | None:
+    rewrite = _builder_rewrite_defect_cluster(
+        subset_polygons,
+        cluster,
+        target_scale=tolerance,
+        grid=grid,
+        cache=cache,
+    )
+    if rewrite is None:
+        return None
+
+    changed_indices, rewritten_polygons = rewrite
+    if not changed_indices or len(changed_indices) != len(rewritten_polygons):
+        return None
+
+    candidate_polygons: list[Polygon] = []
+    candidate_sources: list[list[int]] = []
+    changed_index_set = set(changed_indices)
+    rewritten_iter = iter(rewritten_polygons)
+    for index, (polygon, indices) in enumerate(zip(subset_polygons, subset_sources)):
+        if index in changed_index_set:
+            rewritten = next(rewritten_iter)
+            normalized = _normalize_single_polygon_candidate(
+                rewritten,
+                grid=grid,
+                min_area=0.0,
+                min_hole_area=0.0,
+                diagnostics=diagnostics,
+            )
+            if normalized is None:
+                return None
+            candidate_polygons.append(normalized)
+            candidate_sources.append(list(indices))
+        else:
+            candidate_polygons.append(polygon)
+            candidate_sources.append(list(indices))
+
+    return "coverage_cpp_cluster_rewrite", candidate_polygons, candidate_sources
+
+
 def _pair_issue_candidates(
     polygons: Sequence[Polygon],
     *,
@@ -5441,7 +5674,7 @@ def _simplify_coverage_locally(
             return fast_candidate
 
     while True:
-        defect_clusters = _cached_coverage_defect_clusters(
+        defect_clusters = _cached_coverage_defect_cluster_descriptors(
             cache,
             current_polygons,
             target_scale=tolerance,
@@ -5452,7 +5685,8 @@ def _simplify_coverage_locally(
             break
 
         accepted_patch = False
-        for affected_indices in defect_clusters:
+        for cluster in defect_clusters:
+            affected_indices = cluster["indices"]
             subset_polygons = [current_polygons[index] for index in affected_indices]
             subset_sources = [current_sources[index] for index in affected_indices]
             reference_subset_signature = _cached_coverage_defect_signature(
@@ -5476,6 +5710,7 @@ def _simplify_coverage_locally(
                 join_style=BufferJoinStyle.mitre,
                 mitre_limit=1000.0,
             )
+            cluster_kind = str(cluster.get("kind", "short_edge_only"))
             simple_nonpair_cluster = (
                 reference_subset_signature.pair_issue_count == 0
                 and len(subset_polygons) == 1
@@ -5544,7 +5779,7 @@ def _simplify_coverage_locally(
             direct_pair_cluster = (
                 enable_pair_cluster_rescue
                 and reference_subset_signature.pair_issue_count > 0
-                and len(subset_polygons) <= 2
+                and len(subset_polygons) <= 3
                 and reference_subset_signature.short_edge_count <= 4
                 and not light_close_pair_cluster
             )
@@ -5628,6 +5863,25 @@ def _simplify_coverage_locally(
                         candidate_signature,
                         difference_metrics,
                         dict(applied_counts or {operator: 1}),
+                    )
+
+            if cluster_kind == "short_edge_only":
+                direct_graph_rewrite = _rewrite_coverage_cluster_graphically(
+                    subset_polygons,
+                    subset_sources,
+                    cluster=cluster,
+                    tolerance=tolerance,
+                    grid=grid,
+                    diagnostics=diagnostics,
+                    cache=cache,
+                )
+                if direct_graph_rewrite is not None:
+                    operator, candidate_polygons, candidate_sources = direct_graph_rewrite
+                    operator_attempts[operator] = operator_attempts.get(operator, 0) + 1
+                    consider_candidate(
+                        candidate_polygons,
+                        candidate_sources,
+                        operator=operator,
                     )
 
             if direct_pair_cluster:
@@ -6026,52 +6280,99 @@ def _evaluate_post_coverage_branch(
 ) -> _PostCoverageBranch:
     diagnostics = _empty_diagnostics(len(coverage_candidate.polygons))
     diagnostics["collect_stage_metrics"] = False
-
-    source_reclaimed_polygons, source_reclaimed_sources = _reclaim_source_supported_area(
-        coverage_candidate.polygons,
-        coverage_candidate.source_map,
-        source_lookup=source_lookup,
-        min_segment_length=min_feature_size,
-        grid=grid,
-        min_area=min_area,
-        min_hole_area=min_hole_area,
-        diagnostics=diagnostics,
+    reclaim_area_threshold = max(grid * grid, 0.25 * min_feature_size * min_feature_size)
+    should_reclaim = (
+        coverage_candidate.difference_metrics["reference_minus_candidate_area"]
+        > reclaim_area_threshold
     )
-    small_component_absorbed_polygons, small_component_absorbed_sources = (
-        _absorb_small_supported_components(
-            source_reclaimed_polygons,
-            source_reclaimed_sources,
+    diagnostics["source_reclaim_skipped"] = not should_reclaim
+    if should_reclaim:
+        source_reclaimed_polygons, source_reclaimed_sources = _reclaim_source_supported_area(
+            coverage_candidate.polygons,
+            coverage_candidate.source_map,
             source_lookup=source_lookup,
-            raw_support_union=raw_support_union,
-            min_area=output_min_area,
-            min_segment_length=min_feature_size,
-            grid=grid,
-            min_hole_area=min_hole_area,
-            diagnostics=diagnostics,
-        )
-    )
-    boundary_regularized_polygons, boundary_regularized_sources = (
-        _simplify_polygons_for_meshing(
-            small_component_absorbed_polygons,
-            small_component_absorbed_sources,
             min_segment_length=min_feature_size,
             grid=grid,
             min_area=min_area,
             min_hole_area=min_hole_area,
             diagnostics=diagnostics,
         )
+    else:
+        source_reclaimed_polygons = coverage_candidate.polygons
+        source_reclaimed_sources = coverage_candidate.source_map
+
+    should_absorb_small_components = output_min_area > 0 and any(
+        polygon.area + 1e-12 < output_min_area for polygon in source_reclaimed_polygons
     )
-    clearance_regularized_polygons, clearance_regularized_sources = (
-        _regularize_low_clearance_polygons(
-            boundary_regularized_polygons,
-            boundary_regularized_sources,
-            min_clearance=min_feature_size,
-            grid=grid,
-            min_area=min_area,
-            min_hole_area=min_hole_area,
-            diagnostics=diagnostics,
+    diagnostics["small_component_absorb_skipped"] = not should_absorb_small_components
+    if should_absorb_small_components:
+        small_component_absorbed_polygons, small_component_absorbed_sources = (
+            _absorb_small_supported_components(
+                source_reclaimed_polygons,
+                source_reclaimed_sources,
+                source_lookup=source_lookup,
+                raw_support_union=raw_support_union,
+                min_area=output_min_area,
+                min_segment_length=min_feature_size,
+                grid=grid,
+                min_hole_area=min_hole_area,
+                diagnostics=diagnostics,
+            )
         )
+    else:
+        small_component_absorbed_polygons = source_reclaimed_polygons
+        small_component_absorbed_sources = source_reclaimed_sources
+
+    post_absorb_signature = _cached_coverage_defect_signature(
+        cache,
+        small_component_absorbed_polygons,
+        target_scale=min_feature_size,
     )
+    should_simplify_for_meshing = post_absorb_signature.short_edge_count > 0
+    diagnostics["polygon_simplify_skipped"] = not should_simplify_for_meshing
+    if should_simplify_for_meshing:
+        boundary_regularized_polygons, boundary_regularized_sources = (
+            _simplify_polygons_for_meshing(
+                small_component_absorbed_polygons,
+                small_component_absorbed_sources,
+                min_segment_length=min_feature_size,
+                grid=grid,
+                min_area=min_area,
+                min_hole_area=min_hole_area,
+                diagnostics=diagnostics,
+            )
+        )
+    else:
+        boundary_regularized_polygons = small_component_absorbed_polygons
+        boundary_regularized_sources = small_component_absorbed_sources
+
+    post_boundary_signature = _cached_coverage_defect_signature(
+        cache,
+        boundary_regularized_polygons,
+        target_scale=min_feature_size,
+    )
+    clearance_deficit = max(
+        min_feature_size - (post_boundary_signature.min_clearance or 0.0),
+        0.0,
+    )
+    should_regularize_clearance = clearance_deficit > max(grid, 1e-9)
+    diagnostics["clearance_regularization_skipped"] = not should_regularize_clearance
+    if should_regularize_clearance:
+        clearance_regularized_polygons, clearance_regularized_sources = (
+            _regularize_low_clearance_polygons(
+                boundary_regularized_polygons,
+                boundary_regularized_sources,
+                min_clearance=min_feature_size,
+                grid=grid,
+                min_area=min_area,
+                min_hole_area=min_hole_area,
+                diagnostics=diagnostics,
+            )
+        )
+    else:
+        clearance_regularized_polygons = boundary_regularized_polygons
+        clearance_regularized_sources = boundary_regularized_sources
+
     source_coordinate_recovered_polygons, source_coordinate_recovered_sources = (
         _recover_source_supported_coordinates(
             clearance_regularized_polygons,
