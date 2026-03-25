@@ -221,6 +221,8 @@ def ensure_legacy_worktree(legacy_root: Path, legacy_commit: str) -> None:
 
 def _dyld_fallback_library_path() -> str:
     conda_prefix = os.environ.get("CONDA_PREFIX", "")
+    if not conda_prefix:
+        conda_prefix = str(Path(sys.executable).resolve().parent.parent)
     pieces = []
     if conda_prefix:
         pieces.append(str(Path(conda_prefix) / "lib"))
