@@ -34,17 +34,23 @@ for idx, test_poly in enumerate(test_polygons):
     pf_fix_clearance = pf_fix.minimum_clearance
 
     dtcc_fix = condition_polygon_coverage([test_poly], options=opts)
+    if len(dtcc_fix.polygons) > 1:
+        print(f"WARNING: dtcc fix produced multiple polygons for test case {idx}")
     dtcc_fix_polygon = dtcc_fix.polygons[0]
-    dtcc_fix_area = dtcc_fix_polygon.area
-    dtcc_fix_clearance = dtcc_fix_polygon.minimum_clearance
+    dtcc_fix_area = sum([p.area for p in dtcc_fix.polygons])
+    dtcc_fix_clearance = min([p.minimum_clearance for p in dtcc_fix.polygons])
 
     result = {
+        "initial_wkt": test_poly.wkt,
         "initial_area": initial_area,
         "initial_clearance": initial_clearance,
         "pf_fix_area": pf_fix_area,
         "pf_fix_clearance": pf_fix_clearance,
+        "num_dtcc_fixes": len(dtcc_fix.polygons),
         "dtcc_fix_area": dtcc_fix_area,
         "dtcc_fix_clearance": dtcc_fix_clearance,
+        "polyforger_wkt": pf_fix.wkt,
+        "dtcc_wkt": dtcc_fix_polygon.wkt,
     }
     results.append(result)
 
