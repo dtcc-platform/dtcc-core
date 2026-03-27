@@ -52,6 +52,8 @@ from .geometry_builders.meshes import (
     build_city_volume_mesh,
 )
 
+from .meshing.boundary_conformance import conform_boundary
+
 __all__ = [
     "extract_roof_points",
     "compute_building_heights",
@@ -74,4 +76,5 @@ __all__ = [
     "trees_from_pointcloud",
     "tree_crown_polygons",
     "build_city_volume_mesh",
+    "conform_boundary",
 ]

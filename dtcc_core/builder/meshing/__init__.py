@@ -14,3 +14,4 @@ from .extrude_surface_mesh import (
     extrude_surface_to_solid,
     create_printable_surface_mesh,
 )
+from .boundary_conformance import conform_boundary
