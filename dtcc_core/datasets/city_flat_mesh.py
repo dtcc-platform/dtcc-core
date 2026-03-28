@@ -1,5 +1,5 @@
 import dtcc_core
-from dtcc_core.model import City, Bounds, Mesh
+from dtcc_core.model import City, Bounds, Mesh, GeometryType
 from typing import Literal, Optional
 from pydantic import Field
 
@@ -123,6 +123,7 @@ class CityFlatMeshDataset(DatasetDescriptor):
             with progress.phase("build_mesh", "Building city flat mesh..."):
                 flat_mesh = dtcc_core.builder.build_city_flat_mesh(
                     city,
+                    lod=GeometryType.LOD0,
                     max_mesh_size=args.max_mesh_size,
                     min_mesh_angle=args.min_mesh_angle,
                     min_building_detail=args.min_building_detail,
