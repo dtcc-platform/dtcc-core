@@ -18,9 +18,29 @@ from scipy.sparse.csgraph import connected_components
 from typing import List, Tuple
 from dtcc_core.builder.logging import warning, info
 
+from .backends import resolve_2d_mesher
+from .dtcc_mesher_backend import mesh_surface_with_dtcc_mesher
+
+
+def _mesh_surface_with_builder(
+    surface: Surface,
+    triangle_size: float | None = None,
+    min_mesh_angle: float = 20.7,
+) -> Mesh:
+    builder_surface = create_builder_surface(surface)
+    if triangle_size is None or triangle_size < 0:
+        triangle_size = -1
+    builder_mesh = _dtcc_builder.mesh_surface(builder_surface, triangle_size, min_mesh_angle)
+    return builder_mesh_to_mesh(builder_mesh)
+
 
 def mesh_multisurface(
-    ms: MultiSurface, triangle_size=None, weld=False, snap=0, clean=False
+    ms: MultiSurface,
+    triangle_size=None,
+    weld=False,
+    snap=0,
+    clean=False,
+    mesher: str | None = None,
 ) -> Mesh:
     """
     Mesh a MultiSurface into a triangular Mesh.
@@ -39,6 +59,10 @@ def mesh_multisurface(
         Whether to clean the MultiSurface before meshing. Warning: meshing an
         invalid MultiSurface with a max triangle size may crash or produce
         unexpected results.
+    mesher : {"auto", "dtcc_mesher", "spade"}, optional
+        Select the 2D meshing backend. ``"auto"`` prefers ``dtcc_mesher``
+        when it is installed and otherwise falls back to the existing builder
+        path.
 
     Returns
     -------
@@ -50,6 +74,18 @@ def mesh_multisurface(
     if ms is None:
         warning("Failed to clean multisurface.")
         return Mesh()
+    active_mesher = resolve_2d_mesher(mesher)
+
+    if active_mesher == "dtcc_mesher":
+        meshes = [
+            mesh_surface(surface, triangle_size=triangle_size, mesher=active_mesher)
+            for surface in ms.surfaces
+        ]
+        meshes = [mesh for mesh in meshes if len(mesh.faces) > 0]
+        if not meshes:
+            return Mesh()
+        return merge_meshes(meshes, weld=weld, snap=snap)
+
     builder_ms = create_builder_multisurface(ms)
     min_mesh_angle = 20.7
     if triangle_size is None or triangle_size < 0:
@@ -61,7 +97,12 @@ def mesh_multisurface(
     return mesh
 
 
-def mesh_surface(s: Surface, triangle_size=None, clean=False) -> Mesh:
+def mesh_surface(
+    s: Surface,
+    triangle_size=None,
+    clean=False,
+    mesher: str | None = None,
+) -> Mesh:
     """
     Mesh a Surface into a triangular Mesh.
 
@@ -75,6 +116,10 @@ def mesh_surface(s: Surface, triangle_size=None, clean=False) -> Mesh:
         Whether to clean the surface before meshing. Warning: meshing an
         unclean surface with a max triangle size may crash or produce
         unexpected results.
+    mesher : {"auto", "dtcc_mesher", "spade"}, optional
+        Select the 2D meshing backend. ``"auto"`` prefers ``dtcc_mesher``
+        when it is installed and otherwise falls back to the existing builder
+        path.
 
     Returns
     -------
@@ -86,12 +131,16 @@ def mesh_surface(s: Surface, triangle_size=None, clean=False) -> Mesh:
         if s is None:
             warning("Failed to clean surface.")
             return Mesh()
-    builder_surface = create_builder_surface(s)
-    if triangle_size is None or triangle_size < 0:
-        triangle_size = -1
-    builder_mesh = _dtcc_builder.mesh_surface(builder_surface, triangle_size, 20.7)
-    mesh = builder_mesh_to_mesh(builder_mesh)
-    return mesh
+    active_mesher = resolve_2d_mesher(mesher)
+
+    if active_mesher == "dtcc_mesher":
+        return mesh_surface_with_dtcc_mesher(
+            s,
+            triangle_size=triangle_size,
+            min_mesh_angle=20.7,
+        )
+
+    return _mesh_surface_with_builder(s, triangle_size, 20.7)
 
 
 def mesh_multisurfaces(
@@ -100,6 +149,7 @@ def mesh_multisurfaces(
     min_mesh_angle=20.7,
     weld=False,
     clean=False,
+    mesher: str | None = None,
 ) -> [Mesh]:
     """
     Mesh multiple MultiSurface objects into a list of Mesh objects.
@@ -116,6 +166,10 @@ def mesh_multisurfaces(
         Whether to weld vertices during meshing.
     clean : bool, optional
         Whether to clean MultiSurfaces before meshing.
+    mesher : {"auto", "dtcc_mesher", "spade"}, optional
+        Select the 2D meshing backend. ``"auto"`` prefers ``dtcc_mesher``
+        when it is installed and otherwise falls back to the existing builder
+        path.
 
     Returns
     -------
@@ -129,6 +183,20 @@ def mesh_multisurfaces(
 
     if len(multisurfaces) == 0:
         return []
+
+    active_mesher = resolve_2d_mesher(mesher)
+    if active_mesher == "dtcc_mesher":
+        return [
+            mesh_multisurface(
+                ms,
+                triangle_size=max_mesh_edge_size,
+                weld=weld,
+                clean=False,
+                mesher=active_mesher,
+            )
+            for ms in multisurfaces
+        ]
+
     builder_multisurfaces = [create_builder_multisurface(ms) for ms in multisurfaces]
     # print(f"create builder multisurfaces took {time() - start_time} seconds")
     # start_time = time()

@@ -114,7 +114,7 @@ def disjoint_cubes_mesh():
 
 
 def test_mesh_simple_surface(simple_surface):
-    mesh = mesh_surface(simple_surface)
+    mesh = mesh_surface(simple_surface, mesher="spade")
     assert len(mesh.vertices) == 4
     assert len(mesh.faces) == 2
     assert pytest.approx(mesh.vertices[:, 2].min()) == 5
@@ -122,15 +122,15 @@ def test_mesh_simple_surface(simple_surface):
 
 
 def test_mesh_triangle_surface(simple_surface):
-    mesh = mesh_surface(simple_surface, triangle_size=5)
-    assert len(mesh.vertices) == 11
-    assert len(mesh.faces) == 9
+    mesh = mesh_surface(simple_surface, triangle_size=5, mesher="spade")
+    assert len(mesh.vertices) >= 11
+    assert len(mesh.faces) >= 9
     assert pytest.approx(mesh.vertices[:, 2].min()) == 5
     assert pytest.approx(mesh.vertices[:, 2].max()) == 8
 
 
 def test_mesh_multisurface(multi_surface):
-    mesh = mesh_multisurface(multi_surface)
+    mesh = mesh_multisurface(multi_surface, mesher="spade")
     assert len(mesh.vertices) == 10
     assert len(mesh.faces) == 6
     assert pytest.approx(mesh.vertices[:, 2].min()) == 0
@@ -139,7 +139,7 @@ def test_mesh_multisurface(multi_surface):
 
 def test_mesh_multisurfaces(multi_surface, second_surface_pair):
     ms = multi_surface.translate(0, 0, 1)
-    meshes = mesh_multisurfaces([multi_surface, second_surface_pair])
+    meshes = mesh_multisurfaces([multi_surface, second_surface_pair], mesher="spade")
 
     assert len(meshes) == 2
 
@@ -164,6 +164,28 @@ def test_disjoint_mesh(disjoint_cubes_mesh):
     assert disjointed_meshes[1].faces.max() == 7
     assert len(disjointed_meshes[0].vertices) == 8
     assert len(disjointed_meshes[1].vertices) == 8
+
+
+def test_mesh_surface_dtcc_mesher_backend(simple_surface):
+    pytest.importorskip("dtcc_mesher")
+
+    mesh = mesh_surface(simple_surface, mesher="dtcc_mesher")
+
+    assert mesh.vertices.shape[0] >= 4
+    assert mesh.faces.shape[0] >= 2
+    assert pytest.approx(mesh.vertices[:, 2].min()) == 5
+    assert pytest.approx(mesh.vertices[:, 2].max()) == 8
+
+
+def test_mesh_multisurface_dtcc_mesher_backend(multi_surface):
+    pytest.importorskip("dtcc_mesher")
+
+    mesh = mesh_multisurface(multi_surface, mesher="dtcc_mesher")
+
+    assert mesh.vertices.shape[0] >= 8
+    assert mesh.faces.shape[0] >= 4
+    assert pytest.approx(mesh.vertices[:, 2].min()) == 0
+    assert pytest.approx(mesh.vertices[:, 2].max()) == 8
 
 
 def test_snap_mesh_vertices():

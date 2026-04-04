@@ -99,8 +99,10 @@ install(TARGETS ${BINDINGS}
   RUNTIME DESTINATION dtcc_core/builder
 )
 
-install(TARGETS ${BINDINGS}
-  LIBRARY DESTINATION ${CMAKE_SOURCE_DIR}/dtcc_core/builder
-  ARCHIVE DESTINATION ${CMAKE_SOURCE_DIR}/dtcc_core/builder
-  RUNTIME DESTINATION ${CMAKE_SOURCE_DIR}/dtcc_core/builder
-)
+if(NOT SKBUILD)
+  install(TARGETS ${BINDINGS}
+    LIBRARY DESTINATION ${CMAKE_SOURCE_DIR}/dtcc_core/builder
+    ARCHIVE DESTINATION ${CMAKE_SOURCE_DIR}/dtcc_core/builder
+    RUNTIME DESTINATION ${CMAKE_SOURCE_DIR}/dtcc_core/builder
+  )
+endif()

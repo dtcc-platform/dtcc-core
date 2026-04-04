@@ -19,7 +19,14 @@ from .. import _dtcc_builder
 
 
 @register_model_method
-def mesh(ms: MultiSurface, triangle_size=None, weld=False, snap=0, clean=False) -> Mesh:
+def mesh(
+    ms: MultiSurface,
+    triangle_size=None,
+    weld=False,
+    snap=0,
+    clean=False,
+    mesher: str | None = None,
+) -> Mesh:
     """
     Mesh a MultiSurface into a triangular Mesh.
 
@@ -42,7 +49,7 @@ def mesh(ms: MultiSurface, triangle_size=None, weld=False, snap=0, clean=False) 
         Triangular mesh representation of the MultiSurface.
     """
 
-    return mesh_multisurface(ms, triangle_size, weld, snap, clean)
+    return mesh_multisurface(ms, triangle_size, weld, snap, clean, mesher=mesher)
 
 
 @register_model_method

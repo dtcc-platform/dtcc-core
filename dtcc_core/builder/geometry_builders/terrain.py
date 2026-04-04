@@ -21,6 +21,7 @@ from .. import _dtcc_builder
 from typing import List, Union
 from dtcc_core.common.progress import report_progress
 from ..logging import info
+from ..raster.interpolation import fill_holes as fill_raster_holes
 
 
 def build_terrain_surface_mesh(
@@ -237,7 +238,7 @@ def build_terrain_raster(
 
     if _report_progress:
         report_progress(percent=90, message="Filling holes in raster...")
-    dem_raster = dem_raster.fill_holes()
+    dem_raster = fill_raster_holes(dem_raster)
 
     if _report_progress:
         report_progress(percent=100, message="Raster complete")

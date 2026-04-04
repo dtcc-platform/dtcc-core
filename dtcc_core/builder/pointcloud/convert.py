@@ -4,6 +4,7 @@ import dtcc_core.model as model
 import rasterio.transform
 from ...model import PointCloud, Bounds
 from ..register import register_model_method
+from ..raster.interpolation import fill_holes as fill_raster_holes
 
 
 def rasterize(
@@ -66,5 +67,5 @@ def rasterize(
         bounds.west, bounds.north, cell_size, cell_size
     )
     if fill_holes:
-        dem_raster = dem_raster.fill_holes()
+        dem_raster = fill_raster_holes(dem_raster)
     return dem_raster

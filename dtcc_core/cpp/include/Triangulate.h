@@ -21,7 +21,9 @@ extern "C"
 #endif
 #include <earcut.hpp>
 
+#ifdef DTCC_HAVE_SPADE
 #include <spade_wrapper.h>
+#endif
 
 #include "Eigen/Eigen"
 #include "Eigen/Geometry"
@@ -406,6 +408,7 @@ public:
   }
 #endif
 
+#ifdef DTCC_HAVE_SPADE
   static void call_spade(Mesh &mesh,
                          const std::vector<Vector2D> &boundary,
                          const std::vector<std::vector<Vector2D>> &holes,
@@ -634,6 +637,29 @@ public:
       }
     }
   }
+#else
+  static void call_spade(Mesh &,
+                         const std::vector<Vector2D> &,
+                         const std::vector<std::vector<Vector2D>> &,
+                         const std::vector<std::vector<Vector2D>> &,
+                         double,
+                         double,
+                         bool = false)
+  {
+    throw std::runtime_error(
+        "SPADE support not built; install dtcc-pyspade-native and reinstall dtcc-core.");
+  }
+
+  static void call_spade(Mesh &,
+                         const Surface &,
+                         double,
+                         double,
+                         bool = true)
+  {
+    throw std::runtime_error(
+        "SPADE support not built; install dtcc-pyspade-native and reinstall dtcc-core.");
+  }
+#endif
 
 private:
 

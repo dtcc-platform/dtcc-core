@@ -1,7 +1,11 @@
 from typing import Any, Dict, Optional, List, Sequence
 import numpy as np
+from shapely import BufferJoinStyle
+from shapely.errors import GEOSException
+from shapely.geometry import GeometryCollection, MultiPolygon, Polygon
+from shapely.geometry.polygon import orient
+from shapely.ops import unary_union
 
-import dtcc_core.io
 from ...model import (
     Mesh,
     VolumeMesh,
@@ -32,9 +36,9 @@ from ..cleaning import (
     condition_polygon_coverage,
 )
 
-from ..meshing.convert import mesh_to_raster
-
 from ..logging import debug, info, warning, error
+from ..meshing.backends import resolve_2d_mesher
+from ..meshing.dtcc_mesher_backend import build_city_flat_mesh_with_dtcc_mesher
 
 from ..meshing.tetgen import (
     build_volume_mesh as tetgen_build_volume_mesh,
@@ -43,6 +47,58 @@ from ..meshing.tetgen import (
 )
 
 from dtcc_core.common.progress import report_progress
+
+
+def _missing_build_city_flat_mesh(*_args, **_kwargs):
+    raise RuntimeError(
+        "This _dtcc_builder build does not expose build_city_flat_mesh."
+    )
+
+
+if not hasattr(_dtcc_builder, "build_city_flat_mesh"):
+    _dtcc_builder.build_city_flat_mesh = _missing_build_city_flat_mesh
+
+
+def _call_builder_city_surface_mesh(
+    building_surfaces,
+    hole_surfaces,
+    building_lod_switches,
+    building_resolution,
+    builder_dem,
+    max_mesh_size,
+    min_mesh_angle,
+    smoothing,
+    merge_meshes,
+    sort_triangles,
+):
+    try:
+        return _dtcc_builder.build_city_surface_mesh(
+            building_surfaces,
+            hole_surfaces,
+            building_lod_switches,
+            building_resolution,
+            builder_dem,
+            max_mesh_size,
+            min_mesh_angle,
+            smoothing,
+            merge_meshes,
+            sort_triangles,
+        )
+    except TypeError:
+        warning(
+            "Falling back to legacy _dtcc_builder.build_city_surface_mesh "
+            "signature without hole/LiD directives."
+        )
+        return _dtcc_builder.build_city_surface_mesh(
+            building_surfaces,
+            building_resolution,
+            builder_dem,
+            max_mesh_size,
+            min_mesh_angle,
+            smoothing,
+            merge_meshes,
+            sort_triangles,
+        )
 
 
 def _normalize_lod_values(
@@ -112,6 +168,130 @@ def _area_weighted_value(
     return float(np.average(weighted_values, weights=weights))
 
 
+def _iter_polygons(geometry) -> list[Polygon]:
+    if geometry.is_empty:
+        return []
+    if isinstance(geometry, Polygon):
+        return [geometry]
+    if isinstance(geometry, MultiPolygon):
+        return [polygon for polygon in geometry.geoms if not polygon.is_empty]
+    if isinstance(geometry, GeometryCollection):
+        polygons: list[Polygon] = []
+        for item in geometry.geoms:
+            polygons.extend(_iter_polygons(item))
+        return polygons
+    return []
+
+
+def _polygon_has_ring_boundary_contacts(
+    polygon: Polygon,
+    *,
+    tolerance: float = 1e-12,
+) -> bool:
+    rings = [polygon.exterior, *polygon.interiors]
+    if len(rings) < 2:
+        return False
+
+    for ring_index, ring in enumerate(rings):
+        for other in rings[ring_index + 1 :]:
+            try:
+                boundary_intersection = ring.intersection(other)
+            except GEOSException:
+                return True
+            if boundary_intersection.is_empty:
+                continue
+            try:
+                if boundary_intersection.length > tolerance:
+                    return True
+            except (AttributeError, TypeError):
+                return True
+            return True
+
+    return False
+
+
+def _normalize_mesher_ready_polygon(
+    polygon: Polygon,
+    *,
+    declared_scale: float,
+    diagnostics: dict[str, Any] | None = None,
+) -> list[Polygon]:
+    polygon = orient(polygon, sign=1.0)
+    if polygon.is_empty or not polygon.interiors:
+        return [polygon]
+
+    if not _polygon_has_ring_boundary_contacts(polygon):
+        return [polygon]
+
+    shell = Polygon(np.asarray(polygon.exterior.coords, dtype=np.float64))
+    hole_polygons = [
+        Polygon(np.asarray(ring.coords, dtype=np.float64))
+        for ring in polygon.interiors
+    ]
+    max_extent = max(
+        polygon.bounds[2] - polygon.bounds[0],
+        polygon.bounds[3] - polygon.bounds[1],
+        1.0,
+    )
+    distance = max(
+        float(declared_scale) * 5e-5,
+        float(max_extent) * 5e-7,
+        1e-9,
+    )
+
+    for _attempt in range(8):
+        expanded_holes = unary_union(
+            [
+                hole.buffer(
+                    distance,
+                    quad_segs=1,
+                    join_style=BufferJoinStyle.mitre,
+                )
+                for hole in hole_polygons
+            ]
+        )
+        candidate_geometry = shell.difference(expanded_holes)
+        candidate_polygons = [
+            orient(candidate, sign=1.0)
+            for candidate in _iter_polygons(candidate_geometry)
+        ]
+        if candidate_polygons and all(
+            not _polygon_has_ring_boundary_contacts(
+                candidate,
+                tolerance=max(distance * 0.25, 1e-12),
+            )
+            for candidate in candidate_polygons
+        ):
+            if diagnostics is not None:
+                diagnostics["mesher_regularized_polygon_count"] = (
+                    diagnostics.get("mesher_regularized_polygon_count", 0) + 1
+                )
+                diagnostics["mesher_regularized_component_count"] = (
+                    diagnostics.get("mesher_regularized_component_count", 0)
+                    + len(candidate_polygons)
+                )
+                diagnostics["mesher_regularization_area_delta_total"] = (
+                    diagnostics.get("mesher_regularization_area_delta_total", 0.0)
+                    + float(sum(part.area for part in candidate_polygons) - polygon.area)
+                )
+                diagnostics["mesher_regularization_max_distance"] = max(
+                    float(diagnostics.get("mesher_regularization_max_distance", 0.0)),
+                    float(distance),
+                )
+            return candidate_polygons
+        distance *= 2.0
+
+    warning(
+        "Unable to fully regularize a conditioned footprint for meshing; "
+        "keeping the original polygon."
+    )
+    if diagnostics is not None:
+        diagnostics["mesher_regularization_failed_count"] = (
+            diagnostics.get("mesher_regularization_failed_count", 0) + 1
+        )
+    return [polygon]
+
+
 def _condition_meshing_footprints(
     buildings: list[Building],
     *,
@@ -171,7 +351,13 @@ def _condition_meshing_footprints(
         )
 
     conditioned_surfaces: list[Surface] = []
+    conditioned_source_map: list[list[int]] = []
     subdomain_resolution: list[float] = []
+    mesher_scale = max(
+        float(min_building_detail),
+        float(result.diagnostics.get("output_grid", 0.0) or 0.0),
+        1e-9,
+    )
 
     for polygon, source_indices in zip(result.polygons, result.source_map):
         roof_z = _area_weighted_value(
@@ -187,21 +373,29 @@ def _condition_meshing_footprints(
             default=max_mesh_size,
         )
 
-        surface = Surface()
-        surface.from_polygon(polygon, roof_z)
-        conditioned_surfaces.append(surface)
-        subdomain_resolution.append(min(height, max_mesh_size))
+        normalized_polygons = _normalize_mesher_ready_polygon(
+            polygon,
+            declared_scale=mesher_scale,
+            diagnostics=result.diagnostics,
+        )
+        for normalized_polygon in normalized_polygons:
+            surface = Surface()
+            surface.from_polygon(normalized_polygon, roof_z)
+            conditioned_surfaces.append(surface)
+            conditioned_source_map.append(sorted(set(source_indices)))
+            subdomain_resolution.append(min(height, max_mesh_size))
 
     if cleaning_diagnostics:
         info(
             "Meshing footprint conditioning complete: "
             f"{len(buildings)} buildings -> {len(conditioned_surfaces)} footprints, "
             f"groups={result.diagnostics.get('merged_group_count', 0)}, "
-            f"output_grid={result.diagnostics.get('output_grid')} m."
+            f"output_grid={result.diagnostics.get('output_grid')} m, "
+            f"mesher_regularized={result.diagnostics.get('mesher_regularized_polygon_count', 0)}."
         )
     return (
         conditioned_surfaces,
-        result.source_map,
+        conditioned_source_map,
         subdomain_resolution,
         result.diagnostics,
     )
@@ -312,10 +506,12 @@ def build_city_surface_mesh(
     if terrain_raster is None and terrain_mesh is None:
         raise ValueError("City terrain has no data. Please compute terrain first.")
     if terrain_raster is None and terrain_mesh is not None:
+        from ..meshing.convert import mesh_to_raster
+
         terrain_raster = mesh_to_raster(terrain_mesh, cell_size=max_mesh_size)
     builder_dem = raster_to_builder_gridfield(terrain_raster)
 
-    builder_mesh = _dtcc_builder.build_city_surface_mesh(
+    builder_mesh = _call_builder_city_surface_mesh(
         building_surfaces,
         hole_surfaces,
         building_lod_switches,
@@ -361,6 +557,7 @@ def build_city_flat_mesh(
     merge_tolerance: float = 0.5,
     report_mesh_quality: bool = True,
     cleaning_diagnostics: bool = True,
+    mesher: str | None = None,
 ) -> Mesh:
     """Build a flat 2D triangular mesh of the city with building footprints marked.
 
@@ -390,6 +587,10 @@ def build_city_flat_mesh(
         Minimum footprint area; smaller buildings are dropped (default 15.0).
     merge_tolerance : float, optional
         Distance tolerance for merging footprints (default 0.5).
+    mesher : {"auto", "dtcc_mesher", "spade"}, optional
+        Select the 2D meshing backend. ``"auto"`` prefers ``dtcc_mesher``
+        when it is installed and otherwise falls back to the existing builder
+        path.
 
     Returns
     -------
@@ -411,7 +612,7 @@ def build_city_flat_mesh(
     if not buildings:
         warning("City has no buildings.")
 
-    building_footprints, _source_map, subdomain_resolution, diagnostics = (
+    building_footprints, conditioned_source_map, subdomain_resolution, diagnostics = (
         _condition_meshing_footprints(
             buildings,
             lod=lod,
@@ -437,28 +638,70 @@ def build_city_flat_mesh(
     )
     debug(f"Flat meshing footprint diagnostics: {diagnostics}")
 
-    # Convert footprints to builder polygons
-    _building_polygons = [
-        create_builder_polygon(footprint.to_polygon())
-        for footprint in building_footprints
-    ]
+    building_polygons = [footprint.to_polygon(simplify=0.0) for footprint in building_footprints]
+    marker_lookup: dict[tuple[int, ...], int] = {}
+    building_markers: list[int] = []
+    for source_indices in conditioned_source_map:
+        marker_key = tuple(source_indices)
+        if marker_key not in marker_lookup:
+            marker_lookup[marker_key] = len(marker_lookup)
+        building_markers.append(marker_lookup[marker_key])
+    active_mesher = resolve_2d_mesher(mesher)
 
-    # Call C++ mesher
-    report_progress(percent=30, message="Building city flat mesh (C++)...")
-    _flat_mesh = _dtcc_builder.build_city_flat_mesh(
-        _building_polygons,
-        [],
-        subdomain_resolution,
-        terrain.bounds.xmin,
-        terrain.bounds.ymin,
-        terrain.bounds.xmax,
-        terrain.bounds.ymax,
-        max_mesh_size,
-        min_mesh_angle,
-        True,
-    )
+    if active_mesher == "dtcc_mesher":
+        report_progress(percent=30, message="Building city flat mesh (dtcc_mesher)...")
+        flat_mesh = build_city_flat_mesh_with_dtcc_mesher(
+            building_polygons=building_polygons,
+            building_markers=building_markers,
+            hole_polygons=[],
+            bounds=(
+                terrain.bounds.xmin,
+                terrain.bounds.ymin,
+                terrain.bounds.xmax,
+                terrain.bounds.ymax,
+            ),
+            max_mesh_size=max_mesh_size,
+            min_mesh_angle=min_mesh_angle,
+        )
+    else:
+        _building_polygons = [
+            create_builder_polygon(polygon)
+            for polygon in building_polygons
+        ]
 
-    flat_mesh = _flat_mesh.from_cpp()
+        report_progress(percent=30, message="Building city flat mesh (C++)...")
+        try:
+            _flat_mesh = _dtcc_builder.build_city_flat_mesh(
+                _building_polygons,
+                [],
+                subdomain_resolution,
+                terrain.bounds.xmin,
+                terrain.bounds.ymin,
+                terrain.bounds.xmax,
+                terrain.bounds.ymax,
+                max_mesh_size,
+                min_mesh_angle,
+                True,
+            )
+            flat_mesh = _flat_mesh.from_cpp()
+        except RuntimeError:
+            warning(
+                "Builder flat-mesh path is unavailable in this _dtcc_builder build; "
+                "falling back to dtcc_mesher."
+            )
+            flat_mesh = build_city_flat_mesh_with_dtcc_mesher(
+                building_polygons=building_polygons,
+                building_markers=building_markers,
+                hole_polygons=[],
+                bounds=(
+                    terrain.bounds.xmin,
+                    terrain.bounds.ymin,
+                    terrain.bounds.xmax,
+                    terrain.bounds.ymax,
+                ),
+                max_mesh_size=max_mesh_size,
+                min_mesh_angle=min_mesh_angle,
+            )
 
     if report_mesh_quality:
         from dtcc_core.model.mixins.mesh.quality import (
@@ -617,6 +860,8 @@ def build_city_volume_mesh(
     if terrain_raster is None and terrain_mesh is None:
         raise ValueError("City terrain has no data. Please compute terrain first.")
     if terrain_raster is None and terrain_mesh is not None:
+        from ..meshing.convert import mesh_to_raster
+
         terrain_raster = mesh_to_raster(terrain_mesh, cell_size=max_mesh_size)
 
     # 2. PREPROCESS BUILDINGS
@@ -673,7 +918,7 @@ def build_city_volume_mesh(
         sort_triangles = False
         report_progress(percent=40, message="Building surface mesh (C++)...")
 
-        builder_mesh = _dtcc_builder.build_city_surface_mesh(
+        builder_mesh = _call_builder_city_surface_mesh(
             _surfaces,
             hole_surfaces,
             meshing_directives,

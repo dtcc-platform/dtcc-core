@@ -10,7 +10,7 @@ from .. import _dtcc_builder
 
 
 @register_model_method
-def mesh(s: Surface, triangle_size=None, clean=False) -> Mesh:
+def mesh(s: Surface, triangle_size=None, clean=False, mesher: str | None = None) -> Mesh:
     """
     Mesh a `Surface` object into a `Mesh` object.
 
@@ -22,7 +22,7 @@ def mesh(s: Surface, triangle_size=None, clean=False) -> Mesh:
         Mesh: A `Mesh` object representing the meshed `Surface`.
     """
 
-    return mesh_surface(s, triangle_size, clean)
+    return mesh_surface(s, triangle_size, clean, mesher=mesher)
 
 
 @register_model_method

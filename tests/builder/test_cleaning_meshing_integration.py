@@ -87,6 +87,7 @@ def test_build_city_flat_mesh_handles_pathological_footprints(monkeypatch):
         max_mesh_size=5.0,
         min_mesh_angle=20.0,
         report_mesh_quality=False,
+        mesher="spade",
     )
 
     assert calls
@@ -119,11 +120,73 @@ def test_build_city_flat_mesh_forwards_cleaning_diagnostics_flag(monkeypatch):
         min_mesh_angle=20.0,
         report_mesh_quality=False,
         cleaning_diagnostics=False,
+        mesher="spade",
     )
 
     assert captured["cleaning_diagnostics"] is False
     assert mesh.vertices.shape[0] > 0
     assert mesh.faces.shape[0] > 0
+
+
+def test_condition_meshing_footprints_regularizes_touching_holes():
+    touching_holes = Polygon(
+        [(8, 8), (28, 8), (28, 28), (8, 28), (8, 8)],
+        [
+            [(12, 12), (16, 12), (16, 16), (12, 16), (12, 12)],
+            [(16, 16), (22, 16), (22, 24), (16, 24), (16, 16)],
+        ],
+    )
+    assert touching_holes.is_valid
+
+    surfaces, source_map, resolutions, diagnostics = meshes_module._condition_meshing_footprints(
+        [make_building(touching_holes, roof_z=10.0)],
+        lod=GeometryType.LOD0,
+        min_building_detail=0.5,
+        min_building_area=1.0,
+        merge_tolerance=0.5,
+        merge_buildings=False,
+        max_mesh_size=5.0,
+        cleaning_diagnostics=False,
+    )
+
+    assert len(surfaces) == 1
+    assert source_map == [[0]]
+    assert resolutions == [5.0]
+    assert diagnostics["mesher_regularized_polygon_count"] == 1
+    normalized = surfaces[0].to_polygon(simplify=0.0)
+    assert not meshes_module._polygon_has_ring_boundary_contacts(normalized)
+
+
+def test_build_city_flat_mesh_dtcc_mesher_handles_touching_holes():
+    pytest.importorskip("dtcc_mesher")
+
+    touching_holes = Polygon(
+        [(8, 8), (28, 8), (28, 28), (8, 28), (8, 8)],
+        [
+            [(12, 12), (16, 12), (16, 16), (12, 16), (12, 12)],
+            [(16, 16), (22, 16), (22, 24), (16, 24), (16, 16)],
+        ],
+    )
+    city = make_flat_city([make_building(touching_holes, roof_z=10.0)])
+
+    mesh = build_city_flat_mesh(
+        city,
+        lod=GeometryType.LOD0,
+        merge_buildings=False,
+        min_building_detail=0.5,
+        min_building_area=1.0,
+        merge_tolerance=0.5,
+        max_mesh_size=5.0,
+        min_mesh_angle=20.0,
+        report_mesh_quality=False,
+        mesher="dtcc_mesher",
+    )
+
+    assert mesh.vertices.shape[0] > 0
+    assert mesh.faces.shape[0] > 0
+    markers = set(np.asarray(mesh.markers, dtype=int))
+    assert -2 in markers
+    assert 0 in markers
 
 
 def test_build_city_flat_mesh_allows_empty_conditioned_footprints(monkeypatch):
@@ -169,6 +232,7 @@ def test_build_city_flat_mesh_allows_empty_conditioned_footprints(monkeypatch):
         max_mesh_size=5.0,
         min_mesh_angle=20.0,
         report_mesh_quality=False,
+        mesher="spade",
     )
 
     assert captured["building_polygons"] == []
@@ -240,6 +304,34 @@ def test_build_city_surface_mesh_reduces_lod_from_source_map(monkeypatch):
     assert mesh.faces.shape[0] == 1
     assert captured["lod_switches"] == [0, 2]
     assert captured["resolution"] == [4.0, 5.0]
+
+
+def test_build_city_flat_mesh_runs_with_dtcc_mesher():
+    pytest.importorskip("dtcc_mesher")
+
+    buildings = [
+        make_building(box(8, 8, 18, 18), roof_z=10.0),
+        make_building(box(24, 8, 34, 18), roof_z=12.0),
+    ]
+    city = make_flat_city(buildings)
+
+    mesh = build_city_flat_mesh(
+        city,
+        lod=GeometryType.LOD0,
+        merge_buildings=False,
+        min_building_detail=0.0,
+        min_building_area=1.0,
+        merge_tolerance=0.0,
+        max_mesh_size=6.0,
+        min_mesh_angle=20.0,
+        report_mesh_quality=False,
+        mesher="dtcc_mesher",
+    )
+
+    assert mesh.vertices.shape[0] > 0
+    assert mesh.faces.shape[0] > 0
+    assert np.any(mesh.markers >= 0)
+    assert np.any(mesh.markers == -2)
 
 
 def test_build_city_surface_mesh_runs_with_mixed_lod_directives():
