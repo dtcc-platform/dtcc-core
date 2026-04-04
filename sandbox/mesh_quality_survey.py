@@ -1,540 +1,950 @@
 """
-Survey of flat mesh quality across central Stockholm.
+Compare flat-mesh quality across central Stockholm for one or more 2D meshers.
 
-Overview
---------
-This script generates flat 2D meshes (at z = 0) for a 10x10 grid of 500 m
-bounding boxes covering central Stockholm, evaluates mesh quality for each,
-and prints a summary table with global statistics.
+This script builds the same prepared City input once per tile, then runs one or
+more mesh generators against that identical input. It caches per-case results,
+saves per-mesher VTU files, and writes visual comparison plots.
 
-The grid spans 5 km x 5 km in SWEREF99 TM (EPSG:3006):
-    x: 673 000 -> 678 000   (Kungsholmen -> Ostermalm)
-    y: 6 578 500 -> 6 583 500   (Sodermalm -> Vasastan)
+Typical usage:
+    python mesh_quality_survey.py 55
+    python mesh_quality_survey.py
+    python mesh_quality_survey.py 55 --meshers triangle dtcc_mesher spade
+    python mesh_quality_survey.py --per-case-plots
 
-How it works
-------------
-1.  On each run the script loads previous results from
-    output/mesh_quality_survey.json (if the file exists).
-
-2.  It determines which cases still need to be computed:
-    - Full run (no arguments):  all cases NOT already in the results file.
-    - Single case (e.g. ``python mesh_quality_survey.py 55``):  only that
-      case, even if it is already in the results file (useful for debugging).
-
-3.  For each case to compute it calls ``dtcc_core.datasets.city_flat_mesh()``
-    to download data and build the mesh, then evaluates ``mesh.quality()``.
-
-4.  Each successfully built mesh is saved to output/<NNN>.vtu so it can be
-    opened in ParaView for visual inspection.
-
-5.  Successfully computed quality metrics are merged into the results file
-    and saved back.  Failed cases are NOT saved, so the next full run
-    will automatically retry them.
-
-6.  Finally the script presents ALL results (loaded + newly computed) in a
-    table with per-mesh metrics and global statistics.
-
-Rerunning
----------
-- To retry only failed cases:  just run the script again with no arguments.
-- To rerun a specific case:    ``python mesh_quality_survey.py <n>``
-- To rerun everything:         delete output/mesh_quality_survey.json first.
+With no explicit meshers, the script compares all available meshers from:
+    dtcc_mesher, triangle, spade
 
 Coordinate system: SWEREF99 TM (EPSG:3006)
 """
 
+from __future__ import annotations
+
+import argparse
 import json
-import os
-import sys
 import time
 import traceback
+from pathlib import Path
+from typing import Any
 
 import numpy as np
 
 import dtcc_core
-from dtcc_core.model import Bounds
-from dtcc_core.model.mixins.mesh.quality import format_quality
+from dtcc_core.model import Bounds, City, GeometryType, Mesh
 
-# ── Configuration ────────────────────────────────────────────────────────
+# Configuration ---------------------------------------------------------------
 
-# Central Stockholm extent (SWEREF99 TM)
 X_MIN = 673_000
 Y_MIN = 6_578_500
 NX, NY = 10, 10
-BOX_SIZE = 500  # metres
+BOX_SIZE = 500
 
-# Meshing parameters
 MAX_MESH_SIZE = 10.0
 MIN_MESH_ANGLE = 25.0
+MIN_BUILDING_DETAIL = 0.5
+MIN_BUILDING_AREA = 15.0
+MERGE_BUILDINGS = True
 
-# Delay between meshes (seconds) to avoid rate-limiting by dtcc-data.
-# The server defaults to 5 requests per 30 s per IP.  Each mesh needs
-# ~2 requests (pointcloud + footprints), so 8 s is a safe minimum.
-# Set to 0 if rate-limiting is disabled (ENABLE_RATE_LIMIT=false).
-DELAY_BETWEEN_MESHES = 8
+RASTER_CELL_SIZE = 2.0
+RASTER_RADIUS = 3.0
+OUTLIER_THRESHOLD = 3.0
 
-# Output paths
-OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
-RESULTS_FILE = os.path.join(OUTPUT_DIR, "mesh_quality_survey.json")
+DEFAULT_DELAY_BETWEEN_CASES = 8.0
+DEFAULT_MESHER_ORDER = ("dtcc_mesher", "triangle", "spade")
+OVERVIEW_METRICS = (
+    ("element_quality_mean", "ElemQ mean", "RdYlGn", ".3f"),
+    ("aspect_ratio_max", "AR max", "RdYlGn_r", ".2f"),
+    ("edge_ratio_max", "ER max", "RdYlGn_r", ".2f"),
+    ("edge_length_p01", "Edge p01", "RdYlGn", ".2f"),
+    ("area_p01", "Area p01", "RdYlGn", ".2f"),
+)
 
-# ── Helpers ──────────────────────────────────────────────────────────────
+MARKER_CATEGORY_COLORS = ("#eceff4", "#f2cc8f", "#5b8fd1")
+EDGE_FACE_LIMIT = 40_000
+SHORT_EDGE_THRESHOLDS = (0.5, 1.0)
+REQUIRED_METRIC_KEYS = (
+    "num_cells",
+    "element_quality_min",
+    "element_quality_mean",
+    "aspect_ratio_max",
+    "edge_ratio_max",
+    "edge_length_min",
+    "edge_length_p01",
+    "edge_length_p05",
+    "area_min",
+    "area_p01",
+    "area_p05",
+    "short_edges_lt_0_5_count",
+    "short_edges_lt_1_0_count",
+)
 
 
-def case_to_grid(number):
-    """Convert 1-based case number to (ix, iy) grid indices."""
+# Helpers --------------------------------------------------------------------
+
+
+def case_to_grid(number: int) -> tuple[int, int]:
     iy, ix = divmod(number - 1, NX)
     return ix, iy
 
 
-def make_bounds(ix, iy):
-    """Return a Bounds for grid cell (ix, iy)."""
+def make_bounds(ix: int, iy: int) -> Bounds:
     x0 = X_MIN + ix * BOX_SIZE
     y0 = Y_MIN + iy * BOX_SIZE
     return Bounds(x0, y0, x0 + BOX_SIZE, y0 + BOX_SIZE)
 
 
-def bounds_to_dict(b):
-    """Serialize a Bounds to a plain dict."""
-    return {"xmin": b.xmin, "ymin": b.ymin, "xmax": b.xmax, "ymax": b.ymax}
-
-
-def dict_to_bounds(d):
-    """Deserialize a Bounds from a plain dict."""
-    return Bounds(d["xmin"], d["ymin"], d["xmax"], d["ymax"])
-
-
-def load_results():
-    """Load previous results from the JSON file.  Returns dict keyed by
-    case number (int)."""
-    if not os.path.exists(RESULTS_FILE):
-        return {}
-    with open(RESULTS_FILE) as f:
-        data = json.load(f)
-    # JSON keys are strings; convert to int
-    return {int(k): v for k, v in data.items()}
-
-
-def save_results(results_dict):
-    """Save results dict to JSON (keys are case numbers)."""
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    # Sort by case number for readability
-    ordered = dict(sorted(results_dict.items()))
-    with open(RESULTS_FILE, "w") as f:
-        json.dump(ordered, f, indent=2)
-
-
-def run_case(number):
-    """Build mesh for a single case number.  Returns result dict on success."""
-    ix, iy = case_to_grid(number)
-    bounds = make_bounds(ix, iy)
-
-    t1 = time.time()
-    mesh = dtcc_core.datasets.city_flat_mesh(
-        bounds=bounds,
-        max_mesh_size=MAX_MESH_SIZE,
-        min_mesh_angle=MIN_MESH_ANGLE,
-    )
-    q = mesh.quality()
-    dt = time.time() - t1
-
-    # Save mesh file
-    filename = f"{number:03d}.vtu"
-    mesh.save(os.path.join(OUTPUT_DIR, filename))
-
+def bounds_to_dict(bounds: Bounds) -> dict[str, float]:
     return {
-        "number": number,
-        "bounds": bounds_to_dict(bounds),
-        "quality": q,
-        "time": round(dt, 2),
-        "file": filename,
+        "xmin": float(bounds.xmin),
+        "ymin": float(bounds.ymin),
+        "xmax": float(bounds.xmax),
+        "ymax": float(bounds.ymax),
     }
 
 
-def print_summary_table(results_dict):
-    """Print a combined table of all mesh quality results."""
+def meshers_slug(meshers: list[str]) -> str:
+    ordered = [mesher for mesher in DEFAULT_MESHER_ORDER if mesher in meshers]
+    extras = sorted(mesher for mesher in meshers if mesher not in DEFAULT_MESHER_ORDER)
+    return "-".join([*ordered, *extras])
 
-    # Sort by case number
-    items = sorted(results_dict.items())
-    if not items:
-        print("No results to display.")
-        return
 
-    sep = "-" * 115
+def results_file_path(output_dir: Path, meshers: list[str]) -> Path:
+    return output_dir / f"mesh_quality_survey.{meshers_slug(meshers)}.json"
+
+
+def overview_plot_path(output_dir: Path, meshers: list[str]) -> Path:
+    return output_dir / f"mesh_quality_survey.{meshers_slug(meshers)}.png"
+
+
+def case_plot_path(output_dir: Path, number: int, meshers: list[str]) -> Path:
+    return output_dir / f"{number:03d}.compare.{meshers_slug(meshers)}.png"
+
+
+def json_ready(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: json_ready(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_ready(item) for item in value]
+    if isinstance(value, np.generic):
+        return value.item()
+    return value
+
+
+def load_results(path: Path) -> dict[int, dict[str, Any]]:
+    if not path.exists():
+        return {}
+    with path.open() as handle:
+        data = json.load(handle)
+    return {int(key): value for key, value in data.items()}
+
+
+def save_results(path: Path, results: dict[int, dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    ordered = {str(key): results[key] for key in sorted(results)}
+    with path.open("w") as handle:
+        json.dump(ordered, handle, indent=2)
+
+
+def _quantile(values: np.ndarray, q: float) -> float:
+    return float(np.percentile(values, q))
+
+
+def grading_metrics(mesh: Mesh) -> dict[str, float | int]:
+    faces = np.asarray(mesh.faces, dtype=np.int64)
+    if faces.size == 0:
+        return {
+            "unique_edge_count": 0,
+            "edge_length_min": float("nan"),
+            "edge_length_p01": float("nan"),
+            "edge_length_p05": float("nan"),
+            "edge_length_mean": float("nan"),
+            "area_min": float("nan"),
+            "area_p01": float("nan"),
+            "area_p05": float("nan"),
+            "area_mean": float("nan"),
+            "short_edges_lt_0_5_count": 0,
+            "short_edges_lt_1_0_count": 0,
+        }
+
+    vertices = np.asarray(mesh.vertices[:, :2], dtype=np.float64)
+    triangles = vertices[faces]
+
+    doubled_area = np.abs(
+        (triangles[:, 1, 0] - triangles[:, 0, 0]) * (triangles[:, 2, 1] - triangles[:, 0, 1])
+        - (triangles[:, 1, 1] - triangles[:, 0, 1]) * (triangles[:, 2, 0] - triangles[:, 0, 0])
+    )
+    areas = 0.5 * doubled_area
+
+    edges = np.concatenate(
+        [faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]],
+        axis=0,
+    )
+    edges = np.sort(edges, axis=1)
+    unique_edges = np.unique(edges, axis=0)
+    edge_vectors = vertices[unique_edges[:, 1]] - vertices[unique_edges[:, 0]]
+    edge_lengths = np.linalg.norm(edge_vectors, axis=1)
+
+    return {
+        "unique_edge_count": int(len(unique_edges)),
+        "edge_length_min": float(edge_lengths.min()),
+        "edge_length_p01": _quantile(edge_lengths, 1.0),
+        "edge_length_p05": _quantile(edge_lengths, 5.0),
+        "edge_length_mean": float(edge_lengths.mean()),
+        "area_min": float(areas.min()),
+        "area_p01": _quantile(areas, 1.0),
+        "area_p05": _quantile(areas, 5.0),
+        "area_mean": float(areas.mean()),
+        "short_edges_lt_0_5_count": int(np.count_nonzero(edge_lengths < SHORT_EDGE_THRESHOLDS[0])),
+        "short_edges_lt_1_0_count": int(np.count_nonzero(edge_lengths < SHORT_EDGE_THRESHOLDS[1])),
+    }
+
+
+def mesh_metrics(mesh: Mesh, quality: dict[str, Any]) -> dict[str, float | int]:
+    metrics = {
+        "num_cells": int(quality["num_cells"]),
+        "element_quality_min": float(quality["element_quality"]["min"]),
+        "element_quality_mean": float(quality["element_quality"]["mean"]),
+        "aspect_ratio_max": float(quality["aspect_ratio"]["max"]),
+        "aspect_ratio_mean": float(quality["aspect_ratio"]["mean"]),
+        "edge_ratio_max": float(quality["edge_ratio"]["max"]),
+        "edge_ratio_mean": float(quality["edge_ratio"]["mean"]),
+        "skewness_max": float(quality["skewness"]["max"]),
+        "skewness_mean": float(quality["skewness"]["mean"]),
+    }
+    metrics.update(grading_metrics(mesh))
+    return metrics
+
+
+def error_details(exc: Exception) -> dict[str, str]:
+    return {
+        "type": type(exc).__name__,
+        "message": str(exc),
+        "traceback": traceback.format_exc(),
+    }
+
+
+def format_case_row(mesher: str, result: dict[str, Any]) -> str:
+    if result.get("status") != "success":
+        error = result.get("error", {})
+        return (
+            f"{mesher:<12}  {'FAILED':<8}  "
+            f"{error.get('type', 'Error')}: {error.get('message', 'unknown error')}"
+        )
+
+    metrics = result["metrics"]
+    return (
+        f"{mesher:<12}  {'ok':<8}  "
+        f"{metrics['num_cells']:>8}  "
+        f"{metrics['element_quality_min']:>9.4f}  "
+        f"{metrics['element_quality_mean']:>10.4f}  "
+        f"{metrics['aspect_ratio_max']:>8.4f}  "
+        f"{metrics['aspect_ratio_mean']:>8.4f}  "
+        f"{metrics['edge_ratio_max']:>8.4f}  "
+        f"{metrics['edge_ratio_mean']:>8.4f}  "
+        f"{metrics['skewness_max']:>8.4f}  "
+        f"{result['time']:>7.2f}s"
+    )
+
+
+def format_case_scale_row(mesher: str, result: dict[str, Any]) -> str:
+    if result.get("status") != "success":
+        return f"{mesher:<12}  {'FAILED':<8}"
+
+    metrics = result["metrics"]
+    return (
+        f"{mesher:<12}  {'ok':<8}  "
+        f"{metrics['edge_length_min']:>9.4f}  "
+        f"{metrics['edge_length_p01']:>9.4f}  "
+        f"{metrics['edge_length_p05']:>9.4f}  "
+        f"{metrics['area_min']:>10.4g}  "
+        f"{metrics['area_p01']:>10.4f}  "
+        f"{metrics['area_p05']:>10.4f}  "
+        f"{metrics['short_edges_lt_0_5_count']:>8}  "
+        f"{metrics['short_edges_lt_1_0_count']:>8}"
+    )
+
+
+def print_case_summary(case_record: dict[str, Any], meshers: list[str]) -> None:
+    number = case_record["number"]
+    bounds = case_record["bounds"]
 
     print()
     print(
-        f"{'#':>4}  {'Bounds (xmin, ymin)':>22}  {'Cells':>8}  "
+        f"Case {number}  ({bounds['xmin']:.0f}, {bounds['ymin']:.0f}) -> "
+        f"({bounds['xmax']:.0f}, {bounds['ymax']:.0f})"
+    )
+    print(
+        f"{'Mesher':<12}  {'Status':<8}  {'Cells':>8}  "
         f"{'ElemQ min':>9}  {'ElemQ mean':>10}  "
         f"{'AR max':>8}  {'AR mean':>8}  "
         f"{'ER max':>8}  {'ER mean':>8}  "
-        f"{'Skew max':>8}"
+        f"{'Skew max':>8}  {'Time':>8}"
     )
-    print(sep)
+    print("-" * 110)
+    for mesher in meshers:
+        print(format_case_row(mesher, case_record["meshers"].get(mesher, {})))
+    print("-" * 110)
+    print("Scale / grading metrics")
+    print(
+        f"{'Mesher':<12}  {'Status':<8}  {'Edge min':>9}  {'Edge p01':>9}  {'Edge p05':>9}  "
+        f"{'Area min':>10}  {'Area p01':>10}  {'Area p05':>10}  {'E<0.5m':>8}  {'E<1.0m':>8}"
+    )
+    print("-" * 110)
+    for mesher in meshers:
+        print(format_case_scale_row(mesher, case_record["meshers"].get(mesher, {})))
+    print("-" * 110)
+    print(f"Preparation time: {case_record['prepare_time']:.2f}s")
+    if case_record.get("plot_file"):
+        print(f"Comparison plot: {case_record['plot_file']}")
 
-    eq_mins, eq_means = [], []
-    ar_maxs, ar_means = [], []
-    er_maxs, er_means = [], []
-    sk_maxs = []
 
-    for num, r in items:
-        q = r["quality"]
-        eq = q["element_quality"]
-        ar = q["aspect_ratio"]
-        er = q["edge_ratio"]
-        sk = q["skewness"]
+def print_mesher_summary(results: dict[int, dict[str, Any]], meshers: list[str]) -> None:
+    print()
+    print("Mesher summary across cached cases")
+    print(
+        f"{'Mesher':<12}  {'Success':>7}  {'EQ mean':>9}  {'EQ min':>9}  "
+        f"{'AR mean':>9}  {'AR max':>9}  {'ER max':>9}  {'Skew max':>10}  {'Time mean':>10}"
+    )
+    print("-" * 100)
 
-        eq_mins.append(eq["min"])
-        eq_means.append(eq["mean"])
-        ar_maxs.append(ar["max"])
-        ar_means.append(ar["mean"])
-        er_maxs.append(er["max"])
-        er_means.append(er["mean"])
-        sk_maxs.append(sk["max"])
+    for mesher in meshers:
+        successes = []
+        for record in results.values():
+            result = record.get("meshers", {}).get(mesher)
+            if result and result.get("status") == "success":
+                successes.append(result)
 
-        b = r["bounds"]
+        if not successes:
+            print(f"{mesher:<12}  {0:>7}  {'n/a':>9}  {'n/a':>9}  {'n/a':>9}  {'n/a':>9}  {'n/a':>9}  {'n/a':>10}  {'n/a':>10}")
+            continue
+
+        eq_means = [item["metrics"]["element_quality_mean"] for item in successes]
+        eq_mins = [item["metrics"]["element_quality_min"] for item in successes]
+        ar_means = [item["metrics"]["aspect_ratio_mean"] for item in successes]
+        ar_maxs = [item["metrics"]["aspect_ratio_max"] for item in successes]
+        er_maxs = [item["metrics"]["edge_ratio_max"] for item in successes]
+        sk_maxs = [item["metrics"]["skewness_max"] for item in successes]
+        times = [item["time"] for item in successes]
+
         print(
-            f"{num:>4}  ({b['xmin']:10.0f}, {b['ymin']:10.0f})  "
-            f"{q['num_cells']:>8}  "
-            f"{eq['min']:>9.4f}  {eq['mean']:>10.4f}  "
-            f"{ar['max']:>8.4f}  {ar['mean']:>8.4f}  "
-            f"{er['max']:>8.4f}  {er['mean']:>8.4f}  "
-            f"{sk['max']:>8.4f}"
+            f"{mesher:<12}  {len(successes):>7}  "
+            f"{np.mean(eq_means):>9.4f}  {np.min(eq_mins):>9.4f}  "
+            f"{np.mean(ar_means):>9.4f}  {np.max(ar_maxs):>9.4f}  "
+            f"{np.max(er_maxs):>9.4f}  {np.max(sk_maxs):>10.4f}  "
+            f"{np.mean(times):>10.2f}s"
         )
 
-    print(sep)
-
-    # Global statistics
-    total_cells = sum(r["quality"]["num_cells"] for _, r in items)
     print()
-    print("Global statistics across all meshes")
-    print(sep)
-    print(f"  Total meshes           : {len(items)}")
-    print(f"  Total cells            : {total_cells}")
-    print()
-    print(f"  Element quality  min   : {np.min(eq_mins):.4f}  (worst single element)")
+    print("Scale / grading summary across cached cases")
     print(
-        f"  Element quality  mean  : {np.mean(eq_means):.4f}  (avg of per-mesh means)"
+        f"{'Mesher':<12}  {'Success':>7}  {'Edge min':>9}  {'Edge p01':>9}  {'Area min':>10}  "
+        f"{'Area p01':>10}  {'E<0.5m max':>11}  {'E<1.0m max':>11}"
     )
-    print(f"  Aspect ratio     max   : {np.max(ar_maxs):.4f}  (worst single element)")
-    print(
-        f"  Aspect ratio     mean  : {np.mean(ar_means):.4f}  (avg of per-mesh means)"
+    print("-" * 90)
+
+    for mesher in meshers:
+        successes = []
+        for record in results.values():
+            result = record.get("meshers", {}).get(mesher)
+            if result and result.get("status") == "success":
+                successes.append(result)
+
+        if not successes:
+            print(f"{mesher:<12}  {0:>7}  {'n/a':>9}  {'n/a':>9}  {'n/a':>10}  {'n/a':>10}  {'n/a':>11}  {'n/a':>11}")
+            continue
+
+        edge_mins = [item["metrics"]["edge_length_min"] for item in successes]
+        edge_p01s = [item["metrics"]["edge_length_p01"] for item in successes]
+        area_mins = [item["metrics"]["area_min"] for item in successes]
+        area_p01s = [item["metrics"]["area_p01"] for item in successes]
+        short_half = [item["metrics"]["short_edges_lt_0_5_count"] for item in successes]
+        short_one = [item["metrics"]["short_edges_lt_1_0_count"] for item in successes]
+
+        print(
+            f"{mesher:<12}  {len(successes):>7}  "
+            f"{np.min(edge_mins):>9.4f}  {np.mean(edge_p01s):>9.4f}  "
+            f"{np.min(area_mins):>10.4g}  {np.mean(area_p01s):>10.4f}  "
+            f"{np.max(short_half):>11}  {np.max(short_one):>11}"
+        )
+
+
+def case_complete(record: dict[str, Any], meshers: list[str]) -> bool:
+    mesher_results = record.get("meshers", {})
+    for mesher in meshers:
+        result = mesher_results.get(mesher, {})
+        if result.get("status") != "success":
+            return False
+        metrics = result.get("metrics", {})
+        if not all(key in metrics for key in REQUIRED_METRIC_KEYS):
+            return False
+    return True
+
+
+def resolve_requested_meshers(requested: list[str] | None) -> list[str]:
+    available = set(dtcc_core.builder.available_2d_meshers())
+    if requested is None:
+        selected = [mesher for mesher in DEFAULT_MESHER_ORDER if mesher in available]
+    else:
+        selected = []
+        for mesher in requested:
+            normalized = mesher.strip().lower()
+            if normalized not in selected:
+                selected.append(normalized)
+
+    if not selected:
+        raise RuntimeError("No requested 2D meshers are available.")
+
+    missing = [mesher for mesher in selected if mesher not in available]
+    if missing:
+        raise RuntimeError(
+            f"Requested meshers are not available: {', '.join(missing)}. "
+            f"Available meshers: {', '.join(sorted(available)) or 'none'}."
+        )
+
+    return selected
+
+
+def prepare_city(bounds: Bounds) -> tuple[City, float]:
+    start = time.perf_counter()
+
+    pointcloud = dtcc_core.io.data.download_pointcloud(bounds=bounds)
+    buildings = dtcc_core.io.data.download_footprints(bounds=bounds)
+    pointcloud = pointcloud.remove_global_outliers(OUTLIER_THRESHOLD)
+
+    raster = dtcc_core.builder.build_terrain_raster(
+        pointcloud,
+        cell_size=RASTER_CELL_SIZE,
+        radius=RASTER_RADIUS,
+        ground_only=True,
     )
-    print(f"  Edge ratio       max   : {np.max(er_maxs):.4f}  (worst single element)")
-    print(
-        f"  Edge ratio       mean  : {np.mean(er_means):.4f}  (avg of per-mesh means)"
+    buildings = dtcc_core.builder.extract_roof_points(buildings, pointcloud)
+    buildings = dtcc_core.builder.compute_building_heights(buildings, raster, overwrite=True)
+
+    city = City()
+    city.add_terrain(raster)
+    city.add_buildings(buildings, remove_outside_terrain=True)
+
+    return city, time.perf_counter() - start
+
+
+def run_mesher_for_case(
+    number: int,
+    city: City,
+    mesher: str,
+    output_dir: Path,
+) -> tuple[dict[str, Any], Mesh | None]:
+    start = time.perf_counter()
+
+    try:
+        mesh = dtcc_core.builder.build_city_flat_mesh(
+            city,
+            lod=GeometryType.LOD0,
+            max_mesh_size=MAX_MESH_SIZE,
+            min_mesh_angle=MIN_MESH_ANGLE,
+            merge_buildings=MERGE_BUILDINGS,
+            min_building_detail=MIN_BUILDING_DETAIL,
+            min_building_area=MIN_BUILDING_AREA,
+            report_mesh_quality=False,
+            mesher=mesher,
+        )
+        quality = json_ready(mesh.quality())
+        metrics = mesh_metrics(mesh, quality)
+        filename = f"{number:03d}.{mesher}.vtu"
+        mesh.save(str(output_dir / filename))
+
+        return (
+            {
+                "status": "success",
+                "time": round(time.perf_counter() - start, 2),
+                "file": filename,
+                "quality": quality,
+                "metrics": metrics,
+            },
+            mesh,
+        )
+    except Exception as exc:
+        return (
+            {
+                "status": "failed",
+                "time": round(time.perf_counter() - start, 2),
+                "error": error_details(exc),
+            },
+            None,
+        )
+
+
+def _load_plot_modules():
+    try:
+        import matplotlib.pyplot as plt
+        from matplotlib.collections import LineCollection, PolyCollection
+        from matplotlib.patches import Patch
+    except ImportError as exc:
+        raise RuntimeError("matplotlib is required for plotting") from exc
+
+    return plt, LineCollection, PolyCollection, Patch
+
+
+def marker_categories(markers: np.ndarray | None, num_faces: int) -> np.ndarray:
+    if markers is None or len(markers) != num_faces:
+        return np.zeros(num_faces, dtype=np.int32)
+
+    markers_array = np.asarray(markers, dtype=np.int32)
+    categories = np.zeros(num_faces, dtype=np.int32)
+    categories[markers_array == -1] = 1
+    categories[markers_array >= 0] = 2
+    return categories
+
+
+def draw_mesh_panel(ax, mesh: Mesh, line_collection_cls, poly_collection_cls) -> None:
+    faces = np.asarray(mesh.faces, dtype=np.int64)
+    vertices = np.asarray(mesh.vertices[:, :2], dtype=np.float64)
+    polygons = vertices[faces]
+
+    categories = marker_categories(mesh.markers, len(faces))
+    facecolors = [MARKER_CATEGORY_COLORS[index] for index in categories]
+
+    poly_collection = poly_collection_cls(
+        polygons,
+        facecolors=facecolors,
+        edgecolors="none",
+        alpha=0.92,
+        rasterized=len(faces) > 5_000,
     )
-    print(f"  Skewness         max   : {np.max(sk_maxs):.4f}  (worst single element)")
-    print(sep)
+    ax.add_collection(poly_collection)
+
+    if len(faces) <= EDGE_FACE_LIMIT:
+        edges = np.concatenate(
+            [polygons[:, [0, 1]], polygons[:, [1, 2]], polygons[:, [2, 0]]],
+            axis=0,
+        )
+        edge_collection = line_collection_cls(
+            edges,
+            colors="black",
+            linewidths=0.14,
+            alpha=0.45,
+            rasterized=len(faces) > 5_000,
+        )
+        ax.add_collection(edge_collection)
+    else:
+        ax.text(
+            0.98,
+            0.02,
+            "edges omitted",
+            ha="right",
+            va="bottom",
+            fontsize=8,
+            transform=ax.transAxes,
+            bbox={
+                "boxstyle": "round,pad=0.2",
+                "facecolor": "white",
+                "alpha": 0.85,
+                "edgecolor": "none",
+            },
+        )
+
+    ax.set_facecolor("#fcfcfc")
 
 
-# ── Main ─────────────────────────────────────────────────────────────────
+def mesher_panel_text(result: dict[str, Any]) -> str:
+    if result.get("status") != "success":
+        error = result.get("error", {})
+        return "\n".join(
+            [
+                "FAILED",
+                error.get("type", "Error"),
+                error.get("message", "unknown error")[:180],
+            ]
+        )
+
+    metrics = result["metrics"]
+    return "\n".join(
+        [
+            f"cells {metrics['num_cells']}",
+            f"EQ {metrics['element_quality_min']:.3f} / {metrics['element_quality_mean']:.3f}",
+            f"AR {metrics['aspect_ratio_max']:.3f} / {metrics['aspect_ratio_mean']:.3f}",
+            f"ER {metrics['edge_ratio_max']:.3f} / {metrics['edge_ratio_mean']:.3f}",
+            f"Sk {metrics['skewness_max']:.3f} / {metrics['skewness_mean']:.3f}",
+            f"edge {metrics['edge_length_min']:.3f} / {metrics['edge_length_p01']:.3f}",
+            f"area {metrics['area_min']:.3g} / {metrics['area_p01']:.3f}",
+            f"short <0.5 {metrics['short_edges_lt_0_5_count']}  <1.0 {metrics['short_edges_lt_1_0_count']}",
+            f"time {result['time']:.2f}s",
+        ]
+    )
 
 
-def main():
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
+def set_panel_extent(axes, bounds: Bounds) -> None:
+    padding = 0.05 * BOX_SIZE
+    xmin = bounds.xmin - padding
+    xmax = bounds.xmax + padding
+    ymin = bounds.ymin - padding
+    ymax = bounds.ymax + padding
+    for ax in axes:
+        ax.set_xlim(xmin, xmax)
+        ax.set_ylim(ymin, ymax)
+        ax.set_aspect("equal", adjustable="box")
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+
+def plot_case_comparison(
+    output_path: Path,
+    number: int,
+    bounds: Bounds,
+    meshers: list[str],
+    mesh_objects: dict[str, Mesh],
+    mesher_results: dict[str, dict[str, Any]],
+    show_plot: bool = False,
+) -> None:
+    plt, line_collection_cls, poly_collection_cls, patch_cls = _load_plot_modules()
+
+    fig, axes = plt.subplots(
+        1,
+        len(meshers),
+        figsize=(6.2 * len(meshers), 7.2),
+        constrained_layout=True,
+    )
+    if len(meshers) == 1:
+        axes = [axes]
+
+    for ax, mesher in zip(axes, meshers):
+        result = mesher_results.get(mesher, {})
+        mesh = mesh_objects.get(mesher)
+
+        if mesh is not None:
+            draw_mesh_panel(ax, mesh, line_collection_cls, poly_collection_cls)
+        else:
+            ax.set_facecolor("#fcfcfc")
+
+        ax.set_title(mesher)
+        ax.text(
+            0.02,
+            0.02,
+            mesher_panel_text(result),
+            ha="left",
+            va="bottom",
+            fontsize=9,
+            family="monospace",
+            transform=ax.transAxes,
+            bbox={
+                "boxstyle": "round,pad=0.35",
+                "facecolor": "white",
+                "alpha": 0.9,
+                "edgecolor": "black",
+                "linewidth": 0.4,
+            },
+        )
+
+    set_panel_extent(axes, bounds)
+
+    legend_handles = [
+        patch_cls(facecolor=MARKER_CATEGORY_COLORS[0], edgecolor="black", label="ground"),
+        patch_cls(facecolor=MARKER_CATEGORY_COLORS[1], edgecolor="black", label="halo"),
+        patch_cls(facecolor=MARKER_CATEGORY_COLORS[2], edgecolor="black", label="building"),
+    ]
+    fig.legend(
+        handles=legend_handles,
+        loc="upper center",
+        ncol=3,
+        frameon=False,
+    )
+    fig.suptitle(
+        f"Case {number} mesh comparison  ({bounds.xmin:.0f}, {bounds.ymin:.0f}) -> "
+        f"({bounds.xmax:.0f}, {bounds.ymax:.0f})"
+    )
+    fig.savefig(output_path, dpi=200)
+    if show_plot:
+        plt.show(block=True)
+    plt.close(fig)
+
+
+def build_grid(
+    results: dict[int, dict[str, Any]],
+    mesher: str,
+    metric_key: str,
+) -> np.ndarray:
+    grid = np.full((NY, NX), np.nan)
+
+    for number, record in results.items():
+        mesher_result = record.get("meshers", {}).get(mesher)
+        if not mesher_result or mesher_result.get("status") != "success":
+            continue
+
+        value = float(mesher_result["metrics"][metric_key])
+        ix, iy = case_to_grid(number)
+        grid[iy, ix] = value
+
+    return grid
+
+
+def annotate_heatmap(ax, grid: np.ndarray, fmt: str) -> None:
+    valid = grid[~np.isnan(grid)]
+    if valid.size == 0:
+        return
+    midpoint = 0.5 * (float(valid.min()) + float(valid.max()))
+    for iy in range(NY):
+        for ix in range(NX):
+            value = grid[iy, ix]
+            if np.isnan(value):
+                continue
+            ax.text(
+                ix,
+                iy,
+                format(value, fmt),
+                ha="center",
+                va="center",
+                fontsize=6,
+                color="black" if value >= midpoint else "white",
+            )
+
+
+def plot_overview(results: dict[int, dict[str, Any]], meshers: list[str], output_path: Path) -> None:
+    plt, _, _, _ = _load_plot_modules()
+
+    fig, axes = plt.subplots(
+        len(meshers),
+        len(OVERVIEW_METRICS),
+        figsize=(5.4 * len(OVERVIEW_METRICS), 3.9 * len(meshers)),
+        constrained_layout=True,
+    )
+    if len(meshers) == 1:
+        axes = np.asarray([axes])
+
+    for row, mesher in enumerate(meshers):
+        for col, (metric_key, title, cmap, fmt) in enumerate(OVERVIEW_METRICS):
+            ax = axes[row, col]
+            grid = build_grid(results, mesher, metric_key)
+            image = ax.imshow(grid, origin="lower", cmap=cmap, aspect="equal")
+            annotate_heatmap(ax, grid, fmt)
+            ax.set_title(f"{mesher} - {title}")
+            ax.set_xticks(range(NX))
+            ax.set_yticks(range(NY))
+            ax.set_xlabel("Grid X")
+            ax.set_ylabel("Grid Y")
+            fig.colorbar(image, ax=ax, shrink=0.82, pad=0.03)
+
+    fig.suptitle("Mesh quality overview by mesher")
+    fig.savefig(output_path, dpi=180)
+    plt.close(fig)
+
+
+def compact_case_status(record: dict[str, Any], meshers: list[str]) -> str:
+    parts = []
+    for mesher in meshers:
+        result = record["meshers"].get(mesher, {})
+        if result.get("status") != "success":
+            parts.append(f"{mesher}: FAIL")
+            continue
+        metrics = result["metrics"]
+        parts.append(
+            f"{mesher}: ARmax {metrics['aspect_ratio_max']:.2f}, "
+            f"edge p01 {metrics['edge_length_p01']:.2f}m"
+        )
+    return "  ".join(parts)
+
+
+def run_case(
+    number: int,
+    meshers: list[str],
+    output_dir: Path,
+    create_case_plot: bool,
+    show_plot: bool,
+) -> dict[str, Any]:
+    ix, iy = case_to_grid(number)
+    bounds = make_bounds(ix, iy)
+
+    city, prepare_time = prepare_city(bounds)
+
+    case_record: dict[str, Any] = {
+        "number": number,
+        "bounds": bounds_to_dict(bounds),
+        "prepare_time": round(prepare_time, 2),
+        "meshers": {},
+    }
+    mesh_objects: dict[str, Mesh] = {}
+
+    for mesher in meshers:
+        result, mesh = run_mesher_for_case(number, city, mesher, output_dir)
+        case_record["meshers"][mesher] = json_ready(result)
+        if mesh is not None:
+            mesh_objects[mesher] = mesh
+
+    if create_case_plot:
+        plot_path = case_plot_path(output_dir, number, meshers)
+        plot_case_comparison(
+            plot_path,
+            number=number,
+            bounds=bounds,
+            meshers=meshers,
+            mesh_objects=mesh_objects,
+            mesher_results=case_record["meshers"],
+            show_plot=show_plot,
+        )
+        case_record["plot_file"] = plot_path.name
+
+    return case_record
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Compare flat-mesh quality across Stockholm tiles for multiple meshers."
+    )
+    parser.add_argument(
+        "case_number",
+        nargs="?",
+        type=int,
+        help=f"Single case to recompute (1-{NX * NY}). Omit to process all missing cases.",
+    )
+    parser.add_argument(
+        "--meshers",
+        nargs="+",
+        default=None,
+        help="Meshers to compare. Defaults to all available from: dtcc_mesher triangle spade.",
+    )
+    parser.add_argument(
+        "--delay",
+        type=float,
+        default=DEFAULT_DELAY_BETWEEN_CASES,
+        help="Delay in seconds between cases during multi-case runs.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path(__file__).resolve().parent / "output",
+        help="Directory for JSON, VTU, and PNG outputs.",
+    )
+    parser.add_argument(
+        "--per-case-plots",
+        action="store_true",
+        help="When running many cases, also save a side-by-side PNG for every case.",
+    )
+    parser.add_argument(
+        "--no-plots",
+        action="store_true",
+        help="Skip all PNG plot generation.",
+    )
+    parser.add_argument(
+        "--show-plot",
+        action="store_true",
+        help="Display the side-by-side comparison plot for a single case.",
+    )
+    args = parser.parse_args()
+
+    total = NX * NY
+    if args.case_number is not None and not (1 <= args.case_number <= total):
+        parser.error(f"case_number must be between 1 and {total}")
+
+    return args
+
+
+def main() -> None:
+    args = parse_args()
+    output_dir = args.output_dir
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    meshers = resolve_requested_meshers(args.meshers)
+    results_path = results_file_path(output_dir, meshers)
+    results = load_results(results_path)
     total = NX * NY
 
-    # ── Parse command-line arguments ─────────────────────────────────
-    single_case = None
-    if len(sys.argv) > 1:
-        try:
-            single_case = int(sys.argv[1])
-        except ValueError:
-            print(f"Usage: python {os.path.basename(__file__)} [<case_number>]")
-            print(f"  case_number: 1-{total}")
-            sys.exit(1)
-        if single_case < 1 or single_case > total:
-            print(f"Error: case number must be between 1 and {total}")
-            sys.exit(1)
-
-    # ── Load existing results ────────────────────────────────────────
-    results = load_results()
     loaded_count = len(results)
-
     if loaded_count > 0:
-        print(f"Loaded {loaded_count} previous result(s) from {RESULTS_FILE}")
-        print(f"  (delete that file and rerun to regenerate everything)")
+        print(f"Loaded {loaded_count} previous case record(s) from {results_path}")
+        print("  Delete that file to recompute everything from scratch.")
         print()
 
-    # ── Determine which cases to run ─────────────────────────────────
-    if single_case is not None:
-        cases_to_run = [single_case]
-        if single_case in results:
-            print(f"Case {single_case} exists in results — will recompute it.")
+    if args.case_number is not None:
+        cases_to_run = [args.case_number]
+        if args.case_number in results:
+            print(f"Case {args.case_number} exists in cache and will be recomputed.")
+            print()
     else:
-        all_cases = set(range(1, total + 1))
-        done_cases = set(results.keys())
-        cases_to_run = sorted(all_cases - done_cases)
+        cases_to_run = [
+            number
+            for number in range(1, total + 1)
+            if not case_complete(results.get(number, {}), meshers)
+        ]
         if not cases_to_run:
-            print(f"All {total} cases already computed.")
+            print(f"All {total} cases are already complete for {', '.join(meshers)}.")
+            print()
         else:
             print(
-                f"{len(cases_to_run)} case(s) to compute: "
-                f"{', '.join(str(c) for c in cases_to_run)}"
+                f"{len(cases_to_run)} case(s) to compute for {', '.join(meshers)}: "
+                f"{', '.join(str(case) for case in cases_to_run)}"
             )
-        print()
+            print()
 
-    # ── Run cases ────────────────────────────────────────────────────
-    new_count = 0
-    fail_count = 0
-    failures = []
-    t0 = time.time()
+    success_count = 0
+    failure_count = 0
+    start_all = time.perf_counter()
 
-    for i, number in enumerate(cases_to_run):
-        if i > 0 and DELAY_BETWEEN_MESHES > 0:
-            time.sleep(DELAY_BETWEEN_MESHES)
+    for index, number in enumerate(cases_to_run):
+        if index > 0 and args.delay > 0:
+            time.sleep(args.delay)
 
-        ix, iy = case_to_grid(number)
-        bounds = make_bounds(ix, iy)
+        bounds = make_bounds(*case_to_grid(number))
         label = (
-            f"[{i + 1}/{len(cases_to_run)}]  case {number:3d}  "
+            f"[{index + 1}/{len(cases_to_run)}] case {number:3d}  "
             f"({bounds.xmin:.0f}, {bounds.ymin:.0f}) -> "
             f"({bounds.xmax:.0f}, {bounds.ymax:.0f})"
         )
+        print(f"{label}  generating...", end="", flush=True)
 
-        try:
-            print(f"{label}  generating...", end="", flush=True)
-            result = run_case(number)
-            q = result["quality"]
-            eq = q["element_quality"]
-            print(
-                f"  {q['num_cells']:>6} cells  "
-                f"elemQ {eq['min']:.3f}/{eq['mean']:.3f}  "
-                f"{result['time']:.1f}s"
-            )
-            results[number] = result
-            new_count += 1
+        create_case_plot = (
+            not args.no_plots
+            and (args.case_number is not None or args.per_case_plots)
+        )
+        case_record = run_case(
+            number,
+            meshers=meshers,
+            output_dir=output_dir,
+            create_case_plot=create_case_plot,
+            show_plot=bool(args.show_plot and args.case_number is not None),
+        )
+        results[number] = case_record
+        save_results(results_path, results)
 
-            # Save after each success so progress is not lost
-            save_results(results)
+        mesher_successes = sum(
+            1
+            for mesher in meshers
+            if case_record["meshers"].get(mesher, {}).get("status") == "success"
+        )
+        if mesher_successes == len(meshers):
+            success_count += 1
+        else:
+            failure_count += 1
 
-        except Exception as e:
-            print(f"  FAILED: {e}")
-            traceback.print_exc()
-            failures.append({"number": number, "error": str(e)})
-            fail_count += 1
+        print(f"  {compact_case_status(case_record, meshers)}")
 
-    elapsed = time.time() - t0
+    elapsed = time.perf_counter() - start_all
 
-    # ── Summary ──────────────────────────────────────────────────────
     if cases_to_run:
         print()
         print(
             f"Finished in {elapsed:.0f}s  "
-            f"({new_count} succeeded, {fail_count} failed, "
+            f"({success_count} fully successful case(s), {failure_count} incomplete case(s), "
             f"{loaded_count} previously cached)"
         )
 
-    if failures:
-        print()
-        print(f"Failed cases ({len(failures)})  — rerun the script to retry:")
-        for f in failures:
-            print(f"  case {f['number']:3d}: {f['error']}")
-
-    # ── Present all results ──────────────────────────────────────────
-    missing = total - len(results)
     print()
-    if loaded_count > 0 and new_count > 0:
-        print(
-            f"Results: {loaded_count} from file + {new_count} newly computed"
-            f" = {len(results)}/{total}"
-        )
-    elif loaded_count > 0:
-        print(f"Results: {len(results)}/{total} (all from file)")
+    print(f"Results file: {results_path}")
+
+    if args.case_number is not None:
+        print_case_summary(results[args.case_number], meshers)
     else:
-        print(f"Results: {len(results)}/{total}")
+        incomplete_cases = [
+            number for number, record in results.items() if not case_complete(record, meshers)
+        ]
+        print_mesher_summary(results, meshers)
+        if incomplete_cases:
+            print()
+            print(
+                "Incomplete cases: "
+                + ", ".join(str(number) for number in sorted(incomplete_cases))
+            )
 
-    if missing > 0:
-        missing_cases = sorted(set(range(1, total + 1)) - set(results.keys()))
-        print(
-            f"Missing cases ({missing}): " f"{', '.join(str(c) for c in missing_cases)}"
-        )
-
-    if results:
-        print_summary_table(results)
-        plot_results(results)
-
-
-def plot_results(results_dict):
-    """Generate matplotlib visualisations of mesh quality results."""
-
-    import matplotlib.pyplot as plt
-    from matplotlib.gridspec import GridSpec
-
-    plt.style.use("dark_background")
-
-    items = sorted(results_dict.items())
-    if not items:
-        print("No results to plot.")
-        return
-
-    # ── Extract per-tile metrics ─────────────────────────────────────
-    numbers, eq_means, eq_mins = [], [], []
-    ar_means, ar_maxs = [], []
-    er_means, sk_maxs = [], []
-    num_cells_list = []
-
-    for num, r in items:
-        q = r["quality"]
-        numbers.append(num)
-        eq_means.append(q["element_quality"]["mean"])
-        eq_mins.append(q["element_quality"]["min"])
-        ar_means.append(q["aspect_ratio"]["mean"])
-        ar_maxs.append(q["aspect_ratio"]["max"])
-        er_means.append(q["edge_ratio"]["mean"])
-        sk_maxs.append(q["skewness"]["max"])
-        num_cells_list.append(q["num_cells"])
-
-    # ── Helper: build NX×NY grid from flat metric list ───────────────
-    def build_grid(values):
-        grid = np.full((NY, NX), np.nan)
-        for num, val in zip(numbers, values):
-            ix, iy = case_to_grid(num)
-            grid[iy, ix] = val
-        return grid
-
-    def annotate_heatmap(ax, grid, fmt=".3f"):
-        for iy in range(NY):
-            for ix in range(NX):
-                v = grid[iy, ix]
-                if not np.isnan(v):
-                    ax.text(
-                        ix,
-                        iy,
-                        f"{v:{fmt}}",
-                        ha="center",
-                        va="center",
-                        fontsize=7,
-                        color=(
-                            "black"
-                            if v > (np.nanmin(grid) + np.nanmax(grid)) / 2
-                            else "white"
-                        ),
-                    )
-
-    def setup_grid_axes(ax, title):
-        ax.set_title(title, fontsize=11, pad=8)
-        ax.set_xticks(range(NX))
-        ax.set_yticks(range(NY))
-        ax.set_xlabel("Grid X")
-        ax.set_ylabel("Grid Y")
-
-    # ── Normalise an array to [0, 1] ─────────────────────────────────
-    def normalise(arr):
-        a = np.asarray(arr, dtype=float)
-        lo, hi = a.min(), a.max()
-        return np.zeros_like(a) if hi - lo < 1e-12 else (a - lo) / (hi - lo)
-
-    # ── Build grids ──────────────────────────────────────────────────
-    eq_mean_grid = build_grid(eq_means)
-    ar_mean_grid = build_grid(ar_means)
-    er_mean_grid = build_grid(er_means)
-    sk_max_grid = build_grid(sk_maxs)
-
-    # ── Create figure (3 rows × 3 columns) ──────────────────────────
-    fig = plt.figure(figsize=(18, 15))
-    fig.suptitle(
-        "Mesh Quality Survey — Central Stockholm (10×10 grid, 500 m tiles)",
-        fontsize=15,
-        fontweight="bold",
-        y=0.98,
-    )
-    gs = GridSpec(3, 3, figure=fig, hspace=0.38, wspace=0.35)
-
-    # ── Row 1: four spatial heat-maps (first three columns of row 0,
-    #    plus first column of row 1) ──────────────────────────────────
-
-    heatmaps = [
-        (gs[0, 0], eq_mean_grid, "Element Quality (mean)", "RdYlGn", ".3f"),
-        (gs[0, 1], ar_mean_grid, "Aspect Ratio (mean)", "RdYlGn_r", ".2f"),
-        (gs[0, 2], sk_max_grid, "Skewness (max)", "RdYlGn_r", ".3f"),
-        (gs[1, 0], er_mean_grid, "Edge Ratio (mean)", "RdYlGn_r", ".2f"),
-    ]
-    for spec, grid, title, cmap, fmt in heatmaps:
-        ax = fig.add_subplot(spec)
-        im = ax.imshow(grid, origin="lower", cmap=cmap, aspect="equal")
-        annotate_heatmap(ax, grid, fmt)
-        setup_grid_axes(ax, title)
-        fig.colorbar(im, ax=ax, shrink=0.82, pad=0.04)
-
-    # ── Row 1 col 1: histogram of element quality means ──────────────
-    ax_hist = fig.add_subplot(gs[1, 1])
-    ax_hist.hist(eq_means, bins=15, color="#00cc88", edgecolor="white", alpha=0.85)
-    ax_hist.axvline(
-        np.mean(eq_means),
-        color="#ff6644",
-        ls="--",
-        lw=1.5,
-        label=f"mean = {np.mean(eq_means):.3f}",
-    )
-    ax_hist.set_title("Distribution of Element Quality (mean)", fontsize=11, pad=8)
-    ax_hist.set_xlabel("Element Quality (mean)")
-    ax_hist.set_ylabel("Count")
-    ax_hist.legend(fontsize=9)
-
-    # ── Row 1 col 2: CDF of element quality min (worst element) ──────
-    ax_cdf = fig.add_subplot(gs[1, 2])
-    sorted_eq = np.sort(eq_mins)
-    cdf = np.arange(1, len(sorted_eq) + 1) / len(sorted_eq)
-    ax_cdf.plot(sorted_eq, cdf, color="#ff6644", linewidth=2)
-    ax_cdf.fill_between(sorted_eq, cdf, alpha=0.15, color="#ff6644")
-    ax_cdf.set_title("CDF of Element Quality (min per tile)", fontsize=11, pad=8)
-    ax_cdf.set_xlabel("Element Quality (min)")
-    ax_cdf.set_ylabel("Cumulative Fraction")
-    ax_cdf.grid(True, alpha=0.3)
-
-    # ── Row 2 left: scatter of num_cells vs element quality mean ─────
-    ax_sc = fig.add_subplot(gs[2, 0])
-    sc = ax_sc.scatter(
-        num_cells_list,
-        eq_means,
-        c=ar_means,
-        cmap="plasma",
-        s=55,
-        edgecolors="white",
-        linewidth=0.5,
-        alpha=0.9,
-    )
-    ax_sc.set_title("Cells vs Quality (colour = AR mean)", fontsize=11, pad=8)
-    ax_sc.set_xlabel("Number of Cells")
-    ax_sc.set_ylabel("Element Quality (mean)")
-    fig.colorbar(sc, ax=ax_sc, shrink=0.82, pad=0.04, label="Aspect Ratio (mean)")
-    ax_sc.grid(True, alpha=0.3)
-
-    # ── Row 2 right (spanning 2 cols): ranked bar chart ──────────────
-    ax_bar = fig.add_subplot(gs[2, 1:])
-    ranked = np.argsort(eq_means)  # worst first
-    tile_labels = [str(numbers[i]) for i in ranked]
-    x_pos = np.arange(len(ranked))
-
-    bw = 0.2
-    eq_n = normalise([eq_means[i] for i in ranked])
-    ar_n = normalise([ar_means[i] for i in ranked])
-    er_n = normalise([er_means[i] for i in ranked])
-    sk_n = normalise([sk_maxs[i] for i in ranked])
-
-    ax_bar.bar(x_pos - 1.5 * bw, eq_n, bw, label="Elem Quality (mean)", color="#00cc88")
-    ax_bar.bar(x_pos - 0.5 * bw, ar_n, bw, label="Aspect Ratio (mean)", color="#ff6644")
-    ax_bar.bar(x_pos + 0.5 * bw, er_n, bw, label="Edge Ratio (mean)", color="#4488ff")
-    ax_bar.bar(x_pos + 1.5 * bw, sk_n, bw, label="Skewness (max)", color="#ffcc00")
-
-    ax_bar.set_title(
-        "Tiles Ranked by Element Quality (normalised metrics, worst → best)",
-        fontsize=11,
-        pad=8,
-    )
-    ax_bar.set_xlabel("Tile (case number)")
-    ax_bar.set_ylabel("Normalised Value")
-    ax_bar.set_xticks(x_pos)
-    ax_bar.set_xticklabels(tile_labels, fontsize=7, rotation=45)
-    ax_bar.legend(loc="upper left", fontsize=8, framealpha=0.6)
-    ax_bar.grid(True, axis="y", alpha=0.3)
-
-    # ── Save & show ──────────────────────────────────────────────────
-    out_path = os.path.join(OUTPUT_DIR, "mesh_quality_survey.png")
-    plt.savefig(out_path, dpi=150, bbox_inches="tight", facecolor=fig.get_facecolor())
-    print(f"\nPlot saved to {out_path}")
-    plt.show()
+    if not args.no_plots:
+        overview_path = overview_plot_path(output_dir, meshers)
+        plot_overview(results, meshers, overview_path)
+        print(f"Overview plot: {overview_path}")
 
 
 if __name__ == "__main__":
