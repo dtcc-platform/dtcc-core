@@ -12,6 +12,7 @@ from dtcc_core.builder import (
 )
 from dtcc_core.builder.building.modify import clean_building_footprints
 from dtcc_core.builder.geometry_builders import meshes as meshes_module
+from dtcc_core.builder.meshing import dtcc_mesher_backend as dtcc_mesher_backend_module
 from dtcc_core.builder.meshing.tetgen import is_tetgen_available
 from dtcc_core.model import Building, Bounds, City, GeometryType, Mesh, Raster, Surface, Terrain
 
@@ -58,6 +59,34 @@ def make_flat_city(buildings: list[Building]) -> City:
     city.add_terrain(terrain)
     city.add_buildings(buildings)
     return city
+
+
+def _nearest_nonadjacent_boundary_vertex_distance(polygon: Polygon) -> float:
+    exterior = np.asarray(polygon.exterior.coords, dtype=np.float64)
+    best = np.inf
+
+    for i in range(len(exterior) - 1):
+        for j in range(i + 2, len(exterior) - 1):
+            if i == 0 and j == len(exterior) - 2:
+                continue
+            best = min(best, float(np.linalg.norm(exterior[i] - exterior[j])))
+
+    return best
+
+
+def _minimum_boundary_edge_length(polygon: Polygon) -> float:
+    best = np.inf
+    for ring in [polygon.exterior, *polygon.interiors]:
+        coords = np.asarray(ring.coords, dtype=np.float64)
+        if len(coords) < 2:
+            continue
+        lengths = np.hypot(
+            np.diff(coords[:, 0]),
+            np.diff(coords[:, 1]),
+        )
+        if lengths.size:
+            best = min(best, float(lengths.min()))
+    return best
 
 
 def test_build_city_flat_mesh_handles_pathological_footprints(monkeypatch):
@@ -157,6 +186,45 @@ def test_condition_meshing_footprints_regularizes_touching_holes():
     assert not meshes_module._polygon_has_ring_boundary_contacts(normalized)
 
 
+def test_regularize_flat_mesh_ground_polygons_splits_case55_style_pinch():
+    polygon = Polygon(
+        [
+            (675263.1249638698, 6581229.500071362),
+            (675274.8125201109, 6581225.406301662),
+            (675282.3125684819, 6581222.187530903),
+            (675278.5937848733, 6581210.874928664),
+            (675263.4062842835, 6581216.312428876),
+            (675261.562570048, 6581210.906283745),
+            (675276.0313192445, 6581205.718784033),
+            (675274.656285481, 6581201.468679672),
+            (675268.9687844442, 6581203.37493002),
+            (675268.375039339, 6581201.65619419),
+            (675265.3125405194, 6581201.687444177),
+            (675263.0312874243, 6581194.437434341),
+            (675245.0000353431, 6581198.656184828),
+            (675241.6875341476, 6581189.499931524),
+            (675232.7499284449, 6581192.249964047),
+            (675235.6562160432, 6581200.437569969),
+            (675239.9999676079, 6581198.96881944),
+            (675241.9374480231, 6581203.937519215),
+            (675248.093715854, 6581221.531320173),
+            (675263.4062151447, 6581216.3125704145),
+            (675265.8124304013, 6581223.499966635),
+            (675261.7499317214, 6581224.999966148),
+        ]
+    )
+
+    direct = meshes_module._regularize_flat_mesh_ground_polygons(
+        [polygon],
+        cleanup_scale=0.05,
+        cleaning_diagnostics=False,
+    )
+
+    assert _nearest_nonadjacent_boundary_vertex_distance(polygon) < 1e-3
+    assert len(direct) == 2
+    assert min(_nearest_nonadjacent_boundary_vertex_distance(part) for part in direct) > 1.0
+
+
 def test_build_city_flat_mesh_dtcc_mesher_handles_touching_holes():
     pytest.importorskip("dtcc_mesher")
 
@@ -189,6 +257,124 @@ def test_build_city_flat_mesh_dtcc_mesher_handles_touching_holes():
     assert 0 in markers
 
 
+def test_condition_flat_mesh_building_regions_removes_subscale_edges():
+    short_edge_hole = [
+        (675446.375, 6581300.46875),
+        (675444.28125, 6581294.59375),
+        (675440.6875, 6581295.875),
+        (675434.5, 6581277.5),
+        (675427.6875, 6581279.84375),
+        (675426.3125, 6581275.875),
+        (675433.09375, 6581273.5),
+        (675434.4375, 6581277.375),
+        (675434.53125, 6581277.40625),
+        (675438.25, 6581276.09375),
+        (675432.0, 6581258.4375),
+        (675428.21875, 6581259.75),
+        (675429.65625, 6581263.84375),
+        (675423.0625, 6581266.15625),
+        (675420.09375, 6581257.59375),
+        (675426.8125, 6581255.25),
+        (675427.59375, 6581253.5),
+        (675421.875, 6581236.96875),
+        (675420.375, 6581236.125),
+        (675409.78125, 6581240.03125),
+        (675424.125, 6581281.375),
+        (675425.5, 6581280.875),
+        (675430.5, 6581294.75),
+        (675428.9375, 6581295.3125),
+        (675433.75, 6581309.15625),
+        (675437.53125, 6581307.8125),
+        (675444.75, 6581328.625),
+        (675454.8125, 6581325.21875),
+        (675447.71875, 6581304.25),
+        (675443.96875, 6581305.5625),
+        (675442.6875, 6581301.78125),
+        (675446.375, 6581300.46875),
+    ]
+    xs = [point[0] for point in short_edge_hole]
+    ys = [point[1] for point in short_edge_hole]
+    tiny_notch = Polygon(
+        [
+            (min(xs) - 20.0, min(ys) - 20.0),
+            (max(xs) + 20.0, min(ys) - 20.0),
+            (max(xs) + 20.0, max(ys) + 20.0),
+            (min(xs) - 20.0, max(ys) + 20.0),
+            (min(xs) - 20.0, min(ys) - 20.0),
+        ],
+        [short_edge_hole],
+    )
+
+    polygons, markers = meshes_module._condition_flat_mesh_building_regions(
+        building_polygons=[tiny_notch],
+        building_markers=[7],
+        footprint_diagnostics={"output_grid": 0.03125},
+        max_mesh_size=10.0,
+        min_building_detail=0.5,
+        cleaning_diagnostics=False,
+    )
+
+    assert markers == [7]
+    assert len(polygons) == 1
+    assert _minimum_boundary_edge_length(tiny_notch) < 0.2
+    assert _minimum_boundary_edge_length(polygons[0]) > 1.0
+
+
+def test_build_city_flat_mesh_dtcc_mesher_uses_single_coverage_call(monkeypatch):
+    calls = {}
+
+    class DummyRawMesh:
+        def __init__(self):
+            self.points = np.array(
+                [
+                    [0.0, 0.0],
+                    [1.0, 0.0],
+                    [0.0, 1.0],
+                    [1.0, 1.0],
+                ],
+                dtype=np.float64,
+            )
+            self.triangles = np.array([[0, 1, 2], [1, 3, 2]], dtype=np.uint32)
+            self.segments = np.empty((0, 2), dtype=np.uint32)
+            self.markers = np.array([-2, 0], dtype=np.int32)
+
+    class DummyMesher:
+        def generate_coverage(self, polygons, *, markers, min_angle, max_edge_length, refine):
+            calls["polygon_count"] = len(polygons)
+            calls["markers"] = list(markers)
+            calls["min_angle"] = min_angle
+            calls["max_edge_length"] = max_edge_length
+            calls["refine"] = refine
+            return DummyRawMesh()
+
+    monkeypatch.setattr(
+        dtcc_mesher_backend_module,
+        "_load_dtcc_mesher",
+        lambda: DummyMesher(),
+    )
+
+    city = make_flat_city([make_building(box(8, 8, 18, 18), roof_z=10.0)])
+    mesh = build_city_flat_mesh(
+        city,
+        lod=GeometryType.LOD0,
+        merge_buildings=False,
+        min_building_detail=0.5,
+        min_building_area=1.0,
+        merge_tolerance=0.5,
+        max_mesh_size=5.0,
+        min_mesh_angle=20.0,
+        report_mesh_quality=False,
+        mesher="dtcc_mesher",
+    )
+
+    assert calls["polygon_count"] == 2
+    assert set(calls["markers"]) == {-2, 0}
+    assert calls["min_angle"] == 20.0
+    assert calls["max_edge_length"] == 5.0
+    assert calls["refine"] is False
+    assert set(np.asarray(mesh.markers, dtype=int)) == {-1, 0}
+
+
 def test_build_city_flat_mesh_allows_empty_conditioned_footprints(monkeypatch):
     captured = {}
 
@@ -213,9 +399,11 @@ def test_build_city_flat_mesh_allows_empty_conditioned_footprints(monkeypatch):
         max_mesh_size,
         min_mesh_angle,
         sort_triangles,
+        backend,
     ):
         captured["building_polygons"] = building_polygons
         captured["subdomain_resolution"] = subdomain_resolution
+        captured["backend"] = backend
         return DummyCppMesh()
 
     monkeypatch.setattr(meshes_module, "_condition_meshing_footprints", fake_condition)
@@ -237,6 +425,58 @@ def test_build_city_flat_mesh_allows_empty_conditioned_footprints(monkeypatch):
 
     assert captured["building_polygons"] == []
     assert captured["subdomain_resolution"] == []
+    assert captured["backend"] == "spade"
+    assert mesh.faces.shape[0] == 1
+
+
+def test_build_city_flat_mesh_forwards_triangle_backend(monkeypatch):
+    captured = {}
+
+    def fake_condition(*args, **kwargs):
+        return [], [], [], {"output_grid": 0.03125}
+
+    class DummyCppMesh:
+        def from_cpp(self):
+            return Mesh(
+                vertices=np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]),
+                faces=np.array([[0, 1, 2]], dtype=int),
+            )
+
+    def fake_build_flat_mesh(
+        building_polygons,
+        holes,
+        subdomain_resolution,
+        xmin,
+        ymin,
+        xmax,
+        ymax,
+        max_mesh_size,
+        min_mesh_angle,
+        sort_triangles,
+        backend,
+    ):
+        captured["backend"] = backend
+        return DummyCppMesh()
+
+    monkeypatch.setattr(meshes_module, "_condition_meshing_footprints", fake_condition)
+    monkeypatch.setattr(meshes_module, "resolve_2d_mesher", lambda mesher=None: mesher or "triangle")
+    monkeypatch.setattr(meshes_module._dtcc_builder, "build_city_flat_mesh", fake_build_flat_mesh)
+
+    city = make_flat_city([])
+    mesh = build_city_flat_mesh(
+        city,
+        lod=GeometryType.LOD0,
+        merge_buildings=True,
+        min_building_detail=0.5,
+        min_building_area=1.0,
+        merge_tolerance=0.5,
+        max_mesh_size=5.0,
+        min_mesh_angle=20.0,
+        report_mesh_quality=False,
+        mesher="triangle",
+    )
+
+    assert captured["backend"] == "triangle"
     assert mesh.faces.shape[0] == 1
 
 

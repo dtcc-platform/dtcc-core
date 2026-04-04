@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import importlib
-import math
 
 import numpy as np
-from shapely.geometry import GeometryCollection, MultiPolygon, Point, Polygon, box
+from shapely.geometry import GeometryCollection, MultiPolygon, Polygon
 from shapely.ops import unary_union
-from shapely.prepared import prep
 
 from .. import _dtcc_builder
 from ..logging import warning
@@ -100,59 +98,6 @@ class _PlanarDomainBuilder:
         return points, segments
 
 
-def _polygon_interior_seeds(polygon: Polygon, spacing: float | None) -> list[np.ndarray]:
-    if spacing is None or spacing <= 0:
-        return []
-
-    minx, miny, maxx, maxy = polygon.bounds
-    if maxx - minx <= spacing or maxy - miny <= spacing:
-        return []
-
-    prepared = prep(polygon)
-    vertical_step = spacing * math.sqrt(3.0) / 2.0
-    seeds: list[np.ndarray] = []
-
-    row = 0
-    y = miny + 0.5 * vertical_step
-    while y < maxy:
-        x_offset = 0.5 * spacing if row % 2 else 0.0
-        x = minx + 0.5 * spacing + x_offset
-        while x < maxx:
-            point = Point(x, y)
-            if prepared.contains(point):
-                seeds.append(np.array([x, y], dtype=np.float64))
-            x += spacing
-        y += vertical_step
-        row += 1
-
-    return seeds
-
-
-def _subdivide_loop(loop: np.ndarray, max_edge_length: float | None) -> np.ndarray:
-    clean_loop = _sanitize_loop(loop)
-    if len(clean_loop) < 3 or max_edge_length is None or max_edge_length <= 0:
-        return clean_loop
-
-    subdivided: list[np.ndarray] = []
-    for start, end in zip(clean_loop, np.vstack([clean_loop[1:], clean_loop[:1]])):
-        edge = end - start
-        length = float(np.linalg.norm(edge))
-        segment_count = max(1, int(math.ceil(length / max_edge_length)))
-
-        if not subdivided:
-            subdivided.append(start)
-
-        for step in range(1, segment_count):
-            t = step / segment_count
-            subdivided.append(start + t * edge)
-        subdivided.append(end)
-
-    if len(subdivided) > 1 and np.allclose(subdivided[0], subdivided[-1]):
-        subdivided.pop()
-
-    return np.asarray(subdivided, dtype=np.float64)
-
-
 def _surface_basis(surface: Surface) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     if surface.normal.shape != (3,):
         surface.calculate_normal()
@@ -204,19 +149,12 @@ def _project_surface(surface: Surface) -> tuple[np.ndarray, list[np.ndarray], tu
 def _build_surface_domain(
     outer_loop: np.ndarray,
     hole_loops: list[np.ndarray],
-    triangle_size: float | None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray | None]:
     builder = _PlanarDomainBuilder()
-    outer_loop = _subdivide_loop(outer_loop, triangle_size)
-    hole_loops = [_subdivide_loop(loop, triangle_size) for loop in hole_loops]
 
     builder.add_loop(outer_loop)
     for hole_loop in hole_loops:
         builder.add_loop(hole_loop)
-
-    polygon = Polygon(outer_loop, [loop for loop in hole_loops])
-    for seed in _polygon_interior_seeds(polygon, triangle_size):
-        builder.add_point(seed)
 
     hole_points = None
     if hole_loops:
@@ -264,18 +202,16 @@ def mesh_surface_with_dtcc_mesher(
 
     dtcc_mesher = _load_dtcc_mesher()
     outer_loop, hole_loops, transform = _project_surface(surface)
-    points, segments, hole_points = _build_surface_domain(
-        outer_loop,
-        hole_loops,
-        triangle_size if triangle_size is not None and triangle_size > 0 else None,
-    )
+    points, segments, hole_points = _build_surface_domain(outer_loop, hole_loops)
+    max_edge_length = triangle_size if triangle_size is not None and triangle_size > 0 else None
 
     raw_mesh = dtcc_mesher.generate(
         points,
         segments=segments if len(segments) > 0 else None,
         holes=hole_points,
         min_angle=min_mesh_angle,
-        refine=triangle_size is not None and triangle_size > 0,
+        max_edge_length=max_edge_length,
+        refine=False,
     )
 
     vertices = _lift_vertices(np.asarray(raw_mesh.points, dtype=np.float64), transform)
@@ -293,53 +229,6 @@ def _polygon_loops(polygon: Polygon) -> tuple[np.ndarray, list[np.ndarray]]:
     outer = np.asarray(polygon.exterior.coords[:-1], dtype=np.float64)
     holes = [np.asarray(ring.coords[:-1], dtype=np.float64) for ring in polygon.interiors]
     return outer, holes
-
-
-def _build_flat_domain(
-    *,
-    bounds: tuple[float, float, float, float],
-    hole_polygons: list[Polygon],
-    max_mesh_size: float | None,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray | None]:
-    xmin, ymin, xmax, ymax = bounds
-    outer_loop = np.array(
-        [
-            [xmin, ymin],
-            [xmax, ymin],
-            [xmax, ymax],
-            [xmin, ymax],
-        ],
-        dtype=np.float64,
-    )
-
-    builder = _PlanarDomainBuilder()
-    builder.add_loop(_subdivide_loop(outer_loop, max_mesh_size))
-
-    hole_points: list[np.ndarray] = []
-    excluded_loops: list[np.ndarray] = []
-    for polygon in hole_polygons:
-        if polygon.is_empty:
-            continue
-        outer, holes = _polygon_loops(polygon)
-        excluded_loops.append(_subdivide_loop(outer, max_mesh_size))
-        excluded_loops.extend(_subdivide_loop(hole, max_mesh_size) for hole in holes)
-
-    for loop in excluded_loops:
-        builder.add_loop(loop)
-        hole_points.append(np.array(Polygon(loop).representative_point().coords[0]))
-
-    domain_polygon = Polygon(
-        outer_loop,
-        [loop for loop in excluded_loops],
-    )
-    for seed in _polygon_interior_seeds(domain_polygon, max_mesh_size):
-        builder.add_point(seed)
-
-    points, segments = builder.to_arrays()
-    if not hole_points:
-        return points, segments, None
-
-    return points, segments, np.asarray(hole_points, dtype=np.float64)
 
 
 def _mesh_planar_polygon(
@@ -383,11 +272,8 @@ def _mesh_planar_polygon_component(
     min_mesh_angle: float,
 ) -> Mesh:
     outer_loop, hole_loops = _polygon_loops(polygon)
-    points, segments, hole_points = _build_surface_domain(
-        outer_loop,
-        hole_loops,
-        max_mesh_size,
-    )
+    points, segments, hole_points = _build_surface_domain(outer_loop, hole_loops)
+    max_edge_length = max_mesh_size if max_mesh_size is not None and max_mesh_size > 0 else None
 
     try:
         raw_mesh = dtcc_mesher.generate(
@@ -395,12 +281,13 @@ def _mesh_planar_polygon_component(
             segments=segments if len(segments) > 0 else None,
             holes=hole_points,
             min_angle=min_mesh_angle,
+            max_edge_length=max_edge_length,
             refine=False,
         )
     except RuntimeError as exc:
         warning(
-            "dtcc_mesher could not mesh one planar polygon component; "
-            "falling back to builder earcut without refinement."
+            "dtcc_mesher could not mesh one planar polygon component "
+            f"({exc}); falling back to builder earcut without refinement."
         )
         return _mesh_planar_polygon_with_builder_earcut(
             polygon,
@@ -483,25 +370,6 @@ def _merge_planar_meshes(meshes: list[Mesh], tolerance: float = 1e-9) -> Mesh:
     )
 
 
-def _add_halo_markers(mesh: Mesh) -> Mesh:
-    if len(mesh.faces) == 0:
-        return mesh
-
-    markers = np.asarray(mesh.markers, dtype=np.int64).copy()
-    is_building_vertex = np.zeros(len(mesh.vertices), dtype=bool)
-
-    for face, marker in zip(mesh.faces, markers):
-        if marker >= 0:
-            is_building_vertex[face] = True
-
-    for face_index, face in enumerate(mesh.faces):
-        if markers[face_index] == -2 and np.any(is_building_vertex[face]):
-            markers[face_index] = -1
-
-    mesh.markers = markers
-    return mesh
-
-
 def _iter_polygons(geometry) -> list[Polygon]:
     if geometry.is_empty:
         return []
@@ -519,59 +387,35 @@ def _iter_polygons(geometry) -> list[Polygon]:
 
 def build_city_flat_mesh_with_dtcc_mesher(
     *,
-    building_polygons: list[Polygon],
-    building_markers: list[int] | None = None,
-    hole_polygons: list[Polygon],
-    bounds: tuple[float, float, float, float],
+    region_polygons: list[Polygon],
+    region_markers: list[int],
     max_mesh_size: float,
     min_mesh_angle: float,
 ) -> Mesh:
     dtcc_mesher = _load_dtcc_mesher()
-    ground_domain = box(*bounds)
-    excluded_polygons = [polygon for polygon in [*building_polygons, *hole_polygons] if not polygon.is_empty]
-    if excluded_polygons:
-        ground_domain = ground_domain.difference(unary_union(excluded_polygons))
+    max_edge_length = max_mesh_size if max_mesh_size > 0 else None
 
-    meshes: list[Mesh] = []
-    for ground_polygon in _iter_polygons(ground_domain):
-        ground_mesh = _mesh_planar_polygon(
-            dtcc_mesher,
-            ground_polygon,
-            max_mesh_size=max_mesh_size if max_mesh_size > 0 else None,
-            min_mesh_angle=min_mesh_angle,
-        )
-        if len(ground_mesh.faces) == 0:
-            continue
-        ground_mesh.markers = np.full(
-            len(ground_mesh.faces),
-            -2,
-            dtype=np.int64,
-        )
-        meshes.append(ground_mesh)
+    if len(region_polygons) != len(region_markers):
+        raise ValueError("region_markers length must match region_polygons length")
+    if not region_polygons:
+        return Mesh()
 
-    if building_markers is not None and len(building_markers) != len(building_polygons):
-        raise ValueError("building_markers length must match building_polygons length")
+    raw_mesh = dtcc_mesher.generate_coverage(
+        region_polygons,
+        markers=region_markers,
+        min_angle=min_mesh_angle,
+        max_edge_length=max_edge_length,
+        refine=False,
+    )
 
-    for polygon_index, polygon in enumerate(building_polygons):
-        building_mesh = _mesh_planar_polygon(
-            dtcc_mesher,
-            polygon,
-            max_mesh_size=max_mesh_size if max_mesh_size > 0 else None,
-            min_mesh_angle=min_mesh_angle,
-        )
-        if len(building_mesh.faces) == 0:
-            continue
-        marker = (
-            int(building_markers[polygon_index])
-            if building_markers is not None
-            else polygon_index
-        )
-        building_mesh.markers = np.full(
-            len(building_mesh.faces),
-            marker,
-            dtype=np.int64,
-        )
-        meshes.append(building_mesh)
-
-    merged = _merge_planar_meshes(meshes)
-    return _add_halo_markers(merged)
+    vertices_2d = np.asarray(raw_mesh.points, dtype=np.float64)
+    vertices = np.column_stack(
+        [vertices_2d, np.zeros(len(vertices_2d), dtype=np.float64)]
+    )
+    faces = np.asarray(raw_mesh.triangles, dtype=np.int64)
+    markers = (
+        np.asarray(raw_mesh.markers, dtype=np.int64)
+        if raw_mesh.markers is not None
+        else np.empty((0,), dtype=np.int64)
+    )
+    return Mesh(vertices=vertices, faces=faces, markers=markers)

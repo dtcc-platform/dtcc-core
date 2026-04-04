@@ -5,11 +5,14 @@
 #define DTCC_MESH_BUILDER_H
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <iostream>
 #include <limits>
 #include <map>
 #include <stack>
+#include <stdexcept>
+#include <string>
 #include <tuple>
 #include <vector>
 
@@ -119,7 +122,8 @@ public:
                                    const std::vector<Polygon> &holes,
                                    const std::vector<double> &subdomain_triangle_size, double xmin,
                                    double ymin, double xmax, double ymax, double max_mesh_size,
-                                   double min_mesh_angle, bool sort_triangles = false)
+                                   double min_mesh_angle, bool sort_triangles = false,
+                                   const std::string &backend = "auto")
   {
     info("Building city flat mesh...");
     Timer timer("build_city_flat_mesh");
@@ -169,34 +173,22 @@ public:
     boundary.push_back(Vector2D(bounding_box.P.x, bounding_box.Q.y));
 
     Mesh mesh;
-#ifdef DTCC_HAVE_TRIANGLE
-    info("Triangulation Backend: Triangle");
-    Triangulate::call_triangle(mesh, boundary, triangle_sub_domains, triangle_holes,
-                               subdomain_triangle_size, max_mesh_size, min_mesh_angle,
-                               sort_triangles);
-#else
-    info("Triangulation Backend: Spade");
-    double effective_maxh = max_mesh_size;
-    if (!subdomain_triangle_size.empty())
+    const auto selected_backend = resolve_2d_backend(backend);
+    if (selected_backend == TriangulationBackend::Triangle)
     {
-      double min_subdomain = std::numeric_limits<double>::max();
-      for (double h : subdomain_triangle_size)
-      {
-        if (h > 0.0)
-          min_subdomain = std::min(min_subdomain, h);
-      }
-      if (min_subdomain < std::numeric_limits<double>::max())
-      {
-        if (effective_maxh > 0.0)
-          effective_maxh = std::min(effective_maxh, min_subdomain);
-        else
-          effective_maxh = min_subdomain;
-      }
+      info("Triangulation Backend: Triangle");
+      Triangulate::call_triangle(mesh, boundary, triangle_sub_domains, triangle_holes,
+                                 subdomain_triangle_size, max_mesh_size, min_mesh_angle,
+                                 sort_triangles);
     }
-
-    Triangulate::call_spade(mesh, boundary, triangle_holes, triangle_sub_domains, effective_maxh,
-                            min_mesh_angle, sort_triangles);
-#endif
+    else
+    {
+      info("Triangulation Backend: Spade");
+      const double effective_maxh =
+          compute_effective_spade_mesh_size(subdomain_triangle_size, max_mesh_size);
+      Triangulate::call_spade(mesh, boundary, triangle_holes, triangle_sub_domains,
+                              effective_maxh, min_mesh_angle, sort_triangles);
+    }
 
     MeshProcessor::compute_mesh_domain_markers(mesh, subdomains);
 
@@ -748,7 +740,8 @@ public:
 
   static Mesh mesh_surface(const Surface &surface,
 
-                           double max_triangle_area_size = -1, double min_mesh_angle = 25)
+                           double max_triangle_area_size = -1, double min_mesh_angle = 25,
+                           const std::string &backend = "auto")
   // Convert 3D Surface to triangle Mesh.
   // - If max_triangle_area_size < 0: uses fast_mesh (earcut/fan triangulation)
   // - If max_triangle_area_size >= 0:
@@ -764,18 +757,19 @@ public:
     }
     else
     {
-#ifdef DTCC_HAVE_TRIANGLE
-      Triangulate::call_triangle(mesh, surface, max_triangle_area_size, min_mesh_angle);
-#else
-      Triangulate::call_spade(mesh, surface, max_triangle_area_size, min_mesh_angle);
-#endif
+      const auto selected_backend = resolve_2d_backend(backend);
+      if (selected_backend == TriangulationBackend::Triangle)
+        Triangulate::call_triangle(mesh, surface, max_triangle_area_size, min_mesh_angle);
+      else
+        Triangulate::call_spade(mesh, surface, max_triangle_area_size, min_mesh_angle);
     }
     return mesh;
   }
 
   static Mesh mesh_multisurface(const MultiSurface &multi_surface,
                                 double max_triangle_area_size = -1, double min_mesh_angle = 25,
-                                bool weld = false, double snap = 0)
+                                bool weld = false, double snap = 0,
+                                const std::string &backend = "auto")
   {
     std::vector<Mesh> multimesh(multi_surface.surfaces.size());
     //    info("meshing multisurface with " + str(multi_surface.surfaces.size())
@@ -785,7 +779,7 @@ public:
     for (size_t i = 0; i < multi_surface.surfaces.size(); i++)
     {
       multimesh[i] =
-          mesh_surface(multi_surface.surfaces[i], max_triangle_area_size, min_mesh_angle);
+          mesh_surface(multi_surface.surfaces[i], max_triangle_area_size, min_mesh_angle, backend);
     }
     // for (const auto &surface : multi_surface.surfaces)
     // {
@@ -800,7 +794,8 @@ public:
 
   static std::vector<Mesh> mesh_multisurfaces(const std::vector<MultiSurface> &multi_surfaces,
                                               double max_triangle_area_size = -1,
-                                              double min_mesh_angle = 25, bool weld = false)
+                                              double min_mesh_angle = 25, bool weld = false,
+                                              const std::string &backend = "auto")
   {
     int n = multi_surfaces.size();
     std::vector<Mesh> meshes(n);
@@ -808,7 +803,8 @@ public:
     for (int i = 0; i < n; i++)
     {
       auto mesh =
-          mesh_multisurface(multi_surfaces[i], max_triangle_area_size, min_mesh_angle, weld);
+          mesh_multisurface(multi_surfaces[i], max_triangle_area_size, min_mesh_angle, weld, 0.0,
+                            backend);
       meshes[i] = mesh;
     }
 
@@ -816,6 +812,83 @@ public:
   }
 
 private:
+  enum class TriangulationBackend
+  {
+    Triangle,
+    Spade,
+  };
+
+  static std::string normalize_backend_name(const std::string &backend)
+  {
+    std::string normalized = backend;
+    std::transform(
+        normalized.begin(), normalized.end(), normalized.begin(),
+        [](unsigned char c)
+        { return static_cast<char>(std::tolower(c)); });
+    return normalized;
+  }
+
+  static TriangulationBackend resolve_2d_backend(const std::string &backend)
+  {
+    const std::string normalized = normalize_backend_name(backend);
+    if (normalized.empty() || normalized == "auto")
+    {
+#ifdef DTCC_HAVE_TRIANGLE
+      return TriangulationBackend::Triangle;
+#elif defined(DTCC_HAVE_SPADE)
+      return TriangulationBackend::Spade;
+#else
+      throw std::runtime_error("No triangulation backend is available in this build.");
+#endif
+    }
+
+    if (normalized == "triangle")
+    {
+#ifdef DTCC_HAVE_TRIANGLE
+      return TriangulationBackend::Triangle;
+#else
+      throw std::runtime_error(
+          "Triangle support not built; reinstall dtcc-core with DTCC_USE_TRIANGLE=ON.");
+#endif
+    }
+
+    if (normalized == "spade")
+    {
+#ifdef DTCC_HAVE_SPADE
+      return TriangulationBackend::Spade;
+#else
+      throw std::runtime_error(
+          "SPADE support not built; install dtcc-pyspade-native and reinstall dtcc-core.");
+#endif
+    }
+
+    throw std::invalid_argument(
+        "Unsupported 2D mesher '" + backend + "'. Expected one of: auto, triangle, spade.");
+  }
+
+  static double compute_effective_spade_mesh_size(
+      const std::vector<double> &subdomain_triangle_size, double max_mesh_size)
+  {
+    double effective_maxh = max_mesh_size;
+    if (!subdomain_triangle_size.empty())
+    {
+      double min_subdomain = std::numeric_limits<double>::max();
+      for (double h : subdomain_triangle_size)
+      {
+        if (h > 0.0)
+          min_subdomain = std::min(min_subdomain, h);
+      }
+      if (min_subdomain < std::numeric_limits<double>::max())
+      {
+        if (effective_maxh > 0.0)
+          effective_maxh = std::min(effective_maxh, min_subdomain);
+        else
+          effective_maxh = min_subdomain;
+      }
+    }
+    return effective_maxh;
+  }
+
   // Map from 2D cell index to 3D cell indices
   static size_t index_3d(size_t layer, size_t layer_size, size_t cell_index_2d, size_t j)
   {

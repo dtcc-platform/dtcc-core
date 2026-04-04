@@ -2,7 +2,7 @@ from typing import Any, Dict, Optional, List, Sequence
 import numpy as np
 from shapely import BufferJoinStyle
 from shapely.errors import GEOSException
-from shapely.geometry import GeometryCollection, MultiPolygon, Polygon
+from shapely.geometry import GeometryCollection, MultiPolygon, Polygon, box
 from shapely.geometry.polygon import orient
 from shapely.ops import unary_union
 
@@ -35,6 +35,7 @@ from ..cleaning import (
     condition_building_footprints,
     condition_polygon_coverage,
 )
+from ..cleaning import footprints as cleaning_footprints
 
 from ..logging import debug, info, warning, error
 from ..meshing.backends import resolve_2d_mesher
@@ -57,6 +58,13 @@ def _missing_build_city_flat_mesh(*_args, **_kwargs):
 
 if not hasattr(_dtcc_builder, "build_city_flat_mesh"):
     _dtcc_builder.build_city_flat_mesh = _missing_build_city_flat_mesh
+
+
+_GROUND_MESH_CLEANUP_SCALE_FRACTION = 0.005
+_GROUND_MESH_CLEANUP_SCALE_MIN = 0.01
+_GROUND_MESH_CLEANUP_SCALE_MAX = 0.1
+_FLAT_MESH_BUILDING_CLEANUP_SCALE_FRACTION = 0.25
+_FLAT_MESH_BUILDING_CLEANUP_DETAIL_MULTIPLIER = 5.0
 
 
 def _call_builder_city_surface_mesh(
@@ -114,6 +122,279 @@ def _normalize_lod_values(
     if not all(isinstance(value, GeometryType) for value in lod):
         raise TypeError("all elements in lod list must be GeometryType instances")
     return list(lod)
+
+
+def _iter_polygon_components(geometry) -> list[Polygon]:
+    if geometry.is_empty:
+        return []
+    if isinstance(geometry, Polygon):
+        return [geometry]
+    if isinstance(geometry, MultiPolygon):
+        return [polygon for polygon in geometry.geoms if not polygon.is_empty]
+    if isinstance(geometry, GeometryCollection):
+        polygons: list[Polygon] = []
+        for item in geometry.geoms:
+            polygons.extend(_iter_polygon_components(item))
+        return polygons
+    return []
+
+
+def _flat_mesh_ground_cleanup_scale(
+    *,
+    max_mesh_size: float,
+    footprint_diagnostics: dict[str, Any],
+) -> float | None:
+    output_grid = float(footprint_diagnostics.get("output_grid", 0.0) or 0.0)
+    mesh_scale = 0.0
+
+    if max_mesh_size > 0.0:
+        mesh_scale = min(
+            max(max_mesh_size * _GROUND_MESH_CLEANUP_SCALE_FRACTION, _GROUND_MESH_CLEANUP_SCALE_MIN),
+            _GROUND_MESH_CLEANUP_SCALE_MAX,
+        )
+
+    cleanup_scale = max(output_grid, mesh_scale)
+    if cleanup_scale <= 0.0:
+        return None
+
+    return cleanup_scale
+
+
+def _condition_flat_mesh_ground_polygons(
+    *,
+    bounds: tuple[float, float, float, float],
+    building_polygons: list[Polygon],
+    hole_polygons: list[Polygon],
+    max_mesh_size: float,
+    footprint_diagnostics: dict[str, Any],
+    cleaning_diagnostics: bool,
+) -> list[Polygon]:
+    ground_domain = box(*bounds)
+    excluded_polygons = [
+        polygon
+        for polygon in [*building_polygons, *hole_polygons]
+        if polygon is not None and not polygon.is_empty
+    ]
+    if excluded_polygons:
+        ground_domain = ground_domain.difference(unary_union(excluded_polygons))
+
+    ground_polygons = _iter_polygon_components(ground_domain)
+    cleanup_scale = _flat_mesh_ground_cleanup_scale(
+        max_mesh_size=max_mesh_size,
+        footprint_diagnostics=footprint_diagnostics,
+    )
+    return _regularize_flat_mesh_ground_polygons(
+        ground_polygons,
+        cleanup_scale=cleanup_scale,
+        cleaning_diagnostics=cleaning_diagnostics,
+    )
+
+
+def _regularize_flat_mesh_ground_polygons(
+    ground_polygons: list[Polygon],
+    *,
+    cleanup_scale: float | None,
+    cleaning_diagnostics: bool,
+) -> list[Polygon]:
+    if cleanup_scale is None or not ground_polygons:
+        return ground_polygons
+
+    conditioned: list[Polygon] = []
+    split_components = 0
+    for polygon in ground_polygons:
+        result = condition_polygon_coverage(
+            [polygon],
+            options=ConditioningOptions(
+                precision_grid=None,
+                min_feature_size=cleanup_scale,
+                merge_distance=0.0,
+                min_area=0.0,
+                min_hole_area=cleanup_scale**2,
+                collect_stage_metrics=False,
+                enable_logging=False,
+            ),
+        )
+        parts = [candidate for candidate in result.polygons if not candidate.is_empty]
+        conditioned.extend(parts)
+        split_components += max(len(parts) - 1, 0)
+
+    if cleaning_diagnostics:
+        debug(
+            "Flat mesh ground conditioning: "
+            f"{len(ground_polygons)} -> {len(conditioned)} polygons, "
+            f"cleanup_scale={cleanup_scale} m, "
+            f"split_components={split_components}"
+        )
+
+    return conditioned
+
+
+def _condition_flat_mesh_building_regions(
+    *,
+    building_polygons: list[Polygon],
+    building_markers: list[int],
+    footprint_diagnostics: dict[str, Any],
+    max_mesh_size: float,
+    min_building_detail: float,
+    cleaning_diagnostics: bool,
+) -> tuple[list[Polygon], list[int]]:
+    if len(building_polygons) != len(building_markers):
+        raise ValueError("building_markers length must match building_polygons length")
+    if not building_polygons:
+        return [], []
+
+    output_grid = float(footprint_diagnostics.get("output_grid", 0.0) or 0.0)
+    result = condition_polygon_coverage(
+        building_polygons,
+        source_map=[[index] for index in range(len(building_polygons))],
+        options=ConditioningOptions(
+            precision_grid=output_grid if output_grid > 0.0 else None,
+            min_feature_size=0.0,
+            merge_distance=0.0,
+            min_area=0.0,
+            min_hole_area=0.0,
+            collect_stage_metrics=False,
+            enable_logging=False,
+        ),
+    )
+
+    conditioned_polygons = [polygon for polygon in result.polygons if not polygon.is_empty]
+    conditioned_sources = [
+        list(sources)
+        for polygon, sources in zip(result.polygons, result.source_map)
+        if not polygon.is_empty
+    ]
+
+    cleanup_candidates = []
+    if max_mesh_size > 0.0:
+        cleanup_candidates.append(
+            max_mesh_size * _FLAT_MESH_BUILDING_CLEANUP_SCALE_FRACTION
+        )
+    if min_building_detail > 0.0:
+        cleanup_candidates.append(
+            min_building_detail * _FLAT_MESH_BUILDING_CLEANUP_DETAIL_MULTIPLIER
+        )
+
+    cleanup_scale = None
+    if cleanup_candidates:
+        cleanup_scale = min(cleanup_candidates)
+        if min_building_detail > 0.0:
+            cleanup_scale = max(cleanup_scale, min_building_detail)
+
+    if cleanup_scale is not None and conditioned_polygons:
+        cleanup_grid = output_grid if output_grid > 0.0 else max(cleanup_scale / 16.0, 1e-9)
+        cleanup_hole_area = max(cleanup_scale**2, cleanup_grid**2)
+        cleanup_diagnostics = cleaning_footprints._empty_diagnostics(
+            len(conditioned_polygons)
+        )
+        conditioned_polygons, conditioned_sources = (
+            cleaning_footprints._simplify_polygons_for_meshing(
+                conditioned_polygons,
+                conditioned_sources,
+                min_segment_length=cleanup_scale,
+                grid=cleanup_grid,
+                min_area=0.0,
+                min_hole_area=cleanup_hole_area,
+                diagnostics=cleanup_diagnostics,
+            )
+        )
+        conditioned_polygons, conditioned_sources = (
+            cleaning_footprints._regularize_low_clearance_polygons(
+                conditioned_polygons,
+                conditioned_sources,
+                min_clearance=cleanup_scale,
+                grid=cleanup_grid,
+                min_area=0.0,
+                min_hole_area=cleanup_hole_area,
+                diagnostics=cleanup_diagnostics,
+            )
+        )
+        conditioned_polygons, conditioned_sources = (
+            cleaning_footprints._simplify_polygons_for_meshing(
+                conditioned_polygons,
+                conditioned_sources,
+                min_segment_length=cleanup_scale,
+                grid=cleanup_grid,
+                min_area=0.0,
+                min_hole_area=cleanup_hole_area,
+                diagnostics=cleanup_diagnostics,
+            )
+        )
+
+    conditioned_markers: list[int] = []
+    resolved_polygons: list[Polygon] = []
+    for polygon, sources in zip(conditioned_polygons, conditioned_sources):
+        marker_candidates = {
+            building_markers[source_index]
+            for source_index in sources
+            if 0 <= source_index < len(building_markers)
+        }
+        if not marker_candidates:
+            continue
+        resolved_polygons.append(polygon)
+        conditioned_markers.append(min(marker_candidates))
+
+    if cleaning_diagnostics:
+        debug(
+            "Flat mesh building coverage canonicalization: "
+            f"{len(building_polygons)} -> {len(resolved_polygons)} polygons, "
+            f"output_grid={output_grid} m, "
+            f"cleanup_scale={cleanup_scale} m"
+        )
+
+    return resolved_polygons, conditioned_markers
+
+
+def _condition_flat_mesh_coverage_regions(
+    *,
+    bounds: tuple[float, float, float, float],
+    building_polygons: list[Polygon],
+    building_markers: list[int],
+    hole_polygons: list[Polygon],
+    max_mesh_size: float,
+    min_building_detail: float,
+    footprint_diagnostics: dict[str, Any],
+    cleaning_diagnostics: bool,
+) -> tuple[list[Polygon], list[int]]:
+    building_polygons, building_markers = _condition_flat_mesh_building_regions(
+        building_polygons=building_polygons,
+        building_markers=building_markers,
+        footprint_diagnostics=footprint_diagnostics,
+        max_mesh_size=max_mesh_size,
+        min_building_detail=min_building_detail,
+        cleaning_diagnostics=cleaning_diagnostics,
+    )
+
+    ground_polygons = _condition_flat_mesh_ground_polygons(
+        bounds=bounds,
+        building_polygons=building_polygons,
+        hole_polygons=hole_polygons,
+        max_mesh_size=max_mesh_size,
+        footprint_diagnostics=footprint_diagnostics,
+        cleaning_diagnostics=cleaning_diagnostics,
+    )
+    region_polygons = [*ground_polygons, *building_polygons]
+    region_markers = [-2] * len(ground_polygons) + [int(marker) for marker in building_markers]
+    return region_polygons, region_markers
+
+
+def _add_flat_mesh_halo_markers(mesh: Mesh) -> Mesh:
+    if len(mesh.faces) == 0 or mesh.markers is None or len(mesh.markers) == 0:
+        return mesh
+
+    markers = np.asarray(mesh.markers, dtype=np.int64).copy()
+    is_building_vertex = np.zeros(len(mesh.vertices), dtype=bool)
+
+    for face, marker in zip(mesh.faces, markers):
+        if marker >= 0:
+            is_building_vertex[face] = True
+
+    for face_index, face in enumerate(mesh.faces):
+        if markers[face_index] == -2 and np.any(is_building_vertex[face]):
+            markers[face_index] = -1
+
+    mesh.markers = markers
+    return mesh
 
 
 def _extract_meshing_polygon(
@@ -587,10 +868,9 @@ def build_city_flat_mesh(
         Minimum footprint area; smaller buildings are dropped (default 15.0).
     merge_tolerance : float, optional
         Distance tolerance for merging footprints (default 0.5).
-    mesher : {"auto", "dtcc_mesher", "spade"}, optional
+    mesher : {"auto", "dtcc_mesher", "triangle", "spade"}, optional
         Select the 2D meshing backend. ``"auto"`` prefers ``dtcc_mesher``
-        when it is installed and otherwise falls back to the existing builder
-        path.
+        when it is installed, then ``triangle``, then ``spade``.
 
     Returns
     -------
@@ -647,22 +927,32 @@ def build_city_flat_mesh(
             marker_lookup[marker_key] = len(marker_lookup)
         building_markers.append(marker_lookup[marker_key])
     active_mesher = resolve_2d_mesher(mesher)
+    flat_mesh_bounds = (
+        terrain.bounds.xmin,
+        terrain.bounds.ymin,
+        terrain.bounds.xmax,
+        terrain.bounds.ymax,
+    )
 
     if active_mesher == "dtcc_mesher":
-        report_progress(percent=30, message="Building city flat mesh (dtcc_mesher)...")
-        flat_mesh = build_city_flat_mesh_with_dtcc_mesher(
+        region_polygons, region_markers = _condition_flat_mesh_coverage_regions(
+            bounds=flat_mesh_bounds,
             building_polygons=building_polygons,
             building_markers=building_markers,
             hole_polygons=[],
-            bounds=(
-                terrain.bounds.xmin,
-                terrain.bounds.ymin,
-                terrain.bounds.xmax,
-                terrain.bounds.ymax,
-            ),
+            max_mesh_size=max_mesh_size,
+            min_building_detail=min_building_detail,
+            footprint_diagnostics=diagnostics,
+            cleaning_diagnostics=cleaning_diagnostics,
+        )
+        report_progress(percent=30, message="Building city flat mesh (dtcc_mesher)...")
+        flat_mesh = build_city_flat_mesh_with_dtcc_mesher(
+            region_polygons=region_polygons,
+            region_markers=region_markers,
             max_mesh_size=max_mesh_size,
             min_mesh_angle=min_mesh_angle,
         )
+        flat_mesh = _add_flat_mesh_halo_markers(flat_mesh)
     else:
         _building_polygons = [
             create_builder_polygon(polygon)
@@ -682,6 +972,7 @@ def build_city_flat_mesh(
                 max_mesh_size,
                 min_mesh_angle,
                 True,
+                active_mesher,
             )
             flat_mesh = _flat_mesh.from_cpp()
         except RuntimeError:
@@ -689,19 +980,23 @@ def build_city_flat_mesh(
                 "Builder flat-mesh path is unavailable in this _dtcc_builder build; "
                 "falling back to dtcc_mesher."
             )
-            flat_mesh = build_city_flat_mesh_with_dtcc_mesher(
+            region_polygons, region_markers = _condition_flat_mesh_coverage_regions(
+                bounds=flat_mesh_bounds,
                 building_polygons=building_polygons,
                 building_markers=building_markers,
                 hole_polygons=[],
-                bounds=(
-                    terrain.bounds.xmin,
-                    terrain.bounds.ymin,
-                    terrain.bounds.xmax,
-                    terrain.bounds.ymax,
-                ),
+                max_mesh_size=max_mesh_size,
+                min_building_detail=min_building_detail,
+                footprint_diagnostics=diagnostics,
+                cleaning_diagnostics=cleaning_diagnostics,
+            )
+            flat_mesh = build_city_flat_mesh_with_dtcc_mesher(
+                region_polygons=region_polygons,
+                region_markers=region_markers,
                 max_mesh_size=max_mesh_size,
                 min_mesh_angle=min_mesh_angle,
             )
+            flat_mesh = _add_flat_mesh_halo_markers(flat_mesh)
 
     if report_mesh_quality:
         from dtcc_core.model.mixins.mesh.quality import (

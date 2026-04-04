@@ -1,8 +1,7 @@
 import pytest
 import numpy as np
-from pathlib import Path
-from shapely.geometry import Polygon
 from dtcc_core.builder.meshing import (
+    backends as backends_module,
     mesh_multisurface,
     mesh_surface,
     mesh_multisurfaces,
@@ -186,6 +185,34 @@ def test_mesh_multisurface_dtcc_mesher_backend(multi_surface):
     assert mesh.faces.shape[0] >= 4
     assert pytest.approx(mesh.vertices[:, 2].min()) == 0
     assert pytest.approx(mesh.vertices[:, 2].max()) == 8
+
+
+def test_mesh_surface_dtcc_mesher_triangle_size_controls_density(simple_surface):
+    pytest.importorskip("dtcc_mesher")
+
+    coarse = mesh_surface(simple_surface, mesher="dtcc_mesher")
+    refined = mesh_surface(simple_surface, triangle_size=5.0, mesher="dtcc_mesher")
+
+    assert refined.faces.shape[0] > coarse.faces.shape[0]
+    assert refined.vertices.shape[0] > coarse.vertices.shape[0]
+
+
+def test_available_2d_meshers_reports_triangle_and_spade(monkeypatch):
+    monkeypatch.setattr(
+        backends_module.importlib.util,
+        "find_spec",
+        lambda name: object() if name == "dtcc_mesher" else None,
+    )
+    monkeypatch.setattr(
+        backends_module,
+        "_builder_backend_available",
+        lambda name: name in {"triangle", "spade"},
+    )
+
+    assert backends_module.available_2d_meshers() == ["dtcc_mesher", "triangle", "spade"]
+    assert backends_module.resolve_2d_mesher("triangle") == "triangle"
+    assert backends_module.resolve_2d_mesher("spade") == "spade"
+    assert backends_module.resolve_2d_mesher("auto") == "dtcc_mesher"
 
 
 def test_snap_mesh_vertices():
