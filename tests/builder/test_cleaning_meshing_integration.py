@@ -339,12 +339,24 @@ def test_build_city_flat_mesh_dtcc_mesher_uses_single_coverage_call(monkeypatch)
             self.markers = np.array([-2, 0], dtype=np.int32)
 
     class DummyMesher:
-        def generate_coverage(self, polygons, *, markers, min_angle, max_edge_length, refine):
-            calls["polygon_count"] = len(polygons)
-            calls["markers"] = list(markers)
-            calls["min_angle"] = min_angle
-            calls["max_edge_length"] = max_edge_length
-            calls["refine"] = refine
+        class Coverage:
+            def __init__(self, polygons, markers, *, tolerance=1e-9):
+                self.polygons = tuple(polygons)
+                self.markers = tuple(markers)
+                self.tolerance = tolerance
+
+        class MeshingOptions:
+            def __init__(self, *, min_angle, max_edge_length, refine):
+                self.min_angle = min_angle
+                self.max_edge_length = max_edge_length
+                self.refine = refine
+
+        def mesh(self, geometry, *, options):
+            calls["polygon_count"] = len(geometry.polygons)
+            calls["markers"] = list(geometry.markers)
+            calls["min_angle"] = options.min_angle
+            calls["max_edge_length"] = options.max_edge_length
+            calls["refine"] = options.refine
             return DummyRawMesh()
 
     monkeypatch.setattr(
