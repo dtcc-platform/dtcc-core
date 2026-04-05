@@ -1,8 +1,13 @@
+import subprocess
+import sys
+import textwrap
+
 import numpy as np
 import pytest
 from shapely.geometry import Polygon, box
 
 from dtcc_core.builder import (
+    _dtcc_builder,
     build_city_flat_mesh,
     build_city_surface_mesh,
     build_city_volume_mesh,
@@ -12,7 +17,9 @@ from dtcc_core.builder import (
 )
 from dtcc_core.builder.building.modify import clean_building_footprints
 from dtcc_core.builder.geometry_builders import meshes as meshes_module
+from dtcc_core.builder.model_conversion import builder_mesh_to_mesh, create_builder_polygon
 from dtcc_core.builder.meshing import dtcc_mesher_backend as dtcc_mesher_backend_module
+from dtcc_core.builder.meshing import flat_mesh_backends as flat_mesh_backends_module
 from dtcc_core.builder.meshing.tetgen import is_tetgen_available
 from dtcc_core.model import Building, Bounds, City, GeometryType, Mesh, Raster, Surface, Terrain
 
@@ -320,6 +327,29 @@ def test_condition_flat_mesh_building_regions_removes_subscale_edges():
     assert _minimum_boundary_edge_length(polygons[0]) > 1.0
 
 
+def test_condition_flat_mesh_building_regions_preserves_mesher_ready_holes():
+    touching_holes = Polygon(
+        [(8, 8), (28, 8), (28, 28), (8, 28), (8, 8)],
+        [
+            [(12, 12), (16, 12), (16, 16), (12, 16), (12, 12)],
+            [(16, 16), (22, 16), (22, 24), (16, 24), (16, 16)],
+        ],
+    )
+
+    polygons, markers = meshes_module._condition_flat_mesh_building_regions(
+        building_polygons=[touching_holes],
+        building_markers=[3],
+        footprint_diagnostics={"output_grid": 0.03125},
+        max_mesh_size=10.0,
+        min_building_detail=0.5,
+        cleaning_diagnostics=False,
+    )
+
+    assert markers == [3]
+    assert polygons
+    assert all(not meshes_module._polygon_has_ring_boundary_contacts(polygon) for polygon in polygons)
+
+
 def test_build_city_flat_mesh_dtcc_mesher_uses_single_coverage_call(monkeypatch):
     calls = {}
 
@@ -385,6 +415,63 @@ def test_build_city_flat_mesh_dtcc_mesher_uses_single_coverage_call(monkeypatch)
     assert calls["max_edge_length"] == 5.0
     assert calls["refine"] is False
     assert set(np.asarray(mesh.markers, dtype=int)) == {-1, 0}
+
+
+def test_build_city_flat_mesh_triangle_uses_conditioned_coverage(monkeypatch):
+    captured = {}
+
+    def fake_condition(*args, **kwargs):
+        return [make_surface(box(8, 8, 18, 18), 10.0)], [[0]], [], {"output_grid": 0.03125}
+
+    def fake_condition_coverage_regions(**kwargs):
+        captured["coverage_building_count"] = len(kwargs["building_polygons"])
+        captured["coverage_markers"] = list(kwargs["building_markers"])
+        return [box(0, 0, 80, 80), box(8, 8, 18, 18)], [-2, 7]
+
+    def fake_build_from_coverage(
+        *,
+        region_polygons,
+        region_markers,
+        bounds,
+        max_mesh_size,
+        min_mesh_angle,
+        backend,
+    ):
+        captured["region_polygon_count"] = len(region_polygons)
+        captured["region_markers"] = list(region_markers)
+        captured["bounds"] = bounds
+        captured["backend"] = backend
+        return Mesh(
+            vertices=np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]),
+            faces=np.array([[0, 1, 2]], dtype=int),
+            markers=np.array([-2], dtype=int),
+        )
+
+    monkeypatch.setattr(meshes_module, "_condition_meshing_footprints", fake_condition)
+    monkeypatch.setattr(meshes_module, "_condition_flat_mesh_coverage_regions", fake_condition_coverage_regions)
+    monkeypatch.setattr(meshes_module, "build_city_flat_mesh_from_coverage", fake_build_from_coverage)
+
+    city = make_flat_city([make_building(box(8, 8, 18, 18), roof_z=10.0)])
+    mesh = build_city_flat_mesh(
+        city,
+        lod=GeometryType.LOD0,
+        merge_buildings=False,
+        min_building_detail=0.5,
+        min_building_area=1.0,
+        merge_tolerance=0.5,
+        max_mesh_size=5.0,
+        min_mesh_angle=20.0,
+        report_mesh_quality=False,
+        mesher="triangle",
+    )
+
+    assert captured["coverage_building_count"] == 1
+    assert captured["coverage_markers"] == [0]
+    assert captured["region_polygon_count"] == 2
+    assert captured["region_markers"] == [-2, 7]
+    assert captured["bounds"] == (0.0, 0.0, 80.0, 80.0)
+    assert captured["backend"] == "triangle"
+    assert mesh.faces.shape[0] == 1
 
 
 def test_build_city_flat_mesh_allows_empty_conditioned_footprints(monkeypatch):
@@ -490,6 +577,182 @@ def test_build_city_flat_mesh_forwards_triangle_backend(monkeypatch):
 
     assert captured["backend"] == "triangle"
     assert mesh.faces.shape[0] == 1
+
+
+def test_build_city_flat_mesh_marks_halos_for_triangle_backend(monkeypatch):
+    def fake_condition(*args, **kwargs):
+        return [make_surface(box(8, 8, 18, 18), 10.0)], [[0]], [], {"output_grid": 0.03125}
+
+    def fake_condition_coverage_regions(**kwargs):
+        return [box(0, 0, 80, 80), box(8, 8, 18, 18)], [-2, 7]
+
+    def fake_build_from_coverage(**kwargs):
+        return Mesh(
+            vertices=np.array(
+                [
+                    [0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0],
+                    [1.0, 1.0, 0.0],
+                ]
+            ),
+            faces=np.array([[0, 1, 2], [1, 3, 2]], dtype=int),
+            markers=np.array([-2, 7], dtype=int),
+        )
+
+    monkeypatch.setattr(meshes_module, "_condition_meshing_footprints", fake_condition)
+    monkeypatch.setattr(meshes_module, "_condition_flat_mesh_coverage_regions", fake_condition_coverage_regions)
+    monkeypatch.setattr(meshes_module, "build_city_flat_mesh_from_coverage", fake_build_from_coverage)
+
+    city = make_flat_city([make_building(box(8, 8, 18, 18), roof_z=10.0)])
+    mesh = build_city_flat_mesh(
+        city,
+        lod=GeometryType.LOD0,
+        merge_buildings=False,
+        min_building_detail=0.5,
+        min_building_area=1.0,
+        merge_tolerance=0.5,
+        max_mesh_size=5.0,
+        min_mesh_angle=20.0,
+        report_mesh_quality=False,
+        mesher="triangle",
+    )
+
+    assert np.array_equal(np.asarray(mesh.markers, dtype=int), np.array([-1, 7], dtype=int))
+
+
+def test_builder_flat_mesh_backend_remaps_canonical_region_markers(monkeypatch):
+    captured = {}
+
+    class DummyCppMesh:
+        def from_cpp(self):
+            return Mesh(
+                vertices=np.array(
+                    [
+                        [0.0, 0.0, 0.0],
+                        [1.0, 0.0, 0.0],
+                        [0.0, 1.0, 0.0],
+                    ]
+                ),
+                faces=np.array([[0, 1, 2], [0, 2, 1], [1, 2, 0]], dtype=int),
+                markers=np.array([0, -1, -2], dtype=int),
+            )
+
+    def fake_create_builder_polygon(polygon):
+        return polygon
+
+    def fake_build_flat_mesh(
+        building_polygons,
+        holes,
+        subdomain_resolution,
+        xmin,
+        ymin,
+        xmax,
+        ymax,
+        max_mesh_size,
+        min_mesh_angle,
+        sort_triangles,
+        backend,
+    ):
+        captured["building_polygon_count"] = len(building_polygons)
+        captured["subdomain_resolution"] = list(subdomain_resolution)
+        captured["backend"] = backend
+        return DummyCppMesh()
+
+    monkeypatch.setattr(flat_mesh_backends_module, "create_builder_polygon", fake_create_builder_polygon)
+    monkeypatch.setattr(flat_mesh_backends_module._dtcc_builder, "build_city_flat_mesh", fake_build_flat_mesh)
+
+    mesh = flat_mesh_backends_module.build_city_flat_mesh_with_builder_backend(
+        region_polygons=[box(0, 0, 10, 10), box(2, 2, 4, 4)],
+        region_markers=[-2, 7],
+        bounds=(0.0, 0.0, 10.0, 10.0),
+        max_mesh_size=5.0,
+        min_mesh_angle=20.0,
+        backend="triangle",
+    )
+
+    assert captured["building_polygon_count"] == 1
+    assert captured["subdomain_resolution"] == []
+    assert captured["backend"] == "triangle"
+    assert np.array_equal(np.asarray(mesh.markers, dtype=int), np.array([7, -1, -2], dtype=int))
+
+
+def test_native_triangle_shared_vertex_regions_survive_python_conversion():
+    if "triangle" not in _dtcc_builder.triangulation_backends():
+        pytest.skip("Triangle backend not built")
+
+    script = textwrap.dedent(
+        """
+        from shapely.geometry import Polygon
+        from dtcc_core.builder import _dtcc_builder
+        from dtcc_core.builder.model_conversion import create_builder_polygon
+
+        polygon_a = create_builder_polygon(
+            Polygon([(2, 2), (10, 2), (10, 10), (2, 10), (2, 2)])
+        )
+        polygon_b = create_builder_polygon(
+            Polygon([(10, 10), (18, 10), (18, 18), (10, 18), (10, 10)])
+        )
+        raw_mesh = _dtcc_builder.build_city_flat_mesh(
+            [polygon_a, polygon_b],
+            [],
+            [],
+            0.0,
+            0.0,
+            20.0,
+            20.0,
+            5.0,
+            20.0,
+            False,
+            "triangle",
+        )
+        mesh = raw_mesh.from_cpp()
+        print(mesh.vertices.shape, mesh.faces.shape, sorted(set(mesh.markers.tolist())))
+        """
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        cwd="/Users/logg/scratch/dtcc/dtcc-core",
+    )
+
+    assert result.returncode == 0, result.stdout + "\n" + result.stderr
+
+
+def test_native_triangle_build_city_flat_mesh_handles_internal_loops_and_holes():
+    if "triangle" not in _dtcc_builder.triangulation_backends():
+        pytest.skip("Triangle backend not built")
+
+    building = create_builder_polygon(
+        Polygon(
+            [(10, 10), (25, 10), (25, 25), (10, 25), (10, 10)],
+            [[(14, 14), (20, 14), (20, 20), (14, 20), (14, 14)]],
+        )
+    )
+    explicit_hole = create_builder_polygon(
+        Polygon([(30, 30), (40, 30), (40, 40), (30, 40), (30, 30)])
+    )
+
+    raw_mesh = _dtcc_builder.build_city_flat_mesh(
+        [building],
+        [explicit_hole],
+        [5.0],
+        0.0,
+        0.0,
+        100.0,
+        100.0,
+        10.0,
+        20.0,
+        False,
+        "triangle",
+    )
+    mesh = builder_mesh_to_mesh(raw_mesh)
+
+    assert mesh.vertices.shape[0] > 0
+    assert mesh.faces.shape[0] > 0
+    assert set(np.asarray(mesh.markers, dtype=int)) >= {-2, 0}
 
 
 def test_build_city_surface_mesh_reduces_lod_from_source_map(monkeypatch):

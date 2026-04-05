@@ -1084,10 +1084,8 @@ PYBIND11_MODULE(_dtcc_builder, m)
           "from_cpp",
           [](const DTCC_BUILDER::Mesh &m)
           {
-            // cache the Python converter lookup once:
-            static py::object conv = py::module::import("dtcc_core.builder.model_conversion")
-                                         .attr("builder_mesh_to_mesh");
-            // call it, passing ourselves:
+            py::object conv = py::module::import("dtcc_core.builder.model_conversion")
+                                  .attr("builder_mesh_to_mesh");
             return conv(m);
           },
           R"pbdoc(
@@ -1105,10 +1103,8 @@ PYBIND11_MODULE(_dtcc_builder, m)
           "from_cpp",
           [](const DTCC_BUILDER::VolumeMesh &m)
           {
-            // cache the Python converter lookup once:
-            static py::object conv = py::module::import("dtcc_core.builder.model_conversion")
-                                         .attr("builder_volume_mesh_to_volume_mesh");
-            // call it, passing ourselves:
+            py::object conv = py::module::import("dtcc_core.builder.model_conversion")
+                                  .attr("builder_volume_mesh_to_volume_mesh");
             return conv(m);
           },
           R"pbdoc(

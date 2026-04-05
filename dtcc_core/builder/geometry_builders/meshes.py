@@ -39,7 +39,7 @@ from ..cleaning import footprints as cleaning_footprints
 
 from ..logging import debug, info, warning, error
 from ..meshing.backends import resolve_2d_mesher
-from ..meshing.dtcc_mesher_backend import build_city_flat_mesh_with_dtcc_mesher
+from ..meshing.flat_mesh_backends import build_city_flat_mesh_from_coverage
 
 from ..meshing.tetgen import (
     build_volume_mesh as tetgen_build_volume_mesh,
@@ -320,6 +320,25 @@ def _condition_flat_mesh_building_regions(
                 diagnostics=cleanup_diagnostics,
             )
         )
+
+    declared_scale = max(
+        output_grid,
+        cleanup_scale or 0.0,
+        float(min_building_detail),
+        1e-9,
+    )
+    normalized_polygons: list[Polygon] = []
+    normalized_sources: list[list[int]] = []
+    for polygon, sources in zip(conditioned_polygons, conditioned_sources):
+        for normalized_polygon in _normalize_mesher_ready_polygon(
+            polygon,
+            declared_scale=declared_scale,
+            diagnostics=None,
+        ):
+            normalized_polygons.append(normalized_polygon)
+            normalized_sources.append(list(sources))
+    conditioned_polygons = normalized_polygons
+    conditioned_sources = normalized_sources
 
     conditioned_markers: list[int] = []
     resolved_polygons: list[Polygon] = []
@@ -892,7 +911,7 @@ def build_city_flat_mesh(
     if not buildings:
         warning("City has no buildings.")
 
-    building_footprints, conditioned_source_map, subdomain_resolution, diagnostics = (
+    building_footprints, conditioned_source_map, _subdomain_resolution, diagnostics = (
         _condition_meshing_footprints(
             buildings,
             lod=lod,
@@ -933,70 +952,42 @@ def build_city_flat_mesh(
         terrain.bounds.xmax,
         terrain.bounds.ymax,
     )
+    region_polygons, region_markers = _condition_flat_mesh_coverage_regions(
+        bounds=flat_mesh_bounds,
+        building_polygons=building_polygons,
+        building_markers=building_markers,
+        hole_polygons=[],
+        max_mesh_size=max_mesh_size,
+        min_building_detail=min_building_detail,
+        footprint_diagnostics=diagnostics,
+        cleaning_diagnostics=cleaning_diagnostics,
+    )
 
-    if active_mesher == "dtcc_mesher":
-        region_polygons, region_markers = _condition_flat_mesh_coverage_regions(
-            bounds=flat_mesh_bounds,
-            building_polygons=building_polygons,
-            building_markers=building_markers,
-            hole_polygons=[],
-            max_mesh_size=max_mesh_size,
-            min_building_detail=min_building_detail,
-            footprint_diagnostics=diagnostics,
-            cleaning_diagnostics=cleaning_diagnostics,
-        )
-        report_progress(percent=30, message="Building city flat mesh (dtcc_mesher)...")
-        flat_mesh = build_city_flat_mesh_with_dtcc_mesher(
+    report_progress(percent=30, message=f"Building city flat mesh ({active_mesher})...")
+    try:
+        flat_mesh = build_city_flat_mesh_from_coverage(
             region_polygons=region_polygons,
             region_markers=region_markers,
+            bounds=flat_mesh_bounds,
             max_mesh_size=max_mesh_size,
             min_mesh_angle=min_mesh_angle,
+            backend=active_mesher,
         )
-        flat_mesh = _add_flat_mesh_halo_markers(flat_mesh)
-    else:
-        _building_polygons = [
-            create_builder_polygon(polygon)
-            for polygon in building_polygons
-        ]
+    except RuntimeError:
+        warning(
+            "Requested flat-mesh backend is unavailable in this build; "
+            "falling back to dtcc_mesher."
+        )
+        flat_mesh = build_city_flat_mesh_from_coverage(
+            region_polygons=region_polygons,
+            region_markers=region_markers,
+            bounds=flat_mesh_bounds,
+            max_mesh_size=max_mesh_size,
+            min_mesh_angle=min_mesh_angle,
+            backend="dtcc_mesher",
+        )
 
-        report_progress(percent=30, message="Building city flat mesh (C++)...")
-        try:
-            _flat_mesh = _dtcc_builder.build_city_flat_mesh(
-                _building_polygons,
-                [],
-                subdomain_resolution,
-                terrain.bounds.xmin,
-                terrain.bounds.ymin,
-                terrain.bounds.xmax,
-                terrain.bounds.ymax,
-                max_mesh_size,
-                min_mesh_angle,
-                True,
-                active_mesher,
-            )
-            flat_mesh = _flat_mesh.from_cpp()
-        except RuntimeError:
-            warning(
-                "Builder flat-mesh path is unavailable in this _dtcc_builder build; "
-                "falling back to dtcc_mesher."
-            )
-            region_polygons, region_markers = _condition_flat_mesh_coverage_regions(
-                bounds=flat_mesh_bounds,
-                building_polygons=building_polygons,
-                building_markers=building_markers,
-                hole_polygons=[],
-                max_mesh_size=max_mesh_size,
-                min_building_detail=min_building_detail,
-                footprint_diagnostics=diagnostics,
-                cleaning_diagnostics=cleaning_diagnostics,
-            )
-            flat_mesh = build_city_flat_mesh_with_dtcc_mesher(
-                region_polygons=region_polygons,
-                region_markers=region_markers,
-                max_mesh_size=max_mesh_size,
-                min_mesh_angle=min_mesh_angle,
-            )
-            flat_mesh = _add_flat_mesh_halo_markers(flat_mesh)
+    flat_mesh = _add_flat_mesh_halo_markers(flat_mesh)
 
     if report_mesh_quality:
         from dtcc_core.model.mixins.mesh.quality import (
