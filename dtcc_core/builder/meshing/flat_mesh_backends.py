@@ -44,7 +44,7 @@ def build_city_flat_mesh_with_builder_backend(
     region_polygons: list[Polygon],
     region_markers: list[int],
     bounds: tuple[float, float, float, float],
-    max_mesh_size: float,
+    max_mesh_size: float | None,
     min_mesh_angle: float,
     backend: str,
 ) -> Mesh:
@@ -61,7 +61,7 @@ def build_city_flat_mesh_with_builder_backend(
         bounds[1],
         bounds[2],
         bounds[3],
-        max_mesh_size,
+        max_mesh_size if max_mesh_size is not None else -1.0,
         min_mesh_angle,
         True,
         backend,
@@ -75,7 +75,7 @@ def build_city_flat_mesh_from_coverage(
     region_polygons: list[Polygon],
     region_markers: list[int],
     bounds: tuple[float, float, float, float],
-    max_mesh_size: float,
+    max_mesh_size: float | None,
     min_mesh_angle: float,
     backend: str,
 ) -> Mesh:

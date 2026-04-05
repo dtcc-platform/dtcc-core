@@ -229,7 +229,7 @@ class CityBuilderMixin:
     def build_flat_mesh(
         self: "T_City",
         lod: GeometryType = GeometryType.LOD1,
-        max_mesh_size: float = 10.0,
+        max_mesh_size: float | None = 10.0,
         min_mesh_angle: float = 25.0,
         merge_buildings: bool = True,
         min_building_detail: float = 0.5,
@@ -249,8 +249,10 @@ class CityBuilderMixin:
         ----------
         lod : GeometryType, optional
             Level-of-Detail for footprint extraction (default LOD1).
-        max_mesh_size : float, optional
-            Maximum triangle size (default 10.0).
+        max_mesh_size : float | None, optional
+            Maximum target triangle edge length in meters. Set to ``None``
+            to disable the global size cap and let geometry plus
+            ``min_mesh_angle`` drive refinement.
         min_mesh_angle : float, optional
             Minimum angle quality constraint (default 25.0).
         merge_buildings : bool, optional

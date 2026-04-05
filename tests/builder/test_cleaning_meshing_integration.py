@@ -417,6 +417,65 @@ def test_build_city_flat_mesh_dtcc_mesher_uses_single_coverage_call(monkeypatch)
     assert set(np.asarray(mesh.markers, dtype=int)) == {-1, 0}
 
 
+def test_build_city_flat_mesh_dtcc_mesher_unrestricted_enables_refinement(monkeypatch):
+    calls = {}
+
+    class DummyRawMesh:
+        def __init__(self):
+            self.points = np.array(
+                [
+                    [0.0, 0.0],
+                    [1.0, 0.0],
+                    [0.0, 1.0],
+                ],
+                dtype=np.float64,
+            )
+            self.triangles = np.array([[0, 1, 2]], dtype=np.uint32)
+            self.segments = np.empty((0, 2), dtype=np.uint32)
+            self.markers = np.array([-2], dtype=np.int32)
+
+    class DummyMesher:
+        class Coverage:
+            def __init__(self, polygons, markers, *, tolerance=1e-9):
+                self.polygons = tuple(polygons)
+                self.markers = tuple(markers)
+                self.tolerance = tolerance
+
+        class MeshingOptions:
+            def __init__(self, *, min_angle, max_edge_length, refine):
+                self.min_angle = min_angle
+                self.max_edge_length = max_edge_length
+                self.refine = refine
+
+        def mesh(self, geometry, *, options):
+            calls["max_edge_length"] = options.max_edge_length
+            calls["refine"] = options.refine
+            return DummyRawMesh()
+
+    monkeypatch.setattr(
+        dtcc_mesher_backend_module,
+        "_load_dtcc_mesher",
+        lambda: DummyMesher(),
+    )
+
+    city = make_flat_city([make_building(box(8, 8, 18, 18), roof_z=10.0)])
+    build_city_flat_mesh(
+        city,
+        lod=GeometryType.LOD0,
+        merge_buildings=False,
+        min_building_detail=0.5,
+        min_building_area=1.0,
+        merge_tolerance=0.5,
+        max_mesh_size=None,
+        min_mesh_angle=20.0,
+        report_mesh_quality=False,
+        mesher="dtcc_mesher",
+    )
+
+    assert calls["max_edge_length"] is None
+    assert calls["refine"] is True
+
+
 def test_build_city_flat_mesh_triangle_uses_conditioned_coverage(monkeypatch):
     captured = {}
 
@@ -472,6 +531,36 @@ def test_build_city_flat_mesh_triangle_uses_conditioned_coverage(monkeypatch):
     assert captured["bounds"] == (0.0, 0.0, 80.0, 80.0)
     assert captured["backend"] == "triangle"
     assert mesh.faces.shape[0] == 1
+
+
+def test_build_city_flat_mesh_propagates_runtime_mesher_errors(monkeypatch):
+    def fake_condition(*args, **kwargs):
+        return [make_surface(box(8, 8, 18, 18), 10.0)], [[0]], [], {"output_grid": 0.03125}
+
+    def fake_condition_coverage_regions(**kwargs):
+        return [box(0, 0, 80, 80), box(8, 8, 18, 18)], [-2, 7]
+
+    def fake_build_from_coverage(**kwargs):
+        raise RuntimeError("internal triangulation error")
+
+    monkeypatch.setattr(meshes_module, "_condition_meshing_footprints", fake_condition)
+    monkeypatch.setattr(meshes_module, "_condition_flat_mesh_coverage_regions", fake_condition_coverage_regions)
+    monkeypatch.setattr(meshes_module, "build_city_flat_mesh_from_coverage", fake_build_from_coverage)
+
+    city = make_flat_city([make_building(box(8, 8, 18, 18), roof_z=10.0)])
+    with pytest.raises(RuntimeError, match="internal triangulation error"):
+        build_city_flat_mesh(
+            city,
+            lod=GeometryType.LOD0,
+            merge_buildings=False,
+            min_building_detail=0.5,
+            min_building_area=1.0,
+            merge_tolerance=0.5,
+            max_mesh_size=None,
+            min_mesh_angle=20.0,
+            report_mesh_quality=False,
+            mesher="dtcc_mesher",
+        )
 
 
 def test_build_city_flat_mesh_allows_empty_conditioned_footprints(monkeypatch):

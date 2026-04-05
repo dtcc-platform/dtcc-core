@@ -45,6 +45,13 @@ class Triangulate
 {
 public:
 
+  static double mesh_size_to_area_limit(double max_mesh_size)
+  {
+    if (max_mesh_size <= 0.0)
+      return 0.0;
+    return 0.5 * max_mesh_size * max_mesh_size;
+  }
+
   static void call_earcut(Mesh &mesh, const Surface &surface, bool sort_triangles = true) {
     auto area = Geometry::surface_area(surface);
     //    info("surface area " + str(area) + " m^2");
@@ -198,8 +205,8 @@ public:
   {
     Timer timer("call_triangle");
 
-    // Set area constraint to control mesh size
-    const double max_area = 0.5 * max_mesh_size * max_mesh_size;
+    // Convert the public mesh-size control to Triangle's area cap.
+    const double max_area = mesh_size_to_area_limit(max_mesh_size);
 
     // Set input switches for Triangle
     std::string triswitches = "zQp";
@@ -536,8 +543,8 @@ public:
           return count;
         }();
 
-    // Interpret max_mesh_size as a maximum triangle area.
-    const double max_allowed_area = max_mesh_size;
+    // Convert the public mesh-size control to Spade's area cap.
+    const double max_allowed_area = mesh_size_to_area_limit(max_mesh_size);
 
     // Clamp angle limit to Spade's recommended upper bound.
     double min_angle_deg = min_mesh_angle;
@@ -550,17 +557,22 @@ public:
     if (min_angle_deg < 0.0)
       min_angle_deg = 0.0;
 
-    // DTCC-side estimate of required steiner point budget.
+    // DTCC-side estimate of required steiner point budget. For a planar
+    // triangulation with boundary vertices, Euler's formula gives
+    // T ~= 2V - B - 2, so V ~= (T + B + 2) / 2. Using all constrained input
+    // vertices as a conservative proxy for B avoids starving refinement on
+    // simple surfaces after max_mesh_size was normalized to mean edge length.
     size_t max_additional_vertices = 0;
     if (max_allowed_area > 0.0 && domain_area > 0.0)
     {
       const double estimated_triangles = std::ceil(domain_area / max_allowed_area);
-      const double estimated_total_vertices = std::ceil(estimated_triangles / 2.0);
+      const double estimated_total_vertices =
+          std::ceil((estimated_triangles + static_cast<double>(input_vertices) + 2.0) / 2.0);
       const size_t target_total_vertices = static_cast<size_t>(std::max(0.0, estimated_total_vertices));
       const size_t additional_needed =
           (target_total_vertices > input_vertices) ? (target_total_vertices - input_vertices) : 0;
 
-      const double safety_factor = (min_angle_deg > 0.0) ? 1.0 : 0.5;
+      const double safety_factor = (min_angle_deg > 0.0) ? 2.0 : 1.5;
       max_additional_vertices = static_cast<size_t>(std::ceil(static_cast<double>(additional_needed) * safety_factor));
 
       // Ensure we have at least some headroom when refinement is requested.

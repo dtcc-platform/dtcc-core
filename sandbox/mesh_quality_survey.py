@@ -9,6 +9,7 @@ Typical usage:
     python mesh_quality_survey.py 55
     python mesh_quality_survey.py
     python mesh_quality_survey.py 55 --meshers triangle dtcc_mesher spade
+    python mesh_quality_survey.py 55 --max-mesh-size none
     python mesh_quality_survey.py --per-case-plots
 
 With no explicit meshers, the script compares all available meshers from:
@@ -38,7 +39,7 @@ Y_MIN = 6_578_500
 NX, NY = 10, 10
 BOX_SIZE = 500
 
-MAX_MESH_SIZE = 10.0
+DEFAULT_MAX_MESH_SIZE = 10.0
 MIN_MESH_ANGLE = 25.0
 MIN_BUILDING_DETAIL = 0.5
 MIN_BUILDING_AREA = 15.0
@@ -107,16 +108,83 @@ def meshers_slug(meshers: list[str]) -> str:
     return "-".join([*ordered, *extras])
 
 
-def results_file_path(output_dir: Path, meshers: list[str]) -> Path:
-    return output_dir / f"mesh_quality_survey.{meshers_slug(meshers)}.json"
+def _normalize_max_mesh_size(max_mesh_size: float | None) -> float | None:
+    if max_mesh_size is None:
+        return None
+    value = float(max_mesh_size)
+    if value <= 0.0:
+        return None
+    return value
 
 
-def overview_plot_path(output_dir: Path, meshers: list[str]) -> Path:
-    return output_dir / f"mesh_quality_survey.{meshers_slug(meshers)}.png"
+def mesh_size_label(max_mesh_size: float | None) -> str:
+    normalized = _normalize_max_mesh_size(max_mesh_size)
+    if normalized is None:
+        return "unrestricted"
+    return f"maxh={normalized:g}m"
 
 
-def case_plot_path(output_dir: Path, number: int, meshers: list[str]) -> Path:
-    return output_dir / f"{number:03d}.compare.{meshers_slug(meshers)}.png"
+def _slug_token(value: float) -> str:
+    return f"{value:g}".replace("-", "m").replace(".", "p")
+
+
+def config_slug(max_mesh_size: float | None, min_mesh_angle: float) -> str:
+    normalized = _normalize_max_mesh_size(max_mesh_size)
+    size_slug = "maxh-unrestricted" if normalized is None else f"maxh-{_slug_token(normalized)}"
+    return f"{size_slug}.mina-{_slug_token(min_mesh_angle)}"
+
+
+def results_file_path(
+    output_dir: Path,
+    meshers: list[str],
+    *,
+    max_mesh_size: float | None,
+    min_mesh_angle: float,
+) -> Path:
+    return output_dir / (
+        f"mesh_quality_survey.{config_slug(max_mesh_size, min_mesh_angle)}."
+        f"{meshers_slug(meshers)}.json"
+    )
+
+
+def overview_plot_path(
+    output_dir: Path,
+    meshers: list[str],
+    *,
+    max_mesh_size: float | None,
+    min_mesh_angle: float,
+) -> Path:
+    return output_dir / (
+        f"mesh_quality_survey.{config_slug(max_mesh_size, min_mesh_angle)}."
+        f"{meshers_slug(meshers)}.png"
+    )
+
+
+def case_plot_path(
+    output_dir: Path,
+    number: int,
+    meshers: list[str],
+    *,
+    max_mesh_size: float | None,
+    min_mesh_angle: float,
+) -> Path:
+    return output_dir / (
+        f"{number:03d}.compare.{config_slug(max_mesh_size, min_mesh_angle)}."
+        f"{meshers_slug(meshers)}.png"
+    )
+
+
+def case_mesh_path(
+    output_dir: Path,
+    number: int,
+    mesher: str,
+    *,
+    max_mesh_size: float | None,
+    min_mesh_angle: float,
+) -> Path:
+    return output_dir / (
+        f"{number:03d}.{mesher}.{config_slug(max_mesh_size, min_mesh_angle)}.vtu"
+    )
 
 
 def json_ready(value: Any) -> Any:
@@ -431,6 +499,9 @@ def run_mesher_for_case(
     city: City,
     mesher: str,
     output_dir: Path,
+    *,
+    max_mesh_size: float | None,
+    min_mesh_angle: float,
 ) -> tuple[dict[str, Any], Mesh | None]:
     start = time.perf_counter()
 
@@ -438,8 +509,8 @@ def run_mesher_for_case(
         mesh = dtcc_core.builder.build_city_flat_mesh(
             city,
             lod=GeometryType.LOD0,
-            max_mesh_size=MAX_MESH_SIZE,
-            min_mesh_angle=MIN_MESH_ANGLE,
+            max_mesh_size=max_mesh_size,
+            min_mesh_angle=min_mesh_angle,
             merge_buildings=MERGE_BUILDINGS,
             min_building_detail=MIN_BUILDING_DETAIL,
             min_building_area=MIN_BUILDING_AREA,
@@ -448,14 +519,20 @@ def run_mesher_for_case(
         )
         quality = json_ready(mesh.quality())
         metrics = mesh_metrics(mesh, quality)
-        filename = f"{number:03d}.{mesher}.vtu"
-        mesh.save(str(output_dir / filename))
+        mesh_path = case_mesh_path(
+            output_dir,
+            number,
+            mesher,
+            max_mesh_size=max_mesh_size,
+            min_mesh_angle=min_mesh_angle,
+        )
+        mesh.save(str(mesh_path))
 
         return (
             {
                 "status": "success",
                 "time": round(time.perf_counter() - start, 2),
-                "file": filename,
+                "file": mesh_path.name,
                 "quality": quality,
                 "metrics": metrics,
             },
@@ -592,6 +669,9 @@ def plot_case_comparison(
     meshers: list[str],
     mesh_objects: dict[str, Mesh],
     mesher_results: dict[str, dict[str, Any]],
+    *,
+    max_mesh_size: float | None,
+    min_mesh_angle: float,
     show_plot: bool = False,
 ) -> None:
     plt, line_collection_cls, poly_collection_cls, patch_cls = _load_plot_modules()
@@ -648,7 +728,8 @@ def plot_case_comparison(
     )
     fig.suptitle(
         f"Case {number} mesh comparison  ({bounds.xmin:.0f}, {bounds.ymin:.0f}) -> "
-        f"({bounds.xmax:.0f}, {bounds.ymax:.0f})"
+        f"({bounds.xmax:.0f}, {bounds.ymax:.0f})\n"
+        f"{mesh_size_label(max_mesh_size)}, min angle={min_mesh_angle:g}°"
     )
     fig.savefig(output_path, dpi=200)
     if show_plot:
@@ -696,7 +777,14 @@ def annotate_heatmap(ax, grid: np.ndarray, fmt: str) -> None:
             )
 
 
-def plot_overview(results: dict[int, dict[str, Any]], meshers: list[str], output_path: Path) -> None:
+def plot_overview(
+    results: dict[int, dict[str, Any]],
+    meshers: list[str],
+    output_path: Path,
+    *,
+    max_mesh_size: float | None,
+    min_mesh_angle: float,
+) -> None:
     plt, _, _, _ = _load_plot_modules()
 
     fig, axes = plt.subplots(
@@ -721,7 +809,10 @@ def plot_overview(results: dict[int, dict[str, Any]], meshers: list[str], output
             ax.set_ylabel("Grid Y")
             fig.colorbar(image, ax=ax, shrink=0.82, pad=0.03)
 
-    fig.suptitle("Mesh quality overview by mesher")
+    fig.suptitle(
+        f"Mesh quality overview by mesher\n"
+        f"{mesh_size_label(max_mesh_size)}, min angle={min_mesh_angle:g}°"
+    )
     fig.savefig(output_path, dpi=180)
     plt.close(fig)
 
@@ -747,6 +838,9 @@ def run_case(
     output_dir: Path,
     create_case_plot: bool,
     show_plot: bool,
+    *,
+    max_mesh_size: float | None,
+    min_mesh_angle: float,
 ) -> dict[str, Any]:
     ix, iy = case_to_grid(number)
     bounds = make_bounds(ix, iy)
@@ -757,18 +851,35 @@ def run_case(
         "number": number,
         "bounds": bounds_to_dict(bounds),
         "prepare_time": round(prepare_time, 2),
+        "config": {
+            "max_mesh_size": max_mesh_size,
+            "min_mesh_angle": min_mesh_angle,
+        },
         "meshers": {},
     }
     mesh_objects: dict[str, Mesh] = {}
 
     for mesher in meshers:
-        result, mesh = run_mesher_for_case(number, city, mesher, output_dir)
+        result, mesh = run_mesher_for_case(
+            number,
+            city,
+            mesher,
+            output_dir,
+            max_mesh_size=max_mesh_size,
+            min_mesh_angle=min_mesh_angle,
+        )
         case_record["meshers"][mesher] = json_ready(result)
         if mesh is not None:
             mesh_objects[mesher] = mesh
 
     if create_case_plot:
-        plot_path = case_plot_path(output_dir, number, meshers)
+        plot_path = case_plot_path(
+            output_dir,
+            number,
+            meshers,
+            max_mesh_size=max_mesh_size,
+            min_mesh_angle=min_mesh_angle,
+        )
         plot_case_comparison(
             plot_path,
             number=number,
@@ -776,11 +887,30 @@ def run_case(
             meshers=meshers,
             mesh_objects=mesh_objects,
             mesher_results=case_record["meshers"],
+            max_mesh_size=max_mesh_size,
+            min_mesh_angle=min_mesh_angle,
             show_plot=show_plot,
         )
         case_record["plot_file"] = plot_path.name
 
     return case_record
+
+
+def parse_max_mesh_size_argument(raw: str) -> float | None:
+    normalized = raw.strip().lower()
+    if normalized in {"none", "unrestricted", "inf", "infinite"}:
+        return None
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            "max mesh size must be a positive number or 'none'"
+        ) from exc
+    if value <= 0.0:
+        raise argparse.ArgumentTypeError(
+            "max mesh size must be positive or 'none' for unrestricted"
+        )
+    return value
 
 
 def parse_args() -> argparse.Namespace:
@@ -798,6 +928,15 @@ def parse_args() -> argparse.Namespace:
         nargs="+",
         default=None,
         help="Meshers to compare. Defaults to all available from: dtcc_mesher triangle spade.",
+    )
+    parser.add_argument(
+        "--max-mesh-size",
+        type=parse_max_mesh_size_argument,
+        default=DEFAULT_MAX_MESH_SIZE,
+        help=(
+            "Maximum target triangle edge length in meters. "
+            "Use 'none' for unrestricted size."
+        ),
     )
     parser.add_argument(
         "--delay",
@@ -841,7 +980,12 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     meshers = resolve_requested_meshers(args.meshers)
-    results_path = results_file_path(output_dir, meshers)
+    results_path = results_file_path(
+        output_dir,
+        meshers,
+        max_mesh_size=args.max_mesh_size,
+        min_mesh_angle=MIN_MESH_ANGLE,
+    )
     results = load_results(results_path)
     total = NX * NY
 
@@ -850,6 +994,12 @@ def main() -> None:
         print(f"Loaded {loaded_count} previous case record(s) from {results_path}")
         print("  Delete that file to recompute everything from scratch.")
         print()
+
+    print(
+        f"Configuration: {mesh_size_label(args.max_mesh_size)}, "
+        f"min angle={MIN_MESH_ANGLE:g}°"
+    )
+    print()
 
     if args.case_number is not None:
         cases_to_run = [args.case_number]
@@ -898,6 +1048,8 @@ def main() -> None:
             output_dir=output_dir,
             create_case_plot=create_case_plot,
             show_plot=bool(args.show_plot and args.case_number is not None),
+            max_mesh_size=args.max_mesh_size,
+            min_mesh_angle=MIN_MESH_ANGLE,
         )
         results[number] = case_record
         save_results(results_path, results)
@@ -942,8 +1094,19 @@ def main() -> None:
             )
 
     if not args.no_plots:
-        overview_path = overview_plot_path(output_dir, meshers)
-        plot_overview(results, meshers, overview_path)
+        overview_path = overview_plot_path(
+            output_dir,
+            meshers,
+            max_mesh_size=args.max_mesh_size,
+            min_mesh_angle=MIN_MESH_ANGLE,
+        )
+        plot_overview(
+            results,
+            meshers,
+            overview_path,
+            max_mesh_size=args.max_mesh_size,
+            min_mesh_angle=MIN_MESH_ANGLE,
+        )
         print(f"Overview plot: {overview_path}")
 
 

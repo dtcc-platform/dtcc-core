@@ -129,12 +129,16 @@ public:
     Timer timer("build_city_flat_mesh");
 
     const BoundingBox2D bounding_box(Vector2D(xmin, ymin), Vector2D(xmax, ymax));
-    const size_t nx = static_cast<size_t>((bounding_box.Q.x - bounding_box.P.x) / max_mesh_size);
-    const size_t ny = static_cast<size_t>((bounding_box.Q.y - bounding_box.P.y) / max_mesh_size);
+    const bool has_global_mesh_limit = max_mesh_size > 0.0;
+    const size_t nx = has_global_mesh_limit ?
+        static_cast<size_t>((bounding_box.Q.x - bounding_box.P.x) / max_mesh_size) : 0;
+    const size_t ny = has_global_mesh_limit ?
+        static_cast<size_t>((bounding_box.Q.y - bounding_box.P.y) / max_mesh_size) : 0;
     const size_t n = nx * ny;
     info("Bounds: " + str(bounding_box));
-    info("Max mesh size: " + str(max_mesh_size));
-    info("Estimated number of faces: " + str(n));
+    info("Max mesh size: " + (has_global_mesh_limit ? str(max_mesh_size) : std::string("unrestricted")));
+    if (has_global_mesh_limit)
+      info("Estimated number of faces: " + str(n));
     info("Number of subdomains (buildings): " + str(subdomains.size()));
     info("Number of explicit holes: " + str(holes.size()));
 

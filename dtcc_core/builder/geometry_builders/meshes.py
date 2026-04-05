@@ -67,6 +67,27 @@ _FLAT_MESH_BUILDING_CLEANUP_SCALE_FRACTION = 0.25
 _FLAT_MESH_BUILDING_CLEANUP_DETAIL_MULTIPLIER = 5.0
 
 
+def _normalize_max_mesh_size(max_mesh_size: float | None) -> float | None:
+    if max_mesh_size is None:
+        return None
+    value = float(max_mesh_size)
+    if value <= 0.0:
+        return None
+    return value
+
+
+def _is_unavailable_flat_mesher_error(backend: str, exc: RuntimeError) -> bool:
+    message = str(exc)
+    if backend == "triangle":
+        return "Triangle support not built" in message
+    if backend == "spade":
+        return (
+            "SPADE support not built" in message
+            or "install dtcc-pyspade-native" in message
+        )
+    return False
+
+
 def _call_builder_city_surface_mesh(
     building_surfaces,
     hole_surfaces,
@@ -141,15 +162,19 @@ def _iter_polygon_components(geometry) -> list[Polygon]:
 
 def _flat_mesh_ground_cleanup_scale(
     *,
-    max_mesh_size: float,
+    max_mesh_size: float | None,
     footprint_diagnostics: dict[str, Any],
 ) -> float | None:
     output_grid = float(footprint_diagnostics.get("output_grid", 0.0) or 0.0)
     mesh_scale = 0.0
+    normalized_mesh_size = _normalize_max_mesh_size(max_mesh_size)
 
-    if max_mesh_size > 0.0:
+    if normalized_mesh_size is not None:
         mesh_scale = min(
-            max(max_mesh_size * _GROUND_MESH_CLEANUP_SCALE_FRACTION, _GROUND_MESH_CLEANUP_SCALE_MIN),
+            max(
+                normalized_mesh_size * _GROUND_MESH_CLEANUP_SCALE_FRACTION,
+                _GROUND_MESH_CLEANUP_SCALE_MIN,
+            ),
             _GROUND_MESH_CLEANUP_SCALE_MAX,
         )
 
@@ -165,7 +190,7 @@ def _condition_flat_mesh_ground_polygons(
     bounds: tuple[float, float, float, float],
     building_polygons: list[Polygon],
     hole_polygons: list[Polygon],
-    max_mesh_size: float,
+    max_mesh_size: float | None,
     footprint_diagnostics: dict[str, Any],
     cleaning_diagnostics: bool,
 ) -> list[Polygon]:
@@ -234,7 +259,7 @@ def _condition_flat_mesh_building_regions(
     building_polygons: list[Polygon],
     building_markers: list[int],
     footprint_diagnostics: dict[str, Any],
-    max_mesh_size: float,
+    max_mesh_size: float | None,
     min_building_detail: float,
     cleaning_diagnostics: bool,
 ) -> tuple[list[Polygon], list[int]]:
@@ -266,9 +291,10 @@ def _condition_flat_mesh_building_regions(
     ]
 
     cleanup_candidates = []
-    if max_mesh_size > 0.0:
+    normalized_mesh_size = _normalize_max_mesh_size(max_mesh_size)
+    if normalized_mesh_size is not None:
         cleanup_candidates.append(
-            max_mesh_size * _FLAT_MESH_BUILDING_CLEANUP_SCALE_FRACTION
+            normalized_mesh_size * _FLAT_MESH_BUILDING_CLEANUP_SCALE_FRACTION
         )
     if min_building_detail > 0.0:
         cleanup_candidates.append(
@@ -370,7 +396,7 @@ def _condition_flat_mesh_coverage_regions(
     building_polygons: list[Polygon],
     building_markers: list[int],
     hole_polygons: list[Polygon],
-    max_mesh_size: float,
+    max_mesh_size: float | None,
     min_building_detail: float,
     footprint_diagnostics: dict[str, Any],
     cleaning_diagnostics: bool,
@@ -600,7 +626,7 @@ def _condition_meshing_footprints(
     min_building_area: float,
     merge_tolerance: float,
     merge_buildings: bool,
-    max_mesh_size: float,
+    max_mesh_size: float | None,
     cleaning_diagnostics: bool = True,
 ) -> tuple[list[Surface], list[list[int]], list[float], dict[str, Any]]:
     if not buildings:
@@ -653,6 +679,7 @@ def _condition_meshing_footprints(
     conditioned_surfaces: list[Surface] = []
     conditioned_source_map: list[list[int]] = []
     subdomain_resolution: list[float] = []
+    normalized_mesh_size = _normalize_max_mesh_size(max_mesh_size)
     mesher_scale = max(
         float(min_building_detail),
         float(result.diagnostics.get("output_grid", 0.0) or 0.0),
@@ -670,7 +697,7 @@ def _condition_meshing_footprints(
             source_indices,
             source_areas,
             source_heights,
-            default=max_mesh_size,
+            default=normalized_mesh_size or float(min_building_detail),
         )
 
         normalized_polygons = _normalize_mesher_ready_polygon(
@@ -683,7 +710,10 @@ def _condition_meshing_footprints(
             surface.from_polygon(normalized_polygon, roof_z)
             conditioned_surfaces.append(surface)
             conditioned_source_map.append(sorted(set(source_indices)))
-            subdomain_resolution.append(min(height, max_mesh_size))
+            if normalized_mesh_size is None:
+                subdomain_resolution.append(height)
+            else:
+                subdomain_resolution.append(min(height, normalized_mesh_size))
 
     if cleaning_diagnostics:
         info(
@@ -849,7 +879,7 @@ def build_city_surface_mesh(
 def build_city_flat_mesh(
     city: City,
     lod: GeometryType = GeometryType.LOD1,
-    max_mesh_size: float = 10.0,
+    max_mesh_size: float | None = 10.0,
     min_mesh_angle: float = 25.0,
     merge_buildings: bool = True,
     min_building_detail: float = 0.5,
@@ -875,8 +905,13 @@ def build_city_flat_mesh(
         City object containing terrain bounds and building data.
     lod : GeometryType, optional
         Level-of-Detail used when *merge_buildings* is False (default LOD1).
-    max_mesh_size : float, optional
-        Maximum triangle size (default 10.0).
+    max_mesh_size : float | None, optional
+        Maximum target triangle edge length in meters. ``dtcc_mesher`` uses
+        it directly as an edge-length cap, while ``triangle`` and ``spade``
+        convert it to an equivalent triangle-area cap. Set to ``None`` to
+        disable the global size cap and let geometry plus ``min_mesh_angle``
+        drive refinement. Non-positive values are treated as ``None`` for
+        backward compatibility.
     min_mesh_angle : float, optional
         Minimum angle quality constraint in degrees (default 25.0).
     merge_buildings : bool, optional
@@ -906,6 +941,7 @@ def build_city_flat_mesh(
     terrain = city.terrain
     if terrain is None:
         raise ValueError("City has no terrain data. Please compute terrain first.")
+    max_mesh_size = _normalize_max_mesh_size(max_mesh_size)
 
     buildings = city.buildings
     if not buildings:
@@ -973,7 +1009,9 @@ def build_city_flat_mesh(
             min_mesh_angle=min_mesh_angle,
             backend=active_mesher,
         )
-    except RuntimeError:
+    except RuntimeError as exc:
+        if not _is_unavailable_flat_mesher_error(active_mesher, exc):
+            raise
         warning(
             "Requested flat-mesh backend is unavailable in this build; "
             "falling back to dtcc_mesher."

@@ -96,11 +96,12 @@ def _meshing_options(
     *,
     min_mesh_angle: float,
     max_edge_length: float | None,
+    refine: bool,
 ):
     return dtcc_mesher.MeshingOptions(
         min_angle=min_mesh_angle,
         max_edge_length=max_edge_length,
-        refine=False,
+        refine=refine,
     )
 
 
@@ -123,6 +124,7 @@ def mesh_surface_with_dtcc_mesher(
             dtcc_mesher,
             min_mesh_angle=min_mesh_angle,
             max_edge_length=max_edge_length,
+            refine=False,
         ),
     )
 
@@ -141,11 +143,14 @@ def build_city_flat_mesh_with_dtcc_mesher(
     *,
     region_polygons: list[Polygon],
     region_markers: list[int],
-    max_mesh_size: float,
+    max_mesh_size: float | None,
     min_mesh_angle: float,
 ) -> Mesh:
     dtcc_mesher = _load_dtcc_mesher()
-    max_edge_length = max_mesh_size if max_mesh_size > 0 else None
+    max_edge_length = (
+        max_mesh_size if max_mesh_size is not None and max_mesh_size > 0 else None
+    )
+    refine = max_edge_length is None
 
     if len(region_polygons) != len(region_markers):
         raise ValueError("region_markers length must match region_polygons length")
@@ -158,6 +163,7 @@ def build_city_flat_mesh_with_dtcc_mesher(
             dtcc_mesher,
             min_mesh_angle=min_mesh_angle,
             max_edge_length=max_edge_length,
+            refine=refine,
         ),
     )
 
