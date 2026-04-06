@@ -150,7 +150,6 @@ def build_city_flat_mesh_with_dtcc_mesher(
     max_edge_length = (
         max_mesh_size if max_mesh_size is not None and max_mesh_size > 0 else None
     )
-    refine = max_edge_length is None
 
     if len(region_polygons) != len(region_markers):
         raise ValueError("region_markers length must match region_polygons length")
@@ -163,7 +162,7 @@ def build_city_flat_mesh_with_dtcc_mesher(
             dtcc_mesher,
             min_mesh_angle=min_mesh_angle,
             max_edge_length=max_edge_length,
-            refine=refine,
+            refine=True,
         ),
     )
 

@@ -413,7 +413,7 @@ def test_build_city_flat_mesh_dtcc_mesher_uses_single_coverage_call(monkeypatch)
     assert set(calls["markers"]) == {-2, 0}
     assert calls["min_angle"] == 20.0
     assert calls["max_edge_length"] == 5.0
-    assert calls["refine"] is False
+    assert calls["refine"] is True
     assert set(np.asarray(mesh.markers, dtype=int)) == {-1, 0}
 
 
