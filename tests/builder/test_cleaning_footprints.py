@@ -2523,7 +2523,7 @@ def test_regularize_coverage_for_meshing_uses_graphical_fast_path_when_sufficien
 def test_regularize_coverage_for_meshing_returns_early_when_no_candidate_exists(
     monkeypatch,
 ):
-    polygons = [box(0.0, 0.0, 1.0, 1.0), box(1.0, 1.0, 2.0, 2.0)]
+    polygons = [box(0.0, 0.0, 1.0, 1.0), box(3.0, 3.0, 4.0, 4.0)]
     diagnostics = cleaning_footprints._empty_diagnostics(2)
     diagnostics["collect_stage_metrics"] = False
     diagnostics["enable_logging"] = False
@@ -2565,6 +2565,303 @@ def test_regularize_coverage_for_meshing_returns_early_when_no_candidate_exists(
     assert result_sources == [[0], [1]]
     assert diagnostics["coverage_meshing_regularization_selected_branch"] == "identity"
     assert diagnostics["coverage_meshing_regularization_applied"] is False
+
+
+def test_regularize_coverage_for_meshing_applies_residual_pair_issue_rescue(
+    monkeypatch,
+):
+    polygons = [box(0.0, 0.0, 10.0, 10.0), box(10.0, 10.0, 20.0, 20.0)]
+    diagnostics = cleaning_footprints._empty_diagnostics(2)
+    diagnostics["collect_stage_metrics"] = False
+    diagnostics["enable_logging"] = False
+
+    identity_signature = cleaning_footprints._coverage_defect_signature(
+        polygons,
+        target_scale=0.5,
+    )
+    identity_candidate = cleaning_footprints._CoverageSimplifyCandidate(
+        label="local",
+        polygons=polygons,
+        source_map=[[0], [1]],
+        signature=identity_signature,
+        difference_metrics={
+            "reference_minus_candidate_area": 0.0,
+            "candidate_minus_reference_area": 0.0,
+            "symmetric_difference_area": 0.0,
+            "union_area_delta": 0.0,
+        },
+        change_outside_edit_zone=0.0,
+        edit_zone_area=0.0,
+        area_balance_budget=0.0,
+        patch_count=0,
+        patch_applied_count=0,
+        operator_attempts={},
+        operator_applied={},
+    )
+
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_coverage_short_edge_graphically",
+        lambda *args, **kwargs: identity_candidate,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_coverage_globally",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_coverage_locally",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_coverage_residual_scale_polygons",
+        lambda *args, **kwargs: None,
+    )
+
+    result_polygons, result_sources = cleaning_footprints._regularize_coverage_for_meshing(
+        polygons,
+        [[0], [1]],
+        min_segment_length=0.5,
+        grid=0.03125,
+        min_area=0.0,
+        min_hole_area=0.0,
+        diagnostics=diagnostics,
+    )
+
+    signature = cleaning_footprints._coverage_defect_signature(
+        result_polygons,
+        target_scale=0.5,
+    )
+    assert signature.pair_issue_count == 0
+    assert sorted(sorted(indices) for indices in result_sources) in (
+        [[0], [1]],
+        [[0, 1]],
+    )
+    assert diagnostics["coverage_meshing_regularization_selected_branch"] == (
+        "residual_pair_issue_rescue"
+    )
+    operator_applied = diagnostics["coverage_meshing_regularization_operator_applied"]
+    assert any(
+        key.startswith("coverage_pair_issue_") for key in operator_applied
+    )
+
+
+def test_regularize_coverage_for_meshing_applies_residual_point_bridge_rescue(
+    monkeypatch,
+):
+    polygons = [box(0.0, 0.0, 10.0, 10.0), box(10.0, 10.0, 11.0, 11.0)]
+    diagnostics = cleaning_footprints._empty_diagnostics(2)
+    diagnostics["collect_stage_metrics"] = False
+    diagnostics["enable_logging"] = False
+
+    identity_signature = cleaning_footprints._coverage_defect_signature(
+        polygons,
+        target_scale=1.0,
+    )
+    identity_candidate = cleaning_footprints._CoverageSimplifyCandidate(
+        label="local",
+        polygons=polygons,
+        source_map=[[0], [1]],
+        signature=identity_signature,
+        difference_metrics={
+            "reference_minus_candidate_area": 0.0,
+            "candidate_minus_reference_area": 0.0,
+            "symmetric_difference_area": 0.0,
+            "union_area_delta": 0.0,
+        },
+        change_outside_edit_zone=0.0,
+        edit_zone_area=0.0,
+        area_balance_budget=0.0,
+        patch_count=0,
+        patch_applied_count=0,
+        operator_attempts={},
+        operator_applied={},
+    )
+
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_coverage_short_edge_graphically",
+        lambda *args, **kwargs: identity_candidate,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_coverage_globally",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_coverage_locally",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_coverage_residual_scale_polygons",
+        lambda *args, **kwargs: None,
+    )
+
+    result_polygons, result_sources = cleaning_footprints._regularize_coverage_for_meshing(
+        polygons,
+        [[0], [1]],
+        min_segment_length=1.0,
+        grid=0.03125,
+        min_area=0.0,
+        min_hole_area=0.0,
+        diagnostics=diagnostics,
+    )
+
+    signature = cleaning_footprints._coverage_defect_signature(
+        result_polygons,
+        target_scale=1.0,
+    )
+    operator_applied = diagnostics["coverage_meshing_regularization_operator_applied"]
+    assert signature.pair_issue_count == 0
+    assert len(result_polygons) == 1
+    assert result_sources == [[0, 1]]
+    assert diagnostics["coverage_meshing_regularization_selected_branch"] == (
+        "residual_pair_issue_rescue"
+    )
+    assert any(
+        key.startswith("coverage_pair_issue_point_")
+        for key in operator_applied
+    )
+
+
+def test_regularize_coverage_for_meshing_keeps_raw_rescue_when_postprocess_regresses(
+    monkeypatch,
+):
+    polygons = [box(0.0, 0.0, 10.0, 10.0), box(10.0, 10.0, 20.0, 20.0)]
+    diagnostics = cleaning_footprints._empty_diagnostics(2)
+    diagnostics["collect_stage_metrics"] = False
+    diagnostics["enable_logging"] = False
+
+    identity_signature = cleaning_footprints._coverage_defect_signature(
+        polygons,
+        target_scale=0.5,
+    )
+    identity_candidate = cleaning_footprints._CoverageSimplifyCandidate(
+        label="local",
+        polygons=polygons,
+        source_map=[[0], [1]],
+        signature=identity_signature,
+        difference_metrics={
+            "reference_minus_candidate_area": 0.0,
+            "candidate_minus_reference_area": 0.0,
+            "symmetric_difference_area": 0.0,
+            "union_area_delta": 0.0,
+        },
+        change_outside_edit_zone=0.0,
+        edit_zone_area=0.0,
+        area_balance_budget=0.0,
+        patch_count=0,
+        patch_applied_count=0,
+        operator_attempts={},
+        operator_applied={},
+    )
+
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_coverage_short_edge_graphically",
+        lambda *args, **kwargs: identity_candidate,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_coverage_globally",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_coverage_locally",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_coverage_residual_scale_polygons",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_polygons_for_meshing",
+        lambda polygons, sources, **kwargs: ([box(0.0, 0.0, 10.0, 10.0), box(10.0, 10.0, 20.0, 20.0)], [[0], [1]]),
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_regularize_low_clearance_polygons",
+        lambda polygons, sources, **kwargs: (polygons, sources),
+    )
+
+    result_polygons, result_sources = cleaning_footprints._regularize_coverage_for_meshing(
+        polygons,
+        [[0], [1]],
+        min_segment_length=0.5,
+        grid=0.03125,
+        min_area=0.0,
+        min_hole_area=0.0,
+        diagnostics=diagnostics,
+    )
+
+    signature = cleaning_footprints._coverage_defect_signature(
+        result_polygons,
+        target_scale=0.5,
+    )
+    assert signature.pair_issue_count == 0
+    assert sorted(sorted(indices) for indices in result_sources) in (
+        [[0], [1]],
+        [[0, 1]],
+    )
+    assert diagnostics["coverage_meshing_regularization_selected_branch"] == (
+        "residual_pair_issue_rescue"
+    )
+
+
+def test_regularize_coverage_for_meshing_runs_pair_rescue_even_without_primary_candidates(
+    monkeypatch,
+):
+    polygons = [box(0.0, 0.0, 10.0, 10.0), box(10.0, 10.0, 20.0, 20.0)]
+    diagnostics = cleaning_footprints._empty_diagnostics(2)
+    diagnostics["collect_stage_metrics"] = False
+    diagnostics["enable_logging"] = False
+
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_coverage_short_edge_graphically",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_coverage_globally",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_coverage_locally",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_coverage_residual_scale_polygons",
+        lambda *args, **kwargs: None,
+    )
+
+    result_polygons, result_sources = cleaning_footprints._regularize_coverage_for_meshing(
+        polygons,
+        [[0], [1]],
+        min_segment_length=0.5,
+        grid=0.03125,
+        min_area=0.0,
+        min_hole_area=0.0,
+        diagnostics=diagnostics,
+    )
+
+    signature = cleaning_footprints._coverage_defect_signature(
+        result_polygons,
+        target_scale=0.5,
+    )
+    assert signature.pair_issue_count == 0
+    assert diagnostics["coverage_meshing_regularization_selected_branch"] == (
+        "residual_pair_issue_rescue"
+    )
 
 
 def test_polygon_simplify_rejects_nonlocal_changes(monkeypatch):
