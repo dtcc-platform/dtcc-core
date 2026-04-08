@@ -393,11 +393,9 @@ def _prepare_surface_ground_regions(
         preserve_shared_boundaries=True,
     )
     coverage_building_polygons = [
-        orient(
-            Polygon(np.asarray(polygon.exterior.coords, dtype=np.float64)),
-            sign=1.0,
-        )
+        orient(polygon, sign=1.0)
         for polygon in conditioned_building_polygons
+        if polygon is not None and not polygon.is_empty
     ]
     region_polygons = [*ground_polygons, *coverage_building_polygons]
     region_markers = [-2] * len(ground_polygons) + conditioned_markers
@@ -1003,23 +1001,14 @@ def _condition_flat_mesh_ground_polygons(
     preserve_shared_boundaries: bool = False,
 ) -> list[Polygon]:
     ground_domain = box(*bounds)
-    building_shells = [
-        orient(
-            Polygon(np.asarray(polygon.exterior.coords, dtype=np.float64)),
-            sign=1.0,
-        )
+    normalized_buildings = [
+        orient(polygon, sign=1.0)
         for polygon in building_polygons
         if polygon is not None and not polygon.is_empty
-    ]
-    courtyard_polygons = [
-        orient(Polygon(np.asarray(ring.coords, dtype=np.float64)), sign=1.0)
-        for polygon in building_polygons
-        if polygon is not None and not polygon.is_empty
-        for ring in polygon.interiors
     ]
     excluded_polygons = [
         polygon
-        for polygon in [*building_shells, *hole_polygons]
+        for polygon in [*normalized_buildings, *hole_polygons]
         if polygon is not None and not polygon.is_empty
     ]
     if excluded_polygons:
@@ -1029,7 +1018,7 @@ def _condition_flat_mesh_ground_polygons(
     if preserve_shared_boundaries:
         return [
             orient(polygon, sign=1.0)
-            for polygon in [*ground_polygons, *courtyard_polygons]
+            for polygon in ground_polygons
             if polygon is not None and not polygon.is_empty
         ]
     cleanup_scale = _flat_mesh_ground_cleanup_scale(
@@ -1041,12 +1030,7 @@ def _condition_flat_mesh_ground_polygons(
         cleanup_scale=cleanup_scale,
         cleaning_diagnostics=cleaning_diagnostics,
     )
-    conditioned_courtyards = _regularize_flat_mesh_ground_polygons(
-        courtyard_polygons,
-        cleanup_scale=cleanup_scale,
-        cleaning_diagnostics=False,
-    )
-    return [*conditioned_ground, *conditioned_courtyards]
+    return conditioned_ground
 
 
 def _regularize_flat_mesh_ground_polygons(

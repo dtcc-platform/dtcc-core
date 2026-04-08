@@ -264,6 +264,39 @@ def test_build_city_flat_mesh_dtcc_mesher_handles_touching_holes():
     assert 0 in markers
 
 
+def test_build_city_flat_mesh_dtcc_mesher_handles_nested_building_in_courtyard():
+    pytest.importorskip("dtcc_mesher")
+
+    shell = Polygon(
+        [(8, 8), (32, 8), (32, 32), (8, 32), (8, 8)],
+        [[(14, 14), (26, 14), (26, 26), (14, 26), (14, 14)]],
+    )
+    nested = box(18, 18, 22, 22)
+    city = make_flat_city(
+        [
+            make_building(shell, roof_z=12.0),
+            make_building(nested, roof_z=8.0),
+        ]
+    )
+
+    mesh = build_city_flat_mesh(
+        city,
+        lod=GeometryType.LOD0,
+        merge_buildings=False,
+        min_building_detail=0.5,
+        min_building_area=1.0,
+        merge_tolerance=0.5,
+        max_mesh_size=5.0,
+        min_mesh_angle=20.0,
+        report_mesh_quality=False,
+        mesher="dtcc_mesher",
+    )
+
+    assert mesh.vertices.shape[0] > 0
+    assert mesh.faces.shape[0] > 0
+    assert set(np.unique(mesh.markers)).issuperset({-2, 0, 1})
+
+
 def test_condition_flat_mesh_building_regions_removes_subscale_edges():
     short_edge_hole = [
         (675446.375, 6581300.46875),
@@ -369,7 +402,27 @@ def test_condition_flat_mesh_ground_polygons_returns_explicit_courtyards():
     assert any(polygon.covers(courtyard) and courtyard.covers(polygon) for polygon in ground_polygons)
 
 
-def test_prepare_surface_ground_regions_uses_explicit_building_region_points_for_courtyards():
+def test_condition_flat_mesh_ground_polygons_courtyards_exclude_nested_buildings():
+    shell = Polygon(
+        [(10, 10), (34, 10), (34, 34), (10, 34), (10, 10)],
+        [[(14, 14), (30, 14), (30, 30), (14, 30), (14, 14)]],
+    )
+    nested = box(18, 18, 22, 22)
+
+    ground_polygons = meshes_module._condition_flat_mesh_ground_polygons(
+        bounds=(0.0, 0.0, 40.0, 40.0),
+        building_polygons=[shell, nested],
+        hole_polygons=[],
+        max_mesh_size=10.0,
+        footprint_diagnostics={"output_grid": 0.03125},
+        cleaning_diagnostics=False,
+    )
+
+    assert any(polygon.covers(Point(16.0, 16.0)) for polygon in ground_polygons)
+    assert all(polygon.intersection(nested).area == 0.0 for polygon in ground_polygons)
+
+
+def test_prepare_surface_ground_regions_preserves_building_holes_for_courtyards():
     building = Polygon(
         [(10, 10), (30, 10), (30, 30), (10, 30), (10, 10)],
         [[(16, 16), (24, 16), (24, 24), (16, 24), (16, 16)]],
@@ -402,10 +455,15 @@ def test_prepare_surface_ground_regions_uses_explicit_building_region_points_for
     assert region_triangle_sizes == {0: 5.0}
 
     building_index = region_markers.index(0)
+    ground_indices = [index for index, marker in enumerate(region_markers) if marker == -2]
     courtyard = Polygon(building.interiors[0])
-    assert len(region_polygons[building_index].interiors) == 0
+    assert len(region_polygons[building_index].interiors) == 1
     assert building.contains(Point(region_points[building_index]))
     assert not courtyard.covers(Point(region_points[building_index]))
+    assert all(
+        region_polygons[index].intersection(region_polygons[building_index]).area == 0.0
+        for index in ground_indices
+    )
 
 
 def test_build_city_flat_mesh_dtcc_mesher_uses_single_coverage_call(monkeypatch):

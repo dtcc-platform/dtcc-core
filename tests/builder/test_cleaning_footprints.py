@@ -608,6 +608,50 @@ def test_source_coordinate_recovery_rejects_local_overlap_candidate(monkeypatch)
     assert diagnostics["source_coordinate_recovery_rejected_overlap_count"] == 1
 
 
+def test_source_coordinate_recovery_rejects_local_close_pair_candidate(monkeypatch):
+    diagnostics = cleaning_footprints._empty_diagnostics(2)
+    diagnostics["collect_stage_metrics"] = False
+
+    original = box(0.0, 0.0, 1.0, 1.0)
+    neighbor = box(2.0, 0.0, 3.0, 1.0)
+    close_pair_candidate = box(1.4, 0.0, 2.4, 1.0)
+
+    def fake_recover(polygon, *, support, min_segment_length, grid, **kwargs):
+        if polygon.equals_exact(neighbor, tolerance=0.0):
+            return (
+                close_pair_candidate,
+                "support_vertex_restore",
+                {
+                    "reference_minus_candidate_area": 0.0,
+                    "candidate_minus_reference_area": 0.0,
+                    "symmetric_difference_area": 0.0,
+                    "union_area_delta": 0.0,
+                },
+            )
+        return None, None, None
+
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_recover_polygon_source_coordinates",
+        fake_recover,
+    )
+
+    polygons, source_map = cleaning_footprints._recover_source_supported_coordinates(
+        [original, neighbor],
+        [[0], [1]],
+        source_lookup={0: original, 1: neighbor},
+        min_segment_length=0.5,
+        grid=0.03125,
+        diagnostics=diagnostics,
+    )
+
+    assert polygons[0].equals_exact(original, tolerance=0.0)
+    assert polygons[1].equals_exact(neighbor, tolerance=0.0)
+    assert source_map == [[0], [1]]
+    assert diagnostics["source_coordinate_recovery_applied_count"] == 0
+    assert diagnostics["source_coordinate_recovery_rejected_non_improving_count"] >= 1
+
+
 def test_recover_polygon_source_coordinates_skips_vertex_restore_for_single_source_close_match(
     monkeypatch,
 ):
@@ -1782,15 +1826,72 @@ def test_direct_pair_issue_cluster_candidates_rewrite_close_gap_pair():
         diagnostics=diagnostics,
     )
 
-    assert len(candidates) == 1
-    operator, polygons, source_map = candidates[0]
-    assert operator.startswith("coverage_pair_issue_bridge_")
+    bridge_candidates = [
+        (operator, polygons, source_map)
+        for operator, polygons, source_map in candidates
+        if operator.startswith("coverage_pair_issue_bridge_")
+    ]
+    assert bridge_candidates
+    operator, polygons, source_map = bridge_candidates[0]
     signature = cleaning_footprints._coverage_defect_signature(
         polygons,
         target_scale=0.5,
     )
     assert signature.pair_issue_count == 0
     assert source_map == [[0, 1]]
+
+
+def test_apply_local_smaller_polygon_shrink_operator_separates_point_touch_pair():
+    diagnostics = cleaning_footprints._empty_diagnostics(2)
+    diagnostics["collect_stage_metrics"] = False
+
+    polygons = [box(0.0, 0.0, 1.0, 1.0), box(1.0, 1.0, 2.0, 2.0)]
+    candidate = cleaning_footprints._apply_local_smaller_polygon_shrink_operator(
+        polygons,
+        [[0], [1]],
+        radius=0.375,
+        grid=0.01,
+        diagnostics=diagnostics,
+    )
+
+    assert candidate is not None
+    polygons, source_map = candidate
+    signature = cleaning_footprints._coverage_defect_signature(
+        polygons,
+        target_scale=0.5,
+    )
+    assert signature.pair_issue_count == 0
+    assert source_map == [[0], [1]]
+
+
+def test_direct_pair_issue_cluster_candidates_include_shrink_candidate_for_point_touch_pair():
+    diagnostics = cleaning_footprints._empty_diagnostics(2)
+    diagnostics["collect_stage_metrics"] = False
+
+    candidates = cleaning_footprints._direct_pair_issue_cluster_candidates(
+        [box(0.0, 0.0, 1.0, 1.0), box(1.0, 1.0, 2.0, 2.0)],
+        [[0], [1]],
+        tolerance=0.5,
+        grid=0.01,
+        diagnostics=diagnostics,
+    )
+
+    shrink_candidates = [
+        (operator, polygons, source_map)
+        for operator, polygons, source_map in candidates
+        if operator.startswith("coverage_pair_issue_shrink_")
+    ]
+
+    assert shrink_candidates
+    assert any(
+        cleaning_footprints._coverage_defect_signature(
+            polygons,
+            target_scale=0.5,
+        ).pair_issue_count
+        == 0
+        and source_map == [[0], [1]]
+        for _, polygons, source_map in shrink_candidates
+    )
 
 
 def test_should_attempt_local_coverage_candidate_skips_when_global_is_already_good():
