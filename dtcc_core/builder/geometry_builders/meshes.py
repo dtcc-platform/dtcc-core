@@ -2062,6 +2062,11 @@ def build_city_volume_mesh(
         switches_params = get_default_tetgen_switches()
         if tetgen_switches:
             switches_params.update(tetgen_switches)
+        preserve_surface_requested = bool(switches_params.get("preserve_surface"))
+        if tetgen_switch_overrides:
+            preserve_surface_requested = bool(
+                tetgen_switch_overrides.get("preserve_surface")
+            ) or preserve_surface_requested
         # Build volume mesh with TetGen
         report_progress(percent=60, message="Running TetGen volume mesher...")
         try:
@@ -2111,6 +2116,47 @@ def build_city_volume_mesh(
                     tetgen_debug_output_dir=tetgen_debug_output_dir,
                     tetgen_debug_output_stem=(
                         f"{(tetgen_debug_output_stem or 'tetgen_input')}.retry-no-merge"
+                        if tetgen_debug_output_dir is not None
+                        else tetgen_debug_output_stem
+                    ),
+                )
+            if (
+                not preserve_surface_requested
+                and (
+                    "TetGen failed (code 2)" in msg
+                    or "internal error (report bug)" in msg
+                )
+            ):
+                warning(
+                    "TetGen failed with an internal refinement error; "
+                    "retrying once with preserve_surface=True."
+                )
+                retry_switch_overrides = dict(tetgen_switch_overrides or {})
+                retry_switch_overrides["preserve_surface"] = True
+                return build_city_volume_mesh(
+                    city=city,
+                    lod=lod,
+                    domain_height=domain_height,
+                    max_mesh_size=max_mesh_size,
+                    min_mesh_angle=min_mesh_angle,
+                    merge_buildings=merge_buildings,
+                    min_building_detail=min_building_detail,
+                    min_building_area=min_building_area,
+                    merge_tolerance=merge_tolerance,
+                    smoothing=smoothing,
+                    boundary_face_markers=boundary_face_markers,
+                    tetgen_switches=tetgen_switches,
+                    tetgen_switch_overrides=retry_switch_overrides,
+                    smoother_max_iterations=smoother_max_iterations,
+                    smoothing_relative_tolerance=smoothing_relative_tolerance,
+                    aspect_ratio_threshold=aspect_ratio_threshold,
+                    debug_step=debug_step,
+                    report_mesh_quality=report_mesh_quality,
+                    cleaning_diagnostics=cleaning_diagnostics,
+                    mesher=mesher,
+                    tetgen_debug_output_dir=tetgen_debug_output_dir,
+                    tetgen_debug_output_stem=(
+                        f"{(tetgen_debug_output_stem or 'tetgen_input')}.retry-preserve"
                         if tetgen_debug_output_dir is not None
                         else tetgen_debug_output_stem
                     ),

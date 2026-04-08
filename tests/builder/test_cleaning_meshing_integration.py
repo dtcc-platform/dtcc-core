@@ -1837,6 +1837,119 @@ def test_build_city_volume_mesh_respects_explicit_tetgen_switches_for_dtcc_meshe
     assert captured["top_cap_min_mesh_angle"] == 20.0
 
 
+def test_build_city_volume_mesh_retries_internal_tetgen_error_with_preserve_surface(
+    monkeypatch,
+):
+    city = make_flat_city([make_building(box(10, 10, 20, 20), roof_z=10.0)])
+    terrain = city.terrain
+    terrain_raster = terrain.raster
+    conditioned_surface = make_surface(box(10, 10, 20, 20), 10.0)
+    diagnostics = {"output_grid": 0.25}
+    calls = []
+
+    def fake_prepare(*args, **kwargs):
+        return terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics
+
+    def fake_prepare_regions(**kwargs):
+        return (
+            [conditioned_surface],
+            [1],
+            [box(0, 0, 80, 80), box(10, 10, 20, 20)],
+            [-2, 0],
+            {0: 4.0},
+            [
+                np.array([40.0, 40.0], dtype=np.float64),
+                np.array([15.0, 15.0], dtype=np.float64),
+            ],
+        )
+
+    def fake_build_ground(**kwargs):
+        return (
+            Mesh(
+                vertices=np.array(
+                    [
+                        [0.0, 0.0, 0.0],
+                        [10.0, 0.0, 0.0],
+                        [10.0, 10.0, 0.0],
+                        [0.0, 10.0, 0.0],
+                    ]
+                ),
+                faces=np.array([[0, 1, 2], [0, 2, 3]], dtype=int),
+                markers=np.array([0, 0], dtype=int),
+            ),
+            "dtcc_mesher",
+        )
+
+    def fake_build_surface_from_ground(**kwargs):
+        return Mesh(
+            vertices=np.array(
+                [
+                    [0.0, 0.0, 0.0],
+                    [10.0, 0.0, 0.0],
+                    [10.0, 10.0, 0.0],
+                    [0.0, 10.0, 0.0],
+                ]
+            ),
+            faces=np.array([[0, 1, 2], [0, 2, 3]], dtype=int),
+            markers=np.array([0, 0], dtype=int),
+        )
+
+    def fake_tetgen_build(**kwargs):
+        calls.append(
+            {
+                "switches_params": dict(kwargs["switches_params"]),
+                "switches_overrides": (
+                    dict(kwargs["switches_overrides"])
+                    if kwargs["switches_overrides"] is not None
+                    else None
+                ),
+            }
+        )
+        if len(calls) == 1:
+            raise RuntimeError("TetGen failed (code 2): internal error (report bug)")
+        return VolumeMesh(
+            vertices=np.array(
+                [
+                    [0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0],
+                    [0.0, 0.0, 1.0],
+                ]
+            ),
+            cells=np.array([[0, 1, 2, 3]], dtype=int),
+        )
+
+    monkeypatch.setattr(meshes_module, "_prepare_city_meshing_inputs", fake_prepare)
+    monkeypatch.setattr(meshes_module, "_prepare_surface_ground_regions", fake_prepare_regions)
+    monkeypatch.setattr(meshes_module, "_build_ground_mesh_from_coverage", fake_build_ground)
+    monkeypatch.setattr(
+        meshes_module,
+        "_build_city_surface_mesh_from_ground_mesh",
+        fake_build_surface_from_ground,
+    )
+    monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
+    monkeypatch.setattr(meshes_module, "tetgen_build_volume_mesh", fake_tetgen_build)
+
+    volume_mesh = build_city_volume_mesh(
+        city,
+        lod=GeometryType.LOD0,
+        merge_buildings=False,
+        min_building_detail=0.0,
+        min_building_area=1.0,
+        merge_tolerance=0.0,
+        max_mesh_size=6.0,
+        min_mesh_angle=20.0,
+        report_mesh_quality=False,
+        mesher="dtcc_mesher",
+    )
+
+    assert volume_mesh.cells.shape[0] == 1
+    assert len(calls) == 2
+    assert calls[0]["switches_params"]["preserve_surface"] is False
+    assert calls[0]["switches_overrides"] is None
+    assert calls[1]["switches_overrides"]["preserve_surface"] is True
+
+
 def test_build_city_volume_mesh_saves_tetgen_debug_meshes(monkeypatch, tmp_path):
     city = make_flat_city([make_building(box(10, 10, 20, 20), roof_z=10.0)])
     terrain = city.terrain
