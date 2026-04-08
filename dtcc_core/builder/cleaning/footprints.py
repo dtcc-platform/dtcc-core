@@ -104,6 +104,7 @@ class _CoverageDefectSignature:
     short_edge_count: int
     min_edge_length: float | None
     vertex_count: int
+    ring_contact_count: int = 0
 
 
 @dataclass(slots=True)
@@ -613,6 +614,12 @@ def _empty_diagnostics(input_count: int) -> dict[str, Any]:
         "coverage_meshing_regularization_short_edge_count_after": 0,
         "coverage_meshing_regularization_pair_issue_count_before": 0,
         "coverage_meshing_regularization_pair_issue_count_after": 0,
+        "coverage_meshing_regularization_ring_contact_count_before": 0,
+        "coverage_meshing_regularization_ring_contact_count_after": 0,
+        "coverage_meshing_regularization_ring_contact_polygon_count": 0,
+        "coverage_meshing_regularization_ring_contact_component_count": 0,
+        "coverage_meshing_regularization_ring_contact_failed_count": 0,
+        "coverage_meshing_regularization_ring_contact_area_delta": 0.0,
         "coverage_meshing_regularization_reference_minus_candidate_area": 0.0,
         "coverage_meshing_regularization_candidate_minus_reference_area": 0.0,
         "coverage_meshing_regularization_signed_area_delta": 0.0,
@@ -1567,6 +1574,207 @@ def _minimum_clearance(polygons: Sequence[Polygon]) -> float | None:
     return min(values)
 
 
+def _count_ring_boundary_contacts(
+    intersection: BaseGeometry,
+    *,
+    tolerance: float,
+) -> int:
+    if intersection.is_empty:
+        return 0
+
+    try:
+        if intersection.length > tolerance:
+            return 1
+    except (AttributeError, TypeError):
+        return 1
+
+    if intersection.geom_type == "Point":
+        return 1
+    if intersection.geom_type == "MultiPoint":
+        return sum(1 for _ in shapely.get_parts(intersection))
+    if intersection.geom_type == "GeometryCollection":
+        return sum(
+            _count_ring_boundary_contacts(part, tolerance=tolerance)
+            for part in shapely.get_parts(intersection)
+        )
+    return 1
+
+
+def _polygon_ring_boundary_contact_count(
+    polygon: Polygon,
+    *,
+    tolerance: float = 1e-12,
+) -> int:
+    rings = [polygon.exterior, *polygon.interiors]
+    if len(rings) < 2:
+        return 0
+
+    count = 0
+    for ring_index, ring in enumerate(rings):
+        for other in rings[ring_index + 1 :]:
+            try:
+                boundary_intersection = ring.intersection(other)
+            except GEOSException:
+                return count + 1
+            count += _count_ring_boundary_contacts(
+                boundary_intersection,
+                tolerance=tolerance,
+            )
+    return count
+
+
+def _polygon_has_ring_boundary_contacts(
+    polygon: Polygon,
+    *,
+    tolerance: float = 1e-12,
+) -> bool:
+    return _polygon_ring_boundary_contact_count(
+        polygon,
+        tolerance=tolerance,
+    ) > 0
+
+
+def _normalize_mesher_ready_polygon(
+    polygon: Polygon,
+    *,
+    declared_scale: float,
+    diagnostics: dict[str, Any] | None = None,
+) -> list[Polygon]:
+    polygon = orient(polygon, sign=1.0)
+    if polygon.is_empty or not polygon.interiors:
+        return [polygon]
+
+    if not _polygon_has_ring_boundary_contacts(polygon):
+        return [polygon]
+
+    shell = Polygon(np.asarray(polygon.exterior.coords, dtype=np.float64))
+    hole_polygons = [
+        Polygon(np.asarray(ring.coords, dtype=np.float64))
+        for ring in polygon.interiors
+    ]
+    max_extent = max(
+        polygon.bounds[2] - polygon.bounds[0],
+        polygon.bounds[3] - polygon.bounds[1],
+        1.0,
+    )
+    distance = max(
+        float(declared_scale) * 5e-5,
+        float(max_extent) * 5e-7,
+        1e-9,
+    )
+
+    for _attempt in range(8):
+        expanded_holes = unary_union(
+            [
+                hole.buffer(
+                    distance,
+                    quad_segs=1,
+                    join_style=BufferJoinStyle.mitre,
+                )
+                for hole in hole_polygons
+            ]
+        )
+        candidate_geometry = shell.difference(expanded_holes)
+        candidate_polygons = [
+            orient(candidate, sign=1.0)
+            for candidate in _extract_polygon_parts(candidate_geometry)
+        ]
+        if candidate_polygons and all(
+            not _polygon_has_ring_boundary_contacts(
+                candidate,
+                tolerance=max(distance * 0.25, 1e-12),
+            )
+            for candidate in candidate_polygons
+        ):
+            if diagnostics is not None:
+                diagnostics["mesher_regularized_polygon_count"] = (
+                    diagnostics.get("mesher_regularized_polygon_count", 0) + 1
+                )
+                diagnostics["mesher_regularized_component_count"] = (
+                    diagnostics.get("mesher_regularized_component_count", 0)
+                    + len(candidate_polygons)
+                )
+                diagnostics["mesher_regularization_area_delta_total"] = (
+                    diagnostics.get("mesher_regularization_area_delta_total", 0.0)
+                    + float(sum(part.area for part in candidate_polygons) - polygon.area)
+                )
+                diagnostics["mesher_regularization_max_distance"] = max(
+                    float(diagnostics.get("mesher_regularization_max_distance", 0.0)),
+                    float(distance),
+                )
+            return candidate_polygons
+        distance *= 2.0
+
+    if diagnostics is not None:
+        diagnostics["mesher_regularization_failed_count"] = (
+            diagnostics.get("mesher_regularization_failed_count", 0) + 1
+        )
+    return [polygon]
+
+
+def _regularize_ring_contact_polygon(
+    polygon: Polygon,
+    *,
+    min_distance: float,
+    target_clearance: float,
+    grid: float,
+) -> list[Polygon]:
+    polygon = orient(polygon, sign=1.0)
+    if polygon.is_empty or not polygon.interiors:
+        return [polygon]
+
+    if not _polygon_has_ring_boundary_contacts(polygon):
+        return [polygon]
+
+    shell = Polygon(np.asarray(polygon.exterior.coords, dtype=np.float64))
+    hole_polygons = [
+        Polygon(np.asarray(ring.coords, dtype=np.float64))
+        for ring in polygon.interiors
+    ]
+    distance = max(float(min_distance), 1e-9)
+
+    for _attempt in range(8):
+        expanded_holes = unary_union(
+            [
+                hole.buffer(
+                    distance,
+                    quad_segs=1,
+                    join_style=BufferJoinStyle.mitre,
+                )
+                for hole in hole_polygons
+            ]
+        )
+        candidate_geometry = shell.difference(expanded_holes)
+        candidate_polygons = [
+            orient(candidate, sign=1.0)
+            for candidate in _extract_polygon_parts(candidate_geometry)
+        ]
+        if not candidate_polygons:
+            distance *= 2.0
+            continue
+
+        if any(_polygon_has_ring_boundary_contacts(candidate) for candidate in candidate_polygons):
+            distance *= 2.0
+            continue
+
+        if all(
+            _signature_satisfies_scale_contract(
+                _polygon_defect_signature(
+                    candidate,
+                    target_scale=target_clearance,
+                ),
+                target_scale=target_clearance,
+                grid=grid,
+            )
+            for candidate in candidate_polygons
+        ):
+            return candidate_polygons
+
+        distance *= 2.0
+
+    return [polygon]
+
+
 def _coverage_pairwise_metrics(
     polygons: Sequence[Polygon],
     *,
@@ -1915,6 +2123,10 @@ def _coverage_defect_signature(
     ]
     return _CoverageDefectSignature(
         min_clearance=min(clearances) if clearances else None,
+        ring_contact_count=sum(
+            _polygon_ring_boundary_contact_count(polygon)
+            for polygon in polygons
+        ),
         pair_issue_count=int(pair_metrics["pair_issue_count"]),
         point_touch_count=int(pair_metrics["point_touch_count"]),
         close_pair_count=int(pair_metrics["close_pair_count"]),
@@ -1986,6 +2198,10 @@ def _coverage_signature_improves(
     if candidate_clearance_deficit + tolerance < reference_clearance_deficit:
         return True
     if candidate_clearance_deficit > reference_clearance_deficit + tolerance:
+        return False
+    if candidate.ring_contact_count < reference.ring_contact_count:
+        return True
+    if candidate.ring_contact_count > reference.ring_contact_count:
         return False
     if candidate.pair_issue_count < reference.pair_issue_count:
         return True
@@ -2082,6 +2298,8 @@ def _coverage_signature_not_worse(
     )
     if candidate_clearance_deficit > reference_clearance_deficit + tolerance:
         return False
+    if candidate.ring_contact_count > reference.ring_contact_count:
+        return False
     if candidate.pair_issue_count > reference.pair_issue_count:
         return False
     if (
@@ -2107,9 +2325,10 @@ def _coverage_signature_score(
     signature: _CoverageDefectSignature,
     *,
     target_scale: float,
-) -> tuple[float, int, int, float, int]:
+) -> tuple[float, int, int, int, float, int]:
     return (
         max(target_scale - (signature.min_clearance or 0.0), 0.0),
+        signature.ring_contact_count,
         signature.pair_issue_count,
         signature.short_edge_count,
         -(signature.min_edge_length or 0.0),
@@ -2127,6 +2346,8 @@ def _coverage_signature_satisfies_scale_contract(
         return True
 
     tolerance = max(grid, 1e-9)
+    if signature.ring_contact_count > 0:
+        return False
     if signature.pair_issue_count > 0:
         return False
     if signature.short_edge_count > 0:
@@ -2169,6 +2390,7 @@ def _coverage_candidate_prescore(
     )
     clearance_deficit = max(target_scale - (candidate.signature.min_clearance or 0.0), 0.0)
     return (
+        float(candidate.signature.ring_contact_count),
         float(candidate.signature.pair_issue_count),
         float(candidate.signature.short_edge_count),
         clearance_deficit,
@@ -2247,12 +2469,12 @@ def _should_attempt_local_coverage_candidate(
             and global_candidate.signature.short_edge_count <= residual_short_edge_budget
         ):
             return False
-        if (
-            purpose == "meshing"
-            and global_candidate.signature.pair_issue_count == 0
-            and global_candidate.signature.short_edge_count <= residual_short_edge_budget
-        ):
-            return False
+        if purpose == "meshing":
+            # The final meshing output must satisfy the declared scale contract.
+            # Even a small residual short-edge cluster is worth a local cleanup
+            # attempt here because those few defects can still create very hard
+            # 2D/3D meshing failures downstream.
+            return True
         return True
     if purpose == "meshing":
         return False
@@ -2279,25 +2501,28 @@ def _should_attempt_meshing_local_candidate(
     ):
         return False
 
-    # Mixed residual point-touch / close-gap defects with surviving short edges
-    # have consistently collapsed back to identity after expensive local search.
-    # Skip the search unless the cheap global candidate already demonstrates a
-    # real reduction in pair issues.
+    # This used to skip expensive local search for mixed residual defects that
+    # often collapsed back to identity. For the meshing stage we still need to
+    # try, because a few surviving residual defects can violate the declared
+    # min_feature_size contract and later break 2D/3D meshing.
     if (
         reference_signature.point_touch_count > 0
         and reference_signature.close_pair_count > 0
         and reference_signature.short_edge_count > 0
         and reference_signature.short_edge_count <= 8
     ):
-        if global_candidate is None:
-            return False
-        if (
-            global_candidate.signature.pair_issue_count
-            >= reference_signature.pair_issue_count
-            and global_candidate.signature.point_touch_count
-            >= reference_signature.point_touch_count
+        if global_candidate is not None and _coverage_signature_satisfies_scale_contract(
+            global_candidate.signature,
+            target_scale=target_scale,
+            grid=grid,
         ):
-            return False
+            if (
+                global_candidate.signature.pair_issue_count
+                >= reference_signature.pair_issue_count
+                and global_candidate.signature.point_touch_count
+                >= reference_signature.point_touch_count
+            ):
+                return False
 
     return True
 
@@ -3813,6 +4038,70 @@ def _regularize_coverage_for_meshing(
     diagnostics: dict[str, Any],
     cache: _CoverageEvalCache | None = None,
 ) -> tuple[list[Polygon], list[list[int]]]:
+    def _regularize_ring_contacts(
+        input_polygons: list[Polygon],
+        input_sources: list[list[int]],
+    ) -> tuple[list[Polygon], list[list[int]]] | None:
+        normalization_distance = max(
+            grid,
+            min_segment_length * 0.0625,
+            1e-6,
+        )
+        candidate_polygons: list[Polygon] = []
+        candidate_sources: list[list[int]] = []
+        changed_count = 0
+        component_count = 0
+        failed_count = 0
+        area_delta = 0.0
+
+        for polygon, indices in zip(input_polygons, input_sources):
+            ring_contact_count = _polygon_ring_boundary_contact_count(polygon)
+            if ring_contact_count == 0:
+                candidate_polygons.append(polygon)
+                candidate_sources.append(indices)
+                continue
+
+            normalized_parts = _regularize_ring_contact_polygon(
+                polygon,
+                min_distance=normalization_distance,
+                target_clearance=min_segment_length,
+                grid=grid,
+            )
+            remaining_contacts = sum(
+                _polygon_ring_boundary_contact_count(part)
+                for part in normalized_parts
+            )
+            if remaining_contacts > 0:
+                failed_count += 1
+                candidate_polygons.append(polygon)
+                candidate_sources.append(indices)
+                continue
+
+            changed_count += 1
+            component_count += len(normalized_parts)
+            area_delta += float(sum(part.area for part in normalized_parts) - polygon.area)
+            for part in normalized_parts:
+                candidate_polygons.append(part)
+                candidate_sources.append(list(indices))
+
+        diagnostics["coverage_meshing_regularization_ring_contact_polygon_count"] = (
+            changed_count
+        )
+        diagnostics["coverage_meshing_regularization_ring_contact_component_count"] = (
+            component_count
+        )
+        diagnostics["coverage_meshing_regularization_ring_contact_failed_count"] = (
+            failed_count
+        )
+        diagnostics["coverage_meshing_regularization_ring_contact_area_delta"] = (
+            area_delta
+        )
+
+        if changed_count == 0:
+            return None
+
+        return _stable_sort(candidate_polygons, candidate_sources)
+
     if cache is None:
         cache = _CoverageEvalCache()
     before_signature = _cached_coverage_defect_signature(
@@ -3826,6 +4115,9 @@ def _regularize_coverage_for_meshing(
     diagnostics["coverage_meshing_regularization_pair_issue_count_before"] = (
         before_signature.pair_issue_count
     )
+    diagnostics["coverage_meshing_regularization_ring_contact_count_before"] = (
+        before_signature.ring_contact_count
+    )
 
     if min_segment_length <= 0 or not polygons:
         diagnostics["coverage_meshing_regularization_applied"] = False
@@ -3835,20 +4127,43 @@ def _regularize_coverage_for_meshing(
         diagnostics["coverage_meshing_regularization_pair_issue_count_after"] = (
             before_signature.pair_issue_count
         )
+        diagnostics["coverage_meshing_regularization_ring_contact_count_after"] = (
+            before_signature.ring_contact_count
+        )
         return polygons, source_map
+
+    ring_contact_applied = False
+    ring_contact_candidate = None
+    if before_signature.ring_contact_count > 0:
+        ring_contact_candidate = _regularize_ring_contacts(polygons, source_map)
+    if ring_contact_candidate is not None:
+        polygons, source_map = ring_contact_candidate
+        before_signature = _cached_coverage_defect_signature(
+            cache,
+            polygons,
+            target_scale=min_segment_length,
+        )
+        ring_contact_applied = True
 
     if (
         before_signature.short_edge_count == 0
+        and before_signature.ring_contact_count == 0
         and before_signature.pair_issue_count == 0
         and max(min_segment_length - (before_signature.min_clearance or 0.0), 0.0)
         <= max(grid, 1e-9)
     ):
-        diagnostics["coverage_meshing_regularization_applied"] = False
+        diagnostics["coverage_meshing_regularization_applied"] = ring_contact_applied
+        diagnostics["coverage_meshing_regularization_selected_branch"] = (
+            "ring_contacts" if ring_contact_applied else "identity"
+        )
         diagnostics["coverage_meshing_regularization_short_edge_count_after"] = (
             before_signature.short_edge_count
         )
         diagnostics["coverage_meshing_regularization_pair_issue_count_after"] = (
             before_signature.pair_issue_count
+        )
+        diagnostics["coverage_meshing_regularization_ring_contact_count_after"] = (
+            before_signature.ring_contact_count
         )
         return polygons, source_map
 
@@ -3936,15 +4251,35 @@ def _regularize_coverage_for_meshing(
         if attempt_local_candidate
         else None
     )
+    residual_candidate = _simplify_coverage_residual_scale_polygons(
+        polygons,
+        source_map,
+        tolerance=min_segment_length,
+        grid=grid,
+        min_area=min_area,
+        min_hole_area=min_hole_area,
+        diagnostics=diagnostics,
+        cache=cache,
+    )
 
-    if graphical_candidate is None and global_candidate is None and local_candidate is None:
-        diagnostics["coverage_meshing_regularization_applied"] = False
-        diagnostics["coverage_meshing_regularization_selected_branch"] = "identity"
+    if (
+        graphical_candidate is None
+        and global_candidate is None
+        and local_candidate is None
+        and residual_candidate is None
+    ):
+        diagnostics["coverage_meshing_regularization_applied"] = ring_contact_applied
+        diagnostics["coverage_meshing_regularization_selected_branch"] = (
+            "ring_contacts" if ring_contact_applied else "identity"
+        )
         diagnostics["coverage_meshing_regularization_short_edge_count_after"] = (
             before_signature.short_edge_count
         )
         diagnostics["coverage_meshing_regularization_pair_issue_count_after"] = (
             before_signature.pair_issue_count
+        )
+        diagnostics["coverage_meshing_regularization_ring_contact_count_after"] = (
+            before_signature.ring_contact_count
         )
         diagnostics["coverage_meshing_regularization_reference_minus_candidate_area"] = (
             0.0
@@ -3977,7 +4312,12 @@ def _regularize_coverage_for_meshing(
     best_operator_attempts: dict[str, int] = {}
     best_operator_applied: dict[str, int] = {}
 
-    for candidate in (graphical_candidate, global_candidate, local_candidate):
+    for candidate in (
+        graphical_candidate,
+        global_candidate,
+        local_candidate,
+        residual_candidate,
+    ):
         if candidate is None:
             continue
 
@@ -4049,13 +4389,22 @@ def _regularize_coverage_for_meshing(
         best_operator_attempts = dict(candidate.operator_attempts)
         best_operator_applied = dict(candidate.operator_applied)
 
-    diagnostics["coverage_meshing_regularization_applied"] = best_label != "identity"
-    diagnostics["coverage_meshing_regularization_selected_branch"] = best_label
+    diagnostics["coverage_meshing_regularization_applied"] = (
+        ring_contact_applied or best_label != "identity"
+    )
+    diagnostics["coverage_meshing_regularization_selected_branch"] = (
+        "ring_contacts"
+        if ring_contact_applied and best_label == "identity"
+        else best_label
+    )
     diagnostics["coverage_meshing_regularization_short_edge_count_after"] = (
         best_signature.short_edge_count
     )
     diagnostics["coverage_meshing_regularization_pair_issue_count_after"] = (
         best_signature.pair_issue_count
+    )
+    diagnostics["coverage_meshing_regularization_ring_contact_count_after"] = (
+        best_signature.ring_contact_count
     )
     diagnostics["coverage_meshing_regularization_reference_minus_candidate_area"] = (
         best_difference_metrics["reference_minus_candidate_area"]
@@ -4113,6 +4462,10 @@ def _coverage_quality_metrics(
         "union_area": union_area,
         "overlap_area": float(max(total_area - union_area, 0.0)),
         "min_clearance": min(clearances) if clearances else None,
+        "ring_contact_count": sum(
+            _polygon_ring_boundary_contact_count(polygon)
+            for polygon in polygons
+        ),
         **pair_metrics,
         **segment_stats,
     }
@@ -4164,6 +4517,8 @@ def _format_stage_metrics(
         line += (
             f" short<{short_edge_threshold:.2f}m={metrics['short_edge_count']}"
         )
+        if "ring_contact_count" in metrics:
+            line += f" ring_touch={metrics['ring_contact_count']}"
         if "pair_issue_count" in metrics:
             line += f" pair<{short_edge_threshold:.2f}m={metrics['pair_issue_count']}"
     if "group_count" in metrics:
@@ -5142,6 +5497,166 @@ def _simplify_coverage_short_edge_graphically(
     )
 
 
+def _simplify_coverage_residual_scale_polygons(
+    polygons: list[Polygon],
+    source_map: list[list[int]],
+    *,
+    tolerance: float,
+    grid: float,
+    min_area: float,
+    min_hole_area: float,
+    diagnostics: dict[str, Any],
+    cache: _CoverageEvalCache | None = None,
+) -> _CoverageSimplifyCandidate | None:
+    if tolerance <= 0 or not polygons:
+        return None
+
+    reference_signature = _cached_coverage_defect_signature(
+        cache,
+        polygons,
+        target_scale=tolerance,
+    )
+    if _coverage_signature_satisfies_scale_contract(
+        reference_signature,
+        target_scale=tolerance,
+        grid=grid,
+    ):
+        return None
+
+    candidate_polygons = list(polygons)
+    candidate_sources = [list(indices) for indices in source_map]
+    changed_count = 0
+    changed_area = 0.0
+
+    for index, polygon in enumerate(polygons):
+        reference_polygon_signature = _polygon_defect_signature(
+            polygon,
+            target_scale=tolerance,
+        )
+        if _signature_satisfies_scale_contract(
+            reference_polygon_signature,
+            target_scale=tolerance,
+            grid=grid,
+        ):
+            continue
+
+        best_candidate: Polygon | None = None
+        best_metrics: dict[str, float] | None = None
+        best_score: tuple[float, float, float, float] | None = None
+        for factor in (0.75, 1.0, 1.25):
+            simplify_tolerance = max(factor * tolerance, grid, 1e-9)
+            try:
+                simplified = shapely.simplify(
+                    polygon,
+                    simplify_tolerance,
+                    preserve_topology=True,
+                )
+            except (GEOSException, ValueError, TypeError) as exc:
+                _record_geos_exception(diagnostics, "residual_polygon_simplify", exc)
+                continue
+
+            normalized = _normalize_single_polygon_candidate(
+                simplified,
+                grid=grid,
+                min_area=min_area,
+                min_hole_area=min_hole_area,
+                diagnostics=diagnostics,
+            )
+            if normalized is None:
+                continue
+
+            candidate_signature = _polygon_defect_signature(
+                normalized,
+                target_scale=tolerance,
+            )
+            if not _signature_satisfies_scale_contract(
+                candidate_signature,
+                target_scale=tolerance,
+                grid=grid,
+            ):
+                continue
+
+            difference_metrics = _difference_area_metrics(polygon, normalized)
+            if not _difference_metrics_have_small_fidelity_drift(
+                difference_metrics,
+                edit_zone_area=float(polygon.area),
+                target_scale=tolerance,
+                grid=grid,
+            ):
+                continue
+
+            score = (
+                difference_metrics["symmetric_difference_area"],
+                abs(difference_metrics["union_area_delta"]),
+                difference_metrics["reference_minus_candidate_area"],
+                difference_metrics["candidate_minus_reference_area"],
+            )
+            if best_score is None or score < best_score:
+                best_candidate = normalized
+                best_metrics = difference_metrics
+                best_score = score
+
+        if best_candidate is None or best_metrics is None:
+            continue
+
+        candidate_polygons[index] = best_candidate
+        changed_count += 1
+        changed_area += float(polygon.area)
+
+    if changed_count == 0:
+        return None
+    if _cached_overlap_area(cache, candidate_polygons) > max(grid * grid, 1e-9):
+        return None
+
+    candidate_signature = _cached_coverage_defect_signature(
+        cache,
+        candidate_polygons,
+        target_scale=tolerance,
+    )
+    if not _coverage_signature_improves(
+        reference_signature,
+        candidate_signature,
+        grid=grid,
+        target_scale=tolerance,
+    ):
+        return None
+    if not _coverage_signature_satisfies_scale_contract(
+        candidate_signature,
+        target_scale=tolerance,
+        grid=grid,
+    ):
+        return None
+
+    difference_metrics = _cached_difference_area_metrics(
+        cache,
+        polygons,
+        candidate_polygons,
+    )
+    if not _difference_metrics_have_small_fidelity_drift(
+        difference_metrics,
+        edit_zone_area=changed_area,
+        target_scale=tolerance,
+        grid=grid,
+    ):
+        return None
+
+    operator = "coverage_residual_polygon_simplify"
+    return _CoverageSimplifyCandidate(
+        label="residual_polygon_simplify",
+        polygons=candidate_polygons,
+        source_map=candidate_sources,
+        signature=candidate_signature,
+        difference_metrics=difference_metrics,
+        change_outside_edit_zone=0.0,
+        edit_zone_area=changed_area,
+        area_balance_budget=max(changed_area, grid * grid, 1e-9),
+        patch_count=changed_count,
+        patch_applied_count=changed_count,
+        operator_attempts={operator: changed_count},
+        operator_applied={operator: changed_count},
+    )
+
+
 def _rewrite_coverage_cluster_graphically(
     subset_polygons: Sequence[Polygon],
     subset_sources: Sequence[Sequence[int]],
@@ -5814,7 +6329,7 @@ def _simplify_coverage_locally(
                 )
                 if (
                     best_candidate is not None
-                    and candidate_signature_score > best_candidate[0][:5]
+                    and candidate_signature_score > best_candidate[0][:6]
                 ):
                     return
 

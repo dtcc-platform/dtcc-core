@@ -96,6 +96,12 @@ def assert_conditioning_invariants(
         "coverage_meshing_regularization_short_edge_count_after",
         "coverage_meshing_regularization_pair_issue_count_before",
         "coverage_meshing_regularization_pair_issue_count_after",
+        "coverage_meshing_regularization_ring_contact_count_before",
+        "coverage_meshing_regularization_ring_contact_count_after",
+        "coverage_meshing_regularization_ring_contact_polygon_count",
+        "coverage_meshing_regularization_ring_contact_component_count",
+        "coverage_meshing_regularization_ring_contact_failed_count",
+        "coverage_meshing_regularization_ring_contact_area_delta",
         "coverage_meshing_regularization_reference_minus_candidate_area",
         "coverage_meshing_regularization_candidate_minus_reference_area",
         "coverage_meshing_regularization_signed_area_delta",
@@ -398,6 +404,42 @@ def test_condition_polygon_coverage_accepts_geometry_collection_and_source_map()
     )
 
 
+def test_condition_polygon_coverage_regularizes_hole_touching_exterior():
+    touching_hole = Polygon(
+        [(0, 0), (10, 0), (10, 10), (0, 10), (0, 0)],
+        [[(0, 5), (2, 4), (3, 5), (2, 6), (0, 5)]],
+    )
+    assert touching_hole.is_valid
+    assert cleaning_footprints._polygon_has_ring_boundary_contacts(touching_hole)
+
+    options = cleaning.ConditioningOptions(
+        min_feature_size=0.0,
+        merge_distance=0.0,
+        min_area=0.0,
+        min_hole_area=0.0,
+        precision_grid=0.125,
+    )
+    result = cleaning.condition_polygon_coverage([touching_hole], options=options)
+
+    assert len(result.polygons) == 1
+    assert not cleaning_footprints._polygon_has_ring_boundary_contacts(
+        result.polygons[0]
+    )
+    assert (
+        result.diagnostics["coverage_meshing_regularization_ring_contact_count_before"]
+        > 0
+    )
+    assert (
+        result.diagnostics["coverage_meshing_regularization_ring_contact_count_after"]
+        == 0
+    )
+    assert (
+        result.diagnostics["coverage_meshing_regularization_ring_contact_polygon_count"]
+        == 1
+    )
+    assert_conditioning_invariants(result, options)
+
+
 def test_condition_polygon_coverage_is_deterministic():
     geometries = [box(10, 0, 14, 4), box(0, 0, 4, 4), box(4.1, 0, 8.1, 4)]
     options = cleaning.ConditioningOptions(
@@ -655,6 +697,43 @@ def test_condition_polygon_coverage_removes_meshing_hostile_short_edges():
         for (ax, ay), (bx, by) in zip(ring.coords, ring.coords[1:])
     )
     assert min_edge >= options.min_feature_size
+
+
+def test_residual_scale_polygon_simplifier_enforces_contract():
+    polygon = Polygon(
+        [
+            (0.0, 0.0),
+            (20.0, 0.0),
+            (20.0, 10.0),
+            (10.2, 10.0),
+            (10.2, 9.56),
+            (9.7, 9.56),
+            (9.7, 10.0),
+            (0.0, 10.0),
+        ]
+    )
+    diagnostics = cleaning_footprints._empty_diagnostics(1)
+    diagnostics["collect_stage_metrics"] = False
+    diagnostics["enable_logging"] = False
+
+    candidate = cleaning_footprints._simplify_coverage_residual_scale_polygons(
+        [polygon],
+        [[0]],
+        tolerance=0.5,
+        grid=0.03125,
+        min_area=0.0,
+        min_hole_area=0.0,
+        diagnostics=diagnostics,
+        cache=cleaning_footprints._CoverageEvalCache(),
+    )
+
+    assert candidate is not None
+    assert candidate.operator_applied == {"coverage_residual_polygon_simplify": 1}
+    assert cleaning_footprints._coverage_signature_satisfies_scale_contract(
+        candidate.signature,
+        target_scale=0.5,
+        grid=0.03125,
+    )
 
 
 def test_condition_polygon_coverage_logs_stage_progress(monkeypatch):
@@ -1766,7 +1845,7 @@ def test_should_attempt_local_coverage_candidate_skips_when_global_is_already_go
     )
 
 
-def test_should_attempt_meshing_local_candidate_skips_mixed_residual_defect():
+def test_should_attempt_meshing_local_candidate_keeps_mixed_residual_cleanup_when_contract_fails():
     reference_signature = cleaning_footprints._CoverageDefectSignature(
         min_clearance=0.0,
         pair_issue_count=3,
@@ -1813,7 +1892,7 @@ def test_should_attempt_meshing_local_candidate_skips_mixed_residual_defect():
             target_scale=0.5,
             grid=0.03125,
         )
-        is False
+        is True
     )
 
 
@@ -1840,6 +1919,67 @@ def test_should_attempt_meshing_local_candidate_keeps_close_gap_cleanup():
             min_pair_clearance=0.12,
             short_edge_count=3,
             min_edge_length=0.14,
+            vertex_count=18,
+        ),
+        difference_metrics={
+            "reference_minus_candidate_area": 0.2,
+            "candidate_minus_reference_area": 0.1,
+            "symmetric_difference_area": 0.3,
+            "union_area_delta": -0.1,
+        },
+        change_outside_edit_zone=0.0,
+        edit_zone_area=10.0,
+        area_balance_budget=1.0,
+        patch_count=1,
+        patch_applied_count=1,
+        operator_attempts={"coverage_simplify_global": 1},
+        operator_applied={"coverage_simplify_global": 1},
+    )
+
+    assert (
+        cleaning_footprints._should_attempt_meshing_local_candidate(
+            reference_signature,
+            global_candidate,
+            target_scale=0.5,
+            grid=0.03125,
+        )
+        is True
+    )
+    assert (
+        cleaning_footprints._should_attempt_local_coverage_candidate(
+            reference_signature,
+            global_candidate,
+            target_scale=0.5,
+            grid=0.03125,
+            purpose="meshing",
+        )
+        is True
+    )
+
+
+def test_should_attempt_meshing_local_candidate_for_residual_short_edges():
+    reference_signature = cleaning_footprints._CoverageDefectSignature(
+        min_clearance=0.43,
+        pair_issue_count=0,
+        point_touch_count=0,
+        close_pair_count=0,
+        min_pair_clearance=None,
+        short_edge_count=5,
+        min_edge_length=0.43,
+        vertex_count=24,
+    )
+    global_candidate = cleaning_footprints._CoverageSimplifyCandidate(
+        label="global",
+        polygons=[box(0.0, 0.0, 10.0, 10.0)],
+        source_map=[[0]],
+        signature=cleaning_footprints._CoverageDefectSignature(
+            min_clearance=0.43,
+            pair_issue_count=0,
+            point_touch_count=0,
+            close_pair_count=0,
+            min_pair_clearance=None,
+            short_edge_count=5,
+            min_edge_length=0.43,
             vertex_count=18,
         ),
         difference_metrics={

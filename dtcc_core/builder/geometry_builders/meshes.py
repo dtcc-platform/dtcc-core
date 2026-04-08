@@ -1,10 +1,12 @@
+from pathlib import Path
+from collections import defaultdict
 from typing import Any, Dict, Optional, List, Sequence
 import numpy as np
 from shapely import BufferJoinStyle
 from shapely.errors import GEOSException
-from shapely.geometry import GeometryCollection, MultiPolygon, Polygon, box
+from shapely.geometry import GeometryCollection, LineString, MultiPolygon, Point, Polygon, box
 from shapely.geometry.polygon import orient
-from shapely.ops import unary_union
+from shapely.ops import polygonize, unary_union
 
 from ...model import (
     Mesh,
@@ -25,6 +27,7 @@ _LOD_PRIORITY: dict[GeometryType, int] = {
 from ..model_conversion import (
     create_builder_polygon,
     create_builder_surface,
+    mesh_to_builder_mesh,
     raster_to_builder_gridfield,
 )
 
@@ -40,12 +43,12 @@ from ..cleaning import footprints as cleaning_footprints
 from ..logging import debug, info, warning, error
 from ..meshing.backends import resolve_2d_mesher
 from ..meshing.flat_mesh_backends import build_city_flat_mesh_from_coverage
-
 from ..meshing.tetgen import (
     build_volume_mesh as tetgen_build_volume_mesh,
     get_default_tetgen_switches,
     is_tetgen_available,
 )
+from ..meshing import tetgen_utils
 
 from dtcc_core.common.progress import report_progress
 
@@ -65,6 +68,15 @@ _GROUND_MESH_CLEANUP_SCALE_MIN = 0.01
 _GROUND_MESH_CLEANUP_SCALE_MAX = 0.1
 _FLAT_MESH_BUILDING_CLEANUP_SCALE_FRACTION = 0.25
 _FLAT_MESH_BUILDING_CLEANUP_DETAIL_MULTIPLIER = 5.0
+_RASTER_BOUNDARY_SNAP_FRACTION = 0.125
+_RASTER_BOUNDARY_SNAP_MIN = 1.0e-6
+_TETGEN_DEBUG_CLOSURE_MARKERS = {
+    "south": -101,
+    "east": -102,
+    "north": -103,
+    "west": -104,
+    "top": -105,
+}
 
 
 def _normalize_max_mesh_size(max_mesh_size: float | None) -> float | None:
@@ -88,46 +100,841 @@ def _is_unavailable_flat_mesher_error(backend: str, exc: RuntimeError) -> bool:
     return False
 
 
-def _call_builder_city_surface_mesh(
-    building_surfaces,
-    hole_surfaces,
-    building_lod_switches,
-    building_resolution,
-    builder_dem,
-    max_mesh_size,
-    min_mesh_angle,
-    smoothing,
-    merge_meshes,
-    sort_triangles,
-):
+def _require_city_terrain_raster(
+    city: City,
+    *,
+    max_mesh_size: float | None,
+) -> tuple[object, object]:
+    terrain = city.terrain
+    if terrain is None:
+        raise ValueError("City has no terrain data. Please compute terrain first.")
+
+    terrain_raster = terrain.raster
+    terrain_mesh = terrain.mesh
+    if terrain_raster is None and terrain_mesh is None:
+        raise ValueError("City terrain has no data. Please compute terrain first.")
+
+    if terrain_raster is None and terrain_mesh is not None:
+        from ..meshing.convert import mesh_to_raster
+
+        raster_cell_size = max_mesh_size if max_mesh_size is not None else 1.0
+        terrain_raster = mesh_to_raster(terrain_mesh, cell_size=raster_cell_size)
+
+    return terrain, terrain_raster
+
+
+def _prepare_city_meshing_inputs(
+    city: City,
+    *,
+    lod: GeometryType | Sequence[GeometryType],
+    min_building_detail: float,
+    min_building_area: float,
+    merge_tolerance: float,
+    merge_buildings: bool,
+    max_mesh_size: float | None,
+    cleaning_diagnostics: bool,
+) -> tuple[object, object, list[Surface], list[list[int]], list[float], dict[str, Any]]:
+    terrain, terrain_raster = _require_city_terrain_raster(
+        city,
+        max_mesh_size=max_mesh_size,
+    )
+
+    buildings = city.buildings
+    if not buildings:
+        warning("City has no buildings.")
+
+    building_footprints, conditioned_source_map, subdomain_resolution, diagnostics = (
+        _condition_meshing_footprints(
+            buildings,
+            lod=lod,
+            min_building_detail=min_building_detail,
+            min_building_area=min_building_area,
+            merge_tolerance=merge_tolerance,
+            merge_buildings=merge_buildings,
+            max_mesh_size=max_mesh_size,
+            cleaning_diagnostics=cleaning_diagnostics,
+        )
+    )
+
+    return (
+        terrain,
+        terrain_raster,
+        building_footprints,
+        conditioned_source_map,
+        subdomain_resolution,
+        diagnostics,
+    )
+
+
+def _resolve_conditioned_target_lods(
+    buildings: list[Building],
+    lod: GeometryType | Sequence[GeometryType],
+    conditioned_source_map: list[list[int]],
+) -> list[GeometryType]:
+    lod_values = _normalize_lod_values(buildings, lod)
+    return [
+        min(
+            (lod_values[index] for index in indices),
+            key=lambda value: _LOD_PRIORITY[value],
+        )
+        for indices in conditioned_source_map
+    ]
+
+
+def _promote_volume_shell_target_lods(
+    target_lods: Sequence[GeometryType],
+) -> list[GeometryType]:
+    return [
+        GeometryType.LOD1 if lod_value == GeometryType.LOD0 else lod_value
+        for lod_value in target_lods
+    ]
+
+
+def _build_ground_mesh_from_coverage(
+    *,
+    region_polygons: list[Polygon],
+    region_markers: list[int],
+    region_points: list[np.ndarray] | None = None,
+    bounds: tuple[float, float, float, float],
+    max_mesh_size: float | None,
+    min_mesh_angle: float,
+    mesher: str | None,
+    sort_triangles: bool = True,
+    region_triangle_sizes: dict[int, float] | None = None,
+    add_halo_markers: bool = True,
+) -> tuple[Mesh, str]:
+    active_mesher = resolve_2d_mesher(mesher)
+
     try:
-        return _dtcc_builder.build_city_surface_mesh(
-            building_surfaces,
-            hole_surfaces,
-            building_lod_switches,
-            building_resolution,
-            builder_dem,
-            max_mesh_size,
-            min_mesh_angle,
-            smoothing,
-            merge_meshes,
-            sort_triangles,
+        ground_mesh = build_city_flat_mesh_from_coverage(
+            region_polygons=region_polygons,
+            region_markers=region_markers,
+            region_points=region_points,
+            bounds=bounds,
+            max_mesh_size=max_mesh_size,
+            min_mesh_angle=min_mesh_angle,
+            backend=active_mesher,
+            sort_triangles=sort_triangles,
+            region_triangle_sizes=region_triangle_sizes,
         )
-    except TypeError:
+    except RuntimeError as exc:
+        if not _is_unavailable_flat_mesher_error(active_mesher, exc):
+            raise
         warning(
-            "Falling back to legacy _dtcc_builder.build_city_surface_mesh "
-            "signature without hole/LiD directives."
+            "Requested flat-mesh backend is unavailable in this build; "
+            "falling back to dtcc_mesher."
         )
-        return _dtcc_builder.build_city_surface_mesh(
-            building_surfaces,
-            building_resolution,
-            builder_dem,
-            max_mesh_size,
-            min_mesh_angle,
-            smoothing,
-            merge_meshes,
-            sort_triangles,
+        active_mesher = "dtcc_mesher"
+        ground_mesh = build_city_flat_mesh_from_coverage(
+            region_polygons=region_polygons,
+            region_markers=region_markers,
+            region_points=region_points,
+            bounds=bounds,
+            max_mesh_size=max_mesh_size,
+            min_mesh_angle=min_mesh_angle,
+            backend=active_mesher,
+            sort_triangles=sort_triangles,
+            region_triangle_sizes=region_triangle_sizes,
         )
+
+    if add_halo_markers:
+        ground_mesh = _add_flat_mesh_halo_markers(ground_mesh)
+
+    return ground_mesh, active_mesher
+
+
+def _prepare_surface_ground_regions(
+    *,
+    conditioned_surfaces: list[Surface],
+    conditioned_resolution: list[float],
+    target_lods: list[GeometryType],
+    bounds: tuple[float, float, float, float],
+    max_mesh_size: float | None,
+    min_building_detail: float,
+    footprint_diagnostics: dict[str, Any],
+    cleaning_diagnostics: bool,
+    treat_lod0_as_holes: bool,
+) -> tuple[
+    list[Surface],
+    list[int],
+    list[Polygon],
+    list[int],
+    dict[int, float],
+    list[np.ndarray],
+]:
+    source_surfaces: list[Surface] = []
+    source_directives: list[int] = []
+    source_resolutions: list[float] = []
+    source_roof_z: list[float] = []
+    source_areas: list[float] = []
+    building_polygons: list[Polygon] = []
+    building_markers: list[int] = []
+    hole_polygons: list[Polygon] = []
+    default_priority = _LOD_PRIORITY[GeometryType.LOD3]
+
+    for surface, resolution, lod_value in zip(
+        conditioned_surfaces,
+        conditioned_resolution,
+        target_lods,
+    ):
+        polygon = surface.to_polygon(simplify=0.0)
+        if polygon.is_empty:
+            continue
+
+        if treat_lod0_as_holes and lod_value == GeometryType.LOD0:
+            hole_polygons.append(polygon)
+            continue
+
+        marker = len(source_surfaces)
+        source_surfaces.append(surface)
+        source_directives.append(_LOD_PRIORITY.get(lod_value, default_priority))
+        source_resolutions.append(float(resolution))
+        source_areas.append(float(max(polygon.area, 0.0)))
+        source_roof_z.append(float(getattr(surface.bounds, "zmax", 0.0)))
+        building_polygons.append(polygon)
+        building_markers.append(marker)
+    (
+        conditioned_building_polygons,
+        _conditioned_building_markers,
+        conditioned_building_sources,
+    ) = _condition_flat_mesh_building_regions_with_sources(
+        building_polygons=building_polygons,
+        building_markers=building_markers,
+        footprint_diagnostics=footprint_diagnostics,
+        max_mesh_size=max_mesh_size,
+        min_building_detail=min_building_detail,
+        cleaning_diagnostics=cleaning_diagnostics,
+    )
+
+    shell_hole_clearance = max(
+        float(footprint_diagnostics.get("output_grid", 0.0) or 0.0),
+        float(min_building_detail),
+        1e-6,
+    ) * 0.1
+    removed_shell_holes = 0
+    stabilized_building_polygons: list[Polygon] = []
+    for polygon in conditioned_building_polygons:
+        stabilized_polygon, removed_count = _stabilize_shell_building_polygon(
+            polygon,
+            min_hole_clearance=shell_hole_clearance,
+        )
+        stabilized_building_polygons.append(stabilized_polygon)
+        removed_shell_holes += removed_count
+    conditioned_building_polygons = stabilized_building_polygons
+    if removed_shell_holes > 0:
+        warning(
+            "Removed %d low-clearance interior ring(s) from shell building regions before 3D extrusion.",
+            removed_shell_holes,
+        )
+
+    shell_polygon_clearance = max(
+        float(footprint_diagnostics.get("output_grid", 0.0) or 0.0),
+        float(min_building_detail),
+        1e-6,
+    ) * 0.1
+    (
+        conditioned_building_polygons,
+        conditioned_building_sources,
+        regularized_shell_polygons,
+    ) = _regularize_shell_building_regions_with_sources(
+        polygons=conditioned_building_polygons,
+        sources=conditioned_building_sources,
+        min_clearance=shell_polygon_clearance,
+        precision_grid=float(footprint_diagnostics.get("output_grid", 0.0) or 0.0),
+    )
+    if regularized_shell_polygons > 0:
+        warning(
+            "Regularized %d low-clearance shell polygon(s) before 3D extrusion.",
+            regularized_shell_polygons,
+        )
+
+    active_surfaces: list[Surface] = []
+    meshing_directives: list[int] = []
+    conditioned_markers: list[int] = []
+    region_triangle_sizes: dict[int, float] = {}
+    building_region_points: list[np.ndarray] = []
+
+    for polygon, sources in zip(
+        conditioned_building_polygons,
+        conditioned_building_sources,
+    ):
+        marker = len(active_surfaces)
+        roof_z = _area_weighted_value(
+            sources,
+            source_areas,
+            source_roof_z,
+            default=0.0,
+        )
+        surface = Surface()
+        surface.from_polygon(polygon, roof_z)
+        active_surfaces.append(surface)
+        conditioned_markers.append(marker)
+        meshing_directives.append(
+            min(source_directives[index] for index in sources)
+            if sources
+            else default_priority
+        )
+        region_triangle_sizes[marker] = (
+            min(source_resolutions[index] for index in sources)
+            if sources
+            else float(max_mesh_size or min_building_detail)
+        )
+        building_region_points.append(
+            np.asarray(polygon.representative_point().coords[0], dtype=np.float64)
+        )
+
+    ground_polygons = _condition_flat_mesh_ground_polygons(
+        bounds=bounds,
+        building_polygons=conditioned_building_polygons,
+        hole_polygons=hole_polygons,
+        max_mesh_size=max_mesh_size,
+        footprint_diagnostics=footprint_diagnostics,
+        cleaning_diagnostics=cleaning_diagnostics,
+        preserve_shared_boundaries=True,
+    )
+    coverage_building_polygons = [
+        orient(
+            Polygon(np.asarray(polygon.exterior.coords, dtype=np.float64)),
+            sign=1.0,
+        )
+        for polygon in conditioned_building_polygons
+    ]
+    region_polygons = [*ground_polygons, *coverage_building_polygons]
+    region_markers = [-2] * len(ground_polygons) + conditioned_markers
+    region_points = [
+        np.asarray(polygon.representative_point().coords[0], dtype=np.float64)
+        for polygon in ground_polygons
+    ] + building_region_points
+
+    return (
+        active_surfaces,
+        meshing_directives,
+        region_polygons,
+        region_markers,
+        region_triangle_sizes,
+        region_points,
+    )
+
+
+def _split_ground_mesh_building_components(
+    *,
+    ground_mesh: Mesh,
+    building_surfaces: list[Surface],
+    meshing_directives: list[int],
+) -> tuple[Mesh, list[Surface], list[int]]:
+    if (
+        len(building_surfaces) == 0
+        or ground_mesh.faces is None
+        or ground_mesh.markers is None
+        or len(ground_mesh.faces) == 0
+        or len(ground_mesh.markers) != len(ground_mesh.faces)
+    ):
+        return ground_mesh, building_surfaces, meshing_directives
+
+    faces = np.asarray(ground_mesh.faces, dtype=np.int64)
+    markers = np.asarray(ground_mesh.markers, dtype=np.int64).copy()
+    updated_surfaces = [surface.copy() for surface in building_surfaces]
+    updated_directives = list(meshing_directives)
+    next_marker = len(updated_surfaces)
+    split_components = 0
+    split_pinched_components = 0
+    trimmed_pinched_surfaces = 0
+
+    for marker in range(len(building_surfaces)):
+        face_indices = np.flatnonzero(markers == marker)
+        if face_indices.size <= 1:
+            continue
+
+        edge_faces: dict[tuple[int, int], list[int]] = defaultdict(list)
+        for face_index in face_indices.tolist():
+            tri = faces[face_index]
+            for a, b in (
+                (int(tri[0]), int(tri[1])),
+                (int(tri[1]), int(tri[2])),
+                (int(tri[2]), int(tri[0])),
+            ):
+                if a > b:
+                    a, b = b, a
+                edge_faces[(a, b)].append(face_index)
+
+        adjacency = {face_index: set() for face_index in face_indices.tolist()}
+        for shared_faces in edge_faces.values():
+            if len(shared_faces) < 2:
+                continue
+            for index, face_index in enumerate(shared_faces[:-1]):
+                for other in shared_faces[index + 1 :]:
+                    adjacency[face_index].add(other)
+                    adjacency[other].add(face_index)
+
+        remaining = set(adjacency)
+        components: list[list[int]] = []
+        while remaining:
+            seed = remaining.pop()
+            stack = [seed]
+            component = [seed]
+            while stack:
+                current = stack.pop()
+                for neighbor in adjacency[current]:
+                    if neighbor not in remaining:
+                        continue
+                    remaining.remove(neighbor)
+                    stack.append(neighbor)
+                    component.append(neighbor)
+            components.append(component)
+
+        if len(components) <= 1:
+            continue
+
+        split_components += len(components) - 1
+        for component in components[1:]:
+            markers[np.asarray(component, dtype=np.int64)] = next_marker
+            updated_surfaces.append(building_surfaces[marker].copy())
+            updated_directives.append(meshing_directives[marker])
+            next_marker += 1
+
+    pinch_tolerance = 1e-3
+    for marker in range(len(updated_surfaces)):
+        face_indices = np.flatnonzero(markers == marker)
+        if face_indices.size <= 1:
+            continue
+
+        split_polygons = _split_weakly_pinched_shell_polygon(
+            updated_surfaces[marker].to_polygon(simplify=0.0),
+            pinch_tolerance=pinch_tolerance,
+        )
+        if len(split_polygons) <= 1:
+            continue
+
+        centroids = np.asarray(ground_mesh.vertices, dtype=np.float64)[
+            faces[face_indices], :2
+        ].mean(axis=1)
+        ordered_polygons = sorted(split_polygons, key=lambda polygon: polygon.area)
+        assignments = -np.ones(face_indices.size, dtype=np.int64)
+
+        for polygon_index, polygon in enumerate(ordered_polygons):
+            buffered_polygon = polygon.buffer(max(pinch_tolerance, 1e-9))
+            for local_index, centroid in enumerate(centroids):
+                if assignments[local_index] >= 0:
+                    continue
+                if buffered_polygon.covers(Point(float(centroid[0]), float(centroid[1]))):
+                    assignments[local_index] = polygon_index
+
+        if np.any(assignments < 0):
+            continue
+
+        assigned_polygons = sorted(
+            {int(assignment) for assignment in assignments.tolist() if assignment >= 0}
+        )
+        if not assigned_polygons:
+            continue
+
+        roof_z = float(getattr(updated_surfaces[marker].bounds, "zmax", 0.0))
+        primary_polygon_index = max(
+            assigned_polygons,
+            key=lambda polygon_index: int(np.count_nonzero(assignments == polygon_index)),
+        )
+        split_surface = Surface()
+        split_surface.from_polygon(ordered_polygons[primary_polygon_index], roof_z)
+        updated_surfaces[marker] = split_surface
+        if len(assigned_polygons) == 1:
+            trimmed_pinched_surfaces += 1
+            continue
+
+        for polygon_index in assigned_polygons:
+            if polygon_index == primary_polygon_index:
+                continue
+            polygon_face_indices = face_indices[assignments == polygon_index]
+            if polygon_face_indices.size == 0:
+                continue
+            markers[polygon_face_indices] = next_marker
+            extra_surface = Surface()
+            extra_surface.from_polygon(ordered_polygons[polygon_index], roof_z)
+            updated_surfaces.append(extra_surface)
+            updated_directives.append(updated_directives[marker])
+            next_marker += 1
+            split_pinched_components += 1
+
+    if (
+        split_components == 0
+        and split_pinched_components == 0
+        and trimmed_pinched_surfaces == 0
+    ):
+        return ground_mesh, building_surfaces, meshing_directives
+
+    if split_components > 0:
+        warning(
+            "Split %d edge-disconnected building patch(es) in the ground mesh before shell extrusion.",
+            split_components,
+        )
+    if split_pinched_components > 0:
+        warning(
+            "Split %d weakly pinched building patch(es) in the ground mesh before shell extrusion.",
+            split_pinched_components,
+        )
+    if trimmed_pinched_surfaces > 0:
+        warning(
+            "Trimmed %d weakly pinched building surface(s) to the face-supported shell region before extrusion.",
+            trimmed_pinched_surfaces,
+        )
+    updated_mesh = ground_mesh.copy()
+    updated_mesh.markers = markers
+    return updated_mesh, updated_surfaces, updated_directives
+
+
+def _stabilize_shell_building_polygon(
+    polygon: Polygon,
+    *,
+    min_hole_clearance: float,
+) -> tuple[Polygon, int]:
+    if polygon.is_empty or not polygon.interiors:
+        return polygon, 0
+
+    exterior = LineString(np.asarray(polygon.exterior.coords, dtype=np.float64))
+    kept_holes = []
+    removed_holes = 0
+
+    for hole in polygon.interiors:
+        hole_coords = np.asarray(hole.coords, dtype=np.float64)
+        hole_polygon = Polygon(hole_coords)
+        if hole_polygon.is_empty:
+            removed_holes += 1
+            continue
+        if hole_polygon.minimum_clearance < min_hole_clearance:
+            removed_holes += 1
+            continue
+        if exterior.distance(LineString(hole_coords)) < min_hole_clearance:
+            removed_holes += 1
+            continue
+        kept_holes.append(hole_coords)
+
+    if removed_holes == 0:
+        return polygon, 0
+
+    stabilized = orient(
+        Polygon(
+            np.asarray(polygon.exterior.coords, dtype=np.float64),
+            kept_holes,
+        ),
+        sign=1.0,
+    )
+    return stabilized, removed_holes
+
+
+def _split_weakly_pinched_shell_polygon(
+    polygon: Polygon,
+    *,
+    pinch_tolerance: float,
+) -> list[Polygon]:
+    if polygon.is_empty or pinch_tolerance <= 0.0:
+        return [polygon]
+
+    exterior = np.asarray(polygon.exterior.coords, dtype=np.float64)
+    if len(exterior) < 5:
+        return [polygon]
+
+    snapped = exterior[:-1].copy()
+    vertex_count = len(snapped)
+    merged_vertices = False
+    for i in range(vertex_count):
+        for j in range(i + 2, vertex_count):
+            if i == 0 and j == vertex_count - 1:
+                continue
+            if float(np.linalg.norm(snapped[i] - snapped[j])) > float(pinch_tolerance):
+                continue
+            snapped[j] = snapped[i]
+            merged_vertices = True
+
+    if not merged_vertices:
+        return [polygon]
+
+    boundary_segments = []
+    for index in range(vertex_count):
+        start = snapped[index]
+        end = snapped[(index + 1) % vertex_count]
+        if float(np.linalg.norm(start - end)) <= 1e-12:
+            continue
+        boundary_segments.append(LineString([start, end]))
+
+    if not boundary_segments:
+        return [polygon]
+
+    shell_parts = [
+        orient(candidate, sign=1.0)
+        for candidate in polygonize(unary_union(boundary_segments))
+        if not candidate.is_empty and candidate.area > 0.0
+    ]
+    if len(shell_parts) <= 1:
+        return [polygon]
+
+    hole_polygons = [
+        Polygon(np.asarray(ring.coords, dtype=np.float64))
+        for ring in polygon.interiors
+    ]
+    split_polygons: list[Polygon] = []
+    for shell_part in shell_parts:
+        assigned_holes = [
+            np.asarray(hole.exterior.coords, dtype=np.float64)
+            for hole in hole_polygons
+            if shell_part.buffer(1e-9).contains(hole.representative_point())
+        ]
+        candidate = orient(
+            Polygon(
+                np.asarray(shell_part.exterior.coords, dtype=np.float64),
+                assigned_holes,
+            ),
+            sign=1.0,
+        )
+        if candidate.is_empty or candidate.area <= 0.0:
+            continue
+        split_polygons.append(candidate)
+
+    return split_polygons if len(split_polygons) > 1 else [polygon]
+
+
+def _regularize_shell_building_regions_with_sources(
+    *,
+    polygons: list[Polygon],
+    sources: list[list[int]],
+    min_clearance: float,
+    precision_grid: float | None,
+) -> tuple[list[Polygon], list[list[int]], int]:
+    if not polygons or min_clearance <= 0.0:
+        return polygons, sources, 0
+
+    candidate_count = sum(
+        1
+        for polygon in polygons
+        if polygon is not None
+        and not polygon.is_empty
+        and float(polygon.minimum_clearance) < float(min_clearance)
+    )
+    if candidate_count == 0:
+        return polygons, sources, 0
+
+    cleanup_grid = (
+        float(precision_grid)
+        if precision_grid is not None and precision_grid > 0.0
+        else max(float(min_clearance) / 16.0, 1e-9)
+    )
+    cleanup_hole_area = max(float(min_clearance) ** 2, cleanup_grid**2)
+    cleanup_diagnostics = cleaning_footprints._empty_diagnostics(len(polygons))
+    regularized_polygons, regularized_sources = (
+        cleaning_footprints._regularize_low_clearance_polygons(
+            polygons,
+            sources,
+            min_clearance=float(min_clearance),
+            grid=cleanup_grid,
+            min_area=0.0,
+            min_hole_area=cleanup_hole_area,
+            diagnostics=cleanup_diagnostics,
+        )
+    )
+    regularized_polygons, regularized_sources = (
+        cleaning_footprints._simplify_polygons_for_meshing(
+            regularized_polygons,
+            regularized_sources,
+            min_segment_length=float(min_clearance),
+            grid=cleanup_grid,
+            min_area=0.0,
+            min_hole_area=cleanup_hole_area,
+            diagnostics=cleanup_diagnostics,
+        )
+    )
+
+    normalized_polygons: list[Polygon] = []
+    normalized_sources: list[list[int]] = []
+    declared_scale = max(float(min_clearance), cleanup_grid, 1e-9)
+    for polygon, polygon_sources in zip(regularized_polygons, regularized_sources):
+        for normalized_polygon in _normalize_mesher_ready_polygon(
+            polygon,
+            declared_scale=declared_scale,
+            diagnostics=None,
+        ):
+            normalized_polygons.append(normalized_polygon)
+            normalized_sources.append(list(polygon_sources))
+
+    return normalized_polygons, normalized_sources, candidate_count
+
+
+def _snap_ground_mesh_to_raster_bounds(mesh: Mesh, terrain_raster) -> Mesh:
+    if len(mesh.vertices) == 0:
+        return mesh
+
+    xmin, ymin, xmax, ymax = terrain_raster.bounds.tuple
+    xstep, ystep = terrain_raster.cell_size
+    snap_tol = max(
+        _RASTER_BOUNDARY_SNAP_MIN,
+        _RASTER_BOUNDARY_SNAP_FRACTION * max(abs(float(xstep)), abs(float(ystep))),
+    )
+
+    vertices = np.asarray(mesh.vertices, dtype=np.float64).copy()
+    changed = np.zeros(len(vertices), dtype=bool)
+
+    for axis, lower, upper in ((0, xmin, xmax), (1, ymin, ymax)):
+        lower_mask = np.abs(vertices[:, axis] - lower) <= snap_tol
+        upper_mask = np.abs(vertices[:, axis] - upper) <= snap_tol
+        if np.any(lower_mask):
+            vertices[lower_mask, axis] = lower
+            changed |= lower_mask
+        if np.any(upper_mask):
+            vertices[upper_mask, axis] = upper
+            changed |= upper_mask
+
+    if not np.any(changed):
+        return mesh
+
+    debug(
+        "Snapped %d ground-mesh boundary vertices to raster bounds within %.6g m.",
+        int(np.count_nonzero(changed)),
+        snap_tol,
+    )
+    return Mesh(
+        vertices=vertices,
+        faces=np.asarray(mesh.faces, dtype=np.int64),
+        markers=np.asarray(mesh.markers, dtype=np.int64),
+    )
+
+
+def _build_city_surface_mesh_from_ground_mesh(
+    *,
+    ground_mesh: Mesh,
+    terrain_raster,
+    building_surfaces: list[Surface],
+    meshing_directives: list[int],
+    smoothing: int,
+    merge_meshes: bool,
+) -> Mesh | list[Mesh]:
+    builder_dem = raster_to_builder_gridfield(terrain_raster)
+    aligned_ground_mesh = _snap_ground_mesh_to_raster_bounds(ground_mesh, terrain_raster)
+    builder_ground_mesh = mesh_to_builder_mesh(aligned_ground_mesh)
+    terrain_builder_mesh = _dtcc_builder.build_terrain_surface_mesh_from_ground_mesh(
+        builder_ground_mesh,
+        builder_dem,
+        smoothing,
+    )
+    if not building_surfaces:
+        terrain_mesh = terrain_builder_mesh.from_cpp()
+        return terrain_mesh if merge_meshes else [terrain_mesh]
+
+    builder_surfaces = [create_builder_surface(surface) for surface in building_surfaces]
+    builder_meshes = _dtcc_builder.build_city_surface_mesh_from_terrain_mesh(
+        builder_surfaces,
+        meshing_directives,
+        terrain_builder_mesh,
+        smoothing,
+        merge_meshes,
+    )
+
+    if merge_meshes:
+        return builder_meshes[0].from_cpp()
+
+    return [builder_mesh.from_cpp() for builder_mesh in builder_meshes]
+
+
+def _build_tetgen_debug_plc_mesh(
+    *,
+    surface_mesh: Mesh,
+    closure_mesh: Mesh,
+    top_height: float,
+    top_cap_backend: str,
+    top_cap_max_mesh_size: float | None,
+    top_cap_min_mesh_angle: float,
+    tol: float = 1e-3,
+) -> Mesh:
+    shell_vertices = np.asarray(surface_mesh.vertices, dtype=float)
+    closure_vertices = np.asarray(closure_mesh.vertices, dtype=float)
+    shell_faces = np.asarray(surface_mesh.faces, dtype=np.int64)
+    shell_markers = np.asarray(surface_mesh.markers, dtype=np.int64)
+
+    _, z_top = tetgen_utils._compute_top_plane(shell_vertices, top_height)
+    bottom_loops = tetgen_utils._boundary_loops(shell_vertices, tol)
+    closure_loops = tetgen_utils._boundary_loops(closure_vertices, tol)
+    tetgen_utils._validate_boundary_loop_alignment(
+        shell_vertices,
+        closure_vertices,
+        bottom_loops,
+        closure_loops,
+        tol,
+    )
+    top_vertices, top_faces, top_loops = tetgen_utils._build_top_cap_mesh(
+        boundary_vertices=closure_vertices,
+        boundary_loops=closure_loops,
+        backend=top_cap_backend,
+        max_mesh_size=top_cap_max_mesh_size,
+        min_mesh_angle=top_cap_min_mesh_angle,
+        tol=tol,
+    )
+    top_vertices = top_vertices.copy()
+    top_vertices[:, 2] = z_top
+
+    offset = shell_vertices.shape[0]
+    vertices = np.vstack([shell_vertices, top_vertices])
+    closure_faces: list[list[int]] = []
+    closure_markers: list[int] = []
+
+    for name in ("south", "east", "north", "west"):
+        marker = _TETGEN_DEBUG_CLOSURE_MARKERS[name]
+        bottom_loop = np.asarray(bottom_loops[name], dtype=np.int64)
+        top_loop = np.asarray(top_loops[name], dtype=np.int64) + offset
+        for b0, b1, t0, t1 in zip(
+            bottom_loop[:-1],
+            bottom_loop[1:],
+            top_loop[:-1],
+            top_loop[1:],
+        ):
+            closure_faces.append([int(b0), int(b1), int(t1)])
+            closure_faces.append([int(b0), int(t1), int(t0)])
+            closure_markers.extend([marker, marker])
+
+    for face in np.asarray(top_faces, dtype=np.int64):
+        tri = np.asarray(face, dtype=np.int64) + offset
+        points = vertices[tri]
+        if np.cross(points[1] - points[0], points[2] - points[0])[2] < 0.0:
+            tri = np.array([tri[0], tri[2], tri[1]], dtype=np.int64)
+        closure_faces.append([int(tri[0]), int(tri[1]), int(tri[2])])
+        closure_markers.append(_TETGEN_DEBUG_CLOSURE_MARKERS["top"])
+
+    faces = np.vstack([shell_faces, np.asarray(closure_faces, dtype=np.int64)])
+    markers = np.concatenate([shell_markers, np.asarray(closure_markers, dtype=np.int64)])
+    return Mesh(vertices=vertices, faces=faces, markers=markers)
+
+
+def _save_tetgen_debug_meshes(
+    *,
+    output_dir: str | Path,
+    stem: str,
+    ground_mesh: Mesh,
+    surface_mesh: Mesh,
+    domain_height: float,
+    top_cap_backend: str,
+    top_cap_max_mesh_size: float | None,
+    top_cap_min_mesh_angle: float,
+) -> dict[str, str]:
+    output_path = Path(output_dir).expanduser().resolve()
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    plc_mesh = _build_tetgen_debug_plc_mesh(
+        surface_mesh=surface_mesh,
+        closure_mesh=ground_mesh,
+        top_height=domain_height,
+        top_cap_backend=top_cap_backend,
+        top_cap_max_mesh_size=top_cap_max_mesh_size,
+        top_cap_min_mesh_angle=top_cap_min_mesh_angle,
+    )
+
+    ground_path = output_path / f"{stem}.tetgen-input-ground.xdmf"
+    shell_path = output_path / f"{stem}.tetgen-input-shell.xdmf"
+    plc_path = output_path / f"{stem}.tetgen-input-plc.xdmf"
+
+    ground_mesh.save(ground_path)
+    surface_mesh.save(shell_path)
+    plc_mesh.save(plc_path)
+
+    return {
+        "ground": str(ground_path),
+        "shell": str(shell_path),
+        "plc": str(plc_path),
+    }
 
 
 def _normalize_lod_values(
@@ -193,26 +1000,53 @@ def _condition_flat_mesh_ground_polygons(
     max_mesh_size: float | None,
     footprint_diagnostics: dict[str, Any],
     cleaning_diagnostics: bool,
+    preserve_shared_boundaries: bool = False,
 ) -> list[Polygon]:
     ground_domain = box(*bounds)
+    building_shells = [
+        orient(
+            Polygon(np.asarray(polygon.exterior.coords, dtype=np.float64)),
+            sign=1.0,
+        )
+        for polygon in building_polygons
+        if polygon is not None and not polygon.is_empty
+    ]
+    courtyard_polygons = [
+        orient(Polygon(np.asarray(ring.coords, dtype=np.float64)), sign=1.0)
+        for polygon in building_polygons
+        if polygon is not None and not polygon.is_empty
+        for ring in polygon.interiors
+    ]
     excluded_polygons = [
         polygon
-        for polygon in [*building_polygons, *hole_polygons]
+        for polygon in [*building_shells, *hole_polygons]
         if polygon is not None and not polygon.is_empty
     ]
     if excluded_polygons:
         ground_domain = ground_domain.difference(unary_union(excluded_polygons))
 
     ground_polygons = _iter_polygon_components(ground_domain)
+    if preserve_shared_boundaries:
+        return [
+            orient(polygon, sign=1.0)
+            for polygon in [*ground_polygons, *courtyard_polygons]
+            if polygon is not None and not polygon.is_empty
+        ]
     cleanup_scale = _flat_mesh_ground_cleanup_scale(
         max_mesh_size=max_mesh_size,
         footprint_diagnostics=footprint_diagnostics,
     )
-    return _regularize_flat_mesh_ground_polygons(
+    conditioned_ground = _regularize_flat_mesh_ground_polygons(
         ground_polygons,
         cleanup_scale=cleanup_scale,
         cleaning_diagnostics=cleaning_diagnostics,
     )
+    conditioned_courtyards = _regularize_flat_mesh_ground_polygons(
+        courtyard_polygons,
+        cleanup_scale=cleanup_scale,
+        cleaning_diagnostics=False,
+    )
+    return [*conditioned_ground, *conditioned_courtyards]
 
 
 def _regularize_flat_mesh_ground_polygons(
@@ -263,10 +1097,30 @@ def _condition_flat_mesh_building_regions(
     min_building_detail: float,
     cleaning_diagnostics: bool,
 ) -> tuple[list[Polygon], list[int]]:
+    polygons, markers, _sources = _condition_flat_mesh_building_regions_with_sources(
+        building_polygons=building_polygons,
+        building_markers=building_markers,
+        footprint_diagnostics=footprint_diagnostics,
+        max_mesh_size=max_mesh_size,
+        min_building_detail=min_building_detail,
+        cleaning_diagnostics=cleaning_diagnostics,
+    )
+    return polygons, markers
+
+
+def _condition_flat_mesh_building_regions_with_sources(
+    *,
+    building_polygons: list[Polygon],
+    building_markers: list[int],
+    footprint_diagnostics: dict[str, Any],
+    max_mesh_size: float | None,
+    min_building_detail: float,
+    cleaning_diagnostics: bool,
+) -> tuple[list[Polygon], list[int], list[list[int]]]:
     if len(building_polygons) != len(building_markers):
         raise ValueError("building_markers length must match building_polygons length")
     if not building_polygons:
-        return [], []
+        return [], [], []
 
     output_grid = float(footprint_diagnostics.get("output_grid", 0.0) or 0.0)
     result = condition_polygon_coverage(
@@ -387,7 +1241,7 @@ def _condition_flat_mesh_building_regions(
             f"cleanup_scale={cleanup_scale} m"
         )
 
-    return resolved_polygons, conditioned_markers
+    return resolved_polygons, conditioned_markers, conditioned_sources
 
 
 def _condition_flat_mesh_coverage_regions(
@@ -401,7 +1255,11 @@ def _condition_flat_mesh_coverage_regions(
     footprint_diagnostics: dict[str, Any],
     cleaning_diagnostics: bool,
 ) -> tuple[list[Polygon], list[int]]:
-    building_polygons, building_markers = _condition_flat_mesh_building_regions(
+    (
+        building_polygons,
+        building_markers,
+        _building_sources,
+    ) = _condition_flat_mesh_building_regions_with_sources(
         building_polygons=building_polygons,
         building_markers=building_markers,
         footprint_diagnostics=footprint_diagnostics,
@@ -514,26 +1372,10 @@ def _polygon_has_ring_boundary_contacts(
     *,
     tolerance: float = 1e-12,
 ) -> bool:
-    rings = [polygon.exterior, *polygon.interiors]
-    if len(rings) < 2:
-        return False
-
-    for ring_index, ring in enumerate(rings):
-        for other in rings[ring_index + 1 :]:
-            try:
-                boundary_intersection = ring.intersection(other)
-            except GEOSException:
-                return True
-            if boundary_intersection.is_empty:
-                continue
-            try:
-                if boundary_intersection.length > tolerance:
-                    return True
-            except (AttributeError, TypeError):
-                return True
-            return True
-
-    return False
+    return cleaning_footprints._polygon_has_ring_boundary_contacts(
+        polygon,
+        tolerance=tolerance,
+    )
 
 
 def _normalize_mesher_ready_polygon(
@@ -542,80 +1384,17 @@ def _normalize_mesher_ready_polygon(
     declared_scale: float,
     diagnostics: dict[str, Any] | None = None,
 ) -> list[Polygon]:
-    polygon = orient(polygon, sign=1.0)
-    if polygon.is_empty or not polygon.interiors:
-        return [polygon]
-
-    if not _polygon_has_ring_boundary_contacts(polygon):
-        return [polygon]
-
-    shell = Polygon(np.asarray(polygon.exterior.coords, dtype=np.float64))
-    hole_polygons = [
-        Polygon(np.asarray(ring.coords, dtype=np.float64))
-        for ring in polygon.interiors
-    ]
-    max_extent = max(
-        polygon.bounds[2] - polygon.bounds[0],
-        polygon.bounds[3] - polygon.bounds[1],
-        1.0,
+    candidate_polygons = cleaning_footprints._normalize_mesher_ready_polygon(
+        polygon,
+        declared_scale=declared_scale,
+        diagnostics=diagnostics,
     )
-    distance = max(
-        float(declared_scale) * 5e-5,
-        float(max_extent) * 5e-7,
-        1e-9,
-    )
-
-    for _attempt in range(8):
-        expanded_holes = unary_union(
-            [
-                hole.buffer(
-                    distance,
-                    quad_segs=1,
-                    join_style=BufferJoinStyle.mitre,
-                )
-                for hole in hole_polygons
-            ]
+    if any(_polygon_has_ring_boundary_contacts(candidate) for candidate in candidate_polygons):
+        warning(
+            "Unable to fully regularize a conditioned footprint for meshing; "
+            "keeping the original polygon."
         )
-        candidate_geometry = shell.difference(expanded_holes)
-        candidate_polygons = [
-            orient(candidate, sign=1.0)
-            for candidate in _iter_polygons(candidate_geometry)
-        ]
-        if candidate_polygons and all(
-            not _polygon_has_ring_boundary_contacts(
-                candidate,
-                tolerance=max(distance * 0.25, 1e-12),
-            )
-            for candidate in candidate_polygons
-        ):
-            if diagnostics is not None:
-                diagnostics["mesher_regularized_polygon_count"] = (
-                    diagnostics.get("mesher_regularized_polygon_count", 0) + 1
-                )
-                diagnostics["mesher_regularized_component_count"] = (
-                    diagnostics.get("mesher_regularized_component_count", 0)
-                    + len(candidate_polygons)
-                )
-                diagnostics["mesher_regularization_area_delta_total"] = (
-                    diagnostics.get("mesher_regularization_area_delta_total", 0.0)
-                    + float(sum(part.area for part in candidate_polygons) - polygon.area)
-                )
-                diagnostics["mesher_regularization_max_distance"] = max(
-                    float(diagnostics.get("mesher_regularization_max_distance", 0.0)),
-                    float(distance),
-                )
-            return candidate_polygons
-        distance *= 2.0
-
-    warning(
-        "Unable to fully regularize a conditioned footprint for meshing; "
-        "keeping the original polygon."
-    )
-    if diagnostics is not None:
-        diagnostics["mesher_regularization_failed_count"] = (
-            diagnostics.get("mesher_regularization_failed_count", 0) + 1
-        )
-    return [polygon]
+    return candidate_polygons
 
 
 def _condition_meshing_footprints(
@@ -747,6 +1526,7 @@ def build_city_surface_mesh(
     treat_lod0_as_holes: bool = False,
     report_mesh_quality: bool = True,
     cleaning_diagnostics: bool = True,
+    mesher: str | None = None,
 ) -> Mesh:
     """
     Build a surface mesh from the surfaces of the buildings in the city.
@@ -777,18 +1557,20 @@ def build_city_surface_mesh(
     `treat_lod0_as_holes` : bool, optional
         When True, building directives resolved to LOD0 are sent to the mesher
         as hole surfaces instead of meshed buildings.
+    `mesher` : {"auto", "dtcc_mesher", "triangle", "spade"}, optional
+        Select the 2D meshing backend used to build the ground/surface
+        triangulation. ``"auto"`` prefers ``dtcc_mesher`` when available,
+        then ``triangle``, then ``spade``.
 
     Returns
     -------
     `model.Mesh`
     """
-
-    buildings = city.buildings
-    lod_values = _normalize_lod_values(buildings, lod)
-    building_footprints, source_map, conditioned_resolution, conditioning_diagnostics = (
-        _condition_meshing_footprints(
-            buildings,
-            lod=lod if isinstance(lod, GeometryType) else lod_values,
+    max_mesh_size = _normalize_max_mesh_size(max_mesh_size)
+    terrain, terrain_raster, building_footprints, source_map, conditioned_resolution, conditioning_diagnostics = (
+        _prepare_city_meshing_inputs(
+            city,
+            lod=lod,
             min_building_detail=min_building_detail,
             min_building_area=min_building_area,
             merge_tolerance=merge_tolerance,
@@ -797,67 +1579,75 @@ def build_city_surface_mesh(
             cleaning_diagnostics=cleaning_diagnostics,
         )
     )
-    target_lods = [
-        min((lod_values[index] for index in indices), key=lambda value: _LOD_PRIORITY[value])
-        for indices in source_map
-    ]
-    base_resolution = [
-        min(resolution, building_mesh_triangle_size) for resolution in conditioned_resolution
-    ]
-    building_surfaces = []
-    hole_surfaces = []
-    building_resolution = []
-    building_lod_switches = []
-    default_priority = _LOD_PRIORITY[GeometryType.LOD3]
 
-    for footprint, resolution, lod_value in zip(
-        building_footprints, base_resolution, target_lods
-    ):
-        if footprint is None:
-            continue
-        builder_surface = create_builder_surface(footprint)
-
-        if treat_lod0_as_holes and lod_value == GeometryType.LOD0:
-            hole_surfaces.append(builder_surface)
-            continue
-        building_surfaces.append(builder_surface)
-        building_resolution.append(resolution)
-        building_lod_switches.append(_LOD_PRIORITY.get(lod_value, default_priority))
-
-    if not building_surfaces and not hole_surfaces:
-        raise ValueError("No valid building footprints available for meshing.")
+    report_progress(
+        percent=10,
+        message=f"Preprocessed {len(building_footprints)} building footprints",
+    )
     debug(f"Surface meshing footprint diagnostics: {conditioning_diagnostics}")
 
-    terrain = city.terrain
-    if terrain is None:
-        raise ValueError("City has no terrain data. Please compute terrain first.")
-    terrain_raster = terrain.raster
-    terrain_mesh = terrain.mesh
-    if terrain_raster is None and terrain_mesh is None:
-        raise ValueError("City terrain has no data. Please compute terrain first.")
-    if terrain_raster is None and terrain_mesh is not None:
-        from ..meshing.convert import mesh_to_raster
-
-        terrain_raster = mesh_to_raster(terrain_mesh, cell_size=max_mesh_size)
-    builder_dem = raster_to_builder_gridfield(terrain_raster)
-
-    builder_mesh = _call_builder_city_surface_mesh(
+    buildings = city.buildings
+    target_lods = _resolve_conditioned_target_lods(buildings, lod, source_map)
+    base_resolution = [
+        min(resolution, building_mesh_triangle_size)
+        if building_mesh_triangle_size > 0
+        else resolution
+        for resolution in conditioned_resolution
+    ]
+    surface_mesh_bounds = (
+        terrain.bounds.xmin,
+        terrain.bounds.ymin,
+        terrain.bounds.xmax,
+        terrain.bounds.ymax,
+    )
+    (
         building_surfaces,
-        hole_surfaces,
         building_lod_switches,
-        building_resolution,
-        builder_dem,
-        max_mesh_size,
-        min_mesh_angle,
-        smoothing,
-        merge_meshes,
-        sort_triangles,
+        region_polygons,
+        region_markers,
+        region_triangle_sizes,
+        region_points,
+    ) = _prepare_surface_ground_regions(
+        conditioned_surfaces=building_footprints,
+        conditioned_resolution=base_resolution,
+        target_lods=target_lods,
+        bounds=surface_mesh_bounds,
+        max_mesh_size=max_mesh_size,
+        min_building_detail=min_building_detail,
+        footprint_diagnostics=conditioning_diagnostics,
+        cleaning_diagnostics=cleaning_diagnostics,
+        treat_lod0_as_holes=treat_lod0_as_holes,
     )
 
-    if merge_meshes:
-        result_mesh = builder_mesh[0].from_cpp()
-    else:
-        result_mesh = [bm.from_cpp() for bm in builder_mesh]
+    ground_mesh, active_mesher = _build_ground_mesh_from_coverage(
+        region_polygons=region_polygons,
+        region_markers=region_markers,
+        region_points=region_points,
+        bounds=surface_mesh_bounds,
+        max_mesh_size=max_mesh_size,
+        min_mesh_angle=min_mesh_angle,
+        mesher=mesher,
+        sort_triangles=sort_triangles,
+        region_triangle_sizes=region_triangle_sizes,
+        add_halo_markers=False,
+    )
+    ground_mesh, building_surfaces, building_lod_switches = (
+        _split_ground_mesh_building_components(
+            ground_mesh=ground_mesh,
+            building_surfaces=building_surfaces,
+            meshing_directives=building_lod_switches,
+        )
+    )
+    report_progress(percent=40, message=f"Building city surface mesh ({active_mesher})...")
+    result_mesh = _build_city_surface_mesh_from_ground_mesh(
+        ground_mesh=ground_mesh,
+        terrain_raster=terrain_raster,
+        building_surfaces=building_surfaces,
+        meshing_directives=building_lod_switches,
+        smoothing=smoothing,
+        merge_meshes=merge_meshes,
+    )
+    report_progress(percent=100, message="City surface mesh complete")
 
     if report_mesh_quality:
         from dtcc_core.model.mixins.mesh.quality import (
@@ -981,7 +1771,6 @@ def build_city_flat_mesh(
         if marker_key not in marker_lookup:
             marker_lookup[marker_key] = len(marker_lookup)
         building_markers.append(marker_lookup[marker_key])
-    active_mesher = resolve_2d_mesher(mesher)
     flat_mesh_bounds = (
         terrain.bounds.xmin,
         terrain.bounds.ymin,
@@ -999,33 +1788,16 @@ def build_city_flat_mesh(
         cleaning_diagnostics=cleaning_diagnostics,
     )
 
+    flat_mesh, active_mesher = _build_ground_mesh_from_coverage(
+        region_polygons=region_polygons,
+        region_markers=region_markers,
+        bounds=flat_mesh_bounds,
+        max_mesh_size=max_mesh_size,
+        min_mesh_angle=min_mesh_angle,
+        mesher=mesher,
+        sort_triangles=True,
+    )
     report_progress(percent=30, message=f"Building city flat mesh ({active_mesher})...")
-    try:
-        flat_mesh = build_city_flat_mesh_from_coverage(
-            region_polygons=region_polygons,
-            region_markers=region_markers,
-            bounds=flat_mesh_bounds,
-            max_mesh_size=max_mesh_size,
-            min_mesh_angle=min_mesh_angle,
-            backend=active_mesher,
-        )
-    except RuntimeError as exc:
-        if not _is_unavailable_flat_mesher_error(active_mesher, exc):
-            raise
-        warning(
-            "Requested flat-mesh backend is unavailable in this build; "
-            "falling back to dtcc_mesher."
-        )
-        flat_mesh = build_city_flat_mesh_from_coverage(
-            region_polygons=region_polygons,
-            region_markers=region_markers,
-            bounds=flat_mesh_bounds,
-            max_mesh_size=max_mesh_size,
-            min_mesh_angle=min_mesh_angle,
-            backend="dtcc_mesher",
-        )
-
-    flat_mesh = _add_flat_mesh_halo_markers(flat_mesh)
 
     if report_mesh_quality:
         from dtcc_core.model.mixins.mesh.quality import (
@@ -1061,6 +1833,9 @@ def build_city_volume_mesh(
     debug_step: int = 7,
     report_mesh_quality: bool = True,
     cleaning_diagnostics: bool = True,
+    mesher: str | None = None,
+    tetgen_debug_output_dir: str | Path | None = None,
+    tetgen_debug_output_stem: str | None = None,
 ) -> VolumeMesh:
     """
     Build a 3D tetrahedral volume mesh for a city terrain with embedded building volumes.
@@ -1121,6 +1896,17 @@ def build_city_volume_mesh(
         Aspect ratio threshold for fallback volume mesher. Defaults to 10.0.
     debug_step : int, optional
         Debug step parameter for fallback volume mesher. Defaults to 7.
+    mesher : {"auto", "dtcc_mesher", "triangle", "spade"}, optional
+        Select the 2D meshing backend used for the intermediate flat/surface
+        mesh stages. ``"auto"`` prefers ``dtcc_mesher`` when available,
+        then ``triangle``, then ``spade``.
+    tetgen_debug_output_dir : str or Path, optional
+        When provided, save the exact surface-mesh inputs handed to TetGen in
+        this directory. Three meshes are written per attempt: the flat ground
+        coverage mesh, the terrain/building shell mesh, and the combined PLC
+        shell mesh.
+    tetgen_debug_output_stem : str, optional
+        Basename used for TetGen debug exports. Defaults to ``"tetgen_input"``.
 
     Returns
     -------
@@ -1134,9 +1920,6 @@ def build_city_volume_mesh(
         If the city has no terrain data (neither raster nor mesh).
     ValueError
         If the terrain object exists but has no usable raster or mesh data.
-    ValueError
-        If no valid building footprints are available after preprocessing.
-
     Boundary Face Markers
     ---------------------
     When `boundary_face_markers=True`, integer markers are added as follows (for
@@ -1170,28 +1953,10 @@ def build_city_volume_mesh(
     ...                               boundary_face_markers=True)
     """
 
-    # 1. VALIDATE INPUT AND TERRAIN
-
-    buildings = city.buildings
-    if not buildings:
-        warning("City has no buildings.")
-
-    terrain = city.terrain
-    if terrain is None:
-        raise ValueError("City has no terrain data. Please compute terrain first.")
-    terrain_raster = terrain.raster
-    terrain_mesh = terrain.mesh
-    if terrain_raster is None and terrain_mesh is None:
-        raise ValueError("City terrain has no data. Please compute terrain first.")
-    if terrain_raster is None and terrain_mesh is not None:
-        from ..meshing.convert import mesh_to_raster
-
-        terrain_raster = mesh_to_raster(terrain_mesh, cell_size=max_mesh_size)
-
-    # 2. PREPROCESS BUILDINGS
-    building_footprints, source_map, subdomain_resolution, diagnostics = (
-        _condition_meshing_footprints(
-            buildings,
+    max_mesh_size = _normalize_max_mesh_size(max_mesh_size)
+    terrain, terrain_raster, building_footprints, source_map, subdomain_resolution, diagnostics = (
+        _prepare_city_meshing_inputs(
+            city,
             lod=lod,
             min_building_detail=min_building_detail,
             min_building_area=min_building_area,
@@ -1202,60 +1967,79 @@ def build_city_volume_mesh(
         )
     )
     if not building_footprints:
-        raise ValueError("No valid building footprints available for meshing.")
+        warning(
+            "No valid building footprints available after conditioning. "
+            "Building terrain-only volume mesh."
+        )
 
     report_progress(
         percent=10,
         message=f"Preprocessed {len(building_footprints)} building footprints",
     )
     debug(f"Volume meshing footprint diagnostics: {diagnostics}")
-
-    # 3. prepare builder objects
-
-    _surfaces = [create_builder_surface(footprint) for footprint in building_footprints]
-    hole_surfaces: list = []
-    meshing_directives = [
-        _LOD_PRIORITY.get(lod, _LOD_PRIORITY[GeometryType.LOD3])
-    ] * len(_surfaces)
-    _dem = raster_to_builder_gridfield(terrain_raster)
+    target_lods = _resolve_conditioned_target_lods(city.buildings, lod, source_map)
+    shell_target_lods = _promote_volume_shell_target_lods(target_lods)
 
     # 4. BUILD VOLUME MESH - TETGEN PATH
 
     if is_tetgen_available():
         info("Building volume mesh with TetGen...")
-        report_progress(percent=30, message="Preparing builder objects...")
-
-        # Validate inputs before calling C++ mesher
-        info(f"Number of surfaces: {len(_surfaces)}")
-        info(f"Number of subdomain resolutions: {len(subdomain_resolution)}")
-        info(
-            f"Max mesh size: {max_mesh_size}, Min angle: {min_mesh_angle}, Smoothing: {smoothing}"
+        report_progress(percent=30, message="Building volume shell surface...")
+        (
+            surface_buildings,
+            surface_directives,
+            surface_region_polygons,
+            surface_region_markers,
+            surface_region_triangle_sizes,
+            surface_region_points,
+        ) = _prepare_surface_ground_regions(
+            conditioned_surfaces=building_footprints,
+            conditioned_resolution=subdomain_resolution,
+            target_lods=shell_target_lods,
+            bounds=(
+                terrain.bounds.xmin,
+                terrain.bounds.ymin,
+                terrain.bounds.xmax,
+                terrain.bounds.ymax,
+            ),
+            max_mesh_size=max_mesh_size,
+            min_building_detail=min_building_detail,
+            footprint_diagnostics=diagnostics,
+            cleaning_diagnostics=cleaning_diagnostics,
+            treat_lod0_as_holes=False,
         )
-
-        if len(_surfaces) != len(subdomain_resolution):
-            raise ValueError(
-                f"Mismatch: {len(_surfaces)} surfaces but {len(subdomain_resolution)} resolution values"
+        surface_ground_mesh, surface_mesher = _build_ground_mesh_from_coverage(
+            region_polygons=surface_region_polygons,
+            region_markers=surface_region_markers,
+            region_points=surface_region_points,
+            bounds=(
+                terrain.bounds.xmin,
+                terrain.bounds.ymin,
+                terrain.bounds.xmax,
+                terrain.bounds.ymax,
+            ),
+            max_mesh_size=max_mesh_size,
+            min_mesh_angle=min_mesh_angle,
+            mesher=mesher,
+            sort_triangles=False,
+            region_triangle_sizes=surface_region_triangle_sizes,
+            add_halo_markers=False,
+        )
+        surface_ground_mesh, surface_buildings, surface_directives = (
+            _split_ground_mesh_building_components(
+                ground_mesh=surface_ground_mesh,
+                building_surfaces=surface_buildings,
+                meshing_directives=surface_directives,
             )
-
-        # Build surface mesh
-        merge_meshes = True
-        sort_triangles = False
-        report_progress(percent=40, message="Building surface mesh (C++)...")
-
-        builder_mesh = _call_builder_city_surface_mesh(
-            _surfaces,
-            hole_surfaces,
-            meshing_directives,
-            subdomain_resolution,
-            _dem,
-            max_mesh_size,
-            min_mesh_angle,
-            smoothing,
-            merge_meshes,
-            sort_triangles,
         )
-
-        surface_mesh = builder_mesh[0].from_cpp()
+        surface_mesh = _build_city_surface_mesh_from_ground_mesh(
+            ground_mesh=surface_ground_mesh,
+            terrain_raster=terrain_raster,
+            building_surfaces=surface_buildings,
+            meshing_directives=surface_directives,
+            smoothing=smoothing,
+            merge_meshes=True,
+        )
         report_progress(
             percent=55, message="Surface mesh built, preparing volume mesh..."
         )
@@ -1268,11 +2052,32 @@ def build_city_volume_mesh(
                 "Surface mesh has no face markers. Cannot build volume mesh."
             )
 
+        if tetgen_debug_output_dir is not None:
+            debug_stem = tetgen_debug_output_stem or "tetgen_input"
+            try:
+                debug_paths = _save_tetgen_debug_meshes(
+                    output_dir=tetgen_debug_output_dir,
+                    stem=debug_stem,
+                    ground_mesh=surface_ground_mesh,
+                    surface_mesh=surface_mesh,
+                    domain_height=domain_height,
+                    top_cap_backend=surface_mesher,
+                    top_cap_max_mesh_size=max_mesh_size,
+                    top_cap_min_mesh_angle=min_mesh_angle,
+                )
+                debug(
+                    "Saved TetGen debug meshes: ground=%s shell=%s plc=%s",
+                    debug_paths["ground"],
+                    debug_paths["shell"],
+                    debug_paths["plc"],
+                )
+            except Exception as exc:
+                warning("Failed to save TetGen debug meshes: %s", exc)
+
         # Configure TetGen switches
         switches_params = get_default_tetgen_switches()
         if tetgen_switches:
             switches_params.update(tetgen_switches)
-
         # Build volume mesh with TetGen
         report_progress(percent=60, message="Running TetGen volume mesher...")
         try:
@@ -1280,6 +2085,10 @@ def build_city_volume_mesh(
                 mesh=surface_mesh,
                 build_top_sidewalls=True,
                 top_height=domain_height,
+                closure_mesh=surface_ground_mesh,
+                top_cap_backend=surface_mesher,
+                top_cap_max_mesh_size=max_mesh_size,
+                top_cap_min_mesh_angle=min_mesh_angle,
                 switches_params=switches_params,
                 switches_overrides=tetgen_switch_overrides,
                 return_boundary_faces=boundary_face_markers,
@@ -1313,6 +2122,14 @@ def build_city_volume_mesh(
                     aspect_ratio_threshold=aspect_ratio_threshold,
                     debug_step=debug_step,
                     report_mesh_quality=report_mesh_quality,
+                    cleaning_diagnostics=cleaning_diagnostics,
+                    mesher=mesher,
+                    tetgen_debug_output_dir=tetgen_debug_output_dir,
+                    tetgen_debug_output_stem=(
+                        f"{(tetgen_debug_output_stem or 'tetgen_input')}.retry-no-merge"
+                        if tetgen_debug_output_dir is not None
+                        else tetgen_debug_output_stem
+                    ),
                 )
             raise
         report_progress(percent=95, message="Volume mesh complete")
@@ -1331,26 +2148,56 @@ def build_city_volume_mesh(
     # 5. BUILD VOLUME MESH - FALLBACK DTCC PATH
     info("Building volume mesh with fallback DTCC volume mesher...")
     report_progress(percent=40, message="Building volume mesh (fallback mesher)...")
-
-    # Convert footprints to builder polygons for ground mesh
-    _building_polygons = [
-        create_builder_polygon(footprint.to_polygon())
-        for footprint in building_footprints
-    ]
-
-    # Build flat mesh (ground mesh with building markers)
-    _ground_mesh = _dtcc_builder.build_city_flat_mesh(
-        _building_polygons,
-        [],
-        subdomain_resolution,
-        terrain.bounds.xmin,
-        terrain.bounds.ymin,
-        terrain.bounds.xmax,
-        terrain.bounds.ymax,
-        max_mesh_size,
-        min_mesh_angle,
-        True,
+    (
+        active_surfaces,
+        _meshing_directives,
+        region_polygons,
+        region_markers,
+        region_triangle_sizes,
+        region_points,
+    ) = _prepare_surface_ground_regions(
+        conditioned_surfaces=building_footprints,
+        conditioned_resolution=subdomain_resolution,
+        target_lods=target_lods,
+        bounds=(
+            terrain.bounds.xmin,
+            terrain.bounds.ymin,
+            terrain.bounds.xmax,
+            terrain.bounds.ymax,
+        ),
+        max_mesh_size=max_mesh_size,
+        min_building_detail=min_building_detail,
+        footprint_diagnostics=diagnostics,
+        cleaning_diagnostics=cleaning_diagnostics,
+        treat_lod0_as_holes=False,
     )
+    ground_mesh, _active_mesher = _build_ground_mesh_from_coverage(
+        region_polygons=region_polygons,
+        region_markers=region_markers,
+        region_points=region_points,
+        bounds=(
+            terrain.bounds.xmin,
+            terrain.bounds.ymin,
+            terrain.bounds.xmax,
+            terrain.bounds.ymax,
+        ),
+        max_mesh_size=max_mesh_size,
+        min_mesh_angle=min_mesh_angle,
+        mesher=mesher,
+        sort_triangles=True,
+        region_triangle_sizes=region_triangle_sizes,
+        add_halo_markers=False,
+    )
+    ground_mesh, active_surfaces, _meshing_directives = (
+        _split_ground_mesh_building_components(
+            ground_mesh=ground_mesh,
+            building_surfaces=active_surfaces,
+            meshing_directives=_meshing_directives,
+        )
+    )
+    _ground_mesh = mesh_to_builder_mesh(ground_mesh)
+    _surfaces = [create_builder_surface(surface) for surface in active_surfaces]
+    _dem = raster_to_builder_gridfield(terrain_raster)
 
     # Create volume mesh builder
     volume_mesh_builder = _dtcc_builder.VolumeMeshBuilder(

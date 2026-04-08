@@ -143,6 +143,7 @@ def build_city_flat_mesh_with_dtcc_mesher(
     *,
     region_polygons: list[Polygon],
     region_markers: list[int],
+    region_points: list[np.ndarray] | None = None,
     max_mesh_size: float | None,
     min_mesh_angle: float,
 ) -> Mesh:
@@ -153,11 +154,37 @@ def build_city_flat_mesh_with_dtcc_mesher(
 
     if len(region_polygons) != len(region_markers):
         raise ValueError("region_markers length must match region_polygons length")
+    if region_points is not None and len(region_points) != len(region_polygons):
+        raise ValueError("region_points length must match region_polygons length")
     if not region_polygons:
         return Mesh()
 
+    valid_polygons: list[Polygon] = []
+    valid_markers: list[int] = []
+    valid_points: list[np.ndarray] = []
+    for index, (polygon, marker) in enumerate(zip(region_polygons, region_markers)):
+        if polygon is None or polygon.is_empty:
+            continue
+        valid_polygons.append(polygon)
+        valid_markers.append(int(marker))
+        if region_points is not None:
+            valid_points.append(np.asarray(region_points[index], dtype=np.float64))
+
+    if not valid_polygons:
+        return Mesh()
+
+    geometry = dtcc_mesher.Coverage(valid_polygons, valid_markers)
+    if region_points is not None:
+        coverage_graph = geometry.graph(max_edge_length=max_edge_length)
+        geometry = dtcc_mesher.CoverageGraph(
+            coverage_graph.points,
+            coverage_graph.segments,
+            np.asarray(valid_points, dtype=np.float64),
+            np.asarray(valid_markers, dtype=np.int32),
+        )
+
     raw_mesh = dtcc_mesher.mesh(
-        dtcc_mesher.Coverage(region_polygons, region_markers),
+        geometry,
         options=_meshing_options(
             dtcc_mesher,
             min_mesh_angle=min_mesh_angle,

@@ -1,10 +1,11 @@
-from ...model import Mesh, VolumeMesh
-import numpy as np
 from typing import Any, Dict, Optional, Tuple, Union
 
+import numpy as np
+
+from ...model import Mesh, VolumeMesh
 from . import tetgen_utils
 
-from ..logging import info,warning
+from ..logging import debug, info, warning
 
 HAS_TETGEN = False
 _tetgen_switch_module = None
@@ -17,6 +18,7 @@ try:
 except ImportError:
     _tetgen_switch_module = None
     warning("TetGen not available. Volume meshing fallback to dtcc base method.")
+
 
 def is_tetgen_available() -> bool:
     """
@@ -40,12 +42,18 @@ def get_default_tetgen_switches() -> Dict[str, Any]:
     return _tetgen_switch_module.tetgen_defaults()
 
 
-def build_volume_mesh(mesh: Mesh, 
-                      build_top_sidewalls: bool=True, 
-                      top_height: float=100.0, 
-                      return_boundary_faces: bool=True, 
-                      switches_params: Optional[Dict[str, Any]] = None, 
-                      switches_overrides: Optional[Dict[str, Any]] = None) -> Union[VolumeMesh, Tuple[VolumeMesh, Optional[np.ndarray]]] :
+def build_volume_mesh(
+    mesh: Mesh,
+    build_top_sidewalls: bool = True,
+    top_height: float = 100.0,
+    return_boundary_faces: bool = True,
+    closure_mesh: Optional[Mesh] = None,
+    top_cap_backend: str = "auto",
+    top_cap_max_mesh_size: Optional[float] = None,
+    top_cap_min_mesh_angle: float = 25.0,
+    switches_params: Optional[Dict[str, Any]] = None,
+    switches_overrides: Optional[Dict[str, Any]] = None,
+) -> Union[VolumeMesh, Tuple[VolumeMesh, Optional[np.ndarray]]]:
     """
     Build a tetrahedral volume mesh from a surface mesh using TetGen.
 
@@ -59,6 +67,17 @@ def build_volume_mesh(mesh: Mesh,
         Height of the top cap above ``zmin`` when ``build_top_sidewalls`` is True.
     return_boundary_faces : bool, optional
         Request TetGen to return boundary faces; stored on the resulting VolumeMesh.
+    closure_mesh : Mesh, optional
+        Optional flat ground mesh used to triangulate the top cap and side walls
+        of the PLC closure. When omitted, a coarse polygonal closure is used.
+    top_cap_backend : str, optional
+        2D backend used when re-triangulating the top cap from the outer-domain
+        boundary. Defaults to ``"auto"``.
+    top_cap_max_mesh_size : float, optional
+        Maximum target edge length for the re-triangulated top cap. When ``None``,
+        only the prescribed outer boundary vertices constrain the top cap.
+    top_cap_min_mesh_angle : float, optional
+        Minimum angle target for the re-triangulated top cap.
     switches_params : dict, optional
         Base parameters passed to TetGen switches.
     switches_overrides : dict, optional
@@ -84,16 +103,35 @@ def build_volume_mesh(mesh: Mesh,
 
     if mesh.markers is None or len(mesh.markers) == 0:
         raise ValueError("Input mesh must have face markers defined.")
+    if len(mesh.markers) != len(mesh.faces):
+        raise ValueError("Input mesh must have one face marker per face.")
 
     b_facets = None
+    named_boundary_facets = None
     if build_top_sidewalls:
-        new_vertices, boundary_facets = tetgen_utils.compute_boundary_facets(mesh, top_height=top_height)
-        mesh = Mesh(vertices=new_vertices, faces=mesh.faces ,markers=mesh.markers)
+        if closure_mesh is not None:
+            new_vertices, boundary_facets = tetgen_utils.compute_boundary_triangle_facets(
+                mesh,
+                closure_mesh,
+                top_height=top_height,
+                top_cap_backend=top_cap_backend,
+                top_cap_max_mesh_size=top_cap_max_mesh_size,
+                top_cap_min_mesh_angle=top_cap_min_mesh_angle,
+            )
+        else:
+            new_vertices, boundary_facets = tetgen_utils.compute_boundary_facets(
+                mesh, top_height=top_height
+            )
+        mesh = Mesh(vertices=new_vertices, faces=mesh.faces, markers=mesh.markers)
         if isinstance(boundary_facets, dict):
+            named_boundary_facets = dict(boundary_facets)
             b_facets = [facet for facet in boundary_facets.values()]
         else:
+            named_boundary_facets = {
+                f"facet_{i}": facet for i, facet in enumerate(boundary_facets)
+            }
             b_facets = list(boundary_facets)
-    
+
     if not b_facets:
         raise ValueError(
             "TetGen volume meshing requires boundary facets. "
@@ -106,22 +144,57 @@ def build_volume_mesh(mesh: Mesh,
         base_switches = get_default_tetgen_switches()
     if switches_params:
         base_switches.update(switches_params)
+    effective_switches = dict(base_switches)
+    if switches_overrides:
+        effective_switches.update(switches_overrides)
+
+    plc_diagnostics = tetgen_utils.inspect_tetgen_plc(
+        mesh.vertices,
+        mesh.faces,
+        named_boundary_facets if named_boundary_facets is not None else b_facets,
+    )
+    debug(tetgen_utils.format_tetgen_plc_diagnostics(plc_diagnostics))
+    if plc_diagnostics.errors:
+        summary = "; ".join(plc_diagnostics.errors[:3])
+        if len(plc_diagnostics.errors) > 3:
+            summary += f"; ... ({len(plc_diagnostics.errors)} total)"
+        raise ValueError(f"TetGen PLC precheck failed: {summary}")
+    if plc_diagnostics.warnings:
+        for msg in plc_diagnostics.warnings:
+            warning(f"TetGen PLC precheck: {msg}")
+        if effective_switches.get("preserve_surface"):
+            warning(
+                "TetGen PLC precheck found shell-quality risks while preserve_surface=True; "
+                "TetGen will inherit those boundary triangles."
+            )
+        else:
+            warning(
+                "TetGen PLC precheck found shell-quality risks while boundary refinement is enabled; "
+                "TetGen refinement may be unstable on this PLC."
+            )
 
     # Call tetwrap to build the volume mesh
-    tetgen_out: tetwrap.TetwrapIO = tetwrap.tetrahedralize(vertices= mesh.vertices, 
-                                             faces= mesh.faces,
-                                             face_markers = mesh.markers,
-                                             boundary_facets= b_facets, 
-                                             switches_params=base_switches,
-                                             switches_overrides=switches_overrides,
-                                             return_io = True,
-                                             return_faces = False,
-                                             return_boundary_faces = return_boundary_faces,
-                                             return_edges = False,
-                                             return_neighbors = False)
-    
+    tetgen_out: tetwrap.TetwrapIO = tetwrap.tetrahedralize(
+        vertices=mesh.vertices,
+        faces=mesh.faces,
+        face_markers=mesh.markers,
+        boundary_facets=b_facets,
+        switches_params=base_switches,
+        switches_overrides=switches_overrides,
+        return_io=True,
+        return_faces=False,
+        return_boundary_faces=return_boundary_faces,
+        return_edges=False,
+        return_neighbors=False,
+    )
+
     vertices = np.asarray(tetgen_out.points)
     cells = np.asarray(tetgen_out.tets)
+    if cells.ndim != 2 or cells.shape[1] != 4 or cells.shape[0] == 0:
+        raise RuntimeError(
+            "TetGen returned no linear tetrahedral cells. "
+            f"Got cells shape {cells.shape!r}."
+        )
     volume_mesh = VolumeMesh(vertices=vertices, cells=cells)
     if tetgen_out.boundary_tri_faces is not None:
         boundary_faces = np.asarray(tetgen_out.boundary_tri_faces)

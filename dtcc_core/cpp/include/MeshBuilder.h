@@ -52,6 +52,14 @@ public:
     Mesh ground_mesh =
         build_city_flat_mesh(subdomains, holes, subdomain_triangle_size, bbox.P.x, bbox.P.y,
                              bbox.Q.x, bbox.Q.y, max_mesh_size, min_mesh_angle, sort_triangles);
+    return build_terrain_surface_mesh_from_ground_mesh(ground_mesh, dtm, smooth_ground);
+  }
+
+  static Mesh build_terrain_surface_mesh_from_ground_mesh(
+      Mesh ground_mesh,
+      const GridField &dtm,
+      size_t smooth_ground = 0)
+  {
     // Displace ground surface. Fill all points with maximum height. This is
     // used to always choose the smallest height for each point since each point
     // may be visited multiple times.
@@ -542,6 +550,26 @@ public:
         build_terrain_surface_mesh(subdomains, hole_domains, subdomain_triangle_size, dtm,
                                    max_mesh_size, min_mesh_angle, smooth_ground, sort_triangles);
     terrain_time.stop();
+    return build_city_surface_mesh_from_terrain_mesh(
+        buildings, meshing_directive, terrain_mesh, smooth_ground, merge_meshes);
+  }
+
+  static std::vector<Mesh>
+  build_city_surface_mesh_from_terrain_mesh(
+      const std::vector<Surface> &buildings,
+      const std::vector<int> meshing_directive,
+      Mesh terrain_mesh,
+      size_t smooth_ground = 0,
+      bool merge_meshes = true)
+  {
+    auto build_city_surface_t = Timer("build_city_surface_mesh");
+    const size_t num_buildings = buildings.size();
+
+    if (meshing_directive.size() != num_buildings)
+    {
+      throw std::invalid_argument(
+          "build_city_surface_mesh_from_terrain_mesh requires one meshing directive per building.");
+    }
 
     std::vector<Mesh> city_mesh;
     std::vector<Mesh> building_meshes;

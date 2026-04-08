@@ -181,6 +181,7 @@ class CityBuilderMixin:
         smoothing: int = 0,
         sort_triangles: bool = False,
         treat_lod0_as_holes: bool = False,
+        mesher: str | None = None,
     ) -> Mesh:
         """
             Build a city surface mesh from the buildings and terrain.
@@ -202,6 +203,9 @@ class CityBuilderMixin:
 
         `smoothing` : float, optional
             The smoothing of the mesh, by default 0.0.
+        `mesher` : {"auto", "dtcc_mesher", "triangle", "spade"}, optional
+            Select the 2D meshing backend used to triangulate the ground and
+            surface shell.
 
         Returns
         -------
@@ -223,6 +227,7 @@ class CityBuilderMixin:
             smoothing=smoothing,
             sort_triangles=sort_triangles,
             treat_lod0_as_holes=treat_lod0_as_holes,
+            mesher=mesher,
         )
         return surface_mesh
 
@@ -235,6 +240,7 @@ class CityBuilderMixin:
         min_building_detail: float = 0.5,
         min_building_area: float = 15.0,
         merge_tolerance: float = 0.5,
+        mesher: str | None = None,
     ) -> Mesh:
         """Build a flat 2D triangular mesh of the city with building markers.
 
@@ -263,6 +269,8 @@ class CityBuilderMixin:
             Minimum footprint area threshold (default 15.0).
         merge_tolerance : float, optional
             Distance tolerance for merging (default 0.5).
+        mesher : {"auto", "dtcc_mesher", "triangle", "spade"}, optional
+            Select the 2D meshing backend.
 
         Returns
         -------
@@ -280,6 +288,7 @@ class CityBuilderMixin:
             min_building_detail=min_building_detail,
             min_building_area=min_building_area,
             merge_tolerance=merge_tolerance,
+            mesher=mesher,
         )
         return flat_mesh
 
@@ -301,6 +310,7 @@ class CityBuilderMixin:
         smoothing_relative_tolerance: float = 0.005,
         aspect_ratio_threshold: float = 10.0,
         debug_step: int = 7,
+        mesher: str | None = None,
     ) -> VolumeMesh:
         """Build a 3D tetrahedral volume mesh for the city.
 
@@ -341,6 +351,9 @@ class CityBuilderMixin:
             Aspect ratio threshold for fallback mesher (default 10.0).
         debug_step : int, optional
             Debug step for fallback mesher (default 7).
+        mesher : {"auto", "dtcc_mesher", "triangle", "spade"}, optional
+            Select the 2D meshing backend used for the intermediate flat and
+            surface mesh stages.
 
         Returns
         -------
@@ -367,6 +380,7 @@ class CityBuilderMixin:
             smoothing_relative_tolerance=smoothing_relative_tolerance,
             aspect_ratio_threshold=aspect_ratio_threshold,
             debug_step=debug_step,
+            mesher=mesher,
         )
         return volume_mesh
 

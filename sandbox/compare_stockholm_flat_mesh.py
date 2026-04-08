@@ -122,6 +122,14 @@ def parse_args() -> argparse.Namespace:
         help="Write per-case summary JSON only; skip mesh/plot/geopackage artifacts.",
     )
     parser.add_argument(
+        "--show",
+        action="store_true",
+        help=(
+            "Show the matplotlib comparison figure interactively after saving it. "
+            "Useful for zooming into a case."
+        ),
+    )
+    parser.add_argument(
         "--max-mesh-size",
         type=float,
         default=DEFAULT_MAX_MESH_SIZE,
@@ -712,13 +720,25 @@ def polygon_metrics_text(
     return "\n".join(lines)
 
 
-def mesh_metrics_text(metrics: dict[str, float]) -> str:
+def mesh_metrics_text(metrics: dict[str, float | None]) -> str:
     return "\n".join(
         [
-            f"EQ mean {metrics['element_quality_mean']:.3f}  worst {metrics['element_quality_worst']:.3f}",
-            f"AR mean {metrics['aspect_ratio_mean']:.3f}  worst {metrics['aspect_ratio_worst']:.3f}",
-            f"ER mean {metrics['edge_ratio_mean']:.3f}  worst {metrics['edge_ratio_worst']:.3f}",
-            f"Skew mean {metrics['skewness_mean']:.3f}  worst {metrics['skewness_worst']:.3f}",
+            (
+                f"EQ mean {_fmt_metric(metrics['element_quality_mean'], 3)}  "
+                f"worst {_fmt_metric(metrics['element_quality_worst'], 3)}"
+            ),
+            (
+                f"AR mean {_fmt_metric(metrics['aspect_ratio_mean'], 3)}  "
+                f"worst {_fmt_metric(metrics['aspect_ratio_worst'], 3)}"
+            ),
+            (
+                f"ER mean {_fmt_metric(metrics['edge_ratio_mean'], 3)}  "
+                f"worst {_fmt_metric(metrics['edge_ratio_worst'], 3)}"
+            ),
+            (
+                f"Skew mean {_fmt_metric(metrics['skewness_mean'], 3)}  "
+                f"worst {_fmt_metric(metrics['skewness_worst'], 3)}"
+            ),
         ]
     )
 
@@ -735,6 +755,8 @@ def timing_metrics_text(metrics: dict[str, float]) -> str:
 
 def mesh_edge_segments(mesh) -> list[np.ndarray]:
     segments: list[np.ndarray] = []
+    if mesh is None:
+        return segments
     if mesh.faces is None or mesh.vertices is None:
         return segments
     xy = mesh.vertices[:, :2]
@@ -769,17 +791,24 @@ def plot_case(
     raw_polygon_metrics: dict[str, float | int | None],
     conditioned_polygon_metrics: dict[str, float | int | None],
     delta_metrics: dict[str, float],
-    mesh_metrics: dict[str, float],
+    mesh_metrics: dict[str, float | None],
     timing_metrics: dict[str, float],
     short_edge_threshold: float,
     title: str,
+    error_info: dict[str, str] | None = None,
+    show: bool = False,
 ) -> None:
     fig, axes = plt.subplots(1, 3, figsize=(18, 7.5), constrained_layout=True)
+    mesh_available = flat_mesh is not None
 
     for ax, gdf, panel_title in [
         (axes[0], raw_gdf, "Raw footprints"),
         (axes[1], conditioned_gdf, "Conditioned footprints"),
-        (axes[2], conditioned_gdf, "Conditioned + flat mesh"),
+        (
+            axes[2],
+            conditioned_gdf,
+            "Conditioned + flat mesh" if mesh_available else "Conditioned footprints",
+        ),
     ]:
         if not gdf.empty:
             gdf.plot(
@@ -828,16 +857,25 @@ def plot_case(
         ),
         **{**text_kwargs, "transform": axes[1].transAxes},
     )
+    panel_text = mesh_metrics_text(mesh_metrics) + "\n" + timing_metrics_text(timing_metrics)
+    if error_info is not None:
+        panel_text += (
+            "\n"
+            f"{error_info['stage']} failed: {error_info['type']}\n"
+            f"{error_info['message']}"
+        )
     axes[2].text(
         0.02,
         0.02,
-        mesh_metrics_text(mesh_metrics) + "\n" + timing_metrics_text(timing_metrics),
+        panel_text,
         **{**text_kwargs, "transform": axes[2].transAxes},
     )
 
     set_panel_extent(axes, bounds)
     fig.suptitle(title)
     fig.savefig(output_path, dpi=200)
+    if show:
+        plt.show()
     plt.close(fig)
 
 
@@ -970,7 +1008,7 @@ def run_case(number: int, args: argparse.Namespace, git_metadata: dict[str, str 
         short_edge_threshold=args.min_building_detail,
     )
 
-    if not args.summary_only and flat_mesh is not None:
+    if not args.summary_only:
         t0 = time.perf_counter()
         plot_case(
             case_dir / "comparison.png",
@@ -985,13 +1023,15 @@ def run_case(number: int, args: argparse.Namespace, git_metadata: dict[str, str 
             timing_metrics,
             args.min_building_detail,
             title=f"Case {number:03d} | {mode_name}",
+            error_info=error_info,
+            show=args.show,
         )
         timings["plotting"] = time.perf_counter() - t0
 
     artifacts: dict[str, str] = {}
     if not args.summary_only:
+        artifacts["comparison_png"] = "comparison.png"
         if flat_mesh is not None:
-            artifacts["comparison_png"] = "comparison.png"
             artifacts["flat_mesh_vtu"] = "flat_mesh.vtu"
         artifacts["footprints_gpkg"] = "footprints.gpkg"
         artifacts["source_map_csv"] = "source_map.csv"

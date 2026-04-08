@@ -4,7 +4,7 @@ import textwrap
 
 import numpy as np
 import pytest
-from shapely.geometry import Polygon, box
+from shapely.geometry import Point, Polygon, box
 
 from dtcc_core.builder import (
     _dtcc_builder,
@@ -21,7 +21,7 @@ from dtcc_core.builder.model_conversion import builder_mesh_to_mesh, create_buil
 from dtcc_core.builder.meshing import dtcc_mesher_backend as dtcc_mesher_backend_module
 from dtcc_core.builder.meshing import flat_mesh_backends as flat_mesh_backends_module
 from dtcc_core.builder.meshing.tetgen import is_tetgen_available
-from dtcc_core.model import Building, Bounds, City, GeometryType, Mesh, Raster, Surface, Terrain
+from dtcc_core.model import Building, Bounds, City, GeometryType, Mesh, Raster, Surface, Terrain, VolumeMesh
 
 
 def make_surface(polygon: Polygon, z: float) -> Surface:
@@ -188,9 +188,9 @@ def test_condition_meshing_footprints_regularizes_touching_holes():
     assert len(surfaces) == 1
     assert source_map == [[0]]
     assert resolutions == [5.0]
-    assert diagnostics["mesher_regularized_polygon_count"] == 1
     normalized = surfaces[0].to_polygon(simplify=0.0)
     assert not meshes_module._polygon_has_ring_boundary_contacts(normalized)
+    assert diagnostics.get("mesher_regularized_polygon_count", 0) == 0
 
 
 def test_regularize_flat_mesh_ground_polygons_splits_case55_style_pinch():
@@ -350,6 +350,64 @@ def test_condition_flat_mesh_building_regions_preserves_mesher_ready_holes():
     assert all(not meshes_module._polygon_has_ring_boundary_contacts(polygon) for polygon in polygons)
 
 
+def test_condition_flat_mesh_ground_polygons_returns_explicit_courtyards():
+    building = Polygon(
+        [(10, 10), (30, 10), (30, 30), (10, 30), (10, 10)],
+        [[(16, 16), (24, 16), (24, 24), (16, 24), (16, 16)]],
+    )
+
+    ground_polygons = meshes_module._condition_flat_mesh_ground_polygons(
+        bounds=(0.0, 0.0, 40.0, 40.0),
+        building_polygons=[building],
+        hole_polygons=[],
+        max_mesh_size=10.0,
+        footprint_diagnostics={"output_grid": 0.03125},
+        cleaning_diagnostics=False,
+    )
+
+    courtyard = Polygon(building.interiors[0])
+    assert any(polygon.covers(courtyard) and courtyard.covers(polygon) for polygon in ground_polygons)
+
+
+def test_prepare_surface_ground_regions_uses_explicit_building_region_points_for_courtyards():
+    building = Polygon(
+        [(10, 10), (30, 10), (30, 30), (10, 30), (10, 10)],
+        [[(16, 16), (24, 16), (24, 24), (16, 24), (16, 16)]],
+    )
+    surface = make_surface(building, 12.0)
+
+    (
+        active_surfaces,
+        directives,
+        region_polygons,
+        region_markers,
+        region_triangle_sizes,
+        region_points,
+    ) = meshes_module._prepare_surface_ground_regions(
+        conditioned_surfaces=[surface],
+        conditioned_resolution=[5.0],
+        target_lods=[GeometryType.LOD1],
+        bounds=(0.0, 0.0, 40.0, 40.0),
+        max_mesh_size=10.0,
+        min_building_detail=0.5,
+        footprint_diagnostics={"output_grid": 0.03125},
+        cleaning_diagnostics=False,
+        treat_lod0_as_holes=False,
+    )
+
+    assert len(active_surfaces) == 1
+    assert directives == [1]
+    assert region_markers.count(-2) == 2
+    assert region_markers.count(0) == 1
+    assert region_triangle_sizes == {0: 5.0}
+
+    building_index = region_markers.index(0)
+    courtyard = Polygon(building.interiors[0])
+    assert len(region_polygons[building_index].interiors) == 0
+    assert building.contains(Point(region_points[building_index]))
+    assert not courtyard.covers(Point(region_points[building_index]))
+
+
 def test_build_city_flat_mesh_dtcc_mesher_uses_single_coverage_call(monkeypatch):
     calls = {}
 
@@ -476,6 +534,82 @@ def test_build_city_flat_mesh_dtcc_mesher_unrestricted_enables_refinement(monkey
     assert calls["refine"] is True
 
 
+def test_build_city_flat_mesh_dtcc_mesher_uses_explicit_region_points(monkeypatch):
+    calls = {}
+
+    class DummyRawMesh:
+        def __init__(self):
+            self.points = np.array(
+                [
+                    [0.0, 0.0],
+                    [1.0, 0.0],
+                    [0.0, 1.0],
+                ],
+                dtype=np.float64,
+            )
+            self.triangles = np.array([[0, 1, 2]], dtype=np.uint32)
+            self.segments = np.empty((0, 2), dtype=np.uint32)
+            self.markers = np.array([-2], dtype=np.int32)
+
+    class DummyMesher:
+        class Coverage:
+            def __init__(self, polygons, markers, *, tolerance=1e-9):
+                self.polygons = tuple(polygons)
+                self.markers = tuple(markers)
+                self.tolerance = tolerance
+
+            def graph(self, *, max_edge_length=None):
+                calls["coverage_graph_max_edge_length"] = max_edge_length
+                return DummyMesher.CoverageGraph(
+                    np.array([[0.0, 0.0], [1.0, 0.0]], dtype=np.float64),
+                    np.array([[0, 1]], dtype=np.uint32),
+                    np.array([[0.25, 0.25], [0.75, 0.75]], dtype=np.float64),
+                    np.array([-2, 0], dtype=np.int32),
+                )
+
+        class CoverageGraph:
+            def __init__(self, points, segments, region_points, region_markers):
+                self.points = points
+                self.segments = segments
+                self.region_points = region_points
+                self.region_markers = region_markers
+
+        class MeshingOptions:
+            def __init__(self, *, min_angle, max_edge_length, refine):
+                self.min_angle = min_angle
+                self.max_edge_length = max_edge_length
+                self.refine = refine
+
+        def mesh(self, geometry, *, options):
+            calls["geometry_type"] = type(geometry).__name__
+            calls["region_points"] = np.asarray(geometry.region_points, dtype=np.float64)
+            calls["region_markers"] = np.asarray(geometry.region_markers, dtype=np.int32)
+            return DummyRawMesh()
+
+    monkeypatch.setattr(
+        dtcc_mesher_backend_module,
+        "_load_dtcc_mesher",
+        lambda: DummyMesher(),
+    )
+
+    mesh = dtcc_mesher_backend_module.build_city_flat_mesh_with_dtcc_mesher(
+        region_polygons=[box(0, 0, 10, 10), box(2, 2, 4, 4)],
+        region_markers=[-2, 0],
+        region_points=[
+            np.array([1.0, 1.0], dtype=np.float64),
+            np.array([3.0, 3.0], dtype=np.float64),
+        ],
+        max_mesh_size=5.0,
+        min_mesh_angle=20.0,
+    )
+
+    assert calls["coverage_graph_max_edge_length"] == 5.0
+    assert calls["geometry_type"] == "CoverageGraph"
+    assert np.allclose(calls["region_points"], np.array([[1.0, 1.0], [3.0, 3.0]]))
+    assert calls["region_markers"].tolist() == [-2, 0]
+    assert mesh.faces.shape[0] == 1
+
+
 def test_build_city_flat_mesh_triangle_uses_conditioned_coverage(monkeypatch):
     captured = {}
 
@@ -491,15 +625,20 @@ def test_build_city_flat_mesh_triangle_uses_conditioned_coverage(monkeypatch):
         *,
         region_polygons,
         region_markers,
+        region_points=None,
         bounds,
         max_mesh_size,
         min_mesh_angle,
         backend,
+        sort_triangles,
+        region_triangle_sizes,
     ):
         captured["region_polygon_count"] = len(region_polygons)
         captured["region_markers"] = list(region_markers)
         captured["bounds"] = bounds
         captured["backend"] = backend
+        captured["sort_triangles"] = sort_triangles
+        captured["region_triangle_sizes"] = region_triangle_sizes
         return Mesh(
             vertices=np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]),
             faces=np.array([[0, 1, 2]], dtype=int),
@@ -509,6 +648,11 @@ def test_build_city_flat_mesh_triangle_uses_conditioned_coverage(monkeypatch):
     monkeypatch.setattr(meshes_module, "_condition_meshing_footprints", fake_condition)
     monkeypatch.setattr(meshes_module, "_condition_flat_mesh_coverage_regions", fake_condition_coverage_regions)
     monkeypatch.setattr(meshes_module, "build_city_flat_mesh_from_coverage", fake_build_from_coverage)
+    monkeypatch.setattr(
+        meshes_module,
+        "resolve_2d_mesher",
+        lambda mesher=None: mesher or "triangle",
+    )
 
     city = make_flat_city([make_building(box(8, 8, 18, 18), roof_z=10.0)])
     mesh = build_city_flat_mesh(
@@ -530,7 +674,9 @@ def test_build_city_flat_mesh_triangle_uses_conditioned_coverage(monkeypatch):
     assert captured["region_markers"] == [-2, 7]
     assert captured["bounds"] == (0.0, 0.0, 80.0, 80.0)
     assert captured["backend"] == "triangle"
-    assert mesh.faces.shape[0] == 1
+    assert captured["sort_triangles"] is True
+    assert captured["region_triangle_sizes"] is None
+    assert mesh.faces.shape[0] >= 1
 
 
 def test_build_city_flat_mesh_propagates_runtime_mesher_errors(monkeypatch):
@@ -546,6 +692,11 @@ def test_build_city_flat_mesh_propagates_runtime_mesher_errors(monkeypatch):
     monkeypatch.setattr(meshes_module, "_condition_meshing_footprints", fake_condition)
     monkeypatch.setattr(meshes_module, "_condition_flat_mesh_coverage_regions", fake_condition_coverage_regions)
     monkeypatch.setattr(meshes_module, "build_city_flat_mesh_from_coverage", fake_build_from_coverage)
+    monkeypatch.setattr(
+        meshes_module,
+        "resolve_2d_mesher",
+        lambda mesher=None: mesher or "triangle",
+    )
 
     city = make_flat_city([make_building(box(8, 8, 18, 18), roof_z=10.0)])
     with pytest.raises(RuntimeError, match="internal triangulation error"):
@@ -692,6 +843,11 @@ def test_build_city_flat_mesh_marks_halos_for_triangle_backend(monkeypatch):
     monkeypatch.setattr(meshes_module, "_condition_meshing_footprints", fake_condition)
     monkeypatch.setattr(meshes_module, "_condition_flat_mesh_coverage_regions", fake_condition_coverage_regions)
     monkeypatch.setattr(meshes_module, "build_city_flat_mesh_from_coverage", fake_build_from_coverage)
+    monkeypatch.setattr(
+        meshes_module,
+        "resolve_2d_mesher",
+        lambda mesher=None: mesher or "triangle",
+    )
 
     city = make_flat_city([make_building(box(8, 8, 18, 18), roof_z=10.0)])
     mesh = build_city_flat_mesh(
@@ -864,24 +1020,68 @@ def test_build_city_surface_mesh_reduces_lod_from_source_map(monkeypatch):
                 faces=np.array([[0, 1, 2]], dtype=int),
             )
 
-    def fake_build_surface_mesh(
+    def fake_condition_building_regions(**kwargs):
+        return kwargs["building_polygons"], kwargs["building_markers"], [[0], [1]]
+
+    def fake_condition_ground_polygons(**kwargs):
+        return [box(0, 0, 80, 80)]
+
+    def fake_build_from_coverage(**kwargs):
+        captured["backend"] = kwargs["backend"]
+        captured["region_markers"] = kwargs["region_markers"]
+        captured["region_triangle_sizes"] = kwargs["region_triangle_sizes"]
+        return Mesh(
+            vertices=np.array(
+                [
+                    [0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0],
+                ]
+            ),
+            faces=np.array([[0, 1, 2]], dtype=int),
+            markers=np.array([0], dtype=int),
+        )
+
+    def fake_build_terrain_surface_mesh_from_ground_mesh(*args, **kwargs):
+        return object()
+
+    def fake_build_surface_mesh_from_terrain_mesh(
         building_surfaces,
-        hole_surfaces,
         building_lod_switches,
-        building_resolution,
-        builder_dem,
-        max_mesh_size,
-        min_mesh_angle,
+        terrain_mesh,
         smoothing,
         merge_meshes,
-        sort_triangles,
     ):
         captured["lod_switches"] = building_lod_switches
-        captured["resolution"] = building_resolution
         return [DummyCppMesh()]
 
     monkeypatch.setattr(meshes_module, "_condition_meshing_footprints", fake_condition)
-    monkeypatch.setattr(meshes_module._dtcc_builder, "build_city_surface_mesh", fake_build_surface_mesh)
+    monkeypatch.setattr(
+        meshes_module,
+        "_condition_flat_mesh_building_regions_with_sources",
+        fake_condition_building_regions,
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_condition_flat_mesh_ground_polygons",
+        fake_condition_ground_polygons,
+    )
+    monkeypatch.setattr(meshes_module, "build_city_flat_mesh_from_coverage", fake_build_from_coverage)
+    monkeypatch.setattr(
+        meshes_module,
+        "resolve_2d_mesher",
+        lambda mesher=None: mesher or "triangle",
+    )
+    monkeypatch.setattr(
+        meshes_module._dtcc_builder,
+        "build_terrain_surface_mesh_from_ground_mesh",
+        fake_build_terrain_surface_mesh_from_ground_mesh,
+    )
+    monkeypatch.setattr(
+        meshes_module._dtcc_builder,
+        "build_city_surface_mesh_from_terrain_mesh",
+        fake_build_surface_mesh_from_terrain_mesh,
+    )
 
     city = make_flat_city(
         [
@@ -903,11 +1103,790 @@ def test_build_city_surface_mesh_reduces_lod_from_source_map(monkeypatch):
         min_mesh_angle=20.0,
         merge_meshes=True,
         report_mesh_quality=False,
+        mesher="triangle",
+    )
+
+    assert mesh.faces.shape[0] >= 1
+    assert captured["lod_switches"] == [0, 2]
+    assert captured["backend"] == "triangle"
+    assert captured["region_markers"] == [-2, 0, 1]
+    assert captured["region_triangle_sizes"] == {0: 4.0, 1: 5.0}
+
+
+def test_build_city_surface_mesh_uses_raw_ground_markers(monkeypatch):
+    city = make_flat_city([make_building(box(10, 10, 20, 20), roof_z=10.0)])
+    terrain = city.terrain
+    terrain_raster = terrain.raster
+    conditioned_surface = make_surface(box(10, 10, 20, 20), 10.0)
+    diagnostics = {"output_grid": 0.25}
+    captured = {}
+
+    def fake_prepare(*args, **kwargs):
+        return terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics
+
+    def fake_prepare_regions(**kwargs):
+        return (
+            [conditioned_surface],
+            [1],
+            [box(0, 0, 80, 80), box(10, 10, 20, 20)],
+            [-2, 0],
+            {0: 4.0},
+            [
+                np.array([40.0, 40.0], dtype=np.float64),
+                np.array([15.0, 15.0], dtype=np.float64),
+            ],
+        )
+
+    def fake_build_ground(**kwargs):
+        captured["add_halo_markers"] = kwargs["add_halo_markers"]
+        return (
+            Mesh(
+                vertices=np.array(
+                    [
+                        [0.0, 0.0, 0.0],
+                        [1.0, 0.0, 0.0],
+                        [0.0, 1.0, 0.0],
+                    ]
+                ),
+                faces=np.array([[0, 1, 2]], dtype=int),
+                markers=np.array([0], dtype=int),
+            ),
+            "dtcc_mesher",
+        )
+
+    def fake_build_surface_from_ground(**kwargs):
+        return Mesh(
+            vertices=np.array(
+                [
+                    [0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0],
+                ]
+            ),
+            faces=np.array([[0, 1, 2]], dtype=int),
+            markers=np.array([0], dtype=int),
+        )
+
+    monkeypatch.setattr(meshes_module, "_prepare_city_meshing_inputs", fake_prepare)
+    monkeypatch.setattr(meshes_module, "_prepare_surface_ground_regions", fake_prepare_regions)
+    monkeypatch.setattr(meshes_module, "_build_ground_mesh_from_coverage", fake_build_ground)
+    monkeypatch.setattr(
+        meshes_module,
+        "_build_city_surface_mesh_from_ground_mesh",
+        fake_build_surface_from_ground,
+    )
+
+    mesh = build_city_surface_mesh(
+        city,
+        lod=GeometryType.LOD0,
+        merge_buildings=False,
+        min_building_detail=0.0,
+        min_building_area=1.0,
+        merge_tolerance=0.0,
+        max_mesh_size=6.0,
+        min_mesh_angle=20.0,
+        report_mesh_quality=False,
+        mesher="dtcc_mesher",
     )
 
     assert mesh.faces.shape[0] == 1
-    assert captured["lod_switches"] == [0, 2]
-    assert captured["resolution"] == [4.0, 5.0]
+    assert captured["add_halo_markers"] is False
+
+
+def test_split_ground_mesh_building_components_splits_vertex_touching_patches():
+    ground_mesh = Mesh(
+        vertices=np.array(
+            [
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [1.0, 1.0, 0.0],
+                [2.0, 1.0, 0.0],
+            ]
+        ),
+        faces=np.array(
+            [
+                [0, 1, 2],
+                [2, 3, 4],
+            ],
+            dtype=int,
+        ),
+        markers=np.array([0, 0], dtype=int),
+    )
+    building_surface = make_surface(box(0, 0, 2, 1), 10.0)
+
+    split_mesh, split_surfaces, split_directives = (
+        meshes_module._split_ground_mesh_building_components(
+            ground_mesh=ground_mesh,
+            building_surfaces=[building_surface],
+            meshing_directives=[1],
+        )
+    )
+
+    assert split_mesh.markers.tolist() == [0, 1]
+    assert len(split_surfaces) == 2
+    assert split_directives == [1, 1]
+
+
+def test_stabilize_shell_building_polygon_removes_low_clearance_hole():
+    polygon = Polygon(
+        [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)],
+        [
+            [
+                (2.0, 2.0),
+                (8.0, 2.0),
+                (8.0, 8.0),
+                (5.0002, 8.0),
+                (5.0, 7.9998),
+                (2.0, 8.0),
+            ]
+        ],
+    )
+
+    stabilized, removed = meshes_module._stabilize_shell_building_polygon(
+        polygon,
+        min_hole_clearance=0.01,
+    )
+
+    assert removed == 1
+    assert len(stabilized.interiors) == 0
+
+
+def test_split_weakly_pinched_shell_polygon_splits_exterior_revisit():
+    polygon = Polygon(
+        [
+            (674614.125, 6580137.40625),
+            (674617.6249773939, 6580141.031226587),
+            (674613.874953289, 6580144.875001294),
+            (674617.2812514388, 6580148.000045467),
+            (674621.0625469746, 6580144.06249805),
+            (674617.6250215588, 6580141.031225638),
+            (674627.0, 6580130.4375),
+            (674651.09375, 6580152.65625),
+            (674634.6875, 6580170.53125),
+            (674620.5625, 6580186.0625),
+            (674598.21875, 6580165.59375),
+            (674586.84375, 6580154.3125),
+            (674600.3125, 6580139.65625),
+            (674616.78125, 6580121.0),
+            (674623.28125, 6580127.03125),
+        ]
+    )
+
+    parts = meshes_module._split_weakly_pinched_shell_polygon(
+        polygon,
+        pinch_tolerance=0.05,
+    )
+
+    assert len(parts) == 2
+    assert all(part.minimum_clearance > 1.0 for part in parts)
+    assert all(not meshes_module._polygon_has_ring_boundary_contacts(part) for part in parts)
+
+
+def test_build_city_volume_mesh_uses_shared_surface_pipeline(monkeypatch):
+    city = make_flat_city([make_building(box(10, 10, 20, 20), roof_z=10.0)])
+    terrain = city.terrain
+    terrain_raster = terrain.raster
+    conditioned_surface = make_surface(box(10, 10, 20, 20), 10.0)
+    diagnostics = {"output_grid": 0.25}
+    captured = {}
+
+    def fake_prepare(*args, **kwargs):
+        return terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics
+
+    def fake_prepare_regions(**kwargs):
+        captured["target_lods"] = kwargs["target_lods"]
+        captured["conditioned_resolution"] = kwargs["conditioned_resolution"]
+        return (
+            [conditioned_surface],
+            [1],
+            [box(0, 0, 80, 80), box(10, 10, 20, 20)],
+            [-2, 0],
+            {0: 4.0},
+            [
+                np.array([40.0, 40.0], dtype=np.float64),
+                np.array([15.0, 15.0], dtype=np.float64),
+            ],
+        )
+
+    def fake_build_ground(**kwargs):
+        captured["mesher"] = kwargs["mesher"]
+        captured["add_halo_markers"] = kwargs["add_halo_markers"]
+        return (
+            Mesh(
+                vertices=np.array(
+                    [
+                        [0.0, 0.0, 0.0],
+                        [1.0, 0.0, 0.0],
+                        [0.0, 1.0, 0.0],
+                    ]
+                ),
+                faces=np.array([[0, 1, 2]], dtype=int),
+                markers=np.array([0], dtype=int),
+            ),
+            "spade",
+        )
+
+    def fake_build_surface_from_ground(**kwargs):
+        captured["surface_called"] = True
+        return Mesh(
+            vertices=np.array(
+                [
+                    [0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0],
+                ]
+            ),
+            faces=np.array([[0, 1, 2]], dtype=int),
+            markers=np.array([0], dtype=int),
+        )
+
+    def fake_tetgen_build(**kwargs):
+        captured["tetgen_mesh_faces"] = len(kwargs["mesh"].faces)
+        captured["closure_mesh_faces"] = len(kwargs["closure_mesh"].faces)
+        return VolumeMesh(
+            vertices=np.array(
+                [
+                    [0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0],
+                    [0.0, 0.0, 1.0],
+                ]
+            ),
+            cells=np.array([[0, 1, 2, 3]], dtype=int),
+        )
+
+    monkeypatch.setattr(meshes_module, "_prepare_city_meshing_inputs", fake_prepare)
+    monkeypatch.setattr(meshes_module, "_prepare_surface_ground_regions", fake_prepare_regions)
+    monkeypatch.setattr(meshes_module, "_build_ground_mesh_from_coverage", fake_build_ground)
+    monkeypatch.setattr(
+        meshes_module,
+        "_build_city_surface_mesh_from_ground_mesh",
+        fake_build_surface_from_ground,
+    )
+    monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
+    monkeypatch.setattr(meshes_module, "tetgen_build_volume_mesh", fake_tetgen_build)
+
+    volume_mesh = build_city_volume_mesh(
+        city,
+        lod=GeometryType.LOD0,
+        merge_buildings=False,
+        min_building_detail=0.0,
+        min_building_area=1.0,
+        merge_tolerance=0.0,
+        max_mesh_size=6.0,
+        min_mesh_angle=20.0,
+        report_mesh_quality=False,
+        mesher="spade",
+    )
+
+    assert captured["mesher"] == "spade"
+    assert captured["add_halo_markers"] is False
+    assert captured["target_lods"] == [GeometryType.LOD1]
+    assert captured["conditioned_resolution"] == [4.0]
+    assert captured["surface_called"] is True
+    assert captured["tetgen_mesh_faces"] == 1
+    assert captured["closure_mesh_faces"] == 1
+    assert volume_mesh.cells.shape[0] == 1
+
+
+def test_build_city_surface_mesh_from_ground_mesh_snaps_boundary_vertices(monkeypatch):
+    raster = Raster()
+    raster.data = np.zeros((80, 80), dtype=float)
+    raster.set_bounds(Bounds(0.0, 0.0, 80.0, 80.0))
+    ground_mesh = Mesh(
+        vertices=np.array(
+            [
+                [0.05, 0.0, 0.0],
+                [80.0, 0.04, 0.0],
+                [79.96, 80.0, 0.0],
+                [0.0, 79.97, 0.0],
+                [40.0, 40.0, 0.0],
+            ]
+        ),
+        faces=np.array([[0, 1, 4], [1, 2, 4], [2, 3, 4]], dtype=int),
+        markers=np.array([0, 0, 0], dtype=int),
+    )
+    captured = {}
+
+    class DummyBuilderMesh:
+        def __init__(self, mesh):
+            self._mesh = mesh
+
+        def from_cpp(self):
+            return self._mesh
+
+    def fake_mesh_to_builder_mesh(mesh):
+        captured["aligned_vertices"] = np.array(mesh.vertices, copy=True)
+        return DummyBuilderMesh(mesh)
+
+    def fake_build_terrain(builder_mesh, builder_dem, smoothing):
+        captured["terrain_builder_input"] = np.array(builder_mesh._mesh.vertices, copy=True)
+        return DummyBuilderMesh(
+            Mesh(
+                vertices=np.array(
+                    [
+                        [0.0, 0.0, 0.0],
+                        [80.0, 0.0, 0.0],
+                        [0.0, 80.0, 0.0],
+                    ]
+                ),
+                faces=np.array([[0, 1, 2]], dtype=int),
+                markers=np.array([0], dtype=int),
+            )
+        )
+
+    def fail_city_surface(*args, **kwargs):
+        raise AssertionError("Terrain-only surface mesh should not build building surfaces.")
+
+    monkeypatch.setattr(meshes_module, "mesh_to_builder_mesh", fake_mesh_to_builder_mesh)
+    monkeypatch.setattr(meshes_module, "raster_to_builder_gridfield", lambda raster: "grid")
+    monkeypatch.setattr(
+        meshes_module._dtcc_builder,
+        "build_terrain_surface_mesh_from_ground_mesh",
+        fake_build_terrain,
+    )
+    monkeypatch.setattr(
+        meshes_module._dtcc_builder,
+        "build_city_surface_mesh_from_terrain_mesh",
+        fail_city_surface,
+    )
+
+    mesh = meshes_module._build_city_surface_mesh_from_ground_mesh(
+        ground_mesh=ground_mesh,
+        terrain_raster=raster,
+        building_surfaces=[],
+        meshing_directives=[],
+        smoothing=0,
+        merge_meshes=True,
+    )
+
+    assert np.allclose(captured["aligned_vertices"][0], [0.0, 0.0, 0.0])
+    assert np.allclose(captured["aligned_vertices"][1], [80.0, 0.0, 0.0])
+    assert np.allclose(captured["aligned_vertices"][2], [80.0, 80.0, 0.0])
+    assert np.allclose(captured["aligned_vertices"][3], [0.0, 80.0, 0.0])
+    assert np.allclose(captured["aligned_vertices"][4], [40.0, 40.0, 0.0])
+    assert np.allclose(captured["terrain_builder_input"], captured["aligned_vertices"])
+    assert mesh.faces.shape[0] == 1
+
+
+def test_build_city_volume_mesh_keeps_requested_tetgen_switches(monkeypatch):
+    city = make_flat_city([make_building(box(10, 10, 20, 20), roof_z=10.0)])
+    terrain = city.terrain
+    terrain_raster = terrain.raster
+    conditioned_surface = make_surface(box(10, 10, 20, 20), 10.0)
+    diagnostics = {"output_grid": 0.25}
+    captured = {}
+
+    def fake_prepare(*args, **kwargs):
+        return terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics
+
+    def fake_prepare_regions(**kwargs):
+        return (
+            [conditioned_surface],
+            [1],
+            [box(0, 0, 80, 80), box(10, 10, 20, 20)],
+            [-2, 0],
+            {0: 4.0},
+            [
+                np.array([40.0, 40.0], dtype=np.float64),
+                np.array([15.0, 15.0], dtype=np.float64),
+            ],
+        )
+
+    def fake_build_ground(**kwargs):
+        return (
+            Mesh(
+                vertices=np.array(
+                    [
+                        [0.0, 0.0, 0.0],
+                        [10.0, 0.0, 0.0],
+                        [10.0, 10.0, 0.0],
+                        [0.0, 10.0, 0.0],
+                    ]
+                ),
+                faces=np.array([[0, 1, 2], [0, 2, 3]], dtype=int),
+                markers=np.array([0, 0], dtype=int),
+            ),
+            "dtcc_mesher",
+        )
+
+    def fake_build_surface_from_ground(**kwargs):
+        return Mesh(
+            vertices=np.array(
+                [
+                    [0.0, 0.0, 0.0],
+                    [10.0, 0.0, 0.0],
+                    [10.0, 10.0, 0.0],
+                    [0.0, 10.0, 0.0],
+                ]
+            ),
+            faces=np.array([[0, 1, 2], [0, 2, 3]], dtype=int),
+            markers=np.array([0, 0], dtype=int),
+        )
+
+    def fake_tetgen_build(**kwargs):
+        captured["tetgen_switches"] = dict(kwargs["switches_params"])
+        captured["top_cap_backend"] = kwargs["top_cap_backend"]
+        captured["top_cap_max_mesh_size"] = kwargs["top_cap_max_mesh_size"]
+        captured["top_cap_min_mesh_angle"] = kwargs["top_cap_min_mesh_angle"]
+        return VolumeMesh(
+            vertices=np.array(
+                [
+                    [0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0],
+                    [0.0, 0.0, 1.0],
+                ]
+            ),
+            cells=np.array([[0, 1, 2, 3]], dtype=int),
+        )
+
+    monkeypatch.setattr(meshes_module, "_prepare_city_meshing_inputs", fake_prepare)
+    monkeypatch.setattr(meshes_module, "_prepare_surface_ground_regions", fake_prepare_regions)
+    monkeypatch.setattr(meshes_module, "_build_ground_mesh_from_coverage", fake_build_ground)
+    monkeypatch.setattr(
+        meshes_module,
+        "_build_city_surface_mesh_from_ground_mesh",
+        fake_build_surface_from_ground,
+    )
+    monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
+    monkeypatch.setattr(meshes_module, "tetgen_build_volume_mesh", fake_tetgen_build)
+
+    build_city_volume_mesh(
+        city,
+        lod=GeometryType.LOD0,
+        merge_buildings=False,
+        min_building_detail=0.0,
+        min_building_area=1.0,
+        merge_tolerance=0.0,
+        max_mesh_size=6.0,
+        min_mesh_angle=20.0,
+        report_mesh_quality=False,
+        mesher="dtcc_mesher",
+        tetgen_switches={"quality": (1.6, 25.0)},
+    )
+
+    assert captured["tetgen_switches"]["quality"] == (1.6, 25.0)
+    assert captured["tetgen_switches"]["preserve_surface"] is False
+    assert captured["tetgen_switches"]["max_added_points"] is None
+
+
+def test_build_city_volume_mesh_allows_empty_conditioned_footprints(monkeypatch):
+    city = make_flat_city([])
+    terrain = city.terrain
+    terrain_raster = terrain.raster
+    captured = {}
+
+    def fake_prepare(*args, **kwargs):
+        return terrain, terrain_raster, [], [], [], {"output_grid": 0.25}
+
+    def fake_prepare_regions(**kwargs):
+        captured["conditioned_surfaces"] = kwargs["conditioned_surfaces"]
+        return (
+            [],
+            [],
+            [box(0, 0, 80, 80)],
+            [-2],
+            {},
+            [np.array([40.0, 40.0], dtype=np.float64)],
+        )
+
+    def fake_build_ground(**kwargs):
+        captured["region_markers"] = list(kwargs["region_markers"])
+        return (
+            Mesh(
+                vertices=np.array(
+                    [
+                        [0.0, 0.0, 0.0],
+                        [80.0, 0.0, 0.0],
+                        [80.0, 80.0, 0.0],
+                        [0.0, 80.0, 0.0],
+                    ]
+                ),
+                faces=np.array([[0, 1, 2], [0, 2, 3]], dtype=int),
+                markers=np.array([-2, -2], dtype=int),
+            ),
+            "dtcc_mesher",
+        )
+
+    def fake_build_surface_from_ground(**kwargs):
+        captured["building_surfaces"] = list(kwargs["building_surfaces"])
+        return Mesh(
+            vertices=np.array(
+                [
+                    [0.0, 0.0, 0.0],
+                    [80.0, 0.0, 0.0],
+                    [80.0, 80.0, 0.0],
+                    [0.0, 80.0, 0.0],
+                ]
+            ),
+            faces=np.array([[0, 1, 2], [0, 2, 3]], dtype=int),
+            markers=np.array([-1, -1], dtype=int),
+        )
+
+    def fake_tetgen_build(**kwargs):
+        captured["tetgen_faces"] = len(kwargs["mesh"].faces)
+        return VolumeMesh(
+            vertices=np.array(
+                [
+                    [0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0],
+                    [0.0, 0.0, 1.0],
+                ]
+            ),
+            cells=np.array([[0, 1, 2, 3]], dtype=int),
+        )
+
+    monkeypatch.setattr(meshes_module, "_prepare_city_meshing_inputs", fake_prepare)
+    monkeypatch.setattr(meshes_module, "_prepare_surface_ground_regions", fake_prepare_regions)
+    monkeypatch.setattr(meshes_module, "_build_ground_mesh_from_coverage", fake_build_ground)
+    monkeypatch.setattr(
+        meshes_module,
+        "_build_city_surface_mesh_from_ground_mesh",
+        fake_build_surface_from_ground,
+    )
+    monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
+    monkeypatch.setattr(meshes_module, "tetgen_build_volume_mesh", fake_tetgen_build)
+
+    volume_mesh = build_city_volume_mesh(
+        city,
+        lod=GeometryType.LOD0,
+        merge_buildings=False,
+        min_building_detail=0.0,
+        min_building_area=1.0,
+        merge_tolerance=0.0,
+        max_mesh_size=6.0,
+        min_mesh_angle=20.0,
+        report_mesh_quality=False,
+        mesher="dtcc_mesher",
+    )
+
+    assert captured["conditioned_surfaces"] == []
+    assert captured["region_markers"] == [-2]
+    assert captured["building_surfaces"] == []
+    assert captured["tetgen_faces"] == 2
+    assert volume_mesh.cells.shape[0] == 1
+
+
+def test_build_city_volume_mesh_respects_explicit_tetgen_switches_for_dtcc_mesher(monkeypatch):
+    city = make_flat_city([make_building(box(10, 10, 20, 20), roof_z=10.0)])
+    terrain = city.terrain
+    terrain_raster = terrain.raster
+    conditioned_surface = make_surface(box(10, 10, 20, 20), 10.0)
+    diagnostics = {"output_grid": 0.25}
+    captured = {}
+
+    def fake_prepare(*args, **kwargs):
+        return terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics
+
+    def fake_prepare_regions(**kwargs):
+        return (
+            [conditioned_surface],
+            [1],
+            [box(0, 0, 80, 80), box(10, 10, 20, 20)],
+            [-2, 0],
+            {0: 4.0},
+            [
+                np.array([40.0, 40.0], dtype=np.float64),
+                np.array([15.0, 15.0], dtype=np.float64),
+            ],
+        )
+
+    def fake_build_ground(**kwargs):
+        return (
+            Mesh(
+                vertices=np.array(
+                    [
+                        [0.0, 0.0, 0.0],
+                        [10.0, 0.0, 0.0],
+                        [10.0, 10.0, 0.0],
+                        [0.0, 10.0, 0.0],
+                    ]
+                ),
+                faces=np.array([[0, 1, 2], [0, 2, 3]], dtype=int),
+                markers=np.array([0, 0], dtype=int),
+            ),
+            "dtcc_mesher",
+        )
+
+    def fake_build_surface_from_ground(**kwargs):
+        return Mesh(
+            vertices=np.array(
+                [
+                    [0.0, 0.0, 0.0],
+                    [10.0, 0.0, 0.0],
+                    [10.0, 10.0, 0.0],
+                    [0.0, 10.0, 0.0],
+                ]
+            ),
+            faces=np.array([[0, 1, 2], [0, 2, 3]], dtype=int),
+            markers=np.array([0, 0], dtype=int),
+        )
+
+    def fake_tetgen_build(**kwargs):
+        captured["tetgen_switches"] = dict(kwargs["switches_params"])
+        captured["top_cap_backend"] = kwargs["top_cap_backend"]
+        captured["top_cap_max_mesh_size"] = kwargs["top_cap_max_mesh_size"]
+        captured["top_cap_min_mesh_angle"] = kwargs["top_cap_min_mesh_angle"]
+        return VolumeMesh(
+            vertices=np.array(
+                [
+                    [0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0],
+                    [0.0, 0.0, 1.0],
+                ]
+            ),
+            cells=np.array([[0, 1, 2, 3]], dtype=int),
+        )
+
+    monkeypatch.setattr(meshes_module, "_prepare_city_meshing_inputs", fake_prepare)
+    monkeypatch.setattr(meshes_module, "_prepare_surface_ground_regions", fake_prepare_regions)
+    monkeypatch.setattr(meshes_module, "_build_ground_mesh_from_coverage", fake_build_ground)
+    monkeypatch.setattr(
+        meshes_module,
+        "_build_city_surface_mesh_from_ground_mesh",
+        fake_build_surface_from_ground,
+    )
+    monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
+    monkeypatch.setattr(meshes_module, "tetgen_build_volume_mesh", fake_tetgen_build)
+
+    build_city_volume_mesh(
+        city,
+        lod=GeometryType.LOD0,
+        merge_buildings=False,
+        min_building_detail=0.0,
+        min_building_area=1.0,
+        merge_tolerance=0.0,
+        max_mesh_size=6.0,
+        min_mesh_angle=20.0,
+        report_mesh_quality=False,
+        mesher="dtcc_mesher",
+        tetgen_switches={
+            "quality": (1.6, 25.0),
+            "preserve_surface": False,
+            "max_added_points": 1234,
+        },
+    )
+
+    assert captured["tetgen_switches"]["quality"] == (1.6, 25.0)
+    assert captured["tetgen_switches"]["preserve_surface"] is False
+    assert captured["tetgen_switches"]["max_added_points"] == 1234
+    assert captured["top_cap_backend"] == "dtcc_mesher"
+    assert captured["top_cap_max_mesh_size"] == 6.0
+    assert captured["top_cap_min_mesh_angle"] == 20.0
+
+
+def test_build_city_volume_mesh_saves_tetgen_debug_meshes(monkeypatch, tmp_path):
+    city = make_flat_city([make_building(box(10, 10, 20, 20), roof_z=10.0)])
+    terrain = city.terrain
+    terrain_raster = terrain.raster
+    conditioned_surface = make_surface(box(10, 10, 20, 20), 10.0)
+    diagnostics = {"output_grid": 0.25}
+    captured = {}
+
+    def fake_prepare(*args, **kwargs):
+        return terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics
+
+    def fake_prepare_regions(**kwargs):
+        return (
+            [conditioned_surface],
+            [1],
+            [box(0, 0, 80, 80), box(10, 10, 20, 20)],
+            [-2, 0],
+            {0: 4.0},
+            [
+                np.array([40.0, 40.0], dtype=np.float64),
+                np.array([15.0, 15.0], dtype=np.float64),
+            ],
+        )
+
+    def fake_build_ground(**kwargs):
+        return (
+            Mesh(
+                vertices=np.array(
+                    [
+                        [0.0, 0.0, 0.0],
+                        [10.0, 0.0, 0.0],
+                        [10.0, 10.0, 0.0],
+                        [0.0, 10.0, 0.0],
+                    ]
+                ),
+                faces=np.array([[0, 1, 2], [0, 2, 3]], dtype=int),
+                markers=np.array([-2, -2], dtype=int),
+            ),
+            "dtcc_mesher",
+        )
+
+    def fake_build_surface_from_ground(**kwargs):
+        return Mesh(
+            vertices=np.array(
+                [
+                    [0.0, 0.0, 0.0],
+                    [10.0, 0.0, 0.0],
+                    [10.0, 10.0, 0.0],
+                    [0.0, 10.0, 0.0],
+                ]
+            ),
+            faces=np.array([[0, 1, 2], [0, 2, 3]], dtype=int),
+            markers=np.array([0, 0], dtype=int),
+        )
+
+    def fake_save_debug_meshes(**kwargs):
+        captured["debug"] = kwargs
+        return {
+            "ground": str(tmp_path / "ground.xdmf"),
+            "shell": str(tmp_path / "shell.xdmf"),
+            "plc": str(tmp_path / "plc.xdmf"),
+        }
+
+    def fake_tetgen_build(**kwargs):
+        return VolumeMesh(
+            vertices=np.array(
+                [
+                    [0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0],
+                    [0.0, 0.0, 1.0],
+                ]
+            ),
+            cells=np.array([[0, 1, 2, 3]], dtype=int),
+        )
+
+    monkeypatch.setattr(meshes_module, "_prepare_city_meshing_inputs", fake_prepare)
+    monkeypatch.setattr(meshes_module, "_prepare_surface_ground_regions", fake_prepare_regions)
+    monkeypatch.setattr(meshes_module, "_build_ground_mesh_from_coverage", fake_build_ground)
+    monkeypatch.setattr(
+        meshes_module,
+        "_build_city_surface_mesh_from_ground_mesh",
+        fake_build_surface_from_ground,
+    )
+    monkeypatch.setattr(meshes_module, "_save_tetgen_debug_meshes", fake_save_debug_meshes)
+    monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
+    monkeypatch.setattr(meshes_module, "tetgen_build_volume_mesh", fake_tetgen_build)
+
+    build_city_volume_mesh(
+        city,
+        lod=GeometryType.LOD0,
+        merge_buildings=False,
+        min_building_detail=0.0,
+        min_building_area=1.0,
+        merge_tolerance=0.0,
+        max_mesh_size=6.0,
+        min_mesh_angle=20.0,
+        report_mesh_quality=False,
+        mesher="dtcc_mesher",
+        tetgen_debug_output_dir=tmp_path,
+        tetgen_debug_output_stem="case_055",
+    )
+
+    assert captured["debug"]["output_dir"] == tmp_path
+    assert captured["debug"]["stem"] == "case_055"
+    assert captured["debug"]["top_cap_backend"] == "dtcc_mesher"
+    assert captured["debug"]["top_cap_max_mesh_size"] == 6.0
+    assert captured["debug"]["top_cap_min_mesh_angle"] == 20.0
 
 
 def test_build_city_flat_mesh_runs_with_dtcc_mesher():

@@ -1154,9 +1154,15 @@ PYBIND11_MODULE(_dtcc_builder, m)
 
   m.def("build_terrain_surface_mesh", &DTCC_BUILDER::MeshBuilder::build_terrain_surface_mesh,
         "build terrain surface mesh");
+  m.def("build_terrain_surface_mesh_from_ground_mesh",
+        &DTCC_BUILDER::MeshBuilder::build_terrain_surface_mesh_from_ground_mesh,
+        "build terrain surface mesh from a prebuilt ground mesh");
 
   m.def("build_city_surface_mesh", &DTCC_BUILDER::MeshBuilder::build_city_surface_mesh,
         "build city surface mesh");
+  m.def("build_city_surface_mesh_from_terrain_mesh",
+        &DTCC_BUILDER::MeshBuilder::build_city_surface_mesh_from_terrain_mesh,
+        "build city surface mesh from a prebuilt terrain mesh");
 
   m.def("layer_ground_mesh", &DTCC_BUILDER::MeshBuilder::layer_ground_mesh, "Layer ground mesh");
 

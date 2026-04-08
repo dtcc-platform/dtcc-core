@@ -1,6 +1,324 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Dict, Mapping, Sequence
 
 import numpy as np
+from shapely.geometry import Polygon
+from shapely.validation import explain_validity
+
 from ...model import Mesh
+from ...model.mixins.mesh.quality import tri_aspect_ratio, tri_element_quality
+
+
+_MIN_EDGE_RATIO_WARNING = 1.0e-3
+_MIN_AREA_RATIO_WARNING = 1.0e-6
+_MIN_TRI_QUALITY_WARNING = 2.0e-2
+_MAX_TRI_ASPECT_RATIO_WARNING = 1.0e2
+_BOUNDARY_PINCH_RATIO_WARNING = 1.0e-3
+
+
+@dataclass
+class TetgenPLCDiagnostics:
+    num_vertices: int
+    num_faces: int
+    num_boundary_facets: int
+    min_edge_length: float
+    median_edge_length: float
+    min_face_area: float
+    median_face_area: float
+    min_triangle_quality: float
+    max_triangle_aspect_ratio: float
+    degenerate_face_count: int
+    duplicate_face_count: int
+    nonmanifold_edge_count: int
+    open_edge_count: int
+    boundary_facets: Dict[str, Dict[str, float | int | bool | str]]
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+
+    @property
+    def ok(self) -> bool:
+        return not self.errors
+
+
+def _mesh_scale(vertices: np.ndarray) -> float:
+    if vertices.size == 0:
+        return 1.0
+    extent = np.ptp(vertices, axis=0)
+    scale = float(np.linalg.norm(extent))
+    return scale if scale > 0.0 else 1.0
+
+
+def _geometry_tolerance(vertices: np.ndarray) -> float:
+    return max(_mesh_scale(vertices) * 1.0e-12, 1.0e-12)
+
+
+def _edge_multiplicity(faces: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    edges = np.vstack([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]])
+    edges = np.sort(edges, axis=1)
+    return np.unique(edges, axis=0, return_counts=True)
+
+
+def _triangle_areas(vertices: np.ndarray, faces: np.ndarray) -> np.ndarray:
+    v0 = vertices[faces[:, 0]]
+    v1 = vertices[faces[:, 1]]
+    v2 = vertices[faces[:, 2]]
+    return 0.5 * np.linalg.norm(np.cross(v1 - v0, v2 - v0), axis=1)
+
+
+def _minimum_nonadjacent_vertex_distance(coords: np.ndarray) -> float:
+    if len(coords) < 4:
+        return float("inf")
+
+    best = float("inf")
+    for i in range(len(coords)):
+        for j in range(i + 2, len(coords)):
+            if i == 0 and j == len(coords) - 1:
+                continue
+            best = min(best, float(np.linalg.norm(coords[i] - coords[j])))
+    return best
+
+
+def _project_boundary_facet(name: str, points: np.ndarray) -> tuple[np.ndarray, float]:
+    if name in {"south", "north"}:
+        return points[:, [0, 2]], float(np.ptp(points[:, 1]))
+    if name in {"east", "west"}:
+        return points[:, [1, 2]], float(np.ptp(points[:, 0]))
+    if name == "top":
+        return points[:, [0, 1]], float(np.ptp(points[:, 2]))
+
+    if len(points) >= 3:
+        reference = points[0]
+        normal = np.zeros(3, dtype=float)
+        for i in range(1, len(points) - 1):
+            normal += np.cross(points[i] - reference, points[i + 1] - reference)
+        if np.linalg.norm(normal) > 0.0:
+            drop_axis = int(np.argmax(np.abs(normal)))
+            keep_axes = [axis for axis in range(3) if axis != drop_axis]
+            return points[:, keep_axes], float(np.ptp(points[:, drop_axis]))
+
+    extent = np.ptp(points, axis=0)
+    drop_axis = int(np.argmin(extent))
+    keep_axes = [axis for axis in range(3) if axis != drop_axis]
+    return points[:, keep_axes], float(extent[drop_axis])
+
+
+def _normalize_boundary_facets(
+    boundary_facets: Mapping[str, Sequence[int]] | Sequence[Sequence[int]],
+) -> Dict[str, np.ndarray]:
+    if isinstance(boundary_facets, Mapping):
+        return {
+            str(name): np.asarray(indices, dtype=np.int64)
+            for name, indices in boundary_facets.items()
+        }
+    return {
+        f"facet_{i}": np.asarray(indices, dtype=np.int64)
+        for i, indices in enumerate(boundary_facets)
+    }
+
+
+def inspect_tetgen_plc(
+    vertices: np.ndarray,
+    faces: np.ndarray,
+    boundary_facets: Mapping[str, Sequence[int]] | Sequence[Sequence[int]],
+) -> TetgenPLCDiagnostics:
+    """Inspect the PLC handed to TetGen and flag hard-invalid and risky shells."""
+
+    V = np.asarray(vertices, dtype=float)
+    F = np.asarray(faces, dtype=np.int64)
+    named_facets = _normalize_boundary_facets(boundary_facets)
+
+    errors: list[str] = []
+    warnings: list[str] = []
+    facet_reports: Dict[str, Dict[str, float | int | bool | str]] = {}
+
+    if V.ndim != 2 or V.shape[1] != 3:
+        raise ValueError("vertices must have shape (N, 3)")
+    if F.ndim != 2 or F.shape[1] != 3:
+        raise ValueError("faces must have shape (M, 3)")
+
+    tol = _geometry_tolerance(V)
+
+    if not np.isfinite(V).all():
+        errors.append("Surface shell contains non-finite vertex coordinates.")
+    if F.size and ((F < 0).any() or (F >= len(V)).any()):
+        errors.append("Surface shell contains face indices outside the vertex range.")
+
+    face_vertex_repeats = np.count_nonzero(
+        (F[:, 0] == F[:, 1]) | (F[:, 1] == F[:, 2]) | (F[:, 2] == F[:, 0])
+    )
+    if face_vertex_repeats:
+        errors.append(
+            f"Surface shell contains {face_vertex_repeats} faces with repeated vertex indices."
+        )
+
+    areas = _triangle_areas(V, F) if len(F) else np.empty(0, dtype=float)
+    degenerate_face_count = int(np.count_nonzero(areas <= tol * tol))
+    if degenerate_face_count:
+        errors.append(
+            f"Surface shell contains {degenerate_face_count} degenerate triangles."
+        )
+
+    duplicate_face_count = 0
+    if len(F):
+        sorted_faces = np.sort(F, axis=1)
+        _, counts = np.unique(sorted_faces, axis=0, return_counts=True)
+        duplicate_face_count = int(np.count_nonzero(counts > 1))
+        if duplicate_face_count:
+            errors.append(
+                f"Surface shell contains {duplicate_face_count} duplicate triangles."
+            )
+
+    unique_edges = np.empty((0, 2), dtype=np.int64)
+    edge_counts = np.empty(0, dtype=np.int64)
+    if len(F):
+        unique_edges, edge_counts = _edge_multiplicity(F)
+
+    nonmanifold_edge_count = int(np.count_nonzero(edge_counts > 2))
+    open_edge_count = int(np.count_nonzero(edge_counts == 1))
+    if nonmanifold_edge_count:
+        errors.append(
+            f"Surface shell contains {nonmanifold_edge_count} non-manifold edges shared by more than two triangles."
+        )
+
+    edge_lengths = np.empty(0, dtype=float)
+    if len(unique_edges):
+        edge_lengths = np.linalg.norm(
+            V[unique_edges[:, 0]] - V[unique_edges[:, 1]], axis=1
+        )
+
+    min_edge_length = float(edge_lengths.min()) if edge_lengths.size else 0.0
+    median_edge_length = float(np.median(edge_lengths)) if edge_lengths.size else 0.0
+    min_face_area = float(areas.min()) if areas.size else 0.0
+    median_face_area = float(np.median(areas)) if areas.size else 0.0
+
+    triangle_quality = tri_element_quality(V, F) if len(F) else np.empty(0, dtype=float)
+    triangle_aspect_ratio = (
+        tri_aspect_ratio(V, F) if len(F) else np.empty(0, dtype=float)
+    )
+    min_triangle_quality = (
+        float(triangle_quality.min()) if triangle_quality.size else 1.0
+    )
+    max_triangle_aspect_ratio = (
+        float(triangle_aspect_ratio.max()) if triangle_aspect_ratio.size else 1.0
+    )
+
+    reference_edge = median_edge_length if median_edge_length > 0.0 else _mesh_scale(V)
+    reference_area = median_face_area if median_face_area > 0.0 else reference_edge**2
+
+    if edge_lengths.size and min_edge_length < reference_edge * _MIN_EDGE_RATIO_WARNING:
+        warnings.append(
+            "Surface shell contains edges that are orders of magnitude smaller than the median edge length."
+        )
+    if areas.size and min_face_area < reference_area * _MIN_AREA_RATIO_WARNING:
+        warnings.append(
+            "Surface shell contains triangles that are orders of magnitude smaller than the median triangle area."
+        )
+    if triangle_quality.size and min_triangle_quality < _MIN_TRI_QUALITY_WARNING:
+        warnings.append(
+            f"Surface shell minimum triangle quality is very low ({min_triangle_quality:.3g})."
+        )
+    if (
+        triangle_aspect_ratio.size
+        and max_triangle_aspect_ratio > _MAX_TRI_ASPECT_RATIO_WARNING
+    ):
+        warnings.append(
+            f"Surface shell maximum triangle aspect ratio is very high ({max_triangle_aspect_ratio:.3g})."
+        )
+
+    for name, indices in named_facets.items():
+        indices = np.asarray(indices, dtype=np.int64).reshape(-1)
+        if len(indices) < 3:
+            errors.append(
+                f"Boundary facet '{name}' has fewer than three vertices."
+            )
+            continue
+        if ((indices < 0) | (indices >= len(V))).any():
+            errors.append(
+                f"Boundary facet '{name}' references vertices outside the valid range."
+            )
+            continue
+
+        points = V[indices]
+        projected, plane_spread = _project_boundary_facet(name, points)
+        if len(np.unique(indices)) < 3:
+            errors.append(
+                f"Boundary facet '{name}' does not contain three distinct vertices."
+            )
+            continue
+
+        closed_projected = np.vstack([projected, projected[0]])
+        projected_edge_lengths = np.linalg.norm(
+            np.diff(closed_projected, axis=0), axis=1
+        )
+        consecutive_duplicates = int(np.count_nonzero(projected_edge_lengths <= tol))
+        if consecutive_duplicates:
+            errors.append(
+                f"Boundary facet '{name}' contains repeated projected vertices."
+            )
+            continue
+
+        polygon = Polygon(projected)
+        projected_area = float(abs(polygon.area))
+        valid = bool(polygon.is_valid and projected_area > tol * tol)
+        if not valid:
+            errors.append(
+                f"Boundary facet '{name}' is not a simple projected polygon ({explain_validity(polygon)})."
+            )
+
+        min_nonadjacent_distance = _minimum_nonadjacent_vertex_distance(projected)
+        if (
+            np.isfinite(min_nonadjacent_distance)
+            and min_nonadjacent_distance < reference_edge * _BOUNDARY_PINCH_RATIO_WARNING
+        ):
+            warnings.append(
+                f"Boundary facet '{name}' contains very close nonadjacent projected vertices."
+            )
+
+        facet_reports[name] = {
+            "vertex_count": int(len(indices)),
+            "projected_area": projected_area,
+            "projected_min_edge_length": float(projected_edge_lengths.min()),
+            "projected_min_nonadjacent_distance": float(min_nonadjacent_distance),
+            "support_plane_spread": plane_spread,
+            "valid": valid,
+        }
+
+    return TetgenPLCDiagnostics(
+        num_vertices=int(len(V)),
+        num_faces=int(len(F)),
+        num_boundary_facets=int(len(named_facets)),
+        min_edge_length=min_edge_length,
+        median_edge_length=median_edge_length,
+        min_face_area=min_face_area,
+        median_face_area=median_face_area,
+        min_triangle_quality=min_triangle_quality,
+        max_triangle_aspect_ratio=max_triangle_aspect_ratio,
+        degenerate_face_count=degenerate_face_count,
+        duplicate_face_count=duplicate_face_count,
+        nonmanifold_edge_count=nonmanifold_edge_count,
+        open_edge_count=open_edge_count,
+        boundary_facets=facet_reports,
+        errors=errors,
+        warnings=warnings,
+    )
+
+
+def format_tetgen_plc_diagnostics(diagnostics: TetgenPLCDiagnostics) -> str:
+    return (
+        "TetGen PLC precheck: "
+        f"{diagnostics.num_vertices} vertices, "
+        f"{diagnostics.num_faces} faces, "
+        f"min_edge={diagnostics.min_edge_length:.3g}, "
+        f"median_edge={diagnostics.median_edge_length:.3g}, "
+        f"min_area={diagnostics.min_face_area:.3g}, "
+        f"median_area={diagnostics.median_face_area:.3g}, "
+        f"tri_quality_min={diagnostics.min_triangle_quality:.3g}, "
+        f"tri_aspect_max={diagnostics.max_triangle_aspect_ratio:.3g}, "
+        f"nonmanifold_edges={diagnostics.nonmanifold_edge_count}, "
+        f"open_edges={diagnostics.open_edge_count}"
+    )
 
 
 def get_east_boundary_vertices(vertices, xmax=None, tol=1e-3):
@@ -172,10 +490,251 @@ def get_north_boundary_vertices(vertices, ymax=None, tol=1e-3):
             order = np.argsort(-V[idx, 0])  # x descending
         idx = idx[order]
     return idx
+def _remove_duplicate_consecutive_indices(
+    indices: Sequence[int],
+    vertices: np.ndarray,
+    tol: float,
+) -> list[int]:
+    if not indices:
+        return []
+
+    deduped: list[int] = [int(indices[0])]
+    for index in indices[1:]:
+        current = int(index)
+        if np.linalg.norm(vertices[current] - vertices[deduped[-1]]) <= tol:
+            continue
+        deduped.append(current)
+
+    if len(deduped) > 1 and np.linalg.norm(vertices[deduped[0]] - vertices[deduped[-1]]) <= tol:
+        deduped.pop()
+    return deduped
 
 
+def _project_boundary_loop(name: str, points: np.ndarray) -> np.ndarray:
+    if name in {"south", "north"}:
+        return points[:, [0, 2]]
+    if name in {"east", "west"}:
+        return points[:, [1, 2]]
+    return points[:, [0, 1]]
 
-import numpy as np
+
+def _compute_top_plane(vertices: np.ndarray, top_height: float) -> tuple[float, float]:
+    xmin, ymin, zmin = np.min(vertices, axis=0)
+    xmax, ymax, zmax = np.max(vertices, axis=0)
+    del xmin, ymin, xmax, ymax
+
+    domain_h = float(zmax - zmin)
+    height = float(top_height)
+    if height <= domain_h:
+        height = 1.5 * domain_h if domain_h > 0 else max(1.0, top_height)
+
+    return float(zmin), float(zmin + height)
+
+
+def _simplify_boundary_loop(
+    name: str,
+    indices: Sequence[int],
+    vertices: np.ndarray,
+    tol: float,
+) -> np.ndarray:
+    del name
+    return np.asarray(
+        _remove_duplicate_consecutive_indices(indices, vertices, tol),
+        dtype=np.int64,
+    )
+
+
+def _boundary_loops(vertices: np.ndarray, tol: float) -> dict[str, np.ndarray]:
+    xmin, ymin, _ = np.min(vertices, axis=0)
+    xmax, ymax, _ = np.max(vertices, axis=0)
+    return {
+        "south": get_south_boundary_vertices(vertices, ymin=ymin, tol=tol),
+        "east": get_east_boundary_vertices(vertices, xmax=xmax, tol=tol),
+        "north": get_north_boundary_vertices(vertices, ymax=ymax, tol=tol),
+        "west": get_west_boundary_vertices(vertices, xmin=xmin, tol=tol),
+    }
+
+
+def _validate_boundary_loop_alignment(
+    bottom_vertices: np.ndarray,
+    top_source_vertices: np.ndarray,
+    bottom_loops: Mapping[str, np.ndarray],
+    top_loops: Mapping[str, np.ndarray],
+    tol: float,
+) -> None:
+    xy_tol = max(tol, 1.0e-6)
+    for name in ("south", "east", "north", "west"):
+        bottom_loop = np.asarray(bottom_loops[name], dtype=np.int64)
+        top_loop = np.asarray(top_loops[name], dtype=np.int64)
+        if len(bottom_loop) != len(top_loop):
+            raise ValueError(
+                f"Boundary loop '{name}' length mismatch between surface mesh "
+                f"({len(bottom_loop)}) and closure mesh ({len(top_loop)})."
+            )
+        if len(bottom_loop) == 0:
+            continue
+        if not np.allclose(
+            bottom_vertices[bottom_loop, :2],
+            top_source_vertices[top_loop, :2],
+            atol=xy_tol,
+            rtol=0.0,
+        ):
+            raise ValueError(
+                f"Boundary loop '{name}' in closure mesh does not align with "
+                "the surface mesh boundary."
+            )
+
+
+def _outer_boundary_ring_indices(boundary_loops: Mapping[str, np.ndarray]) -> np.ndarray:
+    south = np.asarray(boundary_loops["south"], dtype=np.int64)
+    east = np.asarray(boundary_loops["east"], dtype=np.int64)
+    north = np.asarray(boundary_loops["north"], dtype=np.int64)
+    west = np.asarray(boundary_loops["west"], dtype=np.int64)
+
+    ring = np.concatenate(
+        [
+            south,
+            east[1:],
+            north[1:],
+            west[1:-1],
+        ]
+    )
+    if ring.size == 0:
+        return np.empty((0,), dtype=np.int64)
+    deduped = [int(ring[0])]
+    for index in ring[1:]:
+        current = int(index)
+        if current == deduped[-1]:
+            continue
+        deduped.append(current)
+    if len(deduped) > 1 and deduped[0] == deduped[-1]:
+        deduped.pop()
+    return np.asarray(deduped, dtype=np.int64)
+
+
+def _build_top_cap_mesh(
+    *,
+    boundary_vertices: np.ndarray,
+    boundary_loops: Mapping[str, np.ndarray],
+    backend: str,
+    max_mesh_size: float | None,
+    min_mesh_angle: float,
+    tol: float,
+) -> tuple[np.ndarray, np.ndarray, dict[str, np.ndarray]]:
+    from .flat_mesh_backends import build_city_flat_mesh_from_coverage
+
+    ring_indices = _outer_boundary_ring_indices(boundary_loops)
+    if len(ring_indices) < 4:
+        raise ValueError("Top-cap boundary must contain at least four vertices.")
+
+    ring_xy = boundary_vertices[ring_indices, :2]
+    polygon = Polygon(ring_xy)
+    if polygon.is_empty or not polygon.is_valid or polygon.area <= tol * tol:
+        raise ValueError(
+            f"Top-cap boundary polygon is invalid ({explain_validity(polygon)})."
+        )
+
+    minx, miny, maxx, maxy = polygon.bounds
+    top_cap_mesh = build_city_flat_mesh_from_coverage(
+        region_polygons=[polygon],
+        region_markers=[0],
+        bounds=(float(minx), float(miny), float(maxx), float(maxy)),
+        max_mesh_size=max_mesh_size,
+        min_mesh_angle=min_mesh_angle,
+        backend=backend,
+        sort_triangles=False,
+    )
+    top_vertices = np.asarray(top_cap_mesh.vertices, dtype=float)
+    top_faces = np.asarray(top_cap_mesh.faces, dtype=np.int64)
+    if top_vertices.ndim != 2 or top_vertices.shape[1] != 3:
+        raise ValueError("Top-cap mesh vertices must have shape (N, 3).")
+    if top_faces.ndim != 2 or top_faces.shape[1] != 3 or top_faces.shape[0] == 0:
+        raise ValueError("Top-cap mesh must provide triangle faces.")
+
+    top_loops = _boundary_loops(top_vertices, tol)
+    _validate_boundary_loop_alignment(
+        boundary_vertices,
+        top_vertices,
+        boundary_loops,
+        top_loops,
+        tol,
+    )
+    return top_vertices, top_faces, top_loops
+
+
+def compute_boundary_triangle_facets(
+    mesh: Mesh,
+    closure_mesh: Mesh,
+    top_height: float = 100.0,
+    tol: float = 1e-3,
+    top_cap_backend: str = "auto",
+    top_cap_max_mesh_size: float | None = None,
+    top_cap_min_mesh_angle: float = 25.0,
+) -> tuple[np.ndarray, list[list[int]]]:
+    """
+    Build a triangulated PLC closure for TetGen using the 2D ground mesh boundary.
+
+    The surface mesh contributes the terrain/building shell. The closure mesh
+    contributes the outer-domain boundary loop ordering. The top cap is then
+    re-triangulated from that rectangular boundary, and the four side walls are
+    built as triangle strips between matching boundary loops.
+    """
+
+    shell_vertices = np.asarray(mesh.vertices, dtype=float)
+    cap_source_vertices = np.asarray(closure_mesh.vertices, dtype=float)
+    if shell_vertices.ndim != 2 or shell_vertices.shape[1] != 3:
+        raise ValueError("Surface mesh vertices must have shape (N, 3).")
+    if cap_source_vertices.ndim != 2 or cap_source_vertices.shape[1] != 3:
+        raise ValueError("Closure mesh vertices must have shape (N, 3).")
+
+    _, z_top = _compute_top_plane(shell_vertices, top_height)
+
+    bottom_loops = _boundary_loops(shell_vertices, tol)
+    cap_source_loops = _boundary_loops(cap_source_vertices, tol)
+    _validate_boundary_loop_alignment(
+        shell_vertices,
+        cap_source_vertices,
+        bottom_loops,
+        cap_source_loops,
+        tol,
+    )
+
+    top_vertices, top_faces, top_loops = _build_top_cap_mesh(
+        boundary_vertices=cap_source_vertices,
+        boundary_loops=cap_source_loops,
+        backend=top_cap_backend,
+        max_mesh_size=top_cap_max_mesh_size,
+        min_mesh_angle=top_cap_min_mesh_angle,
+        tol=tol,
+    )
+    top_vertices = top_vertices.copy()
+    top_vertices[:, 2] = z_top
+
+    offset = shell_vertices.shape[0]
+    vertices_out = np.vstack([shell_vertices, top_vertices])
+    boundary_facets: list[list[int]] = []
+
+    for name in ("south", "east", "north", "west"):
+        bottom_loop = np.asarray(bottom_loops[name], dtype=np.int64)
+        top_loop = np.asarray(top_loops[name], dtype=np.int64) + offset
+        for b0, b1, t0, t1 in zip(
+            bottom_loop[:-1],
+            bottom_loop[1:],
+            top_loop[:-1],
+            top_loop[1:],
+            ):
+            boundary_facets.append([int(b0), int(b1), int(t1)])
+            boundary_facets.append([int(b0), int(t1), int(t0)])
+
+    for face in top_faces:
+        tri = np.asarray(face, dtype=np.int64) + offset
+        points = vertices_out[tri]
+        if np.cross(points[1] - points[0], points[2] - points[0])[2] < 0.0:
+            tri = np.array([tri[0], tri[2], tri[1]], dtype=np.int64)
+        boundary_facets.append([int(tri[0]), int(tri[1]), int(tri[2])])
+
+    return vertices_out, boundary_facets
+
 
 def compute_boundary_facets(mesh: Mesh, top_height=100.0, tol=1e-3):
     """
@@ -207,15 +766,11 @@ def compute_boundary_facets(mesh: Mesh, top_height=100.0, tol=1e-3):
         ``{"south": [...], "east": [...], "north": [...], "west": [...], "top": [...]}``.
     """
     V = np.asarray(mesh.vertices, dtype=float)
-    xmin, ymin, zmin = np.min(V, axis=0)
+    xmin, ymin, _ = np.min(V, axis=0)
     xmax, ymax, zmax = np.max(V, axis=0)
 
     # 1) Height check / adjust
-    domain_h = float(zmax - zmin)
-    height = float(top_height)
-    if height <= domain_h:
-        # Make it clearly taller than the domain to avoid intersecting the terrain/buildings
-        height = 1.5 * domain_h if domain_h > 0 else max(1.0, top_height)
+    zmin, z_top = _compute_top_plane(V, top_height)
 
     # 2) Grab boundary indices (sorted for correct ground-edge order)
     east_idx  = get_east_boundary_vertices (V, xmax=xmax, tol=tol)   # south->north
@@ -224,7 +779,6 @@ def compute_boundary_facets(mesh: Mesh, top_height=100.0, tol=1e-3):
     north_idx = get_north_boundary_vertices(V, ymax=ymax, tol=tol)   # east->west
 
     # 3) Create 4 top-corner points (appended to the vertex array)
-    z_top = zmin + height
     top_points = np.array([
         [xmin, ymin, z_top],  # t_sw: south-west  (index = N + 0)
         [xmin, ymax, z_top],  # t_nw: north-west  (index = N + 1)
@@ -259,11 +813,11 @@ def compute_boundary_facets(mesh: Mesh, top_height=100.0, tol=1e-3):
     top_poly   = [t_sw, t_se, t_ne, t_nw]
 
     facets = {
-        "south": np.array(south_poly),
-        "east":  np.array(east_poly),
-        "north": np.array(north_poly),
-        "west":  np.array(west_poly),
-        "top":   np.array(top_poly),
+        "south": _simplify_boundary_loop("south", south_poly, V_out, tol),
+        "east": _simplify_boundary_loop("east", east_poly, V_out, tol),
+        "north": _simplify_boundary_loop("north", north_poly, V_out, tol),
+        "west": _simplify_boundary_loop("west", west_poly, V_out, tol),
+        "top": _simplify_boundary_loop("top", top_poly, V_out, tol),
     }
 
     return V_out, facets
