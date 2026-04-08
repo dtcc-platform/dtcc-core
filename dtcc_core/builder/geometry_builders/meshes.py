@@ -70,6 +70,7 @@ _FLAT_MESH_BUILDING_CLEANUP_SCALE_FRACTION = 0.25
 _FLAT_MESH_BUILDING_CLEANUP_DETAIL_MULTIPLIER = 5.0
 _RASTER_BOUNDARY_SNAP_FRACTION = 0.125
 _RASTER_BOUNDARY_SNAP_MIN = 1.0e-6
+_MERGED_ROOF_ENVELOPE_Z_SPAN = 2.0
 _TETGEN_DEBUG_CLOSURE_MARKERS = {
     "south": -101,
     "east": -102,
@@ -164,6 +165,51 @@ def _prepare_city_meshing_inputs(
         subdomain_resolution,
         diagnostics,
     )
+
+
+def _resolve_merged_group_roof_metadata(
+    source_indices: Sequence[int],
+    *,
+    source_areas: Sequence[float],
+    source_roof_z: Sequence[float],
+    source_heights: Sequence[float | None],
+    default_height: float,
+) -> tuple[float, float, bool, float]:
+    roof_z = _area_weighted_value(
+        source_indices,
+        source_areas,
+        source_roof_z,
+        default=0.0,
+    )
+    height = _area_weighted_value(
+        source_indices,
+        source_areas,
+        source_heights,
+        default=default_height,
+    )
+    if len(source_indices) <= 1:
+        return roof_z, height, False, 0.0
+
+    roof_levels = [
+        float(source_roof_z[index])
+        for index in source_indices
+        if 0 <= index < len(source_roof_z)
+    ]
+    if not roof_levels:
+        return roof_z, height, False, 0.0
+
+    roof_z_span = max(roof_levels) - min(roof_levels)
+    if roof_z_span <= _MERGED_ROOF_ENVELOPE_Z_SPAN:
+        return roof_z, height, False, roof_z_span
+
+    merged_height_candidates = [
+        float(source_heights[index])
+        for index in source_indices
+        if 0 <= index < len(source_heights) and source_heights[index] is not None
+    ]
+    if merged_height_candidates:
+        height = max(merged_height_candidates)
+    return max(roof_levels), height, True, roof_z_span
 
 
 def _resolve_conditioned_target_lods(
@@ -1448,20 +1494,21 @@ def _condition_meshing_footprints(
         float(result.diagnostics.get("output_grid", 0.0) or 0.0),
         1e-9,
     )
+    conservative_roof_count = 0
+    conservative_roof_max_span = 0.0
 
     for polygon, source_indices in zip(result.polygons, result.source_map):
-        roof_z = _area_weighted_value(
+        height_default = normalized_mesh_size or float(min_building_detail)
+        roof_z, height, conservative_roof, roof_z_span = _resolve_merged_group_roof_metadata(
             source_indices,
-            source_areas,
-            source_roof_z,
-            default=0.0,
+            source_areas=source_areas,
+            source_roof_z=source_roof_z,
+            source_heights=source_heights,
+            default_height=height_default,
         )
-        height = _area_weighted_value(
-            source_indices,
-            source_areas,
-            source_heights,
-            default=normalized_mesh_size or float(min_building_detail),
-        )
+        if conservative_roof:
+            conservative_roof_count += 1
+            conservative_roof_max_span = max(conservative_roof_max_span, roof_z_span)
 
         normalized_polygons = _normalize_mesher_ready_polygon(
             polygon,
@@ -1478,19 +1525,24 @@ def _condition_meshing_footprints(
             else:
                 subdomain_resolution.append(min(height, normalized_mesh_size))
 
+    diagnostics = dict(result.diagnostics)
+    diagnostics["conservative_merged_roof_count"] = conservative_roof_count
+    diagnostics["conservative_merged_roof_max_span"] = conservative_roof_max_span
+
     if cleaning_diagnostics:
         info(
             "Meshing footprint conditioning complete: "
             f"{len(buildings)} buildings -> {len(conditioned_surfaces)} footprints, "
-            f"groups={result.diagnostics.get('merged_group_count', 0)}, "
-            f"output_grid={result.diagnostics.get('output_grid')} m, "
-            f"mesher_regularized={result.diagnostics.get('mesher_regularized_polygon_count', 0)}."
+            f"groups={diagnostics.get('merged_group_count', 0)}, "
+            f"output_grid={diagnostics.get('output_grid')} m, "
+            f"mesher_regularized={diagnostics.get('mesher_regularized_polygon_count', 0)}, "
+            f"conservative_merged_roofs={conservative_roof_count}."
         )
     return (
         conditioned_surfaces,
         conditioned_source_map,
         subdomain_resolution,
-        result.diagnostics,
+        diagnostics,
     )
 
 

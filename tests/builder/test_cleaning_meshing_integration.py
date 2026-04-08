@@ -297,6 +297,55 @@ def test_build_city_flat_mesh_dtcc_mesher_handles_nested_building_in_courtyard()
     assert set(np.unique(mesh.markers)).issuperset({-2, 0, 1})
 
 
+def test_condition_meshing_footprints_uses_conservative_roof_for_heterogeneous_merge():
+    buildings = [
+        make_building(box(8, 8, 16, 16), roof_z=4.0),
+        make_building(box(16, 8, 24, 16), roof_z=10.0),
+    ]
+
+    surfaces, source_map, resolutions, diagnostics = meshes_module._condition_meshing_footprints(
+        buildings,
+        lod=GeometryType.LOD0,
+        min_building_detail=0.5,
+        min_building_area=1.0,
+        merge_tolerance=0.5,
+        merge_buildings=True,
+        max_mesh_size=20.0,
+        cleaning_diagnostics=False,
+    )
+
+    assert len(surfaces) == 1
+    assert source_map == [[0, 1]]
+    assert resolutions == [10.0]
+    assert diagnostics["conservative_merged_roof_count"] == 1
+    assert diagnostics["conservative_merged_roof_max_span"] == pytest.approx(6.0)
+    assert np.unique(np.asarray(surfaces[0].vertices)[:, 2]) == pytest.approx([10.0])
+
+
+def test_condition_meshing_footprints_keeps_weighted_roof_for_similar_merge():
+    buildings = [
+        make_building(box(8, 8, 16, 16), roof_z=4.0),
+        make_building(box(16, 8, 24, 16), roof_z=5.0),
+    ]
+
+    surfaces, source_map, resolutions, diagnostics = meshes_module._condition_meshing_footprints(
+        buildings,
+        lod=GeometryType.LOD0,
+        min_building_detail=0.5,
+        min_building_area=1.0,
+        merge_tolerance=0.5,
+        merge_buildings=True,
+        max_mesh_size=20.0,
+        cleaning_diagnostics=False,
+    )
+
+    assert len(surfaces) == 1
+    assert source_map == [[0, 1]]
+    assert resolutions == [4.5]
+    assert diagnostics["conservative_merged_roof_count"] == 0
+    assert np.unique(np.asarray(surfaces[0].vertices)[:, 2]) == pytest.approx([4.5])
+
+
 def test_condition_flat_mesh_building_regions_removes_subscale_edges():
     short_edge_hole = [
         (675446.375, 6581300.46875),
