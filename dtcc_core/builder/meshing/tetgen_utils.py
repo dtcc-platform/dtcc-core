@@ -16,8 +16,6 @@ _MIN_AREA_RATIO_WARNING = 1.0e-6
 _MIN_TRI_QUALITY_WARNING = 2.0e-2
 _MAX_TRI_ASPECT_RATIO_WARNING = 1.0e2
 _BOUNDARY_PINCH_RATIO_WARNING = 1.0e-3
-
-
 @dataclass
 class TetgenPLCDiagnostics:
     num_vertices: int
@@ -182,6 +180,10 @@ def inspect_tetgen_plc(
             f"Surface shell contains {nonmanifold_edge_count} non-manifold edges shared by more than two triangles."
         )
 
+    referenced_vertices = set()
+    if F.size:
+        referenced_vertices.update(np.unique(F.reshape(-1)).tolist())
+
     edge_lengths = np.empty(0, dtype=float)
     if len(unique_edges):
         edge_lengths = np.linalg.norm(
@@ -240,6 +242,8 @@ def inspect_tetgen_plc(
             )
             continue
 
+        referenced_vertices.update(np.unique(indices).tolist())
+
         points = V[indices]
         projected, plane_spread = _project_boundary_facet(name, points)
         if len(np.unique(indices)) < 3:
@@ -284,6 +288,12 @@ def inspect_tetgen_plc(
             "support_plane_spread": plane_spread,
             "valid": valid,
         }
+
+    unreferenced_vertex_count = len(V) - len(referenced_vertices)
+    if unreferenced_vertex_count:
+        errors.append(
+            f"PLC contains {unreferenced_vertex_count} unreferenced vertices that are not used by any shell face or boundary facet."
+        )
 
     return TetgenPLCDiagnostics(
         num_vertices=int(len(V)),
@@ -722,7 +732,7 @@ def compute_boundary_triangle_facets(
             bottom_loop[1:],
             top_loop[:-1],
             top_loop[1:],
-            ):
+        ):
             boundary_facets.append([int(b0), int(b1), int(t1)])
             boundary_facets.append([int(b0), int(t1), int(t0)])
 

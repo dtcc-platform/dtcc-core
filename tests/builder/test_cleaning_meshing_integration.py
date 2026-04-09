@@ -1577,6 +1577,89 @@ def test_build_city_surface_mesh_from_ground_mesh_snaps_boundary_vertices(monkey
     assert mesh.faces.shape[0] == 1
 
 
+def test_build_city_surface_mesh_unmerged_components_are_compact():
+    city = make_flat_city([make_building(box(20, 20, 40, 40), roof_z=10.0)])
+    terrain, terrain_raster, building_footprints, source_map, subdomain_resolution, diagnostics = (
+        meshes_module._prepare_city_meshing_inputs(
+            city,
+            lod=GeometryType.LOD0,
+            min_building_detail=0.5,
+            min_building_area=1.0,
+            merge_tolerance=0.25,
+            merge_buildings=True,
+            max_mesh_size=8.0,
+            cleaning_diagnostics=False,
+        )
+    )
+    target_lods = meshes_module._resolve_conditioned_target_lods(
+        city.buildings,
+        GeometryType.LOD0,
+        source_map,
+    )
+    shell_target_lods = meshes_module._promote_volume_shell_target_lods(target_lods)
+    (
+        surface_buildings,
+        surface_directives,
+        surface_region_polygons,
+        surface_region_markers,
+        surface_region_triangle_sizes,
+        surface_region_points,
+    ) = meshes_module._prepare_surface_ground_regions(
+        conditioned_surfaces=building_footprints,
+        conditioned_resolution=subdomain_resolution,
+        target_lods=shell_target_lods,
+        bounds=(
+            terrain.bounds.xmin,
+            terrain.bounds.ymin,
+            terrain.bounds.xmax,
+            terrain.bounds.ymax,
+        ),
+        max_mesh_size=8.0,
+        min_building_detail=0.5,
+        footprint_diagnostics=diagnostics,
+        cleaning_diagnostics=False,
+        treat_lod0_as_holes=False,
+    )
+    ground_mesh, _ = meshes_module._build_ground_mesh_from_coverage(
+        region_polygons=surface_region_polygons,
+        region_markers=surface_region_markers,
+        region_points=surface_region_points,
+        bounds=(
+            terrain.bounds.xmin,
+            terrain.bounds.ymin,
+            terrain.bounds.xmax,
+            terrain.bounds.ymax,
+        ),
+        max_mesh_size=8.0,
+        min_mesh_angle=25.0,
+        mesher=meshes_module.resolve_2d_mesher("auto"),
+        sort_triangles=False,
+        region_triangle_sizes=surface_region_triangle_sizes,
+        add_halo_markers=False,
+    )
+    ground_mesh, surface_buildings, surface_directives = (
+        meshes_module._split_ground_mesh_building_components(
+            ground_mesh=ground_mesh,
+            building_surfaces=surface_buildings,
+            meshing_directives=surface_directives,
+        )
+    )
+    components = meshes_module._build_city_surface_mesh_from_ground_mesh(
+        ground_mesh=ground_mesh,
+        terrain_raster=terrain_raster,
+        building_surfaces=surface_buildings,
+        meshing_directives=surface_directives,
+        smoothing=0,
+        merge_meshes=False,
+    )
+
+    assert len(components) == 2
+    for component in components:
+        faces = np.asarray(component.faces, dtype=np.int64)
+        used_vertices = np.unique(faces.reshape(-1))
+        assert len(used_vertices) == len(component.vertices)
+
+
 def test_build_city_volume_mesh_keeps_requested_tetgen_switches(monkeypatch):
     city = make_flat_city([make_building(box(10, 10, 20, 20), roof_z=10.0)])
     terrain = city.terrain
@@ -2329,8 +2412,6 @@ def test_build_city_surface_mesh_runs_with_mixed_lod_directives():
 
     assert mesh.vertices.shape[0] > 0
     assert mesh.faces.shape[0] > 0
-
-
 def test_legacy_building_wrappers_still_return_buildings():
     buildings = [
         make_building(box(0, 0, 4, 4), roof_z=8.0),

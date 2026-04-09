@@ -2,6 +2,7 @@ import pytest
 import numpy as np
 from dtcc_core.builder.meshing import (
     backends as backends_module,
+    merge_meshes,
     mesh_multisurface,
     mesh_surface,
     mesh_multisurfaces,
@@ -223,6 +224,70 @@ def test_snap_mesh_vertices():
     mesh = Mesh(vertices=vertices, faces=np.array([[0, 1, 2], [1, 3, 4]]))
     mesh = mesh.snap_vertices(0.1)
     assert mesh.faces[1][2] == 2  # The last vertex should be snapped to the first one
+    assert mesh.vertices.shape[0] == 4
+
+
+def test_merge_meshes_compacts_unused_vertices():
+    mesh_a = Mesh(
+        vertices=np.array(
+            [
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [5.0, 5.0, 5.0],
+            ]
+        ),
+        faces=np.array([[0, 1, 2]], dtype=int),
+        markers=np.array([1], dtype=int),
+    )
+    mesh_b = Mesh(
+        vertices=np.array(
+            [
+                [2.0, 0.0, 0.0],
+                [3.0, 0.0, 0.0],
+                [2.0, 1.0, 0.0],
+                [9.0, 9.0, 9.0],
+            ]
+        ),
+        faces=np.array([[0, 1, 2]], dtype=int),
+        markers=np.array([2], dtype=int),
+    )
+
+    merged = merge_meshes([mesh_a, mesh_b], weld=True)
+
+    used = np.unique(np.asarray(merged.faces, dtype=np.int64).reshape(-1))
+    assert len(used) == len(merged.vertices)
+
+
+def test_merge_meshes_without_weld_preserves_vertex_array():
+    mesh_a = Mesh(
+        vertices=np.array(
+            [
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [5.0, 5.0, 5.0],
+            ]
+        ),
+        faces=np.array([[0, 1, 2]], dtype=int),
+        markers=np.array([1], dtype=int),
+    )
+    mesh_b = Mesh(
+        vertices=np.array(
+            [
+                [2.0, 0.0, 0.0],
+                [3.0, 0.0, 0.0],
+                [2.0, 1.0, 0.0],
+                [9.0, 9.0, 9.0],
+            ]
+        ),
+        faces=np.array([[0, 1, 2]], dtype=int),
+        markers=np.array([2], dtype=int),
+    )
+
+    merged = merge_meshes([mesh_a, mesh_b], weld=False)
+
+    assert len(merged.vertices) == len(mesh_a.vertices) + len(mesh_b.vertices)
 
 
 def test_inspect_tetgen_plc_accepts_simple_shell():
@@ -248,8 +313,6 @@ def test_inspect_tetgen_plc_accepts_simple_shell():
 
     assert diagnostics.errors == []
     assert diagnostics.warnings == []
-
-
 def test_inspect_tetgen_plc_flags_duplicate_faces():
     mesh = Mesh(
         vertices=np.array(
@@ -271,6 +334,26 @@ def test_inspect_tetgen_plc_flags_duplicate_faces():
     )
 
     assert any("duplicate triangles" in message for message in diagnostics.errors)
+
+
+def test_inspect_tetgen_plc_flags_unreferenced_vertices():
+    diagnostics = tetgen_utils.inspect_tetgen_plc(
+        np.array(
+            [
+                [0.0, 0.0, 0.0],
+                [10.0, 0.0, 0.0],
+                [10.0, 10.0, 0.0],
+                [0.0, 10.0, 0.0],
+                [50.0, 50.0, 50.0],
+            ]
+        ),
+        np.array([[0, 1, 2], [0, 2, 3]], dtype=int),
+        {
+            "top": np.array([0, 1, 2, 3], dtype=int),
+        },
+    )
+
+    assert any("unreferenced vertices" in message for message in diagnostics.errors)
 
 
 def test_inspect_tetgen_plc_warns_on_tiny_shell_features():

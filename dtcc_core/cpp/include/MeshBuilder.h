@@ -754,6 +754,7 @@ public:
     terrain_mesh.markers.swap(filtered_markers);
     if (copy_normals)
       terrain_mesh.normals.swap(filtered_normals);
+    terrain_mesh = MeshProcessor::compact_mesh(terrain_mesh);
     remove_inside_t.stop();
 
     auto final_merger_t = Timer("build_city_surface_mesh: step 5 final merge");
