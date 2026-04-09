@@ -71,6 +71,9 @@ _FLAT_MESH_BUILDING_CLEANUP_DETAIL_MULTIPLIER = 5.0
 _RASTER_BOUNDARY_SNAP_FRACTION = 0.125
 _RASTER_BOUNDARY_SNAP_MIN = 1.0e-6
 _MERGED_ROOF_ENVELOPE_Z_SPAN = 2.0
+_TETGEN_PRESERVE_RETRY_ASPECT_RATIO_THRESHOLD = 5.0e2
+_TETGEN_PRESERVE_RETRY_MIN_EDGE_RATIO = 0.25
+_TETGEN_PRESERVE_RETRY_MIN_SEVERITY_IMPROVEMENT = 0.5
 _TETGEN_DEBUG_CLOSURE_MARKERS = {
     "south": -101,
     "east": -102,
@@ -87,6 +90,113 @@ def _normalize_max_mesh_size(max_mesh_size: float | None) -> float | None:
     if value <= 0.0:
         return None
     return value
+
+
+def _tetgen_preserve_retry_reference_length(
+    *,
+    subdomain_resolution: Sequence[float],
+    max_mesh_size: float | None,
+    min_building_detail: float,
+) -> float:
+    positive_resolution = [
+        float(value) for value in subdomain_resolution if float(value) > 0.0
+    ]
+    if positive_resolution:
+        return min(positive_resolution)
+
+    normalized_max_mesh_size = _normalize_max_mesh_size(max_mesh_size)
+    if normalized_max_mesh_size is not None:
+        return float(normalized_max_mesh_size)
+
+    return max(float(min_building_detail), 1.0e-9)
+
+
+def _tetgen_volume_mesh_quality_snapshot(volume_mesh: VolumeMesh) -> dict[str, float]:
+    vertices = np.asarray(volume_mesh.vertices, dtype=np.float64)
+    cells = np.asarray(volume_mesh.cells, dtype=np.int64)
+    if (
+        vertices.ndim != 2
+        or vertices.shape[1] < 3
+        or cells.ndim != 2
+        or cells.shape[1] != 4
+        or len(cells) == 0
+    ):
+        return {
+            "aspect_ratio_max": 0.0,
+            "min_edge_length": 0.0,
+        }
+
+    from ...model.mixins.mesh.quality import tet_aspect_ratio
+
+    aspect_ratio = tet_aspect_ratio(vertices[:, :3], cells)
+    edges = np.concatenate(
+        [
+            cells[:, [0, 1]],
+            cells[:, [0, 2]],
+            cells[:, [0, 3]],
+            cells[:, [1, 2]],
+            cells[:, [1, 3]],
+            cells[:, [2, 3]],
+        ],
+        axis=0,
+    )
+    unique_edges = np.unique(np.sort(edges, axis=1), axis=0)
+    edge_vectors = (
+        vertices[unique_edges[:, 1], :3] - vertices[unique_edges[:, 0], :3]
+    )
+    edge_lengths = np.linalg.norm(edge_vectors, axis=1)
+    min_edge_length = float(edge_lengths.min()) if edge_lengths.size else 0.0
+
+    return {
+        "aspect_ratio_max": float(aspect_ratio.max()),
+        "min_edge_length": min_edge_length,
+    }
+
+
+def _tetgen_boundary_refinement_severity(
+    quality_snapshot: dict[str, float],
+    *,
+    reference_length: float,
+) -> float:
+    min_edge_length = max(float(quality_snapshot["min_edge_length"]), 1.0e-12)
+    return float(quality_snapshot["aspect_ratio_max"]) * float(reference_length) / min_edge_length
+
+
+def _should_retry_tetgen_with_preserve_surface(
+    quality_snapshot: dict[str, float],
+    *,
+    reference_length: float,
+) -> bool:
+    if reference_length <= 0.0:
+        return False
+
+    return (
+        float(quality_snapshot["aspect_ratio_max"])
+        >= _TETGEN_PRESERVE_RETRY_ASPECT_RATIO_THRESHOLD
+        and float(quality_snapshot["min_edge_length"])
+        < reference_length * _TETGEN_PRESERVE_RETRY_MIN_EDGE_RATIO
+    )
+
+
+def _should_accept_preserve_surface_retry(
+    original_snapshot: dict[str, float],
+    retry_snapshot: dict[str, float],
+    *,
+    reference_length: float,
+) -> bool:
+    original_severity = _tetgen_boundary_refinement_severity(
+        original_snapshot,
+        reference_length=reference_length,
+    )
+    retry_severity = _tetgen_boundary_refinement_severity(
+        retry_snapshot,
+        reference_length=reference_length,
+    )
+    return (
+        retry_severity
+        < original_severity * _TETGEN_PRESERVE_RETRY_MIN_SEVERITY_IMPROVEMENT
+        and retry_snapshot["aspect_ratio_max"] < original_snapshot["aspect_ratio_max"]
+    )
 
 
 def _is_unavailable_flat_mesher_error(backend: str, exc: RuntimeError) -> bool:
@@ -2214,6 +2324,88 @@ def build_city_volume_mesh(
                     ),
                 )
             raise
+
+        preserve_retry_reference_length = _tetgen_preserve_retry_reference_length(
+            subdomain_resolution=subdomain_resolution,
+            max_mesh_size=max_mesh_size,
+            min_building_detail=min_building_detail,
+        )
+        original_quality_snapshot = _tetgen_volume_mesh_quality_snapshot(volume_mesh)
+        if (
+            not preserve_surface_requested
+            and _should_retry_tetgen_with_preserve_surface(
+                original_quality_snapshot,
+                reference_length=preserve_retry_reference_length,
+            )
+        ):
+            warning(
+                "TetGen split-surface mesh shows severe boundary slivers "
+                "(ARmax=%.3g, min_edge=%.3g, reference=%.3g); "
+                "retrying once with preserve_surface=True.",
+                original_quality_snapshot["aspect_ratio_max"],
+                original_quality_snapshot["min_edge_length"],
+                preserve_retry_reference_length,
+            )
+            retry_switch_overrides = dict(tetgen_switch_overrides or {})
+            retry_switch_overrides["preserve_surface"] = True
+            try:
+                retry_volume_mesh = build_city_volume_mesh(
+                    city=city,
+                    lod=lod,
+                    domain_height=domain_height,
+                    max_mesh_size=max_mesh_size,
+                    min_mesh_angle=min_mesh_angle,
+                    merge_buildings=merge_buildings,
+                    min_building_detail=min_building_detail,
+                    min_building_area=min_building_area,
+                    merge_tolerance=merge_tolerance,
+                    smoothing=smoothing,
+                    boundary_face_markers=boundary_face_markers,
+                    tetgen_switches=tetgen_switches,
+                    tetgen_switch_overrides=retry_switch_overrides,
+                    smoother_max_iterations=smoother_max_iterations,
+                    smoothing_relative_tolerance=smoothing_relative_tolerance,
+                    aspect_ratio_threshold=aspect_ratio_threshold,
+                    debug_step=debug_step,
+                    report_mesh_quality=False,
+                    cleaning_diagnostics=cleaning_diagnostics,
+                    mesher=mesher,
+                    tetgen_debug_output_dir=tetgen_debug_output_dir,
+                    tetgen_debug_output_stem=(
+                        f"{(tetgen_debug_output_stem or 'tetgen_input')}.retry-preserve-quality"
+                        if tetgen_debug_output_dir is not None
+                        else tetgen_debug_output_stem
+                    ),
+                )
+            except Exception as retry_exc:
+                warning(
+                    "Preserve-surface quality retry failed after a successful "
+                    "split-surface TetGen build; keeping the original mesh. %s",
+                    retry_exc,
+                )
+            else:
+                retry_quality_snapshot = _tetgen_volume_mesh_quality_snapshot(
+                    retry_volume_mesh
+                )
+                if _should_accept_preserve_surface_retry(
+                    original_quality_snapshot,
+                    retry_quality_snapshot,
+                    reference_length=preserve_retry_reference_length,
+                ):
+                    info(
+                        "Accepted preserve-surface retry: ARmax %.3g -> %.3g, "
+                        "min_edge %.3g -> %.3g.",
+                        original_quality_snapshot["aspect_ratio_max"],
+                        retry_quality_snapshot["aspect_ratio_max"],
+                        original_quality_snapshot["min_edge_length"],
+                        retry_quality_snapshot["min_edge_length"],
+                    )
+                    volume_mesh = retry_volume_mesh
+                else:
+                    info(
+                        "Preserve-surface retry did not materially reduce "
+                        "boundary-sliver severity; keeping the original mesh."
+                    )
         report_progress(percent=95, message="Volume mesh complete")
 
         if report_mesh_quality:
