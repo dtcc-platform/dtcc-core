@@ -2,6 +2,7 @@
 # Licensed under the MIT License
 
 import os
+import time
 import requests
 import folium
 import pyproj
@@ -20,6 +21,10 @@ except ImportError:
 # Reusable Helper Functions
 # -----------------------------------------------------------------------
 
+_REQUEST_TIMEOUT_SECONDS = 30
+_REQUEST_MAX_ATTEMPTS = 4
+_REQUEST_RETRY_BACKOFF_SECONDS = 2.0
+
 def post_lidar_request(url, session, xmin, ymin, xmax, ymax, buffer_value=0):
     """
     Sends a POST request to the FastAPI endpoint with the given bounding box & buffer.
@@ -34,14 +39,35 @@ def post_lidar_request(url, session, xmin, ymin, xmax, ymax, buffer_value=0):
         "buffer": buffer_value
     }
     debug(f"[POST] to {url} with payload={payload}")
-    resp = session.post(url, json=payload, timeout=30)
-    debug(resp)
-    if resp.status_code != 200:
-        raise RuntimeError(
-            f"Request failed with status {resp.status_code}:\n{resp.text}"
-        )
-    data = resp.json()
-    return data
+    last_error = None
+    for attempt in range(1, _REQUEST_MAX_ATTEMPTS + 1):
+        try:
+            resp = session.post(
+                url,
+                json=payload,
+                timeout=_REQUEST_TIMEOUT_SECONDS,
+            )
+            debug(resp)
+            if resp.status_code != 200:
+                raise RuntimeError(
+                    f"Request failed with status {resp.status_code}:\n{resp.text}"
+                )
+            return resp.json()
+        except (requests.RequestException, RuntimeError) as exc:
+            last_error = exc
+            if attempt >= _REQUEST_MAX_ATTEMPTS:
+                raise
+            backoff = _REQUEST_RETRY_BACKOFF_SECONDS * attempt
+            warning(
+                "Lidar tile lookup attempt %d/%d failed: %s. Retrying in %.1fs.",
+                attempt,
+                _REQUEST_MAX_ATTEMPTS,
+                exc,
+                backoff,
+            )
+            time.sleep(backoff)
+
+    raise RuntimeError(f"Lidar tile lookup failed: {last_error}")
 
 
 def plot_bboxes_folium(user_bbox, tiles, out_html="client_map.html", crs_from="EPSG:3006"):

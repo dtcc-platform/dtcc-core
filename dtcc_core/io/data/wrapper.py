@@ -136,12 +136,20 @@ def download_data(data_type: str, provider: str, bounds: Bounds, epsg = '3006', 
         if data_type == 'lidar':
             info('Starting the Lidar files download from dtcc source')
             files = download_lidar(bounds.tuple, session, base_url=f'{url}:8000')
+            if not files:
+                raise RuntimeError(
+                    f"Lidar download failed for bounds {bounds.tuple}."
+                )
             debug(files)
             pc = io.load_pointcloud(files,bounds=bounds)
             return pc
         elif data_type == 'footprints':
             info("Starting the footprints download from dtcc source")
             files = download_tiles(bounds.tuple, session, server_url=f"{url}:8001")
+            if not files:
+                raise RuntimeError(
+                    f"Footprint download failed for bounds {bounds.tuple}."
+                )
             foots = io.load_footprints(files,bounds= bounds)
             return foots 
         else:

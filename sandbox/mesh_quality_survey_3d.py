@@ -643,8 +643,6 @@ def run_case(
 ) -> dict[str, Any]:
     ix, iy = case_to_grid(number)
     bounds = make_bounds(ix, iy)
-
-    city, prepare_time = prepare_city(bounds)
     switches_params = tetgen_switches(
         max_mesh_size,
         min_mesh_angle,
@@ -671,7 +669,6 @@ def run_case(
     case_record: dict[str, Any] = {
         "number": number,
         "bounds": bounds_to_dict(bounds),
-        "prepare_time": round(prepare_time, 2),
         "config": {
             "max_mesh_size": max_mesh_size,
             "min_mesh_angle": min_mesh_angle,
@@ -688,6 +685,19 @@ def run_case(
     }
 
     start = time.perf_counter()
+    try:
+        city, prepare_time = prepare_city(bounds)
+        case_record["prepare_time"] = round(prepare_time, 2)
+    except Exception as exc:
+        case_record["prepare_time"] = None
+        case_record["result"] = {
+            "status": "failed",
+            "time": round(time.perf_counter() - start, 2),
+            "tetgen_switches": json_ready(switches_params),
+            "error": error_details(exc),
+        }
+        return case_record
+
     try:
         volume_mesh = dtcc_core.builder.build_city_volume_mesh(
             city,

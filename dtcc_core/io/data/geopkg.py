@@ -3,6 +3,7 @@
 import asyncio
 import os
 import json
+import time
 import aiohttp
 import requests
 from platformdirs import user_cache_dir
@@ -15,6 +16,9 @@ CACHE_FILE = os.path.join(CACHE_DIR,"tile_cache_superset.json")
 
 # The FastAPI endpoint
 DEFAULT_SERVER_URL = "http://127.0.0.1:8000/tiles"
+_REQUEST_TIMEOUT_SECONDS = 30
+_REQUEST_MAX_ATTEMPTS = 4
+_REQUEST_RETRY_BACKOFF_SECONDS = 2.0
 
 try:
     import nest_asyncio
@@ -83,14 +87,35 @@ def post_gpkg_request(url, session, xmin, ymin, xmax, ymax, buffer_value=0):
         "maxy": ymax,
     }
     debug(f"[POST] to {url} with payload={payload}")
-    resp = session.post(f'{url}/tiles', json=payload, timeout=30)
-    debug(resp)
-    if resp.status_code != 200:
-        raise RuntimeError(
-            f"Request failed with status {resp.status_code}:\n{resp.text}"
-        )
-    data = resp.json()
-    return data
+    last_error = None
+    for attempt in range(1, _REQUEST_MAX_ATTEMPTS + 1):
+        try:
+            resp = session.post(
+                f"{url}/tiles",
+                json=payload,
+                timeout=_REQUEST_TIMEOUT_SECONDS,
+            )
+            debug(resp)
+            if resp.status_code != 200:
+                raise RuntimeError(
+                    f"Request failed with status {resp.status_code}:\n{resp.text}"
+                )
+            return resp.json()
+        except (requests.RequestException, RuntimeError) as exc:
+            last_error = exc
+            if attempt >= _REQUEST_MAX_ATTEMPTS:
+                raise
+            backoff = _REQUEST_RETRY_BACKOFF_SECONDS * attempt
+            warning(
+                "Footprint tile lookup attempt %d/%d failed: %s. Retrying in %.1fs.",
+                attempt,
+                _REQUEST_MAX_ATTEMPTS,
+                exc,
+                backoff,
+            )
+            time.sleep(backoff)
+
+    raise RuntimeError(f"Footprint tile lookup failed: {last_error}")
 
 async def download_gpkg_file(session, base_url, filename, output_dir):
     """
