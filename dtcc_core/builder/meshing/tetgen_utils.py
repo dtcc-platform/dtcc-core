@@ -56,6 +56,21 @@ def _sidewall_strip_count(
     return _vertical_quad_strip_count(min_horizontal_length, max_vertical_height)
 
 
+def _boundary_sidewall_strip_count(
+    vertices: np.ndarray,
+    bottom_loops: Mapping[str, np.ndarray],
+    top_loops: Mapping[str, np.ndarray],
+) -> int:
+    return max(
+        _sidewall_strip_count(
+            vertices,
+            np.asarray(bottom_loops[name], dtype=np.int64),
+            np.asarray(top_loops[name], dtype=np.int64),
+        )
+        for name in ("south", "east", "north", "west")
+    )
+
+
 def _append_vertical_quad_facets(
     vertices_out: list[list[float]],
     boundary_facets: list[list[int]],
@@ -809,13 +824,19 @@ def compute_boundary_triangle_facets(
     vertices_out = np.vstack([shell_vertices, top_vertices]).tolist()
     boundary_facets: list[list[int]] = []
     vertical_vertex_cache: dict[tuple[int, int, int, int], int] = {}
+    top_boundary_loops = {
+        name: np.asarray(top_loops[name], dtype=np.int64) + offset
+        for name in ("south", "east", "north", "west")
+    }
+    sidewall_strip_count = _boundary_sidewall_strip_count(
+        np.asarray(vertices_out, dtype=float),
+        bottom_loops,
+        top_boundary_loops,
+    )
 
     for name in ("south", "east", "north", "west"):
         bottom_loop = np.asarray(bottom_loops[name], dtype=np.int64)
-        top_loop = np.asarray(top_loops[name], dtype=np.int64) + offset
-        strip_count = _sidewall_strip_count(
-            np.asarray(vertices_out, dtype=float), bottom_loop, top_loop
-        )
+        top_loop = top_boundary_loops[name]
         for b0, b1, t0, t1 in zip(
             bottom_loop[:-1],
             bottom_loop[1:],
@@ -829,7 +850,7 @@ def compute_boundary_triangle_facets(
                 bottom_v1=int(b1),
                 top_v0=int(t0),
                 top_v1=int(t1),
-                strip_count=strip_count,
+                strip_count=sidewall_strip_count,
                 vertical_vertex_cache=vertical_vertex_cache,
             )
 

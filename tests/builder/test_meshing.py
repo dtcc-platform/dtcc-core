@@ -482,6 +482,55 @@ def test_compute_boundary_triangle_facets_subdivides_tall_sidewalls():
     assert max(vertical_edge_lengths) == pytest.approx(50.0)
 
 
+def test_compute_boundary_triangle_facets_keeps_corner_sidewall_subdivision_consistent():
+    shell = Mesh(
+        vertices=np.array(
+            [
+                [0.0, 0.0, 0.0],
+                [4.0, 0.0, 0.0],
+                [4.0, 4.0, 0.0],
+                [2.0, 4.0, 0.0],
+                [0.0, 4.0, 0.0],
+            ]
+        ),
+        faces=np.array([[0, 1, 3], [1, 2, 3], [0, 3, 4]], dtype=int),
+        markers=np.array([-2, -2, -2], dtype=int),
+    )
+    closure = Mesh(
+        vertices=np.array(shell.vertices, copy=True),
+        faces=np.array(shell.faces, copy=True),
+        markers=np.array(shell.markers, copy=True),
+    )
+
+    vertices, boundary_facets = tetgen_utils.compute_boundary_triangle_facets(
+        shell,
+        closure,
+        top_height=100.0,
+        top_cap_backend="triangle",
+    )
+
+    diagnostics = tetgen_utils.inspect_tetgen_plc(vertices, shell.faces, boundary_facets)
+    assert diagnostics.errors == []
+
+    facet_edges = defaultdict(int)
+    for facet in boundary_facets:
+        for a, b in zip(facet, facet[1:] + facet[:1]):
+            facet_edges[tuple(sorted((int(a), int(b))))] += 1
+
+    vertical_edge_lengths = []
+    vertices = np.asarray(vertices, dtype=float)
+    for (a, b), count in facet_edges.items():
+        if count != 2:
+            continue
+        pa = vertices[a]
+        pb = vertices[b]
+        if np.allclose(pa[:2], pb[:2]) and not np.isclose(pa[2], pb[2]):
+            vertical_edge_lengths.append(abs(float(pa[2] - pb[2])))
+
+    assert vertical_edge_lengths
+    assert set(np.round(vertical_edge_lengths, 8)) == {25.0}
+
+
 def test_compute_boundary_triangle_facets_retriangulates_top_from_outer_boundary(monkeypatch):
     surface_mesh = Mesh(
         vertices=np.array(
