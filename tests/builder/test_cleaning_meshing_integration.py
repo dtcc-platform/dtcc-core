@@ -1,3 +1,4 @@
+from collections import Counter, defaultdict
 import subprocess
 import sys
 import textwrap
@@ -2412,6 +2413,59 @@ def test_build_city_surface_mesh_runs_with_mixed_lod_directives():
 
     assert mesh.vertices.shape[0] > 0
     assert mesh.faces.shape[0] > 0
+
+
+def test_build_city_surface_mesh_keeps_tall_wall_roof_seams_closed():
+    city = make_flat_city(
+        [
+            make_building(
+                Polygon(
+                    [
+                        (20.0, 20.0),
+                        (40.0, 20.0),
+                        (40.0, 40.0),
+                        (32.0, 40.0),
+                        (32.0, 38.0),
+                        (30.0, 38.0),
+                        (30.0, 40.0),
+                        (20.0, 40.0),
+                        (20.0, 20.0),
+                    ]
+                ),
+                roof_z=80.0,
+            )
+        ]
+    )
+
+    mesh = build_city_surface_mesh(
+        city,
+        lod=GeometryType.LOD0,
+        merge_buildings=True,
+        min_building_detail=0.5,
+        min_building_area=1.0,
+        merge_tolerance=0.25,
+        building_mesh_triangle_size=4.0,
+        max_mesh_size=8.0,
+        min_mesh_angle=20.0,
+        merge_meshes=True,
+        report_mesh_quality=False,
+    )
+
+    faces = np.asarray(mesh.faces, dtype=np.int64)
+    markers = np.asarray(mesh.markers, dtype=np.int64)
+    edge_to_faces = defaultdict(list)
+    for face_index, face in enumerate(faces):
+        for a, b in ((face[0], face[1]), (face[1], face[2]), (face[2], face[0])):
+            edge_to_faces[tuple(sorted((int(a), int(b))))].append(face_index)
+
+    open_edge_markers = Counter(
+        int(markers[face_indices[0]])
+        for face_indices in edge_to_faces.values()
+        if len(face_indices) == 1
+    )
+
+    assert open_edge_markers
+    assert set(open_edge_markers) == {-2}
 def test_legacy_building_wrappers_still_return_buildings():
     buildings = [
         make_building(box(0, 0, 4, 4), roof_z=8.0),

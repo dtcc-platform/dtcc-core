@@ -16,6 +16,91 @@ _MIN_AREA_RATIO_WARNING = 1.0e-6
 _MIN_TRI_QUALITY_WARNING = 2.0e-2
 _MAX_TRI_ASPECT_RATIO_WARNING = 1.0e2
 _BOUNDARY_PINCH_RATIO_WARNING = 1.0e-3
+_MAX_VERTICAL_FACE_ASPECT_RATIO = 15.0
+
+
+def _vertical_quad_strip_count(
+    horizontal_length: float,
+    vertical_height: float,
+    *,
+    target_aspect_ratio: float = _MAX_VERTICAL_FACE_ASPECT_RATIO,
+) -> int:
+    if horizontal_length <= 0.0 or vertical_height <= 0.0:
+        return 1
+
+    target_height = horizontal_length * float(target_aspect_ratio)
+    if target_height <= 0.0:
+        return 1
+
+    return max(1, int(np.ceil(vertical_height / target_height)))
+
+
+def _sidewall_strip_count(
+    vertices: np.ndarray,
+    bottom_loop: np.ndarray,
+    top_loop: np.ndarray,
+) -> int:
+    if len(bottom_loop) < 2 or len(top_loop) != len(bottom_loop):
+        return 1
+
+    bottom_points = vertices[np.asarray(bottom_loop, dtype=np.int64)]
+    top_points = vertices[np.asarray(top_loop, dtype=np.int64)]
+    edge_vectors = np.diff(bottom_points[:, :2], axis=0)
+    edge_lengths = np.linalg.norm(edge_vectors, axis=1)
+    positive_lengths = edge_lengths[edge_lengths > 0.0]
+    if positive_lengths.size == 0:
+        return 1
+
+    min_horizontal_length = float(np.min(positive_lengths))
+    max_vertical_height = float(np.max(np.abs(top_points[:, 2] - bottom_points[:, 2])))
+    return _vertical_quad_strip_count(min_horizontal_length, max_vertical_height)
+
+
+def _append_vertical_quad_facets(
+    vertices_out: list[list[float]],
+    boundary_facets: list[list[int]],
+    *,
+    bottom_v0: int,
+    bottom_v1: int,
+    top_v0: int,
+    top_v1: int,
+    strip_count: int,
+    vertical_vertex_cache: dict[tuple[int, int, int, int], int],
+) -> None:
+    def _split_vertical_edge(bottom_idx: int, top_idx: int, step: int, num_steps: int) -> int:
+        key = (min(bottom_idx, top_idx), max(bottom_idx, top_idx), step, num_steps)
+        if key in vertical_vertex_cache:
+            return vertical_vertex_cache[key]
+
+        t = step / num_steps
+        point = (1.0 - t) * np.asarray(vertices_out[bottom_idx]) + t * np.asarray(vertices_out[top_idx])
+        idx = len(vertices_out)
+        vertices_out.append(point.tolist())
+        vertical_vertex_cache[key] = idx
+        return idx
+
+    clamped_strip_count = max(1, int(strip_count))
+    left_column = [int(bottom_v0)]
+    right_column = [int(bottom_v1)]
+    for step in range(1, clamped_strip_count):
+        left_column.append(
+            _split_vertical_edge(int(bottom_v0), int(top_v0), step, clamped_strip_count)
+        )
+        right_column.append(
+            _split_vertical_edge(int(bottom_v1), int(top_v1), step, clamped_strip_count)
+        )
+    left_column.append(int(top_v0))
+    right_column.append(int(top_v1))
+
+    for strip in range(clamped_strip_count):
+        b0 = left_column[strip]
+        b1 = right_column[strip]
+        t0 = left_column[strip + 1]
+        t1 = right_column[strip + 1]
+        boundary_facets.append([b0, b1, t1])
+        boundary_facets.append([b0, t1, t0])
+
+
 @dataclass
 class TetgenPLCDiagnostics:
     num_vertices: int
@@ -721,29 +806,41 @@ def compute_boundary_triangle_facets(
     top_vertices[:, 2] = z_top
 
     offset = shell_vertices.shape[0]
-    vertices_out = np.vstack([shell_vertices, top_vertices])
+    vertices_out = np.vstack([shell_vertices, top_vertices]).tolist()
     boundary_facets: list[list[int]] = []
+    vertical_vertex_cache: dict[tuple[int, int, int, int], int] = {}
 
     for name in ("south", "east", "north", "west"):
         bottom_loop = np.asarray(bottom_loops[name], dtype=np.int64)
         top_loop = np.asarray(top_loops[name], dtype=np.int64) + offset
+        strip_count = _sidewall_strip_count(
+            np.asarray(vertices_out, dtype=float), bottom_loop, top_loop
+        )
         for b0, b1, t0, t1 in zip(
             bottom_loop[:-1],
             bottom_loop[1:],
             top_loop[:-1],
             top_loop[1:],
         ):
-            boundary_facets.append([int(b0), int(b1), int(t1)])
-            boundary_facets.append([int(b0), int(t1), int(t0)])
+            _append_vertical_quad_facets(
+                vertices_out,
+                boundary_facets,
+                bottom_v0=int(b0),
+                bottom_v1=int(b1),
+                top_v0=int(t0),
+                top_v1=int(t1),
+                strip_count=strip_count,
+                vertical_vertex_cache=vertical_vertex_cache,
+            )
 
     for face in top_faces:
         tri = np.asarray(face, dtype=np.int64) + offset
-        points = vertices_out[tri]
+        points = np.asarray(vertices_out, dtype=float)[tri]
         if np.cross(points[1] - points[0], points[2] - points[0])[2] < 0.0:
             tri = np.array([tri[0], tri[2], tri[1]], dtype=np.int64)
         boundary_facets.append([int(tri[0]), int(tri[1]), int(tri[2])])
 
-    return vertices_out, boundary_facets
+    return np.asarray(vertices_out, dtype=float), boundary_facets
 
 
 def compute_boundary_facets(mesh: Mesh, top_height=100.0, tol=1e-3):
