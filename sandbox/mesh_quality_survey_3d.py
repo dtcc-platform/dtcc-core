@@ -142,6 +142,7 @@ def config_slug(
     lod: GeometryType,
     merge_buildings: bool,
     mesher: str,
+    stage_audit_enabled: bool = False,
 ) -> str:
     return ".".join(
         [
@@ -162,6 +163,7 @@ def config_slug(
             lod.name.lower(),
             "merged" if merge_buildings else "split",
             mesher,
+            "audit" if stage_audit_enabled else "noaudit",
         ]
     )
 
@@ -179,10 +181,11 @@ def results_file_path(
     lod: GeometryType,
     merge_buildings: bool,
     mesher: str,
+    stage_audit_enabled: bool = False,
 ) -> Path:
     return output_dir / (
         f"mesh_quality_survey_3d."
-        f"{config_slug(max_mesh_size=max_mesh_size, min_mesh_angle=min_mesh_angle, domain_height=domain_height, quality_ratio=quality_ratio, quality_enabled=quality_enabled, preserve_surface=preserve_surface, max_added_points=max_added_points, lod=lod, merge_buildings=merge_buildings, mesher=mesher)}."
+        f"{config_slug(max_mesh_size=max_mesh_size, min_mesh_angle=min_mesh_angle, domain_height=domain_height, quality_ratio=quality_ratio, quality_enabled=quality_enabled, preserve_surface=preserve_surface, max_added_points=max_added_points, lod=lod, merge_buildings=merge_buildings, mesher=mesher, stage_audit_enabled=stage_audit_enabled)}."
         f"json"
     )
 
@@ -200,10 +203,11 @@ def overview_plot_path(
     lod: GeometryType,
     merge_buildings: bool,
     mesher: str,
+    stage_audit_enabled: bool = False,
 ) -> Path:
     return output_dir / (
         f"mesh_quality_survey_3d."
-        f"{config_slug(max_mesh_size=max_mesh_size, min_mesh_angle=min_mesh_angle, domain_height=domain_height, quality_ratio=quality_ratio, quality_enabled=quality_enabled, preserve_surface=preserve_surface, max_added_points=max_added_points, lod=lod, merge_buildings=merge_buildings, mesher=mesher)}."
+        f"{config_slug(max_mesh_size=max_mesh_size, min_mesh_angle=min_mesh_angle, domain_height=domain_height, quality_ratio=quality_ratio, quality_enabled=quality_enabled, preserve_surface=preserve_surface, max_added_points=max_added_points, lod=lod, merge_buildings=merge_buildings, mesher=mesher, stage_audit_enabled=stage_audit_enabled)}."
         f"png"
     )
 
@@ -222,10 +226,11 @@ def case_mesh_path(
     lod: GeometryType,
     merge_buildings: bool,
     mesher: str,
+    stage_audit_enabled: bool = False,
 ) -> Path:
     return output_dir / (
         f"{number:03d}.tetgen."
-        f"{config_slug(max_mesh_size=max_mesh_size, min_mesh_angle=min_mesh_angle, domain_height=domain_height, quality_ratio=quality_ratio, quality_enabled=quality_enabled, preserve_surface=preserve_surface, max_added_points=max_added_points, lod=lod, merge_buildings=merge_buildings, mesher=mesher)}."
+        f"{config_slug(max_mesh_size=max_mesh_size, min_mesh_angle=min_mesh_angle, domain_height=domain_height, quality_ratio=quality_ratio, quality_enabled=quality_enabled, preserve_surface=preserve_surface, max_added_points=max_added_points, lod=lod, merge_buildings=merge_buildings, mesher=mesher, stage_audit_enabled=stage_audit_enabled)}."
         f"xdmf"
     )
 
@@ -243,10 +248,11 @@ def case_tetgen_input_stem(
     lod: GeometryType,
     merge_buildings: bool,
     mesher: str,
+    stage_audit_enabled: bool = False,
 ) -> str:
     return (
         f"{number:03d}.tetgen-input."
-        f"{config_slug(max_mesh_size=max_mesh_size, min_mesh_angle=min_mesh_angle, domain_height=domain_height, quality_ratio=quality_ratio, quality_enabled=quality_enabled, preserve_surface=preserve_surface, max_added_points=max_added_points, lod=lod, merge_buildings=merge_buildings, mesher=mesher)}"
+        f"{config_slug(max_mesh_size=max_mesh_size, min_mesh_angle=min_mesh_angle, domain_height=domain_height, quality_ratio=quality_ratio, quality_enabled=quality_enabled, preserve_surface=preserve_surface, max_added_points=max_added_points, lod=lod, merge_buildings=merge_buildings, mesher=mesher, stage_audit_enabled=stage_audit_enabled)}"
     )
 
 
@@ -264,6 +270,7 @@ def case_tetgen_input_paths(
     lod: GeometryType,
     merge_buildings: bool,
     mesher: str,
+    stage_audit_enabled: bool = False,
 ) -> dict[str, Path]:
     stem = case_tetgen_input_stem(
         number,
@@ -277,6 +284,7 @@ def case_tetgen_input_paths(
         lod=lod,
         merge_buildings=merge_buildings,
         mesher=mesher,
+        stage_audit_enabled=stage_audit_enabled,
     )
     return {
         "ground": output_dir / f"{stem}.tetgen-input-ground.xdmf",
@@ -492,6 +500,11 @@ def print_case_summary(case_record: dict[str, Any]) -> None:
         print(f"TetGen switches: {result['tetgen_switches']}")
     if result.get("boundary_markers"):
         print(f"Boundary markers: {result['boundary_markers']}")
+    if result.get("stage_audit"):
+        stage_audit = result["stage_audit"]
+        attempts = stage_audit.get("attempts", [])
+        selected_label = stage_audit.get("selected_attempt_label", "-")
+        print(f"Stage audit: {len(attempts)} attempt(s), selected={selected_label}")
 
 
 def print_survey_summary(results: dict[int, dict[str, Any]]) -> None:
@@ -640,6 +653,7 @@ def run_case(
     merge_buildings: bool,
     mesher: str,
     save_tetgen_input: bool,
+    stage_audit_enabled: bool,
 ) -> dict[str, Any]:
     ix, iy = case_to_grid(number)
     bounds = make_bounds(ix, iy)
@@ -664,6 +678,7 @@ def run_case(
         lod=lod,
         merge_buildings=merge_buildings,
         mesher=mesher,
+        stage_audit_enabled=stage_audit_enabled,
     )
 
     case_record: dict[str, Any] = {
@@ -681,6 +696,7 @@ def run_case(
             "merge_buildings": merge_buildings,
             "mesher": mesher,
             "save_tetgen_input": save_tetgen_input,
+            "stage_audit_enabled": stage_audit_enabled,
         },
     }
 
@@ -698,6 +714,7 @@ def run_case(
         }
         return case_record
 
+    stage_audit: dict[str, Any] | None = {} if stage_audit_enabled else None
     try:
         volume_mesh = dtcc_core.builder.build_city_volume_mesh(
             city,
@@ -727,10 +744,12 @@ def run_case(
                     lod=lod,
                     merge_buildings=merge_buildings,
                     mesher=mesher,
+                    stage_audit_enabled=stage_audit_enabled,
                 )
                 if save_tetgen_input
                 else None
             ),
+            stage_audit=stage_audit,
         )
         quality = json_ready(volume_mesh.quality())
         metrics = mesh_metrics(volume_mesh, quality)
@@ -747,6 +766,7 @@ def run_case(
             lod=lod,
             merge_buildings=merge_buildings,
             mesher=mesher,
+            stage_audit_enabled=stage_audit_enabled,
         )
         volume_mesh.save(str(mesh_path))
 
@@ -759,6 +779,8 @@ def run_case(
             "metrics": metrics,
             "boundary_markers": boundary_marker_histogram(volume_mesh),
         }
+        if stage_audit_enabled and stage_audit:
+            case_record["result"]["stage_audit"] = json_ready(stage_audit)
         if save_tetgen_input:
             case_record["result"]["tetgen_input"] = {
                 key: path.name for key, path in tetgen_input_paths.items() if path.exists()
@@ -770,6 +792,8 @@ def run_case(
             "tetgen_switches": json_ready(switches_params),
             "error": error_details(exc),
         }
+        if stage_audit_enabled and stage_audit:
+            case_record["result"]["stage_audit"] = json_ready(stage_audit)
         if save_tetgen_input:
             case_record["result"]["tetgen_input"] = {
                 key: path.name for key, path in tetgen_input_paths.items() if path.exists()
@@ -870,6 +894,11 @@ def parse_args() -> argparse.Namespace:
         help="Do not save intermediate TetGen input surface meshes.",
     )
     parser.add_argument(
+        "--stage-audit",
+        action="store_true",
+        help="Record per-attempt stage metrics for conditioned footprints, meshes, PLC, and volume mesh.",
+    )
+    parser.add_argument(
         "--merge-buildings",
         dest="merge_buildings",
         action="store_true",
@@ -917,6 +946,7 @@ def main() -> None:
         lod=args.lod,
         merge_buildings=args.merge_buildings,
         mesher=args.mesher,
+        stage_audit_enabled=args.stage_audit,
     )
     results = load_results(results_path)
     total = NX * NY
@@ -935,7 +965,8 @@ def main() -> None:
         f"{'S=' + str(args.max_added_points) if args.max_added_points is not None else 'S=unlimited'}, "
         f"{args.lod.name.lower()}, mesher={args.mesher}, "
         f"merge={'on' if args.merge_buildings else 'off'}, "
-        f"tetgen-input={'on' if args.save_tetgen_input else 'off'}"
+        f"tetgen-input={'on' if args.save_tetgen_input else 'off'}, "
+        f"stage-audit={'on' if args.stage_audit else 'off'}"
     )
     print()
 
@@ -988,6 +1019,7 @@ def main() -> None:
             merge_buildings=args.merge_buildings,
             mesher=args.mesher,
             save_tetgen_input=args.save_tetgen_input,
+            stage_audit_enabled=args.stage_audit,
         )
         results[number] = case_record
         save_results(results_path, results)
@@ -1039,6 +1071,7 @@ def main() -> None:
             lod=args.lod,
             merge_buildings=args.merge_buildings,
             mesher=args.mesher,
+            stage_audit_enabled=args.stage_audit,
         )
         plot_overview(
             results,

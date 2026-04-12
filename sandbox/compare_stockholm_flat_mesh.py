@@ -18,7 +18,6 @@ import argparse
 import csv
 import hashlib
 import importlib
-import inspect
 import json
 import subprocess
 import sys
@@ -40,7 +39,6 @@ from shapely.validation import make_valid
 
 import dtcc_core
 from dtcc_core.builder import (
-    build_city_flat_mesh,
     build_terrain_raster,
     compute_building_heights,
     extract_roof_points,
@@ -49,6 +47,10 @@ from dtcc_core.builder.building.modify import (
     fix_building_footprint_clearance,
     merge_building_footprints,
     simplify_building_footprints,
+)
+from dtcc_core.builder.geometry_builders.meshes import (
+    _build_ground_mesh_from_coverage,
+    _condition_flat_mesh_coverage_regions,
 )
 from dtcc_core.model import Bounds, Building, City, GeometryType, Surface
 
@@ -434,29 +436,50 @@ def build_mesh_from_conditioned_footprints(
     *,
     max_mesh_size: float,
     min_mesh_angle: float,
+    min_building_detail: float,
+    footprint_diagnostics: dict[str, Any] | None = None,
     disable_cleaning_diagnostics: bool = False,
 ):
-    conditioned_city = City()
-    conditioned_city.add_terrain(terrain_raster)
-    conditioned_city.add_buildings(
-        make_conditioned_buildings(conditioned_polygons, source_map, source_buildings)
+    # This sandbox path is intended to inspect stage 2 meshing from the output
+    # of stage 1 conditioning. Re-running build_city_flat_mesh() would send the
+    # footprints back through conditioning with different defaults and confound
+    # the comparison.
+    del source_buildings
+
+    marker_lookup: dict[tuple[int, ...], int] = {}
+    building_markers: list[int] = []
+    for source_indices in source_map:
+        marker_key = tuple(sorted(set(source_indices)))
+        if marker_key not in marker_lookup:
+            marker_lookup[marker_key] = len(marker_lookup)
+        building_markers.append(marker_lookup[marker_key])
+
+    flat_mesh_bounds = (
+        terrain_raster.bounds.xmin,
+        terrain_raster.bounds.ymin,
+        terrain_raster.bounds.xmax,
+        terrain_raster.bounds.ymax,
     )
-    mesh_kwargs = dict(
-        lod=GeometryType.LOD0,
+    region_polygons, region_markers = _condition_flat_mesh_coverage_regions(
+        bounds=flat_mesh_bounds,
+        building_polygons=conditioned_polygons,
+        building_markers=building_markers,
+        hole_polygons=[],
+        max_mesh_size=max_mesh_size,
+        min_building_detail=min_building_detail,
+        footprint_diagnostics=footprint_diagnostics or {},
+        cleaning_diagnostics=not disable_cleaning_diagnostics,
+    )
+    flat_mesh, _active_mesher = _build_ground_mesh_from_coverage(
+        region_polygons=region_polygons,
+        region_markers=region_markers,
+        bounds=flat_mesh_bounds,
         max_mesh_size=max_mesh_size,
         min_mesh_angle=min_mesh_angle,
-        merge_buildings=False,
-        min_building_detail=0.0,
-        min_building_area=0.0,
-        merge_tolerance=0.0,
-        report_mesh_quality=False,
+        mesher=None,
+        sort_triangles=True,
     )
-    if "cleaning_diagnostics" in inspect.signature(build_city_flat_mesh).parameters:
-        mesh_kwargs["cleaning_diagnostics"] = not disable_cleaning_diagnostics
-    return build_city_flat_mesh(
-        conditioned_city,
-        **mesh_kwargs,
-    )
+    return flat_mesh
 
 
 def color_from_key(key: str) -> str:
@@ -974,6 +997,8 @@ def run_case(number: int, args: argparse.Namespace, git_metadata: dict[str, str 
                 buildings,
                 max_mesh_size=args.max_mesh_size,
                 min_mesh_angle=args.min_mesh_angle,
+                min_building_detail=args.min_building_detail,
+                footprint_diagnostics=diagnostics,
                 disable_cleaning_diagnostics=args.disable_cleaning_diagnostics,
             )
             mesh_quality = flat_mesh.quality()

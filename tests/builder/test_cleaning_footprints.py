@@ -1,4 +1,5 @@
 import itertools
+from types import SimpleNamespace
 
 import pytest
 from shapely.geometry import GeometryCollection, MultiPolygon, Polygon, box
@@ -78,8 +79,15 @@ def assert_conditioning_invariants(
         "source_coordinate_recovery_applied_count",
         "source_coordinate_recovery_exact_count",
         "source_coordinate_recovery_vertex_count",
+        "source_coordinate_recovery_contract_reject_count",
         "source_coordinate_recovery_short_edge_count_before",
         "source_coordinate_recovery_short_edge_count_after",
+        "source_coordinate_recovery_pair_issue_count_before",
+        "source_coordinate_recovery_pair_issue_count_after",
+        "source_coordinate_recovery_ring_contact_count_before",
+        "source_coordinate_recovery_ring_contact_count_after",
+        "source_coordinate_recovery_min_clearance_before",
+        "source_coordinate_recovery_min_clearance_after",
         "source_coordinate_recovery_reference_minus_candidate_area",
         "source_coordinate_recovery_candidate_minus_reference_area",
         "source_coordinate_recovery_signed_area_delta",
@@ -425,19 +433,433 @@ def test_condition_polygon_coverage_regularizes_hole_touching_exterior():
     assert not cleaning_footprints._polygon_has_ring_boundary_contacts(
         result.polygons[0]
     )
+    assert result.diagnostics["local_defect_repair_applied"] is True
+    assert result.diagnostics["local_defect_repair_operator_applied"] == {
+        "ring_contact_fill": 1
+    }
+    assert_conditioning_invariants(result, options)
+
+
+def test_condition_polygon_coverage_repairs_hole_touching_exterior_upstream():
+    touching_hole = Polygon(
+        [(0, 0), (10, 0), (10, 10), (0, 10), (0, 0)],
+        [[(0, 5), (2, 4), (3, 5), (2, 6), (0, 5)]],
+    )
+    assert touching_hole.is_valid
+    assert cleaning_footprints._polygon_has_ring_boundary_contacts(touching_hole)
+
+    options = cleaning.ConditioningOptions(
+        min_feature_size=0.5,
+        merge_distance=0.0,
+        min_area=0.0,
+        min_hole_area=0.0,
+        precision_grid=0.03125,
+    )
+    result = cleaning.condition_polygon_coverage([touching_hole], options=options)
+
+    assert len(result.polygons) == 1
+    assert not cleaning_footprints._polygon_has_ring_boundary_contacts(
+        result.polygons[0]
+    )
+    assert result.diagnostics["local_defect_repair_applied"] is True
+    assert result.diagnostics["local_defect_repair_operator_applied"] == {
+        "ring_contact_fill": 1
+    }
     assert (
         result.diagnostics["coverage_meshing_regularization_ring_contact_count_before"]
-        > 0
-    )
-    assert (
-        result.diagnostics["coverage_meshing_regularization_ring_contact_count_after"]
         == 0
     )
-    assert (
-        result.diagnostics["coverage_meshing_regularization_ring_contact_polygon_count"]
-        == 1
-    )
     assert_conditioning_invariants(result, options)
+
+
+def test_regularize_coverage_contacts_merges_point_touching_polygons():
+    first = Polygon([(0, 0), (2, 0), (2, 2), (0, 2), (0, 0)])
+    second = Polygon([(2, 2), (4, 2), (4, 4), (2, 4), (2, 2)])
+    diagnostics = cleaning_footprints._empty_diagnostics(2)
+    diagnostics["collect_stage_metrics"] = False
+
+    polygons, source_map = cleaning_footprints._regularize_coverage_contacts(
+        [first, second],
+        [[0], [1]],
+        min_segment_length=0.5,
+        grid=0.03125,
+        min_area=0.0,
+        min_hole_area=0.0,
+        diagnostics=diagnostics,
+    )
+
+    assert len(polygons) == 1
+    assert source_map == [[0, 1]]
+    assert diagnostics["coverage_contact_regularization_pair_issue_count_before"] == 1
+    assert diagnostics["coverage_contact_regularization_pair_issue_count_after"] == 0
+    assert diagnostics["coverage_contact_regularization_applied"] is True
+    assert any(
+        key.startswith("coverage_pair_issue_point_")
+        for key in diagnostics["coverage_contact_regularization_operator_applied"]
+    )
+
+
+def test_point_touch_bridge_operator_creates_bounded_bridge_neck():
+    first = Polygon([(0, 0), (2, 0), (2, 2), (0, 2), (0, 0)])
+    second = Polygon([(2, 2), (4, 2), (4, 4), (2, 4), (2, 2)])
+
+    candidate = cleaning_footprints._apply_local_point_touch_bridge_operator(
+        [first, second],
+        [[0], [1]],
+        radius=0.25,
+        target_scale=0.5,
+        grid=0.03125,
+        diagnostics=cleaning_footprints._empty_diagnostics(2),
+    )
+
+    assert candidate is not None
+    polygons, source_map = candidate
+    assert len(polygons) == 1
+    assert source_map == [[0, 1]]
+
+    coords = list(polygons[0].exterior.coords)
+    diagonal_segment_count = 0
+    for start, end in zip(coords, coords[1:]):
+        dx = abs(float(end[0] - start[0]))
+        dy = abs(float(end[1] - start[1]))
+        if dx > 1e-9 and dy > 1e-9:
+            diagonal_segment_count += 1
+
+    assert diagonal_segment_count >= 2
+    assert polygons[0].area > first.area + second.area
+    assert polygons[0].area < first.area + second.area + 0.25
+
+
+def test_close_pair_bridge_operator_uses_same_bounded_neck_family():
+    first = Polygon([(0, 0), (2, 0), (2, 2), (0, 2), (0, 0)])
+    second = Polygon([(2.1, 2.1), (4.1, 2.1), (4.1, 4.1), (2.1, 4.1), (2.1, 2.1)])
+
+    candidate = cleaning_footprints._apply_local_close_pair_bridge_operator(
+        [first, second],
+        [[0], [1]],
+        radius=0.25,
+        target_scale=0.5,
+        grid=0.03125,
+        diagnostics=cleaning_footprints._empty_diagnostics(2),
+    )
+
+    assert candidate is not None
+    polygons, source_map = candidate
+    assert len(polygons) == 1
+    assert source_map == [[0, 1]]
+
+    coords = list(polygons[0].exterior.coords)
+    diagonal_segment_count = 0
+    for start, end in zip(coords, coords[1:]):
+        dx = abs(float(end[0] - start[0]))
+        dy = abs(float(end[1] - start[1]))
+        if dx > 1e-9 and dy > 1e-9:
+            diagonal_segment_count += 1
+
+    assert diagonal_segment_count >= 2
+    assert polygons[0].area > first.area + second.area
+    assert polygons[0].area < first.area + second.area + 0.25
+
+
+def test_close_pair_bridge_operator_resolves_slanted_near_threshold_gap():
+    left = Polygon(
+        [
+            (673632.179, 6581808.32),
+            (673629.6246381734, 6581812.808878513),
+            (673642.72, 6581820.183),
+            (673639.603, 6581825.66),
+            (673621.031, 6581815.061),
+            (673624.157, 6581809.73),
+            (673619.019, 6581806.814),
+            (673621.586, 6581802.304),
+            (673632.179, 6581808.32),
+        ]
+    )
+    right = Polygon(
+        [
+            (673633.884, 6581814.606),
+            (673634.669, 6581813.149),
+            (673643.665, 6581818.21),
+            (673642.821, 6581819.699),
+            (673633.884, 6581814.606),
+        ]
+    )
+
+    candidate = cleaning_footprints._apply_local_close_pair_bridge_operator(
+        [left, right],
+        [[0], [1]],
+        radius=0.5,
+        target_scale=0.5,
+        grid=0.03125,
+        diagnostics=cleaning_footprints._empty_diagnostics(2),
+    )
+
+    assert candidate is not None
+    polygons, source_map = candidate
+    assert source_map == [[0, 1]]
+    signature = cleaning_footprints._coverage_defect_signature(
+        polygons,
+        target_scale=0.5,
+    )
+    assert signature.pair_issue_count == 0
+    assert signature.short_edge_count == 0
+
+
+def test_regularize_coverage_contacts_merges_courtyard_close_pair():
+    outer = Polygon(
+        shell=[(0, 0), (8, 0), (8, 8), (0, 8), (0, 0)],
+        holes=[[(2, 2), (6, 2), (6, 6), (2, 6), (2, 2)]],
+    )
+    inner = Polygon(
+        [(2.05, 3.0), (2.55, 3.0), (2.55, 3.5), (2.05, 3.5), (2.05, 3.0)]
+    )
+    diagnostics = cleaning_footprints._empty_diagnostics(2)
+    diagnostics["collect_stage_metrics"] = False
+
+    polygons, source_map = cleaning_footprints._regularize_coverage_contacts(
+        [outer, inner],
+        [[0], [1]],
+        min_segment_length=0.5,
+        grid=0.03125,
+        min_area=0.0,
+        min_hole_area=0.0,
+        diagnostics=diagnostics,
+    )
+
+    assert len(polygons) == 1
+    assert source_map == [[0, 1]]
+    signature = cleaning_footprints._coverage_defect_signature(
+        polygons,
+        target_scale=0.5,
+    )
+    assert signature.pair_issue_count == 0
+    assert any(
+        key.startswith("coverage_pair_issue_bridge_")
+        for key in diagnostics["coverage_contact_regularization_operator_applied"]
+    )
+
+
+def test_regularize_coverage_contacts_records_post_contact_local_repair_metrics():
+    first = Polygon([(0, 0), (2, 0), (2, 2), (0, 2), (0, 0)])
+    second = Polygon([(2, 2), (4, 2), (4, 4), (2, 4), (2, 2)])
+    diagnostics = cleaning_footprints._empty_diagnostics(2)
+    diagnostics["collect_stage_metrics"] = False
+
+    cleaning_footprints._regularize_coverage_contacts(
+        [first, second],
+        [[0], [1]],
+        min_segment_length=0.5,
+        grid=0.03125,
+        min_area=0.0,
+        min_hole_area=0.0,
+        diagnostics=diagnostics,
+    )
+
+    assert "post_contact_local_defect_repair_short_edge_count_before" in diagnostics
+    assert "post_contact_local_defect_repair_short_edge_count_after" in diagnostics
+    assert diagnostics["post_contact_local_defect_repair_tolerance"] == 0.5
+
+
+def test_post_contact_local_repair_accepts_subgrid_clearance_gain():
+    reference_signature = cleaning_footprints._CoverageDefectSignature(
+        min_clearance=0.014600733992761013,
+        pair_issue_count=0,
+        point_touch_count=0,
+        close_pair_count=0,
+        min_pair_clearance=None,
+        short_edge_count=0,
+        min_edge_length=0.5087131436281158,
+        vertex_count=808,
+        ring_contact_count=0,
+    )
+    candidate_signature = cleaning_footprints._CoverageDefectSignature(
+        min_clearance=0.03125,
+        pair_issue_count=0,
+        point_touch_count=0,
+        close_pair_count=0,
+        min_pair_clearance=None,
+        short_edge_count=0,
+        min_edge_length=0.5087131436281158,
+        vertex_count=812,
+        ring_contact_count=0,
+    )
+    reference_difference_metrics = {
+        "reference_minus_candidate_area": 0.0,
+        "candidate_minus_reference_area": 0.0,
+        "symmetric_difference_area": 0.0,
+        "union_area_delta": 0.0,
+    }
+    candidate_difference_metrics = {
+        "reference_minus_candidate_area": 0.16746342440630335,
+        "candidate_minus_reference_area": 1.0185376431563034,
+        "symmetric_difference_area": 1.1860010675626067,
+        "union_area_delta": 0.85107421875,
+    }
+
+    assert (
+        cleaning_footprints._coverage_signature_improves(
+            reference_signature,
+            candidate_signature,
+            grid=0.03125,
+            target_scale=0.5,
+        )
+        is False
+    )
+    assert (
+        cleaning_footprints._should_accept_post_contact_local_repair(
+            reference_signature,
+            reference_difference_metrics,
+            candidate_signature,
+            candidate_difference_metrics,
+            target_scale=0.5,
+            grid=0.03125,
+        )
+        is True
+    )
+
+
+def test_regularize_coverage_contacts_accepts_local_point_bridge_on_case23_pair():
+    first = Polygon(
+        [
+            (674248.707, 6579722.925),
+            (674241.262, 6579748.708),
+            (674235.883, 6579747.221),
+            (674240.42, 6579729.477),
+            (674233.568, 6579727.805),
+            (674235.599, 6579719.836),
+            (674248.707, 6579722.925),
+        ]
+    )
+    second = Polygon(
+        [
+            (674241.261, 6579748.707),
+            (674247.882, 6579750.29),
+            (674245.251, 6579759.837),
+            (674238.928, 6579758.325),
+            (674241.261, 6579748.707),
+        ]
+    )
+    diagnostics = cleaning_footprints._empty_diagnostics(2)
+    diagnostics["collect_stage_metrics"] = False
+
+    polygons, source_map = cleaning_footprints._regularize_coverage_contacts(
+        [first, second],
+        [[20], [21]],
+        min_segment_length=0.5,
+        grid=0.03125,
+        min_area=0.0,
+        min_hole_area=0.0,
+        diagnostics=diagnostics,
+    )
+
+    assert len(polygons) == 1
+    assert source_map == [[20, 21]]
+    assert diagnostics["coverage_contact_regularization_applied"] is True
+    assert diagnostics["coverage_contact_regularization_pair_issue_count_before"] == 1
+    assert diagnostics["coverage_contact_regularization_pair_issue_count_after"] == 0
+    assert any(
+        key.startswith("coverage_pair_issue_point_")
+        for key in diagnostics["coverage_contact_regularization_operator_applied"]
+    )
+
+
+def test_regularize_coverage_contacts_uses_point_cluster_bridge_for_case62_pair():
+    first = Polygon(
+        [
+            (673851.086, 6581961.473),
+            (673844.989, 6581972.158),
+            (673834.367, 6581966.078),
+            (673867.295, 6581908.338),
+            (673877.779, 6581914.315),
+            (673865.408, 6581936.079),
+            (673876.751, 6581942.56),
+            (673886.957, 6581924.408),
+            (673897.286, 6581930.534),
+            (673867.97, 6581981.994),
+            (673857.672, 6581975.823),
+            (673862.203, 6581967.901),
+            (673851.086, 6581961.473),
+        ]
+    )
+    second = Polygon(
+        [
+            (673840.879, 6581979.362),
+            (673844.989, 6581972.158),
+            (673849.579, 6581974.784),
+            (673845.277, 6581981.866),
+            (673840.879, 6581979.362),
+        ]
+    )
+    diagnostics = cleaning_footprints._empty_diagnostics(2)
+    diagnostics["collect_stage_metrics"] = False
+
+    polygons, source_map = cleaning_footprints._regularize_coverage_contacts(
+        [first, second],
+        [[46], [47]],
+        min_segment_length=0.5,
+        grid=0.03125,
+        min_area=0.0,
+        min_hole_area=0.0,
+        diagnostics=diagnostics,
+    )
+
+    assert len(polygons) == 1
+    assert source_map == [[46, 47]]
+    assert diagnostics["coverage_contact_regularization_pair_issue_count_before"] == 1
+    assert diagnostics["coverage_contact_regularization_pair_issue_count_after"] == 0
+    assert diagnostics["coverage_contact_regularization_short_edge_count_before"] == 0
+    assert diagnostics["coverage_contact_regularization_short_edge_count_after"] == 0
+    assert any(
+        key.startswith("coverage_pair_issue_point_cluster_")
+        for key in diagnostics["coverage_contact_regularization_operator_applied"]
+    )
+
+    signature = cleaning_footprints._coverage_defect_signature(
+        polygons,
+        target_scale=0.5,
+    )
+    assert signature.pair_issue_count == 0
+    assert signature.short_edge_count == 0
+
+
+def test_condition_polygon_coverage_exposes_contact_regularization_diagnostics(
+    monkeypatch,
+):
+    def fake_regularize_coverage_contacts(*args, **kwargs):
+        diagnostics = kwargs["diagnostics"]
+        diagnostics["coverage_contact_regularization_applied"] = True
+        diagnostics["coverage_contact_regularization_pair_issue_count_before"] = 2
+        diagnostics["coverage_contact_regularization_pair_issue_count_after"] = 0
+        diagnostics["coverage_contact_regularization_operator_applied"] = {
+            "coverage_pair_issue_point_0.125": 1
+        }
+        return list(args[0]), [list(indices) for indices in args[1]]
+
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_regularize_coverage_contacts",
+        fake_regularize_coverage_contacts,
+    )
+
+    result = cleaning.condition_polygon_coverage(
+        [box(0, 0, 2, 2)],
+        options=cleaning.ConditioningOptions(
+            min_feature_size=0.5,
+            merge_distance=0.0,
+            min_area=0.0,
+            min_hole_area=0.0,
+            precision_grid=0.03125,
+            collect_stage_metrics=False,
+            enable_logging=False,
+        ),
+    )
+
+    assert result.diagnostics["coverage_contact_regularization_applied"] is True
+    assert result.diagnostics["coverage_contact_regularization_pair_issue_count_before"] == 2
+    assert result.diagnostics["coverage_contact_regularization_pair_issue_count_after"] == 0
+    assert result.diagnostics["coverage_contact_regularization_operator_applied"] == {
+        "coverage_pair_issue_point_0.125": 1
+    }
 
 
 def test_condition_polygon_coverage_is_deterministic():
@@ -652,6 +1074,146 @@ def test_source_coordinate_recovery_rejects_local_close_pair_candidate(monkeypat
     assert diagnostics["source_coordinate_recovery_rejected_non_improving_count"] >= 1
 
 
+def test_source_coordinate_recovery_rejects_point_touch_to_close_pair_regression(
+    monkeypatch,
+):
+    diagnostics = cleaning_footprints._empty_diagnostics(2)
+    diagnostics["collect_stage_metrics"] = False
+
+    original = box(0.0, 0.0, 1.0, 1.0)
+    point_touch_neighbor = box(1.0, 1.0, 2.0, 2.0)
+    close_pair_candidate = box(1.02, 1.02, 2.02, 2.02)
+
+    def fake_recover(polygon, *, support, min_segment_length, grid, **kwargs):
+        if polygon.equals_exact(point_touch_neighbor, tolerance=0.0):
+            return (
+                close_pair_candidate,
+                "exact_source_polygon",
+                {
+                    "reference_minus_candidate_area": 0.0,
+                    "candidate_minus_reference_area": 0.0,
+                    "symmetric_difference_area": 0.0,
+                    "union_area_delta": 0.0,
+                },
+            )
+        return None, None, None
+
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_recover_polygon_source_coordinates",
+        fake_recover,
+    )
+
+    polygons, source_map = cleaning_footprints._recover_source_supported_coordinates(
+        [original, point_touch_neighbor],
+        [[0], [1]],
+        source_lookup={0: original, 1: point_touch_neighbor},
+        min_segment_length=0.5,
+        grid=0.03125,
+        diagnostics=diagnostics,
+    )
+
+    assert polygons[0].equals_exact(original, tolerance=0.0)
+    assert polygons[1].equals_exact(point_touch_neighbor, tolerance=0.0)
+    assert source_map == [[0], [1]]
+    assert diagnostics["source_coordinate_recovery_applied_count"] == 0
+    assert diagnostics["source_coordinate_recovery_rejected_non_improving_count"] >= 1
+
+
+def test_source_coordinate_recovery_reverts_full_contract_regression(monkeypatch):
+    diagnostics = cleaning_footprints._empty_diagnostics(1)
+    diagnostics["collect_stage_metrics"] = False
+    diagnostics["enable_logging"] = False
+
+    original = box(0.0, 0.0, 4.0, 4.0)
+    candidate = Polygon(
+        [
+            (0.0, 0.0),
+            (4.0, 0.0),
+            (4.0, 4.0),
+            (2.0, 4.0),
+            (2.0, 3.6),
+            (1.6, 3.6),
+            (1.6, 4.0),
+            (0.0, 4.0),
+        ]
+    )
+
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_recover_polygon_source_coordinates",
+        lambda polygon, **kwargs: (
+            (
+                candidate,
+                "support_vertex_restore",
+                {
+                    "reference_minus_candidate_area": 0.0,
+                    "candidate_minus_reference_area": 0.0,
+                    "symmetric_difference_area": 0.0,
+                    "union_area_delta": 0.0,
+                },
+            )
+            if polygon.equals_exact(original, tolerance=0.0)
+            else (None, None, None)
+        ),
+    )
+
+    original_key = cleaning_footprints._polygon_sequence_key([original])
+    candidate_key = cleaning_footprints._polygon_sequence_key([candidate])
+    signatures = {
+        original_key: cleaning_footprints._CoverageDefectSignature(
+            min_clearance=0.75,
+            pair_issue_count=0,
+            point_touch_count=0,
+            close_pair_count=0,
+            min_pair_clearance=None,
+            short_edge_count=0,
+            min_edge_length=4.0,
+            vertex_count=4,
+            ring_contact_count=0,
+        ),
+        candidate_key: cleaning_footprints._CoverageDefectSignature(
+            min_clearance=0.4,
+            pair_issue_count=0,
+            point_touch_count=0,
+            close_pair_count=0,
+            min_pair_clearance=None,
+            short_edge_count=1,
+            min_edge_length=0.4,
+            vertex_count=8,
+            ring_contact_count=0,
+        ),
+    }
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_cached_coverage_defect_signature",
+        lambda cache, polygons, **kwargs: signatures[
+            cleaning_footprints._polygon_sequence_key(polygons)
+        ],
+    )
+
+    polygons, source_map = cleaning_footprints._recover_source_supported_coordinates(
+        [original],
+        [[0]],
+        source_lookup={0: original},
+        min_segment_length=0.5,
+        grid=0.03125,
+        diagnostics=diagnostics,
+    )
+
+    assert polygons[0].equals_exact(original, tolerance=0.0)
+    assert source_map == [[0]]
+    assert diagnostics["source_coordinate_recovery_applied"] is False
+    assert diagnostics["source_coordinate_recovery_applied_count"] == 0
+    assert diagnostics["source_coordinate_recovery_contract_reject_count"] == 1
+    assert diagnostics["source_coordinate_recovery_short_edge_count_after"] == 0
+    assert diagnostics["source_coordinate_recovery_pair_issue_count_after"] == 0
+    assert diagnostics["source_coordinate_recovery_ring_contact_count_after"] == 0
+    assert diagnostics["source_coordinate_recovery_min_clearance_after"] == pytest.approx(
+        0.75
+    )
+
+
 def test_recover_polygon_source_coordinates_skips_vertex_restore_for_single_source_close_match(
     monkeypatch,
 ):
@@ -778,6 +1340,10 @@ def test_residual_scale_polygon_simplifier_enforces_contract():
         target_scale=0.5,
         grid=0.03125,
     )
+    assert diagnostics["coverage_residual_polygon_target_count"] == 1
+    assert diagnostics["coverage_residual_polygon_attempt_count"] >= 1
+    assert diagnostics["coverage_residual_polygon_viable_candidate_count"] >= 1
+    assert diagnostics["coverage_residual_polygon_changed_count"] == 1
 
 
 def test_condition_polygon_coverage_logs_stage_progress(monkeypatch):
@@ -1814,6 +2380,148 @@ def test_coverage_simplify_pair_issue_fast_path_resolves_close_gap_pair():
     )
 
 
+def test_coverage_simplify_pair_issue_fast_path_prefers_best_full_candidate(
+    monkeypatch,
+):
+    original = [box(0.0, 0.0, 1.0, 1.0), box(1.0, 1.0, 2.0, 2.0)]
+    bridge_candidate = [box(0.0, 0.0, 2.0, 2.0)]
+    shrink_candidate = [box(0.0, 0.0, 1.0, 1.0), box(1.3, 1.3, 2.3, 2.3)]
+    source_map = [[0], [1]]
+    diagnostics = cleaning_footprints._empty_diagnostics(2)
+    diagnostics["collect_stage_metrics"] = False
+
+    original_key = cleaning_footprints._polygon_sequence_key(original)
+    bridge_key = cleaning_footprints._polygon_sequence_key(bridge_candidate)
+    shrink_key = cleaning_footprints._polygon_sequence_key(shrink_candidate)
+
+    signature_map = {
+        original_key: cleaning_footprints._CoverageDefectSignature(
+            min_clearance=0.0,
+            pair_issue_count=1,
+            point_touch_count=1,
+            close_pair_count=0,
+            min_pair_clearance=0.0,
+            short_edge_count=4,
+            min_edge_length=0.1,
+            vertex_count=8,
+            ring_contact_count=0,
+        ),
+        bridge_key: cleaning_footprints._CoverageDefectSignature(
+            min_clearance=0.5,
+            pair_issue_count=0,
+            point_touch_count=0,
+            close_pair_count=0,
+            min_pair_clearance=None,
+            short_edge_count=6,
+            min_edge_length=0.08,
+            vertex_count=12,
+            ring_contact_count=0,
+        ),
+        shrink_key: cleaning_footprints._CoverageDefectSignature(
+            min_clearance=0.5,
+            pair_issue_count=0,
+            point_touch_count=0,
+            close_pair_count=0,
+            min_pair_clearance=None,
+            short_edge_count=4,
+            min_edge_length=0.2,
+            vertex_count=8,
+            ring_contact_count=0,
+        ),
+    }
+
+    difference_map = {
+        (original_key, bridge_key): {
+            "reference_minus_candidate_area": 0.0,
+            "candidate_minus_reference_area": 0.2,
+            "symmetric_difference_area": 0.2,
+            "union_area_delta": 0.2,
+        },
+        (original_key, shrink_key): {
+            "reference_minus_candidate_area": 0.0,
+            "candidate_minus_reference_area": 0.05,
+            "symmetric_difference_area": 0.05,
+            "union_area_delta": 0.05,
+        },
+    }
+
+    def fake_pair_issue_candidates(cache, polygons, **kwargs):
+        key = cleaning_footprints._polygon_sequence_key(polygons)
+        if key == original_key:
+            return [(0, 1, 0.0, "point")]
+        return []
+
+    def fake_signature(cache, polygons, **kwargs):
+        return signature_map[cleaning_footprints._polygon_sequence_key(polygons)]
+
+    def fake_difference(cache, reference, candidate):
+        reference_key = cleaning_footprints._polygon_sequence_key(reference)
+        candidate_key = cleaning_footprints._polygon_sequence_key(candidate)
+        if (reference_key, candidate_key) in difference_map:
+            return difference_map[(reference_key, candidate_key)]
+        return {
+            "reference_minus_candidate_area": 0.0,
+            "candidate_minus_reference_area": 0.0,
+            "symmetric_difference_area": 0.0,
+            "union_area_delta": 0.0,
+        }
+
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_cached_pair_issue_candidates",
+        fake_pair_issue_candidates,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_cached_coverage_defect_signature",
+        fake_signature,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_cached_difference_area_metrics",
+        fake_difference,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_cached_coverage_edit_zone",
+        lambda *args, **kwargs: box(-10.0, -10.0, 10.0, 10.0),
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_change_outside_edit_zone",
+        lambda *args, **kwargs: 0.0,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_apply_local_point_touch_bridge_operator",
+        lambda *args, **kwargs: (bridge_candidate, [[0, 1]]),
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_iter_pair_issue_shrink_radii",
+        lambda **kwargs: (0.25,),
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_apply_local_smaller_polygon_shrink_operator",
+        lambda *args, **kwargs: (shrink_candidate, source_map),
+    )
+
+    candidate = cleaning_footprints._simplify_coverage_pair_issues_graphically(
+        original,
+        source_map,
+        tolerance=0.5,
+        grid=0.01,
+        diagnostics=diagnostics,
+    )
+
+    assert candidate is not None
+    assert cleaning_footprints._polygon_sequence_key(
+        candidate.polygons
+    ) == cleaning_footprints._polygon_sequence_key(shrink_candidate)
+    assert candidate.operator_applied == {"coverage_pair_issue_shrink_0.250": 1}
+
+
 def test_direct_pair_issue_cluster_candidates_rewrite_close_gap_pair():
     diagnostics = cleaning_footprints._empty_diagnostics(2)
     diagnostics["collect_stage_metrics"] = False
@@ -1827,16 +2535,17 @@ def test_direct_pair_issue_cluster_candidates_rewrite_close_gap_pair():
     )
 
     bridge_candidates = [
-        (operator, polygons, source_map)
-        for operator, polygons, source_map in candidates
+        (affected_indices, operator, polygons, source_map)
+        for affected_indices, operator, polygons, source_map in candidates
         if operator.startswith("coverage_pair_issue_bridge_")
     ]
     assert bridge_candidates
-    operator, polygons, source_map = bridge_candidates[0]
+    affected_indices, operator, polygons, source_map = bridge_candidates[0]
     signature = cleaning_footprints._coverage_defect_signature(
         polygons,
         target_scale=0.5,
     )
+    assert tuple(affected_indices) == (0, 1)
     assert signature.pair_issue_count == 0
     assert source_map == [[0, 1]]
 
@@ -1877,20 +2586,22 @@ def test_direct_pair_issue_cluster_candidates_include_shrink_candidate_for_point
     )
 
     shrink_candidates = [
-        (operator, polygons, source_map)
-        for operator, polygons, source_map in candidates
+        (affected_indices, operator, polygons, source_map)
+        for affected_indices, operator, polygons, source_map in candidates
         if operator.startswith("coverage_pair_issue_shrink_")
     ]
 
     assert shrink_candidates
     assert any(
+        tuple(affected_indices) == (0, 1)
+        and
         cleaning_footprints._coverage_defect_signature(
             polygons,
             target_scale=0.5,
         ).pair_issue_count
         == 0
         and source_map == [[0], [1]]
-        for _, polygons, source_map in shrink_candidates
+        for affected_indices, _, polygons, source_map in shrink_candidates
     )
 
 
@@ -2545,6 +3256,16 @@ def test_regularize_coverage_for_meshing_returns_early_when_no_candidate_exists(
     )
     monkeypatch.setattr(
         cleaning_footprints,
+        "_simplify_polygons_for_meshing",
+        lambda polygons, sources, **kwargs: (polygons, sources),
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_regularize_low_clearance_polygons",
+        lambda polygons, sources, **kwargs: (polygons, sources),
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
         "unary_union",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("unary_union should not run when no candidate exists")
@@ -2728,6 +3449,530 @@ def test_regularize_coverage_for_meshing_applies_residual_point_bridge_rescue(
     )
 
 
+def test_regularize_coverage_for_meshing_prefers_pair_rescue_with_better_scale_contract(
+    monkeypatch,
+):
+    left = box(0.0, 0.0, 10.0, 10.0)
+    right = box(10.0, 10.0, 20.0, 20.0)
+    polygons = [left, right]
+    diagnostics = cleaning_footprints._empty_diagnostics(2)
+    diagnostics["collect_stage_metrics"] = False
+    diagnostics["enable_logging"] = False
+
+    identity_signature = cleaning_footprints._coverage_defect_signature(
+        polygons,
+        target_scale=0.5,
+    )
+    identity_candidate = cleaning_footprints._CoverageSimplifyCandidate(
+        label="local",
+        polygons=polygons,
+        source_map=[[0], [1]],
+        signature=identity_signature,
+        difference_metrics={
+            "reference_minus_candidate_area": 0.0,
+            "candidate_minus_reference_area": 0.0,
+            "symmetric_difference_area": 0.0,
+            "union_area_delta": 0.0,
+        },
+        change_outside_edit_zone=0.0,
+        edit_zone_area=0.0,
+        area_balance_budget=0.0,
+        patch_count=0,
+        patch_applied_count=0,
+        operator_attempts={},
+        operator_applied={},
+    )
+
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_coverage_short_edge_graphically",
+        lambda *args, **kwargs: identity_candidate,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_coverage_globally",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_coverage_locally",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_coverage_residual_scale_polygons",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_iter_pair_issue_bridge_radii",
+        lambda **kwargs: (0.03125, 0.75),
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_iter_pair_issue_shrink_radii",
+        lambda **kwargs: (),
+    )
+
+    def fake_point_bridge_operator(
+        pair_polygons,
+        pair_sources,
+        *,
+        radius,
+        grid,
+        diagnostics,
+    ):
+        if radius <= 0.05:
+            adjusted_right = Polygon(
+                [
+                    (10.03125, 10.0),
+                    (20.0, 10.0),
+                    (20.0, 20.0),
+                    (10.0, 20.0),
+                    (10.0, 10.03125),
+                ]
+            )
+        else:
+            adjusted_right = Polygon(
+                [
+                    (10.75, 10.0),
+                    (20.0, 10.0),
+                    (20.0, 20.0),
+                    (10.0, 20.0),
+                    (10.0, 10.75),
+                ]
+            )
+        return [pair_polygons[0], adjusted_right], [list(pair_sources[0]), list(pair_sources[1])]
+
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_apply_local_point_touch_bridge_operator",
+        fake_point_bridge_operator,
+    )
+
+    result_polygons, result_sources = cleaning_footprints._regularize_coverage_for_meshing(
+        polygons,
+        [[0], [1]],
+        min_segment_length=0.5,
+        grid=0.03125,
+        min_area=0.0,
+        min_hole_area=0.0,
+        diagnostics=diagnostics,
+    )
+
+    signature = cleaning_footprints._coverage_defect_signature(
+        result_polygons,
+        target_scale=0.5,
+    )
+    assert signature.pair_issue_count == 0
+    assert signature.short_edge_count == 0
+    assert signature.min_edge_length >= 0.75
+    assert result_sources == [[0], [1]]
+    operator_applied = diagnostics["coverage_meshing_regularization_operator_applied"]
+    assert operator_applied == {"coverage_pair_issue_point_residual_0.750": 1}
+
+
+def test_regularize_coverage_for_meshing_runs_direct_pair_rescue_on_current_best(
+    monkeypatch,
+):
+    original_polygons = [box(0.0, 0.0, 10.0, 10.0), box(10.0, 10.0, 20.0, 20.0)]
+    best_polygons = [
+        box(0.0, 0.0, 10.0, 10.0),
+        Polygon(
+            [
+                (10.5, 10.0),
+                (20.0, 10.0),
+                (20.0, 20.0),
+                (10.0, 20.0),
+                (10.0, 10.5),
+            ]
+        ),
+    ]
+    diagnostics = cleaning_footprints._empty_diagnostics(2)
+    diagnostics["collect_stage_metrics"] = False
+    diagnostics["enable_logging"] = False
+
+    global_candidate = cleaning_footprints._CoverageSimplifyCandidate(
+        label="global",
+        polygons=best_polygons,
+        source_map=[[0], [1]],
+        signature=cleaning_footprints._coverage_defect_signature(
+            best_polygons,
+            target_scale=0.5,
+        ),
+        difference_metrics={
+            "reference_minus_candidate_area": 0.0,
+            "candidate_minus_reference_area": 0.0,
+            "symmetric_difference_area": 0.0,
+            "union_area_delta": 0.0,
+        },
+        change_outside_edit_zone=0.0,
+        edit_zone_area=25.0,
+        area_balance_budget=1.0,
+        patch_count=1,
+        patch_applied_count=1,
+        operator_attempts={"coverage_simplify_global": 1},
+        operator_applied={"coverage_simplify_global": 1},
+    )
+
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_coverage_short_edge_graphically",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_coverage_globally",
+        lambda *args, **kwargs: global_candidate,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_should_attempt_meshing_local_candidate",
+        lambda *args, **kwargs: False,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_coverage_locally",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_coverage_residual_scale_polygons",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_polygons_for_meshing",
+        lambda polygons, sources, **kwargs: (polygons, sources),
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_regularize_low_clearance_polygons",
+        lambda polygons, sources, **kwargs: (polygons, sources),
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_iter_pair_issue_bridge_radii",
+        lambda **kwargs: (),
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_iter_pair_issue_shrink_radii",
+        lambda **kwargs: (),
+    )
+
+    captured_calls: list[tuple[tuple[int, ...], list[list[int]]]] = []
+
+    def fake_direct_pair_issue_cluster_candidates(
+        subset_polygons,
+        subset_sources,
+        **kwargs,
+    ):
+        captured_calls.append(
+            (
+                cleaning_footprints._polygon_sequence_key(subset_polygons),
+                subset_sources,
+            )
+        )
+        return []
+
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_direct_pair_issue_cluster_candidates",
+        fake_direct_pair_issue_cluster_candidates,
+    )
+
+    cleaning_footprints._regularize_coverage_for_meshing(
+        original_polygons,
+        [[0], [1]],
+        min_segment_length=0.5,
+        grid=0.03125,
+        min_area=0.0,
+        min_hole_area=0.0,
+        diagnostics=diagnostics,
+    )
+
+    assert captured_calls[0][0] == cleaning_footprints._polygon_sequence_key(best_polygons)
+    assert captured_calls[0][1] == [[0], [1]]
+
+
+def test_regularize_coverage_for_meshing_can_use_original_direct_pair_rescue_candidates(
+    monkeypatch,
+):
+    original_polygons = [box(0.0, 0.0, 10.0, 10.0), box(10.0, 10.0, 20.0, 20.0)]
+    best_polygons = [
+        box(0.0, 0.0, 10.0, 10.0),
+        Polygon(
+            [
+                (10.5, 10.0),
+                (20.0, 10.0),
+                (20.0, 20.0),
+                (10.0, 20.0),
+                (10.0, 10.5),
+            ]
+        ),
+    ]
+    original_rescue_polygons = [box(0.0, 0.0, 10.0, 10.0), box(10.75, 10.75, 20.0, 20.0)]
+    diagnostics = cleaning_footprints._empty_diagnostics(2)
+    diagnostics["collect_stage_metrics"] = False
+    diagnostics["enable_logging"] = False
+
+    global_candidate = cleaning_footprints._CoverageSimplifyCandidate(
+        label="global",
+        polygons=best_polygons,
+        source_map=[[0], [1]],
+        signature=cleaning_footprints._coverage_defect_signature(
+            best_polygons,
+            target_scale=0.5,
+        ),
+        difference_metrics={
+            "reference_minus_candidate_area": 0.0,
+            "candidate_minus_reference_area": 0.0,
+            "symmetric_difference_area": 0.0,
+            "union_area_delta": 0.0,
+        },
+        change_outside_edit_zone=0.0,
+        edit_zone_area=25.0,
+        area_balance_budget=1.0,
+        patch_count=1,
+        patch_applied_count=1,
+        operator_attempts={"coverage_simplify_global": 1},
+        operator_applied={"coverage_simplify_global": 1},
+    )
+
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_coverage_short_edge_graphically",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_coverage_globally",
+        lambda *args, **kwargs: global_candidate,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_should_attempt_meshing_local_candidate",
+        lambda *args, **kwargs: False,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_coverage_locally",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_coverage_residual_scale_polygons",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_polygons_for_meshing",
+        lambda polygons, sources, **kwargs: (polygons, sources),
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_regularize_low_clearance_polygons",
+        lambda polygons, sources, **kwargs: (polygons, sources),
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_iter_pair_issue_bridge_radii",
+        lambda **kwargs: (),
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_iter_pair_issue_shrink_radii",
+        lambda **kwargs: (),
+    )
+
+    def fake_direct_pair_issue_cluster_candidates(
+        subset_polygons,
+        subset_sources,
+        **kwargs,
+    ):
+        if (
+            cleaning_footprints._polygon_sequence_key(subset_polygons)
+            == cleaning_footprints._polygon_sequence_key(best_polygons)
+        ):
+            return []
+        if (
+            cleaning_footprints._polygon_sequence_key(subset_polygons)
+            == cleaning_footprints._polygon_sequence_key(original_polygons)
+        ):
+            return [
+                (
+                    (0, 1),
+                    "coverage_pair_issue_bridge_residual_0.250",
+                    original_rescue_polygons,
+                    [[0], [1]],
+                )
+            ]
+        return []
+
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_direct_pair_issue_cluster_candidates",
+        fake_direct_pair_issue_cluster_candidates,
+    )
+
+    result_polygons, result_sources = cleaning_footprints._regularize_coverage_for_meshing(
+        original_polygons,
+        [[0], [1]],
+        min_segment_length=0.5,
+        grid=0.03125,
+        min_area=0.0,
+        min_hole_area=0.0,
+        diagnostics=diagnostics,
+    )
+
+    assert cleaning_footprints._polygon_sequence_key(
+        result_polygons
+    ) == cleaning_footprints._polygon_sequence_key(original_rescue_polygons)
+    assert result_sources == [[0], [1]]
+    operator_applied = diagnostics["coverage_meshing_regularization_operator_applied"]
+    assert operator_applied["coverage_simplify_global"] == 1
+    assert operator_applied["coverage_pair_issue_bridge_residual_0.250"] == 1
+
+
+def test_regularize_coverage_for_meshing_rejects_original_direct_pair_rescue_with_residual_pairs(
+    monkeypatch,
+):
+    original_polygons = [box(0.0, 0.0, 10.0, 10.0), box(10.0, 10.0, 20.0, 20.0)]
+    best_polygons = [
+        box(0.0, 0.0, 10.0, 10.0),
+        Polygon(
+            [
+                (10.5, 10.0),
+                (20.0, 10.0),
+                (20.0, 20.0),
+                (10.0, 20.0),
+                (10.0, 10.5),
+            ]
+        ),
+    ]
+    diagnostics = cleaning_footprints._empty_diagnostics(2)
+    diagnostics["collect_stage_metrics"] = False
+    diagnostics["enable_logging"] = False
+
+    global_candidate = cleaning_footprints._CoverageSimplifyCandidate(
+        label="global",
+        polygons=best_polygons,
+        source_map=[[0], [1]],
+        signature=cleaning_footprints._coverage_defect_signature(
+            best_polygons,
+            target_scale=0.5,
+        ),
+        difference_metrics={
+            "reference_minus_candidate_area": 0.0,
+            "candidate_minus_reference_area": 0.0,
+            "symmetric_difference_area": 0.0,
+            "union_area_delta": 0.0,
+        },
+        change_outside_edit_zone=0.0,
+        edit_zone_area=25.0,
+        area_balance_budget=1.0,
+        patch_count=1,
+        patch_applied_count=1,
+        operator_attempts={"coverage_simplify_global": 1},
+        operator_applied={"coverage_simplify_global": 1},
+    )
+
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_coverage_short_edge_graphically",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_coverage_globally",
+        lambda *args, **kwargs: global_candidate,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_should_attempt_meshing_local_candidate",
+        lambda *args, **kwargs: False,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_coverage_locally",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_coverage_residual_scale_polygons",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_polygons_for_meshing",
+        lambda polygons, sources, **kwargs: (polygons, sources),
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_regularize_low_clearance_polygons",
+        lambda polygons, sources, **kwargs: (polygons, sources),
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_iter_pair_issue_bridge_radii",
+        lambda **kwargs: (),
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_iter_pair_issue_shrink_radii",
+        lambda **kwargs: (),
+    )
+
+    def fake_direct_pair_issue_cluster_candidates(
+        subset_polygons,
+        subset_sources,
+        **kwargs,
+    ):
+        if (
+            cleaning_footprints._polygon_sequence_key(subset_polygons)
+            == cleaning_footprints._polygon_sequence_key(best_polygons)
+        ):
+            return []
+        if (
+            cleaning_footprints._polygon_sequence_key(subset_polygons)
+            == cleaning_footprints._polygon_sequence_key(original_polygons)
+        ):
+            return [
+                (
+                    (0, 1),
+                    "coverage_pair_issue_bridge_residual_0.250",
+                    original_polygons,
+                    [[0], [1]],
+                )
+            ]
+        return []
+
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_direct_pair_issue_cluster_candidates",
+        fake_direct_pair_issue_cluster_candidates,
+    )
+
+    result_polygons, result_sources = cleaning_footprints._regularize_coverage_for_meshing(
+        original_polygons,
+        [[0], [1]],
+        min_segment_length=0.5,
+        grid=0.03125,
+        min_area=0.0,
+        min_hole_area=0.0,
+        diagnostics=diagnostics,
+    )
+
+    assert cleaning_footprints._polygon_sequence_key(
+        result_polygons
+    ) == cleaning_footprints._polygon_sequence_key(best_polygons)
+    assert result_sources == [[0], [1]]
+    assert diagnostics["coverage_meshing_regularization_operator_applied"] == {
+        "coverage_simplify_global": 1
+    }
+
+
 def test_regularize_coverage_for_meshing_keeps_raw_rescue_when_postprocess_regresses(
     monkeypatch,
 ):
@@ -2864,6 +4109,234 @@ def test_regularize_coverage_for_meshing_runs_pair_rescue_even_without_primary_c
     )
 
 
+def test_regularize_coverage_for_meshing_retries_ring_contacts_after_pair_rescue(
+    monkeypatch,
+):
+    original_polygons = [box(0.0, 0.0, 10.0, 10.0), box(10.0, 10.0, 20.0, 20.0)]
+    rescue_polygons = [
+        box(0.0, 0.0, 10.0, 10.0),
+        Polygon(
+            [
+                (10.0, 10.0),
+                (15.0, 10.0),
+                (20.0, 10.0),
+                (20.0, 20.0),
+                (10.0, 20.0),
+                (10.0, 10.0),
+            ]
+        ),
+    ]
+    fixed_polygons = [box(0.0, 0.0, 10.0, 10.0), box(10.5, 10.5, 20.0, 20.0)]
+    diagnostics = cleaning_footprints._empty_diagnostics(2)
+    diagnostics["collect_stage_metrics"] = False
+    diagnostics["enable_logging"] = False
+
+    original_signature = cleaning_footprints._CoverageDefectSignature(
+        min_clearance=0.25,
+        pair_issue_count=1,
+        point_touch_count=0,
+        close_pair_count=1,
+        min_pair_clearance=0.25,
+        short_edge_count=1,
+        min_edge_length=0.25,
+        vertex_count=8,
+        ring_contact_count=1,
+    )
+    rescue_signature = cleaning_footprints._CoverageDefectSignature(
+        min_clearance=0.25,
+        pair_issue_count=0,
+        point_touch_count=0,
+        close_pair_count=0,
+        min_pair_clearance=None,
+        short_edge_count=1,
+        min_edge_length=0.25,
+        vertex_count=11,
+        ring_contact_count=1,
+    )
+    fixed_signature = cleaning_footprints._CoverageDefectSignature(
+        min_clearance=0.5,
+        pair_issue_count=0,
+        point_touch_count=0,
+        close_pair_count=0,
+        min_pair_clearance=None,
+        short_edge_count=0,
+        min_edge_length=0.5,
+        vertex_count=8,
+        ring_contact_count=0,
+    )
+
+    def _signature_for(polygons):
+        if len(polygons) != 2:
+            raise KeyError("unexpected polygon count")
+        if polygons[0].equals_exact(original_polygons[0], 0.0) and polygons[
+            1
+        ].equals_exact(original_polygons[1], 0.0):
+            return original_signature
+        if polygons[0].equals_exact(rescue_polygons[0], 0.0) and polygons[
+            1
+        ].equals_exact(rescue_polygons[1], 0.0):
+            return rescue_signature
+        if polygons[0].equals_exact(fixed_polygons[0], 0.0) and polygons[
+            1
+        ].equals_exact(fixed_polygons[1], 0.0):
+            return fixed_signature
+        raise KeyError("unexpected polygon sequence")
+
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_cached_coverage_defect_signature",
+        lambda cache, polygons, **kwargs: _signature_for(polygons),
+    )
+
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_coverage_short_edge_graphically",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_coverage_globally",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_coverage_locally",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_coverage_residual_scale_polygons",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_polygons_for_meshing",
+        lambda polygons, sources, **kwargs: (polygons, sources),
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_regularize_low_clearance_polygons",
+        lambda polygons, sources, **kwargs: (polygons, sources),
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_cached_pair_issue_candidates",
+        lambda *args, **kwargs: [],
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_direct_pair_issue_cluster_candidates",
+        lambda *args, **kwargs: [
+            (
+                (0, 1),
+                "coverage_pair_issue_bridge_residual_0.250",
+                rescue_polygons,
+                [[0], [1]],
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_cached_difference_area_metrics",
+        lambda *args, **kwargs: {
+            "reference_minus_candidate_area": 0.0,
+            "candidate_minus_reference_area": 0.0,
+            "symmetric_difference_area": 0.0,
+            "union_area_delta": 0.0,
+        },
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_polygon_ring_boundary_contact_count",
+        lambda polygon: 1 if polygon is rescue_polygons[1] else 0,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_regularize_ring_contact_polygon",
+        lambda polygon, **kwargs: [fixed_polygons[1]]
+        if polygon is rescue_polygons[1]
+        else [polygon],
+    )
+
+    result_polygons, result_sources = cleaning_footprints._regularize_coverage_for_meshing(
+        original_polygons,
+        [[0], [1]],
+        min_segment_length=0.5,
+        grid=0.03125,
+        min_area=0.0,
+        min_hole_area=0.0,
+        diagnostics=diagnostics,
+    )
+
+    assert len(result_polygons) == len(fixed_polygons)
+    assert result_polygons[0].equals(fixed_polygons[0])
+    assert result_polygons[1].equals(fixed_polygons[1])
+    assert result_sources == [[0], [1]]
+    assert diagnostics["coverage_meshing_regularization_selected_branch"] == (
+        "residual_pair_issue_rescue"
+    )
+    assert diagnostics["coverage_meshing_regularization_pair_issue_count_after"] == 0
+    assert diagnostics["coverage_meshing_regularization_ring_contact_count_after"] == 0
+
+
+def test_builder_boundary_defect_clusters_sorts_native_clusters(monkeypatch):
+    polygons = [box(float(index), 0.0, float(index) + 0.5, 0.5) for index in range(64)]
+
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_dtcc_builder",
+        SimpleNamespace(
+            boundary_defect_clusters=lambda *args, **kwargs: [
+                {
+                    "indices": [9, 4, 7],
+                    "kind": "close_pair",
+                    "short_edge_count": 2,
+                    "pair_issue_count": 1,
+                },
+                {
+                    "indices": [3, 1],
+                    "kind": "short_edge_only",
+                    "short_edge_count": 1,
+                    "pair_issue_count": 0,
+                },
+                {
+                    "indices": [8, 6],
+                    "kind": "mixed_pair_short_edge",
+                    "short_edge_count": 3,
+                    "pair_issue_count": 1,
+                },
+            ]
+        ),
+    )
+
+    descriptors = cleaning_footprints._builder_boundary_defect_clusters(
+        polygons,
+        target_scale=0.5,
+        pair_tolerance=0.75,
+    )
+
+    assert descriptors == [
+        {
+            "indices": [1, 3],
+            "kind": "short_edge_only",
+            "short_edge_count": 1,
+            "pair_issue_count": 0,
+        },
+        {
+            "indices": [4, 7, 9],
+            "kind": "close_pair",
+            "short_edge_count": 2,
+            "pair_issue_count": 1,
+        },
+        {
+            "indices": [6, 8],
+            "kind": "mixed_pair_short_edge",
+            "short_edge_count": 3,
+            "pair_issue_count": 1,
+        },
+    ]
+
+
 def test_polygon_simplify_rejects_nonlocal_changes(monkeypatch):
     polygon = Polygon(
         [
@@ -2989,6 +4462,234 @@ def test_courtyard_passage_operator_returns_hole_candidate():
     assert candidate.operator == "courtyard_passage"
     assert len(candidate.polygon.interiors) == 1
     assert candidate.edit_zone.area > 0.0
+
+
+def test_ring_contact_fill_operator_returns_local_single_polygon():
+    touching_hole = Polygon(
+        [(0, 0), (10, 0), (10, 10), (0, 10), (0, 0)],
+        [[(0, 5), (2, 4), (3, 5), (2, 6), (0, 5)]],
+    )
+    diagnostics = cleaning_footprints._empty_diagnostics(1)
+    diagnostics["collect_stage_metrics"] = False
+
+    candidate = cleaning_footprints._try_fill_ring_contact_vertices(
+        touching_hole,
+        min_clearance=0.5,
+        grid=0.03125,
+        diagnostics=diagnostics,
+    )
+
+    assert candidate is not None
+    assert candidate.operator == "ring_contact_fill"
+    assert candidate.polygon.area > touching_hole.area
+    assert not cleaning_footprints._polygon_has_ring_boundary_contacts(
+        candidate.polygon
+    )
+    assert candidate.edit_zone.area > 0.0
+    assert candidate.area_balance_budget_override is not None
+
+
+def test_ring_contact_connector_operator_returns_local_single_polygon():
+    touching_hole = Polygon(
+        [(0, 0), (10, 0), (10, 10), (0, 10), (0, 0)],
+        [[(0, 5), (2, 4), (3, 5), (2, 6), (0, 5)]],
+    )
+    diagnostics = cleaning_footprints._empty_diagnostics(1)
+    diagnostics["collect_stage_metrics"] = False
+
+    candidate = cleaning_footprints._try_ring_contact_connector_fill(
+        touching_hole,
+        min_clearance=0.5,
+        grid=0.03125,
+        diagnostics=diagnostics,
+    )
+
+    assert candidate is not None
+    assert candidate.operator == "ring_contact_connector"
+    signature = cleaning_footprints._polygon_defect_signature(
+        candidate.polygon,
+        target_scale=0.5,
+    )
+    assert signature.ring_contact_count == 0
+    assert candidate.polygon.area > touching_hole.area
+    assert candidate.edit_zone.area > 0.0
+
+
+def test_self_clearance_connector_resolves_case23_style_vertex_edge_junction():
+    polygon = cleaning_footprints.shapely.from_wkt(
+        "POLYGON ((674233.5625 6579727.8125, 674235.59375 6579719.84375, "
+        "674248.71875 6579722.9375, 674241.25 6579748.75, "
+        "674247.875 6579750.28125, 674245.25 6579759.84375, "
+        "674238.9375 6579758.3125, 674241.25 6579748.6875, "
+        "674235.875 6579747.21875, 674240.40625 6579729.46875, "
+        "674233.5625 6579727.8125))"
+    )
+    diagnostics = cleaning_footprints._empty_diagnostics(1)
+    diagnostics["collect_stage_metrics"] = False
+
+    candidate = cleaning_footprints._try_polygon_self_clearance_connector_fill(
+        polygon,
+        min_clearance=0.5,
+        grid=0.03125,
+        diagnostics=diagnostics,
+    )
+
+    assert candidate is not None
+    assert candidate.operator == "self_clearance_connector"
+    signature = cleaning_footprints._polygon_defect_signature(
+        candidate.polygon,
+        target_scale=0.5,
+    )
+    assert cleaning_footprints._signature_satisfies_scale_contract(
+        signature,
+        target_scale=0.5,
+        grid=0.03125,
+    )
+    assert candidate.edit_zone.area > 0.0
+    assert candidate.area_balance_budget_override is not None
+
+
+def test_iteratively_open_polygon_short_edges_resolves_case62_style_exterior_stub():
+    polygon = cleaning_footprints.shapely.from_wkt(
+        "POLYGON ((673576.1875 6581592.21875, 673527.65625 6581564.28125, "
+        "673527.5625 6581564.0625, 673534.34375 6581552, 673540.625 6581555.59375, "
+        "673541.8125 6581553.625, 673539.4375 6581552.21875, 673546.53125 6581539.9375, "
+        "673542.6875 6581537.6875, 673550.03125 6581524.96875, 673565.90625 6581534.21875, "
+        "673550.4375 6581561.1875, 673568.65625 6581571.65625, 673570.1875 6581575.90625, "
+        "673574.125 6581574.46875, 673573 6581570.375, 673597.03125 6581526.8125, "
+        "673585.34375 6581520.125, 673592.40625 6581508.09375, 673616.03125 6581521.71875, "
+        "673576.1875 6581592.21875))"
+    )
+    diagnostics = cleaning_footprints._empty_diagnostics(1)
+    diagnostics["collect_stage_metrics"] = False
+
+    candidate = cleaning_footprints._iteratively_open_polygon_short_edges(
+        polygon,
+        target_scale=0.5,
+        grid=0.03125,
+        diagnostics=diagnostics,
+        operator_prefix="short_edge_angle_open",
+    )
+
+    assert candidate is not None
+    signature = cleaning_footprints._polygon_defect_signature(
+        candidate.polygon,
+        target_scale=0.5,
+    )
+    assert signature.short_edge_count == 0
+    assert signature.min_edge_length is not None
+    assert signature.min_edge_length >= 0.5 - 1e-12
+
+
+def test_apply_local_polygon_repairs_resolves_case62_style_self_clearance_junction():
+    polygon = cleaning_footprints.shapely.from_wkt(
+        "POLYGON ((673578.34375 6581552.40625, 673569.71875 6581568, "
+        "673563.4375 6581564.21875, 673570.09375 6581549.90625, "
+        "673565.09375 6581547.46875, 673570.875 6581537.34375, "
+        "673574.875 6581539.625, 673577.5 6581533.46875, "
+        "673585.34375 6581537.09375, 673582.5 6581543.03125, "
+        "673574.96875 6581539.5, 673570.90625 6581547.90625, "
+        "673578.34375 6581552.40625))"
+    )
+    diagnostics = cleaning_footprints._empty_diagnostics(1)
+    diagnostics["collect_stage_metrics"] = False
+
+    polygons, source_map = cleaning_footprints._apply_local_polygon_repairs(
+        [polygon],
+        [[10]],
+        min_segment_length=0.5,
+        grid=0.03125,
+        min_area=0.0,
+        min_hole_area=0.0,
+        diagnostics=diagnostics,
+        stage_prefix="post_contact_local_defect_repair",
+        enable_defect_operators=True,
+        enable_simplify_operators=True,
+    )
+
+    assert source_map == [[10]]
+    signature = cleaning_footprints._polygon_defect_signature(
+        polygons[0],
+        target_scale=0.5,
+    )
+    assert cleaning_footprints._signature_satisfies_scale_contract(
+        signature,
+        target_scale=0.5,
+        grid=0.03125,
+    )
+    assert diagnostics["post_contact_local_defect_repair_applied"] is True
+    assert any(
+        operator.startswith("self_clearance_connector")
+        for operator in diagnostics["post_contact_local_defect_repair_operator_applied"]
+    )
+
+
+def test_apply_local_polygon_repairs_resolves_case62_hole_hole_ring_contact():
+    polygon = cleaning_footprints.shapely.from_wkt(
+        "POLYGON ((673804.96875 6581615.5625, 673765.21875 6581592.6875, "
+        "673745.46875 6581581.65625, 673719.90625 6581567.15625, 673752.53125 6581509.96875, "
+        "673792.53125 6581532, 673858 6581567.40625, 673923.4375 6581603.71875, "
+        "673889.375 6581664.21875, 673864.0625 6581649.09375, 673838.15625 6581634.3125, "
+        "673804.96875 6581615.5625), (673850.8125 6581624, 673872.125 6581635.4375, "
+        "673879.8125 6581618.875, 673885 6581609.78125, 673899.46875 6581617.96875, "
+        "673904.46875 6581609.09375, 673877.0625 6581593.90625, 673867.1875 6581611.59375, "
+        "673855.0625 6581604.03125, 673854.84375 6581604.4375, 673842.59375 6581596.71875, "
+        "673844 6581594, 673829.78125 6581586.28125, 673827.78125 6581589.78125, "
+        "673821.90625 6581586.75, 673812.15625 6581603.3125, 673818.84375 6581606.875, "
+        "673823.875 6581597.96875, 673835.9375 6581604.46875, 673830.8125 6581613.3125, "
+        "673840.125 6581618.28125, 673845 6581609.34375, 673855.6875 6581615.125, "
+        "673850.8125 6581624), (673885.21875 6581643.125, 673872.125 6581635.4375, "
+        "673869.09375 6581640.5625, 673882.375 6581648.15625, 673885.21875 6581643.125), "
+        "(673855.6875 6581593.25, 673863.9375 6581597.8125, 673862.0625 6581601.40625, "
+        "673866.6875 6581604.03125, 673873.28125 6581591.8125, 673855.59375 6581582.03125, "
+        "673849.125 6581594.125, 673853.84375 6581596.78125, 673855.6875 6581593.25), "
+        "(673750.09375 6581541.03125, 673753.8125 6581543.15625, 673756.125 6581539.03125, "
+        "673770.8125 6581547.375, 673766.3125 6581555.65625, 673775.5625 6581560.90625, "
+        "673772.5625 6581565.71875, 673763.65625 6581560.59375, 673756.625 6581573.5625, "
+        "673764.90625 6581578, 673760.5 6581585.09375, 673763.8125 6581586.90625, "
+        "673773.21875 6581570.71875, 673777.125 6581572.96875, 673771.84375 6581581.71875, "
+        "673775.8125 6581583.84375, 673781 6581575.21875, 673793.375 6581582.34375, "
+        "673788.375 6581590.5625, 673808.3125 6581601.25, 673811.71875 6581595.65625, "
+        "673795.875 6581585.6875, 673801.8125 6581575.5, 673814.125 6581582.3125, "
+        "673818.6875 6581574.28125, 673840.0625 6581586.15625, 673845.59375 6581576.5, "
+        "673833.90625 6581570, 673831.6875 6581573.625, 673825.65625 6581570.40625, "
+        "673827.75 6581566.59375, 673785.84375 6581543.40625, 673783.75 6581547, "
+        "673773.9375 6581541.5625, 673775.90625 6581537.90625, 673757.6875 6581527.78125, "
+        "673750.09375 6581541.03125), (673762.875 6581553.71875, 673747.90625 6581544.90625, "
+        "673737.40625 6581563.25, 673752.0625 6581571.09375, 673762.875 6581553.71875))"
+    )
+    diagnostics = cleaning_footprints._empty_diagnostics(1)
+    diagnostics["collect_stage_metrics"] = False
+
+    polygons, source_map = cleaning_footprints._apply_local_polygon_repairs(
+        [polygon],
+        [[26]],
+        min_segment_length=0.5,
+        grid=0.03125,
+        min_area=0.0,
+        min_hole_area=0.0,
+        diagnostics=diagnostics,
+        stage_prefix="post_contact_local_defect_repair",
+        enable_defect_operators=True,
+        enable_simplify_operators=True,
+    )
+
+    assert source_map == [[26]]
+    signature = cleaning_footprints._polygon_defect_signature(
+        polygons[0],
+        target_scale=0.5,
+    )
+    assert signature.ring_contact_count == 0
+    assert signature.short_edge_count == 0
+    assert diagnostics["post_contact_local_defect_repair_applied"] is True
+    assert any(
+        operator.startswith("ring_contact_connector")
+        for operator in diagnostics["post_contact_local_defect_repair_operator_applied"]
+    )
+    assert any(
+        "short_edge_angle_open" in operator
+        for operator in diagnostics["post_contact_local_defect_repair_operator_applied"]
+    )
 
 
 def test_output_canonicalization_falls_back_on_area_imbalanced_snap(monkeypatch):

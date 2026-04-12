@@ -2,6 +2,7 @@ from collections import Counter, defaultdict
 import subprocess
 import sys
 import textwrap
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -192,6 +193,470 @@ def test_condition_meshing_footprints_regularizes_touching_holes():
     normalized = surfaces[0].to_polygon(simplify=0.0)
     assert not meshes_module._polygon_has_ring_boundary_contacts(normalized)
     assert diagnostics.get("mesher_regularized_polygon_count", 0) == 0
+
+
+def test_normalize_mesher_ready_coverage_revalidates_contract(monkeypatch):
+    polygons = [box(0.0, 0.0, 2.0, 2.0), box(2.1, 0.0, 4.1, 2.0)]
+    source_map = [[0], [1]]
+    calls: dict[str, object] = {}
+
+    def fake_normalize(polygon, *, declared_scale, diagnostics=None):
+        return [polygon]
+
+    def fake_condition_polygon_coverage(polygons, *, source_map, options):
+        calls["polygons"] = list(polygons)
+        calls["source_map"] = [list(indices) for indices in source_map]
+        calls["options"] = options
+        return meshes_module.cleaning_footprints.ConditioningResult(
+            polygons=[box(0.0, 0.0, 2.0, 2.0), box(2.7, 0.0, 4.7, 2.0)],
+            source_map=[[0], [1]],
+            diagnostics={
+                "geos_exception_count": 0,
+                "geos_exception_messages": [],
+                "coverage_meshing_regularization_operator_applied": {"fake_rescue": 1},
+            },
+        )
+
+    monkeypatch.setattr(meshes_module, "_normalize_mesher_ready_polygon", fake_normalize)
+    monkeypatch.setattr(
+        meshes_module,
+        "_coverage_mesher_segment_graph_error",
+        lambda polygons: None,
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "condition_polygon_coverage",
+        fake_condition_polygon_coverage,
+    )
+
+    diagnostics = {"geos_exception_count": 0, "geos_exception_messages": []}
+    normalized_polygons, normalized_sources = meshes_module._normalize_mesher_ready_coverage(
+        polygons,
+        source_map,
+        declared_scale=0.5,
+        min_hole_area=0.25,
+        diagnostics=diagnostics,
+        cleaning_diagnostics=False,
+    )
+
+    signature = meshes_module.cleaning_footprints._coverage_defect_signature(
+        normalized_polygons,
+        target_scale=0.5,
+    )
+
+    assert calls["source_map"] == source_map
+    assert calls["options"].merge_distance == 0.0
+    assert calls["options"].min_feature_size == pytest.approx(0.5)
+    assert normalized_sources == source_map
+    assert signature.pair_issue_count == 0
+    assert diagnostics["mesher_ready_coverage_revalidation_attempted"] is True
+    assert diagnostics["mesher_ready_coverage_revalidation_applied"] is True
+    assert diagnostics["mesher_ready_coverage_segment_graph_valid_after"] is True
+    assert diagnostics["mesher_ready_coverage_revalidation_operator_applied"] == {
+        "fake_rescue": 1
+    }
+
+
+def test_normalize_mesher_ready_coverage_skips_clean_contract(monkeypatch):
+    polygons = [box(0.0, 0.0, 2.0, 2.0), box(3.0, 0.0, 5.0, 2.0)]
+    source_map = [[0], [1]]
+
+    monkeypatch.setattr(
+        meshes_module,
+        "_normalize_mesher_ready_polygon",
+        lambda polygon, *, declared_scale, diagnostics=None: [polygon],
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_coverage_mesher_segment_graph_error",
+        lambda polygons: None,
+    )
+
+    def fail_condition_polygon_coverage(*args, **kwargs):
+        raise AssertionError("coverage revalidation should not run for clean coverage")
+
+    monkeypatch.setattr(
+        meshes_module,
+        "condition_polygon_coverage",
+        fail_condition_polygon_coverage,
+    )
+
+    diagnostics = {"geos_exception_count": 0, "geos_exception_messages": []}
+    normalized_polygons, normalized_sources = meshes_module._normalize_mesher_ready_coverage(
+        polygons,
+        source_map,
+        declared_scale=0.5,
+        min_hole_area=0.25,
+        diagnostics=diagnostics,
+        cleaning_diagnostics=False,
+    )
+
+    assert normalized_polygons == polygons
+    assert normalized_sources == source_map
+    assert diagnostics["mesher_ready_coverage_revalidation_attempted"] is False
+    assert diagnostics["mesher_ready_coverage_revalidation_applied"] is False
+    assert diagnostics["mesher_ready_coverage_segment_graph_valid_after"] is True
+
+
+def test_normalize_mesher_ready_coverage_rejects_bridge_revalidation_for_pair_clean_input(
+    monkeypatch,
+):
+    polygons = [
+        Polygon(
+            [
+                (0.0, 0.0),
+                (2.0, 0.0),
+                (2.0, 2.0),
+                (1.9, 2.0),
+                (1.9, 1.9),
+                (0.0, 1.9),
+                (0.0, 0.0),
+            ]
+        ),
+        box(3.0, 0.0, 5.0, 2.0),
+    ]
+    source_map = [[0], [1]]
+
+    monkeypatch.setattr(
+        meshes_module,
+        "_normalize_mesher_ready_polygon",
+        lambda polygon, *, declared_scale, diagnostics=None: [polygon],
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_coverage_mesher_segment_graph_error",
+        lambda polygons: None,
+    )
+
+    def fake_condition_polygon_coverage(polygons, *, source_map, options):
+        return meshes_module.cleaning_footprints.ConditioningResult(
+            polygons=[box(0.0, 0.0, 2.0, 2.0), box(2.6, 0.0, 4.6, 2.0)],
+            source_map=[[0], [1]],
+            diagnostics={
+                "geos_exception_count": 0,
+                "geos_exception_messages": [],
+                "coverage_meshing_regularization_operator_applied": {
+                    "coverage_pair_issue_bridge_residual_0.062": 1
+                },
+            },
+        )
+
+    monkeypatch.setattr(
+        meshes_module,
+        "condition_polygon_coverage",
+        fake_condition_polygon_coverage,
+    )
+
+    diagnostics = {"geos_exception_count": 0, "geos_exception_messages": []}
+    normalized_polygons, normalized_sources = meshes_module._normalize_mesher_ready_coverage(
+        polygons,
+        source_map,
+        declared_scale=0.5,
+        min_hole_area=0.25,
+        diagnostics=diagnostics,
+        cleaning_diagnostics=False,
+    )
+
+    assert normalized_polygons == polygons
+    assert normalized_sources == source_map
+    assert diagnostics["mesher_ready_coverage_revalidation_attempted"] is True
+    assert diagnostics["mesher_ready_coverage_revalidation_applied"] is False
+    assert diagnostics["mesher_ready_coverage_revalidation_rejected_bridge_operator"] is True
+
+
+def test_normalize_mesher_ready_coverage_revalidates_invalid_segment_graph(
+    monkeypatch,
+):
+    polygons = [box(0.0, 0.0, 2.0, 2.0), box(3.0, 0.0, 5.0, 2.0)]
+    source_map = [[0], [1]]
+
+    monkeypatch.setattr(
+        meshes_module,
+        "_normalize_mesher_ready_polygon",
+        lambda polygon, *, declared_scale, diagnostics=None: [polygon],
+    )
+
+    def fake_graph_error(polygons):
+        if polygons[1].bounds[0] >= 3.5:
+            return None
+        return "intersecting segments in segment graph"
+
+    def fake_condition_polygon_coverage(polygons, *, source_map, options):
+        return meshes_module.cleaning_footprints.ConditioningResult(
+            polygons=[box(0.0, 0.0, 2.0, 2.0), box(3.6, 0.0, 5.6, 2.0)],
+            source_map=[[0], [1]],
+            diagnostics={
+                "geos_exception_count": 0,
+                "geos_exception_messages": [],
+                "coverage_meshing_regularization_operator_applied": {"fake_rescue": 1},
+            },
+        )
+
+    monkeypatch.setattr(
+        meshes_module,
+        "_coverage_mesher_segment_graph_error",
+        fake_graph_error,
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "condition_polygon_coverage",
+        fake_condition_polygon_coverage,
+    )
+
+    diagnostics = {"geos_exception_count": 0, "geos_exception_messages": []}
+    normalized_polygons, normalized_sources = meshes_module._normalize_mesher_ready_coverage(
+        polygons,
+        source_map,
+        declared_scale=0.5,
+        min_hole_area=0.25,
+        diagnostics=diagnostics,
+        cleaning_diagnostics=False,
+    )
+
+    assert normalized_sources == source_map
+    assert normalized_polygons[1].bounds[0] == pytest.approx(3.6)
+    assert diagnostics["mesher_ready_coverage_revalidation_attempted"] is True
+    assert diagnostics["mesher_ready_coverage_revalidation_applied"] is True
+    assert diagnostics["mesher_ready_coverage_segment_graph_valid_before"] is False
+    assert diagnostics["mesher_ready_coverage_segment_graph_valid_after"] is True
+
+
+def test_normalize_mesher_ready_coverage_rejects_insufficient_partial_clearance_gain(
+    monkeypatch,
+):
+    polygons = [
+        Polygon(
+            [
+                (0.0, 0.0),
+                (3.0, 0.0),
+                (1.6, 1.6),
+                (3.0, 1.9),
+                (2.5, 3.8),
+                (1.3, 3.5),
+                (1.8, 1.8),
+                (0.6, 1.5),
+                (0.0, 0.0),
+            ]
+        ),
+        box(5.0, 0.0, 7.0, 2.0),
+    ]
+    source_map = [[0], [1]]
+
+    monkeypatch.setattr(
+        meshes_module,
+        "_normalize_mesher_ready_polygon",
+        lambda polygon, *, declared_scale, diagnostics=None: [polygon],
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_coverage_mesher_segment_graph_error",
+        lambda polygons: None,
+    )
+
+    def fake_condition_polygon_coverage(polygons, *, source_map, options):
+        improved = Polygon(
+            [
+                (0.0, 0.0),
+                (3.0, 0.0),
+                (1.65, 1.55),
+                (3.0, 1.9),
+                (2.5, 3.8),
+                (1.3, 3.5),
+                (1.8, 1.85),
+                (0.6, 1.5),
+                (0.0, 0.0),
+            ]
+        )
+        return meshes_module.cleaning_footprints.ConditioningResult(
+            polygons=[improved, box(5.0, 0.0, 7.0, 2.0)],
+            source_map=[[0], [1]],
+            diagnostics={
+                "geos_exception_count": 0,
+                "geos_exception_messages": [],
+                "coverage_meshing_regularization_operator_applied": {},
+            },
+        )
+
+    monkeypatch.setattr(
+        meshes_module,
+        "condition_polygon_coverage",
+        fake_condition_polygon_coverage,
+    )
+
+    diagnostics = {"geos_exception_count": 0, "geos_exception_messages": []}
+    normalized_polygons, normalized_sources = meshes_module._normalize_mesher_ready_coverage(
+        polygons,
+        source_map,
+        declared_scale=0.5,
+        min_hole_area=0.25,
+        diagnostics=diagnostics,
+        cleaning_diagnostics=False,
+    )
+
+    assert normalized_polygons == polygons
+    assert normalized_sources == source_map
+    assert diagnostics["mesher_ready_coverage_revalidation_attempted"] is True
+    assert diagnostics["mesher_ready_coverage_revalidation_applied"] is False
+    assert (
+        diagnostics[
+            "mesher_ready_coverage_revalidation_rejected_insufficient_clearance_gain"
+        ]
+        is True
+    )
+
+
+def test_conditioned_footprint_contract_audit_passes_scale_clean_output():
+    contract = meshes_module._conditioned_footprint_contract_audit(
+        surfaces=[make_surface(box(0.0, 0.0, 10.0, 10.0), 8.0)],
+        declared_scale=0.5,
+        diagnostics={"geos_exception_count": 0},
+    )
+
+    assert contract["status"] == "pass"
+    assert contract["requirements"]["scale_contract_satisfied"] is True
+    assert contract["requirements"]["no_short_edges"] is True
+    assert contract["metrics"]["pair_issue_count"] == 0
+    assert contract["requirements"]["mesher_segment_graph_valid"] is True
+
+
+def test_conditioned_footprint_contract_audit_fails_scale_contract():
+    polygon = Polygon(
+        [
+            (0.0, 0.0),
+            (4.0, 0.0),
+            (4.0, 4.0),
+            (2.0, 4.0),
+            (2.0, 3.9),
+            (1.9, 3.9),
+            (1.9, 4.0),
+            (0.0, 4.0),
+            (0.0, 0.0),
+        ]
+    )
+
+    contract = meshes_module._conditioned_footprint_contract_audit(
+        surfaces=[make_surface(polygon, 8.0)],
+        declared_scale=0.5,
+        diagnostics={"geos_exception_count": 0},
+    )
+
+    assert contract["status"] == "fail"
+    assert contract["requirements"]["scale_contract_satisfied"] is False
+    assert contract["requirements"]["no_short_edges"] is False
+    assert any("scale contract" in message for message in contract["errors"])
+
+
+def test_conditioned_footprint_contract_audit_reports_invalid_mesher_segment_graph(
+    monkeypatch,
+):
+    graph = object()
+    monkeypatch.setattr(
+        meshes_module,
+        "dtcc_mesher",
+        SimpleNamespace(
+            Coverage=lambda polygons, markers: SimpleNamespace(graph=lambda: graph),
+            validate_coverage_graph=lambda candidate_graph: (_ for _ in ()).throw(
+                RuntimeError("intersecting segments in segment graph")
+            ),
+        ),
+    )
+
+    contract = meshes_module._conditioned_footprint_contract_audit(
+        surfaces=[make_surface(box(0.0, 0.0, 10.0, 10.0), 8.0)],
+        declared_scale=0.5,
+        diagnostics={"geos_exception_count": 0},
+    )
+
+    assert contract["status"] == "fail"
+    assert contract["requirements"]["mesher_segment_graph_valid"] is False
+    assert "segment graph" in contract["metrics"]["mesher_segment_graph_error"]
+
+
+def test_triangle_mesh_contract_from_audit_warns_on_subscale_edge_tail():
+    mesh = Mesh(
+        vertices=np.array(
+            [
+                [0.0, 0.0, 0.0],
+                [10.0, 0.0, 0.0],
+                [10.0, 10.0, 0.0],
+                [0.0, 10.0, 0.0],
+                [1.0e-5, 1.0e-5, 0.0],
+            ]
+        ),
+        faces=np.array(
+            [
+                [0, 1, 4],
+                [1, 2, 4],
+                [2, 3, 4],
+                [3, 0, 4],
+            ],
+            dtype=int,
+        ),
+        markers=np.zeros(4, dtype=int),
+    )
+
+    contract = meshes_module._triangle_mesh_contract_from_audit(
+        meshes_module._triangle_mesh_audit(mesh),
+        reference_length=4.0,
+        require_markers=True,
+        stage_label="Ground mesh",
+    )
+
+    assert contract["status"] == "warn"
+    assert contract["requirements"]["face_markers_present"] is True
+    assert any("declared meshing scale" in message for message in contract["warnings"])
+
+
+def test_tetgen_plc_contract_from_audit_reports_precheck_failures():
+    combined_surface = meshes_module._triangle_mesh_audit(
+        Mesh(
+            vertices=np.array(
+                [
+                    [0.0, 0.0, 0.0],
+                    [2.0, 0.0, 0.0],
+                    [2.0, 2.0, 0.0],
+                    [0.0, 2.0, 0.0],
+                    [1.0e-4, 1.0e-4, 0.0],
+                ]
+            ),
+            faces=np.array(
+                [
+                    [0, 1, 4],
+                    [1, 2, 4],
+                    [2, 3, 4],
+                    [3, 0, 4],
+                ],
+                dtype=int,
+            ),
+            markers=np.empty((0,), dtype=int),
+        )
+    )
+    plc_audit = {
+        "num_boundary_facets": 5,
+        "num_boundary_triangles": 5,
+        "precheck": {
+            "ok": False,
+            "error_count": 1,
+            "warning_count": 1,
+            "errors": ["Surface shell contains duplicate triangles."],
+            "warnings": ["Surface shell minimum triangle quality is very low (0.01)."],
+            "min_edge_length": 0.1,
+            "median_edge_length": 2.0,
+            "min_triangle_quality": 0.01,
+            "max_triangle_aspect_ratio": 120.0,
+        },
+        "combined_surface": combined_surface,
+    }
+
+    contract = meshes_module._tetgen_plc_contract_from_audit(
+        plc_audit,
+        reference_length=1.0,
+    )
+
+    assert contract["status"] == "fail"
+    assert contract["requirements"]["boundary_facets_present"] is True
+    assert any("duplicate triangles" in message for message in contract["errors"])
+    assert any("25% of the declared meshing scale" in message for message in contract["warnings"])
 
 
 def test_regularize_flat_mesh_ground_polygons_splits_case55_style_pinch():
@@ -1496,6 +1961,148 @@ def test_build_city_volume_mesh_uses_shared_surface_pipeline(monkeypatch):
     assert captured["tetgen_mesh_faces"] == 1
     assert captured["closure_mesh_faces"] == 1
     assert volume_mesh.cells.shape[0] == 1
+
+
+def test_build_city_volume_mesh_stage_audit_records_stage_contracts(monkeypatch):
+    city = make_flat_city([make_building(box(10, 10, 20, 20), roof_z=10.0)])
+    terrain = city.terrain
+    terrain_raster = terrain.raster
+    conditioned_surface = make_surface(box(10, 10, 20, 20), 10.0)
+    diagnostics = {"output_grid": 0.25, "geos_exception_count": 0}
+    stage_audit: dict[str, object] = {}
+
+    def fake_prepare(*args, **kwargs):
+        return terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics
+
+    def fake_prepare_regions(**kwargs):
+        return (
+            [conditioned_surface],
+            [1],
+            [box(0, 0, 80, 80), box(10, 10, 20, 20)],
+            [-2, 0],
+            {0: 4.0},
+            [
+                np.array([40.0, 40.0], dtype=np.float64),
+                np.array([15.0, 15.0], dtype=np.float64),
+            ],
+        )
+
+    def fake_build_ground(**kwargs):
+        return (
+            Mesh(
+                vertices=np.array(
+                    [
+                        [0.0, 0.0, 0.0],
+                        [10.0, 0.0, 0.0],
+                        [0.0, 10.0, 0.0],
+                    ]
+                ),
+                faces=np.array([[0, 1, 2]], dtype=int),
+                markers=np.array([0], dtype=int),
+            ),
+            "dtcc_mesher",
+        )
+
+    def fake_build_surface_from_ground(**kwargs):
+        return Mesh(
+            vertices=np.array(
+                [
+                    [0.0, 0.0, 0.0],
+                    [10.0, 0.0, 0.0],
+                    [0.0, 10.0, 0.0],
+                ]
+            ),
+            faces=np.array([[0, 1, 2]], dtype=int),
+            markers=np.array([0], dtype=int),
+        )
+
+    def fake_plc_audit(**kwargs):
+        combined_surface = meshes_module._triangle_mesh_audit(
+            Mesh(
+                vertices=np.array(
+                    [
+                        [0.0, 0.0, 0.0],
+                        [10.0, 0.0, 0.0],
+                        [0.0, 10.0, 0.0],
+                    ]
+                ),
+                faces=np.array([[0, 1, 2]], dtype=int),
+                markers=np.empty((0,), dtype=int),
+            )
+        )
+        return {
+            "num_vertices": 3,
+            "num_shell_faces": 1,
+            "num_boundary_facets": 5,
+            "num_boundary_triangles": 5,
+            "bounds": {"xmin": 0.0, "xmax": 10.0, "ymin": 0.0, "ymax": 10.0, "zmin": 0.0, "zmax": 100.0},
+            "boundary_facets": {},
+            "precheck": {
+                "ok": True,
+                "error_count": 0,
+                "warning_count": 0,
+                "errors": [],
+                "warnings": [],
+                "degenerate_face_count": 0,
+                "duplicate_face_count": 0,
+                "nonmanifold_edge_count": 0,
+                "open_edge_count": 0,
+                "min_edge_length": 10.0,
+                "median_edge_length": 10.0,
+                "min_face_area": 50.0,
+                "median_face_area": 50.0,
+                "min_triangle_quality": 0.8,
+                "max_triangle_aspect_ratio": 2.0,
+                "boundary_facets": {},
+            },
+            "combined_surface": combined_surface,
+        }
+
+    def fake_tetgen_build(**kwargs):
+        return VolumeMesh(
+            vertices=np.array(
+                [
+                    [0.0, 0.0, 0.0],
+                    [10.0, 0.0, 0.0],
+                    [0.0, 10.0, 0.0],
+                    [0.0, 0.0, 10.0],
+                ]
+            ),
+            cells=np.array([[0, 1, 2, 3]], dtype=int),
+        )
+
+    monkeypatch.setattr(meshes_module, "_prepare_city_meshing_inputs", fake_prepare)
+    monkeypatch.setattr(meshes_module, "_prepare_surface_ground_regions", fake_prepare_regions)
+    monkeypatch.setattr(meshes_module, "_build_ground_mesh_from_coverage", fake_build_ground)
+    monkeypatch.setattr(
+        meshes_module,
+        "_build_city_surface_mesh_from_ground_mesh",
+        fake_build_surface_from_ground,
+    )
+    monkeypatch.setattr(meshes_module, "_tetgen_plc_audit", fake_plc_audit)
+    monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
+    monkeypatch.setattr(meshes_module, "tetgen_build_volume_mesh", fake_tetgen_build)
+
+    volume_mesh = build_city_volume_mesh(
+        city,
+        lod=GeometryType.LOD0,
+        merge_buildings=False,
+        min_building_detail=0.0,
+        min_building_area=1.0,
+        merge_tolerance=0.0,
+        max_mesh_size=6.0,
+        min_mesh_angle=20.0,
+        report_mesh_quality=False,
+        mesher="dtcc_mesher",
+        stage_audit=stage_audit,
+    )
+
+    attempt = stage_audit["attempts"][0]
+    assert attempt["stages"]["conditioned_footprints"]["contract"]["status"] == "pass"
+    assert attempt["stages"]["ground_mesh"]["contract"]["status"] == "pass"
+    assert attempt["stages"]["surface_shell"]["contract"]["status"] == "pass"
+    assert attempt["stages"]["plc"]["contract"]["status"] == "pass"
+    assert volume_mesh.stage_audit["selected_attempt_label"] == attempt["label"]
 
 
 def test_build_city_surface_mesh_from_ground_mesh_snaps_boundary_vertices(monkeypatch):

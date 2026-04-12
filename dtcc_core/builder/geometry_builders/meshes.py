@@ -52,6 +52,11 @@ from ..meshing import tetgen_utils
 
 from dtcc_core.common.progress import report_progress
 
+try:
+    import dtcc_mesher
+except ImportError:
+    dtcc_mesher = None
+
 
 def _missing_build_city_flat_mesh(*_args, **_kwargs):
     raise RuntimeError(
@@ -74,6 +79,10 @@ _MERGED_ROOF_ENVELOPE_Z_SPAN = 2.0
 _TETGEN_PRESERVE_RETRY_ASPECT_RATIO_THRESHOLD = 5.0e2
 _TETGEN_PRESERVE_RETRY_MIN_EDGE_RATIO = 0.25
 _TETGEN_PRESERVE_RETRY_MIN_SEVERITY_IMPROVEMENT = 0.5
+_STAGE_CONTRACT_MIN_EDGE_RATIO_WARNING = 1.0e-3
+_STAGE_CONTRACT_MIN_AREA_RATIO_WARNING = 1.0e-6
+_STAGE_CONTRACT_MIN_TRI_QUALITY_WARNING = 2.0e-2
+_STAGE_CONTRACT_MAX_TRI_ASPECT_RATIO_WARNING = 1.0e2
 _TETGEN_DEBUG_CLOSURE_MARKERS = {
     "south": -101,
     "east": -102,
@@ -90,6 +99,846 @@ def _normalize_max_mesh_size(max_mesh_size: float | None) -> float | None:
     if value <= 0.0:
         return None
     return value
+
+
+def _audit_json_ready(value: Any) -> Any:
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, np.ndarray):
+        return [_audit_json_ready(item) for item in value.tolist()]
+    if isinstance(value, dict):
+        return {str(key): _audit_json_ready(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_audit_json_ready(item) for item in value]
+    return value
+
+
+def _audit_percentile(values: np.ndarray, percentile: float) -> float:
+    if values.size == 0:
+        return 0.0
+    return float(np.percentile(values, percentile))
+
+
+def _audit_summary(values: np.ndarray, prefix: str) -> dict[str, float]:
+    if values.size == 0:
+        return {
+            f"{prefix}_min": 0.0,
+            f"{prefix}_p01": 0.0,
+            f"{prefix}_p05": 0.0,
+            f"{prefix}_median": 0.0,
+            f"{prefix}_mean": 0.0,
+            f"{prefix}_max": 0.0,
+        }
+    return {
+        f"{prefix}_min": float(values.min()),
+        f"{prefix}_p01": _audit_percentile(values, 1.0),
+        f"{prefix}_p05": _audit_percentile(values, 5.0),
+        f"{prefix}_median": float(np.median(values)),
+        f"{prefix}_mean": float(values.mean()),
+        f"{prefix}_max": float(values.max()),
+    }
+
+
+def _bounds_audit(vertices: np.ndarray) -> dict[str, float]:
+    if vertices.size == 0 or vertices.ndim != 2:
+        return {}
+
+    bounds = {
+        "xmin": float(vertices[:, 0].min()),
+        "xmax": float(vertices[:, 0].max()),
+        "ymin": float(vertices[:, 1].min()),
+        "ymax": float(vertices[:, 1].max()),
+    }
+    if vertices.shape[1] >= 3:
+        bounds["zmin"] = float(vertices[:, 2].min())
+        bounds["zmax"] = float(vertices[:, 2].max())
+    return bounds
+
+
+def _polygon_segment_lengths(polygons: Sequence[Polygon]) -> np.ndarray:
+    segments: list[np.ndarray] = []
+    for polygon in polygons:
+        if polygon is None or polygon.is_empty:
+            continue
+        rings = [polygon.exterior, *polygon.interiors]
+        for ring in rings:
+            coords = np.asarray(ring.coords, dtype=np.float64)
+            if coords.ndim != 2 or len(coords) < 2:
+                continue
+            segments.append(np.linalg.norm(np.diff(coords[:, :2], axis=0), axis=1))
+
+    if not segments:
+        return np.empty(0, dtype=np.float64)
+
+    return np.concatenate(segments)
+
+
+def _polygon_collection_audit(
+    polygons: Sequence[Polygon],
+    *,
+    resolutions: Sequence[float] | None = None,
+    source_map: Sequence[Sequence[int]] | None = None,
+) -> dict[str, Any]:
+    component_polygons: list[Polygon] = []
+    interior_ring_count = 0
+    polygon_bounds: list[tuple[float, float, float, float]] = []
+    for polygon in polygons:
+        for component in _iter_polygons(polygon):
+            component_polygons.append(component)
+            interior_ring_count += len(component.interiors)
+            polygon_bounds.append(component.bounds)
+
+    areas = np.asarray(
+        [float(max(component.area, 0.0)) for component in component_polygons],
+        dtype=np.float64,
+    )
+    segment_lengths = _polygon_segment_lengths(component_polygons)
+
+    audit: dict[str, Any] = {
+        "polygon_count": int(len(polygons)),
+        "component_count": int(len(component_polygons)),
+        "interior_ring_count": int(interior_ring_count),
+    }
+    audit.update(_audit_summary(areas, "area"))
+    audit.update(_audit_summary(segment_lengths, "segment_length"))
+
+    if polygon_bounds:
+        bounds_array = np.asarray(polygon_bounds, dtype=np.float64)
+        audit["bounds"] = {
+            "xmin": float(bounds_array[:, 0].min()),
+            "ymin": float(bounds_array[:, 1].min()),
+            "xmax": float(bounds_array[:, 2].max()),
+            "ymax": float(bounds_array[:, 3].max()),
+        }
+
+    if resolutions is not None:
+        resolution_values = np.asarray(
+            [float(value) for value in resolutions],
+            dtype=np.float64,
+        )
+        audit.update(_audit_summary(resolution_values, "resolution"))
+
+    if source_map is not None:
+        source_group_sizes = np.asarray(
+            [float(len(set(group))) for group in source_map],
+            dtype=np.float64,
+        )
+        audit.update(_audit_summary(source_group_sizes, "source_group_size"))
+
+    return audit
+
+
+def _surface_collection_audit(
+    surfaces: Sequence[Surface],
+    *,
+    resolutions: Sequence[float] | None = None,
+    source_map: Sequence[Sequence[int]] | None = None,
+) -> dict[str, Any]:
+    polygons: list[Polygon] = []
+    roof_z_values: list[float] = []
+    for surface in surfaces:
+        polygon = surface.to_polygon(simplify=0.0)
+        if polygon is None or polygon.is_empty:
+            continue
+        polygons.append(polygon)
+        roof_z_values.append(float(getattr(surface.bounds, "zmax", 0.0)))
+
+    audit = _polygon_collection_audit(
+        polygons,
+        resolutions=resolutions,
+        source_map=source_map,
+    )
+    audit["surface_count"] = int(len(surfaces))
+    audit.update(
+        _audit_summary(np.asarray(roof_z_values, dtype=np.float64), "roof_z")
+    )
+    return audit
+
+
+def _surface_region_audit(
+    *,
+    building_surfaces: Sequence[Surface],
+    region_polygons: Sequence[Polygon],
+    region_markers: Sequence[int],
+    region_triangle_sizes: dict[int, float] | None,
+) -> dict[str, Any]:
+    marker_values = [int(marker) for marker in region_markers]
+    triangle_sizes = np.asarray(
+        [
+            float(value)
+            for value in (region_triangle_sizes or {}).values()
+            if float(value) > 0.0
+        ],
+        dtype=np.float64,
+    )
+    return {
+        "num_ground_regions": int(sum(1 for marker in marker_values if marker < 0)),
+        "num_building_regions": int(sum(1 for marker in marker_values if marker >= 0)),
+        "building_surfaces": _surface_collection_audit(building_surfaces),
+        "coverage_polygons": _polygon_collection_audit(region_polygons),
+        "region_triangle_sizes": _audit_summary(triangle_sizes, "target_size"),
+    }
+
+
+def _stage_contract_status(
+    errors: Sequence[str],
+    warnings: Sequence[str],
+) -> str:
+    if errors:
+        return "fail"
+    if warnings:
+        return "warn"
+    return "pass"
+
+
+def _stage_contract_result(
+    *,
+    requirements: dict[str, bool],
+    errors: Sequence[str],
+    warnings: Sequence[str],
+    metrics: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "ok": not errors,
+        "status": _stage_contract_status(errors, warnings),
+        "requirements": {str(name): bool(value) for name, value in requirements.items()},
+        "errors": list(errors),
+        "warnings": list(warnings),
+        "metrics": _audit_json_ready(metrics or {}),
+    }
+
+
+def _dedupe_stage_contract_messages(messages: Sequence[str]) -> list[str]:
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for message in messages:
+        normalized = str(message)
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        ordered.append(normalized)
+    return ordered
+
+
+def _conditioned_footprint_contract_audit(
+    *,
+    surfaces: Sequence[Surface],
+    declared_scale: float,
+    diagnostics: dict[str, Any],
+) -> dict[str, Any]:
+    polygons: list[Polygon] = []
+    for surface in surfaces:
+        polygon = surface.to_polygon(simplify=0.0)
+        if polygon is None or polygon.is_empty:
+            continue
+        polygons.append(polygon)
+
+    errors: list[str] = []
+    warnings: list[str] = []
+    requirements = {
+        "nonempty_coverage": len(polygons) > 0,
+        "scale_contract_satisfied": False,
+        "no_pair_issues": False,
+        "no_ring_contacts": False,
+        "no_short_edges": False,
+        "min_clearance_respected": False,
+        "mesher_segment_graph_valid": True,
+    }
+    metrics = {
+        "declared_scale": float(declared_scale),
+        "min_clearance": 0.0,
+        "clearance_deficit": float(declared_scale),
+        "pair_issue_count": 0,
+        "ring_contact_count": 0,
+        "short_edge_count": 0,
+        "geos_exception_count": int(diagnostics.get("geos_exception_count", 0)),
+        "mesher_segment_graph_error": None,
+    }
+    if not polygons:
+        warnings.append(
+            "No conditioned building footprints remain; downstream meshing will run terrain-only."
+        )
+        return _stage_contract_result(
+            requirements=requirements,
+            errors=errors,
+            warnings=warnings,
+            metrics=metrics,
+        )
+
+    tolerance = max(float(declared_scale) * 1.0e-6, 1.0e-9)
+    signature = cleaning_footprints._coverage_defect_signature(
+        polygons,
+        target_scale=float(declared_scale),
+    )
+    clearance_deficit = max(float(declared_scale) - (signature.min_clearance or 0.0), 0.0)
+    scale_contract_ok = cleaning_footprints._coverage_signature_satisfies_scale_contract(
+        signature,
+        target_scale=float(declared_scale),
+        grid=tolerance,
+    )
+    requirements.update(
+        {
+            "scale_contract_satisfied": bool(scale_contract_ok),
+            "no_pair_issues": int(signature.pair_issue_count) == 0,
+            "no_ring_contacts": int(signature.ring_contact_count) == 0,
+            "no_short_edges": int(signature.short_edge_count) == 0,
+            "min_clearance_respected": clearance_deficit <= tolerance,
+        }
+    )
+    metrics.update(
+        {
+            "min_clearance": float(signature.min_clearance or 0.0),
+            "clearance_deficit": float(clearance_deficit),
+            "pair_issue_count": int(signature.pair_issue_count),
+            "ring_contact_count": int(signature.ring_contact_count),
+            "short_edge_count": int(signature.short_edge_count),
+        }
+    )
+    if dtcc_mesher is not None and hasattr(dtcc_mesher, "validate_coverage_graph"):
+        try:
+            graph = dtcc_mesher.Coverage(
+                polygons,
+                markers=range(1, len(polygons) + 1),
+            ).graph()
+            dtcc_mesher.validate_coverage_graph(graph)
+        except Exception as exc:
+            requirements["mesher_segment_graph_valid"] = False
+            metrics["mesher_segment_graph_error"] = str(exc)
+            errors.append(
+                "Conditioned footprint coverage does not build a valid dtcc_mesher segment graph."
+            )
+    if not requirements["scale_contract_satisfied"]:
+        errors.append(
+            "Conditioned footprint coverage violates the declared mesher-ready scale contract."
+        )
+    if not requirements["no_pair_issues"]:
+        errors.append(
+            f"Conditioned footprint coverage still has {signature.pair_issue_count} close-pair issue(s)."
+        )
+    if not requirements["no_ring_contacts"]:
+        errors.append(
+            f"Conditioned footprint coverage still has {signature.ring_contact_count} ring-contact issue(s)."
+        )
+    if not requirements["no_short_edges"]:
+        errors.append(
+            f"Conditioned footprint coverage still has {signature.short_edge_count} short edge(s) below the declared scale."
+        )
+    if not requirements["min_clearance_respected"]:
+        errors.append(
+            "Conditioned footprint minimum clearance is below the declared meshing scale."
+        )
+    geos_exception_count = int(diagnostics.get("geos_exception_count", 0))
+    if geos_exception_count > 0:
+        warnings.append(
+            f"Footprint conditioning encountered {geos_exception_count} GEOS exception(s) before reaching the final output."
+        )
+    return _stage_contract_result(
+        requirements=requirements,
+        errors=_dedupe_stage_contract_messages(errors),
+        warnings=_dedupe_stage_contract_messages(warnings),
+        metrics=metrics,
+    )
+
+
+def _coverage_mesher_segment_graph_error(
+    polygons: Sequence[Polygon],
+) -> str | None:
+    if dtcc_mesher is None or not hasattr(dtcc_mesher, "validate_coverage_graph"):
+        return None
+    if not polygons:
+        return None
+    try:
+        graph = dtcc_mesher.Coverage(
+            polygons,
+            markers=range(1, len(polygons) + 1),
+        ).graph()
+        dtcc_mesher.validate_coverage_graph(graph)
+    except Exception as exc:
+        return str(exc)
+    return None
+
+
+def _triangle_areas(vertices: np.ndarray, faces: np.ndarray) -> np.ndarray:
+    if len(faces) == 0:
+        return np.empty(0, dtype=np.float64)
+    v0 = vertices[faces[:, 0], :3]
+    v1 = vertices[faces[:, 1], :3]
+    v2 = vertices[faces[:, 2], :3]
+    return 0.5 * np.linalg.norm(np.cross(v1 - v0, v2 - v0), axis=1)
+
+
+def _triangle_mesh_edge_lengths(vertices: np.ndarray, faces: np.ndarray) -> np.ndarray:
+    if len(faces) == 0:
+        return np.empty(0, dtype=np.float64)
+    edges = np.concatenate(
+        [
+            faces[:, [0, 1]],
+            faces[:, [1, 2]],
+            faces[:, [2, 0]],
+        ],
+        axis=0,
+    )
+    unique_edges = np.unique(np.sort(edges, axis=1), axis=0)
+    edge_vectors = vertices[unique_edges[:, 1], :3] - vertices[unique_edges[:, 0], :3]
+    return np.linalg.norm(edge_vectors, axis=1)
+
+
+def _triangle_mesh_audit(mesh: Mesh) -> dict[str, Any]:
+    vertices = np.asarray(mesh.vertices, dtype=np.float64)
+    faces = np.asarray(mesh.faces, dtype=np.int64)
+    markers = getattr(mesh, "markers", None)
+    marker_count = 0
+    num_markers = 0
+    if markers is not None and len(markers) > 0:
+        num_markers = int(len(markers))
+        marker_count = int(len(np.unique(np.asarray(markers, dtype=np.int64))))
+
+    audit: dict[str, Any] = {
+        "num_vertices": int(len(vertices)),
+        "num_faces": int(len(faces)),
+        "num_markers": num_markers,
+        "marker_count": marker_count,
+    }
+    audit["bounds"] = _bounds_audit(vertices)
+
+    if (
+        vertices.ndim != 2
+        or vertices.shape[1] < 3
+        or faces.ndim != 2
+        or faces.shape[1] != 3
+        or len(faces) == 0
+    ):
+        return audit
+
+    from ...model.mixins.mesh.quality import tri_aspect_ratio, tri_element_quality
+
+    edge_lengths = _triangle_mesh_edge_lengths(vertices, faces)
+    areas = _triangle_areas(vertices, faces)
+    element_quality = tri_element_quality(vertices[:, :3], faces)
+    aspect_ratio = tri_aspect_ratio(vertices[:, :3], faces)
+
+    audit.update(_audit_summary(edge_lengths, "edge_length"))
+    audit.update(_audit_summary(areas, "area"))
+    audit.update(_audit_summary(element_quality, "element_quality"))
+    audit.update(_audit_summary(aspect_ratio, "aspect_ratio"))
+    audit["degenerate_face_count"] = int(np.count_nonzero(areas <= 0.0))
+    return audit
+
+
+def _triangle_mesh_contract_from_audit(
+    audit: dict[str, Any],
+    *,
+    reference_length: float | None,
+    require_markers: bool,
+    stage_label: str,
+) -> dict[str, Any]:
+    num_faces = int(audit.get("num_faces", 0))
+    num_vertices = int(audit.get("num_vertices", 0))
+    num_markers = int(audit.get("num_markers", 0))
+    degenerate_face_count = int(audit.get("degenerate_face_count", 0))
+    edge_min = float(audit.get("edge_length_min", 0.0))
+    edge_p01 = float(audit.get("edge_length_p01", 0.0))
+    edge_median = float(audit.get("edge_length_median", 0.0))
+    area_min = float(audit.get("area_min", 0.0))
+    area_median = float(audit.get("area_median", 0.0))
+    element_quality_min = float(audit.get("element_quality_min", 1.0))
+    aspect_ratio_max = float(audit.get("aspect_ratio_max", 1.0))
+    reference_edge_ratio_min = 0.0
+    reference_edge_ratio_p01 = 0.0
+    if reference_length is not None and reference_length > 0.0:
+        reference_edge_ratio_min = edge_min / float(reference_length)
+        reference_edge_ratio_p01 = edge_p01 / float(reference_length)
+
+    requirements = {
+        "nonempty_mesh": num_vertices > 0 and num_faces > 0,
+        "no_degenerate_faces": degenerate_face_count == 0,
+    }
+    if require_markers:
+        requirements["face_markers_present"] = num_markers == num_faces and num_faces > 0
+
+    errors: list[str] = []
+    warnings: list[str] = []
+    if not requirements["nonempty_mesh"]:
+        errors.append(f"{stage_label} did not produce a nonempty triangle mesh.")
+    if not requirements["no_degenerate_faces"]:
+        errors.append(
+            f"{stage_label} contains {degenerate_face_count} degenerate triangle(s)."
+        )
+    if require_markers and not requirements["face_markers_present"]:
+        errors.append(
+            f"{stage_label} is missing one face marker per triangle."
+        )
+
+    if edge_median > 0.0 and edge_min < edge_median * _STAGE_CONTRACT_MIN_EDGE_RATIO_WARNING:
+        warnings.append(
+            f"{stage_label} contains edges that are orders of magnitude smaller than its median edge length."
+        )
+    if area_median > 0.0 and area_min < area_median * _STAGE_CONTRACT_MIN_AREA_RATIO_WARNING:
+        warnings.append(
+            f"{stage_label} contains triangles that are orders of magnitude smaller than its median triangle area."
+        )
+    if element_quality_min < _STAGE_CONTRACT_MIN_TRI_QUALITY_WARNING:
+        warnings.append(
+            f"{stage_label} minimum triangle quality is very low ({element_quality_min:.3g})."
+        )
+    if aspect_ratio_max > _STAGE_CONTRACT_MAX_TRI_ASPECT_RATIO_WARNING:
+        warnings.append(
+            f"{stage_label} maximum triangle aspect ratio is very high ({aspect_ratio_max:.3g})."
+        )
+    if reference_length is not None and reference_length > 0.0:
+        if reference_edge_ratio_p01 < _TETGEN_PRESERVE_RETRY_MIN_EDGE_RATIO:
+            warnings.append(
+                f"{stage_label} lower-tail edge lengths fall below 25% of the declared meshing scale."
+            )
+
+    return _stage_contract_result(
+        requirements=requirements,
+        errors=_dedupe_stage_contract_messages(errors),
+        warnings=_dedupe_stage_contract_messages(warnings),
+        metrics={
+            "reference_length": (
+                None if reference_length is None else float(reference_length)
+            ),
+            "edge_length_min": edge_min,
+            "edge_length_p01": edge_p01,
+            "edge_length_median": edge_median,
+            "area_min": area_min,
+            "area_median": area_median,
+            "element_quality_min": element_quality_min,
+            "aspect_ratio_max": aspect_ratio_max,
+            "reference_edge_ratio_min": float(reference_edge_ratio_min),
+            "reference_edge_ratio_p01": float(reference_edge_ratio_p01),
+        },
+    )
+
+
+def _polygon_facet_edge_lengths(
+    vertices: np.ndarray,
+    facets: Sequence[Sequence[int]],
+) -> np.ndarray:
+    edge_chunks: list[np.ndarray] = []
+    for facet in facets:
+        indices = np.asarray(facet, dtype=np.int64).reshape(-1)
+        if len(indices) < 2:
+            continue
+        facet_edges = np.column_stack([indices, np.roll(indices, -1)])
+        facet_edges = np.unique(np.sort(facet_edges, axis=1), axis=0)
+        edge_vectors = (
+            vertices[facet_edges[:, 1], :3] - vertices[facet_edges[:, 0], :3]
+        )
+        edge_chunks.append(np.linalg.norm(edge_vectors, axis=1))
+
+    if not edge_chunks:
+        return np.empty(0, dtype=np.float64)
+
+    return np.concatenate(edge_chunks)
+
+
+def _triangular_facet_areas(
+    vertices: np.ndarray,
+    facets: Sequence[Sequence[int]],
+) -> np.ndarray:
+    triangles = [
+        np.asarray(facet, dtype=np.int64)
+        for facet in facets
+        if len(np.asarray(facet, dtype=np.int64).reshape(-1)) == 3
+    ]
+    if not triangles:
+        return np.empty(0, dtype=np.float64)
+    faces = np.vstack(triangles)
+    return _triangle_areas(vertices, faces)
+
+
+def _tetgen_plc_audit(
+    *,
+    surface_mesh: Mesh,
+    closure_mesh: Mesh,
+    top_height: float,
+    top_cap_backend: str,
+    top_cap_max_mesh_size: float | None,
+    top_cap_min_mesh_angle: float,
+) -> dict[str, Any]:
+    plc_vertices, boundary_facets = tetgen_utils.compute_boundary_triangle_facets(
+        surface_mesh,
+        closure_mesh,
+        top_height=top_height,
+        top_cap_backend=top_cap_backend,
+        top_cap_max_mesh_size=top_cap_max_mesh_size,
+        top_cap_min_mesh_angle=top_cap_min_mesh_angle,
+    )
+    shell_faces = np.asarray(surface_mesh.faces, dtype=np.int64)
+    boundary_facets_list = [
+        np.asarray(facet, dtype=np.int64).reshape(-1).tolist()
+        for facet in boundary_facets
+    ]
+    triangular_boundary_faces = [
+        np.asarray(facet, dtype=np.int64)
+        for facet in boundary_facets_list
+        if len(facet) == 3
+    ]
+    combined_faces = shell_faces
+    if triangular_boundary_faces:
+        combined_faces = np.vstack([combined_faces, np.vstack(triangular_boundary_faces)])
+
+    boundary_edge_lengths = _polygon_facet_edge_lengths(plc_vertices, boundary_facets_list)
+    boundary_areas = _triangular_facet_areas(plc_vertices, boundary_facets_list)
+    facet_vertex_counts = np.asarray(
+        [float(len(facet)) for facet in boundary_facets_list],
+        dtype=np.float64,
+    )
+    diagnostics = tetgen_utils.inspect_tetgen_plc(
+        plc_vertices,
+        shell_faces,
+        boundary_facets_list,
+    )
+
+    audit: dict[str, Any] = {
+        "num_vertices": int(len(plc_vertices)),
+        "num_shell_faces": int(len(shell_faces)),
+        "num_boundary_facets": int(len(boundary_facets_list)),
+        "num_boundary_triangles": int(len(triangular_boundary_faces)),
+        "bounds": _bounds_audit(np.asarray(plc_vertices, dtype=np.float64)),
+        "boundary_facets": {
+            "vertex_count": _audit_summary(facet_vertex_counts, "count"),
+            "edge_length": _audit_summary(boundary_edge_lengths, "length"),
+            "area": _audit_summary(boundary_areas, "area"),
+        },
+        "precheck": {
+            "ok": bool(diagnostics.ok),
+            "error_count": int(len(diagnostics.errors)),
+            "warning_count": int(len(diagnostics.warnings)),
+            "errors": list(diagnostics.errors),
+            "warnings": list(diagnostics.warnings),
+            "degenerate_face_count": int(diagnostics.degenerate_face_count),
+            "duplicate_face_count": int(diagnostics.duplicate_face_count),
+            "nonmanifold_edge_count": int(diagnostics.nonmanifold_edge_count),
+            "open_edge_count": int(diagnostics.open_edge_count),
+            "min_edge_length": float(diagnostics.min_edge_length),
+            "median_edge_length": float(diagnostics.median_edge_length),
+            "min_face_area": float(diagnostics.min_face_area),
+            "median_face_area": float(diagnostics.median_face_area),
+            "min_triangle_quality": float(diagnostics.min_triangle_quality),
+            "max_triangle_aspect_ratio": float(diagnostics.max_triangle_aspect_ratio),
+            "boundary_facets": _audit_json_ready(diagnostics.boundary_facets),
+        },
+    }
+    combined_mesh = Mesh(
+        vertices=np.asarray(plc_vertices, dtype=np.float64),
+        faces=np.asarray(combined_faces, dtype=np.int64),
+        markers=np.empty(0, dtype=np.int64),
+    )
+    audit["combined_surface"] = _triangle_mesh_audit(combined_mesh)
+    return audit
+
+
+def _tetgen_plc_contract_from_audit(
+    plc_audit: dict[str, Any],
+    *,
+    reference_length: float | None,
+) -> dict[str, Any]:
+    precheck = dict(plc_audit.get("precheck", {}))
+    combined_surface = dict(plc_audit.get("combined_surface", {}))
+    precheck_errors = [str(message) for message in precheck.get("errors", [])]
+    precheck_warnings = [str(message) for message in precheck.get("warnings", [])]
+    combined_contract = _triangle_mesh_contract_from_audit(
+        combined_surface,
+        reference_length=reference_length,
+        require_markers=False,
+        stage_label="TetGen PLC combined surface",
+    )
+
+    requirements = {
+        "boundary_facets_present": int(plc_audit.get("num_boundary_facets", 0)) > 0,
+        "precheck_passed": bool(precheck.get("ok", False)),
+    }
+    errors: list[str] = []
+    warnings: list[str] = []
+    if not requirements["boundary_facets_present"]:
+        errors.append("TetGen PLC does not provide any closure boundary facets.")
+    if not requirements["precheck_passed"]:
+        errors.extend(precheck_errors)
+    errors.extend(combined_contract["errors"])
+    warnings.extend(precheck_warnings)
+    warnings.extend(combined_contract["warnings"])
+
+    min_edge_length = float(precheck.get("min_edge_length", 0.0))
+    median_edge_length = float(precheck.get("median_edge_length", 0.0))
+    reference_edge_ratio_min = 0.0
+    if reference_length is not None and reference_length > 0.0:
+        reference_edge_ratio_min = min_edge_length / float(reference_length)
+        if reference_edge_ratio_min < _TETGEN_PRESERVE_RETRY_MIN_EDGE_RATIO:
+            warnings.append(
+                "TetGen PLC boundary edges fall below 25% of the declared meshing scale."
+            )
+
+    return _stage_contract_result(
+        requirements=requirements,
+        errors=_dedupe_stage_contract_messages(errors),
+        warnings=_dedupe_stage_contract_messages(warnings),
+        metrics={
+            "reference_length": (
+                None if reference_length is None else float(reference_length)
+            ),
+            "num_boundary_facets": int(plc_audit.get("num_boundary_facets", 0)),
+            "num_boundary_triangles": int(plc_audit.get("num_boundary_triangles", 0)),
+            "precheck_error_count": int(precheck.get("error_count", 0)),
+            "precheck_warning_count": int(precheck.get("warning_count", 0)),
+            "min_edge_length": min_edge_length,
+            "median_edge_length": median_edge_length,
+            "reference_edge_ratio_min": float(reference_edge_ratio_min),
+            "min_triangle_quality": float(precheck.get("min_triangle_quality", 1.0)),
+            "max_triangle_aspect_ratio": float(
+                precheck.get("max_triangle_aspect_ratio", 1.0)
+            ),
+        },
+    )
+
+
+def _tetrahedron_volumes(vertices: np.ndarray, cells: np.ndarray) -> np.ndarray:
+    if len(cells) == 0:
+        return np.empty(0, dtype=np.float64)
+    v0 = vertices[cells[:, 0], :3]
+    v1 = vertices[cells[:, 1], :3]
+    v2 = vertices[cells[:, 2], :3]
+    v3 = vertices[cells[:, 3], :3]
+    triple_products = np.einsum("ij,ij->i", v1 - v0, np.cross(v2 - v0, v3 - v0))
+    return np.abs(triple_products) / 6.0
+
+
+def _volume_mesh_audit(volume_mesh: VolumeMesh) -> dict[str, Any]:
+    vertices = np.asarray(volume_mesh.vertices, dtype=np.float64)
+    cells = np.asarray(volume_mesh.cells, dtype=np.int64)
+    audit: dict[str, Any] = {
+        "num_vertices": int(len(vertices)),
+        "num_cells": int(len(cells)),
+    }
+    audit["bounds"] = _bounds_audit(vertices)
+
+    if (
+        vertices.ndim != 2
+        or vertices.shape[1] < 3
+        or cells.ndim != 2
+        or cells.shape[1] != 4
+        or len(cells) == 0
+    ):
+        return audit
+
+    from ...model.mixins.mesh.quality import tet_aspect_ratio, tet_element_quality
+
+    edges = np.concatenate(
+        [
+            cells[:, [0, 1]],
+            cells[:, [0, 2]],
+            cells[:, [0, 3]],
+            cells[:, [1, 2]],
+            cells[:, [1, 3]],
+            cells[:, [2, 3]],
+        ],
+        axis=0,
+    )
+    unique_edges = np.unique(np.sort(edges, axis=1), axis=0)
+    edge_vectors = vertices[unique_edges[:, 1], :3] - vertices[unique_edges[:, 0], :3]
+    edge_lengths = np.linalg.norm(edge_vectors, axis=1)
+    volumes = _tetrahedron_volumes(vertices, cells)
+    element_quality = tet_element_quality(vertices[:, :3], cells)
+    aspect_ratio = tet_aspect_ratio(vertices[:, :3], cells)
+
+    audit.update(_audit_summary(edge_lengths, "edge_length"))
+    audit.update(_audit_summary(volumes, "volume"))
+    audit.update(_audit_summary(element_quality, "element_quality"))
+    audit.update(_audit_summary(aspect_ratio, "aspect_ratio"))
+    return audit
+
+
+def _ensure_stage_audit_root(stage_audit: dict[str, Any] | None) -> dict[str, Any] | None:
+    if stage_audit is None:
+        return None
+    stage_audit.setdefault("version", 1)
+    stage_audit.setdefault("attempts", [])
+    return stage_audit
+
+
+def _start_stage_audit_attempt(
+    stage_audit: dict[str, Any] | None,
+    *,
+    label: str | None,
+    retry_reason: str | None,
+    backend: str,
+    merge_buildings: bool,
+    requested_mesher: str | None,
+    max_mesh_size: float | None,
+    min_mesh_angle: float,
+    domain_height: float,
+    tetgen_switches: dict[str, Any] | None,
+    tetgen_switch_overrides: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    root = _ensure_stage_audit_root(stage_audit)
+    if root is None:
+        return None
+
+    attempt_index = len(root["attempts"])
+    attempt = {
+        "index": int(attempt_index),
+        "label": label or f"attempt-{attempt_index + 1}",
+        "retry_reason": retry_reason,
+        "backend": backend,
+        "config": {
+            "merge_buildings": bool(merge_buildings),
+            "requested_mesher": requested_mesher,
+            "max_mesh_size": None if max_mesh_size is None else float(max_mesh_size),
+            "min_mesh_angle": float(min_mesh_angle),
+            "domain_height": float(domain_height),
+            "tetgen_switches": _audit_json_ready(dict(tetgen_switches or {})),
+            "tetgen_switch_overrides": _audit_json_ready(
+                dict(tetgen_switch_overrides or {})
+            ),
+        },
+        "stages": {},
+        "result": {"status": "running"},
+    }
+    root["attempts"].append(attempt)
+    return attempt
+
+
+def _record_stage_audit_stage(
+    attempt: dict[str, Any] | None,
+    stage_name: str,
+    stage_data: dict[str, Any],
+) -> None:
+    if attempt is None:
+        return
+    attempt.setdefault("stages", {})[stage_name] = _audit_json_ready(stage_data)
+
+
+def _mark_stage_audit_failure(
+    attempt: dict[str, Any] | None,
+    exc: Exception,
+    *,
+    retrying_with: str | None = None,
+) -> None:
+    if attempt is None:
+        return
+    attempt["result"] = {
+        "status": "failed",
+        "error_type": type(exc).__name__,
+        "error_message": str(exc),
+    }
+    if retrying_with is not None:
+        attempt["result"]["retrying_with"] = retrying_with
+
+
+def _mark_stage_audit_success(
+    stage_audit: dict[str, Any] | None,
+    attempt: dict[str, Any] | None,
+    *,
+    select_attempt: bool = True,
+) -> None:
+    if attempt is None:
+        return
+    attempt["result"] = {"status": "success"}
+    if stage_audit is not None and select_attempt:
+        stage_audit["selected_attempt_index"] = int(attempt["index"])
+        stage_audit["selected_attempt_label"] = str(attempt["label"])
 
 
 def _tetgen_preserve_retry_reference_length(
@@ -1537,6 +2386,217 @@ def _normalize_mesher_ready_polygon(
     return candidate_polygons
 
 
+def _normalize_mesher_ready_coverage(
+    polygons: Sequence[Polygon],
+    source_map: Sequence[Sequence[int]],
+    *,
+    declared_scale: float,
+    min_hole_area: float,
+    diagnostics: dict[str, Any],
+    cleaning_diagnostics: bool,
+) -> tuple[list[Polygon], list[list[int]]]:
+    def _normalize(
+        coverage_polygons: Sequence[Polygon],
+        coverage_sources: Sequence[Sequence[int]],
+    ) -> tuple[list[Polygon], list[list[int]]]:
+        normalized_polygons: list[Polygon] = []
+        normalized_sources: list[list[int]] = []
+        for polygon, source_indices in zip(coverage_polygons, coverage_sources):
+            for normalized_polygon in _normalize_mesher_ready_polygon(
+                polygon,
+                declared_scale=declared_scale,
+                diagnostics=diagnostics,
+            ):
+                normalized_polygons.append(normalized_polygon)
+                normalized_sources.append(sorted(set(source_indices)))
+        return cleaning_footprints._stable_sort(
+            normalized_polygons,
+            normalized_sources,
+        )
+
+    diagnostics["mesher_ready_coverage_revalidation_attempted"] = False
+    diagnostics["mesher_ready_coverage_revalidation_applied"] = False
+    diagnostics["mesher_ready_coverage_revalidation_operator_applied"] = {}
+    diagnostics["mesher_ready_coverage_revalidation_rejected_bridge_operator"] = False
+    diagnostics[
+        "mesher_ready_coverage_revalidation_rejected_insufficient_clearance_gain"
+    ] = False
+    diagnostics["mesher_ready_coverage_segment_graph_valid_before"] = True
+    diagnostics["mesher_ready_coverage_segment_graph_valid_after"] = True
+    diagnostics["mesher_ready_coverage_segment_graph_error_before"] = None
+    diagnostics["mesher_ready_coverage_segment_graph_error_after"] = None
+
+    normalized_polygons, normalized_sources = _normalize(polygons, source_map)
+    initial_signature = cleaning_footprints._coverage_defect_signature(
+        normalized_polygons,
+        target_scale=declared_scale,
+    )
+    diagnostics["mesher_ready_coverage_short_edge_count_before"] = (
+        initial_signature.short_edge_count
+    )
+    diagnostics["mesher_ready_coverage_pair_issue_count_before"] = (
+        initial_signature.pair_issue_count
+    )
+    diagnostics["mesher_ready_coverage_ring_contact_count_before"] = (
+        initial_signature.ring_contact_count
+    )
+    initial_graph_error = _coverage_mesher_segment_graph_error(normalized_polygons)
+    diagnostics["mesher_ready_coverage_segment_graph_valid_before"] = (
+        initial_graph_error is None
+    )
+    diagnostics["mesher_ready_coverage_segment_graph_error_before"] = (
+        initial_graph_error
+    )
+
+    if cleaning_footprints._coverage_signature_satisfies_scale_contract(
+        initial_signature,
+        target_scale=declared_scale,
+        grid=max(declared_scale * 1.0e-6, 1.0e-9),
+    ) and initial_graph_error is None:
+        diagnostics["mesher_ready_coverage_short_edge_count_after"] = (
+            initial_signature.short_edge_count
+        )
+        diagnostics["mesher_ready_coverage_pair_issue_count_after"] = (
+            initial_signature.pair_issue_count
+        )
+        diagnostics["mesher_ready_coverage_ring_contact_count_after"] = (
+            initial_signature.ring_contact_count
+        )
+        diagnostics["mesher_ready_coverage_segment_graph_valid_after"] = True
+        diagnostics["mesher_ready_coverage_segment_graph_error_after"] = None
+        return normalized_polygons, normalized_sources
+
+    diagnostics["mesher_ready_coverage_revalidation_attempted"] = True
+    revalidation = condition_polygon_coverage(
+        normalized_polygons,
+        source_map=[list(indices) for indices in normalized_sources],
+        options=ConditioningOptions(
+            precision_grid=None,
+            min_feature_size=declared_scale,
+            merge_distance=0.0,
+            min_area=0.0,
+            min_hole_area=min_hole_area,
+            collect_stage_metrics=cleaning_diagnostics,
+            enable_logging=cleaning_diagnostics,
+        ),
+    )
+    diagnostics["geos_exception_count"] += int(
+        revalidation.diagnostics.get("geos_exception_count", 0)
+    )
+    diagnostics["geos_exception_messages"].extend(
+        list(revalidation.diagnostics.get("geos_exception_messages", []))
+    )
+    diagnostics["mesher_ready_coverage_revalidation_operator_applied"] = dict(
+        revalidation.diagnostics.get("coverage_meshing_regularization_operator_applied", {})
+    )
+    bridge_operator_applied = any(
+        str(operator_name).startswith("coverage_pair_issue_bridge")
+        for operator_name in diagnostics["mesher_ready_coverage_revalidation_operator_applied"]
+    )
+
+    candidate_polygons, candidate_sources = _normalize(
+        revalidation.polygons,
+        revalidation.source_map,
+    )
+    candidate_signature = cleaning_footprints._coverage_defect_signature(
+        candidate_polygons,
+        target_scale=declared_scale,
+    )
+    candidate_graph_error = _coverage_mesher_segment_graph_error(candidate_polygons)
+    difference_metrics = cleaning_footprints._difference_area_metrics(
+        unary_union(normalized_polygons),
+        unary_union(candidate_polygons),
+    )
+    initial_score = (
+        *cleaning_footprints._coverage_signature_score(
+            initial_signature,
+            target_scale=declared_scale,
+        ),
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+    )
+    candidate_score = (
+        *cleaning_footprints._coverage_signature_score(
+            candidate_signature,
+            target_scale=declared_scale,
+        ),
+        difference_metrics["reference_minus_candidate_area"],
+        difference_metrics["candidate_minus_reference_area"],
+        difference_metrics["symmetric_difference_area"],
+        abs(difference_metrics["union_area_delta"]),
+    )
+    initial_graph_valid = initial_graph_error is None
+    candidate_graph_valid = candidate_graph_error is None
+    initial_satisfies_contract = (
+        cleaning_footprints._coverage_signature_satisfies_scale_contract(
+            initial_signature,
+            target_scale=declared_scale,
+            grid=max(declared_scale * 1.0e-6, 1.0e-9),
+        )
+    )
+    candidate_satisfies_contract = (
+        cleaning_footprints._coverage_signature_satisfies_scale_contract(
+            candidate_signature,
+            target_scale=declared_scale,
+            grid=max(declared_scale * 1.0e-6, 1.0e-9),
+        )
+    )
+    use_candidate = False
+    if candidate_graph_valid and not initial_graph_valid:
+        use_candidate = True
+    elif initial_graph_valid and not candidate_graph_valid:
+        use_candidate = False
+    else:
+        use_candidate = candidate_score < initial_score
+    if (
+        use_candidate
+        and initial_signature.pair_issue_count == 0
+        and initial_signature.ring_contact_count == 0
+        and bridge_operator_applied
+    ):
+        diagnostics["mesher_ready_coverage_revalidation_rejected_bridge_operator"] = True
+        use_candidate = False
+    if (
+        use_candidate
+        and initial_graph_valid
+        and candidate_graph_valid
+        and initial_signature.pair_issue_count == 0
+        and initial_signature.ring_contact_count == 0
+        and initial_signature.short_edge_count == 0
+        and not initial_satisfies_contract
+        and not candidate_satisfies_contract
+        and (candidate_signature.min_clearance or 0.0) < 0.5 * declared_scale
+    ):
+        diagnostics[
+            "mesher_ready_coverage_revalidation_rejected_insufficient_clearance_gain"
+        ] = True
+        use_candidate = False
+    chosen_signature = candidate_signature if use_candidate else initial_signature
+
+    diagnostics["mesher_ready_coverage_revalidation_applied"] = use_candidate
+    diagnostics["mesher_ready_coverage_short_edge_count_after"] = (
+        chosen_signature.short_edge_count
+    )
+    diagnostics["mesher_ready_coverage_pair_issue_count_after"] = (
+        chosen_signature.pair_issue_count
+    )
+    diagnostics["mesher_ready_coverage_ring_contact_count_after"] = (
+        chosen_signature.ring_contact_count
+    )
+    diagnostics["mesher_ready_coverage_segment_graph_valid_after"] = (
+        candidate_graph_valid if use_candidate else initial_graph_valid
+    )
+    diagnostics["mesher_ready_coverage_segment_graph_error_after"] = (
+        candidate_graph_error if use_candidate else initial_graph_error
+    )
+
+    if use_candidate:
+        return candidate_polygons, candidate_sources
+    return normalized_polygons, normalized_sources
+
+
 def _condition_meshing_footprints(
     buildings: list[Building],
     *,
@@ -1595,9 +2655,6 @@ def _condition_meshing_footprints(
             options=options,
         )
 
-    conditioned_surfaces: list[Surface] = []
-    conditioned_source_map: list[list[int]] = []
-    subdomain_resolution: list[float] = []
     normalized_mesh_size = _normalize_max_mesh_size(max_mesh_size)
     mesher_scale = max(
         float(min_building_detail),
@@ -1607,7 +2664,20 @@ def _condition_meshing_footprints(
     conservative_roof_count = 0
     conservative_roof_max_span = 0.0
 
-    for polygon, source_indices in zip(result.polygons, result.source_map):
+    mesher_ready_polygons, mesher_ready_source_map = _normalize_mesher_ready_coverage(
+        result.polygons,
+        result.source_map,
+        declared_scale=mesher_scale,
+        min_hole_area=min_building_detail**2,
+        diagnostics=result.diagnostics,
+        cleaning_diagnostics=cleaning_diagnostics,
+    )
+
+    conditioned_surfaces: list[Surface] = []
+    conditioned_source_map: list[list[int]] = []
+    subdomain_resolution: list[float] = []
+
+    for polygon, source_indices in zip(mesher_ready_polygons, mesher_ready_source_map):
         height_default = normalized_mesh_size or float(min_building_detail)
         roof_z, height, conservative_roof, roof_z_span = _resolve_merged_group_roof_metadata(
             source_indices,
@@ -1620,20 +2690,14 @@ def _condition_meshing_footprints(
             conservative_roof_count += 1
             conservative_roof_max_span = max(conservative_roof_max_span, roof_z_span)
 
-        normalized_polygons = _normalize_mesher_ready_polygon(
-            polygon,
-            declared_scale=mesher_scale,
-            diagnostics=result.diagnostics,
-        )
-        for normalized_polygon in normalized_polygons:
-            surface = Surface()
-            surface.from_polygon(normalized_polygon, roof_z)
-            conditioned_surfaces.append(surface)
-            conditioned_source_map.append(sorted(set(source_indices)))
-            if normalized_mesh_size is None:
-                subdomain_resolution.append(height)
-            else:
-                subdomain_resolution.append(min(height, normalized_mesh_size))
+        surface = Surface()
+        surface.from_polygon(polygon, roof_z)
+        conditioned_surfaces.append(surface)
+        conditioned_source_map.append(sorted(set(source_indices)))
+        if normalized_mesh_size is None:
+            subdomain_resolution.append(height)
+        else:
+            subdomain_resolution.append(min(height, normalized_mesh_size))
 
     diagnostics = dict(result.diagnostics)
     diagnostics["conservative_merged_roof_count"] = conservative_roof_count
@@ -1982,6 +3046,9 @@ def build_city_volume_mesh(
     mesher: str | None = None,
     tetgen_debug_output_dir: str | Path | None = None,
     tetgen_debug_output_stem: str | None = None,
+    stage_audit: dict[str, Any] | None = None,
+    _stage_audit_attempt_label: str | None = None,
+    _stage_audit_retry_reason: str | None = None,
 ) -> VolumeMesh:
     """
     Build a 3D tetrahedral volume mesh for a city terrain with embedded building volumes.
@@ -2053,6 +3120,10 @@ def build_city_volume_mesh(
         shell mesh.
     tetgen_debug_output_stem : str, optional
         Basename used for TetGen debug exports. Defaults to ``"tetgen_input"``.
+    stage_audit : dict, optional
+        Optional output dictionary populated in place with per-attempt stage
+        metrics for conditioned footprints, shell-region inputs, the 2D
+        ground mesh, the shell, the PLC, and the final volume mesh.
 
     Returns
     -------
@@ -2100,6 +3171,19 @@ def build_city_volume_mesh(
     """
 
     max_mesh_size = _normalize_max_mesh_size(max_mesh_size)
+    attempt = _start_stage_audit_attempt(
+        stage_audit,
+        label=_stage_audit_attempt_label,
+        retry_reason=_stage_audit_retry_reason,
+        backend="tetgen" if is_tetgen_available() else "fallback_dtcc",
+        merge_buildings=merge_buildings,
+        requested_mesher=mesher,
+        max_mesh_size=max_mesh_size,
+        min_mesh_angle=min_mesh_angle,
+        domain_height=domain_height,
+        tetgen_switches=tetgen_switches,
+        tetgen_switch_overrides=tetgen_switch_overrides,
+    )
     terrain, terrain_raster, building_footprints, source_map, subdomain_resolution, diagnostics = (
         _prepare_city_meshing_inputs(
             city,
@@ -2112,6 +3196,29 @@ def build_city_volume_mesh(
             cleaning_diagnostics=cleaning_diagnostics,
         )
     )
+    conditioned_scale = max(
+        float(min_building_detail),
+        float(diagnostics.get("output_grid", 0.0) or 0.0),
+        1.0e-9,
+    )
+    if attempt is not None:
+        _record_stage_audit_stage(
+            attempt,
+            "conditioned_footprints",
+            {
+                "footprints": _surface_collection_audit(
+                    building_footprints,
+                    resolutions=subdomain_resolution,
+                    source_map=source_map,
+                ),
+                "diagnostics": _audit_json_ready(dict(diagnostics)),
+                "contract": _conditioned_footprint_contract_audit(
+                    surfaces=building_footprints,
+                    declared_scale=conditioned_scale,
+                    diagnostics=diagnostics,
+                ),
+            },
+        )
     if not building_footprints:
         warning(
             "No valid building footprints available after conditioning. "
@@ -2130,18 +3237,444 @@ def build_city_volume_mesh(
 
     if is_tetgen_available():
         info("Building volume mesh with TetGen...")
-        report_progress(percent=30, message="Building volume shell surface...")
+        try:
+            report_progress(percent=30, message="Building volume shell surface...")
+            (
+                surface_buildings,
+                surface_directives,
+                surface_region_polygons,
+                surface_region_markers,
+                surface_region_triangle_sizes,
+                surface_region_points,
+            ) = _prepare_surface_ground_regions(
+                conditioned_surfaces=building_footprints,
+                conditioned_resolution=subdomain_resolution,
+                target_lods=shell_target_lods,
+                bounds=(
+                    terrain.bounds.xmin,
+                    terrain.bounds.ymin,
+                    terrain.bounds.xmax,
+                    terrain.bounds.ymax,
+                ),
+                max_mesh_size=max_mesh_size,
+                min_building_detail=min_building_detail,
+                footprint_diagnostics=diagnostics,
+                cleaning_diagnostics=cleaning_diagnostics,
+                treat_lod0_as_holes=False,
+            )
+            if attempt is not None:
+                _record_stage_audit_stage(
+                    attempt,
+                    "surface_regions",
+                    _surface_region_audit(
+                        building_surfaces=surface_buildings,
+                        region_polygons=surface_region_polygons,
+                        region_markers=surface_region_markers,
+                        region_triangle_sizes=surface_region_triangle_sizes,
+                    ),
+                )
+            surface_ground_mesh, surface_mesher = _build_ground_mesh_from_coverage(
+                region_polygons=surface_region_polygons,
+                region_markers=surface_region_markers,
+                region_points=surface_region_points,
+                bounds=(
+                    terrain.bounds.xmin,
+                    terrain.bounds.ymin,
+                    terrain.bounds.xmax,
+                    terrain.bounds.ymax,
+                ),
+                max_mesh_size=max_mesh_size,
+                min_mesh_angle=min_mesh_angle,
+                mesher=mesher,
+                sort_triangles=False,
+                region_triangle_sizes=surface_region_triangle_sizes,
+                add_halo_markers=False,
+            )
+            if attempt is not None:
+                attempt["config"]["effective_mesher"] = surface_mesher
+            surface_ground_mesh, surface_buildings, surface_directives = (
+                _split_ground_mesh_building_components(
+                    ground_mesh=surface_ground_mesh,
+                    building_surfaces=surface_buildings,
+                    meshing_directives=surface_directives,
+                )
+            )
+            if attempt is not None:
+                ground_mesh_audit = {
+                    "mesher": surface_mesher,
+                    **_triangle_mesh_audit(surface_ground_mesh),
+                }
+                ground_mesh_audit["contract"] = _triangle_mesh_contract_from_audit(
+                    ground_mesh_audit,
+                    reference_length=conditioned_scale,
+                    require_markers=True,
+                    stage_label="Ground mesh",
+                )
+                _record_stage_audit_stage(
+                    attempt,
+                    "ground_mesh",
+                    ground_mesh_audit,
+                )
+            surface_mesh = _build_city_surface_mesh_from_ground_mesh(
+                ground_mesh=surface_ground_mesh,
+                terrain_raster=terrain_raster,
+                building_surfaces=surface_buildings,
+                meshing_directives=surface_directives,
+                smoothing=smoothing,
+                merge_meshes=True,
+            )
+            if attempt is not None:
+                surface_shell_audit = {
+                    "mesher": surface_mesher,
+                    **_triangle_mesh_audit(surface_mesh),
+                }
+                surface_shell_audit["contract"] = _triangle_mesh_contract_from_audit(
+                    surface_shell_audit,
+                    reference_length=conditioned_scale,
+                    require_markers=True,
+                    stage_label="Surface shell",
+                )
+                _record_stage_audit_stage(
+                    attempt,
+                    "surface_shell",
+                    surface_shell_audit,
+                )
+            report_progress(
+                percent=55, message="Surface mesh built, preparing volume mesh..."
+            )
+
+            if surface_mesh.faces is None or len(surface_mesh.faces) == 0:
+                raise ValueError("Surface mesh has no faces. Cannot build volume mesh.")
+            if surface_mesh.markers is None or len(surface_mesh.markers) == 0:
+                raise ValueError(
+                    "Surface mesh has no face markers. Cannot build volume mesh."
+                )
+
+            if tetgen_debug_output_dir is not None:
+                debug_stem = tetgen_debug_output_stem or "tetgen_input"
+                try:
+                    debug_paths = _save_tetgen_debug_meshes(
+                        output_dir=tetgen_debug_output_dir,
+                        stem=debug_stem,
+                        ground_mesh=surface_ground_mesh,
+                        surface_mesh=surface_mesh,
+                        domain_height=domain_height,
+                        top_cap_backend=surface_mesher,
+                        top_cap_max_mesh_size=max_mesh_size,
+                        top_cap_min_mesh_angle=min_mesh_angle,
+                    )
+                    debug(
+                        "Saved TetGen debug meshes: ground=%s shell=%s plc=%s",
+                        debug_paths["ground"],
+                        debug_paths["shell"],
+                        debug_paths["plc"],
+                    )
+                except Exception as exc:
+                    warning("Failed to save TetGen debug meshes: %s", exc)
+
+            switches_params = get_default_tetgen_switches()
+            if tetgen_switches:
+                switches_params.update(tetgen_switches)
+            preserve_surface_requested = bool(switches_params.get("preserve_surface"))
+            if tetgen_switch_overrides:
+                preserve_surface_requested = bool(
+                    tetgen_switch_overrides.get("preserve_surface")
+                ) or preserve_surface_requested
+            if attempt is not None:
+                attempt["config"]["preserve_surface_requested"] = bool(
+                    preserve_surface_requested
+                )
+                attempt["config"]["effective_tetgen_switches"] = _audit_json_ready(
+                    switches_params
+                )
+            if attempt is not None:
+                plc_audit = {
+                    "mesher": surface_mesher,
+                    **_tetgen_plc_audit(
+                        surface_mesh=surface_mesh,
+                        closure_mesh=surface_ground_mesh,
+                        top_height=domain_height,
+                        top_cap_backend=surface_mesher,
+                        top_cap_max_mesh_size=max_mesh_size,
+                        top_cap_min_mesh_angle=min_mesh_angle,
+                    ),
+                }
+                plc_audit["contract"] = _tetgen_plc_contract_from_audit(
+                    plc_audit,
+                    reference_length=conditioned_scale,
+                )
+                _record_stage_audit_stage(
+                    attempt,
+                    "plc",
+                    plc_audit,
+                )
+
+            report_progress(percent=60, message="Running TetGen volume mesher...")
+            try:
+                volume_mesh = tetgen_build_volume_mesh(
+                    mesh=surface_mesh,
+                    build_top_sidewalls=True,
+                    top_height=domain_height,
+                    closure_mesh=surface_ground_mesh,
+                    top_cap_backend=surface_mesher,
+                    top_cap_max_mesh_size=max_mesh_size,
+                    top_cap_min_mesh_angle=min_mesh_angle,
+                    switches_params=switches_params,
+                    switches_overrides=tetgen_switch_overrides,
+                    return_boundary_faces=boundary_face_markers,
+                )
+            except RuntimeError as exc:
+                msg = str(exc)
+                if merge_buildings and "self-intersections" in msg:
+                    warning(
+                        "TetGen failed with self-intersections after merging buildings; "
+                        "retrying once with merge_buildings=False."
+                    )
+                    _mark_stage_audit_failure(
+                        attempt,
+                        exc,
+                        retrying_with="retry-no-merge",
+                    )
+                    return build_city_volume_mesh(
+                        city=city,
+                        lod=lod,
+                        domain_height=domain_height,
+                        max_mesh_size=max_mesh_size,
+                        min_mesh_angle=min_mesh_angle,
+                        merge_buildings=False,
+                        min_building_detail=min_building_detail,
+                        min_building_area=min_building_area,
+                        merge_tolerance=merge_tolerance,
+                        smoothing=smoothing,
+                        boundary_face_markers=boundary_face_markers,
+                        tetgen_switches=tetgen_switches,
+                        tetgen_switch_overrides=tetgen_switch_overrides,
+                        smoother_max_iterations=smoother_max_iterations,
+                        smoothing_relative_tolerance=smoothing_relative_tolerance,
+                        aspect_ratio_threshold=aspect_ratio_threshold,
+                        debug_step=debug_step,
+                        report_mesh_quality=report_mesh_quality,
+                        cleaning_diagnostics=cleaning_diagnostics,
+                        mesher=mesher,
+                        tetgen_debug_output_dir=tetgen_debug_output_dir,
+                        tetgen_debug_output_stem=(
+                            f"{(tetgen_debug_output_stem or 'tetgen_input')}.retry-no-merge"
+                            if tetgen_debug_output_dir is not None
+                            else tetgen_debug_output_stem
+                        ),
+                        stage_audit=stage_audit,
+                        _stage_audit_attempt_label="retry-no-merge",
+                        _stage_audit_retry_reason="merged-building self-intersections",
+                    )
+                if (
+                    not preserve_surface_requested
+                    and (
+                        "TetGen failed (code 2)" in msg
+                        or "internal error (report bug)" in msg
+                    )
+                ):
+                    warning(
+                        "TetGen failed with an internal refinement error; "
+                        "retrying once with preserve_surface=True."
+                    )
+                    retry_switch_overrides = dict(tetgen_switch_overrides or {})
+                    retry_switch_overrides["preserve_surface"] = True
+                    _mark_stage_audit_failure(
+                        attempt,
+                        exc,
+                        retrying_with="retry-preserve",
+                    )
+                    return build_city_volume_mesh(
+                        city=city,
+                        lod=lod,
+                        domain_height=domain_height,
+                        max_mesh_size=max_mesh_size,
+                        min_mesh_angle=min_mesh_angle,
+                        merge_buildings=merge_buildings,
+                        min_building_detail=min_building_detail,
+                        min_building_area=min_building_area,
+                        merge_tolerance=merge_tolerance,
+                        smoothing=smoothing,
+                        boundary_face_markers=boundary_face_markers,
+                        tetgen_switches=tetgen_switches,
+                        tetgen_switch_overrides=retry_switch_overrides,
+                        smoother_max_iterations=smoother_max_iterations,
+                        smoothing_relative_tolerance=smoothing_relative_tolerance,
+                        aspect_ratio_threshold=aspect_ratio_threshold,
+                        debug_step=debug_step,
+                        report_mesh_quality=report_mesh_quality,
+                        cleaning_diagnostics=cleaning_diagnostics,
+                        mesher=mesher,
+                        tetgen_debug_output_dir=tetgen_debug_output_dir,
+                        tetgen_debug_output_stem=(
+                            f"{(tetgen_debug_output_stem or 'tetgen_input')}.retry-preserve"
+                            if tetgen_debug_output_dir is not None
+                            else tetgen_debug_output_stem
+                        ),
+                        stage_audit=stage_audit,
+                        _stage_audit_attempt_label="retry-preserve",
+                        _stage_audit_retry_reason="TetGen internal refinement error",
+                    )
+                _mark_stage_audit_failure(attempt, exc)
+                raise
+
+            if attempt is not None:
+                _record_stage_audit_stage(
+                    attempt,
+                    "volume_mesh",
+                    _volume_mesh_audit(volume_mesh),
+                )
+            preserve_retry_reference_length = _tetgen_preserve_retry_reference_length(
+                subdomain_resolution=subdomain_resolution,
+                max_mesh_size=max_mesh_size,
+                min_building_detail=min_building_detail,
+            )
+            original_quality_snapshot = _tetgen_volume_mesh_quality_snapshot(volume_mesh)
+            accepted_followup_retry = False
+            if (
+                not preserve_surface_requested
+                and _should_retry_tetgen_with_preserve_surface(
+                    original_quality_snapshot,
+                    reference_length=preserve_retry_reference_length,
+                )
+            ):
+                warning(
+                    "TetGen split-surface mesh shows severe boundary slivers "
+                    "(ARmax=%.3g, min_edge=%.3g, reference=%.3g); "
+                    "retrying once with preserve_surface=True.",
+                    original_quality_snapshot["aspect_ratio_max"],
+                    original_quality_snapshot["min_edge_length"],
+                    preserve_retry_reference_length,
+                )
+                retry_switch_overrides = dict(tetgen_switch_overrides or {})
+                retry_switch_overrides["preserve_surface"] = True
+                try:
+                    retry_volume_mesh = build_city_volume_mesh(
+                        city=city,
+                        lod=lod,
+                        domain_height=domain_height,
+                        max_mesh_size=max_mesh_size,
+                        min_mesh_angle=min_mesh_angle,
+                        merge_buildings=merge_buildings,
+                        min_building_detail=min_building_detail,
+                        min_building_area=min_building_area,
+                        merge_tolerance=merge_tolerance,
+                        smoothing=smoothing,
+                        boundary_face_markers=boundary_face_markers,
+                        tetgen_switches=tetgen_switches,
+                        tetgen_switch_overrides=retry_switch_overrides,
+                        smoother_max_iterations=smoother_max_iterations,
+                        smoothing_relative_tolerance=smoothing_relative_tolerance,
+                        aspect_ratio_threshold=aspect_ratio_threshold,
+                        debug_step=debug_step,
+                        report_mesh_quality=False,
+                        cleaning_diagnostics=cleaning_diagnostics,
+                        mesher=mesher,
+                        tetgen_debug_output_dir=tetgen_debug_output_dir,
+                        tetgen_debug_output_stem=(
+                            f"{(tetgen_debug_output_stem or 'tetgen_input')}.retry-preserve-quality"
+                            if tetgen_debug_output_dir is not None
+                            else tetgen_debug_output_stem
+                        ),
+                        stage_audit=stage_audit,
+                        _stage_audit_attempt_label="retry-preserve-quality",
+                        _stage_audit_retry_reason="severe boundary slivers",
+                    )
+                except Exception as retry_exc:
+                    if attempt is not None:
+                        attempt.setdefault("followup_retries", []).append(
+                            {
+                                "label": "retry-preserve-quality",
+                                "status": "failed",
+                                "error_type": type(retry_exc).__name__,
+                                "error_message": str(retry_exc),
+                            }
+                        )
+                    warning(
+                        "Preserve-surface quality retry failed after a successful "
+                        "split-surface TetGen build; keeping the original mesh. %s",
+                        retry_exc,
+                    )
+                else:
+                    retry_quality_snapshot = _tetgen_volume_mesh_quality_snapshot(
+                        retry_volume_mesh
+                    )
+                    accepted_followup_retry = _should_accept_preserve_surface_retry(
+                        original_quality_snapshot,
+                        retry_quality_snapshot,
+                        reference_length=preserve_retry_reference_length,
+                    )
+                    if attempt is not None:
+                        attempt.setdefault("followup_retries", []).append(
+                            {
+                                "label": "retry-preserve-quality",
+                                "status": "accepted"
+                                if accepted_followup_retry
+                                else "rejected",
+                                "original_quality_snapshot": _audit_json_ready(
+                                    original_quality_snapshot
+                                ),
+                                "retry_quality_snapshot": _audit_json_ready(
+                                    retry_quality_snapshot
+                                ),
+                            }
+                        )
+                    if accepted_followup_retry:
+                        info(
+                            "Accepted preserve-surface retry: ARmax %.3g -> %.3g, "
+                            "min_edge %.3g -> %.3g.",
+                            original_quality_snapshot["aspect_ratio_max"],
+                            retry_quality_snapshot["aspect_ratio_max"],
+                            original_quality_snapshot["min_edge_length"],
+                            retry_quality_snapshot["min_edge_length"],
+                        )
+                        volume_mesh = retry_volume_mesh
+                    else:
+                        info(
+                            "Preserve-surface retry did not materially reduce "
+                            "boundary-sliver severity; keeping the original mesh."
+                        )
+            report_progress(percent=95, message="Volume mesh complete")
+
+            if report_mesh_quality:
+                from dtcc_core.model.mixins.mesh.quality import (
+                    tetrahedron_mesh_quality,
+                    report_quality,
+                )
+
+                q = tetrahedron_mesh_quality(volume_mesh.vertices, volume_mesh.cells)
+                report_quality(q, log_fn=info)
+
+            if accepted_followup_retry:
+                if attempt is not None:
+                    attempt["result"] = {
+                        "status": "superseded",
+                        "selected_retry": "retry-preserve-quality",
+                    }
+            else:
+                _mark_stage_audit_success(stage_audit, attempt)
+            if stage_audit is not None:
+                volume_mesh.stage_audit = stage_audit
+            return volume_mesh
+        except Exception as exc:
+            _mark_stage_audit_failure(attempt, exc)
+            raise
+
+    # 5. BUILD VOLUME MESH - FALLBACK DTCC PATH
+    info("Building volume mesh with fallback DTCC volume mesher...")
+    try:
+        report_progress(percent=40, message="Building volume mesh (fallback mesher)...")
         (
-            surface_buildings,
-            surface_directives,
-            surface_region_polygons,
-            surface_region_markers,
-            surface_region_triangle_sizes,
-            surface_region_points,
+            active_surfaces,
+            _meshing_directives,
+            region_polygons,
+            region_markers,
+            region_triangle_sizes,
+            region_points,
         ) = _prepare_surface_ground_regions(
             conditioned_surfaces=building_footprints,
             conditioned_resolution=subdomain_resolution,
-            target_lods=shell_target_lods,
+            target_lods=target_lods,
             bounds=(
                 terrain.bounds.xmin,
                 terrain.bounds.ymin,
@@ -2154,10 +3687,21 @@ def build_city_volume_mesh(
             cleaning_diagnostics=cleaning_diagnostics,
             treat_lod0_as_holes=False,
         )
-        surface_ground_mesh, surface_mesher = _build_ground_mesh_from_coverage(
-            region_polygons=surface_region_polygons,
-            region_markers=surface_region_markers,
-            region_points=surface_region_points,
+        if attempt is not None:
+            _record_stage_audit_stage(
+                attempt,
+                "surface_regions",
+                _surface_region_audit(
+                    building_surfaces=active_surfaces,
+                    region_polygons=region_polygons,
+                    region_markers=region_markers,
+                    region_triangle_sizes=region_triangle_sizes,
+                ),
+            )
+        ground_mesh, active_mesher = _build_ground_mesh_from_coverage(
+            region_polygons=region_polygons,
+            region_markers=region_markers,
+            region_points=region_points,
             bounds=(
                 terrain.bounds.xmin,
                 terrain.bounds.ymin,
@@ -2167,246 +3711,63 @@ def build_city_volume_mesh(
             max_mesh_size=max_mesh_size,
             min_mesh_angle=min_mesh_angle,
             mesher=mesher,
-            sort_triangles=False,
-            region_triangle_sizes=surface_region_triangle_sizes,
+            sort_triangles=True,
+            region_triangle_sizes=region_triangle_sizes,
             add_halo_markers=False,
         )
-        surface_ground_mesh, surface_buildings, surface_directives = (
+        if attempt is not None:
+            attempt["config"]["effective_mesher"] = active_mesher
+        ground_mesh, active_surfaces, _meshing_directives = (
             _split_ground_mesh_building_components(
-                ground_mesh=surface_ground_mesh,
-                building_surfaces=surface_buildings,
-                meshing_directives=surface_directives,
+                ground_mesh=ground_mesh,
+                building_surfaces=active_surfaces,
+                meshing_directives=_meshing_directives,
             )
         )
-        surface_mesh = _build_city_surface_mesh_from_ground_mesh(
-            ground_mesh=surface_ground_mesh,
-            terrain_raster=terrain_raster,
-            building_surfaces=surface_buildings,
-            meshing_directives=surface_directives,
-            smoothing=smoothing,
-            merge_meshes=True,
+        if attempt is not None:
+            ground_mesh_audit = {
+                "mesher": active_mesher,
+                **_triangle_mesh_audit(ground_mesh),
+            }
+            ground_mesh_audit["contract"] = _triangle_mesh_contract_from_audit(
+                ground_mesh_audit,
+                reference_length=conditioned_scale,
+                require_markers=True,
+                stage_label="Ground mesh",
+            )
+            _record_stage_audit_stage(
+                attempt,
+                "ground_mesh",
+                ground_mesh_audit,
+            )
+        _ground_mesh = mesh_to_builder_mesh(ground_mesh)
+        _surfaces = [create_builder_surface(surface) for surface in active_surfaces]
+        _dem = raster_to_builder_gridfield(terrain_raster)
+
+        volume_mesh_builder = _dtcc_builder.VolumeMeshBuilder(
+            _surfaces, _dem, _ground_mesh, domain_height
         )
-        report_progress(
-            percent=55, message="Surface mesh built, preparing volume mesh..."
+
+        _volume_mesh = volume_mesh_builder.build(
+            smoother_max_iterations,
+            smoothing_relative_tolerance,
+            0.0,
+            aspect_ratio_threshold,
+            debug_step,
         )
-
-        # Validate surface mesh
-        if surface_mesh.faces is None or len(surface_mesh.faces) == 0:
-            raise ValueError("Surface mesh has no faces. Cannot build volume mesh.")
-        if surface_mesh.markers is None or len(surface_mesh.markers) == 0:
-            raise ValueError(
-                "Surface mesh has no face markers. Cannot build volume mesh."
+        volume_mesh = _volume_mesh.from_cpp()
+        if attempt is not None:
+            _record_stage_audit_stage(
+                attempt,
+                "volume_mesh",
+                _volume_mesh_audit(volume_mesh),
             )
+        report_progress(percent=90, message="Volume mesh built, finalizing...")
 
-        if tetgen_debug_output_dir is not None:
-            debug_stem = tetgen_debug_output_stem or "tetgen_input"
-            try:
-                debug_paths = _save_tetgen_debug_meshes(
-                    output_dir=tetgen_debug_output_dir,
-                    stem=debug_stem,
-                    ground_mesh=surface_ground_mesh,
-                    surface_mesh=surface_mesh,
-                    domain_height=domain_height,
-                    top_cap_backend=surface_mesher,
-                    top_cap_max_mesh_size=max_mesh_size,
-                    top_cap_min_mesh_angle=min_mesh_angle,
-                )
-                debug(
-                    "Saved TetGen debug meshes: ground=%s shell=%s plc=%s",
-                    debug_paths["ground"],
-                    debug_paths["shell"],
-                    debug_paths["plc"],
-                )
-            except Exception as exc:
-                warning("Failed to save TetGen debug meshes: %s", exc)
-
-        # Configure TetGen switches
-        switches_params = get_default_tetgen_switches()
-        if tetgen_switches:
-            switches_params.update(tetgen_switches)
-        preserve_surface_requested = bool(switches_params.get("preserve_surface"))
-        if tetgen_switch_overrides:
-            preserve_surface_requested = bool(
-                tetgen_switch_overrides.get("preserve_surface")
-            ) or preserve_surface_requested
-        # Build volume mesh with TetGen
-        report_progress(percent=60, message="Running TetGen volume mesher...")
-        try:
-            volume_mesh = tetgen_build_volume_mesh(
-                mesh=surface_mesh,
-                build_top_sidewalls=True,
-                top_height=domain_height,
-                closure_mesh=surface_ground_mesh,
-                top_cap_backend=surface_mesher,
-                top_cap_max_mesh_size=max_mesh_size,
-                top_cap_min_mesh_angle=min_mesh_angle,
-                switches_params=switches_params,
-                switches_overrides=tetgen_switch_overrides,
-                return_boundary_faces=boundary_face_markers,
-            )
-        except RuntimeError as exc:
-            msg = str(exc)
-            # Merged footprints can occasionally create degenerate/overlapping
-            # facets that TetGen reports as self-intersections. Retry once
-            # without building-merge preprocessing for robustness.
-            if merge_buildings and "self-intersections" in msg:
-                warning(
-                    "TetGen failed with self-intersections after merging buildings; "
-                    "retrying once with merge_buildings=False."
-                )
-                return build_city_volume_mesh(
-                    city=city,
-                    lod=lod,
-                    domain_height=domain_height,
-                    max_mesh_size=max_mesh_size,
-                    min_mesh_angle=min_mesh_angle,
-                    merge_buildings=False,
-                    min_building_detail=min_building_detail,
-                    min_building_area=min_building_area,
-                    merge_tolerance=merge_tolerance,
-                    smoothing=smoothing,
-                    boundary_face_markers=boundary_face_markers,
-                    tetgen_switches=tetgen_switches,
-                    tetgen_switch_overrides=tetgen_switch_overrides,
-                    smoother_max_iterations=smoother_max_iterations,
-                    smoothing_relative_tolerance=smoothing_relative_tolerance,
-                    aspect_ratio_threshold=aspect_ratio_threshold,
-                    debug_step=debug_step,
-                    report_mesh_quality=report_mesh_quality,
-                    cleaning_diagnostics=cleaning_diagnostics,
-                    mesher=mesher,
-                    tetgen_debug_output_dir=tetgen_debug_output_dir,
-                    tetgen_debug_output_stem=(
-                        f"{(tetgen_debug_output_stem or 'tetgen_input')}.retry-no-merge"
-                        if tetgen_debug_output_dir is not None
-                        else tetgen_debug_output_stem
-                    ),
-                )
-            if (
-                not preserve_surface_requested
-                and (
-                    "TetGen failed (code 2)" in msg
-                    or "internal error (report bug)" in msg
-                )
-            ):
-                warning(
-                    "TetGen failed with an internal refinement error; "
-                    "retrying once with preserve_surface=True."
-                )
-                retry_switch_overrides = dict(tetgen_switch_overrides or {})
-                retry_switch_overrides["preserve_surface"] = True
-                return build_city_volume_mesh(
-                    city=city,
-                    lod=lod,
-                    domain_height=domain_height,
-                    max_mesh_size=max_mesh_size,
-                    min_mesh_angle=min_mesh_angle,
-                    merge_buildings=merge_buildings,
-                    min_building_detail=min_building_detail,
-                    min_building_area=min_building_area,
-                    merge_tolerance=merge_tolerance,
-                    smoothing=smoothing,
-                    boundary_face_markers=boundary_face_markers,
-                    tetgen_switches=tetgen_switches,
-                    tetgen_switch_overrides=retry_switch_overrides,
-                    smoother_max_iterations=smoother_max_iterations,
-                    smoothing_relative_tolerance=smoothing_relative_tolerance,
-                    aspect_ratio_threshold=aspect_ratio_threshold,
-                    debug_step=debug_step,
-                    report_mesh_quality=report_mesh_quality,
-                    cleaning_diagnostics=cleaning_diagnostics,
-                    mesher=mesher,
-                    tetgen_debug_output_dir=tetgen_debug_output_dir,
-                    tetgen_debug_output_stem=(
-                        f"{(tetgen_debug_output_stem or 'tetgen_input')}.retry-preserve"
-                        if tetgen_debug_output_dir is not None
-                        else tetgen_debug_output_stem
-                    ),
-                )
-            raise
-
-        preserve_retry_reference_length = _tetgen_preserve_retry_reference_length(
-            subdomain_resolution=subdomain_resolution,
-            max_mesh_size=max_mesh_size,
-            min_building_detail=min_building_detail,
-        )
-        original_quality_snapshot = _tetgen_volume_mesh_quality_snapshot(volume_mesh)
-        if (
-            not preserve_surface_requested
-            and _should_retry_tetgen_with_preserve_surface(
-                original_quality_snapshot,
-                reference_length=preserve_retry_reference_length,
-            )
-        ):
-            warning(
-                "TetGen split-surface mesh shows severe boundary slivers "
-                "(ARmax=%.3g, min_edge=%.3g, reference=%.3g); "
-                "retrying once with preserve_surface=True.",
-                original_quality_snapshot["aspect_ratio_max"],
-                original_quality_snapshot["min_edge_length"],
-                preserve_retry_reference_length,
-            )
-            retry_switch_overrides = dict(tetgen_switch_overrides or {})
-            retry_switch_overrides["preserve_surface"] = True
-            try:
-                retry_volume_mesh = build_city_volume_mesh(
-                    city=city,
-                    lod=lod,
-                    domain_height=domain_height,
-                    max_mesh_size=max_mesh_size,
-                    min_mesh_angle=min_mesh_angle,
-                    merge_buildings=merge_buildings,
-                    min_building_detail=min_building_detail,
-                    min_building_area=min_building_area,
-                    merge_tolerance=merge_tolerance,
-                    smoothing=smoothing,
-                    boundary_face_markers=boundary_face_markers,
-                    tetgen_switches=tetgen_switches,
-                    tetgen_switch_overrides=retry_switch_overrides,
-                    smoother_max_iterations=smoother_max_iterations,
-                    smoothing_relative_tolerance=smoothing_relative_tolerance,
-                    aspect_ratio_threshold=aspect_ratio_threshold,
-                    debug_step=debug_step,
-                    report_mesh_quality=False,
-                    cleaning_diagnostics=cleaning_diagnostics,
-                    mesher=mesher,
-                    tetgen_debug_output_dir=tetgen_debug_output_dir,
-                    tetgen_debug_output_stem=(
-                        f"{(tetgen_debug_output_stem or 'tetgen_input')}.retry-preserve-quality"
-                        if tetgen_debug_output_dir is not None
-                        else tetgen_debug_output_stem
-                    ),
-                )
-            except Exception as retry_exc:
-                warning(
-                    "Preserve-surface quality retry failed after a successful "
-                    "split-surface TetGen build; keeping the original mesh. %s",
-                    retry_exc,
-                )
-            else:
-                retry_quality_snapshot = _tetgen_volume_mesh_quality_snapshot(
-                    retry_volume_mesh
-                )
-                if _should_accept_preserve_surface_retry(
-                    original_quality_snapshot,
-                    retry_quality_snapshot,
-                    reference_length=preserve_retry_reference_length,
-                ):
-                    info(
-                        "Accepted preserve-surface retry: ARmax %.3g -> %.3g, "
-                        "min_edge %.3g -> %.3g.",
-                        original_quality_snapshot["aspect_ratio_max"],
-                        retry_quality_snapshot["aspect_ratio_max"],
-                        original_quality_snapshot["min_edge_length"],
-                        retry_quality_snapshot["min_edge_length"],
-                    )
-                    volume_mesh = retry_volume_mesh
-                else:
-                    info(
-                        "Preserve-surface retry did not materially reduce "
-                        "boundary-sliver severity; keeping the original mesh."
-                    )
-        report_progress(percent=95, message="Volume mesh complete")
+        if boundary_face_markers:
+            computed_markers = _dtcc_builder.compute_boundary_face_markers(_volume_mesh)
+            if computed_markers is not None:
+                volume_mesh.boundary_markers = computed_markers
 
         if report_mesh_quality:
             from dtcc_core.model.mixins.mesh.quality import (
@@ -2417,91 +3778,10 @@ def build_city_volume_mesh(
             q = tetrahedron_mesh_quality(volume_mesh.vertices, volume_mesh.cells)
             report_quality(q, log_fn=info)
 
+        _mark_stage_audit_success(stage_audit, attempt)
+        if stage_audit is not None:
+            volume_mesh.stage_audit = stage_audit
         return volume_mesh
-
-    # 5. BUILD VOLUME MESH - FALLBACK DTCC PATH
-    info("Building volume mesh with fallback DTCC volume mesher...")
-    report_progress(percent=40, message="Building volume mesh (fallback mesher)...")
-    (
-        active_surfaces,
-        _meshing_directives,
-        region_polygons,
-        region_markers,
-        region_triangle_sizes,
-        region_points,
-    ) = _prepare_surface_ground_regions(
-        conditioned_surfaces=building_footprints,
-        conditioned_resolution=subdomain_resolution,
-        target_lods=target_lods,
-        bounds=(
-            terrain.bounds.xmin,
-            terrain.bounds.ymin,
-            terrain.bounds.xmax,
-            terrain.bounds.ymax,
-        ),
-        max_mesh_size=max_mesh_size,
-        min_building_detail=min_building_detail,
-        footprint_diagnostics=diagnostics,
-        cleaning_diagnostics=cleaning_diagnostics,
-        treat_lod0_as_holes=False,
-    )
-    ground_mesh, _active_mesher = _build_ground_mesh_from_coverage(
-        region_polygons=region_polygons,
-        region_markers=region_markers,
-        region_points=region_points,
-        bounds=(
-            terrain.bounds.xmin,
-            terrain.bounds.ymin,
-            terrain.bounds.xmax,
-            terrain.bounds.ymax,
-        ),
-        max_mesh_size=max_mesh_size,
-        min_mesh_angle=min_mesh_angle,
-        mesher=mesher,
-        sort_triangles=True,
-        region_triangle_sizes=region_triangle_sizes,
-        add_halo_markers=False,
-    )
-    ground_mesh, active_surfaces, _meshing_directives = (
-        _split_ground_mesh_building_components(
-            ground_mesh=ground_mesh,
-            building_surfaces=active_surfaces,
-            meshing_directives=_meshing_directives,
-        )
-    )
-    _ground_mesh = mesh_to_builder_mesh(ground_mesh)
-    _surfaces = [create_builder_surface(surface) for surface in active_surfaces]
-    _dem = raster_to_builder_gridfield(terrain_raster)
-
-    # Create volume mesh builder
-    volume_mesh_builder = _dtcc_builder.VolumeMeshBuilder(
-        _surfaces, _dem, _ground_mesh, domain_height
-    )
-
-    # Build volume mesh
-    _volume_mesh = volume_mesh_builder.build(
-        smoother_max_iterations,
-        smoothing_relative_tolerance,
-        0.0,
-        aspect_ratio_threshold,
-        debug_step,
-    )
-    volume_mesh = _volume_mesh.from_cpp()
-    report_progress(percent=90, message="Volume mesh built, finalizing...")
-
-    # Add boundary face markers if requested
-    if boundary_face_markers:
-        computed_markers = _dtcc_builder.compute_boundary_face_markers(_volume_mesh)
-        if computed_markers is not None:
-            volume_mesh.boundary_markers = computed_markers
-
-    if report_mesh_quality:
-        from dtcc_core.model.mixins.mesh.quality import (
-            tetrahedron_mesh_quality,
-            report_quality,
-        )
-
-        q = tetrahedron_mesh_quality(volume_mesh.vertices, volume_mesh.cells)
-        report_quality(q, log_fn=info)
-
-    return volume_mesh
+    except Exception as exc:
+        _mark_stage_audit_failure(attempt, exc)
+        raise
