@@ -137,6 +137,8 @@ def download_data(data_type: str, provider: str, bounds: Bounds, epsg = '3006', 
             info('Starting the Lidar files download from dtcc source')
             files = download_lidar(bounds.tuple, session, base_url=f'{url}:8000')
             debug(files)
+            if not files:
+                raise RuntimeError("No lidar data available for the requested bounding box.")
             pc = io.load_pointcloud(files,bounds=bounds)
             return pc
         elif data_type == 'footprints':

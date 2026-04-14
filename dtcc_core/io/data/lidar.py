@@ -249,7 +249,7 @@ def download_lidar(user_bbox, session, buffer_val=0, base_url="http://127.0.0.1:
         )
     except Exception as e:
         warning(f"Error occurred: {e}")
-        return
+        raise
 
     debug("Response from server:", response_data)
 
