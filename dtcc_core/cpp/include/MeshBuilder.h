@@ -578,6 +578,7 @@ public:
 
     std::map<size_t, std::vector<Simplex2D>> platform_faces;
     std::map<size_t, double> platform_min_z;
+    std::map<size_t, double> building_min_z;
 
     info("finding markes");
     auto find_markers_t = Timer("build_city_surface_mesh: step 2 find markers");
@@ -593,6 +594,14 @@ public:
       {
         building_faces[marker].push_back(face);
         building_indices.push_back(i);
+
+        const auto &v0 = terrain_mesh.vertices[face.v0];
+        const auto &v1 = terrain_mesh.vertices[face.v1];
+        const auto &v2 = terrain_mesh.vertices[face.v2];
+
+        auto [it, _] = building_min_z.try_emplace(marker, std::numeric_limits<double>::infinity());
+        double &minz = it->second;
+        minz = std::min({minz, v0.z, v1.z, v2.z});
       }
       else
       {
@@ -610,33 +619,39 @@ public:
 
     find_markers_t.stop();
 
-    info("build_city_surface_mesh: step 3 flatten platforms");
+    info("build_city_surface_mesh: step 3 flatten supported footprints");
     std::vector<char> platform_freeze(terrain_mesh.vertices.size(), 0);
-    for (const auto &kv : platform_faces)
+    const auto flatten_region_faces =
+        [&](const std::map<size_t, std::vector<Simplex2D>> &region_faces,
+            const std::map<size_t, double> &region_min_z)
     {
-      const size_t marker = kv.first;
-      const auto &faces = kv.second;
-      auto it = platform_min_z.find(marker);
-      if (it == platform_min_z.end())
-        continue; // no faces? skip
-      const double zflat = it->second;
+      for (const auto &kv : region_faces)
+      {
+        const size_t marker = kv.first;
+        const auto &faces = kv.second;
+        auto it = region_min_z.find(marker);
+        if (it == region_min_z.end())
+          continue;
+        const double zflat = it->second;
 
-      // Collect unique vertex indices used by these faces
-      std::unordered_set<size_t> vset;
-      vset.reserve(faces.size() * 3);
-      for (const auto &f : faces)
-      {
-        vset.insert(static_cast<size_t>(f.v0));
-        vset.insert(static_cast<size_t>(f.v1));
-        vset.insert(static_cast<size_t>(f.v2));
+        std::unordered_set<size_t> vset;
+        vset.reserve(faces.size() * 3);
+        for (const auto &f : faces)
+        {
+          vset.insert(static_cast<size_t>(f.v0));
+          vset.insert(static_cast<size_t>(f.v1));
+          vset.insert(static_cast<size_t>(f.v2));
+        }
+
+        for (size_t vi : vset)
+        {
+          terrain_mesh.vertices[vi].z = zflat;
+          platform_freeze[vi] = 1;
+        }
       }
-      // Set their z to zflat and mark as frozen
-      for (size_t vi : vset)
-      {
-        terrain_mesh.vertices[vi].z = zflat;
-        platform_freeze[vi] = 1;
-      }
-    }
+    };
+    flatten_region_faces(platform_faces, platform_min_z);
+    flatten_region_faces(building_faces, building_min_z);
 
     if (smooth_ground)
     {
@@ -972,46 +987,30 @@ private:
                                           bool flip_orientation,
                                           size_t strip_count)
   {
-    const size_t clamped_strip_count = std::max<size_t>(1, strip_count);
-    mesh.vertices.reserve(mesh.vertices.size() + clamped_strip_count * 4);
-    mesh.faces.reserve(mesh.faces.size() + clamped_strip_count * 2);
-    mesh.markers.reserve(mesh.markers.size() + clamped_strip_count * 2);
+    static_cast<void>(strip_count);
+    mesh.vertices.reserve(mesh.vertices.size() + 4);
+    mesh.faces.reserve(mesh.faces.size() + 2);
+    mesh.markers.reserve(mesh.markers.size() + 2);
 
-    for (size_t strip = 0; strip < clamped_strip_count; ++strip)
+    const auto base = mesh.vertices.size();
+    mesh.vertices.push_back(bottom_v0);
+    mesh.vertices.push_back(bottom_v1);
+    mesh.vertices.push_back(top_v0);
+    mesh.vertices.push_back(top_v1);
+
+    if (flip_orientation)
     {
-      const double t0 = static_cast<double>(strip) / clamped_strip_count;
-      const double t1 = static_cast<double>(strip + 1) / clamped_strip_count;
-      const auto lower_v0 =
-          strip == 0 ? bottom_v0 : bottom_v0 + (top_v0 - bottom_v0) * t0;
-      const auto lower_v1 =
-          strip == 0 ? bottom_v1 : bottom_v1 + (top_v1 - bottom_v1) * t0;
-      const auto upper_v0 = strip + 1 == clamped_strip_count
-                                ? top_v0
-                                : bottom_v0 + (top_v0 - bottom_v0) * t1;
-      const auto upper_v1 = strip + 1 == clamped_strip_count
-                                ? top_v1
-                                : bottom_v1 + (top_v1 - bottom_v1) * t1;
-
-      const auto base = mesh.vertices.size();
-      mesh.vertices.push_back(lower_v0);
-      mesh.vertices.push_back(lower_v1);
-      mesh.vertices.push_back(upper_v0);
-      mesh.vertices.push_back(upper_v1);
-
-      if (flip_orientation)
-      {
-        mesh.faces.push_back(Simplex2D(base, base + 3, base + 1));
-        mesh.faces.push_back(Simplex2D(base, base + 2, base + 3));
-      }
-      else
-      {
-        mesh.faces.push_back(Simplex2D(base, base + 1, base + 3));
-        mesh.faces.push_back(Simplex2D(base, base + 3, base + 2));
-      }
-
-      mesh.markers.push_back(marker);
-      mesh.markers.push_back(marker);
+      mesh.faces.push_back(Simplex2D(base, base + 3, base + 1));
+      mesh.faces.push_back(Simplex2D(base, base + 2, base + 3));
     }
+    else
+    {
+      mesh.faces.push_back(Simplex2D(base, base + 1, base + 3));
+      mesh.faces.push_back(Simplex2D(base, base + 3, base + 2));
+    }
+
+    mesh.markers.push_back(marker);
+    mesh.markers.push_back(marker);
   }
 
   // Map from 2D cell index to 3D cell indices

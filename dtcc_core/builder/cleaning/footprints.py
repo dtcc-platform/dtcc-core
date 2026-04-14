@@ -2899,6 +2899,51 @@ def _ring_classification(
     return None, None
 
 
+def _nearest_ring_classification(
+    polygon: Polygon,
+    point: Point,
+) -> tuple[str | None, int | None, float]:
+    best_kind: str | None = None
+    best_ring_index: int | None = None
+    best_distance = float("inf")
+
+    candidates: list[tuple[float, str, int | None]] = [
+        (float(polygon.exterior.distance(point)), "exterior", None)
+    ]
+    candidates.extend(
+        (
+            float(LineString(ring.coords).distance(point)),
+            "hole",
+            index,
+        )
+        for index, ring in enumerate(polygon.interiors)
+    )
+
+    for distance, kind, ring_index in candidates:
+        if distance + 1e-12 < best_distance:
+            best_kind = kind
+            best_ring_index = ring_index
+            best_distance = distance
+            continue
+        if abs(distance - best_distance) > 1e-12:
+            continue
+        if best_kind == "exterior":
+            continue
+        if kind == "exterior":
+            best_kind = kind
+            best_ring_index = ring_index
+            best_distance = distance
+            continue
+        if best_ring_index is None or (
+            ring_index is not None and ring_index < best_ring_index
+        ):
+            best_kind = kind
+            best_ring_index = ring_index
+            best_distance = distance
+
+    return best_kind, best_ring_index, best_distance
+
+
 def _nearest_vertex_index(coords: np.ndarray, point: np.ndarray) -> int:
     distances = np.linalg.norm(coords - point, axis=1)
     return int(np.argmin(distances))
@@ -3127,50 +3172,20 @@ def _iter_self_clearance_connector_half_widths(
     return tuple(widths)
 
 
-def _try_polygon_self_clearance_connector_fill(
+def _try_same_ring_self_clearance_connector_fill(
     polygon: Polygon,
+    clearance_coords: np.ndarray,
     *,
     min_clearance: float,
     grid: float,
     diagnostics: dict[str, Any],
+    ring_kind: str,
+    ring_index: int | None,
 ) -> _RepairCandidate | None:
-    if min_clearance <= 0:
-        return None
-
-    try:
-        clearance_line = shapely.minimum_clearance_line(polygon)
-    except GEOSException as exc:
-        _record_geos_exception(diagnostics, "minimum_clearance_line", exc)
-        return None
-    if clearance_line is None or clearance_line.is_empty:
-        return None
-
-    clearance_coords = np.asarray(clearance_line.coords, dtype=float)
-    if len(clearance_coords) < 2:
-        return None
-
-    tolerance = max(grid, 1e-6)
-    start_point = Point(float(clearance_coords[0][0]), float(clearance_coords[0][1]))
-    end_point = Point(float(clearance_coords[-1][0]), float(clearance_coords[-1][1]))
-    start_kind, start_ring_index = _ring_classification(
-        polygon,
-        start_point,
-        tolerance=tolerance,
-    )
-    end_kind, end_ring_index = _ring_classification(
-        polygon,
-        end_point,
-        tolerance=tolerance,
-    )
-    if start_kind is None or end_kind is None:
-        return None
-    if start_kind != end_kind or start_ring_index != end_ring_index:
-        return None
-
     coords = _ring_coords(
         polygon,
-        ring_kind=start_kind,
-        ring_index=start_ring_index,
+        ring_kind=ring_kind,
+        ring_index=ring_index,
     )
     if coords is None or len(coords) < 4:
         return None
@@ -3331,6 +3346,177 @@ def _try_polygon_self_clearance_connector_fill(
         edit_zone=best[2],
         operator="self_clearance_connector",
         area_balance_budget_override=area_budget_override,
+    )
+
+
+def _try_cross_ring_self_clearance_connector_cut(
+    polygon: Polygon,
+    clearance_coords: np.ndarray,
+    *,
+    min_clearance: float,
+    grid: float,
+    diagnostics: dict[str, Any],
+    start_kind: str,
+    start_ring_index: int | None,
+    end_kind: str,
+    end_ring_index: int | None,
+) -> _RepairCandidate | None:
+    if (
+        start_kind == end_kind
+        and start_ring_index == end_ring_index
+    ) or (start_kind == "exterior" and end_kind == "exterior"):
+        return None
+
+    segment_start = np.asarray(clearance_coords[0], dtype=float)
+    segment_end = np.asarray(clearance_coords[-1], dtype=float)
+    segment_vector = segment_end - segment_start
+    segment_length = float(np.hypot(segment_vector[0], segment_vector[1]))
+    if segment_length <= 1e-9:
+        return None
+    segment_direction = segment_vector / segment_length
+
+    reference_signature = _polygon_defect_signature(
+        polygon,
+        target_scale=min_clearance,
+    )
+    best: tuple[
+        tuple[float, int, int, float, int, float, float, int],
+        Polygon,
+        BaseGeometry,
+    ] | None = None
+
+    for half_width in _iter_self_clearance_connector_half_widths(
+        target_scale=min_clearance,
+        grid=grid,
+    ):
+        extension = max(float(half_width), float(grid), 1e-9)
+        cutter_axis = LineString(
+            [
+                tuple(segment_start - segment_direction * extension),
+                tuple(segment_end + segment_direction * extension),
+            ]
+        )
+        cutter = cutter_axis.buffer(
+            half_width,
+            quad_segs=1,
+            join_style=BufferJoinStyle.mitre,
+            mitre_limit=1000.0,
+        )
+        if cutter.is_empty:
+            continue
+
+        candidate_polygon = _normalize_single_polygon_candidate(
+            polygon.difference(cutter),
+            grid=grid,
+            min_area=0.0,
+            min_hole_area=0.0,
+            diagnostics=diagnostics,
+        )
+        if candidate_polygon is None:
+            continue
+
+        candidate_signature = _polygon_defect_signature(
+            candidate_polygon,
+            target_scale=min_clearance,
+        )
+        if not _signature_improves(
+            reference_signature,
+            candidate_signature,
+            grid=grid,
+        ):
+            continue
+
+        difference_metrics = _difference_area_metrics(
+            polygon,
+            candidate_polygon,
+        )
+        edge_deficit = max(
+            min_clearance - (candidate_signature.min_edge_length or 0.0),
+            0.0,
+        )
+        score = (
+            candidate_signature.clearance_deficit,
+            candidate_signature.short_edge_count,
+            candidate_signature.ring_contact_count,
+            edge_deficit,
+            len(candidate_polygon.interiors),
+            difference_metrics["symmetric_difference_area"],
+            abs(difference_metrics["union_area_delta"]),
+            candidate_signature.vertex_count,
+        )
+        if best is None or score < best[0]:
+            best = (
+                score,
+                candidate_polygon,
+                cutter,
+            )
+
+    if best is None:
+        return None
+
+    area_budget_override = max(float(best[2].area), 16.0 * grid * grid, 1e-9)
+    return _RepairCandidate(
+        polygon=best[1],
+        edit_zone=best[2],
+        operator="self_clearance_connector_cut",
+        area_balance_budget_override=area_budget_override,
+    )
+
+
+def _try_polygon_self_clearance_connector_fill(
+    polygon: Polygon,
+    *,
+    min_clearance: float,
+    grid: float,
+    diagnostics: dict[str, Any],
+) -> _RepairCandidate | None:
+    if min_clearance <= 0:
+        return None
+
+    try:
+        clearance_line = shapely.minimum_clearance_line(polygon)
+    except GEOSException as exc:
+        _record_geos_exception(diagnostics, "minimum_clearance_line", exc)
+        return None
+    if clearance_line is None or clearance_line.is_empty:
+        return None
+
+    clearance_coords = np.asarray(clearance_line.coords, dtype=float)
+    if len(clearance_coords) < 2:
+        return None
+
+    start_point = Point(float(clearance_coords[0][0]), float(clearance_coords[0][1]))
+    end_point = Point(float(clearance_coords[-1][0]), float(clearance_coords[-1][1]))
+    start_kind, start_ring_index, _ = _nearest_ring_classification(
+        polygon,
+        start_point,
+    )
+    end_kind, end_ring_index, _ = _nearest_ring_classification(
+        polygon,
+        end_point,
+    )
+    if start_kind is None or end_kind is None:
+        return None
+    if start_kind == end_kind and start_ring_index == end_ring_index:
+        return _try_same_ring_self_clearance_connector_fill(
+            polygon,
+            clearance_coords,
+            min_clearance=min_clearance,
+            grid=grid,
+            diagnostics=diagnostics,
+            ring_kind=start_kind,
+            ring_index=start_ring_index,
+        )
+    return _try_cross_ring_self_clearance_connector_cut(
+        polygon,
+        clearance_coords,
+        min_clearance=min_clearance,
+        grid=grid,
+        diagnostics=diagnostics,
+        start_kind=start_kind,
+        start_ring_index=start_ring_index,
+        end_kind=end_kind,
+        end_ring_index=end_ring_index,
     )
 
 

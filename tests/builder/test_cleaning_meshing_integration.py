@@ -19,7 +19,12 @@ from dtcc_core.builder import (
 )
 from dtcc_core.builder.building.modify import clean_building_footprints
 from dtcc_core.builder.geometry_builders import meshes as meshes_module
-from dtcc_core.builder.model_conversion import builder_mesh_to_mesh, create_builder_polygon
+from dtcc_core.builder.model_conversion import (
+    builder_mesh_to_mesh,
+    create_builder_polygon,
+    create_builder_surface,
+    mesh_to_builder_mesh,
+)
 from dtcc_core.builder.meshing import dtcc_mesher_backend as dtcc_mesher_backend_module
 from dtcc_core.builder.meshing import flat_mesh_backends as flat_mesh_backends_module
 from dtcc_core.builder.meshing.tetgen import is_tetgen_available
@@ -3073,6 +3078,51 @@ def test_build_city_surface_mesh_keeps_tall_wall_roof_seams_closed():
 
     assert open_edge_markers
     assert set(open_edge_markers) == {-2}
+
+
+def test_build_city_surface_mesh_flattens_extruded_building_bases_on_sloped_terrain():
+    terrain_mesh = Mesh(
+        vertices=np.array(
+            [
+                [20.0, 20.0, 5.0],
+                [40.0, 20.0, 6.0],
+                [40.0, 40.0, 10.0],
+                [20.0, 40.0, 9.0],
+            ],
+            dtype=float,
+        ),
+        faces=np.array([[0, 1, 2], [0, 2, 3]], dtype=int),
+        markers=np.array([0, 0], dtype=int),
+    )
+    building_surface = make_surface(box(20.0, 20.0, 40.0, 40.0), 7.0)
+
+    raw_meshes = _dtcc_builder.build_city_surface_mesh_from_terrain_mesh(
+        [create_builder_surface(building_surface)],
+        [1],
+        mesh_to_builder_mesh(terrain_mesh),
+        0,
+        True,
+    )
+    mesh = builder_mesh_to_mesh(raw_meshes[0])
+
+    faces = np.asarray(mesh.faces, dtype=np.int64)
+    markers = np.asarray(mesh.markers, dtype=np.int64)
+    vertices = np.asarray(mesh.vertices, dtype=np.float64)
+
+    wall_indices = np.flatnonzero(markers == 0)
+    roof_indices = np.flatnonzero(markers == 1)
+
+    assert wall_indices.size > 0
+    assert roof_indices.size > 0
+
+    wall_vertices = np.unique(faces[wall_indices].reshape(-1))
+    roof_vertices = np.unique(faces[roof_indices].reshape(-1))
+
+    assert vertices[wall_vertices, 2].min() < 7.0
+    assert vertices[wall_vertices, 2].max() == pytest.approx(7.0)
+    assert np.allclose(vertices[roof_vertices, 2], 7.0)
+
+
 def test_legacy_building_wrappers_still_return_buildings():
     buildings = [
         make_building(box(0, 0, 4, 4), roof_z=8.0),

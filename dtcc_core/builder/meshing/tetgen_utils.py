@@ -71,7 +71,7 @@ def _boundary_sidewall_strip_count(
     )
 
 
-def _append_vertical_quad_facets(
+def _append_vertical_sidewall_facet(
     vertices_out: list[list[float]],
     boundary_facets: list[list[int]],
     *,
@@ -82,38 +82,10 @@ def _append_vertical_quad_facets(
     strip_count: int,
     vertical_vertex_cache: dict[tuple[int, int, int, int], int],
 ) -> None:
-    def _split_vertical_edge(bottom_idx: int, top_idx: int, step: int, num_steps: int) -> int:
-        key = (min(bottom_idx, top_idx), max(bottom_idx, top_idx), step, num_steps)
-        if key in vertical_vertex_cache:
-            return vertical_vertex_cache[key]
-
-        t = step / num_steps
-        point = (1.0 - t) * np.asarray(vertices_out[bottom_idx]) + t * np.asarray(vertices_out[top_idx])
-        idx = len(vertices_out)
-        vertices_out.append(point.tolist())
-        vertical_vertex_cache[key] = idx
-        return idx
-
-    clamped_strip_count = max(1, int(strip_count))
-    left_column = [int(bottom_v0)]
-    right_column = [int(bottom_v1)]
-    for step in range(1, clamped_strip_count):
-        left_column.append(
-            _split_vertical_edge(int(bottom_v0), int(top_v0), step, clamped_strip_count)
-        )
-        right_column.append(
-            _split_vertical_edge(int(bottom_v1), int(top_v1), step, clamped_strip_count)
-        )
-    left_column.append(int(top_v0))
-    right_column.append(int(top_v1))
-
-    for strip in range(clamped_strip_count):
-        b0 = left_column[strip]
-        b1 = right_column[strip]
-        t0 = left_column[strip + 1]
-        t1 = right_column[strip + 1]
-        boundary_facets.append([b0, b1, t1])
-        boundary_facets.append([b0, t1, t0])
+    del vertices_out, strip_count, vertical_vertex_cache
+    boundary_facets.append(
+        [int(bottom_v0), int(bottom_v1), int(top_v1), int(top_v0)]
+    )
 
 
 @dataclass
@@ -823,16 +795,10 @@ def compute_boundary_triangle_facets(
     offset = shell_vertices.shape[0]
     vertices_out = np.vstack([shell_vertices, top_vertices]).tolist()
     boundary_facets: list[list[int]] = []
-    vertical_vertex_cache: dict[tuple[int, int, int, int], int] = {}
     top_boundary_loops = {
         name: np.asarray(top_loops[name], dtype=np.int64) + offset
         for name in ("south", "east", "north", "west")
     }
-    sidewall_strip_count = _boundary_sidewall_strip_count(
-        np.asarray(vertices_out, dtype=float),
-        bottom_loops,
-        top_boundary_loops,
-    )
 
     for name in ("south", "east", "north", "west"):
         bottom_loop = np.asarray(bottom_loops[name], dtype=np.int64)
@@ -843,15 +809,15 @@ def compute_boundary_triangle_facets(
             top_loop[:-1],
             top_loop[1:],
         ):
-            _append_vertical_quad_facets(
+            _append_vertical_sidewall_facet(
                 vertices_out,
                 boundary_facets,
                 bottom_v0=int(b0),
                 bottom_v1=int(b1),
                 top_v0=int(t0),
                 top_v1=int(t1),
-                strip_count=sidewall_strip_count,
-                vertical_vertex_cache=vertical_vertex_cache,
+                strip_count=1,
+                vertical_vertex_cache={},
             )
 
     for face in top_faces:
