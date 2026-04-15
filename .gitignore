@@ -173,3 +173,9 @@ sandbox/snapping
 
 # Generated experiment artifacts
 sandbox/output/
+sandbox/output_3d_*/
+sandbox/output_stage_dive_artifacts_*/
+sandbox/tetgen_fail*
+sandbox/tetgen-tmpfile_skipped*
+tetgen_fail*
+tetgen-tmpfile_skipped*

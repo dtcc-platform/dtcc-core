@@ -31,6 +31,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.collections import LineCollection
+from polyforge import MergeStrategy, fix_clearance, merge_close_polygons, simplify_vwp
+from polyforge.ops.clearance.protrusions import remove_narrow_wedges
 from shapely import get_parts
 from shapely.geometry import GeometryCollection, Polygon, box
 from shapely.geometry.base import BaseGeometry
@@ -42,11 +44,6 @@ from dtcc_core.builder import (
     build_terrain_raster,
     compute_building_heights,
     extract_roof_points,
-)
-from dtcc_core.builder.building.modify import (
-    fix_building_footprint_clearance,
-    merge_building_footprints,
-    simplify_building_footprints,
 )
 from dtcc_core.builder.geometry_builders.meshes import (
     _build_ground_mesh_from_coverage,
@@ -93,7 +90,7 @@ def parse_args() -> argparse.Namespace:
         "--mode",
         choices=["auto", "legacy", "new"],
         default="auto",
-        help="Conditioning pipeline to use.",
+        help="Conditioning pipeline to use. 'legacy' runs the Polyforge pipeline.",
     )
     parser.add_argument(
         "--label",
@@ -295,6 +292,127 @@ def extract_lod0_polygons(buildings: list[Building]) -> list[Polygon]:
     return polygons
 
 
+def _legacy_merge_building_footprints(
+    buildings: list[Building],
+    *,
+    lod: GeometryType,
+    max_distance: float,
+    min_area: float,
+) -> tuple[list[Building], list[list[int]]]:
+    if len(buildings) <= 1:
+        return buildings, [[i] for i in range(len(buildings))]
+
+    source_indices: list[int] = []
+    footprints: list[Polygon] = []
+    building_heights: list[float] = []
+
+    for idx, building in enumerate(buildings):
+        flattened_geom = building.get_footprint(lod)
+        if flattened_geom is None:
+            continue
+        footprint = flattened_geom.to_polygon()
+        if footprint is None or footprint.is_empty:
+            continue
+        source_indices.append(idx)
+        building_heights.append(flattened_geom.zmax)
+        footprints.append(footprint)
+
+    merged_footprints, merged_indices = merge_close_polygons(
+        footprints,
+        max_distance,
+        merge_strategy=MergeStrategy.BOUNDARY_EXTENSION,
+        preserve_holes=True,
+        insert_vertices=True,
+        return_mapping=True,
+        buffer_cleaning=True,
+    )
+
+    merged_buildings: list[Building] = []
+    merged_indices_global: list[list[int]] = []
+
+    for footprint, local_indices in zip(merged_footprints, merged_indices):
+        if footprint.geom_type == "MultiPolygon" or footprint.is_empty or footprint.area < min_area:
+            continue
+        global_indices = [source_indices[i] for i in local_indices]
+        num = sum(building_heights[i] * footprints[i].area for i in local_indices)
+        den = sum(footprints[i].area for i in local_indices)
+        height = num / den if den > 0 else 0.0
+
+        surface = Surface()
+        surface.from_polygon(footprint, height)
+        merged_building = Building()
+        merged_building.add_geometry(surface, GeometryType.LOD0)
+        merged_building.attributes["height"] = height
+        merged_buildings.append(merged_building)
+        merged_indices_global.append(global_indices)
+
+    return merged_buildings, merged_indices_global
+
+
+def _legacy_fix_building_footprint_clearance(
+    buildings: list[Building],
+    *,
+    clearance: float,
+    lod: GeometryType,
+) -> tuple[list[Building], list[list[int]]]:
+    fixed_buildings: list[Building] = []
+    index_map: list[list[int]] = []
+
+    for idx, building in enumerate(buildings):
+        lod_geom = building.flatten_geometry(lod)
+        if lod_geom is None:
+            continue
+        footprint = lod_geom.to_polygon()
+        if footprint is None or footprint.is_empty or footprint.geom_type == "MultiPolygon":
+            continue
+        footprint = fix_clearance(footprint, clearance)
+        if footprint.geom_type == "MultiPolygon":
+            footprints = [geom for geom in footprint.geoms if isinstance(geom, Polygon)]
+            footprint = unary_union(footprints)
+            if footprint.geom_type == "MultiPolygon":
+                footprint = max(footprint.geoms, key=lambda polygon: polygon.area)
+        if footprint.geom_type != "Polygon":
+            continue
+        footprint = remove_narrow_wedges(footprint, min_depth=clearance)
+        surface = Surface()
+        surface.from_polygon(footprint, lod_geom.zmax)
+        fixed_building = building.copy()
+        fixed_building.add_geometry(surface, GeometryType.LOD0)
+        fixed_building.calculate_bounds()
+        fixed_buildings.append(fixed_building)
+        index_map.append([idx])
+
+    return fixed_buildings, index_map
+
+
+def _legacy_simplify_building_footprints(
+    buildings: list[Building],
+    *,
+    tolerance: float,
+    lod: GeometryType,
+) -> tuple[list[Building], list[list[int]]]:
+    simplified_buildings: list[Building] = []
+    index_map: list[list[int]] = []
+
+    for idx, building in enumerate(buildings):
+        lod_geom = building.flatten_geometry(lod)
+        if lod_geom is None:
+            continue
+        footprint = lod_geom.to_polygon()
+        if footprint is None or footprint.is_empty:
+            continue
+        footprint = simplify_vwp(footprint, tolerance)
+        surface = Surface()
+        surface.from_polygon(footprint, lod_geom.zmax)
+        simplified_building = building.copy()
+        simplified_building.add_geometry(surface, GeometryType.LOD0)
+        simplified_building.calculate_bounds()
+        simplified_buildings.append(simplified_building)
+        index_map.append([idx])
+
+    return simplified_buildings, index_map
+
+
 def run_legacy_conditioning(
     buildings: list[Building],
     *,
@@ -304,47 +422,42 @@ def run_legacy_conditioning(
     min_building_detail: float,
 ) -> tuple[list[Polygon], list[list[int]], dict[str, Any]]:
     if merge_buildings:
-        merged_buildings, merged_index_map = merge_building_footprints(
+        merged_buildings, merged_index_map = _legacy_merge_building_footprints(
             buildings,
             lod=GeometryType.LOD0,
             max_distance=merge_tolerance,
             min_area=min_building_area,
-            return_index_map=True,
         )
-        cleared_buildings, cleared_index_map = fix_building_footprint_clearance(
+        cleared_buildings, cleared_index_map = _legacy_fix_building_footprint_clearance(
             merged_buildings,
             clearance=min_building_detail,
             lod=GeometryType.LOD0,
-            return_index_map=True,
         )
         current_index_map = compose_index_map(merged_index_map, cleared_index_map)
-        merged_again, merged_again_index_map = merge_building_footprints(
+        merged_again, merged_again_index_map = _legacy_merge_building_footprints(
             cleared_buildings,
             lod=GeometryType.LOD0,
             max_distance=merge_tolerance,
             min_area=min_building_area,
-            return_index_map=True,
         )
         current_index_map = compose_index_map(current_index_map, merged_again_index_map)
-        simplified_buildings, simplified_index_map = simplify_building_footprints(
+        simplified_buildings, simplified_index_map = _legacy_simplify_building_footprints(
             merged_again,
             tolerance=min_building_detail,
             lod=GeometryType.LOD0,
-            return_index_map=True,
         )
         source_map = compose_index_map(current_index_map, simplified_index_map)
         conditioned_polygons = extract_lod0_polygons(simplified_buildings)
     else:
-        simplified_buildings, source_map = simplify_building_footprints(
+        simplified_buildings, source_map = _legacy_simplify_building_footprints(
             buildings,
             tolerance=min_building_detail,
             lod=GeometryType.LOD0,
-            return_index_map=True,
         )
         conditioned_polygons = extract_lod0_polygons(simplified_buildings)
 
     diagnostics = {
-        "pipeline": "legacy",
+        "pipeline": "legacy_polyforge",
         "output_count": len(conditioned_polygons),
     }
     return conditioned_polygons, source_map, diagnostics
