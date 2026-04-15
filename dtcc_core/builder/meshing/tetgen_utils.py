@@ -82,10 +82,40 @@ def _append_vertical_sidewall_facet(
     strip_count: int,
     vertical_vertex_cache: dict[tuple[int, int, int, int], int],
 ) -> None:
-    del vertices_out, strip_count, vertical_vertex_cache
-    boundary_facets.append(
-        [int(bottom_v0), int(bottom_v1), int(top_v1), int(top_v0)]
-    )
+    def _get_strip_vertex(bottom_v: int, top_v: int, step: int) -> int:
+        if step <= 0:
+            return int(bottom_v)
+        if step >= strip_count:
+            return int(top_v)
+
+        cache_key = (int(bottom_v), int(top_v), int(step), int(strip_count))
+        cached = vertical_vertex_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        bottom_point = np.asarray(vertices_out[int(bottom_v)], dtype=float)
+        top_point = np.asarray(vertices_out[int(top_v)], dtype=float)
+        t = float(step) / float(strip_count)
+        point = bottom_point + t * (top_point - bottom_point)
+        vertex_index = len(vertices_out)
+        vertices_out.append(point.tolist())
+        vertical_vertex_cache[cache_key] = vertex_index
+        return vertex_index
+
+    if strip_count <= 1:
+        boundary_facets.append(
+            [int(bottom_v0), int(bottom_v1), int(top_v1), int(top_v0)]
+        )
+        return
+
+    lower_v0 = int(bottom_v0)
+    lower_v1 = int(bottom_v1)
+    for step in range(1, int(strip_count) + 1):
+        upper_v0 = _get_strip_vertex(bottom_v0, top_v0, step)
+        upper_v1 = _get_strip_vertex(bottom_v1, top_v1, step)
+        boundary_facets.append([lower_v0, lower_v1, upper_v1, upper_v0])
+        lower_v0 = upper_v0
+        lower_v1 = upper_v1
 
 
 @dataclass
@@ -799,6 +829,12 @@ def compute_boundary_triangle_facets(
         name: np.asarray(top_loops[name], dtype=np.int64) + offset
         for name in ("south", "east", "north", "west")
     }
+    sidewall_strip_count = _boundary_sidewall_strip_count(
+        np.asarray(vertices_out, dtype=float),
+        bottom_loops,
+        top_boundary_loops,
+    )
+    vertical_vertex_cache: dict[tuple[int, int, int, int], int] = {}
 
     for name in ("south", "east", "north", "west"):
         bottom_loop = np.asarray(bottom_loops[name], dtype=np.int64)
@@ -816,8 +852,8 @@ def compute_boundary_triangle_facets(
                 bottom_v1=int(b1),
                 top_v0=int(t0),
                 top_v1=int(t1),
-                strip_count=1,
-                vertical_vertex_cache={},
+                strip_count=sidewall_strip_count,
+                vertical_vertex_cache=vertical_vertex_cache,
             )
 
     for face in top_faces:

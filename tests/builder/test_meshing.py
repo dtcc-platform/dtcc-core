@@ -432,7 +432,7 @@ def test_compute_boundary_facets_preserves_intermediate_wall_vertices():
     assert list(boundary_facets["west"][:3]) == [6, 7, 0]
 
 
-def test_compute_boundary_triangle_facets_builds_single_quads_for_tall_sidewalls(monkeypatch):
+def test_compute_boundary_triangle_facets_subdivides_tall_sidewalls_into_stacked_quads(monkeypatch):
     shell = Mesh(
         vertices=np.array(
             [
@@ -485,30 +485,21 @@ def test_compute_boundary_triangle_facets_builds_single_quads_for_tall_sidewalls
         if not np.allclose(vertices[np.asarray(facet, dtype=int), 2], top_z)
     ]
 
-    assert len(sidewall_facets) == 4
+    assert len(sidewall_facets) == 8
     assert all(len(facet) == 4 for facet in sidewall_facets)
 
     vertical_edge_lengths = []
-    horizontal_interior_edges = 0
     for facet in sidewall_facets:
         coords = vertices[np.asarray(facet, dtype=int)]
         for pa, pb in zip(coords, np.roll(coords, -1, axis=0)):
             if np.allclose(pa[:2], pb[:2]) and not np.isclose(pa[2], pb[2]):
                 vertical_edge_lengths.append(abs(float(pa[2] - pb[2])))
-            elif (
-                not np.allclose(pa[:2], pb[:2])
-                and np.isclose(pa[2], pb[2])
-                and not np.isclose(pa[2], 0.0)
-                and not np.isclose(pa[2], top_z)
-            ):
-                horizontal_interior_edges += 1
 
     assert vertical_edge_lengths
-    assert max(vertical_edge_lengths) == pytest.approx(100.0)
-    assert horizontal_interior_edges == 0
+    assert set(np.round(vertical_edge_lengths, 8)) == {50.0}
 
 
-def test_compute_boundary_triangle_facets_keeps_corner_sidewall_quads_consistent(monkeypatch):
+def test_compute_boundary_triangle_facets_keeps_corner_sidewall_strips_consistent(monkeypatch):
     shell = Mesh(
         vertices=np.array(
             [
@@ -570,7 +561,7 @@ def test_compute_boundary_triangle_facets_keeps_corner_sidewall_quads_consistent
                 vertical_edge_lengths.append(abs(float(pa[2] - pb[2])))
 
     assert vertical_edge_lengths
-    assert set(np.round(vertical_edge_lengths, 8)) == {100.0}
+    assert set(np.round(vertical_edge_lengths, 8)) == {25.0}
 
 
 def test_compute_boundary_triangle_facets_avoids_horizontal_sidewall_strip_edges_on_sloped_boundary(monkeypatch):

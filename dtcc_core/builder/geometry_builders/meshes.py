@@ -1311,11 +1311,12 @@ def _prepare_surface_ground_regions(
         cleaning_diagnostics=cleaning_diagnostics,
     )
 
-    shell_hole_clearance = max(
+    shell_regularization_scale = max(
         float(footprint_diagnostics.get("output_grid", 0.0) or 0.0),
         float(min_building_detail),
         1e-6,
-    ) * 0.1
+    )
+    shell_hole_clearance = shell_regularization_scale
     removed_shell_holes = 0
     stabilized_building_polygons: list[Polygon] = []
     for polygon in conditioned_building_polygons:
@@ -1332,11 +1333,7 @@ def _prepare_surface_ground_regions(
             removed_shell_holes,
         )
 
-    shell_polygon_clearance = max(
-        float(footprint_diagnostics.get("output_grid", 0.0) or 0.0),
-        float(min_building_detail),
-        1e-6,
-    ) * 0.1
+    shell_polygon_clearance = shell_regularization_scale
     (
         conditioned_building_polygons,
         conditioned_building_sources,
