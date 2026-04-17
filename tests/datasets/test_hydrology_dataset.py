@@ -6,6 +6,7 @@ import json
 import numpy as np
 from unittest.mock import patch, Mock, MagicMock
 
+from dtcc_core.datasets.dataset import DatasetUpstreamError
 from dtcc_core.datasets.hydrology import (
     HydrologyDataset,
     HydrologyDatasetArgs,
@@ -463,6 +464,12 @@ class TestHydrologyBuild:
         pf = sc.attributes["parameter_fields"]
         assert "discharge_daily" in pf
         assert "water_level" in pf
+        assert sc.attributes["partial_result"] is False
+        assert sc.attributes["upstream_error_count"] == 0
+        assert sc.attributes["upstream_errors"] == []
+        assert sc.attributes["stations_skipped_upstream"] == 0
+        assert sc.attributes["requested_parameters"] == [1, 3]
+        assert sc.attributes["fetched_parameters"] == [1, 3]
 
     @patch("dtcc_core.datasets.hydrology._get_json", side_effect=_mock_get_json)
     def test_parameter_name_strings(self, mock_json):
@@ -484,12 +491,17 @@ class TestHydrologyBuild:
     @patch("dtcc_core.datasets.hydrology._get_json", side_effect=_mock_get_json)
     def test_http_failure_graceful(self, mock_json):
         """Station list failure for a parameter should be skipped gracefully."""
-        calls = [0]
         original = _mock_get_json
 
         def _fail_on_p3(url, timeout_s=10.0):
             if "/parameter/3.json" in url and "/station/" not in url:
-                raise RuntimeError("Network error")
+                raise DatasetUpstreamError(
+                    dataset="hydrology",
+                    operation="fetch_json",
+                    target=url,
+                    failure_class="connection",
+                    message="hydrology fetch failed",
+                )
             return original(url, timeout_s=timeout_s)
 
         mock_json.side_effect = _fail_on_p3
@@ -508,6 +520,77 @@ class TestHydrologyBuild:
         assert "discharge_daily" in field_names
         # Parameter 3 failed → no water_level field
         assert "water_level" not in field_names
+        assert sc.attributes["partial_result"] is True
+        assert sc.attributes["upstream_error_count"] == 1
+        assert sc.attributes["stations_skipped_upstream"] == 0
+        assert sc.attributes["requested_parameters"] == [1, 3]
+        assert sc.attributes["fetched_parameters"] == [1]
+        assert sc.attributes["upstream_errors"][0]["dataset"] == "hydrology"
+        assert sc.attributes["upstream_errors"][0]["failure_class"] == "connection"
+
+    @patch("dtcc_core.datasets.hydrology._get_json", side_effect=_mock_get_json)
+    def test_strict_live_raises_on_upstream_error(self, mock_json):
+        """strict_live should surface upstream failures immediately."""
+
+        def _fail_on_p3(url, timeout_s=10.0):
+            if "/parameter/3.json" in url and "/station/" not in url:
+                raise DatasetUpstreamError(
+                    dataset="hydrology",
+                    operation="fetch_json",
+                    target=url,
+                    failure_class="connection",
+                    message="hydrology fetch failed",
+                )
+            return _mock_get_json(url, timeout_s=timeout_s)
+
+        mock_json.side_effect = _fail_on_p3
+        ds = HydrologyDataset()
+
+        with pytest.raises(DatasetUpstreamError) as exc_info:
+            ds.build(
+                HydrologyDatasetArgs(
+                    bounds=(17.5, 59.0, 18.5, 59.5),
+                    crs="EPSG:4326",
+                    parameters=[1, 3],
+                    strict_live=True,
+                )
+            )
+
+        assert exc_info.value.failure_class == "connection"
+
+    @patch("dtcc_core.datasets.hydrology._get_json", side_effect=_mock_get_json)
+    def test_strict_live_skips_station_latest_day_404(self, mock_json):
+        """A station-level latest-day 404 should be treated as missing data."""
+
+        def _missing_latest_day(url, timeout_s=10.0):
+            if "/station/2357/" in url and "/period/latest-day/data.json" in url:
+                raise DatasetUpstreamError(
+                    dataset="hydrology",
+                    operation="fetch_json",
+                    target=url,
+                    failure_class="http_4xx",
+                    status_code=404,
+                    message="hydrology fetch failed",
+                )
+            return _mock_get_json(url, timeout_s=timeout_s)
+
+        mock_json.side_effect = _missing_latest_day
+        ds = HydrologyDataset()
+        sc = ds.build(
+            HydrologyDatasetArgs(
+                bounds=(10.0, 50.0, 25.0, 70.0),
+                crs="EPSG:4326",
+                parameters=[1],
+                strict_live=True,
+            )
+        )
+
+        snames = {s.attributes["station_name"] for s in sc.stations()}
+        assert "STOCKHOLM STN" in snames
+        assert "ABISKO" not in snames
+        assert sc.attributes["partial_result"] is False
+        assert sc.attributes["upstream_error_count"] == 0
+        assert sc.attributes["stations_skipped_upstream"] == 0
 
 
 # ── Registration tests ───────────────────────────────────────────────────
@@ -572,6 +655,9 @@ class TestHydrologyEdgeCases:
             )
         )
         assert len(sc.stations()) == 0
+        assert sc.attributes["partial_result"] is False
+        assert sc.attributes["upstream_error_count"] == 0
+        assert sc.attributes["upstream_errors"] == []
 
     @patch("dtcc_core.datasets.hydrology._get_json", side_effect=_mock_get_json)
     def test_value_attribute_set(self, mock_json):

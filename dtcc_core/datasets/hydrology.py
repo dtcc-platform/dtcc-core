@@ -27,7 +27,7 @@ from pydantic import Field
 import numpy as np
 from datetime import datetime, timezone
 
-from .dataset import DatasetDescriptor, DatasetBaseArgs
+from .dataset import DatasetBaseArgs, DatasetDescriptor, DatasetUpstreamError
 from ..model.object import Object, SensorCollection
 from ..model.geometry import Point
 from ..model.values import Field as DtccField
@@ -150,7 +150,9 @@ def _get_json(url: str, timeout_s: float = 10.0) -> dict:
         response.raise_for_status()
         return response.json()
     except requests.RequestException as e:
-        raise RuntimeError(f"Failed to fetch {url}: {e}")
+        raise DatasetDescriptor.build_upstream_error(
+            "hydrology", "fetch_json", url, e
+        ) from e
 
 
 # ── Coordinate helpers ───────────────────────────────────────────────────
@@ -359,6 +361,8 @@ class HydrologyDataset(DatasetDescriptor):
         #                   "fields": { field_name: (value, unit, quality) } }
         station_map: Dict[str, Dict[str, Any]] = {}
         param_meta: Dict[int, Dict[str, Any]] = {}
+        upstream_errors: list[DatasetUpstreamError] = []
+        stations_skipped_upstream = 0
 
         for pid in param_ids:
             info(f"  Fetching station list for parameter {pid} …")
@@ -367,10 +371,13 @@ class HydrologyDataset(DatasetDescriptor):
                 stations = _fetch_station_list(
                     args.base_url, args.version, pid, args.timeout_s
                 )
-            except RuntimeError as exc:
+            except DatasetUpstreamError as exc:
+                upstream_errors.append(exc)
                 info(
                     f"  Warning: failed to fetch station list for parameter {pid}: {exc}"
                 )
+                if args.strict_live:
+                    raise
                 continue
 
             # Filter by active status and bounding box
@@ -397,8 +404,23 @@ class HydrologyDataset(DatasetDescriptor):
                     data = _fetch_latest_day(
                         args.base_url, args.version, pid, skey, args.timeout_s
                     )
-                except RuntimeError as exc:
+                except DatasetUpstreamError as exc:
+                    # Some stations appear in the parameter listing but do not
+                    # expose a latest-day payload. Treat a station-level 404 as
+                    # "no current data for this station" rather than a whole
+                    # dataset failure.
+                    if (
+                        exc.failure_class == "http_4xx"
+                        and exc.status_code == 404
+                        and "/period/latest-day/data.json" in exc.target
+                    ):
+                        info(f"    Station {skey} has no latest-day data; skipping")
+                        continue
+                    upstream_errors.append(exc)
+                    stations_skipped_upstream += 1
                     info(f"    Warning: skipping station {skey}: {exc}")
+                    if args.strict_live:
+                        raise
                     continue
 
                 # Extract the most recent value
@@ -474,6 +496,14 @@ class HydrologyDataset(DatasetDescriptor):
                 data["x"] = data["lon"]
                 data["y"] = data["lat"]
 
+        # Apply the final bbox filter in the requested output CRS so the
+        # returned stations honor the original bounds exactly.
+        station_map = {
+            skey: data
+            for skey, data in station_map.items()
+            if self.point_within_bounds(data["x"], data["y"], bounds)
+        }
+
         # ── Build SensorCollection ───────────────────────────────────
         sensor_collection = SensorCollection()
         sensor_collection.attributes = {
@@ -488,6 +518,13 @@ class HydrologyDataset(DatasetDescriptor):
             "retrieval_time": datetime.now(timezone.utc).isoformat(),
             "parameters": param_ids,
         }
+        self.apply_result_health_metadata(
+            sensor_collection.attributes,
+            upstream_errors=upstream_errors,
+            stations_skipped_upstream=stations_skipped_upstream,
+            requested_parameters=param_ids,
+            fetched_parameters=sorted(param_meta.keys()),
+        )
 
         # Collect field→unit mapping for collection-level metadata
         parameter_fields: Dict[str, str] = {}

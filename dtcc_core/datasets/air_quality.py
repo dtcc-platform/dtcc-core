@@ -19,7 +19,7 @@ import numpy as np
 import json
 from datetime import datetime, timezone
 
-from .dataset import DatasetDescriptor, DatasetBaseArgs
+from .dataset import DatasetBaseArgs, DatasetDescriptor, DatasetUpstreamError
 from ..model.object import Object, SensorCollection
 from ..model.geometry import Point
 from ..model.values import Field as DtccField
@@ -67,12 +67,26 @@ def _get_json(
         response.raise_for_status()
         return response.json()
     except requests.RequestException as e:
-        raise RuntimeError(f"Failed to fetch {url}: {e}")
+        raise DatasetDescriptor.build_upstream_error(
+            "air_quality", "fetch_json", url, e
+        ) from e
     except json.JSONDecodeError as e:
-        raise RuntimeError(f"Invalid JSON response from {url}: {e}")
+        raise DatasetUpstreamError(
+            dataset="air_quality",
+            operation="decode_json",
+            target=url,
+            failure_class="invalid_json",
+            message=f"air_quality decode_json failed for {url}: {e}",
+        ) from e
 
 
-def _resolve_phenomenon_id(base_url: str, phenomenon_str: str, timeout_s: float) -> str:
+def _resolve_phenomenon_id(
+    base_url: str,
+    phenomenon_str: str,
+    timeout_s: float,
+    strict_live: bool = False,
+    upstream_errors: Optional[List[DatasetUpstreamError]] = None,
+) -> str:
     """Resolve phenomenon name/ID to phenomenon ID.
 
     The API uses phenomenon IDs like "1" for NO2, "5" for PM10, etc.
@@ -119,8 +133,14 @@ def _resolve_phenomenon_id(base_url: str, phenomenon_str: str, timeout_s: float)
         for phen in data:
             if phen.get("label", "").upper() == phenomenon_str.upper():
                 return str(phen["id"])
-    except Exception:
+    except DatasetUpstreamError as exc:
+        if upstream_errors is not None:
+            upstream_errors.append(exc)
+        if strict_live:
+            raise
         pass
+    else:
+        raise ValueError(f"Unknown air quality phenomenon: {phenomenon_str}")
 
     # Default fallback - treat as ID
     return phenomenon_str
@@ -160,7 +180,12 @@ def _transform_bounds_to_wgs84(
 
 
 def _fetch_stations(
-    base_url: str, bounds: Tuple[float, float, float, float], crs: str, timeout_s: float
+    base_url: str,
+    bounds: Tuple[float, float, float, float],
+    crs: str,
+    timeout_s: float,
+    strict_live: bool = False,
+    upstream_errors: Optional[List[DatasetUpstreamError]] = None,
 ) -> List[Dict[str, Any]]:
     """Fetch stations within bounding box.
 
@@ -199,13 +224,22 @@ def _fetch_stations(
     try:
         data = _get_json(url, params=params, timeout_s=timeout_s)
         return data if isinstance(data, list) else []
-    except Exception as e:
+    except DatasetUpstreamError as e:
+        if upstream_errors is not None:
+            upstream_errors.append(e)
+        if strict_live:
+            raise
         info(f"Warning: Failed to fetch stations: {e}")
         return []
 
 
 def _fetch_timeseries_for_station(
-    base_url: str, station_id: str, phenomenon_id: str, timeout_s: float
+    base_url: str,
+    station_id: str,
+    phenomenon_id: str,
+    timeout_s: float,
+    strict_live: bool = False,
+    upstream_errors: Optional[List[DatasetUpstreamError]] = None,
 ) -> List[Dict[str, Any]]:
     """Fetch timeseries metadata for a station and phenomenon.
 
@@ -248,13 +282,21 @@ def _fetch_timeseries_for_station(
                 try:
                     ts_data = _get_json(ts_url, timeout_s=timeout_s)
                     result.append(ts_data)
-                except Exception:
+                except DatasetUpstreamError as exc:
+                    if upstream_errors is not None:
+                        upstream_errors.append(exc)
+                    if strict_live:
+                        raise
                     # Skip this timeseries if we can't fetch it
                     pass
 
         return result
 
-    except Exception:
+    except DatasetUpstreamError as exc:
+        if upstream_errors is not None:
+            upstream_errors.append(exc)
+        if strict_live:
+            raise
         return []
 
 
@@ -303,7 +345,11 @@ def _extract_latest_value(
 
 
 def _fallback_get_latest_from_getData(
-    base_url: str, timeseries_id: str, timeout_s: float
+    base_url: str,
+    timeseries_id: str,
+    timeout_s: float,
+    strict_live: bool = False,
+    upstream_errors: Optional[List[DatasetUpstreamError]] = None,
 ) -> Optional[Tuple[float, str, str]]:
     """Fallback: fetch latest value using getData endpoint.
 
@@ -343,7 +389,11 @@ def _fallback_get_latest_from_getData(
             return (value, timestamp, unit)
         else:
             info(f"Fallback: No values returned from getData endpoint")
-    except Exception as e:
+    except DatasetUpstreamError as e:
+        if upstream_errors is not None:
+            upstream_errors.append(e)
+        if strict_live:
+            raise
         info(f"Fallback: Failed to get data from getData endpoint: {e}")
 
     return None
@@ -449,18 +499,28 @@ class AirQualityDataset(DatasetDescriptor):
         with ProgressTracker(total=1.0, phases=progress_phases) as progress:
             bounds = self.parse_bounds(args.bounds)
             bounds_tuple = (bounds.xmin, bounds.ymin, bounds.xmax, bounds.ymax)
+            upstream_errors: List[DatasetUpstreamError] = []
 
             with progress.phase(
                 "resolve_api", f"Resolving phenomenon '{args.phenomenon}'..."
             ):
                 phenomenon_id = _resolve_phenomenon_id(
-                    args.base_url, args.phenomenon, args.timeout_s
+                    args.base_url,
+                    args.phenomenon,
+                    args.timeout_s,
+                    strict_live=args.strict_live,
+                    upstream_errors=upstream_errors,
                 )
                 info(f"Resolved phenomenon {args.phenomenon} to ID {phenomenon_id}")
 
             with progress.phase("fetch_stations", "Fetching stations within bounds..."):
                 stations_data = _fetch_stations(
-                    args.base_url, bounds_tuple, args.crs, args.timeout_s
+                    args.base_url,
+                    bounds_tuple,
+                    args.crs,
+                    args.timeout_s,
+                    strict_live=args.strict_live,
+                    upstream_errors=upstream_errors,
                 )
                 report_progress(
                     percent=100,
@@ -483,12 +543,14 @@ class AirQualityDataset(DatasetDescriptor):
                 }
 
                 stations_used = 0
+                stations_skipped_upstream = 0
                 stations_skipped_no_coords = 0
                 stations_skipped_no_timeseries = 0
                 stations_skipped_no_value = 0
 
                 stations_to_process = stations_data[: args.max_stations]
                 total_stations = len(stations_to_process)
+                need_reproject = args.crs.upper() not in ("CRS84", "EPSG:4326", "WGS84")
 
                 for i, station_data in enumerate(stations_to_process):
                     report_progress(
@@ -509,13 +571,36 @@ class AirQualityDataset(DatasetDescriptor):
                     x, y = coordinates[0], coordinates[1]
                     z = coordinates[2] if len(coordinates) > 2 else 0.0
 
+                    if need_reproject:
+                        projected = reproject_array(
+                            np.array([[x, y, z]], dtype=float), "EPSG:4326", args.crs
+                        )
+                        x_out = projected[0, 0]
+                        y_out = projected[0, 1]
+                        z_out = projected[0, 2] if projected.shape[1] > 2 else z
+                    else:
+                        x_out, y_out, z_out = x, y, z
+
+                    if not self.point_within_bounds(x_out, y_out, bounds):
+                        continue
+
+                    station_error_count_before = len(upstream_errors)
+
                     # Fetch timeseries for this station
                     timeseries_list = _fetch_timeseries_for_station(
-                        args.base_url, station_id, phenomenon_id, args.timeout_s
+                        args.base_url,
+                        station_id,
+                        phenomenon_id,
+                        args.timeout_s,
+                        strict_live=args.strict_live,
+                        upstream_errors=upstream_errors,
                     )
 
                     if not timeseries_list:
-                        stations_skipped_no_timeseries += 1
+                        if len(upstream_errors) > station_error_count_before:
+                            stations_skipped_upstream += 1
+                        else:
+                            stations_skipped_no_timeseries += 1
                         continue
 
                     # Try to get latest value
@@ -551,7 +636,11 @@ class AirQualityDataset(DatasetDescriptor):
                         ts_id = str(ts.get("id", ""))
                         if ts_id:
                             result = _fallback_get_latest_from_getData(
-                                args.base_url, ts_id, args.timeout_s
+                                args.base_url,
+                                ts_id,
+                                args.timeout_s,
+                                strict_live=args.strict_live,
+                                upstream_errors=upstream_errors,
                             )
                             if result:
                                 value, timestamp, unit = result
@@ -559,7 +648,10 @@ class AirQualityDataset(DatasetDescriptor):
 
                     if value is None:
                         if args.drop_missing:
-                            stations_skipped_no_value += 1
+                            if len(upstream_errors) > station_error_count_before:
+                                stations_skipped_upstream += 1
+                            else:
+                                stations_skipped_no_value += 1
                             continue
                         else:
                             value = np.nan
@@ -579,7 +671,7 @@ class AirQualityDataset(DatasetDescriptor):
                     }
 
                     # Create Point geometry
-                    point = Point(x=x, y=y, z=z)
+                    point = Point(x=x_out, y=y_out, z=z_out)
 
                     # Create Field with value
                     field = DtccField()
@@ -607,10 +699,16 @@ class AirQualityDataset(DatasetDescriptor):
                 sensor_collection.attributes.update(
                     {
                         "stations_used": stations_used,
+                        "stations_skipped_upstream": stations_skipped_upstream,
                         "stations_skipped_no_coords": stations_skipped_no_coords,
                         "stations_skipped_no_timeseries": stations_skipped_no_timeseries,
                         "stations_skipped_no_value": stations_skipped_no_value,
                     }
+                )
+                self.apply_result_health_metadata(
+                    sensor_collection.attributes,
+                    upstream_errors=upstream_errors,
+                    stations_skipped_upstream=stations_skipped_upstream,
                 )
 
                 info(
