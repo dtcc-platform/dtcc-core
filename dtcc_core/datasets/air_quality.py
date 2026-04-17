@@ -730,7 +730,7 @@ class AirQualityDataset(DatasetDescriptor):
                 ),
             ):
                 if args.format == "pb":
-                    return self.export_to_bytes(sensor_collection, "pb")
+                    return sensor_collection.to_proto().SerializeToString()
                 else:
                     return sensor_collection
 
