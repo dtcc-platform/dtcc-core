@@ -34,9 +34,13 @@ from matplotlib.colors import TwoSlopeNorm
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-COMPARE_SCRIPT = REPO_ROOT / "sandbox" / "compare_stockholm_flat_mesh.py"
+COMPARE_SCRIPT = (
+    REPO_ROOT
+    / "benchmarks"
+    / "bench_footprints.py"
+)
 DEFAULT_OUTPUT_ROOT = (
-    REPO_ROOT / "sandbox" / "output" / "stockholm_flat_mesh_compare" / "stockholm_100_tile_batch"
+    REPO_ROOT / "benchmarks" / "output_footprints" / "stockholm_100_tile_batch"
 )
 DEFAULT_LEGACY_COMMIT = "0493c62"
 DEFAULT_LEGACY_ROOT = REPO_ROOT.parent / f"dtcc-core-legacy-{DEFAULT_LEGACY_COMMIT}"
@@ -299,7 +303,7 @@ def run_harness(
 
     argv = [
         str(COMPARE_SCRIPT),
-        "--output-root",
+        "--output-dir",
         str(output_root),
         "--git-root",
         str(git_root),

@@ -1,16 +1,16 @@
 """
-Compare flat-mesh quality across central Stockholm for one or more 2D meshers.
+Benchmark flat-mesh quality across central Stockholm for one or more 2D meshers.
 
 This script builds the same prepared City input once per tile, then runs one or
 more mesh generators against that identical input. It caches per-case results,
 saves per-mesher VTU files, and writes visual comparison plots.
 
 Typical usage:
-    python mesh_quality_survey_2d.py 55
-    python mesh_quality_survey_2d.py
-    python mesh_quality_survey_2d.py 55 --meshers triangle dtcc_mesher spade
-    python mesh_quality_survey_2d.py 55 --max-mesh-size none
-    python mesh_quality_survey_2d.py --per-case-plots
+    python benchmarks/bench_mesh_2d.py --cases 55
+    python benchmarks/bench_mesh_2d.py
+    python benchmarks/bench_mesh_2d.py --cases 55 --meshers triangle dtcc_mesher spade
+    python benchmarks/bench_mesh_2d.py --cases 55 --max-mesh-size none
+    python benchmarks/bench_mesh_2d.py --per-case-plots
 
 With no explicit meshers, the script compares all available meshers from:
     dtcc_mesher, triangle, spade
@@ -30,26 +30,70 @@ from typing import Any
 import numpy as np
 
 import dtcc_core
-from dtcc_core.model import Bounds, City, GeometryType, Mesh
+from dtcc_core.model import Bounds, GeometryType, Mesh
+try:
+    from _stockholm_common import (
+        BOX_SIZE,
+        DEFAULT_DELAY_BETWEEN_CASES,
+        DEFAULT_MAX_MESH_SIZE,
+        MERGE_BUILDINGS,
+        MIN_BUILDING_AREA,
+        MIN_BUILDING_DETAIL,
+        MIN_MESH_ANGLE,
+        NX,
+        NY,
+        add_cases_argument,
+        annotate_heatmap,
+        bounds_to_dict,
+        case_to_grid,
+        format_console_table,
+        json_ready,
+        load_plot_modules,
+        load_results,
+        make_bounds,
+        mesh_size_label,
+        normalize_max_mesh_size,
+        parse_max_mesh_size_argument,
+        prepare_city,
+        quantile,
+        resolve_case_numbers,
+        save_results,
+        slug_token,
+        stockholm_output_dir,
+    )
+except ImportError:
+    from benchmarks._stockholm_common import (
+        BOX_SIZE,
+        DEFAULT_DELAY_BETWEEN_CASES,
+        DEFAULT_MAX_MESH_SIZE,
+        MERGE_BUILDINGS,
+        MIN_BUILDING_AREA,
+        MIN_BUILDING_DETAIL,
+        MIN_MESH_ANGLE,
+        NX,
+        NY,
+        add_cases_argument,
+        annotate_heatmap,
+        bounds_to_dict,
+        case_to_grid,
+        format_console_table,
+        json_ready,
+        load_plot_modules,
+        load_results,
+        make_bounds,
+        mesh_size_label,
+        normalize_max_mesh_size,
+        parse_max_mesh_size_argument,
+        prepare_city,
+        quantile,
+        resolve_case_numbers,
+        save_results,
+        slug_token,
+        stockholm_output_dir,
+    )
 
 # Configuration ---------------------------------------------------------------
 
-X_MIN = 673_000
-Y_MIN = 6_578_500
-NX, NY = 10, 10
-BOX_SIZE = 500
-
-DEFAULT_MAX_MESH_SIZE = 10.0
-MIN_MESH_ANGLE = 25.0
-MIN_BUILDING_DETAIL = 0.5
-MIN_BUILDING_AREA = 15.0
-MERGE_BUILDINGS = True
-
-RASTER_CELL_SIZE = 2.0
-RASTER_RADIUS = 3.0
-OUTLIER_THRESHOLD = 3.0
-
-DEFAULT_DELAY_BETWEEN_CASES = 8.0
 DEFAULT_MESHER_ORDER = ("dtcc_mesher", "triangle", "spade")
 OVERVIEW_METRICS = (
     ("element_quality_mean", "ElemQ mean", "RdYlGn", ".3f"),
@@ -82,56 +126,16 @@ REQUIRED_METRIC_KEYS = (
 # Helpers --------------------------------------------------------------------
 
 
-def case_to_grid(number: int) -> tuple[int, int]:
-    iy, ix = divmod(number - 1, NX)
-    return ix, iy
-
-
-def make_bounds(ix: int, iy: int) -> Bounds:
-    x0 = X_MIN + ix * BOX_SIZE
-    y0 = Y_MIN + iy * BOX_SIZE
-    return Bounds(x0, y0, x0 + BOX_SIZE, y0 + BOX_SIZE)
-
-
-def bounds_to_dict(bounds: Bounds) -> dict[str, float]:
-    return {
-        "xmin": float(bounds.xmin),
-        "ymin": float(bounds.ymin),
-        "xmax": float(bounds.xmax),
-        "ymax": float(bounds.ymax),
-    }
-
-
 def meshers_slug(meshers: list[str]) -> str:
     ordered = [mesher for mesher in DEFAULT_MESHER_ORDER if mesher in meshers]
     extras = sorted(mesher for mesher in meshers if mesher not in DEFAULT_MESHER_ORDER)
     return "-".join([*ordered, *extras])
 
 
-def _normalize_max_mesh_size(max_mesh_size: float | None) -> float | None:
-    if max_mesh_size is None:
-        return None
-    value = float(max_mesh_size)
-    if value <= 0.0:
-        return None
-    return value
-
-
-def mesh_size_label(max_mesh_size: float | None) -> str:
-    normalized = _normalize_max_mesh_size(max_mesh_size)
-    if normalized is None:
-        return "unrestricted"
-    return f"maxh={normalized:g}m"
-
-
-def _slug_token(value: float) -> str:
-    return f"{value:g}".replace("-", "m").replace(".", "p")
-
-
 def config_slug(max_mesh_size: float | None, min_mesh_angle: float) -> str:
-    normalized = _normalize_max_mesh_size(max_mesh_size)
-    size_slug = "maxh-unrestricted" if normalized is None else f"maxh-{_slug_token(normalized)}"
-    return f"{size_slug}.mina-{_slug_token(min_mesh_angle)}"
+    normalized = normalize_max_mesh_size(max_mesh_size)
+    size_slug = "maxh-unrestricted" if normalized is None else f"maxh-{slug_token(normalized)}"
+    return f"{size_slug}.mina-{slug_token(min_mesh_angle)}"
 
 
 def results_file_path(
@@ -141,10 +145,8 @@ def results_file_path(
     max_mesh_size: float | None,
     min_mesh_angle: float,
 ) -> Path:
-    return output_dir / (
-        f"mesh_quality_survey.{config_slug(max_mesh_size, min_mesh_angle)}."
-        f"{meshers_slug(meshers)}.json"
-    )
+    del meshers, max_mesh_size, min_mesh_angle
+    return output_dir / "results.json"
 
 
 def overview_plot_path(
@@ -154,10 +156,16 @@ def overview_plot_path(
     max_mesh_size: float | None,
     min_mesh_angle: float,
 ) -> Path:
-    return output_dir / (
-        f"mesh_quality_survey.{config_slug(max_mesh_size, min_mesh_angle)}."
-        f"{meshers_slug(meshers)}.png"
-    )
+    del meshers, max_mesh_size, min_mesh_angle
+    return output_dir / "overview.png"
+
+
+def summary_text_path(output_dir: Path) -> Path:
+    return output_dir / "summary.txt"
+
+
+def case_output_dir(output_dir: Path, number: int) -> Path:
+    return output_dir / f"{number:03d}"
 
 
 def case_plot_path(
@@ -168,10 +176,8 @@ def case_plot_path(
     max_mesh_size: float | None,
     min_mesh_angle: float,
 ) -> Path:
-    return output_dir / (
-        f"{number:03d}.compare.{config_slug(max_mesh_size, min_mesh_angle)}."
-        f"{meshers_slug(meshers)}.png"
-    )
+    del meshers, max_mesh_size, min_mesh_angle
+    return case_output_dir(output_dir, number) / "comparison.png"
 
 
 def case_mesh_path(
@@ -182,38 +188,8 @@ def case_mesh_path(
     max_mesh_size: float | None,
     min_mesh_angle: float,
 ) -> Path:
-    return output_dir / (
-        f"{number:03d}.{mesher}.{config_slug(max_mesh_size, min_mesh_angle)}.vtu"
-    )
-
-
-def json_ready(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {key: json_ready(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [json_ready(item) for item in value]
-    if isinstance(value, np.generic):
-        return value.item()
-    return value
-
-
-def load_results(path: Path) -> dict[int, dict[str, Any]]:
-    if not path.exists():
-        return {}
-    with path.open() as handle:
-        data = json.load(handle)
-    return {int(key): value for key, value in data.items()}
-
-
-def save_results(path: Path, results: dict[int, dict[str, Any]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    ordered = {str(key): results[key] for key in sorted(results)}
-    with path.open("w") as handle:
-        json.dump(ordered, handle, indent=2)
-
-
-def _quantile(values: np.ndarray, q: float) -> float:
-    return float(np.percentile(values, q))
+    del max_mesh_size, min_mesh_angle
+    return case_output_dir(output_dir, number) / f"mesh_{mesher}.vtu"
 
 
 def grading_metrics(mesh: Mesh) -> dict[str, float | int]:
@@ -254,12 +230,12 @@ def grading_metrics(mesh: Mesh) -> dict[str, float | int]:
     return {
         "unique_edge_count": int(len(unique_edges)),
         "edge_length_min": float(edge_lengths.min()),
-        "edge_length_p01": _quantile(edge_lengths, 1.0),
-        "edge_length_p05": _quantile(edge_lengths, 5.0),
+        "edge_length_p01": quantile(edge_lengths, 1.0),
+        "edge_length_p05": quantile(edge_lengths, 5.0),
         "edge_length_mean": float(edge_lengths.mean()),
         "area_min": float(areas.min()),
-        "area_p01": _quantile(areas, 1.0),
-        "area_p05": _quantile(areas, 5.0),
+        "area_p01": quantile(areas, 1.0),
+        "area_p05": quantile(areas, 5.0),
         "area_mean": float(areas.mean()),
         "short_edges_lt_0_5_count": int(np.count_nonzero(edge_lengths < SHORT_EDGE_THRESHOLDS[0])),
         "short_edges_lt_1_0_count": int(np.count_nonzero(edge_lengths < SHORT_EDGE_THRESHOLDS[1])),
@@ -335,45 +311,95 @@ def print_case_summary(case_record: dict[str, Any], meshers: list[str]) -> None:
     number = case_record["number"]
     bounds = case_record["bounds"]
 
-    print()
-    print(
+    quality_rows: list[list[Any]] = []
+    scale_rows: list[list[Any]] = []
+    for mesher in meshers:
+        result = case_record["meshers"].get(mesher, {})
+        if result.get("status") != "success":
+            quality_rows.append([mesher, "failed", "-", "-", "-", "-", "-", "-", "-", "-"])
+            scale_rows.append([mesher, "failed", "-", "-", "-", "-", "-", "-", "-", "-"])
+            continue
+
+        metrics = result["metrics"]
+        quality_rows.append(
+            [
+                mesher,
+                "ok",
+                metrics["num_cells"],
+                f"{metrics['element_quality_min']:.4f}",
+                f"{metrics['element_quality_mean']:.4f}",
+                f"{metrics['aspect_ratio_max']:.2f}",
+                f"{metrics['aspect_ratio_mean']:.2f}",
+                f"{metrics['edge_ratio_max']:.2f}",
+                f"{metrics['skewness_max']:.2f}",
+                f"{result['time']:.2f}s",
+            ]
+        )
+        scale_rows.append(
+            [
+                mesher,
+                "ok",
+                f"{metrics['edge_length_min']:.4f}",
+                f"{metrics['edge_length_p01']:.4f}",
+                f"{metrics['edge_length_p05']:.4f}",
+                f"{metrics['area_min']:.4g}",
+                f"{metrics['area_p01']:.4f}",
+                f"{metrics['area_p05']:.4f}",
+                metrics["short_edges_lt_0_5_count"],
+                metrics["short_edges_lt_1_0_count"],
+            ]
+        )
+
+    title = (
         f"Case {number}  ({bounds['xmin']:.0f}, {bounds['ymin']:.0f}) -> "
         f"({bounds['xmax']:.0f}, {bounds['ymax']:.0f})"
     )
+    print()
     print(
-        f"{'Mesher':<12}  {'Status':<8}  {'Cells':>8}  "
-        f"{'ElemQ min':>9}  {'ElemQ mean':>10}  "
-        f"{'AR max':>8}  {'AR mean':>8}  "
-        f"{'ER max':>8}  {'ER mean':>8}  "
-        f"{'Skew max':>8}  {'Time':>8}"
+        format_console_table(
+            [
+                "Mesher",
+                "Status",
+                "Cells",
+                "EQ min",
+                "EQ mean",
+                "AR max",
+                "AR mean",
+                "ER max",
+                "Skew max",
+                "Time",
+            ],
+            quality_rows,
+            title=title,
+        )
     )
-    print("-" * 110)
-    for mesher in meshers:
-        print(format_case_row(mesher, case_record["meshers"].get(mesher, {})))
-    print("-" * 110)
-    print("Scale / grading metrics")
+    print()
     print(
-        f"{'Mesher':<12}  {'Status':<8}  {'Edge min':>9}  {'Edge p01':>9}  {'Edge p05':>9}  "
-        f"{'Area min':>10}  {'Area p01':>10}  {'Area p05':>10}  {'E<0.5m':>8}  {'E<1.0m':>8}"
+        format_console_table(
+            [
+                "Mesher",
+                "Status",
+                "Edge min",
+                "Edge p01",
+                "Edge p05",
+                "Area min",
+                "Area p01",
+                "Area p05",
+                "E<0.5m",
+                "E<1.0m",
+            ],
+            scale_rows,
+            title="Scale / grading",
+        )
     )
-    print("-" * 110)
-    for mesher in meshers:
-        print(format_case_scale_row(mesher, case_record["meshers"].get(mesher, {})))
-    print("-" * 110)
     print(f"Preparation time: {case_record['prepare_time']:.2f}s")
     if case_record.get("plot_file"):
         print(f"Comparison plot: {case_record['plot_file']}")
 
 
 def print_mesher_summary(results: dict[int, dict[str, Any]], meshers: list[str]) -> None:
-    print()
-    print("Mesher summary across cached cases")
-    print(
-        f"{'Mesher':<12}  {'Success':>7}  {'EQ mean':>9}  {'EQ min':>9}  "
-        f"{'AR mean':>9}  {'AR max':>9}  {'ER max':>9}  {'Skew max':>10}  {'Time mean':>10}"
-    )
-    print("-" * 100)
-
+    quality_rows: list[list[Any]] = []
+    scale_rows: list[list[Any]] = []
     for mesher in meshers:
         successes = []
         for record in results.values():
@@ -382,7 +408,8 @@ def print_mesher_summary(results: dict[int, dict[str, Any]], meshers: list[str])
                 successes.append(result)
 
         if not successes:
-            print(f"{mesher:<12}  {0:>7}  {'n/a':>9}  {'n/a':>9}  {'n/a':>9}  {'n/a':>9}  {'n/a':>9}  {'n/a':>10}  {'n/a':>10}")
+            quality_rows.append([mesher, 0, "n/a", "n/a", "n/a", "n/a", "n/a", "n/a", "n/a"])
+            scale_rows.append([mesher, 0, "n/a", "n/a", "n/a", "n/a", "n/a", "n/a"])
             continue
 
         eq_means = [item["metrics"]["element_quality_mean"] for item in successes]
@@ -393,32 +420,19 @@ def print_mesher_summary(results: dict[int, dict[str, Any]], meshers: list[str])
         sk_maxs = [item["metrics"]["skewness_max"] for item in successes]
         times = [item["time"] for item in successes]
 
-        print(
-            f"{mesher:<12}  {len(successes):>7}  "
-            f"{np.mean(eq_means):>9.4f}  {np.min(eq_mins):>9.4f}  "
-            f"{np.mean(ar_means):>9.4f}  {np.max(ar_maxs):>9.4f}  "
-            f"{np.max(er_maxs):>9.4f}  {np.max(sk_maxs):>10.4f}  "
-            f"{np.mean(times):>10.2f}s"
+        quality_rows.append(
+            [
+                mesher,
+                len(successes),
+                f"{np.mean(eq_means):.4f}",
+                f"{np.min(eq_mins):.4f}",
+                f"{np.mean(ar_means):.4f}",
+                f"{np.max(ar_maxs):.4f}",
+                f"{np.max(er_maxs):.4f}",
+                f"{np.max(sk_maxs):.4f}",
+                f"{np.mean(times):.2f}s",
+            ]
         )
-
-    print()
-    print("Scale / grading summary across cached cases")
-    print(
-        f"{'Mesher':<12}  {'Success':>7}  {'Edge min':>9}  {'Edge p01':>9}  {'Area min':>10}  "
-        f"{'Area p01':>10}  {'E<0.5m max':>11}  {'E<1.0m max':>11}"
-    )
-    print("-" * 90)
-
-    for mesher in meshers:
-        successes = []
-        for record in results.values():
-            result = record.get("meshers", {}).get(mesher)
-            if result and result.get("status") == "success":
-                successes.append(result)
-
-        if not successes:
-            print(f"{mesher:<12}  {0:>7}  {'n/a':>9}  {'n/a':>9}  {'n/a':>10}  {'n/a':>10}  {'n/a':>11}  {'n/a':>11}")
-            continue
 
         edge_mins = [item["metrics"]["edge_length_min"] for item in successes]
         edge_p01s = [item["metrics"]["edge_length_p01"] for item in successes]
@@ -427,12 +441,54 @@ def print_mesher_summary(results: dict[int, dict[str, Any]], meshers: list[str])
         short_half = [item["metrics"]["short_edges_lt_0_5_count"] for item in successes]
         short_one = [item["metrics"]["short_edges_lt_1_0_count"] for item in successes]
 
-        print(
-            f"{mesher:<12}  {len(successes):>7}  "
-            f"{np.min(edge_mins):>9.4f}  {np.mean(edge_p01s):>9.4f}  "
-            f"{np.min(area_mins):>10.4g}  {np.mean(area_p01s):>10.4f}  "
-            f"{np.max(short_half):>11}  {np.max(short_one):>11}"
+        scale_rows.append(
+            [
+                mesher,
+                len(successes),
+                f"{np.min(edge_mins):.4f}",
+                f"{np.mean(edge_p01s):.4f}",
+                f"{np.min(area_mins):.4g}",
+                f"{np.mean(area_p01s):.4f}",
+                np.max(short_half),
+                np.max(short_one),
+            ]
         )
+
+    print()
+    print(
+        format_console_table(
+            [
+                "Mesher",
+                "Success",
+                "EQ mean",
+                "EQ min",
+                "AR mean",
+                "AR max",
+                "ER max",
+                "Skew max",
+                "Time mean",
+            ],
+            quality_rows,
+            title="Mesher summary",
+        )
+    )
+    print()
+    print(
+        format_console_table(
+            [
+                "Mesher",
+                "Success",
+                "Edge min",
+                "Edge p01",
+                "Area min",
+                "Area p01",
+                "E<0.5m max",
+                "E<1.0m max",
+            ],
+            scale_rows,
+            title="Scale / grading summary",
+        )
+    )
 
 
 def case_complete(record: dict[str, Any], meshers: list[str]) -> bool:
@@ -469,29 +525,6 @@ def resolve_requested_meshers(requested: list[str] | None) -> list[str]:
         )
 
     return selected
-
-
-def prepare_city(bounds: Bounds) -> tuple[City, float]:
-    start = time.perf_counter()
-
-    pointcloud = dtcc_core.io.data.download_pointcloud(bounds=bounds)
-    buildings = dtcc_core.io.data.download_footprints(bounds=bounds)
-    pointcloud = pointcloud.remove_global_outliers(OUTLIER_THRESHOLD)
-
-    raster = dtcc_core.builder.build_terrain_raster(
-        pointcloud,
-        cell_size=RASTER_CELL_SIZE,
-        radius=RASTER_RADIUS,
-        ground_only=True,
-    )
-    buildings = dtcc_core.builder.extract_roof_points(buildings, pointcloud)
-    buildings = dtcc_core.builder.compute_building_heights(buildings, raster, overwrite=True)
-
-    city = City()
-    city.add_terrain(raster)
-    city.add_buildings(buildings, remove_outside_terrain=True)
-
-    return city, time.perf_counter() - start
 
 
 def run_mesher_for_case(
@@ -547,19 +580,6 @@ def run_mesher_for_case(
             },
             None,
         )
-
-
-def _load_plot_modules():
-    try:
-        import matplotlib.pyplot as plt
-        from matplotlib.collections import LineCollection, PolyCollection
-        from matplotlib.patches import Patch
-    except ImportError as exc:
-        raise RuntimeError("matplotlib is required for plotting") from exc
-
-    return plt, LineCollection, PolyCollection, Patch
-
-
 def marker_categories(markers: np.ndarray | None, num_faces: int) -> np.ndarray:
     if markers is None or len(markers) != num_faces:
         return np.zeros(num_faces, dtype=np.int32)
@@ -674,7 +694,7 @@ def plot_case_comparison(
     min_mesh_angle: float,
     show_plot: bool = False,
 ) -> None:
-    plt, line_collection_cls, poly_collection_cls, patch_cls = _load_plot_modules()
+    plt, line_collection_cls, poly_collection_cls, patch_cls = load_plot_modules()
 
     fig, axes = plt.subplots(
         1,
@@ -756,27 +776,6 @@ def build_grid(
     return grid
 
 
-def annotate_heatmap(ax, grid: np.ndarray, fmt: str) -> None:
-    valid = grid[~np.isnan(grid)]
-    if valid.size == 0:
-        return
-    midpoint = 0.5 * (float(valid.min()) + float(valid.max()))
-    for iy in range(NY):
-        for ix in range(NX):
-            value = grid[iy, ix]
-            if np.isnan(value):
-                continue
-            ax.text(
-                ix,
-                iy,
-                format(value, fmt),
-                ha="center",
-                va="center",
-                fontsize=6,
-                color="black" if value >= midpoint else "white",
-            )
-
-
 def plot_overview(
     results: dict[int, dict[str, Any]],
     meshers: list[str],
@@ -785,7 +784,7 @@ def plot_overview(
     max_mesh_size: float | None,
     min_mesh_angle: float,
 ) -> None:
-    plt, _, _, _ = _load_plot_modules()
+    plt, _, _, _ = load_plot_modules()
 
     fig, axes = plt.subplots(
         len(meshers),
@@ -832,6 +831,121 @@ def compact_case_status(record: dict[str, Any], meshers: list[str]) -> str:
     return "  ".join(parts)
 
 
+def status_emoji(status: str | None) -> str:
+    return "✅" if status == "success" else "❌"
+
+
+def aggregate_status_emoji(successes: int, failures: int) -> str:
+    if failures == 0:
+        return "✅"
+    if successes == 0:
+        return "❌"
+    return "⚠️"
+
+
+def build_summary_report(
+    results: dict[int, dict[str, Any]],
+    meshers: list[str],
+    *,
+    max_mesh_size: float | None,
+    min_mesh_angle: float,
+    elapsed_seconds: float,
+) -> str:
+    case_rows: list[list[Any]] = []
+    for number in sorted(results):
+        record = results[number]
+        for mesher in meshers:
+            result = record.get("meshers", {}).get(mesher, {})
+            if result.get("status") == "success":
+                metrics = result["metrics"]
+                case_rows.append(
+                    [
+                        f"{number:03d}",
+                        mesher,
+                        f"{status_emoji('success')} ok",
+                        metrics["num_cells"],
+                        f"{metrics['element_quality_min']:.4f}",
+                        f"{metrics['aspect_ratio_max']:.2f}",
+                        f"{metrics['edge_length_p01']:.2f}",
+                        metrics["short_edges_lt_0_5_count"],
+                        f"{result['time']:.2f}s",
+                    ]
+                )
+            else:
+                error = result.get("error", {})
+                case_rows.append(
+                    [
+                        f"{number:03d}",
+                        mesher,
+                        f"{status_emoji('failed')} fail",
+                        "-",
+                        "-",
+                        "-",
+                        "-",
+                        "-",
+                        f"{error.get('type', '-')}: {error.get('message', '-')}",
+                    ]
+                )
+
+    summary_rows: list[list[Any]] = []
+    for mesher in meshers:
+        mesher_results = [
+            record.get("meshers", {}).get(mesher, {})
+            for record in results.values()
+        ]
+        successes = [result for result in mesher_results if result.get("status") == "success"]
+        failures = len(mesher_results) - len(successes)
+        if successes:
+            eq_min = min(result["metrics"]["element_quality_min"] for result in successes)
+            ar_max = max(result["metrics"]["aspect_ratio_max"] for result in successes)
+            edge_p01 = float(np.mean([result["metrics"]["edge_length_p01"] for result in successes]))
+            mean_time = float(np.mean([result["time"] for result in successes]))
+            summary_rows.append(
+                [
+                    aggregate_status_emoji(len(successes), failures),
+                    mesher,
+                    f"{len(successes)}/{len(mesher_results)}",
+                    failures,
+                    f"{eq_min:.4f}",
+                    f"{ar_max:.2f}",
+                    f"{edge_p01:.2f}",
+                    f"{mean_time:.2f}s",
+                ]
+            )
+        else:
+            summary_rows.append(
+                [
+                    aggregate_status_emoji(0, failures),
+                    mesher,
+                    f"0/{len(mesher_results)}",
+                    failures,
+                    "-",
+                    "-",
+                    "-",
+                    "-",
+                ]
+            )
+
+    lines = [
+        "bench_mesh_2d",
+        f"Config: {mesh_size_label(max_mesh_size)}, min angle={min_mesh_angle:g}°",
+        f"Elapsed time: {elapsed_seconds:.1f}s",
+        "",
+        format_console_table(
+            ["Status", "Mesher", "Success", "Fail", "Worst EQ", "Worst AR", "Mean edge p01", "Mean time"],
+            summary_rows,
+            title="Summary",
+        ),
+        "",
+        format_console_table(
+            ["Case", "Mesher", "Status", "Cells", "EQ min", "AR max", "Edge p01", "E<0.5m", "Time/Error"],
+            case_rows,
+            title="Detailed results",
+        ),
+    ]
+    return "\n".join(lines)
+
+
 def run_case(
     number: int,
     meshers: list[str],
@@ -844,6 +958,8 @@ def run_case(
 ) -> dict[str, Any]:
     ix, iy = case_to_grid(number)
     bounds = make_bounds(ix, iy)
+    case_dir = case_output_dir(output_dir, number)
+    case_dir.mkdir(parents=True, exist_ok=True)
 
     city, prepare_time = prepare_city(bounds)
 
@@ -893,36 +1009,18 @@ def run_case(
         )
         case_record["plot_file"] = plot_path.name
 
+    summary_path = case_dir / "summary.json"
+    with summary_path.open("w") as handle:
+        json.dump(json_ready(case_record), handle, indent=2)
+
     return case_record
-
-
-def parse_max_mesh_size_argument(raw: str) -> float | None:
-    normalized = raw.strip().lower()
-    if normalized in {"none", "unrestricted", "inf", "infinite"}:
-        return None
-    try:
-        value = float(raw)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError(
-            "max mesh size must be a positive number or 'none'"
-        ) from exc
-    if value <= 0.0:
-        raise argparse.ArgumentTypeError(
-            "max mesh size must be positive or 'none' for unrestricted"
-        )
-    return value
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Compare flat-mesh quality across Stockholm tiles for multiple meshers."
     )
-    parser.add_argument(
-        "case_number",
-        nargs="?",
-        type=int,
-        help=f"Single case to recompute (1-{NX * NY}). Omit to process all missing cases.",
-    )
+    add_cases_argument(parser)
     parser.add_argument(
         "--meshers",
         nargs="+",
@@ -947,7 +1045,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path(__file__).resolve().parent / "output",
+        default=stockholm_output_dir("output_mesh_2d"),
         help="Directory for JSON, VTU, and PNG outputs.",
     )
     parser.add_argument(
@@ -967,19 +1065,26 @@ def parse_args() -> argparse.Namespace:
     )
     args = parser.parse_args()
 
-    total = NX * NY
-    if args.case_number is not None and not (1 <= args.case_number <= total):
-        parser.error(f"case_number must be between 1 and {total}")
-
     return args
 
 
 def main() -> None:
     args = parse_args()
+    benchmark_start = time.perf_counter()
     output_dir = args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
+    cases_explicit = args.cases is not None
+    selected_cases = resolve_case_numbers(args.cases)
 
     meshers = resolve_requested_meshers(args.meshers)
+    metadata = {
+        "benchmark": "bench_mesh_2d",
+        "config": {
+            "meshers": meshers,
+            "max_mesh_size": args.max_mesh_size,
+            "min_mesh_angle": MIN_MESH_ANGLE,
+        },
+    }
     results_path = results_file_path(
         output_dir,
         meshers,
@@ -1001,18 +1106,18 @@ def main() -> None:
     )
     print()
 
-    if args.case_number is not None:
-        cases_to_run = [args.case_number]
-        if args.case_number in results:
-            print(f"Case {args.case_number} exists in cache and will be recomputed.")
+    if cases_explicit:
+        cases_to_run = selected_cases
+        if len(cases_to_run) == 1 and cases_to_run[0] in results:
+            print(f"Case {cases_to_run[0]} exists in cache and will be recomputed.")
             print()
     else:
         cases_to_run = [
             number
-            for number in range(1, total + 1)
+            for number in selected_cases
             if not case_complete(results.get(number, {}), meshers)
         ]
-        if not cases_to_run:
+        if len(selected_cases) == total and not cases_to_run:
             print(f"All {total} cases are already complete for {', '.join(meshers)}.")
             print()
         else:
@@ -1040,19 +1145,19 @@ def main() -> None:
 
         create_case_plot = (
             not args.no_plots
-            and (args.case_number is not None or args.per_case_plots)
+            and (cases_explicit or args.per_case_plots)
         )
         case_record = run_case(
             number,
             meshers=meshers,
             output_dir=output_dir,
             create_case_plot=create_case_plot,
-            show_plot=bool(args.show_plot and args.case_number is not None),
+            show_plot=bool(args.show_plot and len(selected_cases) == 1),
             max_mesh_size=args.max_mesh_size,
             min_mesh_angle=MIN_MESH_ANGLE,
         )
         results[number] = case_record
-        save_results(results_path, results)
+        save_results(results_path, results, metadata=metadata)
 
         mesher_successes = sum(
             1
@@ -1076,22 +1181,7 @@ def main() -> None:
             f"{loaded_count} previously cached)"
         )
 
-    print()
-    print(f"Results file: {results_path}")
-
-    if args.case_number is not None:
-        print_case_summary(results[args.case_number], meshers)
-    else:
-        incomplete_cases = [
-            number for number, record in results.items() if not case_complete(record, meshers)
-        ]
-        print_mesher_summary(results, meshers)
-        if incomplete_cases:
-            print()
-            print(
-                "Incomplete cases: "
-                + ", ".join(str(number) for number in sorted(incomplete_cases))
-            )
+    summary_results = {number: results[number] for number in selected_cases if number in results}
 
     if not args.no_plots:
         overview_path = overview_plot_path(
@@ -1101,13 +1191,30 @@ def main() -> None:
             min_mesh_angle=MIN_MESH_ANGLE,
         )
         plot_overview(
-            results,
+            summary_results,
             meshers,
             overview_path,
             max_mesh_size=args.max_mesh_size,
             min_mesh_angle=MIN_MESH_ANGLE,
         )
+    total_elapsed = time.perf_counter() - benchmark_start
+    save_results(results_path, results, metadata=metadata)
+    report = build_summary_report(
+        summary_results,
+        meshers,
+        max_mesh_size=args.max_mesh_size,
+        min_mesh_angle=MIN_MESH_ANGLE,
+        elapsed_seconds=total_elapsed,
+    )
+    summary_path = summary_text_path(output_dir)
+    summary_path.write_text(report + "\n")
+    print()
+    print(report)
+    print()
+    print(f"Results file: {results_path}")
+    if not args.no_plots:
         print(f"Overview plot: {overview_path}")
+    print(f"Summary text: {summary_path}")
 
 
 if __name__ == "__main__":

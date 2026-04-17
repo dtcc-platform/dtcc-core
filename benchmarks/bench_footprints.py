@@ -1,15 +1,14 @@
 """
-Compare Stockholm flat-mesh preprocessing outputs across branches.
+Benchmark Stockholm footprint conditioning and flat-mesh preparation.
 
-This manual harness downloads a few Stockholm tiles, extracts raw building
-footprints, conditions them with either the legacy or new pipeline, builds a
-flat mesh, and saves visual artifacts for branch-to-branch comparison.
+This script downloads Stockholm tiles, extracts raw building footprints,
+conditions them with either the legacy or new pipeline, builds a flat mesh, and
+stores both visual and JSON artifacts for side-by-side inspection.
 
-Examples
---------
-python sandbox/compare_stockholm_flat_mesh.py --cases 45 46 55 56 --label current --mode legacy
-python sandbox/compare_stockholm_flat_mesh.py --cases 45 46 55 56 --label new --mode new
-python sandbox/compare_stockholm_flat_mesh.py --cases 45 46 55 56 --label new --mode legacy
+Typical usage:
+    python benchmarks/bench_footprints.py --cases 45 46 55 56 --label current --mode legacy
+    python benchmarks/bench_footprints.py --cases 45 46 55 56 --label new --mode new
+    python benchmarks/bench_footprints.py --cases 55 --mode new --show-plot
 """
 
 from __future__ import annotations
@@ -50,42 +49,87 @@ from dtcc_core.builder.geometry_builders.meshes import (
     _condition_flat_mesh_coverage_regions,
 )
 from dtcc_core.model import Bounds, Building, City, GeometryType, Surface
-
-
-X_MIN = 673_000
-Y_MIN = 6_578_500
-NX = 10
-NY = 10
-BOX_SIZE = 500
-
-DEFAULT_CASES = [45, 46, 55, 56]
-DEFAULT_DELAY = 8.0
+try:
+    from _stockholm_common import (
+        BOX_SIZE,
+        DEFAULT_DELAY_BETWEEN_CASES,
+        MIN_BUILDING_AREA,
+        MIN_BUILDING_DETAIL,
+        MIN_MESH_ANGLE,
+        NX,
+        NY,
+        add_cases_argument,
+        annotate_heatmap,
+        bounds_to_dict,
+        case_to_grid,
+        format_console_table,
+        json_ready,
+        load_plot_modules,
+        make_bounds,
+        repo_root,
+        resolve_case_numbers,
+        save_results,
+        stockholm_output_dir,
+    )
+except ImportError:
+    from benchmarks._stockholm_common import (
+        BOX_SIZE,
+        DEFAULT_DELAY_BETWEEN_CASES,
+        MIN_BUILDING_AREA,
+        MIN_BUILDING_DETAIL,
+        MIN_MESH_ANGLE,
+        NX,
+        NY,
+        add_cases_argument,
+        annotate_heatmap,
+        bounds_to_dict,
+        case_to_grid,
+        format_console_table,
+        json_ready,
+        load_plot_modules,
+        make_bounds,
+        repo_root,
+        resolve_case_numbers,
+        save_results,
+        stockholm_output_dir,
+    )
 
 DEFAULT_MAX_MESH_SIZE = 10.0
-DEFAULT_MIN_MESH_ANGLE = 25.0
-DEFAULT_MIN_BUILDING_DETAIL = 0.5
-DEFAULT_MIN_BUILDING_AREA = 15.0
+DEFAULT_MIN_MESH_ANGLE = MIN_MESH_ANGLE
+DEFAULT_MIN_BUILDING_DETAIL = MIN_BUILDING_DETAIL
+DEFAULT_MIN_BUILDING_AREA = MIN_BUILDING_AREA
 DEFAULT_MERGE_TOLERANCE = 0.5
 DEFAULT_RASTER_CELL_SIZE = 2.0
 DEFAULT_RASTER_RADIUS = 3.0
 
-OUTPUT_ROOT = (
-    Path(__file__).resolve().parent / "output" / "stockholm_flat_mesh_compare"
-)
+OUTPUT_DIR = stockholm_output_dir("output_footprints")
 EPSG = "EPSG:3006"
 CACHE_ROOT = Path.home() / "Library" / "Caches" / "dtcc-data"
 CACHED_FOOTPRINTS_DIR = CACHE_ROOT / "downloaded-gpkg"
 
+OVERVIEW_METRICS = (
+    (("conditioned_polygon_count",), "Cond polys", "viridis", ".0f"),
+    (("conditioned_polygon_boundary_metrics", "min_clearance"), "Min clearance", "RdYlGn", ".2f"),
+    (
+        ("raw_to_conditioned_difference_metrics", "symmetric_difference_area"),
+        "SymDiff area",
+        "RdYlGn_r",
+        ".1f",
+    ),
+    (
+        ("raw_to_conditioned_difference_metrics", "candidate_minus_reference_area"),
+        "Extra area",
+        "RdYlGn_r",
+        ".1f",
+    ),
+    (("flat_mesh_quality_summary", "element_quality_worst"), "Mesh EQ worst", "RdYlGn", ".3f"),
+    (("flat_mesh_quality_summary", "aspect_ratio_worst"), "Mesh AR worst", "RdYlGn_r", ".1f"),
+)
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--cases",
-        nargs="+",
-        type=int,
-        default=DEFAULT_CASES,
-        help="1-based Stockholm grid case numbers to process.",
-    )
+    add_cases_argument(parser)
     parser.add_argument(
         "--mode",
         choices=["auto", "legacy", "new"],
@@ -100,14 +144,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--delay",
         type=float,
-        default=DEFAULT_DELAY,
+        default=DEFAULT_DELAY_BETWEEN_CASES,
         help="Delay in seconds between cases to avoid dataset rate limiting.",
     )
     parser.add_argument(
-        "--output-root",
+        "--output-dir",
         type=Path,
-        default=OUTPUT_ROOT,
-        help="Root directory for comparison artifacts.",
+        default=OUTPUT_DIR,
+        help="Directory for JSON, VTU, geopackage, and PNG outputs.",
     )
     parser.add_argument(
         "--git-root",
@@ -121,7 +165,12 @@ def parse_args() -> argparse.Namespace:
         help="Write per-case summary JSON only; skip mesh/plot/geopackage artifacts.",
     )
     parser.add_argument(
-        "--show",
+        "--no-plots",
+        action="store_true",
+        help="Skip PNG plot generation while keeping JSON/mesh artifacts.",
+    )
+    parser.add_argument(
+        "--show-plot",
         action="store_true",
         help=(
             "Show the matplotlib comparison figure interactively after saving it. "
@@ -176,27 +225,10 @@ def parse_args() -> argparse.Namespace:
             "Useful for runtime comparisons."
         ),
     )
-    return parser.parse_args()
-
-
-def case_to_grid(number: int) -> tuple[int, int]:
-    iy, ix = divmod(number - 1, NX)
-    return ix, iy
-
-
-def make_bounds(ix: int, iy: int) -> Bounds:
-    x0 = X_MIN + ix * BOX_SIZE
-    y0 = Y_MIN + iy * BOX_SIZE
-    return Bounds(x0, y0, x0 + BOX_SIZE, y0 + BOX_SIZE)
-
-
-def bounds_to_dict(bounds: Bounds) -> dict[str, float]:
-    return {
-        "xmin": bounds.xmin,
-        "ymin": bounds.ymin,
-        "xmax": bounds.xmax,
-        "ymax": bounds.ymax,
-    }
+    args = parser.parse_args()
+    args.cases_explicit = args.cases is not None
+    args.cases = resolve_case_numbers(args.cases)
+    return args
 
 
 def run_git_command(args: list[str], cwd: Path) -> str | None:
@@ -553,10 +585,10 @@ def build_mesh_from_conditioned_footprints(
     footprint_diagnostics: dict[str, Any] | None = None,
     disable_cleaning_diagnostics: bool = False,
 ):
-    # This sandbox path is intended to inspect stage 2 meshing from the output
-    # of stage 1 conditioning. Re-running build_city_flat_mesh() would send the
-    # footprints back through conditioning with different defaults and confound
-    # the comparison.
+    # This benchmark path inspects stage-2 meshing from the output of stage-1
+    # conditioning. Re-running build_city_flat_mesh() would send the footprints
+    # back through conditioning with different defaults and confound the
+    # comparison.
     del source_buildings
 
     marker_lookup: dict[tuple[int, ...], int] = {}
@@ -1015,7 +1047,265 @@ def plot_case(
     plt.close(fig)
 
 
-def prepare_city(bounds: Bounds, raster_cell_size: float, raster_radius: float) -> tuple[Any, list[Building], dict[str, float]]:
+def nested_metric(summary: dict[str, Any], path: tuple[str, ...]) -> float | int | None:
+    value: Any = summary
+    for key in path:
+        if not isinstance(value, dict):
+            return None
+        value = value.get(key)
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return value
+    return None
+
+
+def build_summary_grid(
+    summaries: list[dict[str, Any]],
+    path: tuple[str, ...],
+) -> np.ndarray:
+    grid = np.full((NY, NX), np.nan)
+    for summary in summaries:
+        value = nested_metric(summary, path)
+        if value is None:
+            continue
+        ix, iy = case_to_grid(int(summary["case"]))
+        grid[iy, ix] = float(value)
+    return grid
+
+
+def plot_overview(
+    summaries: list[dict[str, Any]],
+    output_path: Path,
+    *,
+    label: str,
+    mode_name: str,
+) -> None:
+    plt_mod, _, _, _ = load_plot_modules()
+    fig, axes = plt_mod.subplots(2, 3, figsize=(16, 9), constrained_layout=True)
+    axes = np.asarray(axes).reshape(2, 3)
+
+    for ax, (path, title, cmap, fmt) in zip(axes.flat, OVERVIEW_METRICS):
+        grid = build_summary_grid(summaries, path)
+        image = ax.imshow(grid, origin="lower", cmap=cmap, aspect="equal")
+        annotate_heatmap(ax, grid, fmt)
+        ax.set_title(title)
+        ax.set_xticks(range(NX))
+        ax.set_yticks(range(NY))
+        ax.set_xlabel("Grid X")
+        ax.set_ylabel("Grid Y")
+        fig.colorbar(image, ax=ax, shrink=0.82, pad=0.03)
+
+    fig.suptitle(f"Footprint benchmark overview\nlabel={label}, mode={mode_name}")
+    fig.savefig(output_path, dpi=180)
+    plt_mod.close(fig)
+
+
+def status_emoji(status: str | None) -> str:
+    return "✅" if status == "completed" else "❌"
+
+
+def aggregate_status_emoji(successes: int, failures: int) -> str:
+    if failures == 0:
+        return "✅"
+    if successes == 0:
+        return "❌"
+    return "⚠️"
+
+
+def build_summary_report(
+    summaries: list[dict[str, Any]],
+    *,
+    label: str,
+    mode_name: str,
+    elapsed_seconds: float,
+) -> str:
+    if not summaries:
+        return ""
+
+    case_rows: list[list[Any]] = []
+    completed = [summary for summary in summaries if summary.get("status") == "completed"]
+    for summary in summaries:
+        if summary.get("status") == "completed":
+            detail_tail = _fmt_metric(
+                nested_metric(summary, ("timing_summary", "core_seconds")),
+                2,
+            )
+        else:
+            error = summary.get("error") or {}
+            detail_tail = (
+                f"{error.get('stage', '-')}: {error.get('type', '-')}"
+                f" ({error.get('message', '-')})"
+            )
+        case_rows.append(
+            [
+                f"{summary['case']:03d}",
+                f"{status_emoji(summary.get('status'))} {summary['status']}",
+                summary["raw_polygon_count"],
+                summary["conditioned_polygon_count"],
+                _fmt_metric(
+                    nested_metric(summary, ("conditioned_polygon_boundary_metrics", "min_clearance"))
+                ),
+                _fmt_metric(
+                    nested_metric(
+                        summary,
+                        ("raw_to_conditioned_difference_metrics", "symmetric_difference_area"),
+                    )
+                ),
+                _fmt_metric(
+                    nested_metric(
+                        summary,
+                        ("raw_to_conditioned_difference_metrics", "candidate_minus_reference_area"),
+                    )
+                ),
+                _fmt_metric(
+                    nested_metric(summary, ("flat_mesh_quality_summary", "element_quality_worst")),
+                    3,
+                ),
+                _fmt_metric(
+                    nested_metric(summary, ("flat_mesh_quality_summary", "aspect_ratio_worst")),
+                    2,
+                ),
+                detail_tail,
+            ]
+        )
+
+    if not completed:
+        summary_rows = [[aggregate_status_emoji(0, len(summaries)), 0, len(summaries), "-", "-", "-", "-", "-"]]
+        return "\n".join(
+            [
+                "bench_footprints",
+                f"Config: mode={mode_name}, label={label}",
+                f"Elapsed time: {elapsed_seconds:.1f}s",
+                "",
+                format_console_table(
+                    ["Status", "Completed", "Failed", "Worst clear", "Median symdiff", "Worst EQ", "Worst AR", "Mean core s"],
+                    summary_rows,
+                    title="Summary",
+                ),
+                "",
+                format_console_table(
+                    ["Case", "Status", "Raw", "Cond", "Clear min", "SymDiff", "Extra", "EQ worst", "AR worst", "Core s/Error"],
+                    case_rows,
+                    title="Detailed results",
+                ),
+            ]
+        )
+
+    symdiff_values = [
+        value
+        for value in (
+            nested_metric(
+                summary,
+                ("raw_to_conditioned_difference_metrics", "symmetric_difference_area"),
+            )
+            for summary in completed
+        )
+        if value is not None
+    ]
+    core_seconds = [
+        value
+        for value in (
+            nested_metric(summary, ("timing_summary", "core_seconds")) for summary in completed
+        )
+        if value is not None
+    ]
+
+    failures = sum(1 for summary in summaries if summary.get("status") != "completed")
+    aggregate_row = [[
+        aggregate_status_emoji(len(completed), failures),
+        len(completed),
+        failures,
+        _fmt_metric(
+            min(
+                (
+                    value
+                    for value in (
+                        nested_metric(summary, ("conditioned_polygon_boundary_metrics", "min_clearance"))
+                        for summary in completed
+                    )
+                    if value is not None
+                ),
+                default=None,
+            )
+        ),
+        _fmt_metric(float(np.median(symdiff_values)) if symdiff_values else None),
+        _fmt_metric(
+            min(
+                (
+                    value
+                    for value in (
+                        nested_metric(summary, ("flat_mesh_quality_summary", "element_quality_worst"))
+                        for summary in completed
+                    )
+                    if value is not None
+                ),
+                default=None,
+            ),
+            3,
+        ),
+        _fmt_metric(
+            max(
+                (
+                    value
+                    for value in (
+                        nested_metric(summary, ("flat_mesh_quality_summary", "aspect_ratio_worst"))
+                        for summary in completed
+                    )
+                    if value is not None
+                ),
+                default=None,
+            ),
+            2,
+        ),
+        _fmt_metric(float(np.mean(core_seconds)) if core_seconds else None, 2),
+    ]]
+    return "\n".join(
+        [
+            "bench_footprints",
+            f"Config: mode={mode_name}, label={label}",
+            f"Elapsed time: {elapsed_seconds:.1f}s",
+            "",
+            format_console_table(
+                [
+                    "Status",
+                    "Completed",
+                    "Failed",
+                    "Worst clear",
+                    "Median symdiff",
+                    "Worst EQ",
+                    "Worst AR",
+                    "Mean core s",
+                ],
+                aggregate_row,
+                title="Summary",
+            ),
+            "",
+            format_console_table(
+                [
+                    "Case",
+                    "Status",
+                    "Raw",
+                    "Cond",
+                    "Clear min",
+                    "SymDiff",
+                    "Extra",
+                    "EQ worst",
+                    "AR worst",
+                    "Core s/Error",
+                ],
+                case_rows,
+                title="Detailed results",
+            ),
+        ]
+    )
+
+
+def prepare_case_inputs(
+    bounds: Bounds,
+    raster_cell_size: float,
+    raster_radius: float,
+) -> tuple[Any, list[Building], dict[str, float]]:
     timings: dict[str, float] = {}
 
     t0 = time.perf_counter()
@@ -1045,21 +1335,20 @@ def prepare_city(bounds: Bounds, raster_cell_size: float, raster_radius: float) 
     return terrain_raster, buildings, timings
 
 
-def run_case(number: int, args: argparse.Namespace, git_metadata: dict[str, str | None]) -> None:
+def run_case(
+    number: int,
+    args: argparse.Namespace,
+    git_metadata: dict[str, str | None],
+    *,
+    mode_name: str,
+    cleaner_module,
+) -> dict[str, Any]:
     ix, iy = case_to_grid(number)
     bounds = make_bounds(ix, iy)
-    label = sanitize_label(args.label or git_metadata["branch"] or "unknown")
-
-    mode_name, cleaner_module = resolve_mode(args.mode)
-    case_dir = (
-        args.output_root
-        / label
-        / mode_name
-        / f"case_{number:03d}"
-    )
+    case_dir = args.output_dir / f"{number:03d}"
     case_dir.mkdir(parents=True, exist_ok=True)
 
-    terrain_raster, buildings, timings = prepare_city(
+    terrain_raster, buildings, timings = prepare_case_inputs(
         bounds,
         raster_cell_size=args.raster_cell_size,
         raster_radius=args.raster_radius,
@@ -1146,7 +1435,7 @@ def run_case(number: int, args: argparse.Namespace, git_metadata: dict[str, str 
         short_edge_threshold=args.min_building_detail,
     )
 
-    if not args.summary_only:
+    if not args.summary_only and not args.no_plots:
         t0 = time.perf_counter()
         plot_case(
             case_dir / "comparison.png",
@@ -1162,13 +1451,14 @@ def run_case(number: int, args: argparse.Namespace, git_metadata: dict[str, str 
             args.min_building_detail,
             title=f"Case {number:03d} | {mode_name}",
             error_info=error_info,
-            show=args.show,
+            show=bool(args.show_plot and len(args.cases) == 1),
         )
         timings["plotting"] = time.perf_counter() - t0
 
     artifacts: dict[str, str] = {}
     if not args.summary_only:
-        artifacts["comparison_png"] = "comparison.png"
+        if not args.no_plots:
+            artifacts["comparison_png"] = "comparison.png"
         if flat_mesh is not None:
             artifacts["flat_mesh_vtu"] = "flat_mesh.vtu"
         artifacts["footprints_gpkg"] = "footprints.gpkg"
@@ -1202,36 +1492,90 @@ def run_case(number: int, args: argparse.Namespace, git_metadata: dict[str, str 
         "artifacts": artifacts,
     }
     with (case_dir / "summary.json").open("w", encoding="utf-8") as handle:
-        json.dump(summary, handle, indent=2)
+        json.dump(json_ready(summary), handle, indent=2)
 
-    status_bits = [f"Case {number:03d}: {mode_name}", f"raw={len(raw_polygons)}", f"conditioned={len(conditioned_polygons)}"]
+    status_bits = [
+        f"Case {number:03d}: {mode_name}",
+        f"raw={len(raw_polygons)}",
+        f"conditioned={len(conditioned_polygons)}",
+    ]
     if case_status != "completed" and error_info is not None:
         status_bits.append(f"status={case_status}")
         status_bits.append(f"stage={error_info['stage']}")
         status_bits.append(f"error={error_info['type']}")
     print(" | ".join(status_bits) + f" -> {case_dir}")
-
-
-def validate_cases(cases: list[int]) -> None:
-    total = NX * NY
-    invalid = [number for number in cases if number < 1 or number > total]
-    if invalid:
-        joined = ", ".join(str(number) for number in invalid)
-        raise ValueError(f"Invalid case numbers: {joined}. Expected values in 1..{total}.")
+    return summary
 
 
 def main() -> int:
     args = parse_args()
-    validate_cases(args.cases)
+    benchmark_start = time.perf_counter()
+    git_root = args.git_root or repo_root()
+    git_metadata = get_git_metadata(git_root)
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    label = sanitize_label(args.label or git_metadata["branch"] or "unknown")
+    mode_name, cleaner_module = resolve_mode(args.mode)
 
-    repo_root = args.git_root or Path(__file__).resolve().parent.parent
-    git_metadata = get_git_metadata(repo_root)
-    args.output_root.mkdir(parents=True, exist_ok=True)
+    summaries: list[dict[str, Any]] = []
 
     for index, number in enumerate(args.cases):
-        run_case(number, args, git_metadata)
+        summaries.append(
+            run_case(
+                number,
+                args,
+                git_metadata,
+                mode_name=mode_name,
+                cleaner_module=cleaner_module,
+            )
+        )
         if index < len(args.cases) - 1 and args.delay > 0:
             time.sleep(args.delay)
+
+    total_elapsed = time.perf_counter() - benchmark_start
+    results_path = args.output_dir / "results.json"
+    save_results(
+        results_path,
+        {summary["case"]: summary for summary in summaries},
+        metadata={
+            "benchmark": "bench_footprints",
+            "config": {
+                "label": label,
+                "mode": mode_name,
+                "requested_mode": args.mode,
+                "cases": args.cases,
+                "max_mesh_size": args.max_mesh_size,
+                "min_mesh_angle": args.min_mesh_angle,
+                "min_building_detail": args.min_building_detail,
+                "min_building_area": args.min_building_area,
+                "merge_tolerance": args.merge_tolerance,
+                "merge_buildings": not args.no_merge_buildings,
+                "summary_only": args.summary_only,
+                "plots_enabled": not args.no_plots,
+            },
+            "git": git_metadata,
+        },
+    )
+    report = build_summary_report(
+        summaries,
+        label=label,
+        mode_name=mode_name,
+        elapsed_seconds=total_elapsed,
+    )
+    summary_path = args.output_dir / "summary.txt"
+    summary_path.write_text(report + "\n", encoding="utf-8")
+
+    overview_path: Path | None = None
+    if not args.no_plots and not args.summary_only:
+        overview_path = args.output_dir / "overview.png"
+        plot_overview(summaries, overview_path, label=label, mode_name=mode_name)
+
+    print()
+    print(report)
+    print()
+    print(f"Results file: {results_path}")
+    if overview_path is not None:
+        print(f"Overview plot: {overview_path}")
+    print(f"Summary text: {summary_path}")
     return 0
 
 

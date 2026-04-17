@@ -18,7 +18,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from sandbox.compare_stockholm_flat_mesh import (
+import sys
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from benchmarks.bench_footprints import (
     build_mesh_from_conditioned_footprints,
     case_to_grid,
     coverage_difference_metrics,
@@ -33,10 +39,7 @@ from dtcc_core.model import GeometryType
 
 
 OUTPUT_ROOT = (
-    Path(__file__).resolve().parent
-    / "output"
-    / "stockholm_flat_mesh_compare"
-    / "cleaning_ablation_probe"
+    REPO_ROOT / "benchmarks" / "output_footprints" / "cleaning_ablation_probe"
 )
 
 

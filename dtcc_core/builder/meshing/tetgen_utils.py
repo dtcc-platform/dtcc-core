@@ -697,6 +697,44 @@ def _validate_boundary_loop_alignment(
             )
 
 
+def _realign_closure_boundary_loops(
+    bottom_vertices: np.ndarray,
+    bottom_loops: Mapping[str, np.ndarray],
+    top_source_vertices: np.ndarray,
+    top_loops: Mapping[str, np.ndarray],
+    tol: float,
+) -> dict[str, np.ndarray] | None:
+    xy_tol = max(tol, 1.0e-6)
+    aligned: dict[str, np.ndarray] = {}
+    for name in ("south", "east", "north", "west"):
+        bottom_loop = np.asarray(bottom_loops[name], dtype=np.int64)
+        top_loop = np.asarray(top_loops[name], dtype=np.int64)
+        if len(top_loop) < len(bottom_loop):
+            return None
+
+        matched: list[int] = []
+        cursor = 0
+        for bottom_index in bottom_loop:
+            bottom_xy = bottom_vertices[int(bottom_index), :2]
+            found = None
+            for offset in range(cursor, len(top_loop)):
+                candidate_index = int(top_loop[offset])
+                if np.allclose(
+                    top_source_vertices[candidate_index, :2],
+                    bottom_xy,
+                    atol=xy_tol,
+                    rtol=0.0,
+                ):
+                    found = offset
+                    matched.append(candidate_index)
+                    cursor = offset + 1
+                    break
+            if found is None:
+                return None
+        aligned[name] = np.asarray(matched, dtype=np.int64)
+    return aligned
+
+
 def _outer_boundary_ring_indices(boundary_loops: Mapping[str, np.ndarray]) -> np.ndarray:
     south = np.asarray(boundary_loops["south"], dtype=np.int64)
     east = np.asarray(boundary_loops["east"], dtype=np.int64)
@@ -733,6 +771,7 @@ def _build_top_cap_mesh(
     min_mesh_angle: float,
     tol: float,
 ) -> tuple[np.ndarray, np.ndarray, dict[str, np.ndarray]]:
+    from .backends import available_2d_meshers
     from .flat_mesh_backends import build_city_flat_mesh_from_coverage
 
     ring_indices = _outer_boundary_ring_indices(boundary_loops)
@@ -747,31 +786,60 @@ def _build_top_cap_mesh(
         )
 
     minx, miny, maxx, maxy = polygon.bounds
-    top_cap_mesh = build_city_flat_mesh_from_coverage(
-        region_polygons=[polygon],
-        region_markers=[0],
-        bounds=(float(minx), float(miny), float(maxx), float(maxy)),
-        max_mesh_size=max_mesh_size,
-        min_mesh_angle=min_mesh_angle,
-        backend=backend,
-        sort_triangles=False,
-    )
-    top_vertices = np.asarray(top_cap_mesh.vertices, dtype=float)
-    top_faces = np.asarray(top_cap_mesh.faces, dtype=np.int64)
-    if top_vertices.ndim != 2 or top_vertices.shape[1] != 3:
-        raise ValueError("Top-cap mesh vertices must have shape (N, 3).")
-    if top_faces.ndim != 2 or top_faces.shape[1] != 3 or top_faces.shape[0] == 0:
-        raise ValueError("Top-cap mesh must provide triangle faces.")
 
-    top_loops = _boundary_loops(top_vertices, tol)
-    _validate_boundary_loop_alignment(
-        boundary_vertices,
-        top_vertices,
-        boundary_loops,
-        top_loops,
-        tol,
-    )
-    return top_vertices, top_faces, top_loops
+    def _build_with_backend(selected_backend: str) -> tuple[np.ndarray, np.ndarray, dict[str, np.ndarray]]:
+        top_cap_mesh = build_city_flat_mesh_from_coverage(
+            region_polygons=[polygon],
+            region_markers=[0],
+            bounds=(float(minx), float(miny), float(maxx), float(maxy)),
+            max_mesh_size=max_mesh_size,
+            min_mesh_angle=min_mesh_angle,
+            backend=selected_backend,
+            sort_triangles=False,
+        )
+        top_vertices = np.asarray(top_cap_mesh.vertices, dtype=float)
+        top_faces = np.asarray(top_cap_mesh.faces, dtype=np.int64)
+        if top_vertices.ndim != 2 or top_vertices.shape[1] != 3:
+            raise ValueError("Top-cap mesh vertices must have shape (N, 3).")
+        if top_faces.ndim != 2 or top_faces.shape[1] != 3 or top_faces.shape[0] == 0:
+            raise ValueError("Top-cap mesh must provide triangle faces.")
+        top_loops = _boundary_loops(top_vertices, tol)
+        _validate_boundary_loop_alignment(
+            boundary_vertices,
+            top_vertices,
+            boundary_loops,
+            top_loops,
+            tol,
+        )
+        return top_vertices, top_faces, top_loops
+
+    def _is_retryable_top_cap_error(exc: Exception) -> bool:
+        message = str(exc)
+        return (
+            "Boundary loop" in message
+            or "Triangle support not built" in message
+            or "Requested 2D mesher" in message
+            or "No supported 2D mesher backend is available" in message
+        )
+
+    fallback_backends = [backend]
+    for candidate in available_2d_meshers():
+        if candidate not in fallback_backends:
+            fallback_backends.append(candidate)
+
+    first_retryable_error: Exception | None = None
+    for candidate in fallback_backends:
+        try:
+            return _build_with_backend(candidate)
+        except (RuntimeError, ValueError) as exc:
+            if not _is_retryable_top_cap_error(exc):
+                raise
+            if first_retryable_error is None:
+                first_retryable_error = exc
+
+    if first_retryable_error is not None:
+        raise first_retryable_error
+    raise RuntimeError("Failed to build a valid top-cap mesh with any available 2D backend.")
 
 
 def compute_boundary_triangle_facets(
@@ -803,13 +871,32 @@ def compute_boundary_triangle_facets(
 
     bottom_loops = _boundary_loops(shell_vertices, tol)
     cap_source_loops = _boundary_loops(cap_source_vertices, tol)
-    _validate_boundary_loop_alignment(
-        shell_vertices,
-        cap_source_vertices,
-        bottom_loops,
-        cap_source_loops,
-        tol,
-    )
+    try:
+        _validate_boundary_loop_alignment(
+            shell_vertices,
+            cap_source_vertices,
+            bottom_loops,
+            cap_source_loops,
+            tol,
+        )
+    except ValueError:
+        realigned_cap_source_loops = _realign_closure_boundary_loops(
+            shell_vertices,
+            bottom_loops,
+            cap_source_vertices,
+            cap_source_loops,
+            tol,
+        )
+        if realigned_cap_source_loops is None:
+            raise
+        cap_source_loops = realigned_cap_source_loops
+        _validate_boundary_loop_alignment(
+            shell_vertices,
+            cap_source_vertices,
+            bottom_loops,
+            cap_source_loops,
+            tol,
+        )
 
     top_vertices, top_faces, top_loops = _build_top_cap_mesh(
         boundary_vertices=cap_source_vertices,

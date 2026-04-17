@@ -9,7 +9,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 
 OUTPUT_ROOT = (
-    Path(__file__).resolve().parent / "output" / "stockholm_flat_mesh_compare"
+    Path(__file__).resolve().parent.parent / "benchmarks" / "output_footprints"
 )
 LEGACY_ROOT = OUTPUT_ROOT / "selected-old-legacy"
 NEW_ROOT = OUTPUT_ROOT / "selected-new-final"

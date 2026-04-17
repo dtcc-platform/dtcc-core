@@ -1,5 +1,5 @@
 """
-Survey TetGen-backed 3D volume-mesh quality across central Stockholm tiles.
+Benchmark TetGen-backed 3D volume-mesh quality across central Stockholm tiles.
 
 This script reuses the same city-preparation pipeline as the 2D survey, then
 builds a tetrahedral volume mesh with dtcc-core's TetGen path for each tile.
@@ -7,13 +7,13 @@ It caches per-case results, saves per-case XDMF/HDF5 meshes, and writes
 overview heatmaps for the key 3D metrics.
 
 Typical usage:
-    python mesh_quality_survey_3d.py 55
-    python mesh_quality_survey_3d.py
-    python mesh_quality_survey_3d.py 55 --max-mesh-size 8
-    python mesh_quality_survey_3d.py 55 --quality-ratio 1.4
-    python mesh_quality_survey_3d.py 55 --size-only --preserve-surface
-    python mesh_quality_survey_3d.py 55 --preserve-surface --max-added-points 10000
-    python mesh_quality_survey_3d.py --no-merge-buildings
+    python benchmarks/bench_mesh_3d.py --cases 55
+    python benchmarks/bench_mesh_3d.py
+    python benchmarks/bench_mesh_3d.py --cases 55 --max-mesh-size 8
+    python benchmarks/bench_mesh_3d.py --cases 55 --quality-ratio 1.4
+    python benchmarks/bench_mesh_3d.py --cases 55 --size-only --preserve-surface
+    python benchmarks/bench_mesh_3d.py --cases 55 --preserve-surface --max-added-points 10000
+    python benchmarks/bench_mesh_3d.py --no-merge-buildings
 
 Coordinate system: SWEREF99 TM (EPSG:3006)
 """
@@ -21,6 +21,8 @@ Coordinate system: SWEREF99 TM (EPSG:3006)
 from __future__ import annotations
 
 import argparse
+import json
+import re
 import time
 import traceback
 from pathlib import Path
@@ -33,27 +35,64 @@ from dtcc_core.builder.meshing.tetgen import is_tetgen_available
 from dtcc_core.model import GeometryType, VolumeMesh
 from dtcc_core.model.mixins.mesh.quality import tet_element_quality
 
-from mesh_quality_survey_2d import (
-    DEFAULT_DELAY_BETWEEN_CASES,
-    DEFAULT_MAX_MESH_SIZE,
-    MIN_BUILDING_AREA,
-    MIN_BUILDING_DETAIL,
-    MERGE_BUILDINGS,
-    NX,
-    NY,
-    _load_plot_modules,
-    _quantile,
-    _slug_token,
-    annotate_heatmap,
-    bounds_to_dict,
-    case_to_grid,
-    json_ready,
-    load_results,
-    make_bounds,
-    mesh_size_label,
-    prepare_city,
-    save_results,
-)
+try:
+    from _stockholm_common import (
+        DEFAULT_DELAY_BETWEEN_CASES,
+        DEFAULT_MAX_MESH_SIZE,
+        MIN_BUILDING_AREA,
+        MIN_BUILDING_DETAIL,
+        MIN_MESH_ANGLE,
+        MERGE_BUILDINGS,
+        NX,
+        NY,
+        add_cases_argument,
+        annotate_heatmap,
+        bounds_to_dict,
+        case_to_grid,
+        format_console_table,
+        json_ready,
+        load_plot_modules,
+        load_results,
+        make_bounds,
+        mesh_size_label,
+        positive_float,
+        positive_int,
+        prepare_city,
+        quantile,
+        resolve_case_numbers,
+        save_results,
+        slug_token,
+        stockholm_output_dir,
+    )
+except ImportError:
+    from benchmarks._stockholm_common import (
+        DEFAULT_DELAY_BETWEEN_CASES,
+        DEFAULT_MAX_MESH_SIZE,
+        MIN_BUILDING_AREA,
+        MIN_BUILDING_DETAIL,
+        MIN_MESH_ANGLE,
+        MERGE_BUILDINGS,
+        NX,
+        NY,
+        add_cases_argument,
+        annotate_heatmap,
+        bounds_to_dict,
+        case_to_grid,
+        format_console_table,
+        json_ready,
+        load_plot_modules,
+        load_results,
+        make_bounds,
+        mesh_size_label,
+        positive_float,
+        positive_int,
+        prepare_city,
+        quantile,
+        resolve_case_numbers,
+        save_results,
+        slug_token,
+        stockholm_output_dir,
+    )
 
 # Configuration ---------------------------------------------------------------
 
@@ -96,26 +135,6 @@ REQUIRED_METRIC_KEYS = (
 # Helpers --------------------------------------------------------------------
 
 
-def positive_float(value: str) -> float:
-    try:
-        parsed = float(value)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError("value must be a positive number") from exc
-    if parsed <= 0.0:
-        raise argparse.ArgumentTypeError("value must be positive")
-    return parsed
-
-
-def positive_int(value: str) -> int:
-    try:
-        parsed = int(value)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError("value must be a positive integer") from exc
-    if parsed <= 0:
-        raise argparse.ArgumentTypeError("value must be positive")
-    return parsed
-
-
 def parse_lod(value: str) -> GeometryType:
     normalized = value.strip().upper()
     try:
@@ -146,11 +165,11 @@ def config_slug(
 ) -> str:
     return ".".join(
         [
-            f"maxh-{_slug_token(max_mesh_size)}",
-            f"mina-{_slug_token(min_mesh_angle)}",
-            f"height-{_slug_token(domain_height)}",
+            f"maxh-{slug_token(max_mesh_size)}",
+            f"mina-{slug_token(min_mesh_angle)}",
+            f"height-{slug_token(domain_height)}",
             (
-                f"q-{_slug_token(quality_ratio)}"
+                f"q-{slug_token(quality_ratio)}"
                 if quality_enabled
                 else "size-only"
             ),
@@ -183,11 +202,20 @@ def results_file_path(
     mesher: str,
     stage_audit_enabled: bool = False,
 ) -> Path:
-    return output_dir / (
-        f"mesh_quality_survey_3d."
-        f"{config_slug(max_mesh_size=max_mesh_size, min_mesh_angle=min_mesh_angle, domain_height=domain_height, quality_ratio=quality_ratio, quality_enabled=quality_enabled, preserve_surface=preserve_surface, max_added_points=max_added_points, lod=lod, merge_buildings=merge_buildings, mesher=mesher, stage_audit_enabled=stage_audit_enabled)}."
-        f"json"
+    del (
+        max_mesh_size,
+        min_mesh_angle,
+        domain_height,
+        quality_ratio,
+        quality_enabled,
+        preserve_surface,
+        max_added_points,
+        lod,
+        merge_buildings,
+        mesher,
+        stage_audit_enabled,
     )
+    return output_dir / "results.json"
 
 
 def overview_plot_path(
@@ -205,11 +233,28 @@ def overview_plot_path(
     mesher: str,
     stage_audit_enabled: bool = False,
 ) -> Path:
-    return output_dir / (
-        f"mesh_quality_survey_3d."
-        f"{config_slug(max_mesh_size=max_mesh_size, min_mesh_angle=min_mesh_angle, domain_height=domain_height, quality_ratio=quality_ratio, quality_enabled=quality_enabled, preserve_surface=preserve_surface, max_added_points=max_added_points, lod=lod, merge_buildings=merge_buildings, mesher=mesher, stage_audit_enabled=stage_audit_enabled)}."
-        f"png"
+    del (
+        max_mesh_size,
+        min_mesh_angle,
+        domain_height,
+        quality_ratio,
+        quality_enabled,
+        preserve_surface,
+        max_added_points,
+        lod,
+        merge_buildings,
+        mesher,
+        stage_audit_enabled,
     )
+    return output_dir / "overview.png"
+
+
+def summary_text_path(output_dir: Path) -> Path:
+    return output_dir / "summary.txt"
+
+
+def case_output_dir(output_dir: Path, number: int) -> Path:
+    return output_dir / f"{number:03d}"
 
 
 def case_mesh_path(
@@ -228,11 +273,20 @@ def case_mesh_path(
     mesher: str,
     stage_audit_enabled: bool = False,
 ) -> Path:
-    return output_dir / (
-        f"{number:03d}.tetgen."
-        f"{config_slug(max_mesh_size=max_mesh_size, min_mesh_angle=min_mesh_angle, domain_height=domain_height, quality_ratio=quality_ratio, quality_enabled=quality_enabled, preserve_surface=preserve_surface, max_added_points=max_added_points, lod=lod, merge_buildings=merge_buildings, mesher=mesher, stage_audit_enabled=stage_audit_enabled)}."
-        f"xdmf"
+    del (
+        max_mesh_size,
+        min_mesh_angle,
+        domain_height,
+        quality_ratio,
+        quality_enabled,
+        preserve_surface,
+        max_added_points,
+        lod,
+        merge_buildings,
+        mesher,
+        stage_audit_enabled,
     )
+    return case_output_dir(output_dir, number) / "volume_mesh.xdmf"
 
 
 def case_tetgen_input_stem(
@@ -250,10 +304,21 @@ def case_tetgen_input_stem(
     mesher: str,
     stage_audit_enabled: bool = False,
 ) -> str:
-    return (
-        f"{number:03d}.tetgen-input."
-        f"{config_slug(max_mesh_size=max_mesh_size, min_mesh_angle=min_mesh_angle, domain_height=domain_height, quality_ratio=quality_ratio, quality_enabled=quality_enabled, preserve_surface=preserve_surface, max_added_points=max_added_points, lod=lod, merge_buildings=merge_buildings, mesher=mesher, stage_audit_enabled=stage_audit_enabled)}"
+    del (
+        number,
+        max_mesh_size,
+        min_mesh_angle,
+        domain_height,
+        quality_ratio,
+        quality_enabled,
+        preserve_surface,
+        max_added_points,
+        lod,
+        merge_buildings,
+        mesher,
+        stage_audit_enabled,
     )
+    return "tetgen_input"
 
 
 def case_tetgen_input_paths(
@@ -272,24 +337,10 @@ def case_tetgen_input_paths(
     mesher: str,
     stage_audit_enabled: bool = False,
 ) -> dict[str, Path]:
-    stem = case_tetgen_input_stem(
-        number,
-        max_mesh_size=max_mesh_size,
-        min_mesh_angle=min_mesh_angle,
-        domain_height=domain_height,
-        quality_ratio=quality_ratio,
-        quality_enabled=quality_enabled,
-        preserve_surface=preserve_surface,
-        max_added_points=max_added_points,
-        lod=lod,
-        merge_buildings=merge_buildings,
-        mesher=mesher,
-        stage_audit_enabled=stage_audit_enabled,
-    )
     return {
-        "ground": output_dir / f"{stem}.tetgen-input-ground.xdmf",
-        "shell": output_dir / f"{stem}.tetgen-input-shell.xdmf",
-        "plc": output_dir / f"{stem}.tetgen-input-plc.xdmf",
+        "ground": case_output_dir(output_dir, number) / "tetgen_input_ground.xdmf",
+        "shell": case_output_dir(output_dir, number) / "tetgen_input_shell.xdmf",
+        "plc": case_output_dir(output_dir, number) / "tetgen_input_plc.xdmf",
     }
 
 
@@ -309,21 +360,20 @@ def case_tetgen_quality_failure_report_path(
     mesher: str,
     stage_audit_enabled: bool = False,
 ) -> Path:
-    stem = case_tetgen_input_stem(
-        number,
-        max_mesh_size=max_mesh_size,
-        min_mesh_angle=min_mesh_angle,
-        domain_height=domain_height,
-        quality_ratio=quality_ratio,
-        quality_enabled=quality_enabled,
-        preserve_surface=preserve_surface,
-        max_added_points=max_added_points,
-        lod=lod,
-        merge_buildings=merge_buildings,
-        mesher=mesher,
-        stage_audit_enabled=stage_audit_enabled,
+    del (
+        max_mesh_size,
+        min_mesh_angle,
+        domain_height,
+        quality_ratio,
+        quality_enabled,
+        preserve_surface,
+        max_added_points,
+        lod,
+        merge_buildings,
+        mesher,
+        stage_audit_enabled,
     )
-    return output_dir / f"{stem}.tetgen-quality-failure.json"
+    return case_output_dir(output_dir, number) / "tetgen_quality_failure.json"
 
 
 def tetgen_switches(
@@ -414,12 +464,12 @@ def grading_metrics(mesh: VolumeMesh) -> dict[str, float | int]:
     return {
         "unique_edge_count": int(len(unique_edges)),
         "edge_length_min": float(edge_lengths.min()),
-        "edge_length_p01": _quantile(edge_lengths, 1.0),
-        "edge_length_p05": _quantile(edge_lengths, 5.0),
+        "edge_length_p01": quantile(edge_lengths, 1.0),
+        "edge_length_p05": quantile(edge_lengths, 5.0),
         "edge_length_mean": float(edge_lengths.mean()),
         "volume_min": float(volumes.min()),
-        "volume_p01": _quantile(volumes, 1.0),
-        "volume_p05": _quantile(volumes, 5.0),
+        "volume_p01": quantile(volumes, 1.0),
+        "volume_p05": quantile(volumes, 5.0),
         "volume_mean": float(volumes.mean()),
         "short_edges_lt_0_5_count": int(np.count_nonzero(edge_lengths < SHORT_EDGE_THRESHOLDS[0])),
         "short_edges_lt_1_0_count": int(np.count_nonzero(edge_lengths < SHORT_EDGE_THRESHOLDS[1])),
@@ -498,26 +548,63 @@ def print_case_summary(case_record: dict[str, Any]) -> None:
     bounds = case_record["bounds"]
     result = case_record["result"]
 
-    print()
-    print(
+    if result.get("status") == "success":
+        metrics = result["metrics"]
+        quality_rows = [[
+            "ok",
+            metrics["num_cells"],
+            f"{metrics['element_quality_min']:.4f}",
+            f"{metrics['element_quality_mean']:.4f}",
+            f"{metrics['aspect_ratio_max']:.2f}",
+            f"{metrics['edge_ratio_max']:.2f}",
+            f"{metrics['skewness_max']:.2f}",
+            f"{result['time']:.2f}s",
+        ]]
+        scale_rows = [[
+            "ok",
+            f"{metrics['edge_length_min']:.4f}",
+            f"{metrics['edge_length_p01']:.4f}",
+            f"{metrics['edge_length_p05']:.4f}",
+            f"{metrics['volume_min']:.4g}",
+            f"{metrics['volume_p01']:.4f}",
+            f"{metrics['volume_p05']:.4f}",
+            metrics["low_quality_lt_0_05_count"],
+            metrics["low_quality_lt_0_10_count"],
+        ]]
+    else:
+        quality_rows = [["failed", "-", "-", "-", "-", "-", "-", "-"]]
+        scale_rows = [["failed", "-", "-", "-", "-", "-", "-", "-", "-"]]
+
+    title = (
         f"Case {number}  ({bounds['xmin']:.0f}, {bounds['ymin']:.0f}) -> "
         f"({bounds['xmax']:.0f}, {bounds['ymax']:.0f})"
     )
+    print()
     print(
-        f"{'Status':<8}  {'Cells':>8}  {'ElemQ min':>9}  {'ElemQ mean':>10}  "
-        f"{'AR max':>8}  {'ER max':>8}  {'Skew max':>8}  {'Time':>8}"
+        format_console_table(
+            ["Status", "Cells", "EQ min", "EQ mean", "AR max", "ER max", "Skew max", "Time"],
+            quality_rows,
+            title=title,
+        )
     )
-    print("-" * 82)
-    print(format_case_row(result))
-    print("-" * 82)
-    print("Scale / grading metrics")
+    print()
     print(
-        f"{'Status':<8}  {'Edge min':>9}  {'Edge p01':>9}  {'Edge p05':>9}  "
-        f"{'Vol min':>10}  {'Vol p01':>10}  {'Vol p05':>10}  {'Q<0.05':>11}  {'Q<0.10':>11}"
+        format_console_table(
+            [
+                "Status",
+                "Edge min",
+                "Edge p01",
+                "Edge p05",
+                "Vol min",
+                "Vol p01",
+                "Vol p05",
+                "Q<0.05",
+                "Q<0.10",
+            ],
+            scale_rows,
+            title="Scale / grading",
+        )
     )
-    print("-" * 110)
-    print(format_case_scale_row(result))
-    print("-" * 110)
     print(f"Preparation time: {case_record['prepare_time']:.2f}s")
     if result.get("file"):
         print(f"Volume mesh: {result['file']}")
@@ -541,23 +628,29 @@ def print_case_summary(case_record: dict[str, Any]) -> None:
 
 
 def print_survey_summary(results: dict[int, dict[str, Any]]) -> None:
-    print()
-    print("TetGen summary across cached cases")
-    print(
-        f"{'Success':>7}  {'EQ mean':>9}  {'EQ min':>9}  {'AR max':>9}  "
-        f"{'ER max':>9}  {'Edge p01':>10}  {'Vol p01':>10}  {'Q<0.05':>11}  {'Time mean':>10}"
-    )
-    print("-" * 100)
-
     successes = [
         record["result"]
         for record in results.values()
         if record.get("result", {}).get("status") == "success"
     ]
     if not successes:
+        print()
         print(
-            f"{0:>7}  {'n/a':>9}  {'n/a':>9}  {'n/a':>9}  "
-            f"{'n/a':>9}  {'n/a':>10}  {'n/a':>10}  {'n/a':>11}  {'n/a':>10}"
+            format_console_table(
+                [
+                    "Success",
+                    "EQ mean",
+                    "EQ min",
+                    "AR max",
+                    "ER max",
+                    "Edge p01",
+                    "Vol p01",
+                    "Q<0.05",
+                    "Time mean",
+                ],
+                [[0, "n/a", "n/a", "n/a", "n/a", "n/a", "n/a", "n/a", "n/a"]],
+                title="TetGen summary",
+            )
         )
         return
 
@@ -570,16 +663,33 @@ def print_survey_summary(results: dict[int, dict[str, Any]]) -> None:
     low_quality = [item["metrics"]["low_quality_lt_0_05_count"] for item in successes]
     times = [item["time"] for item in successes]
 
+    print()
     print(
-        f"{len(successes):>7}  "
-        f"{np.mean(eq_means):>9.4f}  "
-        f"{np.min(eq_mins):>9.4f}  "
-        f"{np.max(ar_maxs):>9.4f}  "
-        f"{np.max(er_maxs):>9.4f}  "
-        f"{np.mean(edge_p01s):>10.4f}  "
-        f"{np.mean(volume_p01s):>10.4f}  "
-        f"{np.max(low_quality):>11}  "
-        f"{np.mean(times):>10.2f}s"
+        format_console_table(
+            [
+                "Success",
+                "EQ mean",
+                "EQ min",
+                "AR max",
+                "ER max",
+                "Edge p01",
+                "Vol p01",
+                "Q<0.05",
+                "Time mean",
+            ],
+            [[
+                len(successes),
+                f"{np.mean(eq_means):.4f}",
+                f"{np.min(eq_mins):.4f}",
+                f"{np.max(ar_maxs):.4f}",
+                f"{np.max(er_maxs):.4f}",
+                f"{np.mean(edge_p01s):.4f}",
+                f"{np.mean(volume_p01s):.4f}",
+                np.max(low_quality),
+                f"{np.mean(times):.2f}s",
+            ]],
+            title="TetGen summary",
+        )
     )
 
 
@@ -621,7 +731,7 @@ def plot_overview(
     merge_buildings: bool,
     mesher: str,
 ) -> None:
-    plt, _, _, _ = _load_plot_modules()
+    plt, _, _, _ = load_plot_modules()
 
     fig, axes = plt.subplots(
         1,
@@ -671,6 +781,193 @@ def compact_case_status(record: dict[str, Any]) -> str:
     )
 
 
+def status_emoji(status: str | None) -> str:
+    return "✅" if status == "success" else "❌"
+
+
+def maybe_rename_case_artifact(source: Path, target: Path) -> Path:
+    if not source.exists():
+        return target
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists():
+        target.unlink()
+    source.rename(target)
+    sibling_source = source.with_suffix(".h5")
+    sibling_target = target.with_suffix(".h5")
+    if sibling_source.exists():
+        if sibling_target.exists():
+            sibling_target.unlink()
+        sibling_source.rename(sibling_target)
+    return target
+
+
+def maybe_rename_json_artifact(source: Path, target: Path) -> Path:
+    if not source.exists():
+        return target
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists():
+        target.unlink()
+    source.rename(target)
+    return target
+
+
+def _simplified_retry_label(label: str) -> str:
+    return label.replace("-", "_")
+
+
+def simplify_case_artifact_name(name: str) -> str:
+    tetgen_input_match = re.fullmatch(
+        r"tetgen_input(?:\.(retry-[^.]+))?\.tetgen-input-(ground|shell|plc)\.xdmf",
+        name,
+    )
+    if tetgen_input_match:
+        retry_label, kind = tetgen_input_match.groups()
+        if retry_label is None:
+            return f"tetgen_input_{kind}.xdmf"
+        return f"tetgen_input_{_simplified_retry_label(retry_label)}_{kind}.xdmf"
+
+    quality_match = re.fullmatch(
+        r"tetgen_quality_failure(?:\.(retry-[^.]+))?\.tetgen-quality-failure\.json",
+        name,
+    )
+    if quality_match:
+        retry_label = quality_match.group(1)
+        if retry_label is None:
+            return "tetgen_quality_failure.json"
+        return f"tetgen_quality_failure_{_simplified_retry_label(retry_label)}.json"
+
+    return name
+
+
+def simplify_case_artifacts(case_dir: Path) -> list[str]:
+    renamed: list[str] = []
+    for path in sorted(case_dir.glob("*.xdmf")):
+        target_name = simplify_case_artifact_name(path.name)
+        if target_name == path.name:
+            continue
+        renamed_path = maybe_rename_case_artifact(path, case_dir / target_name)
+        renamed.append(renamed_path.name)
+    for path in sorted(case_dir.glob("*.json")):
+        if path.name == "summary.json":
+            continue
+        target_name = simplify_case_artifact_name(path.name)
+        if target_name == path.name:
+            continue
+        renamed_path = maybe_rename_json_artifact(path, case_dir / target_name)
+        renamed.append(renamed_path.name)
+    return renamed
+
+
+def aggregate_status_emoji(successes: int, failures: int) -> str:
+    if failures == 0:
+        return "✅"
+    if successes == 0:
+        return "❌"
+    return "⚠️"
+
+
+def build_summary_report(
+    results: dict[int, dict[str, Any]],
+    *,
+    max_mesh_size: float,
+    min_mesh_angle: float,
+    domain_height: float,
+    quality_ratio: float,
+    quality_enabled: bool,
+    preserve_surface: bool,
+    max_added_points: int | None,
+    lod: GeometryType,
+    merge_buildings: bool,
+    mesher: str,
+    elapsed_seconds: float,
+) -> str:
+    detailed_rows: list[list[Any]] = []
+    successes = 0
+    failures = 0
+    for number in sorted(results):
+        result = results[number].get("result", {})
+        if result.get("status") == "success":
+            successes += 1
+            metrics = result["metrics"]
+            detailed_rows.append(
+                [
+                    f"{number:03d}",
+                    f"{status_emoji('success')} ok",
+                    metrics["num_cells"],
+                    f"{metrics['element_quality_min']:.4f}",
+                    f"{metrics['aspect_ratio_max']:.2f}",
+                    f"{metrics['edge_length_p01']:.2f}",
+                    f"{metrics['volume_p01']:.2f}",
+                    metrics["low_quality_lt_0_05_count"],
+                    f"{result['time']:.2f}s",
+                ]
+            )
+        else:
+            failures += 1
+            error = result.get("error", {})
+            detailed_rows.append(
+                [
+                    f"{number:03d}",
+                    f"{status_emoji('failed')} fail",
+                    "-",
+                    "-",
+                    "-",
+                    "-",
+                    "-",
+                    "-",
+                    f"{error.get('type', '-')}: {error.get('message', '-')}",
+                ]
+            )
+
+    successful_results = [
+        record["result"]
+        for record in results.values()
+        if record.get("result", {}).get("status") == "success"
+    ]
+    if successful_results:
+        summary_rows = [[
+            aggregate_status_emoji(successes, failures),
+            successes,
+            failures,
+            f"{min(r['metrics']['element_quality_min'] for r in successful_results):.4f}",
+            f"{max(r['metrics']['aspect_ratio_max'] for r in successful_results):.2f}",
+            f"{float(np.mean([r['metrics']['edge_length_p01'] for r in successful_results])):.2f}",
+            f"{float(np.mean([r['metrics']['volume_p01'] for r in successful_results])):.2f}",
+            int(max(r['metrics']['low_quality_lt_0_05_count'] for r in successful_results)),
+        ]]
+    else:
+        summary_rows = [[aggregate_status_emoji(0, failures), 0, failures, "-", "-", "-", "-", "-"]]
+
+    config_line = (
+        f"{mesh_size_label(max_mesh_size)}, min angle={min_mesh_angle:g}, "
+        f"height={domain_height:g}, "
+        f"{'q=' + f'{quality_ratio:g}' if quality_enabled else 'size-only'}, "
+        f"{'preserve' if preserve_surface else 'split-surface'}, "
+        f"{'S=' + str(max_added_points) if max_added_points is not None else 'S=unlimited'}, "
+        f"{lod.name.lower()}, mesher={mesher}, merge={'on' if merge_buildings else 'off'}"
+    )
+
+    return "\n".join(
+        [
+            "bench_mesh_3d",
+            f"Config: {config_line}",
+            f"Elapsed time: {elapsed_seconds:.1f}s",
+            "",
+            format_console_table(
+                ["Status", "Success", "Fail", "Worst EQ", "Worst AR", "Mean edge p01", "Mean vol p01", "Max Q<0.05"],
+                summary_rows,
+                title="Summary",
+            ),
+            "",
+            format_console_table(
+                ["Case", "Status", "Cells", "EQ min", "AR max", "Edge p01", "Vol p01", "Q<0.05", "Time/Error"],
+                detailed_rows,
+                title="Detailed results",
+            ),
+        ]
+    )
+
+
 def run_case(
     number: int,
     output_dir: Path,
@@ -690,6 +987,8 @@ def run_case(
 ) -> dict[str, Any]:
     ix, iy = case_to_grid(number)
     bounds = make_bounds(ix, iy)
+    case_dir = case_output_dir(output_dir, number)
+    case_dir.mkdir(parents=True, exist_ok=True)
     switches_params = tetgen_switches(
         max_mesh_size,
         min_mesh_angle,
@@ -760,7 +1059,9 @@ def run_case(
             "tetgen_switches": json_ready(switches_params),
             "error": error_details(exc),
         }
-        return case_record
+        with (case_dir / "summary.json").open("w", encoding="utf-8") as handle:
+            json.dump(json_ready(case_record), handle, indent=2)
+        return json_ready(case_record)
 
     stage_audit: dict[str, Any] | None = {} if stage_audit_enabled else None
     try:
@@ -778,7 +1079,7 @@ def run_case(
             tetgen_switches=switches_params,
             report_mesh_quality=False,
             mesher=mesher,
-            tetgen_debug_output_dir=output_dir if save_tetgen_input else None,
+            tetgen_debug_output_dir=case_dir if save_tetgen_input else None,
             tetgen_debug_output_stem=(
                 case_tetgen_input_stem(
                     number,
@@ -797,21 +1098,8 @@ def run_case(
                 if save_tetgen_input
                 else None
             ),
-            tetgen_quality_failure_output_dir=output_dir,
-            tetgen_quality_failure_output_stem=case_tetgen_input_stem(
-                number,
-                max_mesh_size=max_mesh_size,
-                min_mesh_angle=min_mesh_angle,
-                domain_height=domain_height,
-                quality_ratio=quality_ratio,
-                quality_enabled=quality_enabled,
-                preserve_surface=preserve_surface,
-                max_added_points=max_added_points,
-                lod=lod,
-                merge_buildings=merge_buildings,
-                mesher=mesher,
-                stage_audit_enabled=stage_audit_enabled,
-            ),
+            tetgen_quality_failure_output_dir=case_dir,
+            tetgen_quality_failure_output_stem="tetgen_quality_failure",
             stage_audit=stage_audit,
         )
         quality = json_ready(volume_mesh.quality())
@@ -832,6 +1120,7 @@ def run_case(
             stage_audit_enabled=stage_audit_enabled,
         )
         volume_mesh.save(str(mesh_path))
+        simplify_case_artifacts(case_dir)
 
         case_record["result"] = {
             "status": "success",
@@ -854,6 +1143,7 @@ def run_case(
                 tetgen_quality_failure_report.name
             )
     except Exception as exc:
+        simplify_case_artifacts(case_dir)
         case_record["result"] = {
             "status": "failed",
             "time": round(time.perf_counter() - start, 2),
@@ -872,6 +1162,9 @@ def run_case(
                 tetgen_quality_failure_report.name
             )
 
+    with (case_dir / "summary.json").open("w", encoding="utf-8") as handle:
+        json.dump(json_ready(case_record), handle, indent=2)
+
     return json_ready(case_record)
 
 
@@ -879,12 +1172,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Survey TetGen 3D volume-mesh quality across Stockholm tiles."
     )
-    parser.add_argument(
-        "case_number",
-        nargs="?",
-        type=int,
-        help=f"Single case to recompute (1-{NX * NY}). Omit to process all missing cases.",
-    )
+    add_cases_argument(parser)
     parser.add_argument(
         "--max-mesh-size",
         type=positive_float,
@@ -894,7 +1182,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--min-mesh-angle",
         type=positive_float,
-        default=25.0,
+        default=MIN_MESH_ANGLE,
         help="Minimum angle / dihedral constraint passed through the 3D meshing pipeline.",
     )
     parser.add_argument(
@@ -946,7 +1234,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path(__file__).resolve().parent / "output_3d",
+        default=stockholm_output_dir("output_mesh_3d"),
         help="Directory for JSON, XDMF/HDF5, and PNG outputs.",
     )
     parser.add_argument(
@@ -986,12 +1274,12 @@ def parse_args() -> argparse.Namespace:
     parser.set_defaults(merge_buildings=MERGE_BUILDINGS)
     parser.set_defaults(save_tetgen_input=None)
     args = parser.parse_args()
+    cases_explicit = args.cases is not None
+    args.cases = resolve_case_numbers(args.cases)
+    args.cases_explicit = cases_explicit
 
-    total = NX * NY
-    if args.case_number is not None and not (1 <= args.case_number <= total):
-        parser.error(f"case_number must be between 1 and {total}")
     if args.save_tetgen_input is None:
-        args.save_tetgen_input = args.case_number is not None
+        args.save_tetgen_input = len(args.cases) == 1
 
     return args
 
@@ -1004,8 +1292,26 @@ def main() -> None:
         )
 
     args = parse_args()
+    benchmark_start = time.perf_counter()
     output_dir = args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
+    metadata = {
+        "benchmark": "bench_mesh_3d",
+        "config": {
+            "max_mesh_size": args.max_mesh_size,
+            "min_mesh_angle": args.min_mesh_angle,
+            "domain_height": args.domain_height,
+            "quality_ratio": None if args.size_only else args.quality_ratio,
+            "quality_enabled": not args.size_only,
+            "preserve_surface": args.preserve_surface,
+            "max_added_points": args.max_added_points,
+            "lod": args.lod.name,
+            "merge_buildings": args.merge_buildings,
+            "mesher": args.mesher,
+            "save_tetgen_input": args.save_tetgen_input,
+            "stage_audit_enabled": args.stage_audit,
+        },
+    }
 
     results_path = results_file_path(
         output_dir,
@@ -1043,16 +1349,16 @@ def main() -> None:
     )
     print()
 
-    if args.case_number is not None:
-        cases_to_run = [args.case_number]
-        if args.case_number in results:
-            print(f"Case {args.case_number} exists in cache and will be recomputed.")
+    if args.cases_explicit:
+        cases_to_run = args.cases
+        if len(cases_to_run) == 1 and cases_to_run[0] in results:
+            print(f"Case {cases_to_run[0]} exists in cache and will be recomputed.")
             print()
     else:
         cases_to_run = [
-            number for number in range(1, total + 1) if not case_complete(results.get(number, {}))
+            number for number in args.cases if not case_complete(results.get(number, {}))
         ]
-        if not cases_to_run:
+        if len(args.cases) == total and not cases_to_run:
             print(f"All {total} cases are already complete.")
             print()
         else:
@@ -1095,7 +1401,7 @@ def main() -> None:
             stage_audit_enabled=args.stage_audit,
         )
         results[number] = case_record
-        save_results(results_path, results)
+        save_results(results_path, results, metadata=metadata)
 
         if case_record["result"].get("status") == "success":
             success_count += 1
@@ -1106,30 +1412,7 @@ def main() -> None:
 
     elapsed = time.perf_counter() - start_all
 
-    if cases_to_run:
-        print()
-        print(
-            f"Finished in {elapsed:.0f}s  "
-            f"({success_count} successful case(s), {failure_count} failed case(s), "
-            f"{loaded_count} previously cached)"
-        )
-
-    print()
-    print(f"Results file: {results_path}")
-
-    if args.case_number is not None:
-        print_case_summary(results[args.case_number])
-    else:
-        incomplete_cases = [
-            number for number, record in results.items() if not case_complete(record)
-        ]
-        print_survey_summary(results)
-        if incomplete_cases:
-            print()
-            print(
-                "Incomplete cases: "
-                + ", ".join(str(number) for number in sorted(incomplete_cases))
-            )
+    summary_results = {number: results[number] for number in args.cases if number in results}
 
     if not args.no_plots:
         overview_path = overview_plot_path(
@@ -1147,7 +1430,7 @@ def main() -> None:
             stage_audit_enabled=args.stage_audit,
         )
         plot_overview(
-            results,
+            summary_results,
             overview_path,
             max_mesh_size=args.max_mesh_size,
             min_mesh_angle=args.min_mesh_angle,
@@ -1160,7 +1443,32 @@ def main() -> None:
             merge_buildings=args.merge_buildings,
             mesher=args.mesher,
         )
+
+    total_elapsed = time.perf_counter() - benchmark_start
+    save_results(results_path, results, metadata=metadata)
+    report = build_summary_report(
+        summary_results,
+        max_mesh_size=args.max_mesh_size,
+        min_mesh_angle=args.min_mesh_angle,
+        domain_height=args.domain_height,
+        quality_ratio=args.quality_ratio,
+        quality_enabled=not args.size_only,
+        preserve_surface=args.preserve_surface,
+        max_added_points=args.max_added_points,
+        lod=args.lod,
+        merge_buildings=args.merge_buildings,
+        mesher=args.mesher,
+        elapsed_seconds=total_elapsed,
+    )
+    summary_path = summary_text_path(output_dir)
+    summary_path.write_text(report + "\n", encoding="utf-8")
+    print()
+    print(report)
+    print()
+    print(f"Results file: {results_path}")
+    if not args.no_plots:
         print(f"Overview plot: {overview_path}")
+    print(f"Summary text: {summary_path}")
 
 
 if __name__ == "__main__":

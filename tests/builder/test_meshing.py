@@ -704,6 +704,215 @@ def test_compute_boundary_triangle_facets_retriangulates_top_from_outer_boundary
         points = vertices[tri]
         assert np.cross(points[1] - points[0], points[2] - points[0])[2] > 0.0
 
+
+def test_compute_boundary_triangle_facets_falls_back_to_available_backend_when_top_cap_backend_changes_boundary_loop(monkeypatch):
+    surface_mesh = Mesh(
+        vertices=np.array(
+            [
+                [0.0, 0.0, 1.0],
+                [10.0, 0.0, 1.0],
+                [10.0, 10.0, 1.0],
+                [0.0, 10.0, 1.0],
+            ]
+        ),
+        faces=np.array([[0, 1, 2], [0, 2, 3]], dtype=int),
+        markers=np.array([0, 0], dtype=int),
+    )
+    closure_mesh = Mesh(
+        vertices=np.array(
+            [
+                [0.0, 0.0, 0.0],
+                [10.0, 0.0, 0.0],
+                [10.0, 10.0, 0.0],
+                [0.0, 10.0, 0.0],
+            ]
+        ),
+        faces=np.array([[0, 1, 2], [0, 2, 3]], dtype=int),
+        markers=np.array([0, 0], dtype=int),
+    )
+
+    def fake_top_cap(**kwargs):
+        backend = kwargs["backend"]
+        if backend == "auto":
+            return Mesh(
+                vertices=np.array(
+                    [
+                        [0.0, 0.0, 0.0],
+                        [10.0, 0.0, 0.0],
+                        [10.0, 10.0, 0.0],
+                        [5.0, 10.0, 0.0],
+                        [0.0, 10.0, 0.0],
+                    ]
+                ),
+                faces=np.array([[0, 1, 2], [0, 2, 4], [2, 3, 4]], dtype=int),
+                markers=np.array([0, 0, 0], dtype=int),
+            )
+        assert backend == "dtcc_mesher"
+        return Mesh(
+            vertices=np.array(
+                [
+                    [0.0, 0.0, 0.0],
+                    [10.0, 0.0, 0.0],
+                    [10.0, 10.0, 0.0],
+                    [0.0, 10.0, 0.0],
+                ]
+            ),
+            faces=np.array([[0, 1, 2], [0, 2, 3]], dtype=int),
+            markers=np.array([0, 0], dtype=int),
+        )
+
+    monkeypatch.setattr(
+        "dtcc_core.builder.meshing.flat_mesh_backends.build_city_flat_mesh_from_coverage",
+        fake_top_cap,
+    )
+    monkeypatch.setattr(
+        "dtcc_core.builder.meshing.backends.available_2d_meshers",
+        lambda: ["dtcc_mesher"],
+    )
+
+    vertices, boundary_facets = tetgen_utils.compute_boundary_triangle_facets(
+        surface_mesh,
+        closure_mesh,
+        top_height=20.0,
+        top_cap_backend="auto",
+    )
+
+    assert vertices.shape == (8, 3)
+    diagnostics = tetgen_utils.inspect_tetgen_plc(vertices, surface_mesh.faces, boundary_facets)
+    assert diagnostics.errors == []
+
+
+def test_compute_boundary_triangle_facets_realigns_closure_boundary_loop_when_closure_has_extra_boundary_vertex(monkeypatch):
+    surface_mesh = Mesh(
+        vertices=np.array(
+            [
+                [0.0, 0.0, 1.0],
+                [10.0, 0.0, 1.0],
+                [10.0, 10.0, 1.0],
+                [0.0, 10.0, 1.0],
+            ]
+        ),
+        faces=np.array([[0, 1, 2], [0, 2, 3]], dtype=int),
+        markers=np.array([0, 0], dtype=int),
+    )
+    closure_mesh = Mesh(
+        vertices=np.array(
+            [
+                [0.0, 0.0, 0.0],
+                [10.0, 0.0, 0.0],
+                [10.0, 10.0, 0.0],
+                [5.0, 10.0, 0.0],
+                [0.0, 10.0, 0.0],
+            ]
+        ),
+        faces=np.array([[0, 1, 3], [0, 3, 4], [1, 2, 3]], dtype=int),
+        markers=np.array([0, 0, 0], dtype=int),
+    )
+
+    monkeypatch.setattr(
+        "dtcc_core.builder.meshing.flat_mesh_backends.build_city_flat_mesh_from_coverage",
+        lambda **kwargs: Mesh(
+            vertices=np.array(
+                [
+                    [0.0, 0.0, 0.0],
+                    [10.0, 0.0, 0.0],
+                    [10.0, 10.0, 0.0],
+                    [0.0, 10.0, 0.0],
+                ]
+            ),
+            faces=np.array([[0, 1, 2], [0, 2, 3]], dtype=int),
+            markers=np.array([0, 0], dtype=int),
+        ),
+    )
+
+    vertices, boundary_facets = tetgen_utils.compute_boundary_triangle_facets(
+        surface_mesh,
+        closure_mesh,
+        top_height=20.0,
+        top_cap_backend="auto",
+    )
+
+    assert vertices.shape == (8, 3)
+    diagnostics = tetgen_utils.inspect_tetgen_plc(vertices, surface_mesh.faces, boundary_facets)
+    assert diagnostics.errors == []
+
+
+def test_compute_boundary_triangle_facets_falls_back_from_resolved_backend_when_top_cap_backend_changes_boundary_loop(monkeypatch):
+    surface_mesh = Mesh(
+        vertices=np.array(
+            [
+                [0.0, 0.0, 1.0],
+                [10.0, 0.0, 1.0],
+                [10.0, 10.0, 1.0],
+                [0.0, 10.0, 1.0],
+            ]
+        ),
+        faces=np.array([[0, 1, 2], [0, 2, 3]], dtype=int),
+        markers=np.array([0, 0], dtype=int),
+    )
+    closure_mesh = Mesh(
+        vertices=np.array(
+            [
+                [0.0, 0.0, 0.0],
+                [10.0, 0.0, 0.0],
+                [10.0, 10.0, 0.0],
+                [0.0, 10.0, 0.0],
+            ]
+        ),
+        faces=np.array([[0, 1, 2], [0, 2, 3]], dtype=int),
+        markers=np.array([0, 0], dtype=int),
+    )
+
+    def fake_top_cap(**kwargs):
+        backend = kwargs["backend"]
+        if backend == "dtcc_mesher":
+            return Mesh(
+                vertices=np.array(
+                    [
+                        [0.0, 0.0, 0.0],
+                        [10.0, 0.0, 0.0],
+                        [10.0, 10.0, 0.0],
+                        [5.0, 10.0, 0.0],
+                        [0.0, 10.0, 0.0],
+                    ]
+                ),
+                faces=np.array([[0, 1, 2], [0, 2, 4], [2, 3, 4]], dtype=int),
+                markers=np.array([0, 0, 0], dtype=int),
+            )
+        assert backend == "spade"
+        return Mesh(
+            vertices=np.array(
+                [
+                    [0.0, 0.0, 0.0],
+                    [10.0, 0.0, 0.0],
+                    [10.0, 10.0, 0.0],
+                    [0.0, 10.0, 0.0],
+                ]
+            ),
+            faces=np.array([[0, 1, 2], [0, 2, 3]], dtype=int),
+            markers=np.array([0, 0], dtype=int),
+        )
+
+    monkeypatch.setattr(
+        "dtcc_core.builder.meshing.flat_mesh_backends.build_city_flat_mesh_from_coverage",
+        fake_top_cap,
+    )
+    monkeypatch.setattr(
+        "dtcc_core.builder.meshing.backends.available_2d_meshers",
+        lambda: ["dtcc_mesher", "spade"],
+    )
+
+    vertices, boundary_facets = tetgen_utils.compute_boundary_triangle_facets(
+        surface_mesh,
+        closure_mesh,
+        top_height=20.0,
+        top_cap_backend="dtcc_mesher",
+    )
+
+    assert vertices.shape == (8, 3)
+    diagnostics = tetgen_utils.inspect_tetgen_plc(vertices, surface_mesh.faces, boundary_facets)
+    assert diagnostics.errors == []
+
 @pytest.mark.skipif(not is_tetgen_available(), reason="TetGen is not available")
 def test_build_volume_mesh_rejects_invalid_shell_before_tetgen(monkeypatch):
     mesh = Mesh(

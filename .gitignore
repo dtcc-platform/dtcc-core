@@ -179,3 +179,5 @@ sandbox/tetgen_fail*
 sandbox/tetgen-tmpfile_skipped*
 tetgen_fail*
 tetgen-tmpfile_skipped*
+benchmarks/__pycache__/
+benchmarks/output*/
