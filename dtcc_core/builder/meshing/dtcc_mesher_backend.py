@@ -10,6 +10,7 @@ from ...model import Mesh, Surface
 
 
 _DTCC_MESHER_MODULE = None
+_FLAT_COVERAGE_MAX_PROTECTION_LEVELS = 1
 
 
 def _load_dtcc_mesher():
@@ -97,11 +98,17 @@ def _meshing_options(
     min_mesh_angle: float,
     max_edge_length: float | None,
     refine: bool,
+    max_protection_levels: int | None = None,
 ):
+    kwargs = {
+        "min_angle": min_mesh_angle,
+        "max_edge_length": max_edge_length,
+        "refine": refine,
+    }
+    if max_protection_levels is not None:
+        kwargs["max_protection_levels"] = int(max_protection_levels)
     return dtcc_mesher.MeshingOptions(
-        min_angle=min_mesh_angle,
-        max_edge_length=max_edge_length,
-        refine=refine,
+        **kwargs,
     )
 
 
@@ -190,6 +197,10 @@ def build_city_flat_mesh_with_dtcc_mesher(
             min_mesh_angle=min_mesh_angle,
             max_edge_length=max_edge_length,
             refine=True,
+            # Flat city coverage already arrives conditioned; limiting acute-corner
+            # protection avoids cascading sub-centimeter splits in otherwise
+            # healthy ground meshes such as Stockholm case 54.
+            max_protection_levels=_FLAT_COVERAGE_MAX_PROTECTION_LEVELS,
         ),
     )
 

@@ -293,6 +293,39 @@ def case_tetgen_input_paths(
     }
 
 
+def case_tetgen_quality_failure_report_path(
+    output_dir: Path,
+    number: int,
+    *,
+    max_mesh_size: float,
+    min_mesh_angle: float,
+    domain_height: float,
+    quality_ratio: float,
+    quality_enabled: bool,
+    preserve_surface: bool,
+    max_added_points: int | None,
+    lod: GeometryType,
+    merge_buildings: bool,
+    mesher: str,
+    stage_audit_enabled: bool = False,
+) -> Path:
+    stem = case_tetgen_input_stem(
+        number,
+        max_mesh_size=max_mesh_size,
+        min_mesh_angle=min_mesh_angle,
+        domain_height=domain_height,
+        quality_ratio=quality_ratio,
+        quality_enabled=quality_enabled,
+        preserve_surface=preserve_surface,
+        max_added_points=max_added_points,
+        lod=lod,
+        merge_buildings=merge_buildings,
+        mesher=mesher,
+        stage_audit_enabled=stage_audit_enabled,
+    )
+    return output_dir / f"{stem}.tetgen-quality-failure.json"
+
+
 def tetgen_switches(
     max_mesh_size: float,
     min_mesh_angle: float,
@@ -680,6 +713,21 @@ def run_case(
         mesher=mesher,
         stage_audit_enabled=stage_audit_enabled,
     )
+    tetgen_quality_failure_report = case_tetgen_quality_failure_report_path(
+        output_dir,
+        number,
+        max_mesh_size=max_mesh_size,
+        min_mesh_angle=min_mesh_angle,
+        domain_height=domain_height,
+        quality_ratio=quality_ratio,
+        quality_enabled=quality_enabled,
+        preserve_surface=preserve_surface,
+        max_added_points=max_added_points,
+        lod=lod,
+        merge_buildings=merge_buildings,
+        mesher=mesher,
+        stage_audit_enabled=stage_audit_enabled,
+    )
 
     case_record: dict[str, Any] = {
         "number": number,
@@ -749,6 +797,21 @@ def run_case(
                 if save_tetgen_input
                 else None
             ),
+            tetgen_quality_failure_output_dir=output_dir,
+            tetgen_quality_failure_output_stem=case_tetgen_input_stem(
+                number,
+                max_mesh_size=max_mesh_size,
+                min_mesh_angle=min_mesh_angle,
+                domain_height=domain_height,
+                quality_ratio=quality_ratio,
+                quality_enabled=quality_enabled,
+                preserve_surface=preserve_surface,
+                max_added_points=max_added_points,
+                lod=lod,
+                merge_buildings=merge_buildings,
+                mesher=mesher,
+                stage_audit_enabled=stage_audit_enabled,
+            ),
             stage_audit=stage_audit,
         )
         quality = json_ready(volume_mesh.quality())
@@ -781,10 +844,15 @@ def run_case(
         }
         if stage_audit_enabled and stage_audit:
             case_record["result"]["stage_audit"] = json_ready(stage_audit)
-        if save_tetgen_input:
-            case_record["result"]["tetgen_input"] = {
-                key: path.name for key, path in tetgen_input_paths.items() if path.exists()
-            }
+        tetgen_inputs = {
+            key: path.name for key, path in tetgen_input_paths.items() if path.exists()
+        }
+        if tetgen_inputs:
+            case_record["result"]["tetgen_input"] = tetgen_inputs
+        if tetgen_quality_failure_report.exists():
+            case_record["result"]["tetgen_quality_failure_report"] = (
+                tetgen_quality_failure_report.name
+            )
     except Exception as exc:
         case_record["result"] = {
             "status": "failed",
@@ -794,10 +862,15 @@ def run_case(
         }
         if stage_audit_enabled and stage_audit:
             case_record["result"]["stage_audit"] = json_ready(stage_audit)
-        if save_tetgen_input:
-            case_record["result"]["tetgen_input"] = {
-                key: path.name for key, path in tetgen_input_paths.items() if path.exists()
-            }
+        tetgen_inputs = {
+            key: path.name for key, path in tetgen_input_paths.items() if path.exists()
+        }
+        if tetgen_inputs:
+            case_record["result"]["tetgen_input"] = tetgen_inputs
+        if tetgen_quality_failure_report.exists():
+            case_record["result"]["tetgen_quality_failure_report"] = (
+                tetgen_quality_failure_report.name
+            )
 
     return json_ready(case_record)
 

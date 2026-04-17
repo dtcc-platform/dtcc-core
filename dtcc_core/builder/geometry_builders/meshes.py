@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from collections import defaultdict
 from typing import Any, Dict, Optional, List, Sequence
@@ -79,6 +80,22 @@ _MERGED_ROOF_ENVELOPE_Z_SPAN = 2.0
 _TETGEN_PRESERVE_RETRY_ASPECT_RATIO_THRESHOLD = 5.0e2
 _TETGEN_PRESERVE_RETRY_MIN_EDGE_RATIO = 0.25
 _TETGEN_PRESERVE_RETRY_MIN_SEVERITY_IMPROVEMENT = 0.5
+_TETGEN_SHELL_REFINEMENT_RETRY_ASPECT_RATIO_THRESHOLD = 4.0e2
+_TETGEN_SHELL_REFINEMENT_RETRY_ELEMENT_QUALITY_THRESHOLD = 2.0e-2
+_TETGEN_SHELL_REFINEMENT_RETRY_MIN_SCORE_IMPROVEMENT = 0.85
+_TETGEN_QUALITY_FAILURE_ASPECT_RATIO_THRESHOLD = 2.5e2
+_TETGEN_QUALITY_FAILURE_ELEMENT_QUALITY_THRESHOLD = 3.0e-2
+_TETGEN_SHELL_EDGE_SPLIT_RETRY_MAX_EDGES = 2
+_TETGEN_SHELL_EDGE_SPLIT_RETRY_MIN_EDGE_RATIO = 1.25
+_TETGEN_SHELL_EDGE_SPLIT_RETRY_MIN_SCORE_IMPROVEMENT = 0.85
+_TETGEN_GROUND_EDGE_SPLIT_RETRY_MAX_EDGES = 4
+_TETGEN_GROUND_EDGE_SPLIT_RETRY_MIN_EDGE_RATIO = 1.0
+_TETGEN_GROUND_EDGE_SPLIT_RETRY_MIN_HORIZONTAL_NORMAL_Z = 0.75
+_TETGEN_SHELL_HORIZONTAL_REFINEMENT_EDGE_RATIO = 1.25
+_TETGEN_SHELL_HORIZONTAL_REFINEMENT_MAX_SLOPE_RATIO = 0.1
+_TETGEN_SHELL_HORIZONTAL_REFINEMENT_MIN_NORMAL_Z = 0.995
+_TETGEN_SHELL_HORIZONTAL_REFINEMENT_MIN_GROUND_RELIEF = 0.25
+_TETGEN_SHELL_HORIZONTAL_REFINEMENT_MAX_ROUNDS = 2
 _STAGE_CONTRACT_MIN_EDGE_RATIO_WARNING = 1.0e-3
 _STAGE_CONTRACT_MIN_AREA_RATIO_WARNING = 1.0e-6
 _STAGE_CONTRACT_MIN_TRI_QUALITY_WARNING = 2.0e-2
@@ -935,7 +952,9 @@ def _mark_stage_audit_success(
 ) -> None:
     if attempt is None:
         return
-    attempt["result"] = {"status": "success"}
+    result = dict(attempt.get("result", {}))
+    result["status"] = "success"
+    attempt["result"] = result
     if stage_audit is not None and select_attempt:
         stage_audit["selected_attempt_index"] = int(attempt["index"])
         stage_audit["selected_attempt_label"] = str(attempt["label"])
@@ -972,12 +991,16 @@ def _tetgen_volume_mesh_quality_snapshot(volume_mesh: VolumeMesh) -> dict[str, f
     ):
         return {
             "aspect_ratio_max": 0.0,
+            "element_quality_min": 1.0,
             "min_edge_length": 0.0,
+            "high_aspect_ratio_count": 0.0,
+            "low_quality_count": 0.0,
         }
 
-    from ...model.mixins.mesh.quality import tet_aspect_ratio
+    from ...model.mixins.mesh.quality import tet_aspect_ratio, tet_element_quality
 
     aspect_ratio = tet_aspect_ratio(vertices[:, :3], cells)
+    element_quality = tet_element_quality(vertices[:, :3], cells)
     edges = np.concatenate(
         [
             cells[:, [0, 1]],
@@ -998,7 +1021,160 @@ def _tetgen_volume_mesh_quality_snapshot(volume_mesh: VolumeMesh) -> dict[str, f
 
     return {
         "aspect_ratio_max": float(aspect_ratio.max()),
+        "element_quality_min": float(element_quality.min()),
         "min_edge_length": min_edge_length,
+        "high_aspect_ratio_count": float(
+            np.count_nonzero(
+                aspect_ratio > _TETGEN_QUALITY_FAILURE_ASPECT_RATIO_THRESHOLD
+            )
+        ),
+        "low_quality_count": float(
+            np.count_nonzero(
+                element_quality < _TETGEN_QUALITY_FAILURE_ELEMENT_QUALITY_THRESHOLD
+            )
+        ),
+    }
+
+
+def _should_capture_tetgen_quality_failure(
+    quality_snapshot: dict[str, float],
+) -> bool:
+    return (
+        float(quality_snapshot.get("aspect_ratio_max", 0.0))
+        > _TETGEN_QUALITY_FAILURE_ASPECT_RATIO_THRESHOLD
+        or float(quality_snapshot.get("element_quality_min", 1.0))
+        < _TETGEN_QUALITY_FAILURE_ELEMENT_QUALITY_THRESHOLD
+    )
+
+
+def _tetgen_quality_failure_face_marker_map(
+    volume_mesh: VolumeMesh,
+) -> dict[tuple[int, int, int], int]:
+    boundary_faces = getattr(volume_mesh, "boundary_faces", None)
+    boundary_markers = getattr(volume_mesh, "boundary_markers", None)
+    if boundary_faces is None or boundary_markers is None:
+        return {}
+
+    faces = np.asarray(boundary_faces, dtype=np.int64)
+    markers = np.asarray(boundary_markers, dtype=np.int64)
+    if len(faces) != len(markers):
+        return {}
+
+    return {
+        tuple(sorted(map(int, face.tolist()))): int(marker)
+        for face, marker in zip(faces, markers)
+    }
+
+
+def _tetgen_quality_failure_report(
+    volume_mesh: VolumeMesh,
+    *,
+    quality_snapshot: dict[str, float],
+    top_k: int = 8,
+) -> dict[str, Any]:
+    vertices = np.asarray(volume_mesh.vertices, dtype=np.float64)
+    cells = np.asarray(volume_mesh.cells, dtype=np.int64)
+    if (
+        vertices.ndim != 2
+        or vertices.shape[1] < 3
+        or cells.ndim != 2
+        or cells.shape[1] != 4
+        or len(cells) == 0
+    ):
+        return {
+            "quality_snapshot": _audit_json_ready(quality_snapshot),
+            "worst_cells": [],
+        }
+
+    from ...model.mixins.mesh.quality import tet_aspect_ratio, tet_element_quality
+
+    vertices = vertices[:, :3]
+    aspect_ratio = tet_aspect_ratio(vertices, cells)
+    element_quality = tet_element_quality(vertices, cells)
+    volumes = _tetrahedron_volumes(vertices, cells)
+
+    edge_vectors = np.stack(
+        [
+            vertices[cells[:, 1]] - vertices[cells[:, 0]],
+            vertices[cells[:, 2]] - vertices[cells[:, 0]],
+            vertices[cells[:, 3]] - vertices[cells[:, 0]],
+            vertices[cells[:, 2]] - vertices[cells[:, 1]],
+            vertices[cells[:, 3]] - vertices[cells[:, 1]],
+            vertices[cells[:, 3]] - vertices[cells[:, 2]],
+        ],
+        axis=1,
+    )
+    edge_lengths = np.linalg.norm(edge_vectors, axis=2)
+    face_marker_map = _tetgen_quality_failure_face_marker_map(volume_mesh)
+
+    candidate_indices = set(np.argsort(aspect_ratio)[-top_k:].tolist())
+    candidate_indices.update(np.argsort(element_quality)[:top_k].tolist())
+
+    worst_cells: list[dict[str, Any]] = []
+    for cell_index in sorted(
+        candidate_indices,
+        key=lambda idx: (-float(aspect_ratio[idx]), float(element_quality[idx]), int(idx)),
+    ):
+        cell = cells[int(cell_index)]
+        points = vertices[cell]
+        spans = np.ptp(points, axis=0)
+        centroid = points.mean(axis=0)
+        boundary_faces: list[dict[str, Any]] = []
+        for local_face_index, face in enumerate(
+            (
+                cell[[1, 2, 3]],
+                cell[[0, 2, 3]],
+                cell[[0, 1, 3]],
+                cell[[0, 1, 2]],
+            )
+        ):
+            marker = face_marker_map.get(tuple(sorted(map(int, face.tolist()))))
+            if marker is None:
+                continue
+            face_points = vertices[np.asarray(face, dtype=np.int64)]
+            face_normal = np.cross(
+                face_points[1] - face_points[0],
+                face_points[2] - face_points[0],
+            )
+            face_normal_norm = float(np.linalg.norm(face_normal))
+            face_area = 0.5 * face_normal_norm
+            horizontal_normal_z = 0.0
+            if face_normal_norm > 0.0:
+                horizontal_normal_z = float(abs(face_normal[2]) / face_normal_norm)
+            boundary_faces.append(
+                {
+                    "local_face_index": int(local_face_index),
+                    "marker": int(marker),
+                    "area": float(face_area),
+                    "horizontal_normal_z": horizontal_normal_z,
+                    "z_span": float(np.ptp(face_points[:, 2])),
+                    "vertices": _audit_json_ready(face_points.tolist()),
+                }
+            )
+
+        worst_cells.append(
+            {
+                "cell_index": int(cell_index),
+                "aspect_ratio": float(aspect_ratio[cell_index]),
+                "element_quality": float(element_quality[cell_index]),
+                "volume": float(volumes[cell_index]),
+                "min_edge_length": float(edge_lengths[cell_index].min()),
+                "max_edge_length": float(edge_lengths[cell_index].max()),
+                "xy_span": float(np.linalg.norm(spans[:2])),
+                "z_span": float(spans[2]),
+                "centroid": _audit_json_ready(centroid.tolist()),
+                "vertices": _audit_json_ready(points.tolist()),
+                "boundary_faces": boundary_faces,
+            }
+        )
+
+    return {
+        "quality_snapshot": _audit_json_ready(quality_snapshot),
+        "thresholds": {
+            "aspect_ratio_max": _TETGEN_QUALITY_FAILURE_ASPECT_RATIO_THRESHOLD,
+            "element_quality_min": _TETGEN_QUALITY_FAILURE_ELEMENT_QUALITY_THRESHOLD,
+        },
+        "worst_cells": worst_cells,
     }
 
 
@@ -1041,11 +1217,305 @@ def _should_accept_preserve_surface_retry(
         retry_snapshot,
         reference_length=reference_length,
     )
+    original_score = _tetgen_quality_retry_score(original_snapshot)
+    retry_score = _tetgen_quality_retry_score(retry_snapshot)
     return (
         retry_severity
         < original_severity * _TETGEN_PRESERVE_RETRY_MIN_SEVERITY_IMPROVEMENT
         and retry_snapshot["aspect_ratio_max"] < original_snapshot["aspect_ratio_max"]
+        and retry_score <= original_score
     )
+
+
+def _tetgen_quality_retry_score(quality_snapshot: dict[str, float]) -> float:
+    aspect_ratio = max(float(quality_snapshot.get("aspect_ratio_max", 1.0)), 1.0)
+    element_quality = max(
+        float(quality_snapshot.get("element_quality_min", 1.0)),
+        1.0e-12,
+    )
+    low_quality_count = max(float(quality_snapshot.get("low_quality_count", 0.0)), 0.0)
+    aspect_penalty = max(
+        aspect_ratio / _TETGEN_QUALITY_FAILURE_ASPECT_RATIO_THRESHOLD,
+        1.0,
+    )
+    quality_penalty = max(
+        _TETGEN_QUALITY_FAILURE_ELEMENT_QUALITY_THRESHOLD / element_quality,
+        1.0,
+    )
+    low_quality_penalty = 1.0 + low_quality_count / 100.0
+    return aspect_penalty * quality_penalty * low_quality_penalty
+
+
+def _tetgen_shell_edge_split_retry_min_edge_length(
+    *,
+    max_mesh_size: float | None,
+) -> float | None:
+    normalized_max_mesh_size = _normalize_max_mesh_size(max_mesh_size)
+    if normalized_max_mesh_size is None:
+        return None
+    return (
+        float(normalized_max_mesh_size)
+        * _TETGEN_SHELL_EDGE_SPLIT_RETRY_MIN_EDGE_RATIO
+    )
+
+
+def _tetgen_ground_edge_split_retry_min_edge_length(
+    *,
+    max_mesh_size: float | None,
+) -> float | None:
+    normalized_max_mesh_size = _normalize_max_mesh_size(max_mesh_size)
+    if normalized_max_mesh_size is None:
+        return None
+    return (
+        float(normalized_max_mesh_size)
+        * _TETGEN_GROUND_EDGE_SPLIT_RETRY_MIN_EDGE_RATIO
+    )
+
+
+def _tetgen_boundary_face_vertex_key(point: Sequence[float]) -> tuple[float, float, float]:
+    coords = np.asarray(point, dtype=np.float64).reshape(-1)
+    if coords.size < 3:
+        padded = np.zeros(3, dtype=np.float64)
+        padded[: coords.size] = coords
+        coords = padded
+    return tuple(np.round(coords[:3], 9).tolist())
+
+
+def _tetgen_boundary_face_xy_key(point: Sequence[float]) -> tuple[float, float]:
+    coords = np.asarray(point, dtype=np.float64).reshape(-1)
+    if coords.size < 2:
+        padded = np.zeros(2, dtype=np.float64)
+        padded[: coords.size] = coords
+        coords = padded
+    return tuple(np.round(coords[:2], 9).tolist())
+
+
+def _shared_boundary_face_vertices(
+    face_a: dict[str, Any],
+    face_b: dict[str, Any],
+) -> list[tuple[float, float, float]]:
+    vertices_a = [
+        _tetgen_boundary_face_vertex_key(point)
+        for point in face_a.get("vertices", [])
+    ]
+    vertices_b = {
+        _tetgen_boundary_face_vertex_key(point)
+        for point in face_b.get("vertices", [])
+    }
+    shared: list[tuple[float, float, float]] = []
+    for key in vertices_a:
+        if key in vertices_b and key not in shared:
+            shared.append(key)
+    return shared
+
+
+def _surface_mesh_edge_set(mesh: Mesh) -> set[tuple[int, int]]:
+    faces = np.asarray(mesh.faces, dtype=np.int64)
+    if faces.ndim != 2 or faces.shape[1] != 3 or len(faces) == 0:
+        return set()
+
+    edges: set[tuple[int, int]] = set()
+    for face in faces:
+        a, b, c = (int(face[0]), int(face[1]), int(face[2]))
+        edges.add((min(a, b), max(a, b)))
+        edges.add((min(b, c), max(b, c)))
+        edges.add((min(c, a), max(c, a)))
+    return edges
+
+
+def _surface_mesh_face_key_set(mesh: Mesh) -> set[tuple[int, int, int]]:
+    faces = np.asarray(mesh.faces, dtype=np.int64)
+    if faces.ndim != 2 or faces.shape[1] != 3 or len(faces) == 0:
+        return set()
+    return {
+        tuple(sorted(map(int, face.tolist())))
+        for face in faces
+    }
+
+
+def _candidate_shell_edge_splits_from_quality_report(
+    report: dict[str, Any],
+    surface_mesh: Mesh,
+    *,
+    max_edges: int,
+    min_edge_length: float,
+    allowed_markers: set[int] | None = None,
+) -> set[tuple[int, int]]:
+    if max_edges <= 0 or min_edge_length <= 0.0:
+        return set()
+
+    allowed = {-1} if allowed_markers is None else {int(value) for value in allowed_markers}
+    surface_vertices = np.asarray(surface_mesh.vertices, dtype=np.float64)
+    if surface_vertices.ndim != 2 or surface_vertices.shape[1] < 3:
+        return set()
+
+    coordinate_to_vertex = {
+        _tetgen_boundary_face_vertex_key(vertex): int(index)
+        for index, vertex in enumerate(surface_vertices)
+    }
+    surface_edges = _surface_mesh_edge_set(surface_mesh)
+    split_edges: list[tuple[int, int]] = []
+
+    for cell in report.get("worst_cells", []):
+        boundary_faces = [
+            face
+            for face in cell.get("boundary_faces", [])
+            if int(face.get("marker", 0)) in allowed
+        ]
+        if len(boundary_faces) < 2:
+            continue
+
+        for first_index in range(len(boundary_faces)):
+            for second_index in range(first_index + 1, len(boundary_faces)):
+                shared_vertices = _shared_boundary_face_vertices(
+                    boundary_faces[first_index],
+                    boundary_faces[second_index],
+                )
+                if len(shared_vertices) != 2:
+                    continue
+                vertex_indices = [
+                    coordinate_to_vertex.get(shared_vertices[0]),
+                    coordinate_to_vertex.get(shared_vertices[1]),
+                ]
+                if None in vertex_indices:
+                    continue
+                edge = (
+                    min(int(vertex_indices[0]), int(vertex_indices[1])),
+                    max(int(vertex_indices[0]), int(vertex_indices[1])),
+                )
+                if edge not in surface_edges or edge in split_edges:
+                    continue
+                edge_length = float(
+                    np.linalg.norm(
+                        surface_vertices[edge[1], :3] - surface_vertices[edge[0], :3]
+                    )
+                )
+                if edge_length <= min_edge_length:
+                    continue
+                split_edges.append(edge)
+                if len(split_edges) >= max_edges:
+                    return set(split_edges)
+
+    return set(split_edges)
+
+
+def _candidate_ground_edge_splits_from_quality_report(
+    report: dict[str, Any],
+    ground_mesh: Mesh,
+    *,
+    max_edges: int,
+    min_edge_length: float,
+    allowed_markers: set[int] | None = None,
+    min_horizontal_normal_z: float = _TETGEN_GROUND_EDGE_SPLIT_RETRY_MIN_HORIZONTAL_NORMAL_Z,
+) -> set[tuple[int, int]]:
+    if max_edges <= 0 or min_edge_length <= 0.0:
+        return set()
+
+    allowed = {-1} if allowed_markers is None else {int(value) for value in allowed_markers}
+    ground_vertices = np.asarray(ground_mesh.vertices, dtype=np.float64)
+    if ground_vertices.ndim != 2 or ground_vertices.shape[1] < 3:
+        return set()
+
+    coordinate_to_vertex = {
+        _tetgen_boundary_face_xy_key(vertex): int(index)
+        for index, vertex in enumerate(ground_vertices)
+    }
+    ground_edges = _surface_mesh_edge_set(ground_mesh)
+    split_edges: list[tuple[int, int]] = []
+
+    for cell in report.get("worst_cells", []):
+        boundary_faces = sorted(
+            (
+                face
+                for face in cell.get("boundary_faces", [])
+                if int(face.get("marker", 0)) in allowed
+                and float(face.get("horizontal_normal_z", 0.0))
+                >= min_horizontal_normal_z
+            ),
+            key=lambda face: (
+                -float(face.get("horizontal_normal_z", 0.0)),
+                -float(face.get("z_span", 0.0)),
+                -float(face.get("area", 0.0)),
+            ),
+        )
+        for face in boundary_faces:
+            vertex_indices = [
+                coordinate_to_vertex.get(
+                    _tetgen_boundary_face_xy_key(point)
+                )
+                for point in face.get("vertices", [])
+            ]
+            if len(vertex_indices) != 3 or None in vertex_indices:
+                continue
+
+            local_edges: list[tuple[float, tuple[int, int]]] = []
+            for start, end in (
+                (vertex_indices[0], vertex_indices[1]),
+                (vertex_indices[1], vertex_indices[2]),
+                (vertex_indices[2], vertex_indices[0]),
+            ):
+                edge = (min(int(start), int(end)), max(int(start), int(end)))
+                if edge not in ground_edges or edge in split_edges:
+                    continue
+                edge_length = float(
+                    np.linalg.norm(
+                        ground_vertices[edge[1], :3] - ground_vertices[edge[0], :3]
+                    )
+                )
+                if edge_length <= min_edge_length:
+                    continue
+                local_edges.append((edge_length, edge))
+
+            local_edges.sort(key=lambda item: (-item[0], item[1]))
+            for _edge_length, edge in local_edges:
+                if edge in split_edges:
+                    continue
+                split_edges.append(edge)
+                if len(split_edges) >= max_edges:
+                    return set(split_edges)
+
+    return set(split_edges)
+
+
+def _should_accept_shell_edge_split_retry(
+    original_snapshot: dict[str, float],
+    retry_snapshot: dict[str, float],
+) -> bool:
+    original_score = _tetgen_quality_retry_score(original_snapshot)
+    retry_score = _tetgen_quality_retry_score(retry_snapshot)
+    return (
+        retry_score
+        < original_score * _TETGEN_SHELL_EDGE_SPLIT_RETRY_MIN_SCORE_IMPROVEMENT
+        and retry_snapshot["aspect_ratio_max"] < original_snapshot["aspect_ratio_max"]
+        and retry_snapshot["min_edge_length"] >= original_snapshot["min_edge_length"]
+    )
+
+
+def _should_retry_tetgen_without_shell_refinement(
+    quality_snapshot: dict[str, float],
+    *,
+    shell_refinement_stats: dict[str, int | float | bool],
+) -> bool:
+    if not bool(shell_refinement_stats.get("applied")):
+        return False
+    if int(shell_refinement_stats.get("candidate_roof_faces", 0)) <= 0:
+        return False
+
+    return (
+        float(quality_snapshot["aspect_ratio_max"])
+        >= _TETGEN_SHELL_REFINEMENT_RETRY_ASPECT_RATIO_THRESHOLD
+        or float(quality_snapshot["element_quality_min"])
+        <= _TETGEN_SHELL_REFINEMENT_RETRY_ELEMENT_QUALITY_THRESHOLD
+    )
+
+
+def _should_accept_shell_refinement_disabled_retry(
+    original_snapshot: dict[str, float],
+    retry_snapshot: dict[str, float],
+) -> bool:
+    original_score = _tetgen_quality_retry_score(original_snapshot)
+    retry_score = _tetgen_quality_retry_score(retry_snapshot)
+    return retry_score < original_score * _TETGEN_SHELL_REFINEMENT_RETRY_MIN_SCORE_IMPROVEMENT
 
 
 def _is_unavailable_flat_mesher_error(backend: str, exc: RuntimeError) -> bool:
@@ -1934,6 +2404,399 @@ def _save_tetgen_debug_meshes(
         "ground": str(ground_path),
         "shell": str(shell_path),
         "plc": str(plc_path),
+    }
+
+
+def _save_tetgen_quality_failure_report(
+    *,
+    output_dir: str | Path,
+    stem: str,
+    report: dict[str, Any],
+) -> str:
+    output_path = Path(output_dir).expanduser().resolve()
+    output_path.mkdir(parents=True, exist_ok=True)
+    report_path = output_path / f"{stem}.tetgen-quality-failure.json"
+    report_path.write_text(json.dumps(_audit_json_ready(report), indent=2, sort_keys=True))
+    return str(report_path)
+
+
+def _capture_tetgen_quality_failure_artifacts(
+    *,
+    output_dir: str | Path,
+    stem: str,
+    ground_mesh: Mesh,
+    surface_mesh: Mesh,
+    volume_mesh: VolumeMesh,
+    quality_snapshot: dict[str, float],
+    domain_height: float,
+    top_cap_backend: str,
+    top_cap_max_mesh_size: float | None,
+    top_cap_min_mesh_angle: float,
+    debug_paths: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    if debug_paths is None:
+        debug_paths = _save_tetgen_debug_meshes(
+            output_dir=output_dir,
+            stem=stem,
+            ground_mesh=ground_mesh,
+            surface_mesh=surface_mesh,
+            domain_height=domain_height,
+            top_cap_backend=top_cap_backend,
+            top_cap_max_mesh_size=top_cap_max_mesh_size,
+            top_cap_min_mesh_angle=top_cap_min_mesh_angle,
+        )
+
+    report = _tetgen_quality_failure_report(
+        volume_mesh,
+        quality_snapshot=quality_snapshot,
+    )
+    report["debug_meshes"] = _audit_json_ready(debug_paths)
+    report_path = _save_tetgen_quality_failure_report(
+        output_dir=output_dir,
+        stem=stem,
+        report=report,
+    )
+    return {
+        "report": report_path,
+        "debug_meshes": debug_paths,
+    }
+
+
+def _refined_triangle_quality_score(
+    vertices: np.ndarray,
+    triangles: list[list[int]],
+) -> tuple[float, float]:
+    if not triangles:
+        return (0.0, 0.0)
+
+    from ...model.mixins.mesh.quality import tri_element_quality
+
+    faces = np.asarray(triangles, dtype=np.int64)
+    quality = tri_element_quality(vertices[:, :3], faces)
+    return (float(np.min(quality)), float(np.mean(quality)))
+
+
+def _orient_refined_child_triangles(
+    triangles: list[list[int]],
+    *,
+    vertices: np.ndarray,
+    parent_normal: np.ndarray,
+) -> list[list[int]]:
+    oriented_children: list[list[int]] = []
+    for triangle in triangles:
+        tri = [int(value) for value in triangle]
+        points = vertices[np.asarray(tri, dtype=np.int64), :3]
+        child_normal = np.cross(points[1] - points[0], points[2] - points[0])
+        if float(np.dot(child_normal, parent_normal)) < 0.0:
+            tri[1], tri[2] = tri[2], tri[1]
+        oriented_children.append(tri)
+    return oriented_children
+
+
+def _subdivide_triangle_face(
+    face: np.ndarray,
+    *,
+    midpoint_indices: dict[int, int],
+    vertices: np.ndarray,
+) -> list[list[int]]:
+    a, b, c = (int(face[0]), int(face[1]), int(face[2]))
+    parent_points = vertices[np.asarray([a, b, c], dtype=np.int64), :3]
+    parent_normal = np.cross(
+        parent_points[1] - parent_points[0],
+        parent_points[2] - parent_points[0],
+    )
+    split_edges = frozenset(midpoint_indices)
+
+    if not split_edges:
+        return [[a, b, c]]
+
+    if split_edges == {0}:
+        triangles = [[a, midpoint_indices[0], c], [midpoint_indices[0], b, c]]
+    elif split_edges == {1}:
+        triangles = [[a, b, midpoint_indices[1]], [a, midpoint_indices[1], c]]
+    elif split_edges == {2}:
+        triangles = [[a, b, midpoint_indices[2]], [midpoint_indices[2], b, c]]
+    elif split_edges == {0, 1}:
+        candidates = [
+            [
+                [a, midpoint_indices[0], c],
+                [midpoint_indices[0], b, midpoint_indices[1]],
+                [midpoint_indices[0], midpoint_indices[1], c],
+            ],
+            [
+                [a, midpoint_indices[0], midpoint_indices[1]],
+                [a, midpoint_indices[1], c],
+                [midpoint_indices[0], b, midpoint_indices[1]],
+            ],
+        ]
+        triangles = max(
+            candidates,
+            key=lambda item: _refined_triangle_quality_score(vertices, item),
+        )
+    elif split_edges == {1, 2}:
+        candidates = [
+            [
+                [a, b, midpoint_indices[2]],
+                [b, midpoint_indices[1], midpoint_indices[2]],
+                [midpoint_indices[1], c, midpoint_indices[2]],
+            ],
+            [
+                [a, b, midpoint_indices[1]],
+                [a, midpoint_indices[1], midpoint_indices[2]],
+                [midpoint_indices[1], c, midpoint_indices[2]],
+            ],
+        ]
+        triangles = max(
+            candidates,
+            key=lambda item: _refined_triangle_quality_score(vertices, item),
+        )
+    elif split_edges == {0, 2}:
+        candidates = [
+            [
+                [a, midpoint_indices[0], midpoint_indices[2]],
+                [midpoint_indices[0], b, c],
+                [midpoint_indices[0], c, midpoint_indices[2]],
+            ],
+            [
+                [a, midpoint_indices[0], midpoint_indices[2]],
+                [midpoint_indices[0], b, midpoint_indices[2]],
+                [b, c, midpoint_indices[2]],
+            ],
+        ]
+        triangles = max(
+            candidates,
+            key=lambda item: _refined_triangle_quality_score(vertices, item),
+        )
+    else:
+        triangles = [
+            [a, midpoint_indices[0], midpoint_indices[2]],
+            [midpoint_indices[0], b, midpoint_indices[1]],
+            [midpoint_indices[2], midpoint_indices[1], c],
+            [midpoint_indices[0], midpoint_indices[1], midpoint_indices[2]],
+        ]
+
+    return _orient_refined_child_triangles(
+        triangles,
+        vertices=vertices,
+        parent_normal=parent_normal,
+    )
+
+
+def _refine_triangle_mesh_edges(
+    mesh: Mesh,
+    *,
+    split_edges: set[tuple[int, int]],
+) -> Mesh:
+    if not split_edges:
+        return mesh
+
+    vertices = np.asarray(mesh.vertices, dtype=np.float64)
+    faces = np.asarray(mesh.faces, dtype=np.int64)
+    markers = np.asarray(mesh.markers)
+
+    vertices_out = vertices.tolist()
+    midpoint_cache: dict[tuple[int, int], int] = {}
+    refined_faces: list[list[int]] = []
+    refined_markers: list[Any] = []
+
+    def midpoint_index(v0: int, v1: int) -> int:
+        key = (min(int(v0), int(v1)), max(int(v0), int(v1)))
+        cached = midpoint_cache.get(key)
+        if cached is not None:
+            return cached
+        midpoint = 0.5 * (vertices[key[0]] + vertices[key[1]])
+        vertex_index = len(vertices_out)
+        vertices_out.append(midpoint.tolist())
+        midpoint_cache[key] = vertex_index
+        return vertex_index
+
+    for face_index, face in enumerate(faces):
+        a, b, c = (int(face[0]), int(face[1]), int(face[2]))
+        midpoint_indices: dict[int, int] = {}
+        if (min(a, b), max(a, b)) in split_edges:
+            midpoint_indices[0] = midpoint_index(a, b)
+        if (min(b, c), max(b, c)) in split_edges:
+            midpoint_indices[1] = midpoint_index(b, c)
+        if (min(c, a), max(c, a)) in split_edges:
+            midpoint_indices[2] = midpoint_index(c, a)
+
+        vertices_full = np.asarray(vertices_out, dtype=np.float64)
+        child_faces = _subdivide_triangle_face(
+            face,
+            midpoint_indices=midpoint_indices,
+            vertices=vertices_full,
+        )
+        refined_faces.extend(child_faces)
+        marker = markers[face_index] if len(markers) == len(faces) else 0
+        refined_markers.extend([marker] * len(child_faces))
+
+    return Mesh(
+        vertices=np.asarray(vertices_out, dtype=np.float64),
+        faces=np.asarray(refined_faces, dtype=np.int64),
+        markers=np.asarray(refined_markers, dtype=markers.dtype if markers.size else np.int64),
+    )
+
+
+def _select_tetgen_shell_refinement_edges(
+    mesh: Mesh,
+    *,
+    edge_threshold: float,
+) -> tuple[set[tuple[int, int]], dict[str, int | float | bool]]:
+    vertices = np.asarray(mesh.vertices, dtype=np.float64)
+    faces = np.asarray(mesh.faces, dtype=np.int64)
+    if (
+        edge_threshold <= 0.0
+        or vertices.ndim != 2
+        or vertices.shape[1] < 3
+        or faces.ndim != 2
+        or faces.shape[1] != 3
+        or len(faces) == 0
+    ):
+        return set(), {
+            "applied": False,
+            "candidate_faces": 0,
+            "candidate_roof_faces": 0,
+            "candidate_ground_faces": 0,
+            "ground_relief_median": 0.0,
+            "ground_refinement_enabled": False,
+            "split_edges": 0,
+        }
+
+    points = vertices[faces, :3]
+    markers_raw = getattr(mesh, "markers", None)
+    if markers_raw is None:
+        markers = np.zeros(len(faces), dtype=np.int64)
+    else:
+        markers = np.asarray(markers_raw, dtype=np.int64)
+        if len(markers) != len(faces):
+            markers = np.zeros(len(faces), dtype=np.int64)
+    edge_lengths = np.stack(
+        [
+            np.linalg.norm(points[:, 1] - points[:, 0], axis=1),
+            np.linalg.norm(points[:, 2] - points[:, 1], axis=1),
+            np.linalg.norm(points[:, 0] - points[:, 2], axis=1),
+        ],
+        axis=1,
+    )
+    max_edge = edge_lengths.max(axis=1)
+    z_span = np.ptp(points[:, :, 2], axis=1)
+    normals = np.cross(points[:, 1] - points[:, 0], points[:, 2] - points[:, 0])
+    normal_norm = np.linalg.norm(normals, axis=1)
+    horizontal_normal_z = np.divide(
+        np.abs(normals[:, 2]),
+        normal_norm,
+        out=np.zeros_like(normal_norm),
+        where=normal_norm > 0.0,
+    )
+    roof_faces = markers >= 0
+    ground_faces = markers == -2
+    ground_relief_median = (
+        float(np.median(z_span[ground_faces]))
+        if np.any(ground_faces)
+        else 0.0
+    )
+    enable_ground_refinement = (
+        ground_relief_median >= _TETGEN_SHELL_HORIZONTAL_REFINEMENT_MIN_GROUND_RELIEF
+    )
+    eligible_faces = roof_faces | (
+        ground_faces if enable_ground_refinement else np.zeros(len(faces), dtype=bool)
+    )
+
+    candidate_faces = (
+        eligible_faces
+        & (max_edge > edge_threshold)
+        & (horizontal_normal_z >= _TETGEN_SHELL_HORIZONTAL_REFINEMENT_MIN_NORMAL_Z)
+        & (z_span <= max_edge * _TETGEN_SHELL_HORIZONTAL_REFINEMENT_MAX_SLOPE_RATIO)
+    )
+    candidate_roof_faces = int(np.count_nonzero(candidate_faces & roof_faces))
+    candidate_ground_faces = int(np.count_nonzero(candidate_faces & ground_faces))
+
+    split_edges: set[tuple[int, int]] = set()
+    for face_index in np.flatnonzero(candidate_faces):
+        face = faces[int(face_index)]
+        for local_edge_index, (v0, v1) in enumerate(
+            ((face[0], face[1]), (face[1], face[2]), (face[2], face[0]))
+        ):
+            if float(edge_lengths[int(face_index), local_edge_index]) <= edge_threshold:
+                continue
+            split_edges.add((min(int(v0), int(v1)), max(int(v0), int(v1))))
+
+    return split_edges, {
+        "applied": bool(split_edges),
+        "candidate_faces": int(np.count_nonzero(candidate_faces)),
+        "candidate_roof_faces": candidate_roof_faces,
+        "candidate_ground_faces": candidate_ground_faces,
+        "ground_relief_median": ground_relief_median,
+        "ground_refinement_enabled": enable_ground_refinement,
+        "split_edges": int(len(split_edges)),
+    }
+
+
+def _refine_near_horizontal_surface_faces_for_tetgen(
+    surface_mesh: Mesh,
+    *,
+    max_mesh_size: float | None,
+) -> tuple[Mesh, dict[str, int | float | bool]]:
+    normalized_max_mesh_size = _normalize_max_mesh_size(max_mesh_size)
+    if normalized_max_mesh_size is None:
+        return surface_mesh, {
+            "applied": False,
+            "rounds": 0,
+            "candidate_faces": 0,
+            "candidate_roof_faces": 0,
+            "candidate_ground_faces": 0,
+            "ground_relief_median": 0.0,
+            "ground_refinement_enabled": False,
+            "split_edges": 0,
+            "added_vertices": 0,
+            "added_faces": 0,
+            "edge_threshold": 0.0,
+        }
+
+    edge_threshold = (
+        float(normalized_max_mesh_size)
+        * _TETGEN_SHELL_HORIZONTAL_REFINEMENT_EDGE_RATIO
+    )
+    refined_mesh = surface_mesh
+    total_candidate_faces = 0
+    total_candidate_roof_faces = 0
+    total_candidate_ground_faces = 0
+    total_split_edges = 0
+    rounds = 0
+    ground_relief_median = 0.0
+    ground_refinement_enabled = False
+
+    for _ in range(_TETGEN_SHELL_HORIZONTAL_REFINEMENT_MAX_ROUNDS):
+        split_edges, stats = _select_tetgen_shell_refinement_edges(
+            refined_mesh,
+            edge_threshold=edge_threshold,
+        )
+        total_candidate_faces += int(stats["candidate_faces"])
+        total_candidate_roof_faces += int(stats["candidate_roof_faces"])
+        total_candidate_ground_faces += int(stats["candidate_ground_faces"])
+        total_split_edges += int(stats["split_edges"])
+        ground_relief_median = float(stats["ground_relief_median"])
+        ground_refinement_enabled = bool(stats["ground_refinement_enabled"])
+        if not split_edges:
+            break
+        rounds += 1
+        refined_mesh = _refine_triangle_mesh_edges(
+            refined_mesh,
+            split_edges=split_edges,
+        )
+
+    return refined_mesh, {
+        "applied": bool(rounds),
+        "rounds": int(rounds),
+        "candidate_faces": int(total_candidate_faces),
+        "candidate_roof_faces": int(total_candidate_roof_faces),
+        "candidate_ground_faces": int(total_candidate_ground_faces),
+        "ground_relief_median": ground_relief_median,
+        "ground_refinement_enabled": ground_refinement_enabled,
+        "split_edges": int(total_split_edges),
+        "added_vertices": int(len(refined_mesh.vertices) - len(surface_mesh.vertices)),
+        "added_faces": int(len(refined_mesh.faces) - len(surface_mesh.faces)),
+        "edge_threshold": float(edge_threshold),
     }
 
 
@@ -3043,9 +3906,13 @@ def build_city_volume_mesh(
     mesher: str | None = None,
     tetgen_debug_output_dir: str | Path | None = None,
     tetgen_debug_output_stem: str | None = None,
+    tetgen_quality_failure_output_dir: str | Path | None = None,
+    tetgen_quality_failure_output_stem: str | None = None,
     stage_audit: dict[str, Any] | None = None,
     _stage_audit_attempt_label: str | None = None,
     _stage_audit_retry_reason: str | None = None,
+    _enable_tetgen_shell_refinement: bool = True,
+    _allow_tetgen_preserve_retry: bool = True,
 ) -> VolumeMesh:
     """
     Build a 3D tetrahedral volume mesh for a city terrain with embedded building volumes.
@@ -3117,6 +3984,13 @@ def build_city_volume_mesh(
         shell mesh.
     tetgen_debug_output_stem : str, optional
         Basename used for TetGen debug exports. Defaults to ``"tetgen_input"``.
+    tetgen_quality_failure_output_dir : str or Path, optional
+        When provided, automatically save TetGen input meshes and a JSON report
+        for selected meshes whose tetrahedral quality is below the practical
+        acceptance gate (currently ``ARmax > 250`` or ``EQmin < 0.03``).
+    tetgen_quality_failure_output_stem : str, optional
+        Basename used for automatic quality-failure captures. Defaults to the
+        TetGen debug stem when omitted.
     stage_audit : dict, optional
         Optional output dictionary populated in place with per-attempt stage
         metrics for conditioned footprints, shell-region inputs, the 2D
@@ -3181,6 +4055,11 @@ def build_city_volume_mesh(
         tetgen_switches=tetgen_switches,
         tetgen_switch_overrides=tetgen_switch_overrides,
     )
+    if attempt is not None:
+        attempt["config"]["tetgen_shell_refinement_enabled"] = bool(
+            _enable_tetgen_shell_refinement
+        )
+        attempt["config"]["smoothing"] = int(smoothing)
     terrain, terrain_raster, building_footprints, source_map, subdomain_resolution, diagnostics = (
         _prepare_city_meshing_inputs(
             city,
@@ -3235,6 +4114,7 @@ def build_city_volume_mesh(
     if is_tetgen_available():
         info("Building volume mesh with TetGen...")
         try:
+            debug_paths: dict[str, str] | None = None
             report_progress(percent=30, message="Building volume shell surface...")
             (
                 surface_buildings,
@@ -3320,11 +4200,47 @@ def build_city_volume_mesh(
                 smoothing=smoothing,
                 merge_meshes=True,
             )
+            if _enable_tetgen_shell_refinement:
+                (
+                    surface_mesh,
+                    shell_refinement_stats,
+                ) = _refine_near_horizontal_surface_faces_for_tetgen(
+                    surface_mesh,
+                    max_mesh_size=max_mesh_size,
+                )
+            else:
+                shell_refinement_stats = {
+                    "enabled": False,
+                    "applied": False,
+                    "rounds": 0,
+                    "candidate_faces": 0,
+                    "candidate_roof_faces": 0,
+                    "candidate_ground_faces": 0,
+                    "ground_relief_median": 0.0,
+                    "ground_refinement_enabled": False,
+                    "split_edges": 0,
+                    "added_vertices": 0,
+                    "added_faces": 0,
+                    "edge_threshold": 0.0,
+                }
+            if shell_refinement_stats["applied"]:
+                info(
+                    "Refined near-horizontal TetGen shell faces: rounds=%d "
+                    "candidate_faces=%d split_edges=%d added_vertices=%d added_faces=%d",
+                    shell_refinement_stats["rounds"],
+                    shell_refinement_stats["candidate_faces"],
+                    shell_refinement_stats["split_edges"],
+                    shell_refinement_stats["added_vertices"],
+                    shell_refinement_stats["added_faces"],
+                )
             if attempt is not None:
                 surface_shell_audit = {
                     "mesher": surface_mesher,
                     **_triangle_mesh_audit(surface_mesh),
                 }
+                surface_shell_audit["tetgen_shell_horizontal_refinement"] = (
+                    _audit_json_ready(shell_refinement_stats)
+                )
                 surface_shell_audit["contract"] = _triangle_mesh_contract_from_audit(
                     surface_shell_audit,
                     reference_length=conditioned_scale,
@@ -3459,11 +4375,21 @@ def build_city_volume_mesh(
                             if tetgen_debug_output_dir is not None
                             else tetgen_debug_output_stem
                         ),
+                        tetgen_quality_failure_output_dir=tetgen_quality_failure_output_dir,
+                        tetgen_quality_failure_output_stem=(
+                            f"{(tetgen_quality_failure_output_stem or tetgen_debug_output_stem or 'tetgen_input')}.retry-no-merge"
+                            if tetgen_quality_failure_output_dir is not None
+                            else tetgen_quality_failure_output_stem
+                        ),
                         stage_audit=stage_audit,
                         _stage_audit_attempt_label="retry-no-merge",
                         _stage_audit_retry_reason="merged-building self-intersections",
+                        _enable_tetgen_shell_refinement=_enable_tetgen_shell_refinement,
+                        _allow_tetgen_preserve_retry=_allow_tetgen_preserve_retry,
                     )
                 if (
+                    _allow_tetgen_preserve_retry
+                    and
                     not preserve_surface_requested
                     and (
                         "TetGen failed (code 2)" in msg
@@ -3508,9 +4434,17 @@ def build_city_volume_mesh(
                             if tetgen_debug_output_dir is not None
                             else tetgen_debug_output_stem
                         ),
+                        tetgen_quality_failure_output_dir=tetgen_quality_failure_output_dir,
+                        tetgen_quality_failure_output_stem=(
+                            f"{(tetgen_quality_failure_output_stem or tetgen_debug_output_stem or 'tetgen_input')}.retry-preserve"
+                            if tetgen_quality_failure_output_dir is not None
+                            else tetgen_quality_failure_output_stem
+                        ),
                         stage_audit=stage_audit,
                         _stage_audit_attempt_label="retry-preserve",
                         _stage_audit_retry_reason="TetGen internal refinement error",
+                        _enable_tetgen_shell_refinement=_enable_tetgen_shell_refinement,
+                        _allow_tetgen_preserve_retry=_allow_tetgen_preserve_retry,
                     )
                 _mark_stage_audit_failure(attempt, exc)
                 raise
@@ -3528,7 +4462,13 @@ def build_city_volume_mesh(
             )
             original_quality_snapshot = _tetgen_volume_mesh_quality_snapshot(volume_mesh)
             accepted_followup_retry = False
+            accepted_shell_edge_split_retry = False
+            accepted_ground_edge_split_retry = False
+            accepted_shell_refinement_retry = False
+            selected_tetgen_switch_overrides = tetgen_switch_overrides
             if (
+                _allow_tetgen_preserve_retry
+                and
                 not preserve_surface_requested
                 and _should_retry_tetgen_with_preserve_surface(
                     original_quality_snapshot,
@@ -3573,9 +4513,17 @@ def build_city_volume_mesh(
                             if tetgen_debug_output_dir is not None
                             else tetgen_debug_output_stem
                         ),
+                        tetgen_quality_failure_output_dir=tetgen_quality_failure_output_dir,
+                        tetgen_quality_failure_output_stem=(
+                            f"{(tetgen_quality_failure_output_stem or tetgen_debug_output_stem or 'tetgen_input')}.retry-preserve-quality"
+                            if tetgen_quality_failure_output_dir is not None
+                            else tetgen_quality_failure_output_stem
+                        ),
                         stage_audit=stage_audit,
                         _stage_audit_attempt_label="retry-preserve-quality",
                         _stage_audit_retry_reason="severe boundary slivers",
+                        _enable_tetgen_shell_refinement=_enable_tetgen_shell_refinement,
+                        _allow_tetgen_preserve_retry=_allow_tetgen_preserve_retry,
                     )
                 except Exception as retry_exc:
                     if attempt is not None:
@@ -3626,11 +4574,410 @@ def build_city_volume_mesh(
                             retry_quality_snapshot["min_edge_length"],
                         )
                         volume_mesh = retry_volume_mesh
+                        selected_tetgen_switch_overrides = retry_switch_overrides
                     else:
                         info(
                             "Preserve-surface retry did not materially reduce "
                             "boundary-sliver severity; keeping the original mesh."
                         )
+            current_quality_snapshot = _tetgen_volume_mesh_quality_snapshot(volume_mesh)
+            shell_edge_split_min_edge_length = (
+                _tetgen_shell_edge_split_retry_min_edge_length(
+                    max_mesh_size=max_mesh_size,
+                )
+            )
+            if shell_edge_split_min_edge_length is not None:
+                shell_edge_split_report = _tetgen_quality_failure_report(
+                    volume_mesh,
+                    quality_snapshot=current_quality_snapshot,
+                )
+                shell_edge_split_edges = (
+                    _candidate_shell_edge_splits_from_quality_report(
+                        shell_edge_split_report,
+                        surface_mesh,
+                        max_edges=_TETGEN_SHELL_EDGE_SPLIT_RETRY_MAX_EDGES,
+                        min_edge_length=shell_edge_split_min_edge_length,
+                    )
+                )
+            else:
+                shell_edge_split_edges = set()
+            if shell_edge_split_edges:
+                refined_surface_mesh = _refine_triangle_mesh_edges(
+                    surface_mesh,
+                    split_edges=shell_edge_split_edges,
+                )
+                retry_debug_paths = debug_paths
+                if tetgen_debug_output_dir is not None:
+                    retry_debug_stem = (
+                        f"{(tetgen_debug_output_stem or 'tetgen_input')}.retry-shell-edge-split-quality"
+                    )
+                    try:
+                        retry_debug_paths = _save_tetgen_debug_meshes(
+                            output_dir=tetgen_debug_output_dir,
+                            stem=retry_debug_stem,
+                            ground_mesh=surface_ground_mesh,
+                            surface_mesh=refined_surface_mesh,
+                            domain_height=domain_height,
+                            top_cap_backend=surface_mesher,
+                            top_cap_max_mesh_size=max_mesh_size,
+                            top_cap_min_mesh_angle=min_mesh_angle,
+                        )
+                    except Exception as retry_debug_exc:
+                        warning(
+                            "Failed to save shell-edge-split retry debug meshes: %s",
+                            retry_debug_exc,
+                        )
+                try:
+                    retry_volume_mesh = tetgen_build_volume_mesh(
+                        mesh=refined_surface_mesh,
+                        build_top_sidewalls=True,
+                        top_height=domain_height,
+                        closure_mesh=surface_ground_mesh,
+                        top_cap_backend=surface_mesher,
+                        top_cap_max_mesh_size=max_mesh_size,
+                        top_cap_min_mesh_angle=min_mesh_angle,
+                        switches_params=switches_params,
+                        switches_overrides=selected_tetgen_switch_overrides,
+                        return_boundary_faces=boundary_face_markers,
+                    )
+                except Exception as retry_exc:
+                    if attempt is not None:
+                        attempt.setdefault("followup_retries", []).append(
+                            {
+                                "label": "retry-shell-edge-split-quality",
+                                "status": "failed",
+                                "split_edge_count": int(len(shell_edge_split_edges)),
+                                "error_type": type(retry_exc).__name__,
+                                "error_message": str(retry_exc),
+                            }
+                        )
+                    warning(
+                        "Targeted shell-edge-split retry failed after a successful "
+                        "TetGen build; keeping the current mesh. %s",
+                        retry_exc,
+                    )
+                else:
+                    retry_quality_snapshot = _tetgen_volume_mesh_quality_snapshot(
+                        retry_volume_mesh
+                    )
+                    accepted_shell_edge_split_retry = (
+                        _should_accept_shell_edge_split_retry(
+                            current_quality_snapshot,
+                            retry_quality_snapshot,
+                        )
+                    )
+                    if attempt is not None:
+                        attempt.setdefault("followup_retries", []).append(
+                            {
+                                "label": "retry-shell-edge-split-quality",
+                                "status": "accepted"
+                                if accepted_shell_edge_split_retry
+                                else "rejected",
+                                "split_edge_count": int(len(shell_edge_split_edges)),
+                                "split_edges": _audit_json_ready(
+                                    sorted(shell_edge_split_edges)
+                                ),
+                                "original_quality_snapshot": _audit_json_ready(
+                                    current_quality_snapshot
+                                ),
+                                "retry_quality_snapshot": _audit_json_ready(
+                                    retry_quality_snapshot
+                                ),
+                            }
+                        )
+                    if accepted_shell_edge_split_retry:
+                        info(
+                            "Accepted shell-edge-split retry: ARmax %.3g -> %.3g, "
+                            "EQmin %.3g -> %.3g.",
+                            current_quality_snapshot["aspect_ratio_max"],
+                            retry_quality_snapshot["aspect_ratio_max"],
+                            current_quality_snapshot["element_quality_min"],
+                            retry_quality_snapshot["element_quality_min"],
+                        )
+                        volume_mesh = retry_volume_mesh
+                        surface_mesh = refined_surface_mesh
+                        debug_paths = retry_debug_paths
+                        current_quality_snapshot = retry_quality_snapshot
+                    else:
+                        info(
+                            "Shell-edge-split retry did not sufficiently improve "
+                            "quality; keeping the current mesh."
+                        )
+            ground_edge_split_min_edge_length = (
+                _tetgen_ground_edge_split_retry_min_edge_length(
+                    max_mesh_size=max_mesh_size,
+                )
+            )
+            if ground_edge_split_min_edge_length is not None:
+                ground_edge_split_report = _tetgen_quality_failure_report(
+                    volume_mesh,
+                    quality_snapshot=current_quality_snapshot,
+                )
+                ground_edge_split_edges = (
+                    _candidate_ground_edge_splits_from_quality_report(
+                        ground_edge_split_report,
+                        surface_ground_mesh,
+                        max_edges=_TETGEN_GROUND_EDGE_SPLIT_RETRY_MAX_EDGES,
+                        min_edge_length=ground_edge_split_min_edge_length,
+                    )
+                )
+            else:
+                ground_edge_split_edges = set()
+            if ground_edge_split_edges:
+                retry_debug_paths = debug_paths
+                try:
+                    refined_ground_mesh = _refine_triangle_mesh_edges(
+                        surface_ground_mesh,
+                        split_edges=ground_edge_split_edges,
+                    )
+                    refined_surface_mesh = _build_city_surface_mesh_from_ground_mesh(
+                        ground_mesh=refined_ground_mesh,
+                        terrain_raster=terrain_raster,
+                        building_surfaces=surface_buildings,
+                        meshing_directives=surface_directives,
+                        smoothing=smoothing,
+                        merge_meshes=True,
+                    )
+                    if _enable_tetgen_shell_refinement:
+                        refined_surface_mesh, _retry_shell_refinement_stats = (
+                            _refine_near_horizontal_surface_faces_for_tetgen(
+                                refined_surface_mesh,
+                                max_mesh_size=max_mesh_size,
+                            )
+                        )
+                    if tetgen_debug_output_dir is not None:
+                        retry_debug_stem = (
+                            f"{(tetgen_debug_output_stem or 'tetgen_input')}.retry-ground-edge-split-quality"
+                        )
+                        retry_debug_paths = _save_tetgen_debug_meshes(
+                            output_dir=tetgen_debug_output_dir,
+                            stem=retry_debug_stem,
+                            ground_mesh=refined_ground_mesh,
+                            surface_mesh=refined_surface_mesh,
+                            domain_height=domain_height,
+                            top_cap_backend=surface_mesher,
+                            top_cap_max_mesh_size=max_mesh_size,
+                            top_cap_min_mesh_angle=min_mesh_angle,
+                        )
+                    retry_volume_mesh = tetgen_build_volume_mesh(
+                        mesh=refined_surface_mesh,
+                        build_top_sidewalls=True,
+                        top_height=domain_height,
+                        closure_mesh=refined_ground_mesh,
+                        top_cap_backend=surface_mesher,
+                        top_cap_max_mesh_size=max_mesh_size,
+                        top_cap_min_mesh_angle=min_mesh_angle,
+                        switches_params=switches_params,
+                        switches_overrides=selected_tetgen_switch_overrides,
+                        return_boundary_faces=boundary_face_markers,
+                    )
+                except Exception as retry_exc:
+                    if attempt is not None:
+                        attempt.setdefault("followup_retries", []).append(
+                            {
+                                "label": "retry-ground-edge-split-quality",
+                                "status": "failed",
+                                "split_edge_count": int(len(ground_edge_split_edges)),
+                                "error_type": type(retry_exc).__name__,
+                                "error_message": str(retry_exc),
+                            }
+                        )
+                    warning(
+                        "Targeted ground-edge-split retry failed after a successful "
+                        "TetGen build; keeping the current mesh. %s",
+                        retry_exc,
+                    )
+                else:
+                    retry_quality_snapshot = _tetgen_volume_mesh_quality_snapshot(
+                        retry_volume_mesh
+                    )
+                    accepted_ground_edge_split_retry = (
+                        _should_accept_shell_edge_split_retry(
+                            current_quality_snapshot,
+                            retry_quality_snapshot,
+                        )
+                    )
+                    if attempt is not None:
+                        attempt.setdefault("followup_retries", []).append(
+                            {
+                                "label": "retry-ground-edge-split-quality",
+                                "status": "accepted"
+                                if accepted_ground_edge_split_retry
+                                else "rejected",
+                                "split_edge_count": int(len(ground_edge_split_edges)),
+                                "split_edges": _audit_json_ready(
+                                    sorted(ground_edge_split_edges)
+                                ),
+                                "original_quality_snapshot": _audit_json_ready(
+                                    current_quality_snapshot
+                                ),
+                                "retry_quality_snapshot": _audit_json_ready(
+                                    retry_quality_snapshot
+                                ),
+                            }
+                        )
+                    if accepted_ground_edge_split_retry:
+                        info(
+                            "Accepted ground-edge-split retry: ARmax %.3g -> %.3g, "
+                            "EQmin %.3g -> %.3g.",
+                            current_quality_snapshot["aspect_ratio_max"],
+                            retry_quality_snapshot["aspect_ratio_max"],
+                            current_quality_snapshot["element_quality_min"],
+                            retry_quality_snapshot["element_quality_min"],
+                        )
+                        volume_mesh = retry_volume_mesh
+                        surface_ground_mesh = refined_ground_mesh
+                        surface_mesh = refined_surface_mesh
+                        debug_paths = retry_debug_paths
+                        current_quality_snapshot = retry_quality_snapshot
+                    else:
+                        info(
+                            "Ground-edge-split retry did not sufficiently improve "
+                            "quality; keeping the current mesh."
+                        )
+            if _should_retry_tetgen_without_shell_refinement(
+                current_quality_snapshot,
+                shell_refinement_stats=shell_refinement_stats,
+            ):
+                warning(
+                    "TetGen shell refinement may have worsened quality "
+                    "(ARmax=%.3g, EQmin=%.3g); retrying once without shell refinement.",
+                    current_quality_snapshot["aspect_ratio_max"],
+                    current_quality_snapshot["element_quality_min"],
+                )
+                try:
+                    retry_volume_mesh = build_city_volume_mesh(
+                        city=city,
+                        lod=lod,
+                        domain_height=domain_height,
+                        max_mesh_size=max_mesh_size,
+                        min_mesh_angle=min_mesh_angle,
+                        merge_buildings=merge_buildings,
+                        min_building_detail=min_building_detail,
+                        min_building_area=min_building_area,
+                        merge_tolerance=merge_tolerance,
+                        smoothing=smoothing,
+                        boundary_face_markers=boundary_face_markers,
+                        tetgen_switches=tetgen_switches,
+                        tetgen_switch_overrides=selected_tetgen_switch_overrides,
+                        smoother_max_iterations=smoother_max_iterations,
+                        smoothing_relative_tolerance=smoothing_relative_tolerance,
+                        aspect_ratio_threshold=aspect_ratio_threshold,
+                        debug_step=debug_step,
+                        report_mesh_quality=False,
+                        cleaning_diagnostics=cleaning_diagnostics,
+                        mesher=mesher,
+                        tetgen_debug_output_dir=tetgen_debug_output_dir,
+                        tetgen_debug_output_stem=(
+                            f"{(tetgen_debug_output_stem or 'tetgen_input')}.retry-no-shell-refinement-quality"
+                            if tetgen_debug_output_dir is not None
+                            else tetgen_debug_output_stem
+                        ),
+                        tetgen_quality_failure_output_dir=tetgen_quality_failure_output_dir,
+                        tetgen_quality_failure_output_stem=(
+                            f"{(tetgen_quality_failure_output_stem or tetgen_debug_output_stem or 'tetgen_input')}.retry-no-shell-refinement-quality"
+                            if tetgen_quality_failure_output_dir is not None
+                            else tetgen_quality_failure_output_stem
+                        ),
+                        stage_audit=stage_audit,
+                        _stage_audit_attempt_label="retry-no-shell-refinement-quality",
+                        _stage_audit_retry_reason="severe quality after shell refinement",
+                        _enable_tetgen_shell_refinement=False,
+                        _allow_tetgen_preserve_retry=False,
+                    )
+                except Exception as retry_exc:
+                    if attempt is not None:
+                        attempt.setdefault("followup_retries", []).append(
+                            {
+                                "label": "retry-no-shell-refinement-quality",
+                                "status": "failed",
+                                "error_type": type(retry_exc).__name__,
+                                "error_message": str(retry_exc),
+                            }
+                        )
+                    warning(
+                        "No-shell-refinement quality retry failed after a successful "
+                        "TetGen build; keeping the current mesh. %s",
+                        retry_exc,
+                    )
+                else:
+                    retry_quality_snapshot = _tetgen_volume_mesh_quality_snapshot(
+                        retry_volume_mesh
+                    )
+                    accepted_shell_refinement_retry = (
+                        _should_accept_shell_refinement_disabled_retry(
+                            current_quality_snapshot,
+                            retry_quality_snapshot,
+                        )
+                    )
+                    if attempt is not None:
+                        attempt.setdefault("followup_retries", []).append(
+                            {
+                                "label": "retry-no-shell-refinement-quality",
+                                "status": "accepted"
+                                if accepted_shell_refinement_retry
+                                else "rejected",
+                                "original_quality_snapshot": _audit_json_ready(
+                                    current_quality_snapshot
+                                ),
+                                "retry_quality_snapshot": _audit_json_ready(
+                                    retry_quality_snapshot
+                                ),
+                            }
+                        )
+                    if accepted_shell_refinement_retry:
+                        info(
+                            "Accepted no-shell-refinement retry: ARmax %.3g -> %.3g, "
+                            "EQmin %.3g -> %.3g.",
+                            current_quality_snapshot["aspect_ratio_max"],
+                            retry_quality_snapshot["aspect_ratio_max"],
+                            current_quality_snapshot["element_quality_min"],
+                            retry_quality_snapshot["element_quality_min"],
+                        )
+                        volume_mesh = retry_volume_mesh
+                    else:
+                        info(
+                            "No-shell-refinement retry did not sufficiently improve "
+                            "quality; keeping the current mesh."
+                        )
+            final_quality_snapshot = _tetgen_volume_mesh_quality_snapshot(volume_mesh)
+            quality_failure_output_dir = (
+                tetgen_quality_failure_output_dir or tetgen_debug_output_dir
+            )
+            quality_failure_output_stem = (
+                tetgen_quality_failure_output_stem
+                or tetgen_debug_output_stem
+                or "tetgen_input"
+            )
+            if (
+                not accepted_followup_retry
+                and not accepted_shell_edge_split_retry
+                and not accepted_ground_edge_split_retry
+                and not accepted_shell_refinement_retry
+                and quality_failure_output_dir is not None
+                and _should_capture_tetgen_quality_failure(final_quality_snapshot)
+            ):
+                capture_info = _capture_tetgen_quality_failure_artifacts(
+                    output_dir=quality_failure_output_dir,
+                    stem=quality_failure_output_stem,
+                    ground_mesh=surface_ground_mesh,
+                    surface_mesh=surface_mesh,
+                    volume_mesh=volume_mesh,
+                    quality_snapshot=final_quality_snapshot,
+                    domain_height=domain_height,
+                    top_cap_backend=surface_mesher,
+                    top_cap_max_mesh_size=max_mesh_size,
+                    top_cap_min_mesh_angle=min_mesh_angle,
+                    debug_paths=debug_paths,
+                )
+                warning(
+                    "Captured TetGen quality-failure artifacts: report=%s",
+                    capture_info["report"],
+                )
+                if attempt is not None:
+                    attempt.setdefault("result", {})["quality_failure_capture"] = (
+                        _audit_json_ready(capture_info)
+                    )
             report_progress(percent=95, message="Volume mesh complete")
 
             if report_mesh_quality:
@@ -3642,7 +4989,25 @@ def build_city_volume_mesh(
                 q = tetrahedron_mesh_quality(volume_mesh.vertices, volume_mesh.cells)
                 report_quality(q, log_fn=info)
 
-            if accepted_followup_retry:
+            if accepted_shell_refinement_retry:
+                if attempt is not None:
+                    attempt["result"] = {
+                        "status": "superseded",
+                        "selected_retry": "retry-no-shell-refinement-quality",
+                    }
+            elif accepted_ground_edge_split_retry:
+                if attempt is not None:
+                    attempt["result"] = {
+                        "status": "superseded",
+                        "selected_retry": "retry-ground-edge-split-quality",
+                    }
+            elif accepted_shell_edge_split_retry:
+                if attempt is not None:
+                    attempt["result"] = {
+                        "status": "superseded",
+                        "selected_retry": "retry-shell-edge-split-quality",
+                    }
+            elif accepted_followup_retry:
                 if attempt is not None:
                     attempt["result"] = {
                         "status": "superseded",
