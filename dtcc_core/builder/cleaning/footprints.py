@@ -47,6 +47,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import math
+import time
 from typing import Any, Callable, Iterable, Literal, Sequence
 
 import numpy as np
@@ -115,6 +116,16 @@ class _RepairCandidate:
     edit_zone: BaseGeometry
     operator: str
     area_balance_budget_override: float | None = None
+
+
+def _record_stage_seconds(
+    diagnostics: dict[str, Any],
+    stage_name: str,
+    started_at: float,
+) -> float:
+    elapsed = float(time.perf_counter() - started_at)
+    diagnostics.setdefault("stage_seconds", {})[stage_name] = elapsed
+    return elapsed
 
 
 @dataclass(slots=True)
@@ -1806,6 +1817,13 @@ def _regularize_final_polygon_shapes(
             refined_polygons.append(polygon)
             refined_sources.append(list(indices))
             continue
+        if (
+            signature.clearance > near_threshold_limit
+            and signature.min_edge_length > local_shape_edge_limit
+        ):
+            refined_polygons.append(polygon)
+            refined_sources.append(list(indices))
+            continue
 
         def _normalize_final_shape_candidate(
             candidate_polygon: Polygon,
@@ -3480,6 +3498,51 @@ def _candidate_metric_key(prefix: str, suffix: str) -> str:
     return f"{prefix}_{suffix}"
 
 
+def _record_polygon_repair_noop(
+    diagnostics: dict[str, Any],
+    *,
+    stage_prefix: str,
+    tolerance: float,
+    before_stats: dict[str, Any],
+) -> None:
+    diagnostics[_candidate_metric_key(stage_prefix, "segment_length_before")] = (
+        before_stats
+    )
+    diagnostics[_candidate_metric_key(stage_prefix, "short_edge_count_before")] = (
+        before_stats["short_edge_count"]
+    )
+    diagnostics[_candidate_metric_key(stage_prefix, "target_min_edge_length")] = (
+        tolerance
+    )
+    diagnostics[_candidate_metric_key(stage_prefix, "tolerance")] = tolerance
+    diagnostics[_candidate_metric_key(stage_prefix, "candidate_count")] = 0
+    diagnostics[_candidate_metric_key(stage_prefix, "applied_count")] = 0
+    diagnostics[_candidate_metric_key(stage_prefix, "edit_zone_area")] = 0.0
+    diagnostics[_candidate_metric_key(stage_prefix, "change_outside_edit_zone")] = 0.0
+    diagnostics[_candidate_metric_key(stage_prefix, "rejected_nonlocal_count")] = 0
+    diagnostics[_candidate_metric_key(stage_prefix, "rejected_area_imbalance_count")] = 0
+    diagnostics[_candidate_metric_key(stage_prefix, "rejected_non_improving_count")] = 0
+    diagnostics[_candidate_metric_key(stage_prefix, "overlap_area")] = 0.0
+    diagnostics[_candidate_metric_key(stage_prefix, "short_edge_count_after")] = (
+        before_stats["short_edge_count"]
+    )
+    diagnostics[_candidate_metric_key(stage_prefix, "applied")] = False
+    diagnostics[_candidate_metric_key(stage_prefix, "segment_length_after")] = (
+        before_stats
+    )
+    diagnostics[_candidate_metric_key(stage_prefix, "area_balance_budget")] = 0.0
+    diagnostics[_candidate_metric_key(stage_prefix, "symmetric_difference_area")] = 0.0
+    diagnostics[_candidate_metric_key(stage_prefix, "reference_minus_candidate_area")] = (
+        0.0
+    )
+    diagnostics[_candidate_metric_key(stage_prefix, "candidate_minus_reference_area")] = (
+        0.0
+    )
+    diagnostics[_candidate_metric_key(stage_prefix, "signed_area_delta")] = 0.0
+    diagnostics[_candidate_metric_key(stage_prefix, "operator_attempts")] = {}
+    diagnostics[_candidate_metric_key(stage_prefix, "operator_applied")] = {}
+
+
 def _coverage_signature_score(
     signature: _CoverageDefectSignature,
     *,
@@ -3695,6 +3758,19 @@ def _coverage_signature_satisfies_scale_contract(
     if min_edge_length + tolerance < target_scale:
         return False
     return True
+
+
+def _coverage_signature_requires_polygon_regularization(
+    signature: _CoverageDefectSignature,
+    *,
+    target_scale: float,
+    grid: float,
+) -> bool:
+    return (
+        signature.short_edge_count > 0
+        or signature.ring_contact_count > 0
+        or max(target_scale - (signature.min_clearance or 0.0), 0.0) > max(grid, 1e-9)
+    )
 
 
 def _coverage_candidate_small_output_metrics(
@@ -8424,38 +8500,43 @@ def _regularize_coverage_for_meshing(
             rescue_variants: list[tuple[list[Polygon], list[list[int]]]] = [
                 (rescue_polygons, rescue_sources)
             ]
-            rescue_diagnostics = _empty_diagnostics(len(rescue_polygons))
-            rescue_diagnostics["collect_stage_metrics"] = False
-            rescue_diagnostics["enable_logging"] = False
-            postprocessed_rescue_polygons, postprocessed_rescue_sources = (
-                _simplify_polygons_for_meshing(
-                    rescue_polygons,
-                    rescue_sources,
-                    min_segment_length=min_segment_length,
+            if _coverage_signature_requires_polygon_regularization(
+                rescue_baseline_signature,
+                target_scale=min_segment_length,
+                grid=grid,
+            ):
+                rescue_diagnostics = _empty_diagnostics(len(rescue_polygons))
+                rescue_diagnostics["collect_stage_metrics"] = False
+                rescue_diagnostics["enable_logging"] = False
+                postprocessed_rescue_polygons, postprocessed_rescue_sources = (
+                    _simplify_polygons_for_meshing(
+                        rescue_polygons,
+                        rescue_sources,
+                        min_segment_length=min_segment_length,
+                        grid=grid,
+                        min_area=min_area,
+                        min_hole_area=min_hole_area,
+                        diagnostics=rescue_diagnostics,
+                    )
+                )
+                (
+                    postprocessed_rescue_polygons,
+                    postprocessed_rescue_sources,
+                ) = _regularize_low_clearance_polygons(
+                    postprocessed_rescue_polygons,
+                    postprocessed_rescue_sources,
+                    min_clearance=min_segment_length,
                     grid=grid,
                     min_area=min_area,
                     min_hole_area=min_hole_area,
                     diagnostics=rescue_diagnostics,
                 )
-            )
-            (
-                postprocessed_rescue_polygons,
-                postprocessed_rescue_sources,
-            ) = _regularize_low_clearance_polygons(
-                postprocessed_rescue_polygons,
-                postprocessed_rescue_sources,
-                min_clearance=min_segment_length,
-                grid=grid,
-                min_area=min_area,
-                min_hole_area=min_hole_area,
-                diagnostics=rescue_diagnostics,
-            )
-            rescue_variants.append(
-                (
-                    postprocessed_rescue_polygons,
-                    postprocessed_rescue_sources,
+                rescue_variants.append(
+                    (
+                        postprocessed_rescue_polygons,
+                        postprocessed_rescue_sources,
+                    )
                 )
-            )
 
             best_rescue_variant: tuple[
                 list[Polygon],
@@ -8987,31 +9068,41 @@ def _regularize_coverage_contacts(
         )
         return polygons, source_map
 
+    current_signature = _cached_coverage_defect_signature(
+        cache,
+        current_polygons,
+        target_scale=min_segment_length,
+    )
     candidate_variants: list[tuple[list[Polygon], list[list[int]]]] = [
         (current_polygons, current_sources)
     ]
-    local_diagnostics = _empty_diagnostics(len(current_polygons))
-    local_diagnostics["collect_stage_metrics"] = False
-    local_diagnostics["enable_logging"] = False
-    postprocessed_polygons, postprocessed_sources = _simplify_polygons_for_meshing(
-        current_polygons,
-        current_sources,
-        min_segment_length=min_segment_length,
+    if _coverage_signature_requires_polygon_regularization(
+        current_signature,
+        target_scale=min_segment_length,
         grid=grid,
-        min_area=min_area,
-        min_hole_area=min_hole_area,
-        diagnostics=local_diagnostics,
-    )
-    postprocessed_polygons, postprocessed_sources = _regularize_low_clearance_polygons(
-        postprocessed_polygons,
-        postprocessed_sources,
-        min_clearance=min_segment_length,
-        grid=grid,
-        min_area=min_area,
-        min_hole_area=min_hole_area,
-        diagnostics=local_diagnostics,
-    )
-    candidate_variants.append((postprocessed_polygons, postprocessed_sources))
+    ):
+        local_diagnostics = _empty_diagnostics(len(current_polygons))
+        local_diagnostics["collect_stage_metrics"] = False
+        local_diagnostics["enable_logging"] = False
+        postprocessed_polygons, postprocessed_sources = _simplify_polygons_for_meshing(
+            current_polygons,
+            current_sources,
+            min_segment_length=min_segment_length,
+            grid=grid,
+            min_area=min_area,
+            min_hole_area=min_hole_area,
+            diagnostics=local_diagnostics,
+        )
+        postprocessed_polygons, postprocessed_sources = _regularize_low_clearance_polygons(
+            postprocessed_polygons,
+            postprocessed_sources,
+            min_clearance=min_segment_length,
+            grid=grid,
+            min_area=min_area,
+            min_hole_area=min_hole_area,
+            diagnostics=local_diagnostics,
+        )
+        candidate_variants.append((postprocessed_polygons, postprocessed_sources))
 
     best_variant: tuple[
         list[Polygon],
@@ -9229,69 +9320,87 @@ def _regularize_coverage_contacts(
                     operator_applied[operator_name] = (
                         operator_applied.get(operator_name, 0) + count
                     )
-    post_contact_polygons, post_contact_sources = _apply_local_polygon_repairs(
-        best_polygons,
-        best_sources,
-        min_segment_length=min_segment_length,
-        grid=grid,
-        min_area=min_area,
-        min_hole_area=min_hole_area,
-        diagnostics=diagnostics,
-        stage_prefix="post_contact_local_defect_repair",
-        enable_defect_operators=True,
-        enable_simplify_operators=True,
-    )
-    post_contact_signature = _cached_coverage_defect_signature(
-        cache,
-        post_contact_polygons,
-        target_scale=min_segment_length,
-    )
-    if _should_accept_post_contact_local_repair(
-        best_signature,
-        best_difference_metrics,
-        post_contact_signature,
-        post_contact_difference_metrics := _cached_difference_area_metrics(
-            cache,
-            polygons,
-            post_contact_polygons,
-        ),
-        target_scale=min_segment_length,
-        grid=grid,
+    if (
+        best_signature.pair_issue_count > 0
+        or _coverage_signature_requires_polygon_regularization(
+            best_signature,
+            target_scale=min_segment_length,
+            grid=grid,
+        )
     ):
-        best_polygons = post_contact_polygons
-        best_sources = post_contact_sources
-        best_signature = post_contact_signature
-        best_difference_metrics = post_contact_difference_metrics
-    elif _coverage_signature_improves(
-        best_signature,
-        post_contact_signature,
-        grid=grid,
-        target_scale=min_segment_length,
-    ):
-        post_contact_difference_metrics = _cached_difference_area_metrics(
+        post_contact_polygons, post_contact_sources = _apply_local_polygon_repairs(
+            best_polygons,
+            best_sources,
+            min_segment_length=min_segment_length,
+            grid=grid,
+            min_area=min_area,
+            min_hole_area=min_hole_area,
+            diagnostics=diagnostics,
+            stage_prefix="post_contact_local_defect_repair",
+            enable_defect_operators=True,
+            enable_simplify_operators=True,
+        )
+        post_contact_signature = _cached_coverage_defect_signature(
             cache,
-            polygons,
             post_contact_polygons,
+            target_scale=min_segment_length,
         )
-        post_contact_score = (
-            *_contact_resolution_candidate_score(
-                post_contact_signature,
-                post_contact_difference_metrics,
-                target_scale=min_segment_length,
+        if _should_accept_post_contact_local_repair(
+            best_signature,
+            best_difference_metrics,
+            post_contact_signature,
+            post_contact_difference_metrics := _cached_difference_area_metrics(
+                cache,
+                polygons,
+                post_contact_polygons,
             ),
-        )
-        current_best_score = (
-            *_contact_resolution_candidate_score(
-                best_signature,
-                best_difference_metrics,
-                target_scale=min_segment_length,
-            ),
-        )
-        if post_contact_score < current_best_score:
+            target_scale=min_segment_length,
+            grid=grid,
+        ):
             best_polygons = post_contact_polygons
             best_sources = post_contact_sources
             best_signature = post_contact_signature
             best_difference_metrics = post_contact_difference_metrics
+        elif _coverage_signature_improves(
+            best_signature,
+            post_contact_signature,
+            grid=grid,
+            target_scale=min_segment_length,
+        ):
+            post_contact_difference_metrics = _cached_difference_area_metrics(
+                cache,
+                polygons,
+                post_contact_polygons,
+            )
+            post_contact_score = (
+                *_contact_resolution_candidate_score(
+                    post_contact_signature,
+                    post_contact_difference_metrics,
+                    target_scale=min_segment_length,
+                ),
+            )
+            current_best_score = (
+                *_contact_resolution_candidate_score(
+                    best_signature,
+                    best_difference_metrics,
+                    target_scale=min_segment_length,
+                ),
+            )
+            if post_contact_score < current_best_score:
+                best_polygons = post_contact_polygons
+                best_sources = post_contact_sources
+                best_signature = post_contact_signature
+                best_difference_metrics = post_contact_difference_metrics
+    else:
+        _record_polygon_repair_noop(
+            diagnostics,
+            stage_prefix="post_contact_local_defect_repair",
+            tolerance=min_segment_length,
+            before_stats=_segment_length_stats(
+                best_polygons,
+                short_edge_threshold=min_segment_length,
+            ),
+        )
 
     diagnostics["coverage_contact_regularization_applied"] = True
     diagnostics["coverage_contact_regularization_selected_branch"] = "pair_contacts"
@@ -13524,17 +13633,18 @@ def _apply_local_polygon_repairs(
             if candidate_signature.short_edge_count == 0:
                 local_candidates.append(candidate)
                 return
-            refined = _iteratively_open_polygon_short_edges(
-                candidate.polygon,
-                target_scale=min_segment_length,
-                grid=grid,
-                diagnostics=diagnostics,
-                operator_prefix=f"{candidate.operator}_short_edge_angle_open",
-                initial_edit_zone=candidate.edit_zone,
-                area_balance_budget_override=candidate.area_balance_budget_override,
-            )
-            if refined is not None:
-                local_candidates.append(refined)
+            if enable_simplify_operators:
+                refined = _iteratively_open_polygon_short_edges(
+                    candidate.polygon,
+                    target_scale=min_segment_length,
+                    grid=grid,
+                    diagnostics=diagnostics,
+                    operator_prefix=f"{candidate.operator}_short_edge_angle_open",
+                    initial_edit_zone=candidate.edit_zone,
+                    area_balance_budget_override=candidate.area_balance_budget_override,
+                )
+                if refined is not None:
+                    local_candidates.append(refined)
             local_candidates.append(candidate)
 
         if needs_ring_contact_repair:
@@ -14079,6 +14189,7 @@ def condition_polygon_coverage(
     diagnostics["closing_radius"] = r_close
     diagnostics["collect_stage_metrics"] = options.collect_stage_metrics
     diagnostics["enable_logging"] = options.enable_logging
+    diagnostics["stage_seconds"] = {}
 
     _log_conditioning_start(
         len(polygons),
@@ -14089,6 +14200,7 @@ def condition_polygon_coverage(
         closing_radius=r_close,
     )
 
+    stage_started_at = time.perf_counter()
     atomic_polygons: list[Polygon] = []
     atomic_sources: list[list[int]] = []
 
@@ -14127,7 +14239,9 @@ def condition_polygon_coverage(
             short_edge_threshold=meshing_scale,
             enabled=options.enable_logging,
         )
+    _record_stage_seconds(diagnostics, "atomic_input", stage_started_at)
 
+    stage_started_at = time.perf_counter()
     opened_polygons: list[Polygon] = []
     opened_sources: list[list[int]] = []
 
@@ -14158,7 +14272,9 @@ def condition_polygon_coverage(
             short_edge_threshold=meshing_scale,
             enabled=options.enable_logging,
         )
+    _record_stage_seconds(diagnostics, "opened", stage_started_at)
 
+    stage_started_at = time.perf_counter()
     merge_groups = _build_merge_groups(opened_polygons, options.merge_distance)
     diagnostics["merged_group_count"] = len(merge_groups)
 
@@ -14219,7 +14335,9 @@ def condition_polygon_coverage(
             short_edge_threshold=meshing_scale,
             enabled=options.enable_logging,
         )
+    _record_stage_seconds(diagnostics, "regularized_groups", stage_started_at)
 
+    stage_started_at = time.perf_counter()
     if _should_reconstruct_global_coverage(
         regularized_polygons,
         grid=grid,
@@ -14254,7 +14372,9 @@ def condition_polygon_coverage(
             short_edge_threshold=meshing_scale,
             enabled=options.enable_logging,
         )
+    _record_stage_seconds(diagnostics, "reconstructed", stage_started_at)
 
+    stage_started_at = time.perf_counter()
     final_polygons: list[Polygon] = []
     final_sources: list[list[int]] = []
     for geometry, indices in zip(rebuilt_geometries, rebuilt_sources):
@@ -14280,7 +14400,9 @@ def condition_polygon_coverage(
             short_edge_threshold=meshing_scale,
             enabled=options.enable_logging,
         )
+    _record_stage_seconds(diagnostics, "presimplify", stage_started_at)
 
+    stage_started_at = time.perf_counter()
     final_polygons, final_sources = _repair_local_defects(
         final_polygons,
         final_sources,
@@ -14303,7 +14425,9 @@ def condition_polygon_coverage(
             short_edge_threshold=meshing_scale,
             enabled=options.enable_logging,
         )
+    _record_stage_seconds(diagnostics, "local_defect_repaired", stage_started_at)
 
+    stage_started_at = time.perf_counter()
     coverage_eval_cache = _CoverageEvalCache()
     coverage_reference_union = _cached_union(coverage_eval_cache, final_polygons)
     coverage_simplify_tolerance = _derive_coverage_simplify_tolerance(options)
@@ -14452,9 +14576,11 @@ def condition_polygon_coverage(
             short_edge_threshold=meshing_scale,
             enabled=options.enable_logging,
         )
+    _record_stage_seconds(diagnostics, "coverage_simplified", stage_started_at)
 
     final_polygons = chosen_branch.source_reclaimed_polygons
     final_sources = chosen_branch.source_reclaimed_source_map
+    stage_started_at = time.perf_counter()
     source_reclaimed_metrics = _record_stage_metrics(
         diagnostics,
         "source_reclaimed",
@@ -14468,9 +14594,11 @@ def condition_polygon_coverage(
             short_edge_threshold=meshing_scale,
             enabled=options.enable_logging,
         )
+    _record_stage_seconds(diagnostics, "source_reclaimed", stage_started_at)
 
     final_polygons = chosen_branch.small_component_absorbed_polygons
     final_sources = chosen_branch.small_component_absorbed_source_map
+    stage_started_at = time.perf_counter()
     small_component_absorbed_metrics = _record_stage_metrics(
         diagnostics,
         "small_component_absorbed",
@@ -14484,9 +14612,11 @@ def condition_polygon_coverage(
             short_edge_threshold=meshing_scale,
             enabled=options.enable_logging,
         )
+    _record_stage_seconds(diagnostics, "small_component_absorbed", stage_started_at)
 
     final_polygons = chosen_branch.boundary_regularized_polygons
     final_sources = chosen_branch.boundary_regularized_source_map
+    stage_started_at = time.perf_counter()
     boundary_regularized_metrics = _record_stage_metrics(
         diagnostics,
         "boundary_regularized",
@@ -14500,9 +14630,11 @@ def condition_polygon_coverage(
             short_edge_threshold=meshing_scale,
             enabled=options.enable_logging,
         )
+    _record_stage_seconds(diagnostics, "boundary_regularized", stage_started_at)
 
     final_polygons = chosen_branch.clearance_regularized_polygons
     final_sources = chosen_branch.clearance_regularized_source_map
+    stage_started_at = time.perf_counter()
     clearance_regularized_metrics = _record_stage_metrics(
         diagnostics,
         "clearance_regularized",
@@ -14516,9 +14648,11 @@ def condition_polygon_coverage(
             short_edge_threshold=meshing_scale,
             enabled=options.enable_logging,
         )
+    _record_stage_seconds(diagnostics, "clearance_regularized", stage_started_at)
 
     final_polygons = chosen_branch.source_coordinate_recovered_polygons
     final_sources = chosen_branch.source_coordinate_recovered_source_map
+    stage_started_at = time.perf_counter()
     source_coordinate_recovered_metrics = _record_stage_metrics(
         diagnostics,
         "source_coordinate_recovered",
@@ -14532,9 +14666,15 @@ def condition_polygon_coverage(
             short_edge_threshold=meshing_scale,
             enabled=options.enable_logging,
         )
+    _record_stage_seconds(
+        diagnostics,
+        "source_coordinate_recovered",
+        stage_started_at,
+    )
 
     final_polygons = chosen_branch.post_recovery_regularized_polygons
     final_sources = chosen_branch.post_recovery_regularized_source_map
+    stage_started_at = time.perf_counter()
     post_recovery_regularized_metrics = _record_stage_metrics(
         diagnostics,
         "post_recovery_regularized",
@@ -14548,9 +14688,11 @@ def condition_polygon_coverage(
             short_edge_threshold=meshing_scale,
             enabled=options.enable_logging,
         )
+    _record_stage_seconds(diagnostics, "post_recovery_regularized", stage_started_at)
 
     final_polygons = chosen_branch.coverage_contact_regularized_polygons
     final_sources = chosen_branch.coverage_contact_regularized_source_map
+    stage_started_at = time.perf_counter()
     coverage_contact_regularized_metrics = _record_stage_metrics(
         diagnostics,
         "coverage_contact_regularized",
@@ -14564,9 +14706,15 @@ def condition_polygon_coverage(
             short_edge_threshold=meshing_scale,
             enabled=options.enable_logging,
         )
+    _record_stage_seconds(
+        diagnostics,
+        "coverage_contact_regularized",
+        stage_started_at,
+    )
 
     final_polygons = chosen_branch.coverage_meshing_regularized_polygons
     final_sources = chosen_branch.coverage_meshing_regularized_source_map
+    stage_started_at = time.perf_counter()
     coverage_meshing_regularized_metrics = _record_stage_metrics(
         diagnostics,
         "coverage_meshing_regularized",
@@ -14580,6 +14728,11 @@ def condition_polygon_coverage(
             short_edge_threshold=meshing_scale,
             enabled=options.enable_logging,
         )
+    _record_stage_seconds(
+        diagnostics,
+        "coverage_meshing_regularized",
+        stage_started_at,
+    )
 
     final_polygons = chosen_branch.final_output_polygons
     final_sources = chosen_branch.final_output_source_map
@@ -14587,12 +14740,14 @@ def condition_polygon_coverage(
     diagnostics["output_count"] = len(final_polygons)
     diagnostics["overlap_area_after"] = _coverage_overlap_area(final_polygons)
     diagnostics["min_clearance_after"] = _minimum_clearance(final_polygons)
+    stage_started_at = time.perf_counter()
     _record_stage_metrics(
         diagnostics,
         "final_output",
         final_polygons,
         short_edge_threshold=meshing_scale,
     )
+    _record_stage_seconds(diagnostics, "final_output", stage_started_at)
     _log_conditioning_summary(
         diagnostics,
         short_edge_threshold=meshing_scale,
