@@ -142,7 +142,7 @@ def _resolve_phenomenon_id(
     else:
         raise ValueError(f"Unknown air quality phenomenon: {phenomenon_str}")
 
-    # Default fallback - treat as ID
+    # Upstream unreachable (non-strict mode): treat input as a raw ID
     return phenomenon_str
 
 
