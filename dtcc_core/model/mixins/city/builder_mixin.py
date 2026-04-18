@@ -182,6 +182,7 @@ class CityBuilderMixin:
         sort_triangles: bool = False,
         treat_lod0_as_holes: bool = False,
         mesher: str | None = None,
+        pipeline_mode: str = "compat",
     ) -> Mesh:
         """
             Build a city surface mesh from the buildings and terrain.
@@ -228,6 +229,7 @@ class CityBuilderMixin:
             sort_triangles=sort_triangles,
             treat_lod0_as_holes=treat_lod0_as_holes,
             mesher=mesher,
+            pipeline_mode=pipeline_mode,
         )
         return surface_mesh
 
@@ -241,6 +243,7 @@ class CityBuilderMixin:
         min_building_area: float = 15.0,
         merge_tolerance: float = 0.5,
         mesher: str | None = None,
+        pipeline_mode: str = "compat",
     ) -> Mesh:
         """Build a flat 2D triangular mesh of the city with building markers.
 
@@ -291,6 +294,7 @@ class CityBuilderMixin:
             min_building_area=min_building_area,
             merge_tolerance=merge_tolerance,
             mesher=mesher,
+            pipeline_mode=pipeline_mode,
         )
         return flat_mesh
 
@@ -313,6 +317,7 @@ class CityBuilderMixin:
         aspect_ratio_threshold: float = 10.0,
         debug_step: int = 7,
         mesher: str | None = None,
+        pipeline_mode: str = "compat",
     ) -> VolumeMesh:
         """Build a 3D tetrahedral volume mesh for the city.
 
@@ -385,6 +390,7 @@ class CityBuilderMixin:
             aspect_ratio_threshold=aspect_ratio_threshold,
             debug_step=debug_step,
             mesher=mesher,
+            pipeline_mode=pipeline_mode,
         )
         return volume_mesh
 

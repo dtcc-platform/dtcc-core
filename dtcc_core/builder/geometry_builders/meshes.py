@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 from collections import defaultdict
-from typing import Any, Dict, Optional, List, Sequence
+from typing import Any, Dict, Optional, List, Literal, Sequence
 import numpy as np
 from shapely import BufferJoinStyle
 from shapely.errors import GEOSException
@@ -102,6 +102,9 @@ _TETGEN_SHELL_HORIZONTAL_REFINEMENT_MAX_SLOPE_RATIO = 0.1
 _TETGEN_SHELL_HORIZONTAL_REFINEMENT_MIN_NORMAL_Z = 0.995
 _TETGEN_SHELL_HORIZONTAL_REFINEMENT_MIN_GROUND_RELIEF = 0.25
 _TETGEN_SHELL_HORIZONTAL_REFINEMENT_MAX_ROUNDS = 2
+_TETGEN_STAGE4_SHELL_SELECTION_MIN_GROUND_RELIEF = 0.6
+_TETGEN_STAGE4_SHELL_SELECTION_MAX_BASE_ELEMENT_QUALITY = 3.0e-2
+_TETGEN_STAGE4_SHELL_SELECTION_MIN_BASE_ASPECT_RATIO = 3.0e1
 _STAGE_CONTRACT_MIN_EDGE_RATIO_WARNING = 1.0e-3
 _STAGE_CONTRACT_MIN_AREA_RATIO_WARNING = 1.0e-6
 _STAGE_CONTRACT_MIN_TRI_QUALITY_WARNING = 2.0e-2
@@ -114,6 +117,8 @@ _TETGEN_DEBUG_CLOSURE_MARKERS = {
     "top": -105,
 }
 
+MeshingPipelineMode = Literal["compat", "strict"]
+
 
 def _normalize_max_mesh_size(max_mesh_size: float | None) -> float | None:
     if max_mesh_size is None:
@@ -122,6 +127,32 @@ def _normalize_max_mesh_size(max_mesh_size: float | None) -> float | None:
     if value <= 0.0:
         return None
     return value
+
+
+def _normalize_meshing_pipeline_mode(
+    pipeline_mode: str | None,
+) -> MeshingPipelineMode:
+    if pipeline_mode is None:
+        return "compat"
+    normalized = str(pipeline_mode).strip().lower()
+    if normalized not in {"compat", "strict"}:
+        raise ValueError(
+            "pipeline_mode must be one of: compat, strict."
+        )
+    return normalized
+
+
+def _raise_stage_contract_errors(
+    stage_label: str,
+    contract: dict[str, Any],
+) -> None:
+    errors = [str(message) for message in contract.get("errors", []) if str(message)]
+    if not errors:
+        return
+    summary = "; ".join(errors[:3])
+    if len(errors) > 3:
+        summary += f"; ... ({len(errors)} total)"
+    raise ValueError(f"{stage_label} contract failed: {summary}")
 
 
 def _audit_json_ready(value: Any) -> Any:
@@ -388,7 +419,12 @@ def _conditioned_footprint_contract_audit(
             metrics=metrics,
         )
 
-    tolerance = max(float(declared_scale) * 1.0e-6, 1.0e-9)
+    contract_tolerance = max(
+        float(diagnostics.get("output_grid", 0.0) or 0.0),
+        float(diagnostics.get("precision_grid", 0.0) or 0.0),
+        float(declared_scale) * 1.0e-6,
+        1.0e-9,
+    )
     signature = cleaning_footprints._coverage_defect_signature(
         polygons,
         target_scale=float(declared_scale),
@@ -397,7 +433,7 @@ def _conditioned_footprint_contract_audit(
     scale_contract_ok = cleaning_footprints._coverage_signature_satisfies_scale_contract(
         signature,
         target_scale=float(declared_scale),
-        grid=tolerance,
+        grid=contract_tolerance,
     )
     requirements.update(
         {
@@ -405,11 +441,12 @@ def _conditioned_footprint_contract_audit(
             "no_pair_issues": int(signature.pair_issue_count) == 0,
             "no_ring_contacts": int(signature.ring_contact_count) == 0,
             "no_short_edges": int(signature.short_edge_count) == 0,
-            "min_clearance_respected": clearance_deficit <= tolerance,
+            "min_clearance_respected": clearance_deficit <= contract_tolerance,
         }
     )
     metrics.update(
         {
+            "contract_tolerance": float(contract_tolerance),
             "min_clearance": float(signature.min_clearance or 0.0),
             "clearance_deficit": float(clearance_deficit),
             "pair_issue_count": int(signature.pair_issue_count),
@@ -1521,7 +1558,107 @@ def _should_accept_shell_refinement_disabled_retry(
 ) -> bool:
     original_score = _tetgen_quality_retry_score(original_snapshot)
     retry_score = _tetgen_quality_retry_score(retry_snapshot)
-    return retry_score < original_score * _TETGEN_SHELL_REFINEMENT_RETRY_MIN_SCORE_IMPROVEMENT
+    if (
+        retry_score
+        < original_score * _TETGEN_SHELL_REFINEMENT_RETRY_MIN_SCORE_IMPROVEMENT
+    ):
+        return True
+
+    original_aspect_ratio = float(original_snapshot.get("aspect_ratio_max", 1.0))
+    retry_aspect_ratio = float(retry_snapshot.get("aspect_ratio_max", 1.0))
+    original_element_quality = float(
+        original_snapshot.get("element_quality_min", 1.0)
+    )
+    retry_element_quality = float(retry_snapshot.get("element_quality_min", 1.0))
+    original_min_edge = float(original_snapshot.get("min_edge_length", 0.0))
+    retry_min_edge = float(retry_snapshot.get("min_edge_length", 0.0))
+    original_high_aspect_ratio_count = float(
+        original_snapshot.get("high_aspect_ratio_count", 0.0)
+    )
+    retry_high_aspect_ratio_count = float(
+        retry_snapshot.get("high_aspect_ratio_count", 0.0)
+    )
+    original_low_quality_count = float(original_snapshot.get("low_quality_count", 0.0))
+    retry_low_quality_count = float(retry_snapshot.get("low_quality_count", 0.0))
+
+    return (
+        retry_score < original_score
+        and retry_aspect_ratio <= original_aspect_ratio * 1.001
+        and retry_element_quality >= original_element_quality * 0.999
+        and retry_min_edge >= original_min_edge * 0.999
+        and retry_high_aspect_ratio_count <= original_high_aspect_ratio_count
+        and retry_low_quality_count <= original_low_quality_count
+    )
+
+
+def _tetgen_shell_refinement_disabled_stats() -> dict[str, int | float | bool]:
+    return {
+        "enabled": False,
+        "applied": False,
+        "rounds": 0,
+        "candidate_faces": 0,
+        "candidate_roof_faces": 0,
+        "candidate_ground_faces": 0,
+        "ground_relief_median": 0.0,
+        "ground_refinement_enabled": False,
+        "split_edges": 0,
+        "added_vertices": 0,
+        "added_faces": 0,
+        "edge_threshold": 0.0,
+    }
+
+
+def _surface_shell_stage_audit(
+    surface_mesh: Mesh,
+    *,
+    mesher: str,
+    reference_length: float,
+    shell_refinement_stats: dict[str, int | float | bool],
+) -> dict[str, Any]:
+    surface_shell_audit = {
+        "mesher": mesher,
+        **_triangle_mesh_audit(surface_mesh),
+    }
+    surface_shell_audit["tetgen_shell_horizontal_refinement"] = _audit_json_ready(
+        shell_refinement_stats
+    )
+    surface_shell_audit["contract"] = _triangle_mesh_contract_from_audit(
+        surface_shell_audit,
+        reference_length=reference_length,
+        require_markers=True,
+        stage_label="Surface shell",
+    )
+    return surface_shell_audit
+
+
+def _should_apply_tetgen_shell_refinement_in_stage4(
+    base_shell_audit: dict[str, Any],
+    refined_shell_audit: dict[str, Any],
+    *,
+    shell_refinement_stats: dict[str, int | float | bool],
+) -> tuple[bool, str]:
+    del refined_shell_audit
+
+    if not bool(shell_refinement_stats.get("applied")):
+        return False, "no_candidate_edges"
+
+    candidate_ground_faces = int(shell_refinement_stats.get("candidate_ground_faces", 0))
+    if candidate_ground_faces <= 0:
+        return False, "roof_only_candidates"
+
+    ground_relief = float(shell_refinement_stats.get("ground_relief_median", 0.0))
+    if ground_relief < _TETGEN_STAGE4_SHELL_SELECTION_MIN_GROUND_RELIEF:
+        return False, "ground_relief_below_threshold"
+
+    base_element_quality = float(base_shell_audit.get("element_quality_min", 1.0))
+    base_aspect_ratio = float(base_shell_audit.get("aspect_ratio_max", 1.0))
+    if (
+        base_element_quality > _TETGEN_STAGE4_SHELL_SELECTION_MAX_BASE_ELEMENT_QUALITY
+        and base_aspect_ratio < _TETGEN_STAGE4_SHELL_SELECTION_MIN_BASE_ASPECT_RATIO
+    ):
+        return False, "base_shell_already_stable"
+
+    return True, "ground_relief_and_shell_quality"
 
 
 def _is_unavailable_flat_mesher_error(backend: str, exc: RuntimeError) -> bool:
@@ -1569,6 +1706,7 @@ def _prepare_city_meshing_inputs(
     merge_buildings: bool,
     max_mesh_size: float | None,
     cleaning_diagnostics: bool,
+    pipeline_mode: MeshingPipelineMode = "compat",
 ) -> tuple[object, object, list[Surface], list[list[int]], list[float], dict[str, Any]]:
     terrain, terrain_raster = _require_city_terrain_raster(
         city,
@@ -1589,6 +1727,7 @@ def _prepare_city_meshing_inputs(
             merge_buildings=merge_buildings,
             max_mesh_size=max_mesh_size,
             cleaning_diagnostics=cleaning_diagnostics,
+            pipeline_mode=pipeline_mode,
         )
     )
 
@@ -1752,6 +1891,7 @@ def _prepare_surface_ground_regions(
     footprint_diagnostics: dict[str, Any],
     cleaning_diagnostics: bool,
     treat_lod0_as_holes: bool,
+    pipeline_mode: MeshingPipelineMode = "compat",
 ) -> tuple[
     list[Surface],
     list[int],
@@ -1760,6 +1900,7 @@ def _prepare_surface_ground_regions(
     dict[int, float],
     list[np.ndarray],
 ]:
+    pipeline_mode = _normalize_meshing_pipeline_mode(pipeline_mode)
     source_surfaces: list[Surface] = []
     source_directives: list[int] = []
     source_resolutions: list[float] = []
@@ -1802,46 +1943,48 @@ def _prepare_surface_ground_regions(
         max_mesh_size=max_mesh_size,
         min_building_detail=min_building_detail,
         cleaning_diagnostics=cleaning_diagnostics,
+        pipeline_mode=pipeline_mode,
     )
 
-    shell_regularization_scale = max(
-        float(footprint_diagnostics.get("output_grid", 0.0) or 0.0),
-        float(min_building_detail),
-        1e-6,
-    )
-    shell_hole_clearance = shell_regularization_scale
-    removed_shell_holes = 0
-    stabilized_building_polygons: list[Polygon] = []
-    for polygon in conditioned_building_polygons:
-        stabilized_polygon, removed_count = _stabilize_shell_building_polygon(
-            polygon,
-            min_hole_clearance=shell_hole_clearance,
+    if pipeline_mode != "strict":
+        shell_regularization_scale = max(
+            float(footprint_diagnostics.get("output_grid", 0.0) or 0.0),
+            float(min_building_detail),
+            1e-6,
         )
-        stabilized_building_polygons.append(stabilized_polygon)
-        removed_shell_holes += removed_count
-    conditioned_building_polygons = stabilized_building_polygons
-    if removed_shell_holes > 0:
-        warning(
-            "Removed %d low-clearance interior ring(s) from shell building regions before 3D extrusion.",
-            removed_shell_holes,
-        )
+        shell_hole_clearance = shell_regularization_scale
+        removed_shell_holes = 0
+        stabilized_building_polygons: list[Polygon] = []
+        for polygon in conditioned_building_polygons:
+            stabilized_polygon, removed_count = _stabilize_shell_building_polygon(
+                polygon,
+                min_hole_clearance=shell_hole_clearance,
+            )
+            stabilized_building_polygons.append(stabilized_polygon)
+            removed_shell_holes += removed_count
+        conditioned_building_polygons = stabilized_building_polygons
+        if removed_shell_holes > 0:
+            warning(
+                "Removed %d low-clearance interior ring(s) from shell building regions before 3D extrusion.",
+                removed_shell_holes,
+            )
 
-    shell_polygon_clearance = shell_regularization_scale
-    (
-        conditioned_building_polygons,
-        conditioned_building_sources,
-        regularized_shell_polygons,
-    ) = _regularize_shell_building_regions_with_sources(
-        polygons=conditioned_building_polygons,
-        sources=conditioned_building_sources,
-        min_clearance=shell_polygon_clearance,
-        precision_grid=float(footprint_diagnostics.get("output_grid", 0.0) or 0.0),
-    )
-    if regularized_shell_polygons > 0:
-        warning(
-            "Regularized %d low-clearance shell polygon(s) before 3D extrusion.",
+        shell_polygon_clearance = shell_regularization_scale
+        (
+            conditioned_building_polygons,
+            conditioned_building_sources,
             regularized_shell_polygons,
+        ) = _regularize_shell_building_regions_with_sources(
+            polygons=conditioned_building_polygons,
+            sources=conditioned_building_sources,
+            min_clearance=shell_polygon_clearance,
+            precision_grid=float(footprint_diagnostics.get("output_grid", 0.0) or 0.0),
         )
+        if regularized_shell_polygons > 0:
+            warning(
+                "Regularized %d low-clearance shell polygon(s) before 3D extrusion.",
+                regularized_shell_polygons,
+            )
 
     active_surfaces: list[Surface] = []
     meshing_directives: list[int] = []
@@ -1886,6 +2029,7 @@ def _prepare_surface_ground_regions(
         footprint_diagnostics=footprint_diagnostics,
         cleaning_diagnostics=cleaning_diagnostics,
         preserve_shared_boundaries=True,
+        pipeline_mode=pipeline_mode,
     )
     coverage_building_polygons = [
         orient(polygon, sign=1.0)
@@ -2896,6 +3040,7 @@ def _condition_flat_mesh_ground_polygons(
     footprint_diagnostics: dict[str, Any],
     cleaning_diagnostics: bool,
     preserve_shared_boundaries: bool = False,
+    pipeline_mode: MeshingPipelineMode = "compat",
 ) -> list[Polygon]:
     ground_domain = box(*bounds)
     normalized_buildings = [
@@ -2912,7 +3057,7 @@ def _condition_flat_mesh_ground_polygons(
         ground_domain = ground_domain.difference(unary_union(excluded_polygons))
 
     ground_polygons = _iter_polygon_components(ground_domain)
-    if preserve_shared_boundaries:
+    if preserve_shared_boundaries or pipeline_mode == "strict":
         return [
             orient(polygon, sign=1.0)
             for polygon in ground_polygons
@@ -2977,6 +3122,7 @@ def _condition_flat_mesh_building_regions(
     max_mesh_size: float | None,
     min_building_detail: float,
     cleaning_diagnostics: bool,
+    pipeline_mode: MeshingPipelineMode = "compat",
 ) -> tuple[list[Polygon], list[int]]:
     polygons, markers, _sources = _condition_flat_mesh_building_regions_with_sources(
         building_polygons=building_polygons,
@@ -2985,6 +3131,7 @@ def _condition_flat_mesh_building_regions(
         max_mesh_size=max_mesh_size,
         min_building_detail=min_building_detail,
         cleaning_diagnostics=cleaning_diagnostics,
+        pipeline_mode=pipeline_mode,
     )
     return polygons, markers
 
@@ -2997,11 +3144,30 @@ def _condition_flat_mesh_building_regions_with_sources(
     max_mesh_size: float | None,
     min_building_detail: float,
     cleaning_diagnostics: bool,
+    pipeline_mode: MeshingPipelineMode = "compat",
 ) -> tuple[list[Polygon], list[int], list[list[int]]]:
     if len(building_polygons) != len(building_markers):
         raise ValueError("building_markers length must match building_polygons length")
     if not building_polygons:
         return [], [], []
+
+    pipeline_mode = _normalize_meshing_pipeline_mode(pipeline_mode)
+    if pipeline_mode == "strict":
+        resolved_polygons: list[Polygon] = []
+        resolved_markers: list[int] = []
+        resolved_sources: list[list[int]] = []
+        for index, (polygon, marker) in enumerate(zip(building_polygons, building_markers)):
+            if polygon is None or polygon.is_empty:
+                continue
+            resolved_polygons.append(orient(polygon, sign=1.0))
+            resolved_markers.append(int(marker))
+            resolved_sources.append([index])
+        if cleaning_diagnostics:
+            debug(
+                "Flat mesh building coverage strict pass-through: "
+                f"{len(building_polygons)} -> {len(resolved_polygons)} polygons"
+            )
+        return resolved_polygons, resolved_markers, resolved_sources
 
     output_grid = float(footprint_diagnostics.get("output_grid", 0.0) or 0.0)
     result = condition_polygon_coverage(
@@ -3135,6 +3301,7 @@ def _condition_flat_mesh_coverage_regions(
     min_building_detail: float,
     footprint_diagnostics: dict[str, Any],
     cleaning_diagnostics: bool,
+    pipeline_mode: MeshingPipelineMode = "compat",
 ) -> tuple[list[Polygon], list[int]]:
     (
         building_polygons,
@@ -3147,6 +3314,7 @@ def _condition_flat_mesh_coverage_regions(
         max_mesh_size=max_mesh_size,
         min_building_detail=min_building_detail,
         cleaning_diagnostics=cleaning_diagnostics,
+        pipeline_mode=pipeline_mode,
     )
 
     ground_polygons = _condition_flat_mesh_ground_polygons(
@@ -3156,6 +3324,7 @@ def _condition_flat_mesh_coverage_regions(
         max_mesh_size=max_mesh_size,
         footprint_diagnostics=footprint_diagnostics,
         cleaning_diagnostics=cleaning_diagnostics,
+        pipeline_mode=pipeline_mode,
     )
     region_polygons = [*ground_polygons, *building_polygons]
     region_markers = [-2] * len(ground_polygons) + [int(marker) for marker in building_markers]
@@ -3499,7 +3668,10 @@ def _condition_meshing_footprints(
     merge_buildings: bool,
     max_mesh_size: float | None,
     cleaning_diagnostics: bool = True,
+    pipeline_mode: MeshingPipelineMode = "compat",
 ) -> tuple[list[Surface], list[list[int]], list[float], dict[str, Any]]:
+    pipeline_mode = _normalize_meshing_pipeline_mode(pipeline_mode)
+
     if not buildings:
         warning("No buildings to preprocess.")
         return [], [], [], {}
@@ -3556,14 +3728,21 @@ def _condition_meshing_footprints(
     conservative_roof_count = 0
     conservative_roof_max_span = 0.0
 
-    mesher_ready_polygons, mesher_ready_source_map = _normalize_mesher_ready_coverage(
-        result.polygons,
-        result.source_map,
-        declared_scale=mesher_scale,
-        min_hole_area=min_building_detail**2,
-        diagnostics=result.diagnostics,
-        cleaning_diagnostics=cleaning_diagnostics,
-    )
+    if pipeline_mode == "strict":
+        mesher_ready_polygons = list(result.polygons)
+        mesher_ready_source_map = [list(indices) for indices in result.source_map]
+        result.diagnostics["mesher_ready_coverage_revalidation_enabled"] = False
+        result.diagnostics["mesher_ready_coverage_revalidation_attempted"] = False
+    else:
+        mesher_ready_polygons, mesher_ready_source_map = _normalize_mesher_ready_coverage(
+            result.polygons,
+            result.source_map,
+            declared_scale=mesher_scale,
+            min_hole_area=min_building_detail**2,
+            diagnostics=result.diagnostics,
+            cleaning_diagnostics=cleaning_diagnostics,
+        )
+        result.diagnostics["mesher_ready_coverage_revalidation_enabled"] = True
 
     conditioned_surfaces: list[Surface] = []
     conditioned_source_map: list[list[int]] = []
@@ -3592,6 +3771,7 @@ def _condition_meshing_footprints(
             subdomain_resolution.append(min(height, normalized_mesh_size))
 
     diagnostics = dict(result.diagnostics)
+    diagnostics["pipeline_mode"] = pipeline_mode
     diagnostics["conservative_merged_roof_count"] = conservative_roof_count
     diagnostics["conservative_merged_roof_max_span"] = conservative_roof_max_span
 
@@ -3629,6 +3809,7 @@ def build_city_surface_mesh(
     report_mesh_quality: bool = True,
     cleaning_diagnostics: bool = True,
     mesher: str | None = None,
+    pipeline_mode: str = "compat",
 ) -> Mesh:
     """
     Build a surface mesh from the surfaces of the buildings in the city.
@@ -3672,6 +3853,7 @@ def build_city_surface_mesh(
     -------
     `model.Mesh`
     """
+    pipeline_mode = _normalize_meshing_pipeline_mode(pipeline_mode)
     max_mesh_size = _normalize_max_mesh_size(max_mesh_size)
     terrain, terrain_raster, building_footprints, source_map, conditioned_resolution, conditioning_diagnostics = (
         _prepare_city_meshing_inputs(
@@ -3683,8 +3865,21 @@ def build_city_surface_mesh(
             merge_buildings=merge_buildings,
             max_mesh_size=max_mesh_size,
             cleaning_diagnostics=cleaning_diagnostics,
+            pipeline_mode=pipeline_mode,
         )
     )
+
+    if pipeline_mode == "strict":
+        footprint_contract = _conditioned_footprint_contract_audit(
+            surfaces=building_footprints,
+            declared_scale=max(
+                float(min_building_detail),
+                float(conditioning_diagnostics.get("output_grid", 0.0) or 0.0),
+                1.0e-9,
+            ),
+            diagnostics=conditioning_diagnostics,
+        )
+        _raise_stage_contract_errors("Conditioned footprints", footprint_contract)
 
     report_progress(
         percent=10,
@@ -3725,6 +3920,7 @@ def build_city_surface_mesh(
         footprint_diagnostics=conditioning_diagnostics,
         cleaning_diagnostics=cleaning_diagnostics,
         treat_lod0_as_holes=treat_lod0_as_holes,
+        pipeline_mode=pipeline_mode,
     )
 
     ground_mesh, active_mesher = _build_ground_mesh_from_coverage(
@@ -3739,6 +3935,18 @@ def build_city_surface_mesh(
         region_triangle_sizes=region_triangle_sizes,
         add_halo_markers=False,
     )
+    if pipeline_mode == "strict":
+        ground_mesh_contract = _triangle_mesh_contract_from_audit(
+            {"mesher": active_mesher, **_triangle_mesh_audit(ground_mesh)},
+            reference_length=max(
+                float(min_building_detail),
+                float(conditioning_diagnostics.get("output_grid", 0.0) or 0.0),
+                1.0e-9,
+            ),
+            require_markers=True,
+            stage_label="Ground mesh",
+        )
+        _raise_stage_contract_errors("Ground mesh", ground_mesh_contract)
     ground_mesh, building_surfaces, building_lod_switches = (
         _split_ground_mesh_building_components(
             ground_mesh=ground_mesh,
@@ -3786,6 +3994,8 @@ def build_city_flat_mesh(
     report_mesh_quality: bool = True,
     cleaning_diagnostics: bool = True,
     mesher: str | None = None,
+    pipeline_mode: str = "compat",
+    stage_audit: dict[str, Any] | None = None,
 ) -> Mesh:
     """Build a flat 2D triangular mesh of the city with building footprints marked.
 
@@ -3838,88 +4048,157 @@ def build_city_flat_mesh(
         If the city has no terrain data.
     """
     # Validate terrain (needed for domain bounds)
-    terrain = city.terrain
-    if terrain is None:
-        raise ValueError("City has no terrain data. Please compute terrain first.")
-    max_mesh_size = _normalize_max_mesh_size(max_mesh_size)
-
-    buildings = city.buildings
-    if not buildings:
-        warning("City has no buildings.")
-
-    building_footprints, conditioned_source_map, _subdomain_resolution, diagnostics = (
-        _condition_meshing_footprints(
-            buildings,
-            lod=lod,
-            min_building_detail=min_building_detail,
-            min_building_area=min_building_area,
-            merge_tolerance=merge_tolerance,
-            merge_buildings=merge_buildings,
-            max_mesh_size=max_mesh_size,
-            cleaning_diagnostics=cleaning_diagnostics,
-        )
-    )
-
-    footprint_count = len(building_footprints)
-    if footprint_count == 0:
-        warning(
-            "No valid building footprints available after conditioning. "
-            "Building ground-only flat mesh."
-        )
-
-    report_progress(
-        percent=10,
-        message=f"Preprocessed {footprint_count} building footprints",
-    )
-    debug(f"Flat meshing footprint diagnostics: {diagnostics}")
-
-    building_polygons = [footprint.to_polygon(simplify=0.0) for footprint in building_footprints]
-    marker_lookup: dict[tuple[int, ...], int] = {}
-    building_markers: list[int] = []
-    for source_indices in conditioned_source_map:
-        marker_key = tuple(source_indices)
-        if marker_key not in marker_lookup:
-            marker_lookup[marker_key] = len(marker_lookup)
-        building_markers.append(marker_lookup[marker_key])
-    flat_mesh_bounds = (
-        terrain.bounds.xmin,
-        terrain.bounds.ymin,
-        terrain.bounds.xmax,
-        terrain.bounds.ymax,
-    )
-    region_polygons, region_markers = _condition_flat_mesh_coverage_regions(
-        bounds=flat_mesh_bounds,
-        building_polygons=building_polygons,
-        building_markers=building_markers,
-        hole_polygons=[],
-        max_mesh_size=max_mesh_size,
-        min_building_detail=min_building_detail,
-        footprint_diagnostics=diagnostics,
-        cleaning_diagnostics=cleaning_diagnostics,
-    )
-
-    flat_mesh, active_mesher = _build_ground_mesh_from_coverage(
-        region_polygons=region_polygons,
-        region_markers=region_markers,
-        bounds=flat_mesh_bounds,
+    pipeline_mode = _normalize_meshing_pipeline_mode(pipeline_mode)
+    attempt = _start_stage_audit_attempt(
+        stage_audit,
+        label=None,
+        retry_reason=None,
+        backend="flat",
+        merge_buildings=merge_buildings,
+        requested_mesher=mesher,
         max_mesh_size=max_mesh_size,
         min_mesh_angle=min_mesh_angle,
-        mesher=mesher,
-        sort_triangles=True,
+        domain_height=0.0,
+        tetgen_switches=None,
+        tetgen_switch_overrides=None,
     )
-    report_progress(percent=30, message=f"Building city flat mesh ({active_mesher})...")
+    try:
+        terrain = city.terrain
+        if terrain is None:
+            raise ValueError("City has no terrain data. Please compute terrain first.")
+        max_mesh_size = _normalize_max_mesh_size(max_mesh_size)
 
-    if report_mesh_quality:
-        from dtcc_core.model.mixins.mesh.quality import (
-            triangle_mesh_quality,
-            report_quality,
+        buildings = city.buildings
+        if not buildings:
+            warning("City has no buildings.")
+
+        building_footprints, conditioned_source_map, _subdomain_resolution, diagnostics = (
+            _condition_meshing_footprints(
+                buildings,
+                lod=lod,
+                min_building_detail=min_building_detail,
+                min_building_area=min_building_area,
+                merge_tolerance=merge_tolerance,
+                merge_buildings=merge_buildings,
+                max_mesh_size=max_mesh_size,
+                cleaning_diagnostics=cleaning_diagnostics,
+                pipeline_mode=pipeline_mode,
+            )
+        )
+        conditioned_scale = max(
+            float(min_building_detail),
+            float(diagnostics.get("output_grid", 0.0) or 0.0),
+            1.0e-9,
+        )
+        footprint_contract = _conditioned_footprint_contract_audit(
+            surfaces=building_footprints,
+            declared_scale=conditioned_scale,
+            diagnostics=diagnostics,
+        )
+        if attempt is not None:
+            _record_stage_audit_stage(
+                attempt,
+                "conditioned_footprints",
+                {
+                    "footprints": _surface_collection_audit(
+                        building_footprints,
+                        source_map=conditioned_source_map,
+                    ),
+                    "diagnostics": _audit_json_ready(dict(diagnostics)),
+                    "contract": footprint_contract,
+                },
+            )
+        if pipeline_mode == "strict":
+            _raise_stage_contract_errors("Conditioned footprints", footprint_contract)
+
+        footprint_count = len(building_footprints)
+        if footprint_count == 0:
+            warning(
+                "No valid building footprints available after conditioning. "
+                "Building ground-only flat mesh."
+            )
+
+        report_progress(
+            percent=10,
+            message=f"Preprocessed {footprint_count} building footprints",
+        )
+        debug(f"Flat meshing footprint diagnostics: {diagnostics}")
+
+        building_polygons = [footprint.to_polygon(simplify=0.0) for footprint in building_footprints]
+        marker_lookup: dict[tuple[int, ...], int] = {}
+        building_markers: list[int] = []
+        for source_indices in conditioned_source_map:
+            marker_key = tuple(source_indices)
+            if marker_key not in marker_lookup:
+                marker_lookup[marker_key] = len(marker_lookup)
+            building_markers.append(marker_lookup[marker_key])
+        flat_mesh_bounds = (
+            terrain.bounds.xmin,
+            terrain.bounds.ymin,
+            terrain.bounds.xmax,
+            terrain.bounds.ymax,
+        )
+        region_polygons, region_markers = _condition_flat_mesh_coverage_regions(
+            bounds=flat_mesh_bounds,
+            building_polygons=building_polygons,
+            building_markers=building_markers,
+            hole_polygons=[],
+            max_mesh_size=max_mesh_size,
+            min_building_detail=min_building_detail,
+            footprint_diagnostics=diagnostics,
+            cleaning_diagnostics=cleaning_diagnostics,
+            pipeline_mode=pipeline_mode,
         )
 
-        q = triangle_mesh_quality(flat_mesh.vertices, flat_mesh.faces)
-        report_quality(q, log_fn=info)
+        flat_mesh, active_mesher = _build_ground_mesh_from_coverage(
+            region_polygons=region_polygons,
+            region_markers=region_markers,
+            bounds=flat_mesh_bounds,
+            max_mesh_size=max_mesh_size,
+            min_mesh_angle=min_mesh_angle,
+            mesher=mesher,
+            sort_triangles=True,
+        )
+        ground_mesh_audit = {
+            "mesher": active_mesher,
+            **_triangle_mesh_audit(flat_mesh),
+        }
+        ground_mesh_audit["contract"] = _triangle_mesh_contract_from_audit(
+            ground_mesh_audit,
+            reference_length=conditioned_scale,
+            require_markers=True,
+            stage_label="Flat mesh",
+        )
+        if attempt is not None:
+            _record_stage_audit_stage(
+                attempt,
+                "ground_mesh",
+                ground_mesh_audit,
+            )
+        if pipeline_mode == "strict":
+            _raise_stage_contract_errors(
+                "Flat mesh",
+                ground_mesh_audit["contract"],
+            )
+        report_progress(percent=30, message=f"Building city flat mesh ({active_mesher})...")
 
-    report_progress(percent=100, message="City flat mesh complete")
-    return flat_mesh
+        if report_mesh_quality:
+            from dtcc_core.model.mixins.mesh.quality import (
+                triangle_mesh_quality,
+                report_quality,
+            )
+
+            q = triangle_mesh_quality(flat_mesh.vertices, flat_mesh.faces)
+            report_quality(q, log_fn=info)
+
+        report_progress(percent=100, message="City flat mesh complete")
+        _mark_stage_audit_success(stage_audit, attempt)
+        if stage_audit is not None:
+            flat_mesh.stage_audit = stage_audit
+        return flat_mesh
+    except Exception as exc:
+        _mark_stage_audit_failure(attempt, exc)
+        raise
 
 
 def build_city_volume_mesh(
@@ -3949,6 +4228,7 @@ def build_city_volume_mesh(
     tetgen_quality_failure_output_dir: str | Path | None = None,
     tetgen_quality_failure_output_stem: str | None = None,
     stage_audit: dict[str, Any] | None = None,
+    pipeline_mode: str = "compat",
     _stage_audit_attempt_label: str | None = None,
     _stage_audit_retry_reason: str | None = None,
     _enable_tetgen_shell_refinement: bool = True,
@@ -4081,6 +4361,13 @@ def build_city_volume_mesh(
     ...                               merge_buildings=False,
     ...                               boundary_face_markers=True)
     """
+    pipeline_mode = _normalize_meshing_pipeline_mode(pipeline_mode)
+    compat_mode = pipeline_mode == "compat"
+    if not compat_mode:
+        # Keep deterministic shell refinement available in strict mode as part
+        # of stage-4 shell preparation. The TetGen preserve-surface retry
+        # remains a compatibility fallback.
+        _allow_tetgen_preserve_retry = False
 
     max_mesh_size = _normalize_max_mesh_size(max_mesh_size)
     attempt = _start_stage_audit_attempt(
@@ -4101,6 +4388,7 @@ def build_city_volume_mesh(
             _enable_tetgen_shell_refinement
         )
         attempt["config"]["smoothing"] = int(smoothing)
+        attempt["config"]["pipeline_mode"] = pipeline_mode
     terrain, terrain_raster, building_footprints, source_map, subdomain_resolution, diagnostics = (
         _prepare_city_meshing_inputs(
             city,
@@ -4111,6 +4399,7 @@ def build_city_volume_mesh(
             merge_buildings=merge_buildings,
             max_mesh_size=max_mesh_size,
             cleaning_diagnostics=cleaning_diagnostics,
+            pipeline_mode=pipeline_mode,
         )
     )
     conditioned_scale = max(
@@ -4135,6 +4424,15 @@ def build_city_volume_mesh(
                     diagnostics=diagnostics,
                 ),
             },
+        )
+    if pipeline_mode == "strict":
+        _raise_stage_contract_errors(
+            "Conditioned footprints",
+            _conditioned_footprint_contract_audit(
+                surfaces=building_footprints,
+                declared_scale=conditioned_scale,
+                diagnostics=diagnostics,
+            ),
         )
     if not building_footprints:
         warning(
@@ -4179,6 +4477,7 @@ def build_city_volume_mesh(
                 footprint_diagnostics=diagnostics,
                 cleaning_diagnostics=cleaning_diagnostics,
                 treat_lod0_as_holes=False,
+                pipeline_mode=pipeline_mode,
             )
             if attempt is not None:
                 _record_stage_audit_stage(
@@ -4217,23 +4516,28 @@ def build_city_volume_mesh(
                     meshing_directives=surface_directives,
                 )
             )
+            ground_mesh_audit = {
+                "mesher": surface_mesher,
+                **_triangle_mesh_audit(surface_ground_mesh),
+            }
+            ground_mesh_audit["contract"] = _triangle_mesh_contract_from_audit(
+                ground_mesh_audit,
+                reference_length=conditioned_scale,
+                require_markers=True,
+                stage_label="Ground mesh",
+            )
             if attempt is not None:
-                ground_mesh_audit = {
-                    "mesher": surface_mesher,
-                    **_triangle_mesh_audit(surface_ground_mesh),
-                }
-                ground_mesh_audit["contract"] = _triangle_mesh_contract_from_audit(
-                    ground_mesh_audit,
-                    reference_length=conditioned_scale,
-                    require_markers=True,
-                    stage_label="Ground mesh",
-                )
                 _record_stage_audit_stage(
                     attempt,
                     "ground_mesh",
                     ground_mesh_audit,
                 )
-            surface_mesh = _build_city_surface_mesh_from_ground_mesh(
+            if pipeline_mode == "strict":
+                _raise_stage_contract_errors(
+                    "Ground mesh",
+                    ground_mesh_audit["contract"],
+                )
+            base_surface_mesh = _build_city_surface_mesh_from_ground_mesh(
                 ground_mesh=surface_ground_mesh,
                 terrain_raster=terrain_raster,
                 building_surfaces=surface_buildings,
@@ -4241,57 +4545,130 @@ def build_city_volume_mesh(
                 smoothing=smoothing,
                 merge_meshes=True,
             )
+            base_shell_refinement_stats = _tetgen_shell_refinement_disabled_stats()
+            base_surface_shell_audit = _surface_shell_stage_audit(
+                base_surface_mesh,
+                mesher=surface_mesher,
+                reference_length=conditioned_scale,
+                shell_refinement_stats=base_shell_refinement_stats,
+            )
+            surface_mesh = base_surface_mesh
+            shell_refinement_stats = base_shell_refinement_stats
+            surface_shell_audit = base_surface_shell_audit
+
             if _enable_tetgen_shell_refinement:
                 (
-                    surface_mesh,
-                    shell_refinement_stats,
+                    refined_surface_mesh,
+                    candidate_shell_refinement_stats,
                 ) = _refine_near_horizontal_surface_faces_for_tetgen(
-                    surface_mesh,
+                    base_surface_mesh,
                     max_mesh_size=max_mesh_size,
                 )
-            else:
-                shell_refinement_stats = {
-                    "enabled": False,
-                    "applied": False,
-                    "rounds": 0,
-                    "candidate_faces": 0,
-                    "candidate_roof_faces": 0,
-                    "candidate_ground_faces": 0,
-                    "ground_relief_median": 0.0,
-                    "ground_refinement_enabled": False,
-                    "split_edges": 0,
-                    "added_vertices": 0,
-                    "added_faces": 0,
-                    "edge_threshold": 0.0,
-                }
-            if shell_refinement_stats["applied"]:
-                info(
-                    "Refined near-horizontal TetGen shell faces: rounds=%d "
-                    "candidate_faces=%d split_edges=%d added_vertices=%d added_faces=%d",
-                    shell_refinement_stats["rounds"],
-                    shell_refinement_stats["candidate_faces"],
-                    shell_refinement_stats["split_edges"],
-                    shell_refinement_stats["added_vertices"],
-                    shell_refinement_stats["added_faces"],
-                )
-            if attempt is not None:
-                surface_shell_audit = {
-                    "mesher": surface_mesher,
-                    **_triangle_mesh_audit(surface_mesh),
-                }
-                surface_shell_audit["tetgen_shell_horizontal_refinement"] = (
-                    _audit_json_ready(shell_refinement_stats)
-                )
-                surface_shell_audit["contract"] = _triangle_mesh_contract_from_audit(
-                    surface_shell_audit,
+                if candidate_shell_refinement_stats["applied"]:
+                    info(
+                        "Refined near-horizontal TetGen shell faces: rounds=%d "
+                        "candidate_faces=%d split_edges=%d added_vertices=%d added_faces=%d",
+                        candidate_shell_refinement_stats["rounds"],
+                        candidate_shell_refinement_stats["candidate_faces"],
+                        candidate_shell_refinement_stats["split_edges"],
+                        candidate_shell_refinement_stats["added_vertices"],
+                        candidate_shell_refinement_stats["added_faces"],
+                    )
+                refined_surface_shell_audit = _surface_shell_stage_audit(
+                    refined_surface_mesh,
+                    mesher=surface_mesher,
                     reference_length=conditioned_scale,
-                    require_markers=True,
-                    stage_label="Surface shell",
+                    shell_refinement_stats=candidate_shell_refinement_stats,
                 )
+                if pipeline_mode == "strict":
+                    use_refined_shell, shell_selection_reason = (
+                        _should_apply_tetgen_shell_refinement_in_stage4(
+                            base_surface_shell_audit,
+                            refined_surface_shell_audit,
+                            shell_refinement_stats=candidate_shell_refinement_stats,
+                        )
+                    )
+                    if use_refined_shell:
+                        surface_mesh = refined_surface_mesh
+                        shell_refinement_stats = candidate_shell_refinement_stats
+                        surface_shell_audit = refined_surface_shell_audit
+                    surface_shell_audit["tetgen_shell_horizontal_refinement_selection"] = (
+                        _audit_json_ready(
+                            {
+                                "selected_variant": (
+                                    "refined" if use_refined_shell else "unrefined"
+                                ),
+                                "reason": shell_selection_reason,
+                                "base_surface_shell": {
+                                    "num_faces": int(
+                                        base_surface_shell_audit.get("num_faces", 0)
+                                    ),
+                                    "element_quality_min": float(
+                                        base_surface_shell_audit.get(
+                                            "element_quality_min", 0.0
+                                        )
+                                    ),
+                                    "aspect_ratio_max": float(
+                                        base_surface_shell_audit.get(
+                                            "aspect_ratio_max", 0.0
+                                        )
+                                    ),
+                                },
+                                "refined_surface_shell": {
+                                    "num_faces": int(
+                                        refined_surface_shell_audit.get("num_faces", 0)
+                                    ),
+                                    "element_quality_min": float(
+                                        refined_surface_shell_audit.get(
+                                            "element_quality_min", 0.0
+                                        )
+                                    ),
+                                    "aspect_ratio_max": float(
+                                        refined_surface_shell_audit.get(
+                                            "aspect_ratio_max", 0.0
+                                        )
+                                    ),
+                                },
+                                "candidate_refinement": candidate_shell_refinement_stats,
+                            }
+                        )
+                    )
+                    info(
+                        "Stage-4 TetGen shell selector chose %s shell (%s): "
+                        "ground_relief=%.3g m candidate_ground_faces=%d base_EQ=%.3g "
+                        "base_AR=%.3g",
+                        "refined" if use_refined_shell else "unrefined",
+                        shell_selection_reason,
+                        float(
+                            candidate_shell_refinement_stats.get(
+                                "ground_relief_median", 0.0
+                            )
+                        ),
+                        int(
+                            candidate_shell_refinement_stats.get(
+                                "candidate_ground_faces", 0
+                            )
+                        ),
+                        float(
+                            base_surface_shell_audit.get("element_quality_min", 0.0)
+                        ),
+                        float(base_surface_shell_audit.get("aspect_ratio_max", 0.0)),
+                    )
+                else:
+                    surface_mesh = refined_surface_mesh
+                    shell_refinement_stats = candidate_shell_refinement_stats
+                    surface_shell_audit = refined_surface_shell_audit
+
+            if attempt is not None:
                 _record_stage_audit_stage(
                     attempt,
                     "surface_shell",
                     surface_shell_audit,
+                )
+            if pipeline_mode == "strict":
+                _raise_stage_contract_errors(
+                    "Surface shell",
+                    surface_shell_audit["contract"],
                 )
             report_progress(
                 percent=55, message="Surface mesh built, preparing volume mesh..."
@@ -4341,27 +4718,29 @@ def build_city_volume_mesh(
                 attempt["config"]["effective_tetgen_switches"] = _audit_json_ready(
                     switches_params
                 )
+            plc_audit = {
+                "mesher": surface_mesher,
+                **_tetgen_plc_audit(
+                    surface_mesh=surface_mesh,
+                    closure_mesh=surface_ground_mesh,
+                    top_height=domain_height,
+                    top_cap_backend=surface_mesher,
+                    top_cap_max_mesh_size=max_mesh_size,
+                    top_cap_min_mesh_angle=min_mesh_angle,
+                ),
+            }
+            plc_audit["contract"] = _tetgen_plc_contract_from_audit(
+                plc_audit,
+                reference_length=conditioned_scale,
+            )
             if attempt is not None:
-                plc_audit = {
-                    "mesher": surface_mesher,
-                    **_tetgen_plc_audit(
-                        surface_mesh=surface_mesh,
-                        closure_mesh=surface_ground_mesh,
-                        top_height=domain_height,
-                        top_cap_backend=surface_mesher,
-                        top_cap_max_mesh_size=max_mesh_size,
-                        top_cap_min_mesh_angle=min_mesh_angle,
-                    ),
-                }
-                plc_audit["contract"] = _tetgen_plc_contract_from_audit(
-                    plc_audit,
-                    reference_length=conditioned_scale,
-                )
                 _record_stage_audit_stage(
                     attempt,
                     "plc",
                     plc_audit,
                 )
+            if pipeline_mode == "strict":
+                _raise_stage_contract_errors("TetGen PLC", plc_audit["contract"])
 
             report_progress(percent=60, message="Running TetGen volume mesher...")
             try:
@@ -4379,7 +4758,7 @@ def build_city_volume_mesh(
                 )
             except RuntimeError as exc:
                 msg = str(exc)
-                if merge_buildings and "self-intersections" in msg:
+                if compat_mode and merge_buildings and "self-intersections" in msg:
                     warning(
                         "TetGen failed with self-intersections after merging buildings; "
                         "retrying once with merge_buildings=False."
@@ -4423,12 +4802,15 @@ def build_city_volume_mesh(
                             else tetgen_quality_failure_output_stem
                         ),
                         stage_audit=stage_audit,
+                        pipeline_mode=pipeline_mode,
                         _stage_audit_attempt_label="retry-no-merge",
                         _stage_audit_retry_reason="merged-building self-intersections",
                         _enable_tetgen_shell_refinement=_enable_tetgen_shell_refinement,
                         _allow_tetgen_preserve_retry=_allow_tetgen_preserve_retry,
                     )
                 if (
+                    compat_mode
+                    and
                     _allow_tetgen_preserve_retry
                     and
                     not preserve_surface_requested
@@ -4482,6 +4864,7 @@ def build_city_volume_mesh(
                             else tetgen_quality_failure_output_stem
                         ),
                         stage_audit=stage_audit,
+                        pipeline_mode=pipeline_mode,
                         _stage_audit_attempt_label="retry-preserve",
                         _stage_audit_retry_reason="TetGen internal refinement error",
                         _enable_tetgen_shell_refinement=_enable_tetgen_shell_refinement,
@@ -4508,6 +4891,8 @@ def build_city_volume_mesh(
             accepted_shell_refinement_retry = False
             selected_tetgen_switch_overrides = tetgen_switch_overrides
             if (
+                compat_mode
+                and
                 _allow_tetgen_preserve_retry
                 and
                 not preserve_surface_requested
@@ -4561,6 +4946,7 @@ def build_city_volume_mesh(
                             else tetgen_quality_failure_output_stem
                         ),
                         stage_audit=stage_audit,
+                        pipeline_mode=pipeline_mode,
                         _stage_audit_attempt_label="retry-preserve-quality",
                         _stage_audit_retry_reason="severe boundary slivers",
                         _enable_tetgen_shell_refinement=_enable_tetgen_shell_refinement,
@@ -4642,7 +5028,7 @@ def build_city_volume_mesh(
                 )
             else:
                 shell_edge_split_edges = set()
-            if shell_edge_split_edges:
+            if compat_mode and shell_edge_split_edges:
                 refined_surface_mesh = _refine_triangle_mesh_edges(
                     surface_mesh,
                     split_edges=shell_edge_split_edges,
@@ -4764,7 +5150,7 @@ def build_city_volume_mesh(
                 )
             else:
                 ground_edge_split_edges = set()
-            if ground_edge_split_edges:
+            if compat_mode and ground_edge_split_edges:
                 retry_debug_paths = debug_paths
                 try:
                     refined_ground_mesh = _refine_triangle_mesh_edges(
@@ -4876,7 +5262,7 @@ def build_city_volume_mesh(
                             "Ground-edge-split retry did not sufficiently improve "
                             "quality; keeping the current mesh."
                         )
-            if _should_retry_tetgen_without_shell_refinement(
+            if compat_mode and _should_retry_tetgen_without_shell_refinement(
                 current_quality_snapshot,
                 shell_refinement_stats=shell_refinement_stats,
             ):
@@ -4921,6 +5307,7 @@ def build_city_volume_mesh(
                             else tetgen_quality_failure_output_stem
                         ),
                         stage_audit=stage_audit,
+                        pipeline_mode=pipeline_mode,
                         _stage_audit_attempt_label="retry-no-shell-refinement-quality",
                         _stage_audit_retry_reason="severe quality after shell refinement",
                         _enable_tetgen_shell_refinement=False,
@@ -5089,6 +5476,7 @@ def build_city_volume_mesh(
             footprint_diagnostics=diagnostics,
             cleaning_diagnostics=cleaning_diagnostics,
             treat_lod0_as_holes=False,
+            pipeline_mode=pipeline_mode,
         )
         if attempt is not None:
             _record_stage_audit_stage(
@@ -5127,21 +5515,26 @@ def build_city_volume_mesh(
                 meshing_directives=_meshing_directives,
             )
         )
+        ground_mesh_audit = {
+            "mesher": active_mesher,
+            **_triangle_mesh_audit(ground_mesh),
+        }
+        ground_mesh_audit["contract"] = _triangle_mesh_contract_from_audit(
+            ground_mesh_audit,
+            reference_length=conditioned_scale,
+            require_markers=True,
+            stage_label="Ground mesh",
+        )
         if attempt is not None:
-            ground_mesh_audit = {
-                "mesher": active_mesher,
-                **_triangle_mesh_audit(ground_mesh),
-            }
-            ground_mesh_audit["contract"] = _triangle_mesh_contract_from_audit(
-                ground_mesh_audit,
-                reference_length=conditioned_scale,
-                require_markers=True,
-                stage_label="Ground mesh",
-            )
             _record_stage_audit_stage(
                 attempt,
                 "ground_mesh",
                 ground_mesh_audit,
+            )
+        if pipeline_mode == "strict":
+            _raise_stage_contract_errors(
+                "Ground mesh",
+                ground_mesh_audit["contract"],
             )
         _ground_mesh = mesh_to_builder_mesh(ground_mesh)
         _surfaces = [create_builder_surface(surface) for surface in active_surfaces]

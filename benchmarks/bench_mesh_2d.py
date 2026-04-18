@@ -138,15 +138,36 @@ def config_slug(max_mesh_size: float | None, min_mesh_angle: float) -> str:
     return f"{size_slug}.mina-{slug_token(min_mesh_angle)}"
 
 
+def run_slug(
+    meshers: list[str],
+    *,
+    max_mesh_size: float | None,
+    min_mesh_angle: float,
+    pipeline_mode: str,
+    stage_audit_enabled: bool,
+) -> str:
+    return ".".join(
+        [
+            meshers_slug(meshers),
+            config_slug(max_mesh_size, min_mesh_angle),
+            f"pipeline-{pipeline_mode}",
+            "audit" if stage_audit_enabled else "noaudit",
+        ]
+    )
+
+
 def results_file_path(
     output_dir: Path,
     meshers: list[str],
     *,
     max_mesh_size: float | None,
     min_mesh_angle: float,
+    pipeline_mode: str,
+    stage_audit_enabled: bool,
 ) -> Path:
-    del meshers, max_mesh_size, min_mesh_angle
-    return output_dir / "results.json"
+    return output_dir / (
+        f"results.{run_slug(meshers, max_mesh_size=max_mesh_size, min_mesh_angle=min_mesh_angle, pipeline_mode=pipeline_mode, stage_audit_enabled=stage_audit_enabled)}.json"
+    )
 
 
 def overview_plot_path(
@@ -155,17 +176,41 @@ def overview_plot_path(
     *,
     max_mesh_size: float | None,
     min_mesh_angle: float,
+    pipeline_mode: str,
+    stage_audit_enabled: bool,
 ) -> Path:
-    del meshers, max_mesh_size, min_mesh_angle
-    return output_dir / "overview.png"
+    return output_dir / (
+        f"overview.{run_slug(meshers, max_mesh_size=max_mesh_size, min_mesh_angle=min_mesh_angle, pipeline_mode=pipeline_mode, stage_audit_enabled=stage_audit_enabled)}.png"
+    )
 
 
-def summary_text_path(output_dir: Path) -> Path:
-    return output_dir / "summary.txt"
+def summary_text_path(
+    output_dir: Path,
+    meshers: list[str],
+    *,
+    max_mesh_size: float | None,
+    min_mesh_angle: float,
+    pipeline_mode: str,
+    stage_audit_enabled: bool,
+) -> Path:
+    return output_dir / (
+        f"summary.{run_slug(meshers, max_mesh_size=max_mesh_size, min_mesh_angle=min_mesh_angle, pipeline_mode=pipeline_mode, stage_audit_enabled=stage_audit_enabled)}.txt"
+    )
 
 
-def case_output_dir(output_dir: Path, number: int) -> Path:
-    return output_dir / f"{number:03d}"
+def case_output_dir(
+    output_dir: Path,
+    number: int,
+    meshers: list[str],
+    *,
+    max_mesh_size: float | None,
+    min_mesh_angle: float,
+    pipeline_mode: str,
+    stage_audit_enabled: bool,
+) -> Path:
+    return output_dir / (
+        f"{number:03d}.{run_slug(meshers, max_mesh_size=max_mesh_size, min_mesh_angle=min_mesh_angle, pipeline_mode=pipeline_mode, stage_audit_enabled=stage_audit_enabled)}"
+    )
 
 
 def case_plot_path(
@@ -175,9 +220,21 @@ def case_plot_path(
     *,
     max_mesh_size: float | None,
     min_mesh_angle: float,
+    pipeline_mode: str,
+    stage_audit_enabled: bool,
 ) -> Path:
-    del meshers, max_mesh_size, min_mesh_angle
-    return case_output_dir(output_dir, number) / "comparison.png"
+    return (
+        case_output_dir(
+            output_dir,
+            number,
+            meshers,
+            max_mesh_size=max_mesh_size,
+            min_mesh_angle=min_mesh_angle,
+            pipeline_mode=pipeline_mode,
+            stage_audit_enabled=stage_audit_enabled,
+        )
+        / "comparison.png"
+    )
 
 
 def case_mesh_path(
@@ -185,11 +242,78 @@ def case_mesh_path(
     number: int,
     mesher: str,
     *,
+    meshers: list[str],
     max_mesh_size: float | None,
     min_mesh_angle: float,
+    pipeline_mode: str,
+    stage_audit_enabled: bool,
 ) -> Path:
-    del max_mesh_size, min_mesh_angle
-    return case_output_dir(output_dir, number) / f"mesh_{mesher}.vtu"
+    return (
+        case_output_dir(
+            output_dir,
+            number,
+            meshers,
+            max_mesh_size=max_mesh_size,
+            min_mesh_angle=min_mesh_angle,
+            pipeline_mode=pipeline_mode,
+            stage_audit_enabled=stage_audit_enabled,
+        )
+        / f"mesh_{mesher}.vtu"
+    )
+
+
+def selected_stage_audit_attempt(stage_audit: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not stage_audit:
+        return None
+
+    attempts = stage_audit.get("attempts", [])
+    if not isinstance(attempts, list) or not attempts:
+        return None
+
+    selected_index = stage_audit.get("selected_attempt_index")
+    if isinstance(selected_index, int) and 0 <= selected_index < len(attempts):
+        attempt = attempts[selected_index]
+        return attempt if isinstance(attempt, dict) else None
+
+    selected_label = stage_audit.get("selected_attempt_label")
+    if selected_label is not None:
+        for attempt in attempts:
+            if isinstance(attempt, dict) and attempt.get("label") == selected_label:
+                return attempt
+
+    attempt = attempts[-1]
+    return attempt if isinstance(attempt, dict) else None
+
+
+def selected_stage_contracts(stage_audit: dict[str, Any] | None) -> dict[str, str]:
+    attempt = selected_stage_audit_attempt(stage_audit)
+    if attempt is None:
+        return {}
+
+    statuses: dict[str, str] = {}
+    for stage_name, stage_data in attempt.get("stages", {}).items():
+        if not isinstance(stage_data, dict):
+            continue
+        contract = stage_data.get("contract", {})
+        if not isinstance(contract, dict):
+            continue
+        status = str(contract.get("status", "")).strip().lower()
+        if status:
+            statuses[str(stage_name)] = status
+    return statuses
+
+
+def format_stage_contracts(stage_audit: dict[str, Any] | None) -> str:
+    statuses = selected_stage_contracts(stage_audit)
+    if not statuses:
+        return "-"
+
+    preferred_order = ("conditioned_footprints", "ground_mesh", "surface_shell", "plc", "volume_mesh")
+    ordered_stage_names = [
+        *[name for name in preferred_order if name in statuses],
+        *sorted(name for name in statuses if name not in preferred_order),
+    ]
+    return ", ".join(f"{name}={statuses[name]}" for name in ordered_stage_names)
 
 
 def grading_metrics(mesh: Mesh) -> dict[str, float | int]:
@@ -392,6 +516,11 @@ def print_case_summary(case_record: dict[str, Any], meshers: list[str]) -> None:
             title="Scale / grading",
         )
     )
+    for mesher in meshers:
+        result = case_record["meshers"].get(mesher, {})
+        stage_contracts = format_stage_contracts(result.get("stage_audit"))
+        if stage_contracts != "-":
+            print(f"{mesher} contracts: {stage_contracts}")
     print(f"Preparation time: {case_record['prepare_time']:.2f}s")
     if case_record.get("plot_file"):
         print(f"Comparison plot: {case_record['plot_file']}")
@@ -533,10 +662,14 @@ def run_mesher_for_case(
     mesher: str,
     output_dir: Path,
     *,
+    meshers: list[str],
     max_mesh_size: float | None,
     min_mesh_angle: float,
+    pipeline_mode: str,
+    stage_audit_enabled: bool,
 ) -> tuple[dict[str, Any], Mesh | None]:
     start = time.perf_counter()
+    stage_audit: dict[str, Any] | None = {} if stage_audit_enabled else None
 
     try:
         mesh = dtcc_core.builder.build_city_flat_mesh(
@@ -549,6 +682,8 @@ def run_mesher_for_case(
             min_building_area=MIN_BUILDING_AREA,
             report_mesh_quality=False,
             mesher=mesher,
+            pipeline_mode=pipeline_mode,
+            stage_audit=stage_audit,
         )
         quality = json_ready(mesh.quality())
         metrics = mesh_metrics(mesh, quality)
@@ -556,30 +691,41 @@ def run_mesher_for_case(
             output_dir,
             number,
             mesher,
+            meshers=meshers,
             max_mesh_size=max_mesh_size,
             min_mesh_angle=min_mesh_angle,
+            pipeline_mode=pipeline_mode,
+            stage_audit_enabled=stage_audit_enabled,
         )
         mesh.save(str(mesh_path))
 
+        result: dict[str, Any] = {
+            "status": "success",
+            "time": round(time.perf_counter() - start, 2),
+            "file": mesh_path.name,
+            "quality": quality,
+            "metrics": metrics,
+        }
+        if stage_audit_enabled and stage_audit is not None:
+            result["stage_audit"] = json_ready(stage_audit)
         return (
-            {
-                "status": "success",
-                "time": round(time.perf_counter() - start, 2),
-                "file": mesh_path.name,
-                "quality": quality,
-                "metrics": metrics,
-            },
+            result,
             mesh,
         )
     except Exception as exc:
+        result = {
+            "status": "failed",
+            "time": round(time.perf_counter() - start, 2),
+            "error": error_details(exc),
+        }
+        if stage_audit_enabled and stage_audit is not None:
+            result["stage_audit"] = json_ready(stage_audit)
         return (
-            {
-                "status": "failed",
-                "time": round(time.perf_counter() - start, 2),
-                "error": error_details(exc),
-            },
+            result,
             None,
         )
+
+
 def marker_categories(markers: np.ndarray | None, num_faces: int) -> np.ndarray:
     if markers is None or len(markers) != num_faces:
         return np.zeros(num_faces, dtype=np.int32)
@@ -783,6 +929,7 @@ def plot_overview(
     *,
     max_mesh_size: float | None,
     min_mesh_angle: float,
+    pipeline_mode: str,
 ) -> None:
     plt, _, _, _ = load_plot_modules()
 
@@ -810,7 +957,8 @@ def plot_overview(
 
     fig.suptitle(
         f"Mesh quality overview by mesher\n"
-        f"{mesh_size_label(max_mesh_size)}, min angle={min_mesh_angle:g}°"
+        f"{mesh_size_label(max_mesh_size)}, min angle={min_mesh_angle:g}°, "
+        f"pipeline={pipeline_mode}"
     )
     fig.savefig(output_path, dpi=180)
     plt.close(fig)
@@ -821,13 +969,24 @@ def compact_case_status(record: dict[str, Any], meshers: list[str]) -> str:
     for mesher in meshers:
         result = record["meshers"].get(mesher, {})
         if result.get("status") != "success":
-            parts.append(f"{mesher}: FAIL")
+            error = result.get("error", {})
+            failure = f"{mesher}: FAIL"
+            stage_contracts = format_stage_contracts(result.get("stage_audit"))
+            if stage_contracts != "-":
+                failure += f" ({stage_contracts})"
+            elif error.get("type"):
+                failure += f" ({error.get('type')})"
+            parts.append(failure)
             continue
         metrics = result["metrics"]
-        parts.append(
+        summary = (
             f"{mesher}: ARmax {metrics['aspect_ratio_max']:.2f}, "
             f"edge p01 {metrics['edge_length_p01']:.2f}m"
         )
+        stage_contracts = format_stage_contracts(result.get("stage_audit"))
+        if stage_contracts != "-":
+            summary += f", contracts [{stage_contracts}]"
+        parts.append(summary)
     return "  ".join(parts)
 
 
@@ -849,6 +1008,8 @@ def build_summary_report(
     *,
     max_mesh_size: float | None,
     min_mesh_angle: float,
+    pipeline_mode: str,
+    stage_audit_enabled: bool,
     elapsed_seconds: float,
 ) -> str:
     case_rows: list[list[Any]] = []
@@ -928,7 +1089,10 @@ def build_summary_report(
 
     lines = [
         "bench_mesh_2d",
-        f"Config: {mesh_size_label(max_mesh_size)}, min angle={min_mesh_angle:g}°",
+        (
+            f"Config: {mesh_size_label(max_mesh_size)}, min angle={min_mesh_angle:g}°, "
+            f"pipeline={pipeline_mode}, stage-audit={'on' if stage_audit_enabled else 'off'}"
+        ),
         f"Elapsed time: {elapsed_seconds:.1f}s",
         "",
         format_console_table(
@@ -955,10 +1119,20 @@ def run_case(
     *,
     max_mesh_size: float | None,
     min_mesh_angle: float,
+    pipeline_mode: str,
+    stage_audit_enabled: bool,
 ) -> dict[str, Any]:
     ix, iy = case_to_grid(number)
     bounds = make_bounds(ix, iy)
-    case_dir = case_output_dir(output_dir, number)
+    case_dir = case_output_dir(
+        output_dir,
+        number,
+        meshers,
+        max_mesh_size=max_mesh_size,
+        min_mesh_angle=min_mesh_angle,
+        pipeline_mode=pipeline_mode,
+        stage_audit_enabled=stage_audit_enabled,
+    )
     case_dir.mkdir(parents=True, exist_ok=True)
 
     city, prepare_time = prepare_city(bounds)
@@ -970,6 +1144,8 @@ def run_case(
         "config": {
             "max_mesh_size": max_mesh_size,
             "min_mesh_angle": min_mesh_angle,
+            "pipeline_mode": pipeline_mode,
+            "stage_audit_enabled": stage_audit_enabled,
         },
         "meshers": {},
     }
@@ -981,8 +1157,11 @@ def run_case(
             city,
             mesher,
             output_dir,
+            meshers=meshers,
             max_mesh_size=max_mesh_size,
             min_mesh_angle=min_mesh_angle,
+            pipeline_mode=pipeline_mode,
+            stage_audit_enabled=stage_audit_enabled,
         )
         case_record["meshers"][mesher] = json_ready(result)
         if mesh is not None:
@@ -995,6 +1174,8 @@ def run_case(
             meshers,
             max_mesh_size=max_mesh_size,
             min_mesh_angle=min_mesh_angle,
+            pipeline_mode=pipeline_mode,
+            stage_audit_enabled=stage_audit_enabled,
         )
         plot_case_comparison(
             plot_path,
@@ -1010,7 +1191,7 @@ def run_case(
         case_record["plot_file"] = plot_path.name
 
     summary_path = case_dir / "summary.json"
-    with summary_path.open("w") as handle:
+    with summary_path.open("w", encoding="utf-8") as handle:
         json.dump(json_ready(case_record), handle, indent=2)
 
     return case_record
@@ -1063,7 +1244,20 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Display the side-by-side comparison plot for a single case.",
     )
+    parser.add_argument(
+        "--pipeline-mode",
+        choices=("compat", "strict"),
+        default="compat",
+        help="Meshing pipeline mode. Use 'strict' to disable builder-side rescue logic and fail on stage contracts.",
+    )
+    parser.add_argument(
+        "--stage-audit",
+        action="store_true",
+        help="Record per-stage contract/audit data for conditioned footprints and ground mesh.",
+    )
     args = parser.parse_args()
+    if args.pipeline_mode == "strict":
+        args.stage_audit = True
 
     return args
 
@@ -1083,6 +1277,8 @@ def main() -> None:
             "meshers": meshers,
             "max_mesh_size": args.max_mesh_size,
             "min_mesh_angle": MIN_MESH_ANGLE,
+            "pipeline_mode": args.pipeline_mode,
+            "stage_audit_enabled": args.stage_audit,
         },
     }
     results_path = results_file_path(
@@ -1090,6 +1286,8 @@ def main() -> None:
         meshers,
         max_mesh_size=args.max_mesh_size,
         min_mesh_angle=MIN_MESH_ANGLE,
+        pipeline_mode=args.pipeline_mode,
+        stage_audit_enabled=args.stage_audit,
     )
     results = load_results(results_path)
     total = NX * NY
@@ -1102,7 +1300,9 @@ def main() -> None:
 
     print(
         f"Configuration: {mesh_size_label(args.max_mesh_size)}, "
-        f"min angle={MIN_MESH_ANGLE:g}°"
+        f"min angle={MIN_MESH_ANGLE:g}°, "
+        f"pipeline={args.pipeline_mode}, "
+        f"stage-audit={'on' if args.stage_audit else 'off'}"
     )
     print()
 
@@ -1155,6 +1355,8 @@ def main() -> None:
             show_plot=bool(args.show_plot and len(selected_cases) == 1),
             max_mesh_size=args.max_mesh_size,
             min_mesh_angle=MIN_MESH_ANGLE,
+            pipeline_mode=args.pipeline_mode,
+            stage_audit_enabled=args.stage_audit,
         )
         results[number] = case_record
         save_results(results_path, results, metadata=metadata)
@@ -1189,6 +1391,8 @@ def main() -> None:
             meshers,
             max_mesh_size=args.max_mesh_size,
             min_mesh_angle=MIN_MESH_ANGLE,
+            pipeline_mode=args.pipeline_mode,
+            stage_audit_enabled=args.stage_audit,
         )
         plot_overview(
             summary_results,
@@ -1196,6 +1400,7 @@ def main() -> None:
             overview_path,
             max_mesh_size=args.max_mesh_size,
             min_mesh_angle=MIN_MESH_ANGLE,
+            pipeline_mode=args.pipeline_mode,
         )
     total_elapsed = time.perf_counter() - benchmark_start
     save_results(results_path, results, metadata=metadata)
@@ -1204,9 +1409,18 @@ def main() -> None:
         meshers,
         max_mesh_size=args.max_mesh_size,
         min_mesh_angle=MIN_MESH_ANGLE,
+        pipeline_mode=args.pipeline_mode,
+        stage_audit_enabled=args.stage_audit,
         elapsed_seconds=total_elapsed,
     )
-    summary_path = summary_text_path(output_dir)
+    summary_path = summary_text_path(
+        output_dir,
+        meshers,
+        max_mesh_size=args.max_mesh_size,
+        min_mesh_angle=MIN_MESH_ANGLE,
+        pipeline_mode=args.pipeline_mode,
+        stage_audit_enabled=args.stage_audit,
+    )
     summary_path.write_text(report + "\n")
     print()
     print(report)

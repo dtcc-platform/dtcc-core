@@ -3445,6 +3445,68 @@ def test_should_retry_tetgen_without_shell_refinement_requires_roof_faces():
     )
 
 
+def test_should_apply_tetgen_shell_refinement_in_stage4_requires_ground_relief():
+    base_shell_audit = {
+        "element_quality_min": 0.028,
+        "aspect_ratio_max": 35.0,
+    }
+    refined_shell_audit = {
+        "element_quality_min": 0.12,
+        "aspect_ratio_max": 8.0,
+    }
+
+    assert meshes_module._should_apply_tetgen_shell_refinement_in_stage4(
+        base_shell_audit,
+        refined_shell_audit,
+        shell_refinement_stats={
+            "applied": True,
+            "candidate_ground_faces": 250,
+            "ground_relief_median": 0.82,
+        },
+    ) == (True, "ground_relief_and_shell_quality")
+
+    assert meshes_module._should_apply_tetgen_shell_refinement_in_stage4(
+        base_shell_audit,
+        refined_shell_audit,
+        shell_refinement_stats={
+            "applied": True,
+            "candidate_ground_faces": 250,
+            "ground_relief_median": 0.3,
+        },
+    ) == (False, "ground_relief_below_threshold")
+
+    assert meshes_module._should_apply_tetgen_shell_refinement_in_stage4(
+        {
+            "element_quality_min": 0.05,
+            "aspect_ratio_max": 20.0,
+        },
+        refined_shell_audit,
+        shell_refinement_stats={
+            "applied": True,
+            "candidate_ground_faces": 250,
+            "ground_relief_median": 0.82,
+        },
+    ) == (False, "base_shell_already_stable")
+
+
+def test_should_apply_tetgen_shell_refinement_in_stage4_accepts_relief_driven_case():
+    assert meshes_module._should_apply_tetgen_shell_refinement_in_stage4(
+        {
+            "element_quality_min": 0.028,
+            "aspect_ratio_max": 35.0,
+        },
+        {
+            "element_quality_min": 0.028,
+            "aspect_ratio_max": 35.0,
+        },
+        shell_refinement_stats={
+            "applied": True,
+            "candidate_ground_faces": 262,
+            "ground_relief_median": 0.82,
+        },
+    ) == (True, "ground_relief_and_shell_quality")
+
+
 def test_build_city_volume_mesh_accepts_no_shell_refinement_quality_retry(
     monkeypatch, tmp_path
 ):
@@ -3593,6 +3655,11 @@ def test_build_city_volume_mesh_accepts_no_shell_refinement_quality_retry(
     )
     monkeypatch.setattr(
         meshes_module,
+        "_tetgen_plc_contract_from_audit",
+        lambda *args, **kwargs: {"errors": [], "warnings": [], "ok": True},
+    )
+    monkeypatch.setattr(
+        meshes_module,
         "_refine_near_horizontal_surface_faces_for_tetgen",
         fake_refine,
     )
@@ -3636,6 +3703,191 @@ def test_build_city_volume_mesh_accepts_no_shell_refinement_quality_retry(
     assert attempts["attempt-1"]["result"]["selected_retry"] == (
         "retry-no-shell-refinement-quality"
     )
+
+
+@pytest.mark.parametrize(
+    ("use_refined_shell", "expected_retry_tag"),
+    [(False, "plain"), (True, "refined")],
+)
+def test_build_city_volume_mesh_strict_selects_stage4_shell_variant_without_retry(
+    monkeypatch, tmp_path, use_refined_shell, expected_retry_tag
+):
+    city = make_flat_city([make_building(box(10, 10, 20, 20), roof_z=10.0)])
+    terrain = city.terrain
+    terrain_raster = terrain.raster
+    conditioned_surface = make_surface(box(10, 10, 20, 20), 10.0)
+    diagnostics = {"output_grid": 0.25}
+    stage_audit = {}
+    calls: list[dict[str, object]] = []
+
+    def fake_prepare(*args, **kwargs):
+        return terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics
+
+    def fake_prepare_regions(**kwargs):
+        return (
+            [conditioned_surface],
+            [1],
+            [box(0, 0, 80, 80), box(10, 10, 20, 20)],
+            [-2, 0],
+            {0: 4.0},
+            [
+                np.array([40.0, 40.0], dtype=np.float64),
+                np.array([15.0, 15.0], dtype=np.float64),
+            ],
+        )
+
+    def fake_build_ground(**kwargs):
+        return (
+            Mesh(
+                vertices=np.array(
+                    [
+                        [0.0, 0.0, 0.0],
+                        [10.0, 0.0, 0.0],
+                        [10.0, 10.0, 0.0],
+                        [0.0, 10.0, 0.0],
+                    ]
+                ),
+                faces=np.array([[0, 1, 2], [0, 2, 3]], dtype=int),
+                markers=np.array([-2, -2], dtype=int),
+            ),
+            "dtcc_mesher",
+        )
+
+    def fake_build_surface_from_ground(**kwargs):
+        return Mesh(
+            vertices=np.array(
+                [
+                    [0.0, 0.0, 0.0],
+                    [10.0, 0.0, 0.0],
+                    [10.0, 10.0, 0.0],
+                    [0.0, 10.0, 0.0],
+                ]
+            ),
+            faces=np.array([[0, 1, 2], [0, 2, 3]], dtype=int),
+            markers=np.array([0, 0], dtype=int),
+        )
+
+    def fake_refine(surface_mesh, *, max_mesh_size):
+        refined = surface_mesh.copy()
+        refined.refined_tag = True
+        return (
+            refined,
+            {
+                "enabled": True,
+                "applied": True,
+                "rounds": 1,
+                "candidate_faces": 2,
+                "candidate_roof_faces": 2,
+                "candidate_ground_faces": 2,
+                "ground_relief_median": 1.0,
+                "ground_refinement_enabled": True,
+                "split_edges": 1,
+                "added_vertices": 1,
+                "added_faces": 2,
+                "edge_threshold": 7.5,
+            },
+        )
+
+    def fake_tetgen_build(**kwargs):
+        mesh = kwargs["mesh"]
+        calls.append(
+            {
+                "refined": bool(getattr(mesh, "refined_tag", False)),
+                "preserve_surface": bool(
+                    (kwargs.get("switches_overrides") or {}).get("preserve_surface")
+                ),
+            }
+        )
+        volume_mesh = VolumeMesh(
+            vertices=np.array(
+                [
+                    [0.0, 0.0, 0.0],
+                    [10.0, 0.0, 0.0],
+                    [0.0, 10.0, 0.0],
+                    [0.0, 0.0, 10.0],
+                ]
+            ),
+            cells=np.array([[0, 1, 2, 3]], dtype=int),
+        )
+        volume_mesh.retry_tag = (
+            "refined" if getattr(mesh, "refined_tag", False) else "plain"
+        )
+        return volume_mesh
+
+    monkeypatch.setattr(meshes_module, "_prepare_city_meshing_inputs", fake_prepare)
+    monkeypatch.setattr(meshes_module, "_prepare_surface_ground_regions", fake_prepare_regions)
+    monkeypatch.setattr(meshes_module, "_build_ground_mesh_from_coverage", fake_build_ground)
+    monkeypatch.setattr(
+        meshes_module,
+        "_build_city_surface_mesh_from_ground_mesh",
+        fake_build_surface_from_ground,
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_tetgen_plc_audit",
+        lambda **kwargs: {"audit_ok": True},
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_tetgen_plc_contract_from_audit",
+        lambda *args, **kwargs: {"errors": [], "warnings": [], "ok": True},
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_refine_near_horizontal_surface_faces_for_tetgen",
+        fake_refine,
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_should_apply_tetgen_shell_refinement_in_stage4",
+        lambda *args, **kwargs: (
+            use_refined_shell,
+            "test-selection",
+        ),
+    )
+    monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
+    monkeypatch.setattr(meshes_module, "tetgen_build_volume_mesh", fake_tetgen_build)
+    monkeypatch.setattr(
+        meshes_module,
+        "_tetgen_volume_mesh_quality_snapshot",
+        lambda volume_mesh: {
+            "aspect_ratio_max": 900.0,
+            "element_quality_min": 0.01,
+            "min_edge_length": 1.0,
+            "high_aspect_ratio_count": 12.0,
+            "low_quality_count": 80.0,
+        },
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_capture_tetgen_quality_failure_artifacts",
+        lambda **kwargs: {"report": str(tmp_path / "report.json"), "debug_meshes": {}},
+    )
+
+    volume_mesh = build_city_volume_mesh(
+        city,
+        lod=GeometryType.LOD0,
+        merge_buildings=False,
+        min_building_detail=0.0,
+        min_building_area=1.0,
+        merge_tolerance=0.0,
+        max_mesh_size=6.0,
+        min_mesh_angle=20.0,
+        report_mesh_quality=False,
+        mesher="dtcc_mesher",
+        tetgen_quality_failure_output_dir=tmp_path,
+        tetgen_quality_failure_output_stem="case_055",
+        pipeline_mode="strict",
+        stage_audit=stage_audit,
+    )
+
+    assert volume_mesh.retry_tag == expected_retry_tag
+    assert calls == [
+        {"refined": use_refined_shell, "preserve_surface": False},
+    ]
+    assert stage_audit["selected_attempt_label"] == "attempt-1"
+    attempts = {attempt["label"]: attempt for attempt in stage_audit["attempts"]}
+    assert "followup_retries" not in attempts["attempt-1"]
 
 
 def test_build_city_flat_mesh_runs_with_dtcc_mesher():

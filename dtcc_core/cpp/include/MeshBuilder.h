@@ -671,9 +671,9 @@ public:
       const auto wall_slices = building_wall_strip_count(naked_edges, terrain_mesh, roof_height);
 
       Mesh building_mesh;
-      building_mesh.vertices.reserve(faces.size() * 3 + naked_edges.size() * 4);
-      building_mesh.faces.reserve(faces.size() + naked_edges.size() * 2);
-      building_mesh.markers.reserve(faces.size() + naked_edges.size() * 2);
+      building_mesh.vertices.reserve(faces.size() * 3 + naked_edges.size() * 4 * wall_slices);
+      building_mesh.faces.reserve(faces.size() + naked_edges.size() * 2 * wall_slices);
+      building_mesh.markers.reserve(faces.size() + naked_edges.size() * 2 * wall_slices);
 
       // add roofs
       for (const auto &face : faces)
@@ -955,7 +955,8 @@ private:
       const Mesh &terrain_mesh,
       double roof_height)
   {
-    double min_horizontal_length = std::numeric_limits<double>::max();
+    std::vector<double> horizontal_lengths;
+    horizontal_lengths.reserve(naked_edges.size());
     double max_wall_height = 0.0;
 
     for (const auto &edge_faces : naked_edges)
@@ -966,16 +967,22 @@ private:
       const double horizontal_length = Geometry::distance_2d(
           Vector2D(ground_v0.x, ground_v0.y), Vector2D(ground_v1.x, ground_v1.y));
       if (horizontal_length > Constants::epsilon)
-        min_horizontal_length = std::min(min_horizontal_length, horizontal_length);
+        horizontal_lengths.push_back(horizontal_length);
 
       max_wall_height = std::max(max_wall_height, std::abs(roof_height - ground_v0.z));
       max_wall_height = std::max(max_wall_height, std::abs(roof_height - ground_v1.z));
     }
 
-    if (min_horizontal_length == std::numeric_limits<double>::max())
+    if (horizontal_lengths.empty())
       return 1;
 
-    return vertical_quad_strip_count(min_horizontal_length, max_wall_height);
+    std::sort(horizontal_lengths.begin(), horizontal_lengths.end());
+    const size_t percentile_index =
+        (horizontal_lengths.size() - 1) / 4;
+    const double representative_horizontal_length =
+        horizontal_lengths[percentile_index];
+    return vertical_quad_strip_count(
+        representative_horizontal_length, max_wall_height);
   }
 
   static void append_vertical_quad_strips(Mesh &mesh,
@@ -987,30 +994,52 @@ private:
                                           bool flip_orientation,
                                           size_t strip_count)
   {
-    static_cast<void>(strip_count);
-    mesh.vertices.reserve(mesh.vertices.size() + 4);
-    mesh.faces.reserve(mesh.faces.size() + 2);
-    mesh.markers.reserve(mesh.markers.size() + 2);
+    const size_t strips = std::max<size_t>(1, strip_count);
+    mesh.vertices.reserve(mesh.vertices.size() + 4 * strips);
+    mesh.faces.reserve(mesh.faces.size() + 2 * strips);
+    mesh.markers.reserve(mesh.markers.size() + 2 * strips);
 
-    const auto base = mesh.vertices.size();
-    mesh.vertices.push_back(bottom_v0);
-    mesh.vertices.push_back(bottom_v1);
-    mesh.vertices.push_back(top_v0);
-    mesh.vertices.push_back(top_v1);
-
-    if (flip_orientation)
+    const auto interpolate = [](const Vector3D &a, const Vector3D &b, double t)
     {
-      mesh.faces.push_back(Simplex2D(base, base + 3, base + 1));
-      mesh.faces.push_back(Simplex2D(base, base + 2, base + 3));
-    }
-    else
-    {
-      mesh.faces.push_back(Simplex2D(base, base + 1, base + 3));
-      mesh.faces.push_back(Simplex2D(base, base + 3, base + 2));
-    }
+      if (t <= 0.0)
+        return a;
+      if (t >= 1.0)
+        return b;
+      return Vector3D(a.x + t * (b.x - a.x),
+                      a.y + t * (b.y - a.y),
+                      a.z + t * (b.z - a.z));
+    };
 
-    mesh.markers.push_back(marker);
-    mesh.markers.push_back(marker);
+    for (size_t step = 0; step < strips; ++step)
+    {
+      const double t0 = static_cast<double>(step) / static_cast<double>(strips);
+      const double t1 = static_cast<double>(step + 1) / static_cast<double>(strips);
+
+      const auto lower_v0 = interpolate(bottom_v0, top_v0, t0);
+      const auto lower_v1 = interpolate(bottom_v1, top_v1, t0);
+      const auto upper_v0 = interpolate(bottom_v0, top_v0, t1);
+      const auto upper_v1 = interpolate(bottom_v1, top_v1, t1);
+
+      const auto base = mesh.vertices.size();
+      mesh.vertices.push_back(lower_v0);
+      mesh.vertices.push_back(lower_v1);
+      mesh.vertices.push_back(upper_v0);
+      mesh.vertices.push_back(upper_v1);
+
+      if (flip_orientation)
+      {
+        mesh.faces.push_back(Simplex2D(base, base + 3, base + 1));
+        mesh.faces.push_back(Simplex2D(base, base + 2, base + 3));
+      }
+      else
+      {
+        mesh.faces.push_back(Simplex2D(base, base + 1, base + 3));
+        mesh.faces.push_back(Simplex2D(base, base + 3, base + 2));
+      }
+
+      mesh.markers.push_back(marker);
+      mesh.markers.push_back(marker);
+    }
   }
 
   // Map from 2D cell index to 3D cell indices

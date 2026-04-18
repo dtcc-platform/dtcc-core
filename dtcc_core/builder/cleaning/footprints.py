@@ -14498,6 +14498,8 @@ def condition_polygon_coverage(
     diagnostics["coverage_simplify_branches_evaluated"] = [
         candidate.label for candidate in candidates_to_evaluate
     ]
+    diagnostics["coverage_simplify_contract_fallback_triggered"] = False
+    diagnostics["coverage_simplify_contract_fallback_evaluated"] = []
     finalized_branches = {
         candidate.label: _evaluate_post_coverage_branch(
             candidate,
@@ -14524,6 +14526,44 @@ def condition_polygon_coverage(
         target_scale=meshing_scale,
         grid=output_grid,
     )
+    if not _coverage_signature_satisfies_scale_contract(
+        chosen_branch.final_signature,
+        target_scale=meshing_scale,
+        grid=output_grid,
+    ):
+        fallback_candidates = [
+            candidate
+            for candidate in coverage_candidates
+            if candidate.label not in finalized_branches
+        ]
+        diagnostics["coverage_simplify_contract_fallback_triggered"] = True
+        diagnostics["coverage_simplify_contract_fallback_evaluated"] = [
+            candidate.label for candidate in fallback_candidates
+        ]
+        for candidate in fallback_candidates:
+            finalized_branches[candidate.label] = _evaluate_post_coverage_branch(
+                candidate,
+                reference_union=coverage_reference_union,
+                source_lookup=source_lookup,
+                raw_support_union=raw_support_union,
+                min_feature_size=options.min_feature_size,
+                source_recovery_scale=options.min_feature_size,
+                grid=output_grid,
+                min_area=0.0,
+                output_min_area=options.min_area,
+                min_hole_area=options.min_hole_area,
+                cache=coverage_eval_cache,
+            )
+        identity_branch = finalized_branches.get("identity")
+        global_branch = finalized_branches.get("global")
+        local_branch = finalized_branches.get("local")
+        chosen_branch, global_score, local_score = _choose_post_coverage_branch(
+            identity_branch,
+            global_branch,
+            local_branch,
+            target_scale=meshing_scale,
+            grid=output_grid,
+        )
     finalized_labels = list(finalized_branches.keys())
     diagnostics["coverage_simplify_branches_finalized"] = finalized_labels
     diagnostics["coverage_simplify_branch_scores"] = {
