@@ -8,6 +8,7 @@ from . import geometry
 from . import city
 from . import building
 from . import polygons
+from . import roadnetwork
 
 from .building.modify import (
     merge_building_footprints,
@@ -38,7 +39,6 @@ from .meshing import (
 _LAZY_IMPORTS = {
     "pointcloud": "dtcc_core.builder.pointcloud",
     "raster": "dtcc_core.builder.raster",
-    "roadnetwork": "dtcc_core.builder.roadnetwork",
     "trees": "dtcc_core.builder.trees",
     "build_terrain_surface_mesh": "dtcc_core.builder.geometry_builders.terrain",
     "build_terrain_raster": "dtcc_core.builder.geometry_builders.terrain",
@@ -58,7 +58,7 @@ _LAZY_IMPORTS = {
 def __getattr__(name: str):
     if name in _LAZY_IMPORTS:
         module = importlib.import_module(_LAZY_IMPORTS[name])
-        if name in {"pointcloud", "raster", "roadnetwork", "trees"}:
+        if name in {"pointcloud", "raster", "trees"}:
             value = module
         else:
             value = getattr(module, name)
