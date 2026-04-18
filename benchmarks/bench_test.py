@@ -1,16 +1,17 @@
 """
-Benchmark the Helsingborg surface-mesh demo across legacy and current pipelines.
+Benchmark one Stockholm benchmark tile across old and new pipelines.
 
-This reproduces the same input area and preprocessing flow as
-`dtcc/demos/build_city_surface_mesh.py`, then compares:
+This reuses the same Stockholm tile geometry and city-preparation flow as the
+other benchmark scripts, then compares:
 
-- legacy Polyforge conditioning + legacy C++ surface builder
-- legacy Polyforge conditioning + current surface builder
-- current conditioning + legacy C++ surface builder
-- current conditioning + current surface builder
+- old Polyforge conditioning + old C++ surface builder
+- old Polyforge conditioning + new surface builder
+- new conditioning + old C++ surface builder
+- new conditioning + new surface builder
 
 The mixed scenarios make it easier to see whether regressions come from the
-conditioning stage, the surface-meshing stage, or both.
+conditioning stage, the surface-meshing stage, or both. Edit ``TILE`` below to
+switch to another Stockholm benchmark tile without using a command-line flag.
 
 Typical usage:
     /Users/logg/scratch/dtcc/venv/bin/python benchmarks/bench_test.py
@@ -59,16 +60,28 @@ from dtcc_core.model import Bounds, Building, City, GeometryType, Mesh, Surface
 from dtcc_core.model.mixins.mesh.quality import triangle_mesh_quality
 
 try:
-    from _stockholm_common import format_console_table, json_ready
+    from _stockholm_common import (
+        OUTLIER_THRESHOLD,
+        RASTER_CELL_SIZE,
+        RASTER_RADIUS,
+        case_to_grid,
+        format_console_table,
+        json_ready,
+        make_bounds,
+    )
 except ImportError:
-    from benchmarks._stockholm_common import format_console_table, json_ready
+    from benchmarks._stockholm_common import (
+        OUTLIER_THRESHOLD,
+        RASTER_CELL_SIZE,
+        RASTER_RADIUS,
+        case_to_grid,
+        format_console_table,
+        json_ready,
+        make_bounds,
+    )
 
 
-DEMO_XMIN = 319_891.0
-DEMO_YMIN = 6_399_790.0
-DEMO_SIZE = 2_000.0
-DEMO_ZMIN = 0.0
-DEMO_ZMAX = 200.0
+TILE = 54
 
 DEFAULT_MIN_BUILDING_DETAIL = 0.5
 DEFAULT_MIN_BUILDING_AREA = 15.0
@@ -77,7 +90,9 @@ DEFAULT_BUILDING_TRIANGLE_SIZE = 5.0
 DEFAULT_MAX_MESH_SIZE = 10.0
 DEFAULT_MIN_MESH_ANGLE = 25.0
 DEFAULT_CURRENT_MESHER = "auto"
-DEFAULT_OUTPUT_JSON = Path("benchmarks/output_surface_demo/bench_test_results.json")
+DEFAULT_OUTPUT_JSON = Path(
+    f"benchmarks/output_surface_tile_{TILE:03d}/bench_test_results.json"
+)
 
 
 @dataclass
@@ -107,7 +122,7 @@ def parse_args() -> argparse.Namespace:
         "--max-mesh-size",
         type=float,
         default=DEFAULT_MAX_MESH_SIZE,
-        help="Maximum terrain triangle size for the demo run.",
+        help="Maximum terrain triangle size for the benchmark tile run.",
     )
     parser.add_argument(
         "--building-mesh-triangle-size",
@@ -119,7 +134,7 @@ def parse_args() -> argparse.Namespace:
         "--min-mesh-angle",
         type=float,
         default=DEFAULT_MIN_MESH_ANGLE,
-        help="Minimum 2D mesh angle for both legacy and current builders.",
+        help="Minimum 2D mesh angle for both old and new builders.",
     )
     parser.add_argument(
         "--min-building-detail",
@@ -143,7 +158,7 @@ def parse_args() -> argparse.Namespace:
         "--current-mesher",
         choices=("auto", "dtcc_mesher", "triangle", "spade"),
         default=DEFAULT_CURRENT_MESHER,
-        help="2D backend for the current surface pipeline.",
+        help="2D backend for the new surface pipeline.",
     )
     parser.add_argument(
         "--no-merge-buildings",
@@ -153,7 +168,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--no-hybrids",
         action="store_true",
-        help="Only run legacy/legacy and current/current, skipping mixed scenarios.",
+        help="Only run old/old and new/new, skipping mixed scenarios.",
     )
     parser.add_argument(
         "--output-json",
@@ -164,28 +179,35 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def demo_bounds() -> Bounds:
-    return Bounds(
-        DEMO_XMIN,
-        DEMO_YMIN,
-        DEMO_XMIN + DEMO_SIZE,
-        DEMO_YMIN + DEMO_SIZE,
-        DEMO_ZMIN,
-        DEMO_ZMAX,
-    )
-
-
-def prepare_demo_city() -> tuple[City, dict[str, Any]]:
-    bounds = demo_bounds()
-    city = City()
-    city.bounds = bounds
+def prepare_benchmark_tile_city(tile_number: int) -> tuple[City, dict[str, Any]]:
+    ix, iy = case_to_grid(tile_number)
+    bounds = make_bounds(ix, iy)
 
     start = time.perf_counter()
-    city.download_pointcloud(bounds=bounds, filter_on_z_bounds=True)
-    point_count = int(len(city.pointcloud.points)) if city.pointcloud is not None else 0
-    city.download_footprints(bounds=bounds)
-    raw_building_count = int(len(city.buildings))
-    city.building_heights_from_pointcloud()
+    pointcloud = dtcc_core.io.data.download_pointcloud(bounds=bounds)
+    raw_point_count = int(len(pointcloud.points))
+    pointcloud = pointcloud.remove_global_outliers(OUTLIER_THRESHOLD)
+    filtered_point_count = int(len(pointcloud.points))
+
+    buildings = dtcc_core.io.data.download_footprints(bounds=bounds)
+    raw_building_count = int(len(buildings))
+
+    raster = dtcc_core.builder.build_terrain_raster(
+        pointcloud,
+        cell_size=RASTER_CELL_SIZE,
+        radius=RASTER_RADIUS,
+        ground_only=True,
+    )
+    buildings = dtcc_core.builder.extract_roof_points(buildings, pointcloud)
+    buildings = dtcc_core.builder.compute_building_heights(
+        buildings,
+        raster,
+        overwrite=True,
+    )
+
+    city = City()
+    city.add_terrain(raster)
+    city.add_buildings(buildings, remove_outside_terrain=True)
     prepare_seconds = time.perf_counter() - start
 
     terrain_raster = city.terrain.raster if city.terrain is not None else None
@@ -198,16 +220,17 @@ def prepare_demo_city() -> tuple[City, dict[str, Any]]:
             continue
 
     summary = {
+        "tile": int(tile_number),
+        "grid_index": {"ix": int(ix), "iy": int(iy)},
         "bounds": {
             "xmin": float(bounds.xmin),
             "ymin": float(bounds.ymin),
             "xmax": float(bounds.xmax),
             "ymax": float(bounds.ymax),
-            "zmin": float(bounds.zmin),
-            "zmax": float(bounds.zmax),
         },
         "prepare_seconds": float(prepare_seconds),
-        "point_count": point_count,
+        "point_count_raw": raw_point_count,
+        "point_count_filtered": filtered_point_count,
         "building_count": int(len(city.buildings)),
         "buildings_with_height": int(height_count),
         "terrain_raster_width": int(getattr(terrain_raster, "width", 0) or 0),
@@ -467,14 +490,14 @@ def run_legacy_conditioning(
         for indices in source_map
     ]
     diagnostics = {
-        "pipeline": "legacy_polyforge",
+        "pipeline": "old_polyforge",
         "input_count": int(len(buildings)),
         "output_count": int(len(surfaces)),
         "merged_group_count": int(sum(1 for indices in source_map if len(indices) > 1)),
     }
     return ConditioningCase(
-        key="legacy",
-        label="legacy_polyforge",
+        key="old",
+        label="old_polyforge",
         surfaces=surfaces,
         source_map=source_map,
         conditioned_resolution=_resolution_from_buildings(
@@ -511,8 +534,8 @@ def run_current_conditioning(
     )
     seconds = time.perf_counter() - start
     return ConditioningCase(
-        key="current",
-        label="current_conditioning",
+        key="new",
+        label="new_conditioning",
         surfaces=surfaces,
         source_map=source_map,
         conditioned_resolution=conditioned_resolution,
@@ -629,7 +652,7 @@ def build_surface_with_legacy_cpp(
         raise ValueError("This benchmark expects merge_meshes=True.")
 
     return mesh, {
-        "active_mesher": "legacy_cpp_internal",
+        "active_mesher": "old_cpp_internal",
         "build_seconds": float(build_seconds),
     }
 
@@ -746,39 +769,39 @@ def build_surface_with_current_pipeline(
 def build_scenarios(include_hybrids: bool) -> list[Scenario]:
     scenarios = [
         Scenario(
-            name="legacy_legacy",
-            conditioning_key="legacy",
-            conditioning_label="legacy_polyforge",
+            name="old + old",
+            conditioning_key="old",
+            conditioning_label="old_polyforge",
             builder_key="legacy_cpp",
-            builder_label="legacy_cpp_surface",
+            builder_label="old_cpp_surface",
         ),
         Scenario(
-            name="current_current",
-            conditioning_key="current",
-            conditioning_label="current_conditioning",
+            name="new + new",
+            conditioning_key="new",
+            conditioning_label="new_conditioning",
             builder_key="current_surface",
-            builder_label="current_surface_pipeline",
+            builder_label="new_surface_pipeline",
         ),
     ]
     if include_hybrids:
         scenarios.insert(
             1,
             Scenario(
-                name="legacy_current",
-                conditioning_key="legacy",
-                conditioning_label="legacy_polyforge",
+                name="old + new",
+                conditioning_key="old",
+                conditioning_label="old_polyforge",
                 builder_key="current_surface",
-                builder_label="current_surface_pipeline",
+                builder_label="new_surface_pipeline",
             ),
         )
         scenarios.insert(
             2,
             Scenario(
-                name="current_legacy",
-                conditioning_key="current",
-                conditioning_label="current_conditioning",
+                name="new + old",
+                conditioning_key="new",
+                conditioning_label="new_conditioning",
                 builder_key="legacy_cpp",
-                builder_label="legacy_cpp_surface",
+                builder_label="old_cpp_surface",
             ),
         )
     return scenarios
@@ -859,11 +882,13 @@ def run_scenario(
 
 def print_city_summary(city_summary: dict[str, Any]) -> None:
     rows = [[
+        city_summary["tile"],
         f"{city_summary['bounds']['xmin']:.0f}",
         f"{city_summary['bounds']['ymin']:.0f}",
         f"{city_summary['bounds']['xmax']:.0f}",
         f"{city_summary['bounds']['ymax']:.0f}",
-        city_summary["point_count"],
+        city_summary["point_count_raw"],
+        city_summary["point_count_filtered"],
         city_summary["building_count"],
         city_summary["buildings_with_height"],
         f"{city_summary['prepare_seconds']:.2f}s",
@@ -871,17 +896,19 @@ def print_city_summary(city_summary: dict[str, Any]) -> None:
     print(
         format_console_table(
             [
+                "Tile",
                 "xmin",
                 "ymin",
                 "xmax",
                 "ymax",
-                "Points",
+                "Points raw",
+                "Points filtered",
                 "Buildings",
                 "Heights",
                 "Prep",
             ],
             rows,
-            title="Demo Input",
+            title="Stockholm Tile Input",
         )
     )
 
@@ -1095,13 +1122,13 @@ def main() -> int:
     args = parse_args()
     merge_buildings = not args.no_merge_buildings
 
-    city, city_summary = prepare_demo_city()
+    city, city_summary = prepare_benchmark_tile_city(TILE)
     buildings = list(city.buildings)
     lod = None
     lod_values = _normalize_lod_values(buildings, lod)
 
     conditioning_cases = {
-        "legacy": run_legacy_conditioning(
+        "old": run_legacy_conditioning(
             buildings,
             lod_values=lod_values,
             merge_buildings=merge_buildings,
@@ -1110,7 +1137,7 @@ def main() -> int:
             min_building_detail=args.min_building_detail,
             max_mesh_size=args.max_mesh_size,
         ),
-        "current": run_current_conditioning(
+        "new": run_current_conditioning(
             buildings,
             lod=lod,
             min_building_detail=args.min_building_detail,
