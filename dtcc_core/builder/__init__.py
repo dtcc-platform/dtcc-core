@@ -14,6 +14,7 @@ from .geometry_builders.terrain import (
     build_terrain_surface_mesh,
     build_terrain_raster,
     flat_terrain,
+    adaptive_terrain_mesh,
 )
 
 from .geometry_builders.buildings import (

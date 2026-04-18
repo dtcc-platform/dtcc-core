@@ -8,6 +8,9 @@
 
 #include <pybind11/stl.h>
 
+#include <algorithm>
+#include <cmath>
+
 #include "BuildingProcessor.h"
 #include "Intersection.h"
 #include "MeshBuilder.h"
@@ -21,6 +24,7 @@
 #include "model/Simplices.h"
 #include "model/Vector.h"
 #include "model/VolumeMesh.h"
+#include "terrain-mesher/zemlya.hpp"
 
 namespace py = pybind11;
 
@@ -256,6 +260,50 @@ GridField create_gridfield(py::array_t<double> data, py::tuple bounds, size_t xs
   return grid_field;
 }
 
+terrain_mesher::core::RasterDouble gridfield_to_raster(const GridField &grid_field)
+{
+  if (grid_field.grid.xsize == 0 || grid_field.grid.ysize == 0)
+    error("build_terrain_mesh_zemlya: GridField has empty grid dimensions");
+
+  const size_t expected_size = grid_field.grid.xsize * grid_field.grid.ysize;
+  if (grid_field.values.size() != expected_size)
+  {
+    error("build_terrain_mesh_zemlya: GridField values size (" + str(grid_field.values.size()) +
+          ") does not match grid dimensions (" + str(expected_size) + ")");
+  }
+
+  const double xstep = grid_field.grid.xstep;
+  const double ystep = grid_field.grid.ystep;
+  const double tolerance = std::max({1.0, std::fabs(xstep), std::fabs(ystep)}) * 1e-12;
+  if (std::fabs(xstep - ystep) > tolerance)
+  {
+    error("build_terrain_mesh_zemlya: Zemlya requires equal x/y spacing, got xstep=" +
+          str(xstep) + " and ystep=" + str(ystep));
+  }
+
+  terrain_mesher::core::RasterDouble raster(grid_field.grid.xsize, grid_field.grid.ysize);
+  raster.set_cell_size(xstep);
+  raster.set_pos_x(grid_field.grid.bounding_box.P.x - 0.5 * xstep);
+  raster.set_pos_y(grid_field.grid.bounding_box.P.y - 0.5 * ystep);
+
+  for (size_t row = 0; row < grid_field.grid.ysize; row++)
+  {
+    const size_t source_row = grid_field.grid.ysize - 1 - row;
+    for (size_t col = 0; col < grid_field.grid.xsize; col++)
+    {
+      raster.value(row, col) = grid_field.values[source_row * grid_field.grid.xsize + col];
+    }
+  }
+
+  return raster;
+}
+
+Mesh build_terrain_mesh_zemlya(const GridField &grid_field, double max_error)
+{
+  auto raster = gridfield_to_raster(grid_field);
+  return terrain_mesher::core::generate_zemlya_mesh(std::move(raster), max_error);
+}
+
 py::array_t<double> ray_surface_intersection(const Surface &surface,
                                              const py::array_t<double> &py_ray_origin,
                                              const py::array_t<double> &py_ray_vector)
@@ -473,6 +521,9 @@ PYBIND11_MODULE(_dtcc_builder, m)
   m.def("mesh_as_arrays", &DTCC_BUILDER::mesh_as_arrays, "Create C++ mesh");
 
   m.def("create_gridfield", &DTCC_BUILDER::create_gridfield, "Create C++ grid field");
+
+  m.def("build_terrain_mesh_zemlya", &DTCC_BUILDER::build_terrain_mesh_zemlya,
+        "Build a terrain mesh from a GridField using the Zemlya terrain mesher");
 
   m.def("extract_building_points", &DTCC_BUILDER::extract_building_points,
         "Compute building points from point cloud");
