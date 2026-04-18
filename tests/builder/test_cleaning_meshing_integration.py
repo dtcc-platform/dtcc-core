@@ -1723,7 +1723,7 @@ def test_build_city_surface_mesh_reduces_lod_from_source_map(monkeypatch):
     )
 
     assert mesh.faces.shape[0] >= 1
-    assert captured["lod_switches"] == [0, 2]
+    assert captured["lod_switches"] == [1, 2]
     assert captured["backend"] == "triangle"
     assert captured["region_markers"] == [-2, 0, 1]
     assert captured["region_triangle_sizes"] == {0: 4.0, 1: 5.0}
@@ -3666,6 +3666,58 @@ def test_build_city_flat_mesh_runs_with_dtcc_mesher():
     assert np.any(mesh.markers == -2)
 
 
+def test_build_city_mesh_auto_lod_prefers_available_geometry():
+    lod1_building = make_building(
+        box(8, 8, 18, 18),
+        roof_z=10.0,
+        lod1_polygon=box(8, 8, 18, 18),
+    )
+    lod2_building = Building()
+    lod2_building.add_geometry(
+        make_surface(box(22, 8, 32, 18), 12.0),
+        GeometryType.LOD2,
+    )
+    lod2_building.attributes["height"] = 12.0
+    lod2_building.attributes["ground_height"] = 0.0
+    lod0_building = make_building(box(36, 8, 46, 18), roof_z=8.0)
+
+    lod_values = meshes_module._normalize_lod_values(
+        [lod1_building, lod2_building, lod0_building],
+        None,
+    )
+
+    assert lod_values == [
+        GeometryType.LOD1,
+        GeometryType.LOD2,
+        GeometryType.LOD0,
+    ]
+
+
+def test_build_city_flat_mesh_runs_with_auto_lod_resolution():
+    city = make_flat_city(
+        [
+            make_building(box(8, 8, 18, 18), roof_z=10.0),
+            make_building(box(24, 8, 34, 18), roof_z=12.0),
+        ]
+    )
+
+    mesh = build_city_flat_mesh(
+        city,
+        merge_buildings=False,
+        min_building_detail=0.0,
+        min_building_area=1.0,
+        merge_tolerance=0.0,
+        max_mesh_size=6.0,
+        min_mesh_angle=20.0,
+        report_mesh_quality=False,
+    )
+
+    assert mesh.vertices.shape[0] > 0
+    assert mesh.faces.shape[0] > 0
+    assert np.any(mesh.markers >= 0)
+    assert np.any(mesh.markers == -2)
+
+
 def test_build_city_surface_mesh_runs_with_mixed_lod_directives():
     city = make_flat_city(
         [
@@ -3690,6 +3742,37 @@ def test_build_city_surface_mesh_runs_with_mixed_lod_directives():
 
     assert mesh.vertices.shape[0] > 0
     assert mesh.faces.shape[0] > 0
+
+
+def test_build_city_surface_mesh_runs_with_auto_lod_resolution():
+    city = make_flat_city(
+        [
+            make_building(
+                box(8, 8, 18, 18),
+                roof_z=10.0,
+                lod1_polygon=box(8, 8, 18, 18),
+            ),
+            make_building(box(22, 8, 32, 18), roof_z=12.0),
+        ]
+    )
+
+    mesh = build_city_surface_mesh(
+        city,
+        merge_buildings=False,
+        min_building_detail=0.0,
+        min_building_area=1.0,
+        merge_tolerance=0.0,
+        building_mesh_triangle_size=5.0,
+        max_mesh_size=6.0,
+        min_mesh_angle=20.0,
+        merge_meshes=True,
+        report_mesh_quality=False,
+    )
+
+    assert mesh.vertices.shape[0] > 0
+    assert mesh.faces.shape[0] > 0
+    assert float(np.max(mesh.vertices[:, 2])) > 5.0
+    assert np.any(np.asarray(mesh.markers, dtype=np.int64) >= 0)
 
 
 def test_build_city_surface_mesh_keeps_tall_wall_roof_seams_closed():
@@ -3835,6 +3918,33 @@ def test_build_city_volume_mesh_smoke():
     volume_mesh = build_city_volume_mesh(
         city,
         lod=GeometryType.LOD0,
+        domain_height=40.0,
+        max_mesh_size=8.0,
+        min_mesh_angle=20.0,
+        merge_buildings=True,
+        min_building_detail=0.0,
+        min_building_area=1.0,
+        merge_tolerance=0.0,
+        smoothing=0,
+        boundary_face_markers=False,
+        report_mesh_quality=False,
+    )
+
+    assert volume_mesh.vertices.shape[0] > 0
+    assert volume_mesh.cells.shape[0] > 0
+
+
+@pytest.mark.skipif(not is_tetgen_available(), reason="TetGen is not available")
+def test_build_city_volume_mesh_smoke_auto_lod_resolution():
+    city = make_flat_city(
+        [
+            make_building(box(10, 10, 18, 18), roof_z=10.0),
+            make_building(box(24, 10, 32, 18), roof_z=12.0),
+        ]
+    )
+
+    volume_mesh = build_city_volume_mesh(
+        city,
         domain_height=40.0,
         max_mesh_size=8.0,
         min_mesh_angle=20.0,

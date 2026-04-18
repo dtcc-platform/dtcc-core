@@ -169,7 +169,7 @@ class CityBuilderMixin:
 
     def build_surface_mesh(
         self: "T_City",
-        lod: GeometryType | list[GeometryType] = GeometryType.LOD1,
+        lod: GeometryType | list[GeometryType] | None = None,
         min_building_detail: float = 0.5,
         min_building_area: float = 15.0,
         merge_buildings: bool = True,
@@ -233,7 +233,7 @@ class CityBuilderMixin:
 
     def build_flat_mesh(
         self: "T_City",
-        lod: GeometryType = GeometryType.LOD1,
+        lod: GeometryType | None = None,
         max_mesh_size: float | None = 10.0,
         min_mesh_angle: float = 25.0,
         merge_buildings: bool = True,
@@ -254,7 +254,9 @@ class CityBuilderMixin:
         Parameters
         ----------
         lod : GeometryType, optional
-            Level-of-Detail for footprint extraction (default LOD1).
+            Level-of-Detail for footprint extraction. When omitted, each
+            building resolves the first available geometry in the order
+            ``LOD1 -> LOD2 -> LOD3 -> LOD0``.
         max_mesh_size : float | None, optional
             Maximum target triangle edge length in meters. Set to ``None``
             to disable the global size cap and let geometry plus
@@ -294,7 +296,7 @@ class CityBuilderMixin:
 
     def build_volume_mesh(
         self: "T_City",
-        lod: GeometryType = GeometryType.LOD1,
+        lod: GeometryType | None = None,
         domain_height: float = 100.0,
         max_mesh_size: float = 10.0,
         min_mesh_angle: float = 25.0,
@@ -320,7 +322,9 @@ class CityBuilderMixin:
         Parameters
         ----------
         lod : GeometryType, optional
-            Level-of-Detail directive for building footprints (default LOD1).
+            Level-of-Detail directive for building footprints. When omitted,
+            each building resolves the first available geometry in the order
+            ``LOD1 -> LOD2 -> LOD3 -> LOD0``.
         domain_height : float, optional
             Height of the volume domain above terrain (default 100.0).
         max_mesh_size : float, optional

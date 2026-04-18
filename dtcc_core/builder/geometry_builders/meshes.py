@@ -24,6 +24,12 @@ _LOD_PRIORITY: dict[GeometryType, int] = {
     GeometryType.LOD2: 2,
     GeometryType.LOD3: 3,
 }
+_AUTO_MESHING_LOD_ORDER: tuple[GeometryType, ...] = (
+    GeometryType.LOD1,
+    GeometryType.LOD2,
+    GeometryType.LOD3,
+    GeometryType.LOD0,
+)
 
 from ..model_conversion import (
     create_builder_polygon,
@@ -1643,7 +1649,7 @@ def _resolve_merged_group_roof_metadata(
 
 def _resolve_conditioned_target_lods(
     buildings: list[Building],
-    lod: GeometryType | Sequence[GeometryType],
+    lod: GeometryType | Sequence[GeometryType] | None,
     conditioned_source_map: list[list[int]],
 ) -> list[GeometryType]:
     lod_values = _normalize_lod_values(buildings, lod)
@@ -1659,6 +1665,23 @@ def _resolve_conditioned_target_lods(
 def _promote_volume_shell_target_lods(
     target_lods: Sequence[GeometryType],
 ) -> list[GeometryType]:
+    return [
+        GeometryType.LOD1 if lod_value == GeometryType.LOD0 else lod_value
+        for lod_value in target_lods
+    ]
+
+
+def _promote_surface_shell_target_lods(
+    target_lods: Sequence[GeometryType],
+) -> list[GeometryType]:
+    """Promote footprint-only directives to building shells for surface meshes.
+
+    The C++ surface builder interprets directive ``0`` as a supported platform
+    region rather than an extruded building. For the public surface-mesh API we
+    want footprint-only cities to produce buildings by default, so resolved
+    ``LOD0`` directives are promoted to ``LOD1`` unless the caller explicitly
+    opts into hole handling via ``treat_lod0_as_holes=True``.
+    """
     return [
         GeometryType.LOD1 if lod_value == GeometryType.LOD0 else lod_value
         for lod_value in target_lods
@@ -2802,8 +2825,10 @@ def _refine_near_horizontal_surface_faces_for_tetgen(
 
 def _normalize_lod_values(
     buildings: list[Building],
-    lod: GeometryType | Sequence[GeometryType],
+    lod: GeometryType | Sequence[GeometryType] | None,
 ) -> list[GeometryType]:
+    if lod is None:
+        return [_resolve_auto_meshing_lod(building) for building in buildings]
     if isinstance(lod, GeometryType):
         return [lod] * len(buildings)
     if len(lod) != len(buildings):
@@ -2813,6 +2838,13 @@ def _normalize_lod_values(
     if not all(isinstance(value, GeometryType) for value in lod):
         raise TypeError("all elements in lod list must be GeometryType instances")
     return list(lod)
+
+
+def _resolve_auto_meshing_lod(building: Building) -> GeometryType:
+    for candidate in _AUTO_MESHING_LOD_ORDER:
+        if building.flatten_geometry(candidate) is not None:
+            return candidate
+    return GeometryType.LOD0
 
 
 def _iter_polygon_components(geometry) -> list[Polygon]:
@@ -3460,7 +3492,7 @@ def _normalize_mesher_ready_coverage(
 def _condition_meshing_footprints(
     buildings: list[Building],
     *,
-    lod: GeometryType | list[GeometryType],
+    lod: GeometryType | Sequence[GeometryType] | None,
     min_building_detail: float,
     min_building_area: float,
     merge_tolerance: float,
@@ -3582,7 +3614,7 @@ def _condition_meshing_footprints(
 
 def build_city_surface_mesh(
     city: City,
-    lod: GeometryType | list[GeometryType] = GeometryType.LOD1,
+    lod: GeometryType | list[GeometryType] | None = None,
     min_building_detail: float = 0.5,
     min_building_area: float = 15.0,
     merge_buildings: bool = True,
@@ -3606,10 +3638,13 @@ def build_city_surface_mesh(
     `city` : model.City
         The city to build the mesh from.
     `lod` : GeometryType or list of GeometryType, optional
-        The meshing directive (Level of Detail) to apply to the buildings.
-        If a single value is provided, it is applied uniformly to all buildings.
-        If a list is provided, it must have the same length as the number of buildings
-        in the city, and each entry specifies the directive for the corresponding building.
+        Meshing directive (Level of Detail) for the buildings. When omitted,
+        each building resolves the first available geometry in the order
+        ``LOD1 -> LOD2 -> LOD3 -> LOD0`` so footprint-only cities work out of
+        the box. If a single value is provided, it is applied uniformly to all
+        buildings. If a list is provided, it must have the same length as the
+        number of buildings in the city, and each entry specifies the directive
+        for the corresponding building.
     `min_building_detail` : float, optional
         The minimum detail of the buildin to resolve, by default 0.5.
     `min_building_area` : float, optional
@@ -3626,7 +3661,8 @@ def build_city_surface_mesh(
         The smoothing of the mesh, by default 0.0.
     `treat_lod0_as_holes` : bool, optional
         When True, building directives resolved to LOD0 are sent to the mesher
-        as hole surfaces instead of meshed buildings.
+        as hole surfaces instead of meshed buildings. When False, footprint-only
+        LOD0 buildings are still extruded as buildings in the surface mesh.
     `mesher` : {"auto", "dtcc_mesher", "triangle", "spade"}, optional
         Select the 2D meshing backend used to build the ground/surface
         triangulation. ``"auto"`` prefers ``dtcc_mesher`` when available,
@@ -3658,6 +3694,8 @@ def build_city_surface_mesh(
 
     buildings = city.buildings
     target_lods = _resolve_conditioned_target_lods(buildings, lod, source_map)
+    if not treat_lod0_as_holes:
+        target_lods = _promote_surface_shell_target_lods(target_lods)
     base_resolution = [
         min(resolution, building_mesh_triangle_size)
         if building_mesh_triangle_size > 0
@@ -3738,7 +3776,7 @@ def build_city_surface_mesh(
 
 def build_city_flat_mesh(
     city: City,
-    lod: GeometryType = GeometryType.LOD1,
+    lod: GeometryType | None = None,
     max_mesh_size: float | None = 10.0,
     min_mesh_angle: float = 25.0,
     merge_buildings: bool = True,
@@ -3764,7 +3802,9 @@ def build_city_flat_mesh(
     city : City
         City object containing terrain bounds and building data.
     lod : GeometryType, optional
-        Level-of-Detail used when *merge_buildings* is False (default LOD1).
+        Level-of-Detail used for footprint extraction. When omitted, each
+        building resolves the first available geometry in the order
+        ``LOD1 -> LOD2 -> LOD3 -> LOD0``.
     max_mesh_size : float | None, optional
         Maximum target triangle edge length in meters. ``dtcc_mesher`` uses
         it directly as an edge-length cap, while ``triangle`` and ``spade``
@@ -3884,7 +3924,7 @@ def build_city_flat_mesh(
 
 def build_city_volume_mesh(
     city: City,
-    lod: GeometryType = GeometryType.LOD1,
+    lod: GeometryType | None = None,
     domain_height: float = 100.0,
     max_mesh_size: float = 10.0,
     min_mesh_angle: float = 25.0,
@@ -3927,8 +3967,9 @@ def build_city_volume_mesh(
         City object containing terrain and building data. The terrain must provide
         either a raster or a mesh representation to support domain surface generation.
     lod : GeometryType, optional
-        The meshing directive (Level of Detail) applied to building footprints.
-        Defaults to ``GeometryType.LOD1``.
+        Meshing directive applied to building footprints. When omitted, each
+        building resolves the first available geometry in the order
+        ``LOD1 -> LOD2 -> LOD3 -> LOD0``.
     domain_height : float, optional
         The vertical height of the volume domain above the terrain surface, in the
         same coordinate units as the city. Defaults to 100.0.
