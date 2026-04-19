@@ -190,6 +190,7 @@ def test_convert_multisurface():
 
     mock_multisurface = Mock()
     mock_multisurface.surfaces = [mock_surface1, mock_surface2]
+    mock_multisurface.semantics = None
 
     vertices = []
     result = convert_multisurface(mock_multisurface, vertices, scale=1000.0, config=config)
