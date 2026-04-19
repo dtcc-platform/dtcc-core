@@ -103,8 +103,6 @@ _TETGEN_SHELL_HORIZONTAL_REFINEMENT_MIN_NORMAL_Z = 0.995
 _TETGEN_SHELL_HORIZONTAL_REFINEMENT_MIN_GROUND_RELIEF = 0.25
 _TETGEN_SHELL_HORIZONTAL_REFINEMENT_MAX_ROUNDS = 2
 _TETGEN_STAGE4_SHELL_SELECTION_MIN_GROUND_RELIEF = 0.6
-_TETGEN_STAGE4_SHELL_SELECTION_MAX_BASE_ELEMENT_QUALITY = 3.0e-2
-_TETGEN_STAGE4_SHELL_SELECTION_MIN_BASE_ASPECT_RATIO = 3.0e1
 _STAGE_CONTRACT_MIN_EDGE_RATIO_WARNING = 1.0e-3
 _STAGE_CONTRACT_MIN_AREA_RATIO_WARNING = 1.0e-6
 _STAGE_CONTRACT_MIN_TRI_QUALITY_WARNING = 2.0e-2
@@ -1649,14 +1647,6 @@ def _should_apply_tetgen_shell_refinement_in_stage4(
     ground_relief = float(shell_refinement_stats.get("ground_relief_median", 0.0))
     if ground_relief < _TETGEN_STAGE4_SHELL_SELECTION_MIN_GROUND_RELIEF:
         return False, "ground_relief_below_threshold"
-
-    base_element_quality = float(base_shell_audit.get("element_quality_min", 1.0))
-    base_aspect_ratio = float(base_shell_audit.get("aspect_ratio_max", 1.0))
-    if (
-        base_element_quality > _TETGEN_STAGE4_SHELL_SELECTION_MAX_BASE_ELEMENT_QUALITY
-        and base_aspect_ratio < _TETGEN_STAGE4_SHELL_SELECTION_MIN_BASE_ASPECT_RATIO
-    ):
-        return False, "base_shell_already_stable"
 
     return True, "ground_relief_and_shell_quality"
 

@@ -3486,7 +3486,7 @@ def test_should_apply_tetgen_shell_refinement_in_stage4_requires_ground_relief()
             "candidate_ground_faces": 250,
             "ground_relief_median": 0.82,
         },
-    ) == (False, "base_shell_already_stable")
+    ) == (True, "ground_relief_and_shell_quality")
 
 
 def test_should_apply_tetgen_shell_refinement_in_stage4_accepts_relief_driven_case():
