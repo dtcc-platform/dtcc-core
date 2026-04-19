@@ -223,6 +223,23 @@ def convert_surface(
     }
 
 
+def _semantic_to_cityjson(sem) -> str:
+    """Map SurfaceSemantic enum to CityJSON semantic type string."""
+    from dtcc_core.model.enums import SurfaceSemantic
+    if sem == SurfaceSemantic.GROUND:
+        return "GroundSurface"
+    elif sem == SurfaceSemantic.ROOF:
+        return "RoofSurface"
+    return "WallSurface"
+
+
+def semantic_type_for_surface(sem) -> str:
+    """Public API for mapping SurfaceSemantic to CityJSON type string."""
+    if sem is None:
+        return "WallSurface"
+    return _semantic_to_cityjson(sem)
+
+
 def convert_multisurface(
     multisurface: MultiSurface,
     vertices: List,
@@ -253,7 +270,11 @@ def convert_multisurface(
                 boundary.append(create_boundary(np.arange(len(hole)), hole_offset))
 
         boundaries.append(boundary)
-        semantic_surfaces.append({"type": config.semantic_types["surface"]})
+        # Use per-surface semantics if available, otherwise fall back to config
+        sem_type = config.semantic_types["surface"]  # default
+        if multisurface.semantics is not None and i < len(multisurface.semantics):
+            sem_type = _semantic_to_cityjson(multisurface.semantics[i])
+        semantic_surfaces.append({"type": sem_type})
         semantic_values.append(i)
 
     return {
