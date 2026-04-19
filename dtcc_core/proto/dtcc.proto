@@ -146,6 +146,7 @@ message Surface
 message MultiSurface
 {
     repeated Surface surfaces = 1;
+    repeated int32 semantics = 2;
 }
 
 message PointCloud

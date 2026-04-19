@@ -11,6 +11,7 @@ import json, re
 from copy import copy, deepcopy
 
 import dtcc_core
+from dtcc_core.model.enums import RoofType, SurfaceSemantic
 
 
 from ..values import Raster

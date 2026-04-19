@@ -258,6 +258,7 @@ class MultiSurface(Geometry):
     """Represents a planar surfaces in 3D."""
 
     surfaces: list[Surface] = field(default_factory=list)
+    semantics: list = None  # list[SurfaceSemantic] | None, parallel to surfaces
 
     def __len__(self):
         """
@@ -332,7 +333,10 @@ class MultiSurface(Geometry):
             Copied multi-surface instance.
         """
         if geometry_only:
-            return MultiSurface(surfaces=[s.copy(True) for s in self.surfaces])
+            ms = MultiSurface(surfaces=[s.copy(True) for s in self.surfaces])
+            if self.semantics is not None:
+                ms.semantics = list(self.semantics)
+            return ms
         else:
             return deepcopy(self)
 
@@ -351,6 +355,8 @@ class MultiSurface(Geometry):
         # Handle specific fields
         _pb = proto.MultiSurface()
         _pb.surfaces.extend([s.to_proto().surface for s in self.surfaces])
+        if self.semantics is not None:
+            _pb.semantics.extend([sem.value for sem in self.semantics])
         pb.multi_surface.CopyFrom(_pb)
 
         return pb
@@ -377,6 +383,9 @@ class MultiSurface(Geometry):
             _surface = Surface()
             _surface.from_proto(surface, only_surface_fields=True)
             self.surfaces.append(_surface)
+        if len(_pb.semantics) > 0:
+            from dtcc_core.model.enums import SurfaceSemantic
+            self.semantics = [SurfaceSemantic(v) for v in _pb.semantics]
 
     def __str__(self) -> str:
         return f"DTCC MultiSurface with {len(self.surfaces)} surfaces"

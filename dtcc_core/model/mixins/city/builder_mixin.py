@@ -167,6 +167,30 @@ class CityBuilderMixin:
 
         return self
 
+    def build_lod2_buildings(self: "T_City", **kwargs) -> "T_City":
+        """Build LoD2 geometry for all buildings in the city.
+
+        Requires LoD1 to be already built. Detects roof planes,
+        classifies roof type, and constructs LoD2 geometry with
+        semantic surface labels.
+
+        Parameters
+        ----------
+        **kwargs
+            Passed to ``build_lod2_buildings()`` builder function.
+            See ``RoofDetectionConfig`` for available parameters.
+
+        Returns
+        -------
+        T_City
+            Self, with LoD2 geometry added to buildings.
+        """
+        from dtcc_core.builder.geometry_builders.buildings import (
+            build_lod2_buildings as _build_lod2,
+        )
+        _build_lod2(self.buildings, **kwargs)
+        return self
+
     def build_surface_mesh(
         self: "T_City",
         lod: GeometryType | list[GeometryType] = GeometryType.LOD1,

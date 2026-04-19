@@ -37,6 +37,7 @@ class PointCloud(PointCloudBuilderMixin, PointcloudFilterMixin, Geometry):
     intensity: np.ndarray = field(default_factory=lambda: np.empty(0))
     return_number: np.ndarray = field(default_factory=lambda: np.empty(0))
     num_returns: np.ndarray = field(default_factory=lambda: np.empty(0))
+    normals: np.ndarray = None  # (N, 3) per-point normals, optional
 
     def __str__(self):
         """
