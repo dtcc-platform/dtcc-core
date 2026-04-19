@@ -6,8 +6,23 @@ from .. import _dtcc_builder
 from ..logging import debug, info, warning, error
 from shapely.geometry import Polygon
 import numpy as np
+import time
+from contextlib import contextmanager
 
-from typing import List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
+
+
+@contextmanager
+def _timed(stage: str, timings: Optional[Dict[str, float]]):
+    """Records elapsed ms into timings[stage] when a dict is provided; no-op otherwise."""
+    if timings is None:
+        yield
+        return
+    start = time.perf_counter()
+    try:
+        yield
+    finally:
+        timings[stage] = (time.perf_counter() - start) * 1000.0
 
 from .surface import extrude_surface
 from dtcc_core.common.progress import report_progress
@@ -426,6 +441,7 @@ def build_lod2_buildings(
     config=None,
     rebuild=True,
     fallback_to_flat=True,
+    diagnostics_out: Optional[Dict[str, Dict[str, Any]]] = None,
     **kwargs,
 ):
     """Build LoD2 geometry for buildings with roof point clouds.
@@ -445,6 +461,11 @@ def build_lod2_buildings(
     fallback_to_flat : bool
         If True, store flat fallback geometry when detection fails.
         If False, leave LoD2 slot empty on failure.
+    diagnostics_out : dict, optional
+        When provided, populated with per-building diagnostics keyed by building.id:
+        {"timings": {stage: ms}, "planes": List[RoofPlane] or None,
+         "classification": ClassificationResult or None,
+         "filtered_point_count": int}. Default None = no-op, no overhead.
     **kwargs
         Passed to RoofDetectionConfig for convenience.
     """
@@ -472,6 +493,18 @@ def build_lod2_buildings(
         config = RoofDetectionConfig(**config_kwargs)
 
     for building in buildings:
+        timings: Optional[Dict[str, float]] = None
+        record: Optional[Dict[str, Any]] = None
+        if diagnostics_out is not None:
+            timings = {}
+            record = {
+                "timings": timings,
+                "planes": None,
+                "classification": None,
+                "filtered_point_count": 0,
+            }
+            diagnostics_out[building.id] = record
+
         if not rebuild and building.lod2 is not None:
             continue
         if building.lod1 is None:
@@ -487,7 +520,8 @@ def build_lod2_buildings(
             )
             continue
 
-        filtered_pc, normals = filter_roof_points(pc, config)
+        with _timed("filter", timings):
+            filtered_pc, normals = filter_roof_points(pc, config)
         if filtered_pc is None:
             _set_lod2_fallback(
                 building, "insufficient_points", 0.0,
@@ -495,9 +529,16 @@ def build_lod2_buildings(
             )
             continue
 
+        if record is not None:
+            record["filtered_point_count"] = len(filtered_pc.points)
+
         # Stage 2: Detect planes and classify
-        planes = detect_roof_planes(filtered_pc, normals, config)
-        planes = merge_planes(planes, config)
+        with _timed("detect", timings):
+            planes = detect_roof_planes(filtered_pc, normals, config)
+        with _timed("merge", timings):
+            planes = merge_planes(planes, config)
+        if record is not None:
+            record["planes"] = planes
 
         footprint = building.lod0
         footprint_area = 0.0
@@ -509,11 +550,14 @@ def build_lod2_buildings(
                 footprint_area = 0.0
 
         fp_verts = footprint.vertices if footprint is not None else None
-        result = classify_roof(
-            planes, footprint_area, len(filtered_pc.points), config,
-            footprint_vertices=fp_verts,
-            all_points=filtered_pc.points,
-        )
+        with _timed("classify", timings):
+            result = classify_roof(
+                planes, footprint_area, len(filtered_pc.points), config,
+                footprint_vertices=fp_verts,
+                all_points=filtered_pc.points,
+            )
+        if record is not None:
+            record["classification"] = result
 
         building.attributes["roof_type"] = result.roof_type.name
         building.attributes["roof_confidence"] = result.confidence
@@ -555,20 +599,21 @@ def build_lod2_buildings(
         # Stage 4: Build geometry
         lod2 = None
         try:
-            if result.roof_type == RoofType.FLAT:
-                lod2 = build_flat_geometry(building.lod1)
-            elif result.roof_type == RoofType.GABLED and result.ridge_line is not None:
-                lod2 = build_gabled_geometry(
-                    building.lod1, footprint, result.ridge_line,
-                    result.eave_height, result.ridge_height,
-                )
-            elif result.roof_type == RoofType.HIPPED and result.ridge_line is not None:
-                lod2 = build_hipped_geometry(
-                    building.lod1, footprint, result.ridge_line,
-                    result.eave_height, result.ridge_height,
-                )
-            else:
-                lod2 = build_flat_geometry(building.lod1)
+            with _timed("geometry", timings):
+                if result.roof_type == RoofType.FLAT:
+                    lod2 = build_flat_geometry(building.lod1)
+                elif result.roof_type == RoofType.GABLED and result.ridge_line is not None:
+                    lod2 = build_gabled_geometry(
+                        building.lod1, footprint, result.ridge_line,
+                        result.eave_height, result.ridge_height,
+                    )
+                elif result.roof_type == RoofType.HIPPED and result.ridge_line is not None:
+                    lod2 = build_hipped_geometry(
+                        building.lod1, footprint, result.ridge_line,
+                        result.eave_height, result.ridge_height,
+                    )
+                else:
+                    lod2 = build_flat_geometry(building.lod1)
         except Exception as e:
             warning(f"Building {building.id}: geometry construction failed: {e}")
             _set_lod2_fallback(
@@ -579,7 +624,8 @@ def build_lod2_buildings(
 
         # Stage 5: Validate (warn but don't fall back for non-flat types,
         # since gabled/hipped geometry may have edge gaps at wall-roof junctions)
-        is_valid, issues = validate_shell(lod2, config.edge_snap_tolerance)
+        with _timed("validate", timings):
+            is_valid, issues = validate_shell(lod2, config.edge_snap_tolerance)
         if not is_valid:
             if result.roof_type == RoofType.FLAT:
                 _set_lod2_fallback(
