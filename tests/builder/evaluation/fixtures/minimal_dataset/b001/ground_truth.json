@@ -1,0 +1,7 @@
+{
+  "roof_type": "FLAT",
+  "ground_height": 0.0,
+  "ridge_height": null,
+  "eave_height": 5.0,
+  "expected_plane_count": 1
+}
