@@ -20,36 +20,9 @@ from dtcc_core.model import City, Bounds
 from dtcc_core.model.object.object import GeometryType
 from dtcc_core.model.enums import SurfaceSemantic
 from dtcc_core.builder.geometry_builders.buildings import build_lod2_buildings, extract_roof_points
+from dtcc_core.builder.evaluation.vtk_export import multisurface_to_meshio
 
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "output")
-
-
-def multisurface_to_meshio(ms, building_id=0):
-    """Convert a MultiSurface to meshio-compatible vertices, triangles, and cell data."""
-    vertices = []
-    triangles = []
-    semantic_values = []
-    building_ids = []
-    v_offset = 0
-
-    for i, surface in enumerate(ms.surfaces):
-        verts = surface.vertices
-        n = len(verts)
-        for v in verts:
-            vertices.append(v)
-
-        sem_val = 1  # default WALL
-        if ms.semantics is not None and i < len(ms.semantics):
-            sem_val = ms.semantics[i].value
-
-        for j in range(1, n - 1):
-            triangles.append([v_offset, v_offset + j, v_offset + j + 1])
-            semantic_values.append(sem_val)
-            building_ids.append(building_id)
-
-        v_offset += n
-
-    return np.array(vertices), np.array(triangles), np.array(semantic_values), np.array(building_ids)
 
 
 def export_buildings_vtk(buildings, path, lod_type, label):
