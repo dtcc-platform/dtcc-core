@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import List, Optional, Tuple
 
 import numpy as np
@@ -16,6 +17,7 @@ from dtcc_core.builder.geometry_builders.roof_config import (
 def filter_roof_points(
     pc: PointCloud,
     config: RoofDetectionConfig,
+    stage_timings: Optional[dict] = None,
 ) -> Tuple[Optional[PointCloud], Optional[np.ndarray]]:
     """Filter a per-building point cloud to keep likely roof points.
 
@@ -23,11 +25,14 @@ def filter_roof_points(
     facade hits and optionally filters by classification.
 
     Returns (filtered_pointcloud, normals) or (None, None) if too few remain.
+
+    When stage_timings is provided, records 'normals' and 'filter' keys in ms.
     """
     if pc is None or len(pc.points) < config.min_roof_points:
         return None, None
 
     # Step 1: Estimate normals using Open3D
+    t0 = time.perf_counter()
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(pc.points)
     pcd.estimate_normals(
@@ -37,7 +42,11 @@ def filter_roof_points(
     # Orient normals upward
     flip_mask = normals[:, 2] < 0
     normals[flip_mask] *= -1
+    if stage_timings is not None:
+        stage_timings["normals"] = (time.perf_counter() - t0) * 1000.0
 
+    # Remaining steps: facade filter + classification filter + mask apply
+    t_filter = time.perf_counter()
     keep_mask = np.ones(len(pc.points), dtype=bool)
 
     # Step 2: Remove facade points (near-vertical normals)
@@ -59,12 +68,16 @@ def filter_roof_points(
 
     # Step 4: Check minimum count
     if len(filtered_points) < config.min_roof_points:
+        if stage_timings is not None:
+            stage_timings["filter"] = (time.perf_counter() - t_filter) * 1000.0
         return None, None
 
     filtered_pc = PointCloud(
         points=filtered_points,
         classification=filtered_cls if filtered_cls is not None else np.empty(0),
     )
+    if stage_timings is not None:
+        stage_timings["filter"] = (time.perf_counter() - t_filter) * 1000.0
     return filtered_pc, filtered_normals
 
 
@@ -72,18 +85,17 @@ def detect_roof_planes(
     pc: PointCloud,
     normals: np.ndarray,
     config: RoofDetectionConfig,
+    stage_timings: Optional[dict] = None,
 ) -> List[RoofPlane]:
     """Detect roof planes via iterative RANSAC + region-growing refinement.
 
-    Args:
-        pc: filtered per-building point cloud
-        normals: (N, 3) pre-computed normals aligned with pc.points
-        config: detection parameters
-
-    Returns:
-        List of RoofPlane objects, sorted by inlier count (largest first).
+    When stage_timings is provided, records 'ransac' and 'region_growing'
+    keys in ms, summed across all plane iterations.
     """
     if len(pc.points) < config.min_plane_points:
+        if stage_timings is not None:
+            stage_timings.setdefault("ransac", 0.0)
+            stage_timings.setdefault("region_growing", 0.0)
         return []
 
     pcd = o3d.geometry.PointCloud()
@@ -95,6 +107,9 @@ def detect_roof_planes(
     all_points = np.asarray(pcd.points)
     all_normals = normals.copy()
     planes: List[RoofPlane] = []
+
+    ransac_ms = 0.0
+    region_ms = 0.0
 
     for _ in range(config.max_roof_planes):
         if len(remaining_indices) < config.min_plane_points:
@@ -108,11 +123,13 @@ def detect_roof_planes(
         sub_pcd.points = o3d.utility.Vector3dVector(all_points[remaining_list])
 
         # RANSAC plane fit
+        t0 = time.perf_counter()
         plane_model, inlier_sub_indices = sub_pcd.segment_plane(
             distance_threshold=config.ransac_distance_threshold,
             ransac_n=3,
             num_iterations=config.ransac_iterations,
         )
+        ransac_ms += (time.perf_counter() - t0) * 1000.0
 
         if len(inlier_sub_indices) < config.min_plane_points:
             break
@@ -128,10 +145,12 @@ def detect_roof_planes(
             plane_offset *= -1
 
         # Region-growing refinement
+        t1 = time.perf_counter()
         inlier_global = _region_grow(
             all_points, all_normals, plane_normal, plane_offset,
             inlier_global, remaining_indices, config,
         )
+        region_ms += (time.perf_counter() - t1) * 1000.0
 
         if len(inlier_global) < config.min_plane_points:
             remaining_indices -= inlier_global
@@ -158,6 +177,9 @@ def detect_roof_planes(
         remaining_indices -= inlier_global
 
     planes.sort(key=lambda p: len(p.inliers), reverse=True)
+    if stage_timings is not None:
+        stage_timings["ransac"] = ransac_ms
+        stage_timings["region_growing"] = region_ms
     return planes
 
 
