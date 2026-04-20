@@ -24,7 +24,16 @@ def _fake_result(bid="b001", outcome="success"):
         ridge_height_error=None,
         eave_height_error=None,
         semantic_iou={"ROOF": 0.98, "GROUND": 0.99},
-        timings={"filter": 3.0, "detect": 12.0},
+        timings={
+            "normals": 1.0,
+            "filter": 2.0,
+            "ransac": 8.0,
+            "region_growing": 3.0,
+            "merge": 0.5,
+            "classify": 1.5,
+            "geometry": 2.0,
+            "validate": 0.5,
+        },
         total_ms=20.5,
     )
 
@@ -59,4 +68,6 @@ def test_csv_flattens_stage_timings(tmp_path: Path):
         reader = csv.DictReader(f)
         headers = reader.fieldnames
     assert "timing_filter_ms" in headers
-    assert "timing_detect_ms" in headers
+    assert "timing_ransac_ms" in headers
+    assert "timing_region_growing_ms" in headers
+    assert "timing_normals_ms" in headers

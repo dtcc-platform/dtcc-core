@@ -9,6 +9,7 @@ from statistics import median
 from typing import Any, Dict, Iterable, List, Optional
 
 from dtcc_core.builder.evaluation.runner import BuildingResult
+from dtcc_core.builder.logging import warning
 
 
 _BASE_HEADERS = [
@@ -131,35 +132,41 @@ def _is_failure(r: BuildingResult, t: FailureThresholds) -> bool:
 
 
 def write_failure_gallery(
-    dataset_root,
+    buildings: Dict[str, "Building"],
     results: List[BuildingResult],
     thresholds: FailureThresholds,
     out_dir: Path | str,
 ) -> List[Path]:
-    """For each failing building, re-run the pipeline and write a VTK file."""
-    from dtcc_core.builder.evaluation.dataset import EvalDataset
-    from dtcc_core.builder.evaluation.runner import Runner
-    from dtcc_core.builder.evaluation.vtk_export import write_building_vtk
-    from dtcc_core.builder.geometry_builders.buildings import build_lod2_buildings
+    """Write a VTK file for each result that trips any failure threshold.
 
-    failing_ids = {r.building_id for r in results if _is_failure(r, thresholds)}
+    Consumes already-built Building objects keyed by building_id (use
+    Runner.buildings). Does not re-run the pipeline. Results whose
+    building_id is not in `buildings`, or whose building has no LoD2,
+    are silently skipped.
+    """
+    from dtcc_core.builder.evaluation.vtk_export import write_building_vtk
+
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     paths: List[Path] = []
-    if not failing_ids:
-        return paths
-
-    ds = EvalDataset(dataset_root)
-    runner = Runner()
-    for sample in ds:
-        if sample.building_id not in failing_ids:
+    for r in results:
+        if not _is_failure(r, thresholds):
             continue
-        building = runner._sample_to_building(sample)
-        build_lod2_buildings([building])
+        building = buildings.get(r.building_id)
+        if building is None:
+            warning(
+                f"Failure gallery: no Building for '{r.building_id}' — skipping. "
+                "Caller likely passed a buildings dict that does not cover all results."
+            )
+            continue
         if building.lod2 is None:
+            warning(
+                f"Failure gallery: Building '{r.building_id}' has no LoD2 geometry — "
+                "skipping VTK export."
+            )
             continue
-        path = out_dir / f"{sample.building_id}.vtk"
+        path = out_dir / f"{r.building_id}.vtk"
         write_building_vtk(building, path)
         paths.append(path)
     return paths

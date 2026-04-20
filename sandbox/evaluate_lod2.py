@@ -47,7 +47,7 @@ def main(argv=None):
         require_watertight=not args.no_watertight_required,
     )
     gallery_paths = write_failure_gallery(
-        dataset_root=args.dataset,
+        buildings=runner.buildings,
         results=results,
         thresholds=thresholds,
         out_dir=gallery_dir,
