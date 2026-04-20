@@ -298,10 +298,10 @@ terrain_mesher::core::RasterDouble gridfield_to_raster(const GridField &grid_fie
   return raster;
 }
 
-Mesh build_terrain_mesh_zemlya(const GridField &grid_field, double max_error)
+Mesh build_terrain_mesh_zemlya(const GridField &grid_field, double max_error,size_t smoothing_iterations)
 {
   auto raster = gridfield_to_raster(grid_field);
-  return terrain_mesher::core::generate_zemlya_mesh(std::move(raster), max_error);
+  return terrain_mesher::core::generate_zemlya_mesh(std::move(raster), max_error, smoothing_iterations);
 }
 
 py::array_t<double> ray_surface_intersection(const Surface &surface,

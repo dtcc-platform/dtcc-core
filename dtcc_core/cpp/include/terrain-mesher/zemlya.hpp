@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "model/Mesh.h"
+#include "VertexSmoother.h"
 #include "terrain-mesher/geometry.hpp"
 #include "terrain-mesher/raster.hpp"
 #include "terrain-mesher/topology.hpp"
@@ -474,11 +475,15 @@ inline DTCC_BUILDER::Mesh ZemlyaMesh::convert_to_mesh() const {
     return mesh;
 }
 
-inline DTCC_BUILDER::Mesh generate_zemlya_mesh(RasterDouble raster, double max_error) {
+inline DTCC_BUILDER::Mesh generate_zemlya_mesh(RasterDouble raster, double max_error, size_t smoothing=0) {
     ZemlyaMesh mesh;
     mesh.load_raster(std::move(raster));
     mesh.greedy_insert(max_error);
-    return mesh.convert_to_mesh();
+    auto dtcc_mesh = mesh.convert_to_mesh();
+    if (smoothing > 0) {
+        DTCC_BUILDER::VertexSmoother::smooth_mesh(dtcc_mesh, smoothing,false, true);
+    }
+    return dtcc_mesh;
 }
 
 }  // namespace terrain_mesher::core

@@ -24,7 +24,7 @@ from ..logging import info
 
 
 def adaptive_terrain_mesh(
-    data: Union[PointCloud, Raster], max_error: float, raster_size=1
+    data: Union[PointCloud, Raster], max_error: float, raster_size=1, smoothing=0
 ) -> Mesh:
     """builds an adaptive terrain mesh from a point cloud or raster data. The mesh generates the minimum number of
     triangles necessary to represent the terrain within a specified error margin, using the Zemlya algorithm."""
@@ -41,7 +41,7 @@ def adaptive_terrain_mesh(
         raise ValueError("max_error must be a positive number.")
 
     _builder_mesh = _dtcc_builder.build_terrain_mesh_zemlya(
-        _builder_gridfield, max_error
+        _builder_gridfield, max_error, smoothing
     )
 
     return builder_mesh_to_mesh(_builder_mesh)
