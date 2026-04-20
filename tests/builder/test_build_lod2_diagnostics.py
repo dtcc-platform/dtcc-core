@@ -31,7 +31,9 @@ def test_diagnostics_records_stage_timings():
     build_lod2_buildings([b], diagnostics_out=diagnostics)
     assert "b001" in diagnostics
     timings = diagnostics["b001"]["timings"]
-    for stage in ("filter", "detect", "merge", "classify", "geometry", "validate"):
+    # 8 stages per spec: normals, filter, ransac, region_growing, merge, classify, geometry, validate
+    for stage in ("normals", "filter", "ransac", "region_growing",
+                  "merge", "classify", "geometry", "validate"):
         assert stage in timings, f"missing stage: {stage}"
         assert timings[stage] >= 0.0
 
@@ -65,3 +67,34 @@ def test_diagnostics_none_is_noop():
     b = _flat_roof_building()
     build_lod2_buildings([b])
     assert b.lod2 is not None
+
+
+def test_diagnostics_records_validation_outcome():
+    b = _flat_roof_building()
+    diagnostics = {}
+    build_lod2_buildings([b], diagnostics_out=diagnostics)
+    # Flat roof should build a watertight shell
+    assert "validated" in diagnostics["b001"]
+    assert diagnostics["b001"]["validated"] is True
+
+
+def test_diagnostics_record_on_insufficient_points_fallback():
+    # Building with a LoD1 but no point cloud → insufficient_points fallback
+    # before any timed stage runs. The diagnostics record should still be
+    # created but timings should be empty (no stage ever ran).
+    b = Building(id="bempty")
+    fp = Surface(vertices=np.array([[0,0,0],[10,0,0],[10,10,0],[0,10,0]], dtype=float))
+    b.add_geometry(fp, GeometryType.LOD0)
+    b.add_geometry(extrude_surface(fp, 5.0), GeometryType.LOD1)
+    # No point cloud attached
+
+    diagnostics = {}
+    build_lod2_buildings([b], diagnostics_out=diagnostics)
+
+    assert "bempty" in diagnostics
+    rec = diagnostics["bempty"]
+    assert rec["timings"] == {}   # no stage ran, no keys populated
+    assert rec["planes"] is None
+    assert rec["classification"] is None
+    assert rec["validated"] is None
+    assert b.attributes.get("fallback_reason") == "insufficient_points"

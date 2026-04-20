@@ -502,6 +502,7 @@ def build_lod2_buildings(
                 "planes": None,
                 "classification": None,
                 "filtered_point_count": 0,
+                "validated": None,
             }
             diagnostics_out[building.id] = record
 
@@ -520,8 +521,7 @@ def build_lod2_buildings(
             )
             continue
 
-        with _timed("filter", timings):
-            filtered_pc, normals = filter_roof_points(pc, config)
+        filtered_pc, normals = filter_roof_points(pc, config, stage_timings=timings)
         if filtered_pc is None:
             _set_lod2_fallback(
                 building, "insufficient_points", 0.0,
@@ -533,8 +533,7 @@ def build_lod2_buildings(
             record["filtered_point_count"] = len(filtered_pc.points)
 
         # Stage 2: Detect planes and classify
-        with _timed("detect", timings):
-            planes = detect_roof_planes(filtered_pc, normals, config)
+        planes = detect_roof_planes(filtered_pc, normals, config, stage_timings=timings)
         with _timed("merge", timings):
             planes = merge_planes(planes, config)
         if record is not None:
@@ -626,6 +625,8 @@ def build_lod2_buildings(
         # since gabled/hipped geometry may have edge gaps at wall-roof junctions)
         with _timed("validate", timings):
             is_valid, issues = validate_shell(lod2, config.edge_snap_tolerance)
+        if record is not None:
+            record["validated"] = bool(is_valid)
         if not is_valid:
             if result.roof_type == RoofType.FLAT:
                 _set_lod2_fallback(
