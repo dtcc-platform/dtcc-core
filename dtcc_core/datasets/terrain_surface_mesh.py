@@ -18,7 +18,7 @@ class TerrainSurfaceMeshArgs(DatasetBaseArgs):
     )
 
     adaptive_mesh: bool = Field(
-        True,
+        False,
         description="Whether to use adaptive meshing for the terrain surface mesh (dynmically adjusts mesh density based on terrain complexity)",
     )
 
