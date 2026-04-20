@@ -66,7 +66,7 @@ try:
 except Exception:  # pragma: no cover - import fallback for partial builds
     _dtcc_builder = None
 
-from ..logging import info
+from ..logging import debug, info
 
 
 @dataclass(slots=True)
@@ -9541,6 +9541,33 @@ def _fmt_metric(value: float | int | None, digits: int = 2) -> str:
     return f"{value:.{digits}f}"
 
 
+_STAGE_LABEL_TITLES = {
+    "atomic_input": "Input Coverage",
+    "opened": "Scale Opening",
+    "regularized_groups": "Group Regularization",
+    "reconstructed": "Coverage Reconstruction",
+    "presimplify": "Pre-Simplification",
+    "local_defect_repaired": "Local Defect Repair",
+    "coverage_simplified": "Coverage Simplification",
+    "source_reclaimed": "Source Reclaim",
+    "small_component_absorbed": "Small-Component Absorption",
+    "boundary_regularized": "Boundary Regularization",
+    "clearance_regularized": "Final Clearance Repair",
+    "source_coordinate_recovered": "Source Coordinate Recovery",
+    "post_recovery_regularized": "Post-Recovery Regularization",
+    "coverage_contact_regularized": "Contact Regularization",
+    "coverage_meshing_regularized": "Mesher-Ready Regularization",
+    "final_output": "Output Coverage",
+}
+
+
+def _format_stage_label(stage: str) -> str:
+    return _STAGE_LABEL_TITLES.get(
+        stage,
+        stage.replace("_", " ").strip().title(),
+    )
+
+
 def _format_stage_metrics(
     stage: str,
     metrics: dict[str, Any],
@@ -9548,7 +9575,8 @@ def _format_stage_metrics(
     short_edge_threshold: float,
 ) -> str:
     line = (
-        f"{stage}: polys={metrics['polygon_count']} verts={metrics['vertex_count']} "
+        f"{_format_stage_label(stage)}: "
+        f"polys={metrics['polygon_count']} verts={metrics['vertex_count']} "
         f"area={_fmt_metric(metrics['union_area'])} m2 "
         f"overlap={_fmt_metric(metrics['overlap_area'])} m2 "
         f"clear={_fmt_metric(metrics['min_clearance'])} m "
@@ -9612,8 +9640,12 @@ def _log_conditioning_stage(
     if not enabled:
         return
     info(
-        "Footprint cleaning stage\n"
-        f"  {_format_stage_metrics(label, metrics, short_edge_threshold=short_edge_threshold)}"
+        "Footprint Cleaning | "
+        + _format_stage_metrics(
+            label,
+            metrics,
+            short_edge_threshold=short_edge_threshold,
+        )
     )
 
 
@@ -9627,27 +9659,56 @@ def _log_conditioning_summary(
     stage_metrics = diagnostics["stage_metrics"]
     atomic = stage_metrics.get("atomic_input", {})
     final = stage_metrics.get("final_output", {})
-    lines = ["Footprint cleaning summary"]
+    summary_lines = ["Footprint Cleaning Complete"]
     if diagnostics.get("collect_stage_metrics", True):
-        lines.extend(
+        summary_lines.extend(
             [
                 (
-                    f"  {_format_stage_metrics('atomic_input', atomic, short_edge_threshold=short_edge_threshold)}"
+                    f"  Input  | {_format_stage_metrics('atomic_input', atomic, short_edge_threshold=short_edge_threshold)}"
                     if atomic
-                    else "  atomic_input: n/a"
+                    else "  Input  | n/a"
                 ),
                 (
-                    f"  {_format_stage_metrics('final_output', final, short_edge_threshold=short_edge_threshold)}"
+                    f"  Output | {_format_stage_metrics('final_output', final, short_edge_threshold=short_edge_threshold)}"
                     if final
-                    else "  final_output: n/a"
+                    else "  Output | n/a"
                 ),
             ]
         )
     else:
-        lines.append("  stage_metrics=disabled")
+        summary_lines.append("  Stage metrics disabled")
 
-    lines.extend(
+    summary_lines.extend(
         [
+        (
+            f"  Coverage | overlap={_fmt_metric(diagnostics['overlap_area_before'])} -> "
+            f"{_fmt_metric(diagnostics['overlap_area_after'])} m2 "
+            f"clearance={_fmt_metric(diagnostics['min_clearance_before'])} -> "
+            f"{_fmt_metric(diagnostics['min_clearance_after'])} m"
+        ),
+        (
+            f"  Output   | polygons={diagnostics['output_count']} "
+            f"repaired_invalid={diagnostics['repaired_invalid_count']} "
+            f"collapsed={diagnostics['collapsed_count']} "
+            f"dropped_small={diagnostics['dropped_small_count']} "
+            f"geos_exceptions={diagnostics['geos_exception_count']}"
+        ),
+        (
+            f"  Actions  | local_defect={diagnostics['local_defect_repair_applied_count']}/"
+            f"{diagnostics['local_defect_repair_candidate_count']} "
+            f"coverage_simplify={diagnostics['coverage_simplify_patch_applied_count']}/"
+            f"{diagnostics['coverage_simplify_patch_count']} "
+            f"({diagnostics['coverage_simplify_selected_branch']}) "
+            f"source_recovery={diagnostics['source_coordinate_recovery_applied_count']}/"
+            f"{diagnostics['source_coordinate_recovery_candidate_count']} "
+            f"boundary_regularization={diagnostics['polygon_simplify_applied_count']}/"
+            f"{diagnostics['polygon_simplify_candidate_count']}"
+        ),
+        ]
+    )
+    info("\n".join(summary_lines))
+
+    detail_lines = [
         (
             f"  polygonize cut/dangle/invalid="
             f"{diagnostics['polygonize_cut_edges']}/"
@@ -9664,12 +9725,6 @@ def _log_conditioning_summary(
             f"  multi_component_groups={diagnostics['multi_component_group_count']} "
             f"component_source_reassignments="
             f"{diagnostics['component_source_reassignment_count']}"
-        ),
-        (
-            f"  overlap={_fmt_metric(diagnostics['overlap_area_before'])} -> "
-            f"{_fmt_metric(diagnostics['overlap_area_after'])} m2 "
-            f"clearance={_fmt_metric(diagnostics['min_clearance_before'])} -> "
-            f"{_fmt_metric(diagnostics['min_clearance_after'])} m"
         ),
         (
             f"  output_canonicalization candidates="
@@ -9876,17 +9931,12 @@ def _log_conditioning_summary(
             f"attempted={diagnostics.get('polygon_simplify_operator_attempts', {})} "
             f"applied={diagnostics.get('polygon_simplify_operator_applied', {})}"
         ),
-        (
-            f"  geos_exceptions={diagnostics['geos_exception_count']} "
-            f"output_count={diagnostics['output_count']}"
-        ),
-        ]
-    )
+    ]
     if diagnostics["geos_exception_messages"]:
-        lines.append(
+        detail_lines.append(
             "  messages=" + " | ".join(diagnostics["geos_exception_messages"][:3])
         )
-    info("\n".join(lines))
+    debug("Footprint Cleaning Details\n" + "\n".join(detail_lines))
 
 
 def _apply_coverage_candidate_diagnostics(

@@ -83,20 +83,9 @@ _FLAT_MESH_BUILDING_CLEANUP_DETAIL_MULTIPLIER = 5.0
 _RASTER_BOUNDARY_SNAP_FRACTION = 0.125
 _RASTER_BOUNDARY_SNAP_MIN = 1.0e-6
 _MERGED_ROOF_ENVELOPE_Z_SPAN = 2.0
-_TETGEN_PRESERVE_RETRY_ASPECT_RATIO_THRESHOLD = 5.0e2
 _TETGEN_PRESERVE_RETRY_MIN_EDGE_RATIO = 0.25
-_TETGEN_PRESERVE_RETRY_MIN_SEVERITY_IMPROVEMENT = 0.5
-_TETGEN_SHELL_REFINEMENT_RETRY_ASPECT_RATIO_THRESHOLD = 4.0e2
-_TETGEN_SHELL_REFINEMENT_RETRY_ELEMENT_QUALITY_THRESHOLD = 2.0e-2
-_TETGEN_SHELL_REFINEMENT_RETRY_MIN_SCORE_IMPROVEMENT = 0.85
 _TETGEN_QUALITY_FAILURE_ASPECT_RATIO_THRESHOLD = 2.5e2
 _TETGEN_QUALITY_FAILURE_ELEMENT_QUALITY_THRESHOLD = 3.0e-2
-_TETGEN_SHELL_EDGE_SPLIT_RETRY_MAX_EDGES = 2
-_TETGEN_SHELL_EDGE_SPLIT_RETRY_MIN_EDGE_RATIO = 1.25
-_TETGEN_SHELL_EDGE_SPLIT_RETRY_MIN_SCORE_IMPROVEMENT = 0.85
-_TETGEN_GROUND_EDGE_SPLIT_RETRY_MAX_EDGES = 4
-_TETGEN_GROUND_EDGE_SPLIT_RETRY_MIN_EDGE_RATIO = 1.0
-_TETGEN_GROUND_EDGE_SPLIT_RETRY_MIN_HORIZONTAL_NORMAL_Z = 0.75
 _TETGEN_SHELL_TRANSITION_REFINEMENT_EDGE_RATIO = 1.25
 _TETGEN_SHELL_TRANSITION_REFINEMENT_MAX_WALL_NORMAL_Z = 0.5
 _TETGEN_SHELL_TRANSITION_REFINEMENT_MIN_GROUND_RELIEF = 0.5
@@ -105,7 +94,6 @@ _TETGEN_SHELL_HORIZONTAL_REFINEMENT_MAX_SLOPE_RATIO = 0.1
 _TETGEN_SHELL_HORIZONTAL_REFINEMENT_MIN_NORMAL_Z = 0.995
 _TETGEN_SHELL_HORIZONTAL_REFINEMENT_MIN_GROUND_RELIEF = 0.25
 _TETGEN_SHELL_HORIZONTAL_REFINEMENT_MAX_ROUNDS = 2
-_TETGEN_STAGE4_SHELL_SELECTION_MIN_GROUND_RELIEF = 0.6
 _STAGE_CONTRACT_MIN_EDGE_RATIO_WARNING = 1.0e-3
 _STAGE_CONTRACT_MIN_AREA_RATIO_WARNING = 1.0e-6
 _STAGE_CONTRACT_MIN_TRI_QUALITY_WARNING = 2.0e-2
@@ -118,7 +106,7 @@ _TETGEN_DEBUG_CLOSURE_MARKERS = {
     "top": -105,
 }
 
-MeshingPipelineMode = Literal["compat", "strict"]
+MeshingPipelineMode = Literal["strict"]
 
 
 def _normalize_max_mesh_size(max_mesh_size: float | None) -> float | None:
@@ -134,13 +122,11 @@ def _normalize_meshing_pipeline_mode(
     pipeline_mode: str | None,
 ) -> MeshingPipelineMode:
     if pipeline_mode is None:
-        return "compat"
+        return "strict"
     normalized = str(pipeline_mode).strip().lower()
-    if normalized not in {"compat", "strict"}:
-        raise ValueError(
-            "pipeline_mode must be one of: compat, strict."
-        )
-    return normalized
+    if normalized != "strict":
+        raise ValueError("Only the strict meshing pipeline is supported.")
+    return "strict"
 
 
 def _raise_stage_contract_errors(
@@ -1030,25 +1016,6 @@ def _mark_stage_audit_success(
         stage_audit["selected_attempt_label"] = str(attempt["label"])
 
 
-def _tetgen_preserve_retry_reference_length(
-    *,
-    subdomain_resolution: Sequence[float],
-    max_mesh_size: float | None,
-    min_building_detail: float,
-) -> float:
-    positive_resolution = [
-        float(value) for value in subdomain_resolution if float(value) > 0.0
-    ]
-    if positive_resolution:
-        return min(positive_resolution)
-
-    normalized_max_mesh_size = _normalize_max_mesh_size(max_mesh_size)
-    if normalized_max_mesh_size is not None:
-        return float(normalized_max_mesh_size)
-
-    return max(float(min_building_detail), 1.0e-9)
-
-
 def _tetgen_volume_mesh_quality_snapshot(volume_mesh: VolumeMesh) -> dict[str, float]:
     vertices = np.asarray(volume_mesh.vertices, dtype=np.float64)
     cells = np.asarray(volume_mesh.cells, dtype=np.int64)
@@ -1248,376 +1215,6 @@ def _tetgen_quality_failure_report(
     }
 
 
-def _tetgen_boundary_refinement_severity(
-    quality_snapshot: dict[str, float],
-    *,
-    reference_length: float,
-) -> float:
-    min_edge_length = max(float(quality_snapshot["min_edge_length"]), 1.0e-12)
-    return float(quality_snapshot["aspect_ratio_max"]) * float(reference_length) / min_edge_length
-
-
-def _should_retry_tetgen_with_preserve_surface(
-    quality_snapshot: dict[str, float],
-    *,
-    reference_length: float,
-) -> bool:
-    if reference_length <= 0.0:
-        return False
-
-    return (
-        float(quality_snapshot["aspect_ratio_max"])
-        >= _TETGEN_PRESERVE_RETRY_ASPECT_RATIO_THRESHOLD
-        and float(quality_snapshot["min_edge_length"])
-        < reference_length * _TETGEN_PRESERVE_RETRY_MIN_EDGE_RATIO
-    )
-
-
-def _should_accept_preserve_surface_retry(
-    original_snapshot: dict[str, float],
-    retry_snapshot: dict[str, float],
-    *,
-    reference_length: float,
-) -> bool:
-    original_severity = _tetgen_boundary_refinement_severity(
-        original_snapshot,
-        reference_length=reference_length,
-    )
-    retry_severity = _tetgen_boundary_refinement_severity(
-        retry_snapshot,
-        reference_length=reference_length,
-    )
-    original_score = _tetgen_quality_retry_score(original_snapshot)
-    retry_score = _tetgen_quality_retry_score(retry_snapshot)
-    return (
-        retry_severity
-        < original_severity * _TETGEN_PRESERVE_RETRY_MIN_SEVERITY_IMPROVEMENT
-        and retry_snapshot["aspect_ratio_max"] < original_snapshot["aspect_ratio_max"]
-        and retry_score <= original_score
-    )
-
-
-def _tetgen_quality_retry_score(quality_snapshot: dict[str, float]) -> float:
-    aspect_ratio = max(float(quality_snapshot.get("aspect_ratio_max", 1.0)), 1.0)
-    element_quality = max(
-        float(quality_snapshot.get("element_quality_min", 1.0)),
-        1.0e-12,
-    )
-    low_quality_count = max(float(quality_snapshot.get("low_quality_count", 0.0)), 0.0)
-    aspect_penalty = max(
-        aspect_ratio / _TETGEN_QUALITY_FAILURE_ASPECT_RATIO_THRESHOLD,
-        1.0,
-    )
-    quality_penalty = max(
-        _TETGEN_QUALITY_FAILURE_ELEMENT_QUALITY_THRESHOLD / element_quality,
-        1.0,
-    )
-    low_quality_penalty = 1.0 + low_quality_count / 100.0
-    return aspect_penalty * quality_penalty * low_quality_penalty
-
-
-def _tetgen_shell_edge_split_retry_min_edge_length(
-    *,
-    max_mesh_size: float | None,
-) -> float | None:
-    normalized_max_mesh_size = _normalize_max_mesh_size(max_mesh_size)
-    if normalized_max_mesh_size is None:
-        return None
-    return (
-        float(normalized_max_mesh_size)
-        * _TETGEN_SHELL_EDGE_SPLIT_RETRY_MIN_EDGE_RATIO
-    )
-
-
-def _tetgen_ground_edge_split_retry_min_edge_length(
-    *,
-    max_mesh_size: float | None,
-) -> float | None:
-    normalized_max_mesh_size = _normalize_max_mesh_size(max_mesh_size)
-    if normalized_max_mesh_size is None:
-        return None
-    return (
-        float(normalized_max_mesh_size)
-        * _TETGEN_GROUND_EDGE_SPLIT_RETRY_MIN_EDGE_RATIO
-    )
-
-
-def _tetgen_boundary_face_vertex_key(point: Sequence[float]) -> tuple[float, float, float]:
-    coords = np.asarray(point, dtype=np.float64).reshape(-1)
-    if coords.size < 3:
-        padded = np.zeros(3, dtype=np.float64)
-        padded[: coords.size] = coords
-        coords = padded
-    return tuple(np.round(coords[:3], 9).tolist())
-
-
-def _tetgen_boundary_face_xy_key(point: Sequence[float]) -> tuple[float, float]:
-    coords = np.asarray(point, dtype=np.float64).reshape(-1)
-    if coords.size < 2:
-        padded = np.zeros(2, dtype=np.float64)
-        padded[: coords.size] = coords
-        coords = padded
-    return tuple(np.round(coords[:2], 9).tolist())
-
-
-def _shared_boundary_face_vertices(
-    face_a: dict[str, Any],
-    face_b: dict[str, Any],
-) -> list[tuple[float, float, float]]:
-    vertices_a = [
-        _tetgen_boundary_face_vertex_key(point)
-        for point in face_a.get("vertices", [])
-    ]
-    vertices_b = {
-        _tetgen_boundary_face_vertex_key(point)
-        for point in face_b.get("vertices", [])
-    }
-    shared: list[tuple[float, float, float]] = []
-    for key in vertices_a:
-        if key in vertices_b and key not in shared:
-            shared.append(key)
-    return shared
-
-
-def _surface_mesh_edge_set(mesh: Mesh) -> set[tuple[int, int]]:
-    faces = np.asarray(mesh.faces, dtype=np.int64)
-    if faces.ndim != 2 or faces.shape[1] != 3 or len(faces) == 0:
-        return set()
-
-    edges: set[tuple[int, int]] = set()
-    for face in faces:
-        a, b, c = (int(face[0]), int(face[1]), int(face[2]))
-        edges.add((min(a, b), max(a, b)))
-        edges.add((min(b, c), max(b, c)))
-        edges.add((min(c, a), max(c, a)))
-    return edges
-
-
-def _surface_mesh_face_key_set(mesh: Mesh) -> set[tuple[int, int, int]]:
-    faces = np.asarray(mesh.faces, dtype=np.int64)
-    if faces.ndim != 2 or faces.shape[1] != 3 or len(faces) == 0:
-        return set()
-    return {
-        tuple(sorted(map(int, face.tolist())))
-        for face in faces
-    }
-
-
-def _candidate_shell_edge_splits_from_quality_report(
-    report: dict[str, Any],
-    surface_mesh: Mesh,
-    *,
-    max_edges: int,
-    min_edge_length: float,
-    allowed_markers: set[int] | None = None,
-) -> set[tuple[int, int]]:
-    if max_edges <= 0 or min_edge_length <= 0.0:
-        return set()
-
-    allowed = {-1} if allowed_markers is None else {int(value) for value in allowed_markers}
-    surface_vertices = np.asarray(surface_mesh.vertices, dtype=np.float64)
-    if surface_vertices.ndim != 2 or surface_vertices.shape[1] < 3:
-        return set()
-
-    coordinate_to_vertex = {
-        _tetgen_boundary_face_vertex_key(vertex): int(index)
-        for index, vertex in enumerate(surface_vertices)
-    }
-    surface_edges = _surface_mesh_edge_set(surface_mesh)
-    split_edges: list[tuple[int, int]] = []
-
-    for cell in report.get("worst_cells", []):
-        boundary_faces = [
-            face
-            for face in cell.get("boundary_faces", [])
-            if int(face.get("marker", 0)) in allowed
-        ]
-        if len(boundary_faces) < 2:
-            continue
-
-        for first_index in range(len(boundary_faces)):
-            for second_index in range(first_index + 1, len(boundary_faces)):
-                shared_vertices = _shared_boundary_face_vertices(
-                    boundary_faces[first_index],
-                    boundary_faces[second_index],
-                )
-                if len(shared_vertices) != 2:
-                    continue
-                vertex_indices = [
-                    coordinate_to_vertex.get(shared_vertices[0]),
-                    coordinate_to_vertex.get(shared_vertices[1]),
-                ]
-                if None in vertex_indices:
-                    continue
-                edge = (
-                    min(int(vertex_indices[0]), int(vertex_indices[1])),
-                    max(int(vertex_indices[0]), int(vertex_indices[1])),
-                )
-                if edge not in surface_edges or edge in split_edges:
-                    continue
-                edge_length = float(
-                    np.linalg.norm(
-                        surface_vertices[edge[1], :3] - surface_vertices[edge[0], :3]
-                    )
-                )
-                if edge_length <= min_edge_length:
-                    continue
-                split_edges.append(edge)
-                if len(split_edges) >= max_edges:
-                    return set(split_edges)
-
-    return set(split_edges)
-
-
-def _candidate_ground_edge_splits_from_quality_report(
-    report: dict[str, Any],
-    ground_mesh: Mesh,
-    *,
-    max_edges: int,
-    min_edge_length: float,
-    allowed_markers: set[int] | None = None,
-    min_horizontal_normal_z: float = _TETGEN_GROUND_EDGE_SPLIT_RETRY_MIN_HORIZONTAL_NORMAL_Z,
-) -> set[tuple[int, int]]:
-    if max_edges <= 0 or min_edge_length <= 0.0:
-        return set()
-
-    allowed = {-1} if allowed_markers is None else {int(value) for value in allowed_markers}
-    ground_vertices = np.asarray(ground_mesh.vertices, dtype=np.float64)
-    if ground_vertices.ndim != 2 or ground_vertices.shape[1] < 3:
-        return set()
-
-    coordinate_to_vertex = {
-        _tetgen_boundary_face_xy_key(vertex): int(index)
-        for index, vertex in enumerate(ground_vertices)
-    }
-    ground_edges = _surface_mesh_edge_set(ground_mesh)
-    split_edges: list[tuple[int, int]] = []
-
-    for cell in report.get("worst_cells", []):
-        boundary_faces = sorted(
-            (
-                face
-                for face in cell.get("boundary_faces", [])
-                if int(face.get("marker", 0)) in allowed
-                and float(face.get("horizontal_normal_z", 0.0))
-                >= min_horizontal_normal_z
-            ),
-            key=lambda face: (
-                -float(face.get("horizontal_normal_z", 0.0)),
-                -float(face.get("z_span", 0.0)),
-                -float(face.get("area", 0.0)),
-            ),
-        )
-        for face in boundary_faces:
-            vertex_indices = [
-                coordinate_to_vertex.get(
-                    _tetgen_boundary_face_xy_key(point)
-                )
-                for point in face.get("vertices", [])
-            ]
-            if len(vertex_indices) != 3 or None in vertex_indices:
-                continue
-
-            local_edges: list[tuple[float, tuple[int, int]]] = []
-            for start, end in (
-                (vertex_indices[0], vertex_indices[1]),
-                (vertex_indices[1], vertex_indices[2]),
-                (vertex_indices[2], vertex_indices[0]),
-            ):
-                edge = (min(int(start), int(end)), max(int(start), int(end)))
-                if edge not in ground_edges or edge in split_edges:
-                    continue
-                edge_length = float(
-                    np.linalg.norm(
-                        ground_vertices[edge[1], :3] - ground_vertices[edge[0], :3]
-                    )
-                )
-                if edge_length <= min_edge_length:
-                    continue
-                local_edges.append((edge_length, edge))
-
-            local_edges.sort(key=lambda item: (-item[0], item[1]))
-            for _edge_length, edge in local_edges:
-                if edge in split_edges:
-                    continue
-                split_edges.append(edge)
-                if len(split_edges) >= max_edges:
-                    return set(split_edges)
-
-    return set(split_edges)
-
-
-def _should_accept_shell_edge_split_retry(
-    original_snapshot: dict[str, float],
-    retry_snapshot: dict[str, float],
-) -> bool:
-    original_score = _tetgen_quality_retry_score(original_snapshot)
-    retry_score = _tetgen_quality_retry_score(retry_snapshot)
-    return (
-        retry_score
-        < original_score * _TETGEN_SHELL_EDGE_SPLIT_RETRY_MIN_SCORE_IMPROVEMENT
-        and retry_snapshot["aspect_ratio_max"] < original_snapshot["aspect_ratio_max"]
-        and retry_snapshot["min_edge_length"] >= original_snapshot["min_edge_length"]
-    )
-
-
-def _should_retry_tetgen_without_shell_refinement(
-    quality_snapshot: dict[str, float],
-    *,
-    shell_refinement_stats: dict[str, int | float | bool],
-) -> bool:
-    if not bool(shell_refinement_stats.get("applied")):
-        return False
-    if int(shell_refinement_stats.get("candidate_roof_faces", 0)) <= 0:
-        return False
-
-    return (
-        float(quality_snapshot["aspect_ratio_max"])
-        >= _TETGEN_SHELL_REFINEMENT_RETRY_ASPECT_RATIO_THRESHOLD
-        or float(quality_snapshot["element_quality_min"])
-        <= _TETGEN_SHELL_REFINEMENT_RETRY_ELEMENT_QUALITY_THRESHOLD
-    )
-
-
-def _should_accept_shell_refinement_disabled_retry(
-    original_snapshot: dict[str, float],
-    retry_snapshot: dict[str, float],
-) -> bool:
-    original_score = _tetgen_quality_retry_score(original_snapshot)
-    retry_score = _tetgen_quality_retry_score(retry_snapshot)
-    if (
-        retry_score
-        < original_score * _TETGEN_SHELL_REFINEMENT_RETRY_MIN_SCORE_IMPROVEMENT
-    ):
-        return True
-
-    original_aspect_ratio = float(original_snapshot.get("aspect_ratio_max", 1.0))
-    retry_aspect_ratio = float(retry_snapshot.get("aspect_ratio_max", 1.0))
-    original_element_quality = float(
-        original_snapshot.get("element_quality_min", 1.0)
-    )
-    retry_element_quality = float(retry_snapshot.get("element_quality_min", 1.0))
-    original_min_edge = float(original_snapshot.get("min_edge_length", 0.0))
-    retry_min_edge = float(retry_snapshot.get("min_edge_length", 0.0))
-    original_high_aspect_ratio_count = float(
-        original_snapshot.get("high_aspect_ratio_count", 0.0)
-    )
-    retry_high_aspect_ratio_count = float(
-        retry_snapshot.get("high_aspect_ratio_count", 0.0)
-    )
-    original_low_quality_count = float(original_snapshot.get("low_quality_count", 0.0))
-    retry_low_quality_count = float(retry_snapshot.get("low_quality_count", 0.0))
-
-    return (
-        retry_score < original_score
-        and retry_aspect_ratio <= original_aspect_ratio * 1.001
-        and retry_element_quality >= original_element_quality * 0.999
-        and retry_min_edge >= original_min_edge * 0.999
-        and retry_high_aspect_ratio_count <= original_high_aspect_ratio_count
-        and retry_low_quality_count <= original_low_quality_count
-    )
-
-
 def _tetgen_shell_refinement_disabled_stats() -> dict[str, int | float | bool]:
     return {
         "enabled": False,
@@ -1680,28 +1277,6 @@ def _surface_shell_stage_audit(
     return surface_shell_audit
 
 
-def _should_apply_tetgen_shell_refinement_in_stage4(
-    base_shell_audit: dict[str, Any],
-    refined_shell_audit: dict[str, Any],
-    *,
-    shell_refinement_stats: dict[str, int | float | bool],
-) -> tuple[bool, str]:
-    del refined_shell_audit
-
-    if not bool(shell_refinement_stats.get("applied")):
-        return False, "no_candidate_edges"
-
-    candidate_ground_faces = int(shell_refinement_stats.get("candidate_ground_faces", 0))
-    if candidate_ground_faces <= 0:
-        return False, "roof_only_candidates"
-
-    ground_relief = float(shell_refinement_stats.get("ground_relief_median", 0.0))
-    if ground_relief < _TETGEN_STAGE4_SHELL_SELECTION_MIN_GROUND_RELIEF:
-        return False, "ground_relief_below_threshold"
-
-    return True, "ground_relief_and_shell_quality"
-
-
 def _is_unavailable_flat_mesher_error(backend: str, exc: RuntimeError) -> bool:
     message = str(exc)
     if backend == "triangle":
@@ -1747,7 +1322,7 @@ def _prepare_city_meshing_inputs(
     merge_buildings: bool,
     max_mesh_size: float | None,
     cleaning_diagnostics: bool,
-    pipeline_mode: MeshingPipelineMode = "compat",
+    pipeline_mode: MeshingPipelineMode = "strict",
 ) -> tuple[object, object, list[Surface], list[list[int]], list[float], dict[str, Any]]:
     terrain, terrain_raster = _require_city_terrain_raster(
         city,
@@ -1932,7 +1507,7 @@ def _prepare_surface_ground_regions(
     footprint_diagnostics: dict[str, Any],
     cleaning_diagnostics: bool,
     treat_lod0_as_holes: bool,
-    pipeline_mode: MeshingPipelineMode = "compat",
+    pipeline_mode: MeshingPipelineMode = "strict",
 ) -> tuple[
     list[Surface],
     list[int],
@@ -1941,7 +1516,7 @@ def _prepare_surface_ground_regions(
     dict[int, float],
     list[np.ndarray],
 ]:
-    pipeline_mode = _normalize_meshing_pipeline_mode(pipeline_mode)
+    _normalize_meshing_pipeline_mode(pipeline_mode)
     source_surfaces: list[Surface] = []
     source_directives: list[int] = []
     source_resolutions: list[float] = []
@@ -1986,46 +1561,6 @@ def _prepare_surface_ground_regions(
         cleaning_diagnostics=cleaning_diagnostics,
         pipeline_mode=pipeline_mode,
     )
-
-    if pipeline_mode != "strict":
-        shell_regularization_scale = max(
-            float(footprint_diagnostics.get("output_grid", 0.0) or 0.0),
-            float(min_building_detail),
-            1e-6,
-        )
-        shell_hole_clearance = shell_regularization_scale
-        removed_shell_holes = 0
-        stabilized_building_polygons: list[Polygon] = []
-        for polygon in conditioned_building_polygons:
-            stabilized_polygon, removed_count = _stabilize_shell_building_polygon(
-                polygon,
-                min_hole_clearance=shell_hole_clearance,
-            )
-            stabilized_building_polygons.append(stabilized_polygon)
-            removed_shell_holes += removed_count
-        conditioned_building_polygons = stabilized_building_polygons
-        if removed_shell_holes > 0:
-            warning(
-                "Removed %d low-clearance interior ring(s) from shell building regions before 3D extrusion.",
-                removed_shell_holes,
-            )
-
-        shell_polygon_clearance = shell_regularization_scale
-        (
-            conditioned_building_polygons,
-            conditioned_building_sources,
-            regularized_shell_polygons,
-        ) = _regularize_shell_building_regions_with_sources(
-            polygons=conditioned_building_polygons,
-            sources=conditioned_building_sources,
-            min_clearance=shell_polygon_clearance,
-            precision_grid=float(footprint_diagnostics.get("output_grid", 0.0) or 0.0),
-        )
-        if regularized_shell_polygons > 0:
-            warning(
-                "Regularized %d low-clearance shell polygon(s) before 3D extrusion.",
-                regularized_shell_polygons,
-            )
 
     active_surfaces: list[Surface] = []
     meshing_directives: list[int] = []
@@ -3236,7 +2771,7 @@ def _condition_flat_mesh_ground_polygons(
     footprint_diagnostics: dict[str, Any],
     cleaning_diagnostics: bool,
     preserve_shared_boundaries: bool = False,
-    pipeline_mode: MeshingPipelineMode = "compat",
+    pipeline_mode: MeshingPipelineMode = "strict",
 ) -> list[Polygon]:
     ground_domain = box(*bounds)
     normalized_buildings = [
@@ -3252,23 +2787,13 @@ def _condition_flat_mesh_ground_polygons(
     if excluded_polygons:
         ground_domain = ground_domain.difference(unary_union(excluded_polygons))
 
+    _normalize_meshing_pipeline_mode(pipeline_mode)
     ground_polygons = _iter_polygon_components(ground_domain)
-    if preserve_shared_boundaries or pipeline_mode == "strict":
-        return [
-            orient(polygon, sign=1.0)
-            for polygon in ground_polygons
-            if polygon is not None and not polygon.is_empty
-        ]
-    cleanup_scale = _flat_mesh_ground_cleanup_scale(
-        max_mesh_size=max_mesh_size,
-        footprint_diagnostics=footprint_diagnostics,
-    )
-    conditioned_ground = _regularize_flat_mesh_ground_polygons(
-        ground_polygons,
-        cleanup_scale=cleanup_scale,
-        cleaning_diagnostics=cleaning_diagnostics,
-    )
-    return conditioned_ground
+    return [
+        orient(polygon, sign=1.0)
+        for polygon in ground_polygons
+        if polygon is not None and not polygon.is_empty
+    ]
 
 
 def _regularize_flat_mesh_ground_polygons(
@@ -3318,7 +2843,7 @@ def _condition_flat_mesh_building_regions(
     max_mesh_size: float | None,
     min_building_detail: float,
     cleaning_diagnostics: bool,
-    pipeline_mode: MeshingPipelineMode = "compat",
+    pipeline_mode: MeshingPipelineMode = "strict",
 ) -> tuple[list[Polygon], list[int]]:
     polygons, markers, _sources = _condition_flat_mesh_building_regions_with_sources(
         building_polygons=building_polygons,
@@ -3340,151 +2865,31 @@ def _condition_flat_mesh_building_regions_with_sources(
     max_mesh_size: float | None,
     min_building_detail: float,
     cleaning_diagnostics: bool,
-    pipeline_mode: MeshingPipelineMode = "compat",
+    pipeline_mode: MeshingPipelineMode = "strict",
 ) -> tuple[list[Polygon], list[int], list[list[int]]]:
     if len(building_polygons) != len(building_markers):
         raise ValueError("building_markers length must match building_polygons length")
     if not building_polygons:
         return [], [], []
 
-    pipeline_mode = _normalize_meshing_pipeline_mode(pipeline_mode)
-    if pipeline_mode == "strict":
-        resolved_polygons: list[Polygon] = []
-        resolved_markers: list[int] = []
-        resolved_sources: list[list[int]] = []
-        for index, (polygon, marker) in enumerate(zip(building_polygons, building_markers)):
-            if polygon is None or polygon.is_empty:
-                continue
-            resolved_polygons.append(orient(polygon, sign=1.0))
-            resolved_markers.append(int(marker))
-            resolved_sources.append([index])
-        if cleaning_diagnostics:
-            debug(
-                "Flat mesh building coverage strict pass-through: "
-                f"{len(building_polygons)} -> {len(resolved_polygons)} polygons"
-            )
-        return resolved_polygons, resolved_markers, resolved_sources
-
-    output_grid = float(footprint_diagnostics.get("output_grid", 0.0) or 0.0)
-    result = condition_polygon_coverage(
-        building_polygons,
-        source_map=[[index] for index in range(len(building_polygons))],
-        options=ConditioningOptions(
-            precision_grid=output_grid if output_grid > 0.0 else None,
-            min_feature_size=0.0,
-            merge_distance=0.0,
-            min_area=0.0,
-            min_hole_area=0.0,
-            collect_stage_metrics=False,
-            enable_logging=False,
-        ),
-    )
-
-    conditioned_polygons = [polygon for polygon in result.polygons if not polygon.is_empty]
-    conditioned_sources = [
-        list(sources)
-        for polygon, sources in zip(result.polygons, result.source_map)
-        if not polygon.is_empty
-    ]
-
-    cleanup_candidates = []
-    normalized_mesh_size = _normalize_max_mesh_size(max_mesh_size)
-    if normalized_mesh_size is not None:
-        cleanup_candidates.append(
-            normalized_mesh_size * _FLAT_MESH_BUILDING_CLEANUP_SCALE_FRACTION
-        )
-    if min_building_detail > 0.0:
-        cleanup_candidates.append(
-            min_building_detail * _FLAT_MESH_BUILDING_CLEANUP_DETAIL_MULTIPLIER
-        )
-
-    cleanup_scale = None
-    if cleanup_candidates:
-        cleanup_scale = min(cleanup_candidates)
-        if min_building_detail > 0.0:
-            cleanup_scale = max(cleanup_scale, min_building_detail)
-
-    if cleanup_scale is not None and conditioned_polygons:
-        cleanup_grid = output_grid if output_grid > 0.0 else max(cleanup_scale / 16.0, 1e-9)
-        cleanup_hole_area = max(cleanup_scale**2, cleanup_grid**2)
-        cleanup_diagnostics = cleaning_footprints._empty_diagnostics(
-            len(conditioned_polygons)
-        )
-        conditioned_polygons, conditioned_sources = (
-            cleaning_footprints._simplify_polygons_for_meshing(
-                conditioned_polygons,
-                conditioned_sources,
-                min_segment_length=cleanup_scale,
-                grid=cleanup_grid,
-                min_area=0.0,
-                min_hole_area=cleanup_hole_area,
-                diagnostics=cleanup_diagnostics,
-            )
-        )
-        conditioned_polygons, conditioned_sources = (
-            cleaning_footprints._regularize_low_clearance_polygons(
-                conditioned_polygons,
-                conditioned_sources,
-                min_clearance=cleanup_scale,
-                grid=cleanup_grid,
-                min_area=0.0,
-                min_hole_area=cleanup_hole_area,
-                diagnostics=cleanup_diagnostics,
-            )
-        )
-        conditioned_polygons, conditioned_sources = (
-            cleaning_footprints._simplify_polygons_for_meshing(
-                conditioned_polygons,
-                conditioned_sources,
-                min_segment_length=cleanup_scale,
-                grid=cleanup_grid,
-                min_area=0.0,
-                min_hole_area=cleanup_hole_area,
-                diagnostics=cleanup_diagnostics,
-            )
-        )
-
-    declared_scale = max(
-        output_grid,
-        cleanup_scale or 0.0,
-        float(min_building_detail),
-        1e-9,
-    )
-    normalized_polygons: list[Polygon] = []
-    normalized_sources: list[list[int]] = []
-    for polygon, sources in zip(conditioned_polygons, conditioned_sources):
-        for normalized_polygon in _normalize_mesher_ready_polygon(
-            polygon,
-            declared_scale=declared_scale,
-            diagnostics=None,
-        ):
-            normalized_polygons.append(normalized_polygon)
-            normalized_sources.append(list(sources))
-    conditioned_polygons = normalized_polygons
-    conditioned_sources = normalized_sources
-
-    conditioned_markers: list[int] = []
+    _normalize_meshing_pipeline_mode(pipeline_mode)
     resolved_polygons: list[Polygon] = []
-    for polygon, sources in zip(conditioned_polygons, conditioned_sources):
-        marker_candidates = {
-            building_markers[source_index]
-            for source_index in sources
-            if 0 <= source_index < len(building_markers)
-        }
-        if not marker_candidates:
+    resolved_markers: list[int] = []
+    resolved_sources: list[list[int]] = []
+    for index, (polygon, marker) in enumerate(zip(building_polygons, building_markers)):
+        if polygon is None or polygon.is_empty:
             continue
-        resolved_polygons.append(polygon)
-        conditioned_markers.append(min(marker_candidates))
+        resolved_polygons.append(orient(polygon, sign=1.0))
+        resolved_markers.append(int(marker))
+        resolved_sources.append([index])
 
     if cleaning_diagnostics:
         debug(
-            "Flat mesh building coverage canonicalization: "
-            f"{len(building_polygons)} -> {len(resolved_polygons)} polygons, "
-            f"output_grid={output_grid} m, "
-            f"cleanup_scale={cleanup_scale} m"
+            "Flat mesh building coverage pass-through: "
+            f"{len(building_polygons)} -> {len(resolved_polygons)} polygons"
         )
 
-    return resolved_polygons, conditioned_markers, conditioned_sources
+    return resolved_polygons, resolved_markers, resolved_sources
 
 
 def _condition_flat_mesh_coverage_regions(
@@ -3497,7 +2902,7 @@ def _condition_flat_mesh_coverage_regions(
     min_building_detail: float,
     footprint_diagnostics: dict[str, Any],
     cleaning_diagnostics: bool,
-    pipeline_mode: MeshingPipelineMode = "compat",
+    pipeline_mode: MeshingPipelineMode = "strict",
 ) -> tuple[list[Polygon], list[int]]:
     (
         building_polygons,
@@ -3864,7 +3269,7 @@ def _condition_meshing_footprints(
     merge_buildings: bool,
     max_mesh_size: float | None,
     cleaning_diagnostics: bool = True,
-    pipeline_mode: MeshingPipelineMode = "compat",
+    pipeline_mode: MeshingPipelineMode = "strict",
 ) -> tuple[list[Surface], list[list[int]], list[float], dict[str, Any]]:
     pipeline_mode = _normalize_meshing_pipeline_mode(pipeline_mode)
 
@@ -3924,21 +3329,10 @@ def _condition_meshing_footprints(
     conservative_roof_count = 0
     conservative_roof_max_span = 0.0
 
-    if pipeline_mode == "strict":
-        mesher_ready_polygons = list(result.polygons)
-        mesher_ready_source_map = [list(indices) for indices in result.source_map]
-        result.diagnostics["mesher_ready_coverage_revalidation_enabled"] = False
-        result.diagnostics["mesher_ready_coverage_revalidation_attempted"] = False
-    else:
-        mesher_ready_polygons, mesher_ready_source_map = _normalize_mesher_ready_coverage(
-            result.polygons,
-            result.source_map,
-            declared_scale=mesher_scale,
-            min_hole_area=min_building_detail**2,
-            diagnostics=result.diagnostics,
-            cleaning_diagnostics=cleaning_diagnostics,
-        )
-        result.diagnostics["mesher_ready_coverage_revalidation_enabled"] = True
+    mesher_ready_polygons = list(result.polygons)
+    mesher_ready_source_map = [list(indices) for indices in result.source_map]
+    result.diagnostics["mesher_ready_coverage_revalidation_enabled"] = False
+    result.diagnostics["mesher_ready_coverage_revalidation_attempted"] = False
 
     conditioned_surfaces: list[Surface] = []
     conditioned_source_map: list[list[int]] = []
@@ -4005,7 +3399,7 @@ def build_city_surface_mesh(
     report_mesh_quality: bool = True,
     cleaning_diagnostics: bool = True,
     mesher: str | None = None,
-    pipeline_mode: str = "compat",
+    pipeline_mode: str = "strict",
 ) -> Mesh:
     """
     Build a surface mesh from the surfaces of the buildings in the city.
@@ -4065,17 +3459,16 @@ def build_city_surface_mesh(
         )
     )
 
-    if pipeline_mode == "strict":
-        footprint_contract = _conditioned_footprint_contract_audit(
-            surfaces=building_footprints,
-            declared_scale=max(
-                float(min_building_detail),
-                float(conditioning_diagnostics.get("output_grid", 0.0) or 0.0),
-                1.0e-9,
-            ),
-            diagnostics=conditioning_diagnostics,
-        )
-        _raise_stage_contract_errors("Conditioned footprints", footprint_contract)
+    footprint_contract = _conditioned_footprint_contract_audit(
+        surfaces=building_footprints,
+        declared_scale=max(
+            float(min_building_detail),
+            float(conditioning_diagnostics.get("output_grid", 0.0) or 0.0),
+            1.0e-9,
+        ),
+        diagnostics=conditioning_diagnostics,
+    )
+    _raise_stage_contract_errors("Conditioned footprints", footprint_contract)
 
     report_progress(
         percent=10,
@@ -4131,18 +3524,17 @@ def build_city_surface_mesh(
         region_triangle_sizes=region_triangle_sizes,
         add_halo_markers=False,
     )
-    if pipeline_mode == "strict":
-        ground_mesh_contract = _triangle_mesh_contract_from_audit(
-            {"mesher": active_mesher, **_triangle_mesh_audit(ground_mesh)},
-            reference_length=max(
-                float(min_building_detail),
-                float(conditioning_diagnostics.get("output_grid", 0.0) or 0.0),
-                1.0e-9,
-            ),
-            require_markers=True,
-            stage_label="Ground mesh",
-        )
-        _raise_stage_contract_errors("Ground mesh", ground_mesh_contract)
+    ground_mesh_contract = _triangle_mesh_contract_from_audit(
+        {"mesher": active_mesher, **_triangle_mesh_audit(ground_mesh)},
+        reference_length=max(
+            float(min_building_detail),
+            float(conditioning_diagnostics.get("output_grid", 0.0) or 0.0),
+            1.0e-9,
+        ),
+        require_markers=True,
+        stage_label="Ground mesh",
+    )
+    _raise_stage_contract_errors("Ground mesh", ground_mesh_contract)
     ground_mesh, building_surfaces, building_lod_switches = (
         _split_ground_mesh_building_components(
             ground_mesh=ground_mesh,
@@ -4190,7 +3582,7 @@ def build_city_flat_mesh(
     report_mesh_quality: bool = True,
     cleaning_diagnostics: bool = True,
     mesher: str | None = None,
-    pipeline_mode: str = "compat",
+    pipeline_mode: str = "strict",
     stage_audit: dict[str, Any] | None = None,
 ) -> Mesh:
     """Build a flat 2D triangular mesh of the city with building footprints marked.
@@ -4304,8 +3696,7 @@ def build_city_flat_mesh(
                     "contract": footprint_contract,
                 },
             )
-        if pipeline_mode == "strict":
-            _raise_stage_contract_errors("Conditioned footprints", footprint_contract)
+        _raise_stage_contract_errors("Conditioned footprints", footprint_contract)
 
         footprint_count = len(building_footprints)
         if footprint_count == 0:
@@ -4371,11 +3762,10 @@ def build_city_flat_mesh(
                 "ground_mesh",
                 ground_mesh_audit,
             )
-        if pipeline_mode == "strict":
-            _raise_stage_contract_errors(
-                "Flat mesh",
-                ground_mesh_audit["contract"],
-            )
+        _raise_stage_contract_errors(
+            "Flat mesh",
+            ground_mesh_audit["contract"],
+        )
         report_progress(percent=30, message=f"Building city flat mesh ({active_mesher})...")
 
         if report_mesh_quality:
@@ -4424,11 +3814,7 @@ def build_city_volume_mesh(
     tetgen_quality_failure_output_dir: str | Path | None = None,
     tetgen_quality_failure_output_stem: str | None = None,
     stage_audit: dict[str, Any] | None = None,
-    pipeline_mode: str = "compat",
-    _stage_audit_attempt_label: str | None = None,
-    _stage_audit_retry_reason: str | None = None,
-    _enable_tetgen_shell_refinement: bool = True,
-    _allow_tetgen_preserve_retry: bool = True,
+    pipeline_mode: str = "strict",
 ) -> VolumeMesh:
     """
     Build a 3D tetrahedral volume mesh for a city terrain with embedded building volumes.
@@ -4558,18 +3944,11 @@ def build_city_volume_mesh(
     ...                               boundary_face_markers=True)
     """
     pipeline_mode = _normalize_meshing_pipeline_mode(pipeline_mode)
-    compat_mode = pipeline_mode == "compat"
-    if not compat_mode:
-        # Keep deterministic shell refinement available in strict mode as part
-        # of stage-4 shell preparation. The TetGen preserve-surface retry
-        # remains a compatibility fallback.
-        _allow_tetgen_preserve_retry = False
-
     max_mesh_size = _normalize_max_mesh_size(max_mesh_size)
     attempt = _start_stage_audit_attempt(
         stage_audit,
-        label=_stage_audit_attempt_label,
-        retry_reason=_stage_audit_retry_reason,
+        label=None,
+        retry_reason=None,
         backend="tetgen" if is_tetgen_available() else "fallback_dtcc",
         merge_buildings=merge_buildings,
         requested_mesher=mesher,
@@ -4579,9 +3958,7 @@ def build_city_volume_mesh(
         tetgen_switches=tetgen_switches,
         tetgen_switch_overrides=tetgen_switch_overrides,
     )
-    effective_stage4_shell_refinement = bool(
-        _enable_tetgen_shell_refinement and pipeline_mode != "strict"
-    )
+    effective_stage4_shell_refinement = False
     if attempt is not None:
         attempt["config"]["tetgen_shell_refinement_enabled"] = bool(
             effective_stage4_shell_refinement
@@ -4624,15 +4001,14 @@ def build_city_volume_mesh(
                 ),
             },
         )
-    if pipeline_mode == "strict":
-        _raise_stage_contract_errors(
-            "Conditioned footprints",
-            _conditioned_footprint_contract_audit(
-                surfaces=building_footprints,
-                declared_scale=conditioned_scale,
-                diagnostics=diagnostics,
-            ),
-        )
+    _raise_stage_contract_errors(
+        "Conditioned footprints",
+        _conditioned_footprint_contract_audit(
+            surfaces=building_footprints,
+            declared_scale=conditioned_scale,
+            diagnostics=diagnostics,
+        ),
+    )
     if not building_footprints:
         warning(
             "No valid building footprints available after conditioning. "
@@ -4731,11 +4107,10 @@ def build_city_volume_mesh(
                     "ground_mesh",
                     ground_mesh_audit,
                 )
-            if pipeline_mode == "strict":
-                _raise_stage_contract_errors(
-                    "Ground mesh",
-                    ground_mesh_audit["contract"],
-                )
+            _raise_stage_contract_errors(
+                "Ground mesh",
+                ground_mesh_audit["contract"],
+            )
             base_surface_mesh = _build_city_surface_mesh_from_ground_mesh(
                 ground_mesh=surface_ground_mesh,
                 terrain_raster=terrain_raster,
@@ -4810,15 +4185,14 @@ def build_city_volume_mesh(
                 surface_mesh = refined_surface_mesh
                 shell_refinement_stats = candidate_shell_refinement_stats
                 surface_shell_audit = refined_surface_shell_audit
-            if pipeline_mode == "strict":
-                surface_shell_audit["tetgen_shell_horizontal_refinement_selection"] = (
-                    _audit_json_ready(
-                        {
-                            "selected_variant": "unrefined",
-                            "reason": "strict_single_shell",
-                        }
-                    )
+            surface_shell_audit["tetgen_shell_horizontal_refinement_selection"] = (
+                _audit_json_ready(
+                    {
+                        "selected_variant": "unrefined",
+                        "reason": "strict_single_shell",
+                    }
                 )
+            )
 
             if attempt is not None:
                 _record_stage_audit_stage(
@@ -4826,11 +4200,10 @@ def build_city_volume_mesh(
                     "surface_shell",
                     surface_shell_audit,
                 )
-            if pipeline_mode == "strict":
-                _raise_stage_contract_errors(
-                    "Surface shell",
-                    surface_shell_audit["contract"],
-                )
+            _raise_stage_contract_errors(
+                "Surface shell",
+                surface_shell_audit["contract"],
+            )
             report_progress(
                 percent=55, message="Surface mesh built, preparing volume mesh..."
             )
@@ -4900,139 +4273,21 @@ def build_city_volume_mesh(
                     "plc",
                     plc_audit,
                 )
-            if pipeline_mode == "strict":
-                _raise_stage_contract_errors("TetGen PLC", plc_audit["contract"])
+            _raise_stage_contract_errors("TetGen PLC", plc_audit["contract"])
 
             report_progress(percent=60, message="Running TetGen volume mesher...")
-            try:
-                volume_mesh = tetgen_build_volume_mesh(
-                    mesh=surface_mesh,
-                    build_top_sidewalls=True,
-                    top_height=domain_height,
-                    closure_mesh=surface_ground_mesh,
-                    top_cap_backend=surface_mesher,
-                    top_cap_max_mesh_size=max_mesh_size,
-                    top_cap_min_mesh_angle=min_mesh_angle,
-                    switches_params=switches_params,
-                    switches_overrides=tetgen_switch_overrides,
-                    return_boundary_faces=boundary_face_markers,
-                )
-            except RuntimeError as exc:
-                msg = str(exc)
-                if compat_mode and merge_buildings and "self-intersections" in msg:
-                    warning(
-                        "TetGen failed with self-intersections after merging buildings; "
-                        "retrying once with merge_buildings=False."
-                    )
-                    _mark_stage_audit_failure(
-                        attempt,
-                        exc,
-                        retrying_with="retry-no-merge",
-                    )
-                    return build_city_volume_mesh(
-                        city=city,
-                        lod=lod,
-                        domain_height=domain_height,
-                        max_mesh_size=max_mesh_size,
-                        min_mesh_angle=min_mesh_angle,
-                        merge_buildings=False,
-                        min_building_detail=min_building_detail,
-                        min_building_area=min_building_area,
-                        merge_tolerance=merge_tolerance,
-                        smoothing=smoothing,
-                        boundary_face_markers=boundary_face_markers,
-                        tetgen_switches=tetgen_switches,
-                        tetgen_switch_overrides=tetgen_switch_overrides,
-                        smoother_max_iterations=smoother_max_iterations,
-                        smoothing_relative_tolerance=smoothing_relative_tolerance,
-                        aspect_ratio_threshold=aspect_ratio_threshold,
-                        debug_step=debug_step,
-                        report_mesh_quality=report_mesh_quality,
-                        cleaning_diagnostics=cleaning_diagnostics,
-                        mesher=mesher,
-                        tetgen_debug_output_dir=tetgen_debug_output_dir,
-                        tetgen_debug_output_stem=(
-                            f"{(tetgen_debug_output_stem or 'tetgen_input')}.retry-no-merge"
-                            if tetgen_debug_output_dir is not None
-                            else tetgen_debug_output_stem
-                        ),
-                        tetgen_quality_failure_output_dir=tetgen_quality_failure_output_dir,
-                        tetgen_quality_failure_output_stem=(
-                            f"{(tetgen_quality_failure_output_stem or tetgen_debug_output_stem or 'tetgen_input')}.retry-no-merge"
-                            if tetgen_quality_failure_output_dir is not None
-                            else tetgen_quality_failure_output_stem
-                        ),
-                        stage_audit=stage_audit,
-                        pipeline_mode=pipeline_mode,
-                        _stage_audit_attempt_label="retry-no-merge",
-                        _stage_audit_retry_reason="merged-building self-intersections",
-                        _enable_tetgen_shell_refinement=_enable_tetgen_shell_refinement,
-                        _allow_tetgen_preserve_retry=_allow_tetgen_preserve_retry,
-                    )
-                if (
-                    compat_mode
-                    and
-                    _allow_tetgen_preserve_retry
-                    and
-                    not preserve_surface_requested
-                    and (
-                        "TetGen failed (code 2)" in msg
-                        or "internal error (report bug)" in msg
-                    )
-                ):
-                    warning(
-                        "TetGen failed with an internal refinement error; "
-                        "retrying once with preserve_surface=True."
-                    )
-                    retry_switch_overrides = dict(tetgen_switch_overrides or {})
-                    retry_switch_overrides["preserve_surface"] = True
-                    _mark_stage_audit_failure(
-                        attempt,
-                        exc,
-                        retrying_with="retry-preserve",
-                    )
-                    return build_city_volume_mesh(
-                        city=city,
-                        lod=lod,
-                        domain_height=domain_height,
-                        max_mesh_size=max_mesh_size,
-                        min_mesh_angle=min_mesh_angle,
-                        merge_buildings=merge_buildings,
-                        min_building_detail=min_building_detail,
-                        min_building_area=min_building_area,
-                        merge_tolerance=merge_tolerance,
-                        smoothing=smoothing,
-                        boundary_face_markers=boundary_face_markers,
-                        tetgen_switches=tetgen_switches,
-                        tetgen_switch_overrides=retry_switch_overrides,
-                        smoother_max_iterations=smoother_max_iterations,
-                        smoothing_relative_tolerance=smoothing_relative_tolerance,
-                        aspect_ratio_threshold=aspect_ratio_threshold,
-                        debug_step=debug_step,
-                        report_mesh_quality=report_mesh_quality,
-                        cleaning_diagnostics=cleaning_diagnostics,
-                        mesher=mesher,
-                        tetgen_debug_output_dir=tetgen_debug_output_dir,
-                        tetgen_debug_output_stem=(
-                            f"{(tetgen_debug_output_stem or 'tetgen_input')}.retry-preserve"
-                            if tetgen_debug_output_dir is not None
-                            else tetgen_debug_output_stem
-                        ),
-                        tetgen_quality_failure_output_dir=tetgen_quality_failure_output_dir,
-                        tetgen_quality_failure_output_stem=(
-                            f"{(tetgen_quality_failure_output_stem or tetgen_debug_output_stem or 'tetgen_input')}.retry-preserve"
-                            if tetgen_quality_failure_output_dir is not None
-                            else tetgen_quality_failure_output_stem
-                        ),
-                        stage_audit=stage_audit,
-                        pipeline_mode=pipeline_mode,
-                        _stage_audit_attempt_label="retry-preserve",
-                        _stage_audit_retry_reason="TetGen internal refinement error",
-                        _enable_tetgen_shell_refinement=_enable_tetgen_shell_refinement,
-                        _allow_tetgen_preserve_retry=_allow_tetgen_preserve_retry,
-                    )
-                _mark_stage_audit_failure(attempt, exc)
-                raise
+            volume_mesh = tetgen_build_volume_mesh(
+                mesh=surface_mesh,
+                build_top_sidewalls=True,
+                top_height=domain_height,
+                closure_mesh=surface_ground_mesh,
+                top_cap_backend=surface_mesher,
+                top_cap_max_mesh_size=max_mesh_size,
+                top_cap_min_mesh_angle=min_mesh_angle,
+                switches_params=switches_params,
+                switches_overrides=tetgen_switch_overrides,
+                return_boundary_faces=boundary_face_markers,
+            )
 
             if attempt is not None:
                 _record_stage_audit_stage(
@@ -5040,495 +4295,6 @@ def build_city_volume_mesh(
                     "volume_mesh",
                     _volume_mesh_audit(volume_mesh),
                 )
-            preserve_retry_reference_length = _tetgen_preserve_retry_reference_length(
-                subdomain_resolution=subdomain_resolution,
-                max_mesh_size=max_mesh_size,
-                min_building_detail=min_building_detail,
-            )
-            original_quality_snapshot = _tetgen_volume_mesh_quality_snapshot(volume_mesh)
-            accepted_followup_retry = False
-            accepted_shell_edge_split_retry = False
-            accepted_ground_edge_split_retry = False
-            accepted_shell_refinement_retry = False
-            selected_tetgen_switch_overrides = tetgen_switch_overrides
-            if (
-                compat_mode
-                and
-                _allow_tetgen_preserve_retry
-                and
-                not preserve_surface_requested
-                and _should_retry_tetgen_with_preserve_surface(
-                    original_quality_snapshot,
-                    reference_length=preserve_retry_reference_length,
-                )
-            ):
-                warning(
-                    "TetGen split-surface mesh shows severe boundary slivers "
-                    "(ARmax=%.3g, min_edge=%.3g, reference=%.3g); "
-                    "retrying once with preserve_surface=True.",
-                    original_quality_snapshot["aspect_ratio_max"],
-                    original_quality_snapshot["min_edge_length"],
-                    preserve_retry_reference_length,
-                )
-                retry_switch_overrides = dict(tetgen_switch_overrides or {})
-                retry_switch_overrides["preserve_surface"] = True
-                try:
-                    retry_volume_mesh = build_city_volume_mesh(
-                        city=city,
-                        lod=lod,
-                        domain_height=domain_height,
-                        max_mesh_size=max_mesh_size,
-                        min_mesh_angle=min_mesh_angle,
-                        merge_buildings=merge_buildings,
-                        min_building_detail=min_building_detail,
-                        min_building_area=min_building_area,
-                        merge_tolerance=merge_tolerance,
-                        smoothing=smoothing,
-                        boundary_face_markers=boundary_face_markers,
-                        tetgen_switches=tetgen_switches,
-                        tetgen_switch_overrides=retry_switch_overrides,
-                        smoother_max_iterations=smoother_max_iterations,
-                        smoothing_relative_tolerance=smoothing_relative_tolerance,
-                        aspect_ratio_threshold=aspect_ratio_threshold,
-                        debug_step=debug_step,
-                        report_mesh_quality=False,
-                        cleaning_diagnostics=cleaning_diagnostics,
-                        mesher=mesher,
-                        tetgen_debug_output_dir=tetgen_debug_output_dir,
-                        tetgen_debug_output_stem=(
-                            f"{(tetgen_debug_output_stem or 'tetgen_input')}.retry-preserve-quality"
-                            if tetgen_debug_output_dir is not None
-                            else tetgen_debug_output_stem
-                        ),
-                        tetgen_quality_failure_output_dir=tetgen_quality_failure_output_dir,
-                        tetgen_quality_failure_output_stem=(
-                            f"{(tetgen_quality_failure_output_stem or tetgen_debug_output_stem or 'tetgen_input')}.retry-preserve-quality"
-                            if tetgen_quality_failure_output_dir is not None
-                            else tetgen_quality_failure_output_stem
-                        ),
-                        stage_audit=stage_audit,
-                        pipeline_mode=pipeline_mode,
-                        _stage_audit_attempt_label="retry-preserve-quality",
-                        _stage_audit_retry_reason="severe boundary slivers",
-                        _enable_tetgen_shell_refinement=_enable_tetgen_shell_refinement,
-                        _allow_tetgen_preserve_retry=_allow_tetgen_preserve_retry,
-                    )
-                except Exception as retry_exc:
-                    if attempt is not None:
-                        attempt.setdefault("followup_retries", []).append(
-                            {
-                                "label": "retry-preserve-quality",
-                                "status": "failed",
-                                "error_type": type(retry_exc).__name__,
-                                "error_message": str(retry_exc),
-                            }
-                        )
-                    warning(
-                        "Preserve-surface quality retry failed after a successful "
-                        "split-surface TetGen build; keeping the original mesh. %s",
-                        retry_exc,
-                    )
-                else:
-                    retry_quality_snapshot = _tetgen_volume_mesh_quality_snapshot(
-                        retry_volume_mesh
-                    )
-                    accepted_followup_retry = _should_accept_preserve_surface_retry(
-                        original_quality_snapshot,
-                        retry_quality_snapshot,
-                        reference_length=preserve_retry_reference_length,
-                    )
-                    if attempt is not None:
-                        attempt.setdefault("followup_retries", []).append(
-                            {
-                                "label": "retry-preserve-quality",
-                                "status": "accepted"
-                                if accepted_followup_retry
-                                else "rejected",
-                                "original_quality_snapshot": _audit_json_ready(
-                                    original_quality_snapshot
-                                ),
-                                "retry_quality_snapshot": _audit_json_ready(
-                                    retry_quality_snapshot
-                                ),
-                            }
-                        )
-                    if accepted_followup_retry:
-                        info(
-                            "Accepted preserve-surface retry: ARmax %.3g -> %.3g, "
-                            "min_edge %.3g -> %.3g.",
-                            original_quality_snapshot["aspect_ratio_max"],
-                            retry_quality_snapshot["aspect_ratio_max"],
-                            original_quality_snapshot["min_edge_length"],
-                            retry_quality_snapshot["min_edge_length"],
-                        )
-                        volume_mesh = retry_volume_mesh
-                        selected_tetgen_switch_overrides = retry_switch_overrides
-                    else:
-                        info(
-                            "Preserve-surface retry did not materially reduce "
-                            "boundary-sliver severity; keeping the original mesh."
-                        )
-            current_quality_snapshot = _tetgen_volume_mesh_quality_snapshot(volume_mesh)
-            shell_edge_split_min_edge_length = (
-                _tetgen_shell_edge_split_retry_min_edge_length(
-                    max_mesh_size=max_mesh_size,
-                )
-            )
-            if shell_edge_split_min_edge_length is not None:
-                shell_edge_split_report = _tetgen_quality_failure_report(
-                    volume_mesh,
-                    quality_snapshot=current_quality_snapshot,
-                )
-                shell_edge_split_edges = (
-                    _candidate_shell_edge_splits_from_quality_report(
-                        shell_edge_split_report,
-                        surface_mesh,
-                        max_edges=_TETGEN_SHELL_EDGE_SPLIT_RETRY_MAX_EDGES,
-                        min_edge_length=shell_edge_split_min_edge_length,
-                    )
-                )
-            else:
-                shell_edge_split_edges = set()
-            if compat_mode and shell_edge_split_edges:
-                refined_surface_mesh = _refine_triangle_mesh_edges(
-                    surface_mesh,
-                    split_edges=shell_edge_split_edges,
-                )
-                retry_debug_paths = debug_paths
-                if tetgen_debug_output_dir is not None:
-                    retry_debug_stem = (
-                        f"{(tetgen_debug_output_stem or 'tetgen_input')}.retry-shell-edge-split-quality"
-                    )
-                    try:
-                        retry_debug_paths = _save_tetgen_debug_meshes(
-                            output_dir=tetgen_debug_output_dir,
-                            stem=retry_debug_stem,
-                            ground_mesh=surface_ground_mesh,
-                            surface_mesh=refined_surface_mesh,
-                            domain_height=domain_height,
-                            top_cap_backend=surface_mesher,
-                            top_cap_max_mesh_size=max_mesh_size,
-                            top_cap_min_mesh_angle=min_mesh_angle,
-                        )
-                    except Exception as retry_debug_exc:
-                        warning(
-                            "Failed to save shell-edge-split retry debug meshes: %s",
-                            retry_debug_exc,
-                        )
-                try:
-                    retry_volume_mesh = tetgen_build_volume_mesh(
-                        mesh=refined_surface_mesh,
-                        build_top_sidewalls=True,
-                        top_height=domain_height,
-                        closure_mesh=surface_ground_mesh,
-                        top_cap_backend=surface_mesher,
-                        top_cap_max_mesh_size=max_mesh_size,
-                        top_cap_min_mesh_angle=min_mesh_angle,
-                        switches_params=switches_params,
-                        switches_overrides=selected_tetgen_switch_overrides,
-                        return_boundary_faces=boundary_face_markers,
-                    )
-                except Exception as retry_exc:
-                    if attempt is not None:
-                        attempt.setdefault("followup_retries", []).append(
-                            {
-                                "label": "retry-shell-edge-split-quality",
-                                "status": "failed",
-                                "split_edge_count": int(len(shell_edge_split_edges)),
-                                "error_type": type(retry_exc).__name__,
-                                "error_message": str(retry_exc),
-                            }
-                        )
-                    warning(
-                        "Targeted shell-edge-split retry failed after a successful "
-                        "TetGen build; keeping the current mesh. %s",
-                        retry_exc,
-                    )
-                else:
-                    retry_quality_snapshot = _tetgen_volume_mesh_quality_snapshot(
-                        retry_volume_mesh
-                    )
-                    accepted_shell_edge_split_retry = (
-                        _should_accept_shell_edge_split_retry(
-                            current_quality_snapshot,
-                            retry_quality_snapshot,
-                        )
-                    )
-                    if attempt is not None:
-                        attempt.setdefault("followup_retries", []).append(
-                            {
-                                "label": "retry-shell-edge-split-quality",
-                                "status": "accepted"
-                                if accepted_shell_edge_split_retry
-                                else "rejected",
-                                "split_edge_count": int(len(shell_edge_split_edges)),
-                                "split_edges": _audit_json_ready(
-                                    sorted(shell_edge_split_edges)
-                                ),
-                                "original_quality_snapshot": _audit_json_ready(
-                                    current_quality_snapshot
-                                ),
-                                "retry_quality_snapshot": _audit_json_ready(
-                                    retry_quality_snapshot
-                                ),
-                            }
-                        )
-                    if accepted_shell_edge_split_retry:
-                        info(
-                            "Accepted shell-edge-split retry: ARmax %.3g -> %.3g, "
-                            "EQmin %.3g -> %.3g.",
-                            current_quality_snapshot["aspect_ratio_max"],
-                            retry_quality_snapshot["aspect_ratio_max"],
-                            current_quality_snapshot["element_quality_min"],
-                            retry_quality_snapshot["element_quality_min"],
-                        )
-                        volume_mesh = retry_volume_mesh
-                        surface_mesh = refined_surface_mesh
-                        debug_paths = retry_debug_paths
-                        current_quality_snapshot = retry_quality_snapshot
-                    else:
-                        info(
-                            "Shell-edge-split retry did not sufficiently improve "
-                            "quality; keeping the current mesh."
-                        )
-            ground_edge_split_min_edge_length = (
-                _tetgen_ground_edge_split_retry_min_edge_length(
-                    max_mesh_size=max_mesh_size,
-                )
-            )
-            if ground_edge_split_min_edge_length is not None:
-                ground_edge_split_report = _tetgen_quality_failure_report(
-                    volume_mesh,
-                    quality_snapshot=current_quality_snapshot,
-                )
-                ground_edge_split_edges = (
-                    _candidate_ground_edge_splits_from_quality_report(
-                        ground_edge_split_report,
-                        surface_ground_mesh,
-                        max_edges=_TETGEN_GROUND_EDGE_SPLIT_RETRY_MAX_EDGES,
-                        min_edge_length=ground_edge_split_min_edge_length,
-                    )
-                )
-            else:
-                ground_edge_split_edges = set()
-            if compat_mode and ground_edge_split_edges:
-                retry_debug_paths = debug_paths
-                try:
-                    refined_ground_mesh = _refine_triangle_mesh_edges(
-                        surface_ground_mesh,
-                        split_edges=ground_edge_split_edges,
-                    )
-                    refined_surface_mesh = _build_city_surface_mesh_from_ground_mesh(
-                        ground_mesh=refined_ground_mesh,
-                        terrain_raster=terrain_raster,
-                        building_surfaces=surface_buildings,
-                        meshing_directives=surface_directives,
-                        smoothing=smoothing,
-                        merge_meshes=True,
-                    )
-                    if _enable_tetgen_shell_refinement:
-                        refined_surface_mesh, _retry_shell_refinement_stats = (
-                            _refine_near_horizontal_surface_faces_for_tetgen(
-                                refined_surface_mesh,
-                                max_mesh_size=max_mesh_size,
-                            )
-                        )
-                    if tetgen_debug_output_dir is not None:
-                        retry_debug_stem = (
-                            f"{(tetgen_debug_output_stem or 'tetgen_input')}.retry-ground-edge-split-quality"
-                        )
-                        retry_debug_paths = _save_tetgen_debug_meshes(
-                            output_dir=tetgen_debug_output_dir,
-                            stem=retry_debug_stem,
-                            ground_mesh=refined_ground_mesh,
-                            surface_mesh=refined_surface_mesh,
-                            domain_height=domain_height,
-                            top_cap_backend=surface_mesher,
-                            top_cap_max_mesh_size=max_mesh_size,
-                            top_cap_min_mesh_angle=min_mesh_angle,
-                        )
-                    retry_volume_mesh = tetgen_build_volume_mesh(
-                        mesh=refined_surface_mesh,
-                        build_top_sidewalls=True,
-                        top_height=domain_height,
-                        closure_mesh=refined_ground_mesh,
-                        top_cap_backend=surface_mesher,
-                        top_cap_max_mesh_size=max_mesh_size,
-                        top_cap_min_mesh_angle=min_mesh_angle,
-                        switches_params=switches_params,
-                        switches_overrides=selected_tetgen_switch_overrides,
-                        return_boundary_faces=boundary_face_markers,
-                    )
-                except Exception as retry_exc:
-                    if attempt is not None:
-                        attempt.setdefault("followup_retries", []).append(
-                            {
-                                "label": "retry-ground-edge-split-quality",
-                                "status": "failed",
-                                "split_edge_count": int(len(ground_edge_split_edges)),
-                                "error_type": type(retry_exc).__name__,
-                                "error_message": str(retry_exc),
-                            }
-                        )
-                    warning(
-                        "Targeted ground-edge-split retry failed after a successful "
-                        "TetGen build; keeping the current mesh. %s",
-                        retry_exc,
-                    )
-                else:
-                    retry_quality_snapshot = _tetgen_volume_mesh_quality_snapshot(
-                        retry_volume_mesh
-                    )
-                    accepted_ground_edge_split_retry = (
-                        _should_accept_shell_edge_split_retry(
-                            current_quality_snapshot,
-                            retry_quality_snapshot,
-                        )
-                    )
-                    if attempt is not None:
-                        attempt.setdefault("followup_retries", []).append(
-                            {
-                                "label": "retry-ground-edge-split-quality",
-                                "status": "accepted"
-                                if accepted_ground_edge_split_retry
-                                else "rejected",
-                                "split_edge_count": int(len(ground_edge_split_edges)),
-                                "split_edges": _audit_json_ready(
-                                    sorted(ground_edge_split_edges)
-                                ),
-                                "original_quality_snapshot": _audit_json_ready(
-                                    current_quality_snapshot
-                                ),
-                                "retry_quality_snapshot": _audit_json_ready(
-                                    retry_quality_snapshot
-                                ),
-                            }
-                        )
-                    if accepted_ground_edge_split_retry:
-                        info(
-                            "Accepted ground-edge-split retry: ARmax %.3g -> %.3g, "
-                            "EQmin %.3g -> %.3g.",
-                            current_quality_snapshot["aspect_ratio_max"],
-                            retry_quality_snapshot["aspect_ratio_max"],
-                            current_quality_snapshot["element_quality_min"],
-                            retry_quality_snapshot["element_quality_min"],
-                        )
-                        volume_mesh = retry_volume_mesh
-                        surface_ground_mesh = refined_ground_mesh
-                        surface_mesh = refined_surface_mesh
-                        debug_paths = retry_debug_paths
-                        current_quality_snapshot = retry_quality_snapshot
-                    else:
-                        info(
-                            "Ground-edge-split retry did not sufficiently improve "
-                            "quality; keeping the current mesh."
-                        )
-            if compat_mode and _should_retry_tetgen_without_shell_refinement(
-                current_quality_snapshot,
-                shell_refinement_stats=shell_refinement_stats,
-            ):
-                warning(
-                    "TetGen shell refinement may have worsened quality "
-                    "(ARmax=%.3g, EQmin=%.3g); retrying once without shell refinement.",
-                    current_quality_snapshot["aspect_ratio_max"],
-                    current_quality_snapshot["element_quality_min"],
-                )
-                try:
-                    retry_volume_mesh = build_city_volume_mesh(
-                        city=city,
-                        lod=lod,
-                        domain_height=domain_height,
-                        max_mesh_size=max_mesh_size,
-                        min_mesh_angle=min_mesh_angle,
-                        merge_buildings=merge_buildings,
-                        min_building_detail=min_building_detail,
-                        min_building_area=min_building_area,
-                        merge_tolerance=merge_tolerance,
-                        smoothing=smoothing,
-                        boundary_face_markers=boundary_face_markers,
-                        tetgen_switches=tetgen_switches,
-                        tetgen_switch_overrides=selected_tetgen_switch_overrides,
-                        smoother_max_iterations=smoother_max_iterations,
-                        smoothing_relative_tolerance=smoothing_relative_tolerance,
-                        aspect_ratio_threshold=aspect_ratio_threshold,
-                        debug_step=debug_step,
-                        report_mesh_quality=False,
-                        cleaning_diagnostics=cleaning_diagnostics,
-                        mesher=mesher,
-                        tetgen_debug_output_dir=tetgen_debug_output_dir,
-                        tetgen_debug_output_stem=(
-                            f"{(tetgen_debug_output_stem or 'tetgen_input')}.retry-no-shell-refinement-quality"
-                            if tetgen_debug_output_dir is not None
-                            else tetgen_debug_output_stem
-                        ),
-                        tetgen_quality_failure_output_dir=tetgen_quality_failure_output_dir,
-                        tetgen_quality_failure_output_stem=(
-                            f"{(tetgen_quality_failure_output_stem or tetgen_debug_output_stem or 'tetgen_input')}.retry-no-shell-refinement-quality"
-                            if tetgen_quality_failure_output_dir is not None
-                            else tetgen_quality_failure_output_stem
-                        ),
-                        stage_audit=stage_audit,
-                        pipeline_mode=pipeline_mode,
-                        _stage_audit_attempt_label="retry-no-shell-refinement-quality",
-                        _stage_audit_retry_reason="severe quality after shell refinement",
-                        _enable_tetgen_shell_refinement=False,
-                        _allow_tetgen_preserve_retry=False,
-                    )
-                except Exception as retry_exc:
-                    if attempt is not None:
-                        attempt.setdefault("followup_retries", []).append(
-                            {
-                                "label": "retry-no-shell-refinement-quality",
-                                "status": "failed",
-                                "error_type": type(retry_exc).__name__,
-                                "error_message": str(retry_exc),
-                            }
-                        )
-                    warning(
-                        "No-shell-refinement quality retry failed after a successful "
-                        "TetGen build; keeping the current mesh. %s",
-                        retry_exc,
-                    )
-                else:
-                    retry_quality_snapshot = _tetgen_volume_mesh_quality_snapshot(
-                        retry_volume_mesh
-                    )
-                    accepted_shell_refinement_retry = (
-                        _should_accept_shell_refinement_disabled_retry(
-                            current_quality_snapshot,
-                            retry_quality_snapshot,
-                        )
-                    )
-                    if attempt is not None:
-                        attempt.setdefault("followup_retries", []).append(
-                            {
-                                "label": "retry-no-shell-refinement-quality",
-                                "status": "accepted"
-                                if accepted_shell_refinement_retry
-                                else "rejected",
-                                "original_quality_snapshot": _audit_json_ready(
-                                    current_quality_snapshot
-                                ),
-                                "retry_quality_snapshot": _audit_json_ready(
-                                    retry_quality_snapshot
-                                ),
-                            }
-                        )
-                    if accepted_shell_refinement_retry:
-                        info(
-                            "Accepted no-shell-refinement retry: ARmax %.3g -> %.3g, "
-                            "EQmin %.3g -> %.3g.",
-                            current_quality_snapshot["aspect_ratio_max"],
-                            retry_quality_snapshot["aspect_ratio_max"],
-                            current_quality_snapshot["element_quality_min"],
-                            retry_quality_snapshot["element_quality_min"],
-                        )
-                        volume_mesh = retry_volume_mesh
-                    else:
-                        info(
-                            "No-shell-refinement retry did not sufficiently improve "
-                            "quality; keeping the current mesh."
-                        )
             final_quality_snapshot = _tetgen_volume_mesh_quality_snapshot(volume_mesh)
             quality_failure_output_dir = (
                 tetgen_quality_failure_output_dir or tetgen_debug_output_dir
@@ -5539,11 +4305,7 @@ def build_city_volume_mesh(
                 or "tetgen_input"
             )
             if (
-                not accepted_followup_retry
-                and not accepted_shell_edge_split_retry
-                and not accepted_ground_edge_split_retry
-                and not accepted_shell_refinement_retry
-                and quality_failure_output_dir is not None
+                quality_failure_output_dir is not None
                 and _should_capture_tetgen_quality_failure(final_quality_snapshot)
             ):
                 capture_info = _capture_tetgen_quality_failure_artifacts(
@@ -5578,32 +4340,7 @@ def build_city_volume_mesh(
                 q = tetrahedron_mesh_quality(volume_mesh.vertices, volume_mesh.cells)
                 report_quality(q, log_fn=info)
 
-            if accepted_shell_refinement_retry:
-                if attempt is not None:
-                    attempt["result"] = {
-                        "status": "superseded",
-                        "selected_retry": "retry-no-shell-refinement-quality",
-                    }
-            elif accepted_ground_edge_split_retry:
-                if attempt is not None:
-                    attempt["result"] = {
-                        "status": "superseded",
-                        "selected_retry": "retry-ground-edge-split-quality",
-                    }
-            elif accepted_shell_edge_split_retry:
-                if attempt is not None:
-                    attempt["result"] = {
-                        "status": "superseded",
-                        "selected_retry": "retry-shell-edge-split-quality",
-                    }
-            elif accepted_followup_retry:
-                if attempt is not None:
-                    attempt["result"] = {
-                        "status": "superseded",
-                        "selected_retry": "retry-preserve-quality",
-                    }
-            else:
-                _mark_stage_audit_success(stage_audit, attempt)
+            _mark_stage_audit_success(stage_audit, attempt)
             if stage_audit is not None:
                 volume_mesh.stage_audit = stage_audit
             return volume_mesh
@@ -5692,11 +4429,10 @@ def build_city_volume_mesh(
                 "ground_mesh",
                 ground_mesh_audit,
             )
-        if pipeline_mode == "strict":
-            _raise_stage_contract_errors(
-                "Ground mesh",
-                ground_mesh_audit["contract"],
-            )
+        _raise_stage_contract_errors(
+            "Ground mesh",
+            ground_mesh_audit["contract"],
+        )
         _ground_mesh = mesh_to_builder_mesh(ground_mesh)
         _surfaces = [create_builder_surface(surface) for surface in active_surfaces]
         _dem = raster_to_builder_gridfield(terrain_raster)

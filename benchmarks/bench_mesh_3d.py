@@ -1416,12 +1416,6 @@ def parse_args() -> argparse.Namespace:
         help="2D backend for the intermediate ground/surface mesh stages.",
     )
     parser.add_argument(
-        "--pipeline-mode",
-        choices=("compat", "strict"),
-        default="compat",
-        help="Meshing pipeline mode. Use 'strict' to disable builder-side rescue logic and fail on stage contracts.",
-    )
-    parser.add_argument(
         "--delay",
         type=float,
         default=DEFAULT_DELAY_BETWEEN_CASES,
@@ -1473,8 +1467,8 @@ def parse_args() -> argparse.Namespace:
     cases_explicit = args.cases is not None
     args.cases = resolve_case_numbers(args.cases)
     args.cases_explicit = cases_explicit
-    if args.pipeline_mode == "strict":
-        args.stage_audit = True
+    args.pipeline_mode = "strict"
+    args.stage_audit = True
 
     if args.save_tetgen_input is None:
         args.save_tetgen_input = len(args.cases) == 1

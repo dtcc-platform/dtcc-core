@@ -133,8 +133,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--mode",
         choices=["auto", "legacy", "new"],
-        default="auto",
-        help="Conditioning pipeline to use. 'legacy' runs the Polyforge pipeline.",
+        default="new",
+        help="Conditioning pipeline to use. 'new' is the default strict cleaner; 'legacy' runs the Polyforge pipeline for comparison.",
     )
     parser.add_argument(
         "--label",

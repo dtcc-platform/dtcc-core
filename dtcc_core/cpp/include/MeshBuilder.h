@@ -98,7 +98,7 @@ public:
         set_min(ground_mesh.vertices[T.v2].z, dtm(ground_mesh.vertices[T.v2]));
       }
     }
-    info("smooth ground...");
+    info("Surface Mesh | Smoothing Ground Surface");
     if (smooth_ground > 0)
       VertexSmoother::smooth_mesh(ground_mesh, smooth_ground, true, true);
 
@@ -109,7 +109,7 @@ public:
     //     ground_mesh.faces[i].flip();
     // }
 
-    info("ground mesh done");
+    info("Surface Mesh | Ground Surface Ready");
     return ground_mesh;
   }
 
@@ -580,7 +580,7 @@ public:
     std::map<size_t, double> platform_min_z;
     std::map<size_t, double> building_min_z;
 
-    info("finding markes");
+    info("Surface Mesh | Assigning Region Markers");
     auto find_markers_t = Timer("build_city_surface_mesh: step 2 find markers");
     for (size_t i = 0; i < terrain_mesh.markers.size(); i++)
     {
@@ -619,7 +619,7 @@ public:
 
     find_markers_t.stop();
 
-    info("build_city_surface_mesh: step 3 flatten supported footprints");
+    info("Surface Mesh | Flattening Supported Regions");
     std::vector<char> platform_freeze(terrain_mesh.vertices.size(), 0);
     const auto flatten_region_faces =
         [&](const std::map<size_t, std::vector<Simplex2D>> &region_faces,
@@ -658,7 +658,7 @@ public:
       VertexSmoother::smooth_mesh(terrain_mesh, smooth_ground, platform_freeze, true);
     }
 
-    info("building meshes");
+    info("Surface Mesh | Building Shell Meshes");
     auto building_meshes_t = Timer("build_city_surface_mesh: step 3 building meshes");
     for (const auto &kv : building_faces)
     {

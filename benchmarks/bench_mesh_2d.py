@@ -1245,19 +1245,13 @@ def parse_args() -> argparse.Namespace:
         help="Display the side-by-side comparison plot for a single case.",
     )
     parser.add_argument(
-        "--pipeline-mode",
-        choices=("compat", "strict"),
-        default="compat",
-        help="Meshing pipeline mode. Use 'strict' to disable builder-side rescue logic and fail on stage contracts.",
-    )
-    parser.add_argument(
         "--stage-audit",
         action="store_true",
         help="Record per-stage contract/audit data for conditioned footprints and ground mesh.",
     )
     args = parser.parse_args()
-    if args.pipeline_mode == "strict":
-        args.stage_audit = True
+    args.pipeline_mode = "strict"
+    args.stage_audit = True
 
     return args
 
