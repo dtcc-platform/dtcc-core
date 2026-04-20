@@ -122,10 +122,21 @@ def slope_symmetry_error(diagnostics: dict) -> Optional[float]:
     return abs(top2[0].slope_deg - top2[1].slope_deg)
 
 
-def is_watertight(building: Building, tolerance: float = 0.01) -> bool:
-    """True iff building.lod2 exists and passes validate_shell at tolerance."""
-    from dtcc_core.builder.geometry.shell_validation import validate_shell
+def is_watertight(
+    building: Building,
+    tolerance: float = 0.01,
+    diagnostics: Optional[dict] = None,
+) -> bool:
+    """True iff the building's LoD2 is watertight.
 
+    Prefers `diagnostics["validated"]` when available (set by
+    build_lod2_buildings), avoiding a redundant shell validation.
+    Falls back to calling validate_shell on building.lod2 otherwise.
+    """
+    if diagnostics is not None and diagnostics.get("validated") is not None:
+        return bool(diagnostics["validated"])
+
+    from dtcc_core.builder.geometry.shell_validation import validate_shell
     if building.lod2 is None:
         return False
     valid, _ = validate_shell(building.lod2, tolerance)

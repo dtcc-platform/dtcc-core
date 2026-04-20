@@ -51,17 +51,32 @@ class BuildingResult:
 class Runner:
     """Runs the LoD2 pipeline across an EvalDataset and computes per-building metrics."""
 
-    def __init__(self, build_lod1_if_missing: bool = True, config=None):
+    def __init__(
+        self,
+        build_lod1_if_missing: bool = True,
+        config=None,
+        default_wall_height: float = 5.0,
+    ):
         self._build_lod1_if_missing = build_lod1_if_missing
         self._config = config
+        self._default_wall_height = default_wall_height
+        self._buildings: Dict[str, Building] = {}
+
+    @property
+    def buildings(self) -> Dict[str, Building]:
+        """Buildings from the last run() call, keyed by building_id."""
+        return self._buildings
 
     def run(self, dataset: EvalDataset) -> List[BuildingResult]:
+        self._buildings = {}
         results: List[BuildingResult] = []
         for sample in dataset:
-            results.append(self._run_one(sample))
+            result, building = self._run_one(sample)
+            self._buildings[sample.building_id] = building
+            results.append(result)
         return results
 
-    def _run_one(self, sample: EvalSample) -> BuildingResult:
+    def _run_one(self, sample: EvalSample):
         building = self._sample_to_building(sample)
         diagnostics: Dict[str, Dict] = {}
         total_start = time.perf_counter()
@@ -77,7 +92,7 @@ class Runner:
             raw_iou = semantic_overlap(building.lod2, sample.ground_truth.geometry)
             iou = {k.name: v for k, v in raw_iou.items()}
 
-        return BuildingResult(
+        result = BuildingResult(
             building_id=sample.building_id,
             stage_outcome=stage_outcome(building),
             roof_type_predicted=roof_type_prediction(building),
@@ -91,18 +106,23 @@ class Runner:
             coverage_ratio=point_coverage_ratio(rec, filtered_n) if filtered_n else None,
             top2_area_share=top2_area_share(rec),
             symmetry_error_deg=slope_symmetry_error(rec),
-            watertight=is_watertight(building),
+            watertight=is_watertight(building, diagnostics=rec),
             ridge_height_error=ridge_height_error(rec, sample.ground_truth),
             eave_height_error=eave_height_error(rec, sample.ground_truth),
             semantic_iou=iou,
             timings=dict(timings),
             total_ms=total_ms,
         )
+        return result, building
 
     def _sample_to_building(self, sample: EvalSample) -> Building:
         b = Building(id=sample.building_id)
         b.add_geometry(sample.footprint, GeometryType.LOD0)
-        wall_height = sample.ground_truth.eave_height or 5.0
+        wall_height = (
+            sample.ground_truth.eave_height
+            if sample.ground_truth.eave_height is not None
+            else self._default_wall_height
+        )
         if self._build_lod1_if_missing:
             lod1 = extrude_surface(sample.footprint, wall_height)
             b.add_geometry(lod1, GeometryType.LOD1)
