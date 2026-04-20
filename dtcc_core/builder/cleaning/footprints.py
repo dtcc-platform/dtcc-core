@@ -2584,15 +2584,18 @@ def _stable_sort(
     polygons: list[Polygon],
     source_map: list[list[int]],
 ) -> tuple[list[Polygon], list[list[int]]]:
-    paired = list(zip(polygons, source_map))
-    paired.sort(
-        key=lambda item: (
-            item[0].bounds[0],
-            item[0].bounds[1],
-            -item[0].area,
-            tuple(item[1]),
+    def polygon_sort_key(polygon: Polygon) -> tuple[Any, ...]:
+        return (
+            polygon.bounds[0],
+            polygon.bounds[1],
+            -polygon.area,
+            len(polygon.exterior.coords),
+            len(polygon.interiors),
+            bytes(polygon.wkb),
         )
-    )
+
+    paired = list(zip(polygons, source_map))
+    paired.sort(key=lambda item: polygon_sort_key(item[0]))
     if not paired:
         return [], []
     sorted_polygons, sorted_sources = zip(*paired)
@@ -3758,6 +3761,19 @@ def _coverage_signature_satisfies_scale_contract(
     if min_edge_length + tolerance < target_scale:
         return False
     return True
+
+
+def _coverage_signature_contract_priority(
+    signature: _CoverageDefectSignature,
+    *,
+    target_scale: float,
+    grid: float,
+) -> int:
+    return 0 if _coverage_signature_satisfies_scale_contract(
+        signature,
+        target_scale=target_scale,
+        grid=grid,
+    ) else 1
 
 
 def _coverage_signature_requires_polygon_regularization(
@@ -7920,6 +7936,28 @@ def _regularize_coverage_for_meshing(
     diagnostics: dict[str, Any],
     cache: _CoverageEvalCache | None = None,
 ) -> tuple[list[Polygon], list[list[int]]]:
+    def _meshing_regularization_score(
+        signature: _CoverageDefectSignature,
+        difference_metrics: dict[str, float],
+    ) -> tuple[float, ...]:
+        return (
+            float(
+                _coverage_signature_contract_priority(
+                    signature,
+                    target_scale=min_segment_length,
+                    grid=grid,
+                )
+            ),
+            *_coverage_signature_score(
+                signature,
+                target_scale=min_segment_length,
+            ),
+            difference_metrics["reference_minus_candidate_area"],
+            difference_metrics["candidate_minus_reference_area"],
+            difference_metrics["symmetric_difference_area"],
+            abs(difference_metrics["union_area_delta"]),
+        )
+
     def _regularize_ring_contacts(
         input_polygons: list[Polygon],
         input_sources: list[list[int]],
@@ -7968,6 +8006,13 @@ def _regularize_coverage_for_meshing(
             # tie. For residual self-clearance hotspots like case 54, this keeps
             # us from trading one local slit for large unsupported wedges.
             return (
+                float(
+                    _coverage_signature_contract_priority(
+                        signature,
+                        target_scale=min_segment_length,
+                        grid=grid,
+                    )
+                ),
                 *_coverage_signature_score(
                     signature,
                     target_scale=min_segment_length,
@@ -8378,14 +8423,10 @@ def _regularize_coverage_for_meshing(
     best_difference_metrics = _zero_difference_metrics()
     best_label = "identity"
     best_score = (
-        *_coverage_signature_score(
+        *_meshing_regularization_score(
             best_signature,
-            target_scale=min_segment_length,
+            best_difference_metrics,
         ),
-        best_difference_metrics["reference_minus_candidate_area"],
-        best_difference_metrics["candidate_minus_reference_area"],
-        best_difference_metrics["symmetric_difference_area"],
-        abs(best_difference_metrics["union_area_delta"]),
     )
     best_operator_attempts: dict[str, int] = {}
     best_operator_applied: dict[str, int] = {}
@@ -8445,15 +8486,9 @@ def _regularize_coverage_for_meshing(
                 polygons,
                 candidate_polygons,
             )
-        score = (
-            *_coverage_signature_score(
-                candidate_signature,
-                target_scale=min_segment_length,
-            ),
-            difference_metrics["reference_minus_candidate_area"],
-            difference_metrics["candidate_minus_reference_area"],
-            difference_metrics["symmetric_difference_area"],
-            abs(difference_metrics["union_area_delta"]),
+        score = _meshing_regularization_score(
+            candidate_signature,
+            difference_metrics,
         )
         if score >= best_score:
             continue
@@ -8635,14 +8670,10 @@ def _regularize_coverage_for_meshing(
                 best_difference_metrics = rescue_difference_metrics
                 best_label = "residual_pair_issue_rescue"
                 best_score = (
-                    *_coverage_signature_score(
+                    *_meshing_regularization_score(
                         best_signature,
-                        target_scale=min_segment_length,
+                        best_difference_metrics,
                     ),
-                    best_difference_metrics["reference_minus_candidate_area"],
-                    best_difference_metrics["candidate_minus_reference_area"],
-                    best_difference_metrics["symmetric_difference_area"],
-                    abs(best_difference_metrics["union_area_delta"]),
                 )
                 best_operator_attempts = dict(best_operator_attempts)
                 for operator_name, count in rescue_operator_counts.items():
@@ -8711,14 +8742,10 @@ def _regularize_coverage_for_meshing(
                     candidate_polygons,
                 )
                 candidate_score = (
-                    *_coverage_signature_score(
+                    *_meshing_regularization_score(
                         candidate_signature,
-                        target_scale=min_segment_length,
+                        candidate_difference_metrics,
                     ),
-                    candidate_difference_metrics["reference_minus_candidate_area"],
-                    candidate_difference_metrics["candidate_minus_reference_area"],
-                    candidate_difference_metrics["symmetric_difference_area"],
-                    abs(candidate_difference_metrics["union_area_delta"]),
                 )
                 if (
                     direct_rescue_candidate is None
@@ -8744,14 +8771,10 @@ def _regularize_coverage_for_meshing(
             ) = direct_rescue_candidate
             best_label = "residual_pair_issue_rescue"
             best_score = (
-                *_coverage_signature_score(
+                *_meshing_regularization_score(
                     best_signature,
-                    target_scale=min_segment_length,
+                    best_difference_metrics,
                 ),
-                best_difference_metrics["reference_minus_candidate_area"],
-                best_difference_metrics["candidate_minus_reference_area"],
-                best_difference_metrics["symmetric_difference_area"],
-                abs(best_difference_metrics["union_area_delta"]),
             )
             best_operator_attempts = dict(best_operator_attempts)
             best_operator_attempts[applied_operator_name] = (
@@ -8789,14 +8812,10 @@ def _regularize_coverage_for_meshing(
                     candidate_polygons,
                 )
                 best_score = (
-                    *_coverage_signature_score(
+                    *_meshing_regularization_score(
                         best_signature,
-                        target_scale=min_segment_length,
+                        best_difference_metrics,
                     ),
-                    best_difference_metrics["reference_minus_candidate_area"],
-                    best_difference_metrics["candidate_minus_reference_area"],
-                    best_difference_metrics["symmetric_difference_area"],
-                    abs(best_difference_metrics["union_area_delta"]),
                 )
                 ring_contact_applied = True
 
@@ -8804,45 +8823,65 @@ def _regularize_coverage_for_meshing(
         min_segment_length - (best_signature.min_clearance or 0.0),
         0.0,
     )
-    if (
+    clearance_repair_iterations = 0
+    while (
         best_signature.pair_issue_count == 0
         and best_signature.ring_contact_count == 0
         and residual_clearance_deficit > max(grid, 1e-9)
+        and clearance_repair_iterations < 3
     ):
         clearance_repair_candidate = _repair_residual_self_clearance_for_meshing(
             best_polygons,
             best_sources,
         )
-        if clearance_repair_candidate is not None:
-            (
-                best_polygons,
-                best_sources,
+        if clearance_repair_candidate is None:
+            break
+
+        (
+            candidate_polygons,
+            candidate_sources,
+            candidate_signature,
+            candidate_difference_metrics,
+            repair_operator_attempts,
+            repair_operator_applied,
+        ) = clearance_repair_candidate
+        if _polygon_sequence_key(candidate_polygons) == _polygon_sequence_key(best_polygons):
+            break
+
+        best_polygons = candidate_polygons
+        best_sources = candidate_sources
+        best_signature = candidate_signature
+        best_difference_metrics = candidate_difference_metrics
+        best_label = "residual_self_clearance_repair"
+        best_score = (
+            *_coverage_signature_score(
                 best_signature,
-                best_difference_metrics,
-                repair_operator_attempts,
-                repair_operator_applied,
-            ) = clearance_repair_candidate
-            best_label = "residual_self_clearance_repair"
-            best_score = (
-                *_coverage_signature_score(
-                    best_signature,
-                    target_scale=min_segment_length,
-                ),
-                best_difference_metrics["reference_minus_candidate_area"],
-                best_difference_metrics["candidate_minus_reference_area"],
-                best_difference_metrics["symmetric_difference_area"],
-                abs(best_difference_metrics["union_area_delta"]),
+                target_scale=min_segment_length,
+            ),
+            best_difference_metrics["reference_minus_candidate_area"],
+            best_difference_metrics["candidate_minus_reference_area"],
+            best_difference_metrics["symmetric_difference_area"],
+            abs(best_difference_metrics["union_area_delta"]),
+        )
+        best_operator_attempts = dict(best_operator_attempts)
+        for operator_name, count in repair_operator_attempts.items():
+            best_operator_attempts[operator_name] = (
+                best_operator_attempts.get(operator_name, 0) + count
             )
-            best_operator_attempts = dict(best_operator_attempts)
-            for operator_name, count in repair_operator_attempts.items():
-                best_operator_attempts[operator_name] = (
-                    best_operator_attempts.get(operator_name, 0) + count
-                )
-            best_operator_applied = dict(best_operator_applied)
-            for operator_name, count in repair_operator_applied.items():
-                best_operator_applied[operator_name] = (
-                    best_operator_applied.get(operator_name, 0) + count
-                )
+        best_operator_applied = dict(best_operator_applied)
+        for operator_name, count in repair_operator_applied.items():
+            best_operator_applied[operator_name] = (
+                best_operator_applied.get(operator_name, 0) + count
+            )
+        clearance_repair_iterations += 1
+        residual_clearance_deficit = max(
+            min_segment_length - (best_signature.min_clearance or 0.0),
+            0.0,
+        )
+
+    diagnostics["coverage_meshing_regularization_clearance_repair_iterations"] = (
+        clearance_repair_iterations
+    )
 
     diagnostics["coverage_meshing_regularization_applied"] = (
         ring_contact_applied or best_label != "identity"
@@ -13107,6 +13146,30 @@ def _evaluate_post_coverage_branch(
     apply_coverage_meshing_regularization: bool = True,
     cache: _CoverageEvalCache | None = None,
 ) -> _PostCoverageBranch:
+    def _accept_optional_post_stage_candidate(
+        reference_polygons: list[Polygon],
+        candidate_polygons: list[Polygon],
+    ) -> bool:
+        overlap_tolerance = max(grid * grid, 1e-9)
+        if _cached_overlap_area(cache, candidate_polygons) > overlap_tolerance:
+            return False
+        reference_signature = _cached_coverage_defect_signature(
+            cache,
+            reference_polygons,
+            target_scale=min_feature_size,
+        )
+        candidate_signature = _cached_coverage_defect_signature(
+            cache,
+            candidate_polygons,
+            target_scale=min_feature_size,
+        )
+        return _coverage_signature_not_worse(
+            reference_signature,
+            candidate_signature,
+            grid=grid,
+            target_scale=min_feature_size,
+        )
+
     diagnostics = _empty_diagnostics(len(coverage_candidate.polygons))
     diagnostics["collect_stage_metrics"] = False
     reclaim_area_threshold = max(grid * grid, 0.25 * min_feature_size * min_feature_size)
@@ -13346,6 +13409,21 @@ def _evaluate_post_coverage_branch(
         diagnostics=diagnostics,
         cache=cache,
     )
+    diagnostics["coverage_void_regularization_reverted"] = False
+    if not _accept_optional_post_stage_candidate(
+        coverage_contact_regularized_polygons,
+        coverage_void_regularized_polygons,
+    ):
+        coverage_void_regularized_polygons = coverage_contact_regularized_polygons
+        coverage_void_regularized_sources = coverage_contact_regularized_sources
+        diagnostics["coverage_void_regularization_reverted"] = (
+            diagnostics["coverage_void_regularization_applied"]
+        )
+        diagnostics["coverage_void_regularization_applied"] = False
+        diagnostics["coverage_void_regularization_hole_cleanup_count"] = 0
+        diagnostics["coverage_void_regularization_gap_patch_applied_count"] = 0
+        diagnostics["coverage_void_regularization_notch_simplify_count"] = 0
+        diagnostics["coverage_void_regularization_operator_applied"] = {}
     if apply_coverage_meshing_regularization:
         coverage_meshing_regularized_polygons, coverage_meshing_regularized_sources = (
             _regularize_coverage_for_meshing(
@@ -13374,6 +13452,18 @@ def _evaluate_post_coverage_branch(
         min_hole_area=min_hole_area,
         diagnostics=diagnostics,
     )
+    diagnostics["final_shape_regularization_reverted"] = False
+    if not _accept_optional_post_stage_candidate(
+        coverage_meshing_regularized_polygons,
+        final_shape_regularized_polygons,
+    ):
+        final_shape_regularized_polygons = coverage_meshing_regularized_polygons
+        final_shape_regularized_sources = coverage_meshing_regularized_sources
+        diagnostics["final_shape_regularization_reverted"] = (
+            diagnostics.get("final_shape_regularization_applied", False)
+        )
+        diagnostics["final_shape_regularization_applied"] = False
+        diagnostics["final_shape_regularization_operator_applied"] = {}
 
     final_output_polygons, final_output_sources = _filter_small_output_polygons(
         final_shape_regularized_polygons,
@@ -13465,6 +13555,8 @@ def _copy_post_coverage_diagnostics(
             diagnostics[key] = value
         elif key.startswith("coverage_residual_polygon_"):
             diagnostics[key] = value
+        elif key.startswith("final_shape_regularization_"):
+            diagnostics[key] = value
         elif key.startswith("final_min_area_filter_"):
             diagnostics[key] = value
     diagnostics["geos_exception_count"] += branch_diagnostics["geos_exception_count"]
@@ -13510,11 +13602,53 @@ def _choose_post_coverage_branch(
 
     scored_candidates: list[tuple[tuple[float, ...], _PostCoverageBranch]] = []
     if identity_branch is not None and identity_score is not None:
-        scored_candidates.append((identity_score, identity_branch))
+        scored_candidates.append(
+            (
+                (
+                    float(
+                        _coverage_signature_contract_priority(
+                            identity_branch.final_signature,
+                            target_scale=target_scale,
+                            grid=grid,
+                        )
+                    ),
+                    *identity_score,
+                ),
+                identity_branch,
+            )
+        )
     if global_branch is not None and global_score is not None:
-        scored_candidates.append((global_score, global_branch))
+        scored_candidates.append(
+            (
+                (
+                    float(
+                        _coverage_signature_contract_priority(
+                            global_branch.final_signature,
+                            target_scale=target_scale,
+                            grid=grid,
+                        )
+                    ),
+                    *global_score,
+                ),
+                global_branch,
+            )
+        )
     if local_branch is not None and local_score is not None:
-        scored_candidates.append((local_score, local_branch))
+        scored_candidates.append(
+            (
+                (
+                    float(
+                        _coverage_signature_contract_priority(
+                            local_branch.final_signature,
+                            target_scale=target_scale,
+                            grid=grid,
+                        )
+                    ),
+                    *local_score,
+                ),
+                local_branch,
+            )
+        )
 
     chosen_branch = min(scored_candidates, key=lambda item: item[0])[1]
     return chosen_branch, global_score, local_score
@@ -13688,6 +13822,15 @@ def _apply_local_polygon_repairs(
                 diagnostics=diagnostics,
             )
             append_candidate(clearance_candidate)
+
+            if enable_simplify_operators:
+                clearance_simplify_candidate = _try_polygon_local_simplify(
+                    polygon,
+                    tolerance=min_segment_length * 3.0,
+                    grid=grid,
+                    diagnostics=diagnostics,
+                )
+                append_candidate(clearance_simplify_candidate)
 
         if needs_short_edge_repair:
             angle_open_candidate = _iteratively_open_polygon_short_edges(
@@ -14221,6 +14364,8 @@ def condition_polygon_coverage(
             atomic_polygons.append(part)
             atomic_sources.append(initial_sources[index])
 
+    atomic_polygons, atomic_sources = _stable_sort(atomic_polygons, atomic_sources)
+
     diagnostics["atomic_input_count"] = len(atomic_polygons)
     diagnostics["overlap_area_before"] = _coverage_overlap_area(atomic_polygons)
     diagnostics["min_clearance_before"] = _minimum_clearance(atomic_polygons)
@@ -14531,6 +14676,24 @@ def condition_polygon_coverage(
         target_scale=meshing_scale,
         grid=output_grid,
     ):
+        if local_candidate is None:
+            diagnostics["coverage_simplify_local_candidate_attempted"] = True
+            local_candidate = _simplify_coverage_locally(
+                final_polygons,
+                final_sources,
+                tolerance=coverage_simplify_tolerance,
+                grid=output_grid,
+                diagnostics=diagnostics,
+                # The fast local pass intentionally skips the more expensive
+                # cluster rescues. When the selected branch still misses the
+                # declared meshing contract, evaluate the full deterministic
+                # local candidate set before failing strict mode.
+                enable_patch_union_fallback=True,
+                enable_pair_cluster_rescue=True,
+                cache=coverage_eval_cache,
+            )
+            if local_candidate is not None:
+                coverage_candidates.append(local_candidate)
         fallback_candidates = [
             candidate
             for candidate in coverage_candidates

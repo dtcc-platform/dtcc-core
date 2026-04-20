@@ -110,7 +110,12 @@ def build_volume_mesh(
     named_boundary_facets = None
     if build_top_sidewalls:
         if closure_mesh is not None:
-            new_vertices, boundary_facets = tetgen_utils.compute_boundary_triangle_facets(
+            (
+                new_vertices,
+                oriented_faces,
+                boundary_facets,
+                _,
+            ) = tetgen_utils.compute_oriented_boundary_plc(
                 mesh,
                 closure_mesh,
                 top_height=top_height,
@@ -118,11 +123,12 @@ def build_volume_mesh(
                 top_cap_max_mesh_size=top_cap_max_mesh_size,
                 top_cap_min_mesh_angle=top_cap_min_mesh_angle,
             )
+            mesh = Mesh(vertices=new_vertices, faces=oriented_faces, markers=mesh.markers)
         else:
             new_vertices, boundary_facets = tetgen_utils.compute_boundary_facets(
                 mesh, top_height=top_height
             )
-        mesh = Mesh(vertices=new_vertices, faces=mesh.faces, markers=mesh.markers)
+            mesh = Mesh(vertices=new_vertices, faces=mesh.faces, markers=mesh.markers)
         if isinstance(boundary_facets, dict):
             named_boundary_facets = dict(boundary_facets)
             b_facets = [facet for facet in boundary_facets.values()]

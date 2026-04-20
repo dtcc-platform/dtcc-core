@@ -3146,6 +3146,95 @@ def test_refine_near_horizontal_surface_faces_for_tetgen_skips_steep_faces():
     assert np.array_equal(refined_mesh.markers, surface_mesh.markers)
 
 
+def test_select_tetgen_transition_refinement_edges_targets_ground_wall_ring():
+    surface_mesh = Mesh(
+        vertices=np.array(
+            [
+                [0.0, 0.0, 0.0],
+                [20.0, 0.0, 0.0],
+                [20.0, 20.0, 1.0],
+                [20.0, 0.0, 10.0],
+            ]
+        ),
+        faces=np.array([[0, 1, 2], [0, 1, 3]], dtype=int),
+        markers=np.array([-2, 0], dtype=int),
+    )
+
+    split_edges, stats = meshes_module._select_tetgen_transition_refinement_edges(
+        surface_mesh,
+        edge_threshold=10.0,
+    )
+
+    assert stats["applied"] is True
+    assert stats["candidate_transition_edges"] == 1
+    assert stats["candidate_terrain_faces"] == 1
+    assert stats["candidate_wall_faces"] == 1
+    assert stats["ground_refinement_enabled"] is True
+    assert stats["ground_relief_median"] == pytest.approx(1.0)
+    assert (0, 1) in split_edges
+    assert (0, 2) in split_edges
+    assert (0, 3) not in split_edges
+
+
+def test_refine_ground_building_transition_faces_for_tetgen_splits_local_ring():
+    surface_mesh = Mesh(
+        vertices=np.array(
+            [
+                [0.0, 0.0, 0.0],
+                [20.0, 0.0, 0.0],
+                [20.0, 20.0, 1.0],
+                [20.0, 0.0, 10.0],
+            ]
+        ),
+        faces=np.array([[0, 1, 2], [0, 1, 3]], dtype=int),
+        markers=np.array([-2, 0], dtype=int),
+    )
+
+    refined_mesh, stats = (
+        meshes_module._refine_ground_building_transition_faces_for_tetgen(
+            surface_mesh,
+            max_mesh_size=10.0,
+        )
+    )
+
+    assert stats["enabled"] is True
+    assert stats["applied"] is True
+    assert stats["candidate_transition_edges"] == 1
+    assert stats["ground_refinement_enabled"] is True
+    assert refined_mesh.faces.shape[0] > surface_mesh.faces.shape[0]
+    assert refined_mesh.vertices.shape[0] > surface_mesh.vertices.shape[0]
+    assert set(np.asarray(refined_mesh.markers, dtype=int)) == {-2, 0}
+
+
+def test_refine_ground_building_transition_faces_for_tetgen_skips_low_relief_ring():
+    surface_mesh = Mesh(
+        vertices=np.array(
+            [
+                [0.0, 0.0, 0.0],
+                [20.0, 0.0, 0.0],
+                [20.0, 20.0, 0.2],
+                [20.0, 0.0, 10.0],
+            ]
+        ),
+        faces=np.array([[0, 1, 2], [0, 1, 3]], dtype=int),
+        markers=np.array([-2, 0], dtype=int),
+    )
+
+    refined_mesh, stats = (
+        meshes_module._refine_ground_building_transition_faces_for_tetgen(
+            surface_mesh,
+            max_mesh_size=10.0,
+        )
+    )
+
+    assert stats["enabled"] is True
+    assert stats["ground_refinement_enabled"] is False
+    assert stats["applied"] is False
+    assert stats["candidate_transition_edges"] == 1
+    assert np.allclose(refined_mesh.vertices, surface_mesh.vertices)
+    assert np.array_equal(refined_mesh.faces, surface_mesh.faces)
+
+
 def test_candidate_shell_edge_splits_from_quality_report_selects_shared_ground_edge():
     surface_mesh = Mesh(
         vertices=np.array(
@@ -3705,12 +3794,8 @@ def test_build_city_volume_mesh_accepts_no_shell_refinement_quality_retry(
     )
 
 
-@pytest.mark.parametrize(
-    ("use_refined_shell", "expected_retry_tag"),
-    [(False, "plain"), (True, "refined")],
-)
-def test_build_city_volume_mesh_strict_selects_stage4_shell_variant_without_retry(
-    monkeypatch, tmp_path, use_refined_shell, expected_retry_tag
+def test_build_city_volume_mesh_strict_uses_single_unrefined_shell_without_retry(
+    monkeypatch, tmp_path
 ):
     city = make_flat_city([make_building(box(10, 10, 20, 20), roof_z=10.0)])
     terrain = city.terrain
@@ -3767,27 +3852,6 @@ def test_build_city_volume_mesh_strict_selects_stage4_shell_variant_without_retr
             markers=np.array([0, 0], dtype=int),
         )
 
-    def fake_refine(surface_mesh, *, max_mesh_size):
-        refined = surface_mesh.copy()
-        refined.refined_tag = True
-        return (
-            refined,
-            {
-                "enabled": True,
-                "applied": True,
-                "rounds": 1,
-                "candidate_faces": 2,
-                "candidate_roof_faces": 2,
-                "candidate_ground_faces": 2,
-                "ground_relief_median": 1.0,
-                "ground_refinement_enabled": True,
-                "split_edges": 1,
-                "added_vertices": 1,
-                "added_faces": 2,
-                "edge_threshold": 7.5,
-            },
-        )
-
     def fake_tetgen_build(**kwargs):
         mesh = kwargs["mesh"]
         calls.append(
@@ -3832,19 +3896,6 @@ def test_build_city_volume_mesh_strict_selects_stage4_shell_variant_without_retr
         "_tetgen_plc_contract_from_audit",
         lambda *args, **kwargs: {"errors": [], "warnings": [], "ok": True},
     )
-    monkeypatch.setattr(
-        meshes_module,
-        "_refine_near_horizontal_surface_faces_for_tetgen",
-        fake_refine,
-    )
-    monkeypatch.setattr(
-        meshes_module,
-        "_should_apply_tetgen_shell_refinement_in_stage4",
-        lambda *args, **kwargs: (
-            use_refined_shell,
-            "test-selection",
-        ),
-    )
     monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
     monkeypatch.setattr(meshes_module, "tetgen_build_volume_mesh", fake_tetgen_build)
     monkeypatch.setattr(
@@ -3881,13 +3932,18 @@ def test_build_city_volume_mesh_strict_selects_stage4_shell_variant_without_retr
         stage_audit=stage_audit,
     )
 
-    assert volume_mesh.retry_tag == expected_retry_tag
+    assert volume_mesh.retry_tag == "plain"
     assert calls == [
-        {"refined": use_refined_shell, "preserve_surface": False},
+        {"refined": False, "preserve_surface": False},
     ]
     assert stage_audit["selected_attempt_label"] == "attempt-1"
     attempts = {attempt["label"]: attempt for attempt in stage_audit["attempts"]}
     assert "followup_retries" not in attempts["attempt-1"]
+    selection = attempts["attempt-1"]["stages"]["surface_shell"][
+        "tetgen_shell_horizontal_refinement_selection"
+    ]
+    assert selection["selected_variant"] == "unrefined"
+    assert selection["reason"] == "strict_single_shell"
 
 
 def test_build_city_flat_mesh_runs_with_dtcc_mesher():

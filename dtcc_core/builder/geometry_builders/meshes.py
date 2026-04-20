@@ -97,6 +97,9 @@ _TETGEN_SHELL_EDGE_SPLIT_RETRY_MIN_SCORE_IMPROVEMENT = 0.85
 _TETGEN_GROUND_EDGE_SPLIT_RETRY_MAX_EDGES = 4
 _TETGEN_GROUND_EDGE_SPLIT_RETRY_MIN_EDGE_RATIO = 1.0
 _TETGEN_GROUND_EDGE_SPLIT_RETRY_MIN_HORIZONTAL_NORMAL_Z = 0.75
+_TETGEN_SHELL_TRANSITION_REFINEMENT_EDGE_RATIO = 1.25
+_TETGEN_SHELL_TRANSITION_REFINEMENT_MAX_WALL_NORMAL_Z = 0.5
+_TETGEN_SHELL_TRANSITION_REFINEMENT_MIN_GROUND_RELIEF = 0.5
 _TETGEN_SHELL_HORIZONTAL_REFINEMENT_EDGE_RATIO = 1.25
 _TETGEN_SHELL_HORIZONTAL_REFINEMENT_MAX_SLOPE_RATIO = 0.1
 _TETGEN_SHELL_HORIZONTAL_REFINEMENT_MIN_NORMAL_Z = 0.995
@@ -716,7 +719,12 @@ def _tetgen_plc_audit(
     top_cap_max_mesh_size: float | None,
     top_cap_min_mesh_angle: float,
 ) -> dict[str, Any]:
-    plc_vertices, boundary_facets = tetgen_utils.compute_boundary_triangle_facets(
+    (
+        plc_vertices,
+        shell_faces,
+        boundary_facets,
+        audit_boundary_triangles,
+    ) = tetgen_utils.compute_oriented_boundary_plc(
         surface_mesh,
         closure_mesh,
         top_height=top_height,
@@ -724,7 +732,6 @@ def _tetgen_plc_audit(
         top_cap_max_mesh_size=top_cap_max_mesh_size,
         top_cap_min_mesh_angle=top_cap_min_mesh_angle,
     )
-    shell_faces = np.asarray(surface_mesh.faces, dtype=np.int64)
     boundary_facets_list = [
         np.asarray(facet, dtype=np.int64).reshape(-1).tolist()
         for facet in boundary_facets
@@ -735,8 +742,10 @@ def _tetgen_plc_audit(
         if len(facet) == 3
     ]
     combined_faces = shell_faces
-    if triangular_boundary_faces:
-        combined_faces = np.vstack([combined_faces, np.vstack(triangular_boundary_faces)])
+    if len(audit_boundary_triangles):
+        combined_faces = np.vstack(
+            [combined_faces, np.asarray(audit_boundary_triangles, dtype=np.int64)]
+        )
 
     boundary_edge_lengths = _polygon_facet_edge_lengths(plc_vertices, boundary_facets_list)
     boundary_areas = _triangular_facet_areas(plc_vertices, boundary_facets_list)
@@ -749,6 +758,10 @@ def _tetgen_plc_audit(
         shell_faces,
         boundary_facets_list,
     )
+    orientation_stats = tetgen_utils._triangle_edge_orientation_stats(
+        shell_faces,
+        boundary_facets_list,
+    )
 
     audit: dict[str, Any] = {
         "num_vertices": int(len(plc_vertices)),
@@ -756,6 +769,7 @@ def _tetgen_plc_audit(
         "num_boundary_facets": int(len(boundary_facets_list)),
         "num_boundary_triangles": int(len(triangular_boundary_faces)),
         "bounds": _bounds_audit(np.asarray(plc_vertices, dtype=np.float64)),
+        "combined_orientation": dict(orientation_stats),
         "boundary_facets": {
             "vertex_count": _audit_summary(facet_vertex_counts, "count"),
             "edge_length": _audit_summary(boundary_edge_lengths, "length"),
@@ -796,6 +810,7 @@ def _tetgen_plc_contract_from_audit(
 ) -> dict[str, Any]:
     precheck = dict(plc_audit.get("precheck", {}))
     combined_surface = dict(plc_audit.get("combined_surface", {}))
+    combined_orientation = dict(plc_audit.get("combined_orientation", {}))
     precheck_errors = [str(message) for message in precheck.get("errors", [])]
     precheck_warnings = [str(message) for message in precheck.get("warnings", [])]
     combined_contract = _triangle_mesh_contract_from_audit(
@@ -808,6 +823,10 @@ def _tetgen_plc_contract_from_audit(
     requirements = {
         "boundary_facets_present": int(plc_audit.get("num_boundary_facets", 0)) > 0,
         "precheck_passed": bool(precheck.get("ok", False)),
+        "consistent_shared_edge_winding": int(
+            combined_orientation.get("same_direction_shared_edge_count", 0)
+        )
+        == 0,
     }
     errors: list[str] = []
     warnings: list[str] = []
@@ -815,6 +834,10 @@ def _tetgen_plc_contract_from_audit(
         errors.append("TetGen PLC does not provide any closure boundary facets.")
     if not requirements["precheck_passed"]:
         errors.extend(precheck_errors)
+    if not requirements["consistent_shared_edge_winding"]:
+        errors.append(
+            "TetGen PLC contains adjacent triangles with inconsistent shared-edge winding."
+        )
     errors.extend(combined_contract["errors"])
     warnings.extend(precheck_warnings)
     warnings.extend(combined_contract["warnings"])
@@ -841,6 +864,12 @@ def _tetgen_plc_contract_from_audit(
             "num_boundary_triangles": int(plc_audit.get("num_boundary_triangles", 0)),
             "precheck_error_count": int(precheck.get("error_count", 0)),
             "precheck_warning_count": int(precheck.get("warning_count", 0)),
+            "same_direction_shared_edge_count": int(
+                combined_orientation.get("same_direction_shared_edge_count", 0)
+            ),
+            "shell_boundary_same_direction_edge_count": int(
+                combined_orientation.get("shell_boundary_same_direction_edge_count", 0)
+            ),
             "min_edge_length": min_edge_length,
             "median_edge_length": median_edge_length,
             "reference_edge_ratio_min": float(reference_edge_ratio_min),
@@ -1606,17 +1635,39 @@ def _tetgen_shell_refinement_disabled_stats() -> dict[str, int | float | bool]:
     }
 
 
+def _tetgen_shell_transition_refinement_disabled_stats() -> dict[str, int | float | bool]:
+    return {
+        "enabled": False,
+        "applied": False,
+        "candidate_transition_edges": 0,
+        "candidate_terrain_faces": 0,
+        "candidate_wall_faces": 0,
+        "ground_relief_median": 0.0,
+        "ground_refinement_enabled": False,
+        "split_edges": 0,
+        "added_vertices": 0,
+        "added_faces": 0,
+        "edge_threshold": 0.0,
+    }
+
+
 def _surface_shell_stage_audit(
     surface_mesh: Mesh,
     *,
     mesher: str,
     reference_length: float,
     shell_refinement_stats: dict[str, int | float | bool],
+    transition_refinement_stats: dict[str, int | float | bool] | None = None,
 ) -> dict[str, Any]:
     surface_shell_audit = {
         "mesher": mesher,
         **_triangle_mesh_audit(surface_mesh),
     }
+    if transition_refinement_stats is None:
+        transition_refinement_stats = _tetgen_shell_transition_refinement_disabled_stats()
+    surface_shell_audit["tetgen_shell_transition_refinement"] = _audit_json_ready(
+        transition_refinement_stats
+    )
     surface_shell_audit["tetgen_shell_horizontal_refinement"] = _audit_json_ready(
         shell_refinement_stats
     )
@@ -2792,6 +2843,161 @@ def _refine_triangle_mesh_edges(
         faces=np.asarray(refined_faces, dtype=np.int64),
         markers=np.asarray(refined_markers, dtype=markers.dtype if markers.size else np.int64),
     )
+
+
+def _select_tetgen_transition_refinement_edges(
+    mesh: Mesh,
+    *,
+    edge_threshold: float,
+) -> tuple[set[tuple[int, int]], dict[str, int | float | bool]]:
+    vertices = np.asarray(mesh.vertices, dtype=np.float64)
+    faces = np.asarray(mesh.faces, dtype=np.int64)
+    if (
+        edge_threshold <= 0.0
+        or vertices.ndim != 2
+        or vertices.shape[1] < 3
+        or faces.ndim != 2
+        or faces.shape[1] != 3
+        or len(faces) == 0
+    ):
+        return set(), {
+            "applied": False,
+            "candidate_transition_edges": 0,
+            "candidate_terrain_faces": 0,
+            "candidate_wall_faces": 0,
+            "ground_relief_median": 0.0,
+            "ground_refinement_enabled": False,
+            "split_edges": 0,
+        }
+
+    markers_raw = getattr(mesh, "markers", None)
+    if markers_raw is None:
+        markers = np.zeros(len(faces), dtype=np.int64)
+    else:
+        markers = np.asarray(markers_raw, dtype=np.int64)
+        if len(markers) != len(faces):
+            markers = np.zeros(len(faces), dtype=np.int64)
+
+    points = vertices[faces, :3]
+    edge_lengths = np.stack(
+        [
+            np.linalg.norm(points[:, 1] - points[:, 0], axis=1),
+            np.linalg.norm(points[:, 2] - points[:, 1], axis=1),
+            np.linalg.norm(points[:, 0] - points[:, 2], axis=1),
+        ],
+        axis=1,
+    )
+    z_span = np.ptp(points[:, :, 2], axis=1)
+    normals = np.cross(points[:, 1] - points[:, 0], points[:, 2] - points[:, 0])
+    normal_norm = np.linalg.norm(normals, axis=1)
+    horizontal_normal_z = np.divide(
+        np.abs(normals[:, 2]),
+        normal_norm,
+        out=np.zeros_like(normal_norm),
+        where=normal_norm > 0.0,
+    )
+
+    terrain_faces = markers < 0
+    wall_faces = (markers >= 0) & (
+        horizontal_normal_z <= _TETGEN_SHELL_TRANSITION_REFINEMENT_MAX_WALL_NORMAL_Z
+    )
+
+    edge_to_faces: dict[tuple[int, int], list[int]] = defaultdict(list)
+    for face_index, face in enumerate(faces):
+        a, b, c = (int(face[0]), int(face[1]), int(face[2]))
+        edge_to_faces[(min(a, b), max(a, b))].append(int(face_index))
+        edge_to_faces[(min(b, c), max(b, c))].append(int(face_index))
+        edge_to_faces[(min(c, a), max(c, a))].append(int(face_index))
+
+    split_edges: set[tuple[int, int]] = set()
+    candidate_transition_edges = 0
+    candidate_terrain_faces: set[int] = set()
+    candidate_wall_faces: set[int] = set()
+
+    for edge, adjacent_faces in edge_to_faces.items():
+        if len(adjacent_faces) != 2:
+            continue
+        first_face, second_face = adjacent_faces
+        if terrain_faces[first_face] and wall_faces[second_face]:
+            terrain_face = first_face
+            wall_face = second_face
+        elif terrain_faces[second_face] and wall_faces[first_face]:
+            terrain_face = second_face
+            wall_face = first_face
+        else:
+            continue
+
+        candidate_transition_edges += 1
+        candidate_terrain_faces.add(int(terrain_face))
+        candidate_wall_faces.add(int(wall_face))
+
+        face = faces[int(terrain_face)]
+        for local_edge_index, (v0, v1) in enumerate(
+            ((face[0], face[1]), (face[1], face[2]), (face[2], face[0]))
+        ):
+            if float(edge_lengths[int(terrain_face), local_edge_index]) <= edge_threshold:
+                continue
+            split_edges.add((min(int(v0), int(v1)), max(int(v0), int(v1))))
+
+    ground_relief_median = (
+        float(np.median(z_span[list(candidate_terrain_faces)]))
+        if candidate_terrain_faces
+        else 0.0
+    )
+    enable_refinement = (
+        ground_relief_median >= _TETGEN_SHELL_TRANSITION_REFINEMENT_MIN_GROUND_RELIEF
+    )
+    if not enable_refinement:
+        split_edges = set()
+
+    return split_edges, {
+        "applied": bool(split_edges),
+        "candidate_transition_edges": int(candidate_transition_edges),
+        "candidate_terrain_faces": int(len(candidate_terrain_faces)),
+        "candidate_wall_faces": int(len(candidate_wall_faces)),
+        "ground_relief_median": ground_relief_median,
+        "ground_refinement_enabled": enable_refinement,
+        "split_edges": int(len(split_edges)),
+    }
+
+
+def _refine_ground_building_transition_faces_for_tetgen(
+    surface_mesh: Mesh,
+    *,
+    max_mesh_size: float | None,
+) -> tuple[Mesh, dict[str, int | float | bool]]:
+    normalized_max_mesh_size = _normalize_max_mesh_size(max_mesh_size)
+    if normalized_max_mesh_size is None:
+        return surface_mesh, _tetgen_shell_transition_refinement_disabled_stats()
+
+    edge_threshold = (
+        float(normalized_max_mesh_size)
+        * _TETGEN_SHELL_TRANSITION_REFINEMENT_EDGE_RATIO
+    )
+    split_edges, stats = _select_tetgen_transition_refinement_edges(
+        surface_mesh,
+        edge_threshold=edge_threshold,
+    )
+    if not split_edges:
+        return surface_mesh, {
+            "enabled": True,
+            **stats,
+            "added_vertices": 0,
+            "added_faces": 0,
+            "edge_threshold": float(edge_threshold),
+        }
+
+    refined_mesh = _refine_triangle_mesh_edges(
+        surface_mesh,
+        split_edges=split_edges,
+    )
+    return refined_mesh, {
+        "enabled": True,
+        **stats,
+        "added_vertices": int(len(refined_mesh.vertices) - len(surface_mesh.vertices)),
+        "added_faces": int(len(refined_mesh.faces) - len(surface_mesh.faces)),
+        "edge_threshold": float(edge_threshold),
+    }
 
 
 def _select_tetgen_shell_refinement_edges(
@@ -4373,9 +4579,12 @@ def build_city_volume_mesh(
         tetgen_switches=tetgen_switches,
         tetgen_switch_overrides=tetgen_switch_overrides,
     )
+    effective_stage4_shell_refinement = bool(
+        _enable_tetgen_shell_refinement and pipeline_mode != "strict"
+    )
     if attempt is not None:
         attempt["config"]["tetgen_shell_refinement_enabled"] = bool(
-            _enable_tetgen_shell_refinement
+            effective_stage4_shell_refinement
         )
         attempt["config"]["smoothing"] = int(smoothing)
         attempt["config"]["pipeline_mode"] = pipeline_mode
@@ -4535,18 +4744,45 @@ def build_city_volume_mesh(
                 smoothing=smoothing,
                 merge_meshes=True,
             )
+            transition_refinement_stats = (
+                _tetgen_shell_transition_refinement_disabled_stats()
+            )
+            if effective_stage4_shell_refinement:
+                (
+                    base_surface_mesh,
+                    transition_refinement_stats,
+                ) = _refine_ground_building_transition_faces_for_tetgen(
+                    base_surface_mesh,
+                    max_mesh_size=max_mesh_size,
+                )
+                if transition_refinement_stats["applied"]:
+                    info(
+                        "Refined TetGen shell ground/building transition ring: "
+                        "candidate_edges=%d split_edges=%d ground_relief=%.3g m "
+                        "added_vertices=%d added_faces=%d",
+                        transition_refinement_stats["candidate_transition_edges"],
+                        transition_refinement_stats["split_edges"],
+                        float(
+                            transition_refinement_stats.get(
+                                "ground_relief_median", 0.0
+                            )
+                        ),
+                        transition_refinement_stats["added_vertices"],
+                        transition_refinement_stats["added_faces"],
+                    )
             base_shell_refinement_stats = _tetgen_shell_refinement_disabled_stats()
             base_surface_shell_audit = _surface_shell_stage_audit(
                 base_surface_mesh,
                 mesher=surface_mesher,
                 reference_length=conditioned_scale,
                 shell_refinement_stats=base_shell_refinement_stats,
+                transition_refinement_stats=transition_refinement_stats,
             )
             surface_mesh = base_surface_mesh
             shell_refinement_stats = base_shell_refinement_stats
             surface_shell_audit = base_surface_shell_audit
 
-            if _enable_tetgen_shell_refinement:
+            if effective_stage4_shell_refinement:
                 (
                     refined_surface_mesh,
                     candidate_shell_refinement_stats,
@@ -4569,85 +4805,20 @@ def build_city_volume_mesh(
                     mesher=surface_mesher,
                     reference_length=conditioned_scale,
                     shell_refinement_stats=candidate_shell_refinement_stats,
+                    transition_refinement_stats=transition_refinement_stats,
                 )
-                if pipeline_mode == "strict":
-                    use_refined_shell, shell_selection_reason = (
-                        _should_apply_tetgen_shell_refinement_in_stage4(
-                            base_surface_shell_audit,
-                            refined_surface_shell_audit,
-                            shell_refinement_stats=candidate_shell_refinement_stats,
-                        )
+                surface_mesh = refined_surface_mesh
+                shell_refinement_stats = candidate_shell_refinement_stats
+                surface_shell_audit = refined_surface_shell_audit
+            if pipeline_mode == "strict":
+                surface_shell_audit["tetgen_shell_horizontal_refinement_selection"] = (
+                    _audit_json_ready(
+                        {
+                            "selected_variant": "unrefined",
+                            "reason": "strict_single_shell",
+                        }
                     )
-                    if use_refined_shell:
-                        surface_mesh = refined_surface_mesh
-                        shell_refinement_stats = candidate_shell_refinement_stats
-                        surface_shell_audit = refined_surface_shell_audit
-                    surface_shell_audit["tetgen_shell_horizontal_refinement_selection"] = (
-                        _audit_json_ready(
-                            {
-                                "selected_variant": (
-                                    "refined" if use_refined_shell else "unrefined"
-                                ),
-                                "reason": shell_selection_reason,
-                                "base_surface_shell": {
-                                    "num_faces": int(
-                                        base_surface_shell_audit.get("num_faces", 0)
-                                    ),
-                                    "element_quality_min": float(
-                                        base_surface_shell_audit.get(
-                                            "element_quality_min", 0.0
-                                        )
-                                    ),
-                                    "aspect_ratio_max": float(
-                                        base_surface_shell_audit.get(
-                                            "aspect_ratio_max", 0.0
-                                        )
-                                    ),
-                                },
-                                "refined_surface_shell": {
-                                    "num_faces": int(
-                                        refined_surface_shell_audit.get("num_faces", 0)
-                                    ),
-                                    "element_quality_min": float(
-                                        refined_surface_shell_audit.get(
-                                            "element_quality_min", 0.0
-                                        )
-                                    ),
-                                    "aspect_ratio_max": float(
-                                        refined_surface_shell_audit.get(
-                                            "aspect_ratio_max", 0.0
-                                        )
-                                    ),
-                                },
-                                "candidate_refinement": candidate_shell_refinement_stats,
-                            }
-                        )
-                    )
-                    info(
-                        "Stage-4 TetGen shell selector chose %s shell (%s): "
-                        "ground_relief=%.3g m candidate_ground_faces=%d base_EQ=%.3g "
-                        "base_AR=%.3g",
-                        "refined" if use_refined_shell else "unrefined",
-                        shell_selection_reason,
-                        float(
-                            candidate_shell_refinement_stats.get(
-                                "ground_relief_median", 0.0
-                            )
-                        ),
-                        int(
-                            candidate_shell_refinement_stats.get(
-                                "candidate_ground_faces", 0
-                            )
-                        ),
-                        float(
-                            base_surface_shell_audit.get("element_quality_min", 0.0)
-                        ),
-                        float(base_surface_shell_audit.get("aspect_ratio_max", 0.0)),
-                    )
-                else:
-                    surface_mesh = refined_surface_mesh
-                    shell_refinement_stats = candidate_shell_refinement_stats
-                    surface_shell_audit = refined_surface_shell_audit
+                )
 
             if attempt is not None:
                 _record_stage_audit_stage(
