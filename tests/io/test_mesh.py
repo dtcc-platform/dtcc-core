@@ -97,13 +97,25 @@ def test_save_load_mesh(basic_mesh, file_extension):
 @pytest.mark.parametrize("file_extension", [".glb", ".gltf"])
 def test_save_mesh_only(basic_mesh, file_extension):
     with tempfile.NamedTemporaryFile(suffix=file_extension, delete=False) as tmp_file:
-        path = tmp_file.name
+        path = pathlib.Path(tmp_file.name)
+
+    bin_path = path.with_suffix(".bin")
 
     try:
-        basic_mesh.save(path)
+        if file_extension == ".gltf":
+            with pytest.warns(UserWarning, match=r"saved to a \.bin file"):
+                basic_mesh.save(path)
+            assert bin_path.exists()
+        else:
+            basic_mesh.save(path)
+            assert not bin_path.exists()
+
         assert os.path.exists(path)
     finally:
-        os.unlink(path)
+        if bin_path.exists():
+            bin_path.unlink()
+        if path.exists():
+            path.unlink()
 
 
 # Specialized mesh tests

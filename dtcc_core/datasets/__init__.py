@@ -15,6 +15,18 @@ from .hydrology import HydrologyDataset
 from .ocean import OceanDataset
 from .footprints import FootprintsDataset
 
+# Remote dataset support (optional, requires httpx)
+try:
+    from .remote import (
+        RemoteDatasetDescriptor,
+        RemoteValidationError,
+        register_remote_service,
+        register_remote_descriptors_from_cache,
+        get_cached_discoveries,
+    )
+except ImportError:
+    pass
+
 # Import registry infrastructure from separate module to avoid circular imports
 from .registry import (
     _register_dataset_class,

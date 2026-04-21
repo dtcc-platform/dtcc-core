@@ -124,6 +124,18 @@ def test_dataset_without_name_does_not_register():
     assert "" not in available
 
 
+def test_dataset_base_args_reject_short_bounds():
+    """DatasetBaseArgs should fail fast on malformed bounds length."""
+    with pytest.raises(ValueError, match="Bounds must be 4 or 6 floats"):
+        BaseTestArgs(bounds=(0.0, 1.0, 2.0), test_param="x")
+
+
+def test_dataset_base_args_reject_inverted_bounds():
+    """DatasetBaseArgs should fail fast on inverted 2D bounds."""
+    with pytest.raises(ValueError, match="Invalid bounds: xmin < xmax, ymin < ymax"):
+        BaseTestArgs(bounds=(2.0, 1.0, 1.0, 3.0), test_param="x")
+
+
 # Explicit API Tests
 
 

@@ -25,7 +25,7 @@ import re
 import numpy as np
 from datetime import datetime, timezone
 
-from .dataset import DatasetDescriptor, DatasetBaseArgs
+from .dataset import DatasetBaseArgs, DatasetDescriptor, DatasetUpstreamError
 from ..model.object import Object, SensorCollection
 from ..model.geometry import Point
 from ..model.values import Field as DtccField
@@ -133,7 +133,7 @@ def _get_text(url: str, params: Dict[str, Any] = None, timeout_s: float = 10.0) 
         response.raise_for_status()
         return response.text
     except requests.RequestException as e:
-        raise RuntimeError(f"Failed to fetch {url}: {e}")
+        raise DatasetDescriptor.build_upstream_error("weather", "fetch", url, e) from e
 
 
 # ── Coordinate helpers ───────────────────────────────────────────────────
@@ -430,6 +430,7 @@ class WeatherDataset(DatasetDescriptor):
         #                  "fields": { field_name: (value, unit, quality) } }
         station_map: Dict[int, Dict[str, Any]] = {}
         param_meta: Dict[int, Dict[str, Any]] = {}
+        upstream_errors: list[DatasetUpstreamError] = []
 
         for pid in param_ids:
             url = (
@@ -440,8 +441,11 @@ class WeatherDataset(DatasetDescriptor):
 
             try:
                 text = _get_text(url, timeout_s=args.timeout_s)
-            except RuntimeError as exc:
+            except DatasetUpstreamError as exc:
+                upstream_errors.append(exc)
                 info(f"  Warning: failed to fetch parameter {pid}: {exc}")
+                if args.strict_live:
+                    raise
                 continue
 
             meta, records = _parse_latest_hour_csv(text)
@@ -507,6 +511,14 @@ class WeatherDataset(DatasetDescriptor):
                 data["x"] = data["lon"]
                 data["y"] = data["lat"]
 
+        # Apply the final bbox filter in the requested output CRS so the
+        # returned stations honor the original bounds exactly.
+        station_map = {
+            sid: data
+            for sid, data in station_map.items()
+            if self.point_within_bounds(data["x"], data["y"], bounds)
+        }
+
         # ── Build SensorCollection ───────────────────────────────────
         sensor_collection = SensorCollection()
         sensor_collection.attributes = {
@@ -519,6 +531,12 @@ class WeatherDataset(DatasetDescriptor):
             "period": args.period,
             "parameters": param_ids,
         }
+        self.apply_result_health_metadata(
+            sensor_collection.attributes,
+            upstream_errors=upstream_errors,
+            requested_parameters=param_ids,
+            fetched_parameters=sorted(param_meta.keys()),
+        )
 
         # Collect field→unit mapping for collection-level metadata
         parameter_fields: Dict[str, str] = {}

@@ -21,6 +21,41 @@ Access built-in datasets::
     available = datasets.list()
     print(available.keys())  # ['pointcloud', 'buildings', 'terrain', ...]
 
+Graceful Upstream Handling
+--------------------------
+
+Live/network-backed datasets should follow this contract::
+
+    from dtcc_core import datasets
+
+    sensors = datasets.weather(
+        bounds=[minx, miny, maxx, maxy],
+        strict_live=False,  # default
+    )
+
+    if sensors.attributes.get("partial_result"):
+        print("Result is incomplete due to upstream failures")
+        print(sensors.attributes["upstream_errors"])
+
+Default mode (`strict_live=False`) degrades gracefully on upstream failures and
+returns an empty or partial `SensorCollection` with health metadata in
+`.attributes`, including:
+
+- `partial_result`
+- `upstream_error_count`
+- `upstream_errors`
+- `stations_skipped_upstream`
+
+Datasets that fetch multiple parameters may also report:
+
+- `requested_parameters`
+- `fetched_parameters`
+
+Use `strict_live=True` when you want upstream failures to raise a typed
+`DatasetUpstreamError` instead of returning a degraded result. User input
+errors such as malformed bounds or unknown parameters still fail fast with a
+clear exception.
+
 Creating Custom Datasets
 -----------------------
 

@@ -9936,7 +9936,7 @@ def _log_conditioning_summary(
         detail_lines.append(
             "  messages=" + " | ".join(diagnostics["geos_exception_messages"][:3])
         )
-    debug("Footprint Cleaning Details\n" + "\n".join(detail_lines))
+    debug("Footprint cleaning details\n" + "\n".join(detail_lines))
 
 
 def _apply_coverage_candidate_diagnostics(

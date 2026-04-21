@@ -4,7 +4,7 @@ from dtcc_core.model import Object as DTCCObject
 from dtcc_core.model import Geometry as DTCCGeometry
 
 from abc import ABC, abstractmethod
-from typing import Any, Sequence, Union
+from typing import Any, Optional, Sequence, Union
 from pydantic import BaseModel, Field, field_validator
 from pathlib import Path
 import tempfile
@@ -14,6 +14,13 @@ class DatasetBaseArgs(BaseModel):
     bounds: Sequence[float] = Field(
         ...,
         description="Bounding box [minx, miny, maxx, maxy] or [minx, miny, minz, maxx, maxy, maxz]",
+    )
+    strict_live: bool = Field(
+        False,
+        description=(
+            "Raise a typed upstream error instead of silently degrading to "
+            "partial or empty results when live network fetches fail."
+        ),
     )
 
     @field_validator("bounds")
@@ -31,6 +38,38 @@ class DatasetBaseArgs(BaseModel):
             if v[0] >= v[3] or v[1] >= v[4] or v[2] >= v[5]:
                 raise ValueError("Invalid bounds: min < max for all dimensions")
         return v
+
+
+class DatasetUpstreamError(RuntimeError):
+    """Typed error for live upstream failures.
+
+    Live test suites can use ``failure_class`` to distinguish transient
+    upstream outages (connection, timeout, HTTP 5xx) from hard failures such
+    as HTTP 4xx or invalid upstream payloads.
+    """
+
+    def __init__(
+        self,
+        *,
+        dataset: str,
+        operation: str,
+        target: str,
+        failure_class: str,
+        status_code: Optional[int] = None,
+        message: str,
+    ):
+        super().__init__(message)
+        self.dataset = dataset
+        self.operation = operation
+        self.target = target
+        self.failure_class = failure_class
+        self.status_code = status_code
+        self.message = message
+
+    @property
+    def is_transient(self) -> bool:
+        """Whether the error represents a likely transient upstream issue."""
+        return self.failure_class in {"connection", "timeout", "http_5xx"}
 
 
 class DatasetDescriptor(ABC):
@@ -162,6 +201,91 @@ class DatasetDescriptor(ABC):
             )
         else:
             raise ValueError(f"Bounds must be 4 or 6 floats, got {len(bounds)}")
+
+    @staticmethod
+    def point_within_bounds(
+        x: float, y: float, bounds: Bounds, tol: float = 1e-6
+    ) -> bool:
+        """Check whether a 2D point lies within bounds in the same CRS."""
+        return (
+            bounds.xmin - tol <= x <= bounds.xmax + tol
+            and bounds.ymin - tol <= y <= bounds.ymax + tol
+        )
+
+    @staticmethod
+    def build_upstream_error(
+        dataset: str, operation: str, target: str, exc: Exception
+    ) -> DatasetUpstreamError:
+        """Classify request-layer failures into a typed upstream error."""
+        try:
+            import requests
+        except ImportError:
+            requests = None
+
+        failure_class = "request"
+        status_code = None
+
+        if requests is not None:
+            if isinstance(exc, requests.Timeout):
+                failure_class = "timeout"
+            elif isinstance(exc, requests.ConnectionError):
+                failure_class = "connection"
+            elif isinstance(exc, requests.HTTPError):
+                response = getattr(exc, "response", None)
+                status_code = getattr(response, "status_code", None)
+                if status_code is not None and 500 <= status_code <= 599:
+                    failure_class = "http_5xx"
+                elif status_code is not None and 400 <= status_code <= 499:
+                    failure_class = "http_4xx"
+                else:
+                    failure_class = "http_error"
+            elif isinstance(exc, requests.RequestException):
+                failure_class = "request"
+
+        message = f"{dataset} {operation} failed for {target}: {exc}"
+        return DatasetUpstreamError(
+            dataset=dataset,
+            operation=operation,
+            target=target,
+            failure_class=failure_class,
+            status_code=status_code,
+            message=message,
+        )
+
+    @staticmethod
+    def serialize_upstream_error(exc: DatasetUpstreamError) -> dict[str, Any]:
+        """Convert a typed upstream error into JSON-safe metadata."""
+        return {
+            "dataset": exc.dataset,
+            "operation": exc.operation,
+            "target": exc.target,
+            "failure_class": exc.failure_class,
+            "status_code": exc.status_code,
+            "message": exc.message,
+            "is_transient": exc.is_transient,
+        }
+
+    @classmethod
+    def apply_result_health_metadata(
+        cls,
+        attributes: dict[str, Any],
+        *,
+        upstream_errors: Sequence[DatasetUpstreamError],
+        stations_skipped_upstream: int = 0,
+        requested_parameters: Optional[Sequence[Any]] = None,
+        fetched_parameters: Optional[Sequence[Any]] = None,
+    ) -> None:
+        """Attach a uniform graceful-degradation contract to result metadata."""
+        serialized_errors = [cls.serialize_upstream_error(exc) for exc in upstream_errors]
+        attributes["partial_result"] = bool(serialized_errors)
+        attributes["upstream_error_count"] = len(serialized_errors)
+        attributes["upstream_errors"] = serialized_errors
+        attributes["stations_skipped_upstream"] = stations_skipped_upstream
+
+        if requested_parameters is not None:
+            attributes["requested_parameters"] = list(requested_parameters)
+        if fetched_parameters is not None:
+            attributes["fetched_parameters"] = list(fetched_parameters)
 
     @staticmethod
     def export_to_bytes(

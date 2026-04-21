@@ -24,6 +24,30 @@ from ..logging import info
 from ..raster.interpolation import fill_holes as fill_raster_holes
 
 
+def adaptive_terrain_mesh(
+    data: Union[PointCloud, Raster], max_error: float, raster_size=1, smoothing=0
+) -> Mesh:
+    """builds an adaptive terrain mesh from a point cloud or raster data. The mesh generates the minimum number of
+    triangles necessary to represent the terrain within a specified error margin, using the Zemlya algorithm."""
+
+    if isinstance(data, PointCloud):
+        dem = build_terrain_raster(data, cell_size=raster_size)
+    elif isinstance(data, Raster):
+        dem = data
+    else:
+        raise ValueError("data must be a PointCloud or a Raster.")
+    _builder_gridfield = raster_to_builder_gridfield(dem)
+
+    if max_error < 0:
+        raise ValueError("max_error must be a positive number.")
+
+    _builder_mesh = _dtcc_builder.build_terrain_mesh_zemlya(
+        _builder_gridfield, max_error, smoothing
+    )
+
+    return builder_mesh_to_mesh(_builder_mesh)
+
+
 def build_terrain_surface_mesh(
     data: Union[PointCloud, Raster],
     subdomains: list[Surface] = None,

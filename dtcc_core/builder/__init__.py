@@ -43,6 +43,7 @@ _LAZY_IMPORTS = {
     "build_terrain_surface_mesh": "dtcc_core.builder.geometry_builders.terrain",
     "build_terrain_raster": "dtcc_core.builder.geometry_builders.terrain",
     "flat_terrain": "dtcc_core.builder.geometry_builders.terrain",
+    "adaptive_terrain_mesh": "dtcc_core.builder.geometry_builders.terrain",
     "extract_roof_points": "dtcc_core.builder.geometry_builders.buildings",
     "compute_building_heights": "dtcc_core.builder.geometry_builders.buildings",
     "build_lod1_buildings": "dtcc_core.builder.geometry_builders.buildings",
@@ -67,6 +68,8 @@ def __getattr__(name: str):
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 
 
+from .meshing.boundary_conformance import conform_boundary
+
 __all__ = [
     "extract_roof_points",
     "compute_building_heights",
@@ -89,7 +92,9 @@ __all__ = [
     "trees_from_pointcloud",
     "tree_crown_polygons",
     "build_city_volume_mesh",
+    "adaptive_terrain_mesh",
     "available_2d_meshers",
     "get_default_2d_mesher",
     "set_default_2d_mesher",
+    "conform_boundary",
 ]

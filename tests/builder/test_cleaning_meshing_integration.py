@@ -1336,33 +1336,25 @@ def test_build_city_flat_mesh_allows_empty_conditioned_footprints(monkeypatch):
     def fake_condition(*args, **kwargs):
         return [], [], [], {"output_count": 0}
 
-    class DummyCppMesh:
-        def from_cpp(self):
-            return Mesh(
+    def fake_build_ground_mesh_from_coverage(**kwargs):
+        captured["region_polygons"] = kwargs["region_polygons"]
+        captured["region_markers"] = kwargs["region_markers"]
+        captured["mesher"] = kwargs["mesher"]
+        return (
+            Mesh(
                 vertices=np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]),
                 faces=np.array([[0, 1, 2]], dtype=int),
-            )
-
-    def fake_build_flat_mesh(
-        building_polygons,
-        holes,
-        subdomain_resolution,
-        xmin,
-        ymin,
-        xmax,
-        ymax,
-        max_mesh_size,
-        min_mesh_angle,
-        sort_triangles,
-        backend,
-    ):
-        captured["building_polygons"] = building_polygons
-        captured["subdomain_resolution"] = subdomain_resolution
-        captured["backend"] = backend
-        return DummyCppMesh()
+                markers=np.array([-2], dtype=int),
+            ),
+            "spade",
+        )
 
     monkeypatch.setattr(meshes_module, "_condition_meshing_footprints", fake_condition)
-    monkeypatch.setattr(meshes_module._dtcc_builder, "build_city_flat_mesh", fake_build_flat_mesh)
+    monkeypatch.setattr(
+        meshes_module,
+        "_build_ground_mesh_from_coverage",
+        fake_build_ground_mesh_from_coverage,
+    )
 
     city = make_flat_city([])
     mesh = build_city_flat_mesh(
@@ -1378,9 +1370,9 @@ def test_build_city_flat_mesh_allows_empty_conditioned_footprints(monkeypatch):
         mesher="spade",
     )
 
-    assert captured["building_polygons"] == []
-    assert captured["subdomain_resolution"] == []
-    assert captured["backend"] == "spade"
+    assert captured["region_polygons"]
+    assert set(captured["region_markers"]) == {-2}
+    assert captured["mesher"] == "spade"
     assert mesh.faces.shape[0] == 1
 
 
@@ -1390,32 +1382,23 @@ def test_build_city_flat_mesh_forwards_triangle_backend(monkeypatch):
     def fake_condition(*args, **kwargs):
         return [], [], [], {"output_grid": 0.03125}
 
-    class DummyCppMesh:
-        def from_cpp(self):
-            return Mesh(
+    def fake_build_ground_mesh_from_coverage(**kwargs):
+        captured["mesher"] = kwargs["mesher"]
+        return (
+            Mesh(
                 vertices=np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]),
                 faces=np.array([[0, 1, 2]], dtype=int),
-            )
-
-    def fake_build_flat_mesh(
-        building_polygons,
-        holes,
-        subdomain_resolution,
-        xmin,
-        ymin,
-        xmax,
-        ymax,
-        max_mesh_size,
-        min_mesh_angle,
-        sort_triangles,
-        backend,
-    ):
-        captured["backend"] = backend
-        return DummyCppMesh()
+                markers=np.array([-2], dtype=int),
+            ),
+            "triangle",
+        )
 
     monkeypatch.setattr(meshes_module, "_condition_meshing_footprints", fake_condition)
-    monkeypatch.setattr(meshes_module, "resolve_2d_mesher", lambda mesher=None: mesher or "triangle")
-    monkeypatch.setattr(meshes_module._dtcc_builder, "build_city_flat_mesh", fake_build_flat_mesh)
+    monkeypatch.setattr(
+        meshes_module,
+        "_build_ground_mesh_from_coverage",
+        fake_build_ground_mesh_from_coverage,
+    )
 
     city = make_flat_city([])
     mesh = build_city_flat_mesh(
@@ -1431,7 +1414,7 @@ def test_build_city_flat_mesh_forwards_triangle_backend(monkeypatch):
         mesher="triangle",
     )
 
-    assert captured["backend"] == "triangle"
+    assert captured["mesher"] == "triangle"
     assert mesh.faces.shape[0] == 1
 
 
@@ -1972,6 +1955,42 @@ def test_build_city_volume_mesh_uses_shared_surface_pipeline(monkeypatch):
             cells=np.array([[0, 1, 2, 3]], dtype=int),
         )
 
+    def fake_tetgen_plc_audit(**kwargs):
+        return {
+            "num_boundary_facets": 1,
+            "num_boundary_triangles": 1,
+            "precheck": {
+                "ok": True,
+                "error_count": 0,
+                "warning_count": 0,
+                "errors": [],
+                "warnings": [],
+            },
+            "combined_surface": {
+                "face_count": 1,
+                "vertex_count": 3,
+            },
+            "combined_orientation": {
+                "ok": True,
+                "component_count": 1,
+                "inverted_component_count": 0,
+                "component_orientations": [1],
+            },
+        }
+
+    def fake_tetgen_plc_contract_from_audit(*args, **kwargs):
+        return {
+            "status": "pass",
+            "requirements": {
+                "boundary_facets_present": True,
+                "precheck_passed": True,
+                "consistent_shared_edge_winding": True,
+            },
+            "errors": [],
+            "warnings": [],
+            "metrics": {},
+        }
+
     monkeypatch.setattr(meshes_module, "_prepare_city_meshing_inputs", fake_prepare)
     monkeypatch.setattr(meshes_module, "_prepare_surface_ground_regions", fake_prepare_regions)
     monkeypatch.setattr(meshes_module, "_build_ground_mesh_from_coverage", fake_build_ground)
@@ -1981,6 +2000,12 @@ def test_build_city_volume_mesh_uses_shared_surface_pipeline(monkeypatch):
         fake_build_surface_from_ground,
     )
     monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
+    monkeypatch.setattr(meshes_module, "_tetgen_plc_audit", fake_tetgen_plc_audit)
+    monkeypatch.setattr(
+        meshes_module,
+        "_tetgen_plc_contract_from_audit",
+        fake_tetgen_plc_contract_from_audit,
+    )
     monkeypatch.setattr(meshes_module, "tetgen_build_volume_mesh", fake_tetgen_build)
 
     volume_mesh = build_city_volume_mesh(

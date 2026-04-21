@@ -166,6 +166,7 @@ cython_debug/
 .idea/
 
 /data/
+temp/
 .aider*
 .DS_Store
 

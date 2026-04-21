@@ -13,8 +13,19 @@ class TerrainSurfaceMeshArgs(DatasetBaseArgs):
         2, description="Resolution of the terrain raster in meters"
     )
     mesh_resolution: float = Field(
-        5, description="Resolution of the terrain mesh in meters"
+        5,
+        description="Resolution of the terrain mesh in meters (when not using adaptive meshing)",
     )
+
+    adaptive_mesh: bool = Field(
+        False,
+        description="Whether to use adaptive meshing for the terrain surface mesh (dynmically adjusts mesh density based on terrain complexity)",
+    )
+
+    error_threshold: float = Field(
+        0.5, description="Maximum allowed error (in meters) for adaptive meshing"
+    )
+
     smoothing: int = Field(
         3, description="Number of smoothing iterations to apply to the terrain mesh"
     )
@@ -74,11 +85,16 @@ class TerrainSurfaceMeshDataset(DatasetDescriptor):
                         pc, cell_size=args.raster_resolution
                     )
                 else:
-                    result = dtcc_core.builder.build_terrain_surface_mesh(
-                        pc,
-                        max_mesh_size=args.mesh_resolution,
-                        smoothing=args.smoothing,
-                    )
+                    if args.adaptive_mesh:
+                        result = dtcc_core.builder.adaptive_terrain_mesh(
+                            pc, args.error_threshold, args.raster_resolution
+                        )
+                    else:
+                        result = dtcc_core.builder.build_terrain_surface_mesh(
+                            pc,
+                            max_mesh_size=args.mesh_resolution,
+                            smoothing=args.smoothing,
+                        )
 
             with progress.phase(
                 "export",

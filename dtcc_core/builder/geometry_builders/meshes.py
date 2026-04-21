@@ -2883,13 +2883,40 @@ def _condition_flat_mesh_building_regions_with_sources(
         resolved_markers.append(int(marker))
         resolved_sources.append([index])
 
+    if not resolved_polygons:
+        return [], [], []
+
+    declared_scale = max(
+        float(min_building_detail),
+        float(footprint_diagnostics.get("output_grid", 0.0) or 0.0),
+        1.0e-9,
+    )
+    normalization_diagnostics = {
+        "geos_exception_count": 0,
+        "geos_exception_messages": [],
+    }
+    normalized_polygons, normalized_sources = _normalize_mesher_ready_coverage(
+        resolved_polygons,
+        resolved_sources,
+        declared_scale=declared_scale,
+        min_hole_area=max(declared_scale**2, 1.0e-12),
+        diagnostics=normalization_diagnostics,
+        cleaning_diagnostics=cleaning_diagnostics,
+    )
+    normalized_markers = [
+        resolved_markers[source_indices[0]]
+        for source_indices in normalized_sources
+        if source_indices
+    ]
+
     if cleaning_diagnostics:
         debug(
-            "Flat mesh building coverage pass-through: "
-            f"{len(building_polygons)} -> {len(resolved_polygons)} polygons"
+            "Flat mesh building conditioning: "
+            f"{len(building_polygons)} -> {len(normalized_polygons)} polygons, "
+            f"cleanup_scale={declared_scale} m"
         )
 
-    return resolved_polygons, resolved_markers, resolved_sources
+    return normalized_polygons, normalized_markers, normalized_sources
 
 
 def _condition_flat_mesh_coverage_regions(

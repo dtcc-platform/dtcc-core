@@ -1920,6 +1920,7 @@ def test_residual_scale_polygon_simplifier_enforces_contract():
 def test_condition_polygon_coverage_logs_stage_progress(monkeypatch):
     messages: list[str] = []
     monkeypatch.setattr(cleaning_footprints, "info", lambda message: messages.append(message))
+    monkeypatch.setattr(cleaning_footprints, "debug", lambda message: messages.append(message))
 
     cleaning.condition_polygon_coverage(
         [box(0, 0, 4, 4), box(4.1, 0, 8.1, 4)],
@@ -1933,20 +1934,20 @@ def test_condition_polygon_coverage_logs_stage_progress(monkeypatch):
 
     joined = "\n".join(messages)
     assert "Footprint cleaning started" in joined
-    assert "atomic_input" in joined
-    assert "opened" in joined
-    assert "regularized_groups" in joined
-    assert "reconstructed" in joined
-    assert "presimplify" in joined
-    assert "local_defect_repaired" in joined
-    assert "coverage_simplified" in joined
-    assert "source_reclaimed" in joined
-    assert "small_component_absorbed" in joined
-    assert "boundary_regularized" in joined
-    assert "clearance_regularized" in joined
-    assert "source_coordinate_recovered" in joined
-    assert "coverage_meshing_regularized" in joined
-    assert "Footprint cleaning summary" in joined
+    assert "input coverage:" in joined
+    assert "scale opening:" in joined
+    assert "group regularization:" in joined
+    assert "coverage reconstruction:" in joined
+    assert "pre-simplification:" in joined
+    assert "local defect repair:" in joined
+    assert "coverage simplification:" in joined
+    assert "source reclaim:" in joined
+    assert "small-component absorption:" in joined
+    assert "boundary regularization:" in joined
+    assert "final clearance repair:" in joined
+    assert "source coordinate recovery:" in joined
+    assert "mesher-ready regularization:" in joined
+    assert "Footprint cleaning complete" in joined
     assert "local_defect_repair candidates=" in joined
     assert "coverage_simplify branch=" in joined
     assert "coverage_simplify operators attempted=" in joined
@@ -1991,6 +1992,7 @@ def test_condition_polygon_coverage_skips_global_reconstruction_for_disjoint_cov
 def test_condition_polygon_coverage_can_disable_stage_metrics(monkeypatch):
     messages: list[str] = []
     monkeypatch.setattr(cleaning_footprints, "info", lambda message: messages.append(message))
+    monkeypatch.setattr(cleaning_footprints, "debug", lambda message: messages.append(message))
 
     result = cleaning.condition_polygon_coverage(
         [box(0, 0, 4, 4), box(4.1, 0, 8.1, 4)],
@@ -2008,9 +2010,9 @@ def test_condition_polygon_coverage_can_disable_stage_metrics(monkeypatch):
 
     joined = "\n".join(messages)
     assert "Footprint cleaning started" in joined
-    assert "Footprint cleaning summary" in joined
-    assert "stage_metrics=disabled" in joined
-    assert "atomic_input:" not in joined
+    assert "Footprint cleaning complete" in joined
+    assert "Stage metrics disabled" in joined
+    assert "input coverage:" not in joined
 
 
 def test_condition_polygon_coverage_can_disable_logging(monkeypatch):
