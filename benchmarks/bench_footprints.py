@@ -448,6 +448,7 @@ def _legacy_simplify_building_footprints(
 def run_legacy_conditioning(
     buildings: list[Building],
     *,
+    lod: GeometryType = GeometryType.LOD0,
     merge_buildings: bool,
     merge_tolerance: float,
     min_building_area: float,
@@ -456,19 +457,19 @@ def run_legacy_conditioning(
     if merge_buildings:
         merged_buildings, merged_index_map = _legacy_merge_building_footprints(
             buildings,
-            lod=GeometryType.LOD0,
+            lod=lod,
             max_distance=merge_tolerance,
             min_area=min_building_area,
         )
         cleared_buildings, cleared_index_map = _legacy_fix_building_footprint_clearance(
             merged_buildings,
             clearance=min_building_detail,
-            lod=GeometryType.LOD0,
+            lod=lod,
         )
         current_index_map = compose_index_map(merged_index_map, cleared_index_map)
         merged_again, merged_again_index_map = _legacy_merge_building_footprints(
             cleared_buildings,
-            lod=GeometryType.LOD0,
+            lod=lod,
             max_distance=merge_tolerance,
             min_area=min_building_area,
         )
@@ -476,7 +477,7 @@ def run_legacy_conditioning(
         simplified_buildings, simplified_index_map = _legacy_simplify_building_footprints(
             merged_again,
             tolerance=min_building_detail,
-            lod=GeometryType.LOD0,
+            lod=lod,
         )
         source_map = compose_index_map(current_index_map, simplified_index_map)
         conditioned_polygons = extract_lod0_polygons(simplified_buildings)
@@ -484,7 +485,7 @@ def run_legacy_conditioning(
         simplified_buildings, source_map = _legacy_simplify_building_footprints(
             buildings,
             tolerance=min_building_detail,
-            lod=GeometryType.LOD0,
+            lod=lod,
         )
         conditioned_polygons = extract_lod0_polygons(simplified_buildings)
 

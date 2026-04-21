@@ -98,7 +98,7 @@ public:
         set_min(ground_mesh.vertices[T.v2].z, dtm(ground_mesh.vertices[T.v2]));
       }
     }
-    info("Surface Mesh | Smoothing Ground Surface");
+    info("Surface mesh | smoothing ground surface");
     if (smooth_ground > 0)
       VertexSmoother::smooth_mesh(ground_mesh, smooth_ground, true, true);
 
@@ -109,7 +109,7 @@ public:
     //     ground_mesh.faces[i].flip();
     // }
 
-    info("Surface Mesh | Ground Surface Ready");
+    info("Surface mesh | ground surface ready");
     return ground_mesh;
   }
 
@@ -188,14 +188,14 @@ public:
     const auto selected_backend = resolve_2d_backend(backend);
     if (selected_backend == TriangulationBackend::Triangle)
     {
-      info("Triangulation Backend: Triangle");
+      info("Triangulation backend: triangle");
       Triangulate::call_triangle(mesh, boundary, triangle_sub_domains, triangle_holes,
                                  subdomain_triangle_size, max_mesh_size, min_mesh_angle,
                                  sort_triangles);
     }
     else
     {
-      info("Triangulation Backend: Spade");
+      info("Triangulation backend: spade");
       const double effective_maxh =
           compute_effective_spade_mesh_size(subdomain_triangle_size, max_mesh_size);
       Triangulate::call_spade(mesh, boundary, triangle_holes, triangle_sub_domains,
@@ -580,7 +580,7 @@ public:
     std::map<size_t, double> platform_min_z;
     std::map<size_t, double> building_min_z;
 
-    info("Surface Mesh | Assigning Region Markers");
+    info("Surface mesh | assigning region markers");
     auto find_markers_t = Timer("build_city_surface_mesh: step 2 find markers");
     for (size_t i = 0; i < terrain_mesh.markers.size(); i++)
     {
@@ -619,7 +619,7 @@ public:
 
     find_markers_t.stop();
 
-    info("Surface Mesh | Flattening Supported Regions");
+    info("Surface mesh | flattening supported regions");
     std::vector<char> platform_freeze(terrain_mesh.vertices.size(), 0);
     const auto flatten_region_faces =
         [&](const std::map<size_t, std::vector<Simplex2D>> &region_faces,
@@ -658,7 +658,7 @@ public:
       VertexSmoother::smooth_mesh(terrain_mesh, smooth_ground, platform_freeze, true);
     }
 
-    info("Surface Mesh | Building Shell Meshes");
+    info("Surface mesh | building shell meshes");
     auto building_meshes_t = Timer("build_city_surface_mesh: step 3 building meshes");
     for (const auto &kv : building_faces)
     {

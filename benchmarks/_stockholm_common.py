@@ -165,13 +165,20 @@ def json_ready(value: Any) -> Any:
 
 
 def load_results(path: Path) -> dict[int, dict[str, Any]]:
+    _metadata, results = load_results_bundle(path)
+    return results
+
+
+def load_results_bundle(path: Path) -> tuple[dict[str, Any] | None, dict[int, dict[str, Any]]]:
     if not path.exists():
-        return {}
+        return None, {}
     with path.open() as handle:
         data = json.load(handle)
+    metadata: dict[str, Any] | None = None
     if isinstance(data, dict) and isinstance(data.get("cases"), dict):
+        metadata = {key: value for key, value in data.items() if key != "cases"}
         data = data["cases"]
-    return {int(key): value for key, value in data.items()}
+    return metadata, {int(key): value for key, value in data.items()}
 
 
 def save_results(

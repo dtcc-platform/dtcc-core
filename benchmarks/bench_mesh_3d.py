@@ -36,6 +36,7 @@ from dtcc_core.model import GeometryType, VolumeMesh
 from dtcc_core.model.mixins.mesh.quality import tet_element_quality
 
 try:
+    from _benchmark_conditioning import CONDITIONING_MODES, benchmark_conditioning_override
     from _stockholm_common import (
         DEFAULT_DELAY_BETWEEN_CASES,
         DEFAULT_MAX_MESH_SIZE,
@@ -53,6 +54,7 @@ try:
         json_ready,
         load_plot_modules,
         load_results,
+        load_results_bundle,
         make_bounds,
         mesh_size_label,
         positive_float,
@@ -65,6 +67,10 @@ try:
         stockholm_output_dir,
     )
 except ImportError:
+    from benchmarks._benchmark_conditioning import (
+        CONDITIONING_MODES,
+        benchmark_conditioning_override,
+    )
     from benchmarks._stockholm_common import (
         DEFAULT_DELAY_BETWEEN_CASES,
         DEFAULT_MAX_MESH_SIZE,
@@ -82,6 +88,7 @@ except ImportError:
         json_ready,
         load_plot_modules,
         load_results,
+        load_results_bundle,
         make_bounds,
         mesh_size_label,
         positive_float,
@@ -205,22 +212,21 @@ def results_file_path(
     pipeline_mode: str,
     stage_audit_enabled: bool = False,
 ) -> Path:
-    return output_dir / (
-        f"results.{config_slug(
-            max_mesh_size=max_mesh_size,
-            min_mesh_angle=min_mesh_angle,
-            domain_height=domain_height,
-            quality_ratio=quality_ratio,
-            quality_enabled=quality_enabled,
-            preserve_surface=preserve_surface,
-            max_added_points=max_added_points,
-            lod=lod,
-            merge_buildings=merge_buildings,
-            mesher=mesher,
-            pipeline_mode=pipeline_mode,
-            stage_audit_enabled=stage_audit_enabled,
-        )}.json"
+    del (
+        max_mesh_size,
+        min_mesh_angle,
+        domain_height,
+        quality_ratio,
+        quality_enabled,
+        preserve_surface,
+        max_added_points,
+        lod,
+        merge_buildings,
+        mesher,
+        pipeline_mode,
+        stage_audit_enabled,
     )
+    return output_dir / "results.json"
 
 
 def overview_plot_path(
@@ -239,22 +245,21 @@ def overview_plot_path(
     pipeline_mode: str,
     stage_audit_enabled: bool = False,
 ) -> Path:
-    return output_dir / (
-        f"overview.{config_slug(
-            max_mesh_size=max_mesh_size,
-            min_mesh_angle=min_mesh_angle,
-            domain_height=domain_height,
-            quality_ratio=quality_ratio,
-            quality_enabled=quality_enabled,
-            preserve_surface=preserve_surface,
-            max_added_points=max_added_points,
-            lod=lod,
-            merge_buildings=merge_buildings,
-            mesher=mesher,
-            pipeline_mode=pipeline_mode,
-            stage_audit_enabled=stage_audit_enabled,
-        )}.png"
+    del (
+        max_mesh_size,
+        min_mesh_angle,
+        domain_height,
+        quality_ratio,
+        quality_enabled,
+        preserve_surface,
+        max_added_points,
+        lod,
+        merge_buildings,
+        mesher,
+        pipeline_mode,
+        stage_audit_enabled,
     )
+    return output_dir / "overview.png"
 
 
 def summary_text_path(
@@ -273,22 +278,21 @@ def summary_text_path(
     pipeline_mode: str,
     stage_audit_enabled: bool = False,
 ) -> Path:
-    return output_dir / (
-        f"summary.{config_slug(
-            max_mesh_size=max_mesh_size,
-            min_mesh_angle=min_mesh_angle,
-            domain_height=domain_height,
-            quality_ratio=quality_ratio,
-            quality_enabled=quality_enabled,
-            preserve_surface=preserve_surface,
-            max_added_points=max_added_points,
-            lod=lod,
-            merge_buildings=merge_buildings,
-            mesher=mesher,
-            pipeline_mode=pipeline_mode,
-            stage_audit_enabled=stage_audit_enabled,
-        )}.txt"
+    del (
+        max_mesh_size,
+        min_mesh_angle,
+        domain_height,
+        quality_ratio,
+        quality_enabled,
+        preserve_surface,
+        max_added_points,
+        lod,
+        merge_buildings,
+        mesher,
+        pipeline_mode,
+        stage_audit_enabled,
     )
+    return output_dir / "summary.txt"
 
 
 def case_output_dir(
@@ -308,22 +312,21 @@ def case_output_dir(
     pipeline_mode: str,
     stage_audit_enabled: bool = False,
 ) -> Path:
-    return output_dir / (
-        f"{number:03d}.{config_slug(
-            max_mesh_size=max_mesh_size,
-            min_mesh_angle=min_mesh_angle,
-            domain_height=domain_height,
-            quality_ratio=quality_ratio,
-            quality_enabled=quality_enabled,
-            preserve_surface=preserve_surface,
-            max_added_points=max_added_points,
-            lod=lod,
-            merge_buildings=merge_buildings,
-            mesher=mesher,
-            pipeline_mode=pipeline_mode,
-            stage_audit_enabled=stage_audit_enabled,
-        )}"
+    del (
+        max_mesh_size,
+        min_mesh_angle,
+        domain_height,
+        quality_ratio,
+        quality_enabled,
+        preserve_surface,
+        max_added_points,
+        lod,
+        merge_buildings,
+        mesher,
+        pipeline_mode,
+        stage_audit_enabled,
     )
+    return output_dir / f"{number:03d}"
 
 
 def case_mesh_path(
@@ -1044,6 +1047,7 @@ def build_summary_report(
     lod: GeometryType,
     merge_buildings: bool,
     mesher: str,
+    conditioning_mode: str,
     pipeline_mode: str,
     stage_audit_enabled: bool,
     elapsed_seconds: float,
@@ -1112,6 +1116,7 @@ def build_summary_report(
         f"{'preserve' if preserve_surface else 'split-surface'}, "
         f"{'S=' + str(max_added_points) if max_added_points is not None else 'S=unlimited'}, "
         f"{lod.name.lower()}, mesher={mesher}, merge={'on' if merge_buildings else 'off'}, "
+        f"conditioning={conditioning_mode}, "
         f"pipeline={pipeline_mode}, stage-audit={'on' if stage_audit_enabled else 'off'}"
     )
 
@@ -1150,6 +1155,7 @@ def run_case(
     lod: GeometryType,
     merge_buildings: bool,
     mesher: str,
+    conditioning_mode: str,
     pipeline_mode: str,
     save_tetgen_input: bool,
     stage_audit_enabled: bool,
@@ -1228,6 +1234,7 @@ def run_case(
             "lod": lod.name,
             "merge_buildings": merge_buildings,
             "mesher": mesher,
+            "conditioning_mode": conditioning_mode,
             "pipeline_mode": pipeline_mode,
             "save_tetgen_input": save_tetgen_input,
             "stage_audit_enabled": stage_audit_enabled,
@@ -1252,45 +1259,46 @@ def run_case(
 
     stage_audit: dict[str, Any] | None = {} if stage_audit_enabled else None
     try:
-        volume_mesh = dtcc_core.builder.build_city_volume_mesh(
-            city,
-            lod=lod,
-            domain_height=domain_height,
-            max_mesh_size=max_mesh_size,
-            min_mesh_angle=min_mesh_angle,
-            merge_buildings=merge_buildings,
-            min_building_detail=MIN_BUILDING_DETAIL,
-            min_building_area=MIN_BUILDING_AREA,
-            smoothing=0,
-            boundary_face_markers=True,
-            tetgen_switches=switches_params,
-            report_mesh_quality=False,
-            mesher=mesher,
-            tetgen_debug_output_dir=case_dir if save_tetgen_input else None,
-            tetgen_debug_output_stem=(
-                case_tetgen_input_stem(
-                    number,
-                    max_mesh_size=max_mesh_size,
-                    min_mesh_angle=min_mesh_angle,
-                    domain_height=domain_height,
-                    quality_ratio=quality_ratio,
-                    quality_enabled=quality_enabled,
-                    preserve_surface=preserve_surface,
-                    max_added_points=max_added_points,
-                    lod=lod,
-                    merge_buildings=merge_buildings,
-                    mesher=mesher,
-                    pipeline_mode=pipeline_mode,
-                    stage_audit_enabled=stage_audit_enabled,
-                )
-                if save_tetgen_input
-                else None
-            ),
-            tetgen_quality_failure_output_dir=case_dir,
-            tetgen_quality_failure_output_stem="tetgen_quality_failure",
-            pipeline_mode=pipeline_mode,
-            stage_audit=stage_audit,
-        )
+        with benchmark_conditioning_override(conditioning_mode):
+            volume_mesh = dtcc_core.builder.build_city_volume_mesh(
+                city,
+                lod=lod,
+                domain_height=domain_height,
+                max_mesh_size=max_mesh_size,
+                min_mesh_angle=min_mesh_angle,
+                merge_buildings=merge_buildings,
+                min_building_detail=MIN_BUILDING_DETAIL,
+                min_building_area=MIN_BUILDING_AREA,
+                smoothing=0,
+                boundary_face_markers=True,
+                tetgen_switches=switches_params,
+                report_mesh_quality=False,
+                mesher=mesher,
+                tetgen_debug_output_dir=case_dir if save_tetgen_input else None,
+                tetgen_debug_output_stem=(
+                    case_tetgen_input_stem(
+                        number,
+                        max_mesh_size=max_mesh_size,
+                        min_mesh_angle=min_mesh_angle,
+                        domain_height=domain_height,
+                        quality_ratio=quality_ratio,
+                        quality_enabled=quality_enabled,
+                        preserve_surface=preserve_surface,
+                        max_added_points=max_added_points,
+                        lod=lod,
+                        merge_buildings=merge_buildings,
+                        mesher=mesher,
+                        pipeline_mode=pipeline_mode,
+                        stage_audit_enabled=stage_audit_enabled,
+                    )
+                    if save_tetgen_input
+                    else None
+                ),
+                tetgen_quality_failure_output_dir=case_dir,
+                tetgen_quality_failure_output_stem="tetgen_quality_failure",
+                pipeline_mode=pipeline_mode,
+                stage_audit=stage_audit,
+            )
         quality = json_ready(volume_mesh.quality())
         metrics = mesh_metrics(volume_mesh, quality)
         mesh_path = case_mesh_path(
@@ -1316,6 +1324,7 @@ def run_case(
             "status": "success",
             "time": round(time.perf_counter() - start, 2),
             "file": mesh_path.name,
+            "conditioning_mode": conditioning_mode,
             "tetgen_switches": json_ready(switches_params),
             "quality": quality,
             "metrics": metrics,
@@ -1337,6 +1346,7 @@ def run_case(
         case_record["result"] = {
             "status": "failed",
             "time": round(time.perf_counter() - start, 2),
+            "conditioning_mode": conditioning_mode,
             "tetgen_switches": json_ready(switches_params),
             "error": error_details(exc),
         }
@@ -1428,6 +1438,12 @@ def parse_args() -> argparse.Namespace:
         help="Directory for JSON, XDMF/HDF5, and PNG outputs.",
     )
     parser.add_argument(
+        "--conditioning-mode",
+        choices=CONDITIONING_MODES,
+        default="new",
+        help="Footprint conditioning benchmark mode used before volume meshing.",
+    )
+    parser.add_argument(
         "--no-plots",
         action="store_true",
         help="Skip overview PNG generation.",
@@ -1500,6 +1516,7 @@ def main() -> None:
             "lod": args.lod.name,
             "merge_buildings": args.merge_buildings,
             "mesher": args.mesher,
+            "conditioning_mode": args.conditioning_mode,
             "pipeline_mode": args.pipeline_mode,
             "save_tetgen_input": args.save_tetgen_input,
             "stage_audit_enabled": args.stage_audit,
@@ -1521,7 +1538,20 @@ def main() -> None:
         pipeline_mode=args.pipeline_mode,
         stage_audit_enabled=args.stage_audit,
     )
-    results = load_results(results_path)
+    saved_metadata, results = load_results_bundle(results_path)
+    if (
+        saved_metadata is not None
+        and (
+            saved_metadata.get("benchmark") != metadata["benchmark"]
+            or saved_metadata.get("config") != json_ready(metadata["config"])
+        )
+    ):
+        print(
+            f"Existing results at {results_path} use a different configuration; "
+            "starting with a fresh cache."
+        )
+        print()
+        results = {}
     total = NX * NY
 
     loaded_count = len(results)
@@ -1538,6 +1568,7 @@ def main() -> None:
         f"{'S=' + str(args.max_added_points) if args.max_added_points is not None else 'S=unlimited'}, "
         f"{args.lod.name.lower()}, mesher={args.mesher}, "
         f"merge={'on' if args.merge_buildings else 'off'}, "
+        f"conditioning={args.conditioning_mode}, "
         f"pipeline={args.pipeline_mode}, "
         f"tetgen-input={'on' if args.save_tetgen_input else 'off'}, "
         f"stage-audit={'on' if args.stage_audit else 'off'}"
@@ -1592,6 +1623,7 @@ def main() -> None:
             lod=args.lod,
             merge_buildings=args.merge_buildings,
             mesher=args.mesher,
+            conditioning_mode=args.conditioning_mode,
             pipeline_mode=args.pipeline_mode,
             save_tetgen_input=args.save_tetgen_input,
             stage_audit_enabled=args.stage_audit,
@@ -1656,6 +1688,7 @@ def main() -> None:
         lod=args.lod,
         merge_buildings=args.merge_buildings,
         mesher=args.mesher,
+        conditioning_mode=args.conditioning_mode,
         pipeline_mode=args.pipeline_mode,
         stage_audit_enabled=args.stage_audit,
         elapsed_seconds=total_elapsed,

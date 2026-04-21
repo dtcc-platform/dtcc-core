@@ -9542,29 +9542,29 @@ def _fmt_metric(value: float | int | None, digits: int = 2) -> str:
 
 
 _STAGE_LABEL_TITLES = {
-    "atomic_input": "Input Coverage",
-    "opened": "Scale Opening",
-    "regularized_groups": "Group Regularization",
-    "reconstructed": "Coverage Reconstruction",
-    "presimplify": "Pre-Simplification",
-    "local_defect_repaired": "Local Defect Repair",
-    "coverage_simplified": "Coverage Simplification",
-    "source_reclaimed": "Source Reclaim",
-    "small_component_absorbed": "Small-Component Absorption",
-    "boundary_regularized": "Boundary Regularization",
-    "clearance_regularized": "Final Clearance Repair",
-    "source_coordinate_recovered": "Source Coordinate Recovery",
-    "post_recovery_regularized": "Post-Recovery Regularization",
-    "coverage_contact_regularized": "Contact Regularization",
-    "coverage_meshing_regularized": "Mesher-Ready Regularization",
-    "final_output": "Output Coverage",
+    "atomic_input": "input coverage",
+    "opened": "scale opening",
+    "regularized_groups": "group regularization",
+    "reconstructed": "coverage reconstruction",
+    "presimplify": "pre-simplification",
+    "local_defect_repaired": "local defect repair",
+    "coverage_simplified": "coverage simplification",
+    "source_reclaimed": "source reclaim",
+    "small_component_absorbed": "small-component absorption",
+    "boundary_regularized": "boundary regularization",
+    "clearance_regularized": "final clearance repair",
+    "source_coordinate_recovered": "source coordinate recovery",
+    "post_recovery_regularized": "post-recovery regularization",
+    "coverage_contact_regularized": "contact regularization",
+    "coverage_meshing_regularized": "mesher-ready regularization",
+    "final_output": "output coverage",
 }
 
 
 def _format_stage_label(stage: str) -> str:
     return _STAGE_LABEL_TITLES.get(
         stage,
-        stage.replace("_", " ").strip().title(),
+        stage.replace("_", " ").strip().lower(),
     )
 
 
@@ -9640,7 +9640,7 @@ def _log_conditioning_stage(
     if not enabled:
         return
     info(
-        "Footprint Cleaning | "
+        "Footprint cleaning | "
         + _format_stage_metrics(
             label,
             metrics,
@@ -9659,7 +9659,7 @@ def _log_conditioning_summary(
     stage_metrics = diagnostics["stage_metrics"]
     atomic = stage_metrics.get("atomic_input", {})
     final = stage_metrics.get("final_output", {})
-    summary_lines = ["Footprint Cleaning Complete"]
+    summary_lines = ["Footprint cleaning complete"]
     if diagnostics.get("collect_stage_metrics", True):
         summary_lines.extend(
             [

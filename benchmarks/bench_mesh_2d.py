@@ -32,6 +32,7 @@ import numpy as np
 import dtcc_core
 from dtcc_core.model import Bounds, GeometryType, Mesh
 try:
+    from _benchmark_conditioning import CONDITIONING_MODES, benchmark_conditioning_override
     from _stockholm_common import (
         BOX_SIZE,
         DEFAULT_DELAY_BETWEEN_CASES,
@@ -50,6 +51,7 @@ try:
         json_ready,
         load_plot_modules,
         load_results,
+        load_results_bundle,
         make_bounds,
         mesh_size_label,
         normalize_max_mesh_size,
@@ -62,6 +64,10 @@ try:
         stockholm_output_dir,
     )
 except ImportError:
+    from benchmarks._benchmark_conditioning import (
+        CONDITIONING_MODES,
+        benchmark_conditioning_override,
+    )
     from benchmarks._stockholm_common import (
         BOX_SIZE,
         DEFAULT_DELAY_BETWEEN_CASES,
@@ -80,6 +86,7 @@ except ImportError:
         json_ready,
         load_plot_modules,
         load_results,
+        load_results_bundle,
         make_bounds,
         mesh_size_label,
         normalize_max_mesh_size,
@@ -165,9 +172,8 @@ def results_file_path(
     pipeline_mode: str,
     stage_audit_enabled: bool,
 ) -> Path:
-    return output_dir / (
-        f"results.{run_slug(meshers, max_mesh_size=max_mesh_size, min_mesh_angle=min_mesh_angle, pipeline_mode=pipeline_mode, stage_audit_enabled=stage_audit_enabled)}.json"
-    )
+    del meshers, max_mesh_size, min_mesh_angle, pipeline_mode, stage_audit_enabled
+    return output_dir / "results.json"
 
 
 def overview_plot_path(
@@ -179,9 +185,8 @@ def overview_plot_path(
     pipeline_mode: str,
     stage_audit_enabled: bool,
 ) -> Path:
-    return output_dir / (
-        f"overview.{run_slug(meshers, max_mesh_size=max_mesh_size, min_mesh_angle=min_mesh_angle, pipeline_mode=pipeline_mode, stage_audit_enabled=stage_audit_enabled)}.png"
-    )
+    del meshers, max_mesh_size, min_mesh_angle, pipeline_mode, stage_audit_enabled
+    return output_dir / "overview.png"
 
 
 def summary_text_path(
@@ -193,9 +198,8 @@ def summary_text_path(
     pipeline_mode: str,
     stage_audit_enabled: bool,
 ) -> Path:
-    return output_dir / (
-        f"summary.{run_slug(meshers, max_mesh_size=max_mesh_size, min_mesh_angle=min_mesh_angle, pipeline_mode=pipeline_mode, stage_audit_enabled=stage_audit_enabled)}.txt"
-    )
+    del meshers, max_mesh_size, min_mesh_angle, pipeline_mode, stage_audit_enabled
+    return output_dir / "summary.txt"
 
 
 def case_output_dir(
@@ -208,9 +212,8 @@ def case_output_dir(
     pipeline_mode: str,
     stage_audit_enabled: bool,
 ) -> Path:
-    return output_dir / (
-        f"{number:03d}.{run_slug(meshers, max_mesh_size=max_mesh_size, min_mesh_angle=min_mesh_angle, pipeline_mode=pipeline_mode, stage_audit_enabled=stage_audit_enabled)}"
-    )
+    del meshers, max_mesh_size, min_mesh_angle, pipeline_mode, stage_audit_enabled
+    return output_dir / f"{number:03d}"
 
 
 def case_plot_path(
@@ -665,6 +668,7 @@ def run_mesher_for_case(
     meshers: list[str],
     max_mesh_size: float | None,
     min_mesh_angle: float,
+    conditioning_mode: str,
     pipeline_mode: str,
     stage_audit_enabled: bool,
 ) -> tuple[dict[str, Any], Mesh | None]:
@@ -672,19 +676,20 @@ def run_mesher_for_case(
     stage_audit: dict[str, Any] | None = {} if stage_audit_enabled else None
 
     try:
-        mesh = dtcc_core.builder.build_city_flat_mesh(
-            city,
-            lod=GeometryType.LOD0,
-            max_mesh_size=max_mesh_size,
-            min_mesh_angle=min_mesh_angle,
-            merge_buildings=MERGE_BUILDINGS,
-            min_building_detail=MIN_BUILDING_DETAIL,
-            min_building_area=MIN_BUILDING_AREA,
-            report_mesh_quality=False,
-            mesher=mesher,
-            pipeline_mode=pipeline_mode,
-            stage_audit=stage_audit,
-        )
+        with benchmark_conditioning_override(conditioning_mode):
+            mesh = dtcc_core.builder.build_city_flat_mesh(
+                city,
+                lod=GeometryType.LOD0,
+                max_mesh_size=max_mesh_size,
+                min_mesh_angle=min_mesh_angle,
+                merge_buildings=MERGE_BUILDINGS,
+                min_building_detail=MIN_BUILDING_DETAIL,
+                min_building_area=MIN_BUILDING_AREA,
+                report_mesh_quality=False,
+                mesher=mesher,
+                pipeline_mode=pipeline_mode,
+                stage_audit=stage_audit,
+            )
         quality = json_ready(mesh.quality())
         metrics = mesh_metrics(mesh, quality)
         mesh_path = case_mesh_path(
@@ -703,6 +708,7 @@ def run_mesher_for_case(
             "status": "success",
             "time": round(time.perf_counter() - start, 2),
             "file": mesh_path.name,
+            "conditioning_mode": conditioning_mode,
             "quality": quality,
             "metrics": metrics,
         }
@@ -716,6 +722,7 @@ def run_mesher_for_case(
         result = {
             "status": "failed",
             "time": round(time.perf_counter() - start, 2),
+            "conditioning_mode": conditioning_mode,
             "error": error_details(exc),
         }
         if stage_audit_enabled and stage_audit is not None:
@@ -1008,6 +1015,7 @@ def build_summary_report(
     *,
     max_mesh_size: float | None,
     min_mesh_angle: float,
+    conditioning_mode: str,
     pipeline_mode: str,
     stage_audit_enabled: bool,
     elapsed_seconds: float,
@@ -1091,6 +1099,7 @@ def build_summary_report(
         "bench_mesh_2d",
         (
             f"Config: {mesh_size_label(max_mesh_size)}, min angle={min_mesh_angle:g}°, "
+            f"conditioning={conditioning_mode}, "
             f"pipeline={pipeline_mode}, stage-audit={'on' if stage_audit_enabled else 'off'}"
         ),
         f"Elapsed time: {elapsed_seconds:.1f}s",
@@ -1119,6 +1128,7 @@ def run_case(
     *,
     max_mesh_size: float | None,
     min_mesh_angle: float,
+    conditioning_mode: str,
     pipeline_mode: str,
     stage_audit_enabled: bool,
 ) -> dict[str, Any]:
@@ -1144,6 +1154,7 @@ def run_case(
         "config": {
             "max_mesh_size": max_mesh_size,
             "min_mesh_angle": min_mesh_angle,
+            "conditioning_mode": conditioning_mode,
             "pipeline_mode": pipeline_mode,
             "stage_audit_enabled": stage_audit_enabled,
         },
@@ -1160,6 +1171,7 @@ def run_case(
             meshers=meshers,
             max_mesh_size=max_mesh_size,
             min_mesh_angle=min_mesh_angle,
+            conditioning_mode=conditioning_mode,
             pipeline_mode=pipeline_mode,
             stage_audit_enabled=stage_audit_enabled,
         )
@@ -1230,6 +1242,12 @@ def parse_args() -> argparse.Namespace:
         help="Directory for JSON, VTU, and PNG outputs.",
     )
     parser.add_argument(
+        "--conditioning-mode",
+        choices=CONDITIONING_MODES,
+        default="new",
+        help="Footprint conditioning benchmark mode used before meshing.",
+    )
+    parser.add_argument(
         "--per-case-plots",
         action="store_true",
         help="When running many cases, also save a side-by-side PNG for every case.",
@@ -1271,6 +1289,7 @@ def main() -> None:
             "meshers": meshers,
             "max_mesh_size": args.max_mesh_size,
             "min_mesh_angle": MIN_MESH_ANGLE,
+            "conditioning_mode": args.conditioning_mode,
             "pipeline_mode": args.pipeline_mode,
             "stage_audit_enabled": args.stage_audit,
         },
@@ -1283,7 +1302,20 @@ def main() -> None:
         pipeline_mode=args.pipeline_mode,
         stage_audit_enabled=args.stage_audit,
     )
-    results = load_results(results_path)
+    saved_metadata, results = load_results_bundle(results_path)
+    if (
+        saved_metadata is not None
+        and (
+            saved_metadata.get("benchmark") != metadata["benchmark"]
+            or saved_metadata.get("config") != json_ready(metadata["config"])
+        )
+    ):
+        print(
+            f"Existing results at {results_path} use a different configuration; "
+            "starting with a fresh cache."
+        )
+        print()
+        results = {}
     total = NX * NY
 
     loaded_count = len(results)
@@ -1295,6 +1327,7 @@ def main() -> None:
     print(
         f"Configuration: {mesh_size_label(args.max_mesh_size)}, "
         f"min angle={MIN_MESH_ANGLE:g}°, "
+        f"conditioning={args.conditioning_mode}, "
         f"pipeline={args.pipeline_mode}, "
         f"stage-audit={'on' if args.stage_audit else 'off'}"
     )
@@ -1349,6 +1382,7 @@ def main() -> None:
             show_plot=bool(args.show_plot and len(selected_cases) == 1),
             max_mesh_size=args.max_mesh_size,
             min_mesh_angle=MIN_MESH_ANGLE,
+            conditioning_mode=args.conditioning_mode,
             pipeline_mode=args.pipeline_mode,
             stage_audit_enabled=args.stage_audit,
         )
@@ -1403,6 +1437,7 @@ def main() -> None:
         meshers,
         max_mesh_size=args.max_mesh_size,
         min_mesh_angle=MIN_MESH_ANGLE,
+        conditioning_mode=args.conditioning_mode,
         pipeline_mode=args.pipeline_mode,
         stage_audit_enabled=args.stage_audit,
         elapsed_seconds=total_elapsed,
