@@ -709,6 +709,7 @@ def _tetgen_plc_audit(
         plc_vertices,
         shell_faces,
         boundary_facets,
+        _boundary_facet_markers,
         audit_boundary_triangles,
     ) = tetgen_utils.compute_oriented_boundary_plc(
         surface_mesh,
@@ -3947,7 +3948,10 @@ def build_city_volume_mesh(
     - `N` to `2*N-1`:  Roof faces of the N buildings
     - `-1`:  Ground (terrain) faces
     - `-2`:  Top faces of the volume domain
-    - `-3`, `-4`, `-5`, `-6`:  The four vertical boundary faces of the domain
+    - `-3`:  West / `xmin` boundary faces
+    - `-4`:  East / `xmax` boundary faces
+    - `-5`:  South / `ymin` boundary faces
+    - `-6`:  North / `ymax` boundary faces
 
     Notes
     -----

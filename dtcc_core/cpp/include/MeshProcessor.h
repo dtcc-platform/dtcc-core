@@ -307,10 +307,10 @@ static inline void compute_mesh_domain_markers(Mesh &mesh, const std::vector<Pol
         // 4) pick the dominant component
         if (std::abs(nx) > std::abs(ny)) {
           // East/West face
-          marker =  (nx > 0) ? -4 : -6;
+          marker =  (nx > 0) ? -4 : -3;
         } else {
           // North/South face
-          marker =  (ny > 0) ? -3 : -5;
+          marker =  (ny > 0) ? -6 : -5;
         }
       }
     }

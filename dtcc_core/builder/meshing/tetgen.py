@@ -9,6 +9,13 @@ from ..logging import debug, info, warning
 
 HAS_TETGEN = False
 _tetgen_switch_module = None
+BOUNDARY_FACET_MARKERS: Dict[str, int] = {
+    "top": -2,
+    "west": -3,
+    "east": -4,
+    "south": -5,
+    "north": -6,
+}
 try:
     import dtcc_tetgen_wrapper as tetwrap
 
@@ -83,6 +90,13 @@ def build_volume_mesh(
     switches_overrides : dict, optional
         Overrides applied to the TetGen switches after ``switches_params``.
 
+    Notes
+    -----
+    When boundary faces are requested, the returned boundary markers follow the
+    dtcc CFD convention: ``-2`` top, ``-3`` west/xmin, ``-4`` east/xmax,
+    ``-5`` south/ymin, ``-6`` north/ymax. Input shell-face markers are
+    preserved for the original surface triangles.
+
     Returns
     -------
     VolumeMesh
@@ -107,6 +121,8 @@ def build_volume_mesh(
         raise ValueError("Input mesh must have one face marker per face.")
 
     b_facets = None
+    boundary_facet_markers = None
+    diagnostic_boundary_facets = None
     named_boundary_facets = None
     if build_top_sidewalls:
         if closure_mesh is not None:
@@ -114,6 +130,7 @@ def build_volume_mesh(
                 new_vertices,
                 oriented_faces,
                 boundary_facets,
+                boundary_facet_markers,
                 _,
             ) = tetgen_utils.compute_oriented_boundary_plc(
                 mesh,
@@ -128,12 +145,16 @@ def build_volume_mesh(
             new_vertices, boundary_facets = tetgen_utils.compute_boundary_facets(
                 mesh, top_height=top_height
             )
+            boundary_facet_markers = {
+                name: BOUNDARY_FACET_MARKERS[name] for name in boundary_facets
+            }
             mesh = Mesh(vertices=new_vertices, faces=mesh.faces, markers=mesh.markers)
         if isinstance(boundary_facets, dict):
             named_boundary_facets = dict(boundary_facets)
             b_facets = [facet for facet in boundary_facets.values()]
+            diagnostic_boundary_facets = named_boundary_facets
         else:
-            named_boundary_facets = {
+            diagnostic_boundary_facets = {
                 f"facet_{i}": facet for i, facet in enumerate(boundary_facets)
             }
             b_facets = list(boundary_facets)
@@ -157,7 +178,7 @@ def build_volume_mesh(
     plc_diagnostics = tetgen_utils.inspect_tetgen_plc(
         mesh.vertices,
         mesh.faces,
-        named_boundary_facets if named_boundary_facets is not None else b_facets,
+        diagnostic_boundary_facets if diagnostic_boundary_facets is not None else b_facets,
     )
     debug(tetgen_utils.format_tetgen_plc_diagnostics(plc_diagnostics))
     if plc_diagnostics.errors:
@@ -184,7 +205,8 @@ def build_volume_mesh(
         vertices=mesh.vertices,
         faces=mesh.faces,
         face_markers=mesh.markers,
-        boundary_facets=b_facets,
+        boundary_facets=named_boundary_facets if named_boundary_facets is not None else b_facets,
+        boundary_facet_markers=boundary_facet_markers,
         switches_params=base_switches,
         switches_overrides=switches_overrides,
         return_io=True,

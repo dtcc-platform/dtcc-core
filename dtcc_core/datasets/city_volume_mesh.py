@@ -27,7 +27,12 @@ class CityVolumeMeshArgs(DatasetBaseArgs):
         3.0, description="Threshold for outlier removal (standard deviations)"
     )
     boundary_face_markers: bool = Field(
-        True, description="Whether to add boundary face markers to the mesh"
+        True,
+        description=(
+            "Whether to add boundary face markers to the mesh "
+            "(-1 ground, -2 top, -3 west/xmin, -4 east/xmax, "
+            "-5 south/ymin, -6 north/ymax)"
+        ),
     )
     max_volume: Optional[float] = Field(
         None,

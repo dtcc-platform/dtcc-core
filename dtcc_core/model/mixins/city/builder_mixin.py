@@ -347,7 +347,9 @@ class CityBuilderMixin:
         smoothing : int, optional
             Number of smoothing iterations (default 0).
         boundary_face_markers : bool, optional
-            Annotate boundary faces with integer markers (default True).
+            Annotate boundary faces with integer markers (default True):
+            `-1` ground, `-2` top, `-3` west/xmin, `-4` east/xmax,
+            `-5` south/ymin, `-6` north/ymax.
         tetgen_switches : dict, optional
             High-level TetGen parameters.
         tetgen_switch_overrides : dict, optional

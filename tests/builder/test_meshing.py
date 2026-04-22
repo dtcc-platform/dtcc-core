@@ -587,7 +587,13 @@ def test_compute_oriented_boundary_plc_uses_single_polygon_top_facet():
         markers=np.array(shell.markers, copy=True),
     )
 
-    vertices, oriented_shell_faces, boundary_facets, audit_boundary_triangles = (
+    (
+        vertices,
+        oriented_shell_faces,
+        boundary_facets,
+        boundary_facet_markers,
+        audit_boundary_triangles,
+    ) = (
         tetgen_utils.compute_oriented_boundary_plc(
             shell,
             closure,
@@ -598,6 +604,7 @@ def test_compute_oriented_boundary_plc_uses_single_polygon_top_facet():
     polygon_facets = [facet for facet in boundary_facets if len(facet) > 3]
     assert len(polygon_facets) == 5
     assert len(polygon_facets[0]) == 4
+    assert boundary_facet_markers == [-5, -4, -6, -3, -2]
     assert audit_boundary_triangles.ndim == 2
     assert audit_boundary_triangles.shape[1] == 3
 
@@ -630,7 +637,13 @@ def test_compute_oriented_boundary_plc_triangles_sidewalls_for_unstable_shell():
         markers=np.array(shell.markers, copy=True),
     )
 
-    vertices, oriented_shell_faces, boundary_facets, audit_boundary_triangles = (
+    (
+        vertices,
+        oriented_shell_faces,
+        boundary_facets,
+        boundary_facet_markers,
+        audit_boundary_triangles,
+    ) = (
         tetgen_utils.compute_oriented_boundary_plc(
             shell,
             closure,
@@ -641,6 +654,8 @@ def test_compute_oriented_boundary_plc_triangles_sidewalls_for_unstable_shell():
     assert len(boundary_facets) > 5
     assert all(len(facet) == 3 for facet in boundary_facets[:-1])
     assert len(boundary_facets[-1]) > 3
+    assert boundary_facet_markers[-1] == -2
+    assert set(boundary_facet_markers[:-1]) == {-3, -4, -5, -6}
     assert audit_boundary_triangles.ndim == 2
     assert audit_boundary_triangles.shape[1] == 3
 
@@ -1161,6 +1176,7 @@ def test_build_volume_mesh_uses_polygon_top_cap_for_closure_mesh(monkeypatch):
 
     def fake_tetrahedralize(**kwargs):
         captured["boundary_facets"] = kwargs["boundary_facets"]
+        captured["boundary_facet_markers"] = kwargs["boundary_facet_markers"]
         return TetgenResult()
 
     monkeypatch.setattr(tetgen_module.tetwrap, "tetrahedralize", fake_tetrahedralize)
@@ -1176,3 +1192,53 @@ def test_build_volume_mesh_uses_polygon_top_cap_for_closure_mesh(monkeypatch):
     polygon_facets = [facet for facet in boundary_facets if len(facet) > 3]
     assert len(polygon_facets) == 5
     assert len(polygon_facets[-1]) == 4
+    assert captured["boundary_facet_markers"] == [-5, -4, -6, -3, -2]
+
+
+@pytest.mark.skipif(not is_tetgen_available(), reason="TetGen is not available")
+def test_build_volume_mesh_forwards_named_boundary_markers_without_closure_mesh(monkeypatch):
+    mesh = Mesh(
+        vertices=np.array(
+            [
+                [0.0, 0.0, 0.0],
+                [10.0, 0.0, 0.0],
+                [10.0, 10.0, 0.0],
+                [0.0, 10.0, 0.0],
+            ]
+        ),
+        faces=np.array([[0, 1, 2], [0, 2, 3]], dtype=int),
+        markers=np.array([0, 0], dtype=int),
+    )
+    captured = {}
+
+    class TetgenResult:
+        points = np.array(
+            [
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [0.0, 0.0, 1.0],
+            ],
+            dtype=float,
+        )
+        tets = np.array([[0, 1, 2, 3]], dtype=np.int32)
+        boundary_tri_faces = None
+        boundary_tri_markers = None
+
+    def fake_tetrahedralize(**kwargs):
+        captured["boundary_facets"] = kwargs["boundary_facets"]
+        captured["boundary_facet_markers"] = kwargs["boundary_facet_markers"]
+        return TetgenResult()
+
+    monkeypatch.setattr(tetgen_module.tetwrap, "tetrahedralize", fake_tetrahedralize)
+
+    tetgen_module.build_volume_mesh(mesh, top_height=20.0, closure_mesh=None)
+
+    assert list(captured["boundary_facets"].keys()) == ["south", "east", "north", "west", "top"]
+    assert captured["boundary_facet_markers"] == {
+        "south": -5,
+        "east": -4,
+        "north": -6,
+        "west": -3,
+        "top": -2,
+    }

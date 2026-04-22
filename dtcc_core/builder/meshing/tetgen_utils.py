@@ -1296,12 +1296,14 @@ def compute_oriented_boundary_plc(
     top_cap_backend: str = "auto",
     top_cap_max_mesh_size: float | None = None,
     top_cap_min_mesh_angle: float = 25.0,
-) -> tuple[np.ndarray, np.ndarray, list[list[int]], np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, list[list[int]], list[int], np.ndarray]:
     """
     Build the PLC used for TetGen with a single polygon top cap.
 
     The top cap is represented as one polygon facet over the lifted outer boundary
-    ring. A triangle-only copy of that cap is returned separately for auditing and
+    ring. A parallel boundary-facet marker list is returned using the dtcc CFD
+    convention (`-2` top, `-3` west, `-4` east, `-5` south, `-6` north). A
+    triangle-only copy of that cap is returned separately for auditing and
     orientation checks.
     """
 
@@ -1367,13 +1369,22 @@ def compute_oriented_boundary_plc(
     top_cap_triangles = np.asarray(top_cap_triangles_local, dtype=np.int64) + offset
 
     polygon_sidewall_facets: list[list[int]] = []
+    polygon_sidewall_markers: list[int] = []
     simple_sidewall_triangles: list[list[int]] = []
+    simple_sidewall_markers: list[int] = []
+    sidewall_marker_by_name = {
+        "south": -5,
+        "east": -4,
+        "north": -6,
+        "west": -3,
+    }
     for name in ("south", "east", "north", "west"):
         bottom_loop = np.asarray(bottom_loops[name], dtype=np.int64)
         top_loop = top_boundary_loops[name]
         polygon_sidewall_facets.append(
             np.concatenate([bottom_loop, top_loop[::-1]]).astype(np.int64).tolist()
         )
+        polygon_sidewall_markers.append(sidewall_marker_by_name[name])
         for b0, b1, t0, t1 in zip(
             bottom_loop[:-1],
             bottom_loop[1:],
@@ -1382,6 +1393,9 @@ def compute_oriented_boundary_plc(
         ):
             simple_sidewall_triangles.append([int(b0), int(b1), int(t1)])
             simple_sidewall_triangles.append([int(b0), int(t1), int(t0)])
+            simple_sidewall_markers.extend(
+                [sidewall_marker_by_name[name], sidewall_marker_by_name[name]]
+            )
 
     use_polygon_sidewalls = _prefer_polygon_sidewalls(
         np.asarray(vertices_out, dtype=float),
@@ -1389,8 +1403,10 @@ def compute_oriented_boundary_plc(
     )
     if use_polygon_sidewalls:
         sidewall_triangles = simple_sidewall_triangles
+        sidewall_triangle_markers = simple_sidewall_markers
     else:
         sidewall_triangles = []
+        sidewall_triangle_markers = []
         sidewall_strip_count = _boundary_sidewall_strip_count(
             np.asarray(vertices_out, dtype=float),
             bottom_loops,
@@ -1406,6 +1422,7 @@ def compute_oriented_boundary_plc(
                 top_loop[:-1],
                 top_loop[1:],
             ):
+                before = len(sidewall_triangles)
                 _append_vertical_sidewall_facet(
                     vertices_out,
                     sidewall_triangles,
@@ -1415,6 +1432,9 @@ def compute_oriented_boundary_plc(
                     top_v1=int(t1),
                     strip_count=sidewall_strip_count,
                     vertical_vertex_cache=vertical_vertex_cache,
+                )
+                sidewall_triangle_markers.extend(
+                    [sidewall_marker_by_name[name]] * (len(sidewall_triangles) - before)
                 )
 
     oriented_sidewall_triangles = _orient_boundary_triangle_facets_to_shell(
@@ -1443,12 +1463,15 @@ def compute_oriented_boundary_plc(
 
     if use_polygon_sidewalls:
         boundary_facets = list(polygon_sidewall_facets)
+        boundary_facet_markers = list(polygon_sidewall_markers)
     else:
         boundary_facets = [
             list(np.asarray(facet, dtype=np.int64))
             for facet in oriented_sidewall_triangles
         ]
+        boundary_facet_markers = list(sidewall_triangle_markers)
     boundary_facets.append(oriented_top_cap_ring)
+    boundary_facet_markers.append(-2)
     audit_boundary_triangles = np.vstack(
         [
             np.asarray(oriented_sidewall_triangles, dtype=np.int64),
@@ -1459,6 +1482,7 @@ def compute_oriented_boundary_plc(
         np.asarray(vertices_out, dtype=float),
         np.asarray(oriented_shell_faces, dtype=np.int64),
         boundary_facets,
+        boundary_facet_markers,
         audit_boundary_triangles,
     )
 
