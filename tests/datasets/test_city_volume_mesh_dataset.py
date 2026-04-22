@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import ANY, Mock, patch
 
+import numpy as np
 import dtcc_core.datasets as datasets
 from dtcc_core.datasets import get_dataset
 from dtcc_core.datasets.city_volume_mesh import (
@@ -196,3 +197,111 @@ def test_city_volume_mesh_vtu_export_returns_bytes(
 
     assert result == b"volume-mesh"
     mock_export.assert_called_once_with(volume_mesh, "vtu")
+
+
+@patch("dtcc_core.datasets.city_volume_mesh.dtcc_core.builder.build_city_volume_mesh")
+@patch("dtcc_core.datasets.city_volume_mesh.dtcc_core.builder.set_building_heights_from_attribute")
+@patch("dtcc_core.datasets.city_volume_mesh.dtcc_core.builder.flatten_terrain_raster")
+@patch("dtcc_core.datasets.city_volume_mesh.dtcc_core.builder.compute_building_heights")
+@patch("dtcc_core.datasets.city_volume_mesh.dtcc_core.builder.extract_roof_points")
+@patch("dtcc_core.datasets.city_volume_mesh.dtcc_core.builder.build_terrain_raster")
+@patch("dtcc_core.datasets.city_volume_mesh.dtcc_core.io.data.download_footprints")
+@patch("dtcc_core.datasets.city_volume_mesh.dtcc_core.io.data.download_pointcloud")
+@patch("dtcc_core.datasets.city_volume_mesh.City")
+def test_city_volume_mesh_flat_ground_replaces_raster_and_resets_building_heights(
+    mock_city_cls,
+    mock_download_pointcloud,
+    mock_download_footprints,
+    mock_build_terrain_raster,
+    mock_extract_roof_points,
+    mock_compute_building_heights,
+    mock_flatten_terrain_raster,
+    mock_set_building_heights_from_attribute,
+    mock_build_city_volume_mesh,
+):
+    raw_pointcloud = Mock(name="raw_pointcloud")
+    filtered_pointcloud = Mock(name="filtered_pointcloud")
+    buildings = Mock(name="buildings")
+    raster = Mock(name="raster")
+    roof_buildings = Mock(name="roof_buildings")
+    heighted_buildings = Mock(name="heighted_buildings")
+    flat_buildings = Mock(name="flat_buildings")
+    volume_mesh = Mock(name="volume_mesh")
+    flat_raster = Mock(name="flat_raster")
+
+    flat_raster.data = np.array([[21.0]])
+    flat_raster.nodata = np.nan
+
+    raw_pointcloud.remove_global_outliers.return_value = filtered_pointcloud
+    mock_download_pointcloud.return_value = raw_pointcloud
+    mock_download_footprints.return_value = buildings
+    mock_build_terrain_raster.return_value = raster
+    mock_extract_roof_points.return_value = roof_buildings
+    mock_compute_building_heights.return_value = heighted_buildings
+    mock_flatten_terrain_raster.return_value = flat_raster
+    mock_set_building_heights_from_attribute.return_value = flat_buildings
+    mock_build_city_volume_mesh.return_value = volume_mesh
+
+    city = Mock(name="city")
+    mock_city_cls.return_value = city
+
+    dataset = CityVolumeMeshDataset()
+    result = dataset.build(
+        CityVolumeMeshArgs(
+            bounds=(0.0, 0.0, 1.0, 1.0),
+            flat_ground=True,
+            ground_level=21.0,
+        )
+    )
+
+    assert result is volume_mesh
+    mock_flatten_terrain_raster.assert_called_once_with(raster, height=21.0)
+    mock_set_building_heights_from_attribute.assert_called_once_with(
+        heighted_buildings,
+        flat_raster,
+        height_attribute="height",
+        default_ground_height=21.0,
+        always_use_default_ground=True,
+    )
+    city.add_terrain.assert_called_once_with(flat_raster)
+    city.add_buildings.assert_called_once_with(
+        flat_buildings,
+        remove_outside_terrain=True,
+    )
+
+
+@patch("dtcc_core.datasets.city_volume_mesh.dtcc_core.builder.build_city_volume_mesh")
+@patch("dtcc_core.datasets.city_volume_mesh.dtcc_core.builder.set_building_heights_from_attribute")
+@patch("dtcc_core.datasets.city_volume_mesh.dtcc_core.builder.flatten_terrain_raster")
+@patch("dtcc_core.datasets.city_volume_mesh.dtcc_core.builder.compute_building_heights")
+@patch("dtcc_core.datasets.city_volume_mesh.dtcc_core.builder.extract_roof_points")
+@patch("dtcc_core.datasets.city_volume_mesh.dtcc_core.builder.build_terrain_raster")
+@patch("dtcc_core.datasets.city_volume_mesh.dtcc_core.io.data.download_footprints")
+@patch("dtcc_core.datasets.city_volume_mesh.dtcc_core.io.data.download_pointcloud")
+@patch("dtcc_core.datasets.city_volume_mesh.City")
+def test_city_volume_mesh_default_path_skips_flat_ground_rebuild(
+    mock_city_cls,
+    mock_download_pointcloud,
+    mock_download_footprints,
+    mock_build_terrain_raster,
+    mock_extract_roof_points,
+    mock_compute_building_heights,
+    mock_flatten_terrain_raster,
+    mock_set_building_heights_from_attribute,
+    mock_build_city_volume_mesh,
+):
+    raw_pointcloud = Mock(name="raw_pointcloud")
+    raw_pointcloud.remove_global_outliers.return_value = Mock(name="filtered_pointcloud")
+    mock_download_pointcloud.return_value = raw_pointcloud
+    mock_download_footprints.return_value = Mock(name="buildings")
+    mock_build_terrain_raster.return_value = Mock(name="raster")
+    mock_extract_roof_points.return_value = Mock(name="roof_buildings")
+    mock_compute_building_heights.return_value = Mock(name="heighted_buildings")
+    mock_build_city_volume_mesh.return_value = Mock(name="volume_mesh")
+    mock_city_cls.return_value = Mock(name="city")
+
+    dataset = CityVolumeMeshDataset()
+    dataset.build(CityVolumeMeshArgs(bounds=(0.0, 0.0, 1.0, 1.0)))
+
+    mock_flatten_terrain_raster.assert_not_called()
+    mock_set_building_heights_from_attribute.assert_not_called()

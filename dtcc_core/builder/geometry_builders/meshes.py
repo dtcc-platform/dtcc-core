@@ -118,6 +118,22 @@ def _normalize_max_mesh_size(max_mesh_size: float | None) -> float | None:
     return value
 
 
+def _is_effectively_flat_raster(raster, tol: float = 1.0e-6) -> bool:
+    if raster is None or getattr(raster, "data", None) is None:
+        return False
+
+    valid_mask = np.isfinite(raster.data)
+    nodata = getattr(raster, "nodata", np.nan)
+    if not np.isnan(nodata):
+        valid_mask &= raster.data != nodata
+
+    if not np.any(valid_mask):
+        return False
+
+    valid_values = raster.data[valid_mask]
+    return float(valid_values.max() - valid_values.min()) <= tol
+
+
 def _normalize_meshing_pipeline_mode(
     pipeline_mode: str | None,
 ) -> MeshingPipelineMode:
@@ -4271,6 +4287,22 @@ def build_city_volume_mesh(
             switches_params = get_default_tetgen_switches()
             if tetgen_switches:
                 switches_params.update(tetgen_switches)
+            preserve_surface_explicit = bool(
+                (tetgen_switches and "preserve_surface" in tetgen_switches)
+                or (
+                    tetgen_switch_overrides
+                    and "preserve_surface" in tetgen_switch_overrides
+                )
+            )
+            if (
+                _is_effectively_flat_raster(terrain_raster)
+                and not preserve_surface_explicit
+            ):
+                switches_params["preserve_surface"] = True
+                info(
+                    "Detected effectively flat terrain raster; enabling TetGen "
+                    "preserve_surface for stability."
+                )
             preserve_surface_requested = bool(switches_params.get("preserve_surface"))
             if tetgen_switch_overrides:
                 preserve_surface_requested = bool(

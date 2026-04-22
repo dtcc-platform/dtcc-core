@@ -13,6 +13,7 @@ from dtcc_core import model
 from dtcc_core import builder
 
 register_model_method = builder.register_model_method
+Bounds = model.Bounds
 
 _LAZY_SUBMODULES = {
     "io": "dtcc_core.io",
@@ -37,6 +38,7 @@ __all__ = [
     "common",
     "model",
     "builder",
+    "Bounds",
     "register_model_method",
     "io",
     "datasets",

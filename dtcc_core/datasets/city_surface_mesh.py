@@ -1,10 +1,18 @@
 import dtcc_core
-from dtcc_core.model import City, Bounds, Mesh
+import numpy as np
+from dtcc_core.model import City
 from typing import Literal, Optional
 from pydantic import Field
 
 from .dataset import DatasetDescriptor, DatasetBaseArgs
-from dtcc_core.common.progress import ProgressTracker, report_progress
+from dtcc_core.common.progress import ProgressTracker
+
+
+def _ground_level_from_raster(raster) -> float:
+    valid_mask = np.isfinite(raster.data)
+    if not np.isnan(raster.nodata):
+        valid_mask &= raster.data != raster.nodata
+    return float(raster.data[valid_mask].min())
 
 
 class CitySurfaceMeshArgs(DatasetBaseArgs):
@@ -32,6 +40,14 @@ class CitySurfaceMeshArgs(DatasetBaseArgs):
         True, description="Whether to merge adjacent building footprints"
     )
     smoothing: int = Field(0, description="Number of terrain smoothing iterations")
+    flat_ground: bool = Field(
+        False,
+        description="Whether to replace topography with a flat terrain raster",
+    )
+    ground_level: Optional[float] = Field(
+        None,
+        description="Ground level for flat terrain (defaults to minimum terrain elevation)",
+    )
     format: Optional[Literal["obj", "stl", "vtu"]] = Field(
         None, description="Output file format"
     )
@@ -116,7 +132,25 @@ class CitySurfaceMeshDataset(DatasetDescriptor):
                     buildings, raster, overwrite=True
                 )
 
-            with progress.phase("build_city", "Assembling city model..."):
+            with progress.phase(
+                "build_city",
+                (
+                    "Preparing flat-ground city model..."
+                    if args.flat_ground
+                    else "Assembling city model..."
+                ),
+            ):
+                if args.flat_ground:
+                    raster = dtcc_core.builder.flatten_terrain_raster(
+                        raster, height=args.ground_level
+                    )
+                    buildings = dtcc_core.builder.set_building_heights_from_attribute(
+                        buildings,
+                        raster,
+                        height_attribute="height",
+                        default_ground_height=_ground_level_from_raster(raster),
+                        always_use_default_ground=True,
+                    )
                 city = City()
                 city.add_terrain(raster)
                 city.add_buildings(buildings, remove_outside_terrain=True)

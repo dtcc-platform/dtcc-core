@@ -18,7 +18,7 @@ import numpy as np
 from pypoints2grid import points2grid
 from affine import Affine
 from .. import _dtcc_builder
-from typing import List, Union
+from typing import List, Optional, Union
 from dtcc_core.common.progress import report_progress
 from ..logging import info
 from ..raster.interpolation import fill_holes as fill_raster_holes
@@ -267,6 +267,44 @@ def build_terrain_raster(
     if _report_progress:
         report_progress(percent=100, message="Raster complete")
     return dem_raster
+
+
+def flatten_terrain_raster(raster: Raster, height: Optional[float] = None) -> Raster:
+    """
+    Create a flat raster while preserving the source raster grid and georeferencing.
+
+    Parameters
+    ----------
+    raster : Raster
+        Source raster to flatten.
+    height : float, optional
+        Target ground level. If omitted, the minimum valid value in the source
+        raster is used.
+
+    Returns
+    -------
+    Raster
+        Copy of the input raster with all valid cells set to one height.
+
+    Raises
+    ------
+    ValueError
+        If the raster does not contain any valid cells.
+    """
+    flat_raster = raster.copy()
+
+    valid_mask = np.isfinite(flat_raster.data)
+    if not np.isnan(flat_raster.nodata):
+        valid_mask &= flat_raster.data != flat_raster.nodata
+
+    if not np.any(valid_mask):
+        raise ValueError("Cannot flatten a raster without any valid values.")
+
+    if height is None:
+        height = float(flat_raster.data[valid_mask].min())
+
+    flat_raster.data[valid_mask] = height
+    return flat_raster
 
 
 def flat_terrain(height, bounds: Bounds) -> Terrain:
