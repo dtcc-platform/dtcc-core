@@ -15,6 +15,11 @@ from .logging import info, warning, debug, error
 valid_types = ["lidar", "roads", "footprints"]
 valid_providers = ["dtcc", "OSM"]
 
+# Env-overridable backend URLs (defaults preserve current behavior).
+_DTCC_BASE = os.environ.get("DTCC_DATA_URL", "http://compute.dtcc.chalmers.se")
+DTCC_LIDAR_URL = os.environ.get("DTCC_LIDAR_URL", f"{_DTCC_BASE}:8000")
+DTCC_GPKG_URL  = os.environ.get("DTCC_GPKG_URL",  f"{_DTCC_BASE}:8001")
+
 # We'll keep a single global SSH client in memory
 SSH_CLIENT = None
 SSH_CREDS = {
@@ -81,8 +86,8 @@ def _ssh_connect_if_needed():
                        "Set DTCC_SSH_USERNAME and DTCC_SSH_PASSWORD environment variables.")
                 return None
 
-        lidar_session = get_authenticated_session('http://compute.dtcc.chalmers.se:8000', USERNAME, PASSWORD)
-        gpkg_session = get_authenticated_session('http://compute.dtcc.chalmers.se:8001', USERNAME, PASSWORD)
+        lidar_session = get_authenticated_session(DTCC_LIDAR_URL, USERNAME, PASSWORD)
+        gpkg_session  = get_authenticated_session(DTCC_GPKG_URL,  USERNAME, PASSWORD)
         return lidar_session, gpkg_session
     return sessions
 
@@ -103,7 +108,7 @@ def _ssh_connect_if_needed():
 
     # print("SSH authenticated with data.dtcc.chalmers.se (no SFTP).")
 
-def download_data(data_type: str, provider: str, bounds: Bounds, epsg = '3006', url = 'http://compute.dtcc.chalmers.se'):
+def download_data(data_type: str, provider: str, bounds: Bounds, epsg = '3006', url = None):
     """
     A wrapper for downloading data, but with a dummy step for actual file transfer.
     If provider='dtcc', we do an SSH-based authentication check and then simulate a download.
@@ -113,6 +118,11 @@ def download_data(data_type: str, provider: str, bounds: Bounds, epsg = '3006', 
     :param provider: 'dtcc' or 'OSM'
     :return: dict with info about the (dummy) download
     """
+    # Resolve per-service URLs: explicit `url` overrides env; otherwise use env-backed defaults.
+    if url is not None:
+        lidar_url, gpkg_url = f"{url}:8000", f"{url}:8001"
+    else:
+        lidar_url, gpkg_url = DTCC_LIDAR_URL, DTCC_GPKG_URL
     # Ensure user provided bounding box is a dtcc.Bounds object.
     if isinstance(bounds,(tuple | list)):
         bounds = Bounds(xmin=bounds[0],ymin=bounds[1],xmax=bounds[2],ymax=bounds[3])
@@ -135,7 +145,7 @@ def download_data(data_type: str, provider: str, bounds: Bounds, epsg = '3006', 
         session = requests.Session()
         if data_type == 'lidar':
             info('Starting the Lidar files download from dtcc source')
-            files = download_lidar(bounds.tuple, session, base_url=f'{url}:8000')
+            files = download_lidar(bounds.tuple, session, base_url=lidar_url)
             if not files:
                 raise RuntimeError("No lidar data available for the requested bounding box.")
             debug(files)
@@ -143,7 +153,7 @@ def download_data(data_type: str, provider: str, bounds: Bounds, epsg = '3006', 
             return pc
         elif data_type == 'footprints':
             info("Starting the footprints download from dtcc source")
-            files = download_tiles(bounds.tuple, session, server_url=f"{url}:8001")
+            files = download_tiles(bounds.tuple, session, server_url=gpkg_url)
             if not files:
                 raise RuntimeError(
                     f"Footprint download failed for bounds {bounds.tuple}."
