@@ -84,8 +84,9 @@ _RASTER_BOUNDARY_SNAP_FRACTION = 0.125
 _RASTER_BOUNDARY_SNAP_MIN = 1.0e-6
 _MERGED_ROOF_ENVELOPE_Z_SPAN = 2.0
 _TETGEN_PRESERVE_RETRY_MIN_EDGE_RATIO = 0.25
-_TETGEN_QUALITY_FAILURE_ASPECT_RATIO_THRESHOLD = 2.5e2
+_TETGEN_QUALITY_FAILURE_RADIUS_RATIO_THRESHOLD = 2.5e2
 _TETGEN_QUALITY_FAILURE_ELEMENT_QUALITY_THRESHOLD = 3.0e-2
+_TETGEN_DEFAULT_QUALITY_RATIO = 1.6
 _TETGEN_SHELL_TRANSITION_REFINEMENT_EDGE_RATIO = 1.25
 _TETGEN_SHELL_TRANSITION_REFINEMENT_MAX_WALL_NORMAL_Z = 0.5
 _TETGEN_SHELL_TRANSITION_REFINEMENT_MIN_GROUND_RELIEF = 0.5
@@ -94,6 +95,11 @@ _TETGEN_SHELL_HORIZONTAL_REFINEMENT_MAX_SLOPE_RATIO = 0.1
 _TETGEN_SHELL_HORIZONTAL_REFINEMENT_MIN_NORMAL_Z = 0.995
 _TETGEN_SHELL_HORIZONTAL_REFINEMENT_MIN_GROUND_RELIEF = 0.25
 _TETGEN_SHELL_HORIZONTAL_REFINEMENT_MAX_ROUNDS = 2
+_TETGEN_SHELL_WALL_REFINEMENT_MAX_NORMAL_Z = 0.2
+_TETGEN_SHELL_WALL_REFINEMENT_MAX_ASPECT_RATIO = 5.0
+_TETGEN_SHELL_WALL_REFINEMENT_MAX_ROUNDS = 4
+_TETGEN_SHELL_WALL_CONTRACT_MAX_ASPECT_RATIO = 6.0
+_TETGEN_SHELL_WALL_CONTRACT_MIN_TRI_QUALITY = 0.15
 _STAGE_CONTRACT_MIN_EDGE_RATIO_WARNING = 1.0e-3
 _STAGE_CONTRACT_MIN_AREA_RATIO_WARNING = 1.0e-6
 _STAGE_CONTRACT_MIN_TRI_QUALITY_WARNING = 2.0e-2
@@ -116,6 +122,42 @@ def _normalize_max_mesh_size(max_mesh_size: float | None) -> float | None:
     if value <= 0.0:
         return None
     return value
+
+
+def _default_city_volume_tetgen_switches(
+    min_mesh_angle: float,
+) -> dict[str, Any]:
+    switches = get_default_tetgen_switches()
+    # The PLC should describe the boundary geometry, not freeze the exact shell
+    # triangulation. Let TetGen retriangulate boundary facets by default, and
+    # keep the size cap as the default quality control. Callers can opt into
+    # q-switch refinement explicitly when they want the heavier refinement mode.
+    #
+    # Important: ``quality=None`` is deliberate here. In the TetGen wrapper this
+    # omits the ``-q`` switch entirely, so the default runtime mode is "size-only"
+    # TetGen: PLC meshing plus the supplied volume cap (``-a``), but no extra
+    # Delaunay-refinement pass targeting TetGen's radius-edge/min-dihedral
+    # criteria. Empirically this gives better ParaView aspect-ratio tails on our
+    # city PLCs than turning on ``-q`` by default.
+    #
+    # We do still steer TetGen's sliver-improvement pass with ``-o/175`` via
+    # ``optimize_max_dihedral``. On the current city PLCs this consistently
+    # improves the worst ParaView-style tetra aspect-ratio tail for both terrain
+    # and flat cases without switching on the heavier ``-q`` refinement mode.
+    switches["preserve_surface"] = False
+    switches["quality"] = None
+    switches["optimize_max_dihedral"] = 175.0
+    return switches
+
+
+def _strict_city_volume_mesher_request(mesher: str | None) -> str:
+    if mesher is None:
+        return "dtcc_mesher"
+
+    normalized = str(mesher).strip().lower()
+    if normalized == "auto":
+        return "dtcc_mesher"
+    return normalized
 
 
 def _is_effectively_flat_raster(raster, tol: float = 1.0e-6) -> bool:
@@ -397,6 +439,7 @@ def _conditioned_footprint_contract_audit(
         "scale_contract_satisfied": False,
         "no_pair_issues": False,
         "no_ring_contacts": False,
+        "no_acute_tips": False,
         "no_short_edges": False,
         "min_clearance_respected": False,
         "mesher_segment_graph_valid": True,
@@ -407,6 +450,8 @@ def _conditioned_footprint_contract_audit(
         "clearance_deficit": float(declared_scale),
         "pair_issue_count": 0,
         "ring_contact_count": 0,
+        "acute_tip_count": 0,
+        "acute_tip_span": 0.0,
         "short_edge_count": 0,
         "geos_exception_count": int(diagnostics.get("geos_exception_count", 0)),
         "mesher_segment_graph_error": None,
@@ -443,6 +488,7 @@ def _conditioned_footprint_contract_audit(
             "scale_contract_satisfied": bool(scale_contract_ok),
             "no_pair_issues": int(signature.pair_issue_count) == 0,
             "no_ring_contacts": int(signature.ring_contact_count) == 0,
+            "no_acute_tips": int(signature.acute_tip_count) == 0,
             "no_short_edges": int(signature.short_edge_count) == 0,
             "min_clearance_respected": clearance_deficit <= contract_tolerance,
         }
@@ -454,6 +500,8 @@ def _conditioned_footprint_contract_audit(
             "clearance_deficit": float(clearance_deficit),
             "pair_issue_count": int(signature.pair_issue_count),
             "ring_contact_count": int(signature.ring_contact_count),
+            "acute_tip_count": int(signature.acute_tip_count),
+            "acute_tip_span": float(signature.acute_tip_span),
             "short_edge_count": int(signature.short_edge_count),
         }
     )
@@ -481,6 +529,10 @@ def _conditioned_footprint_contract_audit(
     if not requirements["no_ring_contacts"]:
         errors.append(
             f"Conditioned footprint coverage still has {signature.ring_contact_count} ring-contact issue(s)."
+        )
+    if not requirements["no_acute_tips"]:
+        errors.append(
+            f"Conditioned footprint coverage still has {signature.acute_tip_count} meshing-hostile acute tip(s)."
         )
     if not requirements["no_short_edges"]:
         errors.append(
@@ -588,6 +640,24 @@ def _triangle_mesh_audit(mesh: Mesh) -> dict[str, Any]:
     return audit
 
 
+def _triangle_mesh_subset_audit(
+    mesh: Mesh,
+    face_mask: np.ndarray,
+) -> dict[str, Any]:
+    mask = np.asarray(face_mask, dtype=bool)
+    faces = np.asarray(mesh.faces, dtype=np.int64)
+    markers = getattr(mesh, "markers", None)
+    subset_markers = np.empty((0,), dtype=np.int64)
+    if markers is not None and len(markers) == len(faces):
+        subset_markers = np.asarray(markers, dtype=np.int64)[mask]
+    subset_mesh = Mesh(
+        vertices=np.asarray(mesh.vertices, dtype=np.float64),
+        faces=faces[mask],
+        markers=subset_markers,
+    )
+    return _triangle_mesh_audit(subset_mesh)
+
+
 def _triangle_mesh_contract_from_audit(
     audit: dict[str, Any],
     *,
@@ -672,6 +742,67 @@ def _triangle_mesh_contract_from_audit(
             "reference_edge_ratio_min": float(reference_edge_ratio_min),
             "reference_edge_ratio_p01": float(reference_edge_ratio_p01),
         },
+    )
+
+
+def _surface_shell_contract_from_audit(
+    surface_shell_audit: dict[str, Any],
+    *,
+    reference_length: float,
+    preserve_surface_requested: bool,
+) -> dict[str, Any]:
+    base_contract = _triangle_mesh_contract_from_audit(
+        surface_shell_audit,
+        reference_length=reference_length,
+        require_markers=True,
+        stage_label="Surface shell",
+    )
+    wall_audit = dict(surface_shell_audit.get("wall_faces", {}))
+    wall_face_count = int(wall_audit.get("num_faces", 0))
+    wall_aspect_ratio_max = float(wall_audit.get("aspect_ratio_max", 1.0))
+    wall_element_quality_min = float(wall_audit.get("element_quality_min", 1.0))
+
+    requirements = dict(base_contract["requirements"])
+    wall_faces_within_quality_bounds = (
+        wall_face_count == 0
+        or (
+            wall_aspect_ratio_max <= _TETGEN_SHELL_WALL_CONTRACT_MAX_ASPECT_RATIO
+            and wall_element_quality_min >= _TETGEN_SHELL_WALL_CONTRACT_MIN_TRI_QUALITY
+        )
+    )
+    requirements["wall_faces_within_quality_bounds"] = (
+        True if not preserve_surface_requested else wall_faces_within_quality_bounds
+    )
+
+    errors = list(base_contract["errors"])
+    if preserve_surface_requested and not requirements["wall_faces_within_quality_bounds"]:
+        errors.append(
+            "Surface shell wall faces exceed the TetGen preconditioning quality bounds."
+        )
+
+    warnings = list(base_contract["warnings"])
+    if (
+        not preserve_surface_requested
+        and not wall_faces_within_quality_bounds
+    ):
+        warnings.append(
+            "Surface shell wall faces exceed the preserve-surface quality bounds, "
+            "but TetGen is allowed to retriangulate the shell."
+        )
+    metrics = dict(base_contract["metrics"])
+    metrics.update(
+        {
+            "wall_face_count": wall_face_count,
+            "wall_aspect_ratio_max": wall_aspect_ratio_max,
+            "wall_element_quality_min": wall_element_quality_min,
+            "preserve_surface_requested": bool(preserve_surface_requested),
+        }
+    )
+    return _stage_contract_result(
+        requirements=requirements,
+        errors=_dedupe_stage_contract_messages(errors),
+        warnings=_dedupe_stage_contract_messages(warnings),
+        metrics=metrics,
     )
 
 
@@ -913,7 +1044,11 @@ def _volume_mesh_audit(volume_mesh: VolumeMesh) -> dict[str, Any]:
     ):
         return audit
 
-    from ...model.mixins.mesh.quality import tet_aspect_ratio, tet_element_quality
+    from ...model.mixins.mesh.quality import (
+        tet_aspect_ratio,
+        tet_element_quality,
+        tet_radius_ratio,
+    )
 
     edges = np.concatenate(
         [
@@ -932,11 +1067,13 @@ def _volume_mesh_audit(volume_mesh: VolumeMesh) -> dict[str, Any]:
     volumes = _tetrahedron_volumes(vertices, cells)
     element_quality = tet_element_quality(vertices[:, :3], cells)
     aspect_ratio = tet_aspect_ratio(vertices[:, :3], cells)
+    radius_ratio = tet_radius_ratio(vertices[:, :3], cells)
 
     audit.update(_audit_summary(edge_lengths, "edge_length"))
     audit.update(_audit_summary(volumes, "volume"))
     audit.update(_audit_summary(element_quality, "element_quality"))
     audit.update(_audit_summary(aspect_ratio, "aspect_ratio"))
+    audit.update(_audit_summary(radius_ratio, "radius_ratio"))
     return audit
 
 
@@ -1045,15 +1182,21 @@ def _tetgen_volume_mesh_quality_snapshot(volume_mesh: VolumeMesh) -> dict[str, f
     ):
         return {
             "aspect_ratio_max": 0.0,
+            "radius_ratio_max": 0.0,
             "element_quality_min": 1.0,
             "min_edge_length": 0.0,
-            "high_aspect_ratio_count": 0.0,
+            "high_radius_ratio_count": 0.0,
             "low_quality_count": 0.0,
         }
 
-    from ...model.mixins.mesh.quality import tet_aspect_ratio, tet_element_quality
+    from ...model.mixins.mesh.quality import (
+        tet_aspect_ratio,
+        tet_element_quality,
+        tet_radius_ratio,
+    )
 
     aspect_ratio = tet_aspect_ratio(vertices[:, :3], cells)
+    radius_ratio = tet_radius_ratio(vertices[:, :3], cells)
     element_quality = tet_element_quality(vertices[:, :3], cells)
     edges = np.concatenate(
         [
@@ -1075,11 +1218,12 @@ def _tetgen_volume_mesh_quality_snapshot(volume_mesh: VolumeMesh) -> dict[str, f
 
     return {
         "aspect_ratio_max": float(aspect_ratio.max()),
+        "radius_ratio_max": float(radius_ratio.max()),
         "element_quality_min": float(element_quality.min()),
         "min_edge_length": min_edge_length,
-        "high_aspect_ratio_count": float(
+        "high_radius_ratio_count": float(
             np.count_nonzero(
-                aspect_ratio > _TETGEN_QUALITY_FAILURE_ASPECT_RATIO_THRESHOLD
+                radius_ratio > _TETGEN_QUALITY_FAILURE_RADIUS_RATIO_THRESHOLD
             )
         ),
         "low_quality_count": float(
@@ -1094,8 +1238,12 @@ def _should_capture_tetgen_quality_failure(
     quality_snapshot: dict[str, float],
 ) -> bool:
     return (
-        float(quality_snapshot.get("aspect_ratio_max", 0.0))
-        > _TETGEN_QUALITY_FAILURE_ASPECT_RATIO_THRESHOLD
+        float(
+            quality_snapshot.get(
+                "radius_ratio_max", quality_snapshot.get("aspect_ratio_max", 0.0)
+            )
+        )
+        > _TETGEN_QUALITY_FAILURE_RADIUS_RATIO_THRESHOLD
         or float(quality_snapshot.get("element_quality_min", 1.0))
         < _TETGEN_QUALITY_FAILURE_ELEMENT_QUALITY_THRESHOLD
     )
@@ -1140,10 +1288,15 @@ def _tetgen_quality_failure_report(
             "worst_cells": [],
         }
 
-    from ...model.mixins.mesh.quality import tet_aspect_ratio, tet_element_quality
+    from ...model.mixins.mesh.quality import (
+        tet_aspect_ratio,
+        tet_element_quality,
+        tet_radius_ratio,
+    )
 
     vertices = vertices[:, :3]
     aspect_ratio = tet_aspect_ratio(vertices, cells)
+    radius_ratio = tet_radius_ratio(vertices, cells)
     element_quality = tet_element_quality(vertices, cells)
     volumes = _tetrahedron_volumes(vertices, cells)
 
@@ -1161,13 +1314,13 @@ def _tetgen_quality_failure_report(
     edge_lengths = np.linalg.norm(edge_vectors, axis=2)
     face_marker_map = _tetgen_quality_failure_face_marker_map(volume_mesh)
 
-    candidate_indices = set(np.argsort(aspect_ratio)[-top_k:].tolist())
+    candidate_indices = set(np.argsort(radius_ratio)[-top_k:].tolist())
     candidate_indices.update(np.argsort(element_quality)[:top_k].tolist())
 
     worst_cells: list[dict[str, Any]] = []
     for cell_index in sorted(
         candidate_indices,
-        key=lambda idx: (-float(aspect_ratio[idx]), float(element_quality[idx]), int(idx)),
+        key=lambda idx: (-float(radius_ratio[idx]), float(element_quality[idx]), int(idx)),
     ):
         cell = cells[int(cell_index)]
         points = vertices[cell]
@@ -1210,6 +1363,7 @@ def _tetgen_quality_failure_report(
             {
                 "cell_index": int(cell_index),
                 "aspect_ratio": float(aspect_ratio[cell_index]),
+                "radius_ratio": float(radius_ratio[cell_index]),
                 "element_quality": float(element_quality[cell_index]),
                 "volume": float(volumes[cell_index]),
                 "min_edge_length": float(edge_lengths[cell_index].min()),
@@ -1225,7 +1379,7 @@ def _tetgen_quality_failure_report(
     return {
         "quality_snapshot": _audit_json_ready(quality_snapshot),
         "thresholds": {
-            "aspect_ratio_max": _TETGEN_QUALITY_FAILURE_ASPECT_RATIO_THRESHOLD,
+            "radius_ratio_max": _TETGEN_QUALITY_FAILURE_RADIUS_RATIO_THRESHOLD,
             "element_quality_min": _TETGEN_QUALITY_FAILURE_ELEMENT_QUALITY_THRESHOLD,
         },
         "worst_cells": worst_cells,
@@ -1265,31 +1419,64 @@ def _tetgen_shell_transition_refinement_disabled_stats() -> dict[str, int | floa
     }
 
 
+def _tetgen_shell_wall_refinement_disabled_stats() -> dict[str, int | float | bool]:
+    return {
+        "enabled": False,
+        "applied": False,
+        "rounds": 0,
+        "candidate_faces": 0,
+        "split_edges": 0,
+        "added_vertices": 0,
+        "added_faces": 0,
+        "max_candidate_aspect_ratio": 0.0,
+        "aspect_ratio_threshold": float(_TETGEN_SHELL_WALL_REFINEMENT_MAX_ASPECT_RATIO),
+    }
+
+
 def _surface_shell_stage_audit(
     surface_mesh: Mesh,
     *,
     mesher: str,
     reference_length: float,
+    preserve_surface_requested: bool,
     shell_refinement_stats: dict[str, int | float | bool],
     transition_refinement_stats: dict[str, int | float | bool] | None = None,
+    wall_refinement_stats: dict[str, int | float | bool] | None = None,
 ) -> dict[str, Any]:
+    faces = np.asarray(surface_mesh.faces, dtype=np.int64)
+    markers = getattr(surface_mesh, "markers", None)
+    wall_face_mask = np.zeros(len(faces), dtype=bool)
+    if markers is not None and len(markers) == len(faces):
+        wall_face_mask = np.asarray(markers, dtype=np.int64) >= 0
+
     surface_shell_audit = {
         "mesher": mesher,
         **_triangle_mesh_audit(surface_mesh),
     }
+    surface_shell_audit["wall_faces"] = _triangle_mesh_subset_audit(
+        surface_mesh,
+        wall_face_mask,
+    )
     if transition_refinement_stats is None:
         transition_refinement_stats = _tetgen_shell_transition_refinement_disabled_stats()
+    if wall_refinement_stats is None:
+        wall_refinement_stats = _tetgen_shell_wall_refinement_disabled_stats()
     surface_shell_audit["tetgen_shell_transition_refinement"] = _audit_json_ready(
         transition_refinement_stats
+    )
+    surface_shell_audit["tetgen_shell_wall_refinement"] = _audit_json_ready(
+        wall_refinement_stats
     )
     surface_shell_audit["tetgen_shell_horizontal_refinement"] = _audit_json_ready(
         shell_refinement_stats
     )
-    surface_shell_audit["contract"] = _triangle_mesh_contract_from_audit(
+    surface_shell_audit["tetgen_preserve_surface_requested"] = bool(
+        preserve_surface_requested
+    )
+    surface_shell_audit["contract"] = _surface_shell_contract_from_audit(
         surface_shell_audit,
         reference_length=reference_length,
-        require_markers=True,
-        stage_label="Surface shell",
+        preserve_surface_requested=preserve_surface_requested,
     )
     return surface_shell_audit
 
@@ -1474,38 +1661,17 @@ def _build_ground_mesh_from_coverage(
     add_halo_markers: bool = True,
 ) -> tuple[Mesh, str]:
     active_mesher = resolve_2d_mesher(mesher)
-
-    try:
-        ground_mesh = build_city_flat_mesh_from_coverage(
-            region_polygons=region_polygons,
-            region_markers=region_markers,
-            region_points=region_points,
-            bounds=bounds,
-            max_mesh_size=max_mesh_size,
-            min_mesh_angle=min_mesh_angle,
-            backend=active_mesher,
-            sort_triangles=sort_triangles,
-            region_triangle_sizes=region_triangle_sizes,
-        )
-    except RuntimeError as exc:
-        if not _is_unavailable_flat_mesher_error(active_mesher, exc):
-            raise
-        warning(
-            "Requested flat-mesh backend is unavailable in this build; "
-            "falling back to dtcc_mesher."
-        )
-        active_mesher = "dtcc_mesher"
-        ground_mesh = build_city_flat_mesh_from_coverage(
-            region_polygons=region_polygons,
-            region_markers=region_markers,
-            region_points=region_points,
-            bounds=bounds,
-            max_mesh_size=max_mesh_size,
-            min_mesh_angle=min_mesh_angle,
-            backend=active_mesher,
-            sort_triangles=sort_triangles,
-            region_triangle_sizes=region_triangle_sizes,
-        )
+    ground_mesh = build_city_flat_mesh_from_coverage(
+        region_polygons=region_polygons,
+        region_markers=region_markers,
+        region_points=region_points,
+        bounds=bounds,
+        max_mesh_size=max_mesh_size,
+        min_mesh_angle=min_mesh_angle,
+        backend=active_mesher,
+        sort_triangles=sort_triangles,
+        region_triangle_sizes=region_triangle_sizes,
+    )
 
     if add_halo_markers:
         ground_mesh = _add_flat_mesh_halo_markers(ground_mesh)
@@ -2072,30 +2238,21 @@ def _build_tetgen_debug_plc_mesh(
     tol: float = 1e-3,
 ) -> Mesh:
     shell_vertices = np.asarray(surface_mesh.vertices, dtype=float)
-    closure_vertices = np.asarray(closure_mesh.vertices, dtype=float)
     shell_faces = np.asarray(surface_mesh.faces, dtype=np.int64)
     shell_markers = np.asarray(surface_mesh.markers, dtype=np.int64)
+    del closure_mesh
 
     _, z_top = tetgen_utils._compute_top_plane(shell_vertices, top_height)
     bottom_loops = tetgen_utils._boundary_loops(shell_vertices, tol)
-    closure_loops = tetgen_utils._boundary_loops(closure_vertices, tol)
-    tetgen_utils._validate_boundary_loop_alignment(
+    top_vertices, top_faces, top_loops = tetgen_utils._remesh_top_cap_from_outer_boundary(
         shell_vertices,
-        closure_vertices,
-        bottom_loops,
-        closure_loops,
-        tol,
-    )
-    top_vertices, top_faces, top_loops = tetgen_utils._build_top_cap_mesh(
-        boundary_vertices=closure_vertices,
-        boundary_loops=closure_loops,
-        backend=top_cap_backend,
-        max_mesh_size=top_cap_max_mesh_size,
-        min_mesh_angle=top_cap_min_mesh_angle,
+        boundary_loops=bottom_loops,
+        z_top=z_top,
+        top_cap_backend=top_cap_backend,
+        top_cap_max_mesh_size=top_cap_max_mesh_size,
+        top_cap_min_mesh_angle=top_cap_min_mesh_angle,
         tol=tol,
     )
-    top_vertices = top_vertices.copy()
-    top_vertices[:, 2] = z_top
 
     offset = shell_vertices.shape[0]
     vertices = np.vstack([shell_vertices, top_vertices])
@@ -2353,34 +2510,37 @@ def _refine_triangle_mesh_edges(
     vertices = np.asarray(mesh.vertices, dtype=np.float64)
     faces = np.asarray(mesh.faces, dtype=np.int64)
     markers = np.asarray(mesh.markers)
-
-    vertices_out = vertices.tolist()
-    midpoint_cache: dict[tuple[int, int], int] = {}
     refined_faces: list[list[int]] = []
     refined_markers: list[Any] = []
+    normalized_split_edges = {
+        (min(int(v0), int(v1)), max(int(v0), int(v1))) for v0, v1 in split_edges
+    }
+    midpoint_keys = sorted(normalized_split_edges)
+    midpoint_cache = {
+        key: int(len(vertices) + index) for index, key in enumerate(midpoint_keys)
+    }
+    if midpoint_keys:
+        midpoint_vertices = np.asarray(
+            [0.5 * (vertices[v0] + vertices[v1]) for v0, v1 in midpoint_keys],
+            dtype=np.float64,
+        )
+        vertices_full = np.vstack([vertices, midpoint_vertices])
+    else:
+        vertices_full = vertices
 
     def midpoint_index(v0: int, v1: int) -> int:
         key = (min(int(v0), int(v1)), max(int(v0), int(v1)))
-        cached = midpoint_cache.get(key)
-        if cached is not None:
-            return cached
-        midpoint = 0.5 * (vertices[key[0]] + vertices[key[1]])
-        vertex_index = len(vertices_out)
-        vertices_out.append(midpoint.tolist())
-        midpoint_cache[key] = vertex_index
-        return vertex_index
+        return midpoint_cache[key]
 
     for face_index, face in enumerate(faces):
         a, b, c = (int(face[0]), int(face[1]), int(face[2]))
         midpoint_indices: dict[int, int] = {}
-        if (min(a, b), max(a, b)) in split_edges:
+        if (min(a, b), max(a, b)) in normalized_split_edges:
             midpoint_indices[0] = midpoint_index(a, b)
-        if (min(b, c), max(b, c)) in split_edges:
+        if (min(b, c), max(b, c)) in normalized_split_edges:
             midpoint_indices[1] = midpoint_index(b, c)
-        if (min(c, a), max(c, a)) in split_edges:
+        if (min(c, a), max(c, a)) in normalized_split_edges:
             midpoint_indices[2] = midpoint_index(c, a)
-
-        vertices_full = np.asarray(vertices_out, dtype=np.float64)
         child_faces = _subdivide_triangle_face(
             face,
             midpoint_indices=midpoint_indices,
@@ -2391,7 +2551,7 @@ def _refine_triangle_mesh_edges(
         refined_markers.extend([marker] * len(child_faces))
 
     return Mesh(
-        vertices=np.asarray(vertices_out, dtype=np.float64),
+        vertices=vertices_full,
         faces=np.asarray(refined_faces, dtype=np.int64),
         markers=np.asarray(refined_markers, dtype=markers.dtype if markers.size else np.int64),
     )
@@ -2549,6 +2709,128 @@ def _refine_ground_building_transition_faces_for_tetgen(
         "added_vertices": int(len(refined_mesh.vertices) - len(surface_mesh.vertices)),
         "added_faces": int(len(refined_mesh.faces) - len(surface_mesh.faces)),
         "edge_threshold": float(edge_threshold),
+    }
+
+
+def _select_tetgen_wall_refinement_edges(
+    mesh: Mesh,
+) -> tuple[set[tuple[int, int]], dict[str, int | float | bool]]:
+    vertices = np.asarray(mesh.vertices, dtype=np.float64)
+    faces = np.asarray(mesh.faces, dtype=np.int64)
+    if (
+        vertices.ndim != 2
+        or vertices.shape[1] < 3
+        or faces.ndim != 2
+        or faces.shape[1] != 3
+        or len(faces) == 0
+    ):
+        return set(), {
+            "applied": False,
+            "candidate_faces": 0,
+            "split_edges": 0,
+            "max_candidate_aspect_ratio": 0.0,
+        }
+
+    markers_raw = getattr(mesh, "markers", None)
+    if markers_raw is None:
+        markers = np.zeros(len(faces), dtype=np.int64)
+    else:
+        markers = np.asarray(markers_raw, dtype=np.int64)
+        if len(markers) != len(faces):
+            markers = np.zeros(len(faces), dtype=np.int64)
+
+    points = vertices[faces, :3]
+    normals = np.cross(points[:, 1] - points[:, 0], points[:, 2] - points[:, 0])
+    normal_norm = np.linalg.norm(normals, axis=1)
+    horizontal_normal_z = np.divide(
+        np.abs(normals[:, 2]),
+        normal_norm,
+        out=np.zeros_like(normal_norm),
+        where=normal_norm > 0.0,
+    )
+
+    from ...model.mixins.mesh.quality import tri_aspect_ratio
+
+    aspect_ratio = tri_aspect_ratio(vertices[:, :3], faces)
+    wall_faces = (markers >= 0) & (
+        horizontal_normal_z <= _TETGEN_SHELL_WALL_REFINEMENT_MAX_NORMAL_Z
+    )
+    candidate_faces = wall_faces & (
+        aspect_ratio > _TETGEN_SHELL_WALL_REFINEMENT_MAX_ASPECT_RATIO
+    )
+
+    split_edges: set[tuple[int, int]] = set()
+    for face_index in np.flatnonzero(candidate_faces):
+        face = faces[int(face_index)]
+        for v0, v1 in (
+            (int(face[0]), int(face[1])),
+            (int(face[1]), int(face[2])),
+            (int(face[2]), int(face[0])),
+        ):
+            pa = vertices[v0, :3]
+            pb = vertices[v1, :3]
+            dxy = float(np.linalg.norm(pa[:2] - pb[:2]))
+            dz = float(abs(pa[2] - pb[2]))
+            if dz <= 1.0e-9:
+                continue
+            if dxy <= 1.0e-9 or dz > (
+                _TETGEN_SHELL_WALL_REFINEMENT_MAX_ASPECT_RATIO * max(dxy, 1.0e-9)
+            ):
+                split_edges.add((min(v0, v1), max(v0, v1)))
+
+    return split_edges, {
+        "applied": bool(split_edges),
+        "candidate_faces": int(np.count_nonzero(candidate_faces)),
+        "split_edges": int(len(split_edges)),
+        "max_candidate_aspect_ratio": (
+            float(np.max(aspect_ratio[candidate_faces]))
+            if np.any(candidate_faces)
+            else 0.0
+        ),
+    }
+
+
+def _refine_vertical_wall_faces_for_tetgen(
+    surface_mesh: Mesh,
+    *,
+    max_mesh_size: float | None,
+) -> tuple[Mesh, dict[str, int | float | bool]]:
+    normalized_max_mesh_size = _normalize_max_mesh_size(max_mesh_size)
+    if normalized_max_mesh_size is None:
+        return surface_mesh, _tetgen_shell_wall_refinement_disabled_stats()
+
+    refined_mesh = surface_mesh
+    total_candidate_faces = 0
+    total_split_edges = 0
+    rounds = 0
+    max_candidate_aspect_ratio = 0.0
+
+    for _ in range(_TETGEN_SHELL_WALL_REFINEMENT_MAX_ROUNDS):
+        split_edges, stats = _select_tetgen_wall_refinement_edges(refined_mesh)
+        total_candidate_faces += int(stats["candidate_faces"])
+        total_split_edges += int(stats["split_edges"])
+        max_candidate_aspect_ratio = max(
+            max_candidate_aspect_ratio,
+            float(stats["max_candidate_aspect_ratio"]),
+        )
+        if not split_edges:
+            break
+        rounds += 1
+        refined_mesh = _refine_triangle_mesh_edges(
+            refined_mesh,
+            split_edges=split_edges,
+        )
+
+    return refined_mesh, {
+        "enabled": True,
+        "applied": bool(rounds),
+        "rounds": int(rounds),
+        "candidate_faces": int(total_candidate_faces),
+        "split_edges": int(total_split_edges),
+        "added_vertices": int(len(refined_mesh.vertices) - len(surface_mesh.vertices)),
+        "added_faces": int(len(refined_mesh.faces) - len(surface_mesh.faces)),
+        "max_candidate_aspect_ratio": float(max_candidate_aspect_ratio),
+        "aspect_ratio_threshold": float(_TETGEN_SHELL_WALL_REFINEMENT_MAX_ASPECT_RATIO),
     }
 
 
@@ -3908,6 +4190,15 @@ def build_city_volume_mesh(
         Optional high-level TetGen parameter dictionary. Keys must correspond to
         those defined in ``dtcc_wrapper_tetgen.switches.DEFAULT_TETGEN_PARAMS``.
         These values are passed directly to ``dtcc_wrapper_tetgen``.
+        By default, ``dtcc-core`` uses ``quality=None``, which means the TetGen
+        ``-q`` switch is omitted entirely. The default volume-mesh path therefore
+        relies on the PLC plus the supplied maximum-volume cap, and only enables
+        TetGen's explicit quality-refinement mode when the caller opts in via a
+        non-``None`` ``quality`` setting. The default switch set does still
+        request TetGen's dihedral-based sliver optimization target
+        (``optimize_max_dihedral=175.0``, i.e. ``-o/175``), because that has
+        improved the worst tetra aspect-ratio tail on our city PLCs without the
+        cost and side effects of enabling ``-q`` by default.
     tetgen_switch_overrides : dict, optional
         Optional low-level overrides for custom text-based switch assembly via
         ``build_tetgen_switches``. Use this when direct control of TetGen's
@@ -3934,7 +4225,8 @@ def build_city_volume_mesh(
     tetgen_quality_failure_output_dir : str or Path, optional
         When provided, automatically save TetGen input meshes and a JSON report
         for selected meshes whose tetrahedral quality is below the practical
-        acceptance gate (currently ``ARmax > 250`` or ``EQmin < 0.03``).
+        acceptance gate (currently ``radius_ratio_max > 250`` or
+        ``EQmin < 0.03``).
     tetgen_quality_failure_output_stem : str, optional
         Basename used for automatic quality-failure captures. Defaults to the
         TetGen debug stem when omitted.
@@ -3992,6 +4284,7 @@ def build_city_volume_mesh(
     """
     pipeline_mode = _normalize_meshing_pipeline_mode(pipeline_mode)
     max_mesh_size = _normalize_max_mesh_size(max_mesh_size)
+    mesher = _strict_city_volume_mesher_request(mesher)
     attempt = _start_stage_audit_attempt(
         stage_audit,
         label=None,
@@ -4005,11 +4298,21 @@ def build_city_volume_mesh(
         tetgen_switches=tetgen_switches,
         tetgen_switch_overrides=tetgen_switch_overrides,
     )
-    effective_stage4_shell_refinement = False
-    if attempt is not None:
-        attempt["config"]["tetgen_shell_refinement_enabled"] = bool(
-            effective_stage4_shell_refinement
+    preserve_surface_requested = False
+    if is_tetgen_available():
+        requested_tetgen_switches = _default_city_volume_tetgen_switches(
+            min_mesh_angle,
         )
+        if tetgen_switches:
+            requested_tetgen_switches.update(tetgen_switches)
+        preserve_surface_requested = bool(
+            requested_tetgen_switches.get("preserve_surface")
+        )
+        if tetgen_switch_overrides:
+            preserve_surface_requested = bool(
+                tetgen_switch_overrides.get("preserve_surface")
+            ) or preserve_surface_requested
+    if attempt is not None:
         attempt["config"]["smoothing"] = int(smoothing)
         attempt["config"]["pipeline_mode"] = pipeline_mode
     terrain, terrain_raster, building_footprints, source_map, subdomain_resolution, diagnostics = (
@@ -4025,6 +4328,18 @@ def build_city_volume_mesh(
             pipeline_mode=pipeline_mode,
         )
     )
+    terrain_effectively_flat = _is_effectively_flat_raster(terrain_raster)
+    effective_stage4_shell_refinement = bool(is_tetgen_available())
+    if attempt is not None:
+        attempt["config"]["tetgen_shell_refinement_enabled"] = bool(
+            effective_stage4_shell_refinement
+        )
+        attempt["config"]["preserve_surface_requested"] = bool(
+            preserve_surface_requested
+        )
+        attempt["config"]["terrain_effectively_flat"] = bool(
+            terrain_effectively_flat
+        )
     conditioned_scale = max(
         float(min_building_detail),
         float(diagnostics.get("output_grid", 0.0) or 0.0),
@@ -4192,15 +4507,23 @@ def build_city_volume_mesh(
                         transition_refinement_stats["added_vertices"],
                         transition_refinement_stats["added_faces"],
                     )
+            # Wall panels must arrive TetGen-ready from the shell builder
+            # itself. The Python-side edge splitter can turn moderately stretched
+            # preserved wall triangles into much worse slivers, so the strict
+            # path no longer mutates walls after shell construction.
+            wall_refinement_stats = _tetgen_shell_wall_refinement_disabled_stats()
+            wall_refined_surface_mesh = base_surface_mesh
             base_shell_refinement_stats = _tetgen_shell_refinement_disabled_stats()
             base_surface_shell_audit = _surface_shell_stage_audit(
-                base_surface_mesh,
+                wall_refined_surface_mesh,
                 mesher=surface_mesher,
                 reference_length=conditioned_scale,
+                preserve_surface_requested=preserve_surface_requested,
                 shell_refinement_stats=base_shell_refinement_stats,
                 transition_refinement_stats=transition_refinement_stats,
+                wall_refinement_stats=wall_refinement_stats,
             )
-            surface_mesh = base_surface_mesh
+            surface_mesh = wall_refined_surface_mesh
             shell_refinement_stats = base_shell_refinement_stats
             surface_shell_audit = base_surface_shell_audit
 
@@ -4209,7 +4532,7 @@ def build_city_volume_mesh(
                     refined_surface_mesh,
                     candidate_shell_refinement_stats,
                 ) = _refine_near_horizontal_surface_faces_for_tetgen(
-                    base_surface_mesh,
+                    wall_refined_surface_mesh,
                     max_mesh_size=max_mesh_size,
                 )
                 if candidate_shell_refinement_stats["applied"]:
@@ -4226,17 +4549,32 @@ def build_city_volume_mesh(
                     refined_surface_mesh,
                     mesher=surface_mesher,
                     reference_length=conditioned_scale,
+                    preserve_surface_requested=preserve_surface_requested,
                     shell_refinement_stats=candidate_shell_refinement_stats,
                     transition_refinement_stats=transition_refinement_stats,
+                    wall_refinement_stats=wall_refinement_stats,
                 )
                 surface_mesh = refined_surface_mesh
                 shell_refinement_stats = candidate_shell_refinement_stats
                 surface_shell_audit = refined_surface_shell_audit
+            if effective_stage4_shell_refinement:
+                selected_variant = "refined"
+                selection_reason = "tetgen_shell_preconditioned"
+                if (
+                    not bool(shell_refinement_stats.get("applied"))
+                    and not bool(wall_refinement_stats.get("applied"))
+                    and not bool(transition_refinement_stats.get("applied"))
+                ):
+                    selected_variant = "unrefined"
+                    selection_reason = "no_candidate_edges"
+            else:
+                selected_variant = "unrefined"
+                selection_reason = "tetgen_shell_refinement_disabled"
             surface_shell_audit["tetgen_shell_horizontal_refinement_selection"] = (
                 _audit_json_ready(
                     {
-                        "selected_variant": "unrefined",
-                        "reason": "strict_single_shell",
+                        "selected_variant": selected_variant,
+                        "reason": selection_reason,
                     }
                 )
             )
@@ -4284,34 +4622,10 @@ def build_city_volume_mesh(
                 except Exception as exc:
                     warning("Failed to save TetGen debug meshes: %s", exc)
 
-            switches_params = get_default_tetgen_switches()
+            switches_params = _default_city_volume_tetgen_switches(min_mesh_angle)
             if tetgen_switches:
                 switches_params.update(tetgen_switches)
-            preserve_surface_explicit = bool(
-                (tetgen_switches and "preserve_surface" in tetgen_switches)
-                or (
-                    tetgen_switch_overrides
-                    and "preserve_surface" in tetgen_switch_overrides
-                )
-            )
-            if (
-                _is_effectively_flat_raster(terrain_raster)
-                and not preserve_surface_explicit
-            ):
-                switches_params["preserve_surface"] = True
-                info(
-                    "Detected effectively flat terrain raster; enabling TetGen "
-                    "preserve_surface for stability."
-                )
-            preserve_surface_requested = bool(switches_params.get("preserve_surface"))
-            if tetgen_switch_overrides:
-                preserve_surface_requested = bool(
-                    tetgen_switch_overrides.get("preserve_surface")
-                ) or preserve_surface_requested
             if attempt is not None:
-                attempt["config"]["preserve_surface_requested"] = bool(
-                    preserve_surface_requested
-                )
                 attempt["config"]["effective_tetgen_switches"] = _audit_json_ready(
                     switches_params
                 )
@@ -4371,27 +4685,34 @@ def build_city_volume_mesh(
                 quality_failure_output_dir is not None
                 and _should_capture_tetgen_quality_failure(final_quality_snapshot)
             ):
-                capture_info = _capture_tetgen_quality_failure_artifacts(
-                    output_dir=quality_failure_output_dir,
-                    stem=quality_failure_output_stem,
-                    ground_mesh=surface_ground_mesh,
-                    surface_mesh=surface_mesh,
-                    volume_mesh=volume_mesh,
-                    quality_snapshot=final_quality_snapshot,
-                    domain_height=domain_height,
-                    top_cap_backend=surface_mesher,
-                    top_cap_max_mesh_size=max_mesh_size,
-                    top_cap_min_mesh_angle=min_mesh_angle,
-                    debug_paths=debug_paths,
-                )
-                warning(
-                    "Captured TetGen quality-failure artifacts: report=%s",
-                    capture_info["report"],
-                )
-                if attempt is not None:
-                    attempt.setdefault("result", {})["quality_failure_capture"] = (
-                        _audit_json_ready(capture_info)
+                try:
+                    capture_info = _capture_tetgen_quality_failure_artifacts(
+                        output_dir=quality_failure_output_dir,
+                        stem=quality_failure_output_stem,
+                        ground_mesh=surface_ground_mesh,
+                        surface_mesh=surface_mesh,
+                        volume_mesh=volume_mesh,
+                        quality_snapshot=final_quality_snapshot,
+                        domain_height=domain_height,
+                        top_cap_backend=surface_mesher,
+                        top_cap_max_mesh_size=max_mesh_size,
+                        top_cap_min_mesh_angle=min_mesh_angle,
+                        debug_paths=debug_paths,
                     )
+                except Exception as exc:
+                    warning(
+                        "Failed to capture TetGen quality-failure artifacts: %s",
+                        exc,
+                    )
+                else:
+                    warning(
+                        "Captured TetGen quality-failure artifacts: report=%s",
+                        capture_info["report"],
+                    )
+                    if attempt is not None:
+                        attempt.setdefault("result", {})["quality_failure_capture"] = (
+                            _audit_json_ready(capture_info)
+                        )
             report_progress(percent=95, message="Volume mesh complete")
 
             if report_mesh_quality:

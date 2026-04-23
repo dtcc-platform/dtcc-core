@@ -8,6 +8,54 @@ import dtcc_core.builder.cleaning as cleaning
 import dtcc_core.builder.cleaning.footprints as cleaning_footprints
 from dtcc_core.model import Building, GeometryType, Surface
 
+GBG_ACUTE_HOLE_WEDGE_WKT = (
+    "POLYGON ((319877.28125 6399049.59375, 319877.21875 6399051.0625, "
+    "319896.03125 6399051.9375, 319927.375 6399074.03125, "
+    "319871.90625 6399152.5, 319867.34375 6399149.28125, "
+    "319866.875 6399150, 319852.25 6399138.625, 319851.71875 6399139.3125, "
+    "319847.46875 6399136.3125, 319846.40625 6399134.5625, "
+    "319835.40625 6399049.15625, 319843.53125 6399049.53125, "
+    "319843.59375 6399048.3125, 319848.75 6399048.5625, "
+    "319848.6875 6399049.71875, 319856.28125 6399050.0625, "
+    "319856.28125 6399048.875, 319861.65625 6399049.15625, "
+    "319861.5625 6399050.34375, 319871.6875 6399050.78125, "
+    "319871.75 6399049.375, 319877.28125 6399049.59375), "
+    "(319871.09375 6399126.34375, 319866.71875 6399123.25, "
+    "319869.5625 6399119.28125, 319873.90625 6399122.375, "
+    "319914.28125 6399065.4375, 319899.96875 6399084.71875, "
+    "319893.375 6399079.96875, 319894.40625 6399078.53125, "
+    "319887.40625 6399073.5, 319891.3125 6399067.8125, "
+    "319890.34375 6399067.15625, 319852.5 6399065.6875, "
+    "319861.28125 6399125.90625, 319868.0625 6399130.71875, "
+    "319871.09375 6399126.34375))"
+)
+
+GBG_RESIDUAL_COURTYARD_SLIT_WKT = (
+    "POLYGON ((319866.71875 6399123.25, 319869.5625 6399119.28125, "
+    "319873.90625 6399122.375, 319914.5625 6399065.03125, "
+    "319919.15625 6399068.3125, 319919.53125 6399067.75, "
+    "319927.375 6399074.03125, 319919.46875 6399085.1875, "
+    "319920 6399085.53125, 319915.6875 6399091.625, "
+    "319915.09375 6399091.1875, 319871.90625 6399152.5, "
+    "319867.34375 6399149.28125, 319866.875 6399150, "
+    "319862.375 6399146.8125, 319862.84375 6399146.15625, "
+    "319852.25 6399138.625, 319851.71875 6399139.3125, "
+    "319847.46875 6399136.3125, 319846.40625 6399134.5625, "
+    "319835.40625 6399049.15625, 319843.53125 6399049.53125, "
+    "319843.59375 6399048.3125, 319848.75 6399048.5625, "
+    "319848.6875 6399049.71875, 319856.28125 6399050.0625, "
+    "319856.28125 6399048.875, 319861.65625 6399049.15625, "
+    "319861.5625 6399050.34375, 319871.6875 6399050.78125, "
+    "319871.75 6399049.375, 319877.28125 6399049.59375, "
+    "319877.21875 6399051.0625, 319896.03125 6399051.9375, "
+    "319914.25 6399064.8125, 319899.96875 6399084.71875, "
+    "319893.375 6399079.96875, 319894.40625 6399078.53125, "
+    "319887.40625 6399073.5, 319891.3125 6399067.8125, "
+    "319890.34375 6399067.15625, 319852.5 6399065.6875, "
+    "319861.28125 6399125.90625, 319868.0625 6399130.71875, "
+    "319871.125 6399126.375, 319866.71875 6399123.25))"
+)
+
 
 def make_building(polygon: Polygon, height: float = 10.0) -> Building:
     surface = Surface()
@@ -5056,6 +5104,34 @@ def test_courtyard_passage_operator_returns_hole_candidate():
     assert candidate.edit_zone.area > 0.0
 
 
+def test_courtyard_passage_operator_repairs_case_gbg_residual_slit():
+    polygon = cleaning_footprints.shapely.from_wkt(GBG_RESIDUAL_COURTYARD_SLIT_WKT)
+    diagnostics = cleaning_footprints._empty_diagnostics(1)
+    diagnostics["collect_stage_metrics"] = False
+
+    candidate = cleaning_footprints._try_close_courtyard_passage(
+        polygon,
+        min_clearance=0.5,
+        grid=0.03125,
+        diagnostics=diagnostics,
+    )
+
+    assert candidate is not None
+    assert candidate.operator == "courtyard_passage"
+    signature = cleaning_footprints._polygon_defect_signature(
+        candidate.polygon,
+        target_scale=0.5,
+    )
+    assert cleaning_footprints._signature_satisfies_scale_contract(
+        signature,
+        target_scale=0.5,
+        grid=0.03125,
+    )
+    assert len(candidate.polygon.interiors) == 1
+    assert candidate.polygon.area > polygon.area
+    assert candidate.edit_zone.area > 0.0
+
+
 def test_ring_contact_fill_operator_returns_local_single_polygon():
     touching_hole = Polygon(
         [(0, 0), (10, 0), (10, 10), (0, 10), (0, 0)],
@@ -5299,6 +5375,57 @@ def test_self_clearance_connector_fills_case54_style_same_ring_exterior_slit():
     )
     assert signature.clearance is not None
     assert signature.clearance > before_signature.clearance
+    assert candidate.polygon.area > polygon.area
+    assert candidate.edit_zone.area > 0.0
+
+
+def test_polygon_acute_tip_metrics_detect_case_gbg_hole_wedge():
+    polygon = cleaning_footprints.shapely.from_wkt(GBG_ACUTE_HOLE_WEDGE_WKT)
+
+    count, span = cleaning_footprints._polygon_acute_tip_metrics(
+        polygon,
+        max_angle_degrees=5.0,
+        min_tip_span=1.0,
+    )
+    candidates = list(
+        cleaning_footprints._iter_polygon_acute_tip_candidates(
+            polygon,
+            max_angle_degrees=5.0,
+            min_tip_span=1.0,
+        )
+    )
+
+    assert count == 1
+    assert span == pytest.approx(24.01279362782473)
+    assert len(candidates) == 1
+    assert candidates[0][0] == "hole"
+    assert candidates[0][1] == 0
+    assert candidates[0][2] == 4
+
+
+def test_acute_tip_hole_opening_repairs_case_gbg_hole_wedge():
+    polygon = cleaning_footprints.shapely.from_wkt(GBG_ACUTE_HOLE_WEDGE_WKT)
+    diagnostics = cleaning_footprints._empty_diagnostics(1)
+    diagnostics["collect_stage_metrics"] = False
+
+    candidate = cleaning_footprints._try_polygon_acute_tip_connector_fill(
+        polygon,
+        min_clearance=0.5,
+        grid=0.03125,
+        diagnostics=diagnostics,
+    )
+
+    assert candidate is not None
+    assert candidate.operator == "acute_tip_hole_opening"
+    signature = cleaning_footprints._polygon_defect_signature(
+        candidate.polygon,
+        target_scale=0.5,
+    )
+    assert cleaning_footprints._signature_satisfies_scale_contract(
+        signature,
+        target_scale=0.5,
+        grid=0.03125,
+    )
     assert candidate.polygon.area > polygon.area
     assert candidate.edit_zone.area > 0.0
 
@@ -6757,6 +6884,64 @@ def test_apply_local_polygon_repairs_resolves_case62_style_self_clearance_juncti
         or operator.startswith("hole_pair_clearance_merge")
         for operator in diagnostics["post_contact_local_defect_repair_operator_applied"]
     )
+
+
+def test_condition_polygon_coverage_repairs_meshing_hostile_hole_wedge():
+    polygon = cleaning_footprints.shapely.from_wkt(GBG_ACUTE_HOLE_WEDGE_WKT)
+    result = cleaning.condition_polygon_coverage(
+        [polygon],
+        options=cleaning.ConditioningOptions(
+            min_feature_size=0.5,
+            merge_distance=0.5,
+            min_area=0.0,
+            min_hole_area=0.0,
+            collect_stage_metrics=True,
+            enable_logging=False,
+        ),
+    )
+
+    assert len(result.polygons) == 1
+    signature = cleaning_footprints._polygon_defect_signature(
+        result.polygons[0],
+        target_scale=0.5,
+    )
+    assert cleaning_footprints._signature_satisfies_scale_contract(
+        signature,
+        target_scale=0.5,
+        grid=result.diagnostics["output_grid"],
+    )
+    assert result.diagnostics["local_defect_repair_operator_applied"] == {
+        "acute_tip_hole_opening": 1
+    }
+
+
+def test_condition_polygon_coverage_repairs_residual_courtyard_slit():
+    polygon = cleaning_footprints.shapely.from_wkt(GBG_RESIDUAL_COURTYARD_SLIT_WKT)
+    result = cleaning.condition_polygon_coverage(
+        [polygon],
+        options=cleaning.ConditioningOptions(
+            min_feature_size=0.5,
+            merge_distance=0.0,
+            min_area=0.0,
+            min_hole_area=0.0,
+            collect_stage_metrics=True,
+            enable_logging=False,
+        ),
+    )
+
+    assert len(result.polygons) == 1
+    signature = cleaning_footprints._polygon_defect_signature(
+        result.polygons[0],
+        target_scale=0.5,
+    )
+    assert cleaning_footprints._signature_satisfies_scale_contract(
+        signature,
+        target_scale=0.5,
+        grid=result.diagnostics["output_grid"],
+    )
+    assert result.diagnostics["local_defect_repair_operator_applied"] == {
+        "courtyard_passage": 1
+    }
 
 
 def test_apply_local_polygon_repairs_resolves_case23_style_hole_hole_wall():

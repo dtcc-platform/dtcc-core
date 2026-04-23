@@ -12,6 +12,7 @@ from ..model_conversion import (
     raster_to_builder_gridfield,
     builder_mesh_to_mesh,
     create_builder_polygon,
+    mesh_to_builder_mesh,
 )
 
 import numpy as np
@@ -19,9 +20,73 @@ from pypoints2grid import points2grid
 from affine import Affine
 from .. import _dtcc_builder
 from typing import List, Optional, Union
+from shapely.geometry import Polygon, box
+from shapely.geometry.polygon import orient
+from shapely.ops import unary_union
 from dtcc_core.common.progress import report_progress
 from ..logging import info
 from ..raster.interpolation import fill_holes as fill_raster_holes
+from ..meshing.backends import resolve_2d_mesher
+from ..meshing.flat_mesh_backends import build_city_flat_mesh_from_coverage
+
+
+def _iter_polygon_components(geometry) -> list[Polygon]:
+    if geometry is None or geometry.is_empty:
+        return []
+    if isinstance(geometry, Polygon):
+        return [geometry]
+    if hasattr(geometry, "geoms"):
+        polygons: list[Polygon] = []
+        for child in geometry.geoms:
+            polygons.extend(_iter_polygon_components(child))
+        return polygons
+    return []
+
+
+def _terrain_mesh_regions(
+    *,
+    bounds: tuple[float, float, float, float],
+    subdomains: list[Surface],
+    holes: list[Surface],
+    subdomain_resolution: list[float],
+) -> tuple[list[Polygon], list[int], dict[int, float]]:
+    subdomain_polygons: list[Polygon] = []
+    for surface in subdomains:
+        if surface is None:
+            continue
+        polygon = surface.to_polygon()
+        if polygon is None or polygon.is_empty:
+            continue
+        subdomain_polygons.append(orient(polygon, sign=1.0))
+
+    hole_polygons: list[Polygon] = []
+    for surface in holes:
+        if surface is None:
+            continue
+        polygon = surface.to_polygon()
+        if polygon is None or polygon.is_empty:
+            continue
+        hole_polygons.append(orient(polygon, sign=1.0))
+
+    ground_domain = box(*bounds)
+    excluded_regions = [*subdomain_polygons, *hole_polygons]
+    if excluded_regions:
+        ground_domain = ground_domain.difference(unary_union(excluded_regions))
+
+    ground_polygons = [
+        orient(polygon, sign=1.0)
+        for polygon in _iter_polygon_components(ground_domain)
+        if polygon is not None and not polygon.is_empty
+    ]
+
+    region_polygons = [*ground_polygons, *subdomain_polygons]
+    region_markers = [-2] * len(ground_polygons) + list(range(len(subdomain_polygons)))
+    region_triangle_sizes = {
+        index: float(resolution)
+        for index, resolution in enumerate(subdomain_resolution[: len(subdomain_polygons)])
+        if resolution is not None and float(resolution) > 0.0
+    }
+    return region_polygons, region_markers, region_triangle_sizes
 
 
 def adaptive_terrain_mesh(
@@ -83,7 +148,6 @@ def build_terrain_surface_mesh(
         Number of smoothing iterations to apply.
     ground_points_only : bool, default True
         Whether to use only ground-classified points from point cloud.
-
     Returns
     -------
     Mesh
@@ -152,12 +216,8 @@ def build_terrain_surface_mesh(
     if subdomains is None:
         subdomains = []
         subdomain_resolution = None
-    else:
-        subdomains = [create_builder_polygon(sub.to_polygon()) for sub in subdomains]
     if holes is None:
-        hole_polygons: list = []
-    else:
-        hole_polygons = [create_builder_polygon(sub.to_polygon()) for sub in holes]
+        holes = []
     if subdomain_resolution is None:
         subdomain_resolution = []
     elif isinstance(subdomain_resolution, (float, int)):
@@ -172,24 +232,56 @@ def build_terrain_surface_mesh(
         )
 
     subdomain_resolution = np.array(subdomain_resolution, dtype=np.float64)
+    active_mesher = resolve_2d_mesher()
 
     report_progress(
         percent=40, message="Building terrain surface mesh (this may take a while)..."
     )
+    if active_mesher == "dtcc_mesher":
+        if np.any(subdomain_resolution > 0.0):
+            raise NotImplementedError(
+                "Terrain subdomain-specific resolution is not yet supported with "
+                "the dtcc_mesher default terrain mesher."
+            )
+        bounds = dem.bounds.tuple
+        region_polygons, region_markers, region_triangle_sizes = _terrain_mesh_regions(
+            bounds=bounds,
+            subdomains=subdomains,
+            holes=holes,
+            subdomain_resolution=subdomain_resolution.tolist(),
+        )
+        ground_mesh = build_city_flat_mesh_from_coverage(
+            region_polygons=region_polygons,
+            region_markers=region_markers,
+            bounds=bounds,
+            max_mesh_size=max_mesh_size,
+            min_mesh_angle=min_mesh_angle,
+            backend=active_mesher,
+            sort_triangles=False,
+            region_triangle_sizes=region_triangle_sizes or None,
+        )
+        report_progress(percent=90, message="Converting mesh format...")
+        terrain_mesh = _dtcc_builder.build_terrain_surface_mesh_from_ground_mesh(
+            mesh_to_builder_mesh(ground_mesh),
+            _builder_gridfield,
+            smoothing,
+        ).from_cpp()
+    else:
+        builder_subdomains = [create_builder_polygon(sub.to_polygon()) for sub in subdomains]
+        builder_holes = [create_builder_polygon(sub.to_polygon()) for sub in holes]
+        terrain_mesh = _dtcc_builder.build_terrain_surface_mesh(
+            builder_subdomains,
+            builder_holes,
+            subdomain_resolution,
+            _builder_gridfield,
+            max_mesh_size,
+            min_mesh_angle,
+            smoothing,
+            False,
+        )
 
-    terrain_mesh = _dtcc_builder.build_terrain_surface_mesh(
-        subdomains,
-        hole_polygons,
-        subdomain_resolution,
-        _builder_gridfield,
-        max_mesh_size,
-        min_mesh_angle,
-        smoothing,
-        False,
-    )
-
-    report_progress(percent=90, message="Converting mesh format...")
-    terrain_mesh = builder_mesh_to_mesh(terrain_mesh)
+        report_progress(percent=90, message="Converting mesh format...")
+        terrain_mesh = builder_mesh_to_mesh(terrain_mesh)
 
     if report_mesh_quality:
         from dtcc_core.model.mixins.mesh.quality import (

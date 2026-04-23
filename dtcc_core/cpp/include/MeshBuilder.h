@@ -977,12 +977,16 @@ private:
       return 1;
 
     std::sort(horizontal_lengths.begin(), horizontal_lengths.end());
-    const size_t percentile_index =
-        (horizontal_lengths.size() - 1) / 4;
-    const double representative_horizontal_length =
-        horizontal_lengths[percentile_index];
+    // Use the shortest supported wall edge for one conforming strip count per
+    // building shell. This keeps the wall mesh watertight while ensuring that
+    // the most slender preserved wall panels are subdivided by construction.
+    // A tighter target than the historical default is deliberate here: TetGen
+    // quality is dominated by preserved wall panels, so the shell builder must
+    // hand over a genuinely well-proportioned wall mesh instead of relying on
+    // a later repair pass.
+    const double shortest_horizontal_length = horizontal_lengths.front();
     return vertical_quad_strip_count(
-        representative_horizontal_length, max_wall_height);
+        shortest_horizontal_length, max_wall_height, 5.0);
   }
 
   static void append_vertical_quad_strips(Mesh &mesh,

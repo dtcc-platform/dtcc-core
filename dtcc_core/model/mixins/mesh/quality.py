@@ -7,6 +7,13 @@ Mesh quality metrics computed in pure NumPy.
 Provides `quality()` methods for both triangular surface meshes
 and tetrahedral volume meshes, returning a uniform dictionary of
 summary statistics (min, max, mean) for each metric.
+
+Aspect-ratio formulas follow VTK/ParaView conventions:
+
+* triangles: ``l_max / (2*sqrt(3)*r)``
+* tetrahedra: ``l_max / (2*sqrt(6)*r)``
+
+where ``l_max`` is the longest edge and ``r`` is the inradius.
 """
 
 from __future__ import annotations
@@ -59,13 +66,25 @@ def tri_element_quality(vertices: np.ndarray, faces: np.ndarray) -> np.ndarray:
 
 
 def tri_aspect_ratio(vertices: np.ndarray, faces: np.ndarray) -> np.ndarray:
-    """Aspect ratio: l_max*(l0+l1+l2) / (4*sqrt(3)*A).  Range 1-inf, 1 = optimal."""
+    """VTK/ParaView triangle aspect ratio. Range 1-inf, 1 = optimal."""
     v0, v1, v2 = vertices[faces[:, 0]], vertices[faces[:, 1]], vertices[faces[:, 2]]
     areas = _tri_areas(v0, v1, v2)
     l0, l1, l2 = _tri_edge_lengths(v0, v1, v2)
     l_max = np.maximum(np.maximum(l0, l1), l2)
     safe_areas = np.where(areas > 0, areas, 1.0)
     return l_max * (l0 + l1 + l2) / (_4_SQRT3 * safe_areas)
+
+
+def tri_radius_ratio(vertices: np.ndarray, faces: np.ndarray) -> np.ndarray:
+    """VTK/ParaView triangle radius ratio. Range 1-inf, 1 = optimal."""
+    v0, v1, v2 = vertices[faces[:, 0]], vertices[faces[:, 1]], vertices[faces[:, 2]]
+    areas = _tri_areas(v0, v1, v2)
+    l0, l1, l2 = _tri_edge_lengths(v0, v1, v2)
+    safe_areas = np.where(areas > 0, areas, 1.0)
+    circumradius = (l0 * l1 * l2) / (4.0 * safe_areas)
+    inradius = 2.0 * areas / np.where((l0 + l1 + l2) > 0, (l0 + l1 + l2), 1.0)
+    safe_inradius = np.where(inradius > 0, inradius, 1.0)
+    return circumradius / (2.0 * safe_inradius)
 
 
 def tri_edge_ratio(vertices: np.ndarray, faces: np.ndarray) -> np.ndarray:
@@ -98,13 +117,14 @@ def triangle_mesh_quality(
     """Compute quality metrics for a triangular mesh.
 
     Returns a dict with ``num_cells`` and summary stats (min, max, mean)
-    for each of: ``element_quality``, ``aspect_ratio``, ``edge_ratio``,
-    ``skewness``.
+    for each of: ``element_quality``, ``aspect_ratio``, ``radius_ratio``,
+    ``edge_ratio``, ``skewness``.
     """
     return {
         "num_cells": int(len(faces)),
         "element_quality": _summarize(tri_element_quality(vertices, faces)),
         "aspect_ratio": _summarize(tri_aspect_ratio(vertices, faces)),
+        "radius_ratio": _summarize(tri_radius_ratio(vertices, faces)),
         "edge_ratio": _summarize(tri_edge_ratio(vertices, faces)),
         "skewness": _summarize(tri_skewness(vertices, faces)),
     }
@@ -150,11 +170,7 @@ def tet_element_quality(vertices: np.ndarray, cells: np.ndarray) -> np.ndarray:
 
 
 def tet_aspect_ratio(vertices: np.ndarray, cells: np.ndarray) -> np.ndarray:
-    """Aspect ratio for tets: R / (3*r).  Range 1-inf, 1 = optimal.
-
-    R = circumradius, r = inradius = 3*V / A_total.
-    For a regular tet R/(3r) = 1.
-    """
+    """VTK/ParaView tetrahedron aspect ratio. Range 1-inf, 1 = optimal."""
     v0 = vertices[cells[:, 0]]
     v1 = vertices[cells[:, 1]]
     v2 = vertices[cells[:, 2]]
@@ -164,6 +180,9 @@ def tet_aspect_ratio(vertices: np.ndarray, cells: np.ndarray) -> np.ndarray:
     e01 = v1 - v0
     e02 = v2 - v0
     e03 = v3 - v0
+    e12 = v2 - v1
+    e13 = v3 - v1
+    e23 = v3 - v2
     cross_02_03 = np.cross(e02, e03)
     V = np.abs(np.sum(e01 * cross_02_03, axis=1)) / 6.0
 
@@ -181,40 +200,59 @@ def tet_aspect_ratio(vertices: np.ndarray, cells: np.ndarray) -> np.ndarray:
     safe_A = np.where(A_total > 0, A_total, 1.0)
     r = 3.0 * V / safe_A
 
-    # Circumradius via circumcenter
-    # Solve for circumcenter offset d from v0:
-    #   2*(v1-v0)·d = |v1-v0|^2
-    #   2*(v2-v0)·d = |v2-v0|^2
-    #   2*(v3-v0)·d = |v3-v0|^2
+    lengths = np.stack(
+        [
+            np.linalg.norm(e01, axis=1),
+            np.linalg.norm(e02, axis=1),
+            np.linalg.norm(e03, axis=1),
+            np.linalg.norm(e12, axis=1),
+            np.linalg.norm(e13, axis=1),
+            np.linalg.norm(e23, axis=1),
+        ],
+        axis=1,
+    )
+    l_max = lengths.max(axis=1)
+    safe_r = np.where(r > 0, r, 1.0)
+    return l_max / (2.0 * np.sqrt(6.0) * safe_r)
+
+
+def tet_radius_ratio(vertices: np.ndarray, cells: np.ndarray) -> np.ndarray:
+    """VTK/ParaView tetrahedron radius ratio. Range 1-inf, 1 = optimal."""
+    v0 = vertices[cells[:, 0]]
+    v1 = vertices[cells[:, 1]]
+    v2 = vertices[cells[:, 2]]
+    v3 = vertices[cells[:, 3]]
+
+    e01 = v1 - v0
+    e02 = v2 - v0
+    e03 = v3 - v0
+
+    cross_02_03 = np.cross(e02, e03)
+    V = np.abs(np.sum(e01 * cross_02_03, axis=1)) / 6.0
+
+    def _face_area(a, b, c):
+        return 0.5 * np.linalg.norm(np.cross(b - a, c - a), axis=1)
+
+    A0 = _face_area(v1, v2, v3)
+    A1 = _face_area(v0, v2, v3)
+    A2 = _face_area(v0, v1, v3)
+    A3 = _face_area(v0, v1, v2)
+    A_total = A0 + A1 + A2 + A3
+    safe_A = np.where(A_total > 0, A_total, 1.0)
+    r = 3.0 * V / safe_A
+
     d01 = np.sum(e01**2, axis=1)
     d02 = np.sum(e02**2, axis=1)
     d03 = np.sum(e03**2, axis=1)
+    M = np.stack([e01, e02, e03], axis=1)
+    rhs = 0.5 * np.stack([d01, d02, d03], axis=1)
 
-    # Build 3x3 system per tet using Cramer's rule
-    a11 = 2.0 * np.sum(e01 * e01, axis=1)
-    a12 = 2.0 * np.sum(e01 * e02, axis=1)
-    a13 = 2.0 * np.sum(e01 * e03, axis=1)
-    a22 = 2.0 * np.sum(e02 * e02, axis=1)
-    a23 = 2.0 * np.sum(e02 * e03, axis=1)
-    a33 = 2.0 * np.sum(e03 * e03, axis=1)
-
-    # Use the cross-product formula for circumradius instead:
-    # R = |e01| |e02| |e03| / (... ) is complex.  Simpler: just solve the
-    # small system.  Stack rows of the matrix:
-    # M = [[e01], [e02], [e03]]  (per tet)
-    M = np.stack([e01, e02, e03], axis=1)  # (N, 3, 3)
-    rhs = 0.5 * np.stack([d01, d02, d03], axis=1)  # (N, 3)
-
-    # Batch solve M @ d = rhs
-    # M is (N, 3, 3), rhs is (N, 3) -> need (N, 3, 1) for solve
     try:
-        d = np.linalg.solve(M, rhs[..., np.newaxis]).squeeze(-1)  # (N, 3)
+        d = np.linalg.solve(M, rhs[..., np.newaxis]).squeeze(-1)
     except np.linalg.LinAlgError:
         d = np.zeros_like(e01)
 
     R = np.linalg.norm(d, axis=1)
-
-    # Normalized aspect ratio: R / (3*r), equals 1 for regular tet
     safe_r = np.where(r > 0, r, 1.0)
     return R / (3.0 * safe_r)
 
@@ -269,13 +307,14 @@ def tetrahedron_mesh_quality(
     """Compute quality metrics for a tetrahedral mesh.
 
     Returns a dict with ``num_cells`` and summary stats (min, max, mean)
-    for each of: ``element_quality``, ``aspect_ratio``, ``edge_ratio``,
-    ``skewness``.
+    for each of: ``element_quality``, ``aspect_ratio``, ``radius_ratio``,
+    ``edge_ratio``, ``skewness``.
     """
     return {
         "num_cells": int(len(cells)),
         "element_quality": _summarize(tet_element_quality(vertices, cells)),
         "aspect_ratio": _summarize(tet_aspect_ratio(vertices, cells)),
+        "radius_ratio": _summarize(tet_radius_ratio(vertices, cells)),
         "edge_ratio": _summarize(tet_edge_ratio(vertices, cells)),
         "skewness": _summarize(tet_skewness(vertices, cells)),
     }
@@ -288,6 +327,7 @@ def tetrahedron_mesh_quality(
 _METRIC_LABELS = {
     "element_quality": "Element quality (0-1, 1 optimal)",
     "aspect_ratio": "Aspect ratio (1-∞, 1 optimal)",
+    "radius_ratio": "Radius ratio (1-∞, 1 optimal)",
     "edge_ratio": "Edge ratio (1-∞, 1 optimal)",
     "skewness": "Skewness (0-1, 0 optimal)",
 }

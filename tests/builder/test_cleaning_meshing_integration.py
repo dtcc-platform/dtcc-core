@@ -580,6 +580,41 @@ def test_conditioned_footprint_contract_audit_fails_scale_contract():
     assert any("scale contract" in message for message in contract["errors"])
 
 
+def test_conditioned_footprint_contract_audit_flags_meshing_hostile_acute_tip():
+    polygon = meshes_module.cleaning_footprints.shapely.from_wkt(
+        "POLYGON ((319877.28125 6399049.59375, 319877.21875 6399051.0625, "
+        "319896.03125 6399051.9375, 319927.375 6399074.03125, "
+        "319871.90625 6399152.5, 319867.34375 6399149.28125, "
+        "319866.875 6399150, 319852.25 6399138.625, 319851.71875 6399139.3125, "
+        "319847.46875 6399136.3125, 319846.40625 6399134.5625, "
+        "319835.40625 6399049.15625, 319843.53125 6399049.53125, "
+        "319843.59375 6399048.3125, 319848.75 6399048.5625, "
+        "319848.6875 6399049.71875, 319856.28125 6399050.0625, "
+        "319856.28125 6399048.875, 319861.65625 6399049.15625, "
+        "319861.5625 6399050.34375, 319871.6875 6399050.78125, "
+        "319871.75 6399049.375, 319877.28125 6399049.59375), "
+        "(319871.09375 6399126.34375, 319866.71875 6399123.25, "
+        "319869.5625 6399119.28125, 319873.90625 6399122.375, "
+        "319914.28125 6399065.4375, 319899.96875 6399084.71875, "
+        "319893.375 6399079.96875, 319894.40625 6399078.53125, "
+        "319887.40625 6399073.5, 319891.3125 6399067.8125, "
+        "319890.34375 6399067.15625, 319852.5 6399065.6875, "
+        "319861.28125 6399125.90625, 319868.0625 6399130.71875, "
+        "319871.09375 6399126.34375))"
+    )
+
+    contract = meshes_module._conditioned_footprint_contract_audit(
+        surfaces=[make_surface(polygon, 8.0)],
+        declared_scale=0.5,
+        diagnostics={"geos_exception_count": 0},
+    )
+
+    assert contract["status"] == "fail"
+    assert contract["requirements"]["no_acute_tips"] is False
+    assert contract["metrics"]["acute_tip_count"] == 1
+    assert any("acute tip" in message for message in contract["errors"])
+
+
 def test_conditioned_footprint_contract_audit_reports_invalid_mesher_segment_graph(
     monkeypatch,
 ):
@@ -2339,6 +2374,7 @@ def test_build_city_volume_mesh_keeps_requested_tetgen_switches(monkeypatch):
     city = make_flat_city([make_building(box(10, 10, 20, 20), roof_z=10.0)])
     terrain = city.terrain
     terrain_raster = terrain.raster
+    terrain_raster.data[0, 0] = 0.1
     conditioned_surface = make_surface(box(10, 10, 20, 20), 10.0)
     diagnostics = {"output_grid": 0.25}
     captured = {}
@@ -2415,6 +2451,40 @@ def test_build_city_volume_mesh_keeps_requested_tetgen_switches(monkeypatch):
         "_build_city_surface_mesh_from_ground_mesh",
         fake_build_surface_from_ground,
     )
+    monkeypatch.setattr(
+        meshes_module,
+        "_refine_ground_building_transition_faces_for_tetgen",
+        lambda mesh, *, max_mesh_size: (
+            mesh,
+            meshes_module._tetgen_shell_transition_refinement_disabled_stats(),
+        ),
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_refine_near_horizontal_surface_faces_for_tetgen",
+        lambda mesh, *, max_mesh_size: (
+            mesh,
+            meshes_module._tetgen_shell_refinement_disabled_stats(),
+        ),
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_refine_vertical_wall_faces_for_tetgen",
+        lambda mesh, *, max_mesh_size: (
+            mesh,
+            meshes_module._tetgen_shell_wall_refinement_disabled_stats(),
+        ),
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_tetgen_plc_audit",
+        lambda **kwargs: {"audit_ok": True},
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_tetgen_plc_contract_from_audit",
+        lambda *args, **kwargs: {"errors": [], "warnings": [], "ok": True},
+    )
     monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
     monkeypatch.setattr(meshes_module, "tetgen_build_volume_mesh", fake_tetgen_build)
 
@@ -2435,6 +2505,169 @@ def test_build_city_volume_mesh_keeps_requested_tetgen_switches(monkeypatch):
     assert captured["tetgen_switches"]["quality"] == (1.6, 25.0)
     assert captured["tetgen_switches"]["preserve_surface"] is False
     assert captured["tetgen_switches"]["max_added_points"] is None
+    assert captured["tetgen_switches"]["optimize_max_dihedral"] == 175.0
+
+
+def test_build_city_volume_mesh_uses_split_surface_default_without_flat_special_case(
+    monkeypatch,
+):
+    city = make_flat_city([make_building(box(10, 10, 20, 20), roof_z=10.0)])
+    terrain = city.terrain
+    terrain_raster = terrain.raster
+    conditioned_surface = make_surface(box(10, 10, 20, 20), 10.0)
+    diagnostics = {"output_grid": 0.25}
+    captured = {}
+    stage_audit = {}
+    refinement_calls = {"transition": 0, "wall": 0, "horizontal": 0}
+
+    def fake_prepare(*args, **kwargs):
+        return terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics
+
+    def fake_prepare_regions(**kwargs):
+        return (
+            [conditioned_surface],
+            [1],
+            [box(0, 0, 80, 80), box(10, 10, 20, 20)],
+            [-2, 0],
+            {0: 4.0},
+            [
+                np.array([40.0, 40.0], dtype=np.float64),
+                np.array([15.0, 15.0], dtype=np.float64),
+            ],
+        )
+
+    def fake_build_ground(**kwargs):
+        return (
+            Mesh(
+                vertices=np.array(
+                    [
+                        [0.0, 0.0, 0.0],
+                        [10.0, 0.0, 0.0],
+                        [10.0, 10.0, 0.0],
+                        [0.0, 10.0, 0.0],
+                    ]
+                ),
+                faces=np.array([[0, 1, 2], [0, 2, 3]], dtype=int),
+                markers=np.array([0, 0], dtype=int),
+            ),
+            "dtcc_mesher",
+        )
+
+    def fake_build_surface_from_ground(**kwargs):
+        return Mesh(
+            vertices=np.array(
+                [
+                    [0.0, 0.0, 0.0],
+                    [10.0, 0.0, 0.0],
+                    [10.0, 10.0, 0.0],
+                    [0.0, 10.0, 0.0],
+                ]
+            ),
+            faces=np.array([[0, 1, 2], [0, 2, 3]], dtype=int),
+            markers=np.array([0, 0], dtype=int),
+        )
+
+    def fake_tetgen_build(**kwargs):
+        captured["tetgen_switches"] = dict(kwargs["switches_params"])
+        return VolumeMesh(
+            vertices=np.array(
+                [
+                    [0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0],
+                    [0.0, 0.0, 1.0],
+                ]
+            ),
+            cells=np.array([[0, 1, 2, 3]], dtype=int),
+        )
+
+    monkeypatch.setattr(meshes_module, "_prepare_city_meshing_inputs", fake_prepare)
+    monkeypatch.setattr(meshes_module, "_prepare_surface_ground_regions", fake_prepare_regions)
+    monkeypatch.setattr(meshes_module, "_build_ground_mesh_from_coverage", fake_build_ground)
+    monkeypatch.setattr(
+        meshes_module,
+        "_build_city_surface_mesh_from_ground_mesh",
+        fake_build_surface_from_ground,
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_refine_ground_building_transition_faces_for_tetgen",
+        lambda mesh, *, max_mesh_size: (
+            refinement_calls.__setitem__("transition", refinement_calls["transition"] + 1)
+            or mesh,
+            meshes_module._tetgen_shell_transition_refinement_disabled_stats(),
+        ),
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_refine_near_horizontal_surface_faces_for_tetgen",
+        lambda mesh, *, max_mesh_size: (
+            refinement_calls.__setitem__("horizontal", refinement_calls["horizontal"] + 1)
+            or mesh,
+            meshes_module._tetgen_shell_refinement_disabled_stats(),
+        ),
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_refine_vertical_wall_faces_for_tetgen",
+        lambda mesh, *, max_mesh_size: (
+            refinement_calls.__setitem__("wall", refinement_calls["wall"] + 1)
+            or mesh,
+            meshes_module._tetgen_shell_wall_refinement_disabled_stats(),
+        ),
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_tetgen_plc_audit",
+        lambda **kwargs: {"audit_ok": True},
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_tetgen_plc_contract_from_audit",
+        lambda *args, **kwargs: {"errors": [], "warnings": [], "ok": True},
+    )
+    monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
+    monkeypatch.setattr(meshes_module, "tetgen_build_volume_mesh", fake_tetgen_build)
+    monkeypatch.setattr(
+        meshes_module,
+        "_tetgen_volume_mesh_quality_snapshot",
+        lambda volume_mesh: {
+            "aspect_ratio_max": 1.0,
+            "element_quality_min": 1.0,
+            "min_edge_length": 1.0,
+            "high_aspect_ratio_count": 0.0,
+            "low_quality_count": 0.0,
+        },
+    )
+
+    build_city_volume_mesh(
+        city,
+        lod=GeometryType.LOD0,
+        merge_buildings=False,
+        min_building_detail=0.0,
+        min_building_area=1.0,
+        merge_tolerance=0.0,
+        max_mesh_size=6.0,
+        min_mesh_angle=20.0,
+        report_mesh_quality=False,
+        mesher="dtcc_mesher",
+        stage_audit=stage_audit,
+    )
+
+    assert captured["tetgen_switches"]["preserve_surface"] is False
+    assert captured["tetgen_switches"]["quality"] is None
+    assert captured["tetgen_switches"]["optimize_max_dihedral"] == 175.0
+    assert refinement_calls == {"transition": 1, "wall": 0, "horizontal": 1}
+    attempts = {attempt["label"]: attempt for attempt in stage_audit["attempts"]}
+    assert attempts["attempt-1"]["config"]["preserve_surface_requested"] is False
+    assert attempts["attempt-1"]["config"]["terrain_effectively_flat"] is True
+    assert attempts["attempt-1"]["config"]["tetgen_shell_refinement_enabled"] is True
+    selection = attempts["attempt-1"]["stages"]["surface_shell"][
+        "tetgen_shell_horizontal_refinement_selection"
+    ]
+    assert selection["selected_variant"] == "unrefined"
+    assert selection["reason"] == "no_candidate_edges"
+
 
 def test_build_city_volume_mesh_allows_empty_conditioned_footprints(monkeypatch):
     city = make_flat_city([])
@@ -2510,6 +2743,32 @@ def test_build_city_volume_mesh_allows_empty_conditioned_footprints(monkeypatch)
         meshes_module,
         "_build_city_surface_mesh_from_ground_mesh",
         fake_build_surface_from_ground,
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_refine_ground_building_transition_faces_for_tetgen",
+        lambda mesh, *, max_mesh_size: (
+            mesh,
+            meshes_module._tetgen_shell_transition_refinement_disabled_stats(),
+        ),
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_refine_near_horizontal_surface_faces_for_tetgen",
+        lambda mesh, *, max_mesh_size: (
+            mesh,
+            meshes_module._tetgen_shell_refinement_disabled_stats(),
+        ),
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_tetgen_plc_audit",
+        lambda **kwargs: {"audit_ok": True},
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_tetgen_plc_contract_from_audit",
+        lambda *args, **kwargs: {"errors": [], "warnings": [], "ok": True},
     )
     monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
     monkeypatch.setattr(meshes_module, "tetgen_build_volume_mesh", fake_tetgen_build)
@@ -2614,6 +2873,32 @@ def test_build_city_volume_mesh_respects_explicit_tetgen_switches_for_dtcc_meshe
         "_build_city_surface_mesh_from_ground_mesh",
         fake_build_surface_from_ground,
     )
+    monkeypatch.setattr(
+        meshes_module,
+        "_refine_ground_building_transition_faces_for_tetgen",
+        lambda mesh, *, max_mesh_size: (
+            mesh,
+            meshes_module._tetgen_shell_transition_refinement_disabled_stats(),
+        ),
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_refine_near_horizontal_surface_faces_for_tetgen",
+        lambda mesh, *, max_mesh_size: (
+            mesh,
+            meshes_module._tetgen_shell_refinement_disabled_stats(),
+        ),
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_tetgen_plc_audit",
+        lambda **kwargs: {"audit_ok": True},
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_tetgen_plc_contract_from_audit",
+        lambda *args, **kwargs: {"errors": [], "warnings": [], "ok": True},
+    )
     monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
     monkeypatch.setattr(meshes_module, "tetgen_build_volume_mesh", fake_tetgen_build)
 
@@ -2638,6 +2923,7 @@ def test_build_city_volume_mesh_respects_explicit_tetgen_switches_for_dtcc_meshe
     assert captured["tetgen_switches"]["quality"] == (1.6, 25.0)
     assert captured["tetgen_switches"]["preserve_surface"] is False
     assert captured["tetgen_switches"]["max_added_points"] == 1234
+    assert captured["tetgen_switches"]["optimize_max_dihedral"] == 175.0
     assert captured["top_cap_backend"] == "dtcc_mesher"
     assert captured["top_cap_max_mesh_size"] == 6.0
     assert captured["top_cap_min_mesh_angle"] == 20.0
@@ -2726,6 +3012,32 @@ def test_build_city_volume_mesh_saves_tetgen_debug_meshes(monkeypatch, tmp_path)
         meshes_module,
         "_build_city_surface_mesh_from_ground_mesh",
         fake_build_surface_from_ground,
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_refine_ground_building_transition_faces_for_tetgen",
+        lambda mesh, *, max_mesh_size: (
+            mesh,
+            meshes_module._tetgen_shell_transition_refinement_disabled_stats(),
+        ),
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_refine_near_horizontal_surface_faces_for_tetgen",
+        lambda mesh, *, max_mesh_size: (
+            mesh,
+            meshes_module._tetgen_shell_refinement_disabled_stats(),
+        ),
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_tetgen_plc_audit",
+        lambda **kwargs: {"audit_ok": True},
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_tetgen_plc_contract_from_audit",
+        lambda *args, **kwargs: {"errors": [], "warnings": [], "ok": True},
     )
     monkeypatch.setattr(meshes_module, "_save_tetgen_debug_meshes", fake_save_debug_meshes)
     monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
@@ -3048,6 +3360,32 @@ def test_build_city_volume_mesh_captures_quality_failure_artifacts(monkeypatch, 
         "_build_city_surface_mesh_from_ground_mesh",
         fake_build_surface_from_ground,
     )
+    monkeypatch.setattr(
+        meshes_module,
+        "_refine_ground_building_transition_faces_for_tetgen",
+        lambda mesh, *, max_mesh_size: (
+            mesh,
+            meshes_module._tetgen_shell_transition_refinement_disabled_stats(),
+        ),
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_refine_near_horizontal_surface_faces_for_tetgen",
+        lambda mesh, *, max_mesh_size: (
+            mesh,
+            meshes_module._tetgen_shell_refinement_disabled_stats(),
+        ),
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_tetgen_plc_audit",
+        lambda **kwargs: {"audit_ok": True},
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_tetgen_plc_contract_from_audit",
+        lambda *args, **kwargs: {"errors": [], "warnings": [], "ok": True},
+    )
     monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
     monkeypatch.setattr(meshes_module, "tetgen_build_volume_mesh", fake_tetgen_build)
     monkeypatch.setattr(
@@ -3089,12 +3427,154 @@ def test_build_city_volume_mesh_captures_quality_failure_artifacts(monkeypatch, 
     assert captured["quality_failure"]["top_cap_min_mesh_angle"] == 20.0
 
 
-def test_build_city_volume_mesh_uses_single_unrefined_shell_without_retry(
+def test_build_city_volume_mesh_ignores_quality_failure_capture_errors(
     monkeypatch, tmp_path
 ):
     city = make_flat_city([make_building(box(10, 10, 20, 20), roof_z=10.0)])
     terrain = city.terrain
     terrain_raster = terrain.raster
+    conditioned_surface = make_surface(box(10, 10, 20, 20), 10.0)
+
+    def fake_prepare(*args, **kwargs):
+        return terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], {
+            "output_grid": 0.25
+        }
+
+    def fake_prepare_regions(**kwargs):
+        return (
+            [conditioned_surface],
+            [1],
+            [box(0, 0, 80, 80), box(10, 10, 20, 20)],
+            [-2, 0],
+            {0: 4.0},
+            [
+                np.array([40.0, 40.0], dtype=np.float64),
+                np.array([15.0, 15.0], dtype=np.float64),
+            ],
+        )
+
+    def fake_build_ground(**kwargs):
+        return (
+            Mesh(
+                vertices=np.array(
+                    [
+                        [0.0, 0.0, 0.0],
+                        [10.0, 0.0, 0.0],
+                        [10.0, 10.0, 0.0],
+                        [0.0, 10.0, 0.0],
+                    ]
+                ),
+                faces=np.array([[0, 1, 2], [0, 2, 3]], dtype=int),
+                markers=np.array([-2, -2], dtype=int),
+            ),
+            "dtcc_mesher",
+        )
+
+    def fake_build_surface_from_ground(**kwargs):
+        return Mesh(
+            vertices=np.array(
+                [
+                    [0.0, 0.0, 0.0],
+                    [10.0, 0.0, 0.0],
+                    [10.0, 10.0, 0.0],
+                    [0.0, 10.0, 0.0],
+                ]
+            ),
+            faces=np.array([[0, 1, 2], [0, 2, 3]], dtype=int),
+            markers=np.array([0, 0], dtype=int),
+        )
+
+    def fake_tetgen_build(**kwargs):
+        return VolumeMesh(
+            vertices=np.array(
+                [
+                    [0.0, 0.0, 0.0],
+                    [10.0, 0.0, 0.0],
+                    [0.0, 10.0, 0.0],
+                    [9.9, 9.9, 0.01],
+                ]
+            ),
+            cells=np.array([[0, 1, 2, 3]], dtype=int),
+        )
+
+    monkeypatch.setattr(meshes_module, "_prepare_city_meshing_inputs", fake_prepare)
+    monkeypatch.setattr(meshes_module, "_prepare_surface_ground_regions", fake_prepare_regions)
+    monkeypatch.setattr(meshes_module, "_build_ground_mesh_from_coverage", fake_build_ground)
+    monkeypatch.setattr(
+        meshes_module,
+        "_build_city_surface_mesh_from_ground_mesh",
+        fake_build_surface_from_ground,
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_refine_ground_building_transition_faces_for_tetgen",
+        lambda mesh, *, max_mesh_size: (
+            mesh,
+            meshes_module._tetgen_shell_transition_refinement_disabled_stats(),
+        ),
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_refine_near_horizontal_surface_faces_for_tetgen",
+        lambda mesh, *, max_mesh_size: (
+            mesh,
+            meshes_module._tetgen_shell_refinement_disabled_stats(),
+        ),
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_tetgen_plc_audit",
+        lambda **kwargs: {"audit_ok": True},
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_tetgen_plc_contract_from_audit",
+        lambda *args, **kwargs: {"errors": [], "warnings": [], "ok": True},
+    )
+    monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
+    monkeypatch.setattr(meshes_module, "tetgen_build_volume_mesh", fake_tetgen_build)
+    monkeypatch.setattr(
+        meshes_module,
+        "_capture_tetgen_quality_failure_artifacts",
+        lambda **kwargs: (_ for _ in ()).throw(ValueError("debug export failed")),
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_tetgen_volume_mesh_quality_snapshot",
+        lambda mesh: {
+            "aspect_ratio_max": 500.0,
+            "element_quality_min": 0.02,
+            "min_edge_length": 0.01,
+            "high_aspect_ratio_count": 1.0,
+            "low_quality_count": 1.0,
+        },
+    )
+
+    volume_mesh = build_city_volume_mesh(
+        city,
+        lod=GeometryType.LOD0,
+        merge_buildings=False,
+        min_building_detail=0.0,
+        min_building_area=1.0,
+        merge_tolerance=0.0,
+        max_mesh_size=6.0,
+        min_mesh_angle=20.0,
+        report_mesh_quality=False,
+        mesher="dtcc_mesher",
+        tetgen_quality_failure_output_dir=tmp_path,
+        tetgen_quality_failure_output_stem="case_055",
+    )
+
+    assert volume_mesh.cells.shape == (1, 4)
+
+
+def test_build_city_volume_mesh_uses_refined_shell_without_retry(
+    monkeypatch, tmp_path
+):
+    city = make_flat_city([make_building(box(10, 10, 20, 20), roof_z=10.0)])
+    terrain = city.terrain
+    terrain_raster = terrain.raster
+    terrain_raster.data[0, 0] = 0.1
     conditioned_surface = make_surface(box(10, 10, 20, 20), 10.0)
     diagnostics = {"output_grid": 0.25}
     stage_audit = {}
@@ -3147,14 +3627,59 @@ def test_build_city_volume_mesh_uses_single_unrefined_shell_without_retry(
             markers=np.array([0, 0], dtype=int),
         )
 
+    def fake_refine_transition(mesh, *, max_mesh_size):
+        refined = Mesh(
+            vertices=np.array(mesh.vertices, copy=True),
+            faces=np.array(mesh.faces, copy=True),
+            markers=np.array(mesh.markers, copy=True),
+        )
+        refined.transition_refined_tag = True
+        return refined, {
+            "enabled": True,
+            "applied": True,
+            "candidate_transition_edges": 1,
+            "candidate_terrain_faces": 1,
+            "candidate_wall_faces": 1,
+            "ground_relief_median": 1.0,
+            "ground_refinement_enabled": True,
+            "split_edges": 1,
+            "added_vertices": 1,
+            "added_faces": 2,
+            "edge_threshold": 7.5,
+        }
+
+    def fake_refine_horizontal(mesh, *, max_mesh_size):
+        refined = Mesh(
+            vertices=np.array(mesh.vertices, copy=True),
+            faces=np.array(mesh.faces, copy=True),
+            markers=np.array(mesh.markers, copy=True),
+        )
+        refined.refined_tag = True
+        return refined, {
+            "applied": True,
+            "rounds": 1,
+            "candidate_faces": 1,
+            "candidate_roof_faces": 1,
+            "candidate_ground_faces": 0,
+            "ground_relief_median": 1.0,
+            "ground_refinement_enabled": True,
+            "split_edges": 1,
+            "added_vertices": 1,
+            "added_faces": 2,
+            "edge_threshold": 7.5,
+        }
+
+    def fake_refine_walls(mesh, *, max_mesh_size):
+        return mesh, meshes_module._tetgen_shell_wall_refinement_disabled_stats()
+
     def fake_tetgen_build(**kwargs):
         mesh = kwargs["mesh"]
+        switches = dict(kwargs.get("switches_params") or {})
+        switches.update(kwargs.get("switches_overrides") or {})
         calls.append(
             {
                 "refined": bool(getattr(mesh, "refined_tag", False)),
-                "preserve_surface": bool(
-                    (kwargs.get("switches_overrides") or {}).get("preserve_surface")
-                ),
+                "preserve_surface": bool(switches.get("preserve_surface")),
             }
         )
         volume_mesh = VolumeMesh(
@@ -3180,6 +3705,21 @@ def test_build_city_volume_mesh_uses_single_unrefined_shell_without_retry(
         meshes_module,
         "_build_city_surface_mesh_from_ground_mesh",
         fake_build_surface_from_ground,
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_refine_ground_building_transition_faces_for_tetgen",
+        fake_refine_transition,
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_refine_near_horizontal_surface_faces_for_tetgen",
+        fake_refine_horizontal,
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_refine_vertical_wall_faces_for_tetgen",
+        fake_refine_walls,
     )
     monkeypatch.setattr(
         meshes_module,
@@ -3226,18 +3766,180 @@ def test_build_city_volume_mesh_uses_single_unrefined_shell_without_retry(
         stage_audit=stage_audit,
     )
 
-    assert volume_mesh.retry_tag == "plain"
+    assert volume_mesh.retry_tag == "refined"
     assert calls == [
-        {"refined": False, "preserve_surface": False},
+        {"refined": True, "preserve_surface": False},
     ]
     assert stage_audit["selected_attempt_label"] == "attempt-1"
     attempts = {attempt["label"]: attempt for attempt in stage_audit["attempts"]}
     assert "followup_retries" not in attempts["attempt-1"]
+    assert attempts["attempt-1"]["config"]["tetgen_shell_refinement_enabled"] is True
+    selection = attempts["attempt-1"]["stages"]["surface_shell"][
+        "tetgen_shell_horizontal_refinement_selection"
+    ]
+    assert selection["selected_variant"] == "refined"
+    assert selection["reason"] == "tetgen_shell_preconditioned"
+
+
+def test_build_city_volume_mesh_keeps_shell_refinement_enabled_when_preserving_surface(
+    monkeypatch,
+):
+    city = make_flat_city([make_building(box(10, 10, 20, 20), roof_z=10.0)])
+    terrain = city.terrain
+    terrain_raster = terrain.raster
+    conditioned_surface = make_surface(box(10, 10, 20, 20), 10.0)
+    stage_audit = {}
+    calls: list[dict[str, bool]] = []
+    refinement_calls = {"transition": 0, "wall": 0, "horizontal": 0}
+
+    def fake_prepare(*args, **kwargs):
+        return terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], {
+            "output_grid": 0.25
+        }
+
+    def fake_prepare_regions(**kwargs):
+        return (
+            [conditioned_surface],
+            [1],
+            [box(0, 0, 80, 80), box(10, 10, 20, 20)],
+            [-2, 0],
+            {0: 4.0},
+            [
+                np.array([40.0, 40.0], dtype=np.float64),
+                np.array([15.0, 15.0], dtype=np.float64),
+            ],
+        )
+
+    def fake_build_ground(**kwargs):
+        return (
+            Mesh(
+                vertices=np.array(
+                    [
+                        [0.0, 0.0, 0.0],
+                        [10.0, 0.0, 0.0],
+                        [10.0, 10.0, 0.0],
+                        [0.0, 10.0, 0.0],
+                    ]
+                ),
+                faces=np.array([[0, 1, 2], [0, 2, 3]], dtype=int),
+                markers=np.array([-2, -2], dtype=int),
+            ),
+            "dtcc_mesher",
+        )
+
+    def fake_build_surface_from_ground(**kwargs):
+        return Mesh(
+            vertices=np.array(
+                [
+                    [0.0, 0.0, 0.0],
+                    [10.0, 0.0, 0.0],
+                    [10.0, 10.0, 0.0],
+                    [0.0, 10.0, 0.0],
+                ]
+            ),
+            faces=np.array([[0, 1, 2], [0, 2, 3]], dtype=int),
+            markers=np.array([0, 0], dtype=int),
+        )
+
+    def fake_refine_transition(mesh, *, max_mesh_size):
+        refinement_calls["transition"] += 1
+        return mesh, meshes_module._tetgen_shell_transition_refinement_disabled_stats()
+
+    def fake_refine_horizontal(mesh, *, max_mesh_size):
+        refinement_calls["horizontal"] += 1
+        return mesh, meshes_module._tetgen_shell_refinement_disabled_stats()
+
+    def fake_refine_walls(mesh, *, max_mesh_size):
+        refinement_calls["wall"] += 1
+        return mesh, meshes_module._tetgen_shell_wall_refinement_disabled_stats()
+
+    def fake_tetgen_build(**kwargs):
+        mesh = kwargs["mesh"]
+        calls.append({"refined": bool(getattr(mesh, "refined_tag", False))})
+        return VolumeMesh(
+            vertices=np.array(
+                [
+                    [0.0, 0.0, 0.0],
+                    [10.0, 0.0, 0.0],
+                    [0.0, 10.0, 0.0],
+                    [0.0, 0.0, 10.0],
+                ]
+            ),
+            cells=np.array([[0, 1, 2, 3]], dtype=int),
+        )
+
+    monkeypatch.setattr(meshes_module, "_prepare_city_meshing_inputs", fake_prepare)
+    monkeypatch.setattr(meshes_module, "_prepare_surface_ground_regions", fake_prepare_regions)
+    monkeypatch.setattr(meshes_module, "_build_ground_mesh_from_coverage", fake_build_ground)
+    monkeypatch.setattr(
+        meshes_module,
+        "_build_city_surface_mesh_from_ground_mesh",
+        fake_build_surface_from_ground,
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_refine_ground_building_transition_faces_for_tetgen",
+        fake_refine_transition,
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_refine_near_horizontal_surface_faces_for_tetgen",
+        fake_refine_horizontal,
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_refine_vertical_wall_faces_for_tetgen",
+        fake_refine_walls,
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_tetgen_plc_audit",
+        lambda **kwargs: {"audit_ok": True},
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_tetgen_plc_contract_from_audit",
+        lambda *args, **kwargs: {"errors": [], "warnings": [], "ok": True},
+    )
+    monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
+    monkeypatch.setattr(meshes_module, "tetgen_build_volume_mesh", fake_tetgen_build)
+    monkeypatch.setattr(
+        meshes_module,
+        "_tetgen_volume_mesh_quality_snapshot",
+        lambda volume_mesh: {
+            "aspect_ratio_max": 1.0,
+            "element_quality_min": 1.0,
+            "min_edge_length": 1.0,
+            "high_aspect_ratio_count": 0.0,
+            "low_quality_count": 0.0,
+        },
+    )
+
+    build_city_volume_mesh(
+        city,
+        lod=GeometryType.LOD0,
+        merge_buildings=False,
+        min_building_detail=0.0,
+        min_building_area=1.0,
+        merge_tolerance=0.0,
+        max_mesh_size=6.0,
+        min_mesh_angle=20.0,
+        report_mesh_quality=False,
+        mesher="dtcc_mesher",
+        tetgen_switches={"preserve_surface": True},
+        stage_audit=stage_audit,
+    )
+
+    assert refinement_calls == {"transition": 1, "wall": 0, "horizontal": 1}
+    assert calls == [{"refined": False}]
+    attempts = {attempt["label"]: attempt for attempt in stage_audit["attempts"]}
+    assert attempts["attempt-1"]["config"]["preserve_surface_requested"] is True
+    assert attempts["attempt-1"]["config"]["tetgen_shell_refinement_enabled"] is True
     selection = attempts["attempt-1"]["stages"]["surface_shell"][
         "tetgen_shell_horizontal_refinement_selection"
     ]
     assert selection["selected_variant"] == "unrefined"
-    assert selection["reason"] == "strict_single_shell"
+    assert selection["reason"] == "no_candidate_edges"
 
 
 def test_build_city_flat_mesh_runs_with_dtcc_mesher():

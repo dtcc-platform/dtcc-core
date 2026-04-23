@@ -6,11 +6,11 @@ from typing import Dict, Mapping, Sequence
 
 import numpy as np
 from shapely.geometry import Polygon
-from shapely.ops import triangulate
 from shapely.validation import explain_validity
 
 from ...model import Mesh
 from ...model.mixins.mesh.quality import tri_aspect_ratio, tri_element_quality
+from ..logging import warning
 
 
 _MIN_EDGE_RATIO_WARNING = 1.0e-3
@@ -1019,139 +1019,201 @@ def _build_lifted_top_boundary_vertices(
     return top_vertices, top_loops, top_ring
 
 
-def _triangulate_boundary_ring_polygon(
-    boundary_vertices: np.ndarray,
-    ring_indices: np.ndarray,
+def _triangle_mesh_boundary_vertex_indices(faces: np.ndarray) -> np.ndarray:
+    faces = np.asarray(faces, dtype=np.int64)
+    if faces.ndim != 2 or faces.shape[1] != 3 or len(faces) == 0:
+        return np.empty((0,), dtype=np.int64)
+
+    unique_edges, counts = _edge_multiplicity(faces)
+    boundary_edges = unique_edges[counts == 1]
+    if len(boundary_edges) == 0:
+        return np.empty((0,), dtype=np.int64)
+
+    return np.unique(boundary_edges.reshape(-1))
+
+
+def _validate_top_cap_boundary_loops(
+    top_vertices: np.ndarray,
+    expected_loops: Mapping[str, np.ndarray],
     tol: float,
-) -> np.ndarray:
-    ring_indices = np.asarray(ring_indices, dtype=np.int64)
-    if len(ring_indices) < 4:
-        raise ValueError("Top-cap boundary must contain at least four vertices.")
-
-    ring_points = np.asarray(boundary_vertices[ring_indices], dtype=float)
-    polygon = Polygon(ring_points[:, :2])
-    if polygon.is_empty or not polygon.is_valid or polygon.area <= tol * tol:
-        raise ValueError(
-            f"Top-cap boundary polygon is invalid ({explain_validity(polygon)})."
-        )
-
-    coord_lookup: dict[tuple[float, float], int] = {}
-    for local_index, point in enumerate(ring_points[:, :2]):
-        coord_lookup[(round(float(point[0]), 12), round(float(point[1]), 12))] = local_index
-
-    triangles: list[list[int]] = []
-    for triangle in triangulate(polygon):
-        if not polygon.covers(triangle.representative_point()):
+) -> None:
+    actual_loops = _boundary_loops(top_vertices, tol)
+    xy_tol = max(float(tol), 1.0e-6)
+    for name in ("south", "east", "north", "west"):
+        expected = np.asarray(expected_loops[name], dtype=np.int64)
+        actual = np.asarray(actual_loops[name], dtype=np.int64)
+        if len(expected) != len(actual):
+            raise ValueError(
+                f"Top-cap remeshing modified the prescribed outer boundary loop '{name}' "
+                f"({len(expected)} vertices expected, got {len(actual)})."
+            )
+        if len(expected) == 0:
             continue
-        coords = np.asarray(triangle.exterior.coords[:-1], dtype=float)
-        if len(coords) != 3:
-            continue
-
-        tri_indices: list[int] = []
-        for coord in coords:
-            key = (round(float(coord[0]), 12), round(float(coord[1]), 12))
-            local_index = coord_lookup.get(key)
-            if local_index is None:
-                raise ValueError(
-                    "Top-cap triangulation introduced a vertex outside the prescribed boundary ring."
-                )
-            tri_indices.append(int(ring_indices[local_index]))
-
-        if len(set(tri_indices)) < 3:
-            continue
-
-        points = np.asarray(boundary_vertices[np.asarray(tri_indices, dtype=np.int64)], dtype=float)
-        if np.cross(points[1] - points[0], points[2] - points[0])[2] < 0.0:
-            tri_indices = [tri_indices[0], tri_indices[2], tri_indices[1]]
-        triangles.append(tri_indices)
-
-    if not triangles:
-        raise ValueError("Top-cap polygon triangulation produced no valid triangles.")
-
-    return np.asarray(triangles, dtype=np.int64)
+        if not np.allclose(
+            top_vertices[expected, :2],
+            top_vertices[actual, :2],
+            atol=xy_tol,
+            rtol=0.0,
+        ):
+            raise ValueError(
+                f"Top-cap remeshing modified the prescribed outer boundary coordinates for loop '{name}'."
+            )
 
 
-def _build_top_cap_mesh(
-    *,
+def _remesh_top_cap_from_outer_boundary(
     boundary_vertices: np.ndarray,
+    *,
     boundary_loops: Mapping[str, np.ndarray],
-    backend: str,
-    max_mesh_size: float | None,
-    min_mesh_angle: float,
+    z_top: float,
+    top_cap_backend: str,
+    top_cap_max_mesh_size: float | None,
+    top_cap_min_mesh_angle: float,
     tol: float,
 ) -> tuple[np.ndarray, np.ndarray, dict[str, np.ndarray]]:
-    from .backends import available_2d_meshers
-    from .flat_mesh_backends import build_city_flat_mesh_from_coverage
+    from .backends import resolve_2d_mesher
 
-    ring_indices = _outer_boundary_ring_indices(boundary_loops)
-    if len(ring_indices) < 4:
-        raise ValueError("Top-cap boundary must contain at least four vertices.")
-
-    ring_xy = boundary_vertices[ring_indices, :2]
+    boundary_top_vertices, top_loops, top_ring = _build_lifted_top_boundary_vertices(
+        boundary_vertices,
+        boundary_loops,
+        z_top,
+    )
+    ring_xy = np.asarray(boundary_top_vertices[top_ring, :2], dtype=np.float64)
     polygon = Polygon(ring_xy)
-    if polygon.is_empty or not polygon.is_valid or polygon.area <= tol * tol:
-        raise ValueError(
-            f"Top-cap boundary polygon is invalid ({explain_validity(polygon)})."
+    if polygon.is_empty or not polygon.is_valid or polygon.area <= 0.0:
+        raise ValueError("Top-cap outer boundary ring is not a valid simple polygon.")
+
+    if top_cap_backend is None or str(top_cap_backend).strip().lower() == "auto":
+        active_backend = resolve_2d_mesher(top_cap_backend)
+    else:
+        active_backend = str(top_cap_backend).strip().lower()
+
+    if active_backend == "dtcc_mesher":
+        import dtcc_mesher
+
+        raw_mesh = dtcc_mesher.mesh(
+            dtcc_mesher.Domain.from_loops(ring_xy, []),
+            options=dtcc_mesher.MeshingOptions(
+                min_angle=float(top_cap_min_mesh_angle),
+                max_edge_length=(
+                    float(top_cap_max_mesh_size)
+                    if top_cap_max_mesh_size is not None
+                    and float(top_cap_max_mesh_size) > 0.0
+                    else None
+                ),
+                # Keep the prescribed outer ring exact. For the top cap we want
+                # a clean constrained triangulation, not another boundary-editing
+                # refinement pass.
+                refine=False,
+            ),
         )
+        top_vertices_xy = np.asarray(raw_mesh.points, dtype=np.float64)
+        top_faces = np.asarray(raw_mesh.triangles, dtype=np.int64)
+    else:
+        from .flat_mesh_backends import build_city_flat_mesh_from_coverage
 
-    minx, miny, maxx, maxy = polygon.bounds
-
-    def _build_with_backend(selected_backend: str) -> tuple[np.ndarray, np.ndarray, dict[str, np.ndarray]]:
         top_cap_mesh = build_city_flat_mesh_from_coverage(
             region_polygons=[polygon],
             region_markers=[0],
-            bounds=(float(minx), float(miny), float(maxx), float(maxy)),
-            max_mesh_size=max_mesh_size,
-            min_mesh_angle=min_mesh_angle,
-            backend=selected_backend,
-            sort_triangles=False,
+            bounds=polygon.bounds,
+            max_mesh_size=top_cap_max_mesh_size,
+            min_mesh_angle=top_cap_min_mesh_angle,
+            backend=active_backend,
+            sort_triangles=True,
         )
-        top_vertices = np.asarray(top_cap_mesh.vertices, dtype=float)
+
+        top_vertices_xy = np.asarray(top_cap_mesh.vertices, dtype=np.float64)
         top_faces = np.asarray(top_cap_mesh.faces, dtype=np.int64)
-        if top_vertices.ndim != 2 or top_vertices.shape[1] != 3:
-            raise ValueError("Top-cap mesh vertices must have shape (N, 3).")
-        if top_faces.ndim != 2 or top_faces.shape[1] != 3 or top_faces.shape[0] == 0:
-            raise ValueError("Top-cap mesh must provide triangle faces.")
-        top_loops = _boundary_loops(top_vertices, tol)
-        _validate_boundary_loop_alignment(
-            boundary_vertices,
-            top_vertices,
-            boundary_loops,
-            top_loops,
-            tol,
-        )
-        return top_vertices, top_faces, top_loops
 
-    def _is_retryable_top_cap_error(exc: Exception) -> bool:
-        message = str(exc)
-        return (
-            "Boundary loop" in message
-            or "Triangle support not built" in message
-            or "Requested 2D mesher" in message
-            or "No supported 2D mesher backend is available" in message
+    if top_vertices_xy.ndim != 2 or top_vertices_xy.shape[1] < 2:
+        raise ValueError("Top-cap mesher returned invalid vertex coordinates.")
+    if top_faces.ndim != 2 or top_faces.shape[1] != 3 or len(top_faces) == 0:
+        raise ValueError("Top-cap mesher returned no triangle faces.")
+
+    boundary_vertex_indices = _triangle_mesh_boundary_vertex_indices(top_faces)
+    if len(boundary_vertex_indices) != len(top_ring):
+        raise ValueError(
+            "Top-cap remeshing changed the prescribed outer boundary vertex set."
         )
 
-    fallback_backends = [backend]
-    for candidate in available_2d_meshers():
-        if candidate not in fallback_backends:
-            fallback_backends.append(candidate)
+    xy_tol = max(float(tol), 1.0e-6)
+    available = set(int(index) for index in boundary_vertex_indices.tolist())
+    ordered_boundary_indices: list[int] = []
+    for point in ring_xy:
+        matches = [
+            int(index)
+            for index in boundary_vertex_indices
+            if np.allclose(
+                top_vertices_xy[int(index), :2],
+                point,
+                atol=xy_tol,
+                rtol=0.0,
+            )
+        ]
+        if len(matches) != 1:
+            raise ValueError(
+                "Top-cap remeshing failed to preserve the prescribed outer boundary vertices."
+            )
+        match = matches[0]
+        if match not in available:
+            raise ValueError(
+                "Top-cap remeshing duplicated a prescribed outer boundary vertex."
+            )
+        ordered_boundary_indices.append(match)
+        available.remove(match)
 
-    first_retryable_error: Exception | None = None
-    for candidate in fallback_backends:
-        try:
-            return _build_with_backend(candidate)
-        except (RuntimeError, ValueError) as exc:
-            if not _is_retryable_top_cap_error(exc):
-                raise
-            if first_retryable_error is None:
-                first_retryable_error = exc
+    remainder = [
+        int(index)
+        for index in range(len(top_vertices_xy))
+        if int(index) not in ordered_boundary_indices
+    ]
+    permutation = np.asarray(ordered_boundary_indices + remainder, dtype=np.int64)
+    inverse_permutation = np.empty(len(permutation), dtype=np.int64)
+    inverse_permutation[permutation] = np.arange(len(permutation), dtype=np.int64)
 
-    if first_retryable_error is not None:
-        raise first_retryable_error
-    raise RuntimeError("Failed to build a valid top-cap mesh with any available 2D backend.")
+    reordered_xy = top_vertices_xy[permutation, :2]
+    reordered_faces = inverse_permutation[top_faces]
+    top_vertices = np.column_stack(
+        [
+            reordered_xy,
+            np.full(len(reordered_xy), float(z_top), dtype=np.float64),
+        ]
+    )
+
+    face_normals_z = np.cross(
+        top_vertices[reordered_faces[:, 1], :3] - top_vertices[reordered_faces[:, 0], :3],
+        top_vertices[reordered_faces[:, 2], :3] - top_vertices[reordered_faces[:, 0], :3],
+    )[:, 2]
+    flip = face_normals_z < 0.0
+    if np.any(flip):
+        reordered_faces = reordered_faces.copy()
+        reordered_faces[flip] = reordered_faces[flip][:, [0, 2, 1]]
+
+    _validate_top_cap_boundary_loops(top_vertices, top_loops, tol)
+    return top_vertices, reordered_faces, top_loops
 
 
-def compute_boundary_triangle_facets(
+def _lift_closure_mesh_top_cap(
+    closure_mesh: Mesh,
+    *,
+    boundary_loops: Mapping[str, np.ndarray],
+    z_top: float,
+) -> tuple[np.ndarray, np.ndarray, dict[str, np.ndarray]]:
+    top_vertices = np.asarray(closure_mesh.vertices, dtype=float).copy()
+    top_faces = np.asarray(closure_mesh.faces, dtype=np.int64)
+    if top_vertices.ndim != 2 or top_vertices.shape[1] != 3:
+        raise ValueError("Closure mesh vertices must have shape (N, 3).")
+    if top_faces.ndim != 2 or top_faces.shape[1] != 3 or top_faces.shape[0] == 0:
+        raise ValueError("Closure mesh must provide triangle faces for the top cap.")
+
+    top_vertices[:, 2] = float(z_top)
+    top_loops = {
+        name: np.asarray(loop, dtype=np.int64).copy()
+        for name, loop in boundary_loops.items()
+    }
+    return top_vertices, top_faces, top_loops
+
+
+def _compute_boundary_triangle_facets_with_markers(
     mesh: Mesh,
     closure_mesh: Mesh,
     top_height: float = 100.0,
@@ -1159,14 +1221,12 @@ def compute_boundary_triangle_facets(
     top_cap_backend: str = "auto",
     top_cap_max_mesh_size: float | None = None,
     top_cap_min_mesh_angle: float = 25.0,
-) -> tuple[np.ndarray, list[list[int]]]:
+) -> tuple[np.ndarray, list[list[int]], list[int]]:
     """
-    Build a fully triangulated PLC closure for TetGen using the 2D ground mesh boundary.
+    Build a fully triangulated PLC closure together with boundary-facet markers.
 
-    The surface mesh contributes the terrain/building shell. The closure mesh
-    contributes the outer-domain boundary loop ordering. The top cap is then
-    re-triangulated from that rectangular boundary, and the four side walls are
-    built as stacked triangle strips between matching boundary loops.
+    Boundary markers follow the dtcc CFD convention:
+    ``-2`` top, ``-3`` west, ``-4`` east, ``-5`` south, ``-6`` north.
     """
 
     shell_vertices = np.asarray(mesh.vertices, dtype=float)
@@ -1175,58 +1235,38 @@ def compute_boundary_triangle_facets(
         raise ValueError("Surface mesh vertices must have shape (N, 3).")
     if cap_source_vertices.ndim != 2 or cap_source_vertices.shape[1] != 3:
         raise ValueError("Closure mesh vertices must have shape (N, 3).")
+    del cap_source_vertices, closure_mesh
 
     _, z_top = _compute_top_plane(shell_vertices, top_height)
 
     bottom_loops = _boundary_loops(shell_vertices, tol)
-    cap_source_loops = _boundary_loops(cap_source_vertices, tol)
-    try:
-        _validate_boundary_loop_alignment(
-            shell_vertices,
-            cap_source_vertices,
-            bottom_loops,
-            cap_source_loops,
-            tol,
-        )
-    except ValueError:
-        realigned_cap_source_loops = _realign_closure_boundary_loops(
-            shell_vertices,
-            bottom_loops,
-            cap_source_vertices,
-            cap_source_loops,
-            tol,
-        )
-        if realigned_cap_source_loops is None:
-            raise
-        cap_source_loops = realigned_cap_source_loops
-        _validate_boundary_loop_alignment(
-            shell_vertices,
-            cap_source_vertices,
-            bottom_loops,
-            cap_source_loops,
-            tol,
-        )
-
-    top_vertices, top_faces, top_loops = _build_top_cap_mesh(
-        boundary_vertices=cap_source_vertices,
-        boundary_loops=cap_source_loops,
-        backend=top_cap_backend,
-        max_mesh_size=top_cap_max_mesh_size,
-        min_mesh_angle=top_cap_min_mesh_angle,
+    top_vertices, top_faces, top_loops = _remesh_top_cap_from_outer_boundary(
+        shell_vertices,
+        boundary_loops=bottom_loops,
+        z_top=z_top,
+        top_cap_backend=top_cap_backend,
+        top_cap_max_mesh_size=top_cap_max_mesh_size,
+        top_cap_min_mesh_angle=top_cap_min_mesh_angle,
         tol=tol,
     )
-    top_vertices = top_vertices.copy()
-    top_vertices[:, 2] = z_top
 
     offset = shell_vertices.shape[0]
-    vertices_out = np.vstack([shell_vertices, top_vertices]).tolist()
+    vertices_seed = np.vstack([shell_vertices, top_vertices])
+    vertices_out = vertices_seed.tolist()
     boundary_facets: list[list[int]] = []
+    boundary_facet_markers: list[int] = []
     top_boundary_loops = {
         name: np.asarray(top_loops[name], dtype=np.int64) + offset
         for name in ("south", "east", "north", "west")
     }
+    sidewall_marker_by_name = {
+        "south": -5,
+        "east": -4,
+        "north": -6,
+        "west": -3,
+    }
     sidewall_strip_count = _boundary_sidewall_strip_count(
-        np.asarray(vertices_out, dtype=float),
+        vertices_seed,
         bottom_loops,
         top_boundary_loops,
     )
@@ -1241,6 +1281,7 @@ def compute_boundary_triangle_facets(
             top_loop[:-1],
             top_loop[1:],
         ):
+            before = len(boundary_facets)
             _append_vertical_sidewall_facet(
                 vertices_out,
                 boundary_facets,
@@ -1251,15 +1292,56 @@ def compute_boundary_triangle_facets(
                 strip_count=sidewall_strip_count,
                 vertical_vertex_cache=vertical_vertex_cache,
             )
+            boundary_facet_markers.extend(
+                [sidewall_marker_by_name[name]] * (len(boundary_facets) - before)
+            )
 
-    for face in top_faces:
-        tri = np.asarray(face, dtype=np.int64) + offset
-        points = np.asarray(vertices_out, dtype=float)[tri]
+    for face in np.asarray(top_faces, dtype=np.int64):
+        tri = face + offset
+        points = top_vertices[face]
         if np.cross(points[1] - points[0], points[2] - points[0])[2] < 0.0:
             tri = np.array([tri[0], tri[2], tri[1]], dtype=np.int64)
         boundary_facets.append([int(tri[0]), int(tri[1]), int(tri[2])])
+        boundary_facet_markers.append(-2)
 
-    return np.asarray(vertices_out, dtype=float), boundary_facets
+    vertices_array = np.asarray(vertices_out, dtype=float)
+    return (
+        vertices_array,
+        boundary_facets,
+        boundary_facet_markers,
+    )
+
+
+def compute_boundary_triangle_facets(
+    mesh: Mesh,
+    closure_mesh: Mesh,
+    top_height: float = 100.0,
+    tol: float = 1e-3,
+    top_cap_backend: str = "auto",
+    top_cap_max_mesh_size: float | None = None,
+    top_cap_min_mesh_angle: float = 25.0,
+) -> tuple[np.ndarray, list[list[int]]]:
+    """
+    Build a fully triangulated PLC closure for TetGen using the 2D ground mesh boundary.
+
+    The surface mesh contributes the terrain/building shell and its
+    authoritative outer-boundary ring. The top cap is re-triangulated
+    independently from that ring, and the four side walls are built as stacked
+    triangle strips between matching boundary loops.
+    """
+
+    vertices_out, boundary_facets, _boundary_facet_markers = (
+        _compute_boundary_triangle_facets_with_markers(
+            mesh,
+            closure_mesh,
+            top_height=top_height,
+            tol=tol,
+            top_cap_backend=top_cap_backend,
+            top_cap_max_mesh_size=top_cap_max_mesh_size,
+            top_cap_min_mesh_angle=top_cap_min_mesh_angle,
+        )
+    )
+    return vertices_out, boundary_facets
 
 
 def compute_oriented_boundary_triangle_plc(
@@ -1271,14 +1353,16 @@ def compute_oriented_boundary_triangle_plc(
     top_cap_max_mesh_size: float | None = None,
     top_cap_min_mesh_angle: float = 25.0,
 ) -> tuple[np.ndarray, np.ndarray, list[list[int]]]:
-    vertices_out, boundary_facets = compute_boundary_triangle_facets(
-        mesh,
-        closure_mesh,
-        top_height=top_height,
-        tol=tol,
-        top_cap_backend=top_cap_backend,
-        top_cap_max_mesh_size=top_cap_max_mesh_size,
-        top_cap_min_mesh_angle=top_cap_min_mesh_angle,
+    vertices_out, boundary_facets, _boundary_facet_markers = (
+        _compute_boundary_triangle_facets_with_markers(
+            mesh,
+            closure_mesh,
+            top_height=top_height,
+            tol=tol,
+            top_cap_backend=top_cap_backend,
+            top_cap_max_mesh_size=top_cap_max_mesh_size,
+            top_cap_min_mesh_angle=top_cap_min_mesh_angle,
+        )
     )
     oriented_shell_faces, oriented_boundary_facets = orient_closed_triangle_plc(
         vertices_out,
@@ -1298,190 +1382,40 @@ def compute_oriented_boundary_plc(
     top_cap_min_mesh_angle: float = 25.0,
 ) -> tuple[np.ndarray, np.ndarray, list[list[int]], list[int], np.ndarray]:
     """
-    Build the PLC used for TetGen with a single polygon top cap.
+    Build the PLC used for TetGen.
 
-    The top cap is represented as one polygon facet over the lifted outer boundary
-    ring. A parallel boundary-facet marker list is returned using the dtcc CFD
-    convention (`-2` top, `-3` west, `-4` east, `-5` south, `-6` north). A
-    triangle-only copy of that cap is returned separately for auditing and
-    orientation checks.
+    The shell's outer-boundary ring is authoritative for the top cap and
+    sidewalls. A parallel boundary-facet marker list is returned using the dtcc
+    CFD convention (``-2`` top, ``-3`` west, ``-4`` east, ``-5`` south,
+    ``-6`` north). A triangle-only copy of the boundary closure is returned
+    separately for auditing and orientation checks.
     """
-
-    shell_vertices = np.asarray(mesh.vertices, dtype=float)
-    shell_faces = np.asarray(mesh.faces, dtype=np.int64)
-    cap_source_vertices = np.asarray(closure_mesh.vertices, dtype=float)
-    if shell_vertices.ndim != 2 or shell_vertices.shape[1] != 3:
-        raise ValueError("Surface mesh vertices must have shape (N, 3).")
-    if cap_source_vertices.ndim != 2 or cap_source_vertices.shape[1] != 3:
-        raise ValueError("Closure mesh vertices must have shape (N, 3).")
-
-    _, z_top = _compute_top_plane(shell_vertices, top_height)
-
-    bottom_loops = _boundary_loops(shell_vertices, tol)
-    cap_source_loops = _boundary_loops(cap_source_vertices, tol)
-    try:
-        _validate_boundary_loop_alignment(
-            shell_vertices,
-            cap_source_vertices,
-            bottom_loops,
-            cap_source_loops,
-            tol,
-        )
-    except ValueError:
-        realigned_cap_source_loops = _realign_closure_boundary_loops(
-            shell_vertices,
-            bottom_loops,
-            cap_source_vertices,
-            cap_source_loops,
-            tol,
-        )
-        if realigned_cap_source_loops is None:
-            raise
-        cap_source_loops = realigned_cap_source_loops
-        _validate_boundary_loop_alignment(
-            shell_vertices,
-            cap_source_vertices,
-            bottom_loops,
-            cap_source_loops,
-            tol,
-        )
-
-    top_boundary_vertices, top_boundary_loops_local, top_boundary_ring_local = (
-        _build_lifted_top_boundary_vertices(
-            cap_source_vertices,
-            cap_source_loops,
-            z_top,
-        )
+    (
+        vertices_out,
+        boundary_facets,
+        boundary_facet_markers,
+    ) = _compute_boundary_triangle_facets_with_markers(
+        mesh,
+        closure_mesh,
+        top_height=top_height,
+        tol=tol,
+        top_cap_backend=top_cap_backend,
+        top_cap_max_mesh_size=top_cap_max_mesh_size,
+        top_cap_min_mesh_angle=top_cap_min_mesh_angle,
     )
-    top_cap_triangles_local = _triangulate_boundary_ring_polygon(
-        top_boundary_vertices,
-        top_boundary_ring_local,
-        tol,
+    oriented_shell_faces, oriented_boundary_facets = orient_closed_triangle_plc(
+        vertices_out,
+        np.asarray(mesh.faces, dtype=np.int64),
+        boundary_facets,
     )
-
-    offset = shell_vertices.shape[0]
-    vertices_out = np.vstack([shell_vertices, top_boundary_vertices]).tolist()
-    top_boundary_loops = {
-        name: np.asarray(top_boundary_loops_local[name], dtype=np.int64) + offset
-        for name in ("south", "east", "north", "west")
-    }
-    top_boundary_ring = np.asarray(top_boundary_ring_local, dtype=np.int64) + offset
-    top_cap_triangles = np.asarray(top_cap_triangles_local, dtype=np.int64) + offset
-
-    polygon_sidewall_facets: list[list[int]] = []
-    polygon_sidewall_markers: list[int] = []
-    simple_sidewall_triangles: list[list[int]] = []
-    simple_sidewall_markers: list[int] = []
-    sidewall_marker_by_name = {
-        "south": -5,
-        "east": -4,
-        "north": -6,
-        "west": -3,
-    }
-    for name in ("south", "east", "north", "west"):
-        bottom_loop = np.asarray(bottom_loops[name], dtype=np.int64)
-        top_loop = top_boundary_loops[name]
-        polygon_sidewall_facets.append(
-            np.concatenate([bottom_loop, top_loop[::-1]]).astype(np.int64).tolist()
-        )
-        polygon_sidewall_markers.append(sidewall_marker_by_name[name])
-        for b0, b1, t0, t1 in zip(
-            bottom_loop[:-1],
-            bottom_loop[1:],
-            top_loop[:-1],
-            top_loop[1:],
-        ):
-            simple_sidewall_triangles.append([int(b0), int(b1), int(t1)])
-            simple_sidewall_triangles.append([int(b0), int(t1), int(t0)])
-            simple_sidewall_markers.extend(
-                [sidewall_marker_by_name[name], sidewall_marker_by_name[name]]
-            )
-
-    use_polygon_sidewalls = _prefer_polygon_sidewalls(
-        np.asarray(vertices_out, dtype=float),
-        shell_faces,
-    )
-    if use_polygon_sidewalls:
-        sidewall_triangles = simple_sidewall_triangles
-        sidewall_triangle_markers = simple_sidewall_markers
-    else:
-        sidewall_triangles = []
-        sidewall_triangle_markers = []
-        sidewall_strip_count = _boundary_sidewall_strip_count(
-            np.asarray(vertices_out, dtype=float),
-            bottom_loops,
-            top_boundary_loops,
-        )
-        vertical_vertex_cache: dict[tuple[int, int, int, int], int] = {}
-        for name in ("south", "east", "north", "west"):
-            bottom_loop = np.asarray(bottom_loops[name], dtype=np.int64)
-            top_loop = top_boundary_loops[name]
-            for b0, b1, t0, t1 in zip(
-                bottom_loop[:-1],
-                bottom_loop[1:],
-                top_loop[:-1],
-                top_loop[1:],
-            ):
-                before = len(sidewall_triangles)
-                _append_vertical_sidewall_facet(
-                    vertices_out,
-                    sidewall_triangles,
-                    bottom_v0=int(b0),
-                    bottom_v1=int(b1),
-                    top_v0=int(t0),
-                    top_v1=int(t1),
-                    strip_count=sidewall_strip_count,
-                    vertical_vertex_cache=vertical_vertex_cache,
-                )
-                sidewall_triangle_markers.extend(
-                    [sidewall_marker_by_name[name]] * (len(sidewall_triangles) - before)
-                )
-
-    oriented_sidewall_triangles = _orient_boundary_triangle_facets_to_shell(
-        shell_faces,
-        sidewall_triangles,
-    )
-    combined_faces = np.vstack(
-        [
-            shell_faces,
-            np.asarray(oriented_sidewall_triangles, dtype=np.int64),
-            np.asarray(top_cap_triangles, dtype=np.int64),
-        ]
-    )
-    oriented_shell_faces = shell_faces
-    oriented_top_cap_ring = top_boundary_ring.tolist()
-    oriented_top_cap_triangles = np.asarray(top_cap_triangles, dtype=np.int64)
-    if _triangle_signed_volume_sum(np.asarray(vertices_out, dtype=float), combined_faces) < 0.0:
-        oriented_shell_faces = shell_faces[:, [0, 2, 1]]
-        oriented_sidewall_triangles = [
-            np.asarray(facet, dtype=np.int64)[[0, 2, 1]].tolist()
-            for facet in oriented_sidewall_triangles
-        ]
-        polygon_sidewall_facets = [list(reversed(facet)) for facet in polygon_sidewall_facets]
-        oriented_top_cap_ring = list(reversed(oriented_top_cap_ring))
-        oriented_top_cap_triangles = np.asarray(top_cap_triangles, dtype=np.int64)[:, [0, 2, 1]]
-
-    if use_polygon_sidewalls:
-        boundary_facets = list(polygon_sidewall_facets)
-        boundary_facet_markers = list(polygon_sidewall_markers)
-    else:
-        boundary_facets = [
-            list(np.asarray(facet, dtype=np.int64))
-            for facet in oriented_sidewall_triangles
-        ]
-        boundary_facet_markers = list(sidewall_triangle_markers)
-    boundary_facets.append(oriented_top_cap_ring)
-    boundary_facet_markers.append(-2)
-    audit_boundary_triangles = np.vstack(
-        [
-            np.asarray(oriented_sidewall_triangles, dtype=np.int64),
-            np.asarray(oriented_top_cap_triangles, dtype=np.int64),
-        ]
+    audit_boundary_triangles = np.asarray(
+        oriented_boundary_facets,
+        dtype=np.int64,
     )
     return (
         np.asarray(vertices_out, dtype=float),
         np.asarray(oriented_shell_faces, dtype=np.int64),
-        boundary_facets,
+        oriented_boundary_facets,
         boundary_facet_markers,
         audit_boundary_triangles,
     )

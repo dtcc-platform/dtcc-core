@@ -3,8 +3,8 @@ Benchmark TetGen-backed 3D volume-mesh quality across central Stockholm tiles.
 
 This script reuses the same city-preparation pipeline as the 2D survey, then
 builds a tetrahedral volume mesh with dtcc-core's TetGen path for each tile.
-It caches per-case results, saves per-case XDMF/HDF5 meshes, and writes
-overview heatmaps for the key 3D metrics.
+It caches per-case results, saves per-case XDMF meshes, and writes overview
+heatmaps for the key 3D metrics.
 
 Typical usage:
     python benchmarks/bench_mesh_3d.py --cases 55
@@ -545,11 +545,13 @@ def tetgen_switches(
     switches: dict[str, Any] = {
         "max_volume": regular_tet_volume(max_mesh_size),
         "quiet": True,
+        # Pass the benchmark mode explicitly so the recorded config matches the
+        # TetGen switches that the builder actually sees.
+        "preserve_surface": bool(preserve_surface),
+        "quality": (
+            (quality_ratio, min_mesh_angle) if quality_enabled else None
+        ),
     }
-    if quality_enabled:
-        switches["quality"] = (quality_ratio, min_mesh_angle)
-    if preserve_surface:
-        switches["preserve_surface"] = True
     if max_added_points is not None:
         switches["max_added_points"] = int(max_added_points)
     return switches

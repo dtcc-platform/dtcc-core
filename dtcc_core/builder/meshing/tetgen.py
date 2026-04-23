@@ -75,11 +75,12 @@ def build_volume_mesh(
     return_boundary_faces : bool, optional
         Request TetGen to return boundary faces; stored on the resulting VolumeMesh.
     closure_mesh : Mesh, optional
-        Optional flat ground mesh used to triangulate the top cap and side walls
-        of the PLC closure. When omitted, a coarse polygonal closure is used.
+        Optional flat ground mesh retained for compatibility with the builder
+        API. The live PLC path remeshes the top cap independently from the
+        shell's outer boundary ring instead of copying ``closure_mesh``.
     top_cap_backend : str, optional
-        2D backend used when re-triangulating the top cap from the outer-domain
-        boundary. Defaults to ``"auto"``.
+        2D backend used when re-triangulating the top cap from the shell's
+        outer-domain boundary. Defaults to ``"auto"``.
     top_cap_max_mesh_size : float, optional
         Maximum target edge length for the re-triangulated top cap. When ``None``,
         only the prescribed outer boundary vertices constrain the top cap.

@@ -95,6 +95,8 @@ class _PolygonDefectSignature:
     min_edge_length: float | None
     vertex_count: int
     ring_contact_count: int = 0
+    acute_tip_count: int = 0
+    acute_tip_span: float = 0.0
 
 
 @dataclass(slots=True)
@@ -108,6 +110,8 @@ class _CoverageDefectSignature:
     min_edge_length: float | None
     vertex_count: int
     ring_contact_count: int = 0
+    acute_tip_count: int = 0
+    acute_tip_span: float = 0.0
 
 
 @dataclass(slots=True)
@@ -209,6 +213,7 @@ _AREA_BALANCE_ABSOLUTE_GRID_MULTIPLIER = 4.0
 _AREA_BALANCE_SHORT_EDGE_MULTIPLIER = 2.0
 _COURTYARD_AREA_THRESHOLD = 10.0
 _RECOVERY_TREE_REBUILD_THRESHOLD = 16
+_MESHER_READY_ACUTE_TIP_MAX_ANGLE_DEGREES = 5.0
 
 
 def _polygon_sequence_key(polygons: Sequence[Polygon]) -> tuple[int, ...]:
@@ -3234,6 +3239,10 @@ def _polygon_defect_signature(
     clearance_deficit = 0.0
     if target_scale > 0 and clearance is not None:
         clearance_deficit = max(target_scale - clearance, 0.0)
+    acute_tip_count, acute_tip_span = _meshing_hostile_acute_tip_metrics(
+        polygon,
+        target_scale=target_scale,
+    )
     return _PolygonDefectSignature(
         clearance=clearance,
         clearance_deficit=clearance_deficit,
@@ -3241,6 +3250,8 @@ def _polygon_defect_signature(
         min_edge_length=segment_stats["min_edge_length"],
         vertex_count=int(segment_stats["vertex_count"]),
         ring_contact_count=_polygon_ring_boundary_contact_count(polygon),
+        acute_tip_count=int(acute_tip_count),
+        acute_tip_span=float(acute_tip_span),
     )
 
 
@@ -3264,6 +3275,17 @@ def _coverage_defect_signature(
         for value in (polygon_clearance, pair_clearance)
         if value is not None
     ]
+    acute_tip_count = 0
+    acute_tip_span = 0.0
+    for polygon in polygons:
+        polygon_acute_tip_count, polygon_acute_tip_span = (
+            _meshing_hostile_acute_tip_metrics(
+                polygon,
+                target_scale=target_scale,
+            )
+        )
+        acute_tip_count += polygon_acute_tip_count
+        acute_tip_span += polygon_acute_tip_span
     return _CoverageDefectSignature(
         min_clearance=min(clearances) if clearances else None,
         ring_contact_count=sum(
@@ -3279,6 +3301,8 @@ def _coverage_defect_signature(
         short_edge_count=int(segment_stats["short_edge_count"]),
         min_edge_length=segment_stats["min_edge_length"],
         vertex_count=int(segment_stats["vertex_count"]),
+        acute_tip_count=int(acute_tip_count),
+        acute_tip_span=float(acute_tip_span),
     )
 
 
@@ -3312,6 +3336,16 @@ def _signature_improves(
     if candidate.clearance_deficit + tolerance < reference.clearance_deficit:
         return True
     if candidate.clearance_deficit > reference.clearance_deficit + tolerance:
+        return False
+
+    if candidate.acute_tip_count < reference.acute_tip_count:
+        return True
+    if candidate.acute_tip_count > reference.acute_tip_count:
+        return False
+
+    if candidate.acute_tip_span + tolerance < reference.acute_tip_span:
+        return True
+    if candidate.acute_tip_span > reference.acute_tip_span + tolerance:
         return False
 
     if candidate.short_edge_count < reference.short_edge_count:
@@ -3362,6 +3396,14 @@ def _coverage_signature_improves(
     if candidate.pair_issue_count < reference.pair_issue_count:
         return True
     if candidate.pair_issue_count > reference.pair_issue_count:
+        return False
+    if candidate.acute_tip_count < reference.acute_tip_count:
+        return True
+    if candidate.acute_tip_count > reference.acute_tip_count:
+        return False
+    if candidate.acute_tip_span + tolerance < reference.acute_tip_span:
+        return True
+    if candidate.acute_tip_span > reference.acute_tip_span + tolerance:
         return False
     if candidate.close_pair_count < reference.close_pair_count:
         return True
@@ -3423,6 +3465,10 @@ def _signature_not_worse(
         return False
     if candidate.clearance_deficit > reference.clearance_deficit + tolerance:
         return False
+    if candidate.acute_tip_count > reference.acute_tip_count:
+        return False
+    if candidate.acute_tip_span > reference.acute_tip_span + tolerance:
+        return False
     if candidate.short_edge_count > reference.short_edge_count:
         return False
     reference_min_edge = reference.min_edge_length or 0.0
@@ -3443,6 +3489,8 @@ def _signature_satisfies_scale_contract(
 
     tolerance = max(grid, 1e-9)
     if signature.ring_contact_count > 0:
+        return False
+    if signature.acute_tip_count > 0:
         return False
     if signature.short_edge_count > 0:
         return False
@@ -3476,6 +3524,10 @@ def _coverage_signature_not_worse(
     if candidate.ring_contact_count > reference.ring_contact_count:
         return False
     if candidate.pair_issue_count > reference.pair_issue_count:
+        return False
+    if candidate.acute_tip_count > reference.acute_tip_count:
+        return False
+    if candidate.acute_tip_span > reference.acute_tip_span + tolerance:
         return False
     if (
         candidate.pair_issue_count == reference.pair_issue_count
@@ -3550,11 +3602,13 @@ def _coverage_signature_score(
     signature: _CoverageDefectSignature,
     *,
     target_scale: float,
-) -> tuple[float, int, int, int, int, float, int]:
+) -> tuple[float, int, int, int, float, int, int, float, int]:
     return (
         max(target_scale - (signature.min_clearance or 0.0), 0.0),
         signature.ring_contact_count,
         signature.pair_issue_count,
+        signature.acute_tip_count,
+        signature.acute_tip_span,
         signature.close_pair_count,
         signature.short_edge_count,
         -(signature.min_edge_length or 0.0),
@@ -3566,10 +3620,12 @@ def _polygon_signature_score(
     signature: _PolygonDefectSignature,
     *,
     target_scale: float,
-) -> tuple[int, float, int, float, int]:
+) -> tuple[int, float, int, float, int, float, int]:
     return (
         signature.ring_contact_count,
         max(target_scale - (signature.clearance or 0.0), 0.0),
+        signature.acute_tip_count,
+        signature.acute_tip_span,
         signature.short_edge_count,
         -(signature.min_edge_length or 0.0),
         signature.vertex_count,
@@ -3582,44 +3638,105 @@ def _polygon_acute_tip_metrics(
     max_angle_degrees: float = 10.0,
     min_tip_span: float = 0.0,
 ) -> tuple[int, float]:
-    coords = list(polygon.exterior.coords[:-1])
-    count = len(coords)
-    if count < 3:
-        return 0, 0.0
-
     acute_tip_count = 0
     acute_tip_span = 0.0
-    for index in range(count):
-        a = coords[(index - 1) % count]
-        b = coords[index]
-        c = coords[(index + 1) % count]
-        prev_length = float(np.hypot(a[0] - b[0], a[1] - b[1]))
-        next_length = float(np.hypot(c[0] - b[0], c[1] - b[1]))
-        tip_span = min(prev_length, next_length)
-        if tip_span + 1.0e-12 < min_tip_span:
-            continue
-        if prev_length <= 1.0e-12 or next_length <= 1.0e-12:
-            continue
-        dot = ((a[0] - b[0]) * (c[0] - b[0])) + ((a[1] - b[1]) * (c[1] - b[1]))
-        dot /= prev_length * next_length
-        dot = max(-1.0, min(1.0, dot))
-        angle = float(np.degrees(np.arccos(dot)))
-        if angle > max_angle_degrees:
-            continue
+    for _candidate in _iter_polygon_acute_tip_candidates(
+        polygon,
+        max_angle_degrees=max_angle_degrees,
+        min_tip_span=min_tip_span,
+    ):
         acute_tip_count += 1
-        acute_tip_span += tip_span
+        acute_tip_span += _candidate[4]
 
     return acute_tip_count, acute_tip_span
+
+
+def _iter_polygon_acute_tip_candidates(
+    polygon: Polygon,
+    *,
+    max_angle_degrees: float = 10.0,
+    min_tip_span: float = 0.0,
+) -> Iterator[
+    tuple[str, int | None, int, float, float, np.ndarray, np.ndarray]
+]:
+    rings: list[tuple[str, int | None, np.ndarray]] = [
+        ("exterior", None, np.asarray(polygon.exterior.coords[:-1], dtype=float)),
+    ]
+    rings.extend(
+        (
+            "hole",
+            hole_index,
+            np.asarray(ring.coords[:-1], dtype=float),
+        )
+        for hole_index, ring in enumerate(polygon.interiors)
+    )
+
+    for ring_kind, ring_index, coords in rings:
+        count = len(coords)
+        if count < 4:
+            continue
+        for index in range(count):
+            a = coords[(index - 1) % count]
+            b = coords[index]
+            c = coords[(index + 1) % count]
+            prev_length = float(np.hypot(a[0] - b[0], a[1] - b[1]))
+            next_length = float(np.hypot(c[0] - b[0], c[1] - b[1]))
+            tip_span = min(prev_length, next_length)
+            if tip_span + 1.0e-12 < min_tip_span:
+                continue
+            if prev_length <= 1.0e-12 or next_length <= 1.0e-12:
+                continue
+            dot = ((a[0] - b[0]) * (c[0] - b[0])) + ((a[1] - b[1]) * (c[1] - b[1]))
+            dot /= prev_length * next_length
+            dot = max(-1.0, min(1.0, dot))
+            angle = float(np.degrees(np.arccos(dot)))
+            if angle > max_angle_degrees:
+                continue
+            segment = _nearest_nonadjacent_ring_segment(
+                coords,
+                b,
+                excluded_segments={
+                    (index - 1) % count,
+                    index % count,
+                },
+            )
+            if segment is None:
+                continue
+            yield (
+                ring_kind,
+                ring_index,
+                index,
+                angle,
+                tip_span,
+                np.asarray(b, dtype=float),
+                np.asarray(segment[3], dtype=float),
+            )
+
+
+def _meshing_hostile_acute_tip_metrics(
+    polygon: Polygon,
+    *,
+    target_scale: float,
+) -> tuple[int, float]:
+    if target_scale <= 0:
+        return 0, 0.0
+    return _polygon_acute_tip_metrics(
+        polygon,
+        max_angle_degrees=_MESHER_READY_ACUTE_TIP_MAX_ANGLE_DEGREES,
+        min_tip_span=max(2.0 * target_scale, 1.0e-9),
+    )
 
 
 def _contact_resolution_signature_score(
     signature: _CoverageDefectSignature,
     *,
     target_scale: float,
-) -> tuple[int, int, int, float, int, float, int]:
+) -> tuple[int, int, int, float, int, int, float, int]:
     return (
         signature.ring_contact_count,
         signature.pair_issue_count,
+        signature.acute_tip_count,
+        signature.acute_tip_span,
         signature.short_edge_count,
         max(target_scale - (signature.min_clearance or 0.0), 0.0),
         signature.close_pair_count,
@@ -3633,12 +3750,14 @@ def _contact_resolution_candidate_score(
     difference_metrics: dict[str, float],
     *,
     target_scale: float,
-) -> tuple[int, int, int, float, int, float, int, float, float, float, float]:
+) -> tuple[int, int, int, float, int, int, float, int, float, float, float, float]:
     clearance_deficit = max(target_scale - (signature.min_clearance or 0.0), 0.0)
     clearance_contract_unmet = int(clearance_deficit > max(target_scale * 1e-3, 1e-9))
     return (
         signature.ring_contact_count,
         signature.pair_issue_count,
+        signature.acute_tip_count,
+        signature.acute_tip_span,
         signature.short_edge_count,
         clearance_contract_unmet,
         signature.close_pair_count,
@@ -3752,6 +3871,8 @@ def _coverage_signature_satisfies_scale_contract(
         return False
     if signature.pair_issue_count > 0:
         return False
+    if signature.acute_tip_count > 0:
+        return False
     if signature.short_edge_count > 0:
         return False
     if max(target_scale - (signature.min_clearance or 0.0), 0.0) > tolerance:
@@ -3783,7 +3904,8 @@ def _coverage_signature_requires_polygon_regularization(
     grid: float,
 ) -> bool:
     return (
-        signature.short_edge_count > 0
+        signature.acute_tip_count > 0
+        or signature.short_edge_count > 0
         or signature.ring_contact_count > 0
         or max(target_scale - (signature.min_clearance or 0.0), 0.0) > max(grid, 1e-9)
     )
@@ -4418,43 +4540,46 @@ def _try_close_courtyard_passage(
     if enclosure is None:
         return None
 
-    courtyard_indices, courtyard_polygon = enclosure
-    coords = np.asarray(polygon.exterior.coords[:-1], dtype=float)
-    idx_a = courtyard_indices[0]
-    idx_b = courtyard_indices[-1]
-    midpoint = (coords[idx_a] + coords[idx_b]) / 2.0
-
-    snapped_coords = coords.copy()
-    snapped_coords[idx_a] = midpoint
-    snapped_coords[idx_b] = midpoint
-    snapped_ring = np.vstack([snapped_coords, snapped_coords[0]])
-    holes = [list(hole.coords) for hole in polygon.interiors]
-
-    try:
-        self_touching = Polygon(snapped_ring, holes) if holes else Polygon(snapped_ring)
-        repaired = make_valid(self_touching)
-    except (GEOSException, ValueError) as exc:
-        _record_geos_exception(diagnostics, "courtyard_passage_close", exc)
+    _, courtyard_polygon = enclosure
+    closing_radius = max(0.5 * float(min_clearance) + float(grid), 4.0 * float(grid))
+    closed_parts = _apply_closing(
+        polygon,
+        closing_radius,
+        grid,
+        diagnostics,
+    )
+    if len(closed_parts) != 1:
         return None
 
-    candidates = _extract_polygon_parts(repaired)
-    if not candidates:
+    candidate_polygon = _normalize_single_polygon_candidate(
+        closed_parts[0],
+        grid=grid,
+        min_area=0.0,
+        min_hole_area=0.0,
+        diagnostics=diagnostics,
+    )
+    if candidate_polygon is None:
         return None
-    best = max(candidates, key=lambda value: value.area)
-    if len(best.interiors) <= len(polygon.interiors):
+    if len(candidate_polygon.interiors) <= len(polygon.interiors):
         return None
 
-    passage_zone = LineString([tuple(coords[idx_a]), tuple(coords[idx_b])]).buffer(
-        max(min_clearance, grid),
+    edit_zone = courtyard_polygon.buffer(
+        max(closing_radius, min_clearance, grid),
         quad_segs=1,
         join_style=BufferJoinStyle.mitre,
         mitre_limit=1000.0,
     )
-    edit_zone = courtyard_polygon.union(passage_zone)
+    difference_area = float(candidate_polygon.symmetric_difference(polygon).area)
+
     return _RepairCandidate(
-        polygon=orient(best, sign=1.0),
+        polygon=orient(candidate_polygon, sign=1.0),
         edit_zone=edit_zone,
         operator="courtyard_passage",
+        area_balance_budget_override=max(
+            difference_area,
+            16.0 * float(grid) * float(grid),
+            1.0e-9,
+        ),
     )
 
 
@@ -5487,6 +5612,143 @@ def _try_polygon_self_clearance_connector_fill(
         end_ring_index=end_ring_index,
         require_signature_improvement=require_signature_improvement,
     )
+
+
+def _try_polygon_acute_tip_connector_fill(
+    polygon: Polygon,
+    *,
+    min_clearance: float,
+    grid: float,
+    diagnostics: dict[str, Any],
+    require_signature_improvement: bool = True,
+) -> _RepairCandidate | None:
+    if min_clearance <= 0:
+        return None
+
+    def acute_tip_opening_radii() -> tuple[float, ...]:
+        base = max(0.5 * float(min_clearance), 4.0 * float(grid), 1.0e-6)
+        radii: list[float] = []
+        for factor in (1.0, 1.25, 1.5, 2.0):
+            radius = max(base * factor, 4.0 * float(grid), 1.0e-6)
+            if any(abs(radius - existing) <= 1.0e-12 for existing in radii):
+                continue
+            radii.append(radius)
+        return tuple(radii)
+
+    def rebuild_with_replaced_hole(
+        replacement_hole: Polygon,
+        *,
+        ring_index: int,
+    ) -> Polygon | None:
+        if replacement_hole.is_empty:
+            return None
+        holes = [
+            list(ring.coords)
+            for hole_index, ring in enumerate(polygon.interiors)
+            if hole_index != ring_index
+        ]
+        holes.append(list(replacement_hole.exterior.coords))
+        return _normalize_single_polygon_candidate(
+            Polygon(list(polygon.exterior.coords), holes),
+            grid=grid,
+            min_area=0.0,
+            min_hole_area=0.0,
+            diagnostics=diagnostics,
+        )
+
+    reference_signature = _polygon_defect_signature(
+        polygon,
+        target_scale=min_clearance,
+    )
+    best: tuple[
+        tuple[int, float, float, int, float, float, float, int],
+        _RepairCandidate,
+    ] | None = None
+    min_tip_span = max(2.0 * min_clearance, 8.0 * grid, 1.0e-9)
+
+    for (
+        ring_kind,
+        ring_index,
+        _vertex_index,
+        angle_degrees,
+        _tip_span,
+        tip_xy,
+        projected_xy,
+    ) in _iter_polygon_acute_tip_candidates(
+        polygon,
+        max_angle_degrees=_MESHER_READY_ACUTE_TIP_MAX_ANGLE_DEGREES,
+        min_tip_span=min_tip_span,
+    ):
+        del tip_xy, projected_xy
+        if ring_kind != "hole" or ring_index is None:
+            continue
+
+        hole = Polygon(polygon.interiors[ring_index])
+        if hole.is_empty:
+            continue
+
+        for radius in acute_tip_opening_radii():
+            opened_parts = _apply_opening(
+                hole,
+                radius,
+                grid,
+                diagnostics,
+            )
+            if len(opened_parts) != 1:
+                continue
+
+            candidate_polygon = rebuild_with_replaced_hole(
+                opened_parts[0],
+                ring_index=ring_index,
+            )
+            if candidate_polygon is None:
+                continue
+
+            candidate_signature = _polygon_defect_signature(
+                candidate_polygon,
+                target_scale=min_clearance,
+            )
+            if require_signature_improvement and not _signature_improves(
+                reference_signature,
+                candidate_signature,
+                grid=grid,
+            ):
+                continue
+
+            difference_metrics = _difference_area_metrics(
+                polygon,
+                candidate_polygon,
+            )
+            score = (
+                candidate_signature.acute_tip_count,
+                candidate_signature.acute_tip_span,
+                candidate_signature.clearance_deficit,
+                candidate_signature.short_edge_count,
+                difference_metrics["symmetric_difference_area"],
+                abs(difference_metrics["union_area_delta"]),
+                radius,
+                candidate_signature.vertex_count,
+            )
+            if best is None or score < best[0]:
+                edit_zone = candidate_polygon.symmetric_difference(polygon)
+                best = (
+                    score,
+                    _RepairCandidate(
+                        polygon=candidate_polygon,
+                        edit_zone=edit_zone,
+                        operator="acute_tip_hole_opening",
+                        area_balance_budget_override=max(
+                            float(edit_zone.area),
+                            16.0 * float(grid) * float(grid),
+                            1.0e-9,
+                        ),
+                    ),
+                )
+
+    if best is None:
+        return None
+
+    return best[1]
 
 
 def _try_polygon_clearance_opening(
@@ -8827,7 +9089,10 @@ def _regularize_coverage_for_meshing(
     while (
         best_signature.pair_issue_count == 0
         and best_signature.ring_contact_count == 0
-        and residual_clearance_deficit > max(grid, 1e-9)
+        and (
+            residual_clearance_deficit > max(grid, 1e-9)
+            or best_signature.acute_tip_count > 0
+        )
         and clearance_repair_iterations < 3
     ):
         clearance_repair_candidate = _repair_residual_self_clearance_for_meshing(
@@ -13791,12 +14056,16 @@ def _apply_local_polygon_repairs(
         needs_clearance_repair = enable_defect_operators and (
             polygon_signature.clearance_deficit > max(grid, 1e-9)
         )
+        needs_acute_tip_repair = enable_defect_operators and (
+            polygon_signature.acute_tip_count > 0
+        )
         needs_short_edge_repair = enable_simplify_operators and (
             polygon_signature.short_edge_count > 0
         )
         if not (
             needs_ring_contact_repair
             or needs_clearance_repair
+            or needs_acute_tip_repair
             or needs_short_edge_repair
         ):
             candidate_polygons.append(polygon)
@@ -13881,6 +14150,15 @@ def _apply_local_polygon_repairs(
                     diagnostics=diagnostics,
                 )
                 append_candidate(clearance_simplify_candidate)
+
+        if needs_acute_tip_repair:
+            acute_tip_candidate = _try_polygon_acute_tip_connector_fill(
+                polygon,
+                min_clearance=min_segment_length,
+                grid=grid,
+                diagnostics=diagnostics,
+            )
+            append_candidate(acute_tip_candidate)
 
         if needs_short_edge_repair:
             angle_open_candidate = _iteratively_open_polygon_short_edges(

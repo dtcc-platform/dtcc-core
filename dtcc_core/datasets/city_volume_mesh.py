@@ -15,6 +15,10 @@ def _ground_level_from_raster(raster) -> float:
     return float(raster.data[valid_mask].min())
 
 
+def _regular_tet_volume(edge_length: float) -> float:
+    return (np.sqrt(2.0) / 12.0) * float(edge_length) ** 3
+
+
 class CityVolumeMeshArgs(DatasetBaseArgs):
     max_mesh_size: float = Field(
         25.0, description="Maximum mesh size (h parameter) in meters"
@@ -42,9 +46,15 @@ class CityVolumeMeshArgs(DatasetBaseArgs):
             "-5 south/ymin, -6 north/ymax)"
         ),
     )
+    min_building_detail: float = Field(
+        0.5, description="Minimum building feature size to resolve in meters"
+    )
     max_volume: Optional[float] = Field(
         None,
-        description="Maximum tetrahedron volume (defaults to max_mesh_size if not set)",
+        description=(
+            "Maximum tetrahedron volume (defaults to the regular-tetrahedron "
+            "volume implied by max_mesh_size if not set)"
+        ),
     )
     tetgen_extra: str = Field(
         "",
@@ -167,12 +177,13 @@ class CityVolumeMeshDataset(DatasetDescriptor):
                 max_vol = (
                     args.max_volume
                     if args.max_volume is not None
-                    else args.max_mesh_size
+                    else _regular_tet_volume(args.max_mesh_size)
                 )
                 volume_mesh = dtcc_core.builder.build_city_volume_mesh(
                     city,
                     max_mesh_size=args.max_mesh_size,
                     domain_height=args.domain_height,
+                    min_building_detail=args.min_building_detail,
                     boundary_face_markers=args.boundary_face_markers,
                     tetgen_switches={
                         "max_volume": max_vol,

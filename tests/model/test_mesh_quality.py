@@ -8,10 +8,12 @@ from dtcc_core.model.mixins.mesh.quality import (
     tetrahedron_mesh_quality,
     tri_element_quality,
     tri_aspect_ratio,
+    tri_radius_ratio,
     tri_edge_ratio,
     tri_skewness,
     tet_element_quality,
     tet_aspect_ratio,
+    tet_radius_ratio,
     tet_edge_ratio,
     tet_skewness,
     format_quality,
@@ -102,6 +104,13 @@ class TestTriangleMeshQuality:
         er = tri_edge_ratio(equilateral_tri_mesh.vertices, equilateral_tri_mesh.faces)
         assert pytest.approx(er[0], abs=1e-10) == 1.0
 
+    def test_equilateral_radius_ratio(self, equilateral_tri_mesh):
+        """Equilateral triangle should have radius ratio ≈ 1.0."""
+        rr = tri_radius_ratio(
+            equilateral_tri_mesh.vertices, equilateral_tri_mesh.faces
+        )
+        assert pytest.approx(rr[0], abs=1e-10) == 1.0
+
     def test_equilateral_skewness(self, equilateral_tri_mesh):
         """Equilateral triangle should have skewness ≈ 0.0."""
         sk = tri_skewness(equilateral_tri_mesh.vertices, equilateral_tri_mesh.faces)
@@ -121,7 +130,13 @@ class TestTriangleMeshQuality:
         """quality() should return correct dict structure for 2 triangles."""
         q = two_tri_mesh.quality()
         assert q["num_cells"] == 2
-        for key in ("element_quality", "aspect_ratio", "edge_ratio", "skewness"):
+        for key in (
+            "element_quality",
+            "aspect_ratio",
+            "radius_ratio",
+            "edge_ratio",
+            "skewness",
+        ):
             assert "min" in q[key]
             assert "max" in q[key]
             assert "mean" in q[key]
@@ -131,6 +146,7 @@ class TestTriangleMeshQuality:
         q = two_tri_mesh.quality()
         assert 0.0 < q["element_quality"]["min"] <= 1.0
         assert q["aspect_ratio"]["min"] >= 1.0
+        assert q["radius_ratio"]["min"] >= 1.0
         assert q["edge_ratio"]["min"] >= 1.0
         assert 0.0 <= q["skewness"]["min"] <= 1.0
 
@@ -150,6 +166,11 @@ class TestTetrahedronMeshQuality:
         """Regular tetrahedron should have aspect ratio ≈ 1.0."""
         ar = tet_aspect_ratio(regular_tet_mesh.vertices, regular_tet_mesh.cells)
         assert pytest.approx(ar[0], abs=1e-6) == 1.0
+
+    def test_regular_tet_radius_ratio(self, regular_tet_mesh):
+        """Regular tetrahedron should have radius ratio ≈ 1.0."""
+        rr = tet_radius_ratio(regular_tet_mesh.vertices, regular_tet_mesh.cells)
+        assert pytest.approx(rr[0], abs=1e-6) == 1.0
 
     def test_regular_tet_edge_ratio(self, regular_tet_mesh):
         """Regular tetrahedron should have edge ratio ≈ 1.0."""
@@ -171,11 +192,23 @@ class TestTetrahedronMeshQuality:
         ar = tet_aspect_ratio(flat_tet_mesh.vertices, flat_tet_mesh.cells)
         assert ar[0] > 5.0
 
+    def test_flat_tet_radius_ratio_exceeds_aspect_ratio(self, flat_tet_mesh):
+        """Radius ratio remains available as a stricter sliver indicator."""
+        rr = tet_radius_ratio(flat_tet_mesh.vertices, flat_tet_mesh.cells)
+        ar = tet_aspect_ratio(flat_tet_mesh.vertices, flat_tet_mesh.cells)
+        assert rr[0] > ar[0] > 1.0
+
     def test_quality_dict_shape(self, regular_tet_mesh):
         """quality() should return correct dict structure."""
         q = regular_tet_mesh.quality()
         assert q["num_cells"] == 1
-        for key in ("element_quality", "aspect_ratio", "edge_ratio", "skewness"):
+        for key in (
+            "element_quality",
+            "aspect_ratio",
+            "radius_ratio",
+            "edge_ratio",
+            "skewness",
+        ):
             assert "min" in q[key]
             assert "max" in q[key]
             assert "mean" in q[key]
@@ -193,6 +226,7 @@ class TestFormatQuality:
         assert "Mesh quality (1 cells)" in s
         assert "Element quality" in s
         assert "Aspect ratio" in s
+        assert "Radius ratio" in s
         assert "Edge ratio" in s
         assert "Skewness" in s
 

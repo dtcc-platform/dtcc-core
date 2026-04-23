@@ -10,6 +10,7 @@ from dtcc_core.datasets import get_dataset
 from dtcc_core.datasets.city_volume_mesh import (
     CityVolumeMeshArgs,
     CityVolumeMeshDataset,
+    _regular_tet_volume,
 )
 
 
@@ -38,7 +39,7 @@ def test_city_volume_mesh_module_attribute():
 @patch("dtcc_core.datasets.city_volume_mesh.dtcc_core.io.data.download_footprints")
 @patch("dtcc_core.datasets.city_volume_mesh.dtcc_core.io.data.download_pointcloud")
 @patch("dtcc_core.datasets.city_volume_mesh.City")
-def test_city_volume_mesh_default_build_returns_volume_mesh_and_uses_default_max_volume(
+def test_city_volume_mesh_default_build_returns_volume_mesh_and_uses_regular_tet_default_max_volume(
     mock_city_cls,
     mock_download_pointcloud,
     mock_download_footprints,
@@ -47,7 +48,7 @@ def test_city_volume_mesh_default_build_returns_volume_mesh_and_uses_default_max
     mock_compute_building_heights,
     mock_build_city_volume_mesh,
 ):
-    """The default path should return the built volume mesh and default max_volume."""
+    """The default path should derive TetGen max_volume from max_mesh_size."""
     raw_pointcloud = Mock(name="raw_pointcloud")
     filtered_pointcloud = Mock(name="filtered_pointcloud")
     buildings = Mock(name="buildings")
@@ -95,9 +96,10 @@ def test_city_volume_mesh_default_build_returns_volume_mesh_and_uses_default_max
         city,
         max_mesh_size=25.0,
         domain_height=80.0,
+        min_building_detail=0.5,
         boundary_face_markers=True,
         tetgen_switches={
-            "max_volume": 25.0,
+            "max_volume": _regular_tet_volume(25.0),
             "extra": "",
         },
     )
@@ -140,6 +142,7 @@ def test_city_volume_mesh_explicit_max_volume_and_tetgen_extra_are_forwarded(
             max_mesh_size=30.0,
             domain_height=95.0,
             boundary_face_markers=False,
+            min_building_detail=1.25,
             max_volume=12.5,
             tetgen_extra="VV",
         )
@@ -149,6 +152,7 @@ def test_city_volume_mesh_explicit_max_volume_and_tetgen_extra_are_forwarded(
         city,
         max_mesh_size=30.0,
         domain_height=95.0,
+        min_building_detail=1.25,
         boundary_face_markers=False,
         tetgen_switches={
             "max_volume": 12.5,
