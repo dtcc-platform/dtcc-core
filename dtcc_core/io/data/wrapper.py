@@ -62,11 +62,7 @@ def _load_cached_footprints(bounds: Bounds):
     if not cached_files:
         return None
 
-    info(
-        "Using %d cached footprint tile(s) from %s",
-        len(cached_files),
-        os.path.dirname(cached_files[0]),
-    )
+    info(f"Using {len(cached_files)} cached footprint tile(s) from local cache")
     buildings = io.load_footprints(cached_files, bounds=bounds)
     return buildings if buildings else None
 
@@ -186,7 +182,7 @@ def download_data(data_type: str, provider: str, bounds: Bounds, epsg = '3006', 
         global sessions
         session = requests.Session()
         if data_type == 'lidar':
-            info('Starting the Lidar files download from dtcc source')
+            info("Downloading lidar tiles from DTCC source")
             files = download_lidar(bounds.tuple, session, base_url=lidar_url)
             if not files:
                 raise RuntimeError("No lidar data available for the requested bounding box.")
@@ -197,7 +193,7 @@ def download_data(data_type: str, provider: str, bounds: Bounds, epsg = '3006', 
             cached_footprints = _load_cached_footprints(bounds)
             if cached_footprints is not None:
                 return cached_footprints
-            info("Starting the footprints download from dtcc source")
+            info("Downloading footprint tiles from DTCC source")
             files = download_tiles(bounds.tuple, session, server_url=gpkg_url)
             if not files:
                 raise RuntimeError(
@@ -211,12 +207,12 @@ def download_data(data_type: str, provider: str, bounds: Bounds, epsg = '3006', 
 
     else:  
         if data_type == 'footprints':
-            info("Starting footprints files download from OSM source")
+            info("Downloading footprint tiles from OSM source")
             gdf, filename = get_buildings_for_bbox(bounds.tuple)
             footprints = io.load_footprints(filename, bounds=bounds)
             return footprints
         elif data_type == 'roads':
-            info('Start the roads files download from OSM source')
+            info("Downloading road tiles from OSM source")
             gdf, filename = get_roads_for_bbox(bounds.tuple)
             roads = io.load_roadnetwork(filename)
             return roads

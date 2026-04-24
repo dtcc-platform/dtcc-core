@@ -2,7 +2,7 @@
 # Licensed under the MIT License
 
 import pathlib
-from .logging import info, warning, error
+from .logging import debug, info, warning, error
 
 
 def save(object, path, name, formats, format: str = None, *args, **kwargs):
@@ -111,7 +111,7 @@ def load(path, name, type, formats, *args, **kwargs):
         two_level_suffix = "".join(path.suffixes[-2:])  # e.g. ['.json.zip]
     if path_suffix not in formats[type] and two_level_suffix not in formats[type]:
         error(f"Unable to load {name}; format {path.suffix} not supported")
-    info(f"Loading {name} ({type.__name__}) from {path}")
+    debug(f"Loading {name} ({type.__name__}) from {path}")
     if two_level_suffix in formats[type]:
         loader = formats[type][two_level_suffix]
     elif path_suffix in formats[type]:

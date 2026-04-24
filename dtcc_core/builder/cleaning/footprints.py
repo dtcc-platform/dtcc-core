@@ -67,6 +67,7 @@ except Exception:  # pragma: no cover - import fallback for partial builds
     _dtcc_builder = None
 
 from ..logging import debug, info
+from ...common import log_table
 
 
 @dataclass(slots=True)
@@ -9872,26 +9873,21 @@ def _log_conditioning_start(
 ) -> None:
     if not options.enable_logging:
         return
-    info(
-        "\n".join(
-            [
-                "Footprint cleaning started",
-                (
-                    f"  inputs={input_count} precision_grid={grid:.4f} m "
-                    f"output_grid={output_grid:.4f} m"
-                ),
-                (
-                    f"  opening_radius={opening_radius:.3f} m "
-                    f"closing_radius={closing_radius:.3f} m"
-                ),
-                (
-                    f"  min_feature_size={options.min_feature_size:.3f} m "
-                    f"merge_distance={options.merge_distance:.3f} m "
-                    f"min_area={options.min_area:.3f} m2 "
-                    f"min_hole_area={options.min_hole_area:.3f} m2"
-                ),
-            ]
-        )
+    log_table(
+        info,
+        "Footprint cleaning started",
+        [("Setting", "left"), ("Value", "right")],
+        [
+            ("Input polygons", input_count),
+            ("Precision grid", f"{grid:.4f} m"),
+            ("Output grid", f"{output_grid:.4f} m"),
+            ("Opening radius", f"{opening_radius:.3f} m"),
+            ("Closing radius", f"{closing_radius:.3f} m"),
+            ("Min feature size", f"{options.min_feature_size:.3f} m"),
+            ("Merge distance", f"{options.merge_distance:.3f} m"),
+            ("Min area", f"{options.min_area:.3f} m2"),
+            ("Min hole area", f"{options.min_hole_area:.3f} m2"),
+        ],
     )
 
 
@@ -9904,8 +9900,8 @@ def _log_conditioning_stage(
 ) -> None:
     if not enabled:
         return
-    info(
-        "Footprint cleaning | "
+    debug(
+        "Footprint cleaning stage | "
         + _format_stage_metrics(
             label,
             metrics,
@@ -9924,54 +9920,91 @@ def _log_conditioning_summary(
     stage_metrics = diagnostics["stage_metrics"]
     atomic = stage_metrics.get("atomic_input", {})
     final = stage_metrics.get("final_output", {})
-    summary_lines = ["Footprint cleaning complete"]
-    if diagnostics.get("collect_stage_metrics", True):
-        summary_lines.extend(
+    if diagnostics.get("collect_stage_metrics", True) and atomic and final:
+        threshold_label = f"Short<{short_edge_threshold:.2f}m"
+        pair_label = f"Pair<{short_edge_threshold:.2f}m"
+        log_table(
+            info,
+            "Footprint cleaning summary",
+            [
+                ("Stage", "left"),
+                ("Polys", "right"),
+                ("Verts", "right"),
+                ("Overlap (m2)", "right"),
+                ("Clear (m)", "right"),
+                (threshold_label, "right"),
+                (pair_label, "right"),
+            ],
             [
                 (
-                    f"  Input  | {_format_stage_metrics('atomic_input', atomic, short_edge_threshold=short_edge_threshold)}"
-                    if atomic
-                    else "  Input  | n/a"
+                    "Input",
+                    atomic.get("polygon_count", "n/a"),
+                    atomic.get("vertex_count", "n/a"),
+                    _fmt_metric(atomic.get("overlap_area")),
+                    _fmt_metric(atomic.get("min_clearance")),
+                    atomic.get("short_edge_count", "n/a"),
+                    atomic.get("pair_issue_count", "n/a"),
                 ),
                 (
-                    f"  Output | {_format_stage_metrics('final_output', final, short_edge_threshold=short_edge_threshold)}"
-                    if final
-                    else "  Output | n/a"
+                    "Output",
+                    final.get("polygon_count", "n/a"),
+                    final.get("vertex_count", "n/a"),
+                    _fmt_metric(final.get("overlap_area")),
+                    _fmt_metric(final.get("min_clearance")),
+                    final.get("short_edge_count", "n/a"),
+                    final.get("pair_issue_count", "n/a"),
                 ),
-            ]
+            ],
         )
     else:
-        summary_lines.append("  Stage metrics disabled")
+        info("Footprint cleaning summary")
+        info("  Stage metrics disabled")
 
-    summary_lines.extend(
+    log_table(
+        info,
+        "Footprint cleaning actions",
+        [("Metric", "left"), ("Value", "right")],
         [
-        (
-            f"  Coverage | overlap={_fmt_metric(diagnostics['overlap_area_before'])} -> "
-            f"{_fmt_metric(diagnostics['overlap_area_after'])} m2 "
-            f"clearance={_fmt_metric(diagnostics['min_clearance_before'])} -> "
-            f"{_fmt_metric(diagnostics['min_clearance_after'])} m"
-        ),
-        (
-            f"  Output   | polygons={diagnostics['output_count']} "
-            f"repaired_invalid={diagnostics['repaired_invalid_count']} "
-            f"collapsed={diagnostics['collapsed_count']} "
-            f"dropped_small={diagnostics['dropped_small_count']} "
-            f"geos_exceptions={diagnostics['geos_exception_count']}"
-        ),
-        (
-            f"  Actions  | local_defect={diagnostics['local_defect_repair_applied_count']}/"
-            f"{diagnostics['local_defect_repair_candidate_count']} "
-            f"coverage_simplify={diagnostics['coverage_simplify_patch_applied_count']}/"
-            f"{diagnostics['coverage_simplify_patch_count']} "
-            f"({diagnostics['coverage_simplify_selected_branch']}) "
-            f"source_recovery={diagnostics['source_coordinate_recovery_applied_count']}/"
-            f"{diagnostics['source_coordinate_recovery_candidate_count']} "
-            f"boundary_regularization={diagnostics['polygon_simplify_applied_count']}/"
-            f"{diagnostics['polygon_simplify_candidate_count']}"
-        ),
-        ]
+            (
+                "Coverage overlap",
+                f"{_fmt_metric(diagnostics['overlap_area_before'])} -> "
+                f"{_fmt_metric(diagnostics['overlap_area_after'])} m2",
+            ),
+            (
+                "Minimum clearance",
+                f"{_fmt_metric(diagnostics['min_clearance_before'])} -> "
+                f"{_fmt_metric(diagnostics['min_clearance_after'])} m",
+            ),
+            ("Output polygons", diagnostics["output_count"]),
+            ("Repaired invalid", diagnostics["repaired_invalid_count"]),
+            ("Collapsed", diagnostics["collapsed_count"]),
+            ("Dropped small", diagnostics["dropped_small_count"]),
+            ("GEOS exceptions", diagnostics["geos_exception_count"]),
+            (
+                "Local defect repair",
+                f"{diagnostics['local_defect_repair_applied_count']}/"
+                f"{diagnostics['local_defect_repair_candidate_count']}",
+            ),
+            (
+                "Coverage simplification",
+                f"{diagnostics['coverage_simplify_patch_applied_count']}/"
+                f"{diagnostics['coverage_simplify_patch_count']} "
+                f"({diagnostics['coverage_simplify_selected_branch']})",
+            ),
+            (
+                "Source recovery",
+                f"{diagnostics['source_coordinate_recovery_applied_count']}/"
+                f"{diagnostics['source_coordinate_recovery_candidate_count']}",
+            ),
+            (
+                "Boundary regularization",
+                f"{diagnostics['polygon_simplify_applied_count']}/"
+                f"{diagnostics['polygon_simplify_candidate_count']}",
+            ),
+        ],
     )
-    info("\n".join(summary_lines))
+
+    info("Footprint cleaning complete")
 
     detail_lines = [
         (

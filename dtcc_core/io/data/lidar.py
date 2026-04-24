@@ -193,7 +193,7 @@ async def download_laz_file(session, base_url, filename, output_dir):
 
     # 1) Check local cache
     if os.path.exists(out_path):
-        info(f"File {filename} already in cache, skipping download.")
+        debug(f"File {filename} already in cache, skipping download.")
         return  # skip
 
     # 2) If not cached, download
@@ -242,7 +242,7 @@ def run_download_files(base_url, filenames, output_dir="downloaded_laz"):
         return
     debug(f"Downloading {len(filenames)} files in parallel (with cache check)...")
     asyncio.run(download_all_lidar_files(base_url, filenames, output_dir))
-    info("All downloads finished.")
+    debug("All downloads finished.")
 
 
 # ------------------------------------------------------------------------

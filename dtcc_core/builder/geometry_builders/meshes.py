@@ -3708,12 +3708,10 @@ def _condition_meshing_footprints(
 
     if cleaning_diagnostics:
         info(
-            "Meshing footprint conditioning complete: "
-            f"{len(buildings)} buildings -> {len(conditioned_surfaces)} footprints, "
-            f"groups={diagnostics.get('merged_group_count', 0)}, "
-            f"output_grid={diagnostics.get('output_grid')} m, "
-            f"mesher_regularized={diagnostics.get('mesher_regularized_polygon_count', 0)}, "
-            f"conservative_merged_roofs={conservative_roof_count}."
+            "Footprint conditioning complete: "
+            f"{len(buildings)} -> {len(conditioned_surfaces)} footprints | "
+            f"groups={diagnostics.get('merged_group_count', 0)} | "
+            f"grid={diagnostics.get('output_grid')} m"
         )
     return (
         conditioned_surfaces,

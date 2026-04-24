@@ -8,6 +8,7 @@ from logging import LogRecord
 
 from rich.console import Console
 from rich.logging import RichHandler
+from rich.padding import Padding
 from rich.text import Text
 from rich.traceback import Traceback
 from rich.highlighter import NullHighlighter
@@ -64,6 +65,8 @@ class LoggingHandler(RichHandler):
 
             # Get the formatted message
             message = record.getMessage()
+            renderable = getattr(record, "renderable", None)
+            renderable_indent = max(int(getattr(record, "renderable_indent", 2)), 0)
 
             # Handle multiline messages
             lines = message.split("\n")
@@ -82,6 +85,9 @@ class LoggingHandler(RichHandler):
                     (line_text, msg_style or ""),
                 )
                 self.console.print(line)
+
+            if renderable is not None:
+                self.console.print(Padding(renderable, (1, 0, 0, renderable_indent)))
 
             # Handle exceptions/tracebacks
             if record.exc_info:

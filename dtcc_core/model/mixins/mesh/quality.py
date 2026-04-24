@@ -18,8 +18,11 @@ where ``l_max`` is the longest edge and ``r`` is the inradius.
 
 from __future__ import annotations
 
+import logging
 import numpy as np
 from typing import Dict, Union
+
+from dtcc_core.common import log_table
 
 
 def _tri_edge_lengths(v0: np.ndarray, v1: np.ndarray, v2: np.ndarray):
@@ -353,7 +356,7 @@ def report_quality(
     q: Dict[str, Union[int, Dict[str, float]]],
     log_fn=None,
 ) -> None:
-    """Log mesh quality metrics line by line via the logging system.
+    """Log mesh quality metrics as a compact Rich table.
 
     Parameters
     ----------
@@ -368,14 +371,35 @@ def report_quality(
         from dtcc_core.logging import info as log_fn
 
     n = q["num_cells"]
-    col_w = 38
-    log_fn(
-        f"{'Mesh quality (' + str(n) + ' cells)':<{col_w}} {'Min':>10} {'Max':>10} {'Mean':>10}"
-    )
-    log_fn("-" * (col_w + 33))
+    logger = getattr(log_fn, "__self__", None)
+    if not isinstance(logger, logging.Logger):
+        col_w = 38
+        log_fn(
+            f"{'Mesh quality (' + str(n) + ' cells)':<{col_w}} {'Min':>10} {'Max':>10} {'Mean':>10}"
+        )
+        log_fn("-" * (col_w + 33))
+        for key, label in _METRIC_LABELS.items():
+            d = q[key]
+            log_fn(
+                f"{label:<{col_w}} {d['min']:>10.4f} {d['max']:>10.4f} {d['mean']:>10.4f}"
+            )
+        log_fn("-" * (col_w + 33))
+        return
+
+    rows = []
     for key, label in _METRIC_LABELS.items():
         d = q[key]
-        log_fn(
-            f"{label:<{col_w}} {d['min']:>10.4f} {d['max']:>10.4f} {d['mean']:>10.4f}"
+        rows.append(
+            (
+                label,
+                f"{d['min']:.4f}",
+                f"{d['max']:.4f}",
+                f"{d['mean']:.4f}",
+            )
         )
-    log_fn("-" * (col_w + 33))
+    log_table(
+        log_fn,
+        f"Mesh quality ({n} cells)",
+        [("Metric", "left"), ("Min", "right"), ("Max", "right"), ("Mean", "right")],
+        rows,
+    )
