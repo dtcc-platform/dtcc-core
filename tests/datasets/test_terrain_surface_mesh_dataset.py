@@ -51,6 +51,7 @@ def test_terrain_surface_mesh_default_build_uses_surface_mesh_path(
         downloaded_pc.remove_global_outliers.return_value,
         max_mesh_size=5,
         smoothing=3,
+        mesher=None,
     )
 
 
@@ -80,6 +81,36 @@ def test_terrain_surface_mesh_remove_outliers_false_skips_filtering(
         downloaded_pc,
         max_mesh_size=5,
         smoothing=3,
+        mesher=None,
+    )
+
+
+@patch("dtcc_core.datasets.terrain_surface_mesh.dtcc_core.builder.build_terrain_surface_mesh")
+@patch("dtcc_core.datasets.terrain_surface_mesh.dtcc_core.io.data.download_pointcloud")
+def test_terrain_surface_mesh_mesher_is_forwarded(
+    mock_download,
+    mock_build_surface_mesh,
+):
+    """An explicit dataset mesher should be forwarded to the builder."""
+    downloaded_pc = Mock(name="downloaded_pc")
+    surface_mesh = Mock(name="surface_mesh")
+    mock_download.return_value = downloaded_pc
+    mock_build_surface_mesh.return_value = surface_mesh
+
+    dataset = TerrainSurfaceMeshDataset()
+    result = dataset.build(
+        TerrainSurfaceMeshArgs(
+            bounds=(0.0, 0.0, 1.0, 1.0),
+            mesher="dtcc_mesher",
+        )
+    )
+
+    assert result is surface_mesh
+    mock_build_surface_mesh.assert_called_once_with(
+        downloaded_pc.remove_global_outliers.return_value,
+        max_mesh_size=5,
+        smoothing=3,
+        mesher="dtcc_mesher",
     )
 
 
