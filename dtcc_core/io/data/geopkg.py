@@ -144,7 +144,7 @@ async def download_gpkg_file(session, base_url, filename, output_dir):
 
     # 1) Check local cache
     if os.path.exists(out_path):
-        info(f"File {filename} already in cache, skipping download.")
+        debug(f"File {filename} already in cache, skipping download.")
         return  # skip
 
     # 2) If not cached, download
@@ -180,7 +180,7 @@ def run_download_files(base_url, filenames, output_dir="downloaded_gpkg"):
         return
     debug(f"Downloading {len(filenames)} files in parallel (with cache check)...")
     asyncio.run(download_all_gpkg_files(base_url, filenames, output_dir))
-    info("All downloads finished.")
+    debug("All downloads finished.")
 
 def download_tiles(user_bbox, session, server_url=DEFAULT_SERVER_URL):
     """

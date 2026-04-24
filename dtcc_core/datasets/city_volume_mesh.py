@@ -77,6 +77,14 @@ class CityVolumeMeshArgs(DatasetBaseArgs):
         False,
         description="Whether to replace topography with a flat terrain raster",
     )
+    show_footprints: bool = Field(
+        False,
+        description="Whether to show a live matplotlib view of raw vs conditioned footprints before meshing",
+    )
+    footprint_cleaning_plot_block: bool = Field(
+        True,
+        description="Whether the optional footprint cleaning plot should block until the window is closed",
+    )
     ground_level: Optional[float] = Field(
         None,
         description="Ground level for flat terrain (defaults to minimum terrain elevation)",
@@ -199,6 +207,8 @@ class CityVolumeMeshDataset(DatasetDescriptor):
                     domain_height=args.domain_height,
                     min_building_detail=args.min_building_detail,
                     boundary_face_markers=args.boundary_face_markers,
+                    show_footprints=args.show_footprints,
+                    footprint_cleaning_plot_block=args.footprint_cleaning_plot_block,
                     mesher=args.mesher,
                     max_volume=max_vol,
                     tetgen_switches={

@@ -257,6 +257,24 @@ def assert_conditioning_invariants(
         assert indices == sorted(set(indices))
 
 
+def test_plot_footprint_cleaning_comparison_returns_figure():
+    matplotlib = pytest.importorskip("matplotlib")
+    matplotlib.use("Agg", force=True)
+    plt = pytest.importorskip("matplotlib.pyplot")
+
+    fig, axes = cleaning.plot_footprint_cleaning_comparison(
+        [box(0.0, 0.0, 4.0, 4.0)],
+        [box(0.0, 0.0, 3.5, 3.5)],
+        show=False,
+    )
+
+    assert fig is not None
+    assert len(axes) == 2
+    assert axes[0].get_title() == "Input footprints"
+    assert axes[1].get_title() == "Conditioned footprints"
+    plt.close(fig)
+
+
 @pytest.mark.parametrize(
     ("geometries", "options", "expected_count"),
     [
@@ -2270,6 +2288,58 @@ def test_polygon_simplify_only_touches_polygons_with_short_edges():
     ]
 
 
+def test_dense_polygon_short_edge_angle_open_guard_skips_high_cost_search():
+    sparse = cleaning_footprints._PolygonDefectSignature(
+        clearance=0.2,
+        clearance_deficit=0.3,
+        short_edge_count=8,
+        min_edge_length=0.1,
+        vertex_count=40,
+        ring_contact_count=0,
+        acute_tip_count=0,
+        acute_tip_span=0.0,
+    )
+    dense = cleaning_footprints._PolygonDefectSignature(
+        clearance=0.2,
+        clearance_deficit=0.3,
+        short_edge_count=32,
+        min_edge_length=0.1,
+        vertex_count=340,
+        ring_contact_count=0,
+        acute_tip_count=0,
+        acute_tip_span=0.0,
+    )
+
+    assert cleaning_footprints._should_attempt_polygon_short_edge_angle_open(sparse)
+    assert not cleaning_footprints._should_attempt_polygon_short_edge_angle_open(
+        dense
+    )
+
+
+def test_dense_coverage_guard_skips_expensive_local_candidate_search():
+    signature = cleaning_footprints._CoverageDefectSignature(
+        min_clearance=0.25,
+        pair_issue_count=0,
+        point_touch_count=0,
+        close_pair_count=0,
+        min_pair_clearance=None,
+        short_edge_count=400,
+        min_edge_length=0.05,
+        vertex_count=2400,
+        ring_contact_count=0,
+        acute_tip_count=0,
+        acute_tip_span=0.0,
+    )
+
+    assert not cleaning_footprints._should_attempt_local_coverage_candidate(
+        signature,
+        None,
+        target_scale=0.5,
+        grid=0.03125,
+        purpose="coverage",
+    )
+
+
 def test_coverage_simplify_applies_local_shared_boundary_patches():
     shared_boundary = [
         (5.0, 0.0),
@@ -2434,6 +2504,37 @@ def test_local_coverage_simplify_tolerances_keep_pair_cluster_trials():
     )
 
     assert tolerances == (0.5, 0.625)
+
+
+def test_local_coverage_simplify_tolerances_skip_fine_trial_for_dense_cluster():
+    signature = cleaning_footprints._CoverageDefectSignature(
+        min_clearance=0.25,
+        pair_issue_count=0,
+        point_touch_count=0,
+        close_pair_count=0,
+        min_pair_clearance=None,
+        short_edge_count=6,
+        min_edge_length=0.18,
+        vertex_count=28,
+    )
+
+    tolerances = cleaning_footprints._iter_local_coverage_simplify_tolerances(
+        signature,
+        patch_tolerances=(0.5, 0.625),
+    )
+
+    assert tolerances == (0.625,)
+
+
+def test_iter_pair_issue_bridge_radii_trim_close_gap_trials():
+    radii = cleaning_footprints._iter_pair_issue_bridge_radii(
+        issue_kind="close",
+        distance=0.20,
+        tolerance=0.50,
+        grid=0.01,
+    )
+
+    assert radii == (0.25, 0.5)
 
 
 def test_graph_short_edge_simplifier_is_noop_for_clean_rectangle():
@@ -5428,6 +5529,81 @@ def test_acute_tip_hole_opening_repairs_case_gbg_hole_wedge():
     )
     assert candidate.polygon.area > polygon.area
     assert candidate.edit_zone.area > 0.0
+
+
+def test_final_shape_regularization_handles_meshing_hostile_exterior_acute_tip():
+    polygon = cleaning_footprints.shapely.from_wkt(
+        "POLYGON ((386090.75 6174492.59375, 386103.125 6174487.5625, "
+        "386101.25 6174483.90625, 386103.03125 6174483.0625, "
+        "386100.59375 6174480.71875, 386093.21875 6174485.65625, "
+        "386094.25 6174487.21875, 386089.65625 6174490.375, "
+        "386084.03125 6174481.6875, 386100.59375 6174470.6875, "
+        "386123.125 6174455.625, 386127.125 6174463.0625, "
+        "386121.40625 6174466.75, 386126.90625 6174478.65625, "
+        "386123.5625 6174480.34375, 386133.21875 6174499.75, "
+        "386137.0625 6174497.34375, 386139.5625 6174501.34375, "
+        "386142.09375 6174499.84375, 386143.5625 6174502.125, "
+        "386151.96875 6174496.75, 386145.75 6174486.9375, "
+        "386153.75 6174481.875, 386156.625 6174487.0625, "
+        "386153.5 6174488.75, 386156.71875 6174493.84375, "
+        "386160.53125 6174491.5, 386164.15625 6174497.28125, "
+        "386167.96875 6174495.8125, 386169.4375 6174498.15625, "
+        "386172.8125 6174496.0625, 386177.1875 6174503.6875, "
+        "386172.78125 6174507.21875, 386176.375 6174514.5, "
+        "386180.28125 6174514.25, 386194.75 6174502.6875, "
+        "386193.1875 6174500.84375, 386195.53125 6174498.34375, "
+        "386192.03125 6174494.125, 386195.5 6174489.96875, "
+        "386198.75 6174488.5, 386200.75 6174486.75, "
+        "386206.78125 6174481.78125, 386203.5 6174475.09375, "
+        "386210.21875 6174472.875, 386207.4375 6174464.3125, "
+        "386210.96875 6174463.1875, 386208.1875 6174454.71875, "
+        "386217.6875 6174451.59375, 386223.6875 6174468.40625, "
+        "386237.375 6174464.09375, 386234.8125 6174466.53125, "
+        "386241.34375 6174484.15625, 386249.84375 6174481.09375, "
+        "386252.59375 6174488.71875, 386233.75 6174495.59375, "
+        "386231.0625 6174487.9375, 386239.25 6174484.9375, "
+        "386235.625 6174475.15625, 386224.09375 6174478.96875, "
+        "386229.90625 6174494.96875, 386215.75 6174499.71875, "
+        "386161.03125 6174545.78125, 386131.8125 6174555.84375, "
+        "386128.625 6174554.6875, 386119.15625 6174539.21875, "
+        "386129.40625 6174532.875, 386136.125 6174543.59375, "
+        "386153.25 6174533.125, 386146.46875 6174522.40625, "
+        "386142.0625 6174525.15625, 386139.125 6174520.59375, "
+        "386143.5625 6174517.8125, 386138.28125 6174509.4375, "
+        "386131.90625 6174513.25, 386128.875 6174508.1875, "
+        "386127.875 6174511.625, 386116.25 6174518.03125, "
+        "386118.03125 6174520.8125, 386119.8125 6174519.78125, "
+        "386125.46875 6174529.03125, 386116.4375 6174534.5, "
+        "386105.40625 6174516.5625, 386115.9375 6174511.03125, "
+        "386110.8125 6174500.78125, 386105.96875 6174503.34375, "
+        "386110.90625 6174511.28125, 386104.21875 6174514.625, "
+        "386094.0625 6174498.125, 386101.375 6174494.09375, "
+        "386106.3125 6174499.21875, 386113.3125 6174494.4375, "
+        "386117.5625 6174502.78125, 386126.84375 6174497.5, "
+        "386116.46875 6174474.8125, 386107.40625 6174479.90625, "
+        "386112.4375 6174492.53125, 386109.75 6174493.90625, "
+        "386107.09375 6174488.65625, 386092.9375 6174496.15625, "
+        "386090.75 6174492.59375))"
+    )
+    diagnostics = cleaning_footprints._empty_diagnostics(1)
+    diagnostics["collect_stage_metrics"] = False
+
+    polygons, source_map = cleaning_footprints._regularize_final_polygon_shapes(
+        [polygon],
+        [[0]],
+        min_segment_length=0.5,
+        grid=0.03125,
+        min_hole_area=0.25,
+        diagnostics=diagnostics,
+    )
+
+    assert source_map == [[0]]
+    assert len(polygons) == 1
+    signature = cleaning_footprints._polygon_defect_signature(
+        polygons[0],
+        target_scale=0.5,
+    )
+    assert signature.acute_tip_count == 0
 
 
 def test_remove_meshing_hostile_holes_drops_case54_style_sliver_hole_only():

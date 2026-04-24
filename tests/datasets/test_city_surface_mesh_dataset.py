@@ -99,6 +99,8 @@ def test_city_surface_mesh_default_build_returns_surface_mesh(
         min_building_area=15.0,
         merge_buildings=True,
         smoothing=0,
+        show_footprints=False,
+        footprint_cleaning_plot_block=True,
     )
 
 
@@ -200,6 +202,8 @@ def test_city_surface_mesh_parameter_plumbing(
         min_building_area=27.0,
         merge_buildings=False,
         smoothing=4,
+        show_footprints=False,
+        footprint_cleaning_plot_block=True,
     )
 
 

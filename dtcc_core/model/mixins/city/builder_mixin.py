@@ -183,6 +183,8 @@ class CityBuilderMixin:
         smoothing: int = 0,
         sort_triangles: bool = False,
         treat_lod0_as_holes: bool = False,
+        show_footprints: bool = False,
+        footprint_cleaning_plot_block: bool = True,
         mesher: str | None = None,
         pipeline_mode: str = "strict",
     ) -> Mesh:
@@ -209,6 +211,9 @@ class CityBuilderMixin:
         `mesher` : {"auto", "dtcc_mesher", "triangle", "spade"}, optional
             Select the 2D meshing backend used to triangulate the ground and
             surface shell.
+        `show_footprints` : bool, optional
+            Show a live Matplotlib comparison of raw and conditioned
+            footprints before meshing.
 
         Returns
         -------
@@ -230,6 +235,8 @@ class CityBuilderMixin:
             smoothing=smoothing,
             sort_triangles=sort_triangles,
             treat_lod0_as_holes=treat_lod0_as_holes,
+            show_footprints=show_footprints,
+            footprint_cleaning_plot_block=footprint_cleaning_plot_block,
             mesher=mesher,
             pipeline_mode=pipeline_mode,
         )
@@ -244,6 +251,8 @@ class CityBuilderMixin:
         min_building_detail: float = 0.5,
         min_building_area: float = 15.0,
         merge_tolerance: float = 0.5,
+        show_footprints: bool = False,
+        footprint_cleaning_plot_block: bool = True,
         mesher: str | None = None,
         pipeline_mode: str = "strict",
     ) -> Mesh:
@@ -278,6 +287,9 @@ class CityBuilderMixin:
             Distance tolerance for merging (default 0.5).
         mesher : {"auto", "dtcc_mesher", "triangle", "spade"}, optional
             Select the 2D meshing backend.
+        show_footprints : bool, optional
+            Show a live Matplotlib comparison of raw and conditioned
+            footprints before meshing.
 
         Returns
         -------
@@ -295,6 +307,8 @@ class CityBuilderMixin:
             min_building_detail=min_building_detail,
             min_building_area=min_building_area,
             merge_tolerance=merge_tolerance,
+            show_footprints=show_footprints,
+            footprint_cleaning_plot_block=footprint_cleaning_plot_block,
             mesher=mesher,
             pipeline_mode=pipeline_mode,
         )
@@ -318,6 +332,8 @@ class CityBuilderMixin:
         smoothing_relative_tolerance: float = 0.005,
         aspect_ratio_threshold: float = 10.0,
         debug_step: int = 7,
+        show_footprints: bool = False,
+        footprint_cleaning_plot_block: bool = True,
         mesher: str | None = None,
         pipeline_mode: str = "strict",
         top_cap_max_mesh_size: float | None = None,
@@ -379,6 +395,9 @@ class CityBuilderMixin:
             Select the 2D meshing backend used for the intermediate flat and
             surface mesh stages. ``None`` and ``"auto"`` both resolve to
             ``dtcc_mesher`` in the strict volume path.
+        show_footprints : bool, optional
+            Show a live Matplotlib comparison of raw and conditioned
+            footprints before meshing.
 
         Returns
         -------
@@ -407,6 +426,8 @@ class CityBuilderMixin:
             smoothing_relative_tolerance=smoothing_relative_tolerance,
             aspect_ratio_threshold=aspect_ratio_threshold,
             debug_step=debug_step,
+            show_footprints=show_footprints,
+            footprint_cleaning_plot_block=footprint_cleaning_plot_block,
             mesher=mesher,
             pipeline_mode=pipeline_mode,
         )

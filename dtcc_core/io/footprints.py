@@ -129,7 +129,7 @@ def _load_fiona(
     except fiona.errors.DriverError:
         raise ValueError(f"File {filename} is not a valid file format")
     with fiona.open(filename) as src:
-        info(f"Reading {len(src)} geometries from {filename}")
+        info(f"Reading {len(src)} geometries from {Path(filename).name}")
         source_crs = get_epsg(src.crs)
         target_crs = determine_io_crs(source_crs, target_crs, context="footprints")
 

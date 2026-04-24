@@ -4,7 +4,7 @@ import laspy
 
 
 from ..model.geometry import PointCloud, Bounds
-from .logging import info, warning, error
+from .logging import debug, warning, error
 from typing import List, Union
 
 from . import generic
@@ -138,7 +138,7 @@ def load(
             delimiter=delimiter,
             bounds=bounds,
         )
-        info(f"Loaded {len(pc.points)} points from {path}")
+        debug(f"Loaded {len(pc.points)} points from {path}")
         return pc
 
 
