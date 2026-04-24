@@ -2041,6 +2041,11 @@ def test_build_city_volume_mesh_uses_shared_surface_pipeline(monkeypatch):
         "_tetgen_plc_contract_from_audit",
         fake_tetgen_plc_contract_from_audit,
     )
+    monkeypatch.setattr(
+        meshes_module.tetgen_utils,
+        "build_tetgen_plc",
+        lambda mesh, *args, **kwargs: _fake_prebuilt_tetgen_plc(mesh),
+    )
     monkeypatch.setattr(meshes_module, "tetgen_build_volume_mesh", fake_tetgen_build)
 
     volume_mesh = build_city_volume_mesh(
@@ -2183,6 +2188,11 @@ def test_build_city_volume_mesh_stage_audit_records_stage_contracts(monkeypatch)
         fake_build_surface_from_ground,
     )
     monkeypatch.setattr(meshes_module, "_tetgen_plc_audit", fake_plc_audit)
+    monkeypatch.setattr(
+        meshes_module.tetgen_utils,
+        "build_tetgen_plc",
+        lambda mesh, *args, **kwargs: _fake_prebuilt_tetgen_plc(mesh),
+    )
     monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
     monkeypatch.setattr(meshes_module, "tetgen_build_volume_mesh", fake_tetgen_build)
 
@@ -2370,6 +2380,39 @@ def test_build_city_surface_mesh_unmerged_components_are_compact():
         used_vertices = np.unique(faces.reshape(-1))
         assert len(used_vertices) == len(component.vertices)
 
+
+def _fake_prebuilt_tetgen_plc(mesh: Mesh) -> meshes_module.tetgen_utils.TetgenPLC:
+    vertices = np.asarray(mesh.vertices, dtype=np.float64)
+    faces = np.asarray(mesh.faces, dtype=np.int64)
+    boundary_facets = [[0, 1, 2]]
+    diagnostics = meshes_module.tetgen_utils.TetgenPLCDiagnostics(
+        num_vertices=int(len(vertices)),
+        num_faces=int(len(faces)),
+        num_boundary_facets=len(boundary_facets),
+        min_edge_length=1.0,
+        median_edge_length=1.0,
+        min_face_area=1.0,
+        median_face_area=1.0,
+        min_triangle_quality=1.0,
+        max_triangle_aspect_ratio=1.0,
+        degenerate_face_count=0,
+        duplicate_face_count=0,
+        nonmanifold_edge_count=0,
+        open_edge_count=0,
+        boundary_facets={},
+        errors=[],
+        warnings=[],
+    )
+    return meshes_module.tetgen_utils.TetgenPLC(
+        vertices=vertices,
+        shell_faces=faces,
+        boundary_facets=boundary_facets,
+        boundary_facet_markers=[-2],
+        audit_boundary_triangles=np.asarray(boundary_facets, dtype=np.int64),
+        diagnostics=diagnostics,
+    )
+
+
 def test_build_city_volume_mesh_keeps_requested_tetgen_switches(monkeypatch):
     city = make_flat_city([make_building(box(10, 10, 20, 20), roof_z=10.0)])
     terrain = city.terrain
@@ -2485,6 +2528,11 @@ def test_build_city_volume_mesh_keeps_requested_tetgen_switches(monkeypatch):
         "_tetgen_plc_contract_from_audit",
         lambda *args, **kwargs: {"errors": [], "warnings": [], "ok": True},
     )
+    monkeypatch.setattr(
+        meshes_module.tetgen_utils,
+        "build_tetgen_plc",
+        lambda mesh, *args, **kwargs: _fake_prebuilt_tetgen_plc(mesh),
+    )
     monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
     monkeypatch.setattr(meshes_module, "tetgen_build_volume_mesh", fake_tetgen_build)
 
@@ -2496,16 +2544,20 @@ def test_build_city_volume_mesh_keeps_requested_tetgen_switches(monkeypatch):
         min_building_area=1.0,
         merge_tolerance=0.0,
         max_mesh_size=6.0,
+        top_cap_max_mesh_size=9.0,
         min_mesh_angle=20.0,
         report_mesh_quality=False,
         mesher="dtcc_mesher",
+        max_volume=42.0,
         tetgen_switches={"quality": (1.6, 25.0)},
     )
 
     assert captured["tetgen_switches"]["quality"] == (1.6, 25.0)
     assert captured["tetgen_switches"]["preserve_surface"] is False
+    assert captured["tetgen_switches"]["max_volume"] == 42.0
     assert captured["tetgen_switches"]["max_added_points"] is None
     assert captured["tetgen_switches"]["optimize_max_dihedral"] == 175.0
+    assert captured["top_cap_max_mesh_size"] == 9.0
 
 
 def test_build_city_volume_mesh_uses_split_surface_default_without_flat_special_case(
@@ -2625,6 +2677,11 @@ def test_build_city_volume_mesh_uses_split_surface_default_without_flat_special_
         meshes_module,
         "_tetgen_plc_contract_from_audit",
         lambda *args, **kwargs: {"errors": [], "warnings": [], "ok": True},
+    )
+    monkeypatch.setattr(
+        meshes_module.tetgen_utils,
+        "build_tetgen_plc",
+        lambda mesh, *args, **kwargs: _fake_prebuilt_tetgen_plc(mesh),
     )
     monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
     monkeypatch.setattr(meshes_module, "tetgen_build_volume_mesh", fake_tetgen_build)
@@ -2770,6 +2827,11 @@ def test_build_city_volume_mesh_allows_empty_conditioned_footprints(monkeypatch)
         "_tetgen_plc_contract_from_audit",
         lambda *args, **kwargs: {"errors": [], "warnings": [], "ok": True},
     )
+    monkeypatch.setattr(
+        meshes_module.tetgen_utils,
+        "build_tetgen_plc",
+        lambda mesh, *args, **kwargs: _fake_prebuilt_tetgen_plc(mesh),
+    )
     monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
     monkeypatch.setattr(meshes_module, "tetgen_build_volume_mesh", fake_tetgen_build)
 
@@ -2898,6 +2960,11 @@ def test_build_city_volume_mesh_respects_explicit_tetgen_switches_for_dtcc_meshe
         meshes_module,
         "_tetgen_plc_contract_from_audit",
         lambda *args, **kwargs: {"errors": [], "warnings": [], "ok": True},
+    )
+    monkeypatch.setattr(
+        meshes_module.tetgen_utils,
+        "build_tetgen_plc",
+        lambda mesh, *args, **kwargs: _fake_prebuilt_tetgen_plc(mesh),
     )
     monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
     monkeypatch.setattr(meshes_module, "tetgen_build_volume_mesh", fake_tetgen_build)
@@ -3038,6 +3105,11 @@ def test_build_city_volume_mesh_saves_tetgen_debug_meshes(monkeypatch, tmp_path)
         meshes_module,
         "_tetgen_plc_contract_from_audit",
         lambda *args, **kwargs: {"errors": [], "warnings": [], "ok": True},
+    )
+    monkeypatch.setattr(
+        meshes_module.tetgen_utils,
+        "build_tetgen_plc",
+        lambda mesh, *args, **kwargs: _fake_prebuilt_tetgen_plc(mesh),
     )
     monkeypatch.setattr(meshes_module, "_save_tetgen_debug_meshes", fake_save_debug_meshes)
     monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
@@ -3386,6 +3458,11 @@ def test_build_city_volume_mesh_captures_quality_failure_artifacts(monkeypatch, 
         "_tetgen_plc_contract_from_audit",
         lambda *args, **kwargs: {"errors": [], "warnings": [], "ok": True},
     )
+    monkeypatch.setattr(
+        meshes_module.tetgen_utils,
+        "build_tetgen_plc",
+        lambda mesh, *args, **kwargs: _fake_prebuilt_tetgen_plc(mesh),
+    )
     monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
     monkeypatch.setattr(meshes_module, "tetgen_build_volume_mesh", fake_tetgen_build)
     monkeypatch.setattr(
@@ -3530,6 +3607,11 @@ def test_build_city_volume_mesh_ignores_quality_failure_capture_errors(
         meshes_module,
         "_tetgen_plc_contract_from_audit",
         lambda *args, **kwargs: {"errors": [], "warnings": [], "ok": True},
+    )
+    monkeypatch.setattr(
+        meshes_module.tetgen_utils,
+        "build_tetgen_plc",
+        lambda mesh, *args, **kwargs: _fake_prebuilt_tetgen_plc(mesh),
     )
     monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
     monkeypatch.setattr(meshes_module, "tetgen_build_volume_mesh", fake_tetgen_build)
@@ -3731,6 +3813,11 @@ def test_build_city_volume_mesh_uses_refined_shell_without_retry(
         "_tetgen_plc_contract_from_audit",
         lambda *args, **kwargs: {"errors": [], "warnings": [], "ok": True},
     )
+    monkeypatch.setattr(
+        meshes_module.tetgen_utils,
+        "build_tetgen_plc",
+        lambda mesh, *args, **kwargs: _fake_prebuilt_tetgen_plc(mesh),
+    )
     monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
     monkeypatch.setattr(meshes_module, "tetgen_build_volume_mesh", fake_tetgen_build)
     monkeypatch.setattr(
@@ -3900,6 +3987,11 @@ def test_build_city_volume_mesh_keeps_shell_refinement_enabled_when_preserving_s
         meshes_module,
         "_tetgen_plc_contract_from_audit",
         lambda *args, **kwargs: {"errors": [], "warnings": [], "ok": True},
+    )
+    monkeypatch.setattr(
+        meshes_module.tetgen_utils,
+        "build_tetgen_plc",
+        lambda mesh, *args, **kwargs: _fake_prebuilt_tetgen_plc(mesh),
     )
     monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
     monkeypatch.setattr(meshes_module, "tetgen_build_volume_mesh", fake_tetgen_build)

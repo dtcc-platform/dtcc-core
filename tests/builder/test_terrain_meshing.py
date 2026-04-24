@@ -103,3 +103,42 @@ def test_build_terrain_surface_mesh_defaults_to_dtcc_mesher(monkeypatch):
     assert captured["builder_mesh"] is ground_mesh
     assert captured["grid"] == "grid"
     assert captured["smoothing"] == 2
+
+
+def test_build_terrain_surface_mesh_forwards_explicit_mesher(monkeypatch):
+    raster = _make_raster()
+    captured: dict[str, object] = {}
+
+    def fake_resolve(mesher=None):
+        captured["requested_mesher"] = mesher
+        return "triangle"
+
+    monkeypatch.setattr(terrain_module, "resolve_2d_mesher", fake_resolve)
+    monkeypatch.setattr(terrain_module, "raster_to_builder_gridfield", lambda raster: "grid")
+    monkeypatch.setattr(terrain_module, "create_builder_polygon", lambda polygon: polygon)
+    monkeypatch.setattr(
+        terrain_module._dtcc_builder,
+        "build_terrain_surface_mesh",
+        lambda *args, **kwargs: Mesh(
+            vertices=np.array(
+                [
+                    [0.0, 0.0, 0.0],
+                    [3.0, 0.0, 0.0],
+                    [3.0, 3.0, 0.0],
+                    [0.0, 3.0, 0.0],
+                ],
+                dtype=np.float64,
+            ),
+            faces=np.array([[0, 1, 2], [0, 2, 3]], dtype=np.int64),
+            markers=np.array([-2, -2], dtype=np.int64),
+        ),
+    )
+    monkeypatch.setattr(terrain_module, "builder_mesh_to_mesh", lambda mesh: mesh)
+
+    terrain_module.build_terrain_surface_mesh(
+        raster,
+        mesher="triangle",
+        report_mesh_quality=False,
+    )
+
+    assert captured["requested_mesher"] == "triangle"

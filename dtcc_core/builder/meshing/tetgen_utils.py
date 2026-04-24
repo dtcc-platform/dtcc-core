@@ -369,6 +369,16 @@ class TetgenPLCDiagnostics:
         return not self.errors
 
 
+@dataclass
+class TetgenPLC:
+    vertices: np.ndarray
+    shell_faces: np.ndarray
+    boundary_facets: list[list[int]]
+    boundary_facet_markers: list[int]
+    audit_boundary_triangles: np.ndarray
+    diagnostics: TetgenPLCDiagnostics
+
+
 def _mesh_scale(vertices: np.ndarray) -> float:
     if vertices.size == 0:
         return 1.0
@@ -894,74 +904,6 @@ def _boundary_loops(vertices: np.ndarray, tol: float) -> dict[str, np.ndarray]:
     }
 
 
-def _validate_boundary_loop_alignment(
-    bottom_vertices: np.ndarray,
-    top_source_vertices: np.ndarray,
-    bottom_loops: Mapping[str, np.ndarray],
-    top_loops: Mapping[str, np.ndarray],
-    tol: float,
-) -> None:
-    xy_tol = max(tol, 1.0e-6)
-    for name in ("south", "east", "north", "west"):
-        bottom_loop = np.asarray(bottom_loops[name], dtype=np.int64)
-        top_loop = np.asarray(top_loops[name], dtype=np.int64)
-        if len(bottom_loop) != len(top_loop):
-            raise ValueError(
-                f"Boundary loop '{name}' length mismatch between surface mesh "
-                f"({len(bottom_loop)}) and closure mesh ({len(top_loop)})."
-            )
-        if len(bottom_loop) == 0:
-            continue
-        if not np.allclose(
-            bottom_vertices[bottom_loop, :2],
-            top_source_vertices[top_loop, :2],
-            atol=xy_tol,
-            rtol=0.0,
-        ):
-            raise ValueError(
-                f"Boundary loop '{name}' in closure mesh does not align with "
-                "the surface mesh boundary."
-            )
-
-
-def _realign_closure_boundary_loops(
-    bottom_vertices: np.ndarray,
-    bottom_loops: Mapping[str, np.ndarray],
-    top_source_vertices: np.ndarray,
-    top_loops: Mapping[str, np.ndarray],
-    tol: float,
-) -> dict[str, np.ndarray] | None:
-    xy_tol = max(tol, 1.0e-6)
-    aligned: dict[str, np.ndarray] = {}
-    for name in ("south", "east", "north", "west"):
-        bottom_loop = np.asarray(bottom_loops[name], dtype=np.int64)
-        top_loop = np.asarray(top_loops[name], dtype=np.int64)
-        if len(top_loop) < len(bottom_loop):
-            return None
-
-        matched: list[int] = []
-        cursor = 0
-        for bottom_index in bottom_loop:
-            bottom_xy = bottom_vertices[int(bottom_index), :2]
-            found = None
-            for offset in range(cursor, len(top_loop)):
-                candidate_index = int(top_loop[offset])
-                if np.allclose(
-                    top_source_vertices[candidate_index, :2],
-                    bottom_xy,
-                    atol=xy_tol,
-                    rtol=0.0,
-                ):
-                    found = offset
-                    matched.append(candidate_index)
-                    cursor = offset + 1
-                    break
-            if found is None:
-                return None
-        aligned[name] = np.asarray(matched, dtype=np.int64)
-    return aligned
-
-
 def _outer_boundary_ring_indices(boundary_loops: Mapping[str, np.ndarray]) -> np.ndarray:
     south = np.asarray(boundary_loops["south"], dtype=np.int64)
     east = np.asarray(boundary_loops["east"], dtype=np.int64)
@@ -1192,27 +1134,6 @@ def _remesh_top_cap_from_outer_boundary(
     return top_vertices, reordered_faces, top_loops
 
 
-def _lift_closure_mesh_top_cap(
-    closure_mesh: Mesh,
-    *,
-    boundary_loops: Mapping[str, np.ndarray],
-    z_top: float,
-) -> tuple[np.ndarray, np.ndarray, dict[str, np.ndarray]]:
-    top_vertices = np.asarray(closure_mesh.vertices, dtype=float).copy()
-    top_faces = np.asarray(closure_mesh.faces, dtype=np.int64)
-    if top_vertices.ndim != 2 or top_vertices.shape[1] != 3:
-        raise ValueError("Closure mesh vertices must have shape (N, 3).")
-    if top_faces.ndim != 2 or top_faces.shape[1] != 3 or top_faces.shape[0] == 0:
-        raise ValueError("Closure mesh must provide triangle faces for the top cap.")
-
-    top_vertices[:, 2] = float(z_top)
-    top_loops = {
-        name: np.asarray(loop, dtype=np.int64).copy()
-        for name, loop in boundary_loops.items()
-    }
-    return top_vertices, top_faces, top_loops
-
-
 def _compute_boundary_triangle_facets_with_markers(
     mesh: Mesh,
     closure_mesh: Mesh,
@@ -1418,6 +1339,50 @@ def compute_oriented_boundary_plc(
         oriented_boundary_facets,
         boundary_facet_markers,
         audit_boundary_triangles,
+    )
+
+
+def build_tetgen_plc(
+    mesh: Mesh,
+    closure_mesh: Mesh,
+    *,
+    top_height: float = 100.0,
+    tol: float = 1e-3,
+    top_cap_backend: str = "auto",
+    top_cap_max_mesh_size: float | None = None,
+    top_cap_min_mesh_angle: float = 25.0,
+) -> TetgenPLC:
+    (
+        vertices_out,
+        shell_faces,
+        boundary_facets,
+        boundary_facet_markers,
+        audit_boundary_triangles,
+    ) = compute_oriented_boundary_plc(
+        mesh,
+        closure_mesh,
+        top_height=top_height,
+        tol=tol,
+        top_cap_backend=top_cap_backend,
+        top_cap_max_mesh_size=top_cap_max_mesh_size,
+        top_cap_min_mesh_angle=top_cap_min_mesh_angle,
+    )
+    boundary_facets_list = [
+        np.asarray(facet, dtype=np.int64).reshape(-1).tolist()
+        for facet in boundary_facets
+    ]
+    diagnostics = inspect_tetgen_plc(
+        np.asarray(vertices_out, dtype=float),
+        np.asarray(shell_faces, dtype=np.int64),
+        boundary_facets_list,
+    )
+    return TetgenPLC(
+        vertices=np.asarray(vertices_out, dtype=float),
+        shell_faces=np.asarray(shell_faces, dtype=np.int64),
+        boundary_facets=boundary_facets_list,
+        boundary_facet_markers=[int(marker) for marker in boundary_facet_markers],
+        audit_boundary_triangles=np.asarray(audit_boundary_triangles, dtype=np.int64),
+        diagnostics=diagnostics,
     )
 
 

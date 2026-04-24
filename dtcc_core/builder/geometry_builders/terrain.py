@@ -123,6 +123,7 @@ def build_terrain_surface_mesh(
     smoothing=3,
     ground_points_only=True,
     report_mesh_quality=True,
+    mesher: str | None = None,
 ) -> Mesh:
     """
     Build a triangular surface mesh from terrain data.
@@ -148,6 +149,9 @@ def build_terrain_surface_mesh(
         Number of smoothing iterations to apply.
     ground_points_only : bool, default True
         Whether to use only ground-classified points from point cloud.
+    mesher : {"auto", "dtcc_mesher", "triangle", "spade"}, optional
+        Select the 2D meshing backend for the ground triangulation. When
+        omitted, the global default backend is used.
     Returns
     -------
     Mesh
@@ -157,35 +161,6 @@ def build_terrain_surface_mesh(
     ------
     ValueError
         If min_mesh_angle > 33 degrees or data type is invalid.
-    """
-
-    """
-    Build a surface mesh of the terrain from a point cloud.
-
-    Parameters
-    ----------
-    data : PointCloud or Raster
-        The point cloud or raster to build the terrain from.
-    subdomains : list[Surface]
-        The list of surface to use as subdomains.
-    subdomain_resolution : Union[float, List[float]]
-        The resolution of the subdomains. If a single value is given, it is
-        used for all subdomains. If a list is given, it must have the same length
-        as the subdomains list.
-    max_mesh_size : float
-        The maximum size of the triangles in the mesh.
-    min_mesh_angle : float
-        The minimum angle of the triangles in the mesh. Must be less than or equal
-        to 33 degrees.
-    smoothing : int
-        The number of smoothing iterations to apply to the mesh.
-    ground_points_only : bool
-        If True, only ground points are used to build the terrain.
-
-    Returns
-    -------
-    Mesh
-        The surface mesh of the terrain.
     """
     if min_mesh_angle > 33:
         raise ValueError(
@@ -232,7 +207,7 @@ def build_terrain_surface_mesh(
         )
 
     subdomain_resolution = np.array(subdomain_resolution, dtype=np.float64)
-    active_mesher = resolve_2d_mesher()
+    active_mesher = resolve_2d_mesher(mesher)
 
     report_progress(
         percent=40, message="Building terrain surface mesh (this may take a while)..."

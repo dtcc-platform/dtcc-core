@@ -4,8 +4,9 @@ import requests
 import getpass
 import sys
 import os
+from pathlib import Path
 from .overpass import get_roads_for_bbox, get_buildings_for_bbox
-from .geopkg import download_tiles
+from .geopkg import CACHE_DIR as GPKG_CACHE_DIR, download_tiles
 from .lidar import download_lidar
 from dtcc_core import io
 from dtcc_core.model import Bounds
@@ -27,6 +28,47 @@ SSH_CREDS = {
     "password": None
 }
 sessions = []
+
+
+def _bounds_overlap(lhs: Bounds, rhs: Bounds) -> bool:
+    return not (
+        lhs.xmax < rhs.xmin
+        or lhs.xmin > rhs.xmax
+        or lhs.ymax < rhs.ymin
+        or lhs.ymin > rhs.ymax
+    )
+
+
+def _find_cached_footprint_files(bounds: Bounds) -> list[str]:
+    cache_dir = Path(GPKG_CACHE_DIR) / "downloaded-gpkg"
+    if not cache_dir.is_dir():
+        return []
+
+    matching_files: list[str] = []
+    for path in sorted(cache_dir.glob("*.gpkg")):
+        try:
+            file_bounds = io.footprints.building_bounds(path)
+        except Exception as exc:
+            warning(f"Skipping cached footprint tile {path.name}: {exc}")
+            continue
+        if _bounds_overlap(file_bounds, bounds):
+            matching_files.append(str(path))
+
+    return matching_files
+
+
+def _load_cached_footprints(bounds: Bounds):
+    cached_files = _find_cached_footprint_files(bounds)
+    if not cached_files:
+        return None
+
+    info(
+        "Using %d cached footprint tile(s) from %s",
+        len(cached_files),
+        os.path.dirname(cached_files[0]),
+    )
+    buildings = io.load_footprints(cached_files, bounds=bounds)
+    return buildings if buildings else None
 
 def get_authenticated_session(base_url: str, username: str, password: str) -> requests.Session:
     """
@@ -152,6 +194,9 @@ def download_data(data_type: str, provider: str, bounds: Bounds, epsg = '3006', 
             pc = io.load_pointcloud(files,bounds=bounds)
             return pc
         elif data_type == 'footprints':
+            cached_footprints = _load_cached_footprints(bounds)
+            if cached_footprints is not None:
+                return cached_footprints
             info("Starting the footprints download from dtcc source")
             files = download_tiles(bounds.tuple, session, server_url=gpkg_url)
             if not files:

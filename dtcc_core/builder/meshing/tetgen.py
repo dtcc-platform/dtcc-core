@@ -60,6 +60,7 @@ def build_volume_mesh(
     top_cap_min_mesh_angle: float = 25.0,
     switches_params: Optional[Dict[str, Any]] = None,
     switches_overrides: Optional[Dict[str, Any]] = None,
+    prebuilt_plc: Optional[tetgen_utils.TetgenPLC] = None,
 ) -> Union[VolumeMesh, Tuple[VolumeMesh, Optional[np.ndarray]]]:
     """
     Build a tetrahedral volume mesh from a surface mesh using TetGen.
@@ -75,9 +76,10 @@ def build_volume_mesh(
     return_boundary_faces : bool, optional
         Request TetGen to return boundary faces; stored on the resulting VolumeMesh.
     closure_mesh : Mesh, optional
-        Optional flat ground mesh retained for compatibility with the builder
-        API. The live PLC path remeshes the top cap independently from the
-        shell's outer boundary ring instead of copying ``closure_mesh``.
+        Optional flat closure mesh used to source the outer-domain top-cap and
+        sidewall boundary loops when ``prebuilt_plc`` is not supplied. The live
+        PLC is rebuilt from the shell/closure geometry rather than by copying a
+        pre-existing boundary-facet list directly.
     top_cap_backend : str, optional
         2D backend used when re-triangulating the top cap from the shell's
         outer-domain boundary. Defaults to ``"auto"``.
@@ -90,6 +92,9 @@ def build_volume_mesh(
         Base parameters passed to TetGen switches.
     switches_overrides : dict, optional
         Overrides applied to the TetGen switches after ``switches_params``.
+    prebuilt_plc : TetgenPLC, optional
+        Optional authoritative PLC prepared upstream. When provided, the
+        adapter reuses that exact PLC instead of rebuilding and rechecking it.
 
     Notes
     -----
@@ -125,7 +130,19 @@ def build_volume_mesh(
     boundary_facet_markers = None
     diagnostic_boundary_facets = None
     named_boundary_facets = None
-    if build_top_sidewalls:
+    if prebuilt_plc is not None:
+        b_facets = [
+            np.asarray(facet, dtype=np.int64).reshape(-1).tolist()
+            for facet in prebuilt_plc.boundary_facets
+        ]
+        diagnostic_boundary_facets = b_facets
+        boundary_facet_markers = [int(marker) for marker in prebuilt_plc.boundary_facet_markers]
+        mesh = Mesh(
+            vertices=np.asarray(prebuilt_plc.vertices, dtype=float),
+            faces=np.asarray(prebuilt_plc.shell_faces, dtype=np.int64),
+            markers=np.asarray(mesh.markers, dtype=np.int64),
+        )
+    elif build_top_sidewalls:
         if closure_mesh is not None:
             (
                 new_vertices,
@@ -176,11 +193,14 @@ def build_volume_mesh(
     if switches_overrides:
         effective_switches.update(switches_overrides)
 
-    plc_diagnostics = tetgen_utils.inspect_tetgen_plc(
-        mesh.vertices,
-        mesh.faces,
-        diagnostic_boundary_facets if diagnostic_boundary_facets is not None else b_facets,
-    )
+    if prebuilt_plc is not None:
+        plc_diagnostics = prebuilt_plc.diagnostics
+    else:
+        plc_diagnostics = tetgen_utils.inspect_tetgen_plc(
+            mesh.vertices,
+            mesh.faces,
+            diagnostic_boundary_facets if diagnostic_boundary_facets is not None else b_facets,
+        )
     debug(tetgen_utils.format_tetgen_plc_diagnostics(plc_diagnostics))
     if plc_diagnostics.errors:
         summary = "; ".join(plc_diagnostics.errors[:3])

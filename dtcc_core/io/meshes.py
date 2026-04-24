@@ -116,7 +116,12 @@ def _load_xdmf_volume_mesh(path):
                     volume_mesh.boundary_markers = boundary_markers
 
             return volume_mesh
-    except Exception:
+    except (OSError, KeyError, TypeError, ValueError) as exc:
+        warning(
+            "Falling back to meshio volume-mesh loading for %s after native XDMF/HDF5 load failed: %s",
+            path,
+            exc,
+        )
         return _load_meshio_volume_mesh(path)
 
 

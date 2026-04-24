@@ -29,6 +29,10 @@ class TerrainSurfaceMeshArgs(DatasetBaseArgs):
     smoothing: int = Field(
         3, description="Number of smoothing iterations to apply to the terrain mesh"
     )
+    mesher: Optional[Literal["auto", "dtcc_mesher", "triangle", "spade"]] = Field(
+        None,
+        description="2D meshing backend to use for the terrain triangulation",
+    )
 
     remove_outliers: bool = Field(
         True, description="Whether to remove global outliers from the terrain raster"
@@ -94,6 +98,7 @@ class TerrainSurfaceMeshDataset(DatasetDescriptor):
                             pc,
                             max_mesh_size=args.mesh_resolution,
                             smoothing=args.smoothing,
+                            mesher=args.mesher,
                         )
 
             with progress.phase(

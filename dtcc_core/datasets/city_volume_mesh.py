@@ -21,7 +21,12 @@ def _regular_tet_volume(edge_length: float) -> float:
 
 class CityVolumeMeshArgs(DatasetBaseArgs):
     max_mesh_size: float = Field(
-        25.0, description="Maximum mesh size (h parameter) in meters"
+        25.0,
+        description="Maximum target edge size for the 2D ground and shell meshing stages in meters",
+    )
+    top_cap_max_mesh_size: Optional[float] = Field(
+        None,
+        description="Optional separate target edge size for the lifted top cap triangulation in meters",
     )
     domain_height: float = Field(
         80.0, description="Height of the computational domain (H parameter) in meters"
@@ -52,8 +57,16 @@ class CityVolumeMeshArgs(DatasetBaseArgs):
     max_volume: Optional[float] = Field(
         None,
         description=(
-            "Maximum tetrahedron volume (defaults to the regular-tetrahedron "
-            "volume implied by max_mesh_size if not set)"
+            "Maximum tetrahedron volume used as TetGen's 3D size cap "
+            "(defaults to the regular-tetrahedron volume implied by "
+            "max_mesh_size if not set)"
+        ),
+    )
+    mesher: Optional[Literal["auto", "dtcc_mesher", "triangle", "spade"]] = Field(
+        None,
+        description=(
+            "2D meshing backend for the intermediate flat and shell meshes "
+            "(defaults to dtcc_mesher when omitted)"
         ),
     )
     tetgen_extra: str = Field(
@@ -182,11 +195,13 @@ class CityVolumeMeshDataset(DatasetDescriptor):
                 volume_mesh = dtcc_core.builder.build_city_volume_mesh(
                     city,
                     max_mesh_size=args.max_mesh_size,
+                    top_cap_max_mesh_size=args.top_cap_max_mesh_size,
                     domain_height=args.domain_height,
                     min_building_detail=args.min_building_detail,
                     boundary_face_markers=args.boundary_face_markers,
+                    mesher=args.mesher,
+                    max_volume=max_vol,
                     tetgen_switches={
-                        "max_volume": max_vol,
                         "extra": args.tetgen_extra,
                     },
                 )

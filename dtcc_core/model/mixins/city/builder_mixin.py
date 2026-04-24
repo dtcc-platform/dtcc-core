@@ -27,6 +27,7 @@ class CityBuilderMixin:
         build_mesh=True,
         max_triangle_size=5.0,
         smoothing=3,
+        mesher: str | None = None,
     ) -> "T_City":
         """
         Build terrain for a city using a point cloud.
@@ -64,6 +65,7 @@ class CityBuilderMixin:
                 raster,
                 max_mesh_size=max_triangle_size,
                 smoothing=smoothing,
+                mesher=mesher,
             )
             terrain.add_mesh(mesh)
 
@@ -318,6 +320,8 @@ class CityBuilderMixin:
         debug_step: int = 7,
         mesher: str | None = None,
         pipeline_mode: str = "strict",
+        top_cap_max_mesh_size: float | None = None,
+        max_volume: float | None = None,
     ) -> VolumeMesh:
         """Build a 3D tetrahedral volume mesh for the city.
 
@@ -333,7 +337,10 @@ class CityBuilderMixin:
         domain_height : float, optional
             Height of the volume domain above terrain (default 100.0).
         max_mesh_size : float, optional
-            Maximum element size (default 10.0).
+            Maximum target edge size for the 2D ground and shell meshing stages
+            (default 10.0).
+        top_cap_max_mesh_size : float, optional
+            Optional maximum edge length for the lifted top cap triangulation.
         min_mesh_angle : float, optional
             Minimum mesh angle quality constraint (default 25.0).
         merge_buildings : bool, optional
@@ -350,21 +357,28 @@ class CityBuilderMixin:
             Annotate boundary faces with integer markers (default True):
             `-1` ground, `-2` top, `-3` west/xmin, `-4` east/xmax,
             `-5` south/ymin, `-6` north/ymax.
+        max_volume : float, optional
+            Optional maximum tetrahedron volume passed to TetGen.
         tetgen_switches : dict, optional
             High-level TetGen parameters.
         tetgen_switch_overrides : dict, optional
             Low-level TetGen switch overrides.
         smoother_max_iterations : int, optional
-            Max iterations for fallback smoother (default 5000).
+            Legacy DTCC-only compatibility parameter. Ignored in the normal
+            TetGen path.
         smoothing_relative_tolerance : float, optional
-            Relative tolerance for fallback smoothing (default 0.005).
+            Legacy DTCC-only compatibility parameter. Ignored in the normal
+            TetGen path.
         aspect_ratio_threshold : float, optional
-            Aspect ratio threshold for fallback mesher (default 10.0).
+            Legacy DTCC-only compatibility parameter. Ignored in the normal
+            TetGen path.
         debug_step : int, optional
-            Debug step for fallback mesher (default 7).
+            Legacy DTCC-only compatibility parameter. Ignored in the normal
+            TetGen path.
         mesher : {"auto", "dtcc_mesher", "triangle", "spade"}, optional
             Select the 2D meshing backend used for the intermediate flat and
-            surface mesh stages.
+            surface mesh stages. ``None`` and ``"auto"`` both resolve to
+            ``dtcc_mesher`` in the strict volume path.
 
         Returns
         -------
@@ -378,6 +392,7 @@ class CityBuilderMixin:
             lod=lod,
             domain_height=domain_height,
             max_mesh_size=max_mesh_size,
+            top_cap_max_mesh_size=top_cap_max_mesh_size,
             min_mesh_angle=min_mesh_angle,
             merge_buildings=merge_buildings,
             min_building_detail=min_building_detail,
@@ -385,6 +400,7 @@ class CityBuilderMixin:
             merge_tolerance=merge_tolerance,
             smoothing=smoothing,
             boundary_face_markers=boundary_face_markers,
+            max_volume=max_volume,
             tetgen_switches=tetgen_switches,
             tetgen_switch_overrides=tetgen_switch_overrides,
             smoother_max_iterations=smoother_max_iterations,

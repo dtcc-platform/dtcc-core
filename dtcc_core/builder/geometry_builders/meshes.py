@@ -124,6 +124,15 @@ def _normalize_max_mesh_size(max_mesh_size: float | None) -> float | None:
     return value
 
 
+def _normalize_max_volume(max_volume: float | None) -> float | None:
+    if max_volume is None:
+        return None
+    value = float(max_volume)
+    if value <= 0.0:
+        return None
+    return value
+
+
 def _default_city_volume_tetgen_switches(
     min_mesh_angle: float,
 ) -> dict[str, Any]:
@@ -148,6 +157,33 @@ def _default_city_volume_tetgen_switches(
     switches["quality"] = None
     switches["optimize_max_dihedral"] = 175.0
     return switches
+
+
+def _resolve_city_volume_tetgen_switch_request(
+    *,
+    min_mesh_angle: float,
+    tetgen_switches: dict[str, Any] | None,
+    tetgen_switch_overrides: dict[str, Any] | None,
+    max_volume: float | None,
+) -> tuple[dict[str, Any], bool, bool]:
+    requested_switches = _default_city_volume_tetgen_switches(min_mesh_angle)
+    if tetgen_switches:
+        requested_switches.update(tetgen_switches)
+
+    explicit_max_volume_requested = bool(
+        (tetgen_switches and "max_volume" in tetgen_switches)
+        or (tetgen_switch_overrides and "max_volume" in tetgen_switch_overrides)
+    )
+    if max_volume is not None and not explicit_max_volume_requested:
+        requested_switches["max_volume"] = max_volume
+
+    preserve_surface_requested = bool(requested_switches.get("preserve_surface"))
+    if tetgen_switch_overrides:
+        preserve_surface_requested = bool(
+            tetgen_switch_overrides.get("preserve_surface")
+        ) or preserve_surface_requested
+
+    return requested_switches, preserve_surface_requested, explicit_max_volume_requested
 
 
 def _strict_city_volume_mesher_request(mesher: str | None) -> str:
@@ -845,30 +881,13 @@ def _triangular_facet_areas(
 
 def _tetgen_plc_audit(
     *,
-    surface_mesh: Mesh,
-    closure_mesh: Mesh,
-    top_height: float,
-    top_cap_backend: str,
-    top_cap_max_mesh_size: float | None,
-    top_cap_min_mesh_angle: float,
+    plc: tetgen_utils.TetgenPLC,
 ) -> dict[str, Any]:
-    (
-        plc_vertices,
-        shell_faces,
-        boundary_facets,
-        _boundary_facet_markers,
-        audit_boundary_triangles,
-    ) = tetgen_utils.compute_oriented_boundary_plc(
-        surface_mesh,
-        closure_mesh,
-        top_height=top_height,
-        top_cap_backend=top_cap_backend,
-        top_cap_max_mesh_size=top_cap_max_mesh_size,
-        top_cap_min_mesh_angle=top_cap_min_mesh_angle,
-    )
+    plc_vertices = np.asarray(plc.vertices, dtype=np.float64)
+    shell_faces = np.asarray(plc.shell_faces, dtype=np.int64)
     boundary_facets_list = [
         np.asarray(facet, dtype=np.int64).reshape(-1).tolist()
-        for facet in boundary_facets
+        for facet in plc.boundary_facets
     ]
     triangular_boundary_faces = [
         np.asarray(facet, dtype=np.int64)
@@ -876,9 +895,9 @@ def _tetgen_plc_audit(
         if len(facet) == 3
     ]
     combined_faces = shell_faces
-    if len(audit_boundary_triangles):
+    if len(plc.audit_boundary_triangles):
         combined_faces = np.vstack(
-            [combined_faces, np.asarray(audit_boundary_triangles, dtype=np.int64)]
+            [combined_faces, np.asarray(plc.audit_boundary_triangles, dtype=np.int64)]
         )
 
     boundary_edge_lengths = _polygon_facet_edge_lengths(plc_vertices, boundary_facets_list)
@@ -887,11 +906,7 @@ def _tetgen_plc_audit(
         [float(len(facet)) for facet in boundary_facets_list],
         dtype=np.float64,
     )
-    diagnostics = tetgen_utils.inspect_tetgen_plc(
-        plc_vertices,
-        shell_faces,
-        boundary_facets_list,
-    )
+    diagnostics = plc.diagnostics
     orientation_stats = tetgen_utils._triangle_edge_orientation_stats(
         shell_faces,
         boundary_facets_list,
@@ -4141,6 +4156,8 @@ def build_city_volume_mesh(
     tetgen_quality_failure_output_stem: str | None = None,
     stage_audit: dict[str, Any] | None = None,
     pipeline_mode: str = "strict",
+    top_cap_max_mesh_size: float | None = None,
+    max_volume: float | None = None,
 ) -> VolumeMesh:
     """
     Build a 3D tetrahedral volume mesh for a city terrain with embedded building volumes.
@@ -4162,9 +4179,11 @@ def build_city_volume_mesh(
         The vertical height of the volume domain above the terrain surface, in the
         same coordinate units as the city. Defaults to 100.0.
     max_mesh_size : float, optional
-        Maximum allowed mesh element size. This value governs both the underlying
-        ground mesh resolution and the upper bound of element sizing within the
-        extruded volume. Defaults to 10.0.
+        Maximum target triangle edge length for the 2D ground mesh and the
+        terrain/building shell preconditioning stages. Defaults to 10.0.
+    top_cap_max_mesh_size : float, optional
+        Optional target triangle edge length for the lifted top cap used in the
+        TetGen PLC. When omitted, the top cap uses ``max_mesh_size``.
     min_mesh_angle : float, optional
         Minimum allowable mesh angle used as a quality constraint. Defaults to 25.0.
     merge_buildings : bool, optional
@@ -4186,16 +4205,21 @@ def build_city_volume_mesh(
         markers as a post-processing step. This supports downstream workflows such
         as boundary-condition assignment. Defaults to True. See Notes for marker
         conventions.
+    max_volume : float, optional
+        Optional maximum tetrahedron volume passed to TetGen. When omitted,
+        ``dtcc-core`` does not synthesize a 3D size cap on its own; callers may
+        still provide ``max_volume`` via ``tetgen_switches`` for backwards
+        compatibility.
     tetgen_switches : dict, optional
         Optional high-level TetGen parameter dictionary. Keys must correspond to
         those defined in ``dtcc_wrapper_tetgen.switches.DEFAULT_TETGEN_PARAMS``.
         These values are passed directly to ``dtcc_wrapper_tetgen``.
         By default, ``dtcc-core`` uses ``quality=None``, which means the TetGen
         ``-q`` switch is omitted entirely. The default volume-mesh path therefore
-        relies on the PLC plus the supplied maximum-volume cap, and only enables
-        TetGen's explicit quality-refinement mode when the caller opts in via a
-        non-``None`` ``quality`` setting. The default switch set does still
-        request TetGen's dihedral-based sliver optimization target
+        relies on the PLC geometry and, when provided, a TetGen maximum-volume
+        cap instead of turning on TetGen's heavier explicit quality-refinement
+        mode by default. The default switch set does still request TetGen's
+        dihedral-based sliver optimization target
         (``optimize_max_dihedral=175.0``, i.e. ``-o/175``), because that has
         improved the worst tetra aspect-ratio tail on our city PLCs without the
         cost and side effects of enabling ``-q`` by default.
@@ -4204,17 +4228,24 @@ def build_city_volume_mesh(
         ``build_tetgen_switches``. Use this when direct control of TetGen's
         command-string switches is required.
     smoother_max_iterations : int, optional
-        Maximum iterations for fallback volume mesh smoother. Defaults to 5000.
+        Legacy DTCC-only compatibility parameter. It is only used when TetGen
+        is unavailable and the internal fallback volume mesher is selected.
+        Defaults to 5000.
     smoothing_relative_tolerance : float, optional
-        Relative tolerance for fallback volume mesh smoothing. Defaults to 0.005.
+        Legacy DTCC-only compatibility parameter. It is ignored in the normal
+        TetGen path and only used by the internal fallback volume mesher.
+        Defaults to 0.005.
     aspect_ratio_threshold : float, optional
-        Aspect ratio threshold for fallback volume mesher. Defaults to 10.0.
+        Legacy DTCC-only compatibility parameter. It is ignored in the normal
+        TetGen path and only used by the internal fallback volume mesher.
+        Defaults to 10.0.
     debug_step : int, optional
-        Debug step parameter for fallback volume mesher. Defaults to 7.
+        Legacy DTCC-only compatibility parameter for the internal fallback
+        volume mesher. Ignored in the TetGen path. Defaults to 7.
     mesher : {"auto", "dtcc_mesher", "triangle", "spade"}, optional
         Select the 2D meshing backend used for the intermediate flat/surface
-        mesh stages. ``"auto"`` prefers ``dtcc_mesher`` when available,
-        then ``triangle``, then ``spade``.
+        mesh stages. In the strict volume path, ``None`` and ``"auto"`` both
+        resolve to ``dtcc_mesher``.
     tetgen_debug_output_dir : str or Path, optional
         When provided, save the exact surface-mesh inputs handed to TetGen in
         this directory. Three meshes are written per attempt: the flat ground
@@ -4234,6 +4265,9 @@ def build_city_volume_mesh(
         Optional output dictionary populated in place with per-attempt stage
         metrics for conditioned footprints, shell-region inputs, the 2D
         ground mesh, the shell, the PLC, and the final volume mesh.
+    pipeline_mode : {"strict"}, optional
+        Meshing pipeline mode. Only ``"strict"`` is currently supported; the
+        parameter remains in the API for compatibility with existing callers.
 
     Returns
     -------
@@ -4284,6 +4318,10 @@ def build_city_volume_mesh(
     """
     pipeline_mode = _normalize_meshing_pipeline_mode(pipeline_mode)
     max_mesh_size = _normalize_max_mesh_size(max_mesh_size)
+    top_cap_max_mesh_size = _normalize_max_mesh_size(top_cap_max_mesh_size)
+    if top_cap_max_mesh_size is None:
+        top_cap_max_mesh_size = max_mesh_size
+    max_volume = _normalize_max_volume(max_volume)
     mesher = _strict_city_volume_mesher_request(mesher)
     attempt = _start_stage_audit_attempt(
         stage_audit,
@@ -4299,22 +4337,29 @@ def build_city_volume_mesh(
         tetgen_switch_overrides=tetgen_switch_overrides,
     )
     preserve_surface_requested = False
+    requested_tetgen_switches: dict[str, Any] = {}
     if is_tetgen_available():
-        requested_tetgen_switches = _default_city_volume_tetgen_switches(
-            min_mesh_angle,
+        (
+            requested_tetgen_switches,
+            preserve_surface_requested,
+            _,
+        ) = _resolve_city_volume_tetgen_switch_request(
+            min_mesh_angle=min_mesh_angle,
+            tetgen_switches=tetgen_switches,
+            tetgen_switch_overrides=tetgen_switch_overrides,
+            max_volume=max_volume,
         )
-        if tetgen_switches:
-            requested_tetgen_switches.update(tetgen_switches)
-        preserve_surface_requested = bool(
-            requested_tetgen_switches.get("preserve_surface")
-        )
-        if tetgen_switch_overrides:
-            preserve_surface_requested = bool(
-                tetgen_switch_overrides.get("preserve_surface")
-            ) or preserve_surface_requested
     if attempt is not None:
         attempt["config"]["smoothing"] = int(smoothing)
         attempt["config"]["pipeline_mode"] = pipeline_mode
+        attempt["config"]["top_cap_max_mesh_size"] = (
+            None
+            if top_cap_max_mesh_size is None
+            else float(top_cap_max_mesh_size)
+        )
+        attempt["config"]["max_volume"] = (
+            None if max_volume is None else float(max_volume)
+        )
     terrain, terrain_raster, building_footprints, source_map, subdomain_resolution, diagnostics = (
         _prepare_city_meshing_inputs(
             city,
@@ -4345,6 +4390,11 @@ def build_city_volume_mesh(
         float(diagnostics.get("output_grid", 0.0) or 0.0),
         1.0e-9,
     )
+    conditioned_footprint_contract = _conditioned_footprint_contract_audit(
+        surfaces=building_footprints,
+        declared_scale=conditioned_scale,
+        diagnostics=diagnostics,
+    )
     if attempt is not None:
         _record_stage_audit_stage(
             attempt,
@@ -4356,20 +4406,12 @@ def build_city_volume_mesh(
                     source_map=source_map,
                 ),
                 "diagnostics": _audit_json_ready(dict(diagnostics)),
-                "contract": _conditioned_footprint_contract_audit(
-                    surfaces=building_footprints,
-                    declared_scale=conditioned_scale,
-                    diagnostics=diagnostics,
-                ),
+                "contract": conditioned_footprint_contract,
             },
         )
     _raise_stage_contract_errors(
         "Conditioned footprints",
-        _conditioned_footprint_contract_audit(
-            surfaces=building_footprints,
-            declared_scale=conditioned_scale,
-            diagnostics=diagnostics,
-        ),
+        conditioned_footprint_contract,
     )
     if not building_footprints:
         warning(
@@ -4610,7 +4652,7 @@ def build_city_volume_mesh(
                         surface_mesh=surface_mesh,
                         domain_height=domain_height,
                         top_cap_backend=surface_mesher,
-                        top_cap_max_mesh_size=max_mesh_size,
+                        top_cap_max_mesh_size=top_cap_max_mesh_size,
                         top_cap_min_mesh_angle=min_mesh_angle,
                     )
                     debug(
@@ -4622,23 +4664,22 @@ def build_city_volume_mesh(
                 except Exception as exc:
                     warning("Failed to save TetGen debug meshes: %s", exc)
 
-            switches_params = _default_city_volume_tetgen_switches(min_mesh_angle)
-            if tetgen_switches:
-                switches_params.update(tetgen_switches)
+            switches_params = dict(requested_tetgen_switches)
             if attempt is not None:
                 attempt["config"]["effective_tetgen_switches"] = _audit_json_ready(
                     switches_params
                 )
+            tetgen_plc = tetgen_utils.build_tetgen_plc(
+                surface_mesh,
+                surface_ground_mesh,
+                top_height=domain_height,
+                top_cap_backend=surface_mesher,
+                top_cap_max_mesh_size=top_cap_max_mesh_size,
+                top_cap_min_mesh_angle=min_mesh_angle,
+            )
             plc_audit = {
                 "mesher": surface_mesher,
-                **_tetgen_plc_audit(
-                    surface_mesh=surface_mesh,
-                    closure_mesh=surface_ground_mesh,
-                    top_height=domain_height,
-                    top_cap_backend=surface_mesher,
-                    top_cap_max_mesh_size=max_mesh_size,
-                    top_cap_min_mesh_angle=min_mesh_angle,
-                ),
+                **_tetgen_plc_audit(plc=tetgen_plc),
             }
             plc_audit["contract"] = _tetgen_plc_contract_from_audit(
                 plc_audit,
@@ -4659,11 +4700,12 @@ def build_city_volume_mesh(
                 top_height=domain_height,
                 closure_mesh=surface_ground_mesh,
                 top_cap_backend=surface_mesher,
-                top_cap_max_mesh_size=max_mesh_size,
+                top_cap_max_mesh_size=top_cap_max_mesh_size,
                 top_cap_min_mesh_angle=min_mesh_angle,
                 switches_params=switches_params,
                 switches_overrides=tetgen_switch_overrides,
                 return_boundary_faces=boundary_face_markers,
+                prebuilt_plc=tetgen_plc,
             )
 
             if attempt is not None:
@@ -4695,7 +4737,7 @@ def build_city_volume_mesh(
                         quality_snapshot=final_quality_snapshot,
                         domain_height=domain_height,
                         top_cap_backend=surface_mesher,
-                        top_cap_max_mesh_size=max_mesh_size,
+                        top_cap_max_mesh_size=top_cap_max_mesh_size,
                         top_cap_min_mesh_angle=min_mesh_angle,
                         debug_paths=debug_paths,
                     )
