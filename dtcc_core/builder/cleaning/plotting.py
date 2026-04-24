@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import colorsys
 from collections.abc import Sequence
 from typing import Any
 
@@ -9,6 +10,21 @@ import numpy as np
 from shapely.geometry import GeometryCollection, MultiPolygon, Polygon
 from shapely.geometry.base import BaseGeometry
 from shapely.geometry.polygon import orient
+
+_BASE_BUILDING_COLORS = (
+    "#4E79A7",
+    "#F28E2B",
+    "#E15759",
+    "#76B7B2",
+    "#59A14F",
+    "#EDC948",
+    "#B07AA1",
+    "#FF9DA7",
+    "#9C755F",
+    "#BAB0AC",
+    "#2F4B7C",
+    "#D37295",
+)
 
 
 def _load_plot_modules():
@@ -71,9 +87,31 @@ def _polygon_patch(polygon: Polygon, *, path_cls: type[Any], patch_cls: type[Any
     return patch_cls(path, **kwargs)
 
 
-def _plot_polygons(ax, polygons: Sequence[BaseGeometry], *, facecolor: str, edgecolor: str, linewidth: float, alpha: float):
+def _adjust_color_lightness(color: str, delta: float) -> tuple[float, float, float]:
+    red, green, blue = tuple(int(color[index : index + 2], 16) / 255.0 for index in (1, 3, 5))
+    hue, lightness, saturation = colorsys.rgb_to_hls(red, green, blue)
+    lightness = min(0.85, max(0.28, lightness + delta))
+    return colorsys.hls_to_rgb(hue, lightness, saturation)
+
+
+def _building_color(index: int) -> tuple[float, float, float]:
+    base_color = _BASE_BUILDING_COLORS[index % len(_BASE_BUILDING_COLORS)]
+    lightness_variants = (0.0, 0.10, -0.08, 0.16, -0.14)
+    delta = lightness_variants[(index // len(_BASE_BUILDING_COLORS)) % len(lightness_variants)]
+    return _adjust_color_lightness(base_color, delta)
+
+
+def _plot_polygons(
+    ax,
+    polygons: Sequence[BaseGeometry],
+    *,
+    edgecolor: str,
+    linewidth: float,
+    alpha: float,
+):
     plotted_parts: list[Polygon] = []
-    for geometry in polygons:
+    for geometry_index, geometry in enumerate(polygons):
+        facecolor = _building_color(geometry_index)
         for polygon in _iter_polygon_parts(geometry):
             patch = _polygon_patch(
                 polygon,
@@ -151,22 +189,21 @@ def plot_footprint_cleaning_comparison(
     for ax in axes:
         ax._dtcc_patch_cls = path_patch_cls  # type: ignore[attr-defined]
         ax._dtcc_path_cls = path_cls  # type: ignore[attr-defined]
+        ax.set_facecolor("#f8fafc")
 
     raw_parts = _plot_polygons(
         axes[0],
         raw_polygons,
-        facecolor="#cbd5e1",
-        edgecolor="#0f172a",
-        linewidth=0.7,
+        edgecolor="#1e293b",
+        linewidth=0.8,
         alpha=0.9,
     )
     cleaned_parts = _plot_polygons(
         axes[1],
         cleaned_polygons,
-        facecolor="#8ecae6",
-        edgecolor="#023047",
-        linewidth=0.7,
-        alpha=0.95,
+        edgecolor="#0f172a",
+        linewidth=0.8,
+        alpha=0.92,
     )
 
     axes[0].set_title(raw_title)

@@ -275,6 +275,27 @@ def test_plot_footprint_cleaning_comparison_returns_figure():
     plt.close(fig)
 
 
+def test_plot_footprint_cleaning_comparison_uses_distinct_building_colors():
+    matplotlib = pytest.importorskip("matplotlib")
+    matplotlib.use("Agg", force=True)
+    plt = pytest.importorskip("matplotlib.pyplot")
+
+    fig, axes = cleaning.plot_footprint_cleaning_comparison(
+        [box(0.0, 0.0, 2.0, 2.0), box(3.0, 0.0, 5.0, 2.0)],
+        [box(0.0, 0.0, 2.0, 2.0), box(3.0, 0.0, 5.0, 2.0)],
+        show=False,
+    )
+
+    left_colors = [tuple(patch.get_facecolor()) for patch in axes[0].patches[:2]]
+    right_colors = [tuple(patch.get_facecolor()) for patch in axes[1].patches[:2]]
+
+    assert len(left_colors) == 2
+    assert len(right_colors) == 2
+    assert left_colors[0] != left_colors[1]
+    assert right_colors[0] != right_colors[1]
+    plt.close(fig)
+
+
 @pytest.mark.parametrize(
     ("geometries", "options", "expected_count"),
     [
