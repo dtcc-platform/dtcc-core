@@ -26,6 +26,11 @@ try:
 except ImportError:
     pass
 
+
+class NoFootprintTilesError(RuntimeError):
+    """Raised when the footprint backend has no tiles for the requested bounds."""
+
+
 def load_cache():
     """
     Load or create an empty cache metadata from tile_cache_superset.json.
@@ -81,10 +86,10 @@ def post_gpkg_request(url, session, xmin, ymin, xmax, ymax, buffer_value=0):
     Example: url = "http://127.0.0.1:8000/tiles"
     """
     payload = {
-        "minx": xmin,
-        "miny": ymin,
-        "maxx": xmax,
-        "maxy": ymax,
+        "minx": round(xmin),
+        "miny": round(ymin),
+        "maxx": round(xmax),
+        "maxy": round(ymax),
     }
     debug(f"[POST] to {url} with payload={payload}")
     last_error = None
@@ -97,10 +102,20 @@ def post_gpkg_request(url, session, xmin, ymin, xmax, ymax, buffer_value=0):
             )
             debug(resp)
             if resp.status_code != 200:
+                if (
+                    resp.status_code == 404
+                    and "no tiles intersect" in resp.text.lower()
+                ):
+                    raise NoFootprintTilesError(
+                        "No footprint tiles intersect the requested bounding box "
+                        f"{payload}."
+                    )
                 raise RuntimeError(
                     f"Request failed with status {resp.status_code}:\n{resp.text}"
                 )
             return resp.json()
+        except NoFootprintTilesError:
+            raise
         except (requests.RequestException, RuntimeError) as exc:
             last_error = exc
             if attempt >= _REQUEST_MAX_ATTEMPTS:
@@ -185,6 +200,8 @@ def download_tiles(user_bbox, session, server_url=DEFAULT_SERVER_URL):
             ymax=user_bbox[3],
             buffer_value=2000
         )
+    except NoFootprintTilesError:
+        raise
     except Exception as e:
         warning(f"Error occurred: {e}")
         return
