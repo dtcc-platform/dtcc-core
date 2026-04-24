@@ -1,8 +1,6 @@
 
 #!/usr/bin/env python3
 import requests
-import getpass
-import sys
 import os
 from pathlib import Path
 from .overpass import get_roads_for_bbox, get_buildings_for_bbox
@@ -20,15 +18,6 @@ valid_providers = ["dtcc", "OSM"]
 _DTCC_BASE = os.environ.get("DTCC_DATA_URL", "http://compute.dtcc.chalmers.se")
 DTCC_LIDAR_URL = os.environ.get("DTCC_LIDAR_URL", f"{_DTCC_BASE}:8000")
 DTCC_GPKG_URL  = os.environ.get("DTCC_GPKG_URL",  f"{_DTCC_BASE}:8001")
-
-# We'll keep a single global SSH client in memory
-SSH_CLIENT = None
-SSH_CREDS = {
-    "username": None,
-    "password": None
-}
-sessions = []
-
 
 def _bounds_overlap(lhs: Bounds, rhs: Bounds) -> bool:
     return not (
@@ -70,95 +59,13 @@ def _load_cached_footprints(bounds: Bounds):
     buildings = io.load_footprints(cached_files, bounds=bounds)
     return buildings if buildings else None
 
-def get_authenticated_session(base_url: str, username: str, password: str) -> requests.Session:
-    """
-    1. POST to /auth/token to obtain a bearer token.
-    2. Create a requests.Session that automatically sends the token for future requests during runtime.
-    """
-    # 1) Obtain the token
-    token_url = f"{base_url.rstrip('/')}/auth/token"
-    payload = {"username": username, "password": password}
-
-    response = requests.post(token_url, json=payload)
-    if response.status_code != 200:
-        error(f"Token request failed. Status code: {response.status_code}")
-        return
-
-    data = response.json()
-    if "token" not in data:
-        raise RuntimeError(f"No token found in response: {data}")
-
-    token = data["token"]
-
-    # 2) Create and return a Session with the token in headers
-    session = requests.Session()
-    session.headers.update({"Authorization": f"Bearer {token}"})
-    return session
-
-class SSHAuthenticationError(Exception):
-    """Raised if SSH authentication fails."""
-    pass
-
-def _ssh_connect_if_needed():
-    """
-    Ensures we're authenticated via SSH to data.dtcc.chalmers.se.
-    If not connected, prompts user for username/password, tries to connect.
-    On success, we store the SSH client in memory for future calls.
-
-    In non-interactive mode (e.g., when running as a server), credentials
-    can be provided via DTCC_SSH_USERNAME and DTCC_SSH_PASSWORD environment
-    variables.
-    """
-    global SSH_CLIENT, SSH_CREDS
-    global sessions
-    # If no credentials, prompt user
-    if not sessions:
-        # Check for environment variables first
-        USERNAME = os.environ.get("DTCC_SSH_USERNAME")
-        PASSWORD = os.environ.get("DTCC_SSH_PASSWORD")
-
-        if not USERNAME or not PASSWORD:
-            # Only prompt if in an interactive terminal
-            if sys.stdin.isatty():
-                info("SSH Authentication required for dtcc provider.")
-                USERNAME = input("Enter SSH username: ")
-                PASSWORD = getpass.getpass("Enter SSH password: ")
-            else:
-                warning("Non-interactive mode: SSH authentication skipped. "
-                       "Set DTCC_SSH_USERNAME and DTCC_SSH_PASSWORD environment variables.")
-                return None
-
-        lidar_session = get_authenticated_session(DTCC_LIDAR_URL, USERNAME, PASSWORD)
-        gpkg_session  = get_authenticated_session(DTCC_GPKG_URL,  USERNAME, PASSWORD)
-        return lidar_session, gpkg_session
-    return sessions
-
-    # # Create a new SSH client
-    # SSH_CLIENT = paramiko.SSHClient()
-    # SSH_CLIENT.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-
-    # try:
-    #     SSH_CLIENT.connect(
-    #         hostname="data.dtcc.chalmers.se",
-    #         username=SSH_CREDS["username"],
-    #         password=SSH_CREDS["password"]
-    #     )
-    # except paramiko.AuthenticationException as e:
-    #     # If auth fails, raise an error and reset SSH_CLIENT
-    #     SSH_CLIENT = None
-    #     raise SSHAuthenticationError(f"SSH authentication failed: {e}")
-
-    # print("SSH authenticated with data.dtcc.chalmers.se (no SFTP).")
-
 def download_data(data_type: str, provider: str, bounds: Bounds, epsg = '3006', url = None):
     """
-    A wrapper for downloading data, but with a dummy step for actual file transfer.
-    If provider='dtcc', we do an SSH-based authentication check and then simulate a download.
-    If provider='OSM', we just do a dummy download with no SSH.
+    A wrapper for downloading data from the configured backend.
 
     :param data_type: 'lidar' or 'roads' or 'footprints'
     :param provider: 'dtcc' or 'OSM'
-    :return: dict with info about the (dummy) download
+    :return: loaded data object for the requested type
     """
     # Resolve per-service URLs: explicit `url` overrides env; otherwise use env-backed defaults.
     if url is not None:
@@ -182,8 +89,6 @@ def download_data(data_type: str, provider: str, bounds: Bounds, epsg = '3006', 
         raise ValueError(f"Invalid provider '{provider}'. Must be one of {valid_providers}.")
 
     if provider == "dtcc":
-
-        global sessions
         session = requests.Session()
         if data_type == 'lidar':
             info('Starting the Lidar files download from dtcc source')

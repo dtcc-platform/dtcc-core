@@ -25,6 +25,46 @@ _REQUEST_TIMEOUT_SECONDS = 30
 _REQUEST_MAX_ATTEMPTS = 4
 _REQUEST_RETRY_BACKOFF_SECONDS = 2.0
 
+
+def _env_int(name, default, minimum=None):
+    value = os.environ.get(name)
+    if value is None:
+        return default
+
+    try:
+        parsed = int(value)
+    except ValueError:
+        warning(f"Ignoring invalid {name}={value!r}; expected an integer.")
+        return default
+
+    if minimum is not None and parsed < minimum:
+        warning(
+            f"Ignoring invalid {name}={value!r}; expected an integer >= {minimum}."
+        )
+        return default
+
+    return parsed
+
+
+_DOWNLOAD_TOTAL_TIMEOUT_SECONDS = _env_int("DTCC_LIDAR_DOWNLOAD_TOTAL_TIMEOUT", 120, minimum=1)
+_DOWNLOAD_CONNECT_TIMEOUT_SECONDS = _env_int("DTCC_LIDAR_DOWNLOAD_CONNECT_TIMEOUT", 30, minimum=1)
+_DOWNLOAD_SOCK_READ_TIMEOUT_SECONDS = _env_int("DTCC_LIDAR_DOWNLOAD_SOCK_READ_TIMEOUT", 120, minimum=1)
+_DOWNLOAD_MAX_ATTEMPTS = _env_int("DTCC_LIDAR_DOWNLOAD_MAX_ATTEMPTS", 4, minimum=1)
+_DOWNLOAD_RETRY_BACKOFF_SECONDS = _env_int("DTCC_LIDAR_DOWNLOAD_RETRY_BACKOFF", 5, minimum=0)
+_DOWNLOAD_RATE_LIMIT_BACKOFF_SECONDS = _env_int(
+    "DTCC_LIDAR_DOWNLOAD_RATE_LIMIT_BACKOFF", 30, minimum=0
+)
+_DOWNLOAD_MAX_CONCURRENCY = _env_int("DTCC_LIDAR_DOWNLOAD_MAX_CONCURRENCY", 3, minimum=1)
+
+
+class LidarDownloadError(RuntimeError):
+    def __init__(self, filename, status, retry_after=None):
+        self.filename = filename
+        self.status = status
+        self.retry_after = retry_after
+        super().__init__(f"Download failed for {filename} with status {status}")
+
+
 def post_lidar_request(url, session, xmin, ymin, xmax, ymax, buffer_value=0):
     """
     Sends a POST request to the FastAPI endpoint with the given bounding box & buffer.
@@ -32,10 +72,10 @@ def post_lidar_request(url, session, xmin, ymin, xmax, ymax, buffer_value=0):
     Example: url = "http://127.0.0.1:8000/get_lidar"
     """
     payload = {
-        "xmin": xmin,
-        "ymin": ymin,
-        "xmax": xmax,
-        "ymax": ymax,
+        "xmin": round(xmin),
+        "ymin": round(ymin),
+        "xmax": round(xmax),
+        "ymax": round(ymax),
         "buffer": buffer_value
     }
     debug(f"[POST] to {url} with payload={payload}")
@@ -181,7 +221,7 @@ def plot_bboxes_folium(user_bbox, tiles, out_html="client_map.html", crs_from="E
 # ------------------------------------------------------------------------
 # Async download with caching
 # ------------------------------------------------------------------------
-async def download_laz_file(session, base_url, filename, output_dir):
+async def download_laz_file(session, base_url, filename, output_dir, semaphore):
     """
     Download a single .laz file asynchronously with aiohttp if not already cached.
     The endpoint is assumed to be: f"{base_url}/get/lidar/{filename}"
@@ -196,16 +236,58 @@ async def download_laz_file(session, base_url, filename, output_dir):
         info(f"File {filename} already in cache, skipping download.")
         return  # skip
 
-    # 2) If not cached, download
-    info(f"Downloading {filename} from {url}")
-    async with session.get(url) as resp:
-        if resp.status == 200:
-            content = await resp.read()
-            with open(out_path, "wb") as f:
-                f.write(content)
-            info(f"Saved {filename} to {out_path}")
-        else:
-            warning(f"Failed to download {filename}, status code={resp.status}")
+    tmp_path = f"{out_path}.part"
+    timeout = aiohttp.ClientTimeout(
+        total=_DOWNLOAD_TOTAL_TIMEOUT_SECONDS,
+        connect=_DOWNLOAD_CONNECT_TIMEOUT_SECONDS,
+        sock_read=_DOWNLOAD_SOCK_READ_TIMEOUT_SECONDS,
+    )
+
+    async with semaphore:
+        for attempt in range(1, _DOWNLOAD_MAX_ATTEMPTS + 1):
+            try:
+                info(
+                    f"Downloading {filename} from {url} "
+                    f"(attempt {attempt}/{_DOWNLOAD_MAX_ATTEMPTS})"
+                )
+                async with session.get(url, timeout=timeout) as resp:
+                    if resp.status != 200:
+                        retry_after = resp.headers.get("Retry-After")
+                        raise LidarDownloadError(filename, resp.status, retry_after)
+
+                    with open(tmp_path, "wb") as f:
+                        async for chunk in resp.content.iter_chunked(1024 * 1024):
+                            f.write(chunk)
+
+                os.replace(tmp_path, out_path)
+                info(f"Saved {filename} to {out_path}")
+                return
+            except (aiohttp.ClientError, asyncio.TimeoutError, OSError, RuntimeError) as exc:
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+
+                if attempt >= _DOWNLOAD_MAX_ATTEMPTS:
+                    raise
+
+                if isinstance(exc, LidarDownloadError) and exc.status == 429:
+                    if exc.retry_after is not None:
+                        try:
+                            backoff = int(exc.retry_after)
+                        except ValueError:
+                            backoff = _DOWNLOAD_RATE_LIMIT_BACKOFF_SECONDS * attempt
+                    else:
+                        backoff = _DOWNLOAD_RATE_LIMIT_BACKOFF_SECONDS * attempt
+                else:
+                    backoff = _DOWNLOAD_RETRY_BACKOFF_SECONDS * attempt
+
+                warning(
+                    f"Lidar file download attempt {attempt}/{_DOWNLOAD_MAX_ATTEMPTS} "
+                    f"failed for {filename}: {type(exc).__name__}: {exc}. "
+                    f"Retrying in {backoff:.1f}s."
+                )
+                await asyncio.sleep(backoff)
 
 async def download_all_lidar_files(base_url, filenames, output_dir="downloaded_laz"):
     """
@@ -216,7 +298,7 @@ async def download_all_lidar_files(base_url, filenames, output_dir="downloaded_l
     completed = [0]  # Use list to allow modification in nested function
 
     async def download_with_progress(session, base_url, filename, output_dir):
-        await download_laz_file(session, base_url, filename, output_dir)
+        await download_laz_file(session, base_url, filename, output_dir, semaphore)
         completed[0] += 1
         report_progress(
             current=completed[0],
@@ -225,8 +307,19 @@ async def download_all_lidar_files(base_url, filenames, output_dir="downloaded_l
         )
 
     report_progress(percent=0, message=f"Downloading {total_files} files...")
+    info(
+        "Lidar download settings: "
+        f"max_concurrency={_DOWNLOAD_MAX_CONCURRENCY}, "
+        f"total_timeout={_DOWNLOAD_TOTAL_TIMEOUT_SECONDS}s, "
+        f"connect_timeout={_DOWNLOAD_CONNECT_TIMEOUT_SECONDS}s, "
+        f"sock_read_timeout={_DOWNLOAD_SOCK_READ_TIMEOUT_SECONDS}s, "
+        f"max_attempts={_DOWNLOAD_MAX_ATTEMPTS}, "
+        f"rate_limit_backoff={_DOWNLOAD_RATE_LIMIT_BACKOFF_SECONDS}s"
+    )
 
-    async with aiohttp.ClientSession() as session:
+    connector = aiohttp.TCPConnector(limit=_DOWNLOAD_MAX_CONCURRENCY)
+    semaphore = asyncio.Semaphore(_DOWNLOAD_MAX_CONCURRENCY)
+    async with aiohttp.ClientSession(connector=connector) as session:
         tasks = []
         for fname in filenames:
             tasks.append(download_with_progress(session, base_url, fname, output_dir))
