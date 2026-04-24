@@ -200,6 +200,45 @@ def test_condition_meshing_footprints_regularizes_touching_holes():
     assert diagnostics.get("mesher_regularized_polygon_count", 0) == 0
 
 
+def test_condition_meshing_footprints_shows_plot_when_requested(monkeypatch):
+    captured: dict[str, object] = {}
+
+    def fake_plot(raw_polygons, cleaned_polygons, *, title, show, block):
+        captured["raw_count"] = len(raw_polygons)
+        captured["cleaned_count"] = len(cleaned_polygons)
+        captured["title"] = title
+        captured["show"] = show
+        captured["block"] = block
+        return None, None
+
+    monkeypatch.setattr(meshes_module, "plot_footprint_cleaning_comparison", fake_plot)
+
+    surfaces, source_map, resolutions, diagnostics = meshes_module._condition_meshing_footprints(
+        [make_building(box(0.0, 0.0, 10.0, 10.0), roof_z=10.0)],
+        lod=GeometryType.LOD0,
+        min_building_detail=0.5,
+        min_building_area=1.0,
+        merge_tolerance=0.5,
+        merge_buildings=False,
+        max_mesh_size=5.0,
+        cleaning_diagnostics=False,
+        show_footprints=True,
+        footprint_cleaning_plot_block=False,
+    )
+
+    assert len(surfaces) == 1
+    assert source_map == [[0]]
+    assert resolutions == [5.0]
+    assert diagnostics["output_count"] == 1
+    assert captured == {
+        "raw_count": 1,
+        "cleaned_count": 1,
+        "title": "Footprint cleaning",
+        "show": True,
+        "block": False,
+    }
+
+
 def test_hole_pair_self_clearance_merge_repairs_two_hole_throat():
     polygon = Polygon(
         [(0, 0), (24, 0), (24, 24), (0, 24), (0, 0)],
@@ -269,6 +308,7 @@ def test_normalize_mesher_ready_coverage_revalidates_contract(monkeypatch):
         source_map,
         declared_scale=0.5,
         min_hole_area=0.25,
+        contract_grid_tolerance=None,
         diagnostics=diagnostics,
         cleaning_diagnostics=False,
     )
@@ -321,6 +361,7 @@ def test_normalize_mesher_ready_coverage_skips_clean_contract(monkeypatch):
         source_map,
         declared_scale=0.5,
         min_hole_area=0.25,
+        contract_grid_tolerance=None,
         diagnostics=diagnostics,
         cleaning_diagnostics=False,
     )
@@ -330,6 +371,61 @@ def test_normalize_mesher_ready_coverage_skips_clean_contract(monkeypatch):
     assert diagnostics["mesher_ready_coverage_revalidation_attempted"] is False
     assert diagnostics["mesher_ready_coverage_revalidation_applied"] is False
     assert diagnostics["mesher_ready_coverage_segment_graph_valid_after"] is True
+
+
+def test_normalize_mesher_ready_coverage_uses_contract_grid_tolerance(monkeypatch):
+    polygons = [
+        Polygon(
+            [
+                (0.0, 0.0),
+                (9.998531142122829, 0.0),
+                (5.332549942465509, 5.332549942465509),
+                (9.998531142122829, 6.332403056677792),
+                (8.332109285102359, 12.664806113355583),
+                (4.332696828253226, 11.664952999143301),
+                (5.999118685273698, 5.999118685273698),
+                (1.999706228424566, 4.9992655710614144),
+                (0.0, 0.0),
+            ]
+        )
+    ]
+    source_map = [[0]]
+
+    monkeypatch.setattr(
+        meshes_module,
+        "_normalize_mesher_ready_polygon",
+        lambda polygon, *, declared_scale, diagnostics=None: [polygon],
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_coverage_mesher_segment_graph_error",
+        lambda polygons: None,
+    )
+
+    def fail_condition_polygon_coverage(*args, **kwargs):
+        raise AssertionError("coverage revalidation should not run within grid tolerance")
+
+    monkeypatch.setattr(
+        meshes_module,
+        "condition_polygon_coverage",
+        fail_condition_polygon_coverage,
+    )
+
+    diagnostics = {"geos_exception_count": 0, "geos_exception_messages": []}
+    normalized_polygons, normalized_sources = meshes_module._normalize_mesher_ready_coverage(
+        polygons,
+        source_map,
+        declared_scale=0.5,
+        min_hole_area=0.25,
+        contract_grid_tolerance=0.03125,
+        diagnostics=diagnostics,
+        cleaning_diagnostics=False,
+    )
+
+    assert normalized_polygons == polygons
+    assert normalized_sources == source_map
+    assert diagnostics["mesher_ready_coverage_revalidation_attempted"] is False
+    assert diagnostics["mesher_ready_coverage_revalidation_applied"] is False
 
 
 def test_normalize_mesher_ready_coverage_rejects_bridge_revalidation_for_pair_clean_input(
@@ -387,6 +483,7 @@ def test_normalize_mesher_ready_coverage_rejects_bridge_revalidation_for_pair_cl
         source_map,
         declared_scale=0.5,
         min_hole_area=0.25,
+        contract_grid_tolerance=None,
         diagnostics=diagnostics,
         cleaning_diagnostics=False,
     )
@@ -443,6 +540,7 @@ def test_normalize_mesher_ready_coverage_revalidates_invalid_segment_graph(
         source_map,
         declared_scale=0.5,
         min_hole_area=0.25,
+        contract_grid_tolerance=None,
         diagnostics=diagnostics,
         cleaning_diagnostics=False,
     )
@@ -523,6 +621,7 @@ def test_normalize_mesher_ready_coverage_rejects_insufficient_partial_clearance_
         source_map,
         declared_scale=0.5,
         min_hole_area=0.25,
+        contract_grid_tolerance=None,
         diagnostics=diagnostics,
         cleaning_diagnostics=False,
     )

@@ -40,6 +40,14 @@ class CitySurfaceMeshArgs(DatasetBaseArgs):
         True, description="Whether to merge adjacent building footprints"
     )
     smoothing: int = Field(0, description="Number of terrain smoothing iterations")
+    show_footprints: bool = Field(
+        False,
+        description="Whether to show a live matplotlib view of raw vs conditioned footprints before meshing",
+    )
+    footprint_cleaning_plot_block: bool = Field(
+        True,
+        description="Whether the optional footprint cleaning plot should block until the window is closed",
+    )
     flat_ground: bool = Field(
         False,
         description="Whether to replace topography with a flat terrain raster",
@@ -164,6 +172,8 @@ class CitySurfaceMeshDataset(DatasetDescriptor):
                     min_building_area=args.min_building_area,
                     merge_buildings=args.merge_buildings,
                     smoothing=args.smoothing,
+                    show_footprints=args.show_footprints,
+                    footprint_cleaning_plot_block=args.footprint_cleaning_plot_block,
                 )
 
             with progress.phase(

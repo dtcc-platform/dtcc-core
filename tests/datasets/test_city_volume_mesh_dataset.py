@@ -99,6 +99,8 @@ def test_city_volume_mesh_default_build_returns_volume_mesh_and_uses_regular_tet
         domain_height=80.0,
         min_building_detail=0.5,
         boundary_face_markers=True,
+        show_footprints=False,
+        footprint_cleaning_plot_block=True,
         mesher=None,
         max_volume=_regular_tet_volume(25.0),
         tetgen_switches={
@@ -157,6 +159,8 @@ def test_city_volume_mesh_explicit_max_volume_and_tetgen_extra_are_forwarded(
         domain_height=95.0,
         min_building_detail=1.25,
         boundary_face_markers=False,
+        show_footprints=False,
+        footprint_cleaning_plot_block=True,
         mesher=None,
         max_volume=12.5,
         tetgen_switches={

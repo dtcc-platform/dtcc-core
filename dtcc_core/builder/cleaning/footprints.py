@@ -1824,7 +1824,8 @@ def _regularize_final_polygon_shapes(
             refined_sources.append(list(indices))
             continue
         if (
-            signature.clearance > near_threshold_limit
+            signature.acute_tip_count == 0
+            and signature.clearance > near_threshold_limit
             and signature.min_edge_length > local_shape_edge_limit
         ):
             refined_polygons.append(polygon)
@@ -3991,6 +3992,56 @@ def _difference_metrics_have_small_fidelity_drift(
     )
 
 
+def _local_coverage_candidate_is_ready(
+    reference_polygons: Sequence[Polygon],
+    candidate_polygons: Sequence[Polygon],
+    *,
+    target_scale: float,
+    grid: float,
+    local_radius: float,
+    cache: _CoverageEvalCache | None,
+) -> bool:
+    candidate_signature = _cached_coverage_defect_signature(
+        cache,
+        candidate_polygons,
+        target_scale=target_scale,
+    )
+    if not _coverage_signature_satisfies_scale_contract(
+        candidate_signature,
+        target_scale=target_scale,
+        grid=grid,
+    ):
+        return False
+
+    edit_zone = _cached_coverage_edit_zone(
+        cache,
+        reference_polygons,
+        target_scale=target_scale,
+        radius=local_radius,
+    )
+    reference_union = _cached_union(cache, reference_polygons)
+    candidate_union = _cached_union(cache, candidate_polygons)
+    difference_metrics = _cached_difference_area_metrics(
+        cache,
+        reference_polygons,
+        candidate_polygons,
+    )
+    if not _difference_metrics_have_small_fidelity_drift(
+        difference_metrics,
+        edit_zone_area=float(edit_zone.area),
+        target_scale=target_scale,
+        grid=grid,
+    ):
+        return False
+
+    change_outside_edit_zone = _change_outside_edit_zone(
+        reference_union,
+        candidate_union,
+        edit_zone=edit_zone,
+    )
+    return change_outside_edit_zone <= max(float(edit_zone.area), grid * grid, 1e-9)
+
+
 def _should_attempt_local_coverage_candidate(
     reference_signature: _CoverageDefectSignature,
     global_candidate: _CoverageSimplifyCandidate | None,
@@ -4000,6 +4051,16 @@ def _should_attempt_local_coverage_candidate(
     purpose: Literal["coverage", "meshing"],
 ) -> bool:
     if target_scale <= 0:
+        return False
+    if (
+        purpose == "coverage"
+        and reference_signature.short_edge_count > 256
+        and reference_signature.vertex_count > 1500
+    ):
+        # The patch-by-patch local coverage search is intended for sparse
+        # residual defects. On dense short-edge fields it becomes expensive
+        # without being the best regularization tool; the downstream
+        # mesher-ready passes handle those cases more deterministically.
         return False
     if global_candidate is None:
         return (
@@ -6453,6 +6514,20 @@ def _iteratively_open_polygon_short_edges(
         operator=f"{operator_prefix}_chain",
         area_balance_budget_override=area_budget,
     )
+
+
+def _should_attempt_polygon_short_edge_angle_open(
+    signature: _PolygonDefectSignature,
+) -> bool:
+    # The angle-open chain explores edits around individual short edges. That is
+    # useful for sparse/local defects, but on dense short-edge polygons the
+    # search cost grows quickly and the whole-polygon simplify operators are a
+    # better first response.
+    if signature.short_edge_count <= 0:
+        return False
+    if signature.short_edge_count > 24:
+        return False
+    return signature.short_edge_count * signature.vertex_count <= 8192
 
 
 def _try_polygon_local_simplify(
@@ -11293,7 +11368,23 @@ def _iter_pair_issue_bridge_radii(
         if any(abs(radius - existing) <= 1e-12 for existing in radii):
             continue
         radii.append(radius)
-    return tuple(radii)
+    if not radii:
+        return ()
+
+    # Close-gap repair only needs radii that can plausibly bridge the observed
+    # separation. Keep the tightest viable radius plus one coarse fallback
+    # rather than replaying the full ladder on dense defect fields.
+    min_viable_radius = max(distance, grid, 1e-12)
+    viable_radii = [
+        radius
+        for radius in radii
+        if radius + max(grid, tolerance) * 1.0e-3 >= min_viable_radius
+    ]
+    if not viable_radii:
+        return (radii[-1],)
+    if len(viable_radii) <= 2:
+        return tuple(viable_radii)
+    return (viable_radii[0], viable_radii[-1])
 
 
 def _apply_local_smaller_polygon_shrink_operator(
@@ -11861,6 +11952,16 @@ def _iter_local_coverage_simplify_tolerances(
         and signature.point_touch_count == 0
         and signature.close_pair_count == 0
         and signature.short_edge_count <= 1
+    ):
+        return (patch_tolerances[-1],)
+
+    # Dense residual clusters overwhelmingly select the coarser
+    # coverage_simplify trial. Skipping the finer pass avoids a second
+    # canonicalize/score cycle on the same large local patch.
+    if (
+        signature.point_touch_count == 0
+        and signature.vertex_count >= 24
+        and signature.short_edge_count >= 4
     ):
         return (patch_tolerances[-1],)
 
@@ -12874,6 +12975,61 @@ def _simplify_coverage_locally(
             <= fast_residual_short_edge_budget
         ):
             return fast_candidate
+        if _local_coverage_candidate_is_ready(
+            polygons,
+            current_polygons,
+            target_scale=tolerance,
+            grid=grid,
+            local_radius=local_radius,
+            cache=cache,
+        ):
+            return _CoverageSimplifyCandidate(
+                label="local",
+                polygons=current_polygons,
+                source_map=current_sources,
+                signature=_cached_coverage_defect_signature(
+                    cache,
+                    current_polygons,
+                    target_scale=tolerance,
+                ),
+                difference_metrics=_cached_difference_area_metrics(
+                    cache,
+                    polygons,
+                    current_polygons,
+                ),
+                change_outside_edit_zone=_change_outside_edit_zone(
+                    reference_union,
+                    _cached_union(cache, current_polygons),
+                    edit_zone=_cached_coverage_edit_zone(
+                        cache,
+                        polygons,
+                        target_scale=tolerance,
+                        radius=local_radius,
+                    ),
+                ),
+                edit_zone_area=float(
+                    _cached_coverage_edit_zone(
+                        cache,
+                        polygons,
+                        target_scale=tolerance,
+                        radius=local_radius,
+                    ).area
+                ),
+                area_balance_budget=_area_balance_budget(
+                    _cached_difference_area_metrics(
+                        cache,
+                        polygons,
+                        current_polygons,
+                    )["symmetric_difference_area"],
+                    grid=grid,
+                    short_edge_count=reference_signature.short_edge_count,
+                    short_edge_threshold=tolerance,
+                ),
+                patch_count=patch_count,
+                patch_applied_count=patch_applied_count,
+                operator_attempts=operator_attempts,
+                operator_applied=operator_applied,
+            )
 
     while True:
         defect_clusters = _cached_coverage_defect_cluster_descriptors(
@@ -12887,6 +13043,7 @@ def _simplify_coverage_locally(
             break
 
         accepted_patch = False
+        early_exit = False
         for cluster in defect_clusters:
             affected_indices = cluster["indices"]
             subset_polygons = [current_polygons[index] for index in affected_indices]
@@ -13281,9 +13438,21 @@ def _simplify_coverage_locally(
                     operator_applied.get(applied_operator, 0) + count
                 )
             patch_applied_count += 1
+            if _local_coverage_candidate_is_ready(
+                polygons,
+                current_polygons,
+                target_scale=tolerance,
+                grid=grid,
+                local_radius=local_radius,
+                cache=cache,
+            ):
+                early_exit = True
+                break
             accepted_patch = True
             break
 
+        if early_exit:
+            break
         if not accepted_patch:
             break
 
@@ -14194,20 +14363,20 @@ def _apply_local_polygon_repairs(
             append_candidate(acute_tip_candidate)
 
         if needs_short_edge_repair:
-            angle_open_candidate = _iteratively_open_polygon_short_edges(
-                polygon,
-                target_scale=min_segment_length,
-                grid=grid,
-                diagnostics=diagnostics,
-                operator_prefix="short_edge_angle_open",
-            )
-            append_candidate(angle_open_candidate)
-
             simplify_tolerances = (
                 min_segment_length * 0.5,
                 min_segment_length * 0.75,
                 min_segment_length,
             )
+            if _should_attempt_polygon_short_edge_angle_open(polygon_signature):
+                angle_open_candidate = _iteratively_open_polygon_short_edges(
+                    polygon,
+                    target_scale=min_segment_length,
+                    grid=grid,
+                    diagnostics=diagnostics,
+                    operator_prefix="short_edge_angle_open",
+                )
+                append_candidate(angle_open_candidate)
             for tolerance in simplify_tolerances:
                 simplify_candidate = _try_polygon_local_simplify(
                     polygon,

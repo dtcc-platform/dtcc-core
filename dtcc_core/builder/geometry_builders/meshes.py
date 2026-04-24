@@ -44,6 +44,7 @@ from ..cleaning import (
     ConditioningOptions,
     condition_building_footprints,
     condition_polygon_coverage,
+    plot_footprint_cleaning_comparison,
 )
 from ..cleaning import footprints as cleaning_footprints
 
@@ -1541,6 +1542,8 @@ def _prepare_city_meshing_inputs(
     merge_buildings: bool,
     max_mesh_size: float | None,
     cleaning_diagnostics: bool,
+    show_footprints: bool = False,
+    footprint_cleaning_plot_block: bool = True,
     pipeline_mode: MeshingPipelineMode = "strict",
 ) -> tuple[object, object, list[Surface], list[list[int]], list[float], dict[str, Any]]:
     terrain, terrain_raster = _require_city_terrain_raster(
@@ -1562,6 +1565,8 @@ def _prepare_city_meshing_inputs(
             merge_buildings=merge_buildings,
             max_mesh_size=max_mesh_size,
             cleaning_diagnostics=cleaning_diagnostics,
+            show_footprints=show_footprints,
+            footprint_cleaning_plot_block=footprint_cleaning_plot_block,
             pipeline_mode=pipeline_mode,
         )
     )
@@ -3214,6 +3219,7 @@ def _condition_flat_mesh_building_regions_with_sources(
         resolved_sources,
         declared_scale=declared_scale,
         min_hole_area=max(declared_scale**2, 1.0e-12),
+        contract_grid_tolerance=float(footprint_diagnostics.get("output_grid", 0.0) or 0.0),
         diagnostics=normalization_diagnostics,
         cleaning_diagnostics=cleaning_diagnostics,
     )
@@ -3395,6 +3401,7 @@ def _normalize_mesher_ready_coverage(
     *,
     declared_scale: float,
     min_hole_area: float,
+    contract_grid_tolerance: float | None,
     diagnostics: dict[str, Any],
     cleaning_diagnostics: bool,
 ) -> tuple[list[Polygon], list[list[int]]]:
@@ -3430,6 +3437,10 @@ def _normalize_mesher_ready_coverage(
     diagnostics["mesher_ready_coverage_segment_graph_error_after"] = None
 
     normalized_polygons, normalized_sources = _normalize(polygons, source_map)
+    contract_grid = max(
+        float(contract_grid_tolerance or 0.0),
+        max(declared_scale * 1.0e-6, 1.0e-9),
+    )
     initial_signature = cleaning_footprints._coverage_defect_signature(
         normalized_polygons,
         target_scale=declared_scale,
@@ -3454,7 +3465,7 @@ def _normalize_mesher_ready_coverage(
     if cleaning_footprints._coverage_signature_satisfies_scale_contract(
         initial_signature,
         target_scale=declared_scale,
-        grid=max(declared_scale * 1.0e-6, 1.0e-9),
+        grid=contract_grid,
     ) and initial_graph_error is None:
         diagnostics["mesher_ready_coverage_short_edge_count_after"] = (
             initial_signature.short_edge_count
@@ -3536,14 +3547,14 @@ def _normalize_mesher_ready_coverage(
         cleaning_footprints._coverage_signature_satisfies_scale_contract(
             initial_signature,
             target_scale=declared_scale,
-            grid=max(declared_scale * 1.0e-6, 1.0e-9),
+            grid=contract_grid,
         )
     )
     candidate_satisfies_contract = (
         cleaning_footprints._coverage_signature_satisfies_scale_contract(
             candidate_signature,
             target_scale=declared_scale,
-            grid=max(declared_scale * 1.0e-6, 1.0e-9),
+            grid=contract_grid,
         )
     )
     use_candidate = False
@@ -3610,6 +3621,8 @@ def _condition_meshing_footprints(
     merge_buildings: bool,
     max_mesh_size: float | None,
     cleaning_diagnostics: bool = True,
+    show_footprints: bool = False,
+    footprint_cleaning_plot_block: bool = True,
     pipeline_mode: MeshingPipelineMode = "strict",
 ) -> tuple[list[Surface], list[list[int]], list[float], dict[str, Any]]:
     pipeline_mode = _normalize_meshing_pipeline_mode(pipeline_mode)
@@ -3659,6 +3672,15 @@ def _condition_meshing_footprints(
             extracted_polygons,
             source_map=initial_source_map,
             options=options,
+        )
+
+    if show_footprints:
+        plot_footprint_cleaning_comparison(
+            extracted_polygons,
+            result.polygons,
+            title="Footprint cleaning",
+            show=True,
+            block=footprint_cleaning_plot_block,
         )
 
     normalized_mesh_size = _normalize_max_mesh_size(max_mesh_size)
@@ -3737,6 +3759,8 @@ def build_city_surface_mesh(
     treat_lod0_as_holes: bool = False,
     report_mesh_quality: bool = True,
     cleaning_diagnostics: bool = True,
+    show_footprints: bool = False,
+    footprint_cleaning_plot_block: bool = True,
     mesher: str | None = None,
     pipeline_mode: str = "strict",
 ) -> Mesh:
@@ -3777,6 +3801,12 @@ def build_city_surface_mesh(
         Select the 2D meshing backend used to build the ground/surface
         triangulation. ``"auto"`` prefers ``dtcc_mesher`` when available,
         then ``triangle``, then ``spade``.
+    `show_footprints` : bool, optional
+        Show a live Matplotlib comparison of raw and conditioned footprints
+        before meshing. Defaults to False.
+    `footprint_cleaning_plot_block` : bool, optional
+        Whether the optional footprint-cleaning plot blocks execution until
+        the window is closed. Defaults to True.
 
     Returns
     -------
@@ -3794,6 +3824,8 @@ def build_city_surface_mesh(
             merge_buildings=merge_buildings,
             max_mesh_size=max_mesh_size,
             cleaning_diagnostics=cleaning_diagnostics,
+            show_footprints=show_footprints,
+            footprint_cleaning_plot_block=footprint_cleaning_plot_block,
             pipeline_mode=pipeline_mode,
         )
     )
@@ -3920,6 +3952,8 @@ def build_city_flat_mesh(
     merge_tolerance: float = 0.5,
     report_mesh_quality: bool = True,
     cleaning_diagnostics: bool = True,
+    show_footprints: bool = False,
+    footprint_cleaning_plot_block: bool = True,
     mesher: str | None = None,
     pipeline_mode: str = "strict",
     stage_audit: dict[str, Any] | None = None,
@@ -3962,6 +3996,12 @@ def build_city_flat_mesh(
     mesher : {"auto", "dtcc_mesher", "triangle", "spade"}, optional
         Select the 2D meshing backend. ``"auto"`` prefers ``dtcc_mesher``
         when it is installed, then ``triangle``, then ``spade``.
+    show_footprints : bool, optional
+        Show a live Matplotlib comparison of raw and conditioned footprints
+        before meshing. Defaults to False.
+    footprint_cleaning_plot_block : bool, optional
+        Whether the optional footprint-cleaning plot blocks execution until
+        the window is closed. Defaults to True.
 
     Returns
     -------
@@ -4009,6 +4049,8 @@ def build_city_flat_mesh(
                 merge_buildings=merge_buildings,
                 max_mesh_size=max_mesh_size,
                 cleaning_diagnostics=cleaning_diagnostics,
+                show_footprints=show_footprints,
+                footprint_cleaning_plot_block=footprint_cleaning_plot_block,
                 pipeline_mode=pipeline_mode,
             )
         )
@@ -4147,6 +4189,8 @@ def build_city_volume_mesh(
     debug_step: int = 7,
     report_mesh_quality: bool = True,
     cleaning_diagnostics: bool = True,
+    show_footprints: bool = False,
+    footprint_cleaning_plot_block: bool = True,
     mesher: str | None = None,
     tetgen_debug_output_dir: str | Path | None = None,
     tetgen_debug_output_stem: str | None = None,
@@ -4244,6 +4288,12 @@ def build_city_volume_mesh(
         Select the 2D meshing backend used for the intermediate flat/surface
         mesh stages. In the strict volume path, ``None`` and ``"auto"`` both
         resolve to ``dtcc_mesher``.
+    show_footprints : bool, optional
+        Show a live Matplotlib comparison of raw and conditioned footprints
+        before shell/volume meshing. Defaults to False.
+    footprint_cleaning_plot_block : bool, optional
+        Whether the optional footprint-cleaning plot blocks execution until
+        the window is closed. Defaults to True.
     tetgen_debug_output_dir : str or Path, optional
         When provided, save the exact surface-mesh inputs handed to TetGen in
         this directory. Three meshes are written per attempt: the flat ground
@@ -4368,6 +4418,8 @@ def build_city_volume_mesh(
             merge_buildings=merge_buildings,
             max_mesh_size=max_mesh_size,
             cleaning_diagnostics=cleaning_diagnostics,
+            show_footprints=show_footprints,
+            footprint_cleaning_plot_block=footprint_cleaning_plot_block,
             pipeline_mode=pipeline_mode,
         )
     )
