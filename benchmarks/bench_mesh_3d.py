@@ -1,5 +1,5 @@
 """
-Benchmark TetGen-backed 3D volume-mesh quality across central Stockholm tiles.
+Benchmark TetGen-backed 3D volume-mesh quality across a benchmark area.
 
 This script reuses the same city-preparation pipeline as the 2D survey, then
 builds a tetrahedral volume mesh with dtcc-core's TetGen path for each tile.
@@ -44,13 +44,15 @@ try:
         MIN_BUILDING_DETAIL,
         MIN_MESH_ANGLE,
         MERGE_BUILDINGS,
-        NX,
-        NY,
+        active_area_label,
+        add_area_argument,
         add_cases_argument,
         annotate_heatmap,
+        benchmark_output_dir,
         bounds_to_dict,
         case_to_grid,
         format_console_table,
+        grid_shape,
         json_ready,
         load_plot_modules,
         load_results,
@@ -63,8 +65,8 @@ try:
         quantile,
         resolve_case_numbers,
         save_results,
+        set_active_area,
         slug_token,
-        stockholm_output_dir,
     )
 except ImportError:
     from benchmarks._benchmark_conditioning import (
@@ -78,13 +80,15 @@ except ImportError:
         MIN_BUILDING_DETAIL,
         MIN_MESH_ANGLE,
         MERGE_BUILDINGS,
-        NX,
-        NY,
+        active_area_label,
+        add_area_argument,
         add_cases_argument,
         annotate_heatmap,
+        benchmark_output_dir,
         bounds_to_dict,
         case_to_grid,
         format_console_table,
+        grid_shape,
         json_ready,
         load_plot_modules,
         load_results,
@@ -97,8 +101,8 @@ except ImportError:
         quantile,
         resolve_case_numbers,
         save_results,
+        set_active_area,
         slug_token,
-        stockholm_output_dir,
     )
 
 # Configuration ---------------------------------------------------------------
@@ -862,7 +866,8 @@ def case_complete(record: dict[str, Any]) -> bool:
 
 
 def build_grid(results: dict[int, dict[str, Any]], metric_key: str) -> np.ndarray:
-    grid = np.full((NY, NX), np.nan)
+    nx, ny = grid_shape()
+    grid = np.full((ny, nx), np.nan)
 
     for number, record in results.items():
         result = record.get("result", {})
@@ -901,20 +906,21 @@ def plot_overview(
         constrained_layout=True,
     )
     axes = np.atleast_1d(axes)
+    nx, ny = grid_shape()
 
     for ax, (metric_key, title, cmap, fmt) in zip(axes, OVERVIEW_METRICS):
         grid = build_grid(results, metric_key)
         image = ax.imshow(grid, origin="lower", cmap=cmap, aspect="equal")
         annotate_heatmap(ax, grid, fmt)
         ax.set_title(title)
-        ax.set_xticks(range(NX))
-        ax.set_yticks(range(NY))
+        ax.set_xticks(range(nx))
+        ax.set_yticks(range(ny))
         ax.set_xlabel("Grid X")
         ax.set_ylabel("Grid Y")
         fig.colorbar(image, ax=ax, shrink=0.82, pad=0.03)
 
     fig.suptitle(
-        "TetGen 3D mesh quality overview\n"
+        f"{active_area_label()} TetGen 3D mesh quality overview\n"
         f"{mesh_size_label(max_mesh_size)}, min angle={min_mesh_angle:g}, "
         f"height={domain_height:g}, "
         f"{'q=' + f'{quality_ratio:g}' if quality_enabled else 'size-only'}, "
@@ -1262,8 +1268,9 @@ def run_case(
     stage_audit: dict[str, Any] | None = {} if stage_audit_enabled else None
     try:
         with benchmark_conditioning_override(conditioning_mode):
-            volume_mesh = dtcc_core.builder.build_city_volume_mesh(
+            volume_mesh = dtcc_core.datasets.city_volume_mesh.build_from_city(
                 city,
+                bounds=bounds.tuple,
                 lod=lod,
                 domain_height=domain_height,
                 max_mesh_size=max_mesh_size,
@@ -1299,7 +1306,7 @@ def run_case(
                 tetgen_quality_failure_output_dir=case_dir,
                 tetgen_quality_failure_output_stem="tetgen_quality_failure",
                 pipeline_mode=pipeline_mode,
-                stage_audit=stage_audit,
+                stage_audit_enabled=stage_audit_enabled,
             )
         quality = json_ready(volume_mesh.quality())
         metrics = mesh_metrics(volume_mesh, quality)
@@ -1332,8 +1339,8 @@ def run_case(
             "metrics": metrics,
             "boundary_markers": boundary_marker_histogram(volume_mesh),
         }
-        if stage_audit_enabled and stage_audit:
-            case_record["result"]["stage_audit"] = json_ready(stage_audit)
+        if stage_audit_enabled and getattr(volume_mesh, "stage_audit", None):
+            case_record["result"]["stage_audit"] = json_ready(volume_mesh.stage_audit)
         tetgen_inputs = {
             key: path.name for key, path in tetgen_input_paths.items() if path.exists()
         }
@@ -1372,8 +1379,9 @@ def run_case(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Survey TetGen 3D volume-mesh quality across Stockholm tiles."
+        description="Survey TetGen 3D volume-mesh quality across a benchmark area."
     )
+    add_area_argument(parser)
     add_cases_argument(parser)
     parser.add_argument(
         "--max-mesh-size",
@@ -1436,7 +1444,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=stockholm_output_dir("output_mesh_3d"),
+        default=None,
         help="Directory for JSON, XDMF/HDF5, and PNG outputs.",
     )
     parser.add_argument(
@@ -1482,6 +1490,7 @@ def parse_args() -> argparse.Namespace:
     parser.set_defaults(merge_buildings=MERGE_BUILDINGS)
     parser.set_defaults(save_tetgen_input=None)
     args = parser.parse_args()
+    set_active_area(args.area)
     cases_explicit = args.cases is not None
     args.cases = resolve_case_numbers(args.cases)
     args.cases_explicit = cases_explicit
@@ -1502,12 +1511,14 @@ def main() -> None:
         )
 
     args = parse_args()
+    set_active_area(args.area)
     benchmark_start = time.perf_counter()
-    output_dir = args.output_dir
+    output_dir = args.output_dir or benchmark_output_dir("output_mesh_3d")
     output_dir.mkdir(parents=True, exist_ok=True)
     metadata = {
         "benchmark": "bench_mesh_3d",
         "config": {
+            "area": args.area,
             "max_mesh_size": args.max_mesh_size,
             "min_mesh_angle": args.min_mesh_angle,
             "domain_height": args.domain_height,
@@ -1554,7 +1565,8 @@ def main() -> None:
         )
         print()
         results = {}
-    total = NX * NY
+    nx, ny = grid_shape()
+    total = nx * ny
 
     loaded_count = len(results)
     if loaded_count > 0:
@@ -1563,6 +1575,7 @@ def main() -> None:
         print()
 
     print(
+        f"Area: {active_area_label()} | "
         f"Configuration: {mesh_size_label(args.max_mesh_size)}, "
         f"min angle={args.min_mesh_angle:g}, height={args.domain_height:g}, "
         f"{'q=' + f'{args.quality_ratio:g}' if not args.size_only else 'size-only'}, "

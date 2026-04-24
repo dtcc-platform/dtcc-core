@@ -1,5 +1,5 @@
 """
-Benchmark flat-mesh quality across central Stockholm for one or more 2D meshers.
+Benchmark flat-mesh quality across a benchmark area for one or more 2D meshers.
 
 This script builds the same prepared City input once per tile, then runs one or
 more mesh generators against that identical input. It caches per-case results,
@@ -30,24 +30,26 @@ from typing import Any
 import numpy as np
 
 import dtcc_core
-from dtcc_core.model import Bounds, GeometryType, Mesh
+from dtcc_core.model import Bounds, City, Mesh
 try:
     from _benchmark_conditioning import CONDITIONING_MODES, benchmark_conditioning_override
     from _stockholm_common import (
-        BOX_SIZE,
         DEFAULT_DELAY_BETWEEN_CASES,
         DEFAULT_MAX_MESH_SIZE,
         MERGE_BUILDINGS,
         MIN_BUILDING_AREA,
         MIN_BUILDING_DETAIL,
         MIN_MESH_ANGLE,
-        NX,
-        NY,
+        active_area_label,
+        add_area_argument,
         add_cases_argument,
         annotate_heatmap,
+        benchmark_output_dir,
         bounds_to_dict,
+        box_size,
         case_to_grid,
         format_console_table,
+        grid_shape,
         json_ready,
         load_plot_modules,
         load_results,
@@ -60,8 +62,8 @@ try:
         quantile,
         resolve_case_numbers,
         save_results,
+        set_active_area,
         slug_token,
-        stockholm_output_dir,
     )
 except ImportError:
     from benchmarks._benchmark_conditioning import (
@@ -69,20 +71,22 @@ except ImportError:
         benchmark_conditioning_override,
     )
     from benchmarks._stockholm_common import (
-        BOX_SIZE,
         DEFAULT_DELAY_BETWEEN_CASES,
         DEFAULT_MAX_MESH_SIZE,
         MERGE_BUILDINGS,
         MIN_BUILDING_AREA,
         MIN_BUILDING_DETAIL,
         MIN_MESH_ANGLE,
-        NX,
-        NY,
+        active_area_label,
+        add_area_argument,
         add_cases_argument,
         annotate_heatmap,
+        benchmark_output_dir,
         bounds_to_dict,
+        box_size,
         case_to_grid,
         format_console_table,
+        grid_shape,
         json_ready,
         load_plot_modules,
         load_results,
@@ -95,8 +99,8 @@ except ImportError:
         quantile,
         resolve_case_numbers,
         save_results,
+        set_active_area,
         slug_token,
-        stockholm_output_dir,
     )
 
 # Configuration ---------------------------------------------------------------
@@ -662,6 +666,7 @@ def resolve_requested_meshers(requested: list[str] | None) -> list[str]:
 def run_mesher_for_case(
     number: int,
     city: City,
+    bounds: Bounds,
     mesher: str,
     output_dir: Path,
     *,
@@ -673,22 +678,23 @@ def run_mesher_for_case(
     stage_audit_enabled: bool,
 ) -> tuple[dict[str, Any], Mesh | None]:
     start = time.perf_counter()
-    stage_audit: dict[str, Any] | None = {} if stage_audit_enabled else None
 
     try:
         with benchmark_conditioning_override(conditioning_mode):
-            mesh = dtcc_core.builder.build_city_flat_mesh(
+            mesh = dtcc_core.datasets.city_flat_mesh.build_from_city(
                 city,
-                lod=GeometryType.LOD0,
+                bounds=bounds.tuple,
                 max_mesh_size=max_mesh_size,
                 min_mesh_angle=min_mesh_angle,
                 merge_buildings=MERGE_BUILDINGS,
                 min_building_detail=MIN_BUILDING_DETAIL,
                 min_building_area=MIN_BUILDING_AREA,
                 report_mesh_quality=False,
+                show_footprints=False,
+                footprint_cleaning_plot_block=True,
                 mesher=mesher,
                 pipeline_mode=pipeline_mode,
-                stage_audit=stage_audit,
+                stage_audit_enabled=stage_audit_enabled,
             )
         quality = json_ready(mesh.quality())
         metrics = mesh_metrics(mesh, quality)
@@ -712,8 +718,8 @@ def run_mesher_for_case(
             "quality": quality,
             "metrics": metrics,
         }
-        if stage_audit_enabled and stage_audit is not None:
-            result["stage_audit"] = json_ready(stage_audit)
+        if stage_audit_enabled and getattr(mesh, "stage_audit", None) is not None:
+            result["stage_audit"] = json_ready(mesh.stage_audit)
         return (
             result,
             mesh,
@@ -725,8 +731,6 @@ def run_mesher_for_case(
             "conditioning_mode": conditioning_mode,
             "error": error_details(exc),
         }
-        if stage_audit_enabled and stage_audit is not None:
-            result["stage_audit"] = json_ready(stage_audit)
         return (
             result,
             None,
@@ -822,7 +826,7 @@ def mesher_panel_text(result: dict[str, Any]) -> str:
 
 
 def set_panel_extent(axes, bounds: Bounds) -> None:
-    padding = 0.05 * BOX_SIZE
+    padding = 0.05 * max(bounds.xmax - bounds.xmin, bounds.ymax - bounds.ymin)
     xmin = bounds.xmin - padding
     xmax = bounds.xmax + padding
     ymin = bounds.ymin - padding
@@ -915,7 +919,8 @@ def build_grid(
     mesher: str,
     metric_key: str,
 ) -> np.ndarray:
-    grid = np.full((NY, NX), np.nan)
+    nx, ny = grid_shape()
+    grid = np.full((ny, nx), np.nan)
 
     for number, record in results.items():
         mesher_result = record.get("meshers", {}).get(mesher)
@@ -948,6 +953,7 @@ def plot_overview(
     )
     if len(meshers) == 1:
         axes = np.asarray([axes])
+    nx, ny = grid_shape()
 
     for row, mesher in enumerate(meshers):
         for col, (metric_key, title, cmap, fmt) in enumerate(OVERVIEW_METRICS):
@@ -956,14 +962,14 @@ def plot_overview(
             image = ax.imshow(grid, origin="lower", cmap=cmap, aspect="equal")
             annotate_heatmap(ax, grid, fmt)
             ax.set_title(f"{mesher} - {title}")
-            ax.set_xticks(range(NX))
-            ax.set_yticks(range(NY))
+            ax.set_xticks(range(nx))
+            ax.set_yticks(range(ny))
             ax.set_xlabel("Grid X")
             ax.set_ylabel("Grid Y")
             fig.colorbar(image, ax=ax, shrink=0.82, pad=0.03)
 
     fig.suptitle(
-        f"Mesh quality overview by mesher\n"
+        f"{active_area_label()} mesh quality overview by mesher\n"
         f"{mesh_size_label(max_mesh_size)}, min angle={min_mesh_angle:g}°, "
         f"pipeline={pipeline_mode}"
     )
@@ -1166,6 +1172,7 @@ def run_case(
         result, mesh = run_mesher_for_case(
             number,
             city,
+            bounds,
             mesher,
             output_dir,
             meshers=meshers,
@@ -1211,8 +1218,9 @@ def run_case(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Compare flat-mesh quality across Stockholm tiles for multiple meshers."
+        description="Compare flat-mesh quality across a benchmark area for multiple meshers."
     )
+    add_area_argument(parser)
     add_cases_argument(parser)
     parser.add_argument(
         "--meshers",
@@ -1238,7 +1246,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=stockholm_output_dir("output_mesh_2d"),
+        default=None,
         help="Directory for JSON, VTU, and PNG outputs.",
     )
     parser.add_argument(
@@ -1276,8 +1284,9 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    set_active_area(args.area)
     benchmark_start = time.perf_counter()
-    output_dir = args.output_dir
+    output_dir = args.output_dir or benchmark_output_dir("output_mesh_2d")
     output_dir.mkdir(parents=True, exist_ok=True)
     cases_explicit = args.cases is not None
     selected_cases = resolve_case_numbers(args.cases)
@@ -1287,6 +1296,7 @@ def main() -> None:
         "benchmark": "bench_mesh_2d",
         "config": {
             "meshers": meshers,
+            "area": args.area,
             "max_mesh_size": args.max_mesh_size,
             "min_mesh_angle": MIN_MESH_ANGLE,
             "conditioning_mode": args.conditioning_mode,
@@ -1316,7 +1326,8 @@ def main() -> None:
         )
         print()
         results = {}
-    total = NX * NY
+    nx, ny = grid_shape()
+    total = nx * ny
 
     loaded_count = len(results)
     if loaded_count > 0:
@@ -1325,6 +1336,7 @@ def main() -> None:
         print()
 
     print(
+        f"Area: {active_area_label()} | "
         f"Configuration: {mesh_size_label(args.max_mesh_size)}, "
         f"min angle={MIN_MESH_ANGLE:g}°, "
         f"conditioning={args.conditioning_mode}, "

@@ -1,7 +1,7 @@
 """
-Benchmark Stockholm footprint conditioning and flat-mesh preparation.
+Benchmark footprint conditioning and flat-mesh preparation for a benchmark area.
 
-This script downloads Stockholm tiles, extracts raw building footprints,
+This script downloads benchmark tiles, extracts raw building footprints,
 conditions them with either the legacy or new pipeline, builds a flat mesh, and
 stores both visual and JSON artifacts for side-by-side inspection.
 
@@ -51,47 +51,51 @@ from dtcc_core.builder.geometry_builders.meshes import (
 from dtcc_core.model import Bounds, Building, City, GeometryType, Surface
 try:
     from _stockholm_common import (
-        BOX_SIZE,
         DEFAULT_DELAY_BETWEEN_CASES,
         MIN_BUILDING_AREA,
         MIN_BUILDING_DETAIL,
         MIN_MESH_ANGLE,
-        NX,
-        NY,
+        active_area_label,
+        add_area_argument,
         add_cases_argument,
         annotate_heatmap,
+        benchmark_output_dir,
         bounds_to_dict,
+        box_size,
         case_to_grid,
         format_console_table,
+        grid_shape,
         json_ready,
         load_plot_modules,
         make_bounds,
         repo_root,
         resolve_case_numbers,
         save_results,
-        stockholm_output_dir,
+        set_active_area,
     )
 except ImportError:
     from benchmarks._stockholm_common import (
-        BOX_SIZE,
         DEFAULT_DELAY_BETWEEN_CASES,
         MIN_BUILDING_AREA,
         MIN_BUILDING_DETAIL,
         MIN_MESH_ANGLE,
-        NX,
-        NY,
+        active_area_label,
+        add_area_argument,
         add_cases_argument,
         annotate_heatmap,
+        benchmark_output_dir,
         bounds_to_dict,
+        box_size,
         case_to_grid,
         format_console_table,
+        grid_shape,
         json_ready,
         load_plot_modules,
         make_bounds,
         repo_root,
         resolve_case_numbers,
         save_results,
-        stockholm_output_dir,
+        set_active_area,
     )
 
 DEFAULT_MAX_MESH_SIZE = 10.0
@@ -102,7 +106,6 @@ DEFAULT_MERGE_TOLERANCE = 0.5
 DEFAULT_RASTER_CELL_SIZE = 2.0
 DEFAULT_RASTER_RADIUS = 3.0
 
-OUTPUT_DIR = stockholm_output_dir("output_footprints")
 EPSG = "EPSG:3006"
 CACHE_ROOT = Path.home() / "Library" / "Caches" / "dtcc-data"
 CACHED_FOOTPRINTS_DIR = CACHE_ROOT / "downloaded-gpkg"
@@ -129,6 +132,7 @@ OVERVIEW_METRICS = (
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    add_area_argument(parser)
     add_cases_argument(parser)
     parser.add_argument(
         "--mode",
@@ -150,7 +154,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=OUTPUT_DIR,
+        default=None,
         help="Directory for JSON, VTU, geopackage, and PNG outputs.",
     )
     parser.add_argument(
@@ -226,6 +230,7 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     args = parser.parse_args()
+    set_active_area(args.area)
     args.cases_explicit = args.cases is not None
     args.cases = resolve_case_numbers(args.cases)
     return args
@@ -938,7 +943,7 @@ def mesh_edge_segments(mesh) -> list[np.ndarray]:
 
 
 def set_panel_extent(axes, bounds: Bounds) -> None:
-    padding = 0.05 * BOX_SIZE
+    padding = 0.05 * max(bounds.xmax - bounds.xmin, bounds.ymax - bounds.ymin)
     xmin = bounds.xmin - padding
     xmax = bounds.xmax + padding
     ymin = bounds.ymin - padding
@@ -1065,7 +1070,8 @@ def build_summary_grid(
     summaries: list[dict[str, Any]],
     path: tuple[str, ...],
 ) -> np.ndarray:
-    grid = np.full((NY, NX), np.nan)
+    nx, ny = grid_shape()
+    grid = np.full((ny, nx), np.nan)
     for summary in summaries:
         value = nested_metric(summary, path)
         if value is None:
@@ -1085,19 +1091,22 @@ def plot_overview(
     plt_mod, _, _, _ = load_plot_modules()
     fig, axes = plt_mod.subplots(2, 3, figsize=(16, 9), constrained_layout=True)
     axes = np.asarray(axes).reshape(2, 3)
+    nx, ny = grid_shape()
 
     for ax, (path, title, cmap, fmt) in zip(axes.flat, OVERVIEW_METRICS):
         grid = build_summary_grid(summaries, path)
         image = ax.imshow(grid, origin="lower", cmap=cmap, aspect="equal")
         annotate_heatmap(ax, grid, fmt)
         ax.set_title(title)
-        ax.set_xticks(range(NX))
-        ax.set_yticks(range(NY))
+        ax.set_xticks(range(nx))
+        ax.set_yticks(range(ny))
         ax.set_xlabel("Grid X")
         ax.set_ylabel("Grid Y")
         fig.colorbar(image, ax=ax, shrink=0.82, pad=0.03)
 
-    fig.suptitle(f"Footprint benchmark overview\nlabel={label}, mode={mode_name}")
+    fig.suptitle(
+        f"{active_area_label()} footprint benchmark overview\nlabel={label}, mode={mode_name}"
+    )
     fig.savefig(output_path, dpi=180)
     plt_mod.close(fig)
 
@@ -1510,9 +1519,12 @@ def run_case(
 
 def main() -> int:
     args = parse_args()
+    set_active_area(args.area)
     benchmark_start = time.perf_counter()
     git_root = args.git_root or repo_root()
     git_metadata = get_git_metadata(git_root)
+    if args.output_dir is None:
+        args.output_dir = benchmark_output_dir("output_footprints")
     args.output_dir.mkdir(parents=True, exist_ok=True)
     label = sanitize_label(args.label or git_metadata["branch"] or "unknown")
     mode_name, cleaner_module = resolve_mode(args.mode)
@@ -1541,6 +1553,7 @@ def main() -> int:
             "benchmark": "bench_footprints",
             "config": {
                 "label": label,
+                "area": args.area,
                 "mode": mode_name,
                 "requested_mode": args.mode,
                 "cases": args.cases,

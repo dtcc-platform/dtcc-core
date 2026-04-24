@@ -1,18 +1,11 @@
 import dtcc_core
-import numpy as np
 from dtcc_core.model import City
 from typing import Literal, Optional
 from pydantic import Field
 
 from .dataset import DatasetDescriptor, DatasetBaseArgs
+from ._city_mesh_common import prepare_city_from_bounds
 from dtcc_core.common.progress import ProgressTracker
-
-
-def _ground_level_from_raster(raster) -> float:
-    valid_mask = np.isfinite(raster.data)
-    if not np.isnan(raster.nodata):
-        valid_mask &= raster.data != raster.nodata
-    return float(raster.data[valid_mask].min())
 
 
 class CitySurfaceMeshArgs(DatasetBaseArgs):
@@ -68,23 +61,27 @@ class CitySurfaceMeshDataset(DatasetDescriptor):
     )
     ArgsModel = CitySurfaceMeshArgs
 
+    def _build_mesh_from_city(self, city: City, args: CitySurfaceMeshArgs):
+        return dtcc_core.builder.build_city_surface_mesh(
+            city,
+            max_mesh_size=args.max_mesh_size,
+            min_mesh_angle=args.min_mesh_angle,
+            min_building_detail=args.min_building_detail,
+            min_building_area=args.min_building_area,
+            merge_buildings=args.merge_buildings,
+            smoothing=args.smoothing,
+            show_footprints=args.show_footprints,
+            footprint_cleaning_plot_block=args.footprint_cleaning_plot_block,
+        )
+
+    def build_from_city(self, city: City, **kwargs):
+        args = self.validate(kwargs)
+        surface_mesh = self._build_mesh_from_city(city, args)
+        if args.format is not None:
+            return self.export_to_bytes(surface_mesh, args.format)
+        return surface_mesh
+
     def build(self, args: CitySurfaceMeshArgs):
-        """Build a city surface mesh from point cloud and building data.
-
-        This method:
-        1. Downloads point cloud and building footprints for the given bounds
-        2. Removes outliers from the point cloud
-        3. Builds a terrain raster
-        4. Extracts roof points and computes building heights
-        5. Creates a city model with terrain and buildings
-        6. Generates a triangular surface mesh with extruded buildings
-
-        Args:
-            args: Validated arguments containing bounds and meshing parameters
-
-        Returns:
-            Mesh object or bytes if format is specified
-        """
         progress_phases = {
             "download_pointcloud": 0.15,
             "download_footprints": 0.10,
@@ -98,83 +95,19 @@ class CitySurfaceMeshDataset(DatasetDescriptor):
         }
         with ProgressTracker(total=1.0, phases=progress_phases) as progress:
             bounds = self.parse_bounds(args.bounds)
-
-            with progress.phase(
-                "download_pointcloud", "Downloading point cloud data..."
-            ):
-                pointcloud = dtcc_core.io.data.download_pointcloud(bounds=bounds)
-
-            with progress.phase(
-                "download_footprints", "Downloading building footprints..."
-            ):
-                buildings = dtcc_core.io.data.download_footprints(bounds=bounds)
-
-            with progress.phase(
-                "remove_outliers",
-                (
-                    "Removing outliers..."
-                    if args.remove_outliers
-                    else "Skipping outlier removal..."
-                ),
-            ):
-                if args.remove_outliers:
-                    pointcloud = pointcloud.remove_global_outliers(
-                        args.outlier_threshold
-                    )
-
-            with progress.phase("build_terrain", "Building terrain raster..."):
-                raster = dtcc_core.builder.build_terrain_raster(
-                    pointcloud,
-                    cell_size=args.raster_cell_size,
-                    radius=args.raster_radius,
-                    ground_only=True,
-                )
-
-            with progress.phase("extract_roof_points", "Extracting roof points..."):
-                buildings = dtcc_core.builder.extract_roof_points(buildings, pointcloud)
-
-            with progress.phase(
-                "compute_building_heights", "Computing building heights..."
-            ):
-                buildings = dtcc_core.builder.compute_building_heights(
-                    buildings, raster, overwrite=True
-                )
-
-            with progress.phase(
-                "build_city",
-                (
-                    "Preparing flat-ground city model..."
-                    if args.flat_ground
-                    else "Assembling city model..."
-                ),
-            ):
-                if args.flat_ground:
-                    raster = dtcc_core.builder.flatten_terrain_raster(
-                        raster, height=args.ground_level
-                    )
-                    buildings = dtcc_core.builder.set_building_heights_from_attribute(
-                        buildings,
-                        raster,
-                        height_attribute="height",
-                        default_ground_height=_ground_level_from_raster(raster),
-                        always_use_default_ground=True,
-                    )
-                city = City()
-                city.add_terrain(raster)
-                city.add_buildings(buildings, remove_outside_terrain=True)
+            city = prepare_city_from_bounds(
+                bounds,
+                raster_cell_size=args.raster_cell_size,
+                raster_radius=args.raster_radius,
+                remove_outliers=args.remove_outliers,
+                outlier_threshold=args.outlier_threshold,
+                flat_ground=args.flat_ground,
+                ground_level=args.ground_level,
+                progress=progress,
+            )
 
             with progress.phase("build_mesh", "Building city surface mesh..."):
-                surface_mesh = dtcc_core.builder.build_city_surface_mesh(
-                    city,
-                    max_mesh_size=args.max_mesh_size,
-                    min_mesh_angle=args.min_mesh_angle,
-                    min_building_detail=args.min_building_detail,
-                    min_building_area=args.min_building_area,
-                    merge_buildings=args.merge_buildings,
-                    smoothing=args.smoothing,
-                    show_footprints=args.show_footprints,
-                    footprint_cleaning_plot_block=args.footprint_cleaning_plot_block,
-                )
+                surface_mesh = self._build_mesh_from_city(city, args)
 
             with progress.phase(
                 "export",

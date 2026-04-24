@@ -3,19 +3,82 @@ from __future__ import annotations
 import argparse
 import json
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-import dtcc_core
+from dtcc_core.datasets._city_mesh_common import prepare_city_from_bounds
 from dtcc_core.model import Bounds, City
 
-X_MIN = 673_000
-Y_MIN = 6_578_500
-NX = 10
-NY = 10
-BOX_SIZE = 500
+
+@dataclass(frozen=True)
+class BenchmarkArea:
+    name: str
+    label: str
+    xmin: float
+    ymin: float
+    nx: int
+    ny: int
+    box_size: float
+
+
+def _benchmark_area_from_center(
+    *,
+    name: str,
+    label: str,
+    center_x: float,
+    center_y: float,
+    nx: int = 10,
+    ny: int = 10,
+    box_size: float = 500.0,
+    focus_ix: int = 5,
+    focus_iy: int = 5,
+) -> BenchmarkArea:
+    xmin = center_x - (focus_ix + 0.5) * box_size
+    ymin = center_y - (focus_iy + 0.5) * box_size
+    return BenchmarkArea(
+        name=name,
+        label=label,
+        xmin=xmin,
+        ymin=ymin,
+        nx=nx,
+        ny=ny,
+        box_size=box_size,
+    )
+
+
+BENCHMARK_AREAS: dict[str, BenchmarkArea] = {
+    "stockholm": BenchmarkArea(
+        name="stockholm",
+        label="Stockholm",
+        xmin=673_000.0,
+        ymin=6_578_500.0,
+        nx=10,
+        ny=10,
+        box_size=500.0,
+    ),
+    # Anchor the Gothenburg benchmark so case 56 is centered on the Poseidon
+    # demo area while keeping the same 10x10, 500 m tiling scheme as Stockholm.
+    "gothenburg": _benchmark_area_from_center(
+        name="gothenburg",
+        label="Gothenburg",
+        center_x=319_995.962899,
+        center_y=6_399_009.716755,
+    ),
+    # Anchor the Lund benchmark so case 56 is centered on the current Lund
+    # stress-test tile while keeping the same 10x10, 500 m tiling scheme.
+    "lund": _benchmark_area_from_center(
+        name="lund",
+        label="Lund",
+        center_x=386_325.0,
+        center_y=6_174_697.0,
+    ),
+}
+
+DEFAULT_AREA_NAME = "stockholm"
+_active_area_name = DEFAULT_AREA_NAME
 
 DEFAULT_MAX_MESH_SIZE = 10.0
 MIN_MESH_ANGLE = 25.0
@@ -38,23 +101,67 @@ def benchmark_root() -> Path:
     return repo_root() / "benchmarks"
 
 
+def available_area_names() -> tuple[str, ...]:
+    return tuple(BENCHMARK_AREAS.keys())
+
+
+def active_area() -> BenchmarkArea:
+    return BENCHMARK_AREAS[_active_area_name]
+
+
+def active_area_name() -> str:
+    return active_area().name
+
+
+def active_area_label() -> str:
+    return active_area().label
+
+
+def set_active_area(name: str) -> BenchmarkArea:
+    global _active_area_name
+    normalized = str(name).strip().lower()
+    if normalized not in BENCHMARK_AREAS:
+        valid = ", ".join(sorted(BENCHMARK_AREAS))
+        raise ValueError(f"Unknown benchmark area '{name}'. Expected one of: {valid}.")
+    _active_area_name = normalized
+    return active_area()
+
+
+def benchmark_output_dir(name: str, *, area_name: str | None = None) -> Path:
+    resolved_area = BENCHMARK_AREAS[area_name or active_area_name()]
+    directory_name = name if resolved_area.name == DEFAULT_AREA_NAME else f"{name}_{resolved_area.name}"
+    return benchmark_root() / directory_name
+
+
 def stockholm_output_dir(name: str) -> Path:
-    return benchmark_root() / name
+    return benchmark_output_dir(name)
+
+
+def grid_shape() -> tuple[int, int]:
+    area = active_area()
+    return area.nx, area.ny
+
+
+def box_size() -> float:
+    return active_area().box_size
 
 
 def total_case_count() -> int:
-    return NX * NY
+    nx, ny = grid_shape()
+    return nx * ny
 
 
 def case_to_grid(number: int) -> tuple[int, int]:
-    iy, ix = divmod(number - 1, NX)
+    nx, _ny = grid_shape()
+    iy, ix = divmod(number - 1, nx)
     return ix, iy
 
 
 def make_bounds(ix: int, iy: int) -> Bounds:
-    x0 = X_MIN + ix * BOX_SIZE
-    y0 = Y_MIN + iy * BOX_SIZE
-    return Bounds(x0, y0, x0 + BOX_SIZE, y0 + BOX_SIZE)
+    area = active_area()
+    x0 = area.xmin + ix * area.box_size
+    y0 = area.ymin + iy * area.box_size
+    return Bounds(x0, y0, x0 + area.box_size, y0 + area.box_size)
 
 
 def bounds_to_dict(bounds: Bounds) -> dict[str, float]:
@@ -82,6 +189,15 @@ def validate_case_numbers(numbers: list[int]) -> None:
         raise ValueError(f"Invalid case numbers: {joined}. Expected values in 1..{total}.")
 
 
+def add_area_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--area",
+        choices=available_area_names(),
+        default=DEFAULT_AREA_NAME,
+        help="Benchmark area to use.",
+    )
+
+
 def add_cases_argument(
     parser: argparse.ArgumentParser,
     *,
@@ -92,7 +208,7 @@ def add_cases_argument(
         nargs="+",
         type=int,
         default=default,
-        help="One or more Stockholm grid case numbers (1-100). Omit to use the script default.",
+        help="One or more case numbers in the selected benchmark area. Omit to use all cases in that area.",
     )
 
 
@@ -263,22 +379,11 @@ def prepare_city(
     outlier_threshold: float = OUTLIER_THRESHOLD,
 ) -> tuple[City, float]:
     start = time.perf_counter()
-
-    pointcloud = dtcc_core.io.data.download_pointcloud(bounds=bounds)
-    buildings = dtcc_core.io.data.download_footprints(bounds=bounds)
-    pointcloud = pointcloud.remove_global_outliers(outlier_threshold)
-
-    raster = dtcc_core.builder.build_terrain_raster(
-        pointcloud,
-        cell_size=raster_cell_size,
-        radius=raster_radius,
-        ground_only=True,
+    city = prepare_city_from_bounds(
+        bounds,
+        raster_cell_size=raster_cell_size,
+        raster_radius=raster_radius,
+        remove_outliers=True,
+        outlier_threshold=outlier_threshold,
     )
-    buildings = dtcc_core.builder.extract_roof_points(buildings, pointcloud)
-    buildings = dtcc_core.builder.compute_building_heights(buildings, raster, overwrite=True)
-
-    city = City()
-    city.add_terrain(raster)
-    city.add_buildings(buildings, remove_outside_terrain=True)
-
     return city, time.perf_counter() - start
