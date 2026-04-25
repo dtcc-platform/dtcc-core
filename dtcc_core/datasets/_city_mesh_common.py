@@ -1,12 +1,30 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Sequence
 
 import numpy as np
 
 import dtcc_core
-from dtcc_core.model import Bounds, City
+from dtcc_core.model import Bounds, City, GeometryType, Surface
+
+
+@dataclass(frozen=True)
+class CityMeshingFootprints:
+    """Meshing-ready conditioned footprints prepared from a city model."""
+
+    terrain: Any
+    terrain_raster: Any
+    footprints: list[Surface]
+    source_map: list[list[int]]
+    subdomain_resolution: list[float]
+    diagnostics: dict[str, Any]
+    contract: dict[str, Any]
+
+    @property
+    def polygons(self):
+        return [footprint.to_polygon(simplify=0.0) for footprint in self.footprints]
 
 
 def ground_level_from_raster(raster) -> float:
@@ -100,3 +118,65 @@ def prepare_city_from_bounds(
         city.add_buildings(buildings, remove_outside_terrain=True)
 
     return city
+
+
+def condition_city_meshing_footprints(
+    city: City,
+    *,
+    lod: GeometryType | Sequence[GeometryType] | None = None,
+    min_building_detail: float,
+    min_building_area: float,
+    merge_tolerance: float,
+    merge_buildings: bool,
+    max_mesh_size: float | None,
+    cleaning_diagnostics: bool,
+    show_footprints: bool = False,
+    footprint_cleaning_plot_block: bool = True,
+    pipeline_mode: str = "strict",
+) -> CityMeshingFootprints:
+    """Run the same meshing-footprint preparation stage used by mesh builders."""
+
+    import dtcc_core.builder.geometry_builders.meshes as mesh_builders
+
+    (
+        terrain,
+        terrain_raster,
+        building_footprints,
+        conditioned_source_map,
+        subdomain_resolution,
+        diagnostics,
+    ) = mesh_builders._prepare_city_meshing_inputs(
+        city,
+        lod=lod,
+        min_building_detail=min_building_detail,
+        min_building_area=min_building_area,
+        merge_tolerance=merge_tolerance,
+        merge_buildings=merge_buildings,
+        max_mesh_size=max_mesh_size,
+        cleaning_diagnostics=cleaning_diagnostics,
+        show_footprints=show_footprints,
+        footprint_cleaning_plot_block=footprint_cleaning_plot_block,
+        pipeline_mode=pipeline_mode,
+    )
+
+    declared_scale = max(
+        float(min_building_detail),
+        float(diagnostics.get("output_grid", 0.0) or 0.0),
+        1.0e-9,
+    )
+    contract = mesh_builders._conditioned_footprint_contract_audit(
+        surfaces=building_footprints,
+        declared_scale=declared_scale,
+        diagnostics=diagnostics,
+    )
+    mesh_builders._raise_stage_contract_errors("Conditioned footprints", contract)
+
+    return CityMeshingFootprints(
+        terrain=terrain,
+        terrain_raster=terrain_raster,
+        footprints=building_footprints,
+        source_map=conditioned_source_map,
+        subdomain_resolution=subdomain_resolution,
+        diagnostics=diagnostics,
+        contract=contract,
+    )

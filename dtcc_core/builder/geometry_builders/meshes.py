@@ -3692,10 +3692,16 @@ def _condition_meshing_footprints(
     conservative_roof_count = 0
     conservative_roof_max_span = 0.0
 
-    mesher_ready_polygons = list(result.polygons)
-    mesher_ready_source_map = [list(indices) for indices in result.source_map]
-    result.diagnostics["mesher_ready_coverage_revalidation_enabled"] = False
-    result.diagnostics["mesher_ready_coverage_revalidation_attempted"] = False
+    result.diagnostics["mesher_ready_coverage_revalidation_enabled"] = True
+    mesher_ready_polygons, mesher_ready_source_map = _normalize_mesher_ready_coverage(
+        list(result.polygons),
+        [list(indices) for indices in result.source_map],
+        declared_scale=mesher_scale,
+        min_hole_area=max(mesher_scale**2, 1.0e-12),
+        contract_grid_tolerance=float(result.diagnostics.get("output_grid", 0.0) or 0.0),
+        diagnostics=result.diagnostics,
+        cleaning_diagnostics=cleaning_diagnostics,
+    )
 
     conditioned_surfaces: list[Surface] = []
     conditioned_source_map: list[list[int]] = []

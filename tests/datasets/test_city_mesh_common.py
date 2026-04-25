@@ -4,7 +4,11 @@ from unittest.mock import ANY, Mock, patch
 
 import numpy as np
 
-from dtcc_core.datasets._city_mesh_common import prepare_city_from_bounds
+from dtcc_core.datasets._city_mesh_common import (
+    CityMeshingFootprints,
+    condition_city_meshing_footprints,
+    prepare_city_from_bounds,
+)
 from dtcc_core.model import Bounds
 
 
@@ -172,4 +176,81 @@ def test_prepare_city_from_bounds_flat_ground_rebuilds_city_on_flat_raster(
     city.add_buildings.assert_called_once_with(
         flat_buildings,
         remove_outside_terrain=True,
+    )
+
+
+@patch(
+    "dtcc_core.builder.geometry_builders.meshes._raise_stage_contract_errors"
+)
+@patch(
+    "dtcc_core.builder.geometry_builders.meshes._conditioned_footprint_contract_audit"
+)
+@patch(
+    "dtcc_core.builder.geometry_builders.meshes._prepare_city_meshing_inputs"
+)
+def test_condition_city_meshing_footprints_uses_shared_meshing_stage(
+    mock_prepare_city_meshing_inputs,
+    mock_conditioned_footprint_contract_audit,
+    mock_raise_stage_contract_errors,
+):
+    city = Mock(name="city")
+    terrain = Mock(name="terrain")
+    terrain_raster = Mock(name="terrain_raster")
+    footprint = Mock(name="footprint_surface")
+    polygon = Mock(name="footprint_polygon")
+    footprint.to_polygon.return_value = polygon
+    diagnostics = {"output_grid": 0.03125}
+    contract = {"requirements": {"scale_contract_satisfied": True}}
+
+    mock_prepare_city_meshing_inputs.return_value = (
+        terrain,
+        terrain_raster,
+        [footprint],
+        [[1, 2]],
+        [7.5],
+        diagnostics,
+    )
+    mock_conditioned_footprint_contract_audit.return_value = contract
+
+    result = condition_city_meshing_footprints(
+        city,
+        min_building_detail=0.5,
+        min_building_area=15.0,
+        merge_tolerance=0.5,
+        merge_buildings=True,
+        max_mesh_size=10.0,
+        cleaning_diagnostics=True,
+    )
+
+    assert isinstance(result, CityMeshingFootprints)
+    assert result.terrain is terrain
+    assert result.terrain_raster is terrain_raster
+    assert result.footprints == [footprint]
+    assert result.source_map == [[1, 2]]
+    assert result.subdomain_resolution == [7.5]
+    assert result.diagnostics is diagnostics
+    assert result.contract is contract
+    assert result.polygons == [polygon]
+
+    mock_prepare_city_meshing_inputs.assert_called_once_with(
+        city,
+        lod=None,
+        min_building_detail=0.5,
+        min_building_area=15.0,
+        merge_tolerance=0.5,
+        merge_buildings=True,
+        max_mesh_size=10.0,
+        cleaning_diagnostics=True,
+        show_footprints=False,
+        footprint_cleaning_plot_block=True,
+        pipeline_mode="strict",
+    )
+    mock_conditioned_footprint_contract_audit.assert_called_once_with(
+        surfaces=[footprint],
+        declared_scale=0.5,
+        diagnostics=diagnostics,
+    )
+    mock_raise_stage_contract_errors.assert_called_once_with(
+        "Conditioned footprints",
+        contract,
     )

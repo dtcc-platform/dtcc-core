@@ -239,6 +239,198 @@ def test_condition_meshing_footprints_shows_plot_when_requested(monkeypatch):
     }
 
 
+def test_condition_meshing_footprints_enables_mesher_ready_coverage_revalidation(
+    monkeypatch,
+):
+    calls: list[tuple[float, float, bool]] = []
+    original = meshes_module._normalize_mesher_ready_coverage
+
+    def wrapped(
+        polygons,
+        source_map,
+        *,
+        declared_scale,
+        min_hole_area,
+        contract_grid_tolerance,
+        diagnostics,
+        cleaning_diagnostics,
+    ):
+        calls.append(
+            (
+                float(declared_scale),
+                float(contract_grid_tolerance),
+                bool(cleaning_diagnostics),
+            )
+        )
+        return original(
+            polygons,
+            source_map,
+            declared_scale=declared_scale,
+            min_hole_area=min_hole_area,
+            contract_grid_tolerance=contract_grid_tolerance,
+            diagnostics=diagnostics,
+            cleaning_diagnostics=cleaning_diagnostics,
+        )
+
+    monkeypatch.setattr(meshes_module, "_normalize_mesher_ready_coverage", wrapped)
+
+    surfaces, source_map, resolutions, diagnostics = meshes_module._condition_meshing_footprints(
+        [make_building(box(0.0, 0.0, 10.0, 10.0), roof_z=10.0)],
+        lod=GeometryType.LOD0,
+        min_building_detail=0.5,
+        min_building_area=1.0,
+        merge_tolerance=0.5,
+        merge_buildings=False,
+        max_mesh_size=5.0,
+        cleaning_diagnostics=False,
+    )
+
+    assert len(surfaces) == 1
+    assert source_map == [[0]]
+    assert resolutions == [5.0]
+    assert calls == [(0.5, 0.03125, False)]
+    assert diagnostics["mesher_ready_coverage_revalidation_enabled"] is True
+
+
+def test_condition_meshing_footprints_repairs_lund_style_self_clearance_slit():
+    polygon = meshes_module.cleaning_footprints.shapely.from_wkt(
+        "POLYGON ((388232.25 6176876.5, 388232.03125 6176867.5625, "
+        "388220.84375 6176867.84375, 388220.75 6176863.25, "
+        "388203.78125 6176863.625, 388203.6875 6176859.09375, "
+        "388214.84375 6176858.84375, 388214.6875 6176851.96875, "
+        "388220.53125 6176851.8125, 388220.78125 6176863.25, "
+        "388236.4375 6176862.875, 388236.59375 6176869.46875, "
+        "388237.90625 6176869.4375, 388238.15625 6176880.875, "
+        "388221.125 6176881.21875, 388221.0625 6176876.71875, "
+        "388232.25 6176876.5))"
+    )
+
+    surfaces, source_map, resolutions, diagnostics = meshes_module._condition_meshing_footprints(
+        [make_building(polygon, roof_z=10.0)],
+        lod=GeometryType.LOD0,
+        min_building_detail=0.5,
+        min_building_area=1.0,
+        merge_tolerance=0.5,
+        merge_buildings=False,
+        max_mesh_size=5.0,
+        cleaning_diagnostics=False,
+    )
+
+    assert len(surfaces) == 1
+    assert source_map == [[0]]
+    assert resolutions == [5.0]
+    contract = meshes_module._conditioned_footprint_contract_audit(
+        surfaces=surfaces,
+        declared_scale=max(
+            0.5,
+            float(diagnostics.get("output_grid", 0.0) or 0.0),
+            1.0e-9,
+        ),
+        diagnostics=diagnostics,
+    )
+    assert contract["errors"] == []
+    assert diagnostics["mesher_ready_coverage_revalidation_enabled"] is True
+
+
+def test_condition_meshing_footprints_repairs_gbg_same_hole_neck():
+    polygon = meshes_module.cleaning_footprints.shapely.from_wkt(
+        "POLYGON ((318447.875 6398710.4375, 318385.3125 6398700.40625, "
+        "318386.28125 6398691.125, 318383.71875 6398690.84375, "
+        "318384.84375 6398680.6875, 318387.3125 6398680.96875, "
+        "318390.1875 6398639.9375, 318389.46875 6398581.03125, "
+        "318466.71875 6398575.4375, 318469.71875 6398578.53125, "
+        "318447.875 6398710.4375), "
+        "(318436 6398600.5625, 318439.125 6398601.03125, "
+        "318439.5 6398598.4375, 318445.84375 6398599.40625, "
+        "318444.53125 6398607.875, 318450.34375 6398608.65625, "
+        "318452.21875 6398590.4375, 318405.4375 6398593.53125, "
+        "318405.0625 6398657.09375, 318400.8125 6398690.78125, "
+        "318421.75 6398689.9375, 318435.78125 6398693.1875, "
+        "318448.5625 6398608.875, 318444.96875 6398608.78125, "
+        "318444.03125 6398611.3125, 318434.59375 6398609.90625, "
+        "318436 6398600.5625))"
+    )
+
+    surfaces, source_map, resolutions, diagnostics = meshes_module._condition_meshing_footprints(
+        [make_building(polygon, roof_z=10.0)],
+        lod=GeometryType.LOD0,
+        min_building_detail=0.5,
+        min_building_area=1.0,
+        merge_tolerance=0.5,
+        merge_buildings=False,
+        max_mesh_size=5.0,
+        cleaning_diagnostics=False,
+    )
+
+    assert len(surfaces) == 1
+    assert source_map == [[0]]
+    assert resolutions == [5.0]
+    contract = meshes_module._conditioned_footprint_contract_audit(
+        surfaces=surfaces,
+        declared_scale=max(
+            0.5,
+            float(diagnostics.get("output_grid", 0.0) or 0.0),
+            1.0e-9,
+        ),
+        diagnostics=diagnostics,
+    )
+    assert contract["errors"] == []
+    assert diagnostics["mesher_ready_coverage_revalidation_enabled"] is True
+
+
+def test_condition_meshing_footprints_repairs_stockholm_cross_ring_slit():
+    polygon = meshes_module.cleaning_footprints.shapely.from_wkt(
+        "POLYGON ((673551.09375 6581800.15625, 673548.3125 6581798.59375, "
+        "673551.46875 6581793.21875, 673538.5 6581785.875, "
+        "673532.03125 6581796.9375, 673539.59375 6581801.1875, "
+        "673537.34375 6581805.09375, 673541.65625 6581807.5, "
+        "673538.28125 6581813.5, 673532.5 6581810.1875, "
+        "673529.71875 6581815, 673523.46875 6581811.40625, "
+        "673523.84375 6581807.59375, 673515.1875 6581800.25, "
+        "673538.59375 6581759.15625, 673535.09375 6581756.28125, "
+        "673537.25 6581752.46875, 673539.9375 6581754, "
+        "673539.5625 6581758.84375, 673550.0625 6581764.78125, "
+        "673556.59375 6581753.09375, 673529.375 6581738.15625, "
+        "673523.0625 6581749.5, 673511.6875 6581743.03125, "
+        "673524.5625 6581720.25, 673590.78125 6581756.96875, "
+        "673535.0625 6581855.0625, 673510.40625 6581841.3125, "
+        "673516.6875 6581829.9375, 673529.84375 6581837.25, "
+        "673551.09375 6581800.15625), "
+        "(673549.875 6581765.09375, 673541.375 6581780.5625, "
+        "673543.21875 6581783.3125, 673547 6581779.96875, "
+        "673554.15625 6581784.03125, 673553.5625 6581789.21875, "
+        "673556.5625 6581788.75, 673572.03125 6581761.5625, "
+        "673560.96875 6581755.5, 673554.34375 6581767.1875, "
+        "673549.875 6581765.09375))"
+    )
+
+    surfaces, source_map, resolutions, diagnostics = meshes_module._condition_meshing_footprints(
+        [make_building(polygon, roof_z=10.0)],
+        lod=GeometryType.LOD0,
+        min_building_detail=0.5,
+        min_building_area=1.0,
+        merge_tolerance=0.5,
+        merge_buildings=False,
+        max_mesh_size=5.0,
+        cleaning_diagnostics=False,
+    )
+
+    assert len(surfaces) == 1
+    assert source_map == [[0]]
+    assert resolutions == [5.0]
+    contract = meshes_module._conditioned_footprint_contract_audit(
+        surfaces=surfaces,
+        declared_scale=max(
+            0.5,
+            float(diagnostics.get("output_grid", 0.0) or 0.0),
+            1.0e-9,
+        ),
+        diagnostics=diagnostics,
+    )
+    assert contract["errors"] == []
+    assert diagnostics["mesher_ready_coverage_revalidation_enabled"] is True
+
+
 def test_hole_pair_self_clearance_merge_repairs_two_hole_throat():
     polygon = Polygon(
         [(0, 0), (24, 0), (24, 24), (0, 24), (0, 0)],

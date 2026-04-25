@@ -1,9 +1,12 @@
 """
 Benchmark footprint conditioning and flat-mesh preparation for a benchmark area.
 
-This script downloads benchmark tiles, extracts raw building footprints,
-conditions them with either the legacy or new pipeline, builds a flat mesh, and
-stores both visual and JSON artifacts for side-by-side inspection.
+This script downloads benchmark tiles, extracts raw building footprints, runs
+the same meshing-footprint conditioning stage used by the public flat-mesh
+pipeline, and stores both visual and JSON artifacts for side-by-side
+inspection. After a successful conditioning stage it also builds a diagnostic
+flat mesh so we can inspect downstream quality without changing the first-stage
+pass/fail criterion.
 
 Typical usage:
     python benchmarks/bench_footprints.py --cases 45 46 55 56 --label current --mode legacy
@@ -39,16 +42,11 @@ from shapely.ops import unary_union
 from shapely.validation import make_valid
 
 import dtcc_core
-from dtcc_core.builder import (
-    build_terrain_raster,
-    compute_building_heights,
-    extract_roof_points,
-)
 from dtcc_core.builder.geometry_builders.meshes import (
     _build_ground_mesh_from_coverage,
     _condition_flat_mesh_coverage_regions,
 )
-from dtcc_core.model import Bounds, Building, City, GeometryType, Surface
+from dtcc_core.model import Bounds, Building, GeometryType, Surface
 try:
     from _stockholm_common import (
         DEFAULT_DELAY_BETWEEN_CASES,
@@ -68,6 +66,7 @@ try:
         json_ready,
         load_plot_modules,
         make_bounds,
+        prepare_city,
         repo_root,
         resolve_case_numbers,
         save_results,
@@ -92,6 +91,7 @@ except ImportError:
         json_ready,
         load_plot_modules,
         make_bounds,
+        prepare_city,
         repo_root,
         resolve_case_numbers,
         save_results,
@@ -107,8 +107,6 @@ DEFAULT_RASTER_CELL_SIZE = 2.0
 DEFAULT_RASTER_RADIUS = 3.0
 
 EPSG = "EPSG:3006"
-CACHE_ROOT = Path.home() / "Library" / "Caches" / "dtcc-data"
-CACHED_FOOTPRINTS_DIR = CACHE_ROOT / "downloaded-gpkg"
 
 OVERVIEW_METRICS = (
     (("conditioned_polygon_count",), "Cond polys", "viridis", ".0f"),
@@ -499,33 +497,6 @@ def run_legacy_conditioning(
         "output_count": len(conditioned_polygons),
     }
     return conditioned_polygons, source_map, diagnostics
-
-
-def run_new_conditioning(
-    cleaner_module,
-    buildings: list[Building],
-    *,
-    merge_buildings: bool,
-    merge_tolerance: float,
-    min_building_area: float,
-    min_building_detail: float,
-    disable_cleaning_diagnostics: bool = False,
-) -> tuple[list[Polygon], list[list[int]], dict[str, Any]]:
-    options = cleaner_module.ConditioningOptions(
-        precision_grid=None,
-        min_feature_size=min_building_detail,
-        merge_distance=merge_tolerance if merge_buildings else 0.0,
-        min_area=min_building_area,
-        min_hole_area=min_building_detail**2,
-        collect_stage_metrics=not disable_cleaning_diagnostics,
-        enable_logging=not disable_cleaning_diagnostics,
-    )
-    result = cleaner_module.condition_building_footprints(
-        buildings,
-        lod=GeometryType.LOD0,
-        options=options,
-    )
-    return result.polygons, result.source_map, result.diagnostics
 
 
 def resolve_mode(mode: str):
@@ -1315,34 +1286,15 @@ def prepare_case_inputs(
     bounds: Bounds,
     raster_cell_size: float,
     raster_radius: float,
-) -> tuple[Any, list[Building], dict[str, float]]:
+) -> tuple[Any, dict[str, float]]:
     timings: dict[str, float] = {}
-
-    t0 = time.perf_counter()
-    pointcloud = dtcc_core.io.data.download_pointcloud(bounds=bounds)
-    cached_footprint_files = sorted(CACHED_FOOTPRINTS_DIR.glob("*.gpkg"))
-    buildings = []
-    if cached_footprint_files:
-        for path in cached_footprint_files:
-            buildings = dtcc_core.io.load_footprints(str(path), bounds=bounds)
-            if buildings:
-                break
-    if not buildings:
-        buildings = dtcc_core.io.data.download_footprints(bounds=bounds)
-    timings["download"] = time.perf_counter() - t0
-
-    t0 = time.perf_counter()
-    terrain_raster = build_terrain_raster(
-        pointcloud,
-        cell_size=raster_cell_size,
-        radius=raster_radius,
-        ground_only=True,
+    city, elapsed = prepare_city(
+        bounds,
+        raster_cell_size=raster_cell_size,
+        raster_radius=raster_radius,
     )
-    buildings = extract_roof_points(buildings, pointcloud)
-    buildings = compute_building_heights(buildings, terrain_raster, overwrite=True)
-    timings["terrain_and_buildings"] = time.perf_counter() - t0
-
-    return terrain_raster, buildings, timings
+    timings["prepare_city"] = elapsed
+    return city, timings
 
 
 def run_case(
@@ -1351,18 +1303,19 @@ def run_case(
     git_metadata: dict[str, str | None],
     *,
     mode_name: str,
-    cleaner_module,
 ) -> dict[str, Any]:
     ix, iy = case_to_grid(number)
     bounds = make_bounds(ix, iy)
     case_dir = args.output_dir / f"{number:03d}"
     case_dir.mkdir(parents=True, exist_ok=True)
 
-    terrain_raster, buildings, timings = prepare_case_inputs(
+    city, timings = prepare_case_inputs(
         bounds,
         raster_cell_size=args.raster_cell_size,
         raster_radius=args.raster_radius,
     )
+    terrain_raster = city.terrain.raster
+    buildings = city.buildings
 
     raw_polygons, raw_source_map = extract_raw_footprints(buildings)
     conditioned_polygons: list[Polygon] = []
@@ -1385,15 +1338,22 @@ def run_case(
                 min_building_detail=args.min_building_detail,
             )
         else:
-            conditioned_polygons, source_map, diagnostics = run_new_conditioning(
-                cleaner_module,
-                buildings,
+            conditioned = dtcc_core.datasets.city_footprints.build_from_city(
+                city,
+                bounds=bounds.tuple,
+                max_mesh_size=args.max_mesh_size,
+                min_building_detail=args.min_building_detail,
+                min_building_area=args.min_building_area,
                 merge_buildings=not args.no_merge_buildings,
                 merge_tolerance=args.merge_tolerance,
-                min_building_area=args.min_building_area,
-                min_building_detail=args.min_building_detail,
-                disable_cleaning_diagnostics=args.disable_cleaning_diagnostics,
+                cleaning_diagnostics=not args.disable_cleaning_diagnostics,
+                show_footprints=False,
+                footprint_cleaning_plot_block=True,
+                pipeline_mode="strict",
             )
+            conditioned_polygons = conditioned.polygons
+            source_map = conditioned.source_map
+            diagnostics = conditioned.diagnostics
     except Exception as exc:
         case_status = "failed"
         error_info = error_details("conditioning", exc)
@@ -1527,7 +1487,7 @@ def main() -> int:
         args.output_dir = benchmark_output_dir("output_footprints")
     args.output_dir.mkdir(parents=True, exist_ok=True)
     label = sanitize_label(args.label or git_metadata["branch"] or "unknown")
-    mode_name, cleaner_module = resolve_mode(args.mode)
+    mode_name, _cleaner_module = resolve_mode(args.mode)
 
     summaries: list[dict[str, Any]] = []
 
@@ -1538,7 +1498,6 @@ def main() -> int:
                 args,
                 git_metadata,
                 mode_name=mode_name,
-                cleaner_module=cleaner_module,
             )
         )
         if index < len(args.cases) - 1 and args.delay > 0:

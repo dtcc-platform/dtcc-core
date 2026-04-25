@@ -56,6 +56,64 @@ GBG_RESIDUAL_COURTYARD_SLIT_WKT = (
     "319871.125 6399126.375, 319866.71875 6399123.25))"
 )
 
+GBG_SAME_HOLE_NECK_WKT = (
+    "POLYGON ((318447.875 6398710.4375, 318385.3125 6398700.40625, "
+    "318386.28125 6398691.125, 318383.71875 6398690.84375, "
+    "318384.84375 6398680.6875, 318387.3125 6398680.96875, "
+    "318390.1875 6398639.9375, 318389.46875 6398581.03125, "
+    "318466.71875 6398575.4375, 318469.71875 6398578.53125, "
+    "318447.875 6398710.4375), "
+    "(318436 6398600.5625, 318439.125 6398601.03125, "
+    "318439.5 6398598.4375, 318445.84375 6398599.40625, "
+    "318444.53125 6398607.875, 318450.34375 6398608.65625, "
+    "318452.21875 6398590.4375, 318405.4375 6398593.53125, "
+    "318405.0625 6398657.09375, 318400.8125 6398690.78125, "
+    "318421.75 6398689.9375, 318435.78125 6398693.1875, "
+    "318448.5625 6398608.875, 318444.96875 6398608.78125, "
+    "318444.03125 6398611.3125, 318434.59375 6398609.90625, "
+    "318436 6398600.5625))"
+)
+
+LUND_RESIDUAL_SELF_CLEARANCE_SLIT_WKT = (
+    "POLYGON ((388232.25 6176876.5, 388232.03125 6176867.5625, "
+    "388220.84375 6176867.84375, 388220.75 6176863.25, "
+    "388203.78125 6176863.625, 388203.6875 6176859.09375, "
+    "388214.84375 6176858.84375, 388214.6875 6176851.96875, "
+    "388220.53125 6176851.8125, 388220.78125 6176863.25, "
+    "388236.4375 6176862.875, 388236.59375 6176869.46875, "
+    "388237.90625 6176869.4375, 388238.15625 6176880.875, "
+    "388221.125 6176881.21875, 388221.0625 6176876.71875, "
+    "388232.25 6176876.5))"
+)
+
+LUND_ACUTE_TIP_ZIGZAG_WKT = (
+    "POLYGON ((387556.125 6174464.8125, 387558.15625 6174460.8125, "
+    "387563.40625 6174463.53125, 387559.9375 6174470.75, "
+    "387554.71875 6174468.0625, 387552.53125 6174472.46875, "
+    "387549.875 6174471.21875, 387547.65625 6174475.6875, "
+    "387538.9375 6174471.40625, 387544.78125 6174459.6875, "
+    "387554.96875 6174464.78125, 387547.75 6174460.5625, "
+    "387556.125 6174464.8125))"
+)
+
+STOCKHOLM_CROSS_RING_CLEARANCE_WKT = (
+    "POLYGON ((673551.09375 6581800.15625, 673548.3125 6581798.59375, "
+    "673551.46875 6581793.21875, 673538.5 6581785.875, 673532.03125 6581796.9375, "
+    "673539.59375 6581801.1875, 673537.34375 6581805.09375, 673541.65625 6581807.5, "
+    "673538.28125 6581813.5, 673532.5 6581810.1875, 673529.71875 6581815, "
+    "673523.46875 6581811.40625, 673523.84375 6581807.59375, 673515.1875 6581800.25, "
+    "673538.59375 6581759.15625, 673535.09375 6581756.28125, 673537.25 6581752.46875, "
+    "673539.9375 6581754, 673539.5625 6581758.84375, 673550.0625 6581764.78125, "
+    "673556.59375 6581753.09375, 673529.375 6581738.15625, 673523.0625 6581749.5, "
+    "673511.6875 6581743.03125, 673524.5625 6581720.25, 673590.78125 6581756.96875, "
+    "673535.0625 6581855.0625, 673510.40625 6581841.3125, 673516.6875 6581829.9375, "
+    "673529.84375 6581837.25, 673551.09375 6581800.15625), "
+    "(673549.875 6581765.09375, 673541.375 6581780.5625, 673543.21875 6581783.3125, "
+    "673547 6581779.96875, 673554.15625 6581784.03125, 673553.5625 6581789.21875, "
+    "673556.5625 6581788.75, 673572.03125 6581761.5625, 673560.96875 6581755.5, "
+    "673554.34375 6581767.1875, 673549.875 6581765.09375))"
+)
+
 
 def make_building(polygon: Polygon, height: float = 10.0) -> Building:
     surface = Surface()
@@ -5499,6 +5557,237 @@ def test_self_clearance_connector_fills_case54_style_same_ring_exterior_slit():
     assert signature.clearance > before_signature.clearance
     assert candidate.polygon.area > polygon.area
     assert candidate.edit_zone.area > 0.0
+
+
+def test_self_clearance_connector_fills_gbg_same_hole_neck():
+    polygon = cleaning_footprints.shapely.from_wkt(GBG_SAME_HOLE_NECK_WKT)
+    diagnostics = cleaning_footprints._empty_diagnostics(1)
+    diagnostics["collect_stage_metrics"] = False
+
+    candidate = cleaning_footprints._try_polygon_self_clearance_connector_fill(
+        polygon,
+        min_clearance=0.5,
+        grid=0.03125,
+        diagnostics=diagnostics,
+    )
+
+    assert candidate is not None
+    assert candidate.operator == "self_clearance_connector_fill"
+    signature = cleaning_footprints._polygon_defect_signature(
+        candidate.polygon,
+        target_scale=0.5,
+    )
+    assert signature.clearance is not None
+    assert signature.clearance >= 0.5 - 1.0e-9
+    assert len(candidate.polygon.interiors) == len(polygon.interiors)
+    assert candidate.polygon.area > polygon.area
+    assert candidate.edit_zone.area > 0.0
+
+
+def test_self_clearance_connector_cuts_stockholm_cross_ring_slit():
+    polygon = cleaning_footprints.shapely.from_wkt(STOCKHOLM_CROSS_RING_CLEARANCE_WKT)
+    diagnostics = cleaning_footprints._empty_diagnostics(1)
+    diagnostics["collect_stage_metrics"] = False
+
+    candidate = cleaning_footprints._try_polygon_self_clearance_connector_fill(
+        polygon,
+        min_clearance=0.5,
+        grid=0.03125,
+        diagnostics=diagnostics,
+    )
+
+    assert candidate is not None
+    assert candidate.operator == "self_clearance_connector_cut"
+    signature = cleaning_footprints._polygon_defect_signature(
+        candidate.polygon,
+        target_scale=0.5,
+    )
+    assert signature.clearance is not None
+    assert signature.clearance >= 0.5 - 1.0e-9
+    assert candidate.polygon.area < polygon.area
+    assert candidate.edit_zone.area > 0.0
+
+
+def test_normalize_mesher_ready_polygon_repairs_lund_style_self_clearance_slit():
+    polygon = cleaning_footprints.shapely.from_wkt(LUND_RESIDUAL_SELF_CLEARANCE_SLIT_WKT)
+    before_signature = cleaning_footprints._polygon_defect_signature(
+        polygon,
+        target_scale=0.5,
+    )
+    diagnostics = cleaning_footprints._empty_diagnostics(1)
+    diagnostics["collect_stage_metrics"] = False
+    diagnostics["enable_logging"] = False
+
+    normalized = cleaning_footprints._normalize_mesher_ready_polygon(
+        polygon,
+        declared_scale=0.5,
+        diagnostics=diagnostics,
+    )
+
+    assert len(normalized) == 1
+    after_signature = cleaning_footprints._polygon_defect_signature(
+        normalized[0],
+        target_scale=0.5,
+    )
+    assert before_signature.clearance is not None
+    assert before_signature.clearance < 0.5
+    assert after_signature.clearance is not None
+    assert after_signature.clearance >= 0.5 - 1.0e-9
+    assert cleaning_footprints._signature_satisfies_scale_contract(
+        after_signature,
+        target_scale=0.5,
+        grid=0.03125,
+    )
+    assert diagnostics["mesher_regularized_polygon_count"] >= 1
+    assert diagnostics["mesher_ready_polygon_operator_applied"] == {
+        "self_clearance_connector": 1
+    }
+
+
+def test_normalize_mesher_ready_polygon_repairs_gbg_same_hole_neck():
+    polygon = cleaning_footprints.shapely.from_wkt(GBG_SAME_HOLE_NECK_WKT)
+    before_signature = cleaning_footprints._polygon_defect_signature(
+        polygon,
+        target_scale=0.5,
+    )
+    diagnostics = cleaning_footprints._empty_diagnostics(1)
+    diagnostics["collect_stage_metrics"] = False
+    diagnostics["enable_logging"] = False
+
+    normalized = cleaning_footprints._normalize_mesher_ready_polygon(
+        polygon,
+        declared_scale=0.5,
+        diagnostics=diagnostics,
+    )
+
+    assert len(normalized) == 1
+    after_signature = cleaning_footprints._polygon_defect_signature(
+        normalized[0],
+        target_scale=0.5,
+    )
+    assert before_signature.clearance is not None
+    assert before_signature.clearance < 0.5
+    assert after_signature.clearance is not None
+    assert after_signature.clearance >= 0.5 - 1.0e-9
+    assert cleaning_footprints._signature_satisfies_scale_contract(
+        after_signature,
+        target_scale=0.5,
+        grid=0.03125,
+    )
+    assert diagnostics["mesher_regularized_polygon_count"] >= 1
+    assert diagnostics["mesher_ready_polygon_operator_applied"] == {
+        "self_clearance_connector_fill": 1
+    }
+
+
+def test_normalize_mesher_ready_polygon_repairs_stockholm_cross_ring_slit():
+    polygon = cleaning_footprints.shapely.from_wkt(STOCKHOLM_CROSS_RING_CLEARANCE_WKT)
+    before_signature = cleaning_footprints._polygon_defect_signature(
+        polygon,
+        target_scale=0.5,
+    )
+    diagnostics = cleaning_footprints._empty_diagnostics(1)
+    diagnostics["collect_stage_metrics"] = False
+    diagnostics["enable_logging"] = False
+
+    normalized = cleaning_footprints._normalize_mesher_ready_polygon(
+        polygon,
+        declared_scale=0.5,
+        diagnostics=diagnostics,
+    )
+
+    assert len(normalized) == 1
+    after_signature = cleaning_footprints._polygon_defect_signature(
+        normalized[0],
+        target_scale=0.5,
+    )
+    assert before_signature.clearance is not None
+    assert before_signature.clearance < 0.5
+    assert after_signature.clearance is not None
+    assert after_signature.clearance >= 0.5 - 1.0e-9
+    assert cleaning_footprints._signature_satisfies_scale_contract(
+        after_signature,
+        target_scale=0.5,
+        grid=0.03125,
+    )
+    assert diagnostics["mesher_regularized_polygon_count"] >= 1
+    assert diagnostics["mesher_ready_polygon_operator_applied"] == {
+        "self_clearance_connector_cut": 1
+    }
+
+
+def test_normalize_mesher_ready_polygon_repairs_lund_style_acute_tip_zigzag():
+    polygon = cleaning_footprints.shapely.from_wkt(LUND_ACUTE_TIP_ZIGZAG_WKT)
+    before_signature = cleaning_footprints._polygon_defect_signature(
+        polygon,
+        target_scale=0.5,
+    )
+    diagnostics = cleaning_footprints._empty_diagnostics(1)
+    diagnostics["collect_stage_metrics"] = False
+    diagnostics["enable_logging"] = False
+
+    normalized = cleaning_footprints._normalize_mesher_ready_polygon(
+        polygon,
+        declared_scale=0.5,
+        diagnostics=diagnostics,
+    )
+
+    assert len(normalized) == 1
+    after_signature = cleaning_footprints._polygon_defect_signature(
+        normalized[0],
+        target_scale=0.5,
+    )
+    assert before_signature.acute_tip_count == 2
+    assert after_signature.acute_tip_count == 0
+    assert cleaning_footprints._signature_satisfies_scale_contract(
+        after_signature,
+        target_scale=0.5,
+        grid=0.03125,
+    )
+    assert diagnostics["mesher_regularized_polygon_count"] >= 1
+    assert diagnostics["mesher_ready_polygon_operator_applied"] == {
+        "local_simplify_0.500": 1
+    }
+
+
+def test_meshing_hostile_acute_tip_metrics_ignore_isolated_lund_corner():
+    polygon = cleaning_footprints.shapely.from_wkt(
+        "POLYGON ((385854.75 6174516.78125, 385859.375 6174517.4375, "
+        "385860.4375 6174509.6875, 385861.90625 6174509.875, "
+        "385862.34375 6174506.875, 385860.90625 6174506.15625, "
+        "385870.3125 6174507.46875, 385869.1875 6174515.65625, "
+        "385874.21875 6174516.34375, 385874.03125 6174517.84375, "
+        "385877.03125 6174518.28125, 385877.75 6174516.84375, "
+        "385876.4375 6174526.21875, 385869.84375 6174525.3125, "
+        "385867.25 6174542.1875, 385868.96875 6174525.1875, "
+        "385864.71875 6174524.625, 385863.6875 6174532.03125, "
+        "385857.375 6174531.15625, 385858 6174526.8125, "
+        "385837.75 6174524.03125, 385839.03125 6174514.625, "
+        "385839.34375 6174516.21875, 385842.34375 6174516.625, "
+        "385842.5625 6174515.125, 385851.90625 6174516.40625, "
+        "385851.6875 6174517.90625, 385854.53125 6174518.3125, "
+        "385854.75 6174516.78125))"
+    )
+
+    count, span = cleaning_footprints._meshing_hostile_acute_tip_metrics(
+        polygon,
+        target_scale=0.5,
+    )
+
+    assert count == 0
+    assert span == 0.0
+
+
+def test_meshing_hostile_acute_tip_metrics_keep_lund_near_gap_zigzag():
+    polygon = cleaning_footprints.shapely.from_wkt(LUND_ACUTE_TIP_ZIGZAG_WKT)
+
+    count, span = cleaning_footprints._meshing_hostile_acute_tip_metrics(
+        polygon,
+        target_scale=0.5,
+    )
+
+    assert count == 2
+    assert span > 0.0
 
 
 def test_polygon_acute_tip_metrics_detect_case_gbg_hole_wedge():

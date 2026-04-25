@@ -215,6 +215,7 @@ _AREA_BALANCE_SHORT_EDGE_MULTIPLIER = 2.0
 _COURTYARD_AREA_THRESHOLD = 10.0
 _RECOVERY_TREE_REBUILD_THRESHOLD = 16
 _MESHER_READY_ACUTE_TIP_MAX_ANGLE_DEGREES = 5.0
+_MESHER_READY_ACUTE_TIP_NEARBY_SEGMENT_FACTOR = 1.25
 
 
 def _polygon_sequence_key(polygons: Sequence[Polygon]) -> tuple[int, ...]:
@@ -2729,11 +2730,158 @@ def _normalize_mesher_ready_polygon(
     diagnostics: dict[str, Any] | None = None,
 ) -> list[Polygon]:
     polygon = orient(polygon, sign=1.0)
-    if polygon.is_empty or not polygon.interiors:
+    if polygon.is_empty:
         return [polygon]
 
-    if not _polygon_has_ring_boundary_contacts(polygon):
-        return [polygon]
+    target_scale = max(float(declared_scale), 1.0e-9)
+    grid = max(target_scale / 16.0, 1.0e-9)
+    local_diagnostics = diagnostics if diagnostics is not None else _empty_diagnostics(1)
+    local_diagnostics.setdefault("collect_stage_metrics", False)
+    local_diagnostics.setdefault("enable_logging", False)
+    local_diagnostics.setdefault("geos_exception_count", 0)
+    local_diagnostics.setdefault("geos_exception_messages", [])
+
+    def regularize_single_polygon(base_polygon: Polygon) -> Polygon:
+        reference_signature = _polygon_defect_signature(
+            base_polygon,
+            target_scale=target_scale,
+        )
+        if _signature_satisfies_scale_contract(
+            reference_signature,
+            target_scale=target_scale,
+            grid=grid,
+        ):
+            return base_polygon
+
+        best_polygon: Polygon | None = None
+        best_score: tuple[float, ...] | None = None
+        best_operator: str | None = None
+
+        def consider_candidate(candidate: _RepairCandidate | None) -> None:
+            nonlocal best_polygon, best_score, best_operator
+            if candidate is None:
+                return
+            canonical_parts: list[Polygon] = []
+            for part in _canonicalize(candidate.polygon, grid, local_diagnostics):
+                without_small_holes = _remove_small_holes(
+                    part,
+                    0.0,
+                    local_diagnostics,
+                )
+                canonical_parts.extend(
+                    _canonicalize(without_small_holes, grid, local_diagnostics)
+                )
+            filtered_parts = [
+                orient(part, sign=1.0)
+                for part in canonical_parts
+                if part.area + 1.0e-12 >= 0.0
+            ]
+            if len(filtered_parts) != 1:
+                return
+            accepted = filtered_parts[0]
+            candidate_signature = _polygon_defect_signature(
+                accepted,
+                target_scale=target_scale,
+            )
+            if not _signature_improves(
+                reference_signature,
+                candidate_signature,
+                grid=grid,
+            ):
+                return
+            candidate_metrics = _difference_area_metrics(base_polygon, accepted)
+            if not _difference_metrics_have_small_fidelity_drift(
+                candidate_metrics,
+                edit_zone_area=float(base_polygon.area),
+                target_scale=target_scale,
+                grid=grid,
+            ):
+                return
+            score = (
+                float(
+                    not _signature_satisfies_scale_contract(
+                        candidate_signature,
+                        target_scale=target_scale,
+                        grid=grid,
+                    )
+                ),
+                candidate_signature.clearance_deficit,
+                float(candidate_signature.acute_tip_count),
+                candidate_signature.acute_tip_span,
+                float(candidate_signature.short_edge_count),
+                -(candidate_signature.min_edge_length or 0.0),
+                float(candidate_signature.vertex_count),
+                float(candidate_metrics.get("symmetric_difference_area", 0.0)),
+                abs(float(candidate_metrics.get("union_area_delta", 0.0))),
+            )
+            if best_score is None or score < best_score:
+                best_polygon = accepted
+                best_score = score
+                best_operator = candidate.operator
+
+        if reference_signature.clearance_deficit > max(grid, 1.0e-9):
+            consider_candidate(
+                _try_polygon_self_clearance_connector_fill(
+                    base_polygon,
+                    min_clearance=target_scale,
+                    grid=grid,
+                    diagnostics=local_diagnostics,
+                )
+            )
+        if reference_signature.acute_tip_count > 0:
+            consider_candidate(
+                _try_polygon_acute_tip_connector_fill(
+                    base_polygon,
+                    min_clearance=target_scale,
+                    grid=grid,
+                    diagnostics=local_diagnostics,
+                )
+            )
+            for tolerance in (
+                target_scale,
+                target_scale * 1.25,
+                target_scale * 1.5,
+            ):
+                consider_candidate(
+                    _try_polygon_local_simplify(
+                        base_polygon,
+                        tolerance=tolerance,
+                        grid=grid,
+                        diagnostics=local_diagnostics,
+                    )
+                )
+
+        if best_polygon is None or best_polygon.equals_exact(base_polygon, tolerance=0.0):
+            return base_polygon
+
+        if diagnostics is not None:
+            diagnostics["mesher_regularized_polygon_count"] = (
+                diagnostics.get("mesher_regularized_polygon_count", 0) + 1
+            )
+            diagnostics["mesher_regularized_component_count"] = (
+                diagnostics.get("mesher_regularized_component_count", 0) + 1
+            )
+            diagnostics["mesher_regularization_area_delta_total"] = (
+                diagnostics.get("mesher_regularization_area_delta_total", 0.0)
+                + float(best_polygon.area - base_polygon.area)
+            )
+            diagnostics["mesher_regularization_max_distance"] = max(
+                float(diagnostics.get("mesher_regularization_max_distance", 0.0)),
+                float(target_scale),
+            )
+            if best_operator is not None:
+                operator_applied = diagnostics.setdefault(
+                    "mesher_ready_polygon_operator_applied",
+                    {},
+                )
+                operator_applied[best_operator] = (
+                    int(operator_applied.get(best_operator, 0)) + 1
+                )
+
+        return best_polygon
+
+    if not polygon.interiors or not _polygon_has_ring_boundary_contacts(polygon):
+        return [regularize_single_polygon(polygon)]
 
     shell = Polygon(np.asarray(polygon.exterior.coords, dtype=np.float64))
     hole_polygons = [
@@ -2790,14 +2938,17 @@ def _normalize_mesher_ready_polygon(
                     float(diagnostics.get("mesher_regularization_max_distance", 0.0)),
                     float(distance),
                 )
-            return candidate_polygons
+            return [
+                regularize_single_polygon(candidate_polygon)
+                for candidate_polygon in candidate_polygons
+            ]
         distance *= 2.0
 
     if diagnostics is not None:
         diagnostics["mesher_regularization_failed_count"] = (
             diagnostics.get("mesher_regularization_failed_count", 0) + 1
         )
-    return [polygon]
+    return [regularize_single_polygon(polygon)]
 
 
 def _regularize_ring_contact_polygon(
@@ -3722,11 +3873,27 @@ def _meshing_hostile_acute_tip_metrics(
 ) -> tuple[int, float]:
     if target_scale <= 0:
         return 0, 0.0
-    return _polygon_acute_tip_metrics(
+    nearby_segment_limit = max(
+        _MESHER_READY_ACUTE_TIP_NEARBY_SEGMENT_FACTOR * target_scale,
+        1.0e-9,
+    )
+    acute_tip_count = 0
+    acute_tip_span = 0.0
+    for _candidate in _iter_polygon_acute_tip_candidates(
         polygon,
         max_angle_degrees=_MESHER_READY_ACUTE_TIP_MAX_ANGLE_DEGREES,
         min_tip_span=max(2.0 * target_scale, 1.0e-9),
-    )
+    ):
+        vertex_xy = _candidate[5]
+        projected_xy = _candidate[6]
+        if (
+            float(np.linalg.norm(vertex_xy - projected_xy))
+            > nearby_segment_limit + 1.0e-12
+        ):
+            continue
+        acute_tip_count += 1
+        acute_tip_span += float(_candidate[4])
+    return acute_tip_count, acute_tip_span
 
 
 def _contact_resolution_signature_score(
@@ -5294,7 +5461,7 @@ def _try_exterior_hole_self_clearance_connector_fill(
         polygon,
         target_scale=min_clearance,
     )
-    hole_coords = np.asarray(hole_polygon.exterior.coords[:-1], dtype=float)
+    hole_coords = np.asarray(polygon.interiors[hole_ring_index].coords[:-1], dtype=float)
     best: tuple[
         tuple[float, int, int, float, float, float, int],
         Polygon,
@@ -5388,7 +5555,7 @@ def _try_exterior_hole_self_clearance_connector_fill(
         excluded_segments=set(),
     )
 
-    for distance in _iter_ring_contact_fill_distances(
+    for distance in _iter_ring_contact_connector_distances(
         min_clearance=min_clearance,
         grid=grid,
     ):
@@ -5581,6 +5748,240 @@ def _try_exterior_hole_self_clearance_connector_fill(
     )
 
 
+def _try_same_hole_self_clearance_connector_fill(
+    polygon: Polygon,
+    *,
+    clearance_coords: np.ndarray,
+    hole_ring_index: int,
+    min_clearance: float,
+    grid: float,
+    diagnostics: dict[str, Any],
+    require_signature_improvement: bool = True,
+) -> _RepairCandidate | None:
+    if hole_ring_index < 0 or hole_ring_index >= len(polygon.interiors):
+        return None
+
+    try:
+        hole_polygon = orient(
+            Polygon(list(polygon.interiors[hole_ring_index].coords)),
+            sign=1.0,
+        )
+    except (GEOSException, ValueError):
+        return None
+    if hole_polygon.is_empty:
+        return None
+
+    reference_signature = _polygon_defect_signature(
+        polygon,
+        target_scale=min_clearance,
+    )
+    hole_coords = np.asarray(
+        polygon.interiors[hole_ring_index].coords[:-1],
+        dtype=float,
+    )
+    if len(hole_coords) < 4:
+        return None
+
+    tolerance = max(min_clearance * 1.0e-3, grid, 1.0e-9)
+    best: tuple[
+        tuple[float, int, int, float, float, float, int],
+        Polygon,
+        BaseGeometry,
+    ] | None = None
+
+    def consider_displacement(
+        displacement: dict[int, np.ndarray],
+        edit_zone: BaseGeometry,
+    ) -> None:
+        nonlocal best
+        if not displacement:
+            return
+        updated_coords = hole_coords.copy()
+        for index, delta in displacement.items():
+            updated_coords[index] = updated_coords[index] + delta
+        holes: list[Sequence[Sequence[float]]] = []
+        updated_ring = [
+            (float(x), float(y))
+            for x, y in np.vstack([updated_coords, updated_coords[0]])
+        ]
+        for candidate_hole_index, ring in enumerate(polygon.interiors):
+            if candidate_hole_index == hole_ring_index:
+                holes.append(updated_ring)
+            else:
+                holes.append(list(ring.coords))
+        candidate_polygon = _normalize_single_polygon_candidate(
+            Polygon(list(polygon.exterior.coords), holes),
+            grid=grid,
+            min_area=0.0,
+            min_hole_area=0.0,
+            diagnostics=diagnostics,
+        )
+        if candidate_polygon is None:
+            return
+
+        candidate_signature = _polygon_defect_signature(
+            candidate_polygon,
+            target_scale=min_clearance,
+        )
+        if require_signature_improvement and not _signature_improves(
+            reference_signature,
+            candidate_signature,
+            grid=grid,
+        ):
+            return
+
+        difference_metrics = _difference_area_metrics(
+            polygon,
+            candidate_polygon,
+        )
+        candidate_edit_zone = polygon.symmetric_difference(candidate_polygon)
+        if not candidate_edit_zone.is_empty:
+            edit_zone = unary_union([edit_zone, candidate_edit_zone])
+        edge_deficit = max(
+            min_clearance - (candidate_signature.min_edge_length or 0.0),
+            0.0,
+        )
+        score = (
+            candidate_signature.clearance_deficit,
+            candidate_signature.short_edge_count,
+            candidate_signature.ring_contact_count,
+            edge_deficit,
+            difference_metrics["symmetric_difference_area"],
+            abs(difference_metrics["union_area_delta"]),
+            candidate_signature.vertex_count,
+        )
+        if best is None or score < best[0]:
+            best = (
+                score,
+                candidate_polygon,
+                edit_zone,
+            )
+
+    contact_options: list[list[tuple[dict[int, np.ndarray], BaseGeometry]]] = []
+    for contact_xy in (clearance_coords[0], clearance_coords[-1]):
+        point = Point(float(contact_xy[0]), float(contact_xy[1]))
+        point_xy = np.asarray(contact_xy, dtype=float)
+        options: list[tuple[dict[int, np.ndarray], BaseGeometry]] = []
+
+        vertex_index, vertex_distance = _nearest_vertex_index_and_distance(
+            hole_coords,
+            point_xy,
+        )
+        hole_direction = _polygon_inward_direction_at_contact(
+            hole_polygon,
+            point,
+            tolerance=tolerance,
+        )
+        if hole_direction is not None and vertex_distance <= tolerance:
+            options.append(
+                (
+                    {vertex_index: -hole_direction},
+                    LineString(
+                        [
+                            tuple(hole_coords[vertex_index]),
+                            tuple(point_xy),
+                        ]
+                    ).buffer(
+                        max(grid, min_clearance * 0.25),
+                        quad_segs=1,
+                        join_style=BufferJoinStyle.mitre,
+                        mitre_limit=1000.0,
+                    ),
+                )
+            )
+
+        segment = _nearest_nonadjacent_ring_segment(
+            hole_coords,
+            point_xy,
+            excluded_segments=set(),
+        )
+        if segment is not None:
+            segment_index, segment_start, segment_end, projected_xy = segment
+            if float(np.hypot(*(projected_xy - point_xy))) <= tolerance:
+                segment_direction = _boundary_edge_inward_direction(
+                    hole_coords,
+                    projected_xy,
+                    tolerance=max(tolerance, 1.0e-6),
+                )
+                if segment_direction is not None:
+                    options.append(
+                        (
+                            {
+                                segment_index: -segment_direction,
+                                (segment_index + 1) % len(hole_coords): -segment_direction,
+                            },
+                            LineString(
+                                [
+                                    tuple(segment_start),
+                                    tuple(segment_end),
+                                ]
+                            ).buffer(
+                                max(grid, min_clearance * 0.25),
+                                quad_segs=1,
+                                join_style=BufferJoinStyle.mitre,
+                                mitre_limit=1000.0,
+                            ),
+                        )
+                    )
+        contact_options.append(options)
+
+    if not any(contact_options):
+        return None
+
+    contraction_distances = sorted(
+        {
+            max(4.0 * grid, min_clearance * factor, 1.0e-9)
+            for factor in (0.25, 0.375, 0.5, 0.625, 0.75, 1.0)
+        }
+    )
+    for distance in contraction_distances:
+        scaled_options: list[list[tuple[dict[int, np.ndarray], BaseGeometry]]] = []
+        for options in contact_options:
+            scaled: list[tuple[dict[int, np.ndarray], BaseGeometry]] = []
+            for displacement, edit_zone in options:
+                scaled.append(
+                    (
+                        {index: delta * distance for index, delta in displacement.items()},
+                        edit_zone.buffer(
+                            distance,
+                            quad_segs=1,
+                            join_style=BufferJoinStyle.mitre,
+                            mitre_limit=1000.0,
+                        ),
+                    )
+                )
+            scaled_options.append(scaled)
+
+        for options in scaled_options:
+            for displacement, edit_zone in options:
+                consider_displacement(displacement, edit_zone)
+
+        if len(scaled_options) >= 2:
+            for first_displacement, first_zone in scaled_options[0]:
+                for second_displacement, second_zone in scaled_options[1]:
+                    combined_displacement: dict[int, np.ndarray] = {}
+                    for displacement in (first_displacement, second_displacement):
+                        for index, delta in displacement.items():
+                            existing = combined_displacement.get(index)
+                            if existing is None:
+                                combined_displacement[index] = delta.copy()
+                            else:
+                                combined_displacement[index] = existing + delta
+                    combined_zone = unary_union([first_zone, second_zone])
+                    consider_displacement(combined_displacement, combined_zone)
+
+    if best is None:
+        return None
+
+    area_budget_override = max(float(best[2].area), 16.0 * grid * grid, 1.0e-9)
+    return _RepairCandidate(
+        polygon=best[1],
+        edit_zone=best[2],
+        operator="self_clearance_connector_fill",
+        area_balance_budget_override=area_budget_override,
+    )
+
+
 def _try_polygon_self_clearance_connector_fill(
     polygon: Polygon,
     *,
@@ -5617,6 +6018,18 @@ def _try_polygon_self_clearance_connector_fill(
     if start_kind is None or end_kind is None:
         return None
     if start_kind == end_kind and start_ring_index == end_ring_index:
+        if start_kind == "hole" and start_ring_index is not None:
+            same_hole_candidate = _try_same_hole_self_clearance_connector_fill(
+                polygon,
+                clearance_coords=clearance_coords,
+                hole_ring_index=start_ring_index,
+                min_clearance=min_clearance,
+                grid=grid,
+                diagnostics=diagnostics,
+                require_signature_improvement=require_signature_improvement,
+            )
+            if same_hole_candidate is not None:
+                return same_hole_candidate
         return _try_same_ring_self_clearance_connector_fill(
             polygon,
             clearance_coords,
@@ -5652,7 +6065,7 @@ def _try_polygon_self_clearance_connector_fill(
             start_ring_index if start_kind == "hole" else end_ring_index
         )
         if hole_ring_index is not None:
-            return _try_exterior_hole_self_clearance_connector_fill(
+            exterior_hole_candidate = _try_exterior_hole_self_clearance_connector_fill(
                 polygon,
                 exterior_point=exterior_point,
                 hole_point=hole_point,
@@ -5662,6 +6075,8 @@ def _try_polygon_self_clearance_connector_fill(
                 diagnostics=diagnostics,
                 require_signature_improvement=require_signature_improvement,
             )
+            if exterior_hole_candidate is not None:
+                return exterior_hole_candidate
     return _try_cross_ring_self_clearance_connector_cut(
         polygon,
         clearance_coords,
@@ -14654,18 +15069,34 @@ def _regularize_low_clearance_polygons(
                 candidate,
                 target_scale=min_clearance,
             )
-            if not _signature_not_worse(
+            candidate_contract_ok = _signature_satisfies_scale_contract(
+                candidate_signature,
+                target_scale=min_clearance,
+                grid=grid,
+            )
+            reference_contract_ok = _signature_satisfies_scale_contract(
+                reference_signature,
+                target_scale=min_clearance,
+                grid=grid,
+            )
+            if candidate_contract_ok and not reference_contract_ok:
+                tolerance = max(grid, 1e-9)
+                if candidate_signature.ring_contact_count > reference_signature.ring_contact_count:
+                    return
+                if candidate_signature.acute_tip_count > reference_signature.acute_tip_count:
+                    return
+                if candidate_signature.acute_tip_span > reference_signature.acute_tip_span + tolerance:
+                    return
+                if candidate_signature.short_edge_count > reference_signature.short_edge_count:
+                    return
+            elif not _signature_not_worse(
                 reference_signature,
                 candidate_signature,
                 grid=grid,
             ):
                 return
             clearance_contract_unmet = int(
-                not _signature_satisfies_scale_contract(
-                    candidate_signature,
-                    target_scale=min_clearance,
-                    grid=grid,
-                )
+                not candidate_contract_ok
             )
             acute_tip_growth = 0.0
             acute_tip_count_growth = 0
