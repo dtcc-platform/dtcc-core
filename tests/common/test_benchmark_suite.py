@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import json
 import os
 import runpy
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
+from shapely.geometry import Polygon
+
+from benchmarks import benchmark_datasets
 from benchmarks.benchmark_datasets import dataset_parameters
 from benchmarks.benchmark_catalog import DATASET_NAMES, CITIES, build_tasks
 
@@ -25,6 +30,17 @@ def test_benchmark_entrypoint_exposes_show_output_flag() -> None:
         text=True,
     )
     assert "--show-output" in completed.stdout
+
+
+def test_benchmark_entrypoint_exposes_save_artifacts_flag() -> None:
+    bench = Path(__file__).resolve().parents[2] / "benchmarks" / "bench"
+    completed = subprocess.run(
+        [sys.executable, str(bench), "run", "--help"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert "--save-artifacts" in completed.stdout
 
 
 def test_benchmark_entrypoint_uses_dataset_flag() -> None:
@@ -188,6 +204,12 @@ def test_summary_markdown_reports_status_counts_and_quality_metrics() -> None:
                         "skewness": {"max": 0.1},
                     },
                 },
+                "artifacts": {
+                    "mesh": {
+                        "format": "vtu",
+                        "path": "tasks/example/artifacts/mesh.vtu",
+                    }
+                },
             },
         ],
         {
@@ -204,6 +226,8 @@ def test_summary_markdown_reports_status_counts_and_quality_metrics() -> None:
     assert "contract=passed" in summary
     assert "V=1,234, F=2,000, C=0, building_faces=0" in summary
     assert "q_min=0.5, q_mean=0.75, aspect_max=2, skew_max=0.1" in summary
+    assert "Artifacts" in summary
+    assert "mesh: tasks/example/artifacts/mesh.vtu" in summary
 
 
 def test_live_status_labels_include_checkmarks_and_crosses() -> None:
@@ -213,3 +237,55 @@ def test_live_status_labels_include_checkmarks_and_crosses() -> None:
 
     assert "✓ success" in terminal_status_label("success")
     assert "✗ failed" in terminal_status_label("failed")
+
+
+def test_save_result_artifacts_writes_mesh_artifact(tmp_path, monkeypatch) -> None:
+    saved_paths = []
+
+    def fake_save_mesh(_mesh, path):
+        saved_paths.append(Path(path))
+        Path(path).write_text("mesh", encoding="utf-8")
+
+    monkeypatch.setattr(
+        benchmark_datasets.dtcc,
+        "io",
+        SimpleNamespace(save_mesh=fake_save_mesh),
+        raising=False,
+    )
+
+    artifacts = benchmark_datasets._save_result_artifacts(
+        "city_surface_mesh",
+        object(),
+        tmp_path,
+    )
+
+    assert saved_paths == [tmp_path / "mesh.vtu"]
+    assert artifacts == {
+        "mesh": {
+            "format": "vtu",
+            "path": str(tmp_path / "mesh.vtu"),
+        }
+    }
+
+
+def test_save_result_artifacts_writes_footprint_geojson(tmp_path) -> None:
+    footprints = SimpleNamespace(
+        polygons=[Polygon([(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 0.0)])],
+        source_map=[[3, 4]],
+        subdomain_resolution=[2.5],
+        diagnostics={"output_grid": 0.5},
+        contract={"status": "passed"},
+    )
+
+    artifacts = benchmark_datasets._save_result_artifacts(
+        "city_footprints",
+        footprints,
+        tmp_path,
+    )
+
+    artifact_path = tmp_path / "footprints.geojson"
+    payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+    assert artifacts["footprints"]["path"] == str(artifact_path)
+    assert payload["type"] == "FeatureCollection"
+    assert payload["features"][0]["properties"]["source_indices"] == [3, 4]
+    assert payload["features"][0]["properties"]["subdomain_resolution"] == 2.5

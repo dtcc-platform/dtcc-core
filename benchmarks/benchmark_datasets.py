@@ -4,6 +4,7 @@ import json
 import time
 import traceback
 from collections import Counter
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -21,6 +22,14 @@ DATASET_PARAMETER_ALIASES: dict[str, dict[str, str]] = {
         "max_mesh_size": "mesh_resolution",
         "outlier_threshold": "remove_outlier_threshold",
     },
+}
+
+ARTIFACT_FORMATS: dict[str, str] = {
+    "city_footprints": "geojson",
+    "terrain_surface_mesh": "vtu",
+    "city_flat_mesh": "vtu",
+    "city_surface_mesh": "vtu",
+    "city_volume_mesh": "xdmf",
 }
 
 
@@ -104,6 +113,61 @@ def _footprint_metrics(footprints: Any) -> dict[str, Any]:
     }
 
 
+def _write_footprint_geojson(footprints: Any, path: Path) -> None:
+    from shapely.geometry import mapping
+
+    source_map = getattr(footprints, "source_map", []) or []
+    subdomain_resolution = getattr(footprints, "subdomain_resolution", []) or []
+    features = []
+    for index, polygon in enumerate(getattr(footprints, "polygons", []) or []):
+        source_indices = source_map[index] if index < len(source_map) else []
+        feature = {
+            "type": "Feature",
+            "geometry": mapping(polygon),
+            "properties": {
+                "id": index,
+                "source_indices": list(source_indices),
+                "source_count": len(source_indices),
+            },
+        }
+        if index < len(subdomain_resolution):
+            feature["properties"]["subdomain_resolution"] = subdomain_resolution[index]
+        features.append(feature)
+
+    payload = {
+        "type": "FeatureCollection",
+        "features": features,
+        "metadata": {
+            "diagnostics": json_ready(getattr(footprints, "diagnostics", {}) or {}),
+            "contract": json_ready(getattr(footprints, "contract", {}) or {}),
+        },
+    }
+    path.write_text(json.dumps(json_ready(payload), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _save_result_artifacts(dataset_name: str, result: Any, artifact_dir: Path) -> dict[str, dict[str, str]]:
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    artifact_format = ARTIFACT_FORMATS[dataset_name]
+    artifacts: dict[str, dict[str, str]] = {}
+
+    if dataset_name == "city_footprints":
+        path = artifact_dir / f"footprints.{artifact_format}"
+        _write_footprint_geojson(result, path)
+        artifacts["footprints"] = {"format": artifact_format, "path": str(path)}
+        return artifacts
+
+    stem = "volume_mesh" if dataset_name == "city_volume_mesh" else "mesh"
+    path = artifact_dir / f"{stem}.{artifact_format}"
+    dtcc.io.save_mesh(result, path)
+    artifacts[stem] = {"format": artifact_format, "path": str(path)}
+
+    if artifact_format == "xdmf":
+        h5_path = path.with_suffix(".h5")
+        if h5_path.exists():
+            artifacts[f"{stem}_h5"] = {"format": "h5", "path": str(h5_path)}
+    return artifacts
+
+
 def run_dataset(task: dict[str, Any]) -> dict[str, Any]:
     dataset_name = task["dataset"]
     if dataset_name not in DATASET_NAMES:
@@ -123,6 +187,10 @@ def run_dataset(task: dict[str, Any]) -> dict[str, Any]:
             metrics = _footprint_metrics(result)
         else:
             metrics = _mesh_metrics(result)
+        artifacts = {}
+        artifact_dir = task.get("artifact_dir")
+        if artifact_dir:
+            artifacts = _save_result_artifacts(dataset_name, result, Path(artifact_dir))
 
         return {
             "task_id": task["id"],
@@ -134,7 +202,7 @@ def run_dataset(task: dict[str, Any]) -> dict[str, Any]:
             "bounds": bounds,
             "parameters": kwargs,
             "metrics": json_ready(metrics),
-            "artifacts": {},
+            "artifacts": artifacts,
             "error": None,
         }
     except Exception as exc:

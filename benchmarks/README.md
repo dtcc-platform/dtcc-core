@@ -12,6 +12,7 @@ runner:
 - `./bench run smoke --dry-run`
 - `./bench run smoke`
 - `./bench run smoke --show-output`
+- `./bench run smoke --save-artifacts`
 - `./bench run grid --city stockholm`
 - `./bench run grid --city stockholm --dataset city_surface_mesh`
 - `./bench run sweep --city lund`
@@ -60,6 +61,9 @@ Run outputs are written under:
 Worker stdout and stderr are saved under `runs/<run-id>/tasks/<task-id>/`.
 Use `--show-output` to also echo worker output in the terminal while the run is
 active.
+Use `--save-artifacts` to write successful dataset outputs under
+`runs/<run-id>/tasks/<task-id>/artifacts/`; the artifact paths are recorded in
+`results.json` and `summary.md`.
 
 Every completed run prints a status summary and a full per-task result table.
 The same summary is saved to `runs/<run-id>/summary.md`.

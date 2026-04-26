@@ -171,13 +171,39 @@ def _write_missing_log(path: Path, lines: list[str]) -> None:
         _write_text(path, "".join(lines))
 
 
-def _run_task_subprocess(task: dict[str, Any], run_dir: Path, *, show_output: bool = False) -> dict[str, Any]:
+def _relativize_artifacts(artifacts: dict[str, Any], run_dir: Path) -> dict[str, Any]:
+    relativized: dict[str, Any] = {}
+    for name, artifact in artifacts.items():
+        if not isinstance(artifact, dict):
+            relativized[name] = artifact
+            continue
+        artifact_copy = dict(artifact)
+        path_value = artifact_copy.get("path")
+        if path_value:
+            try:
+                artifact_copy["path"] = str(Path(path_value).relative_to(run_dir))
+            except ValueError:
+                artifact_copy["path"] = str(path_value)
+        relativized[name] = artifact_copy
+    return relativized
+
+
+def _run_task_subprocess(
+    task: dict[str, Any],
+    run_dir: Path,
+    *,
+    show_output: bool = False,
+    save_artifacts: bool = False,
+) -> dict[str, Any]:
     task_dir = run_dir / "tasks" / _safe_task_id(task["id"])
     task_dir.mkdir(parents=True, exist_ok=True)
     spec_path = task_dir / "task.json"
     stdout_path = task_dir / "stdout.log"
     stderr_path = task_dir / "stderr.log"
-    _write_json(spec_path, task)
+    worker_task = dict(task)
+    if save_artifacts:
+        worker_task["artifact_dir"] = str(task_dir / "artifacts")
+    _write_json(spec_path, worker_task)
 
     command = [sys.executable, str(Path(__file__).resolve()), "_run-case", str(spec_path)]
     env = os.environ.copy()
@@ -247,6 +273,7 @@ def _run_task_subprocess(task: dict[str, Any], run_dir: Path, *, show_output: bo
         parsed["signal_used"] = signal_used
         parsed["stdout_log"] = str(stdout_path.relative_to(run_dir))
         parsed["stderr_log"] = str(stderr_path.relative_to(run_dir))
+        parsed["artifacts"] = _relativize_artifacts(parsed.get("artifacts", {}), run_dir)
         return parsed
 
     status = "hang" if signal_used in {"SIGTERM", "SIGKILL"} else "timeout"
@@ -462,6 +489,19 @@ def _result_error_summary(result: dict[str, Any]) -> str:
     return f"{summary} ({logs})" if logs else summary
 
 
+def _result_artifact_summary(result: dict[str, Any]) -> str:
+    artifacts = result.get("artifacts") or {}
+    if not artifacts:
+        return ""
+    parts = []
+    for name, artifact in artifacts.items():
+        if isinstance(artifact, dict) and artifact.get("path"):
+            parts.append(f"{name}: {artifact['path']}")
+        else:
+            parts.append(str(name))
+    return ", ".join(parts)
+
+
 def _result_table_rows(results: list[dict[str, Any]], *, rich: bool) -> list[list[str]]:
     return [
         [
@@ -472,6 +512,7 @@ def _result_table_rows(results: list[dict[str, Any]], *, rich: bool) -> list[lis
             _format_seconds(result.get("elapsed_seconds")),
             _result_output_summary(result),
             _result_quality_summary(result),
+            _result_artifact_summary(result),
             _result_error_summary(result),
         ]
         for result in results
@@ -560,6 +601,7 @@ def _print_run_tables(results: list[dict[str, Any]]) -> None:
             ("Time", "right"),
             "Output",
             "Quality",
+            "Artifacts",
             "Error / Logs",
         ],
         _result_table_rows(results, rich=True),
@@ -587,7 +629,17 @@ def _summary_markdown(results: list[dict[str, Any]], manifest: dict[str, Any]) -
     lines.extend(["", "## Results", ""])
     lines.extend(
         _markdown_table(
-            ["Status", "Case", "Dataset", "Scenario", "Time", "Output", "Quality", "Error / Logs"],
+            [
+                "Status",
+                "Case",
+                "Dataset",
+                "Scenario",
+                "Time",
+                "Output",
+                "Quality",
+                "Artifacts",
+                "Error / Logs",
+            ],
             _result_table_rows(results, rich=False),
         )
     )
@@ -605,6 +657,7 @@ def command_run(args: argparse.Namespace) -> int:
         "datasets": args.dataset,
         "dry_run": args.dry_run,
         "show_output": args.show_output,
+        "save_artifacts": args.save_artifacts,
         "case_count": breakdown["case_count"],
         "dataset_count": breakdown["dataset_count"],
         "scenario_count": breakdown["scenario_count"],
@@ -628,7 +681,12 @@ def command_run(args: argparse.Namespace) -> int:
     for index, task in enumerate(tasks, start=1):
         _append_event(events_path, {"event": "task_started", "index": index, "task": task})
         print(f"[task {index}/{len(tasks)}] {task['id']}", flush=True)
-        result = _run_task_subprocess(task, run_dir, show_output=args.show_output)
+        result = _run_task_subprocess(
+            task,
+            run_dir,
+            show_output=args.show_output,
+            save_artifacts=args.save_artifacts,
+        )
         results.append(result)
         _append_event(events_path, {"event": "task_finished", "index": index, "result": result})
         _write_json(run_dir / "results.json", {"manifest": manifest, "results": results})
@@ -708,6 +766,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--show-output",
         action="store_true",
         help="Echo each worker's stdout and stderr while keeping per-task log files.",
+    )
+    run_parser.add_argument(
+        "--save-artifacts",
+        action="store_true",
+        help="Save each successful dataset result under the task artifacts directory.",
     )
     run_parser.add_argument("--run-id", default=None)
     run_parser.add_argument("--output-dir", type=Path, default=None)
