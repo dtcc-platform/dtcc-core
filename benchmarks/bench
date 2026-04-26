@@ -586,12 +586,6 @@ def _emit_table(
 
 def _print_run_tables(results: list[dict[str, Any]]) -> None:
     _emit_table(
-        "Benchmark status summary",
-        ["Scope", ("✓ Worked", "right"), ("✗ Failed", "right"), ("Total", "right")],
-        _status_summary_rows(results, rich=True),
-        _status_summary_rows(results, rich=False),
-    )
-    _emit_table(
         "Benchmark result details",
         [
             "Status",
@@ -607,6 +601,12 @@ def _print_run_tables(results: list[dict[str, Any]]) -> None:
         _result_table_rows(results, rich=True),
         _result_table_rows(results, rich=False),
     )
+    _emit_table(
+        "Benchmark status summary",
+        ["Scope", ("✓ Success", "right"), ("✗ Fail", "right"), ("Total", "right")],
+        _status_summary_rows(results, rich=True),
+        _status_summary_rows(results, rich=False),
+    )
 
 
 def _summary_markdown(results: list[dict[str, Any]], manifest: dict[str, Any]) -> str:
@@ -617,16 +617,9 @@ def _summary_markdown(results: list[dict[str, Any]], manifest: dict[str, Any]) -
         f"Tasks: {len(results)}",
         f"Plan: {manifest.get('plan', 'unknown')}",
         "",
-        "## Status Summary",
+        "## Results",
         "",
     ]
-    lines.extend(
-        _markdown_table(
-            ["Scope", "✓ Worked", "✗ Failed", "Total"],
-            _status_summary_rows(results, rich=False),
-        )
-    )
-    lines.extend(["", "## Results", ""])
     lines.extend(
         _markdown_table(
             [
@@ -641,6 +634,13 @@ def _summary_markdown(results: list[dict[str, Any]], manifest: dict[str, Any]) -
                 "Error / Logs",
             ],
             _result_table_rows(results, rich=False),
+        )
+    )
+    lines.extend(["", "## Status Summary", ""])
+    lines.extend(
+        _markdown_table(
+            ["Scope", "✓ Success", "✗ Fail", "Total"],
+            _status_summary_rows(results, rich=False),
         )
     )
     return "\n".join(lines) + "\n"

@@ -220,6 +220,8 @@ def test_summary_markdown_reports_status_counts_and_quality_metrics() -> None:
 
     assert "| Spatial cases | 2 | 1 | 3 |" in summary
     assert "| Execution tasks | 2 | 1 | 3 |" in summary
+    assert "| Scope | ✓ Success | ✗ Fail | Total |" in summary
+    assert summary.index("## Results") < summary.index("## Status Summary")
     assert "✓ success" in summary
     assert "✗ failed" in summary
     assert "footprints=12, polygons=12" in summary
