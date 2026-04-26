@@ -49,6 +49,10 @@ class CitySurfaceMeshArgs(DatasetBaseArgs):
         None,
         description="Ground level for flat terrain (defaults to minimum terrain elevation)",
     )
+    mesher: Optional[Literal["auto", "dtcc_mesher", "triangle", "spade"]] = Field(
+        None,
+        description="2D meshing backend to use for the ground triangulation",
+    )
     format: Optional[Literal["obj", "stl", "vtu"]] = Field(
         None, description="Output file format"
     )
@@ -72,6 +76,7 @@ class CitySurfaceMeshDataset(DatasetDescriptor):
             smoothing=args.smoothing,
             show_footprints=args.show_footprints,
             footprint_cleaning_plot_block=args.footprint_cleaning_plot_block,
+            mesher=args.mesher,
         )
 
     def build_from_city(self, city: City, **kwargs):

@@ -127,6 +127,7 @@ def make_table(
     pad_edge: bool = False,
     collapse_padding: bool = True,
     header_style: str = "bold",
+    overflow: str = "ellipsis",
 ) -> Table:
     """Build a compact Rich table with sensible DTCC defaults."""
     table = Table(
@@ -141,7 +142,7 @@ def make_table(
             header, justify = column
         else:
             header, justify = str(column), "left"
-        table.add_column(str(header), justify=justify)
+        table.add_column(str(header), justify=justify, overflow=overflow)
     for row in rows:
         table.add_row(*(str(cell) for cell in row))
     return table
@@ -189,12 +190,13 @@ def log_table(
     *,
     indent: int = 2,
     source_name: str = "dtcc-core",
+    overflow: str = "ellipsis",
 ) -> None:
     """Emit a prefixed log line followed by a compact Rich table."""
     log_renderable(
         log_fn,
         message,
-        make_table(columns, rows),
+        make_table(columns, rows, overflow=overflow),
         indent=indent,
         source_name=source_name,
     )

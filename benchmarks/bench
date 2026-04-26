@@ -1,0 +1,743 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import platform
+import signal
+import subprocess
+import sys
+import threading
+import time
+from pathlib import Path
+from typing import Any, TextIO
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from benchmarks.benchmark_catalog import (
+    DATASET_NAMES,
+    CITIES,
+    DEFAULT_PARAMETERS,
+    SCENARIOS,
+    SUITE_DESCRIPTIONS,
+    build_tasks,
+    representative_cases,
+    task_to_json,
+)
+
+
+RUN_ROOT = Path(__file__).resolve().parent / "runs"
+BENCHMARK_INFO: Any | None = None
+BENCHMARK_LOG_TABLE: Any | None = None
+BENCHMARK_TABLE_IMPORT_ATTEMPTED = False
+ANSI_GREEN = "\033[32m"
+ANSI_RED = "\033[31m"
+ANSI_RESET = "\033[0m"
+
+
+def json_ready(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): json_ready(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_ready(item) for item in value]
+    return value
+
+
+def _write_json(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(json_ready(payload), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _write_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
+def _append_event(path: Path, event: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(json_ready(event), sort_keys=True) + "\n")
+
+
+def _git_value(args: list[str]) -> str | None:
+    try:
+        completed = subprocess.run(
+            ["git", *args],
+            cwd=REPO_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except Exception:
+        return None
+    value = completed.stdout.strip()
+    return value or None
+
+
+def environment_payload() -> dict[str, Any]:
+    return {
+        "python": sys.version,
+        "platform": platform.platform(),
+        "executable": sys.executable,
+        "cwd": str(Path.cwd()),
+        "repo_root": str(REPO_ROOT),
+        "git": {
+            "branch": _git_value(["rev-parse", "--abbrev-ref", "HEAD"]),
+            "commit": _git_value(["rev-parse", "HEAD"]),
+            "dirty": bool(_git_value(["status", "--short"])),
+        },
+        "env": {
+            "DTCC_LIDAR_URL": os.environ.get("DTCC_LIDAR_URL"),
+            "DTCC_GPKG_URL": os.environ.get("DTCC_GPKG_URL"),
+        },
+    }
+
+
+def _format_parameters(parameters: dict[str, Any]) -> str:
+    if not parameters:
+        return "-"
+    return ", ".join(f"{key}={value}" for key, value in parameters.items())
+
+
+def command_list(args: argparse.Namespace) -> int:
+    topic = args.topic
+    if topic in {"all", "suites"}:
+        print("Suites:")
+        for name, description in SUITE_DESCRIPTIONS.items():
+            print(f"  {name:10s} {description}")
+    if topic in {"all", "datasets"}:
+        print("Datasets:")
+        for dataset in DATASET_NAMES:
+            print(f"  {dataset}")
+    if topic in {"all", "cities"}:
+        print("Cities:")
+        for name, city in CITIES.items():
+            grid = f"{city.grid_nx}x{city.grid_ny} grid x {city.grid_box_size:g}m"
+            center = f"center=({city.center_x:.1f}, {city.center_y:.1f})"
+            print(f"  {name:12s} {city.label:12s} {center:31s} {grid}")
+    if topic in {"all", "scenarios"}:
+        print("Default parameters:")
+        for name, value in DEFAULT_PARAMETERS.items():
+            print(f"  {name:24s} {value}")
+        print("Scenarios:")
+        for name, scenario in SCENARIOS.items():
+            if name == "baseline":
+                print(f"  {name:24s} default")
+            else:
+                print(f"  {name:24s} overrides: {_format_parameters(scenario.parameters)}")
+    if topic in {"all", "cases"}:
+        print("Representative cases:")
+        for case in representative_cases():
+            print(f"  {case.id:32s} {case.label}")
+    return 0
+
+
+def _copy_worker_output(
+    stream: TextIO,
+    log_path: Path,
+    lines: list[str],
+    *,
+    echo_to: TextIO | None,
+) -> None:
+    handle: TextIO | None = None
+    try:
+        try:
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            handle = log_path.open("w", encoding="utf-8")
+        except OSError:
+            handle = None
+        for line in stream:
+            lines.append(line)
+            if handle is not None:
+                try:
+                    handle.write(line)
+                    handle.flush()
+                except OSError:
+                    handle.close()
+                    handle = None
+            if echo_to is not None and not line.startswith("BENCHMARK_RESULT "):
+                echo_to.write(line)
+                echo_to.flush()
+    finally:
+        if handle is not None:
+            handle.close()
+
+
+def _write_missing_log(path: Path, lines: list[str]) -> None:
+    if not path.exists():
+        _write_text(path, "".join(lines))
+
+
+def _run_task_subprocess(task: dict[str, Any], run_dir: Path, *, show_output: bool = False) -> dict[str, Any]:
+    task_dir = run_dir / "tasks" / _safe_task_id(task["id"])
+    task_dir.mkdir(parents=True, exist_ok=True)
+    spec_path = task_dir / "task.json"
+    stdout_path = task_dir / "stdout.log"
+    stderr_path = task_dir / "stderr.log"
+    _write_json(spec_path, task)
+
+    command = [sys.executable, str(Path(__file__).resolve()), "_run-case", str(spec_path)]
+    env = os.environ.copy()
+    env["PYTHONUNBUFFERED"] = "1"
+    started = time.perf_counter()
+    process = subprocess.Popen(
+        command,
+        cwd=REPO_ROOT,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    assert process.stdout is not None
+    assert process.stderr is not None
+
+    stdout_lines: list[str] = []
+    stderr_lines: list[str] = []
+    stdout_thread = threading.Thread(
+        target=_copy_worker_output,
+        args=(process.stdout, stdout_path, stdout_lines),
+        kwargs={"echo_to": sys.stdout if show_output else None},
+        daemon=True,
+    )
+    stderr_thread = threading.Thread(
+        target=_copy_worker_output,
+        args=(process.stderr, stderr_path, stderr_lines),
+        kwargs={"echo_to": sys.stderr if show_output else None},
+        daemon=True,
+    )
+    stdout_thread.start()
+    stderr_thread.start()
+
+    signal_used = "none"
+    try:
+        process.wait(timeout=int(task["timeout_seconds"]))
+    except subprocess.TimeoutExpired:
+        signal_used = "SIGINT"
+        process.send_signal(signal.SIGINT)
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            signal_used = "SIGTERM"
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                signal_used = "SIGKILL"
+                process.kill()
+                process.wait()
+
+    elapsed = time.perf_counter() - started
+    stdout_thread.join(timeout=5)
+    stderr_thread.join(timeout=5)
+    _write_missing_log(stdout_path, stdout_lines)
+    _write_missing_log(stderr_path, stderr_lines)
+    stdout = "".join(stdout_lines)
+
+    parsed: dict[str, Any] | None = None
+    for line in reversed(stdout.splitlines()):
+        if line.startswith("BENCHMARK_RESULT "):
+            parsed = json.loads(line[len("BENCHMARK_RESULT ") :])
+            break
+
+    if parsed is not None and signal_used == "none":
+        parsed["returncode"] = process.returncode
+        parsed["signal_used"] = signal_used
+        parsed["stdout_log"] = str(stdout_path.relative_to(run_dir))
+        parsed["stderr_log"] = str(stderr_path.relative_to(run_dir))
+        return parsed
+
+    status = "hang" if signal_used in {"SIGTERM", "SIGKILL"} else "timeout"
+    if signal_used == "none":
+        status = "failed"
+    return {
+        "task_id": task["id"],
+        "dataset": task["dataset"],
+        "case": task["case"],
+        "scenario": task["scenario"],
+        "status": status,
+        "elapsed_seconds": round(elapsed, 3),
+        "bounds": task["case"]["bounds"],
+        "parameters": task["parameters"],
+        "metrics": {},
+        "artifacts": {},
+        "error": {
+            "type": "SubprocessError",
+            "message": f"worker exited without BENCHMARK_RESULT, rc={process.returncode}, signal={signal_used}",
+        },
+        "returncode": process.returncode,
+        "signal_used": signal_used,
+        "stdout_log": str(stdout_path.relative_to(run_dir)),
+        "stderr_log": str(stderr_path.relative_to(run_dir)),
+    }
+
+
+def _safe_task_id(task_id: str) -> str:
+    return "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in task_id)
+
+
+def _task_breakdown(tasks: list[dict[str, Any]]) -> dict[str, int]:
+    return {
+        "case_count": len({task["case"]["id"] for task in tasks}),
+        "dataset_count": len({task["dataset"] for task in tasks}),
+        "scenario_count": len({task["scenario"]["id"] for task in tasks}),
+        "task_count": len(tasks),
+    }
+
+
+def _format_task_breakdown(breakdown: dict[str, int]) -> str:
+    def label(count: int, singular: str) -> str:
+        suffix = "" if count == 1 else "s"
+        return f"{count} {singular}{suffix}"
+
+    return (
+        f"{label(breakdown['case_count'], 'case')} x "
+        f"{label(breakdown['dataset_count'], 'dataset')} x "
+        f"{label(breakdown['scenario_count'], 'scenario')} = "
+        f"{label(breakdown['task_count'], 'task')}"
+    )
+
+
+def _format_number(value: Any) -> str:
+    if value is None:
+        return "-"
+    if isinstance(value, bool):
+        return str(value)
+    if isinstance(value, int):
+        return f"{value:,}"
+    if isinstance(value, float):
+        if value == 0.0:
+            return "0"
+        if abs(value) >= 1000:
+            return f"{value:,.0f}"
+        if abs(value) >= 10:
+            return f"{value:.2f}"
+        return f"{value:.3g}"
+    return str(value)
+
+
+def _format_seconds(value: Any) -> str:
+    try:
+        return f"{float(value):.3f}s"
+    except (TypeError, ValueError):
+        return "-"
+
+
+def _status_label(status: str, *, rich: bool) -> str:
+    if status == "success":
+        label = "✓ success"
+        return f"[green]{label}[/green]" if rich else label
+    label = f"✗ {status}"
+    return f"[red]{label}[/red]" if rich else label
+
+
+def _terminal_status_label(status: str) -> str:
+    label = _status_label(status, rich=False)
+    if not sys.stdout.isatty() or os.environ.get("NO_COLOR"):
+        return label
+    if status == "success":
+        return f"{ANSI_GREEN}{label}{ANSI_RESET}"
+    return f"{ANSI_RED}{label}{ANSI_RESET}"
+
+
+def _count_label(value: int, *, failed: bool, rich: bool) -> str:
+    if not rich:
+        return str(value)
+    color = "red" if failed else "green"
+    return f"[{color}]{value}[/{color}]"
+
+
+def _case_status_counts(results: list[dict[str, Any]]) -> tuple[int, int]:
+    by_case: dict[str, list[dict[str, Any]]] = {}
+    for result in results:
+        by_case.setdefault(result["case"]["id"], []).append(result)
+    worked = sum(
+        1
+        for case_results in by_case.values()
+        if all(result["status"] == "success" for result in case_results)
+    )
+    failed = len(by_case) - worked
+    return worked, failed
+
+
+def _status_summary_rows(results: list[dict[str, Any]], *, rich: bool) -> list[list[str]]:
+    case_worked, case_failed = _case_status_counts(results)
+    task_worked = sum(1 for result in results if result["status"] == "success")
+    task_failed = len(results) - task_worked
+    return [
+        [
+            "Spatial cases",
+            _count_label(case_worked, failed=False, rich=rich),
+            _count_label(case_failed, failed=True, rich=rich),
+            str(case_worked + case_failed),
+        ],
+        [
+            "Execution tasks",
+            _count_label(task_worked, failed=False, rich=rich),
+            _count_label(task_failed, failed=True, rich=rich),
+            str(len(results)),
+        ],
+    ]
+
+
+def _quality_stat(metrics: dict[str, Any], name: str, stat: str) -> Any:
+    value = metrics.get("quality", {}).get(name, {})
+    if isinstance(value, dict):
+        return value.get(stat)
+    return None
+
+
+def _result_output_summary(result: dict[str, Any]) -> str:
+    metrics = result.get("metrics", {})
+    if result["dataset"] == "city_footprints":
+        return (
+            f"footprints={_format_number(metrics.get('footprint_count'))}, "
+            f"polygons={_format_number(metrics.get('polygon_count'))}"
+        )
+
+    parts = [
+        f"V={_format_number(metrics.get('num_vertices'))}",
+        f"F={_format_number(metrics.get('num_faces'))}",
+        f"C={_format_number(metrics.get('num_cells'))}",
+    ]
+    building_faces = metrics.get("building_faces")
+    if building_faces is not None:
+        parts.append(f"building_faces={_format_number(building_faces)}")
+    return ", ".join(parts)
+
+
+def _result_quality_summary(result: dict[str, Any]) -> str:
+    metrics = result.get("metrics", {})
+    if result["dataset"] == "city_footprints":
+        contract = metrics.get("contract", {})
+        contract_metrics = contract.get("metrics", {})
+        parts = []
+        if contract:
+            parts.append(f"contract={contract.get('status', '-')}")
+        for key in (
+            "min_clearance",
+            "pair_issue_count",
+            "short_edge_count",
+            "ring_contact_count",
+        ):
+            if key in contract_metrics:
+                parts.append(f"{key}={_format_number(contract_metrics[key])}")
+        source_map_max = metrics.get("source_map_max_size")
+        if source_map_max is not None:
+            parts.append(f"source_map_max={_format_number(source_map_max)}")
+        return ", ".join(parts) if parts else "-"
+
+    quality_error = metrics.get("quality_error")
+    if quality_error:
+        return f"{quality_error.get('type', 'QualityError')}: {quality_error.get('message', '')}"
+
+    parts = []
+    for label, value in (
+        ("q_min", _quality_stat(metrics, "element_quality", "min")),
+        ("q_mean", _quality_stat(metrics, "element_quality", "mean")),
+        ("aspect_max", _quality_stat(metrics, "aspect_ratio", "max")),
+        ("skew_max", _quality_stat(metrics, "skewness", "max")),
+    ):
+        if value is not None:
+            parts.append(f"{label}={_format_number(value)}")
+    return ", ".join(parts) if parts else "-"
+
+
+def _result_error_summary(result: dict[str, Any]) -> str:
+    if result["status"] == "success":
+        return ""
+    error = result.get("error") or {}
+    error_type = error.get("type", "Error")
+    message = str(error.get("message", "")).replace("\n", " ")
+    if len(message) > 120:
+        message = message[:117] + "..."
+    logs = ", ".join(
+        str(result.get(key))
+        for key in ("stdout_log", "stderr_log")
+        if result.get(key)
+    )
+    summary = f"{error_type}: {message}" if message else error_type
+    return f"{summary} ({logs})" if logs else summary
+
+
+def _result_table_rows(results: list[dict[str, Any]], *, rich: bool) -> list[list[str]]:
+    return [
+        [
+            _status_label(result["status"], rich=rich),
+            result["case"]["id"],
+            result["dataset"],
+            result["scenario"]["id"],
+            _format_seconds(result.get("elapsed_seconds")),
+            _result_output_summary(result),
+            _result_quality_summary(result),
+            _result_error_summary(result),
+        ]
+        for result in results
+    ]
+
+
+def _markdown_table(columns: list[str], rows: list[list[str]]) -> list[str]:
+    escaped_rows = [
+        [str(cell).replace("|", "\\|").replace("\n", " ") for cell in row]
+        for row in rows
+    ]
+    lines = [
+        "| " + " | ".join(columns) + " |",
+        "| " + " | ".join("---" for _ in columns) + " |",
+    ]
+    lines.extend("| " + " | ".join(row) + " |" for row in escaped_rows)
+    return lines
+
+
+def _console_table(columns: list[str], rows: list[list[str]]) -> str:
+    widths = [
+        max(len(str(value)) for value in [column, *(row[index] for row in rows)])
+        for index, column in enumerate(columns)
+    ]
+    lines = [
+        "  ".join(column.ljust(widths[index]) for index, column in enumerate(columns)),
+        "  ".join("-" * width for width in widths),
+    ]
+    for row in rows:
+        lines.append("  ".join(str(cell).ljust(widths[index]) for index, cell in enumerate(row)))
+    return "\n".join(lines)
+
+
+def _load_table_helpers() -> tuple[Any, Any] | None:
+    global BENCHMARK_INFO
+    global BENCHMARK_LOG_TABLE
+    global BENCHMARK_TABLE_IMPORT_ATTEMPTED
+
+    if BENCHMARK_TABLE_IMPORT_ATTEMPTED:
+        if BENCHMARK_INFO is None or BENCHMARK_LOG_TABLE is None:
+            return None
+        return BENCHMARK_INFO, BENCHMARK_LOG_TABLE
+
+    BENCHMARK_TABLE_IMPORT_ATTEMPTED = True
+    try:
+        from dtcc_core.common import get_logger, log_table
+    except Exception:
+        return None
+
+    BENCHMARK_INFO = get_logger("dtcc-benchmark")[1]
+    BENCHMARK_LOG_TABLE = log_table
+    return BENCHMARK_INFO, BENCHMARK_LOG_TABLE
+
+
+def _emit_table(
+    message: str,
+    columns: list[str | tuple[str, str]],
+    rich_rows: list[list[str]],
+    plain_rows: list[list[str]],
+) -> None:
+    helpers = _load_table_helpers()
+    if helpers is None:
+        plain_columns = [column[0] if isinstance(column, tuple) else column for column in columns]
+        print(message, flush=True)
+        print(_console_table([str(column) for column in plain_columns], plain_rows), flush=True)
+        return
+
+    benchmark_info, log_table = helpers
+    log_table(benchmark_info, message, columns, rich_rows, indent=0, overflow="fold")
+
+
+def _print_run_tables(results: list[dict[str, Any]]) -> None:
+    _emit_table(
+        "Benchmark status summary",
+        ["Scope", ("✓ Worked", "right"), ("✗ Failed", "right"), ("Total", "right")],
+        _status_summary_rows(results, rich=True),
+        _status_summary_rows(results, rich=False),
+    )
+    _emit_table(
+        "Benchmark result details",
+        [
+            "Status",
+            "Case",
+            "Dataset",
+            "Scenario",
+            ("Time", "right"),
+            "Output",
+            "Quality",
+            "Error / Logs",
+        ],
+        _result_table_rows(results, rich=True),
+        _result_table_rows(results, rich=False),
+    )
+
+
+def _summary_markdown(results: list[dict[str, Any]], manifest: dict[str, Any]) -> str:
+    lines = [
+        "# Benchmark Run Summary",
+        "",
+        f"Suite: `{manifest['suite']}`",
+        f"Tasks: {len(results)}",
+        f"Plan: {manifest.get('plan', 'unknown')}",
+        "",
+        "## Status Summary",
+        "",
+    ]
+    lines.extend(
+        _markdown_table(
+            ["Scope", "✓ Worked", "✗ Failed", "Total"],
+            _status_summary_rows(results, rich=False),
+        )
+    )
+    lines.extend(["", "## Results", ""])
+    lines.extend(
+        _markdown_table(
+            ["Status", "Case", "Dataset", "Scenario", "Time", "Output", "Quality", "Error / Logs"],
+            _result_table_rows(results, rich=False),
+        )
+    )
+    return "\n".join(lines) + "\n"
+
+
+def command_run(args: argparse.Namespace) -> int:
+    tasks = [task_to_json(task) for task in build_tasks(args.suite, city=args.city, datasets=args.dataset)]
+    breakdown = _task_breakdown(tasks)
+    run_id = args.run_id or time.strftime("%Y-%m-%d_%H%M%S") + f"_{args.suite}"
+    run_dir = (args.output_dir or RUN_ROOT) / run_id
+    manifest = {
+        "suite": args.suite,
+        "city": args.city,
+        "datasets": args.dataset,
+        "dry_run": args.dry_run,
+        "show_output": args.show_output,
+        "case_count": breakdown["case_count"],
+        "dataset_count": breakdown["dataset_count"],
+        "scenario_count": breakdown["scenario_count"],
+        "task_count": breakdown["task_count"],
+        "plan": _format_task_breakdown(breakdown),
+        "tasks": tasks,
+    }
+
+    if args.dry_run:
+        print(json.dumps(json_ready(manifest), indent=2, sort_keys=True))
+        return 0
+
+    _load_table_helpers()
+    run_dir.mkdir(parents=True, exist_ok=True)
+    _write_json(run_dir / "manifest.json", manifest)
+    _write_json(run_dir / "environment.json", environment_payload())
+
+    results: list[dict[str, Any]] = []
+    events_path = run_dir / "events.jsonl"
+    print(f"Plan: {manifest['plan']}", flush=True)
+    for index, task in enumerate(tasks, start=1):
+        _append_event(events_path, {"event": "task_started", "index": index, "task": task})
+        print(f"[task {index}/{len(tasks)}] {task['id']}", flush=True)
+        result = _run_task_subprocess(task, run_dir, show_output=args.show_output)
+        results.append(result)
+        _append_event(events_path, {"event": "task_finished", "index": index, "result": result})
+        _write_json(run_dir / "results.json", {"manifest": manifest, "results": results})
+        print(
+            f"  {_terminal_status_label(result['status'])} "
+            f"in {result.get('elapsed_seconds', 0):.3f}s",
+            flush=True,
+        )
+
+    _write_text(run_dir / "summary.md", _summary_markdown(results, manifest))
+    _print_run_tables(results)
+    print(f"Run directory: {run_dir}")
+    return 0 if all(result["status"] == "success" for result in results) else 1
+
+
+def command_report(args: argparse.Namespace) -> int:
+    results_path = args.run_dir / "results.json"
+    if not results_path.exists():
+        raise SystemExit(f"missing results file: {results_path}")
+    payload = json.loads(results_path.read_text(encoding="utf-8"))
+    results = payload.get("results", [])
+    manifest = payload.get("manifest", {})
+    print(_summary_markdown(results, manifest))
+    return 0
+
+
+def command_compare(args: argparse.Namespace) -> int:
+    base = json.loads((args.base / "results.json").read_text(encoding="utf-8"))
+    head = json.loads((args.head / "results.json").read_text(encoding="utf-8"))
+    base_by_id = {result["task_id"]: result for result in base.get("results", [])}
+    head_by_id = {result["task_id"]: result for result in head.get("results", [])}
+    all_ids = sorted(set(base_by_id) | set(head_by_id))
+
+    print("| Task | Base | Head | Delta elapsed |")
+    print("| --- | --- | --- | ---: |")
+    for task_id in all_ids:
+        b = base_by_id.get(task_id)
+        h = head_by_id.get(task_id)
+        b_status = "-" if b is None else b["status"]
+        h_status = "-" if h is None else h["status"]
+        if b is None or h is None:
+            delta = "-"
+        else:
+            delta = f"{float(h.get('elapsed_seconds') or 0.0) - float(b.get('elapsed_seconds') or 0.0):.3f}s"
+        print(f"| `{task_id}` | {b_status} | {h_status} | {delta} |")
+    return 0
+
+
+def command_worker(args: argparse.Namespace) -> int:
+    from benchmarks.benchmark_datasets import result_to_line, run_dataset
+
+    task = json.loads(args.spec.read_text(encoding="utf-8"))
+    result = run_dataset(task)
+    print(result_to_line(result), flush=True)
+    return 0 if result["status"] == "success" else 1
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Manifest-driven DTCC benchmark runner.")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    list_parser = subparsers.add_parser("list", help="List suites, datasets, cases, and scenarios.")
+    list_parser.add_argument(
+        "topic",
+        nargs="?",
+        default="all",
+        choices=("all", "suites", "datasets", "cities", "cases", "scenarios"),
+    )
+    list_parser.set_defaults(func=command_list)
+
+    run_parser = subparsers.add_parser("run", help="Run a benchmark suite.")
+    run_parser.add_argument("suite", choices=tuple(SUITE_DESCRIPTIONS))
+    run_parser.add_argument("--city", choices=tuple(CITIES), default=None)
+    run_parser.add_argument("--dataset", action="append", choices=DATASET_NAMES, default=None)
+    run_parser.add_argument("--dry-run", action="store_true")
+    run_parser.add_argument(
+        "--show-output",
+        action="store_true",
+        help="Echo each worker's stdout and stderr while keeping per-task log files.",
+    )
+    run_parser.add_argument("--run-id", default=None)
+    run_parser.add_argument("--output-dir", type=Path, default=None)
+    run_parser.set_defaults(func=command_run)
+
+    report_parser = subparsers.add_parser("report", help="Print a markdown summary for a run directory.")
+    report_parser.add_argument("run_dir", type=Path)
+    report_parser.set_defaults(func=command_report)
+
+    compare_parser = subparsers.add_parser("compare", help="Compare two run directories.")
+    compare_parser.add_argument("base", type=Path)
+    compare_parser.add_argument("head", type=Path)
+    compare_parser.set_defaults(func=command_compare)
+
+    worker_parser = subparsers.add_parser("_run-case", help=argparse.SUPPRESS)
+    worker_parser.add_argument("spec", type=Path)
+    worker_parser.set_defaults(func=command_worker)
+
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    try:
+        return int(args.func(args))
+    except ValueError as exc:
+        parser.error(str(exc))
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -62,6 +62,7 @@ def test_city_surface_mesh_default_build_returns_surface_mesh(
         smoothing=0,
         show_footprints=False,
         footprint_cleaning_plot_block=True,
+        mesher=None,
     )
 
 
@@ -89,6 +90,7 @@ def test_city_surface_mesh_parameter_plumbing(
             footprint_cleaning_plot_block=False,
             flat_ground=True,
             ground_level=17.5,
+            mesher="dtcc_mesher",
         )
     )
 
@@ -106,6 +108,7 @@ def test_city_surface_mesh_parameter_plumbing(
         smoothing=4,
         show_footprints=True,
         footprint_cleaning_plot_block=False,
+        mesher="dtcc_mesher",
     )
 
 
