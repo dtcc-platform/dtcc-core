@@ -229,6 +229,14 @@ def test_benchmark_failure_classification_separates_data_from_geometry() -> None
     )
     assert (
         benchmark_datasets.classify_failure(
+            "ConnectionError",
+            "HTTPConnectionPool(host='compute.dtcc.chalmers.se', port=8000): "
+            "Max retries exceeded with url: /get_lidar",
+        )
+        == "lidar_download"
+    )
+    assert (
+        benchmark_datasets.classify_failure(
             "RuntimeError",
             "Conditioned footprints contract failed: short_edge_count=2",
         )

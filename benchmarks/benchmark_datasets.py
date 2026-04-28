@@ -182,6 +182,16 @@ def classify_failure(exc_type: str, message: str) -> str:
         return "footprint_cache"
     if "lidar" in text and ("404" in text or "not found" in text):
         return "lidar_coverage"
+    if (
+        "lidar" in text
+        and (
+            "connectionerror" in text
+            or "max retries exceeded" in text
+            or "failed to establish" in text
+            or "get_lidar" in text
+        )
+    ):
+        return "lidar_download"
     if exc_type == "TimeoutError" or "timeouterror" in text:
         return "timeout"
     if "conditioned footprint" in text and "contract" in text:
