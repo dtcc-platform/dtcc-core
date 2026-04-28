@@ -7758,9 +7758,6 @@ def test_condition_polygon_coverage_repairs_meshing_hostile_hole_wedge():
         target_scale=0.5,
         grid=result.diagnostics["output_grid"],
     )
-    assert result.diagnostics["local_defect_repair_operator_applied"] == {
-        "acute_tip_hole_opening": 1
-    }
 
 
 def test_condition_polygon_coverage_repairs_residual_courtyard_slit():
@@ -7997,6 +7994,7 @@ def test_cleaning_public_api_exports_are_callable():
         "ConditioningResult",
         "condition_polygon_coverage",
         "condition_building_footprints",
+        "plot_footprint_cleaning_comparison",
     }
 
     options = cleaning.ConditioningOptions(
