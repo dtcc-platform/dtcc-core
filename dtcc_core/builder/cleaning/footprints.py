@@ -9769,6 +9769,7 @@ def _regularize_coverage_contacts(
     operator_attempts: dict[str, int] = {}
     operator_applied: dict[str, int] = {}
     progress = False
+    deferred_shrink_fallback_count = 0
     max_contact_shrink_area_loss = max(
         32.0 * min_segment_length * min_segment_length,
         128.0 * grid * grid,
@@ -9796,19 +9797,14 @@ def _regularize_coverage_contacts(
             str,
         ] | None = None
 
-        for (
-            affected_indices,
-            operator_name,
-            candidate_polygons,
-            candidate_sources,
-        ) in _direct_pair_issue_cluster_candidates(
-            current_polygons,
-            current_sources,
-            tolerance=min_segment_length,
-            grid=grid,
-            diagnostics=diagnostics,
-            cache=cache,
-        ):
+        def consider_contact_candidate(
+            affected_indices: tuple[int, ...],
+            operator_name: str,
+            candidate_polygons: list[Polygon],
+            candidate_sources: list[list[int]],
+        ) -> None:
+            nonlocal best_step
+
             operator_attempts[operator_name] = operator_attempts.get(operator_name, 0) + 1
 
             candidate_signature = _cached_coverage_defect_signature(
@@ -9817,9 +9813,9 @@ def _regularize_coverage_contacts(
                 target_scale=min_segment_length,
             )
             if candidate_signature.pair_issue_count >= current_signature.pair_issue_count:
-                continue
+                return
             if candidate_signature.ring_contact_count > current_signature.ring_contact_count:
-                continue
+                return
 
             candidate_difference_metrics = _cached_difference_area_metrics(
                 cache,
@@ -9837,7 +9833,7 @@ def _regularize_coverage_contacts(
                 and candidate_difference_metrics["reference_minus_candidate_area"]
                 > max_contact_shrink_area_loss
             ):
-                continue
+                return
             if "shrink" in operator_name and len(affected_indices) == 2:
                 shrink_budget_context = _pair_issue_shrink_budget_context(
                     [current_polygons[index] for index in affected_indices],
@@ -9857,7 +9853,7 @@ def _regularize_coverage_contacts(
                 grid * grid,
                 1e-9,
             ):
-                continue
+                return
 
             candidate_score = (
                 _prefer_fill_only_point_contact_candidate(
@@ -9880,6 +9876,46 @@ def _regularize_coverage_contacts(
                     candidate_difference_metrics,
                     candidate_score,
                     operator_name,
+                )
+
+        shrink_radii = _iter_pair_issue_shrink_radii(
+            tolerance=min_segment_length,
+            grid=grid,
+        )
+        candidate_waves: list[tuple[bool, tuple[float, ...]]] = [
+            (True, shrink_radii[:2])
+        ]
+        if len(shrink_radii) > 2:
+            candidate_waves.append((False, shrink_radii[2:]))
+
+        for wave_index, (include_bridge_candidates, wave_shrink_radii) in enumerate(
+            candidate_waves
+        ):
+            if best_step is not None:
+                break
+            if wave_index > 0:
+                deferred_shrink_fallback_count += 1
+
+            for (
+                affected_indices,
+                operator_name,
+                candidate_polygons,
+                candidate_sources,
+            ) in _direct_pair_issue_cluster_candidates(
+                current_polygons,
+                current_sources,
+                tolerance=min_segment_length,
+                grid=grid,
+                diagnostics=diagnostics,
+                cache=cache,
+                include_bridge_candidates=include_bridge_candidates,
+                shrink_radii=wave_shrink_radii,
+            ):
+                consider_contact_candidate(
+                    affected_indices,
+                    operator_name,
+                    candidate_polygons,
+                    candidate_sources,
                 )
 
         if best_step is None:
@@ -9908,6 +9944,9 @@ def _regularize_coverage_contacts(
         )
         diagnostics["coverage_contact_regularization_ring_contact_count_after"] = (
             before_signature.ring_contact_count
+        )
+        diagnostics["coverage_contact_regularization_deferred_shrink_fallback_count"] = (
+            deferred_shrink_fallback_count
         )
         return polygons, source_map
 
@@ -9999,6 +10038,9 @@ def _regularize_coverage_contacts(
         )
         diagnostics["coverage_contact_regularization_operator_attempts"] = operator_attempts
         diagnostics["coverage_contact_regularization_operator_applied"] = {}
+        diagnostics["coverage_contact_regularization_deferred_shrink_fallback_count"] = (
+            deferred_shrink_fallback_count
+        )
         return polygons, source_map
 
     (
@@ -10267,6 +10309,9 @@ def _regularize_coverage_contacts(
     )
     diagnostics["coverage_contact_regularization_operator_attempts"] = operator_attempts
     diagnostics["coverage_contact_regularization_operator_applied"] = operator_applied
+    diagnostics["coverage_contact_regularization_deferred_shrink_fallback_count"] = (
+        deferred_shrink_fallback_count
+    )
     return _stable_sort(best_polygons, best_sources)
 
 
@@ -11961,6 +12006,8 @@ def _direct_pair_issue_cluster_candidates(
     grid: float,
     diagnostics: dict[str, Any],
     cache: _CoverageEvalCache | None = None,
+    include_bridge_candidates: bool = True,
+    shrink_radii: Sequence[float] | None = None,
 ) -> list[tuple[tuple[int, ...], str, list[Polygon], list[list[int]]]]:
     candidates: list[tuple[tuple[int, ...], str, list[Polygon], list[list[int]]]] = []
     if tolerance <= 0 or len(subset_polygons) < 2:
@@ -11997,38 +12044,51 @@ def _direct_pair_issue_cluster_candidates(
             )
         )
 
-    for cluster_indices in _point_touch_clusters(
-        subset_polygons,
-        target_scale=tolerance,
-        cache=cache,
-    ):
-        if len(cluster_indices) < 2:
-            continue
-        cluster_polygons = [subset_polygons[index] for index in cluster_indices]
-        cluster_sources = [subset_sources[index] for index in cluster_indices]
-        for bridge_radius in _iter_pair_issue_bridge_radii(
-            issue_kind="point",
-            distance=0.0,
+    if shrink_radii is None:
+        shrink_radii = _iter_pair_issue_shrink_radii(
             tolerance=tolerance,
             grid=grid,
+        )
+    else:
+        shrink_radii = tuple(
+            radius
+            for radius in shrink_radii
+            if radius > 0
+        )
+
+    if include_bridge_candidates:
+        for cluster_indices in _point_touch_clusters(
+            subset_polygons,
+            target_scale=tolerance,
+            cache=cache,
         ):
-            candidate = _apply_local_point_touch_bridge_operator(
-                cluster_polygons,
-                cluster_sources,
-                radius=bridge_radius,
-                target_scale=tolerance,
-                grid=grid,
-                diagnostics=diagnostics,
-            )
-            if candidate is None:
+            if len(cluster_indices) < 2:
                 continue
-            repaired_cluster_polygons, repaired_cluster_sources = candidate
-            append_candidate(
-                cluster_indices,
-                f"coverage_pair_issue_point_cluster_{bridge_radius:.3f}",
-                repaired_cluster_polygons,
-                repaired_cluster_sources,
-            )
+            cluster_polygons = [subset_polygons[index] for index in cluster_indices]
+            cluster_sources = [subset_sources[index] for index in cluster_indices]
+            for bridge_radius in _iter_pair_issue_bridge_radii(
+                issue_kind="point",
+                distance=0.0,
+                tolerance=tolerance,
+                grid=grid,
+            ):
+                candidate = _apply_local_point_touch_bridge_operator(
+                    cluster_polygons,
+                    cluster_sources,
+                    radius=bridge_radius,
+                    target_scale=tolerance,
+                    grid=grid,
+                    diagnostics=diagnostics,
+                )
+                if candidate is None:
+                    continue
+                repaired_cluster_polygons, repaired_cluster_sources = candidate
+                append_candidate(
+                    cluster_indices,
+                    f"coverage_pair_issue_point_cluster_{bridge_radius:.3f}",
+                    repaired_cluster_polygons,
+                    repaired_cluster_sources,
+                )
 
     for left_index, right_index, distance, issue_kind in _cached_pair_issue_candidates(
         cache,
@@ -12040,7 +12100,7 @@ def _direct_pair_issue_cluster_candidates(
         operator_candidates: list[
             tuple[str, tuple[list[Polygon], list[list[int]]] | None]
         ] = []
-        if issue_kind == "point":
+        if include_bridge_candidates and issue_kind == "point":
             for bridge_radius in _iter_pair_issue_bridge_radii(
                 issue_kind=issue_kind,
                 distance=distance,
@@ -12060,7 +12120,7 @@ def _direct_pair_issue_cluster_candidates(
                         ),
                     )
                 )
-        else:
+        elif include_bridge_candidates:
             for bridge_radius in _iter_pair_issue_bridge_radii(
                 issue_kind=issue_kind,
                 distance=distance,
@@ -12081,10 +12141,7 @@ def _direct_pair_issue_cluster_candidates(
                     )
                 )
 
-        for shrink_radius in _iter_pair_issue_shrink_radii(
-            tolerance=tolerance,
-            grid=grid,
-        ):
+        for shrink_radius in shrink_radii:
             operator_candidates.append(
                 (
                     f"coverage_pair_issue_shrink_{shrink_radius:.3f}",

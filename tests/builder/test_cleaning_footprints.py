@@ -1253,6 +1253,269 @@ def test_regularize_coverage_contacts_rejects_large_shrink_candidate(
     }
 
 
+def _contact_staging_signature(
+    *,
+    min_clearance,
+    pair_issue_count,
+    close_pair_count,
+    min_pair_clearance,
+):
+    return cleaning_footprints._CoverageDefectSignature(
+        min_clearance=min_clearance,
+        pair_issue_count=pair_issue_count,
+        point_touch_count=0,
+        close_pair_count=close_pair_count,
+        min_pair_clearance=min_pair_clearance,
+        short_edge_count=0,
+        min_edge_length=1.0,
+        vertex_count=8,
+        ring_contact_count=0,
+    )
+
+
+def _install_contact_staging_eval_mocks(
+    monkeypatch,
+    *,
+    signature_map,
+    difference_map,
+):
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_cached_coverage_defect_signature",
+        lambda cache, polygons, target_scale: signature_map[
+            cleaning_footprints._polygon_sequence_key(polygons)
+        ],
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_cached_difference_area_metrics",
+        lambda cache, reference_polygons, candidate_polygons: difference_map.get(
+            (
+                cleaning_footprints._polygon_sequence_key(reference_polygons),
+                cleaning_footprints._polygon_sequence_key(candidate_polygons),
+            ),
+            {
+                "reference_minus_candidate_area": 0.0,
+                "candidate_minus_reference_area": 0.0,
+                "symmetric_difference_area": 0.0,
+                "union_area_delta": 0.0,
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_cached_coverage_edit_zone",
+        lambda *args, **kwargs: box(-1.0, -1.0, 4.0, 2.0),
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_pair_issue_shrink_budget_context",
+        lambda *args, **kwargs: (box(-1.0, -1.0, 4.0, 2.0), 20.0),
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_change_outside_edit_zone",
+        lambda *args, **kwargs: 0.0,
+    )
+
+
+def test_regularize_coverage_contacts_defers_wide_shrink_when_primary_repairs(
+    monkeypatch,
+):
+    original = [box(0.0, 0.0, 1.0, 1.0), box(1.01, 0.0, 2.01, 1.0)]
+    primary_candidate = [box(0.0, 0.0, 1.0, 1.0), box(1.6, 0.0, 2.6, 1.0)]
+    original_sources = [[0], [1]]
+
+    original_key = cleaning_footprints._polygon_sequence_key(original)
+    primary_key = cleaning_footprints._polygon_sequence_key(primary_candidate)
+    signature_map = {
+        original_key: _contact_staging_signature(
+            min_clearance=0.01,
+            pair_issue_count=1,
+            close_pair_count=1,
+            min_pair_clearance=0.01,
+        ),
+        primary_key: _contact_staging_signature(
+            min_clearance=0.6,
+            pair_issue_count=0,
+            close_pair_count=0,
+            min_pair_clearance=None,
+        ),
+    }
+    difference_map = {
+        (original_key, primary_key): {
+            "reference_minus_candidate_area": 0.5,
+            "candidate_minus_reference_area": 0.5,
+            "symmetric_difference_area": 1.0,
+            "union_area_delta": 0.0,
+        },
+    }
+    calls = []
+
+    def fake_direct_pair_issue_cluster_candidates(
+        subset_polygons,
+        subset_sources,
+        *,
+        include_bridge_candidates=True,
+        shrink_radii=None,
+        **kwargs,
+    ):
+        calls.append((include_bridge_candidates, tuple(shrink_radii or ())))
+        if include_bridge_candidates:
+            return [
+                (
+                    (0, 1),
+                    "coverage_pair_issue_shrink_0.250",
+                    primary_candidate,
+                    original_sources,
+                )
+            ]
+        return [
+            (
+                (0, 1),
+                "coverage_pair_issue_shrink_0.750",
+                primary_candidate,
+                original_sources,
+            )
+        ]
+
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_iter_pair_issue_shrink_radii",
+        lambda **kwargs: (0.25, 0.5, 0.75),
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_direct_pair_issue_cluster_candidates",
+        fake_direct_pair_issue_cluster_candidates,
+    )
+    _install_contact_staging_eval_mocks(
+        monkeypatch,
+        signature_map=signature_map,
+        difference_map=difference_map,
+    )
+
+    diagnostics = cleaning_footprints._empty_diagnostics(2)
+    diagnostics["collect_stage_metrics"] = False
+    polygons, source_map = cleaning_footprints._regularize_coverage_contacts(
+        original,
+        original_sources,
+        min_segment_length=0.5,
+        grid=0.03125,
+        min_area=0.0,
+        min_hole_area=0.0,
+        diagnostics=diagnostics,
+    )
+
+    assert cleaning_footprints._polygon_sequence_key(polygons) == primary_key
+    assert source_map == original_sources
+    assert calls == [(True, (0.25, 0.5))]
+    assert diagnostics["coverage_contact_regularization_operator_applied"] == {
+        "coverage_pair_issue_shrink_0.250": 1
+    }
+    assert (
+        diagnostics[
+            "coverage_contact_regularization_deferred_shrink_fallback_count"
+        ]
+        == 0
+    )
+
+
+def test_regularize_coverage_contacts_uses_wide_shrink_fallback_when_needed(
+    monkeypatch,
+):
+    original = [box(0.0, 0.0, 1.0, 1.0), box(1.01, 0.0, 2.01, 1.0)]
+    fallback_candidate = [box(0.0, 0.0, 1.0, 1.0), box(1.9, 0.0, 2.9, 1.0)]
+    original_sources = [[0], [1]]
+
+    original_key = cleaning_footprints._polygon_sequence_key(original)
+    fallback_key = cleaning_footprints._polygon_sequence_key(fallback_candidate)
+    signature_map = {
+        original_key: _contact_staging_signature(
+            min_clearance=0.01,
+            pair_issue_count=1,
+            close_pair_count=1,
+            min_pair_clearance=0.01,
+        ),
+        fallback_key: _contact_staging_signature(
+            min_clearance=0.9,
+            pair_issue_count=0,
+            close_pair_count=0,
+            min_pair_clearance=None,
+        ),
+    }
+    difference_map = {
+        (original_key, fallback_key): {
+            "reference_minus_candidate_area": 0.8,
+            "candidate_minus_reference_area": 0.8,
+            "symmetric_difference_area": 1.6,
+            "union_area_delta": 0.0,
+        },
+    }
+    calls = []
+
+    def fake_direct_pair_issue_cluster_candidates(
+        subset_polygons,
+        subset_sources,
+        *,
+        include_bridge_candidates=True,
+        shrink_radii=None,
+        **kwargs,
+    ):
+        calls.append((include_bridge_candidates, tuple(shrink_radii or ())))
+        if include_bridge_candidates:
+            return []
+        return [
+            (
+                (0, 1),
+                "coverage_pair_issue_shrink_0.750",
+                fallback_candidate,
+                original_sources,
+            )
+        ]
+
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_iter_pair_issue_shrink_radii",
+        lambda **kwargs: (0.25, 0.5, 0.75),
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_direct_pair_issue_cluster_candidates",
+        fake_direct_pair_issue_cluster_candidates,
+    )
+    _install_contact_staging_eval_mocks(
+        monkeypatch,
+        signature_map=signature_map,
+        difference_map=difference_map,
+    )
+
+    diagnostics = cleaning_footprints._empty_diagnostics(2)
+    diagnostics["collect_stage_metrics"] = False
+    polygons, source_map = cleaning_footprints._regularize_coverage_contacts(
+        original,
+        original_sources,
+        min_segment_length=0.5,
+        grid=0.03125,
+        min_area=0.0,
+        min_hole_area=0.0,
+        diagnostics=diagnostics,
+    )
+
+    assert cleaning_footprints._polygon_sequence_key(polygons) == fallback_key
+    assert source_map == original_sources
+    assert calls == [(True, (0.25, 0.5)), (False, (0.75,))]
+    assert diagnostics["coverage_contact_regularization_operator_applied"] == {
+        "coverage_pair_issue_shrink_0.750": 1
+    }
+    assert (
+        diagnostics[
+            "coverage_contact_regularization_deferred_shrink_fallback_count"
+        ]
+        == 1
+    )
+
+
 def test_regularize_coverage_contacts_uses_shrink_edit_zone_for_direct_shrink_candidates(
     monkeypatch,
 ):
