@@ -3466,6 +3466,48 @@ def test_should_attempt_local_coverage_candidate_skips_when_global_is_already_go
     )
 
 
+def test_residual_self_clearance_signature_skips_local_contract_fallback():
+    signature = cleaning_footprints._CoverageDefectSignature(
+        min_clearance=1.35,
+        pair_issue_count=0,
+        point_touch_count=0,
+        close_pair_count=0,
+        min_pair_clearance=None,
+        short_edge_count=0,
+        min_edge_length=2.1,
+        vertex_count=80,
+    )
+
+    assert (
+        cleaning_footprints._coverage_signature_has_only_residual_self_clearance_deficit(
+            signature,
+            target_scale=2.0,
+            grid=0.03125,
+        )
+        is True
+    )
+
+    signature_with_short_edge = cleaning_footprints._CoverageDefectSignature(
+        min_clearance=1.35,
+        pair_issue_count=0,
+        point_touch_count=0,
+        close_pair_count=0,
+        min_pair_clearance=None,
+        short_edge_count=1,
+        min_edge_length=1.8,
+        vertex_count=80,
+    )
+
+    assert (
+        cleaning_footprints._coverage_signature_has_only_residual_self_clearance_deficit(
+            signature_with_short_edge,
+            target_scale=2.0,
+            grid=0.03125,
+        )
+        is False
+    )
+
+
 def test_should_attempt_meshing_local_candidate_keeps_mixed_residual_cleanup_when_contract_fails():
     reference_signature = cleaning_footprints._CoverageDefectSignature(
         min_clearance=0.0,
@@ -3798,6 +3840,83 @@ def test_select_post_coverage_candidates_for_evaluation_skips_identity_when_glob
         identity_candidate,
         [global_candidate],
         target_scale=0.5,
+        grid=0.03125,
+        output_min_area=15.0,
+    )
+
+    assert [candidate.label for candidate in selected] == ["global"]
+
+
+def test_select_post_coverage_candidates_skips_identity_for_decisive_global_short_edge_win():
+    small_identity_polygons = [
+        box(float(index) * 2.0, 0.0, float(index) * 2.0 + 1.0, 1.0)
+        for index in range(14)
+    ]
+    small_global_polygons = [
+        box(float(index) * 2.0, 0.0, float(index) * 2.0 + 1.0, 1.0)
+        for index in range(20)
+    ]
+    identity_candidate = cleaning_footprints._CoverageSimplifyCandidate(
+        label="identity",
+        polygons=small_identity_polygons,
+        source_map=[[index] for index in range(14)],
+        signature=cleaning_footprints._CoverageDefectSignature(
+            min_clearance=1.994,
+            pair_issue_count=41,
+            point_touch_count=0,
+            close_pair_count=41,
+            min_pair_clearance=1.994,
+            short_edge_count=2121,
+            min_edge_length=0.03125,
+            vertex_count=3444,
+        ),
+        difference_metrics={
+            "reference_minus_candidate_area": 0.0,
+            "candidate_minus_reference_area": 0.0,
+            "symmetric_difference_area": 0.0,
+            "union_area_delta": 0.0,
+        },
+        change_outside_edit_zone=0.0,
+        edit_zone_area=100.0,
+        area_balance_budget=10.0,
+        patch_count=0,
+        patch_applied_count=0,
+        operator_attempts={},
+        operator_applied={},
+    )
+    global_candidate = cleaning_footprints._CoverageSimplifyCandidate(
+        label="global",
+        polygons=small_global_polygons,
+        source_map=[[index] for index in range(20)],
+        signature=cleaning_footprints._CoverageDefectSignature(
+            min_clearance=1.994,
+            pair_issue_count=38,
+            point_touch_count=0,
+            close_pair_count=38,
+            min_pair_clearance=1.994,
+            short_edge_count=85,
+            min_edge_length=0.15625,
+            vertex_count=1087,
+        ),
+        difference_metrics={
+            "reference_minus_candidate_area": 1815.0,
+            "candidate_minus_reference_area": 1742.0,
+            "symmetric_difference_area": 3557.0,
+            "union_area_delta": -73.0,
+        },
+        change_outside_edit_zone=0.0,
+        edit_zone_area=4000.0,
+        area_balance_budget=200.0,
+        patch_count=1,
+        patch_applied_count=1,
+        operator_attempts={"coverage_simplify_global": 1},
+        operator_applied={"coverage_simplify_global": 1},
+    )
+
+    selected = cleaning_footprints._select_post_coverage_candidates_for_evaluation(
+        identity_candidate,
+        [global_candidate],
+        target_scale=2.0,
         grid=0.03125,
         output_min_area=15.0,
     )

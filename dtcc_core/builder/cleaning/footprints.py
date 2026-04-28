@@ -715,6 +715,7 @@ def _empty_diagnostics(input_count: int) -> dict[str, Any]:
         "coverage_simplify_operator_applied": {},
         "coverage_simplify_selected_branch": "identity",
         "coverage_simplify_branch_scores": {},
+        "coverage_simplify_contract_fallback_skipped_reason": None,
         "local_defect_repair_candidate_count": 0,
         "local_defect_repair_applied_count": 0,
         "local_defect_repair_short_edge_count_before": 0,
@@ -4075,6 +4076,31 @@ def _coverage_signature_contract_priority(
     ) else 1
 
 
+def _coverage_signature_has_only_residual_self_clearance_deficit(
+    signature: _CoverageDefectSignature,
+    *,
+    target_scale: float,
+    grid: float,
+) -> bool:
+    if target_scale <= 0:
+        return False
+
+    tolerance = max(grid, 1e-9)
+    if (
+        signature.ring_contact_count > 0
+        or signature.pair_issue_count > 0
+        or signature.acute_tip_count > 0
+        or signature.short_edge_count > 0
+    ):
+        return False
+
+    min_edge_length = signature.min_edge_length
+    if min_edge_length is not None and min_edge_length + tolerance < target_scale:
+        return False
+
+    return max(target_scale - (signature.min_clearance or 0.0), 0.0) > tolerance
+
+
 def _coverage_signature_requires_polygon_regularization(
     signature: _CoverageDefectSignature,
     *,
@@ -4401,9 +4427,35 @@ def _should_finalize_identity_post_coverage_candidate(
         best_candidate,
         output_min_area=output_min_area,
     )
-    if best_small_count > identity_small_count:
+
+    strong_pair_win = (
+        identity_candidate.signature.pair_issue_count > 0
+        and best_candidate.signature.pair_issue_count == 0
+    )
+    strong_short_edge_win = (
+        identity_candidate.signature.short_edge_count >= 24
+        and best_candidate.signature.short_edge_count
+        <= max(8, identity_candidate.signature.short_edge_count // 6)
+        and best_candidate.signature.pair_issue_count
+        <= identity_candidate.signature.pair_issue_count
+    )
+    small_count_increase = max(best_small_count - identity_small_count, 0)
+    small_area_increase = max(best_small_area - identity_small_area, 0.0)
+    modest_small_component_regression = (
+        small_count_increase <= max(8, identity_small_count)
+        and small_area_increase
+        <= max(
+            8.0 * area_tolerance,
+            0.25 * max(identity_small_area, area_tolerance),
+        )
+    )
+    if best_small_count > identity_small_count and not (
+        (strong_pair_win or strong_short_edge_win) and modest_small_component_regression
+    ):
         return True
-    if best_small_area > identity_small_area + area_tolerance:
+    if best_small_area > identity_small_area + area_tolerance and not (
+        (strong_pair_win or strong_short_edge_win) and modest_small_component_regression
+    ):
         return True
 
     if _coverage_candidate_has_small_fidelity_drift(
@@ -4411,15 +4463,6 @@ def _should_finalize_identity_post_coverage_candidate(
         target_scale=target_scale,
         grid=grid,
     ):
-        strong_pair_win = (
-            identity_candidate.signature.pair_issue_count > 0
-            and best_candidate.signature.pair_issue_count == 0
-        )
-        strong_short_edge_win = (
-            identity_candidate.signature.short_edge_count >= 8
-            and best_candidate.signature.short_edge_count
-            <= max(0, identity_candidate.signature.short_edge_count // 4)
-        )
         return not (strong_pair_win or strong_short_edge_win)
 
     identity_clearance_deficit = max(
@@ -4433,11 +4476,6 @@ def _should_finalize_identity_post_coverage_candidate(
     strong_pair_win = (
         best_candidate.signature.pair_issue_count
         < identity_candidate.signature.pair_issue_count
-    )
-    strong_short_edge_win = (
-        identity_candidate.signature.short_edge_count >= 24
-        and best_candidate.signature.short_edge_count
-        <= max(8, identity_candidate.signature.short_edge_count // 6)
     )
     if (
         best_candidate.signature.pair_issue_count
@@ -15748,6 +15786,7 @@ def condition_polygon_coverage(
     ]
     diagnostics["coverage_simplify_contract_fallback_triggered"] = False
     diagnostics["coverage_simplify_contract_fallback_evaluated"] = []
+    diagnostics["coverage_simplify_contract_fallback_skipped_reason"] = None
     finalized_branches = {
         candidate.label: _evaluate_post_coverage_branch(
             candidate,
@@ -15779,57 +15818,66 @@ def condition_polygon_coverage(
         target_scale=meshing_scale,
         grid=output_grid,
     ):
-        if local_candidate is None:
-            diagnostics["coverage_simplify_local_candidate_attempted"] = True
-            local_candidate = _simplify_coverage_locally(
-                final_polygons,
-                final_sources,
-                tolerance=coverage_simplify_tolerance,
-                grid=output_grid,
-                diagnostics=diagnostics,
-                # The fast local pass intentionally skips the more expensive
-                # cluster rescues. When the selected branch still misses the
-                # declared meshing contract, evaluate the full deterministic
-                # local candidate set before failing strict mode.
-                enable_patch_union_fallback=True,
-                enable_pair_cluster_rescue=True,
-                cache=coverage_eval_cache,
-            )
-            if local_candidate is not None:
-                coverage_candidates.append(local_candidate)
-        fallback_candidates = [
-            candidate
-            for candidate in coverage_candidates
-            if candidate.label not in finalized_branches
-        ]
-        diagnostics["coverage_simplify_contract_fallback_triggered"] = True
-        diagnostics["coverage_simplify_contract_fallback_evaluated"] = [
-            candidate.label for candidate in fallback_candidates
-        ]
-        for candidate in fallback_candidates:
-            finalized_branches[candidate.label] = _evaluate_post_coverage_branch(
-                candidate,
-                reference_union=coverage_reference_union,
-                source_lookup=source_lookup,
-                raw_support_union=raw_support_union,
-                min_feature_size=options.min_feature_size,
-                source_recovery_scale=options.min_feature_size,
-                grid=output_grid,
-                min_area=0.0,
-                output_min_area=options.min_area,
-                min_hole_area=options.min_hole_area,
-                cache=coverage_eval_cache,
-            )
-        identity_branch = finalized_branches.get("identity")
-        global_branch = finalized_branches.get("global")
-        local_branch = finalized_branches.get("local")
-        chosen_branch, global_score, local_score = _choose_post_coverage_branch(
-            identity_branch,
-            global_branch,
-            local_branch,
+        if _coverage_signature_has_only_residual_self_clearance_deficit(
+            chosen_branch.final_signature,
             target_scale=meshing_scale,
             grid=output_grid,
-        )
+        ):
+            diagnostics["coverage_simplify_contract_fallback_skipped_reason"] = (
+                "residual_self_clearance"
+            )
+        else:
+            if local_candidate is None:
+                diagnostics["coverage_simplify_local_candidate_attempted"] = True
+                local_candidate = _simplify_coverage_locally(
+                    final_polygons,
+                    final_sources,
+                    tolerance=coverage_simplify_tolerance,
+                    grid=output_grid,
+                    diagnostics=diagnostics,
+                    # The fast local pass intentionally skips the more expensive
+                    # cluster rescues. When the selected branch still misses the
+                    # declared meshing contract, evaluate the full deterministic
+                    # local candidate set before failing strict mode.
+                    enable_patch_union_fallback=True,
+                    enable_pair_cluster_rescue=True,
+                    cache=coverage_eval_cache,
+                )
+                if local_candidate is not None:
+                    coverage_candidates.append(local_candidate)
+            fallback_candidates = [
+                candidate
+                for candidate in coverage_candidates
+                if candidate.label not in finalized_branches
+            ]
+            diagnostics["coverage_simplify_contract_fallback_triggered"] = True
+            diagnostics["coverage_simplify_contract_fallback_evaluated"] = [
+                candidate.label for candidate in fallback_candidates
+            ]
+            for candidate in fallback_candidates:
+                finalized_branches[candidate.label] = _evaluate_post_coverage_branch(
+                    candidate,
+                    reference_union=coverage_reference_union,
+                    source_lookup=source_lookup,
+                    raw_support_union=raw_support_union,
+                    min_feature_size=options.min_feature_size,
+                    source_recovery_scale=options.min_feature_size,
+                    grid=output_grid,
+                    min_area=0.0,
+                    output_min_area=options.min_area,
+                    min_hole_area=options.min_hole_area,
+                    cache=coverage_eval_cache,
+                )
+            identity_branch = finalized_branches.get("identity")
+            global_branch = finalized_branches.get("global")
+            local_branch = finalized_branches.get("local")
+            chosen_branch, global_score, local_score = _choose_post_coverage_branch(
+                identity_branch,
+                global_branch,
+                local_branch,
+                target_scale=meshing_scale,
+                grid=output_grid,
+            )
     finalized_labels = list(finalized_branches.keys())
     diagnostics["coverage_simplify_branches_finalized"] = finalized_labels
     diagnostics["coverage_simplify_branch_scores"] = {
