@@ -195,7 +195,7 @@ def test_build_city_flat_mesh_handles_pathological_footprints(monkeypatch):
         max_mesh_size=5.0,
         min_mesh_angle=20.0,
         report_mesh_quality=False,
-        mesher="spade",
+        mesher="dtcc_mesher",
     )
 
     assert calls
@@ -228,7 +228,7 @@ def test_build_city_flat_mesh_forwards_cleaning_diagnostics_flag(monkeypatch):
         min_mesh_angle=20.0,
         report_mesh_quality=False,
         cleaning_diagnostics=False,
-        mesher="spade",
+        mesher="dtcc_mesher",
     )
 
     assert captured["cleaning_diagnostics"] is False
@@ -604,6 +604,73 @@ def test_normalize_mesher_ready_coverage_revalidates_contract(monkeypatch):
     assert diagnostics["mesher_ready_coverage_segment_graph_valid_after"] is True
     assert diagnostics["mesher_ready_coverage_revalidation_operator_applied"] == {
         "fake_rescue": 1
+    }
+
+
+def test_normalize_mesher_ready_coverage_revalidates_until_contract(monkeypatch):
+    polygons = [box(0.0, 0.0, 2.0, 2.0), box(2.1, 0.0, 4.1, 2.0)]
+    source_map = [[0], [1]]
+    gaps = [0.2, 0.35, 0.7]
+    calls = []
+
+    monkeypatch.setattr(
+        meshes_module,
+        "_normalize_mesher_ready_polygon",
+        lambda polygon, *, declared_scale, diagnostics=None: [polygon],
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_coverage_mesher_segment_graph_error",
+        lambda polygons: None,
+    )
+
+    def fake_condition_polygon_coverage(polygons, *, source_map, options):
+        gap = gaps[min(len(calls), len(gaps) - 1)]
+        calls.append(gap)
+        return meshes_module.cleaning_footprints.ConditioningResult(
+            polygons=[box(0.0, 0.0, 2.0, 2.0), box(2.0 + gap, 0.0, 4.0 + gap, 2.0)],
+            source_map=[list(indices) for indices in source_map],
+            diagnostics={
+                "geos_exception_count": 0,
+                "geos_exception_messages": [],
+                "coverage_meshing_regularization_operator_applied": {
+                    "fake_step": 1
+                },
+            },
+        )
+
+    monkeypatch.setattr(
+        meshes_module,
+        "condition_polygon_coverage",
+        fake_condition_polygon_coverage,
+    )
+
+    diagnostics = {"geos_exception_count": 0, "geos_exception_messages": []}
+    normalized_polygons, normalized_sources = meshes_module._normalize_mesher_ready_coverage(
+        polygons,
+        source_map,
+        declared_scale=0.5,
+        min_hole_area=0.25,
+        contract_grid_tolerance=None,
+        diagnostics=diagnostics,
+        cleaning_diagnostics=False,
+    )
+
+    signature = meshes_module.cleaning_footprints._coverage_defect_signature(
+        normalized_polygons,
+        target_scale=0.5,
+    )
+
+    assert calls == gaps
+    assert normalized_sources == source_map
+    assert signature.pair_issue_count == 0
+    assert normalized_polygons[0].distance(normalized_polygons[1]) == pytest.approx(0.7)
+    assert diagnostics["mesher_ready_coverage_revalidation_iteration_count"] == 3
+    assert diagnostics["mesher_ready_coverage_revalidation_stop_reason"] == (
+        "contract_satisfied"
+    )
+    assert diagnostics["mesher_ready_coverage_revalidation_operator_applied"] == {
+        "fake_step": 3
     }
 
 
@@ -1062,7 +1129,7 @@ def test_conditioned_footprint_contract_uses_accepted_revalidation_grid_toleranc
     )
 
 
-def test_conditioned_footprint_contract_audit_flags_meshing_hostile_acute_tip():
+def test_conditioned_footprint_contract_audit_ignores_nonlocal_acute_tip():
     polygon = meshes_module.cleaning_footprints.shapely.from_wkt(
         "POLYGON ((319877.28125 6399049.59375, 319877.21875 6399051.0625, "
         "319896.03125 6399051.9375, 319927.375 6399074.03125, "
@@ -1088,13 +1155,26 @@ def test_conditioned_footprint_contract_audit_flags_meshing_hostile_acute_tip():
     contract = meshes_module._conditioned_footprint_contract_audit(
         surfaces=[make_surface(polygon, 8.0)],
         declared_scale=0.5,
-        diagnostics={"geos_exception_count": 0},
+            diagnostics={"geos_exception_count": 0},
     )
 
-    assert contract["status"] == "fail"
-    assert contract["requirements"]["no_acute_tips"] is False
-    assert contract["metrics"]["acute_tip_count"] == 1
-    assert any("acute tip" in message for message in contract["errors"])
+    raw_count, _ = meshes_module.cleaning_footprints._polygon_acute_tip_metrics(
+        polygon,
+        max_angle_degrees=5.0,
+        min_tip_span=1.0,
+    )
+    meshing_hostile_count, _ = (
+        meshes_module.cleaning_footprints._meshing_hostile_acute_tip_metrics(
+            polygon,
+            target_scale=0.5,
+        )
+    )
+
+    assert raw_count == 1
+    assert meshing_hostile_count == 0
+    assert contract["status"] == "pass"
+    assert contract["requirements"]["no_acute_tips"] is True
+    assert contract["metrics"]["acute_tip_count"] == 0
 
 
 def test_conditioned_footprint_contract_audit_reports_invalid_mesher_segment_graph(
@@ -1879,7 +1959,7 @@ def test_build_city_flat_mesh_allows_empty_conditioned_footprints(monkeypatch):
                 faces=np.array([[0, 1, 2]], dtype=int),
                 markers=np.array([-2], dtype=int),
             ),
-            "spade",
+            "dtcc_mesher",
         )
 
     monkeypatch.setattr(meshes_module, "_condition_meshing_footprints", fake_condition)
@@ -1900,12 +1980,12 @@ def test_build_city_flat_mesh_allows_empty_conditioned_footprints(monkeypatch):
         max_mesh_size=5.0,
         min_mesh_angle=20.0,
         report_mesh_quality=False,
-        mesher="spade",
+        mesher="dtcc_mesher",
     )
 
     assert captured["region_polygons"]
     assert set(captured["region_markers"]) == {-2}
-    assert captured["mesher"] == "spade"
+    assert captured["mesher"] == "dtcc_mesher"
     assert mesh.faces.shape[0] == 1
 
 
@@ -2462,11 +2542,11 @@ def test_build_city_volume_mesh_uses_shared_surface_pipeline(monkeypatch):
                         [1.0, 0.0, 0.0],
                         [0.0, 1.0, 0.0],
                     ]
-                ),
-                faces=np.array([[0, 1, 2]], dtype=int),
-                markers=np.array([0], dtype=int),
             ),
-            "spade",
+            faces=np.array([[0, 1, 2]], dtype=int),
+            markers=np.array([0], dtype=int),
+        ),
+            "dtcc_mesher",
         )
 
     def fake_build_surface_from_ground(**kwargs):
@@ -2566,10 +2646,10 @@ def test_build_city_volume_mesh_uses_shared_surface_pipeline(monkeypatch):
         max_mesh_size=6.0,
         min_mesh_angle=20.0,
         report_mesh_quality=False,
-        mesher="spade",
+        mesher="dtcc_mesher",
     )
 
-    assert captured["mesher"] == "spade"
+    assert captured["mesher"] == "dtcc_mesher"
     assert captured["add_halo_markers"] is False
     assert captured["target_lods"] == [GeometryType.LOD1]
     assert captured["conditioned_resolution"] == [4.0]

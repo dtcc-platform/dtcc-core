@@ -5095,6 +5095,325 @@ def _try_hole_pair_self_clearance_merge(
     )
 
 
+def _try_hole_cluster_self_clearance_merge(
+    polygon: Polygon,
+    *,
+    start_ring_index: int,
+    end_ring_index: int,
+    min_clearance: float,
+    grid: float,
+    diagnostics: dict[str, Any],
+    require_signature_improvement: bool = True,
+) -> _RepairCandidate | None:
+    if (
+        start_ring_index < 0
+        or end_ring_index < 0
+        or start_ring_index >= len(polygon.interiors)
+        or end_ring_index >= len(polygon.interiors)
+        or start_ring_index == end_ring_index
+    ):
+        return None
+
+    try:
+        holes = [
+            orient(Polygon(list(ring.coords)), sign=1.0)
+            for ring in polygon.interiors
+        ]
+    except (GEOSException, ValueError):
+        return None
+    if any(hole.is_empty for hole in holes):
+        return None
+
+    reference_signature = _polygon_defect_signature(
+        polygon,
+        target_scale=min_clearance,
+    )
+    reference_contract_ok = _signature_satisfies_scale_contract(
+        reference_signature,
+        target_scale=min_clearance,
+        grid=grid,
+    )
+
+    close_tolerance = max(grid, min_clearance * 1.0e-6, 1.0e-9)
+    adjacency: dict[int, set[int]] = {index: set() for index in range(len(holes))}
+    close_distances: list[float] = []
+    for index, hole in enumerate(holes):
+        for other_index in range(index + 1, len(holes)):
+            other = holes[other_index]
+            try:
+                distance = float(hole.distance(other))
+            except GEOSException as exc:
+                _record_geos_exception(diagnostics, "hole_cluster_clearance_merge", exc)
+                continue
+            if distance <= min_clearance + close_tolerance:
+                adjacency[index].add(other_index)
+                adjacency[other_index].add(index)
+                close_distances.append(distance)
+
+    component: set[int] = set()
+    pending = [start_ring_index, end_ring_index]
+    while pending:
+        index = pending.pop()
+        if index in component:
+            continue
+        component.add(index)
+        pending.extend(sorted(adjacency[index] - component))
+    if len(component) <= 2:
+        return None
+
+    other_holes = [
+        list(ring.coords)
+        for ring_index, ring in enumerate(polygon.interiors)
+        if ring_index not in component
+    ]
+    component_holes = [holes[index] for index in sorted(component)]
+
+    best: tuple[
+        tuple[float, int, int, float, int, float, float, int],
+        Polygon,
+        BaseGeometry,
+    ] | None = None
+
+    def candidate_is_acceptable(candidate_signature: _PolygonDefectSignature) -> bool:
+        if not require_signature_improvement:
+            return True
+        if _signature_improves(
+            reference_signature,
+            candidate_signature,
+            grid=grid,
+        ):
+            return True
+        candidate_contract_ok = _signature_satisfies_scale_contract(
+            candidate_signature,
+            target_scale=min_clearance,
+            grid=grid,
+        )
+        if not candidate_contract_ok or reference_contract_ok:
+            return False
+        tolerance = max(grid, 1.0e-9)
+        if candidate_signature.ring_contact_count > reference_signature.ring_contact_count:
+            return False
+        if candidate_signature.acute_tip_count > reference_signature.acute_tip_count:
+            return False
+        if (
+            candidate_signature.acute_tip_span
+            > reference_signature.acute_tip_span + tolerance
+        ):
+            return False
+        if candidate_signature.short_edge_count > reference_signature.short_edge_count:
+            return False
+        return True
+
+    def consider_merged_hole(merged_hole: BaseGeometry) -> None:
+        nonlocal best
+        if merged_hole.is_empty or merged_hole.geom_type != "Polygon":
+            return
+        candidate_polygon = _normalize_single_polygon_candidate(
+            Polygon(
+                list(polygon.exterior.coords),
+                other_holes + [list(merged_hole.exterior.coords)],
+            ),
+            grid=grid,
+            min_area=0.0,
+            min_hole_area=0.0,
+            diagnostics=diagnostics,
+        )
+        if candidate_polygon is None:
+            return
+
+        candidate_signature = _polygon_defect_signature(
+            candidate_polygon,
+            target_scale=min_clearance,
+        )
+        if not candidate_is_acceptable(candidate_signature):
+            return
+
+        difference_metrics = _difference_area_metrics(
+            polygon,
+            candidate_polygon,
+        )
+        edit_zone = polygon.symmetric_difference(candidate_polygon)
+        edge_deficit = max(
+            min_clearance - (candidate_signature.min_edge_length or 0.0),
+            0.0,
+        )
+        score = (
+            candidate_signature.clearance_deficit,
+            candidate_signature.short_edge_count,
+            candidate_signature.ring_contact_count,
+            edge_deficit,
+            len(candidate_polygon.interiors),
+            difference_metrics["symmetric_difference_area"],
+            abs(difference_metrics["union_area_delta"]),
+            candidate_signature.vertex_count,
+        )
+        if best is None or score < best[0]:
+            best = (score, candidate_polygon, edit_zone)
+
+    current_clearance = min(close_distances) if close_distances else min_clearance
+    for distance in _iter_hole_pair_merge_distances(
+        min_clearance=min_clearance,
+        current_clearance=current_clearance,
+        grid=grid,
+    ):
+        try:
+            merged_hole = unary_union(
+                [
+                    hole.buffer(
+                        distance,
+                        quad_segs=1,
+                        join_style=BufferJoinStyle.mitre,
+                        mitre_limit=1000.0,
+                    )
+                    for hole in component_holes
+                ]
+            ).buffer(
+                -distance,
+                quad_segs=1,
+                join_style=BufferJoinStyle.mitre,
+                mitre_limit=1000.0,
+            )
+        except GEOSException as exc:
+            _record_geos_exception(diagnostics, "hole_cluster_clearance_merge", exc)
+            continue
+        consider_merged_hole(merged_hole)
+
+    try:
+        consider_merged_hole(unary_union(component_holes).convex_hull)
+    except GEOSException as exc:
+        _record_geos_exception(diagnostics, "hole_cluster_clearance_merge", exc)
+
+    if best is None:
+        return None
+
+    area_budget_override = max(float(best[2].area), 16.0 * grid * grid, 1e-9)
+    return _RepairCandidate(
+        polygon=best[1],
+        edit_zone=best[2],
+        operator="hole_cluster_clearance_merge",
+        area_balance_budget_override=area_budget_override,
+    )
+
+
+def _try_hole_pair_clearance_fill_smaller_hole(
+    polygon: Polygon,
+    *,
+    start_ring_index: int,
+    end_ring_index: int,
+    min_clearance: float,
+    grid: float,
+    diagnostics: dict[str, Any],
+    require_signature_improvement: bool = True,
+) -> _RepairCandidate | None:
+    if (
+        start_ring_index < 0
+        or end_ring_index < 0
+        or start_ring_index >= len(polygon.interiors)
+        or end_ring_index >= len(polygon.interiors)
+        or start_ring_index == end_ring_index
+    ):
+        return None
+
+    reference_signature = _polygon_defect_signature(
+        polygon,
+        target_scale=min_clearance,
+    )
+    reference_contract_ok = _signature_satisfies_scale_contract(
+        reference_signature,
+        target_scale=min_clearance,
+        grid=grid,
+    )
+    best: tuple[
+        tuple[float, int, int, float, float, float, int],
+        Polygon,
+        BaseGeometry,
+    ] | None = None
+
+    def candidate_is_acceptable(candidate_signature: _PolygonDefectSignature) -> bool:
+        if not require_signature_improvement:
+            return True
+        if _signature_improves(
+            reference_signature,
+            candidate_signature,
+            grid=grid,
+        ):
+            return True
+        candidate_contract_ok = _signature_satisfies_scale_contract(
+            candidate_signature,
+            target_scale=min_clearance,
+            grid=grid,
+        )
+        if not candidate_contract_ok or reference_contract_ok:
+            return False
+        tolerance = max(grid, 1.0e-9)
+        if candidate_signature.ring_contact_count > reference_signature.ring_contact_count:
+            return False
+        if candidate_signature.acute_tip_count > reference_signature.acute_tip_count:
+            return False
+        if (
+            candidate_signature.acute_tip_span
+            > reference_signature.acute_tip_span + tolerance
+        ):
+            return False
+        if candidate_signature.short_edge_count > reference_signature.short_edge_count:
+            return False
+        return True
+
+    for drop_index in sorted(
+        {start_ring_index, end_ring_index},
+        key=lambda index: Polygon(polygon.interiors[index]).area,
+    ):
+        holes = [
+            list(ring.coords)
+            for ring_index, ring in enumerate(polygon.interiors)
+            if ring_index != drop_index
+        ]
+        candidate_polygon = _normalize_single_polygon_candidate(
+            Polygon(list(polygon.exterior.coords), holes),
+            grid=grid,
+            min_area=0.0,
+            min_hole_area=0.0,
+            diagnostics=diagnostics,
+        )
+        if candidate_polygon is None:
+            continue
+
+        candidate_signature = _polygon_defect_signature(
+            candidate_polygon,
+            target_scale=min_clearance,
+        )
+        if not candidate_is_acceptable(candidate_signature):
+            continue
+
+        difference_metrics = _difference_area_metrics(
+            polygon,
+            candidate_polygon,
+        )
+        edit_zone = polygon.symmetric_difference(candidate_polygon)
+        score = (
+            candidate_signature.clearance_deficit,
+            candidate_signature.short_edge_count,
+            candidate_signature.ring_contact_count,
+            difference_metrics["symmetric_difference_area"],
+            abs(difference_metrics["union_area_delta"]),
+            Polygon(polygon.interiors[drop_index]).area,
+            candidate_signature.vertex_count,
+        )
+        if best is None or score < best[0]:
+            best = (score, candidate_polygon, edit_zone)
+
+    if best is None:
+        return None
+
+    area_budget_override = max(float(best[2].area), 16.0 * grid * grid, 1e-9)
+    return _RepairCandidate(
+        polygon=best[1],
+        edit_zone=best[2],
+        operator="hole_pair_clearance_fill",
+        area_balance_budget_override=area_budget_override,
+    )
+
+
 def _try_same_ring_self_clearance_connector_fill(
     polygon: Polygon,
     clearance_coords: np.ndarray,
@@ -6145,6 +6464,28 @@ def _try_polygon_self_clearance_connector_fill(
         )
         if hole_pair_candidate is not None:
             return hole_pair_candidate
+        hole_cluster_candidate = _try_hole_cluster_self_clearance_merge(
+            polygon,
+            start_ring_index=start_ring_index,
+            end_ring_index=end_ring_index,
+            min_clearance=min_clearance,
+            grid=grid,
+            diagnostics=diagnostics,
+            require_signature_improvement=require_signature_improvement,
+        )
+        if hole_cluster_candidate is not None:
+            return hole_cluster_candidate
+        hole_fill_candidate = _try_hole_pair_clearance_fill_smaller_hole(
+            polygon,
+            start_ring_index=start_ring_index,
+            end_ring_index=end_ring_index,
+            min_clearance=min_clearance,
+            grid=grid,
+            diagnostics=diagnostics,
+            require_signature_improvement=require_signature_improvement,
+        )
+        if hole_fill_candidate is not None:
+            return hole_fill_candidate
     if {start_kind, end_kind} == {"exterior", "hole"}:
         exterior_point = start_point if start_kind == "exterior" else end_point
         hole_point = start_point if start_kind == "hole" else end_point
@@ -8972,6 +9313,31 @@ def _regularize_coverage_for_meshing(
                 direct_sources,
                 operator_attempts={"meshing_contract_direct_clearance_regularization": 1},
                 operator_applied={"meshing_contract_direct_clearance_regularization": 1},
+            )
+
+        split_diagnostics = _empty_diagnostics(len(input_polygons))
+        split_diagnostics["collect_stage_metrics"] = False
+        split_diagnostics["enable_logging"] = False
+        split_polygons, split_sources = _split_low_clearance_neck_polygons_for_meshing(
+            input_polygons,
+            input_sources,
+            min_clearance=min_segment_length,
+            grid=grid,
+            min_area=min_area,
+            min_hole_area=min_hole_area,
+            diagnostics=split_diagnostics,
+        )
+        diagnostics["geos_exception_count"] += split_diagnostics["geos_exception_count"]
+        diagnostics["geos_exception_messages"].extend(
+            split_diagnostics["geos_exception_messages"]
+        )
+        split_applied_count = int(split_diagnostics.get("neck_split_applied_count", 0))
+        if split_applied_count > 0:
+            consider_variant(
+                split_polygons,
+                split_sources,
+                operator_attempts={"meshing_contract_neck_split": split_applied_count},
+                operator_applied={"meshing_contract_neck_split": split_applied_count},
             )
 
         local_diagnostics = _empty_diagnostics(len(input_polygons))
@@ -15272,6 +15638,221 @@ def _simplify_polygons_for_meshing(
         enable_defect_operators=False,
         enable_simplify_operators=True,
     )
+
+
+def _split_low_clearance_neck_polygons_for_meshing(
+    polygons: list[Polygon],
+    source_map: list[list[int]],
+    *,
+    min_clearance: float,
+    grid: float,
+    min_area: float,
+    min_hole_area: float,
+    diagnostics: dict[str, Any],
+) -> tuple[list[Polygon], list[list[int]]]:
+    diagnostics["neck_split_candidate_count"] = 0
+    diagnostics["neck_split_applied_count"] = 0
+    diagnostics["neck_split_failed_count"] = 0
+    if min_clearance <= 0.0 or not polygons:
+        return polygons, source_map
+
+    output_polygons: list[Polygon] = []
+    output_sources: list[list[int]] = []
+    overlap_tolerance = max(grid * grid, 1.0e-9)
+
+    for polygon, indices in zip(polygons, source_map):
+        reference_signature = _polygon_defect_signature(
+            polygon,
+            target_scale=min_clearance,
+        )
+        if (
+            reference_signature.clearance is None
+            or reference_signature.clearance + max(grid, 1.0e-9) >= min_clearance
+        ):
+            output_polygons.append(polygon)
+            output_sources.append(list(indices))
+            continue
+
+        try:
+            clearance_line = shapely.minimum_clearance_line(polygon)
+        except GEOSException as exc:
+            _record_geos_exception(diagnostics, "neck_split_clearance_line", exc)
+            output_polygons.append(polygon)
+            output_sources.append(list(indices))
+            continue
+        if clearance_line is None or clearance_line.is_empty:
+            output_polygons.append(polygon)
+            output_sources.append(list(indices))
+            continue
+        clearance_coords = np.asarray(clearance_line.coords, dtype=float)
+        if len(clearance_coords) < 2:
+            output_polygons.append(polygon)
+            output_sources.append(list(indices))
+            continue
+
+        start_kind, start_ring_index, _ = _nearest_ring_classification(
+            polygon,
+            Point(float(clearance_coords[0][0]), float(clearance_coords[0][1])),
+        )
+        end_kind, end_ring_index, _ = _nearest_ring_classification(
+            polygon,
+            Point(float(clearance_coords[-1][0]), float(clearance_coords[-1][1])),
+        )
+        if (
+            start_kind != "exterior"
+            or end_kind != "exterior"
+            or start_ring_index is not None
+            or end_ring_index is not None
+        ):
+            output_polygons.append(polygon)
+            output_sources.append(list(indices))
+            continue
+
+        diagnostics["neck_split_candidate_count"] += 1
+        reference_coverage_signature = _coverage_defect_signature(
+            [polygon],
+            target_scale=min_clearance,
+        )
+        best: tuple[
+            tuple[float, ...],
+            list[Polygon],
+            list[list[int]],
+        ] | None = None
+
+        for half_width in (
+            min_clearance,
+            1.5 * min_clearance,
+            2.0 * min_clearance,
+            3.0 * min_clearance,
+        ):
+            try:
+                cutter = clearance_line.buffer(
+                    half_width,
+                    quad_segs=1,
+                    cap_style=BufferCapStyle.square,
+                    join_style=BufferJoinStyle.mitre,
+                    mitre_limit=1000.0,
+                )
+                raw_parts = _canonicalize(
+                    polygon.difference(cutter),
+                    grid,
+                    diagnostics,
+                )
+            except GEOSException as exc:
+                _record_geos_exception(diagnostics, "neck_split_cut", exc)
+                continue
+
+            candidate_parts: list[Polygon] = []
+            for part in raw_parts:
+                without_small_holes = _remove_small_holes(
+                    part,
+                    min_hole_area,
+                    diagnostics,
+                )
+                candidate_parts.extend(
+                    _canonicalize(without_small_holes, grid, diagnostics)
+                )
+            candidate_parts = [
+                orient(part, sign=1.0)
+                for part in candidate_parts
+                if part.area + 1.0e-12 >= min_area
+            ]
+            if len(candidate_parts) <= 1:
+                continue
+
+            candidate_sources = [list(indices) for _ in candidate_parts]
+            local_diagnostics = _empty_diagnostics(len(candidate_parts))
+            local_diagnostics["collect_stage_metrics"] = False
+            local_diagnostics["enable_logging"] = False
+            candidate_parts, candidate_sources = _simplify_polygons_for_meshing(
+                candidate_parts,
+                candidate_sources,
+                min_segment_length=min_clearance,
+                grid=grid,
+                min_area=min_area,
+                min_hole_area=min_hole_area,
+                diagnostics=local_diagnostics,
+            )
+            candidate_parts, candidate_sources = _regularize_low_clearance_polygons(
+                candidate_parts,
+                candidate_sources,
+                min_clearance=min_clearance,
+                grid=grid,
+                min_area=min_area,
+                min_hole_area=min_hole_area,
+                diagnostics=local_diagnostics,
+            )
+            diagnostics["geos_exception_count"] += local_diagnostics[
+                "geos_exception_count"
+            ]
+            diagnostics["geos_exception_messages"].extend(
+                local_diagnostics["geos_exception_messages"]
+            )
+            if len(candidate_parts) <= 1:
+                continue
+            if _coverage_overlap_area(candidate_parts) > overlap_tolerance:
+                continue
+
+            candidate_signature = _coverage_defect_signature(
+                candidate_parts,
+                target_scale=min_clearance,
+            )
+            if not _coverage_signature_improves(
+                reference_coverage_signature,
+                candidate_signature,
+                grid=grid,
+                target_scale=min_clearance,
+            ) and not _coverage_signature_satisfies_scale_contract(
+                candidate_signature,
+                target_scale=min_clearance,
+                grid=grid,
+            ):
+                continue
+
+            difference_metrics = _difference_area_metrics(
+                polygon,
+                unary_union(candidate_parts),
+            )
+            score = (
+                float(
+                    _coverage_signature_contract_priority(
+                        candidate_signature,
+                        target_scale=min_clearance,
+                        grid=grid,
+                    )
+                ),
+                *_coverage_signature_score(
+                    candidate_signature,
+                    target_scale=min_clearance,
+                ),
+                difference_metrics["symmetric_difference_area"],
+                max(
+                    difference_metrics["reference_minus_candidate_area"],
+                    difference_metrics["candidate_minus_reference_area"],
+                ),
+                abs(difference_metrics["union_area_delta"]),
+                float(len(candidate_parts)),
+            )
+            if best is None or score < best[0]:
+                best = (
+                    score,
+                    candidate_parts,
+                    candidate_sources,
+                )
+
+        if best is None:
+            diagnostics["neck_split_failed_count"] += 1
+            output_polygons.append(polygon)
+            output_sources.append(list(indices))
+            continue
+
+        diagnostics["neck_split_applied_count"] += 1
+        output_polygons.extend(best[1])
+        output_sources.extend(best[2])
+
+    if diagnostics["neck_split_applied_count"] == 0:
+        return polygons, source_map
+    return _stable_sort(output_polygons, output_sources)
 
 
 def _regularize_low_clearance_polygons(

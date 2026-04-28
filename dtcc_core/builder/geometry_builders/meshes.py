@@ -3489,6 +3489,8 @@ def _normalize_mesher_ready_coverage(
     diagnostics["mesher_ready_coverage_revalidation_attempted"] = False
     diagnostics["mesher_ready_coverage_revalidation_applied"] = False
     diagnostics["mesher_ready_coverage_revalidation_output_grid"] = 0.0
+    diagnostics["mesher_ready_coverage_revalidation_iteration_count"] = 0
+    diagnostics["mesher_ready_coverage_revalidation_stop_reason"] = "not_attempted"
     diagnostics["mesher_ready_coverage_revalidation_operator_applied"] = {}
     diagnostics["mesher_ready_coverage_revalidation_rejected_bridge_operator"] = False
     diagnostics[
@@ -3541,10 +3543,112 @@ def _normalize_mesher_ready_coverage(
         )
         diagnostics["mesher_ready_coverage_segment_graph_valid_after"] = True
         diagnostics["mesher_ready_coverage_segment_graph_error_after"] = None
+        diagnostics["mesher_ready_coverage_revalidation_stop_reason"] = (
+            "initial_contract_satisfied"
+        )
         return normalized_polygons, normalized_sources
 
     diagnostics["mesher_ready_coverage_revalidation_attempted"] = True
     revalidation_precision_grid = float(contract_grid_tolerance or 0.0)
+
+    def _merge_revalidation_operator_counts(counts: dict[str, Any]) -> None:
+        applied = diagnostics["mesher_ready_coverage_revalidation_operator_applied"]
+        for operator_name, count in counts.items():
+            applied[str(operator_name)] = int(applied.get(str(operator_name), 0)) + int(
+                count
+            )
+
+    def _record_revalidation_diagnostics(revalidation: Any) -> None:
+        output_grid = float(revalidation.diagnostics.get("output_grid", 0.0) or 0.0)
+        diagnostics["mesher_ready_coverage_revalidation_output_grid"] = max(
+            float(diagnostics["mesher_ready_coverage_revalidation_output_grid"]),
+            output_grid,
+        )
+        diagnostics["geos_exception_count"] += int(
+            revalidation.diagnostics.get("geos_exception_count", 0)
+        )
+        diagnostics["geos_exception_messages"].extend(
+            list(revalidation.diagnostics.get("geos_exception_messages", []))
+        )
+        _merge_revalidation_operator_counts(
+            dict(
+                revalidation.diagnostics.get(
+                    "coverage_meshing_regularization_operator_applied", {}
+                )
+            )
+        )
+
+    def _revalidation_score(
+        signature: Any,
+        difference_metrics: dict[str, float],
+    ) -> tuple[float, ...]:
+        return (
+            *cleaning_footprints._coverage_signature_score(
+                signature,
+                target_scale=declared_scale,
+            ),
+            difference_metrics["reference_minus_candidate_area"],
+            difference_metrics["candidate_minus_reference_area"],
+            difference_metrics["symmetric_difference_area"],
+            abs(difference_metrics["union_area_delta"]),
+        )
+
+    def _signature_satisfies_contract(signature: Any) -> bool:
+        return cleaning_footprints._coverage_signature_satisfies_scale_contract(
+            signature,
+            target_scale=declared_scale,
+            grid=contract_grid,
+        )
+
+    def _run_revalidation_pass(
+        coverage_polygons: Sequence[Polygon],
+        coverage_sources: Sequence[Sequence[int]],
+    ) -> tuple[
+        list[Polygon],
+        list[list[int]],
+        Any,
+        str | None,
+        dict[str, float],
+    ]:
+        revalidation = condition_polygon_coverage(
+            coverage_polygons,
+            source_map=[list(indices) for indices in coverage_sources],
+            options=ConditioningOptions(
+                precision_grid=(
+                    revalidation_precision_grid
+                    if revalidation_precision_grid > 0.0
+                    else None
+                ),
+                min_feature_size=declared_scale,
+                merge_distance=0.0,
+                min_area=0.0,
+                min_hole_area=min_hole_area,
+                collect_stage_metrics=cleaning_diagnostics,
+                enable_logging=cleaning_diagnostics,
+            ),
+        )
+        _record_revalidation_diagnostics(revalidation)
+        pass_polygons, pass_sources = _normalize(
+            revalidation.polygons,
+            revalidation.source_map,
+        )
+        pass_signature = cleaning_footprints._coverage_defect_signature(
+            pass_polygons,
+            target_scale=declared_scale,
+        )
+        pass_graph_error = _coverage_mesher_segment_graph_error(pass_polygons)
+        pass_difference_metrics = cleaning_footprints._difference_area_metrics(
+            unary_union(normalized_polygons),
+            unary_union(pass_polygons),
+        )
+        return (
+            pass_polygons,
+            pass_sources,
+            pass_signature,
+            pass_graph_error,
+            pass_difference_metrics,
+        )
+
     revalidation = condition_polygon_coverage(
         normalized_polygons,
         source_map=[list(indices) for indices in normalized_sources],
@@ -3562,18 +3666,9 @@ def _normalize_mesher_ready_coverage(
             enable_logging=cleaning_diagnostics,
         ),
     )
-    diagnostics["mesher_ready_coverage_revalidation_output_grid"] = float(
-        revalidation.diagnostics.get("output_grid", 0.0) or 0.0
-    )
-    diagnostics["geos_exception_count"] += int(
-        revalidation.diagnostics.get("geos_exception_count", 0)
-    )
-    diagnostics["geos_exception_messages"].extend(
-        list(revalidation.diagnostics.get("geos_exception_messages", []))
-    )
-    diagnostics["mesher_ready_coverage_revalidation_operator_applied"] = dict(
-        revalidation.diagnostics.get("coverage_meshing_regularization_operator_applied", {})
-    )
+    diagnostics["mesher_ready_coverage_revalidation_iteration_count"] = 1
+    diagnostics["mesher_ready_coverage_revalidation_stop_reason"] = "initial_pass"
+    _record_revalidation_diagnostics(revalidation)
     bridge_operator_applied = any(
         str(operator_name).startswith("coverage_pair_issue_bridge")
         for operator_name in diagnostics["mesher_ready_coverage_revalidation_operator_applied"]
@@ -3602,32 +3697,11 @@ def _normalize_mesher_ready_coverage(
         0.0,
         0.0,
     )
-    candidate_score = (
-        *cleaning_footprints._coverage_signature_score(
-            candidate_signature,
-            target_scale=declared_scale,
-        ),
-        difference_metrics["reference_minus_candidate_area"],
-        difference_metrics["candidate_minus_reference_area"],
-        difference_metrics["symmetric_difference_area"],
-        abs(difference_metrics["union_area_delta"]),
-    )
+    candidate_score = _revalidation_score(candidate_signature, difference_metrics)
     initial_graph_valid = initial_graph_error is None
     candidate_graph_valid = candidate_graph_error is None
-    initial_satisfies_contract = (
-        cleaning_footprints._coverage_signature_satisfies_scale_contract(
-            initial_signature,
-            target_scale=declared_scale,
-            grid=contract_grid,
-        )
-    )
-    candidate_satisfies_contract = (
-        cleaning_footprints._coverage_signature_satisfies_scale_contract(
-            candidate_signature,
-            target_scale=declared_scale,
-            grid=contract_grid,
-        )
-    )
+    initial_satisfies_contract = _signature_satisfies_contract(initial_signature)
+    candidate_satisfies_contract = _signature_satisfies_contract(candidate_signature)
     use_candidate = False
     if candidate_graph_valid and not initial_graph_valid:
         use_candidate = True
@@ -3658,7 +3732,77 @@ def _normalize_mesher_ready_coverage(
             "mesher_ready_coverage_revalidation_rejected_insufficient_clearance_gain"
         ] = True
         use_candidate = False
+    if not use_candidate:
+        diagnostics["mesher_ready_coverage_revalidation_stop_reason"] = "rejected"
+
+    chosen_polygons = candidate_polygons if use_candidate else normalized_polygons
+    chosen_sources = candidate_sources if use_candidate else normalized_sources
     chosen_signature = candidate_signature if use_candidate else initial_signature
+    chosen_graph_error = candidate_graph_error if use_candidate else initial_graph_error
+    chosen_score = candidate_score if use_candidate else initial_score
+
+    max_extra_iterations = 3
+    while (
+        use_candidate
+        and diagnostics["mesher_ready_coverage_revalidation_iteration_count"]
+        <= max_extra_iterations
+        and (
+            not _signature_satisfies_contract(chosen_signature)
+            or chosen_graph_error is not None
+        )
+    ):
+        (
+            next_polygons,
+            next_sources,
+            next_signature,
+            next_graph_error,
+            next_difference_metrics,
+        ) = _run_revalidation_pass(chosen_polygons, chosen_sources)
+        diagnostics["mesher_ready_coverage_revalidation_iteration_count"] += 1
+        next_score = _revalidation_score(next_signature, next_difference_metrics)
+        if next_graph_error is not None and chosen_graph_error is None:
+            diagnostics["mesher_ready_coverage_revalidation_stop_reason"] = (
+                "candidate_graph_invalid"
+            )
+            break
+        if not cleaning_footprints._coverage_signature_improves(
+            chosen_signature,
+            next_signature,
+            grid=contract_grid,
+            target_scale=declared_scale,
+        ):
+            diagnostics["mesher_ready_coverage_revalidation_stop_reason"] = (
+                "no_signature_improvement"
+            )
+            break
+        if next_score >= chosen_score and not (
+            _signature_satisfies_contract(next_signature)
+            and not _signature_satisfies_contract(chosen_signature)
+        ):
+            diagnostics["mesher_ready_coverage_revalidation_stop_reason"] = (
+                "no_score_improvement"
+            )
+            break
+
+        chosen_polygons = next_polygons
+        chosen_sources = next_sources
+        chosen_signature = next_signature
+        chosen_graph_error = next_graph_error
+        chosen_score = next_score
+    if use_candidate and (
+        _signature_satisfies_contract(chosen_signature) and chosen_graph_error is None
+    ):
+        diagnostics["mesher_ready_coverage_revalidation_stop_reason"] = (
+            "contract_satisfied"
+        )
+    elif (
+        use_candidate
+        and diagnostics["mesher_ready_coverage_revalidation_stop_reason"]
+        == "initial_pass"
+    ):
+        diagnostics["mesher_ready_coverage_revalidation_stop_reason"] = (
+            "max_iterations"
+        )
 
     diagnostics["mesher_ready_coverage_revalidation_applied"] = use_candidate
     diagnostics["mesher_ready_coverage_short_edge_count_after"] = (
@@ -3671,14 +3815,14 @@ def _normalize_mesher_ready_coverage(
         chosen_signature.ring_contact_count
     )
     diagnostics["mesher_ready_coverage_segment_graph_valid_after"] = (
-        candidate_graph_valid if use_candidate else initial_graph_valid
+        chosen_graph_error is None
     )
     diagnostics["mesher_ready_coverage_segment_graph_error_after"] = (
-        candidate_graph_error if use_candidate else initial_graph_error
+        chosen_graph_error
     )
 
     if use_candidate:
-        return candidate_polygons, candidate_sources
+        return chosen_polygons, chosen_sources
     return normalized_polygons, normalized_sources
 
 

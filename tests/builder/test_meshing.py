@@ -118,49 +118,6 @@ def disjoint_cubes_mesh():
     return Mesh(vertices=cubes_vertices, faces=cubes_faces)
 
 
-def test_mesh_simple_surface(simple_surface):
-    mesh = mesh_surface(simple_surface, mesher="spade")
-    assert len(mesh.vertices) == 4
-    assert len(mesh.faces) == 2
-    assert pytest.approx(mesh.vertices[:, 2].min()) == 5
-    assert pytest.approx(mesh.vertices[:, 2].max()) == 8
-
-
-def test_mesh_triangle_surface(simple_surface):
-    mesh = mesh_surface(simple_surface, triangle_size=5, mesher="spade")
-    assert len(mesh.vertices) >= 11
-    assert len(mesh.faces) >= 9
-    assert pytest.approx(mesh.vertices[:, 2].min()) == 5
-    assert pytest.approx(mesh.vertices[:, 2].max()) == 8
-
-
-def test_mesh_multisurface(multi_surface):
-    mesh = mesh_multisurface(multi_surface, mesher="spade")
-    assert len(mesh.vertices) == 10
-    assert len(mesh.faces) == 6
-    assert pytest.approx(mesh.vertices[:, 2].min()) == 0
-    assert pytest.approx(mesh.vertices[:, 2].max()) == 8
-
-
-def test_mesh_multisurfaces(multi_surface, second_surface_pair):
-    ms = multi_surface.translate(0, 0, 1)
-    meshes = mesh_multisurfaces([multi_surface, second_surface_pair], mesher="spade")
-
-    assert len(meshes) == 2
-
-    # First mesh checks
-    assert len(meshes[0].vertices) == 10
-    assert len(meshes[0].faces) == 6
-    assert pytest.approx(meshes[0].vertices[:, 2].min()) == 1
-    assert pytest.approx(meshes[0].vertices[:, 2].max()) == 9
-
-    # Second mesh checks
-    assert len(meshes[1].vertices) == 10
-    assert len(meshes[1].faces) == 6
-    assert pytest.approx(meshes[1].vertices[:, 2].min()) == 0
-    assert pytest.approx(meshes[1].vertices[:, 2].max()) == 7
-
-
 def test_disjoint_mesh(disjoint_cubes_mesh):
     disjointed_meshes = disjoint_meshes(disjoint_cubes_mesh)
 
@@ -203,7 +160,7 @@ def test_mesh_surface_dtcc_mesher_triangle_size_controls_density(simple_surface)
     assert refined.vertices.shape[0] > coarse.vertices.shape[0]
 
 
-def test_available_2d_meshers_reports_triangle_and_spade(monkeypatch):
+def test_available_2d_meshers_reports_dtcc_mesher_and_triangle(monkeypatch):
     monkeypatch.setattr(
         backends_module.importlib.util,
         "find_spec",
@@ -212,12 +169,11 @@ def test_available_2d_meshers_reports_triangle_and_spade(monkeypatch):
     monkeypatch.setattr(
         backends_module,
         "_builder_backend_available",
-        lambda name: name in {"triangle", "spade"},
+        lambda name: name == "triangle",
     )
 
-    assert backends_module.available_2d_meshers() == ["dtcc_mesher", "triangle", "spade"]
+    assert backends_module.available_2d_meshers() == ["dtcc_mesher", "triangle"]
     assert backends_module.resolve_2d_mesher("triangle") == "triangle"
-    assert backends_module.resolve_2d_mesher("spade") == "spade"
     assert backends_module.resolve_2d_mesher("auto") == "dtcc_mesher"
 
 
@@ -1169,7 +1125,7 @@ def test_compute_boundary_triangle_facets_rejects_explicit_top_cap_backend_that_
     )
     monkeypatch.setattr(
         "dtcc_core.builder.meshing.backends.available_2d_meshers",
-        lambda: ["dtcc_mesher", "spade"],
+        lambda: ["dtcc_mesher", "triangle"],
     )
 
     with pytest.raises(

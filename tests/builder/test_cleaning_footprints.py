@@ -6096,6 +6096,87 @@ def test_self_clearance_connector_cuts_case23_style_hole_hole_wall():
     assert candidate.edit_zone.area > 0.0
 
 
+def test_self_clearance_connector_merges_close_hole_cluster():
+    holes = [
+        list(box(2.0, 2.0, 3.0, 3.0).exterior.coords),
+        list(box(3.45, 2.0, 4.45, 3.0).exterior.coords),
+        list(box(4.9, 2.0, 5.9, 3.0).exterior.coords),
+    ]
+    polygon = Polygon(list(box(0.0, 0.0, 8.0, 8.0).exterior.coords), holes)
+    before_signature = cleaning_footprints._polygon_defect_signature(
+        polygon,
+        target_scale=0.5,
+    )
+    diagnostics = cleaning_footprints._empty_diagnostics(1)
+    diagnostics["collect_stage_metrics"] = False
+
+    candidate = cleaning_footprints._try_hole_cluster_self_clearance_merge(
+        polygon,
+        start_ring_index=0,
+        end_ring_index=1,
+        min_clearance=0.5,
+        grid=0.03125,
+        diagnostics=diagnostics,
+    )
+
+    assert before_signature.clearance is not None
+    assert before_signature.clearance < 0.5
+    assert candidate is not None
+    assert candidate.operator == "hole_cluster_clearance_merge"
+    signature = cleaning_footprints._polygon_defect_signature(
+        candidate.polygon,
+        target_scale=0.5,
+    )
+    assert cleaning_footprints._signature_satisfies_scale_contract(
+        signature,
+        target_scale=0.5,
+        grid=0.03125,
+    )
+    assert len(candidate.polygon.interiors) == 1
+    assert candidate.polygon.area < polygon.area
+    assert candidate.edit_zone.area > 0.0
+
+
+def test_self_clearance_connector_fills_smaller_hole_pair_fallback():
+    holes = [
+        list(box(2.0, 2.0, 6.0, 6.0).exterior.coords),
+        list(box(6.45, 3.0, 7.0, 3.5).exterior.coords),
+    ]
+    polygon = Polygon(list(box(0.0, 0.0, 10.0, 10.0).exterior.coords), holes)
+    before_signature = cleaning_footprints._polygon_defect_signature(
+        polygon,
+        target_scale=0.5,
+    )
+    diagnostics = cleaning_footprints._empty_diagnostics(1)
+    diagnostics["collect_stage_metrics"] = False
+
+    candidate = cleaning_footprints._try_hole_pair_clearance_fill_smaller_hole(
+        polygon,
+        start_ring_index=0,
+        end_ring_index=1,
+        min_clearance=0.5,
+        grid=0.03125,
+        diagnostics=diagnostics,
+    )
+
+    assert before_signature.clearance is not None
+    assert before_signature.clearance < 0.5
+    assert candidate is not None
+    assert candidate.operator == "hole_pair_clearance_fill"
+    signature = cleaning_footprints._polygon_defect_signature(
+        candidate.polygon,
+        target_scale=0.5,
+    )
+    assert cleaning_footprints._signature_satisfies_scale_contract(
+        signature,
+        target_scale=0.5,
+        grid=0.03125,
+    )
+    assert len(candidate.polygon.interiors) == 1
+    assert candidate.polygon.area > polygon.area
+    assert candidate.edit_zone.area > 0.0
+
+
 def test_self_clearance_connector_fills_case54_style_shell_hole_wall():
     polygon = Polygon(
         [(0, 0), (12, 0), (12, 10), (0, 10), (0, 0)],
@@ -7402,6 +7483,57 @@ def test_regularize_coverage_for_meshing_repairs_case54_residual_self_clearance(
     )
     assert signature.min_clearance is not None
     assert signature.min_clearance > 0.2609715353086986
+
+
+def test_regularize_coverage_for_meshing_splits_lund_style_neck():
+    polygon = cleaning_footprints.shapely.from_wkt(
+        "POLYGON ((387531.5625 6173737.8125, 387526.78125 6173738.125, "
+        "387527.21875 6173746.75, 387522.5625 6173747, "
+        "387521.625 6173729.8125, 387538.78125 6173728.90625, "
+        "387538.6875 6173727.375, 387556.15625 6173726.46875, "
+        "387557.125 6173743.625, 387552.4375 6173743.875, "
+        "387551.78125 6173731.3125, 387542.40625 6173731.8125, "
+        "387542.5625 6173734.84375, 387539.4375 6173735.03125, "
+        "387540.03125 6173746.0625, 387538.53125 6173746.15625, "
+        "387559.6875 6173804.96875, 387567.09375 6173802.3125, "
+        "387567.9375 6173804.65625, 387559.9375 6173807.5625, "
+        "387564.75 6173820.65625, 387561.4375 6173821.8125, "
+        "387558.78125 6173814.375, 387553.90625 6173816.21875, "
+        "387550.96875 6173808.09375, 387559.21875 6173805.15625, "
+        "387538.34375 6173746.15625, 387535.375 6173746.3125, "
+        "387534.8125 6173736.03125, 387531.46875 6173736.1875, "
+        "387531.5625 6173737.8125))"
+    )
+    diagnostics = cleaning_footprints._empty_diagnostics(1)
+    diagnostics["collect_stage_metrics"] = False
+
+    polygons, source_map = cleaning_footprints._regularize_coverage_for_meshing(
+        [polygon],
+        [[0]],
+        min_segment_length=0.5,
+        grid=0.03125,
+        min_area=15.0,
+        min_hole_area=0.25,
+        diagnostics=diagnostics,
+    )
+
+    signature = cleaning_footprints._coverage_defect_signature(
+        polygons,
+        target_scale=0.5,
+    )
+    assert len(polygons) == 2
+    assert source_map == [[0], [0]]
+    assert diagnostics["coverage_meshing_regularization_selected_branch"] == (
+        "residual_self_clearance_repair"
+    )
+    assert diagnostics["coverage_meshing_regularization_operator_applied"] == {
+        "meshing_contract_neck_split": 1
+    }
+    assert cleaning_footprints._coverage_signature_satisfies_scale_contract(
+        signature,
+        target_scale=0.5,
+        grid=0.03125,
+    )
 
 
 def test_regularize_coverage_for_meshing_prefers_lower_drift_direct_clearance_repair(
