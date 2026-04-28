@@ -32,6 +32,8 @@ ARTIFACT_FORMATS: dict[str, str] = {
     "city_volume_mesh": "xdmf",
 }
 
+WARNING_FAILURE_CLASSES = {"lidar_coverage"}
+
 
 def json_ready(value: Any) -> Any:
     if isinstance(value, dict):
@@ -203,6 +205,13 @@ def classify_failure(exc_type: str, message: str) -> str:
     return "pipeline"
 
 
+def result_status_for_failure(failure_class: str) -> str:
+    """Return the benchmark result status for a classified failure."""
+    if failure_class in WARNING_FAILURE_CLASSES:
+        return "warning"
+    return "failed"
+
+
 def run_dataset(task: dict[str, Any]) -> dict[str, Any]:
     dataset_name = task["dataset"]
     if dataset_name not in DATASET_NAMES:
@@ -244,12 +253,14 @@ def run_dataset(task: dict[str, Any]) -> dict[str, Any]:
         elapsed = time.perf_counter() - started
         exc_type = type(exc).__name__
         message = str(exc)
+        failure_class = classify_failure(exc_type, message)
+        status = result_status_for_failure(failure_class)
         return {
             "task_id": task["id"],
             "dataset": dataset_name,
             "case": task["case"],
             "scenario": task["scenario"],
-            "status": "failed",
+            "status": status,
             "elapsed_seconds": round(elapsed, 3),
             "bounds": bounds,
             "parameters": kwargs,
@@ -258,7 +269,8 @@ def run_dataset(task: dict[str, Any]) -> dict[str, Any]:
             "error": {
                 "type": exc_type,
                 "message": message,
-                "failure_class": classify_failure(exc_type, message),
+                "failure_class": failure_class,
+                "severity": "warning" if status == "warning" else "error",
                 "traceback": traceback.format_exc(),
             },
         }

@@ -238,10 +238,22 @@ def test_benchmark_failure_classification_separates_data_from_geometry() -> None
     assert (
         benchmark_datasets.classify_failure(
             "RuntimeError",
+            'Request failed with status 404: {"detail":"No lidar tiles intersect the requested bounding box."}',
+        )
+        == "lidar_coverage"
+    )
+    assert (
+        benchmark_datasets.classify_failure(
+            "RuntimeError",
             "Conditioned footprints contract failed: short_edge_count=2",
         )
         == "conditioned_footprint_contract"
     )
+
+
+def test_lidar_coverage_failure_is_warning_status() -> None:
+    assert benchmark_datasets.result_status_for_failure("lidar_coverage") == "warning"
+    assert benchmark_datasets.result_status_for_failure("pipeline") == "failed"
 
 
 def test_summary_markdown_reports_status_counts_and_quality_metrics() -> None:
@@ -288,6 +300,23 @@ def test_summary_markdown_reports_status_counts_and_quality_metrics() -> None:
                 "stderr_log": "tasks/example/stderr.log",
             },
             {
+                "task_id": "smoke:city_flat_mesh:city_center:helsingborg:500m:baseline",
+                "dataset": "city_flat_mesh",
+                "case": {"id": "city_center:helsingborg:500m"},
+                "scenario": {"id": "baseline"},
+                "status": "warning",
+                "elapsed_seconds": 2.75,
+                "metrics": {},
+                "error": {
+                    "type": "RuntimeError",
+                    "message": "No lidar tiles intersect the requested bounding box.",
+                    "failure_class": "lidar_coverage",
+                    "severity": "warning",
+                },
+                "stdout_log": "tasks/warning/stdout.log",
+                "stderr_log": "tasks/warning/stderr.log",
+            },
+            {
                 "task_id": "smoke:terrain_surface_mesh:city_center:uppsala:500m:baseline",
                 "dataset": "terrain_surface_mesh",
                 "case": {"id": "city_center:uppsala:500m"},
@@ -315,17 +344,19 @@ def test_summary_markdown_reports_status_counts_and_quality_metrics() -> None:
         ],
         {
             "suite": "smoke",
-            "plan": "3 cases x 1 dataset x 1 scenario = 3 tasks",
+            "plan": "4 cases x 1 dataset x 1 scenario = 4 tasks",
         },
     )
 
-    assert "| Spatial cases | 2 | 1 | 3 |" in summary
-    assert "| Execution tasks | 2 | 1 | 3 |" in summary
-    assert "| Scope | ✓ Success | ✗ Fail | Total |" in summary
+    assert "| Spatial cases | 2 | 1 | 1 | 4 |" in summary
+    assert "| Execution tasks | 2 | 1 | 1 | 4 |" in summary
+    assert "| Scope | ✓ Success | ⚠ Warning | ✗ Fail | Total |" in summary
     assert summary.index("## Results") < summary.index("## Status Summary")
     assert "✓ success" in summary
+    assert "⚠ warning" in summary
     assert "✗ failed" in summary
     assert "pipeline / RuntimeError: mesh failed" in summary
+    assert "lidar_coverage / RuntimeError: No lidar tiles intersect" in summary
     assert "footprints=12, polygons=12" in summary
     assert "contract=passed" in summary
     assert "V=1,234, F=2,000, C=0, building_faces=0" in summary
@@ -340,7 +371,18 @@ def test_live_status_labels_include_checkmarks_and_crosses() -> None:
     terminal_status_label = bench_module["_terminal_status_label"]
 
     assert "✓ success" in terminal_status_label("success")
+    assert "⚠ warning" in terminal_status_label("warning")
     assert "✗ failed" in terminal_status_label("failed")
+
+
+def test_warning_status_is_not_a_hard_benchmark_failure() -> None:
+    bench = Path(__file__).resolve().parents[2] / "benchmarks" / "bench"
+    bench_module = runpy.run_path(str(bench))
+    is_hard_failure = bench_module["_is_hard_failure"]
+
+    assert not is_hard_failure("success")
+    assert not is_hard_failure("warning")
+    assert is_hard_failure("failed")
 
 
 def test_save_result_artifacts_writes_mesh_artifact(tmp_path, monkeypatch) -> None:

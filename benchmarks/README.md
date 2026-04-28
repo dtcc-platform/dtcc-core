@@ -74,3 +74,9 @@ Use `--save-artifacts` to write successful dataset outputs under
 
 Every completed run prints a status summary and a full per-task result table.
 The same summary is saved to `runs/<run-id>/summary.md`.
+
+Some data availability misses are reported as warnings instead of hard failures.
+For example, `lidar_coverage` means the requested bounds are outside available
+lidar coverage. These tasks remain visible in `results.json` and the summary
+table, but they do not count as conditioning or meshing failures and do not make
+the benchmark command fail by themselves.

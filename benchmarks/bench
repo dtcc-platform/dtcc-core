@@ -34,8 +34,10 @@ BENCHMARK_INFO: Any | None = None
 BENCHMARK_LOG_TABLE: Any | None = None
 BENCHMARK_TABLE_IMPORT_ATTEMPTED = False
 ANSI_GREEN = "\033[32m"
+ANSI_YELLOW = "\033[33m"
 ANSI_RED = "\033[31m"
 ANSI_RESET = "\033[0m"
+NON_FATAL_STATUSES = {"success", "warning"}
 
 
 def json_ready(value: Any) -> Any:
@@ -358,8 +360,15 @@ def _status_label(status: str, *, rich: bool) -> str:
     if status == "success":
         label = "✓ success"
         return f"[green]{label}[/green]" if rich else label
+    if status == "warning":
+        label = "⚠ warning"
+        return f"[yellow]{label}[/yellow]" if rich else label
     label = f"✗ {status}"
     return f"[red]{label}[/red]" if rich else label
+
+
+def _is_hard_failure(status: str) -> bool:
+    return status not in NON_FATAL_STATUSES
 
 
 def _terminal_status_label(status: str) -> str:
@@ -368,44 +377,58 @@ def _terminal_status_label(status: str) -> str:
         return label
     if status == "success":
         return f"{ANSI_GREEN}{label}{ANSI_RESET}"
+    if status == "warning":
+        return f"{ANSI_YELLOW}{label}{ANSI_RESET}"
     return f"{ANSI_RED}{label}{ANSI_RESET}"
 
 
-def _count_label(value: int, *, failed: bool, rich: bool) -> str:
+def _count_label(value: int, *, status: str, rich: bool) -> str:
     if not rich:
         return str(value)
-    color = "red" if failed else "green"
+    color = {
+        "success": "green",
+        "warning": "yellow",
+        "failed": "red",
+    }.get(status, "white")
     return f"[{color}]{value}[/{color}]"
 
 
-def _case_status_counts(results: list[dict[str, Any]]) -> tuple[int, int]:
+def _case_status_counts(results: list[dict[str, Any]]) -> tuple[int, int, int]:
     by_case: dict[str, list[dict[str, Any]]] = {}
     for result in results:
         by_case.setdefault(result["case"]["id"], []).append(result)
-    worked = sum(
-        1
-        for case_results in by_case.values()
-        if all(result["status"] == "success" for result in case_results)
-    )
-    failed = len(by_case) - worked
-    return worked, failed
+    succeeded = 0
+    warned = 0
+    failed = 0
+    for case_results in by_case.values():
+        statuses = [result["status"] for result in case_results]
+        if any(_is_hard_failure(status) for status in statuses):
+            failed += 1
+        elif any(status == "warning" for status in statuses):
+            warned += 1
+        else:
+            succeeded += 1
+    return succeeded, warned, failed
 
 
 def _status_summary_rows(results: list[dict[str, Any]], *, rich: bool) -> list[list[str]]:
-    case_worked, case_failed = _case_status_counts(results)
+    case_worked, case_warned, case_failed = _case_status_counts(results)
     task_worked = sum(1 for result in results if result["status"] == "success")
-    task_failed = len(results) - task_worked
+    task_warned = sum(1 for result in results if result["status"] == "warning")
+    task_failed = sum(1 for result in results if _is_hard_failure(result["status"]))
     return [
         [
             "Spatial cases",
-            _count_label(case_worked, failed=False, rich=rich),
-            _count_label(case_failed, failed=True, rich=rich),
-            str(case_worked + case_failed),
+            _count_label(case_worked, status="success", rich=rich),
+            _count_label(case_warned, status="warning", rich=rich),
+            _count_label(case_failed, status="failed", rich=rich),
+            str(case_worked + case_warned + case_failed),
         ],
         [
             "Execution tasks",
-            _count_label(task_worked, failed=False, rich=rich),
-            _count_label(task_failed, failed=True, rich=rich),
+            _count_label(task_worked, status="success", rich=rich),
+            _count_label(task_warned, status="warning", rich=rich),
+            _count_label(task_failed, status="failed", rich=rich),
             str(len(results)),
         ],
     ]
@@ -607,7 +630,13 @@ def _print_run_tables(results: list[dict[str, Any]]) -> None:
     )
     _emit_table(
         "Benchmark status summary",
-        ["Scope", ("✓ Success", "right"), ("✗ Fail", "right"), ("Total", "right")],
+        [
+            "Scope",
+            ("✓ Success", "right"),
+            ("⚠ Warning", "right"),
+            ("✗ Fail", "right"),
+            ("Total", "right"),
+        ],
         _status_summary_rows(results, rich=True),
         _status_summary_rows(results, rich=False),
     )
@@ -643,7 +672,7 @@ def _summary_markdown(results: list[dict[str, Any]], manifest: dict[str, Any]) -
     lines.extend(["", "## Status Summary", ""])
     lines.extend(
         _markdown_table(
-            ["Scope", "✓ Success", "✗ Fail", "Total"],
+            ["Scope", "✓ Success", "⚠ Warning", "✗ Fail", "Total"],
             _status_summary_rows(results, rich=False),
         )
     )
@@ -712,7 +741,7 @@ def command_run(args: argparse.Namespace) -> int:
     _write_text(run_dir / "summary.md", _summary_markdown(results, manifest))
     _print_run_tables(results)
     print(f"Run directory: {run_dir}")
-    return 0 if all(result["status"] == "success" for result in results) else 1
+    return 0 if all(not _is_hard_failure(result["status"]) for result in results) else 1
 
 
 def command_report(args: argparse.Namespace) -> int:
@@ -754,7 +783,7 @@ def command_worker(args: argparse.Namespace) -> int:
     task = json.loads(args.spec.read_text(encoding="utf-8"))
     result = run_dataset(task)
     print(result_to_line(result), flush=True)
-    return 0 if result["status"] == "success" else 1
+    return 0 if not _is_hard_failure(result["status"]) else 1
 
 
 def build_parser() -> argparse.ArgumentParser:
