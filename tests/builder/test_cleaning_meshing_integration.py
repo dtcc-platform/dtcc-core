@@ -37,6 +37,68 @@ def make_surface(polygon: Polygon, z: float) -> Surface:
     return surface
 
 
+def make_conditioned_footprints(
+    surfaces: list[Surface],
+    source_map: list[list[int]],
+    subdomain_resolution: list[float],
+    diagnostics: dict[str, object],
+    *,
+    min_building_detail: float = 0.5,
+    contract: dict[str, object] | None = None,
+) -> meshes_module.ConditionedFootprints:
+    declared_scale = meshes_module._conditioned_footprint_declared_scale(
+        min_building_detail=min_building_detail,
+        diagnostics=diagnostics,
+    )
+    return meshes_module.ConditionedFootprints(
+        surfaces=surfaces,
+        source_map=source_map,
+        subdomain_resolution=subdomain_resolution,
+        diagnostics=diagnostics,
+        declared_scale=declared_scale,
+        contract=contract
+        or {
+            "ok": True,
+            "status": "pass",
+            "requirements": {},
+            "errors": [],
+            "warnings": [],
+            "metrics": {},
+        },
+    )
+
+
+def unpack_conditioned_footprints(
+    conditioned: meshes_module.ConditionedFootprints,
+) -> tuple[list[Surface], list[list[int]], list[float], dict[str, object]]:
+    return (
+        conditioned.surfaces,
+        conditioned.source_map,
+        conditioned.subdomain_resolution,
+        conditioned.diagnostics,
+    )
+
+
+def make_prepared_city_inputs(
+    terrain: object,
+    terrain_raster: object,
+    surfaces: list[Surface],
+    source_map: list[list[int]],
+    subdomain_resolution: list[float],
+    diagnostics: dict[str, object],
+) -> tuple[object, object, meshes_module.ConditionedFootprints]:
+    return (
+        terrain,
+        terrain_raster,
+        make_conditioned_footprints(
+            surfaces,
+            source_map,
+            subdomain_resolution,
+            diagnostics,
+        ),
+    )
+
+
 def make_building(
     polygon: Polygon,
     *,
@@ -181,7 +243,7 @@ def test_condition_meshing_footprints_regularizes_touching_holes():
     )
     assert touching_holes.is_valid
 
-    surfaces, source_map, resolutions, diagnostics = meshes_module._condition_meshing_footprints(
+    conditioned = meshes_module._condition_meshing_footprints(
         [make_building(touching_holes, roof_z=10.0)],
         lod=GeometryType.LOD0,
         min_building_detail=0.5,
@@ -191,10 +253,14 @@ def test_condition_meshing_footprints_regularizes_touching_holes():
         max_mesh_size=5.0,
         cleaning_diagnostics=False,
     )
+    surfaces, source_map, resolutions, diagnostics = unpack_conditioned_footprints(
+        conditioned
+    )
 
     assert len(surfaces) == 1
     assert source_map == [[0]]
     assert resolutions == [5.0]
+    assert conditioned.contract["errors"] == []
     normalized = surfaces[0].to_polygon(simplify=0.0)
     assert not meshes_module._polygon_has_ring_boundary_contacts(normalized)
     assert diagnostics.get("mesher_regularized_polygon_count", 0) == 0
@@ -213,7 +279,7 @@ def test_condition_meshing_footprints_shows_plot_when_requested(monkeypatch):
 
     monkeypatch.setattr(meshes_module, "plot_footprint_cleaning_comparison", fake_plot)
 
-    surfaces, source_map, resolutions, diagnostics = meshes_module._condition_meshing_footprints(
+    conditioned = meshes_module._condition_meshing_footprints(
         [make_building(box(0.0, 0.0, 10.0, 10.0), roof_z=10.0)],
         lod=GeometryType.LOD0,
         min_building_detail=0.5,
@@ -224,6 +290,9 @@ def test_condition_meshing_footprints_shows_plot_when_requested(monkeypatch):
         cleaning_diagnostics=False,
         show_footprints=True,
         footprint_cleaning_plot_block=False,
+    )
+    surfaces, source_map, resolutions, diagnostics = unpack_conditioned_footprints(
+        conditioned
     )
 
     assert len(surfaces) == 1
@@ -274,7 +343,7 @@ def test_condition_meshing_footprints_enables_mesher_ready_coverage_revalidation
 
     monkeypatch.setattr(meshes_module, "_normalize_mesher_ready_coverage", wrapped)
 
-    surfaces, source_map, resolutions, diagnostics = meshes_module._condition_meshing_footprints(
+    conditioned = meshes_module._condition_meshing_footprints(
         [make_building(box(0.0, 0.0, 10.0, 10.0), roof_z=10.0)],
         lod=GeometryType.LOD0,
         min_building_detail=0.5,
@@ -283,6 +352,9 @@ def test_condition_meshing_footprints_enables_mesher_ready_coverage_revalidation
         merge_buildings=False,
         max_mesh_size=5.0,
         cleaning_diagnostics=False,
+    )
+    surfaces, source_map, resolutions, diagnostics = unpack_conditioned_footprints(
+        conditioned
     )
 
     assert len(surfaces) == 1
@@ -305,7 +377,7 @@ def test_condition_meshing_footprints_repairs_lund_style_self_clearance_slit():
         "388232.25 6176876.5))"
     )
 
-    surfaces, source_map, resolutions, diagnostics = meshes_module._condition_meshing_footprints(
+    conditioned = meshes_module._condition_meshing_footprints(
         [make_building(polygon, roof_z=10.0)],
         lod=GeometryType.LOD0,
         min_building_detail=0.5,
@@ -314,6 +386,9 @@ def test_condition_meshing_footprints_repairs_lund_style_self_clearance_slit():
         merge_buildings=False,
         max_mesh_size=5.0,
         cleaning_diagnostics=False,
+    )
+    surfaces, source_map, resolutions, diagnostics = unpack_conditioned_footprints(
+        conditioned
     )
 
     assert len(surfaces) == 1
@@ -351,7 +426,7 @@ def test_condition_meshing_footprints_repairs_gbg_same_hole_neck():
         "318436 6398600.5625))"
     )
 
-    surfaces, source_map, resolutions, diagnostics = meshes_module._condition_meshing_footprints(
+    conditioned = meshes_module._condition_meshing_footprints(
         [make_building(polygon, roof_z=10.0)],
         lod=GeometryType.LOD0,
         min_building_detail=0.5,
@@ -360,6 +435,9 @@ def test_condition_meshing_footprints_repairs_gbg_same_hole_neck():
         merge_buildings=False,
         max_mesh_size=5.0,
         cleaning_diagnostics=False,
+    )
+    surfaces, source_map, resolutions, diagnostics = unpack_conditioned_footprints(
+        conditioned
     )
 
     assert len(surfaces) == 1
@@ -404,7 +482,7 @@ def test_condition_meshing_footprints_repairs_stockholm_cross_ring_slit():
         "673549.875 6581765.09375))"
     )
 
-    surfaces, source_map, resolutions, diagnostics = meshes_module._condition_meshing_footprints(
+    conditioned = meshes_module._condition_meshing_footprints(
         [make_building(polygon, roof_z=10.0)],
         lod=GeometryType.LOD0,
         min_building_detail=0.5,
@@ -413,6 +491,9 @@ def test_condition_meshing_footprints_repairs_stockholm_cross_ring_slit():
         merge_buildings=False,
         max_mesh_size=5.0,
         cleaning_diagnostics=False,
+    )
+    surfaces, source_map, resolutions, diagnostics = unpack_conditioned_footprints(
+        conditioned
     )
 
     assert len(surfaces) == 1
@@ -1129,7 +1210,7 @@ def test_condition_meshing_footprints_uses_conservative_roof_for_heterogeneous_m
         make_building(box(16, 8, 24, 16), roof_z=10.0),
     ]
 
-    surfaces, source_map, resolutions, diagnostics = meshes_module._condition_meshing_footprints(
+    conditioned = meshes_module._condition_meshing_footprints(
         buildings,
         lod=GeometryType.LOD0,
         min_building_detail=0.5,
@@ -1138,6 +1219,9 @@ def test_condition_meshing_footprints_uses_conservative_roof_for_heterogeneous_m
         merge_buildings=True,
         max_mesh_size=20.0,
         cleaning_diagnostics=False,
+    )
+    surfaces, source_map, resolutions, diagnostics = unpack_conditioned_footprints(
+        conditioned
     )
 
     assert len(surfaces) == 1
@@ -1154,7 +1238,7 @@ def test_condition_meshing_footprints_keeps_weighted_roof_for_similar_merge():
         make_building(box(16, 8, 24, 16), roof_z=5.0),
     ]
 
-    surfaces, source_map, resolutions, diagnostics = meshes_module._condition_meshing_footprints(
+    conditioned = meshes_module._condition_meshing_footprints(
         buildings,
         lod=GeometryType.LOD0,
         min_building_detail=0.5,
@@ -1163,6 +1247,9 @@ def test_condition_meshing_footprints_keeps_weighted_roof_for_similar_merge():
         merge_buildings=True,
         max_mesh_size=20.0,
         cleaning_diagnostics=False,
+    )
+    surfaces, source_map, resolutions, diagnostics = unpack_conditioned_footprints(
+        conditioned
     )
 
     assert len(surfaces) == 1
@@ -1556,7 +1643,12 @@ def test_build_city_flat_mesh_triangle_uses_conditioned_coverage(monkeypatch):
     captured = {}
 
     def fake_condition(*args, **kwargs):
-        return [make_surface(box(8, 8, 18, 18), 10.0)], [[0]], [], {"output_grid": 0.03125}
+        return make_conditioned_footprints(
+            [make_surface(box(8, 8, 18, 18), 10.0)],
+            [[0]],
+            [],
+            {"output_grid": 0.03125},
+        )
 
     def fake_condition_coverage_regions(**kwargs):
         captured["coverage_building_count"] = len(kwargs["building_polygons"])
@@ -1623,7 +1715,12 @@ def test_build_city_flat_mesh_triangle_uses_conditioned_coverage(monkeypatch):
 
 def test_build_city_flat_mesh_propagates_runtime_mesher_errors(monkeypatch):
     def fake_condition(*args, **kwargs):
-        return [make_surface(box(8, 8, 18, 18), 10.0)], [[0]], [], {"output_grid": 0.03125}
+        return make_conditioned_footprints(
+            [make_surface(box(8, 8, 18, 18), 10.0)],
+            [[0]],
+            [],
+            {"output_grid": 0.03125},
+        )
 
     def fake_condition_coverage_regions(**kwargs):
         return [box(0, 0, 80, 80), box(8, 8, 18, 18)], [-2, 7]
@@ -1660,7 +1757,7 @@ def test_build_city_flat_mesh_allows_empty_conditioned_footprints(monkeypatch):
     captured = {}
 
     def fake_condition(*args, **kwargs):
-        return [], [], [], {"output_count": 0}
+        return make_conditioned_footprints([], [], [], {"output_count": 0})
 
     def fake_build_ground_mesh_from_coverage(**kwargs):
         captured["region_polygons"] = kwargs["region_polygons"]
@@ -1706,7 +1803,7 @@ def test_build_city_flat_mesh_forwards_triangle_backend(monkeypatch):
     captured = {}
 
     def fake_condition(*args, **kwargs):
-        return [], [], [], {"output_grid": 0.03125}
+        return make_conditioned_footprints([], [], [], {"output_grid": 0.03125})
 
     def fake_build_ground_mesh_from_coverage(**kwargs):
         captured["mesher"] = kwargs["mesher"]
@@ -1746,7 +1843,12 @@ def test_build_city_flat_mesh_forwards_triangle_backend(monkeypatch):
 
 def test_build_city_flat_mesh_marks_halos_for_triangle_backend(monkeypatch):
     def fake_condition(*args, **kwargs):
-        return [make_surface(box(8, 8, 18, 18), 10.0)], [[0]], [], {"output_grid": 0.03125}
+        return make_conditioned_footprints(
+            [make_surface(box(8, 8, 18, 18), 10.0)],
+            [[0]],
+            [],
+            {"output_grid": 0.03125},
+        )
 
     def fake_condition_coverage_regions(**kwargs):
         return [box(0, 0, 80, 80), box(8, 8, 18, 18)], [-2, 7]
@@ -1936,7 +2038,12 @@ def test_build_city_surface_mesh_reduces_lod_from_source_map(monkeypatch):
     captured = {}
 
     def fake_condition(*args, **kwargs):
-        return surfaces, source_map, resolutions, {"output_count": 2}
+        return make_conditioned_footprints(
+            surfaces,
+            source_map,
+            resolutions,
+            {"output_count": 2},
+        )
 
     class DummyCppMesh:
         def from_cpp(self):
@@ -2047,7 +2154,7 @@ def test_build_city_surface_mesh_uses_raw_ground_markers(monkeypatch):
     captured = {}
 
     def fake_prepare(*args, **kwargs):
-        return terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics
+        return make_prepared_city_inputs(terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics)
 
     def fake_prepare_regions(**kwargs):
         return (
@@ -2217,7 +2324,7 @@ def test_build_city_volume_mesh_uses_shared_surface_pipeline(monkeypatch):
     captured = {}
 
     def fake_prepare(*args, **kwargs):
-        return terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics
+        return make_prepared_city_inputs(terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics)
 
     def fake_prepare_regions(**kwargs):
         captured["target_lods"] = kwargs["target_lods"]
@@ -2371,7 +2478,7 @@ def test_build_city_volume_mesh_stage_audit_records_stage_contracts(monkeypatch)
     stage_audit: dict[str, object] = {}
 
     def fake_prepare(*args, **kwargs):
-        return terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics
+        return make_prepared_city_inputs(terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics)
 
     def fake_prepare_regions(**kwargs):
         return (
@@ -2591,7 +2698,7 @@ def test_build_city_surface_mesh_from_ground_mesh_snaps_boundary_vertices(monkey
 
 def test_build_city_surface_mesh_unmerged_components_are_compact():
     city = make_flat_city([make_building(box(20, 20, 40, 40), roof_z=10.0)])
-    terrain, terrain_raster, building_footprints, source_map, subdomain_resolution, diagnostics = (
+    terrain, terrain_raster, conditioned_footprints = (
         meshes_module._prepare_city_meshing_inputs(
             city,
             lod=GeometryType.LOD0,
@@ -2606,7 +2713,7 @@ def test_build_city_surface_mesh_unmerged_components_are_compact():
     target_lods = meshes_module._resolve_conditioned_target_lods(
         city.buildings,
         GeometryType.LOD0,
-        source_map,
+        conditioned_footprints.source_map,
     )
     shell_target_lods = meshes_module._promote_volume_shell_target_lods(target_lods)
     (
@@ -2617,8 +2724,8 @@ def test_build_city_surface_mesh_unmerged_components_are_compact():
         surface_region_triangle_sizes,
         surface_region_points,
     ) = meshes_module._prepare_surface_ground_regions(
-        conditioned_surfaces=building_footprints,
-        conditioned_resolution=subdomain_resolution,
+        conditioned_surfaces=conditioned_footprints.surfaces,
+        conditioned_resolution=conditioned_footprints.subdomain_resolution,
         target_lods=shell_target_lods,
         bounds=(
             terrain.bounds.xmin,
@@ -2628,7 +2735,7 @@ def test_build_city_surface_mesh_unmerged_components_are_compact():
         ),
         max_mesh_size=8.0,
         min_building_detail=0.5,
-        footprint_diagnostics=diagnostics,
+        footprint_diagnostics=conditioned_footprints.diagnostics,
         cleaning_diagnostics=False,
         treat_lod0_as_holes=False,
     )
@@ -2714,7 +2821,7 @@ def test_build_city_volume_mesh_keeps_requested_tetgen_switches(monkeypatch):
     captured = {}
 
     def fake_prepare(*args, **kwargs):
-        return terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics
+        return make_prepared_city_inputs(terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics)
 
     def fake_prepare_regions(**kwargs):
         return (
@@ -2864,7 +2971,7 @@ def test_build_city_volume_mesh_uses_split_surface_default_without_flat_special_
     refinement_calls = {"transition": 0, "wall": 0, "horizontal": 0}
 
     def fake_prepare(*args, **kwargs):
-        return terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics
+        return make_prepared_city_inputs(terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics)
 
     def fake_prepare_regions(**kwargs):
         return (
@@ -3024,7 +3131,11 @@ def test_build_city_volume_mesh_allows_empty_conditioned_footprints(monkeypatch)
     captured = {}
 
     def fake_prepare(*args, **kwargs):
-        return terrain, terrain_raster, [], [], [], {"output_grid": 0.25}
+        return (
+            terrain,
+            terrain_raster,
+            make_conditioned_footprints([], [], [], {"output_grid": 0.25}),
+        )
 
     def fake_prepare_regions(**kwargs):
         captured["conditioned_surfaces"] = kwargs["conditioned_surfaces"]
@@ -3155,7 +3266,7 @@ def test_build_city_volume_mesh_respects_explicit_tetgen_switches_for_dtcc_meshe
     captured = {}
 
     def fake_prepare(*args, **kwargs):
-        return terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics
+        return make_prepared_city_inputs(terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics)
 
     def fake_prepare_regions(**kwargs):
         return (
@@ -3296,7 +3407,7 @@ def test_build_city_volume_mesh_saves_tetgen_debug_meshes(monkeypatch, tmp_path)
     captured = {}
 
     def fake_prepare(*args, **kwargs):
-        return terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics
+        return make_prepared_city_inputs(terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics)
 
     def fake_prepare_regions(**kwargs):
         return (
@@ -3645,7 +3756,7 @@ def test_build_city_volume_mesh_captures_quality_failure_artifacts(monkeypatch, 
     captured = {}
 
     def fake_prepare(*args, **kwargs):
-        return terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics
+        return make_prepared_city_inputs(terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics)
 
     def fake_prepare_regions(**kwargs):
         return (
@@ -3804,9 +3915,14 @@ def test_build_city_volume_mesh_ignores_quality_failure_capture_errors(
     conditioned_surface = make_surface(box(10, 10, 20, 20), 10.0)
 
     def fake_prepare(*args, **kwargs):
-        return terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], {
-            "output_grid": 0.25
-        }
+        return make_prepared_city_inputs(
+            terrain,
+            terrain_raster,
+            [conditioned_surface],
+            [[0]],
+            [4.0],
+            {"output_grid": 0.25},
+        )
 
     def fake_prepare_regions(**kwargs):
         return (
@@ -3954,7 +4070,7 @@ def test_build_city_volume_mesh_uses_refined_shell_without_retry(
     calls: list[dict[str, object]] = []
 
     def fake_prepare(*args, **kwargs):
-        return terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics
+        return make_prepared_city_inputs(terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics)
 
     def fake_prepare_regions(**kwargs):
         return (
@@ -4171,9 +4287,14 @@ def test_build_city_volume_mesh_keeps_shell_refinement_enabled_when_preserving_s
     refinement_calls = {"transition": 0, "wall": 0, "horizontal": 0}
 
     def fake_prepare(*args, **kwargs):
-        return terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], {
-            "output_grid": 0.25
-        }
+        return make_prepared_city_inputs(
+            terrain,
+            terrain_raster,
+            [conditioned_surface],
+            [[0]],
+            [4.0],
+            {"output_grid": 0.25},
+        )
 
     def fake_prepare_regions(**kwargs):
         return (

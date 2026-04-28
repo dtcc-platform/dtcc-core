@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 from collections import defaultdict
+from dataclasses import dataclass
 from typing import Any, Dict, Optional, List, Literal, Sequence
 import numpy as np
 from shapely import BufferJoinStyle
@@ -114,6 +115,18 @@ _TETGEN_DEBUG_CLOSURE_MARKERS = {
 }
 
 MeshingPipelineMode = Literal["strict"]
+
+
+@dataclass(frozen=True)
+class ConditionedFootprints:
+    """Meshing-ready footprint geometry plus the bookkeeping needed downstream."""
+
+    surfaces: list[Surface]
+    source_map: list[list[int]]
+    subdomain_resolution: list[float]
+    diagnostics: dict[str, Any]
+    declared_scale: float
+    contract: dict[str, Any]
 
 
 def _normalize_max_mesh_size(max_mesh_size: float | None) -> float | None:
@@ -1573,7 +1586,7 @@ def _prepare_city_meshing_inputs(
     show_footprints: bool = False,
     footprint_cleaning_plot_block: bool = True,
     pipeline_mode: MeshingPipelineMode = "strict",
-) -> tuple[object, object, list[Surface], list[list[int]], list[float], dict[str, Any]]:
+) -> tuple[object, object, ConditionedFootprints]:
     terrain, terrain_raster = _require_city_terrain_raster(
         city,
         max_mesh_size=max_mesh_size,
@@ -1583,29 +1596,24 @@ def _prepare_city_meshing_inputs(
     if not buildings:
         warning("City has no buildings.")
 
-    building_footprints, conditioned_source_map, subdomain_resolution, diagnostics = (
-        _condition_meshing_footprints(
-            buildings,
-            lod=lod,
-            min_building_detail=min_building_detail,
-            min_building_area=min_building_area,
-            merge_tolerance=merge_tolerance,
-            merge_buildings=merge_buildings,
-            max_mesh_size=max_mesh_size,
-            cleaning_diagnostics=cleaning_diagnostics,
-            show_footprints=show_footprints,
-            footprint_cleaning_plot_block=footprint_cleaning_plot_block,
-            pipeline_mode=pipeline_mode,
-        )
+    conditioned_footprints = _condition_meshing_footprints(
+        buildings,
+        lod=lod,
+        min_building_detail=min_building_detail,
+        min_building_area=min_building_area,
+        merge_tolerance=merge_tolerance,
+        merge_buildings=merge_buildings,
+        max_mesh_size=max_mesh_size,
+        cleaning_diagnostics=cleaning_diagnostics,
+        show_footprints=show_footprints,
+        footprint_cleaning_plot_block=footprint_cleaning_plot_block,
+        pipeline_mode=pipeline_mode,
     )
 
     return (
         terrain,
         terrain_raster,
-        building_footprints,
-        conditioned_source_map,
-        subdomain_resolution,
-        diagnostics,
+        conditioned_footprints,
     )
 
 
@@ -3652,12 +3660,28 @@ def _condition_meshing_footprints(
     show_footprints: bool = False,
     footprint_cleaning_plot_block: bool = True,
     pipeline_mode: MeshingPipelineMode = "strict",
-) -> tuple[list[Surface], list[list[int]], list[float], dict[str, Any]]:
+) -> ConditionedFootprints:
     pipeline_mode = _normalize_meshing_pipeline_mode(pipeline_mode)
 
     if not buildings:
         warning("No buildings to preprocess.")
-        return [], [], [], {}
+        diagnostics = {"pipeline_mode": pipeline_mode}
+        declared_scale = _conditioned_footprint_declared_scale(
+            min_building_detail=min_building_detail,
+            diagnostics=diagnostics,
+        )
+        return ConditionedFootprints(
+            surfaces=[],
+            source_map=[],
+            subdomain_resolution=[],
+            diagnostics=diagnostics,
+            declared_scale=declared_scale,
+            contract=_conditioned_footprint_contract(
+                surfaces=[],
+                min_building_detail=min_building_detail,
+                diagnostics=diagnostics,
+            ),
+        )
 
     if cleaning_diagnostics:
         info(f"Starting meshing footprint conditioning for {len(buildings)} buildings.")
@@ -3712,10 +3736,9 @@ def _condition_meshing_footprints(
         )
 
     normalized_mesh_size = _normalize_max_mesh_size(max_mesh_size)
-    mesher_scale = max(
-        float(min_building_detail),
-        float(result.diagnostics.get("output_grid", 0.0) or 0.0),
-        1e-9,
+    mesher_scale = _conditioned_footprint_declared_scale(
+        min_building_detail=min_building_detail,
+        diagnostics=result.diagnostics,
     )
     conservative_roof_count = 0
     conservative_roof_max_span = 0.0
@@ -3761,6 +3784,15 @@ def _condition_meshing_footprints(
     diagnostics["pipeline_mode"] = pipeline_mode
     diagnostics["conservative_merged_roof_count"] = conservative_roof_count
     diagnostics["conservative_merged_roof_max_span"] = conservative_roof_max_span
+    declared_scale = _conditioned_footprint_declared_scale(
+        min_building_detail=min_building_detail,
+        diagnostics=diagnostics,
+    )
+    contract = _conditioned_footprint_contract(
+        surfaces=conditioned_surfaces,
+        min_building_detail=min_building_detail,
+        diagnostics=diagnostics,
+    )
 
     if cleaning_diagnostics:
         info(
@@ -3769,11 +3801,13 @@ def _condition_meshing_footprints(
             f"groups={diagnostics.get('merged_group_count', 0)} | "
             f"grid={diagnostics.get('output_grid')} m"
         )
-    return (
-        conditioned_surfaces,
-        conditioned_source_map,
-        subdomain_resolution,
-        diagnostics,
+    return ConditionedFootprints(
+        surfaces=conditioned_surfaces,
+        source_map=conditioned_source_map,
+        subdomain_resolution=subdomain_resolution,
+        diagnostics=diagnostics,
+        declared_scale=declared_scale,
+        contract=contract,
     )
 
 
@@ -3848,28 +3882,24 @@ def build_city_surface_mesh(
     """
     pipeline_mode = _normalize_meshing_pipeline_mode(pipeline_mode)
     max_mesh_size = _normalize_max_mesh_size(max_mesh_size)
-    terrain, terrain_raster, building_footprints, source_map, conditioned_resolution, conditioning_diagnostics = (
-        _prepare_city_meshing_inputs(
-            city,
-            lod=lod,
-            min_building_detail=min_building_detail,
-            min_building_area=min_building_area,
-            merge_tolerance=merge_tolerance,
-            merge_buildings=merge_buildings,
-            max_mesh_size=max_mesh_size,
-            cleaning_diagnostics=cleaning_diagnostics,
-            show_footprints=show_footprints,
-            footprint_cleaning_plot_block=footprint_cleaning_plot_block,
-            pipeline_mode=pipeline_mode,
-        )
-    )
-
-    footprint_contract = _conditioned_footprint_contract(
-        surfaces=building_footprints,
+    terrain, terrain_raster, conditioned_footprints = _prepare_city_meshing_inputs(
+        city,
+        lod=lod,
         min_building_detail=min_building_detail,
-        diagnostics=conditioning_diagnostics,
+        min_building_area=min_building_area,
+        merge_tolerance=merge_tolerance,
+        merge_buildings=merge_buildings,
+        max_mesh_size=max_mesh_size,
+        cleaning_diagnostics=cleaning_diagnostics,
+        show_footprints=show_footprints,
+        footprint_cleaning_plot_block=footprint_cleaning_plot_block,
+        pipeline_mode=pipeline_mode,
     )
-    _raise_stage_contract_errors("Conditioned footprints", footprint_contract)
+    building_footprints = conditioned_footprints.surfaces
+    source_map = conditioned_footprints.source_map
+    conditioned_resolution = conditioned_footprints.subdomain_resolution
+    conditioning_diagnostics = conditioned_footprints.diagnostics
+    _raise_stage_contract_errors("Conditioned footprints", conditioned_footprints.contract)
 
     report_progress(
         percent=10,
@@ -3927,11 +3957,7 @@ def build_city_surface_mesh(
     )
     ground_mesh_contract = _triangle_mesh_contract_from_audit(
         {"mesher": active_mesher, **_triangle_mesh_audit(ground_mesh)},
-        reference_length=max(
-            float(min_building_detail),
-            float(conditioning_diagnostics.get("output_grid", 0.0) or 0.0),
-            1.0e-9,
-        ),
+        reference_length=conditioned_footprints.declared_scale,
         require_markers=True,
         stage_label="Ground mesh",
     )
@@ -4069,30 +4095,24 @@ def build_city_flat_mesh(
         if not buildings:
             warning("City has no buildings.")
 
-        building_footprints, conditioned_source_map, _subdomain_resolution, diagnostics = (
-            _condition_meshing_footprints(
-                buildings,
-                lod=lod,
-                min_building_detail=min_building_detail,
-                min_building_area=min_building_area,
-                merge_tolerance=merge_tolerance,
-                merge_buildings=merge_buildings,
-                max_mesh_size=max_mesh_size,
-                cleaning_diagnostics=cleaning_diagnostics,
-                show_footprints=show_footprints,
-                footprint_cleaning_plot_block=footprint_cleaning_plot_block,
-                pipeline_mode=pipeline_mode,
-            )
-        )
-        conditioned_scale = _conditioned_footprint_declared_scale(
+        conditioned_footprints = _condition_meshing_footprints(
+            buildings,
+            lod=lod,
             min_building_detail=min_building_detail,
-            diagnostics=diagnostics,
+            min_building_area=min_building_area,
+            merge_tolerance=merge_tolerance,
+            merge_buildings=merge_buildings,
+            max_mesh_size=max_mesh_size,
+            cleaning_diagnostics=cleaning_diagnostics,
+            show_footprints=show_footprints,
+            footprint_cleaning_plot_block=footprint_cleaning_plot_block,
+            pipeline_mode=pipeline_mode,
         )
-        footprint_contract = _conditioned_footprint_contract(
-            surfaces=building_footprints,
-            min_building_detail=min_building_detail,
-            diagnostics=diagnostics,
-        )
+        building_footprints = conditioned_footprints.surfaces
+        conditioned_source_map = conditioned_footprints.source_map
+        diagnostics = conditioned_footprints.diagnostics
+        conditioned_scale = conditioned_footprints.declared_scale
+        footprint_contract = conditioned_footprints.contract
         if attempt is not None:
             _record_stage_audit_stage(
                 attempt,
@@ -4437,21 +4457,23 @@ def build_city_volume_mesh(
         attempt["config"]["max_volume"] = (
             None if max_volume is None else float(max_volume)
         )
-    terrain, terrain_raster, building_footprints, source_map, subdomain_resolution, diagnostics = (
-        _prepare_city_meshing_inputs(
-            city,
-            lod=lod,
-            min_building_detail=min_building_detail,
-            min_building_area=min_building_area,
-            merge_tolerance=merge_tolerance,
-            merge_buildings=merge_buildings,
-            max_mesh_size=max_mesh_size,
-            cleaning_diagnostics=cleaning_diagnostics,
-            show_footprints=show_footprints,
-            footprint_cleaning_plot_block=footprint_cleaning_plot_block,
-            pipeline_mode=pipeline_mode,
-        )
+    terrain, terrain_raster, conditioned_footprints = _prepare_city_meshing_inputs(
+        city,
+        lod=lod,
+        min_building_detail=min_building_detail,
+        min_building_area=min_building_area,
+        merge_tolerance=merge_tolerance,
+        merge_buildings=merge_buildings,
+        max_mesh_size=max_mesh_size,
+        cleaning_diagnostics=cleaning_diagnostics,
+        show_footprints=show_footprints,
+        footprint_cleaning_plot_block=footprint_cleaning_plot_block,
+        pipeline_mode=pipeline_mode,
     )
+    building_footprints = conditioned_footprints.surfaces
+    source_map = conditioned_footprints.source_map
+    subdomain_resolution = conditioned_footprints.subdomain_resolution
+    diagnostics = conditioned_footprints.diagnostics
     terrain_effectively_flat = _is_effectively_flat_raster(terrain_raster)
     effective_stage4_shell_refinement = bool(is_tetgen_available())
     if attempt is not None:
@@ -4464,15 +4486,8 @@ def build_city_volume_mesh(
         attempt["config"]["terrain_effectively_flat"] = bool(
             terrain_effectively_flat
         )
-    conditioned_scale = _conditioned_footprint_declared_scale(
-        min_building_detail=min_building_detail,
-        diagnostics=diagnostics,
-    )
-    conditioned_footprint_contract = _conditioned_footprint_contract(
-        surfaces=building_footprints,
-        min_building_detail=min_building_detail,
-        diagnostics=diagnostics,
-    )
+    conditioned_scale = conditioned_footprints.declared_scale
+    conditioned_footprint_contract = conditioned_footprints.contract
     if attempt is not None:
         _record_stage_audit_stage(
             attempt,

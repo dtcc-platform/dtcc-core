@@ -4,6 +4,7 @@ from unittest.mock import ANY, Mock, patch
 
 import numpy as np
 
+from dtcc_core.builder.geometry_builders import meshes as meshes_module
 from dtcc_core.datasets._city_mesh_common import (
     CityMeshingFootprints,
     condition_city_meshing_footprints,
@@ -180,18 +181,12 @@ def test_prepare_city_from_bounds_flat_ground_rebuilds_city_on_flat_raster(
 
 
 @patch(
-    "dtcc_core.builder.geometry_builders.meshes._raise_stage_contract_errors"
-)
-@patch(
-    "dtcc_core.builder.geometry_builders.meshes._conditioned_footprint_contract_audit"
-)
-@patch(
     "dtcc_core.builder.geometry_builders.meshes._prepare_city_meshing_inputs"
 )
+@patch("dtcc_core.builder.geometry_builders.meshes._raise_stage_contract_errors")
 def test_condition_city_meshing_footprints_uses_shared_meshing_stage(
-    mock_prepare_city_meshing_inputs,
-    mock_conditioned_footprint_contract_audit,
     mock_raise_stage_contract_errors,
+    mock_prepare_city_meshing_inputs,
 ):
     city = Mock(name="city")
     terrain = Mock(name="terrain")
@@ -201,16 +196,20 @@ def test_condition_city_meshing_footprints_uses_shared_meshing_stage(
     footprint.to_polygon.return_value = polygon
     diagnostics = {"output_grid": 0.03125}
     contract = {"requirements": {"scale_contract_satisfied": True}}
+    conditioned = meshes_module.ConditionedFootprints(
+        surfaces=[footprint],
+        source_map=[[1, 2]],
+        subdomain_resolution=[7.5],
+        diagnostics=diagnostics,
+        declared_scale=0.5,
+        contract=contract,
+    )
 
     mock_prepare_city_meshing_inputs.return_value = (
         terrain,
         terrain_raster,
-        [footprint],
-        [[1, 2]],
-        [7.5],
-        diagnostics,
+        conditioned,
     )
-    mock_conditioned_footprint_contract_audit.return_value = contract
 
     result = condition_city_meshing_footprints(
         city,
@@ -229,6 +228,7 @@ def test_condition_city_meshing_footprints_uses_shared_meshing_stage(
     assert result.source_map == [[1, 2]]
     assert result.subdomain_resolution == [7.5]
     assert result.diagnostics is diagnostics
+    assert result.declared_scale == 0.5
     assert result.contract is contract
     assert result.polygons == [polygon]
 
@@ -244,11 +244,6 @@ def test_condition_city_meshing_footprints_uses_shared_meshing_stage(
         show_footprints=False,
         footprint_cleaning_plot_block=True,
         pipeline_mode="strict",
-    )
-    mock_conditioned_footprint_contract_audit.assert_called_once_with(
-        surfaces=[footprint],
-        declared_scale=0.5,
-        diagnostics=diagnostics,
     )
     mock_raise_stage_contract_errors.assert_called_once_with(
         "Conditioned footprints",

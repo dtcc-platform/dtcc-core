@@ -20,6 +20,7 @@ class CityMeshingFootprints:
     source_map: list[list[int]]
     subdomain_resolution: list[float]
     diagnostics: dict[str, Any]
+    declared_scale: float
     contract: dict[str, Any]
 
     @property
@@ -138,40 +139,34 @@ def condition_city_meshing_footprints(
 
     import dtcc_core.builder.geometry_builders.meshes as mesh_builders
 
-    (
-        terrain,
-        terrain_raster,
-        building_footprints,
-        conditioned_source_map,
-        subdomain_resolution,
-        diagnostics,
-    ) = mesh_builders._prepare_city_meshing_inputs(
-        city,
-        lod=lod,
-        min_building_detail=min_building_detail,
-        min_building_area=min_building_area,
-        merge_tolerance=merge_tolerance,
-        merge_buildings=merge_buildings,
-        max_mesh_size=max_mesh_size,
-        cleaning_diagnostics=cleaning_diagnostics,
-        show_footprints=show_footprints,
-        footprint_cleaning_plot_block=footprint_cleaning_plot_block,
-        pipeline_mode=pipeline_mode,
+    terrain, terrain_raster, conditioned_footprints = (
+        mesh_builders._prepare_city_meshing_inputs(
+            city,
+            lod=lod,
+            min_building_detail=min_building_detail,
+            min_building_area=min_building_area,
+            merge_tolerance=merge_tolerance,
+            merge_buildings=merge_buildings,
+            max_mesh_size=max_mesh_size,
+            cleaning_diagnostics=cleaning_diagnostics,
+            show_footprints=show_footprints,
+            footprint_cleaning_plot_block=footprint_cleaning_plot_block,
+            pipeline_mode=pipeline_mode,
+        )
     )
 
-    contract = mesh_builders._conditioned_footprint_contract(
-        surfaces=building_footprints,
-        min_building_detail=min_building_detail,
-        diagnostics=diagnostics,
+    mesh_builders._raise_stage_contract_errors(
+        "Conditioned footprints",
+        conditioned_footprints.contract,
     )
-    mesh_builders._raise_stage_contract_errors("Conditioned footprints", contract)
 
     return CityMeshingFootprints(
         terrain=terrain,
         terrain_raster=terrain_raster,
-        footprints=building_footprints,
-        source_map=conditioned_source_map,
-        subdomain_resolution=subdomain_resolution,
-        diagnostics=diagnostics,
-        contract=contract,
+        footprints=conditioned_footprints.surfaces,
+        source_map=conditioned_footprints.source_map,
+        subdomain_resolution=conditioned_footprints.subdomain_resolution,
+        diagnostics=conditioned_footprints.diagnostics,
+        declared_scale=conditioned_footprints.declared_scale,
+        contract=conditioned_footprints.contract,
     )
