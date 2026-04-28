@@ -9809,6 +9809,7 @@ def _regularize_coverage_contacts(
     operator_applied: dict[str, int] = {}
     progress = False
     deferred_shrink_fallback_count = 0
+    deferred_bridge_fallback_count = 0
     max_contact_shrink_area_loss = max(
         32.0 * min_segment_length * min_segment_length,
         128.0 * grid * grid,
@@ -9921,18 +9922,28 @@ def _regularize_coverage_contacts(
             tolerance=min_segment_length,
             grid=grid,
         )
-        candidate_waves: list[tuple[bool, tuple[float, ...]]] = [
-            (True, shrink_radii[:2])
+        candidate_waves: list[
+            tuple[bool, Literal["all", "primary", "deferred"], tuple[float, ...]]
+        ] = [
+            (True, "primary", shrink_radii[:2]),
+            (True, "deferred", ()),
         ]
         if len(shrink_radii) > 2:
-            candidate_waves.append((False, shrink_radii[2:]))
+            candidate_waves.append((False, "all", shrink_radii[2:]))
 
-        for wave_index, (include_bridge_candidates, wave_shrink_radii) in enumerate(
-            candidate_waves
-        ):
+        for (
+            wave_index,
+            (
+                include_bridge_candidates,
+                bridge_radius_mode,
+                wave_shrink_radii,
+            ),
+        ) in enumerate(candidate_waves):
             if best_step is not None:
                 break
-            if wave_index > 0:
+            if include_bridge_candidates and bridge_radius_mode == "deferred":
+                deferred_bridge_fallback_count += 1
+            if not include_bridge_candidates and wave_index > 0:
                 deferred_shrink_fallback_count += 1
 
             for (
@@ -9948,6 +9959,7 @@ def _regularize_coverage_contacts(
                 diagnostics=diagnostics,
                 cache=cache,
                 include_bridge_candidates=include_bridge_candidates,
+                bridge_radius_mode=bridge_radius_mode,
                 shrink_radii=wave_shrink_radii,
             ):
                 consider_contact_candidate(
@@ -9986,6 +9998,9 @@ def _regularize_coverage_contacts(
         )
         diagnostics["coverage_contact_regularization_deferred_shrink_fallback_count"] = (
             deferred_shrink_fallback_count
+        )
+        diagnostics["coverage_contact_regularization_deferred_bridge_fallback_count"] = (
+            deferred_bridge_fallback_count
         )
         return polygons, source_map
 
@@ -10079,6 +10094,9 @@ def _regularize_coverage_contacts(
         diagnostics["coverage_contact_regularization_operator_applied"] = {}
         diagnostics["coverage_contact_regularization_deferred_shrink_fallback_count"] = (
             deferred_shrink_fallback_count
+        )
+        diagnostics["coverage_contact_regularization_deferred_bridge_fallback_count"] = (
+            deferred_bridge_fallback_count
         )
         return polygons, source_map
 
@@ -10350,6 +10368,9 @@ def _regularize_coverage_contacts(
     diagnostics["coverage_contact_regularization_operator_applied"] = operator_applied
     diagnostics["coverage_contact_regularization_deferred_shrink_fallback_count"] = (
         deferred_shrink_fallback_count
+    )
+    diagnostics["coverage_contact_regularization_deferred_bridge_fallback_count"] = (
+        deferred_bridge_fallback_count
     )
     return _stable_sort(best_polygons, best_sources)
 
@@ -11934,6 +11955,18 @@ def _iter_pair_issue_bridge_radii(
     return (viable_radii[0], viable_radii[-1])
 
 
+def _select_pair_issue_bridge_radii(
+    radii: Sequence[float],
+    *,
+    mode: Literal["all", "primary", "deferred"],
+) -> tuple[float, ...]:
+    if mode == "all":
+        return tuple(radii)
+    if mode == "primary":
+        return tuple(radii[:1])
+    return tuple(radii[1:])
+
+
 def _apply_local_smaller_polygon_shrink_operator(
     subset_polygons: Sequence[Polygon],
     subset_sources: Sequence[Sequence[int]],
@@ -12046,6 +12079,7 @@ def _direct_pair_issue_cluster_candidates(
     diagnostics: dict[str, Any],
     cache: _CoverageEvalCache | None = None,
     include_bridge_candidates: bool = True,
+    bridge_radius_mode: Literal["all", "primary", "deferred"] = "all",
     shrink_radii: Sequence[float] | None = None,
 ) -> list[tuple[tuple[int, ...], str, list[Polygon], list[list[int]]]]:
     candidates: list[tuple[tuple[int, ...], str, list[Polygon], list[list[int]]]] = []
@@ -12105,11 +12139,15 @@ def _direct_pair_issue_cluster_candidates(
                 continue
             cluster_polygons = [subset_polygons[index] for index in cluster_indices]
             cluster_sources = [subset_sources[index] for index in cluster_indices]
-            for bridge_radius in _iter_pair_issue_bridge_radii(
+            bridge_radii = _iter_pair_issue_bridge_radii(
                 issue_kind="point",
                 distance=0.0,
                 tolerance=tolerance,
                 grid=grid,
+            )
+            for bridge_radius in _select_pair_issue_bridge_radii(
+                bridge_radii,
+                mode=bridge_radius_mode,
             ):
                 candidate = _apply_local_point_touch_bridge_operator(
                     cluster_polygons,
@@ -12140,11 +12178,15 @@ def _direct_pair_issue_cluster_candidates(
             tuple[str, tuple[list[Polygon], list[list[int]]] | None]
         ] = []
         if include_bridge_candidates and issue_kind == "point":
-            for bridge_radius in _iter_pair_issue_bridge_radii(
+            bridge_radii = _iter_pair_issue_bridge_radii(
                 issue_kind=issue_kind,
                 distance=distance,
                 tolerance=tolerance,
                 grid=grid,
+            )
+            for bridge_radius in _select_pair_issue_bridge_radii(
+                bridge_radii,
+                mode=bridge_radius_mode,
             ):
                 operator_candidates.append(
                     (
@@ -12160,11 +12202,15 @@ def _direct_pair_issue_cluster_candidates(
                     )
                 )
         elif include_bridge_candidates:
-            for bridge_radius in _iter_pair_issue_bridge_radii(
+            bridge_radii = _iter_pair_issue_bridge_radii(
                 issue_kind=issue_kind,
                 distance=distance,
                 tolerance=tolerance,
                 grid=grid,
+            )
+            for bridge_radius in _select_pair_issue_bridge_radii(
+                bridge_radii,
+                mode=bridge_radius_mode,
             ):
                 operator_candidates.append(
                     (

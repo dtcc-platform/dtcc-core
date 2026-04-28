@@ -1358,10 +1358,17 @@ def test_regularize_coverage_contacts_defers_wide_shrink_when_primary_repairs(
         subset_sources,
         *,
         include_bridge_candidates=True,
+        bridge_radius_mode="all",
         shrink_radii=None,
         **kwargs,
     ):
-        calls.append((include_bridge_candidates, tuple(shrink_radii or ())))
+        calls.append(
+            (
+                include_bridge_candidates,
+                bridge_radius_mode,
+                tuple(shrink_radii or ()),
+            )
+        )
         if include_bridge_candidates:
             return [
                 (
@@ -1410,13 +1417,19 @@ def test_regularize_coverage_contacts_defers_wide_shrink_when_primary_repairs(
 
     assert cleaning_footprints._polygon_sequence_key(polygons) == primary_key
     assert source_map == original_sources
-    assert calls == [(True, (0.25, 0.5))]
+    assert calls == [(True, "primary", (0.25, 0.5))]
     assert diagnostics["coverage_contact_regularization_operator_applied"] == {
         "coverage_pair_issue_shrink_0.250": 1
     }
     assert (
         diagnostics[
             "coverage_contact_regularization_deferred_shrink_fallback_count"
+        ]
+        == 0
+    )
+    assert (
+        diagnostics[
+            "coverage_contact_regularization_deferred_bridge_fallback_count"
         ]
         == 0
     )
@@ -1460,10 +1473,17 @@ def test_regularize_coverage_contacts_uses_wide_shrink_fallback_when_needed(
         subset_sources,
         *,
         include_bridge_candidates=True,
+        bridge_radius_mode="all",
         shrink_radii=None,
         **kwargs,
     ):
-        calls.append((include_bridge_candidates, tuple(shrink_radii or ())))
+        calls.append(
+            (
+                include_bridge_candidates,
+                bridge_radius_mode,
+                tuple(shrink_radii or ()),
+            )
+        )
         if include_bridge_candidates:
             return []
         return [
@@ -1505,13 +1525,23 @@ def test_regularize_coverage_contacts_uses_wide_shrink_fallback_when_needed(
 
     assert cleaning_footprints._polygon_sequence_key(polygons) == fallback_key
     assert source_map == original_sources
-    assert calls == [(True, (0.25, 0.5)), (False, (0.75,))]
+    assert calls == [
+        (True, "primary", (0.25, 0.5)),
+        (True, "deferred", ()),
+        (False, "all", (0.75,)),
+    ]
     assert diagnostics["coverage_contact_regularization_operator_applied"] == {
         "coverage_pair_issue_shrink_0.750": 1
     }
     assert (
         diagnostics[
             "coverage_contact_regularization_deferred_shrink_fallback_count"
+        ]
+        == 1
+    )
+    assert (
+        diagnostics[
+            "coverage_contact_regularization_deferred_bridge_fallback_count"
         ]
         == 1
     )
