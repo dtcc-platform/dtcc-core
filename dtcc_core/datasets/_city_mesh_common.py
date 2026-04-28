@@ -159,14 +159,9 @@ def condition_city_meshing_footprints(
         pipeline_mode=pipeline_mode,
     )
 
-    declared_scale = max(
-        float(min_building_detail),
-        float(diagnostics.get("output_grid", 0.0) or 0.0),
-        1.0e-9,
-    )
-    contract = mesh_builders._conditioned_footprint_contract_audit(
+    contract = mesh_builders._conditioned_footprint_contract(
         surfaces=building_footprints,
-        declared_scale=declared_scale,
+        min_building_detail=min_building_detail,
         diagnostics=diagnostics,
     )
     mesh_builders._raise_stage_contract_errors("Conditioned footprints", contract)

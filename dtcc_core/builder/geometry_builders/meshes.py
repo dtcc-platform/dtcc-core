@@ -592,6 +592,34 @@ def _conditioned_footprint_contract_audit(
     )
 
 
+def _conditioned_footprint_declared_scale(
+    *,
+    min_building_detail: float,
+    diagnostics: dict[str, Any],
+) -> float:
+    return max(
+        float(min_building_detail),
+        float(diagnostics.get("output_grid", 0.0) or 0.0),
+        1.0e-9,
+    )
+
+
+def _conditioned_footprint_contract(
+    *,
+    surfaces: Sequence[Surface],
+    min_building_detail: float,
+    diagnostics: dict[str, Any],
+) -> dict[str, Any]:
+    return _conditioned_footprint_contract_audit(
+        surfaces=surfaces,
+        declared_scale=_conditioned_footprint_declared_scale(
+            min_building_detail=min_building_detail,
+            diagnostics=diagnostics,
+        ),
+        diagnostics=diagnostics,
+    )
+
+
 def _coverage_mesher_segment_graph_error(
     polygons: Sequence[Polygon],
 ) -> str | None:
@@ -3836,13 +3864,9 @@ def build_city_surface_mesh(
         )
     )
 
-    footprint_contract = _conditioned_footprint_contract_audit(
+    footprint_contract = _conditioned_footprint_contract(
         surfaces=building_footprints,
-        declared_scale=max(
-            float(min_building_detail),
-            float(conditioning_diagnostics.get("output_grid", 0.0) or 0.0),
-            1.0e-9,
-        ),
+        min_building_detail=min_building_detail,
         diagnostics=conditioning_diagnostics,
     )
     _raise_stage_contract_errors("Conditioned footprints", footprint_contract)
@@ -4060,14 +4084,13 @@ def build_city_flat_mesh(
                 pipeline_mode=pipeline_mode,
             )
         )
-        conditioned_scale = max(
-            float(min_building_detail),
-            float(diagnostics.get("output_grid", 0.0) or 0.0),
-            1.0e-9,
+        conditioned_scale = _conditioned_footprint_declared_scale(
+            min_building_detail=min_building_detail,
+            diagnostics=diagnostics,
         )
-        footprint_contract = _conditioned_footprint_contract_audit(
+        footprint_contract = _conditioned_footprint_contract(
             surfaces=building_footprints,
-            declared_scale=conditioned_scale,
+            min_building_detail=min_building_detail,
             diagnostics=diagnostics,
         )
         if attempt is not None:
@@ -4441,14 +4464,13 @@ def build_city_volume_mesh(
         attempt["config"]["terrain_effectively_flat"] = bool(
             terrain_effectively_flat
         )
-    conditioned_scale = max(
-        float(min_building_detail),
-        float(diagnostics.get("output_grid", 0.0) or 0.0),
-        1.0e-9,
+    conditioned_scale = _conditioned_footprint_declared_scale(
+        min_building_detail=min_building_detail,
+        diagnostics=diagnostics,
     )
-    conditioned_footprint_contract = _conditioned_footprint_contract_audit(
+    conditioned_footprint_contract = _conditioned_footprint_contract(
         surfaces=building_footprints,
-        declared_scale=conditioned_scale,
+        min_building_detail=min_building_detail,
         diagnostics=diagnostics,
     )
     if attempt is not None:

@@ -477,6 +477,7 @@ def _result_error_summary(result: dict[str, Any]) -> str:
         return ""
     error = result.get("error") or {}
     error_type = error.get("type", "Error")
+    failure_class = error.get("failure_class")
     message = str(error.get("message", "")).replace("\n", " ")
     if len(message) > 120:
         message = message[:117] + "..."
@@ -485,7 +486,8 @@ def _result_error_summary(result: dict[str, Any]) -> str:
         for key in ("stdout_log", "stderr_log")
         if result.get(key)
     )
-    summary = f"{error_type}: {message}" if message else error_type
+    prefix = f"{failure_class} / {error_type}" if failure_class else error_type
+    summary = f"{prefix}: {message}" if message else prefix
     return f"{summary} ({logs})" if logs else summary
 
 

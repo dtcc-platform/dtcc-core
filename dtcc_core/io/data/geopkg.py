@@ -31,6 +31,10 @@ class NoFootprintTilesError(RuntimeError):
     """Raised when the footprint backend has no tiles for the requested bounds."""
 
 
+class FootprintDownloadError(RuntimeError):
+    """Raised when footprint tile lookup or download fails."""
+
+
 def load_cache():
     """
     Load or create an empty cache metadata from tile_cache_superset.json.
@@ -141,6 +145,7 @@ async def download_gpkg_file(session, base_url, filename, output_dir):
     url = f"{base_url}/get/gpkg/{filename}"
     os.makedirs(output_dir, exist_ok=True)
     out_path = os.path.join(output_dir, filename)
+    tmp_path = f"{out_path}.part"
 
     # 1) Check local cache
     if os.path.exists(out_path):
@@ -149,14 +154,25 @@ async def download_gpkg_file(session, base_url, filename, output_dir):
 
     # 2) If not cached, download
     info(f"Downloading {filename} from {url}")
-    async with session.get(url) as resp:
-        if resp.status == 200:
+    try:
+        async with session.get(url) as resp:
+            if resp.status != 200:
+                raise FootprintDownloadError(
+                    f"Failed to download {filename}, status code={resp.status}"
+                )
             content = await resp.read()
-            with open(out_path, "wb") as f:
+            with open(tmp_path, "wb") as f:
                 f.write(content)
+            os.replace(tmp_path, out_path)
             info(f"Saved {filename} to {out_path}")
-        else:
-            warning(f"Failed to download {filename}, status code={resp.status}")
+    except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as exc:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        raise FootprintDownloadError(
+            f"Failed to download footprint tile {filename}: {type(exc).__name__}: {exc}"
+        ) from exc
 
 async def download_all_gpkg_files(base_url, filenames, output_dir="downloaded_gpkg"):
     """
@@ -203,14 +219,22 @@ def download_tiles(user_bbox, session, server_url=DEFAULT_SERVER_URL):
     except NoFootprintTilesError:
         raise
     except Exception as e:
-        warning(f"Error occurred: {e}")
-        return
+        raise FootprintDownloadError(
+            f"Footprint tile lookup failed for bounds {user_bbox}: {e}"
+        ) from e
     returned_tiles = response_data["tiles"]
     output_dir = os.path.join(CACHE_DIR,'downloaded-gpkg')
     # D) Download files in parallel (with local cache)
     # filenames_to_download = [tile["filename"] for tile in returned_tiles]
     run_download_files(server_url, returned_tiles, output_dir=output_dir)
-    return [os.path.join(output_dir, filename) for filename in returned_tiles]
+    downloaded_files = [os.path.join(output_dir, filename) for filename in returned_tiles]
+    missing_files = [path for path in downloaded_files if not os.path.exists(path)]
+    if missing_files:
+        raise FootprintDownloadError(
+            "Footprint tile download did not produce all expected files: "
+            + ", ".join(os.path.basename(path) for path in missing_files)
+        )
+    return downloaded_files
 
 
 '''

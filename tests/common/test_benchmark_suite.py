@@ -147,6 +147,67 @@ def test_sweep_suite_keeps_parameter_sweeps_on_surface_mesh_dataset() -> None:
     }
 
 
+def test_stress_suite_uses_dataset_specific_mesh_size_limits() -> None:
+    tasks = build_tasks("stress", city="lund")
+    assert tasks
+
+    scenarios_by_dataset = {}
+    for task in tasks:
+        scenarios_by_dataset.setdefault(task.dataset, set()).add(task.scenario.id)
+
+    assert scenarios_by_dataset == {
+        "city_surface_mesh": {
+            "raster_cell_size_0.5",
+            "max_mesh_size_1",
+            "max_mesh_size_2",
+        },
+        "city_volume_mesh": {
+            "raster_cell_size_0.5",
+            "max_mesh_size_5",
+        },
+    }
+
+
+def test_stress_suite_keeps_volume_mesh_size_at_or_above_five_meters() -> None:
+    tasks = build_tasks("stress", city="lund", datasets=["city_volume_mesh"])
+    assert tasks
+    assert {task.dataset for task in tasks} == {"city_volume_mesh"}
+    for task in tasks:
+        max_mesh_size = task.parameters["max_mesh_size"]
+        assert task.scenario.id == "raster_cell_size_0.5" or max_mesh_size >= 5.0
+
+
+def test_benchmark_failure_classification_separates_data_from_geometry() -> None:
+    assert (
+        benchmark_datasets.classify_failure(
+            "RuntimeError",
+            "Footprint download failed for bounds (1, 2, 3, 4).",
+        )
+        == "footprint_download"
+    )
+    assert (
+        benchmark_datasets.classify_failure(
+            "FootprintDownloadError",
+            "Footprint tile download did not produce all expected files: tile.gpkg",
+        )
+        == "footprint_download"
+    )
+    assert (
+        benchmark_datasets.classify_failure(
+            "FileNotFoundError",
+            "File /Users/example/Library/Caches/dtcc-data/downloaded-gpkg/tile.gpkg not found",
+        )
+        == "footprint_cache"
+    )
+    assert (
+        benchmark_datasets.classify_failure(
+            "RuntimeError",
+            "Conditioned footprints contract failed: short_edge_count=2",
+        )
+        == "conditioned_footprint_contract"
+    )
+
+
 def test_summary_markdown_reports_status_counts_and_quality_metrics() -> None:
     bench = Path(__file__).resolve().parents[2] / "benchmarks" / "bench"
     bench_module = runpy.run_path(str(bench))

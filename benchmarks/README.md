@@ -32,7 +32,8 @@ The benchmark suites are:
 - `regression`: center grid tile across all cities and datasets
 - `sweep`: one-axis parameter sweeps for `city_surface_mesh`
 - `grid`: full 10x10 grid survey for one explicit city
-- `stress`: fine-raster and fine-mesh center grid tiles across all cities
+- `stress`: fine-raster and dataset-specific fine-mesh center grid tiles across
+  all cities
 
 A benchmark task is one spatial case run through one dataset and one
 scenario. For example, `./bench run grid --city stockholm` is `100` spatial
@@ -47,6 +48,12 @@ Benchmark scenarios use normalized parameter names, such as
 maps those normalized names to dataset-specific arguments where needed.
 `./bench list scenarios` shows the default parameter set and marks `baseline`
 as the default scenario.
+
+The stress suite intentionally uses dataset-specific mesh-size limits. Surface
+mesh stress includes `max_mesh_size_1` and `max_mesh_size_2`. Volume mesh
+stress uses `max_mesh_size_5` as its smallest mesh-size scenario; larger 3D
+volume meshes below that size are treated as a separate capacity/performance
+challenge rather than part of the routine benchmark gate.
 
 The active suite no longer compares Spade or Triangle as benchmark dimensions.
 It uses the default DTCC meshing path exposed through the dataset APIs.

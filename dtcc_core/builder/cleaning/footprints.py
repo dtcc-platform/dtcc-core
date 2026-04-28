@@ -856,7 +856,9 @@ def _make_valid(geom: BaseGeometry, diagnostics: dict[str, Any]) -> BaseGeometry
         return geom
     try:
         if not geom.is_valid:
-            diagnostics["repaired_invalid_count"] += 1
+            diagnostics["repaired_invalid_count"] = (
+                int(diagnostics.get("repaired_invalid_count", 0)) + 1
+            )
         return make_valid(geom)
     except GEOSException as exc:
         _record_geos_exception(diagnostics, "make_valid", exc)

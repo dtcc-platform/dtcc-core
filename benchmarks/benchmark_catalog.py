@@ -201,7 +201,12 @@ SUITE_DESCRIPTIONS: dict[str, str] = {
     "regression": "Center grid tile across all cities and datasets.",
     "sweep": "One-axis city-center parameter sweeps, focused on city_surface_mesh.",
     "grid": "Full 10x10 grid survey for one city.",
-    "stress": "Fine-mesh and fine-raster center grid tiles across all cities.",
+    "stress": "Fine-raster and dataset-specific fine-mesh center grid tiles across all cities.",
+}
+
+STRESS_SCENARIOS_BY_DATASET: dict[str, tuple[str, ...]] = {
+    "city_surface_mesh": ("raster_cell_size_0.5", "max_mesh_size_1", "max_mesh_size_2"),
+    "city_volume_mesh": ("raster_cell_size_0.5", "max_mesh_size_5"),
 }
 
 
@@ -275,20 +280,25 @@ def build_tasks(
         cases = list(CENTER_GRID_CASES)
         if city is not None:
             cases = [case for case in cases if case.city == city]
-        suite_datasets = _filter_datasets(("city_surface_mesh", "city_volume_mesh"), datasets)
-        scenario_ids = ("raster_cell_size_0.5", "max_mesh_size_1", "max_mesh_size_2")
+        suite_datasets = _filter_datasets(STRESS_SCENARIOS_BY_DATASET, datasets)
+        scenario_ids = ()
         timeout = 900
     else:
         raise AssertionError(f"unhandled benchmark suite: {suite}")
 
     for case in cases:
-        for scenario_id in scenario_ids:
-            scenario = SCENARIOS[scenario_id]
-            resolved_case = _with_scenario_bounds(case, scenario)
-            parameters = dict(DEFAULT_PARAMETERS)
-            parameters.update(scenario.parameters)
-            parameters.pop("bbox_size_m", None)
-            for dataset in suite_datasets:
+        for dataset in suite_datasets:
+            dataset_scenario_ids = (
+                STRESS_SCENARIOS_BY_DATASET[dataset]
+                if suite == "stress"
+                else scenario_ids
+            )
+            for scenario_id in dataset_scenario_ids:
+                scenario = SCENARIOS[scenario_id]
+                resolved_case = _with_scenario_bounds(case, scenario)
+                parameters = dict(DEFAULT_PARAMETERS)
+                parameters.update(scenario.parameters)
+                parameters.pop("bbox_size_m", None)
                 task_id = f"{suite}:{dataset}:{resolved_case.id}:{scenario.id}"
                 tasks.append(
                     BenchmarkTask(

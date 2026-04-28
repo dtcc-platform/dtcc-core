@@ -168,6 +168,31 @@ def _save_result_artifacts(dataset_name: str, result: Any, artifact_dir: Path) -
     return artifacts
 
 
+def classify_failure(exc_type: str, message: str) -> str:
+    """Return a coarse benchmark failure class for triage summaries."""
+    text = f"{exc_type}: {message}".lower()
+    if (
+        exc_type == "FootprintDownloadError"
+        or "footprint download failed" in text
+        or "footprint tile lookup failed" in text
+        or "footprint tile download did not produce" in text
+    ):
+        return "footprint_download"
+    if "downloaded-gpkg" in text or "gpkg" in text and "not found" in text:
+        return "footprint_cache"
+    if "lidar" in text and ("404" in text or "not found" in text):
+        return "lidar_coverage"
+    if exc_type == "TimeoutError" or "timeouterror" in text:
+        return "timeout"
+    if "conditioned footprint" in text and "contract" in text:
+        return "conditioned_footprint_contract"
+    if "point outside" in text and "domain" in text:
+        return "point_outside_domain"
+    if exc_type == "IndexError" and "terrain" in text:
+        return "terrain_lookup"
+    return "pipeline"
+
+
 def run_dataset(task: dict[str, Any]) -> dict[str, Any]:
     dataset_name = task["dataset"]
     if dataset_name not in DATASET_NAMES:
@@ -207,6 +232,8 @@ def run_dataset(task: dict[str, Any]) -> dict[str, Any]:
         }
     except Exception as exc:
         elapsed = time.perf_counter() - started
+        exc_type = type(exc).__name__
+        message = str(exc)
         return {
             "task_id": task["id"],
             "dataset": dataset_name,
@@ -219,8 +246,9 @@ def run_dataset(task: dict[str, Any]) -> dict[str, Any]:
             "metrics": {},
             "artifacts": {},
             "error": {
-                "type": type(exc).__name__,
-                "message": str(exc),
+                "type": exc_type,
+                "message": message,
+                "failure_class": classify_failure(exc_type, message),
                 "traceback": traceback.format_exc(),
             },
         }
