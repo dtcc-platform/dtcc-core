@@ -3924,6 +3924,158 @@ def test_select_post_coverage_candidates_skips_identity_for_decisive_global_shor
     assert [candidate.label for candidate in selected] == ["global"]
 
 
+def test_condition_polygon_coverage_defers_identity_contract_fallback_when_local_succeeds(
+    monkeypatch,
+):
+    polygon = box(0.0, 0.0, 10.0, 10.0)
+    source_map = [[0]]
+    difference_metrics = {
+        "reference_minus_candidate_area": 0.0,
+        "candidate_minus_reference_area": 0.0,
+        "symmetric_difference_area": 0.0,
+        "union_area_delta": 0.0,
+    }
+    failing_signature = cleaning_footprints._CoverageDefectSignature(
+        min_clearance=0.1,
+        pair_issue_count=1,
+        point_touch_count=0,
+        close_pair_count=1,
+        min_pair_clearance=0.1,
+        short_edge_count=1,
+        min_edge_length=0.1,
+        vertex_count=4,
+    )
+    passing_signature = cleaning_footprints._CoverageDefectSignature(
+        min_clearance=1.0,
+        pair_issue_count=0,
+        point_touch_count=0,
+        close_pair_count=0,
+        min_pair_clearance=None,
+        short_edge_count=0,
+        min_edge_length=10.0,
+        vertex_count=4,
+    )
+
+    def make_candidate(label, signature):
+        return cleaning_footprints._CoverageSimplifyCandidate(
+            label=label,
+            polygons=[polygon],
+            source_map=source_map,
+            signature=signature,
+            difference_metrics=difference_metrics,
+            change_outside_edit_zone=0.0,
+            edit_zone_area=0.0,
+            area_balance_budget=1.0,
+            patch_count=0,
+            patch_applied_count=0,
+            operator_attempts={},
+            operator_applied={},
+        )
+
+    candidates = {}
+
+    def fake_global_candidate(*args, **kwargs):
+        candidates["global"] = make_candidate("global", failing_signature)
+        return candidates["global"]
+
+    def fake_local_candidate(*args, **kwargs):
+        candidates["local"] = make_candidate("local", passing_signature)
+        return candidates["local"]
+
+    def fake_select_candidates(identity_candidate, _candidates, **kwargs):
+        candidates["identity"] = identity_candidate
+        return [candidates["global"]]
+
+    evaluated_labels = []
+
+    def fake_evaluate_branch(candidate, **kwargs):
+        evaluated_labels.append(candidate.label)
+        final_signature = (
+            passing_signature if candidate.label == "local" else failing_signature
+        )
+        branch_diagnostics = cleaning_footprints._empty_diagnostics(
+            len(candidate.polygons)
+        )
+        branch_diagnostics["collect_stage_metrics"] = False
+        branch_diagnostics["enable_logging"] = False
+        return cleaning_footprints._PostCoverageBranch(
+            label=candidate.label,
+            coverage_candidate=candidate,
+            coverage_polygons=candidate.polygons,
+            coverage_source_map=candidate.source_map,
+            source_reclaimed_polygons=candidate.polygons,
+            source_reclaimed_source_map=candidate.source_map,
+            small_component_absorbed_polygons=candidate.polygons,
+            small_component_absorbed_source_map=candidate.source_map,
+            boundary_regularized_polygons=candidate.polygons,
+            boundary_regularized_source_map=candidate.source_map,
+            clearance_regularized_polygons=candidate.polygons,
+            clearance_regularized_source_map=candidate.source_map,
+            source_coordinate_recovered_polygons=candidate.polygons,
+            source_coordinate_recovered_source_map=candidate.source_map,
+            post_recovery_regularized_polygons=candidate.polygons,
+            post_recovery_regularized_source_map=candidate.source_map,
+            coverage_contact_regularized_polygons=candidate.polygons,
+            coverage_contact_regularized_source_map=candidate.source_map,
+            coverage_meshing_regularized_polygons=candidate.polygons,
+            coverage_meshing_regularized_source_map=candidate.source_map,
+            final_output_polygons=candidate.polygons,
+            final_output_source_map=candidate.source_map,
+            final_signature=final_signature,
+            final_difference_metrics=difference_metrics,
+            diagnostics=branch_diagnostics,
+        )
+
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_coverage_globally",
+        fake_global_candidate,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_should_attempt_local_coverage_candidate",
+        lambda *args, **kwargs: False,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_simplify_coverage_locally",
+        fake_local_candidate,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_select_post_coverage_candidates_for_evaluation",
+        fake_select_candidates,
+    )
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_evaluate_post_coverage_branch",
+        fake_evaluate_branch,
+    )
+
+    result = cleaning.condition_polygon_coverage(
+        [polygon],
+        options=cleaning.ConditioningOptions(
+            min_feature_size=0.5,
+            merge_distance=0.0,
+            min_area=0.0,
+            min_hole_area=0.0,
+            collect_stage_metrics=False,
+            enable_logging=False,
+        ),
+    )
+
+    assert evaluated_labels == ["global", "local"]
+    assert result.diagnostics["coverage_simplify_contract_fallback_evaluated"] == [
+        "local"
+    ]
+    assert result.diagnostics["coverage_simplify_branches_finalized"] == [
+        "global",
+        "local",
+    ]
+    assert result.diagnostics["coverage_simplify_selected_branch"] == "local"
+    assert "identity" not in result.diagnostics["coverage_simplify_branch_seconds"]
+
+
 def test_evaluate_post_coverage_branch_skips_noop_stages(monkeypatch):
     polygon = box(0.0, 0.0, 4.0, 4.0)
     candidate = cleaning_footprints._CoverageSimplifyCandidate(

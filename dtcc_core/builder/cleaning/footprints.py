@@ -715,6 +715,7 @@ def _empty_diagnostics(input_count: int) -> dict[str, Any]:
         "coverage_simplify_operator_applied": {},
         "coverage_simplify_selected_branch": "identity",
         "coverage_simplify_branch_scores": {},
+        "coverage_simplify_branch_seconds": {},
         "coverage_simplify_contract_fallback_skipped_reason": None,
         "local_defect_repair_candidate_count": 0,
         "local_defect_repair_applied_count": 0,
@@ -15787,22 +15788,34 @@ def condition_polygon_coverage(
     diagnostics["coverage_simplify_contract_fallback_triggered"] = False
     diagnostics["coverage_simplify_contract_fallback_evaluated"] = []
     diagnostics["coverage_simplify_contract_fallback_skipped_reason"] = None
-    finalized_branches = {
-        candidate.label: _evaluate_post_coverage_branch(
-            candidate,
-            reference_union=coverage_reference_union,
-            source_lookup=source_lookup,
-            raw_support_union=raw_support_union,
-            min_feature_size=options.min_feature_size,
-            source_recovery_scale=options.min_feature_size,
-            grid=output_grid,
-            min_area=0.0,
-            output_min_area=options.min_area,
-            min_hole_area=options.min_hole_area,
-            cache=coverage_eval_cache,
-        )
-        for candidate in candidates_to_evaluate
-    }
+    diagnostics["coverage_simplify_branch_seconds"] = {}
+    finalized_branches: dict[str, _PostCoverageBranch] = {}
+
+    def finalize_post_coverage_candidates(
+        candidates: Sequence[_CoverageSimplifyCandidate],
+    ) -> None:
+        for candidate in candidates:
+            if candidate.label in finalized_branches:
+                continue
+            branch_started_at = time.perf_counter()
+            finalized_branches[candidate.label] = _evaluate_post_coverage_branch(
+                candidate,
+                reference_union=coverage_reference_union,
+                source_lookup=source_lookup,
+                raw_support_union=raw_support_union,
+                min_feature_size=options.min_feature_size,
+                source_recovery_scale=options.min_feature_size,
+                grid=output_grid,
+                min_area=0.0,
+                output_min_area=options.min_area,
+                min_hole_area=options.min_hole_area,
+                cache=coverage_eval_cache,
+            )
+            diagnostics["coverage_simplify_branch_seconds"][candidate.label] = float(
+                time.perf_counter() - branch_started_at
+            )
+
+    finalize_post_coverage_candidates(candidates_to_evaluate)
     identity_branch = finalized_branches.get("identity")
     global_branch = finalized_branches.get("global")
     local_branch = finalized_branches.get("local")
@@ -15845,29 +15858,44 @@ def condition_polygon_coverage(
                 )
                 if local_candidate is not None:
                     coverage_candidates.append(local_candidate)
-            fallback_candidates = [
-                candidate
-                for candidate in coverage_candidates
-                if candidate.label not in finalized_branches
-            ]
             diagnostics["coverage_simplify_contract_fallback_triggered"] = True
-            diagnostics["coverage_simplify_contract_fallback_evaluated"] = [
+
+            fallback_candidates: list[_CoverageSimplifyCandidate] = []
+            if (
+                local_candidate is not None
+                and local_candidate.label not in finalized_branches
+            ):
+                fallback_candidates.append(local_candidate)
+            elif identity_candidate.label not in finalized_branches:
+                fallback_candidates.append(identity_candidate)
+
+            diagnostics["coverage_simplify_contract_fallback_evaluated"].extend(
                 candidate.label for candidate in fallback_candidates
-            ]
-            for candidate in fallback_candidates:
-                finalized_branches[candidate.label] = _evaluate_post_coverage_branch(
-                    candidate,
-                    reference_union=coverage_reference_union,
-                    source_lookup=source_lookup,
-                    raw_support_union=raw_support_union,
-                    min_feature_size=options.min_feature_size,
-                    source_recovery_scale=options.min_feature_size,
+            )
+            finalize_post_coverage_candidates(fallback_candidates)
+            identity_branch = finalized_branches.get("identity")
+            global_branch = finalized_branches.get("global")
+            local_branch = finalized_branches.get("local")
+            chosen_branch, global_score, local_score = _choose_post_coverage_branch(
+                identity_branch,
+                global_branch,
+                local_branch,
+                target_scale=meshing_scale,
+                grid=output_grid,
+            )
+
+            if (
+                not _coverage_signature_satisfies_scale_contract(
+                    chosen_branch.final_signature,
+                    target_scale=meshing_scale,
                     grid=output_grid,
-                    min_area=0.0,
-                    output_min_area=options.min_area,
-                    min_hole_area=options.min_hole_area,
-                    cache=coverage_eval_cache,
                 )
+                and identity_candidate.label not in finalized_branches
+            ):
+                diagnostics["coverage_simplify_contract_fallback_evaluated"].append(
+                    identity_candidate.label
+                )
+                finalize_post_coverage_candidates([identity_candidate])
             identity_branch = finalized_branches.get("identity")
             global_branch = finalized_branches.get("global")
             local_branch = finalized_branches.get("local")
