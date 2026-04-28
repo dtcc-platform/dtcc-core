@@ -279,6 +279,7 @@ def _run_task_subprocess(
     status = "hang" if signal_used in {"SIGTERM", "SIGKILL"} else "timeout"
     if signal_used == "none":
         status = "failed"
+    failure_class = "timeout" if status in {"timeout", "hang"} else "pipeline"
     return {
         "task_id": task["id"],
         "dataset": task["dataset"],
@@ -293,6 +294,7 @@ def _run_task_subprocess(
         "error": {
             "type": "SubprocessError",
             "message": f"worker exited without BENCHMARK_RESULT, rc={process.returncode}, signal={signal_used}",
+            "failure_class": failure_class,
         },
         "returncode": process.returncode,
         "signal_used": signal_used,

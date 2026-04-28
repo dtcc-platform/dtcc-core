@@ -243,7 +243,11 @@ def test_summary_markdown_reports_status_counts_and_quality_metrics() -> None:
                 "status": "failed",
                 "elapsed_seconds": 2.5,
                 "metrics": {},
-                "error": {"type": "RuntimeError", "message": "mesh failed"},
+                "error": {
+                    "type": "RuntimeError",
+                    "message": "mesh failed",
+                    "failure_class": "pipeline",
+                },
                 "stdout_log": "tasks/example/stdout.log",
                 "stderr_log": "tasks/example/stderr.log",
             },
@@ -285,6 +289,7 @@ def test_summary_markdown_reports_status_counts_and_quality_metrics() -> None:
     assert summary.index("## Results") < summary.index("## Status Summary")
     assert "✓ success" in summary
     assert "✗ failed" in summary
+    assert "pipeline / RuntimeError: mesh failed" in summary
     assert "footprints=12, polygons=12" in summary
     assert "contract=passed" in summary
     assert "V=1,234, F=2,000, C=0, building_faces=0" in summary
