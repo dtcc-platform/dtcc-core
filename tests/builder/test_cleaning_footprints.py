@@ -7277,6 +7277,62 @@ def test_regularize_low_clearance_polygons_removes_gothenburg_tail():
     assert signature.short_edge_count == 0
 
 
+def test_final_output_clearance_regularization_repairs_lund_tendril():
+    polygon = cleaning_footprints.shapely.from_wkt(
+        "POLYGON ((386195.96875 6174887.4375, 386162.78125 6174883.65625, "
+        "386163.5625 6174923.125, 386131.53125 6174923.78125, "
+        "386128.875 6174918.40625, 386128.09375 6174879.71875, "
+        "385979.53125 6174862.78125, 386128.0625 6174878.3125, "
+        "386128 6174874.3125, 385887.84375 6174847.375, "
+        "386127.96875 6174872.71875, 386125.40625 6174778.1875, "
+        "386168.21875 6174779, 386177.5 6174778.21875, "
+        "386178.09375 6174766.375, 386226 6174769, "
+        "386222.5625 6174773, 386221.375 6174796.5, "
+        "386184 6174799.0625, 386179.5 6174796.375, "
+        "386179.65625 6174805.4375, 386171.625 6174805.53125, "
+        "386168.59375 6174796.96875, 386160.3125 6174796.78125, "
+        "386161.1875 6174837.15625, 386154.71875 6174837.5625, "
+        "386157.46875 6174844.15625, 386149.4375 6174843.71875, "
+        "386149.75 6174859.5625, 386162.28125 6174859.3125, "
+        "386162.625 6174876.375, 386167.53125 6174876.875, "
+        "386168.5 6174874.96875, 386173.3125 6174874.84375, "
+        "386173.375 6174877.5, 386193.8125 6174879.65625, "
+        "386193.59375 6174881.65625, 386173.40625 6174879.40625, "
+        "386162.75 6174881.9375, 386196.21875 6174885.4375, "
+        "386195.96875 6174887.4375))"
+    )
+    diagnostics = cleaning_footprints._empty_diagnostics(1)
+    before = cleaning_footprints._coverage_defect_signature(
+        [polygon],
+        target_scale=2.0,
+    )
+
+    polygons, source_map = cleaning_footprints._regularize_final_output_clearance(
+        [polygon],
+        [[129, 133]],
+        min_segment_length=2.0,
+        grid=0.03125,
+        min_area=0.0,
+        min_hole_area=4.0,
+        diagnostics=diagnostics,
+    )
+
+    after = cleaning_footprints._coverage_defect_signature(
+        polygons,
+        target_scale=2.0,
+    )
+    assert source_map == [[129, 133]]
+    assert diagnostics["final_clearance_regularization_applied"] is True
+    assert after.min_clearance is not None
+    assert before.min_clearance is not None
+    assert after.min_clearance > before.min_clearance
+    assert cleaning_footprints._coverage_signature_satisfies_scale_contract(
+        after,
+        target_scale=2.0,
+        grid=0.03125,
+    )
+
+
 def test_regularize_coverage_ring_contacts_repairs_ring_contacts_without_clearance_deficit():
     polygon = cleaning_footprints.shapely.from_wkt(
         "POLYGON ((674539.8125 6579688.65625, 674541.4375 6579683.03125, "

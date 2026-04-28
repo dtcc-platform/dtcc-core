@@ -829,6 +829,62 @@ def test_normalize_mesher_ready_coverage_revalidates_invalid_segment_graph(
     assert diagnostics["mesher_ready_coverage_segment_graph_valid_after"] is True
 
 
+def test_normalize_mesher_ready_coverage_preserves_contract_grid_for_revalidation(
+    monkeypatch,
+):
+    polygons = [box(0.0, 0.0, 2.0, 2.0), box(2.2, 0.0, 4.2, 2.0)]
+    source_map = [[0], [1]]
+    captured_options = []
+
+    monkeypatch.setattr(
+        meshes_module,
+        "_normalize_mesher_ready_polygon",
+        lambda polygon, *, declared_scale, diagnostics=None: [polygon],
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_coverage_mesher_segment_graph_error",
+        lambda polygons: None,
+    )
+
+    def fake_condition_polygon_coverage(polygons, *, source_map, options):
+        captured_options.append(options)
+        return meshes_module.cleaning_footprints.ConditioningResult(
+            polygons=[box(0.0, 0.0, 2.0, 2.0), box(3.0, 0.0, 5.0, 2.0)],
+            source_map=[[0], [1]],
+            diagnostics={
+                "output_grid": 0.03125,
+                "geos_exception_count": 0,
+                "geos_exception_messages": [],
+                "coverage_meshing_regularization_operator_applied": {},
+            },
+        )
+
+    monkeypatch.setattr(
+        meshes_module,
+        "condition_polygon_coverage",
+        fake_condition_polygon_coverage,
+    )
+
+    diagnostics = {"geos_exception_count": 0, "geos_exception_messages": []}
+    normalized_polygons, normalized_sources = meshes_module._normalize_mesher_ready_coverage(
+        polygons,
+        source_map,
+        declared_scale=2.0,
+        min_hole_area=4.0,
+        contract_grid_tolerance=0.03125,
+        diagnostics=diagnostics,
+        cleaning_diagnostics=False,
+    )
+
+    assert normalized_sources == source_map
+    assert normalized_polygons[1].bounds[0] == pytest.approx(3.0)
+    assert captured_options[0].precision_grid == pytest.approx(0.03125)
+    assert diagnostics["mesher_ready_coverage_revalidation_output_grid"] == pytest.approx(
+        0.03125
+    )
+
+
 def test_normalize_mesher_ready_coverage_rejects_insufficient_partial_clearance_gain(
     monkeypatch,
 ):

@@ -3544,11 +3544,16 @@ def _normalize_mesher_ready_coverage(
         return normalized_polygons, normalized_sources
 
     diagnostics["mesher_ready_coverage_revalidation_attempted"] = True
+    revalidation_precision_grid = float(contract_grid_tolerance or 0.0)
     revalidation = condition_polygon_coverage(
         normalized_polygons,
         source_map=[list(indices) for indices in normalized_sources],
         options=ConditioningOptions(
-            precision_grid=None,
+            precision_grid=(
+                revalidation_precision_grid
+                if revalidation_precision_grid > 0.0
+                else None
+            ),
             min_feature_size=declared_scale,
             merge_distance=0.0,
             min_area=0.0,

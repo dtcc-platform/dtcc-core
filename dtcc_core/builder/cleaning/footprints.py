@@ -606,6 +606,13 @@ def _empty_diagnostics(input_count: int) -> dict[str, Any]:
         "output_canonicalization_area_balance_budget": 0.0,
         "final_min_area_filter_removed_count": 0,
         "final_min_area_filter_removed_area": 0.0,
+        "final_clearance_regularization_applied": False,
+        "final_clearance_regularization_candidate_count": 0,
+        "final_clearance_regularization_improved_count": 0,
+        "final_clearance_regularization_failed_count": 0,
+        "final_clearance_regularization_overlap_area": 0.0,
+        "final_clearance_regularization_rejected_overlap": False,
+        "final_clearance_regularization_rejected_non_improving": False,
         "global_reconstruction_applied": False,
         "global_reconstruction_reason": "not_evaluated",
         "global_reconstruction_overlap_threshold": None,
@@ -14065,6 +14072,101 @@ def _identity_coverage_candidate(
     )
 
 
+def _regularize_final_output_clearance(
+    polygons: list[Polygon],
+    source_map: list[list[int]],
+    *,
+    min_segment_length: float,
+    grid: float,
+    min_area: float,
+    min_hole_area: float,
+    diagnostics: dict[str, Any],
+) -> tuple[list[Polygon], list[list[int]]]:
+    diagnostics["final_clearance_regularization_applied"] = False
+    diagnostics["final_clearance_regularization_rejected_overlap"] = False
+    diagnostics["final_clearance_regularization_rejected_non_improving"] = False
+
+    if min_segment_length <= 0 or not polygons:
+        return polygons, source_map
+
+    before_signature = _coverage_defect_signature(
+        polygons,
+        target_scale=min_segment_length,
+    )
+    residual_clearance_deficit = max(
+        min_segment_length - (before_signature.min_clearance or 0.0),
+        0.0,
+    )
+    if (
+        before_signature.short_edge_count > 0
+        or before_signature.pair_issue_count > 0
+        or before_signature.ring_contact_count > 0
+        or before_signature.acute_tip_count > 0
+        or residual_clearance_deficit <= max(grid, 1.0e-9)
+    ):
+        return polygons, source_map
+
+    repair_diagnostics = _empty_diagnostics(len(polygons))
+    repair_diagnostics["collect_stage_metrics"] = False
+    repair_diagnostics["enable_logging"] = False
+    candidate_polygons, candidate_sources = _regularize_low_clearance_polygons(
+        polygons,
+        source_map,
+        min_clearance=min_segment_length,
+        grid=grid,
+        min_area=min_area,
+        min_hole_area=min_hole_area,
+        diagnostics=repair_diagnostics,
+    )
+    diagnostics["geos_exception_count"] += repair_diagnostics["geos_exception_count"]
+    diagnostics["geos_exception_messages"].extend(
+        repair_diagnostics["geos_exception_messages"]
+    )
+    diagnostics["final_clearance_regularization_candidate_count"] = (
+        repair_diagnostics["clearance_regularization_candidate_count"]
+    )
+    diagnostics["final_clearance_regularization_improved_count"] = (
+        repair_diagnostics["clearance_regularization_improved_count"]
+    )
+    diagnostics["final_clearance_regularization_failed_count"] = (
+        repair_diagnostics["clearance_regularization_failed_count"]
+    )
+    diagnostics["final_clearance_regularization_overlap_area"] = (
+        repair_diagnostics["clearance_regularization_overlap_area"]
+    )
+
+    if _polygon_sequence_key(candidate_polygons) == _polygon_sequence_key(polygons):
+        return polygons, source_map
+
+    overlap_tolerance = max(grid * grid, 1.0e-9)
+    overlap_area = _coverage_overlap_area(candidate_polygons)
+    diagnostics["final_clearance_regularization_overlap_area"] = overlap_area
+    if overlap_area > overlap_tolerance:
+        diagnostics["final_clearance_regularization_rejected_overlap"] = True
+        return polygons, source_map
+
+    candidate_signature = _coverage_defect_signature(
+        candidate_polygons,
+        target_scale=min_segment_length,
+    )
+    if not _coverage_signature_not_worse(
+        before_signature,
+        candidate_signature,
+        grid=grid,
+        target_scale=min_segment_length,
+    ) or not _coverage_signature_improves(
+        before_signature,
+        candidate_signature,
+        grid=grid,
+        target_scale=min_segment_length,
+    ):
+        diagnostics["final_clearance_regularization_rejected_non_improving"] = True
+        return polygons, source_map
+
+    diagnostics["final_clearance_regularization_applied"] = True
+    return _stable_sort(candidate_polygons, candidate_sources)
+
+
 def _evaluate_post_coverage_branch(
     coverage_candidate: _CoverageSimplifyCandidate,
     *,
@@ -14409,6 +14511,15 @@ def _evaluate_post_coverage_branch(
         final_output_polygons,
         final_output_sources,
     )
+    final_polygons, final_sources = _regularize_final_output_clearance(
+        final_polygons,
+        final_sources,
+        min_segment_length=min_feature_size,
+        grid=grid,
+        min_area=min_area,
+        min_hole_area=min_hole_area,
+        diagnostics=diagnostics,
+    )
     final_signature = _cached_coverage_defect_signature(
         cache,
         final_polygons,
@@ -14492,6 +14603,8 @@ def _copy_post_coverage_diagnostics(
         elif key.startswith("final_shape_regularization_"):
             diagnostics[key] = value
         elif key.startswith("final_min_area_filter_"):
+            diagnostics[key] = value
+        elif key.startswith("final_clearance_regularization_"):
             diagnostics[key] = value
     diagnostics["geos_exception_count"] += branch_diagnostics["geos_exception_count"]
     diagnostics["geos_exception_messages"].extend(
