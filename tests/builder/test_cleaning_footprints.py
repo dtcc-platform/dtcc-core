@@ -3062,6 +3062,41 @@ def test_cpp_cluster_rewrite_removes_short_edge_chain():
     assert signature.short_edge_count == 0
 
 
+def test_cached_coverage_defect_signature_reuses_polygon_acute_tip_metrics(
+    monkeypatch,
+):
+    shared = box(0.0, 0.0, 1.0, 1.0)
+    first_unique = box(10.0, 0.0, 11.0, 1.0)
+    second_unique = box(20.0, 0.0, 21.0, 1.0)
+    calls = []
+
+    def fake_acute_tip_metrics(polygon, *, target_scale):
+        calls.append((id(polygon), target_scale))
+        return 0, 0.0
+
+    monkeypatch.setattr(
+        cleaning_footprints,
+        "_meshing_hostile_acute_tip_metrics",
+        fake_acute_tip_metrics,
+    )
+
+    cache = cleaning_footprints._CoverageEvalCache()
+    cleaning_footprints._cached_coverage_defect_signature(
+        cache,
+        [shared, first_unique],
+        target_scale=0.5,
+    )
+    cleaning_footprints._cached_coverage_defect_signature(
+        cache,
+        [shared, second_unique],
+        target_scale=0.5,
+    )
+
+    assert calls.count((id(shared), 0.5)) == 1
+    assert calls.count((id(first_unique), 0.5)) == 1
+    assert calls.count((id(second_unique), 0.5)) == 1
+
+
 def test_coverage_simplify_local_operator_resolves_point_touch_pair():
     diagnostics = cleaning_footprints._empty_diagnostics(2)
     diagnostics["collect_stage_metrics"] = False

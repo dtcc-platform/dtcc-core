@@ -188,6 +188,9 @@ class _CoverageEvalCache:
     signature_cache: dict[tuple[tuple[int, ...], float], _CoverageDefectSignature] = (
         field(default_factory=dict)
     )
+    acute_tip_metrics_cache: dict[tuple[int, float], tuple[int, float]] = (
+        field(default_factory=dict)
+    )
     pair_issue_candidates_cache: dict[
         tuple[tuple[int, ...], float],
         list[tuple[int, int, float, Literal["point", "close"]]],
@@ -271,8 +274,35 @@ def _cached_coverage_defect_signature(
     if cached is not None:
         return cached
 
-    value = _coverage_defect_signature(polygons, target_scale=target_scale)
+    value = _coverage_defect_signature(
+        polygons,
+        target_scale=target_scale,
+        acute_tip_metrics_fn=lambda polygon: _cached_meshing_hostile_acute_tip_metrics(
+            cache,
+            polygon,
+            target_scale=target_scale,
+        ),
+    )
     cache.signature_cache[key] = value
+    return value
+
+
+def _cached_meshing_hostile_acute_tip_metrics(
+    cache: _CoverageEvalCache,
+    polygon: Polygon,
+    *,
+    target_scale: float,
+) -> tuple[int, float]:
+    key = (id(polygon), float(target_scale))
+    cached = cache.acute_tip_metrics_cache.get(key)
+    if cached is not None:
+        return cached
+
+    value = _meshing_hostile_acute_tip_metrics(
+        polygon,
+        target_scale=target_scale,
+    )
+    cache.acute_tip_metrics_cache[key] = value
     return value
 
 
@@ -3423,6 +3453,7 @@ def _coverage_defect_signature(
     polygons: Sequence[Polygon],
     *,
     target_scale: float,
+    acute_tip_metrics_fn: Callable[[Polygon], tuple[int, float]] | None = None,
 ) -> _CoverageDefectSignature:
     segment_stats = _segment_length_stats(
         polygons,
@@ -3441,13 +3472,13 @@ def _coverage_defect_signature(
     ]
     acute_tip_count = 0
     acute_tip_span = 0.0
-    for polygon in polygons:
-        polygon_acute_tip_count, polygon_acute_tip_span = (
-            _meshing_hostile_acute_tip_metrics(
-                polygon,
-                target_scale=target_scale,
-            )
+    if acute_tip_metrics_fn is None:
+        acute_tip_metrics_fn = lambda polygon: _meshing_hostile_acute_tip_metrics(
+            polygon,
+            target_scale=target_scale,
         )
+    for polygon in polygons:
+        polygon_acute_tip_count, polygon_acute_tip_span = acute_tip_metrics_fn(polygon)
         acute_tip_count += polygon_acute_tip_count
         acute_tip_span += polygon_acute_tip_span
     return _CoverageDefectSignature(
