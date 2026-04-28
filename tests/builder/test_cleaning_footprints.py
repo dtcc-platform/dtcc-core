@@ -7242,6 +7242,41 @@ def test_regularize_low_clearance_polygons_closes_case54_style_same_ring_slit():
     assert signature.min_edge_length >= 0.5 - 1.0e-9
 
 
+def test_regularize_low_clearance_polygons_removes_gothenburg_tail():
+    polygon = cleaning_footprints.shapely.from_wkt(
+        "POLYGON ((319543.25 6400363.5, 319591.375 6400253.875, "
+        "319584.5 6400248.375, 319591.625 6400219.5, "
+        "319604.375 6400224.375, 319605.125 6400222.5, "
+        "319659.25 6400099.125, 319606.875 6400221.125, "
+        "319609 6400226.125, 319634.875 6400235.875, "
+        "319627.875 6400263.375, 319592.5 6400254.25, "
+        "319545.125 6400364.25, 319543.25 6400363.5))"
+    )
+    diagnostics = cleaning_footprints._empty_diagnostics(1)
+    diagnostics["collect_stage_metrics"] = False
+
+    polygons, source_map = cleaning_footprints._regularize_low_clearance_polygons(
+        [polygon],
+        [[8, 55, 75]],
+        min_clearance=2.0,
+        grid=0.125,
+        min_area=0.0,
+        min_hole_area=4.0,
+        diagnostics=diagnostics,
+    )
+
+    signature = cleaning_footprints._polygon_defect_signature(
+        polygons[0],
+        target_scale=2.0,
+    )
+    assert len(polygons) == 1
+    assert source_map == [[8, 55, 75]]
+    assert diagnostics["clearance_regularization_improved_count"] == 1
+    assert signature.clearance is not None
+    assert signature.clearance >= 2.0 - 0.125
+    assert signature.short_edge_count == 0
+
+
 def test_regularize_coverage_ring_contacts_repairs_ring_contacts_without_clearance_deficit():
     polygon = cleaning_footprints.shapely.from_wkt(
         "POLYGON ((674539.8125 6579688.65625, 674541.4375 6579683.03125, "

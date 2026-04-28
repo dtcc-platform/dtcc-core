@@ -15156,9 +15156,36 @@ def _regularize_low_clearance_polygons(
 
         consider_candidate(working_polygon)
 
-        opened_parts = _apply_opening(working_polygon, radius, grid, diagnostics)
-        if len(opened_parts) == 1:
-            closed_parts = _apply_closing(opened_parts[0], radius, grid, diagnostics)
+        max_opening_radius = max(radius, min_clearance * 0.75)
+        opening_radii: list[float] = []
+        opening_radius_tolerance = max(grid * 1.0e-3, 1.0e-12)
+        for candidate_radius in (
+            radius,
+            min(radius + grid, max_opening_radius),
+            min(radius + 2.0 * grid, max_opening_radius),
+            max_opening_radius,
+        ):
+            if any(
+                abs(candidate_radius - existing_radius) <= opening_radius_tolerance
+                for existing_radius in opening_radii
+            ):
+                continue
+            opening_radii.append(candidate_radius)
+        for opening_radius in opening_radii:
+            opened_parts = _apply_opening(
+                working_polygon,
+                opening_radius,
+                grid,
+                diagnostics,
+            )
+            if len(opened_parts) != 1:
+                continue
+            closed_parts = _apply_closing(
+                opened_parts[0],
+                opening_radius,
+                grid,
+                diagnostics,
+            )
             if len(closed_parts) == 1:
                 consider_candidate(
                     _normalize_clearance_candidate(closed_parts[0])
