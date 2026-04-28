@@ -75,3 +75,66 @@ def test_download_data_falls_back_to_download_when_cache_misses():
         server_url=wrapper.DTCC_GPKG_URL,
     )
     load_footprints.assert_called_once_with(["/tmp/tile_0_0.gpkg"], bounds=bounds)
+
+
+def test_load_cached_footprints_accepts_empty_result_when_tile_covers_bounds(tmp_path):
+    cache_dir = tmp_path / "downloaded-gpkg"
+    cache_dir.mkdir()
+    cached_tile = cache_dir / "tile_0_0.gpkg"
+    cached_tile.touch()
+    bounds = Bounds(xmin=100, ymin=100, xmax=200, ymax=200)
+
+    with patch.object(wrapper, "GPKG_CACHE_DIR", str(tmp_path)), patch.object(
+        wrapper.io,
+        "load_footprints",
+        return_value=[],
+    ) as load_footprints:
+        result = wrapper._load_cached_footprints(bounds)
+
+    assert result == []
+    load_footprints.assert_called_once_with([str(cached_tile)], bounds=bounds)
+
+
+def test_load_cached_footprints_falls_back_when_empty_cache_does_not_cover_bounds(
+    tmp_path,
+):
+    cache_dir = tmp_path / "downloaded-gpkg"
+    cache_dir.mkdir()
+    cached_tile = cache_dir / "tile_0_0.gpkg"
+    cached_tile.touch()
+    bounds = Bounds(xmin=9900, ymin=9900, xmax=10100, ymax=10100)
+
+    with patch.object(wrapper, "GPKG_CACHE_DIR", str(tmp_path)), patch.object(
+        wrapper.io,
+        "load_footprints",
+        return_value=[],
+    ) as load_footprints:
+        result = wrapper._load_cached_footprints(bounds)
+
+    assert result is None
+    load_footprints.assert_called_once_with([str(cached_tile)], bounds=bounds)
+
+
+def test_load_cached_footprints_accepts_empty_result_when_adjacent_tiles_cover_bounds(
+    tmp_path,
+):
+    cache_dir = tmp_path / "downloaded-gpkg"
+    cache_dir.mkdir()
+    left_tile = cache_dir / "tile_0_0.gpkg"
+    right_tile = cache_dir / "tile_10000_0.gpkg"
+    left_tile.touch()
+    right_tile.touch()
+    bounds = Bounds(xmin=9900, ymin=100, xmax=10100, ymax=200)
+
+    with patch.object(wrapper, "GPKG_CACHE_DIR", str(tmp_path)), patch.object(
+        wrapper.io,
+        "load_footprints",
+        return_value=[],
+    ) as load_footprints:
+        result = wrapper._load_cached_footprints(bounds)
+
+    assert result == []
+    load_footprints.assert_called_once_with(
+        [str(left_tile), str(right_tile)],
+        bounds=bounds,
+    )

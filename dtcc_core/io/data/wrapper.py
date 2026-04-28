@@ -3,6 +3,7 @@
 import requests
 import os
 from pathlib import Path
+import re
 from .overpass import get_roads_for_bbox, get_buildings_for_bbox
 from .geopkg import CACHE_DIR as GPKG_CACHE_DIR, download_tiles
 from .lidar import download_lidar
@@ -13,6 +14,10 @@ from .logging import info, warning, debug, error
 # We'll allow "lidar" or "roads" or "footprints" for data_type, and "dtcc" or "OSM" for provider.
 valid_types = ["lidar", "roads", "footprints"]
 valid_providers = ["dtcc", "OSM"]
+_GPKG_TILE_SIZE = 10000.0
+_GPKG_TILE_NAME_RE = re.compile(
+    r"^tile_(?P<xmin>-?\d+(?:\.\d+)?)_(?P<ymin>-?\d+(?:\.\d+)?)\.gpkg$"
+)
 
 # Env-overridable backend URLs (defaults preserve current behavior).
 _DTCC_BASE = os.environ.get("DTCC_DATA_URL", "http://compute.dtcc.chalmers.se")
@@ -28,6 +33,49 @@ def _bounds_overlap(lhs: Bounds, rhs: Bounds) -> bool:
     )
 
 
+def _bounds_contains(lhs: Bounds, rhs: Bounds, *, tolerance: float = 1.0e-9) -> bool:
+    return (
+        lhs.xmin <= rhs.xmin + tolerance
+        and lhs.ymin <= rhs.ymin + tolerance
+        and lhs.xmax + tolerance >= rhs.xmax
+        and lhs.ymax + tolerance >= rhs.ymax
+    )
+
+
+def _bounds_contains_point(
+    bounds: Bounds,
+    x: float,
+    y: float,
+    *,
+    tolerance: float = 1.0e-9,
+) -> bool:
+    return (
+        bounds.xmin <= x + tolerance
+        and bounds.ymin <= y + tolerance
+        and bounds.xmax + tolerance >= x
+        and bounds.ymax + tolerance >= y
+    )
+
+
+def _cached_footprint_tile_bounds(path: Path) -> Bounds | None:
+    match = _GPKG_TILE_NAME_RE.match(path.name)
+    if match is None:
+        return None
+
+    xmin = float(match.group("xmin"))
+    ymin = float(match.group("ymin"))
+    return Bounds(
+        xmin=xmin,
+        ymin=ymin,
+        xmax=xmin + _GPKG_TILE_SIZE,
+        ymax=ymin + _GPKG_TILE_SIZE,
+    )
+
+
+def _cached_footprint_file_bounds(path: Path) -> Bounds:
+    return _cached_footprint_tile_bounds(path) or io.footprints.building_bounds(path)
+
+
 def _find_cached_footprint_files(bounds: Bounds) -> list[str]:
     cache_dir = Path(GPKG_CACHE_DIR) / "downloaded-gpkg"
     if not cache_dir.is_dir():
@@ -36,7 +84,7 @@ def _find_cached_footprint_files(bounds: Bounds) -> list[str]:
     matching_files: list[str] = []
     for path in sorted(cache_dir.glob("*.gpkg")):
         try:
-            file_bounds = io.footprints.building_bounds(path)
+            file_bounds = _cached_footprint_file_bounds(path)
         except Exception as exc:
             warning(f"Skipping cached footprint tile {path.name}: {exc}")
             continue
@@ -46,6 +94,43 @@ def _find_cached_footprint_files(bounds: Bounds) -> list[str]:
     return matching_files
 
 
+def _cached_footprint_files_cover_bounds(cached_files: list[str], bounds: Bounds) -> bool:
+    tile_bounds = [
+        tile_bounds
+        for cached_file in cached_files
+        if (tile_bounds := _cached_footprint_tile_bounds(Path(cached_file))) is not None
+    ]
+    if not tile_bounds:
+        return False
+
+    sample_points = (
+        (bounds.xmin, bounds.ymin),
+        (bounds.xmin, bounds.ymax),
+        (bounds.xmax, bounds.ymin),
+        (bounds.xmax, bounds.ymax),
+        ((bounds.xmin + bounds.xmax) / 2.0, bounds.ymin),
+        ((bounds.xmin + bounds.xmax) / 2.0, bounds.ymax),
+        (bounds.xmin, (bounds.ymin + bounds.ymax) / 2.0),
+        (bounds.xmax, (bounds.ymin + bounds.ymax) / 2.0),
+        ((bounds.xmin + bounds.xmax) / 2.0, (bounds.ymin + bounds.ymax) / 2.0),
+    )
+
+    for cached_file in cached_files:
+        tile_bounds_for_file = _cached_footprint_tile_bounds(Path(cached_file))
+        if tile_bounds_for_file is not None and _bounds_contains(
+            tile_bounds_for_file,
+            bounds,
+        ):
+            return True
+    return all(
+        any(
+            _bounds_contains_point(tile_bounds_for_file, x, y)
+            for tile_bounds_for_file in tile_bounds
+        )
+        for x, y in sample_points
+    )
+
+
 def _load_cached_footprints(bounds: Bounds):
     cached_files = _find_cached_footprint_files(bounds)
     if not cached_files:
@@ -53,7 +138,9 @@ def _load_cached_footprints(bounds: Bounds):
 
     info(f"Using {len(cached_files)} cached footprint tile(s) from local cache")
     buildings = io.load_footprints(cached_files, bounds=bounds)
-    return buildings if buildings else None
+    if buildings or _cached_footprint_files_cover_bounds(cached_files, bounds):
+        return buildings
+    return None
 
 def download_data(data_type: str, provider: str, bounds: Bounds, epsg = '3006', url = None):
     """
