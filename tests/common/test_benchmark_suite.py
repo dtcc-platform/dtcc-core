@@ -54,6 +54,34 @@ def test_benchmark_entrypoint_uses_dataset_flag() -> None:
     assert "--dataset" in completed.stdout
 
 
+def test_benchmark_entrypoint_uses_scenario_filter() -> None:
+    bench = Path(__file__).resolve().parents[2] / "benchmarks" / "bench"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(bench),
+            "run",
+            "stress",
+            "--city",
+            "lund",
+            "--dataset",
+            "city_surface_mesh",
+            "--scenario",
+            "max_mesh_size_2",
+            "--dry-run",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    manifest = json.loads(completed.stdout)
+    assert manifest["scenarios"] == ["max_mesh_size_2"]
+    assert manifest["task_count"] == 1
+    assert manifest["tasks"][0]["dataset"] == "city_surface_mesh"
+    assert manifest["tasks"][0]["scenario"]["id"] == "max_mesh_size_2"
+
+
 def test_benchmark_list_scenarios_marks_default_parameters() -> None:
     bench = Path(__file__).resolve().parents[2] / "benchmarks" / "bench"
     completed = subprocess.run(

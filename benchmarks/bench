@@ -652,6 +652,14 @@ def _summary_markdown(results: list[dict[str, Any]], manifest: dict[str, Any]) -
 
 def command_run(args: argparse.Namespace) -> int:
     tasks = [task_to_json(task) for task in build_tasks(args.suite, city=args.city, datasets=args.dataset)]
+    if args.scenario:
+        selected_scenarios = set(args.scenario)
+        tasks = [task for task in tasks if task["scenario"]["id"] in selected_scenarios]
+        if not tasks:
+            raise ValueError(
+                "no benchmark tasks match selected scenario(s): "
+                + ", ".join(args.scenario)
+            )
     breakdown = _task_breakdown(tasks)
     run_id = args.run_id or time.strftime("%Y-%m-%d_%H%M%S") + f"_{args.suite}"
     run_dir = (args.output_dir or RUN_ROOT) / run_id
@@ -659,6 +667,7 @@ def command_run(args: argparse.Namespace) -> int:
         "suite": args.suite,
         "city": args.city,
         "datasets": args.dataset,
+        "scenarios": args.scenario,
         "dry_run": args.dry_run,
         "show_output": args.show_output,
         "save_artifacts": args.save_artifacts,
@@ -765,6 +774,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("suite", choices=tuple(SUITE_DESCRIPTIONS))
     run_parser.add_argument("--city", choices=tuple(CITIES), default=None)
     run_parser.add_argument("--dataset", action="append", choices=DATASET_NAMES, default=None)
+    run_parser.add_argument("--scenario", action="append", choices=tuple(SCENARIOS), default=None)
     run_parser.add_argument("--dry-run", action="store_true")
     run_parser.add_argument(
         "--show-output",
