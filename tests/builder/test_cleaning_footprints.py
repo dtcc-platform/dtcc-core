@@ -1,6 +1,7 @@
 import itertools
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 from shapely.geometry import GeometryCollection, MultiPolygon, Polygon, box
 
@@ -3095,6 +3096,33 @@ def test_cached_coverage_defect_signature_reuses_polygon_acute_tip_metrics(
     assert calls.count((id(shared), 0.5)) == 1
     assert calls.count((id(first_unique), 0.5)) == 1
     assert calls.count((id(second_unique), 0.5)) == 1
+
+
+def test_nearest_nonadjacent_ring_segment_projects_with_exclusions():
+    coords = np.asarray(
+        [
+            (0.0, 0.0),
+            (0.0, 0.0),
+            (4.0, 0.0),
+            (4.0, 4.0),
+            (0.0, 4.0),
+        ],
+        dtype=float,
+    )
+    point = np.asarray((2.0, 1.0), dtype=float)
+
+    nearest = cleaning_footprints._nearest_nonadjacent_ring_segment(
+        coords,
+        point,
+        excluded_segments={0},
+    )
+
+    assert nearest is not None
+    segment_index, start, end, projected = nearest
+    assert segment_index == 1
+    assert start.tolist() == [0.0, 0.0]
+    assert end.tolist() == [4.0, 0.0]
+    assert projected.tolist() == [2.0, 0.0]
 
 
 def test_coverage_simplify_local_operator_resolves_point_touch_pair():

@@ -4713,31 +4713,39 @@ def _nearest_nonadjacent_ring_segment(
     if len(coords) < 2:
         return None
 
-    best: tuple[float, int, np.ndarray, np.ndarray, np.ndarray] | None = None
     wrapped = np.vstack([coords[1:], coords[:1]])
-    for segment_index, (start, end) in enumerate(zip(coords, wrapped)):
-        if segment_index in excluded_segments:
-            continue
-        segment = LineString([tuple(start), tuple(end)])
-        try:
-            projected = segment.interpolate(segment.project(Point(point)))
-        except GEOSException:
-            continue
-        projected_xy = np.asarray(projected.coords[0], dtype=float)
-        distance = float(np.hypot(*(projected_xy - point)))
-        if best is None or distance < best[0]:
-            best = (
-                distance,
-                segment_index,
-                start,
-                end,
-                projected_xy,
-            )
+    segment_count = len(coords)
+    candidate_mask = np.ones(segment_count, dtype=bool)
+    for segment_index in excluded_segments:
+        if 0 <= segment_index < segment_count:
+            candidate_mask[segment_index] = False
 
-    if best is None:
+    start_xy = coords[:, :2]
+    end_xy = wrapped[:, :2]
+    point_xy = np.asarray(point[:2], dtype=float)
+    vectors = end_xy - start_xy
+    length_squared = np.einsum("ij,ij->i", vectors, vectors)
+    candidate_mask &= length_squared > 1.0e-24
+    if not bool(np.any(candidate_mask)):
         return None
 
-    return best[1], best[2], best[3], best[4]
+    start_to_point = point_xy - start_xy
+    projection = np.einsum("ij,ij->i", start_to_point, vectors)
+    t = np.zeros(segment_count, dtype=float)
+    t[candidate_mask] = np.clip(
+        projection[candidate_mask] / length_squared[candidate_mask],
+        0.0,
+        1.0,
+    )
+    projected_xy = start_xy + vectors * t[:, None]
+    deltas = projected_xy - point_xy
+    distance_squared = np.einsum("ij,ij->i", deltas, deltas)
+    distance_squared[~candidate_mask] = np.inf
+    best_index = int(np.argmin(distance_squared))
+    if not np.isfinite(distance_squared[best_index]):
+        return None
+
+    return best_index, coords[best_index], wrapped[best_index], projected_xy[best_index]
 
 
 def _step_from_vertex_toward_neighbor(
