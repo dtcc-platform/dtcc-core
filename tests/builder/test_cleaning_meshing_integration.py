@@ -86,6 +86,8 @@ def make_prepared_city_inputs(
     source_map: list[list[int]],
     subdomain_resolution: list[float],
     diagnostics: dict[str, object],
+    *,
+    min_building_detail: float = 0.5,
 ) -> tuple[object, object, meshes_module.ConditionedFootprints]:
     return (
         terrain,
@@ -95,6 +97,7 @@ def make_prepared_city_inputs(
             source_map,
             subdomain_resolution,
             diagnostics,
+            min_building_detail=min_building_detail,
         ),
     )
 
@@ -2478,7 +2481,15 @@ def test_build_city_volume_mesh_stage_audit_records_stage_contracts(monkeypatch)
     stage_audit: dict[str, object] = {}
 
     def fake_prepare(*args, **kwargs):
-        return make_prepared_city_inputs(terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics)
+        return make_prepared_city_inputs(
+            terrain,
+            terrain_raster,
+            [conditioned_surface],
+            [[0]],
+            [4.0],
+            diagnostics,
+            min_building_detail=kwargs.get("min_building_detail", 0.5),
+        )
 
     def fake_prepare_regions(**kwargs):
         return (
@@ -2609,7 +2620,10 @@ def test_build_city_volume_mesh_stage_audit_records_stage_contracts(monkeypatch)
     )
 
     attempt = stage_audit["attempts"][0]
-    assert attempt["stages"]["conditioned_footprints"]["contract"]["status"] == "pass"
+    conditioned_stage = attempt["stages"]["conditioned_footprints"]
+    assert conditioned_stage["declared_scale"] == pytest.approx(0.25)
+    assert conditioned_stage["footprints"]["resolution_min"] == pytest.approx(4.0)
+    assert conditioned_stage["contract"]["status"] == "pass"
     assert attempt["stages"]["ground_mesh"]["contract"]["status"] == "pass"
     assert attempt["stages"]["surface_shell"]["contract"]["status"] == "pass"
     assert attempt["stages"]["plc"]["contract"]["status"] == "pass"

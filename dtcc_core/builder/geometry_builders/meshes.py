@@ -404,6 +404,21 @@ def _surface_collection_audit(
     return audit
 
 
+def _conditioned_footprints_audit(
+    conditioned_footprints: ConditionedFootprints,
+) -> dict[str, Any]:
+    return {
+        "footprints": _surface_collection_audit(
+            conditioned_footprints.surfaces,
+            resolutions=conditioned_footprints.subdomain_resolution,
+            source_map=conditioned_footprints.source_map,
+        ),
+        "diagnostics": _audit_json_ready(dict(conditioned_footprints.diagnostics)),
+        "declared_scale": float(conditioned_footprints.declared_scale),
+        "contract": _audit_json_ready(conditioned_footprints.contract),
+    }
+
+
 def _surface_region_audit(
     *,
     building_surfaces: Sequence[Surface],
@@ -4117,14 +4132,7 @@ def build_city_flat_mesh(
             _record_stage_audit_stage(
                 attempt,
                 "conditioned_footprints",
-                {
-                    "footprints": _surface_collection_audit(
-                        building_footprints,
-                        source_map=conditioned_source_map,
-                    ),
-                    "diagnostics": _audit_json_ready(dict(diagnostics)),
-                    "contract": footprint_contract,
-                },
+                _conditioned_footprints_audit(conditioned_footprints),
             )
         _raise_stage_contract_errors("Conditioned footprints", footprint_contract)
 
@@ -4492,15 +4500,7 @@ def build_city_volume_mesh(
         _record_stage_audit_stage(
             attempt,
             "conditioned_footprints",
-            {
-                "footprints": _surface_collection_audit(
-                    building_footprints,
-                    resolutions=subdomain_resolution,
-                    source_map=source_map,
-                ),
-                "diagnostics": _audit_json_ready(dict(diagnostics)),
-                "contract": conditioned_footprint_contract,
-            },
+            _conditioned_footprints_audit(conditioned_footprints),
         )
     _raise_stage_contract_errors(
         "Conditioned footprints",
