@@ -955,6 +955,57 @@ def test_conditioned_footprint_contract_audit_fails_scale_contract():
     assert any("scale contract" in message for message in contract["errors"])
 
 
+def test_conditioned_footprint_contract_uses_accepted_revalidation_grid_tolerance():
+    polygon = Polygon(
+        shell=[
+            (0.0, 0.0),
+            (10.0, 0.0),
+            (10.0, 10.0),
+            (0.0, 10.0),
+            (0.0, 0.0),
+        ],
+        holes=[
+            [
+                (3.0, 1.9),
+                (7.0, 1.9),
+                (7.0, 6.0),
+                (3.0, 6.0),
+                (3.0, 1.9),
+            ]
+        ],
+    )
+
+    without_revalidation_grid = meshes_module._conditioned_footprint_contract_audit(
+        surfaces=[make_surface(polygon, 8.0)],
+        declared_scale=2.0,
+        diagnostics={
+            "geos_exception_count": 0,
+            "output_grid": 0.03125,
+            "precision_grid": 0.03125,
+        },
+    )
+    with_revalidation_grid = meshes_module._conditioned_footprint_contract_audit(
+        surfaces=[make_surface(polygon, 8.0)],
+        declared_scale=2.0,
+        diagnostics={
+            "geos_exception_count": 0,
+            "output_grid": 0.03125,
+            "precision_grid": 0.03125,
+            "mesher_ready_coverage_revalidation_applied": True,
+            "mesher_ready_coverage_revalidation_output_grid": 0.125,
+        },
+    )
+
+    assert without_revalidation_grid["status"] == "fail"
+    assert without_revalidation_grid["metrics"]["clearance_deficit"] == pytest.approx(
+        0.1
+    )
+    assert with_revalidation_grid["status"] == "pass"
+    assert with_revalidation_grid["metrics"]["contract_tolerance"] == pytest.approx(
+        0.125
+    )
+
+
 def test_conditioned_footprint_contract_audit_flags_meshing_hostile_acute_tip():
     polygon = meshes_module.cleaning_footprints.shapely.from_wkt(
         "POLYGON ((319877.28125 6399049.59375, 319877.21875 6399051.0625, "

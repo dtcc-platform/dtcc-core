@@ -535,6 +535,17 @@ def _conditioned_footprint_contract_audit(
     contract_tolerance = max(
         float(diagnostics.get("output_grid", 0.0) or 0.0),
         float(diagnostics.get("precision_grid", 0.0) or 0.0),
+        (
+            float(
+                diagnostics.get(
+                    "mesher_ready_coverage_revalidation_output_grid",
+                    0.0,
+                )
+                or 0.0
+            )
+            if diagnostics.get("mesher_ready_coverage_revalidation_applied")
+            else 0.0
+        ),
         float(declared_scale) * 1.0e-6,
         1.0e-9,
     )
@@ -3477,6 +3488,7 @@ def _normalize_mesher_ready_coverage(
 
     diagnostics["mesher_ready_coverage_revalidation_attempted"] = False
     diagnostics["mesher_ready_coverage_revalidation_applied"] = False
+    diagnostics["mesher_ready_coverage_revalidation_output_grid"] = 0.0
     diagnostics["mesher_ready_coverage_revalidation_operator_applied"] = {}
     diagnostics["mesher_ready_coverage_revalidation_rejected_bridge_operator"] = False
     diagnostics[
@@ -3544,6 +3556,9 @@ def _normalize_mesher_ready_coverage(
             collect_stage_metrics=cleaning_diagnostics,
             enable_logging=cleaning_diagnostics,
         ),
+    )
+    diagnostics["mesher_ready_coverage_revalidation_output_grid"] = float(
+        revalidation.diagnostics.get("output_grid", 0.0) or 0.0
     )
     diagnostics["geos_exception_count"] += int(
         revalidation.diagnostics.get("geos_exception_count", 0)
