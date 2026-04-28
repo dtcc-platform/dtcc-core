@@ -9,6 +9,7 @@ from dtcc_core.datasets._city_mesh_common import (
     CityMeshingFootprints,
     condition_city_meshing_footprints,
     prepare_city_from_bounds,
+    prepare_footprint_city_from_bounds,
 )
 from dtcc_core.model import Bounds
 
@@ -180,17 +181,36 @@ def test_prepare_city_from_bounds_flat_ground_rebuilds_city_on_flat_raster(
     )
 
 
-@patch(
-    "dtcc_core.builder.geometry_builders.meshes._prepare_city_meshing_inputs"
-)
+@patch("dtcc_core.datasets._city_mesh_common.dtcc_core.io.data.download_footprints")
+@patch("dtcc_core.datasets._city_mesh_common.City")
+def test_prepare_footprint_city_from_bounds_downloads_only_footprints(
+    mock_city_cls,
+    mock_download_footprints,
+):
+    buildings = Mock(name="buildings")
+    city = Mock(name="city")
+    mock_download_footprints.return_value = buildings
+    mock_city_cls.return_value = city
+
+    result = prepare_footprint_city_from_bounds(Bounds(0.0, 0.0, 1.0, 1.0))
+
+    assert result is city
+    mock_download_footprints.assert_called_once_with(bounds=ANY)
+    city.add_buildings.assert_called_once_with(buildings)
+
+
+@patch("dtcc_core.builder.geometry_builders.meshes._condition_meshing_footprints")
 @patch("dtcc_core.builder.geometry_builders.meshes._raise_stage_contract_errors")
-def test_condition_city_meshing_footprints_uses_shared_meshing_stage(
+def test_condition_city_meshing_footprints_uses_shared_conditioning_stage(
     mock_raise_stage_contract_errors,
-    mock_prepare_city_meshing_inputs,
+    mock_condition_meshing_footprints,
 ):
     city = Mock(name="city")
+    city.buildings = [Mock(name="building")]
     terrain = Mock(name="terrain")
     terrain_raster = Mock(name="terrain_raster")
+    terrain.raster = terrain_raster
+    city.terrain = terrain
     footprint = Mock(name="footprint_surface")
     polygon = Mock(name="footprint_polygon")
     footprint.to_polygon.return_value = polygon
@@ -205,11 +225,7 @@ def test_condition_city_meshing_footprints_uses_shared_meshing_stage(
         contract=contract,
     )
 
-    mock_prepare_city_meshing_inputs.return_value = (
-        terrain,
-        terrain_raster,
-        conditioned,
-    )
+    mock_condition_meshing_footprints.return_value = conditioned
 
     result = condition_city_meshing_footprints(
         city,
@@ -232,8 +248,8 @@ def test_condition_city_meshing_footprints_uses_shared_meshing_stage(
     assert result.contract is contract
     assert result.polygons == [polygon]
 
-    mock_prepare_city_meshing_inputs.assert_called_once_with(
-        city,
+    mock_condition_meshing_footprints.assert_called_once_with(
+        city.buildings,
         lod=None,
         min_building_detail=0.5,
         min_building_area=15.0,

@@ -24,28 +24,24 @@ def test_city_footprints_module_attribute():
     assert callable(datasets.city_footprints)
 
 
-@patch("dtcc_core.datasets.city_footprints.prepare_city_from_bounds")
+@patch("dtcc_core.datasets.city_footprints.prepare_footprint_city_from_bounds")
 @patch("dtcc_core.datasets.city_footprints.condition_city_meshing_footprints")
 def test_city_footprints_default_build_returns_conditioned_result(
     mock_condition_city_meshing_footprints,
-    mock_prepare_city_from_bounds,
+    mock_prepare_footprint_city_from_bounds,
 ):
     city = Mock(name="city")
     conditioned = Mock(name="conditioned_footprints")
 
-    mock_prepare_city_from_bounds.return_value = city
+    mock_prepare_footprint_city_from_bounds.return_value = city
     mock_condition_city_meshing_footprints.return_value = conditioned
 
     dataset = CityFootprintsDataset()
     result = dataset.build(CityFootprintsArgs(bounds=(0.0, 0.0, 1.0, 1.0)))
 
     assert result is conditioned
-    mock_prepare_city_from_bounds.assert_called_once_with(
+    mock_prepare_footprint_city_from_bounds.assert_called_once_with(
         ANY,
-        raster_cell_size=2.0,
-        raster_radius=3.0,
-        remove_outliers=True,
-        outlier_threshold=3.0,
         progress=ANY,
     )
     mock_condition_city_meshing_footprints.assert_called_once_with(

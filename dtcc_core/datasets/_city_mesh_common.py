@@ -121,6 +121,26 @@ def prepare_city_from_bounds(
     return city
 
 
+def prepare_footprint_city_from_bounds(
+    bounds: Bounds,
+    *,
+    progress: Any | None = None,
+) -> City:
+    """Prepare a footprint-only city model from live footprint data."""
+
+    def phase(name: str, message: str):
+        if progress is None:
+            return nullcontext()
+        return progress.phase(name, message)
+
+    with phase("download_footprints", "Downloading building footprints..."):
+        buildings = dtcc_core.io.data.download_footprints(bounds=bounds)
+
+    city = City()
+    city.add_buildings(buildings)
+    return city
+
+
 def condition_city_meshing_footprints(
     city: City,
     *,
@@ -135,24 +155,24 @@ def condition_city_meshing_footprints(
     footprint_cleaning_plot_block: bool = True,
     pipeline_mode: str = "strict",
 ) -> CityMeshingFootprints:
-    """Run the same meshing-footprint preparation stage used by mesh builders."""
+    """Run the same footprint conditioning stage used by mesh builders."""
 
     import dtcc_core.builder.geometry_builders.meshes as mesh_builders
 
-    terrain, terrain_raster, conditioned_footprints = (
-        mesh_builders._prepare_city_meshing_inputs(
-            city,
-            lod=lod,
-            min_building_detail=min_building_detail,
-            min_building_area=min_building_area,
-            merge_tolerance=merge_tolerance,
-            merge_buildings=merge_buildings,
-            max_mesh_size=max_mesh_size,
-            cleaning_diagnostics=cleaning_diagnostics,
-            show_footprints=show_footprints,
-            footprint_cleaning_plot_block=footprint_cleaning_plot_block,
-            pipeline_mode=pipeline_mode,
-        )
+    terrain = city.terrain
+    terrain_raster = terrain.raster if terrain is not None else None
+    conditioned_footprints = mesh_builders._condition_meshing_footprints(
+        city.buildings,
+        lod=lod,
+        min_building_detail=min_building_detail,
+        min_building_area=min_building_area,
+        merge_tolerance=merge_tolerance,
+        merge_buildings=merge_buildings,
+        max_mesh_size=max_mesh_size,
+        cleaning_diagnostics=cleaning_diagnostics,
+        show_footprints=show_footprints,
+        footprint_cleaning_plot_block=footprint_cleaning_plot_block,
+        pipeline_mode=pipeline_mode,
     )
 
     mesh_builders._raise_stage_contract_errors(

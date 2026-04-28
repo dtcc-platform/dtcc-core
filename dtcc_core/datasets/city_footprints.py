@@ -7,23 +7,14 @@ from pydantic import Field
 from dtcc_core.common.progress import ProgressTracker
 from dtcc_core.model import City
 
-from ._city_mesh_common import condition_city_meshing_footprints, prepare_city_from_bounds
+from ._city_mesh_common import (
+    condition_city_meshing_footprints,
+    prepare_footprint_city_from_bounds,
+)
 from .dataset import DatasetBaseArgs, DatasetDescriptor
 
 
 class CityFootprintsArgs(DatasetBaseArgs):
-    raster_cell_size: float = Field(
-        2.0, description="Cell size for terrain raster in meters"
-    )
-    raster_radius: float = Field(
-        3.0, description="Radius for terrain raster interpolation"
-    )
-    remove_outliers: bool = Field(
-        True, description="Whether to remove global outliers from point cloud"
-    )
-    outlier_threshold: float = Field(
-        3.0, description="Threshold for outlier removal (standard deviations)"
-    )
     max_mesh_size: Optional[float] = Field(
         10.0,
         description=(
@@ -88,24 +79,17 @@ class CityFootprintsDataset(DatasetDescriptor):
 
     def build(self, args: CityFootprintsArgs):
         progress_phases = {
-            "download_pointcloud": 0.15,
-            "download_footprints": 0.10,
-            "remove_outliers": 0.05,
-            "build_terrain": 0.10,
-            "extract_roof_points": 0.05,
-            "compute_building_heights": 0.05,
-            "build_city": 0.03,
-            "condition_footprints": 0.47,
+            "download_footprints": 0.20,
+            "condition_footprints": 0.80,
         }
         with ProgressTracker(total=1.0, phases=progress_phases) as progress:
             bounds = self.parse_bounds(args.bounds)
-            city = prepare_city_from_bounds(
+            city = prepare_footprint_city_from_bounds(
                 bounds,
-                raster_cell_size=args.raster_cell_size,
-                raster_radius=args.raster_radius,
-                remove_outliers=args.remove_outliers,
-                outlier_threshold=args.outlier_threshold,
                 progress=progress,
             )
-            with progress.phase("condition_footprints", "Conditioning city footprints..."):
+            with progress.phase(
+                "condition_footprints",
+                "Conditioning city footprints...",
+            ):
                 return self._build_footprints_from_city(city, args)
