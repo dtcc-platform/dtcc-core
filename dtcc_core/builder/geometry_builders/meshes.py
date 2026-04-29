@@ -1587,10 +1587,53 @@ def _require_city_terrain_raster(
     return terrain, terrain_raster
 
 
+def _terrain_bounds_tuple(terrain: object) -> tuple[float, float, float, float]:
+    bounds = terrain.bounds
+    return (
+        bounds.xmin,
+        bounds.ymin,
+        bounds.xmax,
+        bounds.ymax,
+    )
+
+
+def _condition_city_meshing_footprints(
+    city: City,
+    *,
+    lod: GeometryType | Sequence[GeometryType] | None,
+    min_building_detail: float,
+    min_building_area: float,
+    merge_tolerance: float,
+    merge_buildings: bool,
+    max_mesh_size: float | None,
+    cleaning_diagnostics: bool,
+    show_footprints: bool = False,
+    footprint_cleaning_plot_block: bool = True,
+    pipeline_mode: MeshingPipelineMode = "strict",
+) -> ConditionedFootprints:
+    buildings = city.buildings
+    if not buildings:
+        warning("City has no buildings.")
+
+    return _condition_meshing_footprints(
+        buildings,
+        lod=lod,
+        min_building_detail=min_building_detail,
+        min_building_area=min_building_area,
+        merge_tolerance=merge_tolerance,
+        merge_buildings=merge_buildings,
+        max_mesh_size=max_mesh_size,
+        cleaning_diagnostics=cleaning_diagnostics,
+        show_footprints=show_footprints,
+        footprint_cleaning_plot_block=footprint_cleaning_plot_block,
+        pipeline_mode=pipeline_mode,
+    )
+
+
 def _prepare_city_meshing_inputs(
     city: City,
     *,
-    lod: GeometryType | Sequence[GeometryType],
+    lod: GeometryType | Sequence[GeometryType] | None,
     min_building_detail: float,
     min_building_area: float,
     merge_tolerance: float,
@@ -1606,12 +1649,8 @@ def _prepare_city_meshing_inputs(
         max_mesh_size=max_mesh_size,
     )
 
-    buildings = city.buildings
-    if not buildings:
-        warning("City has no buildings.")
-
-    conditioned_footprints = _condition_meshing_footprints(
-        buildings,
+    conditioned_footprints = _condition_city_meshing_footprints(
+        city,
         lod=lod,
         min_building_detail=min_building_detail,
         min_building_area=min_building_area,
@@ -4084,12 +4123,7 @@ def build_city_surface_mesh(
         else resolution
         for resolution in conditioned_resolution
     ]
-    surface_mesh_bounds = (
-        terrain.bounds.xmin,
-        terrain.bounds.ymin,
-        terrain.bounds.xmax,
-        terrain.bounds.ymax,
-    )
+    surface_mesh_bounds = _terrain_bounds_tuple(terrain)
     (
         building_surfaces,
         building_lod_switches,
@@ -4253,17 +4287,13 @@ def build_city_flat_mesh(
         tetgen_switch_overrides=None,
     )
     try:
+        max_mesh_size = _normalize_max_mesh_size(max_mesh_size)
         terrain = city.terrain
         if terrain is None:
             raise ValueError("City has no terrain data. Please compute terrain first.")
-        max_mesh_size = _normalize_max_mesh_size(max_mesh_size)
 
-        buildings = city.buildings
-        if not buildings:
-            warning("City has no buildings.")
-
-        conditioned_footprints = _condition_meshing_footprints(
-            buildings,
+        conditioned_footprints = _condition_city_meshing_footprints(
+            city,
             lod=lod,
             min_building_detail=min_building_detail,
             min_building_area=min_building_area,
@@ -4301,7 +4331,9 @@ def build_city_flat_mesh(
         )
         debug(f"Flat meshing footprint diagnostics: {diagnostics}")
 
-        building_polygons = [footprint.to_polygon(simplify=0.0) for footprint in building_footprints]
+        building_polygons = [
+            footprint.to_polygon(simplify=0.0) for footprint in building_footprints
+        ]
         marker_lookup: dict[tuple[int, ...], int] = {}
         building_markers: list[int] = []
         for source_indices in conditioned_source_map:
@@ -4309,12 +4341,7 @@ def build_city_flat_mesh(
             if marker_key not in marker_lookup:
                 marker_lookup[marker_key] = len(marker_lookup)
             building_markers.append(marker_lookup[marker_key])
-        flat_mesh_bounds = (
-            terrain.bounds.xmin,
-            terrain.bounds.ymin,
-            terrain.bounds.xmax,
-            terrain.bounds.ymax,
-        )
+        flat_mesh_bounds = _terrain_bounds_tuple(terrain)
         region_polygons, region_markers = _condition_flat_mesh_coverage_regions(
             bounds=flat_mesh_bounds,
             building_polygons=building_polygons,
@@ -4671,6 +4698,7 @@ def build_city_volume_mesh(
     debug(f"Volume meshing footprint diagnostics: {diagnostics}")
     target_lods = _resolve_conditioned_target_lods(city.buildings, lod, source_map)
     shell_target_lods = _promote_volume_shell_target_lods(target_lods)
+    volume_mesh_bounds = _terrain_bounds_tuple(terrain)
 
     # 4. BUILD VOLUME MESH - TETGEN PATH
 
@@ -4690,12 +4718,7 @@ def build_city_volume_mesh(
                 conditioned_surfaces=building_footprints,
                 conditioned_resolution=subdomain_resolution,
                 target_lods=shell_target_lods,
-                bounds=(
-                    terrain.bounds.xmin,
-                    terrain.bounds.ymin,
-                    terrain.bounds.xmax,
-                    terrain.bounds.ymax,
-                ),
+                bounds=volume_mesh_bounds,
                 max_mesh_size=max_mesh_size,
                 min_building_detail=min_building_detail,
                 footprint_diagnostics=diagnostics,
@@ -4718,12 +4741,7 @@ def build_city_volume_mesh(
                 region_polygons=surface_region_polygons,
                 region_markers=surface_region_markers,
                 region_points=surface_region_points,
-                bounds=(
-                    terrain.bounds.xmin,
-                    terrain.bounds.ymin,
-                    terrain.bounds.xmax,
-                    terrain.bounds.ymax,
-                ),
+                bounds=volume_mesh_bounds,
                 max_mesh_size=max_mesh_size,
                 min_mesh_angle=min_mesh_angle,
                 mesher=mesher,
@@ -5034,12 +5052,7 @@ def build_city_volume_mesh(
             conditioned_surfaces=building_footprints,
             conditioned_resolution=subdomain_resolution,
             target_lods=target_lods,
-            bounds=(
-                terrain.bounds.xmin,
-                terrain.bounds.ymin,
-                terrain.bounds.xmax,
-                terrain.bounds.ymax,
-            ),
+            bounds=volume_mesh_bounds,
             max_mesh_size=max_mesh_size,
             min_building_detail=min_building_detail,
             footprint_diagnostics=diagnostics,
@@ -5062,12 +5075,7 @@ def build_city_volume_mesh(
             region_polygons=region_polygons,
             region_markers=region_markers,
             region_points=region_points,
-            bounds=(
-                terrain.bounds.xmin,
-                terrain.bounds.ymin,
-                terrain.bounds.xmax,
-                terrain.bounds.ymax,
-            ),
+            bounds=volume_mesh_bounds,
             max_mesh_size=max_mesh_size,
             min_mesh_angle=min_mesh_angle,
             mesher=mesher,
