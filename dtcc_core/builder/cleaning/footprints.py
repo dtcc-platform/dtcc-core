@@ -121,6 +121,7 @@ class _RepairCandidate:
     edit_zone: BaseGeometry
     operator: str
     area_balance_budget_override: float | None = None
+    signature: _PolygonDefectSignature | None = None
 
 
 def _record_stage_seconds(
@@ -7202,11 +7203,13 @@ def _try_polygon_short_edge_angle_open(
     target_scale: float,
     grid: float,
     diagnostics: dict[str, Any],
+    reference_signature: _PolygonDefectSignature | None = None,
 ) -> _RepairCandidate | None:
-    reference_signature = _polygon_defect_signature(
-        polygon,
-        target_scale=target_scale,
-    )
+    if reference_signature is None:
+        reference_signature = _polygon_defect_signature(
+            polygon,
+            target_scale=target_scale,
+        )
     if reference_signature.short_edge_count == 0:
         return None
 
@@ -7215,6 +7218,7 @@ def _try_polygon_short_edge_angle_open(
         Polygon,
         BaseGeometry,
         float,
+        _PolygonDefectSignature,
     ] | None = None
     rings: list[tuple[str, int | None, Sequence[Sequence[float]]]] = [
         ("exterior", None, polygon.exterior.coords),
@@ -7296,6 +7300,7 @@ def _try_polygon_short_edge_angle_open(
                         candidate_polygon,
                         edit_zone,
                         amount,
+                        candidate_signature,
                     )
 
     if best is None:
@@ -7306,6 +7311,7 @@ def _try_polygon_short_edge_angle_open(
         edit_zone=best[2],
         operator=f"short_edge_angle_open_{best[3]:.3f}",
         area_balance_budget_override=max(float(best[2].area), 16.0 * grid * grid, 1e-9),
+        signature=best[4],
     )
 
 
@@ -7339,13 +7345,16 @@ def _iteratively_open_polygon_short_edges(
             target_scale=target_scale,
             grid=grid,
             diagnostics=diagnostics,
+            reference_signature=current_signature,
         )
         if candidate is None:
             break
-        candidate_signature = _polygon_defect_signature(
-            candidate.polygon,
-            target_scale=target_scale,
-        )
+        candidate_signature = candidate.signature
+        if candidate_signature is None:
+            candidate_signature = _polygon_defect_signature(
+                candidate.polygon,
+                target_scale=target_scale,
+            )
         if not _signature_improves(
             current_signature,
             candidate_signature,
@@ -14775,6 +14784,13 @@ def _evaluate_post_coverage_branch(
 
     diagnostics = _empty_diagnostics(len(coverage_candidate.polygons))
     diagnostics["collect_stage_metrics"] = False
+    branch_seconds: dict[str, float] = {}
+    diagnostics["post_coverage_branch_seconds"] = branch_seconds
+
+    def record_branch_stage(stage_name: str, started_at: float) -> None:
+        branch_seconds[stage_name] = float(time.perf_counter() - started_at)
+
+    branch_stage_started_at = time.perf_counter()
     reclaim_area_threshold = max(grid * grid, 0.25 * min_feature_size * min_feature_size)
     should_reclaim = (
         coverage_candidate.difference_metrics["reference_minus_candidate_area"]
@@ -14795,7 +14811,9 @@ def _evaluate_post_coverage_branch(
     else:
         source_reclaimed_polygons = coverage_candidate.polygons
         source_reclaimed_sources = coverage_candidate.source_map
+    record_branch_stage("source_reclaim", branch_stage_started_at)
 
+    branch_stage_started_at = time.perf_counter()
     should_absorb_small_components = output_min_area > 0 and any(
         polygon.area + 1e-12 < output_min_area for polygon in source_reclaimed_polygons
     )
@@ -14817,7 +14835,9 @@ def _evaluate_post_coverage_branch(
     else:
         small_component_absorbed_polygons = source_reclaimed_polygons
         small_component_absorbed_sources = source_reclaimed_sources
+    record_branch_stage("small_component_absorb", branch_stage_started_at)
 
+    branch_stage_started_at = time.perf_counter()
     post_absorb_signature = _cached_coverage_defect_signature(
         cache,
         small_component_absorbed_polygons,
@@ -14840,7 +14860,9 @@ def _evaluate_post_coverage_branch(
     else:
         boundary_regularized_polygons = small_component_absorbed_polygons
         boundary_regularized_sources = small_component_absorbed_sources
+    record_branch_stage("polygon_simplify", branch_stage_started_at)
 
+    branch_stage_started_at = time.perf_counter()
     post_boundary_signature = _cached_coverage_defect_signature(
         cache,
         boundary_regularized_polygons,
@@ -14880,7 +14902,10 @@ def _evaluate_post_coverage_branch(
         min_feature_size - (post_boundary_signature.min_clearance or 0.0),
         0.0,
     )
-    should_regularize_clearance = clearance_deficit > max(grid, 1e-9)
+    should_regularize_clearance = (
+        clearance_deficit > max(grid, 1e-9)
+        and post_boundary_signature.pair_issue_count == 0
+    )
     diagnostics["clearance_regularization_skipped"] = not should_regularize_clearance
     if should_regularize_clearance:
         clearance_regularized_polygons, clearance_regularized_sources = (
@@ -14897,7 +14922,9 @@ def _evaluate_post_coverage_branch(
     else:
         clearance_regularized_polygons = boundary_regularized_polygons
         clearance_regularized_sources = boundary_regularized_sources
+    record_branch_stage("clearance_regularization", branch_stage_started_at)
 
+    branch_stage_started_at = time.perf_counter()
     source_coordinate_recovered_polygons, source_coordinate_recovered_sources = (
         _recover_source_supported_coordinates(
             clearance_regularized_polygons,
@@ -14908,6 +14935,9 @@ def _evaluate_post_coverage_branch(
             diagnostics=diagnostics,
         )
     )
+    record_branch_stage("source_coordinate_recovery", branch_stage_started_at)
+
+    branch_stage_started_at = time.perf_counter()
     source_coordinate_repaired_polygons, source_coordinate_repaired_sources = (
         _apply_local_polygon_repairs(
             source_coordinate_recovered_polygons,
@@ -14922,6 +14952,9 @@ def _evaluate_post_coverage_branch(
             enable_simplify_operators=False,
         )
     )
+    record_branch_stage("post_recovery_local_defect_repair", branch_stage_started_at)
+
+    branch_stage_started_at = time.perf_counter()
     post_recovery_signature = _cached_coverage_defect_signature(
         cache,
         source_coordinate_repaired_polygons,
@@ -14932,10 +14965,12 @@ def _evaluate_post_coverage_branch(
         0.0,
     )
     should_post_recovery_regularize_clearance = (
-        post_recovery_signature.short_edge_count > 0
-        or post_recovery_signature.ring_contact_count > 0
-        or post_recovery_signature.pair_issue_count > 0
-        or post_recovery_clearance_deficit > max(grid, 1e-9)
+        post_recovery_signature.pair_issue_count == 0
+        and (
+            post_recovery_signature.short_edge_count > 0
+            or post_recovery_signature.ring_contact_count > 0
+            or post_recovery_clearance_deficit > max(grid, 1e-9)
+        )
     )
     diagnostics["post_recovery_clearance_regularization_skipped"] = (
         not should_post_recovery_regularize_clearance
@@ -14987,6 +15022,9 @@ def _evaluate_post_coverage_branch(
     diagnostics["post_recovery_dropped_meshing_hole_count"] = (
         post_recovery_diagnostics.get("dropped_meshing_hole_count", 0)
     )
+    record_branch_stage("post_recovery_clearance_regularization", branch_stage_started_at)
+
+    branch_stage_started_at = time.perf_counter()
     (
         coverage_contact_regularized_polygons,
         coverage_contact_regularized_sources,
@@ -15000,6 +15038,9 @@ def _evaluate_post_coverage_branch(
         diagnostics=diagnostics,
         cache=cache,
     )
+    record_branch_stage("coverage_contact_regularization", branch_stage_started_at)
+
+    branch_stage_started_at = time.perf_counter()
     (
         coverage_void_regularized_polygons,
         coverage_void_regularized_sources,
@@ -15027,6 +15068,9 @@ def _evaluate_post_coverage_branch(
         diagnostics["coverage_void_regularization_gap_patch_applied_count"] = 0
         diagnostics["coverage_void_regularization_notch_simplify_count"] = 0
         diagnostics["coverage_void_regularization_operator_applied"] = {}
+    record_branch_stage("coverage_void_regularization", branch_stage_started_at)
+
+    branch_stage_started_at = time.perf_counter()
     if apply_coverage_meshing_regularization:
         coverage_meshing_regularized_polygons, coverage_meshing_regularized_sources = (
             _regularize_coverage_for_meshing(
@@ -15043,7 +15087,9 @@ def _evaluate_post_coverage_branch(
     else:
         coverage_meshing_regularized_polygons = coverage_void_regularized_polygons
         coverage_meshing_regularized_sources = coverage_void_regularized_sources
+    record_branch_stage("coverage_meshing_regularization", branch_stage_started_at)
 
+    branch_stage_started_at = time.perf_counter()
     (
         final_shape_regularized_polygons,
         final_shape_regularized_sources,
@@ -15067,7 +15113,9 @@ def _evaluate_post_coverage_branch(
         )
         diagnostics["final_shape_regularization_applied"] = False
         diagnostics["final_shape_regularization_operator_applied"] = {}
+    record_branch_stage("final_shape_regularization", branch_stage_started_at)
 
+    branch_stage_started_at = time.perf_counter()
     final_output_polygons, final_output_sources = _filter_small_output_polygons(
         final_shape_regularized_polygons,
         final_shape_regularized_sources,
@@ -15078,6 +15126,9 @@ def _evaluate_post_coverage_branch(
         final_output_polygons,
         final_output_sources,
     )
+    record_branch_stage("final_output_filter", branch_stage_started_at)
+
+    branch_stage_started_at = time.perf_counter()
     final_polygons, final_sources = _regularize_final_output_clearance(
         final_polygons,
         final_sources,
@@ -15087,6 +15138,9 @@ def _evaluate_post_coverage_branch(
         min_hole_area=min_hole_area,
         diagnostics=diagnostics,
     )
+    record_branch_stage("final_clearance_regularization", branch_stage_started_at)
+
+    branch_stage_started_at = time.perf_counter()
     final_signature = _cached_coverage_defect_signature(
         cache,
         final_polygons,
@@ -15096,6 +15150,7 @@ def _evaluate_post_coverage_branch(
         reference_union,
         _cached_union(cache, final_polygons),
     )
+    record_branch_stage("final_scoring", branch_stage_started_at)
     return _PostCoverageBranch(
         label=coverage_candidate.label,
         coverage_candidate=coverage_candidate,
@@ -15172,6 +15227,8 @@ def _copy_post_coverage_diagnostics(
         elif key.startswith("final_min_area_filter_"):
             diagnostics[key] = value
         elif key.startswith("final_clearance_regularization_"):
+            diagnostics[key] = value
+        elif key == "post_coverage_branch_seconds":
             diagnostics[key] = value
     diagnostics["geos_exception_count"] += branch_diagnostics["geos_exception_count"]
     diagnostics["geos_exception_messages"].extend(
@@ -15388,16 +15445,13 @@ def _apply_local_polygon_repairs(
         def append_candidate(candidate: _RepairCandidate | None) -> None:
             if candidate is None:
                 return
-            if simplify_only:
-                candidate_signature = _polygon_segment_defect_signature(
-                    candidate.polygon,
-                    target_scale=min_segment_length,
-                )
-            else:
-                candidate_signature = _polygon_defect_signature(
-                    candidate.polygon,
-                    target_scale=min_segment_length,
-                )
+            if not enable_simplify_operators:
+                local_candidates.append(candidate)
+                return
+            candidate_signature = _polygon_segment_defect_signature(
+                candidate.polygon,
+                target_scale=min_segment_length,
+            )
             if candidate_signature.short_edge_count == 0:
                 local_candidates.append(candidate)
                 return
