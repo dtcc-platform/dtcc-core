@@ -10414,10 +10414,14 @@ def _regularize_coverage_contacts(
         current_polygons,
         target_scale=min_segment_length,
     )
-    candidate_variants: list[tuple[list[Polygon], list[list[int]]]] = [
-        (current_polygons, current_sources)
+    candidate_variants: list[tuple[str, list[Polygon], list[list[int]]]] = [
+        ("direct", current_polygons, current_sources)
     ]
     contact_stage_started_at = time.perf_counter()
+    postprocess_stage_seconds: dict[str, float] = {}
+    diagnostics["coverage_contact_regularization_postprocess_seconds"] = (
+        postprocess_stage_seconds
+    )
     if _coverage_signature_requires_polygon_regularization(
         current_signature,
         target_scale=min_segment_length,
@@ -10426,6 +10430,7 @@ def _regularize_coverage_contacts(
         local_diagnostics = _empty_diagnostics(len(current_polygons))
         local_diagnostics["collect_stage_metrics"] = False
         local_diagnostics["enable_logging"] = False
+        postprocess_step_started_at = time.perf_counter()
         postprocessed_polygons, postprocessed_sources = _simplify_polygons_for_meshing(
             current_polygons,
             current_sources,
@@ -10435,27 +10440,59 @@ def _regularize_coverage_contacts(
             min_hole_area=min_hole_area,
             diagnostics=local_diagnostics,
         )
-        postprocessed_polygons, postprocessed_sources = _regularize_low_clearance_polygons(
-            postprocessed_polygons,
-            postprocessed_sources,
-            min_clearance=min_segment_length,
-            grid=grid,
-            min_area=min_area,
-            min_hole_area=min_hole_area,
-            diagnostics=local_diagnostics,
+        postprocess_stage_seconds["polygon_simplify"] = float(
+            time.perf_counter() - postprocess_step_started_at
         )
-        candidate_variants.append((postprocessed_polygons, postprocessed_sources))
+        postprocess_step_started_at = time.perf_counter()
+        post_simplify_signature = _cached_coverage_defect_signature(
+            cache,
+            postprocessed_polygons,
+            target_scale=min_segment_length,
+        )
+        diagnostics["coverage_contact_regularization_post_simplify_short_edge_count"] = (
+            post_simplify_signature.short_edge_count
+        )
+        diagnostics["coverage_contact_regularization_post_simplify_pair_issue_count"] = (
+            post_simplify_signature.pair_issue_count
+        )
+        diagnostics["coverage_contact_regularization_post_simplify_ring_contact_count"] = (
+            post_simplify_signature.ring_contact_count
+        )
+        diagnostics["coverage_contact_regularization_post_simplify_min_clearance"] = (
+            post_simplify_signature.min_clearance
+        )
+        diagnostics["coverage_contact_regularization_post_simplify_vertex_count"] = (
+            post_simplify_signature.vertex_count
+        )
+        postprocessed_polygons, postprocessed_sources = (
+            _regularize_low_clearance_polygons(
+                postprocessed_polygons,
+                postprocessed_sources,
+                min_clearance=min_segment_length,
+                grid=grid,
+                min_area=min_area,
+                min_hole_area=min_hole_area,
+                diagnostics=local_diagnostics,
+            )
+        )
+        postprocess_stage_seconds["low_clearance"] = float(
+            time.perf_counter() - postprocess_step_started_at
+        )
+        candidate_variants.append(
+            ("postprocessed", postprocessed_polygons, postprocessed_sources)
+        )
     record_contact_stage("postprocess_candidate", contact_stage_started_at)
 
     contact_stage_started_at = time.perf_counter()
     best_variant: tuple[
+        str,
         list[Polygon],
         list[list[int]],
         _CoverageDefectSignature,
         dict[str, float],
         tuple[float, int, int, int, float, int, float, float, float, float],
     ] | None = None
-    for candidate_polygons, candidate_sources in candidate_variants:
+    for candidate_name, candidate_polygons, candidate_sources in candidate_variants:
         candidate_signature = _cached_coverage_defect_signature(
             cache,
             candidate_polygons,
@@ -10478,8 +10515,9 @@ def _regularize_coverage_contacts(
             candidate_difference_metrics,
             target_scale=min_segment_length,
         )
-        if best_variant is None or candidate_score < best_variant[4]:
+        if best_variant is None or candidate_score < best_variant[5]:
             best_variant = (
+                candidate_name,
                 candidate_polygons,
                 candidate_sources,
                 candidate_signature,
@@ -10510,12 +10548,14 @@ def _regularize_coverage_contacts(
         return polygons, source_map
 
     (
+        best_variant_name,
         best_polygons,
         best_sources,
         best_signature,
         best_difference_metrics,
         _,
     ) = best_variant
+    diagnostics["coverage_contact_regularization_selected_variant"] = best_variant_name
     contact_stage_started_at = time.perf_counter()
     if best_signature.pair_issue_count > 0:
         rescue_candidate = _repair_residual_pair_issues(
