@@ -7383,6 +7383,7 @@ def _iteratively_open_polygon_short_edges(
         edit_zone=edit_zone,
         operator=f"{operator_prefix}_chain",
         area_balance_budget_override=area_budget,
+        signature=current_signature,
     )
 
 
@@ -7535,7 +7536,9 @@ def _try_polygon_same_turn_short_walk_collapse(
         target_scale=target_scale,
     )
 
-    best_candidate: tuple[tuple[float, ...], Polygon, BaseGeometry] | None = None
+    best_candidate: (
+        tuple[tuple[float, ...], Polygon, BaseGeometry, _PolygonDefectSignature] | None
+    ) = None
 
     for index in range(count):
         a = coords[index]
@@ -7631,7 +7634,12 @@ def _try_polygon_same_turn_short_walk_collapse(
             candidate_signature.vertex_count,
         )
         if best_candidate is None or score < best_candidate[0]:
-            best_candidate = (score, orient(candidate_polygon, sign=1.0), edit_zone)
+            best_candidate = (
+                score,
+                orient(candidate_polygon, sign=1.0),
+                edit_zone,
+                candidate_signature,
+            )
 
     if best_candidate is None:
         return None
@@ -7640,6 +7648,7 @@ def _try_polygon_same_turn_short_walk_collapse(
         polygon=best_candidate[1],
         edit_zone=best_candidate[2],
         operator="same_turn_short_walk",
+        signature=best_candidate[3],
     )
 
 
@@ -7663,7 +7672,9 @@ def _try_polygon_fill_chain_collapse(
         target_scale=target_scale,
     )
 
-    best_candidate: tuple[tuple[float, ...], Polygon, BaseGeometry] | None = None
+    best_candidate: (
+        tuple[tuple[float, ...], Polygon, BaseGeometry, _PolygonDefectSignature] | None
+    ) = None
 
     for start in range(count):
         for internal_vertices in range(min_internal_vertices, max_internal_vertices + 1):
@@ -7779,7 +7790,12 @@ def _try_polygon_fill_chain_collapse(
                 candidate_signature.vertex_count,
             )
             if best_candidate is None or score < best_candidate[0]:
-                best_candidate = (score, orient(candidate_polygon, sign=1.0), edit_zone)
+                best_candidate = (
+                    score,
+                    orient(candidate_polygon, sign=1.0),
+                    edit_zone,
+                    candidate_signature,
+                )
 
     if best_candidate is None:
         return None
@@ -7788,6 +7804,7 @@ def _try_polygon_fill_chain_collapse(
         polygon=best_candidate[1],
         edit_zone=best_candidate[2],
         operator="fill_chain_collapse",
+        signature=best_candidate[3],
     )
 
 
@@ -7810,7 +7827,9 @@ def _try_polygon_bevel_corner_collapse(
         target_scale=target_scale,
     )
 
-    best_candidate: tuple[tuple[float, ...], Polygon, BaseGeometry] | None = None
+    best_candidate: (
+        tuple[tuple[float, ...], Polygon, BaseGeometry, _PolygonDefectSignature] | None
+    ) = None
 
     for index in range(count):
         a = coords[(index - 1) % count]
@@ -7927,7 +7946,12 @@ def _try_polygon_bevel_corner_collapse(
             candidate_signature.vertex_count,
         )
         if best_candidate is None or score < best_candidate[0]:
-            best_candidate = (score, orient(candidate_polygon, sign=1.0), edit_zone)
+            best_candidate = (
+                score,
+                orient(candidate_polygon, sign=1.0),
+                edit_zone,
+                candidate_signature,
+            )
 
     if best_candidate is None:
         return None
@@ -7936,6 +7960,7 @@ def _try_polygon_bevel_corner_collapse(
         polygon=best_candidate[1],
         edit_zone=best_candidate[2],
         operator="bevel_corner_collapse",
+        signature=best_candidate[3],
     )
 
 
@@ -7972,10 +7997,16 @@ def _accept_local_candidate(
             reference_polygon,
             target_scale=target_scale,
         )
-    candidate_signature = _polygon_defect_signature(
-        accepted,
-        target_scale=target_scale,
-    )
+    if (
+        candidate.signature is not None
+        and accepted.equals_exact(candidate.polygon, tolerance=0.0)
+    ):
+        candidate_signature = candidate.signature
+    else:
+        candidate_signature = _polygon_defect_signature(
+            accepted,
+            target_scale=target_scale,
+        )
     if not _signature_improves(
         reference_signature,
         candidate_signature,
@@ -15518,10 +15549,12 @@ def _apply_local_polygon_repairs(
             if not enable_simplify_operators:
                 local_candidates.append(candidate)
                 return
-            candidate_signature = _polygon_segment_defect_signature(
-                candidate.polygon,
-                target_scale=min_segment_length,
-            )
+            candidate_signature = candidate.signature
+            if candidate_signature is None:
+                candidate_signature = _polygon_segment_defect_signature(
+                    candidate.polygon,
+                    target_scale=min_segment_length,
+                )
             if candidate_signature.short_edge_count == 0:
                 local_candidates.append(candidate)
                 return
