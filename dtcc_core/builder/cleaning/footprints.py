@@ -15525,7 +15525,7 @@ def _apply_local_polygon_repairs(
             if candidate_signature.short_edge_count == 0:
                 local_candidates.append(candidate)
                 return
-            if enable_simplify_operators:
+            if _should_attempt_polygon_short_edge_angle_open(candidate_signature):
                 refined = _iteratively_open_polygon_short_edges(
                     candidate.polygon,
                     target_scale=min_segment_length,
@@ -16070,11 +16070,11 @@ def _regularize_low_clearance_polygons(
             polygon,
             target_scale=min_clearance,
         )
-        try:
-            clearance_before = float(shapely.minimum_clearance(polygon))
-        except GEOSException as exc:
-            _record_geos_exception(diagnostics, "minimum_clearance", exc)
-            clearance_before = np.inf
+        clearance_before = (
+            reference_signature.clearance
+            if reference_signature.clearance is not None
+            else np.inf
+        )
 
         needs_ring_contact_repair = reference_signature.ring_contact_count > 0
         if (
@@ -16103,6 +16103,11 @@ def _regularize_low_clearance_polygons(
             working_polygon,
             min_tip_span=acute_tip_min_span,
         )
+        reference_contract_ok = _signature_satisfies_scale_contract(
+            reference_signature,
+            target_scale=min_clearance,
+            grid=grid,
+        )
 
         def consider_candidate(candidate: Polygon | None) -> None:
             nonlocal best_candidate, best_score
@@ -16114,11 +16119,6 @@ def _regularize_low_clearance_polygons(
             )
             candidate_contract_ok = _signature_satisfies_scale_contract(
                 candidate_signature,
-                target_scale=min_clearance,
-                grid=grid,
-            )
-            reference_contract_ok = _signature_satisfies_scale_contract(
-                reference_signature,
                 target_scale=min_clearance,
                 grid=grid,
             )
