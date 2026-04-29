@@ -102,6 +102,24 @@ def make_prepared_city_inputs(
     )
 
 
+def make_prepared_ground_regions(
+    building_surfaces: list[Surface],
+    meshing_directives: list[int],
+    region_polygons: list[Polygon],
+    region_markers: list[int],
+    region_triangle_sizes: dict[int, float],
+    region_points: list[np.ndarray],
+) -> meshes_module.PreparedGroundRegions:
+    return meshes_module.PreparedGroundRegions(
+        building_surfaces=building_surfaces,
+        meshing_directives=meshing_directives,
+        region_polygons=region_polygons,
+        region_markers=region_markers,
+        region_triangle_sizes=region_triangle_sizes,
+        region_points=region_points,
+    )
+
+
 def make_building(
     polygon: Polygon,
     *,
@@ -1581,14 +1599,7 @@ def test_prepare_surface_ground_regions_preserves_building_holes_for_courtyards(
     )
     surface = make_surface(building, 12.0)
 
-    (
-        active_surfaces,
-        directives,
-        region_polygons,
-        region_markers,
-        region_triangle_sizes,
-        region_points,
-    ) = meshes_module._prepare_surface_ground_regions(
+    ground_regions = meshes_module._prepare_surface_ground_regions(
         conditioned_surfaces=[surface],
         conditioned_resolution=[5.0],
         target_lods=[GeometryType.LOD1],
@@ -1600,20 +1611,27 @@ def test_prepare_surface_ground_regions_preserves_building_holes_for_courtyards(
         treat_lod0_as_holes=False,
     )
 
-    assert len(active_surfaces) == 1
-    assert directives == [1]
-    assert region_markers.count(-2) == 2
-    assert region_markers.count(0) == 1
-    assert region_triangle_sizes == {0: 5.0}
+    assert len(ground_regions.building_surfaces) == 1
+    assert ground_regions.meshing_directives == [1]
+    assert ground_regions.region_markers.count(-2) == 2
+    assert ground_regions.region_markers.count(0) == 1
+    assert ground_regions.region_triangle_sizes == {0: 5.0}
 
-    building_index = region_markers.index(0)
-    ground_indices = [index for index, marker in enumerate(region_markers) if marker == -2]
+    building_index = ground_regions.region_markers.index(0)
+    ground_indices = [
+        index
+        for index, marker in enumerate(ground_regions.region_markers)
+        if marker == -2
+    ]
     courtyard = Polygon(building.interiors[0])
-    assert len(region_polygons[building_index].interiors) == 1
-    assert building.contains(Point(region_points[building_index]))
-    assert not courtyard.covers(Point(region_points[building_index]))
+    assert len(ground_regions.region_polygons[building_index].interiors) == 1
+    assert building.contains(Point(ground_regions.region_points[building_index]))
+    assert not courtyard.covers(Point(ground_regions.region_points[building_index]))
     assert all(
-        region_polygons[index].intersection(region_polygons[building_index]).area == 0.0
+        ground_regions.region_polygons[index]
+        .intersection(ground_regions.region_polygons[building_index])
+        .area
+        == 0.0
         for index in ground_indices
     )
 
@@ -2347,7 +2365,7 @@ def test_build_city_surface_mesh_uses_raw_ground_markers(monkeypatch):
         return make_prepared_city_inputs(terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics)
 
     def fake_prepare_regions(**kwargs):
-        return (
+        return make_prepared_ground_regions(
             [conditioned_surface],
             [1],
             [box(0, 0, 80, 80), box(10, 10, 20, 20)],
@@ -2519,7 +2537,7 @@ def test_build_city_volume_mesh_uses_shared_surface_pipeline(monkeypatch):
     def fake_prepare_regions(**kwargs):
         captured["target_lods"] = kwargs["target_lods"]
         captured["conditioned_resolution"] = kwargs["conditioned_resolution"]
-        return (
+        return make_prepared_ground_regions(
             [conditioned_surface],
             [1],
             [box(0, 0, 80, 80), box(10, 10, 20, 20)],
@@ -2679,7 +2697,7 @@ def test_build_city_volume_mesh_stage_audit_records_stage_contracts(monkeypatch)
         )
 
     def fake_prepare_regions(**kwargs):
-        return (
+        return make_prepared_ground_regions(
             [conditioned_surface],
             [1],
             [box(0, 0, 80, 80), box(10, 10, 20, 20)],
@@ -2917,14 +2935,7 @@ def test_build_city_surface_mesh_unmerged_components_are_compact():
         conditioned_footprints.source_map,
     )
     shell_target_lods = meshes_module._promote_volume_shell_target_lods(target_lods)
-    (
-        surface_buildings,
-        surface_directives,
-        surface_region_polygons,
-        surface_region_markers,
-        surface_region_triangle_sizes,
-        surface_region_points,
-    ) = meshes_module._prepare_surface_ground_regions(
+    surface_regions = meshes_module._prepare_surface_ground_regions(
         conditioned_surfaces=conditioned_footprints.surfaces,
         conditioned_resolution=conditioned_footprints.subdomain_resolution,
         target_lods=shell_target_lods,
@@ -2941,9 +2952,9 @@ def test_build_city_surface_mesh_unmerged_components_are_compact():
         treat_lod0_as_holes=False,
     )
     ground_mesh, _ = meshes_module._build_ground_mesh_from_coverage(
-        region_polygons=surface_region_polygons,
-        region_markers=surface_region_markers,
-        region_points=surface_region_points,
+        region_polygons=surface_regions.region_polygons,
+        region_markers=surface_regions.region_markers,
+        region_points=surface_regions.region_points,
         bounds=(
             terrain.bounds.xmin,
             terrain.bounds.ymin,
@@ -2954,14 +2965,14 @@ def test_build_city_surface_mesh_unmerged_components_are_compact():
         min_mesh_angle=25.0,
         mesher=meshes_module.resolve_2d_mesher("auto"),
         sort_triangles=False,
-        region_triangle_sizes=surface_region_triangle_sizes,
+        region_triangle_sizes=surface_regions.region_triangle_sizes,
         add_halo_markers=False,
     )
     ground_mesh, surface_buildings, surface_directives = (
         meshes_module._split_ground_mesh_building_components(
             ground_mesh=ground_mesh,
-            building_surfaces=surface_buildings,
-            meshing_directives=surface_directives,
+            building_surfaces=surface_regions.building_surfaces,
+            meshing_directives=surface_regions.meshing_directives,
         )
     )
     components = meshes_module._build_city_surface_mesh_from_ground_mesh(
@@ -3025,7 +3036,7 @@ def test_build_city_volume_mesh_keeps_requested_tetgen_switches(monkeypatch):
         return make_prepared_city_inputs(terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics)
 
     def fake_prepare_regions(**kwargs):
-        return (
+        return make_prepared_ground_regions(
             [conditioned_surface],
             [1],
             [box(0, 0, 80, 80), box(10, 10, 20, 20)],
@@ -3175,7 +3186,7 @@ def test_build_city_volume_mesh_uses_split_surface_default_without_flat_special_
         return make_prepared_city_inputs(terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics)
 
     def fake_prepare_regions(**kwargs):
-        return (
+        return make_prepared_ground_regions(
             [conditioned_surface],
             [1],
             [box(0, 0, 80, 80), box(10, 10, 20, 20)],
@@ -3340,7 +3351,7 @@ def test_build_city_volume_mesh_allows_empty_conditioned_footprints(monkeypatch)
 
     def fake_prepare_regions(**kwargs):
         captured["conditioned_surfaces"] = kwargs["conditioned_surfaces"]
-        return (
+        return make_prepared_ground_regions(
             [],
             [],
             [box(0, 0, 80, 80)],
@@ -3470,7 +3481,7 @@ def test_build_city_volume_mesh_respects_explicit_tetgen_switches_for_dtcc_meshe
         return make_prepared_city_inputs(terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics)
 
     def fake_prepare_regions(**kwargs):
-        return (
+        return make_prepared_ground_regions(
             [conditioned_surface],
             [1],
             [box(0, 0, 80, 80), box(10, 10, 20, 20)],
@@ -3611,7 +3622,7 @@ def test_build_city_volume_mesh_saves_tetgen_debug_meshes(monkeypatch, tmp_path)
         return make_prepared_city_inputs(terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics)
 
     def fake_prepare_regions(**kwargs):
-        return (
+        return make_prepared_ground_regions(
             [conditioned_surface],
             [1],
             [box(0, 0, 80, 80), box(10, 10, 20, 20)],
@@ -3960,7 +3971,7 @@ def test_build_city_volume_mesh_captures_quality_failure_artifacts(monkeypatch, 
         return make_prepared_city_inputs(terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics)
 
     def fake_prepare_regions(**kwargs):
-        return (
+        return make_prepared_ground_regions(
             [conditioned_surface],
             [1],
             [box(0, 0, 80, 80), box(10, 10, 20, 20)],
@@ -4126,7 +4137,7 @@ def test_build_city_volume_mesh_ignores_quality_failure_capture_errors(
         )
 
     def fake_prepare_regions(**kwargs):
-        return (
+        return make_prepared_ground_regions(
             [conditioned_surface],
             [1],
             [box(0, 0, 80, 80), box(10, 10, 20, 20)],
@@ -4274,7 +4285,7 @@ def test_build_city_volume_mesh_uses_refined_shell_without_retry(
         return make_prepared_city_inputs(terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics)
 
     def fake_prepare_regions(**kwargs):
-        return (
+        return make_prepared_ground_regions(
             [conditioned_surface],
             [1],
             [box(0, 0, 80, 80), box(10, 10, 20, 20)],
@@ -4498,7 +4509,7 @@ def test_build_city_volume_mesh_keeps_shell_refinement_enabled_when_preserving_s
         )
 
     def fake_prepare_regions(**kwargs):
-        return (
+        return make_prepared_ground_regions(
             [conditioned_surface],
             [1],
             [box(0, 0, 80, 80), box(10, 10, 20, 20)],
