@@ -157,11 +157,9 @@ def condition_city_meshing_footprints(
 ) -> CityMeshingFootprints:
     """Run the same footprint conditioning stage used by mesh builders."""
 
-    import dtcc_core.builder.geometry_builders.meshes as mesh_builders
-
     terrain = city.terrain
     terrain_raster = terrain.raster if terrain is not None else None
-    conditioned_footprints = mesh_builders._condition_meshing_footprints(
+    conditioned_footprints = dtcc_core.builder.build_conditioned_footprints(
         city.buildings,
         lod=lod,
         min_building_detail=min_building_detail,
@@ -173,11 +171,6 @@ def condition_city_meshing_footprints(
         show_footprints=show_footprints,
         footprint_cleaning_plot_block=footprint_cleaning_plot_block,
         pipeline_mode=pipeline_mode,
-    )
-
-    mesh_builders._raise_stage_contract_errors(
-        "Conditioned footprints",
-        conditioned_footprints.contract,
     )
 
     return CityMeshingFootprints(

@@ -32,6 +32,9 @@ class CitySurfaceMeshArgs(DatasetBaseArgs):
     merge_buildings: bool = Field(
         True, description="Whether to merge adjacent building footprints"
     )
+    merge_tolerance: float = Field(
+        0.5, description="Distance tolerance for merging footprints in meters"
+    )
     smoothing: int = Field(0, description="Number of terrain smoothing iterations")
     show_footprints: bool = Field(
         False,
@@ -53,6 +56,18 @@ class CitySurfaceMeshArgs(DatasetBaseArgs):
         None,
         description="2D meshing backend to use for the ground triangulation",
     )
+    report_mesh_quality: bool = Field(
+        True,
+        description="Whether to log a mesh-quality summary after meshing",
+    )
+    stage_audit_enabled: bool = Field(
+        False,
+        description="Whether to attach per-stage audit data to the returned mesh",
+    )
+    pipeline_mode: Literal["strict"] = Field(
+        "strict",
+        description="Meshing pipeline mode",
+    )
     format: Optional[Literal["obj", "stl", "vtu"]] = Field(
         None, description="Output file format"
     )
@@ -66,6 +81,7 @@ class CitySurfaceMeshDataset(DatasetDescriptor):
     ArgsModel = CitySurfaceMeshArgs
 
     def _build_mesh_from_city(self, city: City, args: CitySurfaceMeshArgs):
+        stage_audit = {} if args.stage_audit_enabled else None
         return dtcc_core.builder.build_city_surface_mesh(
             city,
             max_mesh_size=args.max_mesh_size,
@@ -73,10 +89,14 @@ class CitySurfaceMeshDataset(DatasetDescriptor):
             min_building_detail=args.min_building_detail,
             min_building_area=args.min_building_area,
             merge_buildings=args.merge_buildings,
+            merge_tolerance=args.merge_tolerance,
             smoothing=args.smoothing,
             show_footprints=args.show_footprints,
             footprint_cleaning_plot_block=args.footprint_cleaning_plot_block,
             mesher=args.mesher,
+            report_mesh_quality=args.report_mesh_quality,
+            pipeline_mode=args.pipeline_mode,
+            stage_audit=stage_audit,
         )
 
     def build_from_city(self, city: City, **kwargs):

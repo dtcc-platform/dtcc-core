@@ -199,11 +199,9 @@ def test_prepare_footprint_city_from_bounds_downloads_only_footprints(
     city.add_buildings.assert_called_once_with(buildings)
 
 
-@patch("dtcc_core.builder.geometry_builders.meshes._condition_meshing_footprints")
-@patch("dtcc_core.builder.geometry_builders.meshes._raise_stage_contract_errors")
+@patch("dtcc_core.datasets._city_mesh_common.dtcc_core.builder.build_conditioned_footprints")
 def test_condition_city_meshing_footprints_uses_shared_conditioning_stage(
-    mock_raise_stage_contract_errors,
-    mock_condition_meshing_footprints,
+    mock_build_conditioned_footprints,
 ):
     city = Mock(name="city")
     city.buildings = [Mock(name="building")]
@@ -225,7 +223,7 @@ def test_condition_city_meshing_footprints_uses_shared_conditioning_stage(
         contract=contract,
     )
 
-    mock_condition_meshing_footprints.return_value = conditioned
+    mock_build_conditioned_footprints.return_value = conditioned
 
     result = condition_city_meshing_footprints(
         city,
@@ -248,7 +246,7 @@ def test_condition_city_meshing_footprints_uses_shared_conditioning_stage(
     assert result.contract is contract
     assert result.polygons == [polygon]
 
-    mock_condition_meshing_footprints.assert_called_once_with(
+    mock_build_conditioned_footprints.assert_called_once_with(
         city.buildings,
         lod=None,
         min_building_detail=0.5,
@@ -260,8 +258,4 @@ def test_condition_city_meshing_footprints_uses_shared_conditioning_stage(
         show_footprints=False,
         footprint_cleaning_plot_block=True,
         pipeline_mode="strict",
-    )
-    mock_raise_stage_contract_errors.assert_called_once_with(
-        "Conditioned footprints",
-        contract,
     )

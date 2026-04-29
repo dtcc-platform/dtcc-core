@@ -59,10 +59,14 @@ def test_city_surface_mesh_default_build_returns_surface_mesh(
         min_building_detail=0.5,
         min_building_area=15.0,
         merge_buildings=True,
+        merge_tolerance=0.5,
         smoothing=0,
         show_footprints=False,
         footprint_cleaning_plot_block=True,
         mesher=None,
+        report_mesh_quality=True,
+        pipeline_mode="strict",
+        stage_audit=None,
     )
 
 
@@ -85,12 +89,15 @@ def test_city_surface_mesh_parameter_plumbing(
             min_building_detail=1.25,
             min_building_area=27.0,
             merge_buildings=False,
+            merge_tolerance=0.75,
             smoothing=4,
             show_footprints=True,
             footprint_cleaning_plot_block=False,
             flat_ground=True,
             ground_level=17.5,
             mesher="dtcc_mesher",
+            report_mesh_quality=False,
+            stage_audit_enabled=True,
         )
     )
 
@@ -105,11 +112,16 @@ def test_city_surface_mesh_parameter_plumbing(
         min_building_detail=1.25,
         min_building_area=27.0,
         merge_buildings=False,
+        merge_tolerance=0.75,
         smoothing=4,
         show_footprints=True,
         footprint_cleaning_plot_block=False,
         mesher="dtcc_mesher",
+        report_mesh_quality=False,
+        pipeline_mode="strict",
+        stage_audit=ANY,
     )
+    assert isinstance(mock_build_city_surface_mesh.call_args.kwargs["stage_audit"], dict)
 
 
 @patch("dtcc_core.datasets.city_surface_mesh.dtcc_core.builder.build_city_surface_mesh")

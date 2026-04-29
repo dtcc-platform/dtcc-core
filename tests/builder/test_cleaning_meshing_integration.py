@@ -1096,6 +1096,43 @@ def test_conditioned_footprint_contract_audit_fails_scale_contract():
     assert any("scale contract" in message for message in contract["errors"])
 
 
+def test_conditioned_footprint_contract_audit_warns_on_residual_self_clearance_only():
+    polygon = Polygon(
+        shell=[
+            (0.0, 0.0),
+            (10.0, 0.0),
+            (10.0, 10.0),
+            (0.0, 10.0),
+            (0.0, 0.0),
+        ],
+        holes=[
+            [
+                (0.45, 2.0),
+                (2.0, 2.0),
+                (2.0, 8.0),
+                (0.45, 8.0),
+                (0.45, 2.0),
+            ]
+        ],
+    )
+
+    contract = meshes_module._conditioned_footprint_contract_audit(
+        surfaces=[make_surface(polygon, 8.0)],
+        declared_scale=0.5,
+        diagnostics={"geos_exception_count": 0, "output_grid": 0.03125},
+    )
+
+    assert contract["ok"] is True
+    assert contract["status"] == "warn"
+    assert contract["errors"] == []
+    assert contract["requirements"]["scale_contract_satisfied"] is False
+    assert contract["requirements"]["min_clearance_respected"] is False
+    assert contract["metrics"]["residual_min_clearance_tolerated"] is True
+    assert contract["metrics"]["declared_scale"] == pytest.approx(0.5)
+    assert contract["metrics"]["min_clearance"] == pytest.approx(0.45)
+    assert any("residual self/min-clearance deficit" in message for message in contract["warnings"])
+
+
 def test_conditioned_footprint_contract_uses_accepted_revalidation_grid_tolerance():
     polygon = Polygon(
         shell=[
@@ -1137,9 +1174,13 @@ def test_conditioned_footprint_contract_uses_accepted_revalidation_grid_toleranc
         },
     )
 
-    assert without_revalidation_grid["status"] == "fail"
+    assert without_revalidation_grid["status"] == "warn"
     assert without_revalidation_grid["metrics"]["clearance_deficit"] == pytest.approx(
         0.1
+    )
+    assert (
+        without_revalidation_grid["metrics"]["residual_min_clearance_tolerated"]
+        is True
     )
     assert with_revalidation_grid["status"] == "pass"
     assert with_revalidation_grid["metrics"]["contract_tolerance"] == pytest.approx(
@@ -2913,6 +2954,157 @@ def test_build_city_surface_mesh_from_ground_mesh_snaps_boundary_vertices(monkey
     assert np.allclose(captured["aligned_vertices"][4], [40.0, 40.0, 0.0])
     assert np.allclose(captured["terrain_builder_input"], captured["aligned_vertices"])
     assert mesh.faces.shape[0] == 1
+
+
+def test_ground_mesh_raster_alignment_clamps_bounded_single_axis_overshoot():
+    raster = Raster()
+    raster.data = np.zeros((10, 10), dtype=float)
+    raster.set_bounds(Bounds(0.0, 0.0, 10.0, 10.0))
+    ground_mesh = Mesh(
+        vertices=np.array(
+            [
+                [0.0, 0.0, 0.0],
+                [11.5, 4.0, 0.0],
+                [5.0, 10.0, 0.0],
+            ]
+        ),
+        faces=np.array([[0, 1, 2]], dtype=int),
+        markers=np.array([0], dtype=int),
+    )
+
+    aligned = meshes_module._snap_ground_mesh_to_raster_bounds(ground_mesh, raster)
+
+    assert np.allclose(aligned.vertices[1], [10.0, 4.0, 0.0])
+    assert np.all(aligned.vertices[:, 0] >= 0.0)
+    assert np.all(aligned.vertices[:, 0] <= 10.0)
+    assert np.all(aligned.vertices[:, 1] >= 0.0)
+    assert np.all(aligned.vertices[:, 1] <= 10.0)
+
+
+def test_ground_mesh_raster_alignment_rejects_unbounded_overshoot():
+    raster = Raster()
+    raster.data = np.zeros((10, 10), dtype=float)
+    raster.set_bounds(Bounds(0.0, 0.0, 10.0, 10.0))
+    ground_mesh = Mesh(
+        vertices=np.array(
+            [
+                [0.0, 0.0, 0.0],
+                [12.5, 4.0, 0.0],
+                [5.0, 10.0, 0.0],
+            ]
+        ),
+        faces=np.array([[0, 1, 2]], dtype=int),
+        markers=np.array([0], dtype=int),
+    )
+
+    with pytest.raises(ValueError, match="outside terrain raster bounds"):
+        meshes_module._snap_ground_mesh_to_raster_bounds(ground_mesh, raster)
+
+
+def test_prepare_surface_ground_regions_clips_buildings_to_raster_bounds():
+    bounds = (0.0, 0.0, 10.0, 10.0)
+    regions = meshes_module._prepare_surface_ground_regions(
+        conditioned_surfaces=[make_surface(box(-5.0, 2.0, 5.0, 8.0), 12.0)],
+        conditioned_resolution=[2.0],
+        target_lods=[GeometryType.LOD3],
+        bounds=bounds,
+        max_mesh_size=2.0,
+        min_building_detail=0.5,
+        footprint_diagnostics={"output_grid": 0.03125},
+        cleaning_diagnostics=False,
+        treat_lod0_as_holes=False,
+    )
+
+    assert len(regions.building_surfaces) == 1
+    for polygon in regions.region_polygons:
+        xmin, ymin, xmax, ymax = polygon.bounds
+        assert xmin >= bounds[0] - 1.0e-9
+        assert ymin >= bounds[1] - 1.0e-9
+        assert xmax <= bounds[2] + 1.0e-9
+        assert ymax <= bounds[3] + 1.0e-9
+
+
+def test_build_city_surface_mesh_stage_audit_records_core_stages(monkeypatch):
+    city = make_flat_city([make_building(box(10, 10, 20, 20), roof_z=12.0)])
+    terrain = city.terrain
+    terrain_raster = terrain.raster
+    building_surface = make_surface(box(10, 10, 20, 20), 12.0)
+    conditioned = make_conditioned_footprints(
+        [building_surface],
+        [[0]],
+        [5.0],
+        {"output_grid": 0.03125},
+    )
+    ground_mesh = Mesh(
+        vertices=np.array(
+            [
+                [0.0, 0.0, 0.0],
+                [80.0, 0.0, 0.0],
+                [80.0, 80.0, 0.0],
+                [0.0, 80.0, 0.0],
+            ]
+        ),
+        faces=np.array([[0, 1, 2], [0, 2, 3]], dtype=int),
+        markers=np.array([-2, 0], dtype=int),
+    )
+
+    monkeypatch.setattr(
+        meshes_module,
+        "_prepare_city_meshing_inputs",
+        lambda *args, **kwargs: (terrain, terrain_raster, conditioned),
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_prepare_surface_ground_regions",
+        lambda **kwargs: make_prepared_ground_regions(
+            [building_surface],
+            [3],
+            [box(0, 0, 80, 80), box(10, 10, 20, 20)],
+            [-2, 0],
+            {0: 5.0},
+            [np.array([1.0, 1.0]), np.array([11.0, 11.0])],
+        ),
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_build_ground_mesh_stage",
+        lambda **kwargs: meshes_module.BuiltGroundMesh(
+            mesh=ground_mesh,
+            mesher="dtcc_mesher",
+            audit={"contract": {"status": "pass"}},
+            contract={"ok": True, "status": "pass", "errors": []},
+        ),
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_split_ground_mesh_building_components",
+        lambda **kwargs: (ground_mesh, [building_surface], [3]),
+    )
+    monkeypatch.setattr(
+        meshes_module,
+        "_build_city_surface_mesh_from_ground_mesh",
+        lambda **kwargs: Mesh(
+            vertices=np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]),
+            faces=np.array([[0, 1, 2]], dtype=int),
+            markers=np.array([0], dtype=int),
+        ),
+    )
+
+    stage_audit = {}
+    mesh = build_city_surface_mesh(
+        city,
+        lod=GeometryType.LOD0,
+        report_mesh_quality=False,
+        stage_audit=stage_audit,
+    )
+
+    attempt = stage_audit["attempts"][0]
+    assert attempt["backend"] == "surface"
+    assert attempt["result"]["status"] == "success"
+    assert {"conditioned_footprints", "surface_regions", "ground_mesh"} <= set(
+        attempt["stages"]
+    )
+    assert mesh.stage_audit is stage_audit
 
 
 def test_build_city_surface_mesh_unmerged_components_are_compact():
