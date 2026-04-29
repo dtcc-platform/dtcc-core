@@ -10184,6 +10184,14 @@ def _regularize_coverage_contacts(
     diagnostics["coverage_contact_regularization_ring_contact_count_before"] = (
         before_signature.ring_contact_count
     )
+    contact_stage_seconds: dict[str, float] = {}
+    diagnostics["coverage_contact_regularization_seconds"] = contact_stage_seconds
+
+    def record_contact_stage(stage_name: str, started_at: float) -> None:
+        elapsed = float(time.perf_counter() - started_at)
+        contact_stage_seconds[stage_name] = (
+            contact_stage_seconds.get(stage_name, 0.0) + elapsed
+        )
 
     if min_segment_length <= 0 or not polygons or before_signature.pair_issue_count == 0:
         diagnostics["coverage_contact_regularization_applied"] = False
@@ -10211,6 +10219,7 @@ def _regularize_coverage_contacts(
         1e-9,
     )
 
+    contact_stage_started_at = time.perf_counter()
     while True:
         current_signature = _cached_coverage_defect_signature(
             cache,
@@ -10379,6 +10388,7 @@ def _regularize_coverage_contacts(
             operator_applied.get(applied_operator_name, 0) + 1
         )
         progress = True
+    record_contact_stage("candidate_loop", contact_stage_started_at)
 
     if not progress:
         diagnostics["coverage_contact_regularization_applied"] = False
@@ -10407,6 +10417,7 @@ def _regularize_coverage_contacts(
     candidate_variants: list[tuple[list[Polygon], list[list[int]]]] = [
         (current_polygons, current_sources)
     ]
+    contact_stage_started_at = time.perf_counter()
     if _coverage_signature_requires_polygon_regularization(
         current_signature,
         target_scale=min_segment_length,
@@ -10434,7 +10445,9 @@ def _regularize_coverage_contacts(
             diagnostics=local_diagnostics,
         )
         candidate_variants.append((postprocessed_polygons, postprocessed_sources))
+    record_contact_stage("postprocess_candidate", contact_stage_started_at)
 
+    contact_stage_started_at = time.perf_counter()
     best_variant: tuple[
         list[Polygon],
         list[list[int]],
@@ -10473,6 +10486,7 @@ def _regularize_coverage_contacts(
                 candidate_difference_metrics,
                 candidate_score,
             )
+    record_contact_stage("variant_selection", contact_stage_started_at)
 
     if best_variant is None:
         diagnostics["coverage_contact_regularization_applied"] = False
@@ -10502,6 +10516,7 @@ def _regularize_coverage_contacts(
         best_difference_metrics,
         _,
     ) = best_variant
+    contact_stage_started_at = time.perf_counter()
     if best_signature.pair_issue_count > 0:
         rescue_candidate = _repair_residual_pair_issues(
             best_polygons,
@@ -10657,12 +10672,26 @@ def _regularize_coverage_contacts(
                     operator_applied[operator_name] = (
                         operator_applied.get(operator_name, 0) + count
                     )
+    record_contact_stage("residual_pair_rescue", contact_stage_started_at)
+
+    contact_stage_started_at = time.perf_counter()
+    defer_post_contact_cleanup = (
+        best_signature.pair_issue_count == 0
+        and best_signature.ring_contact_count == 0
+        and best_signature.short_edge_count < before_signature.short_edge_count
+    )
+    diagnostics["coverage_contact_regularization_deferred_post_contact_cleanup"] = (
+        defer_post_contact_cleanup
+    )
     if (
-        best_signature.pair_issue_count > 0
-        or _coverage_signature_requires_polygon_regularization(
-            best_signature,
-            target_scale=min_segment_length,
-            grid=grid,
+        not defer_post_contact_cleanup
+        and (
+            best_signature.pair_issue_count > 0
+            or _coverage_signature_requires_polygon_regularization(
+                best_signature,
+                target_scale=min_segment_length,
+                grid=grid,
+            )
         )
     ):
         post_contact_polygons, post_contact_sources = _apply_local_polygon_repairs(
@@ -10738,6 +10767,7 @@ def _regularize_coverage_contacts(
                 short_edge_threshold=min_segment_length,
             ),
         )
+    record_contact_stage("post_contact_local_repair", contact_stage_started_at)
 
     diagnostics["coverage_contact_regularization_applied"] = True
     diagnostics["coverage_contact_regularization_selected_branch"] = "pair_contacts"
