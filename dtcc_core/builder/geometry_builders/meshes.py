@@ -151,6 +151,15 @@ class BuiltGroundMesh:
     contract: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class BuiltSurfaceShell:
+    """Surface shell mesh plus contract data for TetGen handoff."""
+
+    mesh: Mesh
+    audit: dict[str, Any]
+    contract: dict[str, Any]
+
+
 def _normalize_max_mesh_size(max_mesh_size: float | None) -> float | None:
     if max_mesh_size is None:
         return None
@@ -1580,6 +1589,124 @@ def _surface_shell_stage_audit(
         preserve_surface_requested=preserve_surface_requested,
     )
     return surface_shell_audit
+
+
+def _build_tetgen_surface_shell_stage(
+    *,
+    ground_mesh: Mesh,
+    terrain_raster: object,
+    building_surfaces: list[Surface],
+    meshing_directives: list[int],
+    smoothing: int,
+    mesher: str,
+    reference_length: float,
+    preserve_surface_requested: bool,
+    max_mesh_size: float | None,
+    refine_for_tetgen: bool,
+) -> BuiltSurfaceShell:
+    base_surface_mesh = _build_city_surface_mesh_from_ground_mesh(
+        ground_mesh=ground_mesh,
+        terrain_raster=terrain_raster,
+        building_surfaces=building_surfaces,
+        meshing_directives=meshing_directives,
+        smoothing=smoothing,
+        merge_meshes=True,
+    )
+    transition_refinement_stats = _tetgen_shell_transition_refinement_disabled_stats()
+    if refine_for_tetgen:
+        (
+            base_surface_mesh,
+            transition_refinement_stats,
+        ) = _refine_ground_building_transition_faces_for_tetgen(
+            base_surface_mesh,
+            max_mesh_size=max_mesh_size,
+        )
+        if transition_refinement_stats["applied"]:
+            info(
+                "Refined TetGen shell ground/building transition ring: "
+                "candidate_edges=%d split_edges=%d ground_relief=%.3g m "
+                "added_vertices=%d added_faces=%d",
+                transition_refinement_stats["candidate_transition_edges"],
+                transition_refinement_stats["split_edges"],
+                float(transition_refinement_stats.get("ground_relief_median", 0.0)),
+                transition_refinement_stats["added_vertices"],
+                transition_refinement_stats["added_faces"],
+            )
+
+    # Wall panels must arrive TetGen-ready from the shell builder itself. The
+    # Python-side edge splitter can turn moderately stretched preserved wall
+    # triangles into much worse slivers, so the strict path no longer mutates
+    # walls after shell construction.
+    wall_refinement_stats = _tetgen_shell_wall_refinement_disabled_stats()
+    surface_mesh = base_surface_mesh
+    shell_refinement_stats = _tetgen_shell_refinement_disabled_stats()
+    surface_shell_audit = _surface_shell_stage_audit(
+        surface_mesh,
+        mesher=mesher,
+        reference_length=reference_length,
+        preserve_surface_requested=preserve_surface_requested,
+        shell_refinement_stats=shell_refinement_stats,
+        transition_refinement_stats=transition_refinement_stats,
+        wall_refinement_stats=wall_refinement_stats,
+    )
+
+    if refine_for_tetgen:
+        (
+            refined_surface_mesh,
+            candidate_shell_refinement_stats,
+        ) = _refine_near_horizontal_surface_faces_for_tetgen(
+            surface_mesh,
+            max_mesh_size=max_mesh_size,
+        )
+        if candidate_shell_refinement_stats["applied"]:
+            info(
+                "Refined near-horizontal TetGen shell faces: rounds=%d "
+                "candidate_faces=%d split_edges=%d added_vertices=%d added_faces=%d",
+                candidate_shell_refinement_stats["rounds"],
+                candidate_shell_refinement_stats["candidate_faces"],
+                candidate_shell_refinement_stats["split_edges"],
+                candidate_shell_refinement_stats["added_vertices"],
+                candidate_shell_refinement_stats["added_faces"],
+            )
+        surface_mesh = refined_surface_mesh
+        shell_refinement_stats = candidate_shell_refinement_stats
+        surface_shell_audit = _surface_shell_stage_audit(
+            surface_mesh,
+            mesher=mesher,
+            reference_length=reference_length,
+            preserve_surface_requested=preserve_surface_requested,
+            shell_refinement_stats=shell_refinement_stats,
+            transition_refinement_stats=transition_refinement_stats,
+            wall_refinement_stats=wall_refinement_stats,
+        )
+
+    if refine_for_tetgen:
+        selected_variant = "refined"
+        selection_reason = "tetgen_shell_preconditioned"
+        if (
+            not bool(shell_refinement_stats.get("applied"))
+            and not bool(wall_refinement_stats.get("applied"))
+            and not bool(transition_refinement_stats.get("applied"))
+        ):
+            selected_variant = "unrefined"
+            selection_reason = "no_candidate_edges"
+    else:
+        selected_variant = "unrefined"
+        selection_reason = "tetgen_shell_refinement_disabled"
+    surface_shell_audit["tetgen_shell_horizontal_refinement_selection"] = (
+        _audit_json_ready(
+            {
+                "selected_variant": selected_variant,
+                "reason": selection_reason,
+            }
+        )
+    )
+
+    return BuiltSurfaceShell(
+        mesh=surface_mesh,
+        audit=surface_shell_audit,
+        contract=surface_shell_audit["contract"],
+    )
 
 
 def _require_city_terrain_raster(
@@ -4804,121 +4931,29 @@ def build_city_volume_mesh(
                 "Ground mesh",
                 built_surface_ground.contract,
             )
-            base_surface_mesh = _build_city_surface_mesh_from_ground_mesh(
+            built_surface_shell = _build_tetgen_surface_shell_stage(
                 ground_mesh=surface_ground_mesh,
                 terrain_raster=terrain_raster,
                 building_surfaces=surface_buildings,
                 meshing_directives=surface_directives,
                 smoothing=smoothing,
-                merge_meshes=True,
-            )
-            transition_refinement_stats = (
-                _tetgen_shell_transition_refinement_disabled_stats()
-            )
-            if effective_stage4_shell_refinement:
-                (
-                    base_surface_mesh,
-                    transition_refinement_stats,
-                ) = _refine_ground_building_transition_faces_for_tetgen(
-                    base_surface_mesh,
-                    max_mesh_size=max_mesh_size,
-                )
-                if transition_refinement_stats["applied"]:
-                    info(
-                        "Refined TetGen shell ground/building transition ring: "
-                        "candidate_edges=%d split_edges=%d ground_relief=%.3g m "
-                        "added_vertices=%d added_faces=%d",
-                        transition_refinement_stats["candidate_transition_edges"],
-                        transition_refinement_stats["split_edges"],
-                        float(
-                            transition_refinement_stats.get(
-                                "ground_relief_median", 0.0
-                            )
-                        ),
-                        transition_refinement_stats["added_vertices"],
-                        transition_refinement_stats["added_faces"],
-                    )
-            # Wall panels must arrive TetGen-ready from the shell builder
-            # itself. The Python-side edge splitter can turn moderately stretched
-            # preserved wall triangles into much worse slivers, so the strict
-            # path no longer mutates walls after shell construction.
-            wall_refinement_stats = _tetgen_shell_wall_refinement_disabled_stats()
-            wall_refined_surface_mesh = base_surface_mesh
-            base_shell_refinement_stats = _tetgen_shell_refinement_disabled_stats()
-            base_surface_shell_audit = _surface_shell_stage_audit(
-                wall_refined_surface_mesh,
                 mesher=built_surface_ground.mesher,
                 reference_length=conditioned_scale,
                 preserve_surface_requested=preserve_surface_requested,
-                shell_refinement_stats=base_shell_refinement_stats,
-                transition_refinement_stats=transition_refinement_stats,
-                wall_refinement_stats=wall_refinement_stats,
+                max_mesh_size=max_mesh_size,
+                refine_for_tetgen=effective_stage4_shell_refinement,
             )
-            surface_mesh = wall_refined_surface_mesh
-            shell_refinement_stats = base_shell_refinement_stats
-            surface_shell_audit = base_surface_shell_audit
-
-            if effective_stage4_shell_refinement:
-                (
-                    refined_surface_mesh,
-                    candidate_shell_refinement_stats,
-                ) = _refine_near_horizontal_surface_faces_for_tetgen(
-                    wall_refined_surface_mesh,
-                    max_mesh_size=max_mesh_size,
-                )
-                if candidate_shell_refinement_stats["applied"]:
-                    info(
-                        "Refined near-horizontal TetGen shell faces: rounds=%d "
-                        "candidate_faces=%d split_edges=%d added_vertices=%d added_faces=%d",
-                        candidate_shell_refinement_stats["rounds"],
-                        candidate_shell_refinement_stats["candidate_faces"],
-                        candidate_shell_refinement_stats["split_edges"],
-                        candidate_shell_refinement_stats["added_vertices"],
-                        candidate_shell_refinement_stats["added_faces"],
-                    )
-                refined_surface_shell_audit = _surface_shell_stage_audit(
-                    refined_surface_mesh,
-                    mesher=built_surface_ground.mesher,
-                    reference_length=conditioned_scale,
-                    preserve_surface_requested=preserve_surface_requested,
-                    shell_refinement_stats=candidate_shell_refinement_stats,
-                    transition_refinement_stats=transition_refinement_stats,
-                    wall_refinement_stats=wall_refinement_stats,
-                )
-                surface_mesh = refined_surface_mesh
-                shell_refinement_stats = candidate_shell_refinement_stats
-                surface_shell_audit = refined_surface_shell_audit
-            if effective_stage4_shell_refinement:
-                selected_variant = "refined"
-                selection_reason = "tetgen_shell_preconditioned"
-                if (
-                    not bool(shell_refinement_stats.get("applied"))
-                    and not bool(wall_refinement_stats.get("applied"))
-                    and not bool(transition_refinement_stats.get("applied"))
-                ):
-                    selected_variant = "unrefined"
-                    selection_reason = "no_candidate_edges"
-            else:
-                selected_variant = "unrefined"
-                selection_reason = "tetgen_shell_refinement_disabled"
-            surface_shell_audit["tetgen_shell_horizontal_refinement_selection"] = (
-                _audit_json_ready(
-                    {
-                        "selected_variant": selected_variant,
-                        "reason": selection_reason,
-                    }
-                )
-            )
+            surface_mesh = built_surface_shell.mesh
 
             if attempt is not None:
                 _record_stage_audit_stage(
                     attempt,
                     "surface_shell",
-                    surface_shell_audit,
+                    built_surface_shell.audit,
                 )
             _raise_stage_contract_errors(
                 "Surface shell",
-                surface_shell_audit["contract"],
+                built_surface_shell.contract,
             )
             report_progress(
                 percent=55, message="Surface mesh built, preparing volume mesh..."
