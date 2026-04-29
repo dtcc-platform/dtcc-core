@@ -124,6 +124,14 @@ class _RepairCandidate:
     signature: _PolygonDefectSignature | None = None
 
 
+_ShortEdgeEditSegments = tuple[
+    tuple[float, float],
+    tuple[float, float],
+    tuple[float, float],
+    tuple[float, float],
+]
+
+
 def _record_stage_seconds(
     diagnostics: dict[str, Any],
     stage_name: str,
@@ -3425,12 +3433,23 @@ def _polygon_defect_signature(
     polygon: Polygon,
     *,
     target_scale: float,
+    segment_signature: _PolygonDefectSignature | None = None,
+    clearance: float | None = None,
 ) -> _PolygonDefectSignature:
-    segment_stats = _segment_length_stats(
-        [polygon],
-        short_edge_threshold=target_scale,
-    )
-    clearance = _safe_minimum_clearance(polygon)
+    if segment_signature is None:
+        segment_stats = _segment_length_stats(
+            [polygon],
+            short_edge_threshold=target_scale,
+        )
+        short_edge_count = int(segment_stats["short_edge_count"])
+        min_edge_length = segment_stats["min_edge_length"]
+        vertex_count = int(segment_stats["vertex_count"])
+    else:
+        short_edge_count = segment_signature.short_edge_count
+        min_edge_length = segment_signature.min_edge_length
+        vertex_count = segment_signature.vertex_count
+    if clearance is None:
+        clearance = _safe_minimum_clearance(polygon)
     clearance_deficit = 0.0
     if target_scale > 0 and clearance is not None:
         clearance_deficit = max(target_scale - clearance, 0.0)
@@ -3441,9 +3460,9 @@ def _polygon_defect_signature(
     return _PolygonDefectSignature(
         clearance=clearance,
         clearance_deficit=clearance_deficit,
-        short_edge_count=int(segment_stats["short_edge_count"]),
-        min_edge_length=segment_stats["min_edge_length"],
-        vertex_count=int(segment_stats["vertex_count"]),
+        short_edge_count=short_edge_count,
+        min_edge_length=min_edge_length,
+        vertex_count=vertex_count,
         ring_contact_count=_polygon_ring_boundary_contact_count(polygon),
         acute_tip_count=int(acute_tip_count),
         acute_tip_span=float(acute_tip_span),
@@ -3690,6 +3709,20 @@ def _signature_not_worse(
     if candidate_min_edge + tolerance < reference_min_edge:
         return False
     return True
+
+
+def _segment_signature_not_worse(
+    reference: _PolygonDefectSignature,
+    candidate: _PolygonDefectSignature,
+    *,
+    grid: float,
+) -> bool:
+    tolerance = max(grid, 1e-9)
+    if candidate.short_edge_count > reference.short_edge_count:
+        return False
+    reference_min_edge = reference.min_edge_length or 0.0
+    candidate_min_edge = candidate.min_edge_length or 0.0
+    return candidate_min_edge + tolerance >= reference_min_edge
 
 
 def _signature_satisfies_scale_contract(
@@ -7143,7 +7176,7 @@ def _open_short_edge_ring_coords(
     *,
     segment_index: int,
     amount: float,
-) -> tuple[list[tuple[float, float]], BaseGeometry] | None:
+) -> tuple[list[tuple[float, float]], _ShortEdgeEditSegments] | None:
     if amount <= 0:
         return None
 
@@ -7175,16 +7208,28 @@ def _open_short_edge_ring_coords(
     updated[index] = start + (start_direction / start_norm) * start_move
     updated[(index + 1) % len(updated)] = end + (end_direction / end_norm) * end_move
 
-    edit_zone = unary_union(
+    edit_segments = (
+        tuple(start),
+        tuple(end),
+        tuple(updated[index]),
+        tuple(updated[(index + 1) % len(updated)]),
+    )
+    ring = [(float(x), float(y)) for x, y in updated]
+    ring.append(ring[0])
+    return ring, edit_segments
+
+
+def _short_edge_angle_open_edit_zone(
+    edit_segments: _ShortEdgeEditSegments,
+    *,
+    amount: float,
+) -> BaseGeometry:
+    start, end, updated_start, updated_end = edit_segments
+    return unary_union(
         [
-            LineString([tuple(start), tuple(updated[index])]),
-            LineString(
-                [
-                    tuple(end),
-                    tuple(updated[(index + 1) % len(updated)]),
-                ]
-            ),
-            LineString([tuple(start), tuple(end)]),
+            LineString([start, updated_start]),
+            LineString([end, updated_end]),
+            LineString([start, end]),
         ]
     ).buffer(
         max(float(amount), 1e-9),
@@ -7192,9 +7237,6 @@ def _open_short_edge_ring_coords(
         join_style=BufferJoinStyle.mitre,
         mitre_limit=1000.0,
     )
-    ring = [(float(x), float(y)) for x, y in updated]
-    ring.append(ring[0])
-    return ring, edit_zone
 
 
 def _try_polygon_short_edge_angle_open(
@@ -7223,6 +7265,7 @@ def _try_polygon_short_edge_angle_open(
     rings: list[tuple[str, int | None, Sequence[Sequence[float]]]] = [
         ("exterior", None, polygon.exterior.coords),
     ]
+    interior_rings = [list(ring.coords) for ring in polygon.interiors]
     rings.extend(
         ("hole", hole_index, ring.coords)
         for hole_index, ring in enumerate(polygon.interiors)
@@ -7246,19 +7289,19 @@ def _try_polygon_short_edge_angle_open(
                 )
                 if updated is None:
                     continue
-                updated_ring, edit_zone = updated
+                updated_ring, edit_segments = updated
                 if ring_kind == "exterior":
                     candidate_geometry = Polygon(
                         updated_ring,
-                        [list(ring.coords) for ring in polygon.interiors],
+                        interior_rings,
                     )
                 else:
                     holes: list[Sequence[Sequence[float]]] = []
-                    for candidate_hole_index, ring in enumerate(polygon.interiors):
+                    for candidate_hole_index, ring in enumerate(interior_rings):
                         if candidate_hole_index == hole_index:
                             holes.append(updated_ring)
                         else:
-                            holes.append(list(ring.coords))
+                            holes.append(ring)
                     candidate_geometry = Polygon(list(polygon.exterior.coords), holes)
 
                 candidate_polygon = _normalize_single_polygon_candidate(
@@ -7295,6 +7338,10 @@ def _try_polygon_short_edge_angle_open(
                     candidate_signature.vertex_count,
                 )
                 if best is None or score < best[0]:
+                    edit_zone = _short_edge_angle_open_edit_zone(
+                        edit_segments,
+                        amount=amount,
+                    )
                     best = (
                         score,
                         candidate_polygon,
@@ -7529,6 +7576,7 @@ def _try_polygon_same_turn_short_walk_collapse(
     if count < 4:
         return None
 
+    interior_rings = [list(ring.coords) for ring in polygon.interiors]
     short_walk_limit = max(12.0 * target_scale, 16.0 * grid, 1.0e-9)
     missing_tolerance = max(16.0 * grid * grid, 1.0e-9)
     reference_signature = _polygon_defect_signature(
@@ -7568,7 +7616,7 @@ def _try_polygon_same_turn_short_walk_collapse(
         try:
             candidate_polygon = Polygon(
                 candidate_shell,
-                [list(ring.coords) for ring in polygon.interiors],
+                interior_rings,
             )
         except (GEOSException, ValueError) as exc:
             _record_geos_exception(diagnostics, "same_turn_short_walk", exc)
@@ -7581,20 +7629,33 @@ def _try_polygon_same_turn_short_walk_collapse(
         ):
             continue
 
+        candidate_segment_signature = _polygon_segment_defect_signature(
+            candidate_polygon,
+            target_scale=target_scale,
+        )
+        if not _segment_signature_not_worse(
+            reference_signature,
+            candidate_segment_signature,
+            grid=grid,
+        ):
+            continue
+        candidate_clearance = _safe_minimum_clearance(candidate_polygon)
+        if (
+            candidate_clearance is None
+            or reference_signature.clearance is None
+            or candidate_clearance + grid < reference_signature.clearance
+        ):
+            continue
         candidate_signature = _polygon_defect_signature(
             candidate_polygon,
             target_scale=target_scale,
+            segment_signature=candidate_segment_signature,
+            clearance=candidate_clearance,
         )
         if not _signature_not_worse(
             reference_signature,
             candidate_signature,
             grid=grid,
-        ):
-            continue
-        if (
-            candidate_signature.clearance is None
-            or reference_signature.clearance is None
-            or candidate_signature.clearance + grid < reference_signature.clearance
         ):
             continue
         if (
@@ -7664,6 +7725,7 @@ def _try_polygon_fill_chain_collapse(
     if count < 6:
         return None
 
+    interior_rings = [list(ring.coords) for ring in polygon.interiors]
     min_internal_vertices = 2
     max_internal_vertices = min(6, count - 3)
     missing_tolerance = max(16.0 * grid * grid, 1.0e-9)
@@ -7714,7 +7776,7 @@ def _try_polygon_fill_chain_collapse(
             try:
                 candidate_polygon = Polygon(
                     candidate_shell,
-                    [list(ring.coords) for ring in polygon.interiors],
+                    interior_rings,
                 )
             except (GEOSException, ValueError) as exc:
                 _record_geos_exception(diagnostics, "fill_chain_collapse", exc)
@@ -7727,9 +7789,39 @@ def _try_polygon_fill_chain_collapse(
             ):
                 continue
 
+            candidate_segment_signature = _polygon_segment_defect_signature(
+                candidate_polygon,
+                target_scale=target_scale,
+            )
+            if not _segment_signature_not_worse(
+                reference_signature,
+                candidate_segment_signature,
+                grid=grid,
+            ):
+                continue
+            candidate_clearance = _safe_minimum_clearance(candidate_polygon)
+            if (
+                candidate_clearance is None
+                or reference_signature.clearance is None
+                or candidate_clearance + grid < reference_signature.clearance
+            ):
+                continue
+            if (
+                candidate_segment_signature.min_edge_length is None
+                or reference_signature.min_edge_length is None
+            ):
+                continue
+            if (
+                candidate_clearance <= reference_signature.clearance + grid
+                and candidate_segment_signature.min_edge_length
+                <= reference_signature.min_edge_length + grid
+            ):
+                continue
             candidate_signature = _polygon_defect_signature(
                 candidate_polygon,
                 target_scale=target_scale,
+                segment_signature=candidate_segment_signature,
+                clearance=candidate_clearance,
             )
             if not _signature_not_worse(
                 reference_signature,
@@ -7737,27 +7829,7 @@ def _try_polygon_fill_chain_collapse(
                 grid=grid,
             ):
                 continue
-            if (
-                candidate_signature.clearance is None
-                or reference_signature.clearance is None
-                or candidate_signature.clearance + grid < reference_signature.clearance
-            ):
-                continue
-            if (
-                candidate_signature.min_edge_length is None
-                or reference_signature.min_edge_length is None
-                or candidate_signature.min_edge_length + grid
-                < reference_signature.min_edge_length
-            ):
-                continue
             if candidate_signature.vertex_count >= reference_signature.vertex_count:
-                continue
-            if (
-                candidate_signature.clearance
-                <= reference_signature.clearance + grid
-                and candidate_signature.min_edge_length
-                <= reference_signature.min_edge_length + grid
-            ):
                 continue
 
             difference_metrics = _difference_area_metrics(polygon, candidate_polygon)
@@ -7820,6 +7892,7 @@ def _try_polygon_bevel_corner_collapse(
     if count < 4:
         return None
 
+    interior_rings = [list(ring.coords) for ring in polygon.interiors]
     bevel_length_limit = max(2.5 * target_scale, 16.0 * grid, 1.0e-9)
     missing_tolerance = max(16.0 * grid * grid, 1.0e-9)
     reference_signature = _polygon_defect_signature(
@@ -7889,7 +7962,7 @@ def _try_polygon_bevel_corner_collapse(
         try:
             candidate_polygon = Polygon(
                 candidate_shell,
-                [list(ring.coords) for ring in polygon.interiors],
+                interior_rings,
             )
         except (GEOSException, ValueError) as exc:
             _record_geos_exception(diagnostics, "bevel_corner_collapse", exc)
@@ -7902,20 +7975,33 @@ def _try_polygon_bevel_corner_collapse(
         ):
             continue
 
+        candidate_segment_signature = _polygon_segment_defect_signature(
+            candidate_polygon,
+            target_scale=target_scale,
+        )
+        if not _segment_signature_not_worse(
+            reference_signature,
+            candidate_segment_signature,
+            grid=grid,
+        ):
+            continue
+        candidate_clearance = _safe_minimum_clearance(candidate_polygon)
+        if (
+            candidate_clearance is None
+            or reference_signature.clearance is None
+            or candidate_clearance + grid < reference_signature.clearance
+        ):
+            continue
         candidate_signature = _polygon_defect_signature(
             candidate_polygon,
             target_scale=target_scale,
+            segment_signature=candidate_segment_signature,
+            clearance=candidate_clearance,
         )
         if not _signature_not_worse(
             reference_signature,
             candidate_signature,
             grid=grid,
-        ):
-            continue
-        if (
-            candidate_signature.clearance is None
-            or reference_signature.clearance is None
-            or candidate_signature.clearance + grid < reference_signature.clearance
         ):
             continue
         if (
