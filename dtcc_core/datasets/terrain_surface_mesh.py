@@ -29,7 +29,7 @@ class TerrainSurfaceMeshArgs(DatasetBaseArgs):
     smoothing: int = Field(
         3, description="Number of smoothing iterations to apply to the terrain mesh"
     )
-    mesher: Optional[Literal["auto", "dtcc_mesher", "triangle", "spade"]] = Field(
+    mesher: Optional[Literal["auto", "dtcc_mesher", "triangle"]] = Field(
         None,
         description="2D meshing backend to use for the terrain triangulation",
     )

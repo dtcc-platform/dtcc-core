@@ -160,7 +160,7 @@ def test_mesh_surface_dtcc_mesher_triangle_size_controls_density(simple_surface)
     assert refined.vertices.shape[0] > coarse.vertices.shape[0]
 
 
-def test_available_2d_meshers_reports_dtcc_mesher_and_triangle(monkeypatch):
+def test_available_2d_meshers_reports_supported_python_backends(monkeypatch):
     monkeypatch.setattr(
         backends_module.importlib.util,
         "find_spec",
@@ -169,12 +169,14 @@ def test_available_2d_meshers_reports_dtcc_mesher_and_triangle(monkeypatch):
     monkeypatch.setattr(
         backends_module,
         "_builder_backend_available",
-        lambda name: name == "triangle",
+        lambda name: name in {"triangle", "spade"},
     )
 
     assert backends_module.available_2d_meshers() == ["dtcc_mesher", "triangle"]
     assert backends_module.resolve_2d_mesher("triangle") == "triangle"
     assert backends_module.resolve_2d_mesher("auto") == "dtcc_mesher"
+    with pytest.raises(ValueError, match="Unsupported 2D mesher 'spade'"):
+        backends_module.resolve_2d_mesher("spade")
 
 
 def test_snap_mesh_vertices():

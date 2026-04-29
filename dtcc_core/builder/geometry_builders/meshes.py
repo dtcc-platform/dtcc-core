@@ -1564,18 +1564,6 @@ def _surface_shell_stage_audit(
     return surface_shell_audit
 
 
-def _is_unavailable_flat_mesher_error(backend: str, exc: RuntimeError) -> bool:
-    message = str(exc)
-    if backend == "triangle":
-        return "Triangle support not built" in message
-    if backend == "spade":
-        return (
-            "SPADE support not built" in message
-            or "install dtcc-pyspade-native" in message
-        )
-    return False
-
-
 def _require_city_terrain_raster(
     city: City,
     *,
@@ -4044,10 +4032,10 @@ def build_city_surface_mesh(
         When True, building directives resolved to LOD0 are sent to the mesher
         as hole surfaces instead of meshed buildings. When False, footprint-only
         LOD0 buildings are still extruded as buildings in the surface mesh.
-    `mesher` : {"auto", "dtcc_mesher", "triangle", "spade"}, optional
+    `mesher` : {"auto", "dtcc_mesher", "triangle"}, optional
         Select the 2D meshing backend used to build the ground/surface
         triangulation. ``"auto"`` prefers ``dtcc_mesher`` when available,
-        then ``triangle``, then ``spade``.
+        then ``triangle``.
     `show_footprints` : bool, optional
         Show a live Matplotlib comparison of raw and conditioned footprints
         before meshing. Defaults to False.
@@ -4213,8 +4201,8 @@ def build_city_flat_mesh(
         ``LOD1 -> LOD2 -> LOD3 -> LOD0``.
     max_mesh_size : float | None, optional
         Maximum target triangle edge length in meters. ``dtcc_mesher`` uses
-        it directly as an edge-length cap, while ``triangle`` and ``spade``
-        convert it to an equivalent triangle-area cap. Set to ``None`` to
+        it directly as an edge-length cap, while ``triangle`` converts it to
+        an equivalent triangle-area cap. Set to ``None`` to
         disable the global size cap and let geometry plus ``min_mesh_angle``
         drive refinement. Non-positive values are treated as ``None`` for
         backward compatibility.
@@ -4228,9 +4216,9 @@ def build_city_flat_mesh(
         Minimum footprint area; smaller buildings are dropped (default 15.0).
     merge_tolerance : float, optional
         Distance tolerance for merging footprints (default 0.5).
-    mesher : {"auto", "dtcc_mesher", "triangle", "spade"}, optional
+    mesher : {"auto", "dtcc_mesher", "triangle"}, optional
         Select the 2D meshing backend. ``"auto"`` prefers ``dtcc_mesher``
-        when it is installed, then ``triangle``, then ``spade``.
+        when it is installed, then ``triangle``.
     show_footprints : bool, optional
         Show a live Matplotlib comparison of raw and conditioned footprints
         before meshing. Defaults to False.
@@ -4505,7 +4493,7 @@ def build_city_volume_mesh(
     debug_step : int, optional
         Legacy DTCC-only compatibility parameter for the internal fallback
         volume mesher. Ignored in the TetGen path. Defaults to 7.
-    mesher : {"auto", "dtcc_mesher", "triangle", "spade"}, optional
+    mesher : {"auto", "dtcc_mesher", "triangle"}, optional
         Select the 2D meshing backend used for the intermediate flat/surface
         mesh stages. In the strict volume path, ``None`` and ``"auto"`` both
         resolve to ``dtcc_mesher``.

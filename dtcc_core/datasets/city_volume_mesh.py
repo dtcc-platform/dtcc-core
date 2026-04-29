@@ -69,7 +69,7 @@ class CityVolumeMeshArgs(DatasetBaseArgs):
             "max_mesh_size if not set)"
         ),
     )
-    mesher: Optional[Literal["auto", "dtcc_mesher", "triangle", "spade"]] = Field(
+    mesher: Optional[Literal["auto", "dtcc_mesher", "triangle"]] = Field(
         None,
         description=(
             "2D meshing backend for the intermediate flat and shell meshes "

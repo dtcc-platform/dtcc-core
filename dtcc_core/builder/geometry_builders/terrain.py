@@ -149,7 +149,7 @@ def build_terrain_surface_mesh(
         Number of smoothing iterations to apply.
     ground_points_only : bool, default True
         Whether to use only ground-classified points from point cloud.
-    mesher : {"auto", "dtcc_mesher", "triangle", "spade"}, optional
+    mesher : {"auto", "dtcc_mesher", "triangle"}, optional
         Select the 2D meshing backend for the ground triangulation. When
         omitted, the global default backend is used.
     Returns

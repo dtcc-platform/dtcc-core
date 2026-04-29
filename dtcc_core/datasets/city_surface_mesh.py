@@ -49,7 +49,7 @@ class CitySurfaceMeshArgs(DatasetBaseArgs):
         None,
         description="Ground level for flat terrain (defaults to minimum terrain elevation)",
     )
-    mesher: Optional[Literal["auto", "dtcc_mesher", "triangle", "spade"]] = Field(
+    mesher: Optional[Literal["auto", "dtcc_mesher", "triangle"]] = Field(
         None,
         description="2D meshing backend to use for the ground triangulation",
     )
