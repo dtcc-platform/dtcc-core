@@ -490,6 +490,84 @@ def test_summary_markdown_reports_status_counts_and_quality_metrics() -> None:
     assert "mesh: tasks/example/artifacts/mesh.vtu" in summary
 
 
+def test_summary_markdown_reports_total_run_time() -> None:
+    bench = Path(__file__).resolve().parents[2] / "benchmarks" / "bench"
+    bench_module = runpy.run_path(str(bench))
+    summary_markdown = bench_module["_summary_markdown"]
+
+    summary = summary_markdown(
+        [],
+        {
+            "suite": "survey",
+            "plan": "0 cases x 0 datasets x 0 scenarios = 0 tasks",
+            "started_at": "2026-04-29T10:00:00Z",
+            "finished_at": "2026-04-29T11:01:05Z",
+            "elapsed_seconds": 3665.432,
+        },
+    )
+
+    assert "Started: 2026-04-29T10:00:00Z" in summary
+    assert "Finished: 2026-04-29T11:01:05Z" in summary
+    assert "Total time: 1h 01m 05.432s" in summary
+
+
+def test_benchmark_run_persists_total_run_time(tmp_path, monkeypatch) -> None:
+    bench = Path(__file__).resolve().parents[2] / "benchmarks" / "bench"
+    bench_module = runpy.run_path(str(bench))
+    command_run = bench_module["command_run"]
+
+    def fake_run_task_subprocess(
+        task,
+        run_dir,
+        *,
+        show_output=False,
+        save_artifacts=False,
+    ):
+        return {
+            "task_id": task["id"],
+            "dataset": task["dataset"],
+            "case": task["case"],
+            "scenario": task["scenario"],
+            "status": "success",
+            "elapsed_seconds": 0.001,
+            "bounds": task["case"]["bounds"],
+            "parameters": task["parameters"],
+            "metrics": {},
+            "artifacts": {},
+            "error": None,
+        }
+
+    monkeypatch.setitem(bench_module, "_run_task_subprocess", fake_run_task_subprocess)
+    monkeypatch.setitem(bench_module, "_load_table_helpers", lambda: None)
+    monkeypatch.setitem(bench_module, "_print_run_tables", lambda results: None)
+
+    rc = command_run(
+        SimpleNamespace(
+            suite="smoke",
+            city="lund",
+            dataset=["city_footprints"],
+            scenario=None,
+            run_id="timed",
+            output_dir=tmp_path,
+            dry_run=False,
+            show_output=False,
+            save_artifacts=False,
+        )
+    )
+
+    run_dir = tmp_path / "timed"
+    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    results_payload = json.loads((run_dir / "results.json").read_text(encoding="utf-8"))
+    summary = (run_dir / "summary.md").read_text(encoding="utf-8")
+
+    assert rc == 0
+    assert manifest["started_at"].endswith("Z")
+    assert manifest["finished_at"].endswith("Z")
+    assert manifest["elapsed_seconds"] >= 0
+    assert results_payload["manifest"]["elapsed_seconds"] == manifest["elapsed_seconds"]
+    assert "Total time:" in summary
+
+
 def test_live_status_labels_include_checkmarks_and_crosses() -> None:
     bench = Path(__file__).resolve().parents[2] / "benchmarks" / "bench"
     bench_module = runpy.run_path(str(bench))

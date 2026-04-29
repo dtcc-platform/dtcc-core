@@ -89,7 +89,9 @@ Use `--save-artifacts` to write successful dataset outputs under
 `results.json` and `summary.md`.
 
 Every completed run prints a status summary and a full per-task result table.
-The same summary is saved to `runs/<run-id>/summary.md`.
+The same summary is saved to `runs/<run-id>/summary.md`. Completed runs also
+record `started_at`, `finished_at`, and `elapsed_seconds` in `manifest.json`
+and show total wall-clock time near the top of `summary.md`.
 
 Some data availability or local data-read misses are reported as warnings
 instead of hard failures. For example, `lidar_coverage` means the requested

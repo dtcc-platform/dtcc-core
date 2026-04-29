@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
 import os
 import platform
@@ -356,6 +357,25 @@ def _format_seconds(value: Any) -> str:
         return "-"
 
 
+def _format_duration(value: Any) -> str:
+    try:
+        total_seconds = float(value)
+    except (TypeError, ValueError):
+        return "-"
+    if total_seconds < 60:
+        return f"{total_seconds:.3f}s"
+
+    minutes, seconds = divmod(total_seconds, 60)
+    hours, minutes = divmod(int(minutes), 60)
+    if hours:
+        return f"{hours}h {minutes:02d}m {seconds:06.3f}s"
+    return f"{minutes}m {seconds:06.3f}s"
+
+
+def _timestamp_utc() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
 def _status_label(status: str, *, rich: bool) -> str:
     if status == "success":
         label = "✓ success"
@@ -698,10 +718,14 @@ def _summary_markdown(results: list[dict[str, Any]], manifest: dict[str, Any]) -
         f"Suite: `{manifest['suite']}`",
         f"Tasks: {len(results)}",
         f"Plan: {manifest.get('plan', 'unknown')}",
-        "",
-        "## Results",
-        "",
     ]
+    if manifest.get("started_at"):
+        lines.append(f"Started: {manifest['started_at']}")
+    if manifest.get("finished_at"):
+        lines.append(f"Finished: {manifest['finished_at']}")
+    if manifest.get("elapsed_seconds") is not None:
+        lines.append(f"Total time: {_format_duration(manifest.get('elapsed_seconds'))}")
+    lines.extend(["", "## Results", ""])
     lines.extend(
         _markdown_table(
             [
@@ -772,6 +796,8 @@ def command_run(args: argparse.Namespace) -> int:
 
     _load_table_helpers()
     run_dir.mkdir(parents=True, exist_ok=True)
+    run_started = time.perf_counter()
+    manifest["started_at"] = _timestamp_utc()
     _write_json(run_dir / "manifest.json", manifest)
     _write_json(run_dir / "environment.json", environment_payload())
 
@@ -789,6 +815,7 @@ def command_run(args: argparse.Namespace) -> int:
         )
         results.append(result)
         _append_event(events_path, {"event": "task_finished", "index": index, "result": result})
+        manifest["elapsed_seconds"] = round(time.perf_counter() - run_started, 3)
         _write_json(run_dir / "results.json", {"manifest": manifest, "results": results})
         print(
             f"  {_terminal_status_label(result['status'])} "
@@ -796,8 +823,13 @@ def command_run(args: argparse.Namespace) -> int:
             flush=True,
         )
 
+    manifest["finished_at"] = _timestamp_utc()
+    manifest["elapsed_seconds"] = round(time.perf_counter() - run_started, 3)
+    _write_json(run_dir / "manifest.json", manifest)
+    _write_json(run_dir / "results.json", {"manifest": manifest, "results": results})
     _write_text(run_dir / "summary.md", _summary_markdown(results, manifest))
     _print_run_tables(results)
+    print(f"Total time: {_format_duration(manifest['elapsed_seconds'])}")
     print(f"Run directory: {run_dir}")
     return 0 if all(not _is_hard_failure(result["status"]) for result in results) else 1
 
