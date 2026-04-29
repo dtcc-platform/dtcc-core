@@ -434,6 +434,43 @@ def _status_summary_rows(results: list[dict[str, Any]], *, rich: bool) -> list[l
     ]
 
 
+def _failure_class_summary_rows(
+    results: list[dict[str, Any]],
+    *,
+    rich: bool,
+) -> list[list[str]]:
+    counts: dict[tuple[str, str], int] = {}
+    for result in results:
+        status = str(result.get("status", ""))
+        if status == "success":
+            continue
+        error = result.get("error") or {}
+        failure_class = str(error.get("failure_class") or "unclassified")
+        key = (status, failure_class)
+        counts[key] = counts.get(key, 0) + 1
+
+    status_order = {
+        "failed": 0,
+        "timeout": 1,
+        "hang": 2,
+        "warning": 3,
+    }
+    return [
+        [
+            _status_label(status, rich=rich),
+            failure_class,
+            str(count),
+        ]
+        for (status, failure_class), count in sorted(
+            counts.items(),
+            key=lambda item: (
+                status_order.get(item[0][0], 99),
+                item[0][1],
+            ),
+        )
+    ]
+
+
 def _quality_stat(metrics: dict[str, Any], name: str, stat: str) -> Any:
     value = metrics.get("quality", {}).get(name, {})
     if isinstance(value, dict):
@@ -640,6 +677,18 @@ def _print_run_tables(results: list[dict[str, Any]]) -> None:
         _status_summary_rows(results, rich=True),
         _status_summary_rows(results, rich=False),
     )
+    failure_rows = _failure_class_summary_rows(results, rich=True)
+    if failure_rows:
+        _emit_table(
+            "Benchmark failure/warning classification",
+            [
+                "Status",
+                "Failure class",
+                ("Count", "right"),
+            ],
+            failure_rows,
+            _failure_class_summary_rows(results, rich=False),
+        )
 
 
 def _summary_markdown(results: list[dict[str, Any]], manifest: dict[str, Any]) -> str:
@@ -676,6 +725,15 @@ def _summary_markdown(results: list[dict[str, Any]], manifest: dict[str, Any]) -
             _status_summary_rows(results, rich=False),
         )
     )
+    failure_rows = _failure_class_summary_rows(results, rich=False)
+    if failure_rows:
+        lines.extend(["", "## Failure Classes", ""])
+        lines.extend(
+            _markdown_table(
+                ["Status", "Failure class", "Count"],
+                failure_rows,
+            )
+        )
     return "\n".join(lines) + "\n"
 
 

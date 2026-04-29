@@ -32,7 +32,12 @@ ARTIFACT_FORMATS: dict[str, str] = {
     "city_volume_mesh": "xdmf",
 }
 
-WARNING_FAILURE_CLASSES = {"lidar_coverage", "lidar_cache"}
+WARNING_FAILURE_CLASSES = {
+    "footprint_coverage",
+    "footprint_cache",
+    "lidar_coverage",
+    "lidar_cache",
+}
 
 
 def json_ready(value: Any) -> Any:
@@ -262,16 +267,28 @@ def _save_result_artifacts(dataset_name: str, result: Any, artifact_dir: Path) -
 def classify_failure(exc_type: str, message: str) -> str:
     """Return a coarse benchmark failure class for triage summaries."""
     text = f"{exc_type}: {message}".lower()
+    if exc_type == "NoFootprintTilesError" or "no footprint tiles intersect" in text:
+        return "footprint_coverage"
+    if "footprint download failed for bounds" in text:
+        return "footprint_coverage"
     if (
-        exc_type == "FootprintDownloadError"
-        or "footprint download failed" in text
-        or "footprint tile lookup failed" in text
+        "downloaded-gpkg" in text
+        or ("gpkg" in text and "not found" in text)
         or "footprint tile download did not produce" in text
     ):
-        return "footprint_download"
-    if "downloaded-gpkg" in text or "gpkg" in text and "not found" in text:
         return "footprint_cache"
-    if "lidar" in text and ("404" in text or "not found" in text):
+    if (
+        exc_type == "FootprintDownloadError"
+        or "footprint tile lookup failed" in text
+        or "failed to download footprint tile" in text
+    ):
+        return "footprint_download"
+    if "lidar" in text and (
+        "404" in text
+        or "not found" in text
+        or "no lidar data" in text
+        or "no lidar tiles intersect" in text
+    ):
         return "lidar_coverage"
     if (
         "lidar" in text

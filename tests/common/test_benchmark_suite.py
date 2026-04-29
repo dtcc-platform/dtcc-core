@@ -211,12 +211,26 @@ def test_benchmark_failure_classification_separates_data_from_geometry() -> None
             "RuntimeError",
             "Footprint download failed for bounds (1, 2, 3, 4).",
         )
-        == "footprint_download"
+        == "footprint_coverage"
+    )
+    assert (
+        benchmark_datasets.classify_failure(
+            "NoFootprintTilesError",
+            "No footprint tiles intersect the requested bounding box.",
+        )
+        == "footprint_coverage"
     )
     assert (
         benchmark_datasets.classify_failure(
             "FootprintDownloadError",
             "Footprint tile download did not produce all expected files: tile.gpkg",
+        )
+        == "footprint_cache"
+    )
+    assert (
+        benchmark_datasets.classify_failure(
+            "FootprintDownloadError",
+            "Footprint tile lookup failed for bounds (1, 2, 3, 4): connection refused",
         )
         == "footprint_download"
     )
@@ -258,9 +272,13 @@ def test_benchmark_failure_classification_separates_data_from_geometry() -> None
     )
 
 
-def test_lidar_coverage_failure_is_warning_status() -> None:
+def test_data_coverage_and_cache_failures_are_warning_statuses() -> None:
+    assert benchmark_datasets.result_status_for_failure("footprint_coverage") == "warning"
+    assert benchmark_datasets.result_status_for_failure("footprint_cache") == "warning"
+    assert benchmark_datasets.result_status_for_failure("footprint_download") == "failed"
     assert benchmark_datasets.result_status_for_failure("lidar_coverage") == "warning"
     assert benchmark_datasets.result_status_for_failure("lidar_cache") == "warning"
+    assert benchmark_datasets.result_status_for_failure("lidar_download") == "failed"
     assert benchmark_datasets.result_status_for_failure("pipeline") == "failed"
 
 
@@ -409,6 +427,9 @@ def test_summary_markdown_reports_status_counts_and_quality_metrics() -> None:
     assert "| Spatial cases | 2 | 1 | 1 | 4 |" in summary
     assert "| Execution tasks | 2 | 1 | 1 | 4 |" in summary
     assert "| Scope | ✓ Success | ⚠ Warning | ✗ Fail | Total |" in summary
+    assert "## Failure Classes" in summary
+    assert "| ✗ failed | pipeline | 1 |" in summary
+    assert "| ⚠ warning | lidar_coverage | 1 |" in summary
     assert summary.index("## Results") < summary.index("## Status Summary")
     assert "✓ success" in summary
     assert "⚠ warning" in summary
