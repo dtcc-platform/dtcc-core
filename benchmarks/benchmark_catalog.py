@@ -195,6 +195,19 @@ SWEEP_SCENARIOS = tuple(
     scenario_id for scenario_id in SCENARIOS if scenario_id != "baseline"
 )
 
+SURVEY_DATASETS = ("city_flat_mesh", "city_surface_mesh")
+SURVEY_CENTER_GRID_SCENARIOS = tuple(
+    scenario_id
+    for scenario_id, scenario in SCENARIOS.items()
+    if scenario_id != "baseline"
+    and "bbox_size_m" not in scenario.parameters
+)
+SURVEY_BBOX_SCENARIOS = tuple(
+    scenario_id
+    for scenario_id, scenario in SCENARIOS.items()
+    if "bbox_size_m" in scenario.parameters
+)
+
 
 SUITE_DESCRIPTIONS: dict[str, str] = {
     "smoke": "Small live sanity check across all datasets.",
@@ -202,6 +215,7 @@ SUITE_DESCRIPTIONS: dict[str, str] = {
     "sweep": "One-axis city-center parameter sweeps, focused on city_surface_mesh.",
     "grid": "Full 10x10 grid survey for one city.",
     "stress": "Fine-raster and dataset-specific fine-mesh center grid tiles across all cities.",
+    "survey": "Multi-hour flat/surface robustness and parameter-envelope survey.",
 }
 
 STRESS_SCENARIOS_BY_DATASET: dict[str, tuple[str, ...]] = {
@@ -250,6 +264,14 @@ def build_tasks(
         raise ValueError(f"unknown city: {city}")
 
     tasks: list[BenchmarkTask] = []
+    task_specs: list[
+        tuple[
+            list[BenchmarkCase],
+            list[str],
+            tuple[str, ...],
+            int,
+        ]
+    ] = []
 
     if suite == "smoke":
         target_city = city or DEFAULT_CITY
@@ -257,6 +279,7 @@ def build_tasks(
         suite_datasets = _filter_datasets(DATASET_NAMES, datasets)
         scenario_ids = ("baseline",)
         timeout = 300
+        task_specs.append((cases, suite_datasets, scenario_ids, timeout))
     elif suite == "regression":
         cases = list(CENTER_GRID_CASES)
         if city is not None:
@@ -264,11 +287,13 @@ def build_tasks(
         suite_datasets = _filter_datasets(DATASET_NAMES, datasets)
         scenario_ids = ("baseline",)
         timeout = 420
+        task_specs.append((cases, suite_datasets, scenario_ids, timeout))
     elif suite == "sweep":
         cases = [city_center_case(city)] if city else all_city_center_cases()
         suite_datasets = _filter_datasets(("city_surface_mesh",), datasets)
         scenario_ids = SWEEP_SCENARIOS
         timeout = 300
+        task_specs.append((cases, suite_datasets, scenario_ids, timeout))
     elif suite == "grid":
         if city is None:
             raise ValueError("grid suite requires --city")
@@ -276,6 +301,7 @@ def build_tasks(
         suite_datasets = _filter_datasets(DATASET_NAMES, datasets)
         scenario_ids = ("baseline",)
         timeout = 420
+        task_specs.append((cases, suite_datasets, scenario_ids, timeout))
     elif suite == "stress":
         cases = list(CENTER_GRID_CASES)
         if city is not None:
@@ -283,34 +309,68 @@ def build_tasks(
         suite_datasets = _filter_datasets(STRESS_SCENARIOS_BY_DATASET, datasets)
         scenario_ids = ()
         timeout = 900
+        task_specs.append((cases, suite_datasets, scenario_ids, timeout))
+    elif suite == "survey":
+        target_cities = [city] if city is not None else list(CITIES)
+        suite_datasets = _filter_datasets(SURVEY_DATASETS, datasets)
+        grid_cases = [
+            case
+            for target_city in target_cities
+            for case in all_grid_cases(target_city)
+        ]
+        center_grid_cases = [
+            grid_case(target_city, CITIES[target_city].center_tile)
+            for target_city in target_cities
+        ]
+        city_center_cases = [
+            city_center_case(target_city) for target_city in target_cities
+        ]
+        task_specs.extend(
+            [
+                (grid_cases, suite_datasets, ("baseline",), 420),
+                (
+                    center_grid_cases,
+                    suite_datasets,
+                    SURVEY_CENTER_GRID_SCENARIOS,
+                    900,
+                ),
+                (
+                    city_center_cases,
+                    suite_datasets,
+                    SURVEY_BBOX_SCENARIOS,
+                    420,
+                ),
+            ]
+        )
     else:
         raise AssertionError(f"unhandled benchmark suite: {suite}")
 
-    for case in cases:
-        for dataset in suite_datasets:
-            dataset_scenario_ids = (
-                STRESS_SCENARIOS_BY_DATASET[dataset]
-                if suite == "stress"
-                else scenario_ids
-            )
-            for scenario_id in dataset_scenario_ids:
-                scenario = SCENARIOS[scenario_id]
-                resolved_case = _with_scenario_bounds(case, scenario)
-                parameters = dict(DEFAULT_PARAMETERS)
-                parameters.update(scenario.parameters)
-                parameters.pop("bbox_size_m", None)
-                task_id = f"{suite}:{dataset}:{resolved_case.id}:{scenario.id}"
-                tasks.append(
-                    BenchmarkTask(
-                        id=task_id,
-                        suite=suite,
-                        dataset=dataset,
-                        case=resolved_case,
-                        scenario=scenario,
-                        parameters=parameters,
-                        timeout_seconds=timeout,
-                    )
+    for cases, suite_datasets, scenario_ids, timeout in task_specs:
+        for case in cases:
+            for dataset in suite_datasets:
+                dataset_scenario_ids = (
+                    STRESS_SCENARIOS_BY_DATASET[dataset]
+                    if suite == "stress"
+                    else scenario_ids
                 )
+                for scenario_id in dataset_scenario_ids:
+                    scenario = SCENARIOS[scenario_id]
+                    resolved_case = _with_scenario_bounds(case, scenario)
+                    parameters = dict(DEFAULT_PARAMETERS)
+                    parameters.update(scenario.parameters)
+                    parameters.pop("bbox_size_m", None)
+                    task_id = f"{suite}:{dataset}:{resolved_case.id}:{scenario.id}"
+                    tasks.append(
+                        BenchmarkTask(
+                            id=task_id,
+                            suite=suite,
+                            dataset=dataset,
+                            case=resolved_case,
+                            scenario=scenario,
+                            parameters=parameters,
+                            timeout_seconds=timeout,
+                        )
+                    )
 
     return tasks
 

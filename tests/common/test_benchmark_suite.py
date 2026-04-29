@@ -175,6 +175,52 @@ def test_sweep_suite_keeps_parameter_sweeps_on_surface_mesh_dataset() -> None:
     }
 
 
+def test_survey_suite_covers_spatial_baseline_and_parameter_envelope() -> None:
+    tasks = build_tasks("survey")
+    assert len(tasks) == 2400
+    assert {task.dataset for task in tasks} == {
+        "city_flat_mesh",
+        "city_surface_mesh",
+    }
+
+    baseline_grid_tasks = [
+        task
+        for task in tasks
+        if task.case.kind == "city_grid" and task.scenario.id == "baseline"
+    ]
+    assert len(baseline_grid_tasks) == 10 * 100 * 2
+
+    envelope_tasks = [
+        task
+        for task in tasks
+        if task.case.kind == "city_grid" and task.scenario.id != "baseline"
+    ]
+    assert len(envelope_tasks) == 10 * 15 * 2
+    assert {task.scenario.id for task in envelope_tasks} >= {
+        "raster_cell_size_0.5",
+        "max_mesh_size_1",
+        "max_mesh_size_2",
+        "min_building_detail_0.25",
+        "min_building_area_1",
+    }
+
+    bbox_tasks = [task for task in tasks if task.case.kind == "city_center"]
+    assert len(bbox_tasks) == 10 * 5 * 2
+    assert {task.scenario.id for task in bbox_tasks} == {
+        "bbox_size_m_50",
+        "bbox_size_m_100",
+        "bbox_size_m_200",
+        "bbox_size_m_350",
+        "bbox_size_m_500",
+    }
+
+
+def test_survey_suite_can_be_reduced_to_one_city() -> None:
+    tasks = build_tasks("survey", city="lund")
+    assert len(tasks) == 240
+    assert {task.case.city for task in tasks} == {"lund"}
+
+
 def test_stress_suite_uses_dataset_specific_mesh_size_limits() -> None:
     tasks = build_tasks("stress", city="lund")
     assert tasks

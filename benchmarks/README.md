@@ -16,6 +16,8 @@ runner:
 - `./bench run grid --city stockholm`
 - `./bench run grid --city stockholm --dataset city_surface_mesh`
 - `./bench run sweep --city lund`
+- `./bench run survey --dry-run`
+- `./bench run survey`
 - `./bench report runs/<run-id>`
 
 The runner uses dataset names:
@@ -34,6 +36,7 @@ The benchmark suites are:
 - `grid`: full 10x10 grid survey for one explicit city
 - `stress`: fine-raster and dataset-specific fine-mesh center grid tiles across
   all cities
+- `survey`: multi-hour flat/surface robustness and parameter-envelope survey
 
 A benchmark task is one spatial case run through one dataset and one
 scenario. For example, `./bench run grid --city stockholm` is `100` spatial
@@ -54,6 +57,19 @@ mesh stress includes `max_mesh_size_1` and `max_mesh_size_2`. Volume mesh
 stress uses `max_mesh_size_5` as its smallest mesh-size scenario; larger 3D
 volume meshes below that size are treated as a separate capacity/performance
 challenge rather than part of the routine benchmark gate.
+
+The survey suite is the default "big but bounded" status benchmark for this
+pipeline. It runs:
+
+- full 10x10 grid baseline for `city_flat_mesh` and `city_surface_mesh` across
+  all benchmark cities;
+- center-grid flat/surface sweeps for `max_mesh_size`, `raster_cell_size`,
+  `min_building_detail`, and `min_building_area`;
+- city-center bbox-size sweeps for flat/surface.
+
+By default this is 2400 tasks. Use `--city <name>` to reduce it to 240 tasks
+for one city, or `--dataset city_surface_mesh` / `--dataset city_flat_mesh` to
+run only one of the two mesh families.
 
 The active suite no longer compares Spade or Triangle as benchmark dimensions.
 It uses the default DTCC meshing path exposed through the dataset APIs.
