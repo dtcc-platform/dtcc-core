@@ -244,6 +244,13 @@ def test_benchmark_failure_classification_separates_data_from_geometry() -> None
     )
     assert (
         benchmark_datasets.classify_failure(
+            "LazrsError",
+            "IoError: failed to fill whole buffer",
+        )
+        == "lidar_cache"
+    )
+    assert (
+        benchmark_datasets.classify_failure(
             "RuntimeError",
             "Conditioned footprints contract failed: short_edge_count=2",
         )
@@ -253,6 +260,7 @@ def test_benchmark_failure_classification_separates_data_from_geometry() -> None
 
 def test_lidar_coverage_failure_is_warning_status() -> None:
     assert benchmark_datasets.result_status_for_failure("lidar_coverage") == "warning"
+    assert benchmark_datasets.result_status_for_failure("lidar_cache") == "warning"
     assert benchmark_datasets.result_status_for_failure("pipeline") == "failed"
 
 

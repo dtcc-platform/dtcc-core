@@ -15601,28 +15601,12 @@ def _apply_local_polygon_repairs(
         and not enable_defect_operators
         and before_stats["short_edge_count"] == 0
     ):
-        diagnostics[_candidate_metric_key(stage_prefix, "candidate_count")] = 0
-        diagnostics[_candidate_metric_key(stage_prefix, "applied_count")] = 0
-        diagnostics[_candidate_metric_key(stage_prefix, "edit_zone_area")] = 0.0
-        diagnostics[_candidate_metric_key(stage_prefix, "change_outside_edit_zone")] = 0.0
-        diagnostics[_candidate_metric_key(stage_prefix, "rejected_nonlocal_count")] = 0
-        diagnostics[
-            _candidate_metric_key(stage_prefix, "rejected_area_imbalance_count")
-        ] = 0
-        diagnostics[
-            _candidate_metric_key(stage_prefix, "rejected_non_improving_count")
-        ] = 0
-        diagnostics[_candidate_metric_key(stage_prefix, "overlap_area")] = 0.0
-        diagnostics[_candidate_metric_key(stage_prefix, "short_edge_count_after")] = 0
-        diagnostics[_candidate_metric_key(stage_prefix, "applied")] = False
-        diagnostics[_candidate_metric_key(stage_prefix, "segment_length_after")] = (
-            before_stats
+        _record_polygon_repair_noop(
+            diagnostics,
+            stage_prefix=stage_prefix,
+            tolerance=min_segment_length,
+            before_stats=before_stats,
         )
-        diagnostics[_candidate_metric_key(stage_prefix, "area_balance_budget")] = 0.0
-        diagnostics[_candidate_metric_key(stage_prefix, "symmetric_difference_area")] = 0.0
-        diagnostics[_candidate_metric_key(stage_prefix, "reference_minus_candidate_area")] = 0.0
-        diagnostics[_candidate_metric_key(stage_prefix, "candidate_minus_reference_area")] = 0.0
-        diagnostics[_candidate_metric_key(stage_prefix, "signed_area_delta")] = 0.0
         return polygons, source_map
 
     candidate_polygons: list[Polygon] = []

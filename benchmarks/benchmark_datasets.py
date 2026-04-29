@@ -32,7 +32,7 @@ ARTIFACT_FORMATS: dict[str, str] = {
     "city_volume_mesh": "xdmf",
 }
 
-WARNING_FAILURE_CLASSES = {"lidar_coverage"}
+WARNING_FAILURE_CLASSES = {"lidar_coverage", "lidar_cache"}
 
 
 def json_ready(value: Any) -> Any:
@@ -283,6 +283,12 @@ def classify_failure(exc_type: str, message: str) -> str:
         )
     ):
         return "lidar_download"
+    if (
+        exc_type == "LazrsError"
+        or "lazrserror" in text
+        or "failed to fill whole buffer" in text
+    ):
+        return "lidar_cache"
     if exc_type == "TimeoutError" or "timeouterror" in text:
         return "timeout"
     if "conditioned footprint" in text and "contract" in text:
