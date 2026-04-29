@@ -9838,6 +9838,12 @@ def _regularize_coverage_for_meshing(
                 polygons,
                 candidate_polygons,
             )
+        if (
+            before_signature.pair_issue_count > 0
+            and candidate_signature.pair_issue_count > 0
+            and (candidate_signature.min_clearance or 0.0) < 0.5 * min_segment_length
+        ):
+            continue
         score = _meshing_regularization_score(
             candidate_signature,
             difference_metrics,
@@ -9938,6 +9944,12 @@ def _regularize_coverage_for_meshing(
                     candidate_polygons,
                     target_scale=min_segment_length,
                 )
+                if (
+                    candidate_signature.pair_issue_count > 0
+                    and (candidate_signature.min_clearance or 0.0)
+                    < 0.5 * min_segment_length
+                ):
+                    continue
                 candidate_difference_metrics = _cached_difference_area_metrics(
                     cache,
                     polygons,
@@ -10038,7 +10050,18 @@ def _regularize_coverage_for_meshing(
                         best_operator_applied.get(operator_name, 0) + count
                     )
 
-    if best_signature.pair_issue_count > 0 or before_signature.pair_issue_count > 0:
+    direct_pair_rescue_iterations = 0
+    direct_pair_rescue_iteration_limit = 8
+    while (
+        direct_pair_rescue_iterations < direct_pair_rescue_iteration_limit
+        and (
+            best_signature.pair_issue_count > 0
+            or (
+                direct_pair_rescue_iterations == 0
+                and before_signature.pair_issue_count > 0
+            )
+        )
+    ):
         direct_rescue_diagnostics = _empty_diagnostics(len(best_polygons))
         direct_rescue_diagnostics["collect_stage_metrics"] = False
         direct_rescue_diagnostics["enable_logging"] = False
@@ -10053,7 +10076,10 @@ def _regularize_coverage_for_meshing(
         candidate_streams: list[tuple[list[Polygon], list[list[int]], bool]] = [
             (best_polygons, best_sources, False)
         ]
-        if before_signature.pair_issue_count > 0:
+        if (
+            direct_pair_rescue_iterations == 0
+            and before_signature.pair_issue_count > 0
+        ):
             candidate_streams.append((polygons, source_map, True))
 
         for (
@@ -10080,6 +10106,11 @@ def _regularize_coverage_for_meshing(
                     target_scale=min_segment_length,
                 )
                 if from_original_coverage and candidate_signature.pair_issue_count > 0:
+                    continue
+                if (
+                    candidate_signature.pair_issue_count
+                    >= best_signature.pair_issue_count
+                ):
                     continue
                 if not _coverage_signature_improves(
                     best_signature,
@@ -10112,30 +10143,39 @@ def _regularize_coverage_for_meshing(
                         operator_name,
                     )
 
-        if direct_rescue_candidate is not None:
-            (
-                best_polygons,
-                best_sources,
+        diagnostics["geos_exception_count"] += direct_rescue_diagnostics[
+            "geos_exception_count"
+        ]
+        diagnostics["geos_exception_messages"].extend(
+            direct_rescue_diagnostics["geos_exception_messages"]
+        )
+        if direct_rescue_candidate is None:
+            break
+
+        (
+            best_polygons,
+            best_sources,
+            best_signature,
+            best_difference_metrics,
+            _,
+            applied_operator_name,
+        ) = direct_rescue_candidate
+        best_label = "residual_pair_issue_rescue"
+        best_score = (
+            *_meshing_regularization_score(
                 best_signature,
                 best_difference_metrics,
-                _,
-                applied_operator_name,
-            ) = direct_rescue_candidate
-            best_label = "residual_pair_issue_rescue"
-            best_score = (
-                *_meshing_regularization_score(
-                    best_signature,
-                    best_difference_metrics,
-                ),
-            )
-            best_operator_attempts = dict(best_operator_attempts)
-            best_operator_attempts[applied_operator_name] = (
-                best_operator_attempts.get(applied_operator_name, 0) + 1
-            )
-            best_operator_applied = dict(best_operator_applied)
-            best_operator_applied[applied_operator_name] = (
-                best_operator_applied.get(applied_operator_name, 0) + 1
-            )
+            ),
+        )
+        best_operator_attempts = dict(best_operator_attempts)
+        best_operator_attempts[applied_operator_name] = (
+            best_operator_attempts.get(applied_operator_name, 0) + 1
+        )
+        best_operator_applied = dict(best_operator_applied)
+        best_operator_applied[applied_operator_name] = (
+            best_operator_applied.get(applied_operator_name, 0) + 1
+        )
+        direct_pair_rescue_iterations += 1
 
     if best_signature.ring_contact_count > 0:
         final_ring_contact_candidate = _regularize_ring_contacts(
@@ -10236,6 +10276,9 @@ def _regularize_coverage_for_meshing(
 
     diagnostics["coverage_meshing_regularization_clearance_repair_iterations"] = (
         clearance_repair_iterations
+    )
+    diagnostics["coverage_meshing_regularization_pair_rescue_iterations"] = (
+        direct_pair_rescue_iterations
     )
 
     diagnostics["coverage_meshing_regularization_applied"] = (
