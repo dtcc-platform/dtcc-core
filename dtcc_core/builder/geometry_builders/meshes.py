@@ -160,6 +160,15 @@ class BuiltSurfaceShell:
     contract: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class BuiltTetgenPLC:
+    """TetGen PLC plus contract data for volume meshing handoff."""
+
+    plc: tetgen_utils.TetgenPLC
+    audit: dict[str, Any]
+    contract: dict[str, Any]
+
+
 def _normalize_max_mesh_size(max_mesh_size: float | None) -> float | None:
     if max_mesh_size is None:
         return None
@@ -1122,6 +1131,39 @@ def _tetgen_plc_contract_from_audit(
                 precheck.get("max_triangle_aspect_ratio", 1.0)
             ),
         },
+    )
+
+
+def _build_tetgen_plc_stage(
+    *,
+    surface_mesh: Mesh,
+    ground_mesh: Mesh,
+    top_height: float,
+    top_cap_backend: str,
+    top_cap_max_mesh_size: float | None,
+    top_cap_min_mesh_angle: float,
+    reference_length: float | None,
+) -> BuiltTetgenPLC:
+    tetgen_plc = tetgen_utils.build_tetgen_plc(
+        surface_mesh,
+        ground_mesh,
+        top_height=top_height,
+        top_cap_backend=top_cap_backend,
+        top_cap_max_mesh_size=top_cap_max_mesh_size,
+        top_cap_min_mesh_angle=top_cap_min_mesh_angle,
+    )
+    plc_audit = {
+        "mesher": top_cap_backend,
+        **_tetgen_plc_audit(plc=tetgen_plc),
+    }
+    plc_audit["contract"] = _tetgen_plc_contract_from_audit(
+        plc_audit,
+        reference_length=reference_length,
+    )
+    return BuiltTetgenPLC(
+        plc=tetgen_plc,
+        audit=plc_audit,
+        contract=plc_audit["contract"],
     )
 
 
@@ -4993,29 +5035,22 @@ def build_city_volume_mesh(
                 attempt["config"]["effective_tetgen_switches"] = _audit_json_ready(
                     switches_params
                 )
-            tetgen_plc = tetgen_utils.build_tetgen_plc(
-                surface_mesh,
-                surface_ground_mesh,
+            built_tetgen_plc = _build_tetgen_plc_stage(
+                surface_mesh=surface_mesh,
+                ground_mesh=surface_ground_mesh,
                 top_height=domain_height,
                 top_cap_backend=built_surface_ground.mesher,
                 top_cap_max_mesh_size=top_cap_max_mesh_size,
                 top_cap_min_mesh_angle=min_mesh_angle,
-            )
-            plc_audit = {
-                "mesher": built_surface_ground.mesher,
-                **_tetgen_plc_audit(plc=tetgen_plc),
-            }
-            plc_audit["contract"] = _tetgen_plc_contract_from_audit(
-                plc_audit,
                 reference_length=conditioned_scale,
             )
             if attempt is not None:
                 _record_stage_audit_stage(
                     attempt,
                     "plc",
-                    plc_audit,
+                    built_tetgen_plc.audit,
                 )
-            _raise_stage_contract_errors("TetGen PLC", plc_audit["contract"])
+            _raise_stage_contract_errors("TetGen PLC", built_tetgen_plc.contract)
 
             report_progress(percent=60, message="Running TetGen volume mesher...")
             volume_mesh = tetgen_build_volume_mesh(
@@ -5029,7 +5064,7 @@ def build_city_volume_mesh(
                 switches_params=switches_params,
                 switches_overrides=tetgen_switch_overrides,
                 return_boundary_faces=boundary_face_markers,
-                prebuilt_plc=tetgen_plc,
+                prebuilt_plc=built_tetgen_plc.plc,
             )
 
             if attempt is not None:
