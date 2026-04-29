@@ -82,6 +82,32 @@ def test_benchmark_entrypoint_uses_scenario_filter() -> None:
     assert manifest["tasks"][0]["scenario"]["id"] == "max_mesh_size_2"
 
 
+def test_benchmark_plan_avoids_cartesian_wording_for_exact_task_suites() -> None:
+    bench = Path(__file__).resolve().parents[2] / "benchmarks" / "bench"
+    bench_module = runpy.run_path(str(bench))
+    format_task_breakdown = bench_module["_format_task_breakdown"]
+
+    cartesian = format_task_breakdown(
+        {
+            "case_count": 2,
+            "dataset_count": 3,
+            "scenario_count": 4,
+            "task_count": 24,
+        }
+    )
+    exact = format_task_breakdown(
+        {
+            "case_count": 4,
+            "dataset_count": 2,
+            "scenario_count": 2,
+            "task_count": 6,
+        }
+    )
+
+    assert cartesian == "2 cases x 3 datasets x 4 scenarios = 24 tasks"
+    assert exact == "4 cases, 2 datasets, 2 scenarios = 6 tasks"
+
+
 def test_benchmark_list_scenarios_marks_default_parameters() -> None:
     bench = Path(__file__).resolve().parents[2] / "benchmarks" / "bench"
     completed = subprocess.run(
@@ -219,6 +245,44 @@ def test_survey_suite_can_be_reduced_to_one_city() -> None:
     tasks = build_tasks("survey", city="lund")
     assert len(tasks) == 240
     assert {task.case.city for task in tasks} == {"lund"}
+
+
+def test_triage_suite_tracks_known_survey_failure_cases() -> None:
+    tasks = build_tasks("triage")
+    assert {task.id for task in tasks} == {
+        "triage:city_flat_mesh:city_grid:malmo:017:baseline",
+        "triage:city_surface_mesh:city_grid:malmo:017:baseline",
+        "triage:city_flat_mesh:city_grid:linkoping:047:baseline",
+        "triage:city_surface_mesh:city_grid:linkoping:047:baseline",
+        "triage:city_surface_mesh:city_grid:helsingborg:079:baseline",
+        "triage:city_surface_mesh:city_center:uppsala:350m:bbox_size_m_350",
+    }
+
+
+def test_triage_suite_supports_city_and_dataset_filters() -> None:
+    malmo_tasks = build_tasks("triage", city="malmo")
+    assert len(malmo_tasks) == 2
+    assert {task.dataset for task in malmo_tasks} == {
+        "city_flat_mesh",
+        "city_surface_mesh",
+    }
+
+    flat_tasks = build_tasks("triage", datasets=["city_flat_mesh"])
+    assert len(flat_tasks) == 2
+    assert {task.dataset for task in flat_tasks} == {"city_flat_mesh"}
+
+    surface_tasks = build_tasks("triage", datasets=["city_surface_mesh"])
+    assert len(surface_tasks) == 4
+    assert {task.dataset for task in surface_tasks} == {"city_surface_mesh"}
+
+
+def test_triage_suite_reports_empty_filters() -> None:
+    try:
+        build_tasks("triage", city="lund")
+    except ValueError as exc:
+        assert "selection produced no tasks" in str(exc)
+    else:
+        raise AssertionError("triage should report filters that match no known cases")
 
 
 def test_stress_suite_uses_dataset_specific_mesh_size_limits() -> None:

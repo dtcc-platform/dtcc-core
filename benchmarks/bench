@@ -324,9 +324,15 @@ def _format_task_breakdown(breakdown: dict[str, int]) -> str:
         suffix = "" if count == 1 else "s"
         return f"{count} {singular}{suffix}"
 
+    cartesian_count = (
+        breakdown["case_count"]
+        * breakdown["dataset_count"]
+        * breakdown["scenario_count"]
+    )
+    separator = " x " if cartesian_count == breakdown["task_count"] else ", "
     return (
-        f"{label(breakdown['case_count'], 'case')} x "
-        f"{label(breakdown['dataset_count'], 'dataset')} x "
+        f"{label(breakdown['case_count'], 'case')}{separator}"
+        f"{label(breakdown['dataset_count'], 'dataset')}{separator}"
         f"{label(breakdown['scenario_count'], 'scenario')} = "
         f"{label(breakdown['task_count'], 'task')}"
     )

@@ -16,6 +16,8 @@ runner:
 - `./bench run grid --city stockholm`
 - `./bench run grid --city stockholm --dataset city_surface_mesh`
 - `./bench run sweep --city lund`
+- `./bench run triage --dry-run`
+- `./bench run triage`
 - `./bench run survey --dry-run`
 - `./bench run survey`
 - `./bench report runs/<run-id>`
@@ -37,6 +39,7 @@ The benchmark suites are:
 - `stress`: fine-raster and dataset-specific fine-mesh center grid tiles across
   all cities
 - `survey`: multi-hour flat/surface robustness and parameter-envelope survey
+- `triage`: focused live rerun of known survey failure cases
 
 A benchmark task is one spatial case run through one dataset and one
 scenario. For example, `./bench run grid --city stockholm` is `100` spatial
@@ -70,6 +73,13 @@ pipeline. It runs:
 By default this is 2400 tasks. Use `--city <name>` to reduce it to 240 tasks
 for one city, or `--dataset city_surface_mesh` / `--dataset city_flat_mesh` to
 run only one of the two mesh families.
+
+The triage suite is a small follow-up target for failures seen in the latest
+survey. It currently tracks conditioned-footprint contract failures in Malmo
+tile `017` and Linkoping tile `047`, plus surface-domain failures in
+Helsingborg tile `079` and Uppsala center `350m`. Use it after robustness fixes
+to confirm the known failure set is shrinking before running another full
+survey.
 
 The active suite no longer compares Spade or Triangle as benchmark dimensions.
 It uses the default DTCC meshing path exposed through the dataset APIs.

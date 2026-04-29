@@ -208,6 +208,17 @@ SURVEY_BBOX_SCENARIOS = tuple(
     if "bbox_size_m" in scenario.parameters
 )
 
+TRIAGE_CONDITIONED_FOOTPRINT_CASES = (
+    grid_case("malmo", 17),
+    grid_case("linkoping", 47),
+)
+TRIAGE_SURFACE_DOMAIN_CASES = (
+    grid_case("helsingborg", 79),
+)
+TRIAGE_SURFACE_BBOX_CASES = (
+    city_center_case("uppsala"),
+)
+
 
 SUITE_DESCRIPTIONS: dict[str, str] = {
     "smoke": "Small live sanity check across all datasets.",
@@ -216,6 +227,7 @@ SUITE_DESCRIPTIONS: dict[str, str] = {
     "grid": "Full 10x10 grid survey for one city.",
     "stress": "Fine-raster and dataset-specific fine-mesh center grid tiles across all cities.",
     "survey": "Multi-hour flat/surface robustness and parameter-envelope survey.",
+    "triage": "Focused live rerun of known survey failure cases.",
 }
 
 STRESS_SCENARIOS_BY_DATASET: dict[str, tuple[str, ...]] = {
@@ -241,13 +253,18 @@ def _with_scenario_bounds(case: BenchmarkCase, scenario: ParameterScenario) -> B
     return city_center_case(case.city, float(bbox_size))
 
 
-def _filter_datasets(datasets: Iterable[str], selected: Iterable[str] | None) -> list[str]:
+def _filter_datasets(
+    datasets: Iterable[str],
+    selected: Iterable[str] | None,
+    *,
+    allow_empty: bool = False,
+) -> list[str]:
     selected_set = set(selected or ())
     resolved = [dataset for dataset in datasets if not selected_set or dataset in selected_set]
     invalid = sorted(selected_set.difference(DATASET_NAMES))
     if invalid:
         raise ValueError(f"unknown dataset(s): {', '.join(invalid)}")
-    if not resolved:
+    if not resolved and not allow_empty:
         raise ValueError("dataset selection produced no tasks")
     return resolved
 
@@ -272,6 +289,21 @@ def build_tasks(
             int,
         ]
     ] = []
+
+    def add_optional_task_spec(
+        cases: Iterable[BenchmarkCase],
+        allowed_datasets: Iterable[str],
+        scenario_ids: tuple[str, ...],
+        timeout: int,
+    ) -> None:
+        selected_cases = [case for case in cases if city is None or case.city == city]
+        suite_datasets = _filter_datasets(
+            allowed_datasets,
+            datasets,
+            allow_empty=True,
+        )
+        if selected_cases and suite_datasets:
+            task_specs.append((selected_cases, suite_datasets, scenario_ids, timeout))
 
     if suite == "smoke":
         target_city = city or DEFAULT_CITY
@@ -342,6 +374,25 @@ def build_tasks(
                 ),
             ]
         )
+    elif suite == "triage":
+        add_optional_task_spec(
+            TRIAGE_CONDITIONED_FOOTPRINT_CASES,
+            ("city_flat_mesh", "city_surface_mesh"),
+            ("baseline",),
+            420,
+        )
+        add_optional_task_spec(
+            TRIAGE_SURFACE_DOMAIN_CASES,
+            ("city_surface_mesh",),
+            ("baseline",),
+            420,
+        )
+        add_optional_task_spec(
+            TRIAGE_SURFACE_BBOX_CASES,
+            ("city_surface_mesh",),
+            ("bbox_size_m_350",),
+            420,
+        )
     else:
         raise AssertionError(f"unhandled benchmark suite: {suite}")
 
@@ -371,6 +422,9 @@ def build_tasks(
                             timeout_seconds=timeout,
                         )
                     )
+
+    if not tasks:
+        raise ValueError("selection produced no tasks")
 
     return tasks
 
