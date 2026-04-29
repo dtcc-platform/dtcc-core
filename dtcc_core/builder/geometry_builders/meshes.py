@@ -141,6 +141,16 @@ class PreparedGroundRegions:
     region_points: list[np.ndarray]
 
 
+@dataclass(frozen=True)
+class BuiltGroundMesh:
+    """Ground mesh plus backend and contract data for stage ownership."""
+
+    mesh: Mesh
+    mesher: str
+    audit: dict[str, Any]
+    contract: dict[str, Any]
+
+
 def _normalize_max_mesh_size(max_mesh_size: float | None) -> float | None:
     if max_mesh_size is None:
         return None
@@ -1794,6 +1804,53 @@ def _build_ground_mesh_from_coverage(
         ground_mesh = _add_flat_mesh_halo_markers(ground_mesh)
 
     return ground_mesh, active_mesher
+
+
+def _build_ground_mesh_stage(
+    *,
+    region_polygons: list[Polygon],
+    region_markers: list[int],
+    region_points: list[np.ndarray] | None = None,
+    bounds: tuple[float, float, float, float],
+    max_mesh_size: float | None,
+    min_mesh_angle: float,
+    mesher: str | None,
+    sort_triangles: bool = True,
+    region_triangle_sizes: dict[int, float] | None = None,
+    add_halo_markers: bool = True,
+    reference_length: float | None,
+    require_markers: bool,
+    stage_label: str,
+) -> BuiltGroundMesh:
+    ground_mesh, active_mesher = _build_ground_mesh_from_coverage(
+        region_polygons=region_polygons,
+        region_markers=region_markers,
+        region_points=region_points,
+        bounds=bounds,
+        max_mesh_size=max_mesh_size,
+        min_mesh_angle=min_mesh_angle,
+        mesher=mesher,
+        sort_triangles=sort_triangles,
+        region_triangle_sizes=region_triangle_sizes,
+        add_halo_markers=add_halo_markers,
+    )
+    audit = {
+        "mesher": active_mesher,
+        **_triangle_mesh_audit(ground_mesh),
+    }
+    contract = _triangle_mesh_contract_from_audit(
+        audit,
+        reference_length=reference_length,
+        require_markers=require_markers,
+        stage_label=stage_label,
+    )
+    audit["contract"] = contract
+    return BuiltGroundMesh(
+        mesh=ground_mesh,
+        mesher=active_mesher,
+        audit=audit,
+        contract=contract,
+    )
 
 
 def _prepare_surface_ground_regions(
@@ -4138,7 +4195,7 @@ def build_city_surface_mesh(
         pipeline_mode=pipeline_mode,
     )
 
-    ground_mesh, active_mesher = _build_ground_mesh_from_coverage(
+    built_ground = _build_ground_mesh_stage(
         region_polygons=ground_regions.region_polygons,
         region_markers=ground_regions.region_markers,
         region_points=ground_regions.region_points,
@@ -4149,22 +4206,19 @@ def build_city_surface_mesh(
         sort_triangles=sort_triangles,
         region_triangle_sizes=ground_regions.region_triangle_sizes,
         add_halo_markers=False,
-    )
-    ground_mesh_contract = _triangle_mesh_contract_from_audit(
-        {"mesher": active_mesher, **_triangle_mesh_audit(ground_mesh)},
         reference_length=conditioned_footprints.declared_scale,
         require_markers=True,
         stage_label="Ground mesh",
     )
-    _raise_stage_contract_errors("Ground mesh", ground_mesh_contract)
+    _raise_stage_contract_errors("Ground mesh", built_ground.contract)
     ground_mesh, building_surfaces, building_lod_switches = (
         _split_ground_mesh_building_components(
-            ground_mesh=ground_mesh,
+            ground_mesh=built_ground.mesh,
             building_surfaces=ground_regions.building_surfaces,
             meshing_directives=ground_regions.meshing_directives,
         )
     )
-    report_progress(percent=40, message=f"Building city surface mesh ({active_mesher})...")
+    report_progress(percent=40, message=f"Building city surface mesh ({built_ground.mesher})...")
     result_mesh = _build_city_surface_mesh_from_ground_mesh(
         ground_mesh=ground_mesh,
         terrain_raster=terrain_raster,
@@ -4348,7 +4402,7 @@ def build_city_flat_mesh(
             pipeline_mode=pipeline_mode,
         )
 
-        flat_mesh, active_mesher = _build_ground_mesh_from_coverage(
+        built_flat_mesh = _build_ground_mesh_stage(
             region_polygons=region_polygons,
             region_markers=region_markers,
             bounds=flat_mesh_bounds,
@@ -4356,13 +4410,6 @@ def build_city_flat_mesh(
             min_mesh_angle=min_mesh_angle,
             mesher=mesher,
             sort_triangles=True,
-        )
-        ground_mesh_audit = {
-            "mesher": active_mesher,
-            **_triangle_mesh_audit(flat_mesh),
-        }
-        ground_mesh_audit["contract"] = _triangle_mesh_contract_from_audit(
-            ground_mesh_audit,
             reference_length=conditioned_scale,
             require_markers=True,
             stage_label="Flat mesh",
@@ -4371,13 +4418,17 @@ def build_city_flat_mesh(
             _record_stage_audit_stage(
                 attempt,
                 "ground_mesh",
-                ground_mesh_audit,
+                built_flat_mesh.audit,
             )
         _raise_stage_contract_errors(
             "Flat mesh",
-            ground_mesh_audit["contract"],
+            built_flat_mesh.contract,
         )
-        report_progress(percent=30, message=f"Building city flat mesh ({active_mesher})...")
+        flat_mesh = built_flat_mesh.mesh
+        report_progress(
+            percent=30,
+            message=f"Building city flat mesh ({built_flat_mesh.mesher})...",
+        )
 
         if report_mesh_quality:
             from dtcc_core.model.mixins.mesh.quality import (
@@ -4719,7 +4770,7 @@ def build_city_volume_mesh(
                     "surface_regions",
                     _surface_region_audit(surface_regions),
                 )
-            surface_ground_mesh, surface_mesher = _build_ground_mesh_from_coverage(
+            built_surface_ground = _build_ground_mesh_stage(
                 region_polygons=surface_regions.region_polygons,
                 region_markers=surface_regions.region_markers,
                 region_points=surface_regions.region_points,
@@ -4730,35 +4781,28 @@ def build_city_volume_mesh(
                 sort_triangles=False,
                 region_triangle_sizes=surface_regions.region_triangle_sizes,
                 add_halo_markers=False,
-            )
-            if attempt is not None:
-                attempt["config"]["effective_mesher"] = surface_mesher
-            surface_ground_mesh, surface_buildings, surface_directives = (
-                _split_ground_mesh_building_components(
-                    ground_mesh=surface_ground_mesh,
-                    building_surfaces=surface_regions.building_surfaces,
-                    meshing_directives=surface_regions.meshing_directives,
-                )
-            )
-            ground_mesh_audit = {
-                "mesher": surface_mesher,
-                **_triangle_mesh_audit(surface_ground_mesh),
-            }
-            ground_mesh_audit["contract"] = _triangle_mesh_contract_from_audit(
-                ground_mesh_audit,
                 reference_length=conditioned_scale,
                 require_markers=True,
                 stage_label="Ground mesh",
             )
             if attempt is not None:
+                attempt["config"]["effective_mesher"] = built_surface_ground.mesher
+            surface_ground_mesh, surface_buildings, surface_directives = (
+                _split_ground_mesh_building_components(
+                    ground_mesh=built_surface_ground.mesh,
+                    building_surfaces=surface_regions.building_surfaces,
+                    meshing_directives=surface_regions.meshing_directives,
+                )
+            )
+            if attempt is not None:
                 _record_stage_audit_stage(
                     attempt,
                     "ground_mesh",
-                    ground_mesh_audit,
+                    built_surface_ground.audit,
                 )
             _raise_stage_contract_errors(
                 "Ground mesh",
-                ground_mesh_audit["contract"],
+                built_surface_ground.contract,
             )
             base_surface_mesh = _build_city_surface_mesh_from_ground_mesh(
                 ground_mesh=surface_ground_mesh,
@@ -4803,7 +4847,7 @@ def build_city_volume_mesh(
             base_shell_refinement_stats = _tetgen_shell_refinement_disabled_stats()
             base_surface_shell_audit = _surface_shell_stage_audit(
                 wall_refined_surface_mesh,
-                mesher=surface_mesher,
+                mesher=built_surface_ground.mesher,
                 reference_length=conditioned_scale,
                 preserve_surface_requested=preserve_surface_requested,
                 shell_refinement_stats=base_shell_refinement_stats,
@@ -4834,7 +4878,7 @@ def build_city_volume_mesh(
                     )
                 refined_surface_shell_audit = _surface_shell_stage_audit(
                     refined_surface_mesh,
-                    mesher=surface_mesher,
+                    mesher=built_surface_ground.mesher,
                     reference_length=conditioned_scale,
                     preserve_surface_requested=preserve_surface_requested,
                     shell_refinement_stats=candidate_shell_refinement_stats,
@@ -4896,7 +4940,7 @@ def build_city_volume_mesh(
                         ground_mesh=surface_ground_mesh,
                         surface_mesh=surface_mesh,
                         domain_height=domain_height,
-                        top_cap_backend=surface_mesher,
+                        top_cap_backend=built_surface_ground.mesher,
                         top_cap_max_mesh_size=top_cap_max_mesh_size,
                         top_cap_min_mesh_angle=min_mesh_angle,
                     )
@@ -4918,12 +4962,12 @@ def build_city_volume_mesh(
                 surface_mesh,
                 surface_ground_mesh,
                 top_height=domain_height,
-                top_cap_backend=surface_mesher,
+                top_cap_backend=built_surface_ground.mesher,
                 top_cap_max_mesh_size=top_cap_max_mesh_size,
                 top_cap_min_mesh_angle=min_mesh_angle,
             )
             plc_audit = {
-                "mesher": surface_mesher,
+                "mesher": built_surface_ground.mesher,
                 **_tetgen_plc_audit(plc=tetgen_plc),
             }
             plc_audit["contract"] = _tetgen_plc_contract_from_audit(
@@ -4944,7 +4988,7 @@ def build_city_volume_mesh(
                 build_top_sidewalls=True,
                 top_height=domain_height,
                 closure_mesh=surface_ground_mesh,
-                top_cap_backend=surface_mesher,
+                top_cap_backend=built_surface_ground.mesher,
                 top_cap_max_mesh_size=top_cap_max_mesh_size,
                 top_cap_min_mesh_angle=min_mesh_angle,
                 switches_params=switches_params,
@@ -4981,7 +5025,7 @@ def build_city_volume_mesh(
                         volume_mesh=volume_mesh,
                         quality_snapshot=final_quality_snapshot,
                         domain_height=domain_height,
-                        top_cap_backend=surface_mesher,
+                        top_cap_backend=built_surface_ground.mesher,
                         top_cap_max_mesh_size=top_cap_max_mesh_size,
                         top_cap_min_mesh_angle=min_mesh_angle,
                         debug_paths=debug_paths,
@@ -5041,7 +5085,7 @@ def build_city_volume_mesh(
                 "surface_regions",
                 _surface_region_audit(fallback_regions),
             )
-        ground_mesh, active_mesher = _build_ground_mesh_from_coverage(
+        built_fallback_ground = _build_ground_mesh_stage(
             region_polygons=fallback_regions.region_polygons,
             region_markers=fallback_regions.region_markers,
             region_points=fallback_regions.region_points,
@@ -5052,35 +5096,28 @@ def build_city_volume_mesh(
             sort_triangles=True,
             region_triangle_sizes=fallback_regions.region_triangle_sizes,
             add_halo_markers=False,
-        )
-        if attempt is not None:
-            attempt["config"]["effective_mesher"] = active_mesher
-        ground_mesh, active_surfaces, _meshing_directives = (
-            _split_ground_mesh_building_components(
-                ground_mesh=ground_mesh,
-                building_surfaces=fallback_regions.building_surfaces,
-                meshing_directives=fallback_regions.meshing_directives,
-            )
-        )
-        ground_mesh_audit = {
-            "mesher": active_mesher,
-            **_triangle_mesh_audit(ground_mesh),
-        }
-        ground_mesh_audit["contract"] = _triangle_mesh_contract_from_audit(
-            ground_mesh_audit,
             reference_length=conditioned_scale,
             require_markers=True,
             stage_label="Ground mesh",
         )
         if attempt is not None:
+            attempt["config"]["effective_mesher"] = built_fallback_ground.mesher
+        ground_mesh, active_surfaces, _meshing_directives = (
+            _split_ground_mesh_building_components(
+                ground_mesh=built_fallback_ground.mesh,
+                building_surfaces=fallback_regions.building_surfaces,
+                meshing_directives=fallback_regions.meshing_directives,
+            )
+        )
+        if attempt is not None:
             _record_stage_audit_stage(
                 attempt,
                 "ground_mesh",
-                ground_mesh_audit,
+                built_fallback_ground.audit,
             )
         _raise_stage_contract_errors(
             "Ground mesh",
-            ground_mesh_audit["contract"],
+            built_fallback_ground.contract,
         )
         _ground_mesh = mesh_to_builder_mesh(ground_mesh)
         _surfaces = [create_builder_surface(surface) for surface in active_surfaces]
