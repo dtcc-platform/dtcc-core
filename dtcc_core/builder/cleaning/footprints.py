@@ -8411,14 +8411,19 @@ def _normalize_single_polygon_candidate(
     min_hole_area: float,
     diagnostics: dict[str, Any],
 ) -> Polygon | None:
-    canonical_parts: list[Polygon] = []
-    for part in _canonicalize(geometry, grid, diagnostics):
-        without_small_holes = _remove_small_holes(
-            part,
-            min_hole_area,
-            diagnostics,
-        )
-        canonical_parts.extend(_canonicalize(without_small_holes, grid, diagnostics))
+    canonical_parts = _canonicalize(geometry, grid, diagnostics)
+    if min_hole_area > 0.0:
+        hole_filtered_parts: list[Polygon] = []
+        for part in canonical_parts:
+            without_small_holes = _remove_small_holes(
+                part,
+                min_hole_area,
+                diagnostics,
+            )
+            hole_filtered_parts.extend(
+                _canonicalize(without_small_holes, grid, diagnostics)
+            )
+        canonical_parts = hole_filtered_parts
     filtered_parts = [
         orient(part, sign=1.0)
         for part in canonical_parts
