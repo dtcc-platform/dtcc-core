@@ -256,6 +256,56 @@ def test_lidar_coverage_failure_is_warning_status() -> None:
     assert benchmark_datasets.result_status_for_failure("pipeline") == "failed"
 
 
+def test_run_dataset_promotes_stage_contract_warnings(monkeypatch) -> None:
+    class FakeDataset:
+        class ArgsModel:
+            model_fields = {}
+
+        def __call__(self, *, bounds):
+            return SimpleNamespace(
+                vertices=[],
+                faces=[],
+                cells=[],
+                markers=[],
+                stage_audit={
+                    "selected_attempt_index": 0,
+                    "attempts": [
+                        {
+                            "stages": {
+                                "ground_mesh": {
+                                    "contract": {
+                                        "status": "warn",
+                                        "warnings": ["Flat mesh has short edge tail."],
+                                    }
+                                }
+                            }
+                        }
+                    ],
+                },
+            )
+
+    monkeypatch.setattr(
+        benchmark_datasets.dtcc.datasets,
+        "city_flat_mesh",
+        FakeDataset(),
+    )
+
+    result = benchmark_datasets.run_dataset(
+        {
+            "id": "task",
+            "dataset": "city_flat_mesh",
+            "case": {"bounds": [0, 0, 1, 1]},
+            "scenario": {"id": "baseline"},
+            "parameters": {},
+        }
+    )
+
+    assert result["status"] == "warning"
+    assert result["error"]["failure_class"] == "stage_contract_warning"
+    assert result["error"]["severity"] == "warning"
+    assert result["error"]["warnings"][0]["stage"] == "ground_mesh"
+
+
 def test_summary_markdown_reports_status_counts_and_quality_metrics() -> None:
     bench = Path(__file__).resolve().parents[2] / "benchmarks" / "bench"
     bench_module = runpy.run_path(str(bench))

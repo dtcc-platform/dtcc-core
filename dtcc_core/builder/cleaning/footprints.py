@@ -3449,6 +3449,24 @@ def _polygon_defect_signature(
     )
 
 
+def _polygon_segment_defect_signature(
+    polygon: Polygon,
+    *,
+    target_scale: float,
+) -> _PolygonDefectSignature:
+    segment_stats = _segment_length_stats(
+        [polygon],
+        short_edge_threshold=target_scale,
+    )
+    return _PolygonDefectSignature(
+        clearance=None,
+        clearance_deficit=0.0,
+        short_edge_count=int(segment_stats["short_edge_count"]),
+        min_edge_length=segment_stats["min_edge_length"],
+        vertex_count=int(segment_stats["vertex_count"]),
+    )
+
+
 def _coverage_defect_signature(
     polygons: Sequence[Polygon],
     *,
@@ -7921,6 +7939,7 @@ def _accept_local_candidate(
     min_area: float,
     min_hole_area: float,
     diagnostics: dict[str, Any],
+    reference_signature: _PolygonDefectSignature | None = None,
 ) -> tuple[Polygon | None, str | None, dict[str, float]]:
     canonical_parts: list[Polygon] = []
     for part in _canonicalize(candidate.polygon, grid, diagnostics):
@@ -7939,10 +7958,11 @@ def _accept_local_candidate(
         return None, "non_improving", {}
 
     accepted = filtered_parts[0]
-    reference_signature = _polygon_defect_signature(
-        reference_polygon,
-        target_scale=target_scale,
-    )
+    if reference_signature is None:
+        reference_signature = _polygon_defect_signature(
+            reference_polygon,
+            target_scale=target_scale,
+        )
     candidate_signature = _polygon_defect_signature(
         accepted,
         target_scale=target_scale,
@@ -15323,12 +15343,19 @@ def _apply_local_polygon_repairs(
     rejected_area_imbalance_count = 0
     rejected_non_improving_count = 0
     total_area_balance_budget = 0.0
+    simplify_only = enable_simplify_operators and not enable_defect_operators
 
     for polygon, indices in zip(polygons, source_map):
-        polygon_signature = _polygon_defect_signature(
-            polygon,
-            target_scale=min_segment_length,
-        )
+        if simplify_only:
+            polygon_signature = _polygon_segment_defect_signature(
+                polygon,
+                target_scale=min_segment_length,
+            )
+        else:
+            polygon_signature = _polygon_defect_signature(
+                polygon,
+                target_scale=min_segment_length,
+            )
         needs_ring_contact_repair = enable_defect_operators and (
             polygon_signature.ring_contact_count > 0
         )
@@ -15354,14 +15381,23 @@ def _apply_local_polygon_repairs(
         candidate_count += 1
         accepted_candidate: Polygon | None = None
         local_candidates: list[_RepairCandidate] = []
+        reference_signature_for_accept = (
+            polygon_signature if not simplify_only else None
+        )
 
         def append_candidate(candidate: _RepairCandidate | None) -> None:
             if candidate is None:
                 return
-            candidate_signature = _polygon_defect_signature(
-                candidate.polygon,
-                target_scale=min_segment_length,
-            )
+            if simplify_only:
+                candidate_signature = _polygon_segment_defect_signature(
+                    candidate.polygon,
+                    target_scale=min_segment_length,
+                )
+            else:
+                candidate_signature = _polygon_defect_signature(
+                    candidate.polygon,
+                    target_scale=min_segment_length,
+                )
             if candidate_signature.short_edge_count == 0:
                 local_candidates.append(candidate)
                 return
@@ -15464,6 +15500,11 @@ def _apply_local_polygon_repairs(
                 append_candidate(simplify_candidate)
 
         for candidate in local_candidates:
+            if reference_signature_for_accept is None:
+                reference_signature_for_accept = _polygon_defect_signature(
+                    polygon,
+                    target_scale=min_segment_length,
+                )
             _operator_count_increment(
                 diagnostics,
                 _candidate_metric_key(stage_prefix, "operator_attempts"),
@@ -15477,6 +15518,7 @@ def _apply_local_polygon_repairs(
                 min_area=min_area,
                 min_hole_area=min_hole_area,
                 diagnostics=diagnostics,
+                reference_signature=reference_signature_for_accept,
             )
             if accepted_candidate is None:
                 if candidate_metrics:
