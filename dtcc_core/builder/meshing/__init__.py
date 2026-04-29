@@ -7,6 +7,11 @@ from .meshing import (
     snap_vertices,
     merge,
 )
+from .backends import (
+    available_2d_meshers,
+    get_default_2d_mesher,
+    set_default_2d_mesher,
+)
 
 from .tile_mesh import tile_surface_mesh
 from .mesh_tiler import SurfaceMeshClipper

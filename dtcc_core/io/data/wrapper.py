@@ -1,11 +1,11 @@
 
 #!/usr/bin/env python3
 import requests
-import getpass
-import sys
 import os
+from pathlib import Path
+import re
 from .overpass import get_roads_for_bbox, get_buildings_for_bbox
-from .geopkg import download_tiles
+from .geopkg import CACHE_DIR as GPKG_CACHE_DIR, download_tiles
 from .lidar import download_lidar
 from dtcc_core import io
 from dtcc_core.model import Bounds
@@ -14,105 +14,147 @@ from .logging import info, warning, debug, error
 # We'll allow "lidar" or "roads" or "footprints" for data_type, and "dtcc" or "OSM" for provider.
 valid_types = ["lidar", "roads", "footprints"]
 valid_providers = ["dtcc", "OSM"]
+_GPKG_TILE_SIZE = 10000.0
+_GPKG_TILE_NAME_RE = re.compile(
+    r"^tile_(?P<xmin>-?\d+(?:\.\d+)?)_(?P<ymin>-?\d+(?:\.\d+)?)\.gpkg$"
+)
 
-# We'll keep a single global SSH client in memory
-SSH_CLIENT = None
-SSH_CREDS = {
-    "username": None,
-    "password": None
-}
-sessions = []
+# Env-overridable backend URLs (defaults preserve current behavior).
+_DTCC_BASE = os.environ.get("DTCC_DATA_URL", "http://compute.dtcc.chalmers.se")
+DTCC_LIDAR_URL = os.environ.get("DTCC_LIDAR_URL", f"{_DTCC_BASE}:8000")
+DTCC_GPKG_URL  = os.environ.get("DTCC_GPKG_URL",  f"{_DTCC_BASE}:8001")
 
-def get_authenticated_session(base_url: str, username: str, password: str) -> requests.Session:
+def _bounds_overlap(lhs: Bounds, rhs: Bounds) -> bool:
+    return not (
+        lhs.xmax < rhs.xmin
+        or lhs.xmin > rhs.xmax
+        or lhs.ymax < rhs.ymin
+        or lhs.ymin > rhs.ymax
+    )
+
+
+def _bounds_contains(lhs: Bounds, rhs: Bounds, *, tolerance: float = 1.0e-9) -> bool:
+    return (
+        lhs.xmin <= rhs.xmin + tolerance
+        and lhs.ymin <= rhs.ymin + tolerance
+        and lhs.xmax + tolerance >= rhs.xmax
+        and lhs.ymax + tolerance >= rhs.ymax
+    )
+
+
+def _bounds_contains_point(
+    bounds: Bounds,
+    x: float,
+    y: float,
+    *,
+    tolerance: float = 1.0e-9,
+) -> bool:
+    return (
+        bounds.xmin <= x + tolerance
+        and bounds.ymin <= y + tolerance
+        and bounds.xmax + tolerance >= x
+        and bounds.ymax + tolerance >= y
+    )
+
+
+def _cached_footprint_tile_bounds(path: Path) -> Bounds | None:
+    match = _GPKG_TILE_NAME_RE.match(path.name)
+    if match is None:
+        return None
+
+    xmin = float(match.group("xmin"))
+    ymin = float(match.group("ymin"))
+    return Bounds(
+        xmin=xmin,
+        ymin=ymin,
+        xmax=xmin + _GPKG_TILE_SIZE,
+        ymax=ymin + _GPKG_TILE_SIZE,
+    )
+
+
+def _cached_footprint_file_bounds(path: Path) -> Bounds:
+    return _cached_footprint_tile_bounds(path) or io.footprints.building_bounds(path)
+
+
+def _find_cached_footprint_files(bounds: Bounds) -> list[str]:
+    cache_dir = Path(GPKG_CACHE_DIR) / "downloaded-gpkg"
+    if not cache_dir.is_dir():
+        return []
+
+    matching_files: list[str] = []
+    for path in sorted(cache_dir.glob("*.gpkg")):
+        try:
+            file_bounds = _cached_footprint_file_bounds(path)
+        except Exception as exc:
+            warning(f"Skipping cached footprint tile {path.name}: {exc}")
+            continue
+        if _bounds_overlap(file_bounds, bounds):
+            matching_files.append(str(path))
+
+    return matching_files
+
+
+def _cached_footprint_files_cover_bounds(cached_files: list[str], bounds: Bounds) -> bool:
+    tile_bounds = [
+        tile_bounds
+        for cached_file in cached_files
+        if (tile_bounds := _cached_footprint_tile_bounds(Path(cached_file))) is not None
+    ]
+    if not tile_bounds:
+        return False
+
+    sample_points = (
+        (bounds.xmin, bounds.ymin),
+        (bounds.xmin, bounds.ymax),
+        (bounds.xmax, bounds.ymin),
+        (bounds.xmax, bounds.ymax),
+        ((bounds.xmin + bounds.xmax) / 2.0, bounds.ymin),
+        ((bounds.xmin + bounds.xmax) / 2.0, bounds.ymax),
+        (bounds.xmin, (bounds.ymin + bounds.ymax) / 2.0),
+        (bounds.xmax, (bounds.ymin + bounds.ymax) / 2.0),
+        ((bounds.xmin + bounds.xmax) / 2.0, (bounds.ymin + bounds.ymax) / 2.0),
+    )
+
+    for cached_file in cached_files:
+        tile_bounds_for_file = _cached_footprint_tile_bounds(Path(cached_file))
+        if tile_bounds_for_file is not None and _bounds_contains(
+            tile_bounds_for_file,
+            bounds,
+        ):
+            return True
+    return all(
+        any(
+            _bounds_contains_point(tile_bounds_for_file, x, y)
+            for tile_bounds_for_file in tile_bounds
+        )
+        for x, y in sample_points
+    )
+
+
+def _load_cached_footprints(bounds: Bounds):
+    cached_files = _find_cached_footprint_files(bounds)
+    if not cached_files:
+        return None
+
+    info(f"Using {len(cached_files)} cached footprint tile(s) from local cache")
+    buildings = io.load_footprints(cached_files, bounds=bounds)
+    if buildings or _cached_footprint_files_cover_bounds(cached_files, bounds):
+        return buildings
+    return None
+
+def download_data(data_type: str, provider: str, bounds: Bounds, epsg = '3006', url = None):
     """
-    1. POST to /auth/token to obtain a bearer token.
-    2. Create a requests.Session that automatically sends the token for future requests during runtime.
-    """
-    # 1) Obtain the token
-    token_url = f"{base_url.rstrip('/')}/auth/token"
-    payload = {"username": username, "password": password}
-
-    response = requests.post(token_url, json=payload)
-    if response.status_code != 200:
-        error(f"Token request failed. Status code: {response.status_code}")
-        return
-
-    data = response.json()
-    if "token" not in data:
-        raise RuntimeError(f"No token found in response: {data}")
-
-    token = data["token"]
-
-    # 2) Create and return a Session with the token in headers
-    session = requests.Session()
-    session.headers.update({"Authorization": f"Bearer {token}"})
-    return session
-
-class SSHAuthenticationError(Exception):
-    """Raised if SSH authentication fails."""
-    pass
-
-def _ssh_connect_if_needed():
-    """
-    Ensures we're authenticated via SSH to data.dtcc.chalmers.se.
-    If not connected, prompts user for username/password, tries to connect.
-    On success, we store the SSH client in memory for future calls.
-
-    In non-interactive mode (e.g., when running as a server), credentials
-    can be provided via DTCC_SSH_USERNAME and DTCC_SSH_PASSWORD environment
-    variables.
-    """
-    global SSH_CLIENT, SSH_CREDS
-    global sessions
-    # If no credentials, prompt user
-    if not sessions:
-        # Check for environment variables first
-        USERNAME = os.environ.get("DTCC_SSH_USERNAME")
-        PASSWORD = os.environ.get("DTCC_SSH_PASSWORD")
-
-        if not USERNAME or not PASSWORD:
-            # Only prompt if in an interactive terminal
-            if sys.stdin.isatty():
-                info("SSH Authentication required for dtcc provider.")
-                USERNAME = input("Enter SSH username: ")
-                PASSWORD = getpass.getpass("Enter SSH password: ")
-            else:
-                warning("Non-interactive mode: SSH authentication skipped. "
-                       "Set DTCC_SSH_USERNAME and DTCC_SSH_PASSWORD environment variables.")
-                return None
-
-        lidar_session = get_authenticated_session('http://compute.dtcc.chalmers.se:8000', USERNAME, PASSWORD)
-        gpkg_session = get_authenticated_session('http://compute.dtcc.chalmers.se:8001', USERNAME, PASSWORD)
-        return lidar_session, gpkg_session
-    return sessions
-
-    # # Create a new SSH client
-    # SSH_CLIENT = paramiko.SSHClient()
-    # SSH_CLIENT.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-
-    # try:
-    #     SSH_CLIENT.connect(
-    #         hostname="data.dtcc.chalmers.se",
-    #         username=SSH_CREDS["username"],
-    #         password=SSH_CREDS["password"]
-    #     )
-    # except paramiko.AuthenticationException as e:
-    #     # If auth fails, raise an error and reset SSH_CLIENT
-    #     SSH_CLIENT = None
-    #     raise SSHAuthenticationError(f"SSH authentication failed: {e}")
-
-    # print("SSH authenticated with data.dtcc.chalmers.se (no SFTP).")
-
-def download_data(data_type: str, provider: str, bounds: Bounds, epsg = '3006', url = 'http://compute.dtcc.chalmers.se'):
-    """
-    A wrapper for downloading data, but with a dummy step for actual file transfer.
-    If provider='dtcc', we do an SSH-based authentication check and then simulate a download.
-    If provider='OSM', we just do a dummy download with no SSH.
+    A wrapper for downloading data from the configured backend.
 
     :param data_type: 'lidar' or 'roads' or 'footprints'
     :param provider: 'dtcc' or 'OSM'
-    :return: dict with info about the (dummy) download
+    :return: loaded data object for the requested type
     """
+    # Resolve per-service URLs: explicit `url` overrides env; otherwise use env-backed defaults.
+    if url is not None:
+        lidar_url, gpkg_url = f"{url}:8000", f"{url}:8001"
+    else:
+        lidar_url, gpkg_url = DTCC_LIDAR_URL, DTCC_GPKG_URL
     # Ensure user provided bounding box is a dtcc.Bounds object.
     if isinstance(bounds,(tuple | list)):
         bounds = Bounds(xmin=bounds[0],ymin=bounds[1],xmax=bounds[2],ymax=bounds[3])
@@ -130,18 +172,25 @@ def download_data(data_type: str, provider: str, bounds: Bounds, epsg = '3006', 
         raise ValueError(f"Invalid provider '{provider}'. Must be one of {valid_providers}.")
 
     if provider == "dtcc":
-
-        global sessions
         session = requests.Session()
         if data_type == 'lidar':
-            info('Starting the Lidar files download from dtcc source')
-            files = download_lidar(bounds.tuple, session, base_url=f'{url}:8000')
+            info("Downloading lidar tiles from DTCC source")
+            files = download_lidar(bounds.tuple, session, base_url=lidar_url)
+            if not files:
+                raise RuntimeError("No lidar data available for the requested bounding box.")
             debug(files)
             pc = io.load_pointcloud(files,bounds=bounds)
             return pc
         elif data_type == 'footprints':
-            info("Starting the footprints download from dtcc source")
-            files = download_tiles(bounds.tuple, session, server_url=f"{url}:8001")
+            cached_footprints = _load_cached_footprints(bounds)
+            if cached_footprints is not None:
+                return cached_footprints
+            info("Downloading footprint tiles from DTCC source")
+            files = download_tiles(bounds.tuple, session, server_url=gpkg_url)
+            if not files:
+                raise RuntimeError(
+                    f"Footprint download failed for bounds {bounds.tuple}."
+                )
             foots = io.load_footprints(files,bounds= bounds)
             return foots 
         else:
@@ -150,12 +199,12 @@ def download_data(data_type: str, provider: str, bounds: Bounds, epsg = '3006', 
 
     else:  
         if data_type == 'footprints':
-            info("Starting footprints files download from OSM source")
+            info("Downloading footprint tiles from OSM source")
             gdf, filename = get_buildings_for_bbox(bounds.tuple)
             footprints = io.load_footprints(filename, bounds=bounds)
             return footprints
         elif data_type == 'roads':
-            info('Start the roads files download from OSM source')
+            info("Downloading road tiles from OSM source")
             gdf, filename = get_roads_for_bbox(bounds.tuple)
             roads = io.load_roadnetwork(filename)
             return roads

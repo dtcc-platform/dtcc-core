@@ -2,9 +2,12 @@
 # Licensed under the MIT License
 
 import logging as _logging
-from typing import Dict, Tuple, Callable
+from typing import Any, Dict, Iterable, Sequence, Tuple, Callable
 
 from rich.console import Console
+from rich.padding import Padding
+from rich.table import Table
+from rich import box
 
 from .handler import LoggingHandler
 
@@ -113,6 +116,90 @@ def get_logger(name="dtcc-core"):
 def get_python_logger(name: str = "dtcc-core") -> _logging.Logger:
     """Get configured Python logger object for a given package source name."""
     return _ensure_logger(name)
+
+
+def make_table(
+    columns: Sequence[str | tuple[str, str]],
+    rows: Iterable[Sequence[Any]],
+    *,
+    box_style=box.ROUNDED,
+    show_edge: bool = True,
+    pad_edge: bool = False,
+    collapse_padding: bool = True,
+    header_style: str = "bold",
+    overflow: str = "ellipsis",
+) -> Table:
+    """Build a compact Rich table with sensible DTCC defaults."""
+    table = Table(
+        box=box_style,
+        show_edge=show_edge,
+        pad_edge=pad_edge,
+        collapse_padding=collapse_padding,
+        header_style=header_style,
+    )
+    for column in columns:
+        if isinstance(column, tuple):
+            header, justify = column
+        else:
+            header, justify = str(column), "left"
+        table.add_column(str(header), justify=justify, overflow=overflow)
+    for row in rows:
+        table.add_row(*(str(cell) for cell in row))
+    return table
+
+
+def log_renderable(
+    log_fn: Callable | None,
+    message: str,
+    renderable: Any,
+    *,
+    indent: int = 2,
+    source_name: str = "dtcc-core",
+) -> None:
+    """Emit a prefixed log line followed by an indented Rich renderable."""
+    logger = getattr(log_fn, "__self__", None)
+    level_name = getattr(log_fn, "__name__", "info").upper()
+    if isinstance(logger, _logging.Logger):
+        logger.log(
+            _coerce_level(level_name),
+            message,
+            extra={"renderable": renderable, "renderable_indent": indent},
+        )
+        return
+
+    if log_fn is not None:
+        log_fn(message)
+        if indent > 0:
+            _console.print(Padding(renderable, (1, 0, 0, indent)))
+        else:
+            _console.print(Padding(renderable, (1, 0, 0, 0)))
+        return
+
+    fallback_logger = _ensure_logger(source_name)
+    fallback_logger.info(
+        message,
+        extra={"renderable": renderable, "renderable_indent": indent},
+    )
+
+
+def log_table(
+    log_fn: Callable | None,
+    message: str,
+    columns: Sequence[str | tuple[str, str]],
+    rows: Iterable[Sequence[Any]],
+    *,
+    indent: int = 2,
+    source_name: str = "dtcc-core",
+    overflow: str = "ellipsis",
+) -> None:
+    """Emit a prefixed log line followed by a compact Rich table."""
+    log_renderable(
+        log_fn,
+        message,
+        make_table(columns, rows, overflow=overflow),
+        indent=indent,
+        source_name=source_name,
+    )
 
 
 def set_log_level(level):

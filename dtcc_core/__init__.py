@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+import importlib
+
 from dtcc_core.common.dtcc_logging import (
     init_logging,
     set_log_level,
@@ -7,8 +11,36 @@ from dtcc_core.common.dtcc_logging import (
 from dtcc_core import common
 from dtcc_core import model
 from dtcc_core import builder
-from dtcc_core import io
-from dtcc_core import datasets
-from dtcc_core import reproject
 
-from dtcc_core.builder.register import register_model_method
+register_model_method = builder.register_model_method
+Bounds = model.Bounds
+
+_LAZY_SUBMODULES = {
+    "io": "dtcc_core.io",
+    "datasets": "dtcc_core.datasets",
+    "reproject": "dtcc_core.reproject",
+}
+
+
+def __getattr__(name: str):
+    if name in _LAZY_SUBMODULES:
+        module = importlib.import_module(_LAZY_SUBMODULES[name])
+        globals()[name] = module
+        return module
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+
+
+__all__ = [
+    "init_logging",
+    "set_log_level",
+    "get_logger",
+    "get_python_logger",
+    "common",
+    "model",
+    "builder",
+    "Bounds",
+    "register_model_method",
+    "io",
+    "datasets",
+    "reproject",
+]

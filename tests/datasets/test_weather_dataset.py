@@ -5,6 +5,7 @@ import math
 import numpy as np
 from unittest.mock import patch, Mock
 
+from dtcc_core.datasets.dataset import DatasetUpstreamError
 from dtcc_core.datasets.weather import (
     WeatherDataset,
     WeatherDatasetArgs,
@@ -296,6 +297,12 @@ class TestWeatherDatasetBuild:
         assert attrs["crs"] == "EPSG:4326"
         assert 1 in attrs["parameters"]
         assert 4 in attrs["parameters"]
+        assert attrs["partial_result"] is False
+        assert attrs["upstream_error_count"] == 0
+        assert attrs["upstream_errors"] == []
+        assert attrs["stations_skipped_upstream"] == 0
+        assert attrs["requested_parameters"] == [1, 4]
+        assert attrs["fetched_parameters"] == [1, 4]
 
     @patch("dtcc_core.datasets.weather._get_text", side_effect=_mock_get_text)
     def test_format_pb_returns_bytes(self, mock_fetch):
@@ -328,6 +335,91 @@ class TestWeatherDatasetBuild:
             if result.stations():
                 assert pt.x > 100_000 or pt.x < 0  # just check it's not WGS84
                 break  # only need one
+
+    @patch("dtcc_core.datasets.weather._get_text", side_effect=_mock_get_text)
+    def test_upstream_failure_graceful_by_default(self, mock_fetch):
+        """Non-strict mode should degrade to partial results on upstream failure."""
+
+        def fail_on_param4(url, params=None, timeout_s=10.0):
+            if "/parameter/4/" in url:
+                raise DatasetUpstreamError(
+                    dataset="weather",
+                    operation="fetch",
+                    target=url,
+                    failure_class="connection",
+                    message="weather fetch failed",
+                )
+            return _mock_get_text(url, params=params, timeout_s=timeout_s)
+
+        mock_fetch.side_effect = fail_on_param4
+        dataset = WeatherDataset()
+        result = dataset.build(
+            WeatherDatasetArgs(
+                bounds=(18.0, 59.0, 18.2, 59.5),
+                crs="EPSG:4326",
+                parameters=[1, 4],
+            )
+        )
+
+        point = result.stations()[0].geometry["location"]
+        field_names = {f.name for f in point.fields}
+        assert "air_temperature" in field_names
+        assert "wind_speed" not in field_names
+        assert result.attributes["partial_result"] is True
+        assert result.attributes["upstream_error_count"] == 1
+        assert result.attributes["stations_skipped_upstream"] == 0
+        assert result.attributes["requested_parameters"] == [1, 4]
+        assert result.attributes["fetched_parameters"] == [1]
+        assert result.attributes["upstream_errors"][0]["dataset"] == "weather"
+        assert result.attributes["upstream_errors"][0]["failure_class"] == "connection"
+
+    @patch("dtcc_core.datasets.weather._get_text", side_effect=_mock_get_text)
+    def test_strict_live_raises_on_upstream_error(self, mock_fetch):
+        """strict_live should surface upstream failures immediately."""
+
+        def fail_on_param4(url, params=None, timeout_s=10.0):
+            if "/parameter/4/" in url:
+                raise DatasetUpstreamError(
+                    dataset="weather",
+                    operation="fetch",
+                    target=url,
+                    failure_class="connection",
+                    message="weather fetch failed",
+                )
+            return _mock_get_text(url, params=params, timeout_s=timeout_s)
+
+        mock_fetch.side_effect = fail_on_param4
+        dataset = WeatherDataset()
+
+        with pytest.raises(DatasetUpstreamError) as exc_info:
+            dataset.build(
+                WeatherDatasetArgs(
+                    bounds=(18.0, 59.0, 18.2, 59.5),
+                    crs="EPSG:4326",
+                    parameters=[1, 4],
+                    strict_live=True,
+                )
+            )
+
+        assert exc_info.value.failure_class == "connection"
+
+    @patch("dtcc_core.datasets.weather._get_text", side_effect=_mock_get_text)
+    def test_empty_bbox_is_not_marked_partial(self, mock_fetch):
+        """A genuinely empty bbox should remain a clean empty result."""
+
+        dataset = WeatherDataset()
+        result = dataset.build(
+            WeatherDatasetArgs(
+                bounds=(0.0, 0.0, 1.0, 1.0),
+                crs="EPSG:4326",
+                parameters=[1],
+            )
+        )
+
+        assert len(result.stations()) == 0
+        assert result.attributes["partial_result"] is False
+        assert result.attributes["upstream_error_count"] == 0
+        assert result.attributes["upstream_errors"] == []
 
 
 class TestWeatherDatasetRegistration:

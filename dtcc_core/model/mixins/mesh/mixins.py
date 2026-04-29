@@ -129,8 +129,8 @@ class MeshProcessingMixin:
         -------
         dict
             Dictionary with ``num_cells`` and summary stats (min, max, mean)
-            for ``element_quality``, ``aspect_ratio``, ``edge_ratio``, and
-            ``skewness``.
+            for ``element_quality``, ``aspect_ratio``, ``radius_ratio``,
+            ``edge_ratio``, and ``skewness``.
         """
         from .quality import triangle_mesh_quality
 
@@ -158,8 +158,8 @@ class VolumeMeshProcessingMixin:
         -------
         dict
             Dictionary with ``num_cells`` and summary stats (min, max, mean)
-            for ``element_quality``, ``aspect_ratio``, ``edge_ratio``, and
-            ``skewness``.
+            for ``element_quality``, ``aspect_ratio``, ``radius_ratio``,
+            ``edge_ratio``, and ``skewness``.
         """
         from .quality import tetrahedron_mesh_quality
 

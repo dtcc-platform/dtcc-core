@@ -12,15 +12,105 @@ from ..model_conversion import (
     raster_to_builder_gridfield,
     builder_mesh_to_mesh,
     create_builder_polygon,
+    mesh_to_builder_mesh,
 )
 
 import numpy as np
 from pypoints2grid import points2grid
 from affine import Affine
 from .. import _dtcc_builder
-from typing import List, Union
+from typing import List, Optional, Union
+from shapely.geometry import Polygon, box
+from shapely.geometry.polygon import orient
+from shapely.ops import unary_union
 from dtcc_core.common.progress import report_progress
 from ..logging import info
+from ..raster.interpolation import fill_holes as fill_raster_holes
+from ..meshing.backends import resolve_2d_mesher
+from ..meshing.flat_mesh_backends import build_city_flat_mesh_from_coverage
+
+
+def _iter_polygon_components(geometry) -> list[Polygon]:
+    if geometry is None or geometry.is_empty:
+        return []
+    if isinstance(geometry, Polygon):
+        return [geometry]
+    if hasattr(geometry, "geoms"):
+        polygons: list[Polygon] = []
+        for child in geometry.geoms:
+            polygons.extend(_iter_polygon_components(child))
+        return polygons
+    return []
+
+
+def _terrain_mesh_regions(
+    *,
+    bounds: tuple[float, float, float, float],
+    subdomains: list[Surface],
+    holes: list[Surface],
+    subdomain_resolution: list[float],
+) -> tuple[list[Polygon], list[int], dict[int, float]]:
+    subdomain_polygons: list[Polygon] = []
+    for surface in subdomains:
+        if surface is None:
+            continue
+        polygon = surface.to_polygon()
+        if polygon is None or polygon.is_empty:
+            continue
+        subdomain_polygons.append(orient(polygon, sign=1.0))
+
+    hole_polygons: list[Polygon] = []
+    for surface in holes:
+        if surface is None:
+            continue
+        polygon = surface.to_polygon()
+        if polygon is None or polygon.is_empty:
+            continue
+        hole_polygons.append(orient(polygon, sign=1.0))
+
+    ground_domain = box(*bounds)
+    excluded_regions = [*subdomain_polygons, *hole_polygons]
+    if excluded_regions:
+        ground_domain = ground_domain.difference(unary_union(excluded_regions))
+
+    ground_polygons = [
+        orient(polygon, sign=1.0)
+        for polygon in _iter_polygon_components(ground_domain)
+        if polygon is not None and not polygon.is_empty
+    ]
+
+    region_polygons = [*ground_polygons, *subdomain_polygons]
+    region_markers = [-2] * len(ground_polygons) + list(range(len(subdomain_polygons)))
+    region_triangle_sizes = {
+        index: float(resolution)
+        for index, resolution in enumerate(subdomain_resolution[: len(subdomain_polygons)])
+        if resolution is not None and float(resolution) > 0.0
+    }
+    return region_polygons, region_markers, region_triangle_sizes
+
+
+def adaptive_terrain_mesh(
+    data: Union[PointCloud, Raster], max_error: float, raster_size=1, smoothing=0
+) -> Mesh:
+    """builds an adaptive terrain mesh from a point cloud or raster data. The mesh generates the minimum number of
+    triangles necessary to represent the terrain within a specified error margin, using the Zemlya algorithm."""
+
+    if isinstance(data, PointCloud):
+        dem = build_terrain_raster(data, cell_size=raster_size)
+    elif isinstance(data, Raster):
+        dem = data
+    else:
+        raise ValueError("data must be a PointCloud or a Raster.")
+    _builder_gridfield = raster_to_builder_gridfield(dem)
+
+    if max_error < 0:
+        raise ValueError("max_error must be a positive number.")
+
+    _builder_mesh = _dtcc_builder.build_terrain_mesh_zemlya(
+        _builder_gridfield, max_error, smoothing
+    )
+
+    return builder_mesh_to_mesh(_builder_mesh)
 
 
 def build_terrain_surface_mesh(
@@ -33,6 +123,7 @@ def build_terrain_surface_mesh(
     smoothing=3,
     ground_points_only=True,
     report_mesh_quality=True,
+    mesher: str | None = None,
 ) -> Mesh:
     """
     Build a triangular surface mesh from terrain data.
@@ -58,7 +149,9 @@ def build_terrain_surface_mesh(
         Number of smoothing iterations to apply.
     ground_points_only : bool, default True
         Whether to use only ground-classified points from point cloud.
-
+    mesher : {"auto", "dtcc_mesher", "triangle", "spade"}, optional
+        Select the 2D meshing backend for the ground triangulation. When
+        omitted, the global default backend is used.
     Returns
     -------
     Mesh
@@ -68,35 +161,6 @@ def build_terrain_surface_mesh(
     ------
     ValueError
         If min_mesh_angle > 33 degrees or data type is invalid.
-    """
-
-    """
-    Build a surface mesh of the terrain from a point cloud.
-
-    Parameters
-    ----------
-    data : PointCloud or Raster
-        The point cloud or raster to build the terrain from.
-    subdomains : list[Surface]
-        The list of surface to use as subdomains.
-    subdomain_resolution : Union[float, List[float]]
-        The resolution of the subdomains. If a single value is given, it is
-        used for all subdomains. If a list is given, it must have the same length
-        as the subdomains list.
-    max_mesh_size : float
-        The maximum size of the triangles in the mesh.
-    min_mesh_angle : float
-        The minimum angle of the triangles in the mesh. Must be less than or equal
-        to 33 degrees.
-    smoothing : int
-        The number of smoothing iterations to apply to the mesh.
-    ground_points_only : bool
-        If True, only ground points are used to build the terrain.
-
-    Returns
-    -------
-    Mesh
-        The surface mesh of the terrain.
     """
     if min_mesh_angle > 33:
         raise ValueError(
@@ -127,12 +191,8 @@ def build_terrain_surface_mesh(
     if subdomains is None:
         subdomains = []
         subdomain_resolution = None
-    else:
-        subdomains = [create_builder_polygon(sub.to_polygon()) for sub in subdomains]
     if holes is None:
-        hole_polygons: list = []
-    else:
-        hole_polygons = [create_builder_polygon(sub.to_polygon()) for sub in holes]
+        holes = []
     if subdomain_resolution is None:
         subdomain_resolution = []
     elif isinstance(subdomain_resolution, (float, int)):
@@ -147,24 +207,56 @@ def build_terrain_surface_mesh(
         )
 
     subdomain_resolution = np.array(subdomain_resolution, dtype=np.float64)
+    active_mesher = resolve_2d_mesher(mesher)
 
     report_progress(
         percent=40, message="Building terrain surface mesh (this may take a while)..."
     )
+    if active_mesher == "dtcc_mesher":
+        if np.any(subdomain_resolution > 0.0):
+            raise NotImplementedError(
+                "Terrain subdomain-specific resolution is not yet supported with "
+                "the dtcc_mesher default terrain mesher."
+            )
+        bounds = dem.bounds.tuple
+        region_polygons, region_markers, region_triangle_sizes = _terrain_mesh_regions(
+            bounds=bounds,
+            subdomains=subdomains,
+            holes=holes,
+            subdomain_resolution=subdomain_resolution.tolist(),
+        )
+        ground_mesh = build_city_flat_mesh_from_coverage(
+            region_polygons=region_polygons,
+            region_markers=region_markers,
+            bounds=bounds,
+            max_mesh_size=max_mesh_size,
+            min_mesh_angle=min_mesh_angle,
+            backend=active_mesher,
+            sort_triangles=False,
+            region_triangle_sizes=region_triangle_sizes or None,
+        )
+        report_progress(percent=90, message="Converting mesh format...")
+        terrain_mesh = _dtcc_builder.build_terrain_surface_mesh_from_ground_mesh(
+            mesh_to_builder_mesh(ground_mesh),
+            _builder_gridfield,
+            smoothing,
+        ).from_cpp()
+    else:
+        builder_subdomains = [create_builder_polygon(sub.to_polygon()) for sub in subdomains]
+        builder_holes = [create_builder_polygon(sub.to_polygon()) for sub in holes]
+        terrain_mesh = _dtcc_builder.build_terrain_surface_mesh(
+            builder_subdomains,
+            builder_holes,
+            subdomain_resolution,
+            _builder_gridfield,
+            max_mesh_size,
+            min_mesh_angle,
+            smoothing,
+            False,
+        )
 
-    terrain_mesh = _dtcc_builder.build_terrain_surface_mesh(
-        subdomains,
-        hole_polygons,
-        subdomain_resolution,
-        _builder_gridfield,
-        max_mesh_size,
-        min_mesh_angle,
-        smoothing,
-        False,
-    )
-
-    report_progress(percent=90, message="Converting mesh format...")
-    terrain_mesh = builder_mesh_to_mesh(terrain_mesh)
+        report_progress(percent=90, message="Converting mesh format...")
+        terrain_mesh = builder_mesh_to_mesh(terrain_mesh)
 
     if report_mesh_quality:
         from dtcc_core.model.mixins.mesh.quality import (
@@ -237,11 +329,49 @@ def build_terrain_raster(
 
     if _report_progress:
         report_progress(percent=90, message="Filling holes in raster...")
-    dem_raster = dem_raster.fill_holes()
+    dem_raster = fill_raster_holes(dem_raster)
 
     if _report_progress:
         report_progress(percent=100, message="Raster complete")
     return dem_raster
+
+
+def flatten_terrain_raster(raster: Raster, height: Optional[float] = None) -> Raster:
+    """
+    Create a flat raster while preserving the source raster grid and georeferencing.
+
+    Parameters
+    ----------
+    raster : Raster
+        Source raster to flatten.
+    height : float, optional
+        Target ground level. If omitted, the minimum valid value in the source
+        raster is used.
+
+    Returns
+    -------
+    Raster
+        Copy of the input raster with all valid cells set to one height.
+
+    Raises
+    ------
+    ValueError
+        If the raster does not contain any valid cells.
+    """
+    flat_raster = raster.copy()
+
+    valid_mask = np.isfinite(flat_raster.data)
+    if not np.isnan(flat_raster.nodata):
+        valid_mask &= flat_raster.data != flat_raster.nodata
+
+    if not np.any(valid_mask):
+        raise ValueError("Cannot flatten a raster without any valid values.")
+
+    if height is None:
+        height = float(flat_raster.data[valid_mask].min())
+
+    flat_raster.data[valid_mask] = height
+    return flat_raster
 
 
 def flat_terrain(height, bounds: Bounds) -> Terrain:

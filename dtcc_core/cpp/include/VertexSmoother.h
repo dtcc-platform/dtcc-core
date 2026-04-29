@@ -20,11 +20,11 @@ public:
   static void
   _smooth_mesh(Mesh &mesh, size_t num_smoothings, bool z_only = false)
   {
-    info("Smoothing mesh...");
+    debug("Smoothing mesh...");
     Timer timer("smooth_mesh");
 
     // build vertex connectivity
-    info("Building vertex connectivity");
+    debug("Building vertex connectivity");
     const size_t num_vertices = mesh.vertices.size();
     std::vector<std::unordered_set<size_t>> vertex_neighbors(num_vertices);
     auto vert_con_t = Timer("vertex connectivity");
@@ -42,7 +42,7 @@ public:
     // Smooth by setting each vertex coordinate to average of neighbors
     for (size_t n = 0; n < num_smoothings; n++)
     {
-      info("Smoothing iteration " + str(n));
+      debug("Smoothing iteration " + str(n));
       for (size_t i = 0; i < num_vertices; i++)
       {
         Vector3D p{};
@@ -60,11 +60,11 @@ public:
   // Smooth 3D mesh
   static void smooth_mesh(VolumeMesh &volume_mesh, size_t num_smoothings)
   {
-    info("Smoothing volume mesh...");
+    debug("Smoothing volume mesh...");
     Timer timer("smooth_mesh");
 
     // build vertex connectivity
-    info("Building vertex connectivity");
+    debug("Building vertex connectivity");
     const size_t num_vertices = volume_mesh.vertices.size();
     std::vector<std::unordered_set<size_t>> vertex_neighbors(num_vertices);
     for (const auto &T : volume_mesh.cells)
@@ -86,7 +86,7 @@ public:
     // Smooth by setting each vertex coordinate to average of neighbors
     for (size_t n = 0; n < num_smoothings; n++)
     {
-      info("Smoothing iteration " + str(n));
+      debug("Smoothing iteration " + str(n));
       for (size_t i = 0; i < num_vertices; i++)
       {
         Vector3D p;
@@ -101,7 +101,7 @@ public:
   static void smooth_mesh(Mesh &mesh, size_t num_smoothings, bool fix_building_vertices = false,
                             bool z_only = false)
   {
-    info("Smoothing mesh...");
+    debug("Smoothing mesh...");
     Timer timer("smooth_mesh");
 
     const size_t num_vertices = mesh.vertices.size();
@@ -154,7 +154,7 @@ public:
 
     for (size_t it = 0; it < num_smoothings; ++it)
     {
-      info("Smoothing iteration " + str(it));
+      debug("Smoothing iteration " + str(it));
       for (size_t i = 0; i < num_vertices; ++i)
       {
         if (fix_building_vertices && !freeze_vertex.empty() && freeze_vertex[i])
@@ -197,7 +197,7 @@ public:
                           const std::vector<char> &freeze_vertex,
                           bool z_only = false)
   {
-    info("Smoothing mesh (with freeze mask)...");
+    debug("Smoothing mesh (with freeze mask)...");
     Timer timer("smooth_mesh");
 
     const size_t num_vertices = mesh.vertices.size();
@@ -221,7 +221,7 @@ public:
 
     for (size_t it = 0; it < num_smoothings; ++it)
     {
-      info("Smoothing iteration " + str(it));
+      debug("Smoothing iteration " + str(it));
       for (size_t i = 0; i < num_vertices; ++i)
       {
         if (i < freeze_vertex.size() && freeze_vertex[i])
@@ -249,7 +249,7 @@ public:
   // Smooth grid field
   static GridField smooth_field(const GridField &field, size_t num_smoothings)
   {
-    info("Smoothing grid field...");
+    debug("Smoothing grid field...");
     Timer timer("smooth_field");
 
     // Create copy of field
@@ -262,7 +262,7 @@ public:
     // Smooth by setting each value to average of neighbors
     for (size_t n = 0; n < num_smoothings; n++)
     {
-      info("Smoothing iteration " + str(n));
+      debug("Smoothing iteration " + str(n));
       for (size_t i = 0; i < _field.values.size(); i++)
       {
         // Get neighbors

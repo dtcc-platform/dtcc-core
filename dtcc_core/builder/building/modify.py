@@ -1,29 +1,17 @@
 from ...model import Building, GeometryType, MultiSurface, Surface
 from ..polygons.polygons import split_polygon_sides
-
-from polyforge import (
-    merge_close_polygons,
-    find_close_polygon_groups,
-    fix_clearance,
-    simplify_rdp,
-    simplify_vwp,
-    robust_fix_geometry,
-    remove_narrow_protrusions,
-)
-
-from polyforge.ops.clearance.protrusions import remove_narrow_wedges
-
-from polyforge import MergeStrategy, GeometryConstraints
+from ..cleaning import ConditioningOptions, condition_building_footprints
 
 from ..polygons.surface import clean_multisurface, clean_surface
 
 from ..register import register_model_method
-from shapely.geometry import Polygon, MultiPolygon
+import shapely
+from shapely.geometry import Polygon
 from shapely.ops import unary_union
+from shapely.validation import make_valid
 from ..logging import debug, info, warning, error
 
 from typing import List, Tuple, Union
-import warnings
 
 
 @register_model_method
@@ -84,6 +72,171 @@ def get_footprint(building: Building, geom_type: GeometryType = None) -> Surface
     return s
 
 
+def _extract_polygon_parts(geom) -> list[Polygon]:
+    if geom is None or geom.is_empty:
+        return []
+    polygons: list[Polygon] = []
+    stack = [geom]
+    while stack:
+        current = stack.pop()
+        if current.is_empty:
+            continue
+        if isinstance(current, Polygon):
+            polygons.append(current)
+            continue
+        if hasattr(current, "geoms"):
+            stack.extend(reversed(list(current.geoms)))
+    return [polygon for polygon in polygons if not polygon.is_empty and polygon.area > 0]
+
+
+def _extract_building_metadata(
+    building: Building,
+    lod: GeometryType,
+) -> tuple[float, float | None, float | None]:
+    geometry = building.flatten_geometry(lod)
+    roof_z = 0.0
+    if geometry is not None:
+        try:
+            roof_z = float(geometry.bounds.zmax)
+        except (AttributeError, TypeError):
+            roof_z = 0.0
+
+    try:
+        height = float(building.height)
+    except (AttributeError, TypeError):
+        height = None
+    if height is not None and height <= 0:
+        height = None
+
+    ground_height = building.attributes.get("ground_height")
+    try:
+        ground_height = float(ground_height) if ground_height is not None else None
+    except (TypeError, ValueError):
+        ground_height = None
+
+    return roof_z, height, ground_height
+
+
+def _area_weighted_value(
+    source_indices: list[int],
+    source_areas: list[float],
+    values: list[float | None],
+    *,
+    default: float | None,
+) -> float | None:
+    weighted_values: list[float] = []
+    weights: list[float] = []
+    for index in source_indices:
+        if index < 0 or index >= len(values):
+            continue
+        value = values[index]
+        if value is None:
+            continue
+        weight = source_areas[index] if source_areas[index] > 0 else 1.0
+        weighted_values.append(float(value))
+        weights.append(float(weight))
+    if not weighted_values:
+        return default
+    return float(
+        sum(value * weight for value, weight in zip(weighted_values, weights))
+        / sum(weights)
+    )
+
+
+def _build_conditioned_buildings(
+    source_buildings: List[Building],
+    polygons: list[Polygon],
+    source_map: list[list[int]],
+    *,
+    lod: GeometryType,
+) -> List[Building]:
+    source_areas = [0.0] * len(source_buildings)
+    source_roof_z: list[float | None] = [None] * len(source_buildings)
+    source_height: list[float | None] = [None] * len(source_buildings)
+    source_ground: list[float | None] = [None] * len(source_buildings)
+
+    for index, building in enumerate(source_buildings):
+        geometry = building.flatten_geometry(lod)
+        if geometry is not None:
+            polygon = geometry.to_polygon(simplify=0.0)
+            if polygon is not None and not polygon.is_empty:
+                source_areas[index] = float(max(polygon.area, 0.0))
+        roof_z, height, ground = _extract_building_metadata(building, lod)
+        source_roof_z[index] = roof_z
+        source_height[index] = height
+        source_ground[index] = ground
+
+    conditioned_buildings: List[Building] = []
+    for polygon, indices in zip(polygons, source_map):
+        originals = [
+            source_buildings[index]
+            for index in indices
+            if 0 <= index < len(source_buildings)
+        ]
+        roof_z = _area_weighted_value(
+            indices,
+            source_areas,
+            source_roof_z,
+            default=0.0,
+        )
+        height = _area_weighted_value(
+            indices,
+            source_areas,
+            source_height,
+            default=None,
+        )
+        ground_height = _area_weighted_value(
+            indices,
+            source_areas,
+            source_ground,
+            default=None,
+        )
+
+        surface = Surface()
+        surface.from_polygon(polygon, roof_z or 0.0)
+
+        building = Building()
+        building.add_geometry(surface, GeometryType.LOD0)
+        building.attributes = merge_building_attributes(originals)
+        if height is not None:
+            building.attributes["height"] = height
+        if ground_height is not None:
+            building.attributes["ground_height"] = ground_height
+        conditioned_buildings.append(building)
+
+    return conditioned_buildings
+
+
+def _condition_buildings_with_shared_cleaner(
+    buildings: List[Building],
+    *,
+    lod: GeometryType,
+    options: ConditioningOptions,
+    operation_name: str,
+    return_index_map: bool = False,
+) -> Union[List[Building], Tuple[List[Building], List[List[int]]]]:
+    info(
+        f"{operation_name}: running shared footprint conditioner on {len(buildings)} buildings."
+    )
+    result = condition_building_footprints(
+        buildings,
+        lod=lod,
+        options=options,
+    )
+    conditioned_buildings = _build_conditioned_buildings(
+        buildings,
+        result.polygons,
+        result.source_map,
+        lod=lod,
+    )
+    info(
+        f"{operation_name}: produced {len(conditioned_buildings)} conditioned buildings."
+    )
+    if return_index_map:
+        return conditioned_buildings, result.source_map
+    return conditioned_buildings
+
+
 def merge_building_footprints(
     buildings: List[Building],
     lod: GeometryType = GeometryType.LOD0,
@@ -113,70 +266,19 @@ def merge_building_footprints(
     Union[List[Building], Tuple[List[Building], List[List[int]]]]
         Merged buildings, optionally paired with the index map.
     """
-    if len(buildings) <= 1:
-        if return_index_map:
-            return buildings, [[i] for i in range(len(buildings))]
-        return buildings
-
-    source_indices: List[int] = []
-    footprints: List[Polygon] = []
-    building_heights: List[float] = []
-
-    for idx, building in enumerate(buildings):
-        flattened_geom = building.get_footprint(lod)
-        if flattened_geom is None:
-            warning(f"Building {building.id} has no geometry at LOD {lod}. Skipping.")
-            continue
-        footprint = flattened_geom.to_polygon()
-        if footprint is None or footprint.is_empty:
-            warning(f"Building {building.id} produced an empty footprint. Skipping.")
-            continue
-        source_indices.append(idx)
-        building_heights.append(flattened_geom.zmax)
-        footprints.append(footprint)
-
-    merged_footprint, merged_indices = merge_close_polygons(
-        footprints,
-        max_distance,
-        merge_strategy=MergeStrategy.BOUNDARY_EXTENSION,
-        preserve_holes=True,
-        insert_vertices=True,
-        return_mapping=True,
-        buffer_cleaning=True,
+    return _condition_buildings_with_shared_cleaner(
+        buildings,
+        lod=lod,
+        options=ConditioningOptions(
+            precision_grid=None,
+            min_feature_size=0.0,
+            merge_distance=max_distance,
+            min_area=min_area,
+            min_hole_area=0.0,
+        ),
+        operation_name="merge_building_footprints",
+        return_index_map=return_index_map,
     )
-
-    merged_buildings: List[Building] = []
-    merged_indices_global: List[List[int]] = []
-
-    for idx, footprint in enumerate(merged_footprint):
-        if footprint.geom_type == "MultiPolygon":
-            ValueError("Merged footprint is a MultiPolygon")
-        if footprint.is_empty or footprint.area < min_area:
-            warning(f"Empty or too small footprint: {footprint.area}")
-            continue
-
-        local_indices = merged_indices[idx]
-        global_indices = [source_indices[i] for i in local_indices]
-
-        num = sum(building_heights[i] * footprints[i].area for i in local_indices)
-        den = sum(footprints[i].area for i in local_indices)
-        height: float = num / den if den > 0 else 0.0
-
-        building_surface = Surface()
-        building_surface.from_polygon(footprint, height)
-
-        building = Building()
-        building.add_geometry(building_surface, GeometryType.LOD0)
-
-        original_buildings = [buildings[i] for i in global_indices]
-        building.attributes = merge_building_attributes(original_buildings)
-
-        merged_buildings.append(building)
-        merged_indices_global.append(global_indices)
-
-    if return_index_map:
-        return merged_buildings, merged_indices_global
-    return merged_buildings
 
 
 def merge_building_attributes(buildings: List[Building]) -> dict:
@@ -232,39 +334,31 @@ def simplify_building_footprints(
         Simplified buildings, optionally paired with the index map.
     """
 
-    simplified_buildings: List[Building] = []
-    index_map: List[List[int]] = []
-    if method not in ["vwp", "rdp"]:
+    if method not in ["vwp", "vw", "rdp"]:
         warning(
-            f"Unknown polygon simplification method: {method}. Falling back to 'vwp"
+            f"Unknown polygon simplification method: {method}. "
+            "The shared footprint conditioner ignores this argument."
         )
-        method = "vwp"
+    if tolerance < 0:
+        raise ValueError("tolerance must be non-negative.")
 
-    for idx, building in enumerate(buildings):
-        lod_geom = building.flatten_geometry(lod)
-        if lod_geom is None:
-            continue
-        footprint = lod_geom.to_polygon()
-        if footprint is None or footprint.is_empty:
-            continue
-
-        if method == "vwp":
-            footprint = simplify_vwp(footprint, tolerance)
-        elif method == "rdp":
-            footprint = simplify_vwp(footprint, tolerance)
-
-        building_surface = Surface()
-        building_surface.from_polygon(footprint, lod_geom.zmax)
-        simplified_building = building.copy()
-        simplified_building.add_geometry(building_surface, GeometryType.LOD0)
-        simplified_building.calculate_bounds()
-        simplified_buildings.append(simplified_building)
-        if return_index_map:
-            index_map.append([idx])
-
-    if return_index_map:
-        return simplified_buildings, index_map
-    return simplified_buildings
+    info(
+        "simplify_building_footprints() delegates to the shared conditioner; "
+        "the 'method' argument is retained for API compatibility only."
+    )
+    return _condition_buildings_with_shared_cleaner(
+        buildings,
+        lod=lod,
+        options=ConditioningOptions(
+            precision_grid=None,
+            min_feature_size=tolerance,
+            merge_distance=0.0,
+            min_area=0.0,
+            min_hole_area=0.0,
+        ),
+        operation_name="simplify_building_footprints",
+        return_index_map=return_index_map,
+    )
 
 
 def clean_building_footprints(
@@ -290,42 +384,19 @@ def clean_building_footprints(
         List of cleaned buildings.
     """
 
-    fixed_buildings = []
-    index_map: List[List[int]] = []
-    constraints = GeometryConstraints(
-        must_be_valid=True,
-        min_clearance=clearance,
-        min_hole_area=smallest_hole_area,
-        allow_multipolygon=False,
+    return _condition_buildings_with_shared_cleaner(
+        buildings,
+        lod=GeometryType.LOD0,
+        options=ConditioningOptions(
+            precision_grid=None,
+            min_feature_size=clearance,
+            merge_distance=0.0,
+            min_area=0.0,
+            min_hole_area=smallest_hole_area,
+        ),
+        operation_name="clean_building_footprints",
+        return_index_map=return_index_map,
     )
-
-    for idx, building in enumerate(buildings):
-        lod0 = building.lod0
-        if lod0 is None:
-            continue
-        footprint = lod0.to_polygon()
-        if footprint is None or footprint.is_empty:
-            continue
-        with warnings.catch_warnings(record=True) as caught_warnings:
-            warnings.simplefilter("always", UserWarning)
-            fixed_footprint, _ = robust_fix_geometry(footprint, constraints=constraints)
-        for caught_warning in caught_warnings:
-            if issubclass(caught_warning.category, UserWarning):
-                warning(
-                    f"Building {building.id}: {str(caught_warning.message).strip()}"
-                )
-        building_surface = Surface()
-        building_surface.from_polygon(fixed_footprint, lod0.zmax)
-        fixed_building = building.copy()
-        fixed_building.add_geometry(building_surface, GeometryType.LOD0)
-        fixed_building.calculate_bounds()
-        fixed_buildings.append(fixed_building)
-        if return_index_map:
-            index_map.append([idx])
-
-    if return_index_map:
-        return fixed_buildings, index_map
-    return fixed_buildings
 
 
 def fix_building_footprint_clearance(
@@ -354,47 +425,19 @@ def fix_building_footprint_clearance(
     Union[List[Building], Tuple[List[Building], List[List[int]]]]
         Buildings with fixed clearances, optionally paired with the index map.
     """
-    fixed_buildings: List[Building] = []
-    index_map: List[List[int]] = []
-
-    for idx, building in enumerate(buildings):
-        lod_geom = building.flatten_geometry(lod)
-        if lod_geom is None:
-            continue
-        footprint = lod_geom.to_polygon()
-        if footprint.geom_type == "MultiPolygon":
-            warning(f"Building {building.id} has MultiPolygon footprint. Skipping.")
-            continue
-        if footprint is None or footprint.is_empty:
-            continue
-        # clean_surface
-        footprint = fix_clearance(footprint, clearance)
-        if footprint.geom_type == "MultiPolygon":
-            warning(
-                f"Building {building.id} has MultiPolygon footprint after cleaning. Coercing to Polygon."
-            )
-            footprints = [g for g in footprint.geoms if isinstance(g, Polygon)]
-            footprint = unary_union(footprints)
-            if footprint.geom_type == "MultiPolygon":
-                footprint = max(footprint.geoms, key=lambda p: p.area)
-        if footprint.geom_type != "Polygon":
-            warning(
-                f"Building {building.id} footprint could not be coerced to Polygon. Skipping."
-            )
-            continue
-        footprint = remove_narrow_wedges(footprint, min_depth=clearance)
-        building_surface = Surface()
-        building_surface.from_polygon(footprint, lod_geom.zmax)
-        fixed_building = building.copy()
-        fixed_building.add_geometry(building_surface, GeometryType.LOD0)
-        fixed_building.calculate_bounds()
-        fixed_buildings.append(fixed_building)
-        if return_index_map:
-            index_map.append([idx])
-
-    if return_index_map:
-        return fixed_buildings, index_map
-    return fixed_buildings
+    return _condition_buildings_with_shared_cleaner(
+        buildings,
+        lod=lod,
+        options=ConditioningOptions(
+            precision_grid=None,
+            min_feature_size=clearance,
+            merge_distance=0.0,
+            min_area=0.0,
+            min_hole_area=0.0,
+        ),
+        operation_name="fix_building_footprint_clearance",
+        return_index_map=return_index_map,
+    )
 
 
 def split_footprint_walls(

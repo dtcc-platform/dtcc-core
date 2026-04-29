@@ -29,7 +29,7 @@ jobs:
       #    site-packages during build, so RPATH resolves correctly at runtime.
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip setuptools wheel pytest pytest-cov
+          python -m pip install --upgrade pip setuptools wheel pytest pytest-cov httpx
           python -m pip install scikit-build-core "pybind11==2.13.*" dtcc-pyspade-native
 
       # Debug: Show pyspade_native installation contents

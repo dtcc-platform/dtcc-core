@@ -1,0 +1,32 @@
+Stockholm 10x10 tile unrestricted (python mesh_quality_survey.py --meshers dtcc_mesher triangle spade --max-mesh-size none)
+===========================================================================================================================
+
+Mesher        Success    EQ mean     EQ min    AR mean     AR max     ER max    Skew max   Time mean
+----------------------------------------------------------------------------------------------------
+dtcc_mesher       100     0.8491     0.2373     1.3871     4.5092     7.2092      0.9001        0.65s
+triangle          100     0.8344     0.2420     1.4173     4.3810     7.0692      0.8435        0.51s
+spade             100     0.8484     0.2420     1.3893     4.3810     7.0692      0.8455        0.51s
+
+Scale / grading summary across cached cases
+Mesher        Success   Edge min   Edge p01    Area min    Area p01   E<0.5m max   E<1.0m max
+------------------------------------------------------------------------------------------
+dtcc_mesher       100     0.0012     6.7668   8.524e-07   1252.5291          745          933
+triangle          100     0.0002     6.5873   3.035e-08   1252.5219         1886         2098
+spade             100     0.0002     6.5614   2.854e-08   1252.3764         1688         1895
+
+
+Stockholm 10x10 tile restricted (python mesh_quality_survey.py --meshers dtcc_mesher triangle spade --max-mesh-size 10)
+=======================================================================================================================
+
+Mesher        Success    EQ mean     EQ min    AR mean     AR max     ER max    Skew max   Time mean
+----------------------------------------------------------------------------------------------------
+dtcc_mesher       100     0.9341     0.2373     1.1718     4.5092     7.2092      0.9001        0.92s
+triangle          100     0.8987     0.2420     1.2820     4.3810     7.0692      0.8366        0.58s
+spade             100     0.8975     0.0002     1.3548  6298.4675  8000.4385      0.9999        0.59s
+
+Scale / grading summary across cached cases
+Mesher        Success   Edge min   Edge p01    Area min    Area p01   E<0.5m max   E<1.0m max
+------------------------------------------------------------------------------------------
+dtcc_mesher       100     0.0006     2.5414   2.313e-07      4.6812         1642         1990
+triangle          100     0.0002     2.8952   3.035e-08      6.3263         1886         2098
+spade             100     0.0002     2.5501   2.964e-08      5.0199          722          819

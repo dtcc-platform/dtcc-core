@@ -5,11 +5,14 @@
 #define DTCC_MESH_BUILDER_H
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <iostream>
 #include <limits>
 #include <map>
 #include <stack>
+#include <stdexcept>
+#include <string>
 #include <tuple>
 #include <vector>
 
@@ -49,6 +52,14 @@ public:
     Mesh ground_mesh =
         build_city_flat_mesh(subdomains, holes, subdomain_triangle_size, bbox.P.x, bbox.P.y,
                              bbox.Q.x, bbox.Q.y, max_mesh_size, min_mesh_angle, sort_triangles);
+    return build_terrain_surface_mesh_from_ground_mesh(ground_mesh, dtm, smooth_ground);
+  }
+
+  static Mesh build_terrain_surface_mesh_from_ground_mesh(
+      Mesh ground_mesh,
+      const GridField &dtm,
+      size_t smooth_ground = 0)
+  {
     // Displace ground surface. Fill all points with maximum height. This is
     // used to always choose the smallest height for each point since each point
     // may be visited multiple times.
@@ -87,7 +98,7 @@ public:
         set_min(ground_mesh.vertices[T.v2].z, dtm(ground_mesh.vertices[T.v2]));
       }
     }
-    info("smooth ground...");
+    info("Surface mesh | smoothing ground surface");
     if (smooth_ground > 0)
       VertexSmoother::smooth_mesh(ground_mesh, smooth_ground, true, true);
 
@@ -98,7 +109,7 @@ public:
     //     ground_mesh.faces[i].flip();
     // }
 
-    info("ground mesh done");
+    info("Surface mesh | ground surface ready");
     return ground_mesh;
   }
 
@@ -119,18 +130,23 @@ public:
                                    const std::vector<Polygon> &holes,
                                    const std::vector<double> &subdomain_triangle_size, double xmin,
                                    double ymin, double xmax, double ymax, double max_mesh_size,
-                                   double min_mesh_angle, bool sort_triangles = false)
+                                   double min_mesh_angle, bool sort_triangles = false,
+                                   const std::string &backend = "auto")
   {
     info("Building city flat mesh...");
     Timer timer("build_city_flat_mesh");
 
     const BoundingBox2D bounding_box(Vector2D(xmin, ymin), Vector2D(xmax, ymax));
-    const size_t nx = static_cast<size_t>((bounding_box.Q.x - bounding_box.P.x) / max_mesh_size);
-    const size_t ny = static_cast<size_t>((bounding_box.Q.y - bounding_box.P.y) / max_mesh_size);
+    const bool has_global_mesh_limit = max_mesh_size > 0.0;
+    const size_t nx = has_global_mesh_limit ?
+        static_cast<size_t>((bounding_box.Q.x - bounding_box.P.x) / max_mesh_size) : 0;
+    const size_t ny = has_global_mesh_limit ?
+        static_cast<size_t>((bounding_box.Q.y - bounding_box.P.y) / max_mesh_size) : 0;
     const size_t n = nx * ny;
     info("Bounds: " + str(bounding_box));
-    info("Max mesh size: " + str(max_mesh_size));
-    info("Estimated number of faces: " + str(n));
+    info("Max mesh size: " + (has_global_mesh_limit ? str(max_mesh_size) : std::string("unrestricted")));
+    if (has_global_mesh_limit)
+      info("Estimated number of faces: " + str(n));
     info("Number of subdomains (buildings): " + str(subdomains.size()));
     info("Number of explicit holes: " + str(holes.size()));
 
@@ -169,34 +185,22 @@ public:
     boundary.push_back(Vector2D(bounding_box.P.x, bounding_box.Q.y));
 
     Mesh mesh;
-#ifdef DTCC_HAVE_TRIANGLE
-    info("Triangulation Backend: Triangle");
-    Triangulate::call_triangle(mesh, boundary, triangle_sub_domains, triangle_holes,
-                               subdomain_triangle_size, max_mesh_size, min_mesh_angle,
-                               sort_triangles);
-#else
-    info("Triangulation Backend: Spade");
-    double effective_maxh = max_mesh_size;
-    if (!subdomain_triangle_size.empty())
+    const auto selected_backend = resolve_2d_backend(backend);
+    if (selected_backend == TriangulationBackend::Triangle)
     {
-      double min_subdomain = std::numeric_limits<double>::max();
-      for (double h : subdomain_triangle_size)
-      {
-        if (h > 0.0)
-          min_subdomain = std::min(min_subdomain, h);
-      }
-      if (min_subdomain < std::numeric_limits<double>::max())
-      {
-        if (effective_maxh > 0.0)
-          effective_maxh = std::min(effective_maxh, min_subdomain);
-        else
-          effective_maxh = min_subdomain;
-      }
+      info("Triangulation backend: triangle");
+      Triangulate::call_triangle(mesh, boundary, triangle_sub_domains, triangle_holes,
+                                 subdomain_triangle_size, max_mesh_size, min_mesh_angle,
+                                 sort_triangles);
     }
-
-    Triangulate::call_spade(mesh, boundary, triangle_holes, triangle_sub_domains, effective_maxh,
-                            min_mesh_angle, sort_triangles);
-#endif
+    else
+    {
+      info("Triangulation backend: spade");
+      const double effective_maxh =
+          compute_effective_spade_mesh_size(subdomain_triangle_size, max_mesh_size);
+      Triangulate::call_spade(mesh, boundary, triangle_holes, triangle_sub_domains,
+                              effective_maxh, min_mesh_angle, sort_triangles);
+    }
 
     MeshProcessor::compute_mesh_domain_markers(mesh, subdomains);
 
@@ -529,7 +533,6 @@ public:
   {
     auto build_city_surface_t = Timer("build_city_surface_mesh");
     auto terrain_time = Timer("build_city_surface_mesh: step 1 terrain");
-    const size_t num_buildings = buildings.size();
     std::vector<Polygon> subdomains;
     subdomains.reserve(buildings.size());
     for (const auto &b : buildings)
@@ -546,6 +549,26 @@ public:
         build_terrain_surface_mesh(subdomains, hole_domains, subdomain_triangle_size, dtm,
                                    max_mesh_size, min_mesh_angle, smooth_ground, sort_triangles);
     terrain_time.stop();
+    return build_city_surface_mesh_from_terrain_mesh(
+        buildings, meshing_directive, terrain_mesh, smooth_ground, merge_meshes);
+  }
+
+  static std::vector<Mesh>
+  build_city_surface_mesh_from_terrain_mesh(
+      const std::vector<Surface> &buildings,
+      const std::vector<int> meshing_directive,
+      Mesh terrain_mesh,
+      size_t smooth_ground = 0,
+      bool merge_meshes = true)
+  {
+    auto build_city_surface_t = Timer("build_city_surface_mesh");
+    const size_t num_buildings = buildings.size();
+
+    if (meshing_directive.size() != num_buildings)
+    {
+      throw std::invalid_argument(
+          "build_city_surface_mesh_from_terrain_mesh requires one meshing directive per building.");
+    }
 
     std::vector<Mesh> city_mesh;
     std::vector<Mesh> building_meshes;
@@ -555,8 +578,9 @@ public:
 
     std::map<size_t, std::vector<Simplex2D>> platform_faces;
     std::map<size_t, double> platform_min_z;
+    std::map<size_t, double> building_min_z;
 
-    info("finding markes");
+    info("Surface mesh | assigning region markers");
     auto find_markers_t = Timer("build_city_surface_mesh: step 2 find markers");
     for (size_t i = 0; i < terrain_mesh.markers.size(); i++)
     {
@@ -570,6 +594,14 @@ public:
       {
         building_faces[marker].push_back(face);
         building_indices.push_back(i);
+
+        const auto &v0 = terrain_mesh.vertices[face.v0];
+        const auto &v1 = terrain_mesh.vertices[face.v1];
+        const auto &v2 = terrain_mesh.vertices[face.v2];
+
+        auto [it, _] = building_min_z.try_emplace(marker, std::numeric_limits<double>::infinity());
+        double &minz = it->second;
+        minz = std::min({minz, v0.z, v1.z, v2.z});
       }
       else
       {
@@ -587,40 +619,46 @@ public:
 
     find_markers_t.stop();
 
-    info("build_city_surface_mesh: step 3 flatten platforms");
+    info("Surface mesh | flattening supported regions");
     std::vector<char> platform_freeze(terrain_mesh.vertices.size(), 0);
-    for (const auto &kv : platform_faces)
+    const auto flatten_region_faces =
+        [&](const std::map<size_t, std::vector<Simplex2D>> &region_faces,
+            const std::map<size_t, double> &region_min_z)
     {
-      const size_t marker = kv.first;
-      const auto &faces = kv.second;
-      auto it = platform_min_z.find(marker);
-      if (it == platform_min_z.end())
-        continue; // no faces? skip
-      const double zflat = it->second;
+      for (const auto &kv : region_faces)
+      {
+        const size_t marker = kv.first;
+        const auto &faces = kv.second;
+        auto it = region_min_z.find(marker);
+        if (it == region_min_z.end())
+          continue;
+        const double zflat = it->second;
 
-      // Collect unique vertex indices used by these faces
-      std::unordered_set<size_t> vset;
-      vset.reserve(faces.size() * 3);
-      for (const auto &f : faces)
-      {
-        vset.insert(static_cast<size_t>(f.v0));
-        vset.insert(static_cast<size_t>(f.v1));
-        vset.insert(static_cast<size_t>(f.v2));
+        std::unordered_set<size_t> vset;
+        vset.reserve(faces.size() * 3);
+        for (const auto &f : faces)
+        {
+          vset.insert(static_cast<size_t>(f.v0));
+          vset.insert(static_cast<size_t>(f.v1));
+          vset.insert(static_cast<size_t>(f.v2));
+        }
+
+        for (size_t vi : vset)
+        {
+          terrain_mesh.vertices[vi].z = zflat;
+          platform_freeze[vi] = 1;
+        }
       }
-      // Set their z to zflat and mark as frozen
-      for (size_t vi : vset)
-      {
-        terrain_mesh.vertices[vi].z = zflat;
-        platform_freeze[vi] = 1;
-      }
-    }
+    };
+    flatten_region_faces(platform_faces, platform_min_z);
+    flatten_region_faces(building_faces, building_min_z);
 
     if (smooth_ground)
     {
       VertexSmoother::smooth_mesh(terrain_mesh, smooth_ground, platform_freeze, true);
     }
 
-    info("building meshes");
+    info("Surface mesh | building shell meshes");
     auto building_meshes_t = Timer("build_city_surface_mesh: step 3 building meshes");
     for (const auto &kv : building_faces)
     {
@@ -630,11 +668,12 @@ public:
       const auto roof_height = building.max_height();
 
       auto naked_edges = MeshProcessor::find_naked_edges(faces);
+      const auto wall_slices = building_wall_strip_count(naked_edges, terrain_mesh, roof_height);
 
       Mesh building_mesh;
-      building_mesh.vertices.reserve(faces.size() * 3 + naked_edges.size() * 4);
-      building_mesh.faces.reserve(faces.size() + naked_edges.size() * 2);
-      building_mesh.markers.reserve(faces.size() + naked_edges.size() * 2);
+      building_mesh.vertices.reserve(faces.size() * 3 + naked_edges.size() * 4 * wall_slices);
+      building_mesh.faces.reserve(faces.size() + naked_edges.size() * 2 * wall_slices);
+      building_mesh.markers.reserve(faces.size() + naked_edges.size() * 2 * wall_slices);
 
       // add roofs
       for (const auto &face : faces)
@@ -676,20 +715,18 @@ public:
         building_mesh.vertices.push_back(roof_v1);
 
         const auto wall_normal = Geometry::triangle_normal(ground_v0, ground_v1, roof_v1);
-        if (Geometry::dot_3d(wall_normal, face_center - ground_v0) > 0)
-        {
-          building_mesh.faces.push_back(Simplex2D(base, base + 3, base + 1));
-          building_mesh.faces.push_back(Simplex2D(base, base + 2, base + 3));
-          building_mesh.markers.push_back(static_cast<int>(marker));
-          building_mesh.markers.push_back(static_cast<int>(marker));
-        }
-        else
-        {
-          building_mesh.faces.push_back(Simplex2D(base, base + 1, base + 3));
-          building_mesh.faces.push_back(Simplex2D(base, base + 3, base + 2));
-          building_mesh.markers.push_back(static_cast<int>(marker));
-          building_mesh.markers.push_back(static_cast<int>(marker));
-        }
+        const bool flip_orientation =
+            Geometry::dot_3d(wall_normal, face_center - ground_v0) > 0;
+        building_mesh.vertices.resize(base);
+        append_vertical_quad_strips(
+            building_mesh,
+            ground_v0,
+            ground_v1,
+            roof_v0,
+            roof_v1,
+            static_cast<int>(marker),
+            flip_orientation,
+            wall_slices);
       }
 
       building_meshes.push_back(MeshProcessor::weld_mesh(building_mesh));
@@ -730,6 +767,7 @@ public:
     terrain_mesh.markers.swap(filtered_markers);
     if (copy_normals)
       terrain_mesh.normals.swap(filtered_normals);
+    terrain_mesh = MeshProcessor::compact_mesh(terrain_mesh);
     remove_inside_t.stop();
 
     auto final_merger_t = Timer("build_city_surface_mesh: step 5 final merge");
@@ -748,7 +786,8 @@ public:
 
   static Mesh mesh_surface(const Surface &surface,
 
-                           double max_triangle_area_size = -1, double min_mesh_angle = 25)
+                           double max_triangle_area_size = -1, double min_mesh_angle = 25,
+                           const std::string &backend = "auto")
   // Convert 3D Surface to triangle Mesh.
   // - If max_triangle_area_size < 0: uses fast_mesh (earcut/fan triangulation)
   // - If max_triangle_area_size >= 0:
@@ -764,18 +803,19 @@ public:
     }
     else
     {
-#ifdef DTCC_HAVE_TRIANGLE
-      Triangulate::call_triangle(mesh, surface, max_triangle_area_size, min_mesh_angle);
-#else
-      Triangulate::call_spade(mesh, surface, max_triangle_area_size, min_mesh_angle);
-#endif
+      const auto selected_backend = resolve_2d_backend(backend);
+      if (selected_backend == TriangulationBackend::Triangle)
+        Triangulate::call_triangle(mesh, surface, max_triangle_area_size, min_mesh_angle);
+      else
+        Triangulate::call_spade(mesh, surface, max_triangle_area_size, min_mesh_angle);
     }
     return mesh;
   }
 
   static Mesh mesh_multisurface(const MultiSurface &multi_surface,
                                 double max_triangle_area_size = -1, double min_mesh_angle = 25,
-                                bool weld = false, double snap = 0)
+                                bool weld = false, double snap = 0,
+                                const std::string &backend = "auto")
   {
     std::vector<Mesh> multimesh(multi_surface.surfaces.size());
     //    info("meshing multisurface with " + str(multi_surface.surfaces.size())
@@ -785,7 +825,7 @@ public:
     for (size_t i = 0; i < multi_surface.surfaces.size(); i++)
     {
       multimesh[i] =
-          mesh_surface(multi_surface.surfaces[i], max_triangle_area_size, min_mesh_angle);
+          mesh_surface(multi_surface.surfaces[i], max_triangle_area_size, min_mesh_angle, backend);
     }
     // for (const auto &surface : multi_surface.surfaces)
     // {
@@ -800,7 +840,8 @@ public:
 
   static std::vector<Mesh> mesh_multisurfaces(const std::vector<MultiSurface> &multi_surfaces,
                                               double max_triangle_area_size = -1,
-                                              double min_mesh_angle = 25, bool weld = false)
+                                              double min_mesh_angle = 25, bool weld = false,
+                                              const std::string &backend = "auto")
   {
     int n = multi_surfaces.size();
     std::vector<Mesh> meshes(n);
@@ -808,7 +849,8 @@ public:
     for (int i = 0; i < n; i++)
     {
       auto mesh =
-          mesh_multisurface(multi_surfaces[i], max_triangle_area_size, min_mesh_angle, weld);
+          mesh_multisurface(multi_surfaces[i], max_triangle_area_size, min_mesh_angle, weld, 0.0,
+                            backend);
       meshes[i] = mesh;
     }
 
@@ -816,6 +858,194 @@ public:
   }
 
 private:
+  enum class TriangulationBackend
+  {
+    Triangle,
+    Spade,
+  };
+
+  static std::string normalize_backend_name(const std::string &backend)
+  {
+    std::string normalized = backend;
+    std::transform(
+        normalized.begin(), normalized.end(), normalized.begin(),
+        [](unsigned char c)
+        { return static_cast<char>(std::tolower(c)); });
+    return normalized;
+  }
+
+  static TriangulationBackend resolve_2d_backend(const std::string &backend)
+  {
+    const std::string normalized = normalize_backend_name(backend);
+    if (normalized.empty() || normalized == "auto")
+    {
+#ifdef DTCC_HAVE_TRIANGLE
+      return TriangulationBackend::Triangle;
+#elif defined(DTCC_HAVE_SPADE)
+      return TriangulationBackend::Spade;
+#else
+      throw std::runtime_error("No triangulation backend is available in this build.");
+#endif
+    }
+
+    if (normalized == "triangle")
+    {
+#ifdef DTCC_HAVE_TRIANGLE
+      return TriangulationBackend::Triangle;
+#else
+      throw std::runtime_error(
+          "Triangle support not built; reinstall dtcc-core with DTCC_USE_TRIANGLE=ON.");
+#endif
+    }
+
+    if (normalized == "spade")
+    {
+#ifdef DTCC_HAVE_SPADE
+      return TriangulationBackend::Spade;
+#else
+      throw std::runtime_error(
+          "SPADE support not built; install dtcc-pyspade-native and reinstall dtcc-core.");
+#endif
+    }
+
+    throw std::invalid_argument(
+        "Unsupported 2D mesher '" + backend + "'. Expected one of: auto, triangle, spade.");
+  }
+
+  static double compute_effective_spade_mesh_size(
+      const std::vector<double> &subdomain_triangle_size, double max_mesh_size)
+  {
+    double effective_maxh = max_mesh_size;
+    if (!subdomain_triangle_size.empty())
+    {
+      double min_subdomain = std::numeric_limits<double>::max();
+      for (double h : subdomain_triangle_size)
+      {
+        if (h > 0.0)
+          min_subdomain = std::min(min_subdomain, h);
+      }
+      if (min_subdomain < std::numeric_limits<double>::max())
+      {
+        if (effective_maxh > 0.0)
+          effective_maxh = std::min(effective_maxh, min_subdomain);
+        else
+          effective_maxh = min_subdomain;
+      }
+    }
+    return effective_maxh;
+  }
+
+  static size_t vertical_quad_strip_count(double horizontal_length,
+                                          double vertical_height,
+                                          double target_aspect_ratio = 15.0)
+  {
+    if (horizontal_length <= Constants::epsilon || vertical_height <= Constants::epsilon)
+      return 1;
+
+    const double target_height = horizontal_length * target_aspect_ratio;
+    if (target_height <= Constants::epsilon)
+      return 1;
+
+    return std::max<size_t>(
+        1, static_cast<size_t>(std::ceil(vertical_height / target_height)));
+  }
+
+  static size_t building_wall_strip_count(
+      const std::vector<std::pair<Simplex1D, Simplex2D>> &naked_edges,
+      const Mesh &terrain_mesh,
+      double roof_height)
+  {
+    std::vector<double> horizontal_lengths;
+    horizontal_lengths.reserve(naked_edges.size());
+    double max_wall_height = 0.0;
+
+    for (const auto &edge_faces : naked_edges)
+    {
+      const Simplex1D edge = edge_faces.first;
+      const auto &ground_v0 = terrain_mesh.vertices[edge.v0];
+      const auto &ground_v1 = terrain_mesh.vertices[edge.v1];
+      const double horizontal_length = Geometry::distance_2d(
+          Vector2D(ground_v0.x, ground_v0.y), Vector2D(ground_v1.x, ground_v1.y));
+      if (horizontal_length > Constants::epsilon)
+        horizontal_lengths.push_back(horizontal_length);
+
+      max_wall_height = std::max(max_wall_height, std::abs(roof_height - ground_v0.z));
+      max_wall_height = std::max(max_wall_height, std::abs(roof_height - ground_v1.z));
+    }
+
+    if (horizontal_lengths.empty())
+      return 1;
+
+    std::sort(horizontal_lengths.begin(), horizontal_lengths.end());
+    // Use the shortest supported wall edge for one conforming strip count per
+    // building shell. This keeps the wall mesh watertight while ensuring that
+    // the most slender preserved wall panels are subdivided by construction.
+    // A tighter target than the historical default is deliberate here: TetGen
+    // quality is dominated by preserved wall panels, so the shell builder must
+    // hand over a genuinely well-proportioned wall mesh instead of relying on
+    // a later repair pass.
+    const double shortest_horizontal_length = horizontal_lengths.front();
+    return vertical_quad_strip_count(
+        shortest_horizontal_length, max_wall_height, 5.0);
+  }
+
+  static void append_vertical_quad_strips(Mesh &mesh,
+                                          const Vector3D &bottom_v0,
+                                          const Vector3D &bottom_v1,
+                                          const Vector3D &top_v0,
+                                          const Vector3D &top_v1,
+                                          int marker,
+                                          bool flip_orientation,
+                                          size_t strip_count)
+  {
+    const size_t strips = std::max<size_t>(1, strip_count);
+    mesh.vertices.reserve(mesh.vertices.size() + 4 * strips);
+    mesh.faces.reserve(mesh.faces.size() + 2 * strips);
+    mesh.markers.reserve(mesh.markers.size() + 2 * strips);
+
+    const auto interpolate = [](const Vector3D &a, const Vector3D &b, double t)
+    {
+      if (t <= 0.0)
+        return a;
+      if (t >= 1.0)
+        return b;
+      return Vector3D(a.x + t * (b.x - a.x),
+                      a.y + t * (b.y - a.y),
+                      a.z + t * (b.z - a.z));
+    };
+
+    for (size_t step = 0; step < strips; ++step)
+    {
+      const double t0 = static_cast<double>(step) / static_cast<double>(strips);
+      const double t1 = static_cast<double>(step + 1) / static_cast<double>(strips);
+
+      const auto lower_v0 = interpolate(bottom_v0, top_v0, t0);
+      const auto lower_v1 = interpolate(bottom_v1, top_v1, t0);
+      const auto upper_v0 = interpolate(bottom_v0, top_v0, t1);
+      const auto upper_v1 = interpolate(bottom_v1, top_v1, t1);
+
+      const auto base = mesh.vertices.size();
+      mesh.vertices.push_back(lower_v0);
+      mesh.vertices.push_back(lower_v1);
+      mesh.vertices.push_back(upper_v0);
+      mesh.vertices.push_back(upper_v1);
+
+      if (flip_orientation)
+      {
+        mesh.faces.push_back(Simplex2D(base, base + 3, base + 1));
+        mesh.faces.push_back(Simplex2D(base, base + 2, base + 3));
+      }
+      else
+      {
+        mesh.faces.push_back(Simplex2D(base, base + 1, base + 3));
+        mesh.faces.push_back(Simplex2D(base, base + 3, base + 2));
+      }
+
+      mesh.markers.push_back(marker);
+      mesh.markers.push_back(marker);
+    }
+  }
+
   // Map from 2D cell index to 3D cell indices
   static size_t index_3d(size_t layer, size_t layer_size, size_t cell_index_2d, size_t j)
   {

@@ -1,5 +1,6 @@
 import pytest
 import numpy as np
+import dtcc_core
 from dtcc_core.model.object import RoadNetwork, RoadType
 
 
@@ -25,6 +26,12 @@ def test_roadnetwork_bounds():
     assert bounds.xmax == 1
     assert bounds.ymin == 0
     assert bounds.ymax == 2
+
+
+def test_roadnetwork_builder_methods_registered():
+    assert dtcc_core.builder is not None
+    assert hasattr(RoadNetwork, "to_matrix")
+    assert hasattr(RoadNetwork, "to_surfaces")
 
 
 if __name__ == "__main__":

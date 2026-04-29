@@ -5,6 +5,7 @@ import math
 import numpy as np
 from unittest.mock import patch, Mock
 
+from dtcc_core.datasets.dataset import DatasetUpstreamError
 from dtcc_core.datasets.ocean import (
     OceanDataset,
     OceanDatasetArgs,
@@ -410,6 +411,12 @@ class TestOceanBuild:
         pf = sc.attributes["parameter_fields"]
         assert "sea_temperature" in pf
         assert "sea_level" in pf
+        assert sc.attributes["partial_result"] is False
+        assert sc.attributes["upstream_error_count"] == 0
+        assert sc.attributes["upstream_errors"] == []
+        assert sc.attributes["stations_skipped_upstream"] == 0
+        assert sc.attributes["requested_parameters"] == [5, 6]
+        assert sc.attributes["fetched_parameters"] == [5, 6]
 
     @patch("dtcc_core.datasets.ocean._get_text", side_effect=_mock_get_text)
     def test_parameter_name_strings(self, mock_text):
@@ -435,7 +442,13 @@ class TestOceanBuild:
 
         def _fail_on_p6(url, timeout_s=10.0):
             if "/parameter/6/" in url:
-                raise RuntimeError("Network error")
+                raise DatasetUpstreamError(
+                    dataset="ocean",
+                    operation="fetch",
+                    target=url,
+                    failure_class="connection",
+                    message="ocean fetch failed",
+                )
             return _mock_get_text(url, timeout_s=timeout_s)
 
         mock_text.side_effect = _fail_on_p6
@@ -453,6 +466,43 @@ class TestOceanBuild:
         field_names = {f.name for f in point.fields}
         assert "sea_temperature" in field_names
         assert "sea_level" not in field_names
+        assert sc.attributes["partial_result"] is True
+        assert sc.attributes["upstream_error_count"] == 1
+        assert sc.attributes["stations_skipped_upstream"] == 0
+        assert sc.attributes["requested_parameters"] == [5, 6]
+        assert sc.attributes["fetched_parameters"] == [5]
+        assert sc.attributes["upstream_errors"][0]["dataset"] == "ocean"
+        assert sc.attributes["upstream_errors"][0]["failure_class"] == "connection"
+
+    @patch("dtcc_core.datasets.ocean._get_text", side_effect=_mock_get_text)
+    def test_strict_live_raises_on_upstream_error(self, mock_text):
+        """strict_live should surface upstream failures immediately."""
+
+        def _fail_on_p6(url, timeout_s=10.0):
+            if "/parameter/6/" in url:
+                raise DatasetUpstreamError(
+                    dataset="ocean",
+                    operation="fetch",
+                    target=url,
+                    failure_class="connection",
+                    message="ocean fetch failed",
+                )
+            return _mock_get_text(url, timeout_s=timeout_s)
+
+        mock_text.side_effect = _fail_on_p6
+        ds = OceanDataset()
+
+        with pytest.raises(DatasetUpstreamError) as exc_info:
+            ds.build(
+                OceanDatasetArgs(
+                    bounds=(11.0, 57.0, 12.5, 59.0),
+                    crs="EPSG:4326",
+                    parameters=[5, 6],
+                    strict_live=True,
+                )
+            )
+
+        assert exc_info.value.failure_class == "connection"
 
     @patch("dtcc_core.datasets.ocean._get_text", side_effect=_mock_get_text)
     def test_z_is_zero(self, mock_text):
@@ -531,6 +581,9 @@ class TestOceanEdgeCases:
             )
         )
         assert len(sc.stations()) == 0
+        assert sc.attributes["partial_result"] is False
+        assert sc.attributes["upstream_error_count"] == 0
+        assert sc.attributes["upstream_errors"] == []
 
     @patch("dtcc_core.datasets.ocean._get_text", side_effect=_mock_get_text)
     def test_empty_parameter_response(self, mock_text):

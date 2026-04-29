@@ -166,13 +166,22 @@ cython_debug/
 .idea/
 
 /data/
+temp/
 .aider*
 .DS_Store
 
 sandbox/snapping
 
-# Pipeline run artefacts (OBJ/VTK/VTU/JSON/HTML/etc produced by sandbox scripts)
+# Generated experiment artifacts
 sandbox/output/
+sandbox/output_3d_*/
+sandbox/output_stage_dive_artifacts_*/
+sandbox/tetgen_fail*
+sandbox/tetgen-tmpfile_skipped*
+tetgen_fail*
+tetgen-tmpfile_skipped*
+benchmarks/__pycache__/
+benchmarks/output*/
 
 # uv lockfile (library convention — reproduce via pyproject, not a pinned tree)
 uv.lock

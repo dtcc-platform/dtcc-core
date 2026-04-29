@@ -307,10 +307,10 @@ static inline void compute_mesh_domain_markers(Mesh &mesh, const std::vector<Pol
         // 4) pick the dominant component
         if (std::abs(nx) > std::abs(ny)) {
           // East/West face
-          marker =  (nx > 0) ? -4 : -6;
+          marker =  (nx > 0) ? -4 : -3;
         } else {
           // North/South face
-          marker =  (ny > 0) ? -3 : -5;
+          marker =  (ny > 0) ? -6 : -5;
         }
       }
     }
@@ -369,6 +369,12 @@ static inline void compute_mesh_domain_markers(Mesh &mesh, const std::vector<Pol
     }
 
     return mesh;
+  }
+
+  /// Merge meshes into a single mesh
+  static Mesh compact_mesh(const Mesh &mesh)
+  {
+    return compact_mesh_vertices(mesh);
   }
 
   /// Merge meshes into a single mesh
@@ -510,7 +516,7 @@ static inline void compute_mesh_domain_markers(Mesh &mesh, const std::vector<Pol
     }
     // info("welded " + str(num_vertices) + " vertices to " +
     //     str(welded_mesh.vertices.size()) + " vertices");
-    return welded_mesh;
+    return compact_mesh(welded_mesh);
   }
 
   static Mesh snap_vertices(const Mesh &mesh, double snap_distance)
@@ -587,10 +593,49 @@ static inline void compute_mesh_domain_markers(Mesh &mesh, const std::vector<Pol
     else if (snapped_mesh.markers.size() > snapped_mesh.faces.size())
       snapped_mesh.markers.resize(snapped_mesh.faces.size());
 
-    return snapped_mesh;
+    return compact_mesh(snapped_mesh);
   }
 
 private:
+  static Mesh compact_mesh_vertices(const Mesh &mesh)
+  {
+    if (mesh.faces.empty())
+      return mesh;
+
+    Mesh compacted_mesh;
+    compacted_mesh.vertices.reserve(mesh.faces.size() * 3);
+    compacted_mesh.faces.reserve(mesh.faces.size());
+    compacted_mesh.markers.reserve(mesh.faces.size());
+    compacted_mesh.normals = mesh.normals;
+
+    std::unordered_map<size_t, size_t> vertex_idx_map;
+    for (size_t i = 0; i < mesh.faces.size(); ++i)
+    {
+      const Simplex2D &face = mesh.faces[i];
+
+      auto map_vertex = [&](size_t vertex_index) -> size_t {
+        auto it = vertex_idx_map.find(vertex_index);
+        if (it != vertex_idx_map.end())
+          return it->second;
+
+        const size_t new_index = compacted_mesh.vertices.size();
+        vertex_idx_map[vertex_index] = new_index;
+        compacted_mesh.vertices.push_back(mesh.vertices[vertex_index]);
+        return new_index;
+      };
+
+      compacted_mesh.faces.push_back(
+          Simplex2D(map_vertex(face.v0), map_vertex(face.v1), map_vertex(face.v2)));
+
+      int marker = default_marker();
+      if (i < mesh.markers.size())
+        marker = mesh.markers[i];
+      compacted_mesh.markers.push_back(marker);
+    }
+
+    return compacted_mesh;
+  }
+
   // Count face (number of cell neighbors)
   static void count_face(std::map<Simplex2D, std::pair<size_t, size_t>, CompareSimplex2D> &face_map,
                          size_t v0, size_t v1, size_t v2, size_t cell_index)

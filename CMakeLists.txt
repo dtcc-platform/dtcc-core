@@ -18,7 +18,7 @@ option(DTCC_ENABLE_WARNINGS "Enable recommended warning flags" ON)
 option(DTCC_USE_SPADE "Enable SPADE triangulation" ON)
 option(DTCC_USE_TRIANGLE "Enable external Triangle" OFF)
 option(DTCC_USE_HOMEBREW_LLVM "Use the Homebrew LLVM toolchain on macOS" OFF)
-set(DTCC_TRIANGLE_DIR "" CACHE PATH "Prefix for Triangle installation (with include/triangle/triangle.h)")
+set(DTCC_TRIANGLE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/dtcc_core/cpp/external/triangle" CACHE PATH "Prefix for Triangle installation (with include/triangle/triangle.h)")
 
 if(APPLE AND NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET)
   set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0" CACHE STRING "Minimum macOS version to target" FORCE)

@@ -97,13 +97,25 @@ def test_save_load_mesh(basic_mesh, file_extension):
 @pytest.mark.parametrize("file_extension", [".glb", ".gltf"])
 def test_save_mesh_only(basic_mesh, file_extension):
     with tempfile.NamedTemporaryFile(suffix=file_extension, delete=False) as tmp_file:
-        path = tmp_file.name
+        path = pathlib.Path(tmp_file.name)
+
+    bin_path = path.with_suffix(".bin")
 
     try:
-        basic_mesh.save(path)
+        if file_extension == ".gltf":
+            with pytest.warns(UserWarning, match=r"saved to a \.bin file"):
+                basic_mesh.save(path)
+            assert bin_path.exists()
+        else:
+            basic_mesh.save(path)
+            assert not bin_path.exists()
+
         assert os.path.exists(path)
     finally:
-        os.unlink(path)
+        if bin_path.exists():
+            bin_path.unlink()
+        if path.exists():
+            path.unlink()
 
 
 # Specialized mesh tests
@@ -153,3 +165,42 @@ def test_write_read_volume_mesh(volume_mesh_cube):
         assert mesh.cells.dtype == np.int64
     finally:
         os.unlink(path)
+
+
+def test_save_xdmf_volume_mesh_writes_mesh_and_markers_to_single_file(
+    volume_mesh_cube, tmp_path
+):
+    path = tmp_path / "volume_mesh.xdmf"
+    volume_mesh_cube.boundary_faces = np.array([[0, 1, 2], [0, 1, 4]], dtype=int)
+    volume_mesh_cube.boundary_markers = np.array([-1, -2], dtype=int)
+
+    volume_mesh_cube.save(path)
+
+    h5_path = tmp_path / "volume_mesh.h5"
+
+    assert path.exists()
+    assert h5_path.exists()
+
+    main_xdmf = path.read_text()
+
+    assert 'Grid Name="mesh"' in main_xdmf
+    assert 'Grid Name="boundary_markers"' in main_xdmf
+    assert 'NumberType="Float" Precision="8"' in main_xdmf
+    assert 'NumberType="Int" Precision="8"' in main_xdmf
+
+    loaded = io.load_volume_mesh(path)
+    assert len(loaded.vertices) == len(volume_mesh_cube.vertices)
+    assert len(loaded.cells) == len(volume_mesh_cube.cells)
+    assert np.array_equal(loaded.boundary_faces, volume_mesh_cube.boundary_faces)
+    assert np.array_equal(loaded.boundary_markers, volume_mesh_cube.boundary_markers)
+
+
+def test_save_xdmf_volume_mesh_removes_stale_marker_sidecar(volume_mesh_cube, tmp_path):
+    path = tmp_path / "volume_mesh.xdmf"
+    marker_path = tmp_path / "volume_mesh_boundary_markers.xdmf"
+    marker_path.write_text("stale")
+
+    volume_mesh_cube.save(path)
+
+    assert path.exists()
+    assert not marker_path.exists()

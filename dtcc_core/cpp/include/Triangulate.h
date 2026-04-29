@@ -8,6 +8,7 @@
 #include <cmath>
 #include <iostream>
 #include <map>
+#include <set>
 #include <stack>
 #include <stdexcept>
 #include <tuple>
@@ -21,7 +22,9 @@ extern "C"
 #endif
 #include <earcut.hpp>
 
+#ifdef DTCC_HAVE_SPADE
 #include <spade_wrapper.h>
+#endif
 
 #include "Eigen/Eigen"
 #include "Eigen/Geometry"
@@ -41,6 +44,13 @@ namespace DTCC_BUILDER
 class Triangulate
 {
 public:
+
+  static double mesh_size_to_area_limit(double max_mesh_size)
+  {
+    if (max_mesh_size <= 0.0)
+      return 0.0;
+    return 0.5 * max_mesh_size * max_mesh_size;
+  }
 
   static void call_earcut(Mesh &mesh, const Surface &surface, bool sort_triangles = true) {
     auto area = Geometry::surface_area(surface);
@@ -195,8 +205,8 @@ public:
   {
     Timer timer("call_triangle");
 
-    // Set area constraint to control mesh size
-    const double max_area = 0.5 * max_mesh_size * max_mesh_size;
+    // Convert the public mesh-size control to Triangle's area cap.
+    const double max_area = mesh_size_to_area_limit(max_mesh_size);
 
     // Set input switches for Triangle
     std::string triswitches = "zQp";
@@ -225,86 +235,108 @@ public:
     // Create input data structure for Triangle
     struct triangulateio in = create_triangle_io();
 
-    // Check for duplicate points
-    // size_t duplicate_vertices = 0;
-    for (auto polygon : sub_domains)
+    const auto sanitized_boundary = sanitize_triangle_loop(boundary);
+    if (sanitized_boundary.size() < 3)
     {
-      auto first = polygon.front();
-      auto last = polygon.back();
-      if (first.close_to(last))
-      {
-        polygon.pop_back();
-        // duplicate_vertices++;
-      }
+      delete[] triswitches_c;
+      throw std::runtime_error("Triangle boundary has fewer than 3 distinct vertices");
     }
-//    if (duplicate_vertices > 0)
-//      debug("Removed " + str(duplicate_vertices) + " duplicate vertices");
 
-    // Set number of points
-    size_t num_points = boundary.size();
-    //    info("triangluate with " + str(num_points) + " points");
-    for (auto const &innerPolygon : sub_domains)
-    {
-      num_points += innerPolygon.size();
-    }
-    in.numberofpoints = num_points;
+    std::vector<std::vector<Vector2D>> sanitized_sub_domains;
+    sanitized_sub_domains.reserve(sub_domains.size());
+    std::vector<double> sanitized_subdomain_triangle_size;
+    if (!subdomain_triangle_size.empty())
+      sanitized_subdomain_triangle_size.reserve(sub_domains.size());
 
-    // Set points
-    in.pointlist = new double[2 * num_points];
+    for (size_t i = 0; i < sub_domains.size(); ++i)
     {
-      size_t k = 0;
-      for (auto const &p : boundary)
+      auto polygon = sanitize_triangle_loop(sub_domains[i]);
+      if (polygon.size() < 3)
+        continue;
+      sanitized_sub_domains.push_back(std::move(polygon));
+      if (!subdomain_triangle_size.empty())
       {
-        in.pointlist[k++] = p.x;
-        in.pointlist[k++] = p.y;
-      }
-      for (auto const &innerPolygon : sub_domains)
-      {
-        for (auto const &p : innerPolygon)
-        {
-          in.pointlist[k++] = p.x;
-          in.pointlist[k++] = p.y;
-        }
+        double size = max_mesh_size;
+        if (i < subdomain_triangle_size.size() && subdomain_triangle_size[i] > 0.0)
+          size = subdomain_triangle_size[i];
+        sanitized_subdomain_triangle_size.push_back(size);
       }
     }
 
-    // Set number of segments
-    const size_t num_segments = num_points;
-    in.numberofsegments = num_segments;
-
-    // Set segments
-    in.segmentlist = new int[2 * num_segments];
+    std::vector<std::vector<Vector2D>> sanitized_holes;
+    sanitized_holes.reserve(holes.size());
+    for (const auto &polygon : holes)
     {
-      size_t k = 0;
-      size_t n = 0;
-      for (size_t j = 0; j < boundary.size(); j++)
-      {
-        const size_t j0 = j;
-        const size_t j1 = (j + 1) % boundary.size();
-        in.segmentlist[k++] = n + j0;
-        in.segmentlist[k++] = n + j1;
-      }
-      n += boundary.size();
-      for (size_t i = 0; i < sub_domains.size(); i++)
-      {
-        for (size_t j = 0; j < sub_domains[i].size(); j++)
-        {
-          const size_t j0 = j;
-          const size_t j1 = (j + 1) % sub_domains[i].size();
-          in.segmentlist[k++] = n + j0;
-          in.segmentlist[k++] = n + j1;
-        }
-        n += sub_domains[i].size();
-      }
+      auto loop = sanitize_triangle_loop(polygon);
+      if (loop.size() >= 3)
+        sanitized_holes.push_back(std::move(loop));
     }
 
-    if (subdomain_triangle_size.size() > 0)
+    std::vector<Vector2D> shared_points;
+    std::map<std::pair<long long, long long>, std::vector<int>> point_buckets;
+    const auto boundary_indices =
+        shared_triangle_loop_indices(sanitized_boundary, shared_points, point_buckets);
+    std::vector<std::vector<int>> subdomain_indices;
+    subdomain_indices.reserve(sanitized_sub_domains.size());
+    for (const auto &inner_polygon : sanitized_sub_domains)
     {
-      in.regionlist = new double[4 * (1 + sub_domains.size())];
-      auto boundary_center = Geometry::polygon_center_2d(Polygon(boundary));
-      auto corner_to_center = boundary_center - boundary[0];
+      subdomain_indices.push_back(
+          shared_triangle_loop_indices(inner_polygon, shared_points, point_buckets));
+    }
+    std::vector<std::vector<int>> hole_indices;
+    hole_indices.reserve(sanitized_holes.size());
+    for (const auto &hole_polygon : sanitized_holes)
+    {
+      hole_indices.push_back(
+          shared_triangle_loop_indices(hole_polygon, shared_points, point_buckets));
+    }
+
+    in.numberofpoints = shared_points.size();
+    in.pointlist = new double[2 * in.numberofpoints];
+    for (size_t i = 0; i < shared_points.size(); ++i)
+    {
+      in.pointlist[2 * i] = shared_points[i].x;
+      in.pointlist[2 * i + 1] = shared_points[i].y;
+    }
+
+    std::vector<std::pair<int, int>> segments;
+    std::set<std::pair<int, int>> seen_segments;
+    auto append_loop_segments = [&](const std::vector<int> &loop_indices) {
+      if (loop_indices.size() < 3)
+        return;
+      for (size_t j = 0; j < loop_indices.size(); ++j)
+      {
+        const int start = loop_indices[j];
+        const int end = loop_indices[(j + 1) % loop_indices.size()];
+        if (start == end)
+          continue;
+        const auto key = std::minmax(start, end);
+        if (seen_segments.insert(key).second)
+          segments.emplace_back(start, end);
+      }
+    };
+
+    append_loop_segments(boundary_indices);
+    for (const auto &loop_indices : subdomain_indices)
+      append_loop_segments(loop_indices);
+    for (const auto &loop_indices : hole_indices)
+      append_loop_segments(loop_indices);
+
+    in.numberofsegments = segments.size();
+    in.segmentlist = new int[2 * in.numberofsegments];
+    for (size_t i = 0; i < segments.size(); ++i)
+    {
+      in.segmentlist[2 * i] = segments[i].first;
+      in.segmentlist[2 * i + 1] = segments[i].second;
+    }
+
+    if (!sanitized_subdomain_triangle_size.empty())
+    {
+      in.regionlist = new double[4 * (1 + sanitized_sub_domains.size())];
+      auto boundary_center = Geometry::polygon_center_2d(Polygon(sanitized_boundary));
+      auto corner_to_center = boundary_center - sanitized_boundary[0];
       corner_to_center.normalize();
-      auto inside_boundary = boundary[0] + (corner_to_center * 0.2);
+      auto inside_boundary = sanitized_boundary[0] + (corner_to_center * 0.2);
 
       in.regionlist[0] = inside_boundary.x;
       in.regionlist[1] = inside_boundary.y;
@@ -313,17 +345,18 @@ public:
 
       auto k = 4;
 
-      for (size_t i = 0; i < sub_domains.size(); i++)
+      for (size_t i = 0; i < sanitized_sub_domains.size(); i++)
       {
-        auto inner_polygon = sub_domains[i];
+        auto inner_polygon = sanitized_sub_domains[i];
         auto c = Geometry::point_inside_polygon_2d(Polygon(inner_polygon));
-        double max_inner_area = subdomain_triangle_size[i] * subdomain_triangle_size[i] * 0.5;
+        double max_inner_area =
+            sanitized_subdomain_triangle_size[i] * sanitized_subdomain_triangle_size[i] * 0.5;
         in.regionlist[k++] = c.x;
         in.regionlist[k++] = c.y;
         in.regionlist[k++] = 1;
         in.regionlist[k++] = max_inner_area;
       }
-      in.numberofregions = 1 + sub_domains.size();
+      in.numberofregions = 1 + sanitized_sub_domains.size();
     }
 
     // Note: This is how set holes but it's not used here since we
@@ -331,26 +364,22 @@ public:
 
     
     // Set number of holes
-    const size_t numHoles = holes.size();
+    const size_t numHoles = sanitized_holes.size();
     in.numberofholes = numHoles;
 
     // Set holes. Note that we assume that we can get an
     // interior point of each hole (inner polygon) by computing
     // its center of mass.
-    in.holelist = new double[2 * numHoles];
+    if (numHoles > 0)
     {
-    size_t k = 0;
-    Vector2D c;
-    for (auto const & InnerPolygon : holes)
-    {
-    for (auto const & p : InnerPolygon)
-    {
-    c += p;
-    }
-    c /= InnerPolygon.size();
-    in.holelist[k++] = c.x;
-    in.holelist[k++] = c.y;
-    }
+      in.holelist = new double[2 * numHoles];
+      size_t k = 0;
+      for (auto const &innerPolygon : sanitized_holes)
+      {
+        const auto c = Geometry::point_inside_polygon_2d(Polygon(innerPolygon));
+        in.holelist[k++] = c.x;
+        in.holelist[k++] = c.y;
+      }
     }
     
 
@@ -361,6 +390,16 @@ public:
     // Call Triangle
     triangulate(triswitches_c, &in, &out, &vorout);
     delete[] triswitches_c;
+
+    if (out.numberofpoints <= 0 || out.pointlist == nullptr ||
+        out.numberoftriangles <= 0 || out.trianglelist == nullptr)
+    {
+      delete[] in.pointlist;
+      delete[] in.segmentlist;
+      delete[] in.holelist;
+      delete[] in.regionlist;
+      throw std::runtime_error("Triangle triangulation failed to produce a valid mesh");
+    }
 
     // Uncomment for debugging
     // print_triangle_io(out);
@@ -385,10 +424,10 @@ public:
     }
 
     // Free memory
-    // trifree(&out); // causes segfault
     delete[] in.pointlist;
     delete[] in.segmentlist;
     delete[] in.holelist;
+    delete[] in.regionlist;
   }
 #else
   static void call_triangle(Mesh &,
@@ -406,6 +445,7 @@ public:
   }
 #endif
 
+#ifdef DTCC_HAVE_SPADE
   static void call_spade(Mesh &mesh,
                          const std::vector<Vector2D> &boundary,
                          const std::vector<std::vector<Vector2D>> &holes,
@@ -503,8 +543,8 @@ public:
           return count;
         }();
 
-    // Interpret max_mesh_size as a maximum triangle area.
-    const double max_allowed_area = max_mesh_size;
+    // Convert the public mesh-size control to Spade's area cap.
+    const double max_allowed_area = mesh_size_to_area_limit(max_mesh_size);
 
     // Clamp angle limit to Spade's recommended upper bound.
     double min_angle_deg = min_mesh_angle;
@@ -517,17 +557,22 @@ public:
     if (min_angle_deg < 0.0)
       min_angle_deg = 0.0;
 
-    // DTCC-side estimate of required steiner point budget.
+    // DTCC-side estimate of required steiner point budget. For a planar
+    // triangulation with boundary vertices, Euler's formula gives
+    // T ~= 2V - B - 2, so V ~= (T + B + 2) / 2. Using all constrained input
+    // vertices as a conservative proxy for B avoids starving refinement on
+    // simple surfaces after max_mesh_size was normalized to mean edge length.
     size_t max_additional_vertices = 0;
     if (max_allowed_area > 0.0 && domain_area > 0.0)
     {
       const double estimated_triangles = std::ceil(domain_area / max_allowed_area);
-      const double estimated_total_vertices = std::ceil(estimated_triangles / 2.0);
+      const double estimated_total_vertices =
+          std::ceil((estimated_triangles + static_cast<double>(input_vertices) + 2.0) / 2.0);
       const size_t target_total_vertices = static_cast<size_t>(std::max(0.0, estimated_total_vertices));
       const size_t additional_needed =
           (target_total_vertices > input_vertices) ? (target_total_vertices - input_vertices) : 0;
 
-      const double safety_factor = (min_angle_deg > 0.0) ? 1.0 : 0.5;
+      const double safety_factor = (min_angle_deg > 0.0) ? 2.0 : 1.5;
       max_additional_vertices = static_cast<size_t>(std::ceil(static_cast<double>(additional_needed) * safety_factor));
 
       // Ensure we have at least some headroom when refinement is requested.
@@ -634,6 +679,29 @@ public:
       }
     }
   }
+#else
+  static void call_spade(Mesh &,
+                         const std::vector<Vector2D> &,
+                         const std::vector<std::vector<Vector2D>> &,
+                         const std::vector<std::vector<Vector2D>> &,
+                         double,
+                         double,
+                         bool = false)
+  {
+    throw std::runtime_error(
+        "SPADE support not built; install dtcc-pyspade-native and reinstall dtcc-core.");
+  }
+
+  static void call_spade(Mesh &,
+                         const Surface &,
+                         double,
+                         double,
+                         bool = true)
+  {
+    throw std::runtime_error(
+        "SPADE support not built; install dtcc-pyspade-native and reinstall dtcc-core.");
+  }
+#endif
 
 private:
 
@@ -689,6 +757,81 @@ private:
 
   // Create and reset Triangle I/O data structure
 #ifdef DTCC_HAVE_TRIANGLE
+  static std::vector<Vector2D> sanitize_triangle_loop(const std::vector<Vector2D> &polygon)
+  {
+    std::vector<Vector2D> sanitized;
+    sanitized.reserve(polygon.size());
+
+    for (const auto &p : polygon)
+    {
+      if (sanitized.empty() || !p.close_to(sanitized.back()))
+        sanitized.push_back(p);
+    }
+
+    while (sanitized.size() >= 2 && sanitized.front().close_to(sanitized.back()))
+      sanitized.pop_back();
+
+    if (sanitized.size() < 3)
+      sanitized.clear();
+
+    return sanitized;
+  }
+
+  static std::vector<int> shared_triangle_loop_indices(
+      const std::vector<Vector2D> &polygon,
+      std::vector<Vector2D> &shared_points,
+      std::map<std::pair<long long, long long>, std::vector<int>> &point_buckets)
+  {
+    static constexpr double point_tolerance = 1e-6;
+
+    auto quantize = [](const Vector2D &point) {
+      return std::make_pair(
+          static_cast<long long>(std::llround(point.x / point_tolerance)),
+          static_cast<long long>(std::llround(point.y / point_tolerance)));
+    };
+
+    auto point_index = [&](const Vector2D &point) {
+      const auto key = quantize(point);
+      for (long long dx = -1; dx <= 1; ++dx)
+      {
+        for (long long dy = -1; dy <= 1; ++dy)
+        {
+          const auto neighbor_key = std::make_pair(key.first + dx, key.second + dy);
+          const auto bucket = point_buckets.find(neighbor_key);
+          if (bucket == point_buckets.end())
+            continue;
+          for (const int idx : bucket->second)
+          {
+            if (shared_points[idx].close_to(point, point_tolerance))
+              return idx;
+          }
+        }
+      }
+
+      const int idx = static_cast<int>(shared_points.size());
+      shared_points.push_back(point);
+      point_buckets[key].push_back(idx);
+      return idx;
+    };
+
+    std::vector<int> indices;
+    indices.reserve(polygon.size());
+    for (const auto &point : polygon)
+    {
+      const int idx = point_index(point);
+      if (indices.empty() || indices.back() != idx)
+        indices.push_back(idx);
+    }
+
+    while (indices.size() >= 2 && indices.front() == indices.back())
+      indices.pop_back();
+
+    if (indices.size() < 3)
+      indices.clear();
+
+    return indices;
+  }
+
   static struct triangulateio create_triangle_io()
   {
     struct triangulateio io;

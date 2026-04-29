@@ -27,6 +27,7 @@ class CityBuilderMixin:
         build_mesh=True,
         max_triangle_size=5.0,
         smoothing=3,
+        mesher: str | None = None,
     ) -> "T_City":
         """
         Build terrain for a city using a point cloud.
@@ -64,6 +65,7 @@ class CityBuilderMixin:
                 raster,
                 max_mesh_size=max_triangle_size,
                 smoothing=smoothing,
+                mesher=mesher,
             )
             terrain.add_mesh(mesh)
 
@@ -193,7 +195,7 @@ class CityBuilderMixin:
 
     def build_surface_mesh(
         self: "T_City",
-        lod: GeometryType | list[GeometryType] = GeometryType.LOD1,
+        lod: GeometryType | list[GeometryType] | None = None,
         min_building_detail: float = 0.5,
         min_building_area: float = 15.0,
         merge_buildings: bool = True,
@@ -205,6 +207,10 @@ class CityBuilderMixin:
         smoothing: int = 0,
         sort_triangles: bool = False,
         treat_lod0_as_holes: bool = False,
+        show_footprints: bool = False,
+        footprint_cleaning_plot_block: bool = True,
+        mesher: str | None = None,
+        pipeline_mode: str = "strict",
     ) -> Mesh:
         """
             Build a city surface mesh from the buildings and terrain.
@@ -226,6 +232,12 @@ class CityBuilderMixin:
 
         `smoothing` : float, optional
             The smoothing of the mesh, by default 0.0.
+        `mesher` : {"auto", "dtcc_mesher", "triangle", "spade"}, optional
+            Select the 2D meshing backend used to triangulate the ground and
+            surface shell.
+        `show_footprints` : bool, optional
+            Show a live Matplotlib comparison of raw and conditioned
+            footprints before meshing.
 
         Returns
         -------
@@ -247,18 +259,26 @@ class CityBuilderMixin:
             smoothing=smoothing,
             sort_triangles=sort_triangles,
             treat_lod0_as_holes=treat_lod0_as_holes,
+            show_footprints=show_footprints,
+            footprint_cleaning_plot_block=footprint_cleaning_plot_block,
+            mesher=mesher,
+            pipeline_mode=pipeline_mode,
         )
         return surface_mesh
 
     def build_flat_mesh(
         self: "T_City",
-        lod: GeometryType = GeometryType.LOD1,
-        max_mesh_size: float = 10.0,
+        lod: GeometryType | None = None,
+        max_mesh_size: float | None = 10.0,
         min_mesh_angle: float = 25.0,
         merge_buildings: bool = True,
         min_building_detail: float = 0.5,
         min_building_area: float = 15.0,
         merge_tolerance: float = 0.5,
+        show_footprints: bool = False,
+        footprint_cleaning_plot_block: bool = True,
+        mesher: str | None = None,
+        pipeline_mode: str = "strict",
     ) -> Mesh:
         """Build a flat 2D triangular mesh of the city with building markers.
 
@@ -272,9 +292,13 @@ class CityBuilderMixin:
         Parameters
         ----------
         lod : GeometryType, optional
-            Level-of-Detail for footprint extraction (default LOD1).
-        max_mesh_size : float, optional
-            Maximum triangle size (default 10.0).
+            Level-of-Detail for footprint extraction. When omitted, each
+            building resolves the first available geometry in the order
+            ``LOD1 -> LOD2 -> LOD3 -> LOD0``.
+        max_mesh_size : float | None, optional
+            Maximum target triangle edge length in meters. Set to ``None``
+            to disable the global size cap and let geometry plus
+            ``min_mesh_angle`` drive refinement.
         min_mesh_angle : float, optional
             Minimum angle quality constraint (default 25.0).
         merge_buildings : bool, optional
@@ -285,6 +309,11 @@ class CityBuilderMixin:
             Minimum footprint area threshold (default 15.0).
         merge_tolerance : float, optional
             Distance tolerance for merging (default 0.5).
+        mesher : {"auto", "dtcc_mesher", "triangle", "spade"}, optional
+            Select the 2D meshing backend.
+        show_footprints : bool, optional
+            Show a live Matplotlib comparison of raw and conditioned
+            footprints before meshing.
 
         Returns
         -------
@@ -302,12 +331,16 @@ class CityBuilderMixin:
             min_building_detail=min_building_detail,
             min_building_area=min_building_area,
             merge_tolerance=merge_tolerance,
+            show_footprints=show_footprints,
+            footprint_cleaning_plot_block=footprint_cleaning_plot_block,
+            mesher=mesher,
+            pipeline_mode=pipeline_mode,
         )
         return flat_mesh
 
     def build_volume_mesh(
         self: "T_City",
-        lod: GeometryType = GeometryType.LOD1,
+        lod: GeometryType | None = None,
         domain_height: float = 100.0,
         max_mesh_size: float = 10.0,
         min_mesh_angle: float = 25.0,
@@ -323,6 +356,12 @@ class CityBuilderMixin:
         smoothing_relative_tolerance: float = 0.005,
         aspect_ratio_threshold: float = 10.0,
         debug_step: int = 7,
+        show_footprints: bool = False,
+        footprint_cleaning_plot_block: bool = True,
+        mesher: str | None = None,
+        pipeline_mode: str = "strict",
+        top_cap_max_mesh_size: float | None = None,
+        max_volume: float | None = None,
     ) -> VolumeMesh:
         """Build a 3D tetrahedral volume mesh for the city.
 
@@ -332,11 +371,16 @@ class CityBuilderMixin:
         Parameters
         ----------
         lod : GeometryType, optional
-            Level-of-Detail directive for building footprints (default LOD1).
+            Level-of-Detail directive for building footprints. When omitted,
+            each building resolves the first available geometry in the order
+            ``LOD1 -> LOD2 -> LOD3 -> LOD0``.
         domain_height : float, optional
             Height of the volume domain above terrain (default 100.0).
         max_mesh_size : float, optional
-            Maximum element size (default 10.0).
+            Maximum target edge size for the 2D ground and shell meshing stages
+            (default 10.0).
+        top_cap_max_mesh_size : float, optional
+            Optional maximum edge length for the lifted top cap triangulation.
         min_mesh_angle : float, optional
             Minimum mesh angle quality constraint (default 25.0).
         merge_buildings : bool, optional
@@ -350,19 +394,34 @@ class CityBuilderMixin:
         smoothing : int, optional
             Number of smoothing iterations (default 0).
         boundary_face_markers : bool, optional
-            Annotate boundary faces with integer markers (default True).
+            Annotate boundary faces with integer markers (default True):
+            `-1` ground, `-2` top, `-3` west/xmin, `-4` east/xmax,
+            `-5` south/ymin, `-6` north/ymax.
+        max_volume : float, optional
+            Optional maximum tetrahedron volume passed to TetGen.
         tetgen_switches : dict, optional
             High-level TetGen parameters.
         tetgen_switch_overrides : dict, optional
             Low-level TetGen switch overrides.
         smoother_max_iterations : int, optional
-            Max iterations for fallback smoother (default 5000).
+            Legacy DTCC-only compatibility parameter. Ignored in the normal
+            TetGen path.
         smoothing_relative_tolerance : float, optional
-            Relative tolerance for fallback smoothing (default 0.005).
+            Legacy DTCC-only compatibility parameter. Ignored in the normal
+            TetGen path.
         aspect_ratio_threshold : float, optional
-            Aspect ratio threshold for fallback mesher (default 10.0).
+            Legacy DTCC-only compatibility parameter. Ignored in the normal
+            TetGen path.
         debug_step : int, optional
-            Debug step for fallback mesher (default 7).
+            Legacy DTCC-only compatibility parameter. Ignored in the normal
+            TetGen path.
+        mesher : {"auto", "dtcc_mesher", "triangle", "spade"}, optional
+            Select the 2D meshing backend used for the intermediate flat and
+            surface mesh stages. ``None`` and ``"auto"`` both resolve to
+            ``dtcc_mesher`` in the strict volume path.
+        show_footprints : bool, optional
+            Show a live Matplotlib comparison of raw and conditioned
+            footprints before meshing.
 
         Returns
         -------
@@ -376,6 +435,7 @@ class CityBuilderMixin:
             lod=lod,
             domain_height=domain_height,
             max_mesh_size=max_mesh_size,
+            top_cap_max_mesh_size=top_cap_max_mesh_size,
             min_mesh_angle=min_mesh_angle,
             merge_buildings=merge_buildings,
             min_building_detail=min_building_detail,
@@ -383,12 +443,17 @@ class CityBuilderMixin:
             merge_tolerance=merge_tolerance,
             smoothing=smoothing,
             boundary_face_markers=boundary_face_markers,
+            max_volume=max_volume,
             tetgen_switches=tetgen_switches,
             tetgen_switch_overrides=tetgen_switch_overrides,
             smoother_max_iterations=smoother_max_iterations,
             smoothing_relative_tolerance=smoothing_relative_tolerance,
             aspect_ratio_threshold=aspect_ratio_threshold,
             debug_step=debug_step,
+            show_footprints=show_footprints,
+            footprint_cleaning_plot_block=footprint_cleaning_plot_block,
+            mesher=mesher,
+            pipeline_mode=pipeline_mode,
         )
         return volume_mesh
 
