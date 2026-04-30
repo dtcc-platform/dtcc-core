@@ -782,6 +782,63 @@ def _triangle_mesh_edge_lengths(vertices: np.ndarray, faces: np.ndarray) -> np.n
     return np.linalg.norm(edge_vectors, axis=1)
 
 
+def _triangle_face_edge_lengths(vertices: np.ndarray, faces: np.ndarray) -> np.ndarray:
+    if len(faces) == 0:
+        return np.empty((0, 3), dtype=np.float64)
+    v0 = vertices[faces[:, 0], :3]
+    v1 = vertices[faces[:, 1], :3]
+    v2 = vertices[faces[:, 2], :3]
+    return np.stack(
+        [
+            np.linalg.norm(v1 - v0, axis=1),
+            np.linalg.norm(v2 - v1, axis=1),
+            np.linalg.norm(v0 - v2, axis=1),
+        ],
+        axis=1,
+    )
+
+
+def _finite_argmin(values: np.ndarray) -> int | None:
+    if values.size == 0:
+        return None
+    finite = np.isfinite(values)
+    if not bool(np.any(finite)):
+        return None
+    return int(np.argmin(np.where(finite, values, np.inf)))
+
+
+def _triangle_face_detail(
+    *,
+    vertices: np.ndarray,
+    faces: np.ndarray,
+    markers: Any,
+    face_edge_lengths: np.ndarray,
+    areas: np.ndarray,
+    element_quality: np.ndarray,
+    aspect_ratio: np.ndarray,
+    face_index: int,
+) -> dict[str, Any]:
+    face = faces[face_index]
+    face_vertices = vertices[face, :3]
+    marker = None
+    marker_values = np.asarray(markers) if markers is not None else np.empty((0,))
+    if len(marker_values) == len(faces):
+        marker = int(marker_values[face_index])
+    edge_lengths = face_edge_lengths[face_index]
+    return {
+        "index": int(face_index),
+        "marker": marker,
+        "centroid": np.mean(face_vertices, axis=0),
+        "vertices": face_vertices,
+        "edge_lengths": edge_lengths,
+        "edge_length_min": float(np.min(edge_lengths)),
+        "edge_length_max": float(np.max(edge_lengths)),
+        "area": float(areas[face_index]),
+        "element_quality": float(element_quality[face_index]),
+        "aspect_ratio": float(aspect_ratio[face_index]),
+    }
+
+
 def _triangle_mesh_audit(mesh: Mesh) -> dict[str, Any]:
     vertices = np.asarray(mesh.vertices, dtype=np.float64)
     faces = np.asarray(mesh.faces, dtype=np.int64)
@@ -812,6 +869,7 @@ def _triangle_mesh_audit(mesh: Mesh) -> dict[str, Any]:
     from ...model.mixins.mesh.quality import tri_aspect_ratio, tri_element_quality
 
     edge_lengths = _triangle_mesh_edge_lengths(vertices, faces)
+    face_edge_lengths = _triangle_face_edge_lengths(vertices, faces)
     areas = _triangle_areas(vertices, faces)
     element_quality = tri_element_quality(vertices[:, :3], faces)
     aspect_ratio = tri_aspect_ratio(vertices[:, :3], faces)
@@ -821,6 +879,34 @@ def _triangle_mesh_audit(mesh: Mesh) -> dict[str, Any]:
     audit.update(_audit_summary(element_quality, "element_quality"))
     audit.update(_audit_summary(aspect_ratio, "aspect_ratio"))
     audit["degenerate_face_count"] = int(np.count_nonzero(areas <= 0.0))
+    worst_quality_face_index = _finite_argmin(element_quality)
+    if worst_quality_face_index is not None:
+        audit["worst_element_face"] = _audit_json_ready(
+            _triangle_face_detail(
+                vertices=vertices,
+                faces=faces,
+                markers=markers,
+                face_edge_lengths=face_edge_lengths,
+                areas=areas,
+                element_quality=element_quality,
+                aspect_ratio=aspect_ratio,
+                face_index=worst_quality_face_index,
+            )
+        )
+    shortest_face_index = _finite_argmin(np.min(face_edge_lengths, axis=1))
+    if shortest_face_index is not None:
+        audit["shortest_edge_face"] = _audit_json_ready(
+            _triangle_face_detail(
+                vertices=vertices,
+                faces=faces,
+                markers=markers,
+                face_edge_lengths=face_edge_lengths,
+                areas=areas,
+                element_quality=element_quality,
+                aspect_ratio=aspect_ratio,
+                face_index=shortest_face_index,
+            )
+        )
     return audit
 
 
@@ -908,24 +994,37 @@ def _triangle_mesh_contract_from_audit(
                 f"{stage_label} lower-tail edge lengths fall below 25% of the declared meshing scale."
             )
 
+    metrics: dict[str, Any] = {
+        "reference_length": (
+            None if reference_length is None else float(reference_length)
+        ),
+        "edge_length_min": edge_min,
+        "edge_length_p01": edge_p01,
+        "edge_length_median": edge_median,
+        "area_min": area_min,
+        "area_median": area_median,
+        "element_quality_min": element_quality_min,
+        "aspect_ratio_max": aspect_ratio_max,
+        "reference_edge_ratio_min": float(reference_edge_ratio_min),
+        "reference_edge_ratio_p01": float(reference_edge_ratio_p01),
+    }
+    for prefix, face_detail in (
+        ("worst_element_face", audit.get("worst_element_face")),
+        ("shortest_edge_face", audit.get("shortest_edge_face")),
+    ):
+        if not isinstance(face_detail, dict):
+            continue
+        metrics[f"{prefix}_index"] = face_detail.get("index")
+        metrics[f"{prefix}_marker"] = face_detail.get("marker")
+        metrics[f"{prefix}_centroid"] = face_detail.get("centroid")
+        metrics[f"{prefix}_edge_length_min"] = face_detail.get("edge_length_min")
+        metrics[f"{prefix}_edge_lengths"] = face_detail.get("edge_lengths")
+
     return _stage_contract_result(
         requirements=requirements,
         errors=_dedupe_stage_contract_messages(errors),
         warnings=_dedupe_stage_contract_messages(warnings),
-        metrics={
-            "reference_length": (
-                None if reference_length is None else float(reference_length)
-            ),
-            "edge_length_min": edge_min,
-            "edge_length_p01": edge_p01,
-            "edge_length_median": edge_median,
-            "area_min": area_min,
-            "area_median": area_median,
-            "element_quality_min": element_quality_min,
-            "aspect_ratio_max": aspect_ratio_max,
-            "reference_edge_ratio_min": float(reference_edge_ratio_min),
-            "reference_edge_ratio_p01": float(reference_edge_ratio_p01),
-        },
+        metrics=metrics,
     )
 
 

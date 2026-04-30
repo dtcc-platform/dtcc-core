@@ -36,7 +36,26 @@ WARNING_FAILURE_CLASSES = {
     "footprint_cache",
     "lidar_coverage",
     "lidar_cache",
+    "conditioned_footprint_warning",
+    "mesh_quality_warning",
+    "stage_contract_warning",
 }
+
+TERRAIN_ONLY_CONDITIONED_FOOTPRINTS_WARNING = (
+    "No conditioned building footprints remain; downstream meshing will run terrain-only."
+)
+CONDITIONED_FOOTPRINT_WARNING_STAGES = {"contract", "conditioned_footprints"}
+MESH_QUALITY_WARNING_STAGES = {
+    "ground_mesh",
+    "surface_shell",
+    "plc",
+    "volume_mesh",
+}
+WARNING_CLASS_PRIORITY = (
+    "mesh_quality_warning",
+    "conditioned_footprint_warning",
+    "stage_contract_warning",
+)
 
 
 def json_ready(value: Any) -> Any:
@@ -177,6 +196,55 @@ def _metric_contract_warnings(metrics: dict[str, Any]) -> list[dict[str, Any]]:
     return warnings
 
 
+def _is_informational_stage_warning(warning: dict[str, Any]) -> bool:
+    stage = str(warning.get("stage", "") or "")
+    message = str(warning.get("message", "") or "")
+    return (
+        stage in CONDITIONED_FOOTPRINT_WARNING_STAGES
+        and message == TERRAIN_ONLY_CONDITIONED_FOOTPRINTS_WARNING
+    )
+
+
+def _split_contract_warnings(
+    warnings: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    status_warnings: list[dict[str, Any]] = []
+    informational_warnings: list[dict[str, Any]] = []
+    for warning in warnings:
+        if _is_informational_stage_warning(warning):
+            informational = dict(warning)
+            informational["classification"] = "terrain_only"
+            informational_warnings.append(informational)
+        else:
+            status_warnings.append(warning)
+    return status_warnings, informational_warnings
+
+
+def _contract_warning_class(warning: dict[str, Any]) -> str:
+    stage = str(warning.get("stage", "") or "")
+    message = str(warning.get("message", "") or "").lower()
+    if stage in MESH_QUALITY_WARNING_STAGES:
+        return "mesh_quality_warning"
+    if (
+        stage in CONDITIONED_FOOTPRINT_WARNING_STAGES
+        or "conditioned footprint" in message
+    ):
+        return "conditioned_footprint_warning"
+    return "stage_contract_warning"
+
+
+def _warning_classes(warnings: list[dict[str, Any]]) -> list[str]:
+    classes = {_contract_warning_class(warning) for warning in warnings}
+    return sorted(
+        classes,
+        key=lambda name: (
+            WARNING_CLASS_PRIORITY.index(name)
+            if name in WARNING_CLASS_PRIORITY
+            else len(WARNING_CLASS_PRIORITY)
+        ),
+    )
+
+
 def _warning_error_payload(
     warnings: list[dict[str, Any]],
 ) -> dict[str, Any] | None:
@@ -184,13 +252,15 @@ def _warning_error_payload(
         return None
 
     first = warnings[0]
+    warning_classes = _warning_classes(warnings)
     extra_count = len(warnings) - 1
     suffix = f" (+{extra_count} more)" if extra_count else ""
     return {
         "type": "BenchmarkWarning",
         "message": f"{first['stage']}: {first['message']}{suffix}",
-        "failure_class": "stage_contract_warning",
+        "failure_class": warning_classes[0],
         "severity": "warning",
+        "warning_classes": warning_classes,
         "warnings": warnings,
     }
 
@@ -343,7 +413,16 @@ def run_dataset(task: dict[str, Any]) -> dict[str, Any]:
         else:
             metrics = _mesh_metrics(result)
         contract_warnings = _metric_contract_warnings(metrics)
-        warning_error = _warning_error_payload(contract_warnings)
+        status_warnings, informational_warnings = _split_contract_warnings(
+            contract_warnings
+        )
+        if status_warnings or informational_warnings:
+            metrics = dict(metrics)
+        if status_warnings:
+            metrics["stage_contract_warnings"] = status_warnings
+        if informational_warnings:
+            metrics["informational_stage_warnings"] = informational_warnings
+        warning_error = _warning_error_payload(status_warnings)
         artifacts = {}
         artifact_dir = task.get("artifact_dir")
         if artifact_dir:

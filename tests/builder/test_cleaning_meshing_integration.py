@@ -1297,6 +1297,49 @@ def test_triangle_mesh_contract_from_audit_warns_on_subscale_edge_tail():
     assert any("declared meshing scale" in message for message in contract["warnings"])
 
 
+def test_triangle_mesh_audit_localizes_worst_quality_face():
+    mesh = Mesh(
+        vertices=np.array(
+            [
+                [0.0, 0.0, 0.0],
+                [5.0, 0.0, 0.0],
+                [0.0, 5.0, 0.0],
+                [10.0, 0.0, 0.0],
+                [20.0, 0.0, 0.0],
+                [20.0, 0.01, 0.0],
+            ]
+        ),
+        faces=np.array(
+            [
+                [0, 1, 2],
+                [3, 4, 5],
+            ],
+            dtype=int,
+        ),
+        markers=np.array([-1, 7], dtype=int),
+    )
+
+    audit = meshes_module._triangle_mesh_audit(mesh)
+    contract = meshes_module._triangle_mesh_contract_from_audit(
+        audit,
+        reference_length=1.0,
+        require_markers=True,
+        stage_label="Ground mesh",
+    )
+
+    assert audit["worst_element_face"]["index"] == 1
+    assert audit["worst_element_face"]["marker"] == 7
+    assert audit["worst_element_face"]["centroid"] == pytest.approx(
+        [50.0 / 3.0, 0.01 / 3.0, 0.0]
+    )
+    assert audit["worst_element_face"]["edge_length_min"] == pytest.approx(0.01)
+    assert contract["status"] == "warn"
+    assert contract["metrics"]["worst_element_face_marker"] == 7
+    assert contract["metrics"]["worst_element_face_edge_length_min"] == pytest.approx(
+        0.01
+    )
+
+
 def test_tetgen_plc_contract_from_audit_reports_precheck_failures():
     combined_surface = meshes_module._triangle_mesh_audit(
         Mesh(
