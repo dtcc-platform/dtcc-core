@@ -8,7 +8,7 @@ y0 = 6399009.716755
 
 # Meshing parameters
 H = 80.0   # domain height
-L = 400.0  # domain size
+L = 500.0  # domain size
 h = 25.0   # max mesh size
 d = 1.0    # min building detail
 
