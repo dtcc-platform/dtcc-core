@@ -174,7 +174,7 @@ def download_data(data_type: str, provider: str, bounds: Bounds, epsg = '3006', 
     if provider == "dtcc":
         session = requests.Session()
         if data_type == 'lidar':
-            info("Downloading lidar tiles from DTCC source")
+            info("Resolving lidar tiles from DTCC source")
             files = download_lidar(bounds.tuple, session, base_url=lidar_url)
             if not files:
                 raise RuntimeError("No lidar data available for the requested bounding box.")
@@ -185,7 +185,7 @@ def download_data(data_type: str, provider: str, bounds: Bounds, epsg = '3006', 
             cached_footprints = _load_cached_footprints(bounds)
             if cached_footprints is not None:
                 return cached_footprints
-            info("Downloading footprint tiles from DTCC source")
+            info("Resolving footprint tiles from DTCC source")
             files = download_tiles(bounds.tuple, session, server_url=gpkg_url)
             if not files:
                 raise RuntimeError(

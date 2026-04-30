@@ -194,8 +194,28 @@ def run_download_files(base_url, filenames, output_dir="downloaded_gpkg"):
     if not filenames:
         info("No files to download.")
         return
-    debug(f"Downloading {len(filenames)} files in parallel (with cache check)...")
-    asyncio.run(download_all_gpkg_files(base_url, filenames, output_dir))
+    cached_files = []
+    missing_files = []
+    for filename in filenames:
+        if os.path.exists(os.path.join(output_dir, filename)):
+            cached_files.append(filename)
+        else:
+            missing_files.append(filename)
+    missing_count = len(missing_files)
+    if missing_count == 0:
+        info(
+            f"Using {len(cached_files)} cached footprint tile file(s) from local cache"
+        )
+        return
+    if cached_files:
+        info(
+            f"Using {len(cached_files)} cached footprint tile file(s); "
+            f"downloading {missing_count} missing tile file(s)"
+        )
+    else:
+        info(f"Downloading {missing_count} footprint tile file(s) to local cache")
+    debug(f"Downloading {missing_count} files in parallel (with cache check)...")
+    asyncio.run(download_all_gpkg_files(base_url, missing_files, output_dir))
     debug("All downloads finished.")
 
 def download_tiles(user_bbox, session, server_url=DEFAULT_SERVER_URL):
