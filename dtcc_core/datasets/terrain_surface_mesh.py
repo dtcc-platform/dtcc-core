@@ -1,7 +1,7 @@
 import dtcc_core
 from dtcc_core.model import City, PointCloud, Bounds, Terrain, Raster
 from typing import Literal, Optional, List, Tuple, Sequence, Union
-from pydantic import BaseModel, Field
+from pydantic import Field
 import tempfile
 
 from .dataset import DatasetDescriptor, DatasetBaseArgs
@@ -12,9 +12,9 @@ class TerrainSurfaceMeshArgs(DatasetBaseArgs):
     raster_resolution: float = Field(
         2, description="Resolution of the terrain raster in meters"
     )
-    mesh_resolution: float = Field(
+    max_mesh_size: float = Field(
         5,
-        description="Resolution of the terrain mesh in meters (when not using adaptive meshing)",
+        description="Maximum triangle size in meters (when not using adaptive meshing)",
     )
 
     adaptive_mesh: bool = Field(
@@ -96,7 +96,7 @@ class TerrainSurfaceMeshDataset(DatasetDescriptor):
                     else:
                         result = dtcc_core.builder.build_terrain_surface_mesh(
                             pc,
-                            max_mesh_size=args.mesh_resolution,
+                            max_mesh_size=args.max_mesh_size,
                             smoothing=args.smoothing,
                             mesher=args.mesher,
                         )

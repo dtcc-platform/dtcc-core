@@ -5,12 +5,14 @@ from dtcc_core.model import Geometry as DTCCGeometry
 
 from abc import ABC, abstractmethod
 from typing import Any, Optional, Sequence, Union
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pathlib import Path
 import tempfile
 
 
 class DatasetBaseArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     bounds: Sequence[float] = Field(
         ...,
         description="Bounding box [minx, miny, maxx, maxy] or [minx, miny, minz, maxx, maxy, maxz]",

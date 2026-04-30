@@ -2,7 +2,7 @@ import pytest
 import logging
 
 try:
-    from pydantic import BaseModel, Field
+    from pydantic import BaseModel, Field, ValidationError
 except ImportError:
     # Pydantic should be installed as dtcc_core dependency
     pytest.skip("pydantic not available", allow_module_level=True)
@@ -134,6 +134,16 @@ def test_dataset_base_args_reject_inverted_bounds():
     """DatasetBaseArgs should fail fast on inverted 2D bounds."""
     with pytest.raises(ValueError, match="Invalid bounds: xmin < xmax, ymin < ymax"):
         BaseTestArgs(bounds=(2.0, 1.0, 1.0, 3.0), test_param="x")
+
+
+def test_dataset_base_args_reject_unknown_arguments():
+    """DatasetBaseArgs should fail fast on misspelled or unsupported options."""
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        BaseTestArgs(
+            bounds=(0.0, 1.0, 2.0, 3.0),
+            test_param="x",
+            unknown_option=True,
+        )
 
 
 # Explicit API Tests

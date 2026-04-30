@@ -5,11 +5,13 @@ from __future__ import annotations
 from unittest.mock import Mock, patch
 
 import dtcc_core.datasets as datasets
+import pytest
 from dtcc_core.datasets import get_dataset
 from dtcc_core.datasets.terrain_surface_mesh import (
     TerrainSurfaceMeshArgs,
     TerrainSurfaceMeshDataset,
 )
+from pydantic import ValidationError
 
 
 def test_terrain_surface_mesh_registered_name():
@@ -28,6 +30,15 @@ def test_terrain_surface_mesh_module_attribute():
     """The dataset should be exposed as a callable module attribute."""
     assert hasattr(datasets, "terrain_surface_mesh")
     assert callable(datasets.terrain_surface_mesh)
+
+
+def test_terrain_surface_mesh_rejects_mesh_resolution_argument():
+    """The public terrain dataset size argument is max_mesh_size."""
+    with pytest.raises(ValidationError, match="mesh_resolution"):
+        TerrainSurfaceMeshArgs(
+            bounds=(0.0, 0.0, 1.0, 1.0),
+            mesh_resolution=12.5,
+        )
 
 
 @patch("dtcc_core.datasets.terrain_surface_mesh.dtcc_core.builder.build_terrain_surface_mesh")
@@ -111,6 +122,35 @@ def test_terrain_surface_mesh_mesher_is_forwarded(
         max_mesh_size=5,
         smoothing=3,
         mesher="dtcc_mesher",
+    )
+
+
+@patch("dtcc_core.datasets.terrain_surface_mesh.dtcc_core.builder.build_terrain_surface_mesh")
+@patch("dtcc_core.datasets.terrain_surface_mesh.dtcc_core.io.data.download_pointcloud")
+def test_terrain_surface_mesh_max_mesh_size_is_forwarded(
+    mock_download,
+    mock_build_surface_mesh,
+):
+    """The dataset max_mesh_size should drive the terrain builder size cap."""
+    downloaded_pc = Mock(name="downloaded_pc")
+    surface_mesh = Mock(name="surface_mesh")
+    mock_download.return_value = downloaded_pc
+    mock_build_surface_mesh.return_value = surface_mesh
+
+    dataset = TerrainSurfaceMeshDataset()
+    result = dataset.build(
+        TerrainSurfaceMeshArgs(
+            bounds=(0.0, 0.0, 1.0, 1.0),
+            max_mesh_size=12.5,
+        )
+    )
+
+    assert result is surface_mesh
+    mock_build_surface_mesh.assert_called_once_with(
+        downloaded_pc.remove_global_outliers.return_value,
+        max_mesh_size=12.5,
+        smoothing=3,
+        mesher=None,
     )
 
 

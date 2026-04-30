@@ -19,7 +19,6 @@ BLOCKED_PARAMETER_NAMES = {"bounds", "strict_live", "mesher"}
 DATASET_PARAMETER_ALIASES: dict[str, dict[str, str]] = {
     "terrain_surface_mesh": {
         "raster_cell_size": "raster_resolution",
-        "max_mesh_size": "mesh_resolution",
         "outlier_threshold": "remove_outlier_threshold",
     },
 }

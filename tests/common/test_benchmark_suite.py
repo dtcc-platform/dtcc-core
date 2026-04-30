@@ -179,7 +179,7 @@ def test_dataset_parameters_map_normalized_sweeps_to_dataset_arguments() -> None
 
     terrain = dataset_parameters("terrain_surface_mesh", parameters)
     assert terrain["raster_resolution"] == 0.5
-    assert terrain["mesh_resolution"] == 2.0
+    assert terrain["max_mesh_size"] == 2.0
     assert terrain["remove_outlier_threshold"] == 7.0
     assert "mesher" not in terrain
 

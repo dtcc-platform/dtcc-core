@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import ANY, Mock, patch
 
 import dtcc_core.datasets as datasets
+import pytest
 from dtcc_core.datasets import get_dataset
 from dtcc_core.datasets.city_volume_mesh import (
     CityVolumeMeshArgs,
@@ -12,6 +13,7 @@ from dtcc_core.datasets.city_volume_mesh import (
     _regular_tet_volume,
 )
 from dtcc_core.model import GeometryType
+from pydantic import ValidationError
 
 
 def test_city_volume_mesh_registered_name():
@@ -27,6 +29,11 @@ def test_city_volume_mesh_get_dataset():
 def test_city_volume_mesh_module_attribute():
     assert hasattr(datasets, "city_volume_mesh")
     assert callable(datasets.city_volume_mesh)
+
+
+def test_city_volume_mesh_rejects_unknown_arguments():
+    with pytest.raises(ValidationError, match="doman_height"):
+        CityVolumeMeshArgs(bounds=(0.0, 0.0, 1.0, 1.0), doman_height=95.0)
 
 
 @patch("dtcc_core.datasets.city_volume_mesh.prepare_city_from_bounds")
