@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
 import os
 import platform
@@ -323,9 +324,15 @@ def _format_task_breakdown(breakdown: dict[str, int]) -> str:
         suffix = "" if count == 1 else "s"
         return f"{count} {singular}{suffix}"
 
+    cartesian_count = (
+        breakdown["case_count"]
+        * breakdown["dataset_count"]
+        * breakdown["scenario_count"]
+    )
+    separator = " x " if cartesian_count == breakdown["task_count"] else ", "
     return (
-        f"{label(breakdown['case_count'], 'case')} x "
-        f"{label(breakdown['dataset_count'], 'dataset')} x "
+        f"{label(breakdown['case_count'], 'case')}{separator}"
+        f"{label(breakdown['dataset_count'], 'dataset')}{separator}"
         f"{label(breakdown['scenario_count'], 'scenario')} = "
         f"{label(breakdown['task_count'], 'task')}"
     )
@@ -354,6 +361,25 @@ def _format_seconds(value: Any) -> str:
         return f"{float(value):.3f}s"
     except (TypeError, ValueError):
         return "-"
+
+
+def _format_duration(value: Any) -> str:
+    try:
+        total_seconds = float(value)
+    except (TypeError, ValueError):
+        return "-"
+    if total_seconds < 60:
+        return f"{total_seconds:.3f}s"
+
+    minutes, seconds = divmod(total_seconds, 60)
+    hours, minutes = divmod(int(minutes), 60)
+    if hours:
+        return f"{hours}h {minutes:02d}m {seconds:06.3f}s"
+    return f"{minutes}m {seconds:06.3f}s"
+
+
+def _timestamp_utc() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 def _status_label(status: str, *, rich: bool) -> str:
@@ -431,6 +457,43 @@ def _status_summary_rows(results: list[dict[str, Any]], *, rich: bool) -> list[l
             _count_label(task_failed, status="failed", rich=rich),
             str(len(results)),
         ],
+    ]
+
+
+def _failure_class_summary_rows(
+    results: list[dict[str, Any]],
+    *,
+    rich: bool,
+) -> list[list[str]]:
+    counts: dict[tuple[str, str], int] = {}
+    for result in results:
+        status = str(result.get("status", ""))
+        if status == "success":
+            continue
+        error = result.get("error") or {}
+        failure_class = str(error.get("failure_class") or "unclassified")
+        key = (status, failure_class)
+        counts[key] = counts.get(key, 0) + 1
+
+    status_order = {
+        "failed": 0,
+        "timeout": 1,
+        "hang": 2,
+        "warning": 3,
+    }
+    return [
+        [
+            _status_label(status, rich=rich),
+            failure_class,
+            str(count),
+        ]
+        for (status, failure_class), count in sorted(
+            counts.items(),
+            key=lambda item: (
+                status_order.get(item[0][0], 99),
+                item[0][1],
+            ),
+        )
     ]
 
 
@@ -640,6 +703,18 @@ def _print_run_tables(results: list[dict[str, Any]]) -> None:
         _status_summary_rows(results, rich=True),
         _status_summary_rows(results, rich=False),
     )
+    failure_rows = _failure_class_summary_rows(results, rich=True)
+    if failure_rows:
+        _emit_table(
+            "Benchmark failure/warning classification",
+            [
+                "Status",
+                "Failure class",
+                ("Count", "right"),
+            ],
+            failure_rows,
+            _failure_class_summary_rows(results, rich=False),
+        )
 
 
 def _summary_markdown(results: list[dict[str, Any]], manifest: dict[str, Any]) -> str:
@@ -649,10 +724,14 @@ def _summary_markdown(results: list[dict[str, Any]], manifest: dict[str, Any]) -
         f"Suite: `{manifest['suite']}`",
         f"Tasks: {len(results)}",
         f"Plan: {manifest.get('plan', 'unknown')}",
-        "",
-        "## Results",
-        "",
     ]
+    if manifest.get("started_at"):
+        lines.append(f"Started: {manifest['started_at']}")
+    if manifest.get("finished_at"):
+        lines.append(f"Finished: {manifest['finished_at']}")
+    if manifest.get("elapsed_seconds") is not None:
+        lines.append(f"Total time: {_format_duration(manifest.get('elapsed_seconds'))}")
+    lines.extend(["", "## Results", ""])
     lines.extend(
         _markdown_table(
             [
@@ -676,6 +755,15 @@ def _summary_markdown(results: list[dict[str, Any]], manifest: dict[str, Any]) -
             _status_summary_rows(results, rich=False),
         )
     )
+    failure_rows = _failure_class_summary_rows(results, rich=False)
+    if failure_rows:
+        lines.extend(["", "## Failure Classes", ""])
+        lines.extend(
+            _markdown_table(
+                ["Status", "Failure class", "Count"],
+                failure_rows,
+            )
+        )
     return "\n".join(lines) + "\n"
 
 
@@ -714,6 +802,8 @@ def command_run(args: argparse.Namespace) -> int:
 
     _load_table_helpers()
     run_dir.mkdir(parents=True, exist_ok=True)
+    run_started = time.perf_counter()
+    manifest["started_at"] = _timestamp_utc()
     _write_json(run_dir / "manifest.json", manifest)
     _write_json(run_dir / "environment.json", environment_payload())
 
@@ -731,6 +821,7 @@ def command_run(args: argparse.Namespace) -> int:
         )
         results.append(result)
         _append_event(events_path, {"event": "task_finished", "index": index, "result": result})
+        manifest["elapsed_seconds"] = round(time.perf_counter() - run_started, 3)
         _write_json(run_dir / "results.json", {"manifest": manifest, "results": results})
         print(
             f"  {_terminal_status_label(result['status'])} "
@@ -738,8 +829,13 @@ def command_run(args: argparse.Namespace) -> int:
             flush=True,
         )
 
+    manifest["finished_at"] = _timestamp_utc()
+    manifest["elapsed_seconds"] = round(time.perf_counter() - run_started, 3)
+    _write_json(run_dir / "manifest.json", manifest)
+    _write_json(run_dir / "results.json", {"manifest": manifest, "results": results})
     _write_text(run_dir / "summary.md", _summary_markdown(results, manifest))
     _print_run_tables(results)
+    print(f"Total time: {_format_duration(manifest['elapsed_seconds'])}")
     print(f"Run directory: {run_dir}")
     return 0 if all(not _is_hard_failure(result["status"]) for result in results) else 1
 

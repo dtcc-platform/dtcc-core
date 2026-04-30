@@ -65,9 +65,9 @@ def mesh_multisurface(
         Whether to clean the MultiSurface before meshing. Warning: meshing an
         invalid MultiSurface with a max triangle size may crash or produce
         unexpected results.
-    mesher : {"auto", "dtcc_mesher", "triangle", "spade"}, optional
+    mesher : {"auto", "dtcc_mesher", "triangle"}, optional
         Select the 2D meshing backend. ``"auto"`` prefers ``dtcc_mesher``
-        when it is installed, then ``triangle``, then ``spade``.
+        when it is installed, then ``triangle``.
 
     Returns
     -------
@@ -121,9 +121,9 @@ def mesh_surface(
         Whether to clean the surface before meshing. Warning: meshing an
         unclean surface with a max triangle size may crash or produce
         unexpected results.
-    mesher : {"auto", "dtcc_mesher", "triangle", "spade"}, optional
+    mesher : {"auto", "dtcc_mesher", "triangle"}, optional
         Select the 2D meshing backend. ``"auto"`` prefers ``dtcc_mesher``
-        when it is installed, then ``triangle``, then ``spade``.
+        when it is installed, then ``triangle``.
 
     Returns
     -------
@@ -170,9 +170,9 @@ def mesh_multisurfaces(
         Whether to weld vertices during meshing.
     clean : bool, optional
         Whether to clean MultiSurfaces before meshing.
-    mesher : {"auto", "dtcc_mesher", "triangle", "spade"}, optional
+    mesher : {"auto", "dtcc_mesher", "triangle"}, optional
         Select the 2D meshing backend. ``"auto"`` prefers ``dtcc_mesher``
-        when it is installed, then ``triangle``, then ``spade``.
+        when it is installed, then ``triangle``.
 
     Returns
     -------

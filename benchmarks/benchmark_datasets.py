@@ -32,7 +32,12 @@ ARTIFACT_FORMATS: dict[str, str] = {
     "city_volume_mesh": "xdmf",
 }
 
-WARNING_FAILURE_CLASSES = {"lidar_coverage"}
+WARNING_FAILURE_CLASSES = {
+    "footprint_coverage",
+    "footprint_cache",
+    "lidar_coverage",
+    "lidar_cache",
+}
 
 
 def json_ready(value: Any) -> Any:
@@ -100,6 +105,95 @@ def _mesh_metrics(mesh: Any) -> dict[str, Any]:
     if stage_audit is not None:
         metrics["stage_audit"] = json_ready(stage_audit)
     return metrics
+
+
+def _contract_warning_messages(
+    *,
+    label: str,
+    contract: Any,
+) -> list[dict[str, Any]]:
+    if not isinstance(contract, dict):
+        return []
+
+    warnings = [str(message) for message in contract.get("warnings", [])]
+    status = str(contract.get("status", "") or "")
+    warning_statuses = {"warn", "warning"}
+    if not warnings and status.lower() not in warning_statuses:
+        return []
+    if not warnings:
+        warnings = [f"{label} contract reported warning status."]
+
+    return [
+        {
+            "stage": label,
+            "status": status or "warn",
+            "message": message,
+        }
+        for message in warnings
+    ]
+
+
+def _metric_contract_warnings(metrics: dict[str, Any]) -> list[dict[str, Any]]:
+    warnings: list[dict[str, Any]] = []
+    warnings.extend(
+        _contract_warning_messages(
+            label="contract",
+            contract=metrics.get("contract"),
+        )
+    )
+
+    stage_audit = metrics.get("stage_audit")
+    if not isinstance(stage_audit, dict):
+        return warnings
+
+    attempts = stage_audit.get("attempts")
+    if not isinstance(attempts, list):
+        return warnings
+
+    selected_attempt_index = stage_audit.get("selected_attempt_index")
+    if (
+        isinstance(selected_attempt_index, int)
+        and 0 <= selected_attempt_index < len(attempts)
+    ):
+        attempts_to_check = [attempts[selected_attempt_index]]
+    else:
+        attempts_to_check = attempts
+
+    for attempt in attempts_to_check:
+        if not isinstance(attempt, dict):
+            continue
+        stages = attempt.get("stages")
+        if not isinstance(stages, dict):
+            continue
+        for stage_name, stage in stages.items():
+            if not isinstance(stage, dict):
+                continue
+            warnings.extend(
+                _contract_warning_messages(
+                    label=str(stage_name),
+                    contract=stage.get("contract"),
+                )
+            )
+
+    return warnings
+
+
+def _warning_error_payload(
+    warnings: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    if not warnings:
+        return None
+
+    first = warnings[0]
+    extra_count = len(warnings) - 1
+    suffix = f" (+{extra_count} more)" if extra_count else ""
+    return {
+        "type": "BenchmarkWarning",
+        "message": f"{first['stage']}: {first['message']}{suffix}",
+        "failure_class": "stage_contract_warning",
+        "severity": "warning",
+        "warnings": warnings,
+    }
 
 
 def _footprint_metrics(footprints: Any) -> dict[str, Any]:
@@ -173,16 +267,28 @@ def _save_result_artifacts(dataset_name: str, result: Any, artifact_dir: Path) -
 def classify_failure(exc_type: str, message: str) -> str:
     """Return a coarse benchmark failure class for triage summaries."""
     text = f"{exc_type}: {message}".lower()
+    if exc_type == "NoFootprintTilesError" or "no footprint tiles intersect" in text:
+        return "footprint_coverage"
+    if "footprint download failed for bounds" in text:
+        return "footprint_coverage"
     if (
-        exc_type == "FootprintDownloadError"
-        or "footprint download failed" in text
-        or "footprint tile lookup failed" in text
+        "downloaded-gpkg" in text
+        or ("gpkg" in text and "not found" in text)
         or "footprint tile download did not produce" in text
     ):
-        return "footprint_download"
-    if "downloaded-gpkg" in text or "gpkg" in text and "not found" in text:
         return "footprint_cache"
-    if "lidar" in text and ("404" in text or "not found" in text):
+    if (
+        exc_type == "FootprintDownloadError"
+        or "footprint tile lookup failed" in text
+        or "failed to download footprint tile" in text
+    ):
+        return "footprint_download"
+    if "lidar" in text and (
+        "404" in text
+        or "not found" in text
+        or "no lidar data" in text
+        or "no lidar tiles intersect" in text
+    ):
         return "lidar_coverage"
     if (
         "lidar" in text
@@ -194,6 +300,12 @@ def classify_failure(exc_type: str, message: str) -> str:
         )
     ):
         return "lidar_download"
+    if (
+        exc_type == "LazrsError"
+        or "lazrserror" in text
+        or "failed to fill whole buffer" in text
+    ):
+        return "lidar_cache"
     if exc_type == "TimeoutError" or "timeouterror" in text:
         return "timeout"
     if "conditioned footprint" in text and "contract" in text:
@@ -231,6 +343,8 @@ def run_dataset(task: dict[str, Any]) -> dict[str, Any]:
             metrics = _footprint_metrics(result)
         else:
             metrics = _mesh_metrics(result)
+        contract_warnings = _metric_contract_warnings(metrics)
+        warning_error = _warning_error_payload(contract_warnings)
         artifacts = {}
         artifact_dir = task.get("artifact_dir")
         if artifact_dir:
@@ -241,13 +355,13 @@ def run_dataset(task: dict[str, Any]) -> dict[str, Any]:
             "dataset": dataset_name,
             "case": task["case"],
             "scenario": task["scenario"],
-            "status": "success",
+            "status": "warning" if warning_error is not None else "success",
             "elapsed_seconds": round(elapsed, 3),
             "bounds": bounds,
             "parameters": kwargs,
             "metrics": json_ready(metrics),
             "artifacts": artifacts,
-            "error": None,
+            "error": warning_error,
         }
     except Exception as exc:
         elapsed = time.perf_counter() - started

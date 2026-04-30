@@ -16,6 +16,10 @@ runner:
 - `./bench run grid --city stockholm`
 - `./bench run grid --city stockholm --dataset city_surface_mesh`
 - `./bench run sweep --city lund`
+- `./bench run triage --dry-run`
+- `./bench run triage`
+- `./bench run survey --dry-run`
+- `./bench run survey`
 - `./bench report runs/<run-id>`
 
 The runner uses dataset names:
@@ -34,6 +38,8 @@ The benchmark suites are:
 - `grid`: full 10x10 grid survey for one explicit city
 - `stress`: fine-raster and dataset-specific fine-mesh center grid tiles across
   all cities
+- `survey`: multi-hour flat/surface robustness and parameter-envelope survey
+- `triage`: focused live rerun of known survey failure cases
 
 A benchmark task is one spatial case run through one dataset and one
 scenario. For example, `./bench run grid --city stockholm` is `100` spatial
@@ -55,6 +61,26 @@ stress uses `max_mesh_size_5` as its smallest mesh-size scenario; larger 3D
 volume meshes below that size are treated as a separate capacity/performance
 challenge rather than part of the routine benchmark gate.
 
+The survey suite is the default "big but bounded" status benchmark for this
+pipeline. It runs:
+
+- full 10x10 grid baseline for `city_flat_mesh` and `city_surface_mesh` across
+  all benchmark cities;
+- center-grid flat/surface sweeps for `max_mesh_size`, `raster_cell_size`,
+  `min_building_detail`, and `min_building_area`;
+- city-center bbox-size sweeps for flat/surface.
+
+By default this is 2400 tasks. Use `--city <name>` to reduce it to 240 tasks
+for one city, or `--dataset city_surface_mesh` / `--dataset city_flat_mesh` to
+run only one of the two mesh families.
+
+The triage suite is a small follow-up target for failures seen in the latest
+survey. It currently tracks conditioned-footprint contract failures in Malmo
+tile `017` and Linkoping tile `047`, plus surface-domain failures in
+Helsingborg tile `079` and Uppsala center `350m`. Use it after robustness fixes
+to confirm the known failure set is shrinking before running another full
+survey.
+
 The active suite no longer compares Spade or Triangle as benchmark dimensions.
 It uses the default DTCC meshing path exposed through the dataset APIs.
 
@@ -73,10 +99,13 @@ Use `--save-artifacts` to write successful dataset outputs under
 `results.json` and `summary.md`.
 
 Every completed run prints a status summary and a full per-task result table.
-The same summary is saved to `runs/<run-id>/summary.md`.
+The same summary is saved to `runs/<run-id>/summary.md`. Completed runs also
+record `started_at`, `finished_at`, and `elapsed_seconds` in `manifest.json`
+and show total wall-clock time near the top of `summary.md`.
 
-Some data availability misses are reported as warnings instead of hard failures.
-For example, `lidar_coverage` means the requested bounds are outside available
-lidar coverage. These tasks remain visible in `results.json` and the summary
-table, but they do not count as conditioning or meshing failures and do not make
-the benchmark command fail by themselves.
+Some data availability or local data-read misses are reported as warnings
+instead of hard failures. For example, `lidar_coverage` means the requested
+bounds are outside available lidar coverage, and `lidar_cache` means the runner
+could not read a lidar cache/tile payload. These tasks remain visible in
+`results.json` and the summary table, but they do not count as conditioning or
+meshing failures and do not make the benchmark command fail by themselves.

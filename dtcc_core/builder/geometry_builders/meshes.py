@@ -129,6 +129,56 @@ class ConditionedFootprints:
     contract: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class PreparedGroundRegions:
+    """Ground triangulation regions plus the surface bookkeeping they drive."""
+
+    building_surfaces: list[Surface]
+    meshing_directives: list[int]
+    region_polygons: list[Polygon]
+    region_markers: list[int]
+    region_triangle_sizes: dict[int, float]
+    region_points: list[np.ndarray]
+
+
+@dataclass(frozen=True)
+class Coverage2D:
+    """Validated 2D coverage regions handed to the ground-mesh stage."""
+
+    region_polygons: list[Polygon]
+    region_markers: list[int]
+    region_points: list[np.ndarray] | None = None
+    region_triangle_sizes: dict[int, float] | None = None
+
+
+@dataclass(frozen=True)
+class BuiltGroundMesh:
+    """Ground mesh plus backend and contract data for stage ownership."""
+
+    mesh: Mesh
+    mesher: str
+    audit: dict[str, Any]
+    contract: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class BuiltSurfaceShell:
+    """Surface shell mesh plus contract data for TetGen handoff."""
+
+    mesh: Mesh
+    audit: dict[str, Any]
+    contract: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class BuiltTetgenPLC:
+    """TetGen PLC plus contract data for volume meshing handoff."""
+
+    plc: tetgen_utils.TetgenPLC
+    audit: dict[str, Any]
+    contract: dict[str, Any]
+
+
 def _normalize_max_mesh_size(max_mesh_size: float | None) -> float | None:
     if max_mesh_size is None:
         return None
@@ -420,17 +470,13 @@ def _conditioned_footprints_audit(
 
 
 def _surface_region_audit(
-    *,
-    building_surfaces: Sequence[Surface],
-    region_polygons: Sequence[Polygon],
-    region_markers: Sequence[int],
-    region_triangle_sizes: dict[int, float] | None,
+    regions: PreparedGroundRegions,
 ) -> dict[str, Any]:
-    marker_values = [int(marker) for marker in region_markers]
+    marker_values = [int(marker) for marker in regions.region_markers]
     triangle_sizes = np.asarray(
         [
             float(value)
-            for value in (region_triangle_sizes or {}).values()
+            for value in regions.region_triangle_sizes.values()
             if float(value) > 0.0
         ],
         dtype=np.float64,
@@ -438,8 +484,8 @@ def _surface_region_audit(
     return {
         "num_ground_regions": int(sum(1 for marker in marker_values if marker < 0)),
         "num_building_regions": int(sum(1 for marker in marker_values if marker >= 0)),
-        "building_surfaces": _surface_collection_audit(building_surfaces),
-        "coverage_polygons": _polygon_collection_audit(region_polygons),
+        "building_surfaces": _surface_collection_audit(regions.building_surfaces),
+        "coverage_polygons": _polygon_collection_audit(regions.region_polygons),
         "region_triangle_sizes": _audit_summary(triangle_sizes, "target_size"),
     }
 
@@ -513,6 +559,10 @@ def _conditioned_footprint_contract_audit(
         "declared_scale": float(declared_scale),
         "min_clearance": 0.0,
         "clearance_deficit": float(declared_scale),
+        "residual_min_clearance_tolerated": False,
+        "residual_min_clearance_tolerance_reason": None,
+        "overlap_area": 0.0,
+        "overlap_tolerance": 0.0,
         "pair_issue_count": 0,
         "ring_contact_count": 0,
         "acute_tip_count": 0,
@@ -554,6 +604,8 @@ def _conditioned_footprint_contract_audit(
         target_scale=float(declared_scale),
     )
     clearance_deficit = max(float(declared_scale) - (signature.min_clearance or 0.0), 0.0)
+    overlap_area = cleaning_footprints._coverage_overlap_area(polygons)
+    overlap_tolerance = max(contract_tolerance * contract_tolerance, 1.0e-9)
     scale_contract_ok = cleaning_footprints._coverage_signature_satisfies_scale_contract(
         signature,
         target_scale=float(declared_scale),
@@ -574,6 +626,8 @@ def _conditioned_footprint_contract_audit(
             "contract_tolerance": float(contract_tolerance),
             "min_clearance": float(signature.min_clearance or 0.0),
             "clearance_deficit": float(clearance_deficit),
+            "overlap_area": float(overlap_area),
+            "overlap_tolerance": float(overlap_tolerance),
             "pair_issue_count": int(signature.pair_issue_count),
             "ring_contact_count": int(signature.ring_contact_count),
             "acute_tip_count": int(signature.acute_tip_count),
@@ -594,10 +648,35 @@ def _conditioned_footprint_contract_audit(
             errors.append(
                 "Conditioned footprint coverage does not build a valid dtcc_mesher segment graph."
             )
-    if not requirements["scale_contract_satisfied"]:
-        errors.append(
-            "Conditioned footprint coverage violates the declared mesher-ready scale contract."
+    residual_min_clearance_tolerated = (
+        not requirements["min_clearance_respected"]
+        and not requirements["scale_contract_satisfied"]
+        and requirements["mesher_segment_graph_valid"]
+        and requirements["no_pair_issues"]
+        and requirements["no_ring_contacts"]
+        and requirements["no_acute_tips"]
+        and requirements["no_short_edges"]
+        and overlap_area <= overlap_tolerance
+    )
+    if residual_min_clearance_tolerated:
+        tolerance_reason = (
+            "only residual self/min-clearance deficit remains after conditioning; "
+            "segment graph is valid and no pair, ring-contact, acute-tip, short-edge, "
+            "or overlap defects were detected"
         )
+        metrics["residual_min_clearance_tolerated"] = True
+        metrics["residual_min_clearance_tolerance_reason"] = tolerance_reason
+        warnings.append(
+            "Conditioned footprint minimum clearance is below the declared meshing "
+            f"scale but was tolerated because {tolerance_reason} "
+            f"(declared_scale={float(declared_scale):.6g} m, "
+            f"min_clearance={float(signature.min_clearance or 0.0):.6g} m)."
+        )
+    if not requirements["scale_contract_satisfied"]:
+        if not residual_min_clearance_tolerated:
+            errors.append(
+                "Conditioned footprint coverage violates the declared mesher-ready scale contract."
+            )
     if not requirements["no_pair_issues"]:
         errors.append(
             f"Conditioned footprint coverage still has {signature.pair_issue_count} close-pair issue(s)."
@@ -615,9 +694,10 @@ def _conditioned_footprint_contract_audit(
             f"Conditioned footprint coverage still has {signature.short_edge_count} short edge(s) below the declared scale."
         )
     if not requirements["min_clearance_respected"]:
-        errors.append(
-            "Conditioned footprint minimum clearance is below the declared meshing scale."
-        )
+        if not residual_min_clearance_tolerated:
+            errors.append(
+                "Conditioned footprint minimum clearance is below the declared meshing scale."
+            )
     geos_exception_count = int(diagnostics.get("geos_exception_count", 0))
     if geos_exception_count > 0:
         warnings.append(
@@ -1098,6 +1178,39 @@ def _tetgen_plc_contract_from_audit(
     )
 
 
+def _build_tetgen_plc_stage(
+    *,
+    surface_mesh: Mesh,
+    ground_mesh: Mesh,
+    top_height: float,
+    top_cap_backend: str,
+    top_cap_max_mesh_size: float | None,
+    top_cap_min_mesh_angle: float,
+    reference_length: float | None,
+) -> BuiltTetgenPLC:
+    tetgen_plc = tetgen_utils.build_tetgen_plc(
+        surface_mesh,
+        ground_mesh,
+        top_height=top_height,
+        top_cap_backend=top_cap_backend,
+        top_cap_max_mesh_size=top_cap_max_mesh_size,
+        top_cap_min_mesh_angle=top_cap_min_mesh_angle,
+    )
+    plc_audit = {
+        "mesher": top_cap_backend,
+        **_tetgen_plc_audit(plc=tetgen_plc),
+    }
+    plc_audit["contract"] = _tetgen_plc_contract_from_audit(
+        plc_audit,
+        reference_length=reference_length,
+    )
+    return BuiltTetgenPLC(
+        plc=tetgen_plc,
+        audit=plc_audit,
+        contract=plc_audit["contract"],
+    )
+
+
 def _tetrahedron_volumes(vertices: np.ndarray, cells: np.ndarray) -> np.ndarray:
     if len(cells) == 0:
         return np.empty(0, dtype=np.float64)
@@ -1564,16 +1677,122 @@ def _surface_shell_stage_audit(
     return surface_shell_audit
 
 
-def _is_unavailable_flat_mesher_error(backend: str, exc: RuntimeError) -> bool:
-    message = str(exc)
-    if backend == "triangle":
-        return "Triangle support not built" in message
-    if backend == "spade":
-        return (
-            "SPADE support not built" in message
-            or "install dtcc-pyspade-native" in message
+def _build_tetgen_surface_shell_stage(
+    *,
+    ground_mesh: Mesh,
+    terrain_raster: object,
+    building_surfaces: list[Surface],
+    meshing_directives: list[int],
+    smoothing: int,
+    mesher: str,
+    reference_length: float,
+    preserve_surface_requested: bool,
+    max_mesh_size: float | None,
+    refine_for_tetgen: bool,
+) -> BuiltSurfaceShell:
+    base_surface_mesh = _build_city_surface_mesh_from_ground_mesh(
+        ground_mesh=ground_mesh,
+        terrain_raster=terrain_raster,
+        building_surfaces=building_surfaces,
+        meshing_directives=meshing_directives,
+        smoothing=smoothing,
+        merge_meshes=True,
+    )
+    transition_refinement_stats = _tetgen_shell_transition_refinement_disabled_stats()
+    if refine_for_tetgen:
+        (
+            base_surface_mesh,
+            transition_refinement_stats,
+        ) = _refine_ground_building_transition_faces_for_tetgen(
+            base_surface_mesh,
+            max_mesh_size=max_mesh_size,
         )
-    return False
+        if transition_refinement_stats["applied"]:
+            info(
+                "Refined TetGen shell ground/building transition ring: "
+                "candidate_edges=%d split_edges=%d ground_relief=%.3g m "
+                "added_vertices=%d added_faces=%d",
+                transition_refinement_stats["candidate_transition_edges"],
+                transition_refinement_stats["split_edges"],
+                float(transition_refinement_stats.get("ground_relief_median", 0.0)),
+                transition_refinement_stats["added_vertices"],
+                transition_refinement_stats["added_faces"],
+            )
+
+    # Wall panels must arrive TetGen-ready from the shell builder itself. The
+    # Python-side edge splitter can turn moderately stretched preserved wall
+    # triangles into much worse slivers, so the strict path no longer mutates
+    # walls after shell construction.
+    wall_refinement_stats = _tetgen_shell_wall_refinement_disabled_stats()
+    surface_mesh = base_surface_mesh
+    shell_refinement_stats = _tetgen_shell_refinement_disabled_stats()
+    surface_shell_audit = _surface_shell_stage_audit(
+        surface_mesh,
+        mesher=mesher,
+        reference_length=reference_length,
+        preserve_surface_requested=preserve_surface_requested,
+        shell_refinement_stats=shell_refinement_stats,
+        transition_refinement_stats=transition_refinement_stats,
+        wall_refinement_stats=wall_refinement_stats,
+    )
+
+    if refine_for_tetgen:
+        (
+            refined_surface_mesh,
+            candidate_shell_refinement_stats,
+        ) = _refine_near_horizontal_surface_faces_for_tetgen(
+            surface_mesh,
+            max_mesh_size=max_mesh_size,
+        )
+        if candidate_shell_refinement_stats["applied"]:
+            info(
+                "Refined near-horizontal TetGen shell faces: rounds=%d "
+                "candidate_faces=%d split_edges=%d added_vertices=%d added_faces=%d",
+                candidate_shell_refinement_stats["rounds"],
+                candidate_shell_refinement_stats["candidate_faces"],
+                candidate_shell_refinement_stats["split_edges"],
+                candidate_shell_refinement_stats["added_vertices"],
+                candidate_shell_refinement_stats["added_faces"],
+            )
+        surface_mesh = refined_surface_mesh
+        shell_refinement_stats = candidate_shell_refinement_stats
+        surface_shell_audit = _surface_shell_stage_audit(
+            surface_mesh,
+            mesher=mesher,
+            reference_length=reference_length,
+            preserve_surface_requested=preserve_surface_requested,
+            shell_refinement_stats=shell_refinement_stats,
+            transition_refinement_stats=transition_refinement_stats,
+            wall_refinement_stats=wall_refinement_stats,
+        )
+
+    if refine_for_tetgen:
+        selected_variant = "refined"
+        selection_reason = "tetgen_shell_preconditioned"
+        if (
+            not bool(shell_refinement_stats.get("applied"))
+            and not bool(wall_refinement_stats.get("applied"))
+            and not bool(transition_refinement_stats.get("applied"))
+        ):
+            selected_variant = "unrefined"
+            selection_reason = "no_candidate_edges"
+    else:
+        selected_variant = "unrefined"
+        selection_reason = "tetgen_shell_refinement_disabled"
+    surface_shell_audit["tetgen_shell_horizontal_refinement_selection"] = (
+        _audit_json_ready(
+            {
+                "selected_variant": selected_variant,
+                "reason": selection_reason,
+            }
+        )
+    )
+
+    return BuiltSurfaceShell(
+        mesh=surface_mesh,
+        audit=surface_shell_audit,
+        contract=surface_shell_audit["contract"],
+    )
 
 
 def _require_city_terrain_raster(
@@ -1599,10 +1818,103 @@ def _require_city_terrain_raster(
     return terrain, terrain_raster
 
 
+def _terrain_bounds_tuple(terrain: object) -> tuple[float, float, float, float]:
+    bounds = terrain.bounds
+    return (
+        bounds.xmin,
+        bounds.ymin,
+        bounds.xmax,
+        bounds.ymax,
+    )
+
+
+def _raster_bounds_tuple(terrain_raster: object) -> tuple[float, float, float, float]:
+    bounds = terrain_raster.bounds
+    return (
+        float(bounds.xmin),
+        float(bounds.ymin),
+        float(bounds.xmax),
+        float(bounds.ymax),
+    )
+
+
+def _condition_city_meshing_footprints(
+    city: City,
+    *,
+    lod: GeometryType | Sequence[GeometryType] | None,
+    min_building_detail: float,
+    min_building_area: float,
+    merge_tolerance: float,
+    merge_buildings: bool,
+    max_mesh_size: float | None,
+    cleaning_diagnostics: bool,
+    show_footprints: bool = False,
+    footprint_cleaning_plot_block: bool = True,
+    pipeline_mode: MeshingPipelineMode = "strict",
+) -> ConditionedFootprints:
+    buildings = city.buildings
+    if not buildings:
+        warning("City has no buildings.")
+
+    return build_conditioned_footprints(
+        buildings,
+        lod=lod,
+        min_building_detail=min_building_detail,
+        min_building_area=min_building_area,
+        merge_tolerance=merge_tolerance,
+        merge_buildings=merge_buildings,
+        max_mesh_size=max_mesh_size,
+        cleaning_diagnostics=cleaning_diagnostics,
+        show_footprints=show_footprints,
+        footprint_cleaning_plot_block=footprint_cleaning_plot_block,
+        pipeline_mode=pipeline_mode,
+        raise_on_contract_error=False,
+    )
+
+
+def build_conditioned_footprints(
+    buildings: Sequence[Building],
+    *,
+    lod: GeometryType | Sequence[GeometryType] | None,
+    min_building_detail: float,
+    min_building_area: float,
+    merge_tolerance: float,
+    merge_buildings: bool,
+    max_mesh_size: float | None,
+    cleaning_diagnostics: bool,
+    show_footprints: bool = False,
+    footprint_cleaning_plot_block: bool = True,
+    pipeline_mode: str = "strict",
+    raise_on_contract_error: bool = True,
+) -> ConditionedFootprints:
+    """Build the supported mesher-ready conditioned footprint stage artifact."""
+
+    normalized_mode = _normalize_meshing_pipeline_mode(pipeline_mode)
+    conditioned_footprints = _condition_meshing_footprints(
+        buildings,
+        lod=lod,
+        min_building_detail=min_building_detail,
+        min_building_area=min_building_area,
+        merge_tolerance=merge_tolerance,
+        merge_buildings=merge_buildings,
+        max_mesh_size=max_mesh_size,
+        cleaning_diagnostics=cleaning_diagnostics,
+        show_footprints=show_footprints,
+        footprint_cleaning_plot_block=footprint_cleaning_plot_block,
+        pipeline_mode=normalized_mode,
+    )
+    if raise_on_contract_error:
+        _raise_stage_contract_errors(
+            "Conditioned footprints",
+            conditioned_footprints.contract,
+        )
+    return conditioned_footprints
+
+
 def _prepare_city_meshing_inputs(
     city: City,
     *,
-    lod: GeometryType | Sequence[GeometryType],
+    lod: GeometryType | Sequence[GeometryType] | None,
     min_building_detail: float,
     min_building_area: float,
     merge_tolerance: float,
@@ -1618,12 +1930,8 @@ def _prepare_city_meshing_inputs(
         max_mesh_size=max_mesh_size,
     )
 
-    buildings = city.buildings
-    if not buildings:
-        warning("City has no buildings.")
-
-    conditioned_footprints = _condition_meshing_footprints(
-        buildings,
+    conditioned_footprints = _condition_city_meshing_footprints(
+        city,
         lod=lod,
         min_building_detail=min_building_detail,
         min_building_area=min_building_area,
@@ -1761,6 +2069,53 @@ def _build_ground_mesh_from_coverage(
     return ground_mesh, active_mesher
 
 
+def _build_ground_mesh_stage(
+    *,
+    region_polygons: list[Polygon],
+    region_markers: list[int],
+    region_points: list[np.ndarray] | None = None,
+    bounds: tuple[float, float, float, float],
+    max_mesh_size: float | None,
+    min_mesh_angle: float,
+    mesher: str | None,
+    sort_triangles: bool = True,
+    region_triangle_sizes: dict[int, float] | None = None,
+    add_halo_markers: bool = True,
+    reference_length: float | None,
+    require_markers: bool,
+    stage_label: str,
+) -> BuiltGroundMesh:
+    ground_mesh, active_mesher = _build_ground_mesh_from_coverage(
+        region_polygons=region_polygons,
+        region_markers=region_markers,
+        region_points=region_points,
+        bounds=bounds,
+        max_mesh_size=max_mesh_size,
+        min_mesh_angle=min_mesh_angle,
+        mesher=mesher,
+        sort_triangles=sort_triangles,
+        region_triangle_sizes=region_triangle_sizes,
+        add_halo_markers=add_halo_markers,
+    )
+    audit = {
+        "mesher": active_mesher,
+        **_triangle_mesh_audit(ground_mesh),
+    }
+    contract = _triangle_mesh_contract_from_audit(
+        audit,
+        reference_length=reference_length,
+        require_markers=require_markers,
+        stage_label=stage_label,
+    )
+    audit["contract"] = contract
+    return BuiltGroundMesh(
+        mesh=ground_mesh,
+        mesher=active_mesher,
+        audit=audit,
+        contract=contract,
+    )
+
+
 def _prepare_surface_ground_regions(
     *,
     conditioned_surfaces: list[Surface],
@@ -1773,14 +2128,7 @@ def _prepare_surface_ground_regions(
     cleaning_diagnostics: bool,
     treat_lod0_as_holes: bool,
     pipeline_mode: MeshingPipelineMode = "strict",
-) -> tuple[
-    list[Surface],
-    list[int],
-    list[Polygon],
-    list[int],
-    dict[int, float],
-    list[np.ndarray],
-]:
+) -> PreparedGroundRegions:
     _normalize_meshing_pipeline_mode(pipeline_mode)
     source_surfaces: list[Surface] = []
     source_directives: list[int] = []
@@ -1791,6 +2139,7 @@ def _prepare_surface_ground_regions(
     building_markers: list[int] = []
     hole_polygons: list[Polygon] = []
     default_priority = _LOD_PRIORITY[GeometryType.LOD3]
+    domain_polygon = box(*bounds)
 
     for surface, resolution, lod_value in zip(
         conditioned_surfaces,
@@ -1802,29 +2151,36 @@ def _prepare_surface_ground_regions(
             continue
 
         if treat_lod0_as_holes and lod_value == GeometryType.LOD0:
-            hole_polygons.append(polygon)
+            clipped_hole = polygon.intersection(domain_polygon)
+            for clipped_polygon in _iter_polygon_components(clipped_hole):
+                if clipped_polygon.area > 0.0:
+                    hole_polygons.append(orient(clipped_polygon, sign=1.0))
             continue
 
-        marker = len(source_surfaces)
-        source_surfaces.append(surface)
-        source_directives.append(_LOD_PRIORITY.get(lod_value, default_priority))
-        source_resolutions.append(float(resolution))
-        source_areas.append(float(max(polygon.area, 0.0)))
-        source_roof_z.append(float(getattr(surface.bounds, "zmax", 0.0)))
-        building_polygons.append(polygon)
-        building_markers.append(marker)
+        clipped = polygon.intersection(domain_polygon)
+        for clipped_polygon in _iter_polygon_components(clipped):
+            if clipped_polygon.area <= 0.0:
+                continue
+            marker = len(source_surfaces)
+            source_surfaces.append(surface)
+            source_directives.append(_LOD_PRIORITY.get(lod_value, default_priority))
+            source_resolutions.append(float(resolution))
+            source_areas.append(float(max(clipped_polygon.area, 0.0)))
+            source_roof_z.append(float(getattr(surface.bounds, "zmax", 0.0)))
+            building_polygons.append(orient(clipped_polygon, sign=1.0))
+            building_markers.append(marker)
     (
         conditioned_building_polygons,
         _conditioned_building_markers,
         conditioned_building_sources,
-    ) = _condition_flat_mesh_building_regions_with_sources(
+    ) = _consume_conditioned_building_regions_with_sources(
         building_polygons=building_polygons,
         building_markers=building_markers,
         footprint_diagnostics=footprint_diagnostics,
-        max_mesh_size=max_mesh_size,
         min_building_detail=min_building_detail,
         cleaning_diagnostics=cleaning_diagnostics,
         pipeline_mode=pipeline_mode,
+        allow_boundary_short_edges=True,
     )
 
     active_surfaces: list[Surface] = []
@@ -1884,13 +2240,13 @@ def _prepare_surface_ground_regions(
         for polygon in ground_polygons
     ] + building_region_points
 
-    return (
-        active_surfaces,
-        meshing_directives,
-        region_polygons,
-        region_markers,
-        region_triangle_sizes,
-        region_points,
+    return PreparedGroundRegions(
+        building_surfaces=active_surfaces,
+        meshing_directives=meshing_directives,
+        region_polygons=region_polygons,
+        region_markers=region_markers,
+        region_triangle_sizes=region_triangle_sizes,
+        region_points=region_points,
     )
 
 
@@ -2238,17 +2594,54 @@ def _snap_ground_mesh_to_raster_bounds(mesh: Mesh, terrain_raster) -> Mesh:
     if len(mesh.vertices) == 0:
         return mesh
 
-    xmin, ymin, xmax, ymax = terrain_raster.bounds.tuple
+    xmin, ymin, xmax, ymax = _raster_bounds_tuple(terrain_raster)
     xstep, ystep = terrain_raster.cell_size
+    max_cell_size = max(abs(float(xstep)), abs(float(ystep)), 1.0e-12)
     snap_tol = max(
         _RASTER_BOUNDARY_SNAP_MIN,
-        _RASTER_BOUNDARY_SNAP_FRACTION * max(abs(float(xstep)), abs(float(ystep))),
+        _RASTER_BOUNDARY_SNAP_FRACTION * max_cell_size,
     )
+    alignment_tol = max(_RASTER_BOUNDARY_SNAP_MIN, 2.0 * max_cell_size)
 
     vertices = np.asarray(mesh.vertices, dtype=np.float64).copy()
     changed = np.zeros(len(vertices), dtype=bool)
+    outside_distance = np.zeros((len(vertices), 2), dtype=np.float64)
 
     for axis, lower, upper in ((0, xmin, xmax), (1, ymin, ymax)):
+        below_mask = vertices[:, axis] < lower
+        above_mask = vertices[:, axis] > upper
+        outside_distance[below_mask, axis] = lower - vertices[below_mask, axis]
+        outside_distance[above_mask, axis] = vertices[above_mask, axis] - upper
+
+    outside_axes = outside_distance > _RASTER_BOUNDARY_SNAP_MIN
+    outside_axis_count = np.count_nonzero(outside_axes, axis=1)
+    outside_vertex_mask = outside_axis_count > 0
+    outside_drift = outside_distance.max(axis=1)
+    rejected_mask = outside_vertex_mask & (
+        (outside_axis_count > 1) | (outside_drift > alignment_tol)
+    )
+    if np.any(rejected_mask):
+        outside_vertex_count = int(np.count_nonzero(outside_vertex_mask))
+        rejected_vertex_count = int(np.count_nonzero(rejected_mask))
+        max_drift = float(outside_drift.max(initial=0.0))
+        raise ValueError(
+            "Ground mesh has "
+            f"{outside_vertex_count} vertex/vertices outside terrain raster bounds "
+            "before surface sampling; "
+            f"{rejected_vertex_count} exceed bounded boundary alignment "
+            f"(max drift {max_drift:.6g} m, allowed {alignment_tol:.6g} m, "
+            f"bounds=[{xmin:.6g}, {xmax:.6g}] x [{ymin:.6g}, {ymax:.6g}])."
+        )
+
+    for axis, lower, upper in ((0, xmin, xmax), (1, ymin, ymax)):
+        below_mask = vertices[:, axis] < lower
+        above_mask = vertices[:, axis] > upper
+        if np.any(below_mask):
+            vertices[below_mask, axis] = lower
+            changed |= below_mask
+        if np.any(above_mask):
+            vertices[above_mask, axis] = upper
+            changed |= above_mask
         lower_mask = np.abs(vertices[:, axis] - lower) <= snap_tol
         upper_mask = np.abs(vertices[:, axis] - upper) <= snap_tol
         if np.any(lower_mask):
@@ -2258,13 +2651,38 @@ def _snap_ground_mesh_to_raster_bounds(mesh: Mesh, terrain_raster) -> Mesh:
             vertices[upper_mask, axis] = upper
             changed |= upper_mask
 
+    post_outside_mask = (
+        (vertices[:, 0] < xmin - _RASTER_BOUNDARY_SNAP_MIN)
+        | (vertices[:, 0] > xmax + _RASTER_BOUNDARY_SNAP_MIN)
+        | (vertices[:, 1] < ymin - _RASTER_BOUNDARY_SNAP_MIN)
+        | (vertices[:, 1] > ymax + _RASTER_BOUNDARY_SNAP_MIN)
+    )
+    if np.any(post_outside_mask):
+        outside_vertex_count = int(np.count_nonzero(post_outside_mask))
+        max_x_drift = max(
+            float(np.max(xmin - vertices[vertices[:, 0] < xmin, 0], initial=0.0)),
+            float(np.max(vertices[vertices[:, 0] > xmax, 0] - xmax, initial=0.0)),
+        )
+        max_y_drift = max(
+            float(np.max(ymin - vertices[vertices[:, 1] < ymin, 1], initial=0.0)),
+            float(np.max(vertices[vertices[:, 1] > ymax, 1] - ymax, initial=0.0)),
+        )
+        raise ValueError(
+            "Ground mesh still has "
+            f"{outside_vertex_count} vertex/vertices outside terrain raster bounds "
+            "after boundary alignment "
+            f"(max_x_drift={max_x_drift:.6g} m, max_y_drift={max_y_drift:.6g} m)."
+        )
+
     if not np.any(changed):
         return mesh
 
     debug(
-        "Snapped %d ground-mesh boundary vertices to raster bounds within %.6g m.",
+        "Aligned %d ground-mesh boundary vertices to raster bounds "
+        "(snap_tol=%.6g m, alignment_tol=%.6g m).",
         int(np.count_nonzero(changed)),
         snap_tol,
+        alignment_tol,
     )
     return Mesh(
         vertices=vertices,
@@ -3238,6 +3656,96 @@ def _condition_flat_mesh_building_regions(
     return polygons, markers
 
 
+def _consume_conditioned_building_regions_with_sources(
+    *,
+    building_polygons: list[Polygon],
+    building_markers: list[int],
+    footprint_diagnostics: dict[str, Any],
+    min_building_detail: float,
+    cleaning_diagnostics: bool,
+    pipeline_mode: MeshingPipelineMode = "strict",
+    allow_boundary_short_edges: bool = False,
+) -> tuple[list[Polygon], list[int], list[list[int]]]:
+    if len(building_polygons) != len(building_markers):
+        raise ValueError("building_markers length must match building_polygons length")
+    if not building_polygons:
+        return [], [], []
+
+    _normalize_meshing_pipeline_mode(pipeline_mode)
+    resolved_polygons: list[Polygon] = []
+    resolved_markers: list[int] = []
+    resolved_sources: list[list[int]] = []
+    for index, (polygon, marker) in enumerate(zip(building_polygons, building_markers)):
+        if polygon is None or polygon.is_empty:
+            continue
+        resolved_polygons.append(orient(polygon, sign=1.0))
+        resolved_markers.append(int(marker))
+        resolved_sources.append([index])
+
+    if not resolved_polygons:
+        return [], [], []
+
+    declared_scale = max(
+        float(min_building_detail),
+        float(footprint_diagnostics.get("output_grid", 0.0) or 0.0),
+        1.0e-9,
+    )
+    signature = cleaning_footprints._coverage_defect_signature(
+        resolved_polygons,
+        target_scale=declared_scale,
+    )
+    validation_errors: list[str] = []
+    if int(signature.pair_issue_count) > 0:
+        validation_errors.append(
+            f"{signature.pair_issue_count} close-pair issue(s)"
+        )
+    if int(signature.ring_contact_count) > 0:
+        validation_errors.append(
+            f"{signature.ring_contact_count} ring-contact issue(s)"
+        )
+    if int(signature.acute_tip_count) > 0:
+        validation_errors.append(
+            f"{signature.acute_tip_count} meshing-hostile acute tip(s)"
+        )
+    if int(signature.short_edge_count) > 0 and not allow_boundary_short_edges:
+        validation_errors.append(
+            f"{signature.short_edge_count} short edge(s) below the declared scale"
+        )
+    elif int(signature.short_edge_count) > 0 and cleaning_diagnostics:
+        debug(
+            "Tolerated %d subscale surface-boundary edge(s) introduced by "
+            "raster-domain clipping.",
+            int(signature.short_edge_count),
+        )
+    if dtcc_mesher is not None and hasattr(dtcc_mesher, "validate_coverage_graph"):
+        try:
+            graph = dtcc_mesher.Coverage(
+                resolved_polygons,
+                markers=range(1, len(resolved_polygons) + 1),
+            ).graph()
+            dtcc_mesher.validate_coverage_graph(graph)
+        except Exception as exc:
+            validation_errors.append(f"invalid dtcc_mesher segment graph: {exc}")
+
+    if validation_errors:
+        summary = "; ".join(validation_errors[:3])
+        if len(validation_errors) > 3:
+            summary += f"; ... ({len(validation_errors)} total)"
+        raise ValueError(
+            "Conditioned building regions failed validation before 2D coverage "
+            f"construction: {summary}."
+        )
+
+    if cleaning_diagnostics:
+        debug(
+            "Flat/surface building regions consumed without reconditioning: "
+            f"{len(building_polygons)} -> {len(resolved_polygons)} polygons, "
+            f"declared_scale={declared_scale} m"
+        )
+
+    return resolved_polygons, resolved_markers, resolved_sources
+
+
 def _condition_flat_mesh_building_regions_with_sources(
     *,
     building_polygons: list[Polygon],
@@ -3317,11 +3825,10 @@ def _condition_flat_mesh_coverage_regions(
         building_polygons,
         building_markers,
         _building_sources,
-    ) = _condition_flat_mesh_building_regions_with_sources(
+    ) = _consume_conditioned_building_regions_with_sources(
         building_polygons=building_polygons,
         building_markers=building_markers,
         footprint_diagnostics=footprint_diagnostics,
-        max_mesh_size=max_mesh_size,
         min_building_detail=min_building_detail,
         cleaning_diagnostics=cleaning_diagnostics,
         pipeline_mode=pipeline_mode,
@@ -4010,7 +4517,8 @@ def build_city_surface_mesh(
     footprint_cleaning_plot_block: bool = True,
     mesher: str | None = None,
     pipeline_mode: str = "strict",
-) -> Mesh:
+    stage_audit: dict[str, Any] | None = None,
+) -> Mesh | list[Mesh]:
     """
     Build a surface mesh from the surfaces of the buildings in the city.
 
@@ -4044,10 +4552,10 @@ def build_city_surface_mesh(
         When True, building directives resolved to LOD0 are sent to the mesher
         as hole surfaces instead of meshed buildings. When False, footprint-only
         LOD0 buildings are still extruded as buildings in the surface mesh.
-    `mesher` : {"auto", "dtcc_mesher", "triangle", "spade"}, optional
+    `mesher` : {"auto", "dtcc_mesher", "triangle"}, optional
         Select the 2D meshing backend used to build the ground/surface
         triangulation. ``"auto"`` prefers ``dtcc_mesher`` when available,
-        then ``triangle``, then ``spade``.
+        then ``triangle``.
     `show_footprints` : bool, optional
         Show a live Matplotlib comparison of raw and conditioned footprints
         before meshing. Defaults to False.
@@ -4060,120 +4568,156 @@ def build_city_surface_mesh(
     `model.Mesh`
     """
     pipeline_mode = _normalize_meshing_pipeline_mode(pipeline_mode)
-    max_mesh_size = _normalize_max_mesh_size(max_mesh_size)
-    terrain, terrain_raster, conditioned_footprints = _prepare_city_meshing_inputs(
-        city,
-        lod=lod,
-        min_building_detail=min_building_detail,
-        min_building_area=min_building_area,
-        merge_tolerance=merge_tolerance,
+    attempt = _start_stage_audit_attempt(
+        stage_audit,
+        label=None,
+        retry_reason=None,
+        backend="surface",
         merge_buildings=merge_buildings,
-        max_mesh_size=max_mesh_size,
-        cleaning_diagnostics=cleaning_diagnostics,
-        show_footprints=show_footprints,
-        footprint_cleaning_plot_block=footprint_cleaning_plot_block,
-        pipeline_mode=pipeline_mode,
-    )
-    building_footprints = conditioned_footprints.surfaces
-    source_map = conditioned_footprints.source_map
-    conditioned_resolution = conditioned_footprints.subdomain_resolution
-    conditioning_diagnostics = conditioned_footprints.diagnostics
-    _raise_stage_contract_errors("Conditioned footprints", conditioned_footprints.contract)
-
-    report_progress(
-        percent=10,
-        message=f"Preprocessed {len(building_footprints)} building footprints",
-    )
-    debug(f"Surface meshing footprint diagnostics: {conditioning_diagnostics}")
-
-    buildings = city.buildings
-    target_lods = _resolve_conditioned_target_lods(buildings, lod, source_map)
-    if not treat_lod0_as_holes:
-        target_lods = _promote_surface_shell_target_lods(target_lods)
-    base_resolution = [
-        min(resolution, building_mesh_triangle_size)
-        if building_mesh_triangle_size > 0
-        else resolution
-        for resolution in conditioned_resolution
-    ]
-    surface_mesh_bounds = (
-        terrain.bounds.xmin,
-        terrain.bounds.ymin,
-        terrain.bounds.xmax,
-        terrain.bounds.ymax,
-    )
-    (
-        building_surfaces,
-        building_lod_switches,
-        region_polygons,
-        region_markers,
-        region_triangle_sizes,
-        region_points,
-    ) = _prepare_surface_ground_regions(
-        conditioned_surfaces=building_footprints,
-        conditioned_resolution=base_resolution,
-        target_lods=target_lods,
-        bounds=surface_mesh_bounds,
-        max_mesh_size=max_mesh_size,
-        min_building_detail=min_building_detail,
-        footprint_diagnostics=conditioning_diagnostics,
-        cleaning_diagnostics=cleaning_diagnostics,
-        treat_lod0_as_holes=treat_lod0_as_holes,
-        pipeline_mode=pipeline_mode,
-    )
-
-    ground_mesh, active_mesher = _build_ground_mesh_from_coverage(
-        region_polygons=region_polygons,
-        region_markers=region_markers,
-        region_points=region_points,
-        bounds=surface_mesh_bounds,
+        requested_mesher=mesher,
         max_mesh_size=max_mesh_size,
         min_mesh_angle=min_mesh_angle,
-        mesher=mesher,
-        sort_triangles=sort_triangles,
-        region_triangle_sizes=region_triangle_sizes,
-        add_halo_markers=False,
+        domain_height=0.0,
+        tetgen_switches=None,
+        tetgen_switch_overrides=None,
     )
-    ground_mesh_contract = _triangle_mesh_contract_from_audit(
-        {"mesher": active_mesher, **_triangle_mesh_audit(ground_mesh)},
-        reference_length=conditioned_footprints.declared_scale,
-        require_markers=True,
-        stage_label="Ground mesh",
-    )
-    _raise_stage_contract_errors("Ground mesh", ground_mesh_contract)
-    ground_mesh, building_surfaces, building_lod_switches = (
-        _split_ground_mesh_building_components(
+    try:
+        max_mesh_size = _normalize_max_mesh_size(max_mesh_size)
+        _terrain, terrain_raster, conditioned_footprints = _prepare_city_meshing_inputs(
+            city,
+            lod=lod,
+            min_building_detail=min_building_detail,
+            min_building_area=min_building_area,
+            merge_tolerance=merge_tolerance,
+            merge_buildings=merge_buildings,
+            max_mesh_size=max_mesh_size,
+            cleaning_diagnostics=cleaning_diagnostics,
+            show_footprints=show_footprints,
+            footprint_cleaning_plot_block=footprint_cleaning_plot_block,
+            pipeline_mode=pipeline_mode,
+        )
+        building_footprints = conditioned_footprints.surfaces
+        source_map = conditioned_footprints.source_map
+        conditioned_resolution = conditioned_footprints.subdomain_resolution
+        conditioning_diagnostics = conditioned_footprints.diagnostics
+        if attempt is not None:
+            _record_stage_audit_stage(
+                attempt,
+                "conditioned_footprints",
+                _conditioned_footprints_audit(conditioned_footprints),
+            )
+        _raise_stage_contract_errors("Conditioned footprints", conditioned_footprints.contract)
+
+        report_progress(
+            percent=10,
+            message=f"Preprocessed {len(building_footprints)} building footprints",
+        )
+        debug(f"Surface meshing footprint diagnostics: {conditioning_diagnostics}")
+
+        buildings = city.buildings
+        target_lods = _resolve_conditioned_target_lods(buildings, lod, source_map)
+        if not treat_lod0_as_holes:
+            target_lods = _promote_surface_shell_target_lods(target_lods)
+        base_resolution = [
+            min(resolution, building_mesh_triangle_size)
+            if building_mesh_triangle_size > 0
+            else resolution
+            for resolution in conditioned_resolution
+        ]
+        surface_mesh_bounds = _raster_bounds_tuple(terrain_raster)
+        ground_regions = _prepare_surface_ground_regions(
+            conditioned_surfaces=building_footprints,
+            conditioned_resolution=base_resolution,
+            target_lods=target_lods,
+            bounds=surface_mesh_bounds,
+            max_mesh_size=max_mesh_size,
+            min_building_detail=min_building_detail,
+            footprint_diagnostics=conditioning_diagnostics,
+            cleaning_diagnostics=cleaning_diagnostics,
+            treat_lod0_as_holes=treat_lod0_as_holes,
+            pipeline_mode=pipeline_mode,
+        )
+        if attempt is not None:
+            _record_stage_audit_stage(
+                attempt,
+                "surface_regions",
+                _surface_region_audit(ground_regions),
+            )
+        surface_coverage = Coverage2D(
+            region_polygons=ground_regions.region_polygons,
+            region_markers=ground_regions.region_markers,
+            region_points=ground_regions.region_points,
+            region_triangle_sizes=ground_regions.region_triangle_sizes,
+        )
+
+        built_ground = _build_ground_mesh_stage(
+            region_polygons=surface_coverage.region_polygons,
+            region_markers=surface_coverage.region_markers,
+            region_points=surface_coverage.region_points,
+            bounds=surface_mesh_bounds,
+            max_mesh_size=max_mesh_size,
+            min_mesh_angle=min_mesh_angle,
+            mesher=mesher,
+            sort_triangles=sort_triangles,
+            region_triangle_sizes=surface_coverage.region_triangle_sizes,
+            add_halo_markers=False,
+            reference_length=conditioned_footprints.declared_scale,
+            require_markers=True,
+            stage_label="Ground mesh",
+        )
+        if attempt is not None:
+            _record_stage_audit_stage(
+                attempt,
+                "ground_mesh",
+                built_ground.audit,
+            )
+        _raise_stage_contract_errors("Ground mesh", built_ground.contract)
+        ground_mesh, building_surfaces, building_lod_switches = (
+            _split_ground_mesh_building_components(
+                ground_mesh=built_ground.mesh,
+                building_surfaces=ground_regions.building_surfaces,
+                meshing_directives=ground_regions.meshing_directives,
+            )
+        )
+        report_progress(
+            percent=40,
+            message=f"Building city surface mesh ({built_ground.mesher})...",
+        )
+        result_mesh = _build_city_surface_mesh_from_ground_mesh(
             ground_mesh=ground_mesh,
+            terrain_raster=terrain_raster,
             building_surfaces=building_surfaces,
             meshing_directives=building_lod_switches,
+            smoothing=smoothing,
+            merge_meshes=merge_meshes,
         )
-    )
-    report_progress(percent=40, message=f"Building city surface mesh ({active_mesher})...")
-    result_mesh = _build_city_surface_mesh_from_ground_mesh(
-        ground_mesh=ground_mesh,
-        terrain_raster=terrain_raster,
-        building_surfaces=building_surfaces,
-        meshing_directives=building_lod_switches,
-        smoothing=smoothing,
-        merge_meshes=merge_meshes,
-    )
-    report_progress(percent=100, message="City surface mesh complete")
+        report_progress(percent=100, message="City surface mesh complete")
 
-    if report_mesh_quality:
-        from dtcc_core.model.mixins.mesh.quality import (
-            triangle_mesh_quality,
-            report_quality,
-        )
+        if report_mesh_quality:
+            from dtcc_core.model.mixins.mesh.quality import (
+                triangle_mesh_quality,
+                report_quality,
+            )
 
-        if merge_meshes:
-            q = triangle_mesh_quality(result_mesh.vertices, result_mesh.faces)
-            report_quality(q, log_fn=info)
-        else:
-            for i, m in enumerate(result_mesh):
-                q = triangle_mesh_quality(m.vertices, m.faces)
+            if merge_meshes:
+                q = triangle_mesh_quality(result_mesh.vertices, result_mesh.faces)
                 report_quality(q, log_fn=info)
+            else:
+                for i, m in enumerate(result_mesh):
+                    q = triangle_mesh_quality(m.vertices, m.faces)
+                    report_quality(q, log_fn=info)
 
-    return result_mesh
+        _mark_stage_audit_success(stage_audit, attempt)
+        if stage_audit is not None:
+            if merge_meshes:
+                result_mesh.stage_audit = stage_audit
+            else:
+                for mesh in result_mesh:
+                    mesh.stage_audit = stage_audit
+        return result_mesh
+    except Exception as exc:
+        _mark_stage_audit_failure(attempt, exc)
+        raise
 
 
 def build_city_flat_mesh(
@@ -4213,8 +4757,8 @@ def build_city_flat_mesh(
         ``LOD1 -> LOD2 -> LOD3 -> LOD0``.
     max_mesh_size : float | None, optional
         Maximum target triangle edge length in meters. ``dtcc_mesher`` uses
-        it directly as an edge-length cap, while ``triangle`` and ``spade``
-        convert it to an equivalent triangle-area cap. Set to ``None`` to
+        it directly as an edge-length cap, while ``triangle`` converts it to
+        an equivalent triangle-area cap. Set to ``None`` to
         disable the global size cap and let geometry plus ``min_mesh_angle``
         drive refinement. Non-positive values are treated as ``None`` for
         backward compatibility.
@@ -4228,9 +4772,9 @@ def build_city_flat_mesh(
         Minimum footprint area; smaller buildings are dropped (default 15.0).
     merge_tolerance : float, optional
         Distance tolerance for merging footprints (default 0.5).
-    mesher : {"auto", "dtcc_mesher", "triangle", "spade"}, optional
+    mesher : {"auto", "dtcc_mesher", "triangle"}, optional
         Select the 2D meshing backend. ``"auto"`` prefers ``dtcc_mesher``
-        when it is installed, then ``triangle``, then ``spade``.
+        when it is installed, then ``triangle``.
     show_footprints : bool, optional
         Show a live Matplotlib comparison of raw and conditioned footprints
         before meshing. Defaults to False.
@@ -4265,17 +4809,13 @@ def build_city_flat_mesh(
         tetgen_switch_overrides=None,
     )
     try:
+        max_mesh_size = _normalize_max_mesh_size(max_mesh_size)
         terrain = city.terrain
         if terrain is None:
             raise ValueError("City has no terrain data. Please compute terrain first.")
-        max_mesh_size = _normalize_max_mesh_size(max_mesh_size)
 
-        buildings = city.buildings
-        if not buildings:
-            warning("City has no buildings.")
-
-        conditioned_footprints = _condition_meshing_footprints(
-            buildings,
+        conditioned_footprints = _condition_city_meshing_footprints(
+            city,
             lod=lod,
             min_building_detail=min_building_detail,
             min_building_area=min_building_area,
@@ -4313,7 +4853,9 @@ def build_city_flat_mesh(
         )
         debug(f"Flat meshing footprint diagnostics: {diagnostics}")
 
-        building_polygons = [footprint.to_polygon(simplify=0.0) for footprint in building_footprints]
+        building_polygons = [
+            footprint.to_polygon(simplify=0.0) for footprint in building_footprints
+        ]
         marker_lookup: dict[tuple[int, ...], int] = {}
         building_markers: list[int] = []
         for source_indices in conditioned_source_map:
@@ -4321,12 +4863,7 @@ def build_city_flat_mesh(
             if marker_key not in marker_lookup:
                 marker_lookup[marker_key] = len(marker_lookup)
             building_markers.append(marker_lookup[marker_key])
-        flat_mesh_bounds = (
-            terrain.bounds.xmin,
-            terrain.bounds.ymin,
-            terrain.bounds.xmax,
-            terrain.bounds.ymax,
-        )
+        flat_mesh_bounds = _terrain_bounds_tuple(terrain)
         region_polygons, region_markers = _condition_flat_mesh_coverage_regions(
             bounds=flat_mesh_bounds,
             building_polygons=building_polygons,
@@ -4338,22 +4875,19 @@ def build_city_flat_mesh(
             cleaning_diagnostics=cleaning_diagnostics,
             pipeline_mode=pipeline_mode,
         )
-
-        flat_mesh, active_mesher = _build_ground_mesh_from_coverage(
+        flat_coverage = Coverage2D(
             region_polygons=region_polygons,
             region_markers=region_markers,
+        )
+
+        built_flat_mesh = _build_ground_mesh_stage(
+            region_polygons=flat_coverage.region_polygons,
+            region_markers=flat_coverage.region_markers,
             bounds=flat_mesh_bounds,
             max_mesh_size=max_mesh_size,
             min_mesh_angle=min_mesh_angle,
             mesher=mesher,
             sort_triangles=True,
-        )
-        ground_mesh_audit = {
-            "mesher": active_mesher,
-            **_triangle_mesh_audit(flat_mesh),
-        }
-        ground_mesh_audit["contract"] = _triangle_mesh_contract_from_audit(
-            ground_mesh_audit,
             reference_length=conditioned_scale,
             require_markers=True,
             stage_label="Flat mesh",
@@ -4362,13 +4896,17 @@ def build_city_flat_mesh(
             _record_stage_audit_stage(
                 attempt,
                 "ground_mesh",
-                ground_mesh_audit,
+                built_flat_mesh.audit,
             )
         _raise_stage_contract_errors(
             "Flat mesh",
-            ground_mesh_audit["contract"],
+            built_flat_mesh.contract,
         )
-        report_progress(percent=30, message=f"Building city flat mesh ({active_mesher})...")
+        flat_mesh = built_flat_mesh.mesh
+        report_progress(
+            percent=30,
+            message=f"Building city flat mesh ({built_flat_mesh.mesher})...",
+        )
 
         if report_mesh_quality:
             from dtcc_core.model.mixins.mesh.quality import (
@@ -4505,7 +5043,7 @@ def build_city_volume_mesh(
     debug_step : int, optional
         Legacy DTCC-only compatibility parameter for the internal fallback
         volume mesher. Ignored in the TetGen path. Defaults to 7.
-    mesher : {"auto", "dtcc_mesher", "triangle", "spade"}, optional
+    mesher : {"auto", "dtcc_mesher", "triangle"}, optional
         Select the 2D meshing backend used for the intermediate flat/surface
         mesh stages. In the strict volume path, ``None`` and ``"auto"`` both
         resolve to ``dtcc_mesher``.
@@ -4683,6 +5221,7 @@ def build_city_volume_mesh(
     debug(f"Volume meshing footprint diagnostics: {diagnostics}")
     target_lods = _resolve_conditioned_target_lods(city.buildings, lod, source_map)
     shell_target_lods = _promote_volume_shell_target_lods(target_lods)
+    volume_mesh_bounds = _terrain_bounds_tuple(terrain)
 
     # 4. BUILD VOLUME MESH - TETGEN PATH
 
@@ -4691,23 +5230,11 @@ def build_city_volume_mesh(
         try:
             debug_paths: dict[str, str] | None = None
             report_progress(percent=30, message="Building volume shell surface...")
-            (
-                surface_buildings,
-                surface_directives,
-                surface_region_polygons,
-                surface_region_markers,
-                surface_region_triangle_sizes,
-                surface_region_points,
-            ) = _prepare_surface_ground_regions(
+            surface_regions = _prepare_surface_ground_regions(
                 conditioned_surfaces=building_footprints,
                 conditioned_resolution=subdomain_resolution,
                 target_lods=shell_target_lods,
-                bounds=(
-                    terrain.bounds.xmin,
-                    terrain.bounds.ymin,
-                    terrain.bounds.xmax,
-                    terrain.bounds.ymax,
-                ),
+                bounds=volume_mesh_bounds,
                 max_mesh_size=max_mesh_size,
                 min_building_detail=min_building_detail,
                 footprint_diagnostics=diagnostics,
@@ -4719,174 +5246,65 @@ def build_city_volume_mesh(
                 _record_stage_audit_stage(
                     attempt,
                     "surface_regions",
-                    _surface_region_audit(
-                        building_surfaces=surface_buildings,
-                        region_polygons=surface_region_polygons,
-                        region_markers=surface_region_markers,
-                        region_triangle_sizes=surface_region_triangle_sizes,
-                    ),
+                    _surface_region_audit(surface_regions),
                 )
-            surface_ground_mesh, surface_mesher = _build_ground_mesh_from_coverage(
-                region_polygons=surface_region_polygons,
-                region_markers=surface_region_markers,
-                region_points=surface_region_points,
-                bounds=(
-                    terrain.bounds.xmin,
-                    terrain.bounds.ymin,
-                    terrain.bounds.xmax,
-                    terrain.bounds.ymax,
-                ),
+            built_surface_ground = _build_ground_mesh_stage(
+                region_polygons=surface_regions.region_polygons,
+                region_markers=surface_regions.region_markers,
+                region_points=surface_regions.region_points,
+                bounds=volume_mesh_bounds,
                 max_mesh_size=max_mesh_size,
                 min_mesh_angle=min_mesh_angle,
                 mesher=mesher,
                 sort_triangles=False,
-                region_triangle_sizes=surface_region_triangle_sizes,
+                region_triangle_sizes=surface_regions.region_triangle_sizes,
                 add_halo_markers=False,
-            )
-            if attempt is not None:
-                attempt["config"]["effective_mesher"] = surface_mesher
-            surface_ground_mesh, surface_buildings, surface_directives = (
-                _split_ground_mesh_building_components(
-                    ground_mesh=surface_ground_mesh,
-                    building_surfaces=surface_buildings,
-                    meshing_directives=surface_directives,
-                )
-            )
-            ground_mesh_audit = {
-                "mesher": surface_mesher,
-                **_triangle_mesh_audit(surface_ground_mesh),
-            }
-            ground_mesh_audit["contract"] = _triangle_mesh_contract_from_audit(
-                ground_mesh_audit,
                 reference_length=conditioned_scale,
                 require_markers=True,
                 stage_label="Ground mesh",
             )
             if attempt is not None:
+                attempt["config"]["effective_mesher"] = built_surface_ground.mesher
+            surface_ground_mesh, surface_buildings, surface_directives = (
+                _split_ground_mesh_building_components(
+                    ground_mesh=built_surface_ground.mesh,
+                    building_surfaces=surface_regions.building_surfaces,
+                    meshing_directives=surface_regions.meshing_directives,
+                )
+            )
+            if attempt is not None:
                 _record_stage_audit_stage(
                     attempt,
                     "ground_mesh",
-                    ground_mesh_audit,
+                    built_surface_ground.audit,
                 )
             _raise_stage_contract_errors(
                 "Ground mesh",
-                ground_mesh_audit["contract"],
+                built_surface_ground.contract,
             )
-            base_surface_mesh = _build_city_surface_mesh_from_ground_mesh(
+            built_surface_shell = _build_tetgen_surface_shell_stage(
                 ground_mesh=surface_ground_mesh,
                 terrain_raster=terrain_raster,
                 building_surfaces=surface_buildings,
                 meshing_directives=surface_directives,
                 smoothing=smoothing,
-                merge_meshes=True,
-            )
-            transition_refinement_stats = (
-                _tetgen_shell_transition_refinement_disabled_stats()
-            )
-            if effective_stage4_shell_refinement:
-                (
-                    base_surface_mesh,
-                    transition_refinement_stats,
-                ) = _refine_ground_building_transition_faces_for_tetgen(
-                    base_surface_mesh,
-                    max_mesh_size=max_mesh_size,
-                )
-                if transition_refinement_stats["applied"]:
-                    info(
-                        "Refined TetGen shell ground/building transition ring: "
-                        "candidate_edges=%d split_edges=%d ground_relief=%.3g m "
-                        "added_vertices=%d added_faces=%d",
-                        transition_refinement_stats["candidate_transition_edges"],
-                        transition_refinement_stats["split_edges"],
-                        float(
-                            transition_refinement_stats.get(
-                                "ground_relief_median", 0.0
-                            )
-                        ),
-                        transition_refinement_stats["added_vertices"],
-                        transition_refinement_stats["added_faces"],
-                    )
-            # Wall panels must arrive TetGen-ready from the shell builder
-            # itself. The Python-side edge splitter can turn moderately stretched
-            # preserved wall triangles into much worse slivers, so the strict
-            # path no longer mutates walls after shell construction.
-            wall_refinement_stats = _tetgen_shell_wall_refinement_disabled_stats()
-            wall_refined_surface_mesh = base_surface_mesh
-            base_shell_refinement_stats = _tetgen_shell_refinement_disabled_stats()
-            base_surface_shell_audit = _surface_shell_stage_audit(
-                wall_refined_surface_mesh,
-                mesher=surface_mesher,
+                mesher=built_surface_ground.mesher,
                 reference_length=conditioned_scale,
                 preserve_surface_requested=preserve_surface_requested,
-                shell_refinement_stats=base_shell_refinement_stats,
-                transition_refinement_stats=transition_refinement_stats,
-                wall_refinement_stats=wall_refinement_stats,
+                max_mesh_size=max_mesh_size,
+                refine_for_tetgen=effective_stage4_shell_refinement,
             )
-            surface_mesh = wall_refined_surface_mesh
-            shell_refinement_stats = base_shell_refinement_stats
-            surface_shell_audit = base_surface_shell_audit
-
-            if effective_stage4_shell_refinement:
-                (
-                    refined_surface_mesh,
-                    candidate_shell_refinement_stats,
-                ) = _refine_near_horizontal_surface_faces_for_tetgen(
-                    wall_refined_surface_mesh,
-                    max_mesh_size=max_mesh_size,
-                )
-                if candidate_shell_refinement_stats["applied"]:
-                    info(
-                        "Refined near-horizontal TetGen shell faces: rounds=%d "
-                        "candidate_faces=%d split_edges=%d added_vertices=%d added_faces=%d",
-                        candidate_shell_refinement_stats["rounds"],
-                        candidate_shell_refinement_stats["candidate_faces"],
-                        candidate_shell_refinement_stats["split_edges"],
-                        candidate_shell_refinement_stats["added_vertices"],
-                        candidate_shell_refinement_stats["added_faces"],
-                    )
-                refined_surface_shell_audit = _surface_shell_stage_audit(
-                    refined_surface_mesh,
-                    mesher=surface_mesher,
-                    reference_length=conditioned_scale,
-                    preserve_surface_requested=preserve_surface_requested,
-                    shell_refinement_stats=candidate_shell_refinement_stats,
-                    transition_refinement_stats=transition_refinement_stats,
-                    wall_refinement_stats=wall_refinement_stats,
-                )
-                surface_mesh = refined_surface_mesh
-                shell_refinement_stats = candidate_shell_refinement_stats
-                surface_shell_audit = refined_surface_shell_audit
-            if effective_stage4_shell_refinement:
-                selected_variant = "refined"
-                selection_reason = "tetgen_shell_preconditioned"
-                if (
-                    not bool(shell_refinement_stats.get("applied"))
-                    and not bool(wall_refinement_stats.get("applied"))
-                    and not bool(transition_refinement_stats.get("applied"))
-                ):
-                    selected_variant = "unrefined"
-                    selection_reason = "no_candidate_edges"
-            else:
-                selected_variant = "unrefined"
-                selection_reason = "tetgen_shell_refinement_disabled"
-            surface_shell_audit["tetgen_shell_horizontal_refinement_selection"] = (
-                _audit_json_ready(
-                    {
-                        "selected_variant": selected_variant,
-                        "reason": selection_reason,
-                    }
-                )
-            )
+            surface_mesh = built_surface_shell.mesh
 
             if attempt is not None:
                 _record_stage_audit_stage(
                     attempt,
                     "surface_shell",
-                    surface_shell_audit,
+                    built_surface_shell.audit,
                 )
             _raise_stage_contract_errors(
                 "Surface shell",
-                surface_shell_audit["contract"],
+                built_surface_shell.contract,
             )
             report_progress(
                 percent=55, message="Surface mesh built, preparing volume mesh..."
@@ -4908,7 +5326,7 @@ def build_city_volume_mesh(
                         ground_mesh=surface_ground_mesh,
                         surface_mesh=surface_mesh,
                         domain_height=domain_height,
-                        top_cap_backend=surface_mesher,
+                        top_cap_backend=built_surface_ground.mesher,
                         top_cap_max_mesh_size=top_cap_max_mesh_size,
                         top_cap_min_mesh_angle=min_mesh_angle,
                     )
@@ -4926,29 +5344,22 @@ def build_city_volume_mesh(
                 attempt["config"]["effective_tetgen_switches"] = _audit_json_ready(
                     switches_params
                 )
-            tetgen_plc = tetgen_utils.build_tetgen_plc(
-                surface_mesh,
-                surface_ground_mesh,
+            built_tetgen_plc = _build_tetgen_plc_stage(
+                surface_mesh=surface_mesh,
+                ground_mesh=surface_ground_mesh,
                 top_height=domain_height,
-                top_cap_backend=surface_mesher,
+                top_cap_backend=built_surface_ground.mesher,
                 top_cap_max_mesh_size=top_cap_max_mesh_size,
                 top_cap_min_mesh_angle=min_mesh_angle,
-            )
-            plc_audit = {
-                "mesher": surface_mesher,
-                **_tetgen_plc_audit(plc=tetgen_plc),
-            }
-            plc_audit["contract"] = _tetgen_plc_contract_from_audit(
-                plc_audit,
                 reference_length=conditioned_scale,
             )
             if attempt is not None:
                 _record_stage_audit_stage(
                     attempt,
                     "plc",
-                    plc_audit,
+                    built_tetgen_plc.audit,
                 )
-            _raise_stage_contract_errors("TetGen PLC", plc_audit["contract"])
+            _raise_stage_contract_errors("TetGen PLC", built_tetgen_plc.contract)
 
             report_progress(percent=60, message="Running TetGen volume mesher...")
             volume_mesh = tetgen_build_volume_mesh(
@@ -4956,13 +5367,13 @@ def build_city_volume_mesh(
                 build_top_sidewalls=True,
                 top_height=domain_height,
                 closure_mesh=surface_ground_mesh,
-                top_cap_backend=surface_mesher,
+                top_cap_backend=built_surface_ground.mesher,
                 top_cap_max_mesh_size=top_cap_max_mesh_size,
                 top_cap_min_mesh_angle=min_mesh_angle,
                 switches_params=switches_params,
                 switches_overrides=tetgen_switch_overrides,
                 return_boundary_faces=boundary_face_markers,
-                prebuilt_plc=tetgen_plc,
+                prebuilt_plc=built_tetgen_plc.plc,
             )
 
             if attempt is not None:
@@ -4993,7 +5404,7 @@ def build_city_volume_mesh(
                         volume_mesh=volume_mesh,
                         quality_snapshot=final_quality_snapshot,
                         domain_height=domain_height,
-                        top_cap_backend=surface_mesher,
+                        top_cap_backend=built_surface_ground.mesher,
                         top_cap_max_mesh_size=top_cap_max_mesh_size,
                         top_cap_min_mesh_angle=min_mesh_angle,
                         debug_paths=debug_paths,
@@ -5035,23 +5446,11 @@ def build_city_volume_mesh(
     info("Building volume mesh with fallback DTCC volume mesher...")
     try:
         report_progress(percent=40, message="Building volume mesh (fallback mesher)...")
-        (
-            active_surfaces,
-            _meshing_directives,
-            region_polygons,
-            region_markers,
-            region_triangle_sizes,
-            region_points,
-        ) = _prepare_surface_ground_regions(
+        fallback_regions = _prepare_surface_ground_regions(
             conditioned_surfaces=building_footprints,
             conditioned_resolution=subdomain_resolution,
             target_lods=target_lods,
-            bounds=(
-                terrain.bounds.xmin,
-                terrain.bounds.ymin,
-                terrain.bounds.xmax,
-                terrain.bounds.ymax,
-            ),
+            bounds=volume_mesh_bounds,
             max_mesh_size=max_mesh_size,
             min_building_detail=min_building_detail,
             footprint_diagnostics=diagnostics,
@@ -5063,58 +5462,41 @@ def build_city_volume_mesh(
             _record_stage_audit_stage(
                 attempt,
                 "surface_regions",
-                _surface_region_audit(
-                    building_surfaces=active_surfaces,
-                    region_polygons=region_polygons,
-                    region_markers=region_markers,
-                    region_triangle_sizes=region_triangle_sizes,
-                ),
+                _surface_region_audit(fallback_regions),
             )
-        ground_mesh, active_mesher = _build_ground_mesh_from_coverage(
-            region_polygons=region_polygons,
-            region_markers=region_markers,
-            region_points=region_points,
-            bounds=(
-                terrain.bounds.xmin,
-                terrain.bounds.ymin,
-                terrain.bounds.xmax,
-                terrain.bounds.ymax,
-            ),
+        built_fallback_ground = _build_ground_mesh_stage(
+            region_polygons=fallback_regions.region_polygons,
+            region_markers=fallback_regions.region_markers,
+            region_points=fallback_regions.region_points,
+            bounds=volume_mesh_bounds,
             max_mesh_size=max_mesh_size,
             min_mesh_angle=min_mesh_angle,
             mesher=mesher,
             sort_triangles=True,
-            region_triangle_sizes=region_triangle_sizes,
+            region_triangle_sizes=fallback_regions.region_triangle_sizes,
             add_halo_markers=False,
-        )
-        if attempt is not None:
-            attempt["config"]["effective_mesher"] = active_mesher
-        ground_mesh, active_surfaces, _meshing_directives = (
-            _split_ground_mesh_building_components(
-                ground_mesh=ground_mesh,
-                building_surfaces=active_surfaces,
-                meshing_directives=_meshing_directives,
-            )
-        )
-        ground_mesh_audit = {
-            "mesher": active_mesher,
-            **_triangle_mesh_audit(ground_mesh),
-        }
-        ground_mesh_audit["contract"] = _triangle_mesh_contract_from_audit(
-            ground_mesh_audit,
             reference_length=conditioned_scale,
             require_markers=True,
             stage_label="Ground mesh",
         )
         if attempt is not None:
+            attempt["config"]["effective_mesher"] = built_fallback_ground.mesher
+        ground_mesh, active_surfaces, _meshing_directives = (
+            _split_ground_mesh_building_components(
+                ground_mesh=built_fallback_ground.mesh,
+                building_surfaces=fallback_regions.building_surfaces,
+                meshing_directives=fallback_regions.meshing_directives,
+            )
+        )
+        if attempt is not None:
             _record_stage_audit_stage(
                 attempt,
                 "ground_mesh",
-                ground_mesh_audit,
+                built_fallback_ground.audit,
             )
         _raise_stage_contract_errors(
             "Ground mesh",
-            ground_mesh_audit["contract"],
+            built_fallback_ground.contract,
         )
         _ground_mesh = mesh_to_builder_mesh(ground_mesh)
         _surfaces = [create_builder_surface(surface) for surface in active_surfaces]

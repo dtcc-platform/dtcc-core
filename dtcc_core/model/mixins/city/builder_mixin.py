@@ -232,7 +232,7 @@ class CityBuilderMixin:
 
         `smoothing` : float, optional
             The smoothing of the mesh, by default 0.0.
-        `mesher` : {"auto", "dtcc_mesher", "triangle", "spade"}, optional
+        `mesher` : {"auto", "dtcc_mesher", "triangle"}, optional
             Select the 2D meshing backend used to triangulate the ground and
             surface shell.
         `show_footprints` : bool, optional
@@ -309,7 +309,7 @@ class CityBuilderMixin:
             Minimum footprint area threshold (default 15.0).
         merge_tolerance : float, optional
             Distance tolerance for merging (default 0.5).
-        mesher : {"auto", "dtcc_mesher", "triangle", "spade"}, optional
+        mesher : {"auto", "dtcc_mesher", "triangle"}, optional
             Select the 2D meshing backend.
         show_footprints : bool, optional
             Show a live Matplotlib comparison of raw and conditioned
@@ -415,7 +415,7 @@ class CityBuilderMixin:
         debug_step : int, optional
             Legacy DTCC-only compatibility parameter. Ignored in the normal
             TetGen path.
-        mesher : {"auto", "dtcc_mesher", "triangle", "spade"}, optional
+        mesher : {"auto", "dtcc_mesher", "triangle"}, optional
             Select the 2D meshing backend used for the intermediate flat and
             surface mesh stages. ``None`` and ``"auto"`` both resolve to
             ``dtcc_mesher`` in the strict volume path.

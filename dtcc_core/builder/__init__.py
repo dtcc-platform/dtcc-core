@@ -26,6 +26,7 @@ from .city.modify import (
 from .register import register_model_method
 
 from .geometry_builders.meshes import (
+    build_conditioned_footprints,
     build_city_surface_mesh,
     build_city_flat_mesh,
     build_city_volume_mesh,
@@ -76,6 +77,7 @@ __all__ = [
     "extract_roof_points",
     "compute_building_heights",
     "build_lod1_buildings",
+    "build_conditioned_footprints",
     "build_city_surface_mesh",
     "build_city_flat_mesh",
     "build_terrain_surface_mesh",

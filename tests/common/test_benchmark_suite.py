@@ -82,6 +82,32 @@ def test_benchmark_entrypoint_uses_scenario_filter() -> None:
     assert manifest["tasks"][0]["scenario"]["id"] == "max_mesh_size_2"
 
 
+def test_benchmark_plan_avoids_cartesian_wording_for_exact_task_suites() -> None:
+    bench = Path(__file__).resolve().parents[2] / "benchmarks" / "bench"
+    bench_module = runpy.run_path(str(bench))
+    format_task_breakdown = bench_module["_format_task_breakdown"]
+
+    cartesian = format_task_breakdown(
+        {
+            "case_count": 2,
+            "dataset_count": 3,
+            "scenario_count": 4,
+            "task_count": 24,
+        }
+    )
+    exact = format_task_breakdown(
+        {
+            "case_count": 4,
+            "dataset_count": 2,
+            "scenario_count": 2,
+            "task_count": 6,
+        }
+    )
+
+    assert cartesian == "2 cases x 3 datasets x 4 scenarios = 24 tasks"
+    assert exact == "4 cases, 2 datasets, 2 scenarios = 6 tasks"
+
+
 def test_benchmark_list_scenarios_marks_default_parameters() -> None:
     bench = Path(__file__).resolve().parents[2] / "benchmarks" / "bench"
     completed = subprocess.run(
@@ -175,6 +201,90 @@ def test_sweep_suite_keeps_parameter_sweeps_on_surface_mesh_dataset() -> None:
     }
 
 
+def test_survey_suite_covers_spatial_baseline_and_parameter_envelope() -> None:
+    tasks = build_tasks("survey")
+    assert len(tasks) == 2400
+    assert {task.dataset for task in tasks} == {
+        "city_flat_mesh",
+        "city_surface_mesh",
+    }
+
+    baseline_grid_tasks = [
+        task
+        for task in tasks
+        if task.case.kind == "city_grid" and task.scenario.id == "baseline"
+    ]
+    assert len(baseline_grid_tasks) == 10 * 100 * 2
+
+    envelope_tasks = [
+        task
+        for task in tasks
+        if task.case.kind == "city_grid" and task.scenario.id != "baseline"
+    ]
+    assert len(envelope_tasks) == 10 * 15 * 2
+    assert {task.scenario.id for task in envelope_tasks} >= {
+        "raster_cell_size_0.5",
+        "max_mesh_size_1",
+        "max_mesh_size_2",
+        "min_building_detail_0.25",
+        "min_building_area_1",
+    }
+
+    bbox_tasks = [task for task in tasks if task.case.kind == "city_center"]
+    assert len(bbox_tasks) == 10 * 5 * 2
+    assert {task.scenario.id for task in bbox_tasks} == {
+        "bbox_size_m_50",
+        "bbox_size_m_100",
+        "bbox_size_m_200",
+        "bbox_size_m_350",
+        "bbox_size_m_500",
+    }
+
+
+def test_survey_suite_can_be_reduced_to_one_city() -> None:
+    tasks = build_tasks("survey", city="lund")
+    assert len(tasks) == 240
+    assert {task.case.city for task in tasks} == {"lund"}
+
+
+def test_triage_suite_tracks_known_survey_failure_cases() -> None:
+    tasks = build_tasks("triage")
+    assert {task.id for task in tasks} == {
+        "triage:city_flat_mesh:city_grid:malmo:017:baseline",
+        "triage:city_surface_mesh:city_grid:malmo:017:baseline",
+        "triage:city_flat_mesh:city_grid:linkoping:047:baseline",
+        "triage:city_surface_mesh:city_grid:linkoping:047:baseline",
+        "triage:city_surface_mesh:city_grid:helsingborg:079:baseline",
+        "triage:city_surface_mesh:city_center:uppsala:350m:bbox_size_m_350",
+    }
+
+
+def test_triage_suite_supports_city_and_dataset_filters() -> None:
+    malmo_tasks = build_tasks("triage", city="malmo")
+    assert len(malmo_tasks) == 2
+    assert {task.dataset for task in malmo_tasks} == {
+        "city_flat_mesh",
+        "city_surface_mesh",
+    }
+
+    flat_tasks = build_tasks("triage", datasets=["city_flat_mesh"])
+    assert len(flat_tasks) == 2
+    assert {task.dataset for task in flat_tasks} == {"city_flat_mesh"}
+
+    surface_tasks = build_tasks("triage", datasets=["city_surface_mesh"])
+    assert len(surface_tasks) == 4
+    assert {task.dataset for task in surface_tasks} == {"city_surface_mesh"}
+
+
+def test_triage_suite_reports_empty_filters() -> None:
+    try:
+        build_tasks("triage", city="lund")
+    except ValueError as exc:
+        assert "selection produced no tasks" in str(exc)
+    else:
+        raise AssertionError("triage should report filters that match no known cases")
+
+
 def test_stress_suite_uses_dataset_specific_mesh_size_limits() -> None:
     tasks = build_tasks("stress", city="lund")
     assert tasks
@@ -211,12 +321,26 @@ def test_benchmark_failure_classification_separates_data_from_geometry() -> None
             "RuntimeError",
             "Footprint download failed for bounds (1, 2, 3, 4).",
         )
-        == "footprint_download"
+        == "footprint_coverage"
+    )
+    assert (
+        benchmark_datasets.classify_failure(
+            "NoFootprintTilesError",
+            "No footprint tiles intersect the requested bounding box.",
+        )
+        == "footprint_coverage"
     )
     assert (
         benchmark_datasets.classify_failure(
             "FootprintDownloadError",
             "Footprint tile download did not produce all expected files: tile.gpkg",
+        )
+        == "footprint_cache"
+    )
+    assert (
+        benchmark_datasets.classify_failure(
+            "FootprintDownloadError",
+            "Footprint tile lookup failed for bounds (1, 2, 3, 4): connection refused",
         )
         == "footprint_download"
     )
@@ -244,6 +368,13 @@ def test_benchmark_failure_classification_separates_data_from_geometry() -> None
     )
     assert (
         benchmark_datasets.classify_failure(
+            "LazrsError",
+            "IoError: failed to fill whole buffer",
+        )
+        == "lidar_cache"
+    )
+    assert (
+        benchmark_datasets.classify_failure(
             "RuntimeError",
             "Conditioned footprints contract failed: short_edge_count=2",
         )
@@ -251,9 +382,64 @@ def test_benchmark_failure_classification_separates_data_from_geometry() -> None
     )
 
 
-def test_lidar_coverage_failure_is_warning_status() -> None:
+def test_data_coverage_and_cache_failures_are_warning_statuses() -> None:
+    assert benchmark_datasets.result_status_for_failure("footprint_coverage") == "warning"
+    assert benchmark_datasets.result_status_for_failure("footprint_cache") == "warning"
+    assert benchmark_datasets.result_status_for_failure("footprint_download") == "failed"
     assert benchmark_datasets.result_status_for_failure("lidar_coverage") == "warning"
+    assert benchmark_datasets.result_status_for_failure("lidar_cache") == "warning"
+    assert benchmark_datasets.result_status_for_failure("lidar_download") == "failed"
     assert benchmark_datasets.result_status_for_failure("pipeline") == "failed"
+
+
+def test_run_dataset_promotes_stage_contract_warnings(monkeypatch) -> None:
+    class FakeDataset:
+        class ArgsModel:
+            model_fields = {}
+
+        def __call__(self, *, bounds):
+            return SimpleNamespace(
+                vertices=[],
+                faces=[],
+                cells=[],
+                markers=[],
+                stage_audit={
+                    "selected_attempt_index": 0,
+                    "attempts": [
+                        {
+                            "stages": {
+                                "ground_mesh": {
+                                    "contract": {
+                                        "status": "warn",
+                                        "warnings": ["Flat mesh has short edge tail."],
+                                    }
+                                }
+                            }
+                        }
+                    ],
+                },
+            )
+
+    monkeypatch.setattr(
+        benchmark_datasets.dtcc.datasets,
+        "city_flat_mesh",
+        FakeDataset(),
+    )
+
+    result = benchmark_datasets.run_dataset(
+        {
+            "id": "task",
+            "dataset": "city_flat_mesh",
+            "case": {"bounds": [0, 0, 1, 1]},
+            "scenario": {"id": "baseline"},
+            "parameters": {},
+        }
+    )
+
+    assert result["status"] == "warning"
+    assert result["error"]["failure_class"] == "stage_contract_warning"
+    assert result["error"]["severity"] == "warning"
+    assert result["error"]["warnings"][0]["stage"] == "ground_mesh"
 
 
 def test_summary_markdown_reports_status_counts_and_quality_metrics() -> None:
@@ -351,6 +537,9 @@ def test_summary_markdown_reports_status_counts_and_quality_metrics() -> None:
     assert "| Spatial cases | 2 | 1 | 1 | 4 |" in summary
     assert "| Execution tasks | 2 | 1 | 1 | 4 |" in summary
     assert "| Scope | ✓ Success | ⚠ Warning | ✗ Fail | Total |" in summary
+    assert "## Failure Classes" in summary
+    assert "| ✗ failed | pipeline | 1 |" in summary
+    assert "| ⚠ warning | lidar_coverage | 1 |" in summary
     assert summary.index("## Results") < summary.index("## Status Summary")
     assert "✓ success" in summary
     assert "⚠ warning" in summary
@@ -363,6 +552,84 @@ def test_summary_markdown_reports_status_counts_and_quality_metrics() -> None:
     assert "q_min=0.5, q_mean=0.75, aspect_max=2, skew_max=0.1" in summary
     assert "Artifacts" in summary
     assert "mesh: tasks/example/artifacts/mesh.vtu" in summary
+
+
+def test_summary_markdown_reports_total_run_time() -> None:
+    bench = Path(__file__).resolve().parents[2] / "benchmarks" / "bench"
+    bench_module = runpy.run_path(str(bench))
+    summary_markdown = bench_module["_summary_markdown"]
+
+    summary = summary_markdown(
+        [],
+        {
+            "suite": "survey",
+            "plan": "0 cases x 0 datasets x 0 scenarios = 0 tasks",
+            "started_at": "2026-04-29T10:00:00Z",
+            "finished_at": "2026-04-29T11:01:05Z",
+            "elapsed_seconds": 3665.432,
+        },
+    )
+
+    assert "Started: 2026-04-29T10:00:00Z" in summary
+    assert "Finished: 2026-04-29T11:01:05Z" in summary
+    assert "Total time: 1h 01m 05.432s" in summary
+
+
+def test_benchmark_run_persists_total_run_time(tmp_path, monkeypatch) -> None:
+    bench = Path(__file__).resolve().parents[2] / "benchmarks" / "bench"
+    bench_module = runpy.run_path(str(bench))
+    command_run = bench_module["command_run"]
+
+    def fake_run_task_subprocess(
+        task,
+        run_dir,
+        *,
+        show_output=False,
+        save_artifacts=False,
+    ):
+        return {
+            "task_id": task["id"],
+            "dataset": task["dataset"],
+            "case": task["case"],
+            "scenario": task["scenario"],
+            "status": "success",
+            "elapsed_seconds": 0.001,
+            "bounds": task["case"]["bounds"],
+            "parameters": task["parameters"],
+            "metrics": {},
+            "artifacts": {},
+            "error": None,
+        }
+
+    monkeypatch.setitem(bench_module, "_run_task_subprocess", fake_run_task_subprocess)
+    monkeypatch.setitem(bench_module, "_load_table_helpers", lambda: None)
+    monkeypatch.setitem(bench_module, "_print_run_tables", lambda results: None)
+
+    rc = command_run(
+        SimpleNamespace(
+            suite="smoke",
+            city="lund",
+            dataset=["city_footprints"],
+            scenario=None,
+            run_id="timed",
+            output_dir=tmp_path,
+            dry_run=False,
+            show_output=False,
+            save_artifacts=False,
+        )
+    )
+
+    run_dir = tmp_path / "timed"
+    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    results_payload = json.loads((run_dir / "results.json").read_text(encoding="utf-8"))
+    summary = (run_dir / "summary.md").read_text(encoding="utf-8")
+
+    assert rc == 0
+    assert manifest["started_at"].endswith("Z")
+    assert manifest["finished_at"].endswith("Z")
+    assert manifest["elapsed_seconds"] >= 0
+    assert results_payload["manifest"]["elapsed_seconds"] == manifest["elapsed_seconds"]
+    assert "Total time:" in summary
 
 
 def test_live_status_labels_include_checkmarks_and_crosses() -> None:
