@@ -242,7 +242,7 @@ def download_tiles(user_bbox, session, server_url=DEFAULT_SERVER_URL):
         raise FootprintDownloadError(
             f"Footprint tile lookup failed for bounds {user_bbox}: {e}"
         ) from e
-    returned_tiles = response_data["tiles"]
+    returned_tiles = sorted(response_data["tiles"])
     output_dir = os.path.join(CACHE_DIR,'downloaded-gpkg')
     # D) Download files in parallel (with local cache)
     # filenames_to_download = [tile["filename"] for tile in returned_tiles]

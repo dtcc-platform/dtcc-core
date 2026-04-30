@@ -46,6 +46,42 @@ def test_download_tiles_returns_existing_downloaded_files(
     assert files == [str(tmp_path / "downloaded-gpkg" / "tile_ok.gpkg")]
 
 
+def test_download_tiles_uses_stable_filename_order(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(geopkg, "CACHE_DIR", str(tmp_path))
+    monkeypatch.setattr(
+        geopkg,
+        "post_gpkg_request",
+        lambda *args, **kwargs: {"tiles": ["tile_b.gpkg", "tile_a.gpkg"]},
+    )
+    captured = {}
+
+    def fake_run(base_url: str, filenames: list[str], output_dir: str) -> None:
+        captured["base_url"] = base_url
+        captured["filenames"] = filenames
+        captured["output_dir"] = output_dir
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+        for filename in filenames:
+            (Path(output_dir) / filename).write_bytes(b"data")
+
+    monkeypatch.setattr(geopkg, "run_download_files", fake_run)
+
+    files = geopkg.download_tiles(
+        (0, 0, 10, 10), Mock(), server_url="http://example.test"
+    )
+
+    assert captured == {
+        "base_url": "http://example.test",
+        "filenames": ["tile_a.gpkg", "tile_b.gpkg"],
+        "output_dir": str(tmp_path / "downloaded-gpkg"),
+    }
+    assert files == [
+        str(tmp_path / "downloaded-gpkg" / "tile_a.gpkg"),
+        str(tmp_path / "downloaded-gpkg" / "tile_b.gpkg"),
+    ]
+
+
 def test_run_download_files_reports_all_cached_and_skips_downloader(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

@@ -47,7 +47,7 @@ def calc_las_bounds(las_path):
         if not las_path.exists():
             raise ValueError(f"Path {las_path} does not exist")
         if las_path.is_dir():
-            las_path = list(las_path.glob("*.la[sz]"))
+            las_path = sorted(las_path.glob("*.la[sz]"))
         else:
             las_path = [las_path]
 
@@ -118,7 +118,7 @@ def load(
             bounds=bounds,
         )
     elif path.is_dir():
-        path = [p for p in path.glob("*.la[sz]")]
+        path = sorted(path.glob("*.la[sz]"))
         return load_list(
             path,
             points_only=points_only,

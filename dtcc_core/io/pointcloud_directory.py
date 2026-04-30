@@ -21,7 +21,7 @@ def load(las_directory: Union[str, Path]) -> PointCloudDirectory:
     if not las_directory.is_dir():
         raise ValueError(f"Path {las_directory} is not a directory")
 
-    las_files = list(las_directory.glob("*.la[sz]"))
+    las_files = sorted(las_directory.glob("*.la[sz]"))
     if len(las_files) == 0:
         warning(f"No valid LAS files found in {las_directory}, returning empty PointCloudContainer")
         return PointCloudDirectory()
@@ -35,5 +35,4 @@ def load(las_directory: Union[str, Path]) -> PointCloudDirectory:
         except Exception as e:
             error(f"Failed to load {lf}: {e}")
     return PointCloudDirectory(files, bounds)
-
 

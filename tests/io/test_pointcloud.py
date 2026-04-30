@@ -38,6 +38,27 @@ def test_load_pointcloud_from_dir(data_dir):
     assert len(pc.points) == 8148
 
 
+def test_load_pointcloud_from_dir_uses_stable_filename_order(
+    monkeypatch, tmp_path
+):
+    (tmp_path / "tile_b.laz").write_bytes(b"")
+    (tmp_path / "tile_a.las").write_bytes(b"")
+    captured = {}
+
+    def fake_load_list(path, **kwargs):
+        captured["path"] = path
+        return PointCloud()
+
+    monkeypatch.setattr(io.pointcloud, "load_list", fake_load_list)
+
+    io.pointcloud.load(tmp_path)
+
+    assert [path.name for path in captured["path"]] == [
+        "tile_a.las",
+        "tile_b.laz",
+    ]
+
+
 def test_load_pointcloud_bounded(las_file):
     pc = io.load_pointcloud(las_file, bounds=Bounds(-2, -2, 0, 0))
     assert len(pc.points) == 64

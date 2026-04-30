@@ -393,7 +393,7 @@ def download_lidar(user_bbox, session, buffer_val=0, base_url="http://127.0.0.1:
     debug("Response from server:", response_data)
 
     # C) Plot bboxes
-    returned_tiles = response_data["tiles"]
+    returned_tiles = sorted(response_data["tiles"], key=lambda tile: tile["filename"])
     output_map = os.path.join(cache_dir,output_map)
     plot_bboxes_folium(user_bbox, returned_tiles, out_html=output_map, crs_from="EPSG:3006")
 
