@@ -389,10 +389,19 @@ def test_data_coverage_and_cache_failures_are_warning_statuses() -> None:
     assert benchmark_datasets.result_status_for_failure("lidar_coverage") == "warning"
     assert benchmark_datasets.result_status_for_failure("lidar_cache") == "warning"
     assert benchmark_datasets.result_status_for_failure("lidar_download") == "failed"
+    assert (
+        benchmark_datasets.result_status_for_failure("conditioned_footprint_warning")
+        == "warning"
+    )
+    assert benchmark_datasets.result_status_for_failure("mesh_quality_warning") == "warning"
+    assert (
+        benchmark_datasets.result_status_for_failure("stage_contract_warning")
+        == "warning"
+    )
     assert benchmark_datasets.result_status_for_failure("pipeline") == "failed"
 
 
-def test_run_dataset_promotes_stage_contract_warnings(monkeypatch) -> None:
+def test_run_dataset_promotes_mesh_quality_stage_contract_warnings(monkeypatch) -> None:
     class FakeDataset:
         class ArgsModel:
             model_fields = {}
@@ -437,9 +446,192 @@ def test_run_dataset_promotes_stage_contract_warnings(monkeypatch) -> None:
     )
 
     assert result["status"] == "warning"
-    assert result["error"]["failure_class"] == "stage_contract_warning"
+    assert result["error"]["failure_class"] == "mesh_quality_warning"
+    assert result["error"]["warning_classes"] == ["mesh_quality_warning"]
     assert result["error"]["severity"] == "warning"
     assert result["error"]["warnings"][0]["stage"] == "ground_mesh"
+    assert result["metrics"]["stage_contract_warnings"][0]["stage"] == "ground_mesh"
+
+
+def test_run_dataset_classifies_conditioned_footprint_warnings(monkeypatch) -> None:
+    class FakeDataset:
+        class ArgsModel:
+            model_fields = {}
+
+        def __call__(self, *, bounds):
+            return SimpleNamespace(
+                vertices=[],
+                faces=[],
+                cells=[],
+                markers=[],
+                stage_audit={
+                    "selected_attempt_index": 0,
+                    "attempts": [
+                        {
+                            "stages": {
+                                "conditioned_footprints": {
+                                    "contract": {
+                                        "status": "warn",
+                                        "warnings": [
+                                            "Conditioned footprint minimum clearance is below "
+                                            "the declared meshing scale."
+                                        ],
+                                    }
+                                }
+                            }
+                        }
+                    ],
+                },
+            )
+
+    monkeypatch.setattr(
+        benchmark_datasets.dtcc.datasets,
+        "city_flat_mesh",
+        FakeDataset(),
+    )
+
+    result = benchmark_datasets.run_dataset(
+        {
+            "id": "task",
+            "dataset": "city_flat_mesh",
+            "case": {"bounds": [0, 0, 1, 1]},
+            "scenario": {"id": "baseline"},
+            "parameters": {},
+        }
+    )
+
+    assert result["status"] == "warning"
+    assert result["error"]["failure_class"] == "conditioned_footprint_warning"
+    assert result["error"]["warning_classes"] == ["conditioned_footprint_warning"]
+    assert result["error"]["severity"] == "warning"
+    assert result["error"]["warnings"][0]["stage"] == "conditioned_footprints"
+    assert (
+        result["metrics"]["stage_contract_warnings"][0]["message"]
+        == "Conditioned footprint minimum clearance is below the declared meshing scale."
+    )
+
+
+def test_run_dataset_prioritizes_mesh_quality_for_mixed_warnings(monkeypatch) -> None:
+    class FakeDataset:
+        class ArgsModel:
+            model_fields = {}
+
+        def __call__(self, *, bounds):
+            return SimpleNamespace(
+                vertices=[],
+                faces=[],
+                cells=[],
+                markers=[],
+                stage_audit={
+                    "selected_attempt_index": 0,
+                    "attempts": [
+                        {
+                            "stages": {
+                                "conditioned_footprints": {
+                                    "contract": {
+                                        "status": "warn",
+                                        "warnings": [
+                                            "Conditioned footprint minimum clearance is below "
+                                            "the declared meshing scale."
+                                        ],
+                                    }
+                                },
+                                "ground_mesh": {
+                                    "contract": {
+                                        "status": "warn",
+                                        "warnings": [
+                                            "Ground mesh minimum triangle quality is very low "
+                                            "(0.004)."
+                                        ],
+                                    }
+                                },
+                            }
+                        }
+                    ],
+                },
+            )
+
+    monkeypatch.setattr(
+        benchmark_datasets.dtcc.datasets,
+        "city_surface_mesh",
+        FakeDataset(),
+    )
+
+    result = benchmark_datasets.run_dataset(
+        {
+            "id": "task",
+            "dataset": "city_surface_mesh",
+            "case": {"bounds": [0, 0, 1, 1]},
+            "scenario": {"id": "baseline"},
+            "parameters": {},
+        }
+    )
+
+    assert result["status"] == "warning"
+    assert result["error"]["failure_class"] == "mesh_quality_warning"
+    assert result["error"]["warning_classes"] == [
+        "mesh_quality_warning",
+        "conditioned_footprint_warning",
+    ]
+
+
+def test_run_dataset_keeps_terrain_only_stage_warning_informational(monkeypatch) -> None:
+    terrain_only_warning = benchmark_datasets.TERRAIN_ONLY_CONDITIONED_FOOTPRINTS_WARNING
+
+    class FakeDataset:
+        class ArgsModel:
+            model_fields = {}
+
+        def __call__(self, *, bounds):
+            return SimpleNamespace(
+                vertices=[],
+                faces=[],
+                cells=[],
+                markers=[],
+                stage_audit={
+                    "selected_attempt_index": 0,
+                    "attempts": [
+                        {
+                            "stages": {
+                                "conditioned_footprints": {
+                                    "contract": {
+                                        "status": "warn",
+                                        "warnings": [terrain_only_warning],
+                                    }
+                                }
+                            }
+                        }
+                    ],
+                },
+            )
+
+    monkeypatch.setattr(
+        benchmark_datasets.dtcc.datasets,
+        "city_surface_mesh",
+        FakeDataset(),
+    )
+
+    result = benchmark_datasets.run_dataset(
+        {
+            "id": "task",
+            "dataset": "city_surface_mesh",
+            "case": {"bounds": [0, 0, 1, 1]},
+            "scenario": {"id": "baseline"},
+            "parameters": {},
+        }
+    )
+
+    assert result["status"] == "success"
+    assert result["error"] is None
+    assert "stage_contract_warnings" not in result["metrics"]
+    assert result["metrics"]["informational_stage_warnings"] == [
+        {
+            "stage": "conditioned_footprints",
+            "status": "warn",
+            "message": terrain_only_warning,
+            "classification": "terrain_only",
+        }
+    ]
 
 
 def test_summary_markdown_reports_status_counts_and_quality_metrics() -> None:
