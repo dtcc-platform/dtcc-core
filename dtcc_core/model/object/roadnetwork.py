@@ -232,6 +232,163 @@ class RoadNetwork(Object):
             return None
         return summary
 
+    def plot(
+        self,
+        ax=None,
+        column=None,
+        color="black",
+        linewidth=1.0,
+        cmap="viridis",
+        legend=True,
+        equal_aspect=True,
+        show=True,
+        **kwargs,
+    ):
+        """
+        Plot the road network using matplotlib.
+
+        Parameters
+        ----------
+        ax : matplotlib.axes.Axes, optional
+            Existing axes to draw into. A new figure and axes are created when
+            omitted.
+        column : str, optional
+            Edge-aligned attribute to color by. ``"length"`` and ``"lengths"``
+            refer to road segment lengths.
+        color : str, default "black"
+            Line color when no column is given.
+        linewidth : float, default 1.0
+            Width of road lines.
+        cmap : str, default "viridis"
+            Matplotlib colormap for numeric or categorical columns.
+        legend : bool, default True
+            Whether to show a colorbar or categorical legend when coloring by a
+            column.
+        equal_aspect : bool, default True
+            Whether to set equal axis scaling.
+        show : bool, default True
+            Whether to call ``matplotlib.pyplot.show()`` before returning.
+        **kwargs
+            Additional keyword arguments passed to ``LineCollection``.
+
+        Returns
+        -------
+        matplotlib.axes.Axes
+            Axes containing the road plot.
+        """
+        try:
+            import matplotlib.pyplot as plt
+            from matplotlib.collections import LineCollection
+            from matplotlib.lines import Line2D
+        except ImportError as exc:
+            raise ImportError(
+                "matplotlib is required to plot RoadNetwork objects."
+            ) from exc
+
+        segments = self._plot_segments()
+        if ax is None:
+            _, ax = plt.subplots()
+
+        if len(segments) == 0:
+            warning("RoadNetwork has no road segments to plot.")
+            return ax
+
+        if column is None:
+            collection = LineCollection(
+                segments, colors=color, linewidths=linewidth, **kwargs
+            )
+            ax.add_collection(collection)
+        else:
+            values = self._plot_column_values(column, len(segments))
+            numeric_values = self._as_numeric_plot_values(values)
+            if numeric_values is not None:
+                collection = LineCollection(
+                    segments, linewidths=linewidth, cmap=cmap, **kwargs
+                )
+                collection.set_array(numeric_values)
+                ax.add_collection(collection)
+                if legend:
+                    ax.figure.colorbar(collection, ax=ax, label=column)
+            else:
+                labels = [str(value) if value not in (None, "") else "N/A" for value in values]
+                categories = sorted(set(labels))
+                colormap = plt.get_cmap(cmap, max(len(categories), 1))
+                color_lookup = {
+                    category: colormap(i) for i, category in enumerate(categories)
+                }
+                colors = [color_lookup[label] for label in labels]
+                collection = LineCollection(
+                    segments, colors=colors, linewidths=linewidth, **kwargs
+                )
+                ax.add_collection(collection)
+                if legend:
+                    handles = [
+                        Line2D([0], [0], color=color_lookup[category], lw=linewidth)
+                        for category in categories
+                    ]
+                    ax.legend(handles, categories, title=column)
+
+        ax.autoscale()
+        if equal_aspect:
+            ax.set_aspect("equal", adjustable="box")
+        ax.set_xlabel("x")
+        ax.set_ylabel("y")
+        if show:
+            plt.show()
+        return ax
+
+    def _plot_segments(self):
+        segments = []
+        if len(self.linestrings) > 0:
+            for line in self.linestrings:
+                vertices = np.asarray(line.vertices)
+                if vertices.ndim == 2 and len(vertices) > 1:
+                    segments.append(vertices[:, :2])
+            return segments
+
+        vertices = np.asarray(self.vertices)
+        edges = np.asarray(self.edges, dtype=np.int64)
+        if vertices.ndim != 2 or edges.size == 0:
+            return segments
+
+        edges = edges.reshape((-1, 2))
+        for start, end in edges:
+            if start < len(vertices) and end < len(vertices):
+                segments.append(vertices[[start, end], :2])
+        return segments
+
+    def _plot_column_values(self, column, segment_count):
+        if column in ("length", "lengths"):
+            values = self.length
+        else:
+            if column not in self.attributes:
+                available = ["length"] + sorted(self.attributes.keys())
+                raise KeyError(
+                    f"RoadNetwork has no attribute column '{column}'. "
+                    f"Available columns: {available}"
+                )
+            values = self.attributes[column]
+
+        if len(values) != segment_count:
+            raise ValueError(
+                f"Column '{column}' has {len(values)} value(s), "
+                f"but the plot has {segment_count} segment(s)."
+            )
+        return values
+
+    @staticmethod
+    def _as_numeric_plot_values(values):
+        numeric_values = []
+        for value in values:
+            if value is None or value == "":
+                numeric_values.append(np.nan)
+                continue
+            try:
+                numeric_values.append(float(value))
+            except (TypeError, ValueError):
+                return None
+        return np.asarray(numeric_values, dtype=float)
+
     def to_shapely(self):
         """
         Convert the road network geometry to a Shapely MultiLineString.

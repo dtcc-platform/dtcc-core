@@ -3,6 +3,7 @@
 
 from abc import ABC, abstractmethod
 import builtins
+import importlib
 from dataclasses import dataclass, field
 from inspect import getmembers, isfunction, ismethod, ismodule
 from google.protobuf.json_format import MessageToJson
@@ -76,6 +77,38 @@ class Model(ABC):
     def print_info(self, file=None) -> None:
         """Print the human-readable model summary returned by ``info()``."""
         builtins.print(self.info(print=False), file=file)
+
+    def view(self, *args, **kwargs):
+        """View the model using dtcc-viewer when available.
+
+        The viewer is imported lazily so dtcc-core does not require graphical
+        dependencies at import time. Importing ``dtcc_viewer`` registers
+        object-specific ``view`` methods on DTCC model classes; this method then
+        delegates to the registered implementation.
+        """
+        view_method = getattr(type(self), "view", None)
+        if view_method is not None and view_method is not Model.view:
+            return view_method(self, *args, **kwargs)
+
+        try:
+            importlib.import_module("dtcc_viewer")
+        except Exception as exc:
+            warning(
+                f"Cannot view object: {self.__class__.__name__}. "
+                "The dtcc-viewer module is not installed or graphical rendering "
+                f"is not available ({exc})."
+            )
+            return None
+
+        view_method = getattr(type(self), "view", None)
+        if view_method is not None and view_method is not Model.view:
+            return view_method(self, *args, **kwargs)
+
+        warning(
+            f"Cannot view object: {self.__class__.__name__}. "
+            "No dtcc-viewer view method is registered for this model type."
+        )
+        return None
 
     @classmethod
     def add_methods(cls, module, name=None):

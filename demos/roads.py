@@ -25,3 +25,9 @@ print(f"Edges: {len(arrays['edges'])}")
 # Get data as a sparse adjacency matrix
 matrix = roads.to_matrix()
 print(f"Matrix: {matrix.shape[0]} x {matrix.shape[1]} with {matrix.nnz} entries")
+
+# Plot roads with matplotlib
+roads.plot(column="highway")
+
+# View roads with dtcc-viewer if installed
+roads.view()
