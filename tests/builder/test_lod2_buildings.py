@@ -103,3 +103,36 @@ def test_build_lod2_buildings_skips_sparse_roof_points():
     result = build_lod2_buildings([building], build_lod1_fallback=False)
 
     assert result[0].lod2 is None
+
+
+def _gable_roof_points():
+    points = []
+    for x in np.linspace(1, 4.5, 5):
+        for y in np.linspace(1, 9, 5):
+            points.append([x, y, 10.0 + 0.5 * x])
+    for x in np.linspace(5.5, 9, 5):
+        for y in np.linspace(1, 9, 5):
+            points.append([x, y, 15.0 - 0.5 * x])
+    return points
+
+
+def _edge_keys_for_surface(surface, tolerance=1e-3):
+    keys = []
+    for index, vertex in enumerate(surface.vertices):
+        start = tuple(np.round(vertex / tolerance).astype(int))
+        end = tuple(np.round(surface.vertices[(index + 1) % len(surface.vertices)] / tolerance).astype(int))
+        keys.append(tuple(sorted((start, end))))
+    return keys
+
+
+def test_build_lod2_buildings_creates_watertight_gable_with_shared_ridge():
+    building = _building_with_footprint(_gable_roof_points())
+
+    result = build_lod2_buildings([building], build_lod1_fallback=False)
+
+    assert result[0].lod2 is not None
+    roof_surfaces = result[0].lod2.surfaces[:2]
+    shared_edges = set(_edge_keys_for_surface(roof_surfaces[0])).intersection(_edge_keys_for_surface(roof_surfaces[1]))
+    assert is_watertight(result[0].lod2)
+    assert len(roof_surfaces) == 2
+    assert len(shared_edges) == 1

@@ -3,7 +3,8 @@ from __future__ import annotations
 from collections import Counter
 
 import numpy as np
-from shapely.geometry import Polygon
+from shapely.geometry import LineString, Point, Polygon
+from shapely.ops import split, unary_union
 
 from ...model import Building, GeometryType, MultiSurface, Surface
 from .buildings import build_lod1_buildings
@@ -188,6 +189,149 @@ def _build_shell(footprint: Polygon, roof_surfaces: list[Surface], ground_height
     return shell
 
 
+def _planes_are_coplanar(first: RoofPlane, second: RoofPlane) -> bool:
+    normals_close = abs(1.0 - abs(float(np.dot(first.normal, second.normal)))) <= COPLANAR_NORMAL_TOLERANCE
+    offset_close = abs(first.c - second.c) <= COPLANAR_OFFSET_TOLERANCE
+    return normals_close and offset_close
+
+
+def _planes_are_near_parallel(first: RoofPlane, second: RoofPlane) -> bool:
+    return abs(1.0 - abs(float(np.dot(first.normal, second.normal)))) <= NEAR_PARALLEL_NORMAL_TOLERANCE
+
+
+def _patches_cover_footprint(footprint: Polygon, patches: list[Polygon]) -> bool:
+    covered = unary_union(patches)
+    missing = footprint.difference(covered)
+    return missing.area / footprint.area <= MAX_UNCOVERED_FOOTPRINT_FRACTION
+
+
+def _plane_equality_line(first: RoofPlane, second: RoofPlane, footprint: Polygon) -> LineString | None:
+    a = first.a - second.a
+    b = first.b - second.b
+    c = first.c - second.c
+    if abs(a) + abs(b) < 1e-12:
+        return None
+    xmin, ymin, xmax, ymax = footprint.bounds
+    span = max(xmax - xmin, ymax - ymin) * 4.0
+    cx = 0.5 * (xmin + xmax)
+    cy = 0.5 * (ymin + ymax)
+    if abs(b) >= abs(a):
+        x0 = cx - span
+        x1 = cx + span
+        y0 = -(a * x0 + c) / b
+        y1 = -(a * x1 + c) / b
+    else:
+        y0 = cy - span
+        y1 = cy + span
+        x0 = -(b * y0 + c) / a
+        x1 = -(b * y1 + c) / a
+    return LineString([(x0, y0), (x1, y1)])
+
+
+def _split_footprint_for_two_planes(footprint: Polygon, first: RoofPlane, second: RoofPlane) -> list[Polygon] | None:
+    line = _plane_equality_line(first, second, footprint)
+    if line is None:
+        return None
+    pieces = split(footprint, line)
+    polygons = [geom for geom in pieces.geoms if geom.area >= MIN_PATCH_AREA]
+    if len(polygons) != 2:
+        return None
+    return polygons
+
+
+def _assign_patches_to_planes(points: np.ndarray, planes: list[RoofPlane], patches: list[Polygon]) -> list[Polygon] | None:
+    assigned: list[Polygon | None] = [None] * len(planes)
+    used_patch_indices: set[int] = set()
+    for plane_index, plane in enumerate(planes):
+        best_patch_index = -1
+        best_count = -1
+        for patch_index, patch in enumerate(patches):
+            if patch_index in used_patch_indices:
+                continue
+            buffered = patch.buffer(EDGE_TOLERANCE)
+            count = sum(
+                buffered.contains(Point(x, y)) or buffered.touches(Point(x, y))
+                for x, y in points[plane.inliers][:, :2]
+            )
+            if count > best_count:
+                best_count = count
+                best_patch_index = patch_index
+        if best_patch_index < 0 or best_count == 0:
+            return None
+        assigned[plane_index] = patches[best_patch_index]
+        used_patch_indices.add(best_patch_index)
+    return [patch for patch in assigned if patch is not None]
+
+
+def _ridge_xy(first: Polygon, second: Polygon) -> list[tuple[float, float]]:
+    shared = first.boundary.intersection(second.boundary)
+    if shared.is_empty:
+        return []
+    if shared.geom_type == "LineString":
+        return list(shared.coords)
+    if shared.geom_type == "MultiLineString":
+        longest = max(shared.geoms, key=lambda geom: geom.length)
+        return list(longest.coords)
+    return []
+
+
+def _surface_from_patch_with_shared_edges(
+    patch: Polygon,
+    plane: RoofPlane,
+    shared_edges: dict[tuple[float, float], np.ndarray],
+) -> Surface:
+    vertices = []
+    for x, y in patch.exterior.coords[:-1]:
+        key = (round(float(x), 6), round(float(y), 6))
+        if key in shared_edges:
+            vertices.append(shared_edges[key])
+        else:
+            vertices.append(np.array([x, y, plane.z_at(x, y)], dtype=float))
+    return Surface(vertices=np.asarray(vertices, dtype=float))
+
+
+def _multi_plane_roof_surfaces(points: np.ndarray, footprint: Polygon, planes: list[RoofPlane]) -> list[Surface] | None:
+    if len(planes) != 2:
+        return None
+    split_patches = _split_footprint_for_two_planes(footprint, planes[0], planes[1])
+    if split_patches is None:
+        return None
+    patches = _assign_patches_to_planes(points, planes, split_patches)
+    if patches is None:
+        return None
+    kept_planes = planes
+    if len(patches) < 2 or not _patches_cover_footprint(footprint, patches):
+        return None
+
+    shared_vertices_by_patch: list[dict[tuple[float, float], np.ndarray]] = [dict() for _ in patches]
+    for i in range(len(patches)):
+        for j in range(i + 1, len(patches)):
+            if _planes_are_coplanar(kept_planes[i], kept_planes[j]):
+                continue
+            if _planes_are_near_parallel(kept_planes[i], kept_planes[j]):
+                return None
+            coords = _ridge_xy(patches[i], patches[j])
+            if len(coords) < 2:
+                return None
+            for x, y in coords:
+                z_i = kept_planes[i].z_at(x, y)
+                z_j = kept_planes[j].z_at(x, y)
+                if abs(z_i - z_j) > RANSAC_DISTANCE_THRESHOLD:
+                    return None
+                vertex = np.array([x, y, 0.5 * (z_i + z_j)], dtype=float)
+                key = (round(float(x), 6), round(float(y), 6))
+                shared_vertices_by_patch[i][key] = vertex
+                shared_vertices_by_patch[j][key] = vertex
+
+    roof_surfaces = [
+        _surface_from_patch_with_shared_edges(patch, plane, shared)
+        for patch, plane, shared in zip(patches, kept_planes, shared_vertices_by_patch)
+    ]
+    if not _patches_cover_footprint(footprint, patches):
+        return None
+    return roof_surfaces
+
+
 def _candidate_lod2(
     building: Building,
     default_ground_height: float,
@@ -204,7 +348,10 @@ def _candidate_lod2(
     if len(planes) == 1:
         roof_surfaces = [_surface_from_xy(footprint, planes[0])]
         return _build_shell(footprint, roof_surfaces, float(ground_height))
-    return None
+    roof_surfaces = _multi_plane_roof_surfaces(roof_points, footprint, planes)
+    if roof_surfaces is None:
+        return None
+    return _build_shell(footprint, roof_surfaces, float(ground_height))
 
 
 def build_lod2_buildings(
