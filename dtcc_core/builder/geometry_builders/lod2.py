@@ -205,6 +205,19 @@ def _patches_cover_footprint(footprint: Polygon, patches: list[Polygon]) -> bool
     return missing.area / footprint.area <= MAX_UNCOVERED_FOOTPRINT_FRACTION
 
 
+def _roof_surfaces_cover_footprint(footprint: Polygon, roof_surfaces: list[Surface]) -> bool:
+    projected_patches = []
+    for surface in roof_surfaces:
+        if len(surface.vertices) < 3:
+            continue
+        patch = Polygon(surface.vertices[:, :2])
+        if not patch.is_empty and patch.is_valid and patch.area > 0:
+            projected_patches.append(patch)
+    if not projected_patches:
+        return False
+    return _patches_cover_footprint(footprint, projected_patches)
+
+
 def _plane_equality_line(first: RoofPlane, second: RoofPlane, footprint: Polygon) -> LineString | None:
     a = first.a - second.a
     b = first.b - second.b
@@ -327,7 +340,7 @@ def _multi_plane_roof_surfaces(points: np.ndarray, footprint: Polygon, planes: l
         _surface_from_patch_with_shared_edges(patch, plane, shared)
         for patch, plane, shared in zip(patches, kept_planes, shared_vertices_by_patch)
     ]
-    if not _patches_cover_footprint(footprint, patches):
+    if not _roof_surfaces_cover_footprint(footprint, roof_surfaces):
         return None
     return roof_surfaces
 

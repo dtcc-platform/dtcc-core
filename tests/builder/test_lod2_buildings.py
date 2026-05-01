@@ -7,6 +7,7 @@ from shapely.geometry import Polygon
 from dtcc_core.model import Building, City, GeometryType, MultiSurface, PointCloud, Surface
 from dtcc_core.builder.geometry_builders.lod2 import is_watertight
 from dtcc_core.builder.geometry_builders.lod2 import _fit_plane, _ransac_planes
+from dtcc_core.builder.geometry_builders.lod2 import _roof_surfaces_cover_footprint
 from dtcc_core.builder.geometry_builders.lod2 import build_lod2_buildings
 
 
@@ -106,6 +107,15 @@ def test_build_lod2_buildings_skips_sparse_roof_points():
     result = build_lod2_buildings([building], build_lod1_fallback=False)
 
     assert result[0].lod2 is None
+
+
+def test_projected_roof_surfaces_must_cover_footprint():
+    footprint = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
+    half_roof = _surface([[0, 0, 10], [5, 0, 10], [5, 10, 10], [0, 10, 10]])
+    other_half_roof = _surface([[5, 0, 10], [10, 0, 10], [10, 10, 10], [5, 10, 10]])
+
+    assert not _roof_surfaces_cover_footprint(footprint, [half_roof])
+    assert _roof_surfaces_cover_footprint(footprint, [half_roof, other_half_roof])
 
 
 def _gable_roof_points():
