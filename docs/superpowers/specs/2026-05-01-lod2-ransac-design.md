@@ -96,12 +96,14 @@ For each building:
 4. Convert accepted plane inliers into 2D roof patches inside the footprint.
    Patch polygons must be valid, non-empty, above minimum area, and cover the
    full footprint within `MAX_UNCOVERED_FOOTPRINT_FRACTION`. Unsupported
-   footprint gaps reject the candidate.
+   footprint gaps reject the candidate. Coverage is checked again after shared
+   edge reconciliation.
 5. Reconcile shared roof edges before creating 3D surfaces. Adjacent roof planes
    must share one set of vertices on their plane-plane intersection line; the
    same shared vertices are reused by both roof surfaces. Independent projection
    of the two sides of a ridge is not allowed. Adjacent coplanar patches are
-   merged; adjacent near-parallel but non-coplanar planes reject the candidate.
+   merged using `COPLANAR_NORMAL_TOLERANCE` and `COPLANAR_OFFSET_TOLERANCE`;
+   adjacent near-parallel but non-coplanar planes reject the whole candidate.
 6. Project each non-shared patch boundary segment onto its fitted 3D plane and
    combine it with reconciled shared vertices to create planar roof `Surface`s.
 7. Read building ground height from `building.attributes["ground_height"]`.
@@ -163,12 +165,18 @@ Initial values:
 - `RANSAC_DISTANCE_THRESHOLD = 0.2`
 - `MIN_PATCH_AREA = 2.0`
 - `MAX_UNCOVERED_FOOTPRINT_FRACTION = 0.01`
+- `COPLANAR_NORMAL_TOLERANCE = 1e-3`
+- `COPLANAR_OFFSET_TOLERANCE = 0.2`
 - `EDGE_TOLERANCE = 1e-3`
 
 `MIN_ROOF_POINTS` is a floor for attempting any generated LOD2, not a promise
 that multi-plane reconstruction will succeed. `MAX_PLANES = 6` covers shed,
 gable, hip, and one cross-gable-like roof in the first prototype; rarer complex
 urban roofs can be rejected.
+
+The first multi-plane synthetic test is a gable roof. A hip-roof test is a good
+follow-up after the gable path passes because it adds more topology without
+changing the prototype's public API.
 
 Add public parameters only after a concrete prototype use case needs them.
 
