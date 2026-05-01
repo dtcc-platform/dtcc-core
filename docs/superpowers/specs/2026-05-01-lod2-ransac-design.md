@@ -50,8 +50,9 @@ validator.
 
 - No C++ backend changes.
 - No protobuf, model, or schema changes.
-- No CityJSON writer changes in the first prototype unless existing LOD2 export
-  already works through current geometry mappings.
+- No CityJSON writer changes in the first prototype. Existing CityJSON writing
+  already maps `GeometryType.LOD2` to CityJSON LOD `2.0` and writes attached
+  `MultiSurface` geometry.
 - No attempt to guarantee every building receives LOD2.
 - No reconstruction of dormers, roof overhangs, balconies, facade openings, or
   other high-detail LOD2+/LOD3 features.
@@ -63,7 +64,8 @@ Add one focused module, `dtcc_core/builder/geometry_builders/lod2.py`, that owns
 
 - RANSAC roof-plane fitting and segmentation.
 - Roof patch creation inside the LOD0 footprint.
-- Roof and wall `Surface` assembly into a `MultiSurface`.
+- Shared roof-edge reconciliation, roof/wall/base `Surface` assembly into a
+  `MultiSurface`.
 - Watertight validation for candidate LOD2 shells.
 - The public builder function `build_lod2_buildings`.
 
@@ -72,8 +74,9 @@ Expose the builder function through the existing lazy import pattern in
 
 Add a thin `CityBuilderMixin.build_lod2_buildings()` wrapper next to
 `build_lod1_buildings()`. The wrapper handles only city convenience:
-ensuring roof points/heights are available in the same spirit as the LOD1 path,
-delegating reconstruction to the builder, and optionally building LOD1 fallback
+ensuring roof points/heights are available by calling the existing
+`building_heights_from_pointcloud` path in the same spirit as LOD1, delegating
+reconstruction to the builder, and optionally building missing LOD1 fallback
 geometry for buildings that do not receive LOD2.
 
 No new model classes are needed. Generated geometry is stored with
@@ -90,20 +93,32 @@ For each building:
 3. Segment roof points into multiple planes with deterministic Python RANSAC.
    Accepted planes must meet minimum inlier count, coverage, and distance
    thresholds.
-4. Convert each accepted plane's inlier cluster into a 2D patch inside the
-   footprint. Patch polygons must be valid, non-empty, and above minimum area.
-5. Project each patch boundary onto its fitted 3D plane to create roof
-   `Surface`s.
-6. Assign any uncovered footprint area only when it can be attached to an
-   accepted neighboring plane without invalid geometry. Otherwise reject the
-   candidate.
-7. Generate wall surfaces from the final exterior roof boundary segments down to
-   the building ground height. Wall top edges reuse the roof boundary vertices.
-8. Generate a base surface at ground height from the footprint exterior. The
+4. Convert accepted plane inliers into 2D roof patches inside the footprint.
+   Patch polygons must be valid, non-empty, above minimum area, and cover the
+   full footprint within `MAX_UNCOVERED_FOOTPRINT_FRACTION`. Unsupported
+   footprint gaps reject the candidate.
+5. Reconcile shared roof edges before creating 3D surfaces. Adjacent roof planes
+   must share one set of vertices on their plane-plane intersection line; the
+   same shared vertices are reused by both roof surfaces. Independent projection
+   of the two sides of a ridge is not allowed. Adjacent coplanar patches are
+   merged; adjacent near-parallel but non-coplanar planes reject the candidate.
+6. Project each non-shared patch boundary segment onto its fitted 3D plane and
+   combine it with reconciled shared vertices to create planar roof `Surface`s.
+7. Read building ground height from `building.attributes["ground_height"]`.
+   The low-level builder uses `default_ground_height` only when that attribute is
+   missing or `always_use_default_ground=True`.
+8. Generate wall surfaces from the final exterior roof boundary segments down to
+   ground height. Gable-end walls are split as needed so their top edges reuse
+   roof boundary vertices; eave walls remain rectangular when the roof boundary
+   has two roof vertices for the footprint edge.
+9. Generate a base surface at ground height from the footprint exterior. The
    base closes the bottom of the shell.
-9. Assemble roof, wall, and base surfaces into a `MultiSurface`.
-10. Validate watertightness. If validation fails, do not store LOD2.
-11. Store the candidate as `GeometryType.LOD2` only after validation passes.
+10. Assemble roof, wall, and base surfaces into a `MultiSurface`.
+11. Validate watertightness. If validation fails, do not store LOD2.
+12. Store the candidate as `GeometryType.LOD2` only after validation passes.
+
+The first prototype does not repair uncovered footprint gaps. Gap filling,
+plane extension, and topology repair are future work.
 
 ## Watertightness Rule
 
@@ -113,31 +128,47 @@ Generated LOD2 admission is binary:
 - If the shell validator fails, leave `building.lod2` unset or preserve the
   previous LOD2 when `rebuild=False`.
 
-The prototype validator quantizes vertices by `1e-6`, builds
+The prototype validator quantizes vertices by `1e-3` meters, builds
 undirected edges for every surface ring, and requires every edge to be referenced
 exactly twice. An edge referenced once is an opening. An edge referenced more
 than twice is non-manifold. Either condition rejects generated LOD2.
+
+`1e-3` meters is the prototype edge tolerance because it tolerates millimeter
+roundoff from plane intersections and shared-vertex reuse without hiding
+centimeter-scale geometric defects.
 
 The validator is the guarantee boundary. The project must never claim that
 every input building can produce LOD2, only that every generated LOD2 admitted by
 the prototype passed the watertightness check.
 
+The edge-count validator is direction-agnostic. Surface winding will be
+constructed consistently because downstream mesh and CityJSON consumers may
+expect outward-facing surfaces, but winding is not the admission guarantee in
+this prototype.
+
 ## Public API
 
 Builder function signature:
 
-`build_lod2_buildings(buildings: list[Building], *, rebuild: bool = True, build_lod1_fallback: bool = True) -> list[Building]`
+`build_lod2_buildings(buildings: list[Building], *, default_ground_height: float = 0.0, always_use_default_ground: bool = False, rebuild: bool = True, build_lod1_fallback: bool = True) -> list[Building]`
 
 Prototype-specific tuning values start as internal constants in `lod2.py`.
 Initial values:
 
-- `MIN_ROOF_POINTS = 12`
-- `MIN_PLANE_INLIERS = 6`
+- `MIN_ROOF_POINTS = 24`
+- `MIN_PLANE_INLIERS = 8`
 - `MAX_PLANES = 6`
 - `RANSAC_ITERATIONS = 200`
-- `RANSAC_DISTANCE_THRESHOLD = 0.5`
+- `RANSAC_SEED = 0`
+- `RANSAC_DISTANCE_THRESHOLD = 0.2`
 - `MIN_PATCH_AREA = 2.0`
-- `EDGE_TOLERANCE = 1e-6`
+- `MAX_UNCOVERED_FOOTPRINT_FRACTION = 0.01`
+- `EDGE_TOLERANCE = 1e-3`
+
+`MIN_ROOF_POINTS` is a floor for attempting any generated LOD2, not a promise
+that multi-plane reconstruction will succeed. `MAX_PLANES = 6` covers shed,
+gable, hip, and one cross-gable-like roof in the first prototype; rarer complex
+urban roofs can be rejected.
 
 Add public parameters only after a concrete prototype use case needs them.
 
@@ -149,10 +180,23 @@ The wrapper mirrors existing LOD1 ergonomics without copying the whole LOD1
 implementation. It delegates roof-point extraction and height
 calculation to existing helpers where possible.
 
+The wrapper uses the existing LOD1 defaults for ground and height calculation:
+`default_ground_height=0.0`, `min_building_height=2.5`, statistical roof
+outlier removal enabled, `roof_outlier_neighbors=5`, and
+`roof_outlier_margin=1.5`. Additional public tuning parameters are deferred
+until prototype usage needs them.
+
+If `rebuild=False` and a building already has `LOD2`, preserve it and skip
+generation for that building. If `rebuild=True`, remove or replace the existing
+LOD2 only when this builder is asked to regenerate it; if reconstruction fails,
+the building ends without generated LOD2. When `build_lod1_fallback=True`, build
+only missing LOD1 fallback geometry with `rebuild=False`; existing LOD1 geometry
+is preserved.
+
 ## Failure Handling
 
 - Too few roof points: skip generated LOD2.
-- Footprint has holes: skip generated LOD2.
+- Footprint has holes: skip generated LOD2 and allow LOD1 fallback when enabled.
 - Plane segmentation finds no acceptable plane set: skip generated LOD2.
 - Patch creation leaves unsupported footprint gaps: skip generated LOD2.
 - Surface assembly cannot form a closed shell: skip generated LOD2.
@@ -169,14 +213,20 @@ Add targeted synthetic tests under `tests/builder/`:
 - A flat-roof building with dense synthetic roof points produces `LOD2` and the
   watertight validator passes.
 - A two-plane gable-like roof produces multiple roof surfaces and passes the
-  watertight validator.
+  watertight validator. The test checks that the ridge edge is represented by
+  shared vertices reused by both roof surfaces.
 - Sparse roof points do not store generated `LOD2`.
 - A deliberately open candidate shell is rejected by the validator.
+- A deliberately non-manifold candidate shell is rejected by the validator.
 - `rebuild=False` preserves existing `LOD2`.
+- `rebuild=True` replaces an existing `LOD2` when reconstruction succeeds and
+  leaves no generated `LOD2` when reconstruction fails.
 - `dtcc_core.builder.build_lod2_buildings` is importable through the public
   builder module.
 - `City.build_lod2_buildings()` delegates to the builder path and leaves
   buildings in a usable state.
+- A footprint with an interior hole receives no generated LOD2 and can still
+  receive LOD1 fallback.
 
 Verification commands for the prototype plan include the new focused test file
 and a narrow existing LOD1 test to catch accidental regression:
@@ -190,6 +240,7 @@ pytest tests/builder/test_city_build_methods.py::test_lod1_buildings -v
 
 - Keep changes surgical and directly traceable to this prototype.
 - Prefer one new focused module over edits spread through existing geometry code.
-- Do not add dependencies; use existing NumPy, Shapely, and SciPy only if needed.
+- Do not add dependencies. NumPy, Shapely, and SciPy are already project
+  dependencies and are available for this prototype.
 - Do not introduce abstractions for future LOD2+ work in this first slice.
 - Prefer rejection and LOD1 fallback over complex repair logic.
