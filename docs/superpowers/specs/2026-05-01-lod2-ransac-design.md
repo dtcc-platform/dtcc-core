@@ -102,8 +102,9 @@ For each building:
    must share one set of vertices on their plane-plane intersection line; the
    same shared vertices are reused by both roof surfaces. Independent projection
    of the two sides of a ridge is not allowed. Adjacent coplanar patches are
-   merged using `COPLANAR_NORMAL_TOLERANCE` and `COPLANAR_OFFSET_TOLERANCE`;
-   adjacent near-parallel but non-coplanar planes reject the whole candidate.
+   allowed to remain separate in the first prototype, but they must share
+   consistent boundary vertices. Adjacent near-parallel but non-coplanar planes
+   reject the whole candidate.
 6. Project each non-shared patch boundary segment onto its fitted 3D plane and
    combine it with reconciled shared vertices to create planar roof `Surface`s.
 7. Read building ground height from `building.attributes["ground_height"]`.
@@ -167,12 +168,14 @@ Initial values:
 - `MAX_UNCOVERED_FOOTPRINT_FRACTION = 0.01`
 - `COPLANAR_NORMAL_TOLERANCE = 1e-3`
 - `COPLANAR_OFFSET_TOLERANCE = 0.2`
+- `NEAR_PARALLEL_NORMAL_TOLERANCE = 1e-2`
 - `EDGE_TOLERANCE = 1e-3`
 
 `MIN_ROOF_POINTS` is a floor for attempting any generated LOD2, not a promise
-that multi-plane reconstruction will succeed. `MAX_PLANES = 6` covers shed,
-gable, hip, and one cross-gable-like roof in the first prototype; rarer complex
-urban roofs can be rejected.
+that multi-plane reconstruction will succeed. `MAX_PLANES = 6` lets RANSAC
+inspect complex roofs, but the first shell assembly accepts only one or two
+planes. Hip, cross-gable, and rarer complex urban roofs are follow-up work after
+the gable path passes.
 
 The first multi-plane synthetic test is a gable roof. A hip-roof test is a good
 follow-up after the gable path passes because it adds more topology without
