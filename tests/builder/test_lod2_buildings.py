@@ -1,7 +1,10 @@
+from pathlib import Path
+
 import numpy as np
+import pytest
 from shapely.geometry import Polygon
 
-from dtcc_core.model import Building, GeometryType, MultiSurface, PointCloud, Surface
+from dtcc_core.model import Building, City, GeometryType, MultiSurface, PointCloud, Surface
 from dtcc_core.builder.geometry_builders.lod2 import is_watertight
 from dtcc_core.builder.geometry_builders.lod2 import _fit_plane, _ransac_planes
 from dtcc_core.builder.geometry_builders.lod2 import build_lod2_buildings
@@ -192,3 +195,35 @@ def test_public_builder_import_exposes_lod2_builder():
     import dtcc_core.builder as builder
 
     assert builder.build_lod2_buildings is build_lod2_buildings
+
+
+def test_city_build_lod2_buildings_uses_existing_roof_points_without_recomputing_heights():
+    city = City()
+    city.add_building(_building_with_footprint(_flat_roof_points()))
+
+    result = city.build_lod2_buildings(calculate_heights=False)
+
+    assert result is city
+    assert city.buildings[0].lod2 is not None
+    assert is_watertight(city.buildings[0].lod2)
+
+
+@pytest.fixture
+def minimal_case_dir():
+    return Path(__file__).parent / ".." / "data" / "MinimalCase"
+
+
+def test_city_build_lod2_buildings_calculates_heights_and_keeps_roof_points(minimal_case_dir):
+    city = City()
+    city.load_footprints(str(minimal_case_dir / "PropertyMap.shp"))
+    city.load_pointcloud(str(minimal_case_dir / "pointcloud.las"))
+
+    result = city.build_lod2_buildings(calculate_heights=True)
+
+    assert result is city
+    assert len(city.buildings) == 5
+    for building in city.buildings:
+        assert building.attributes.get("height") is not None
+        assert building.attributes.get("ground_height") is not None
+        assert building.point_cloud is not None
+        assert building.lod1 is not None or building.lod2 is not None

@@ -169,6 +169,61 @@ class CityBuilderMixin:
 
         return self
 
+    def build_lod2_buildings(
+        self: "T_City",
+        rebuild: bool = True,
+        calculate_heights: bool = True,
+    ) -> "T_City":
+        """
+        Build prototype LOD2 buildings for a city.
+
+        The generated LOD2 geometry is stored only when the builder validates a
+        watertight shell. Buildings that cannot produce LOD2 keep or receive
+        LOD1 fallback geometry.
+        """
+        from dtcc_core.builder import (
+            building_heights_from_pointcloud,
+            build_lod2_buildings,
+        )
+
+        if len(self.buildings) == 0:
+            raise ValueError(
+                "City has no buildings to build LOD2 geometry for\nload building footprints first."
+            )
+
+        if calculate_heights:
+            if self.pointcloud is None:
+                raise ValueError(
+                    "City has no point cloud geometry\nAdd a point cloud to the city to calculate building heights."
+                )
+            if self.terrain.raster is None:
+                info("City has no terrain, generating terrain from point cloud")
+                self.build_terrain(pc=self.pointcloud)
+            buildings_with_roof_points = building_heights_from_pointcloud(
+                self.buildings,
+                self.pointcloud,
+                self.terrain.raster,
+                statistical_outlier_remover=True,
+                roof_outlier_neighbors=5,
+                roof_outlier_margin=1.5,
+                overwrite=True,
+                keep_roof_points=True,
+            )
+            self.remove_buildings()
+            self.add_buildings(buildings_with_roof_points)
+
+        lod2_buildings = build_lod2_buildings(
+            self.buildings,
+            default_ground_height=0.0,
+            always_use_default_ground=False,
+            rebuild=rebuild,
+            build_lod1_fallback=True,
+        )
+        self.remove_buildings()
+        self.add_buildings(lod2_buildings)
+
+        return self
+
     def build_surface_mesh(
         self: "T_City",
         lod: GeometryType | list[GeometryType] | None = None,
