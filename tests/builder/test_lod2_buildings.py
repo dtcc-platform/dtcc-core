@@ -73,6 +73,10 @@ def test_ransac_planes_is_deterministic_for_two_planes():
     second = _ransac_planes(points, seed=7)
 
     assert [len(plane.inliers) for plane in first] == [len(plane.inliers) for plane in second]
+    assert np.allclose(
+        [(plane.a, plane.b, plane.c) for plane in first],
+        [(plane.a, plane.b, plane.c) for plane in second],
+    )
     assert len(first) == 2
 
 
@@ -199,6 +203,17 @@ def test_hole_footprint_skips_lod2_and_builds_lod1_fallback():
 
     assert building.lod2 is None
     assert building.lod1 is not None
+
+
+def test_build_lod2_buildings_preserves_existing_lod1_fallback():
+    building = _building_with_footprint(_flat_roof_points()[:6])
+    existing_lod1 = _closed_box()
+    building.add_geometry(existing_lod1, GeometryType.LOD1)
+
+    build_lod2_buildings([building], build_lod1_fallback=True)
+
+    assert building.lod2 is None
+    assert building.lod1 is existing_lod1
 
 
 def test_public_builder_import_exposes_lod2_builder():

@@ -12,6 +12,7 @@ from .buildings import build_lod1_buildings
 
 MIN_ROOF_POINTS = 24
 MIN_PLANE_INLIERS = 8
+# RANSAC may inspect richer roofs; shell assembly currently accepts one or two planes.
 MAX_PLANES = 6
 RANSAC_ITERATIONS = 200
 RANSAC_SEED = 0
@@ -22,6 +23,7 @@ COPLANAR_NORMAL_TOLERANCE = 1e-3
 COPLANAR_OFFSET_TOLERANCE = 0.2
 NEAR_PARALLEL_NORMAL_TOLERANCE = 1e-2
 EDGE_TOLERANCE = 1e-3
+SHARED_VERTEX_KEY_DECIMALS = 6
 
 
 class RoofPlane:
@@ -295,7 +297,10 @@ def _surface_from_patch_with_shared_edges(
 ) -> Surface:
     vertices = []
     for x, y in patch.exterior.coords[:-1]:
-        key = (round(float(x), 6), round(float(y), 6))
+        key = (
+            round(float(x), SHARED_VERTEX_KEY_DECIMALS),
+            round(float(y), SHARED_VERTEX_KEY_DECIMALS),
+        )
         if key in shared_edges:
             vertices.append(shared_edges[key])
         else:
@@ -332,7 +337,10 @@ def _multi_plane_roof_surfaces(points: np.ndarray, footprint: Polygon, planes: l
                 if abs(z_i - z_j) > RANSAC_DISTANCE_THRESHOLD:
                     return None
                 vertex = np.array([x, y, 0.5 * (z_i + z_j)], dtype=float)
-                key = (round(float(x), 6), round(float(y), 6))
+                key = (
+                    round(float(x), SHARED_VERTEX_KEY_DECIMALS),
+                    round(float(y), SHARED_VERTEX_KEY_DECIMALS),
+                )
                 shared_vertices_by_patch[i][key] = vertex
                 shared_vertices_by_patch[j][key] = vertex
 
