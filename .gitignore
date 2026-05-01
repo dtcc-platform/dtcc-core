@@ -169,6 +169,7 @@ cython_debug/
 temp/
 .aider*
 .DS_Store
+.worktrees/
 
 sandbox/snapping
 
