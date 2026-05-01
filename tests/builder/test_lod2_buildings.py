@@ -136,3 +136,59 @@ def test_build_lod2_buildings_creates_watertight_gable_with_shared_ridge():
     assert is_watertight(result[0].lod2)
     assert len(roof_surfaces) == 2
     assert len(shared_edges) == 1
+
+
+def test_rebuild_false_preserves_existing_lod2():
+    building = _building_with_footprint(_flat_roof_points())
+    existing = _closed_box()
+    building.add_geometry(existing, GeometryType.LOD2)
+
+    build_lod2_buildings([building], rebuild=False, build_lod1_fallback=False)
+
+    assert building.lod2 is existing
+
+
+def test_rebuild_true_replaces_existing_lod2_when_reconstruction_succeeds():
+    building = _building_with_footprint(_flat_roof_points())
+    existing = _closed_box()
+    building.add_geometry(existing, GeometryType.LOD2)
+
+    build_lod2_buildings([building], rebuild=True, build_lod1_fallback=False)
+
+    assert building.lod2 is not existing
+    assert is_watertight(building.lod2)
+
+
+def test_rebuild_true_removes_existing_lod2_when_reconstruction_fails():
+    building = _building_with_footprint(_flat_roof_points()[:6])
+    building.add_geometry(_closed_box(), GeometryType.LOD2)
+
+    build_lod2_buildings([building], rebuild=True, build_lod1_fallback=False)
+
+    assert building.lod2 is None
+
+
+def test_hole_footprint_skips_lod2_and_builds_lod1_fallback():
+    building = Building()
+    footprint = Surface()
+    footprint.from_polygon(
+        Polygon(
+            [(0, 0), (10, 0), (10, 10), (0, 10)],
+            holes=[[(4, 4), (6, 4), (6, 6), (4, 6)]],
+        ),
+        10.0,
+    )
+    building.add_geometry(footprint, GeometryType.LOD0)
+    building.add_geometry(PointCloud(points=np.array(_flat_roof_points(), dtype=float)), GeometryType.POINT_CLOUD)
+    building.attributes["ground_height"] = 0.0
+
+    build_lod2_buildings([building], build_lod1_fallback=True)
+
+    assert building.lod2 is None
+    assert building.lod1 is not None
+
+
+def test_public_builder_import_exposes_lod2_builder():
+    import dtcc_core.builder as builder
+
+    assert builder.build_lod2_buildings is build_lod2_buildings
