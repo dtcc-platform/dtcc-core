@@ -15,6 +15,7 @@ from .weather import WeatherDataset
 from .hydrology import HydrologyDataset
 from .ocean import OceanDataset
 from .footprints import FootprintsDataset
+from .roads import RoadsDataset
 
 # Remote dataset support (optional, requires httpx)
 try:
@@ -56,6 +57,7 @@ trees = get_dataset("trees")
 weather = get_dataset("weather")
 hydrology = get_dataset("hydrology")
 ocean = get_dataset("ocean")
+roads = get_dataset("roads")
 
 
 def info():

@@ -428,7 +428,10 @@ class Object(Model):
         if lod is not None:
             lods = [lod]
         else:
-            lods = list(GeometryType)
+            lods = set(self.geometry.keys())
+            for child_list in self.children.values():
+                for child in child_list:
+                    lods.update(child.geometry.keys())
         bounds = None
         for lod in lods:
             geom = self.geometry.get(lod, None)
@@ -498,6 +501,9 @@ class Object(Model):
         else:
             pb.id = self.id
         pb.attributes = json.dumps(self.attributes)
+        bounds = self.bounds
+        if bounds is not None:
+            pb.bounds.CopyFrom(bounds.to_proto())
 
         # Handle children
         children = [c for cs in self.children.values() for c in cs]
@@ -525,13 +531,15 @@ class Object(Model):
 
         # Handle basic fields
         self.id = pb.id
-        self.attributes = json.loads(pb.attributes)
+        self.attributes = json.loads(pb.attributes) if pb.attributes else {}
+        if pb.HasField("bounds"):
+            self._bounds = Bounds()
+            self._bounds.from_proto(pb.bounds)
 
         # Handle children
         for child in pb.children:
             _type = child.WhichOneof("type")
-            _class = _proto_type_to_object_class(_type)
-            _child = _class()
+            _child = Object() if _type is None else _proto_type_to_object_class(_type)()
             _child.from_proto(child)
             self.add_child(_child)
 

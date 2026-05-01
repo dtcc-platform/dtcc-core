@@ -290,13 +290,17 @@ class Raster(Model):
         pb.values.extend(self.data.flatten())
         pb.nodata = self.nodata
         pb.dtype = self.data.dtype.name
-
-        pb.transform.a = self.georef.a
-        pb.transform.b = self.georef.b
-        pb.transform.c = self.georef.c
-        pb.transform.d = self.georef.d
-        pb.transform.e = self.georef.e
-        pb.transform.f = self.georef.f
+        pb.georef.extend(
+            [
+                self.georef.a,
+                self.georef.b,
+                self.georef.c,
+                self.georef.d,
+                self.georef.e,
+                self.georef.f,
+            ]
+        )
+        pb.crs = self.crs
 
         return pb
 
@@ -315,24 +319,21 @@ class Raster(Model):
 
         """
         if isinstance(pb, bytes):
-            _raster = proto.Raster()
-            _raster.FromString(pb)
-            pb = _raster
+            pb = proto.Raster.FromString(pb)
 
-        if pb.height == 0 or pb.width == 0 or pb.channels == 0:
+        height = pb.height or pb.grid.height
+        width = pb.width or pb.grid.width
+        channels = pb.channels or (1 if height and width else 0)
+
+        if height == 0 or width == 0 or channels == 0:
             self.data = np.empty(())
-        elif pb.channels == 1:
-            self.data = np.array(pb.values).reshape((pb.height, pb.width))
+        elif channels == 1:
+            self.data = np.array(pb.values).reshape((height, width))
         else:
-            self.data = np.array(pb.values).reshape((pb.height, pb.width, pb.channels))
+            self.data = np.array(pb.values).reshape((height, width, channels))
         if pb.dtype:
             self.data = self.data.astype(pb.dtype)
         self.nodata = pb.nodata
-        self.georef = Affine(
-            pb.transform.a,
-            pb.transform.b,
-            pb.transform.c,
-            pb.transform.d,
-            pb.transform.e,
-            pb.transform.f,
-        )
+        if len(pb.georef) >= 6:
+            self.georef = Affine(*pb.georef[:6])
+        self.crs = pb.crs

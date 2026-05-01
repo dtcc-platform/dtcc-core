@@ -2,6 +2,7 @@
 # Licensed under the MIT License
 
 from abc import ABC, abstractmethod
+import builtins
 from dataclasses import dataclass, field
 from inspect import getmembers, isfunction, ismethod, ismodule
 from google.protobuf.json_format import MessageToJson
@@ -58,6 +59,23 @@ class Model(ABC):
         for key, value in kwargs.items():
             setattr(c, key, value)
         return c
+
+    def info(self, print: bool = True) -> str | None:
+        """Print or return a human-readable summary of the model.
+
+        Subclasses may override this for richer multi-line summaries. The base
+        implementation intentionally follows ``str(self)`` so every model has a
+        lightweight, uniform information API.
+        """
+        summary = str(self)
+        if print:
+            builtins.print(summary)
+            return None
+        return summary
+
+    def print_info(self, file=None) -> None:
+        """Print the human-readable model summary returned by ``info()``."""
+        builtins.print(self.info(print=False), file=file)
 
     @classmethod
     def add_methods(cls, module, name=None):

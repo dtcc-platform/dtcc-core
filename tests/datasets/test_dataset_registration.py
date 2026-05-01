@@ -219,6 +219,7 @@ def test_list_returns_all_datasets():
     # Should include built-in datasets
     assert "point_cloud" in available
     assert "buildings" in available
+    assert "roads" in available
     assert "terrain_surface_mesh" in available
 
     # Should include test datasets
@@ -262,6 +263,13 @@ def test_module_attribute_access_terrain():
     terrain_surface_mesh = datasets.terrain_surface_mesh
     assert isinstance(terrain_surface_mesh, DatasetDescriptor)
     assert terrain_surface_mesh.name == "terrain_surface_mesh"
+
+
+def test_module_attribute_access_roads():
+    """Test access to roads dataset."""
+    roads = datasets.roads
+    assert isinstance(roads, DatasetDescriptor)
+    assert roads.name == "roads"
 
 
 def test_module_attribute_access_custom():

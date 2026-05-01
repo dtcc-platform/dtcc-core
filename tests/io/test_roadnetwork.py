@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 from pathlib import Path
-from dtcc_core.model.object import RoadNetwork, RoadType
+from dtcc_core.model.object import RoadNetwork, RoadType, GeometryType
 from dtcc_core.io import roadnetwork
 from dtcc_core.model import Bounds
 
@@ -70,6 +70,18 @@ def test_roadnetwork_protobuf_conversion(basic_roadnetwork):
     assert np.allclose(basic_roadnetwork.edges, rn2.edges)
     assert len(basic_roadnetwork.length) == len(rn2.length)
     assert np.allclose(basic_roadnetwork.length, rn2.length)
+    assert basic_roadnetwork.attributes == rn2.attributes
+    assert GeometryType.MULTILINESTRING in rn2.geometry
+    assert len(rn2.linestrings) == len(basic_roadnetwork.linestrings)
+    assert np.allclose(
+        rn2.linestrings[0].vertices,
+        basic_roadnetwork.linestrings[0].vertices,
+    )
+    assert (
+        rn2.geometry[GeometryType.MULTILINESTRING].transform.srs.lower()
+        == basic_roadnetwork.geometry[GeometryType.MULTILINESTRING].transform.srs.lower()
+    )
+    assert rn2.bounds.tuple == pytest.approx(basic_roadnetwork.bounds.tuple)
 
 
 @pytest.mark.skipif(gpd is None, reason="Geopandas not installed")

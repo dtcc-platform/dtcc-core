@@ -62,7 +62,6 @@ def test_sensor_collection_with_field():
     assert values[0] == pytest.approx(42.5)
 
 
-@pytest.mark.skip(reason="SensorCollection protobuf serialization not yet implemented")
 def test_sensor_collection_protobuf_roundtrip():
     """Test SensorCollection protobuf roundtrip with multiple stations."""
     # Create collection
@@ -115,7 +114,7 @@ def test_sensor_collection_protobuf_roundtrip():
         assert len(point.fields) == 1
         field = point.fields[0]
         assert field.name == "PM10"
-        assert field.values[0] == pytest.approx(float(i * 10))
+        assert np.ravel(field.values)[0] == pytest.approx(float(i * 10))
 
 
 if __name__ == "__main__":

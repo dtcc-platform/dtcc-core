@@ -30,18 +30,13 @@ def to_matrix(roadnetwork: RoadNetwork, bidirectional=True) -> csr_matrix:
         Sparse adjacency matrix where (i,j) entry contains the length of the road
         segment connecting vertices i and j.
     """
-    edges = roadnetwork.edges
+    edges = np.asarray(roadnetwork.edges, dtype=np.int64).reshape((-1, 2))
+    weights = np.asarray(roadnetwork.length)
 
     if bidirectional:
-        # remove loops so we don't add them twice
-        loops = np.argwhere(edges[:, 0] == edges[:, 1])[0]
-    if bidirectional:
-        edges = np.concatenate((edges, np.fliplr(edges)))
-        edges = np.delete(edges, loops, axis=0)
-    weights = roadnetwork.length
-    if bidirectional:
-        weights = np.concatenate((weights, weights))
-        weights = np.delete(weights, loops)
+        non_loop_edges = edges[:, 0] != edges[:, 1]
+        edges = np.concatenate((edges, np.fliplr(edges[non_loop_edges])))
+        weights = np.concatenate((weights, weights[non_loop_edges]))
     n = len(roadnetwork.vertices)
     return csr_matrix((weights, (edges[:, 0], edges[:, 1])), shape=(n, n))
 

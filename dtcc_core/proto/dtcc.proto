@@ -206,5 +206,12 @@ message Raster
   string unit = 2;
   string description = 3;
   repeated float values = 4;
-  Grid grid = 5;  
+  Grid grid = 5;
+  int32 height = 6;
+  int32 width = 7;
+  int32 channels = 8;
+  double nodata = 9;
+  string dtype = 10;
+  repeated double georef = 11;
+  string crs = 12;
 }

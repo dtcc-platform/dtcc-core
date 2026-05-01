@@ -206,7 +206,7 @@ def download_data(data_type: str, provider: str, bounds: Bounds, epsg = '3006', 
         elif data_type == 'roads':
             info("Downloading road tiles from OSM source")
             gdf, filename = get_roads_for_bbox(bounds.tuple)
-            roads = io.load_roadnetwork(filename)
+            roads = io.load_roadnetwork(filename, bounds=bounds)
             return roads
         else:
             error('Please enter a valid data type')
@@ -218,7 +218,7 @@ def download_pointcloud(bounds: Bounds, provider = 'dtcc', epsg = '3006'):
 
     Args:
         bounds (Bounds): The geographic bounds to download the point cloud data for.
-        provider (str, optional): The data provider, defaults to 'dtcc'.
+        provider (str, optional): The data provider, defaults to 'OSM'.
         epsg (str, optional): The EPSG code for the coordinate reference system, defaults to '3006'.
 
     Returns:
@@ -239,7 +239,7 @@ def download_footprints(bounds: Bounds, provider = 'dtcc', epsg = '3006'):
 
     Args:
         bounds (Bounds): The geographic bounds to download the building footprints data for.
-        provider (str, optional): The data provider, defaults to 'dtcc'.
+        provider (str, optional): The data provider, defaults to 'OSM'.
         epsg (str, optional): The EPSG code for the coordinate reference system, defaults to '3006'.
 
     Returns:
@@ -256,13 +256,13 @@ def download_footprints(bounds: Bounds, provider = 'dtcc', epsg = '3006'):
     else:
         error("Please enter a valid provider")
 
-def download_roadnetwork(bounds: Bounds, provider = 'dtcc', epsg='3006'):
+def download_roadnetwork(bounds: Bounds, provider = 'OSM', epsg='3006'):
     """
     Download road network data from the specified provider within the given bounds.
 
     Args:
         bounds (Bounds): The geographic bounds to download the road network data for.
-        provider (str, optional): The data provider, defaults to 'dtcc'.
+        provider (str, optional): The data provider, defaults to 'OSM'.
         epsg (str, optional): The EPSG code for the coordinate reference system, defaults to '3006'.
 
     Returns:
@@ -272,6 +272,6 @@ def download_roadnetwork(bounds: Bounds, provider = 'dtcc', epsg='3006'):
         Error if an invalid provider is specified.
     """
     if provider and provider.upper() == 'OSM':
-        download_data('roads', "OSM", bounds, epsg=epsg)
+        return download_data('roads', "OSM", bounds, epsg=epsg)
     else:
         error("Please enter a valid provider")

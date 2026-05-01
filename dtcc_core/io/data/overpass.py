@@ -2,6 +2,7 @@
 
 import os
 import json
+import re
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -26,6 +27,7 @@ OVERPASS_ENDPOINTS = [
     # "https://overpass.kumi.systems/api/interpreter",
     "https://overpass.private.coffee/api/interpreter",
 ]
+ROAD_CACHE_VERSION = 2
 
 
 def create_retry_session(
@@ -116,6 +118,40 @@ def filter_gdf_to_bbox(gdf, bbox_3006):
     minx, miny, maxx, maxy = bbox_3006
     bbox_poly = box(minx, miny, maxx, maxy)  # shapely
     return gdf[gdf.geometry.intersects(bbox_poly)].copy()
+
+
+def _parse_bool_tag(value):
+    if value is None:
+        return False
+    return str(value).strip().lower() in {"yes", "true", "1"}
+
+
+def _is_reverse_oneway(value):
+    if value is None:
+        return False
+    return str(value).strip().lower() in {"-1", "reverse"}
+
+
+def _is_oneway(tags):
+    oneway = tags.get("oneway")
+    if _parse_bool_tag(oneway) or _is_reverse_oneway(oneway):
+        return True
+    return tags.get("junction") == "roundabout"
+
+
+def _parse_maxspeed_kmh(value):
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    if not text:
+        return None
+    match = re.search(r"(\d+(?:\.\d+)?)", text)
+    if match is None:
+        return None
+    speed = float(match.group(1))
+    if "mph" in text:
+        speed *= 1.609344
+    return speed
 
 # ------------------------------------------------------------------------
 # 3) Metadata I/O
@@ -243,26 +279,66 @@ def download_overpass_roads(bbox_3006):
             lon = elem["lon"]
             nodes[nid] = (lat, lon)
 
-    roads_ll = []
+    road_rows = []
+    road_geometries = []
     for elem in data.get("elements", []):
-        if elem["type"] == "way" and "nodes" in elem:
-            refs = elem["nodes"]
-            coords = []
-            for r in refs:
-                if r in nodes:
-                    coords.append(nodes[r])  # (lat, lon)
-            if len(coords) > 1:
-                roads_ll.append(coords)
+        if elem["type"] != "way" or "nodes" not in elem:
+            continue
 
-    # lat-lon -> lines in EPSG:4326
-    lines_4326 = []
-    for line_coords in roads_ll:
-        line_lonlat = [(lon, lat) for (lat, lon) in line_coords]
-        lines_4326.append(LineString(line_lonlat))
+        tags = elem.get("tags", {})
+        refs = [r for r in elem["nodes"] if r in nodes]
+        if len(refs) < 2:
+            continue
 
+        reverse = _is_reverse_oneway(tags.get("oneway"))
+        if reverse:
+            refs = list(reversed(refs))
+
+        for segment_index, (start_node, end_node) in enumerate(zip(refs[:-1], refs[1:])):
+            start_lat, start_lon = nodes[start_node]
+            end_lat, end_lon = nodes[end_node]
+            road_geometries.append(
+                LineString([(start_lon, start_lat), (end_lon, end_lat)])
+            )
+            road_rows.append(
+                {
+                    "osm_way_id": elem["id"],
+                    "osm_start_node_id": start_node,
+                    "osm_end_node_id": end_node,
+                    "segment_index": segment_index,
+                    "highway": tags.get("highway"),
+                    "name": tags.get("name"),
+                    "lanes": tags.get("lanes"),
+                    "maxspeed": tags.get("maxspeed"),
+                    "maxspeed_kmh": _parse_maxspeed_kmh(tags.get("maxspeed")),
+                    "oneway": _is_oneway(tags),
+                    "oneway_raw": tags.get("oneway"),
+                    "bridge": tags.get("bridge"),
+                    "tunnel": tags.get("tunnel"),
+                    "junction": tags.get("junction"),
+                }
+            )
+
+    road_columns = [
+        "osm_way_id",
+        "osm_start_node_id",
+        "osm_end_node_id",
+        "segment_index",
+        "highway",
+        "name",
+        "lanes",
+        "maxspeed",
+        "maxspeed_kmh",
+        "oneway",
+        "oneway_raw",
+        "bridge",
+        "tunnel",
+        "junction",
+    ]
     gdf_4326 = gpd.GeoDataFrame(
-        {"osm_id": range(len(lines_4326))},
-        geometry=lines_4326,
+        road_rows,
+        columns=road_columns,
+        geometry=road_geometries,
         crs="EPSG:4326"
     )
     gdf_3006 = gdf_4326.to_crs("EPSG:3006")
@@ -315,7 +391,12 @@ def get_roads_for_bbox(bbox_3006):
     4) return GDF in EPSG:3006
     """
     records = load_cache_metadata()
-    sup_rec = find_superset_record(bbox_3006, [r for r in records if r["type"] == "roads"])
+    road_records = [
+        r
+        for r in records
+        if r["type"] == "roads" and r.get("version") == ROAD_CACHE_VERSION
+    ]
+    sup_rec = find_superset_record(bbox_3006, road_records)
     if sup_rec:
         debug("Found superset bounding box for roads:", sup_rec["bbox"])
         gdf_all = gpd.read_file(to_absolute_path(sup_rec["filepath"]), layer=sup_rec["layer"])
@@ -333,6 +414,7 @@ def get_roads_for_bbox(bbox_3006):
         # update metadata
         records.append({
             "type": "roads",
+            "version": ROAD_CACHE_VERSION,
             "bbox": list(bbox_3006),
             "filepath": to_relative_path(out_filename),
             "layer": "roads"
