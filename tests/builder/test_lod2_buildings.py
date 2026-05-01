@@ -1,8 +1,10 @@
 import numpy as np
+from shapely.geometry import Polygon
 
-from dtcc_core.model import MultiSurface, Surface
+from dtcc_core.model import Building, GeometryType, MultiSurface, PointCloud, Surface
 from dtcc_core.builder.geometry_builders.lod2 import is_watertight
 from dtcc_core.builder.geometry_builders.lod2 import _fit_plane, _ransac_planes
+from dtcc_core.builder.geometry_builders.lod2 import build_lod2_buildings
 
 
 def _surface(coords):
@@ -68,3 +70,36 @@ def test_ransac_planes_is_deterministic_for_two_planes():
 
     assert [len(plane.inliers) for plane in first] == [len(plane.inliers) for plane in second]
     assert len(first) == 2
+
+
+def _building_with_footprint(points, *, ground_height=0.0):
+    building = Building()
+    footprint = Surface()
+    footprint.from_polygon(Polygon([(0, 0), (10, 0), (10, 10), (0, 10)]), 10.0)
+    building.add_geometry(footprint, GeometryType.LOD0)
+    building.add_geometry(PointCloud(points=np.array(points, dtype=float)), GeometryType.POINT_CLOUD)
+    building.attributes["ground_height"] = ground_height
+    building.attributes["height"] = 10.0 - ground_height
+    return building
+
+
+def _flat_roof_points(z=10.0):
+    return [[x, y, z] for x in np.linspace(1, 9, 5) for y in np.linspace(1, 9, 5)]
+
+
+def test_build_lod2_buildings_creates_watertight_flat_roof():
+    building = _building_with_footprint(_flat_roof_points())
+
+    result = build_lod2_buildings([building], build_lod1_fallback=False)
+
+    assert result[0].lod2 is not None
+    assert is_watertight(result[0].lod2)
+    assert len(result[0].lod2.surfaces) == 6
+
+
+def test_build_lod2_buildings_skips_sparse_roof_points():
+    building = _building_with_footprint(_flat_roof_points()[:6])
+
+    result = build_lod2_buildings([building], build_lod1_fallback=False)
+
+    assert result[0].lod2 is None
