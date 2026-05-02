@@ -31,11 +31,27 @@ INSUFFICIENT_ROOF_POINTS = "insufficient_roof_points"
 NO_PLANES_FOUND = "no_planes_found"
 UNSUPPORTED_PLANE_COUNT = "unsupported_plane_count"
 SHELL_ASSEMBLY_FAILED = "shell_assembly_failed"
+SPLIT_FAILED = "split_failed"
+PATCH_ASSIGNMENT_FAILED = "patch_assignment_failed"
+PATCH_COVERAGE_FAILED = "patch_coverage_failed"
+NEAR_PARALLEL_PLANES = "near_parallel_planes"
+MISSING_SHARED_RIDGE = "missing_shared_ridge"
+RIDGE_HEIGHT_MISMATCH = "ridge_height_mismatch"
+ROOF_SURFACE_COVERAGE_FAILED = "roof_surface_coverage_failed"
+WATERTIGHT_SHELL_FAILED = "watertight_shell_failed"
 REJECTION_REASONS = (
     INVALID_FOOTPRINT,
     INSUFFICIENT_ROOF_POINTS,
     NO_PLANES_FOUND,
     UNSUPPORTED_PLANE_COUNT,
+    SPLIT_FAILED,
+    PATCH_ASSIGNMENT_FAILED,
+    PATCH_COVERAGE_FAILED,
+    NEAR_PARALLEL_PLANES,
+    MISSING_SHARED_RIDGE,
+    RIDGE_HEIGHT_MISMATCH,
+    ROOF_SURFACE_COVERAGE_FAILED,
+    WATERTIGHT_SHELL_FAILED,
     SHELL_ASSEMBLY_FAILED,
 )
 
@@ -322,18 +338,22 @@ def _surface_from_patch_with_shared_edges(
     return Surface(vertices=np.asarray(vertices, dtype=float))
 
 
-def _multi_plane_roof_surfaces(points: np.ndarray, footprint: Polygon, planes: list[RoofPlane]) -> list[Surface] | None:
+def _multi_plane_roof_surfaces(
+    points: np.ndarray,
+    footprint: Polygon,
+    planes: list[RoofPlane],
+) -> tuple[list[Surface] | None, str | None]:
     if len(planes) != 2:
-        return None
+        return None, SHELL_ASSEMBLY_FAILED
     split_patches = _split_footprint_for_two_planes(footprint, planes[0], planes[1])
     if split_patches is None:
-        return None
+        return None, SPLIT_FAILED
     patches = _assign_patches_to_planes(points, planes, split_patches)
     if patches is None:
-        return None
+        return None, PATCH_ASSIGNMENT_FAILED
     kept_planes = planes
     if len(patches) < 2 or not _patches_cover_footprint(footprint, patches):
-        return None
+        return None, PATCH_COVERAGE_FAILED
 
     shared_vertices_by_patch: list[dict[tuple[float, float], np.ndarray]] = [dict() for _ in patches]
     for i in range(len(patches)):
@@ -341,15 +361,15 @@ def _multi_plane_roof_surfaces(points: np.ndarray, footprint: Polygon, planes: l
             if _planes_are_coplanar(kept_planes[i], kept_planes[j]):
                 continue
             if _planes_are_near_parallel(kept_planes[i], kept_planes[j]):
-                return None
+                return None, NEAR_PARALLEL_PLANES
             coords = _ridge_xy(patches[i], patches[j])
             if len(coords) < 2:
-                return None
+                return None, MISSING_SHARED_RIDGE
             for x, y in coords:
                 z_i = kept_planes[i].z_at(x, y)
                 z_j = kept_planes[j].z_at(x, y)
                 if abs(z_i - z_j) > RANSAC_DISTANCE_THRESHOLD:
-                    return None
+                    return None, RIDGE_HEIGHT_MISMATCH
                 vertex = np.array([x, y, 0.5 * (z_i + z_j)], dtype=float)
                 key = (
                     round(float(x), SHARED_VERTEX_KEY_DECIMALS),
@@ -363,8 +383,8 @@ def _multi_plane_roof_surfaces(points: np.ndarray, footprint: Polygon, planes: l
         for patch, plane, shared in zip(patches, kept_planes, shared_vertices_by_patch)
     ]
     if not _roof_surfaces_cover_footprint(footprint, roof_surfaces):
-        return None
-    return roof_surfaces
+        return None, ROOF_SURFACE_COVERAGE_FAILED
+    return roof_surfaces, None
 
 
 def _record_rejection(rejections: Counter | None, reason: str) -> None:
@@ -379,12 +399,20 @@ def _log_lod2_summary(
     fallback_count: int,
     skipped_existing: int,
     rejections: Counter,
+    plane_counts: Counter,
 ) -> None:
     info(
         "LOD2 build summary: "
         f"total={total} lod2={lod2_count} fallback={fallback_count} "
         f"skipped_existing={skipped_existing}"
     )
+    plane_count_parts = [
+        f"planes_{count}={plane_counts[count]}"
+        for count in sorted(plane_counts)
+        if plane_counts[count] > 0
+    ]
+    if plane_count_parts:
+        info("LOD2 plane count summary: " + " ".join(plane_count_parts))
     rejection_parts = [
         f"{reason}={rejections[reason]}"
         for reason in REJECTION_REASONS
@@ -399,6 +427,7 @@ def _candidate_lod2(
     default_ground_height: float,
     always_use_default_ground: bool,
     rejections: Counter | None = None,
+    plane_counts: Counter | None = None,
 ) -> MultiSurface | None:
     footprint = _footprint_polygon(building)
     if footprint is None:
@@ -410,6 +439,8 @@ def _candidate_lod2(
         return None
     ground_height = default_ground_height if always_use_default_ground else building.attributes.get("ground_height", default_ground_height)
     planes = _ransac_planes(roof_points)
+    if plane_counts is not None:
+        plane_counts[len(planes)] += 1
     if len(planes) == 0:
         _record_rejection(rejections, NO_PLANES_FOUND)
         return None
@@ -420,15 +451,15 @@ def _candidate_lod2(
         roof_surfaces = [_surface_from_xy(footprint, planes[0])]
         shell = _build_shell(footprint, roof_surfaces, float(ground_height))
         if shell is None:
-            _record_rejection(rejections, SHELL_ASSEMBLY_FAILED)
+            _record_rejection(rejections, WATERTIGHT_SHELL_FAILED)
         return shell
-    roof_surfaces = _multi_plane_roof_surfaces(roof_points, footprint, planes)
+    roof_surfaces, rejection_reason = _multi_plane_roof_surfaces(roof_points, footprint, planes)
     if roof_surfaces is None:
-        _record_rejection(rejections, SHELL_ASSEMBLY_FAILED)
+        _record_rejection(rejections, rejection_reason or SHELL_ASSEMBLY_FAILED)
         return None
     shell = _build_shell(footprint, roof_surfaces, float(ground_height))
     if shell is None:
-        _record_rejection(rejections, SHELL_ASSEMBLY_FAILED)
+        _record_rejection(rejections, WATERTIGHT_SHELL_FAILED)
     return shell
 
 
@@ -442,6 +473,7 @@ def build_lod2_buildings(
     log_rejections: bool = False,
 ) -> list[Building]:
     rejections = Counter()
+    plane_counts = Counter()
     lod2_count = 0
     fallback_count = 0
     skipped_existing = 0
@@ -457,6 +489,7 @@ def build_lod2_buildings(
             default_ground_height,
             always_use_default_ground,
             rejections if log_rejections else None,
+            plane_counts if log_rejections else None,
         )
         if candidate is not None:
             building.add_geometry(candidate, GeometryType.LOD2)
@@ -477,6 +510,7 @@ def build_lod2_buildings(
             fallback_count=fallback_count,
             skipped_existing=skipped_existing,
             rejections=rejections,
+            plane_counts=plane_counts,
         )
     return buildings
 

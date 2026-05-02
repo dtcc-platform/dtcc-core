@@ -264,6 +264,37 @@ def test_city_build_lod2_buildings_logs_rejection_summary_when_requested(monkeyp
     )
 
 
+def test_build_lod2_buildings_logs_plane_count_summary_when_requested(monkeypatch):
+    messages = []
+    monkeypatch.setattr(lod2_module, "info", messages.append, raising=False)
+    buildings = [
+        _building_with_footprint(_flat_roof_points()),
+        _building_with_footprint(_gable_roof_points()),
+    ]
+
+    build_lod2_buildings(buildings, build_lod1_fallback=False, log_rejections=True)
+
+    assert any(message == "LOD2 plane count summary: planes_1=1 planes_2=1" for message in messages)
+
+
+def test_build_lod2_buildings_logs_shell_rejection_sub_reason(monkeypatch):
+    messages = []
+    monkeypatch.setattr(lod2_module, "info", messages.append, raising=False)
+    planes = [
+        lod2_module.RoofPlane(0.0, 0.0, 10.0, np.arange(12)),
+        lod2_module.RoofPlane(0.0, 0.0, 10.0, np.arange(12, 24)),
+    ]
+    monkeypatch.setattr(lod2_module, "_ransac_planes", lambda points: planes)
+    building = _building_with_footprint(_flat_roof_points())
+
+    build_lod2_buildings([building], build_lod1_fallback=False, log_rejections=True)
+
+    assert any(
+        message == "LOD2 rejection summary: split_failed=1"
+        for message in messages
+    )
+
+
 @pytest.fixture
 def minimal_case_dir():
     return Path(__file__).parent / ".." / "data" / "MinimalCase"
