@@ -295,6 +295,28 @@ def test_build_lod2_buildings_logs_shell_rejection_sub_reason(monkeypatch):
     )
 
 
+def test_build_lod2_buildings_logs_max_plane_coplanar_pair_summary(monkeypatch):
+    messages = []
+    monkeypatch.setattr(lod2_module, "info", messages.append, raising=False)
+    planes = [
+        lod2_module.RoofPlane(0.0, 0.0, 10.0, np.arange(8)),
+        lod2_module.RoofPlane(0.0, 0.0, 10.1, np.arange(8, 16)),
+        lod2_module.RoofPlane(0.3, 0.0, 12.0, np.arange(16, 24)),
+        lod2_module.RoofPlane(0.0, 0.3, 14.0, np.arange(24, 32)),
+        lod2_module.RoofPlane(-0.3, 0.0, 16.0, np.arange(32, 40)),
+        lod2_module.RoofPlane(0.0, -0.3, 18.0, np.arange(40, 48)),
+    ]
+    monkeypatch.setattr(lod2_module, "_ransac_planes", lambda points: planes)
+    building = _building_with_footprint(_flat_roof_points())
+
+    build_lod2_buildings([building], build_lod1_fallback=False, log_rejections=True)
+
+    assert any(
+        message == "LOD2 max-plane coplanar pair summary: coplanar_pairs_1=1"
+        for message in messages
+    )
+
+
 @pytest.fixture
 def minimal_case_dir():
     return Path(__file__).parent / ".." / "data" / "MinimalCase"

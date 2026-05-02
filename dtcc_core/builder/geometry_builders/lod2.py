@@ -231,6 +231,15 @@ def _planes_are_near_parallel(first: RoofPlane, second: RoofPlane) -> bool:
     return abs(1.0 - abs(float(np.dot(first.normal, second.normal)))) <= NEAR_PARALLEL_NORMAL_TOLERANCE
 
 
+def _coplanar_pair_count(planes: list[RoofPlane]) -> int:
+    count = 0
+    for i in range(len(planes)):
+        for j in range(i + 1, len(planes)):
+            if _planes_are_coplanar(planes[i], planes[j]):
+                count += 1
+    return count
+
+
 def _patches_cover_footprint(footprint: Polygon, patches: list[Polygon]) -> bool:
     covered = unary_union(patches)
     missing = footprint.difference(covered)
@@ -400,6 +409,7 @@ def _log_lod2_summary(
     skipped_existing: int,
     rejections: Counter,
     plane_counts: Counter,
+    max_plane_coplanar_pair_counts: Counter,
 ) -> None:
     info(
         "LOD2 build summary: "
@@ -413,6 +423,13 @@ def _log_lod2_summary(
     ]
     if plane_count_parts:
         info("LOD2 plane count summary: " + " ".join(plane_count_parts))
+    coplanar_pair_parts = [
+        f"coplanar_pairs_{count}={max_plane_coplanar_pair_counts[count]}"
+        for count in sorted(max_plane_coplanar_pair_counts)
+        if max_plane_coplanar_pair_counts[count] > 0
+    ]
+    if coplanar_pair_parts:
+        info("LOD2 max-plane coplanar pair summary: " + " ".join(coplanar_pair_parts))
     rejection_parts = [
         f"{reason}={rejections[reason]}"
         for reason in REJECTION_REASONS
@@ -428,6 +445,7 @@ def _candidate_lod2(
     always_use_default_ground: bool,
     rejections: Counter | None = None,
     plane_counts: Counter | None = None,
+    max_plane_coplanar_pair_counts: Counter | None = None,
 ) -> MultiSurface | None:
     footprint = _footprint_polygon(building)
     if footprint is None:
@@ -441,6 +459,8 @@ def _candidate_lod2(
     planes = _ransac_planes(roof_points)
     if plane_counts is not None:
         plane_counts[len(planes)] += 1
+    if len(planes) == MAX_PLANES and max_plane_coplanar_pair_counts is not None:
+        max_plane_coplanar_pair_counts[_coplanar_pair_count(planes)] += 1
     if len(planes) == 0:
         _record_rejection(rejections, NO_PLANES_FOUND)
         return None
@@ -474,6 +494,7 @@ def build_lod2_buildings(
 ) -> list[Building]:
     rejections = Counter()
     plane_counts = Counter()
+    max_plane_coplanar_pair_counts = Counter()
     lod2_count = 0
     fallback_count = 0
     skipped_existing = 0
@@ -490,6 +511,7 @@ def build_lod2_buildings(
             always_use_default_ground,
             rejections if log_rejections else None,
             plane_counts if log_rejections else None,
+            max_plane_coplanar_pair_counts if log_rejections else None,
         )
         if candidate is not None:
             building.add_geometry(candidate, GeometryType.LOD2)
@@ -511,6 +533,7 @@ def build_lod2_buildings(
             skipped_existing=skipped_existing,
             rejections=rejections,
             plane_counts=plane_counts,
+            max_plane_coplanar_pair_counts=max_plane_coplanar_pair_counts,
         )
     return buildings
 
