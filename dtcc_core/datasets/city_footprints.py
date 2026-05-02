@@ -58,6 +58,9 @@ class CityFootprintsDataset(DatasetDescriptor):
         "Meshing-ready conditioned building footprints prepared from a city tile."
     )
     ArgsModel = CityFootprintsArgs
+    data_category = "derived"
+    result_kind = "city_meshing_footprints"
+    python_return_type = "dtcc_core.datasets._city_mesh_common.CityMeshingFootprints"
 
     def _build_footprints_from_city(self, city: City, args: CityFootprintsArgs):
         return condition_city_meshing_footprints(

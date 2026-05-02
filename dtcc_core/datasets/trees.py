@@ -33,6 +33,9 @@ class TreesDataset(DatasetDescriptor):
     name = "trees"
     description = "Raster of tree heights or vector points representing trees from point cloud data."
     ArgsModel = TreeArgs
+    data_category = "derived"
+    result_kind = "tree_collection"
+    python_return_type = "list[dtcc_core.model.Tree]"
 
     def build(self, args: TreeArgs):
         bounds = self.parse_bounds(args.bounds)

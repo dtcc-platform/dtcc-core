@@ -49,6 +49,9 @@ class TerrainSurfaceMeshDataset(DatasetDescriptor):
     name = "terrain_surface_mesh"
     description = "Terrain surface mesh from point cloud data."
     ArgsModel = TerrainSurfaceMeshArgs
+    data_category = "derived"
+    result_kind = "mesh"
+    python_return_type = "dtcc_core.model.Mesh | dtcc_core.model.Raster"
 
     def build(self, args: TerrainSurfaceMeshArgs):
         progress_phases = {

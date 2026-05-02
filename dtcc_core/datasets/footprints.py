@@ -26,6 +26,9 @@ class FootprintsDataset(DatasetDescriptor):
     name = "building_footprints"
     description = "Building footprints"
     ArgsModel = FootprintsArgs
+    data_category = "raw"
+    result_kind = "building_footprints"
+    python_return_type = "list[dtcc_core.model.Building]"
 
     def build(self, args: FootprintsArgs):
         progress_phases = {

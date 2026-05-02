@@ -99,7 +99,10 @@ def info():
             if len(dataset.description) > 50
             else dataset.description
         )
-        print(f"  • {name:20s} - {desc}")
+        meta = dataset.describe()
+        formats = ", ".join(meta["supported_formats"]) or "python object"
+        result_kind = meta.get("result_kind", "unknown")
+        print(f"  • {name:20s} [{result_kind:18s}] {formats:18s} - {desc}")
 
     print()
     print("=" * 70)

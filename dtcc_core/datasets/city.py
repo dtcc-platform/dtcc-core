@@ -24,6 +24,9 @@ class CityDataset(DatasetDescriptor):
     name = "city"
     description = "City model from point cloud data."
     ArgsModel = CityArgs
+    data_category = "derived"
+    result_kind = "city_model"
+    python_return_type = "dtcc_core.model.City"
 
     def build(self, args: CityArgs):
         progress_phases = {

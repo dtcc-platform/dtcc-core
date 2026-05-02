@@ -38,6 +38,9 @@ class PointCloudDataset(DatasetDescriptor):
         "Point cloud data with optional classification filtering and outlier removal."
     )
     ArgsModel = PointCloudArgs
+    data_category = "raw"
+    result_kind = "point_cloud"
+    python_return_type = "dtcc_core.model.PointCloud"
 
     @staticmethod
     def _resolve_classifications(classifications) -> List[int]:

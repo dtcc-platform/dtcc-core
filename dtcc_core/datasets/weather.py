@@ -395,6 +395,9 @@ class WeatherDataset(DatasetDescriptor):
         "within the specified bounds."
     )
     ArgsModel = WeatherDatasetArgs
+    data_category = "raw"
+    result_kind = "sensor_collection"
+    python_return_type = "dtcc_core.model.SensorCollection"
 
     def build(self, args: WeatherDatasetArgs):
         """Build the weather dataset.

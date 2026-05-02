@@ -69,10 +69,12 @@ class RemoteDatasetDescriptor(DatasetDescriptor, register=False):
         self.description = description
         self._args_schema = args_schema
         self.base_url = base_url.rstrip("/")
+        self.data_category = "remote"
         self.result_kind = result_kind
         self.supported_formats = supported_formats
         self.source_service = source_service
         self.timeout_hint = timeout_hint
+        self.python_return_type = "tuple[bytes, str, str]"
         self.ArgsModel = _PassthroughArgs
 
     def show_options(self):

@@ -10,6 +10,55 @@ from pathlib import Path
 import tempfile
 
 
+_FORMAT_KIND_MAP = {
+    "tif": "raster",
+    "tiff": "raster",
+    "asc": "raster",
+    "png": "raster",
+    "jpg": "raster",
+    "jpeg": "raster",
+    "geojson": "vector",
+    "gpkg": "vector",
+    "shp.zip": "vector",
+    "obj": "mesh",
+    "stl": "mesh",
+    "ply": "mesh",
+    "vtk": "mesh",
+    "vtu": "mesh",
+    "xdmf": "mesh",
+    "inp": "mesh",
+    "bdf": "mesh",
+    "las": "point_cloud",
+    "laz": "point_cloud",
+    "copc": "point_cloud",
+    "cityjson": "city_model",
+    "city.json": "city_model",
+    "json.zip": "city_model",
+    "pb": "protobuf",
+}
+
+
+_FORMAT_MEDIA_TYPE_MAP = {
+    "tif": "image/tiff",
+    "tiff": "image/tiff",
+    "geojson": "application/geo+json",
+    "gpkg": "application/geopackage+sqlite3",
+    "shp.zip": "application/zip",
+    "obj": "model/obj",
+    "stl": "model/stl",
+    "cityjson": "application/json",
+    "city.json": "application/json",
+    "json": "application/json",
+    "json.zip": "application/zip",
+    "tar.gz": "application/gzip",
+}
+
+
+_FORMAT_EXTENSION_MAP = {
+    "cityjson": "city.json",
+}
+
+
 class DatasetBaseArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -80,6 +129,11 @@ class DatasetDescriptor(ABC):
     name: str
     description: str = ""
     ArgsModel: BaseModel
+    data_category: str = "unknown"
+    result_kind: str = "unknown"
+    python_return_type: str = "object"
+    timeout_hint: Optional[int] = None
+    multi_file_formats: Sequence[str] = ()
 
     def __init_subclass__(cls, register=True, **kwargs):
         """
@@ -118,6 +172,118 @@ class DatasetDescriptor(ABC):
 
     def show_options(self):
         return self.ArgsModel.model_json_schema()
+
+    @staticmethod
+    def _normalize_format_values(value: Any) -> list[str]:
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            value = [value]
+        formats = []
+        for item in value:
+            if item is None:
+                continue
+            fmt = str(item).strip().lower()
+            if fmt and fmt not in {"none", "null"} and fmt not in formats:
+                formats.append(fmt)
+        return formats
+
+    @classmethod
+    def extract_supported_formats_from_schema(cls, schema: dict[str, Any]) -> list[str]:
+        """Extract supported ``format`` values from a Pydantic JSON schema."""
+        properties = schema.get("properties", {}) if isinstance(schema, dict) else {}
+        format_prop = properties.get("format", {}) if isinstance(properties, dict) else {}
+        if not isinstance(format_prop, dict):
+            return []
+
+        formats = []
+        formats.extend(cls._normalize_format_values(format_prop.get("enum")))
+        if "const" in format_prop:
+            formats.extend(cls._normalize_format_values(format_prop.get("const")))
+
+        any_of = format_prop.get("anyOf")
+        if isinstance(any_of, list):
+            for variant in any_of:
+                if not isinstance(variant, dict):
+                    continue
+                formats.extend(cls._normalize_format_values(variant.get("enum")))
+                if "const" in variant:
+                    formats.extend(cls._normalize_format_values(variant.get("const")))
+
+        if not formats:
+            formats.extend(cls._normalize_format_values(format_prop.get("default")))
+
+        deduped = []
+        for fmt in formats:
+            if fmt not in deduped:
+                deduped.append(fmt)
+        return deduped
+
+    def list_supported_formats(self) -> list[str]:
+        """Return serialized output formats supported by this dataset."""
+        explicit_formats = getattr(self, "supported_formats", None)
+        if explicit_formats is not None and not callable(explicit_formats):
+            return self._normalize_format_values(explicit_formats)
+        return self.extract_supported_formats_from_schema(self.show_options())
+
+    @staticmethod
+    def format_kind(format: str) -> str:
+        """Return a coarse data kind for a serialized output format."""
+        return _FORMAT_KIND_MAP.get(str(format).lower(), "unknown")
+
+    @staticmethod
+    def format_media_type(format: str) -> str:
+        """Return the default HTTP media type for a serialized output format."""
+        return _FORMAT_MEDIA_TYPE_MAP.get(
+            str(format).lower(), "application/octet-stream"
+        )
+
+    @staticmethod
+    def format_extension(format: str) -> str:
+        """Return the recommended filename extension for a format value."""
+        fmt = str(format).lower()
+        return _FORMAT_EXTENSION_MAP.get(fmt, fmt)
+
+    def format_metadata(self) -> list[dict[str, Any]]:
+        """Return JSON-safe metadata for each supported serialized format."""
+        multi_file_formats = {
+            str(fmt).lower() for fmt in getattr(self, "multi_file_formats", ())
+        }
+        return [
+            {
+                "format": fmt,
+                "extension": self.format_extension(fmt),
+                "media_type": self.format_media_type(fmt),
+                "data_kind": self.format_kind(fmt),
+                "multi_file": fmt in multi_file_formats,
+            }
+            for fmt in self.list_supported_formats()
+        ]
+
+    def describe(self) -> dict[str, Any]:
+        """Return the dataset contract used by Python clients and web services."""
+        args_schema = self.show_options()
+        formats = self.list_supported_formats()
+        schema_properties = (
+            args_schema.get("properties", {}) if isinstance(args_schema, dict) else {}
+        )
+        return {
+            "name": self.name,
+            "description": self.description,
+            "data_category": getattr(self, "data_category", "unknown"),
+            "result_kind": getattr(self, "result_kind", "unknown"),
+            "python_return_type": getattr(self, "python_return_type", "object"),
+            "args_schema": args_schema,
+            "supported_formats": formats,
+            "formats": self.format_metadata(),
+            "multi_file_formats": list(getattr(self, "multi_file_formats", ())),
+            "timeout_hint": getattr(self, "timeout_hint", None),
+            "serialization": {
+                "python_object_when_format_omitted": True,
+                "bytes_when_format_is_set": bool(formats),
+                "format_parameter": "format" in schema_properties,
+            },
+        }
 
     def __str__(self):
         """Return a nicely formatted summary of the dataset."""

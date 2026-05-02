@@ -146,6 +146,40 @@ def test_dataset_base_args_reject_unknown_arguments():
         )
 
 
+def test_descriptor_extracts_format_metadata_from_schema():
+    """Descriptor metadata should expose formats without Atlas parsing schemas."""
+    ds = datasets.point_cloud
+
+    assert ds.list_supported_formats() == ["copc", "las", "laz"]
+    assert ds.format_metadata()[0] == {
+        "format": "copc",
+        "extension": "copc",
+        "media_type": "application/octet-stream",
+        "data_kind": "point_cloud",
+        "multi_file": False,
+    }
+
+
+def test_descriptor_describe_returns_dataset_contract():
+    """describe() should return the stable dataset contract for clients."""
+    ds = datasets.city_volume_mesh
+    metadata = ds.describe()
+
+    assert metadata["name"] == "city_volume_mesh"
+    assert metadata["data_category"] == "derived"
+    assert metadata["result_kind"] == "mesh"
+    assert metadata["python_return_type"] == "dtcc_core.model.VolumeMesh"
+    assert metadata["supported_formats"] == ["xdmf", "vtu"]
+    assert metadata["multi_file_formats"] == ["xdmf"]
+    assert metadata["serialization"]["python_object_when_format_omitted"] is True
+    assert metadata["serialization"]["bytes_when_format_is_set"] is True
+    assert metadata["serialization"]["format_parameter"] is True
+
+    xdmf = next(item for item in metadata["formats"] if item["format"] == "xdmf")
+    assert xdmf["data_kind"] == "mesh"
+    assert xdmf["multi_file"] is True
+
+
 # Explicit API Tests
 
 

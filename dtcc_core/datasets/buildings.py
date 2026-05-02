@@ -27,6 +27,9 @@ class BuildingDataset(DatasetDescriptor):
     name = "buildings"
     description = "3D buildings (LoD1) from point cloud and building footprints."
     ArgsModel = BuildingArgs
+    data_category = "derived"
+    result_kind = "building_collection"
+    python_return_type = "list[dtcc_core.model.Building]"
 
     def build(self, args: BuildingArgs):
         progress_phases = {

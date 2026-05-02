@@ -324,6 +324,9 @@ class HydrologyDataset(DatasetDescriptor):
         "within the specified bounds."
     )
     ArgsModel = HydrologyDatasetArgs
+    data_category = "raw"
+    result_kind = "sensor_collection"
+    python_return_type = "dtcc_core.model.SensorCollection"
 
     def build(self, args: HydrologyDatasetArgs):
         """Build the hydrology dataset.
