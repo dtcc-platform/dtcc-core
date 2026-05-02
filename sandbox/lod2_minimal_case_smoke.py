@@ -15,7 +15,7 @@ def main() -> None:
     city = City()
     city.load_footprints(str(case_dir / "PropertyMap.shp"))
     city.load_pointcloud(str(case_dir / "pointcloud.las"))
-    city.build_lod2_buildings(calculate_heights=True)
+    city.build_lod2_buildings(calculate_heights=True, log_rejections=True)
 
     lod2_buildings = [building for building in city.buildings if building.lod2 is not None]
     watertight_count = sum(is_watertight(building.lod2) for building in lod2_buildings)

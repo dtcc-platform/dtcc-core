@@ -26,7 +26,7 @@ def main() -> None:
     city.bounds = bounds
     city.add_buildings(download_footprints(bounds))
     city.add_pointcloud(download_pointcloud(bounds))
-    city.build_lod2_buildings(calculate_heights=True)
+    city.build_lod2_buildings(calculate_heights=True, log_rejections=True)
 
     lod2_buildings = [building for building in city.buildings if building.lod2 is not None]
     lod1_buildings = [building for building in city.buildings if building.lod1 is not None]

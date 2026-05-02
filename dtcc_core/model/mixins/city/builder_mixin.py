@@ -173,6 +173,7 @@ class CityBuilderMixin:
         self: "T_City",
         rebuild: bool = True,
         calculate_heights: bool = True,
+        log_rejections: bool = False,
     ) -> "T_City":
         """
         Build prototype LOD2 buildings for a city.
@@ -218,6 +219,7 @@ class CityBuilderMixin:
             always_use_default_ground=False,
             rebuild=rebuild,
             build_lod1_fallback=True,
+            log_rejections=log_rejections,
         )
         self.remove_buildings()
         self.add_buildings(lod2_buildings)

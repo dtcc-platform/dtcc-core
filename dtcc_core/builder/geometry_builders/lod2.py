@@ -6,6 +6,8 @@ import numpy as np
 from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import split, unary_union
 
+from dtcc_core.logging import info
+
 from ...model import Building, GeometryType, MultiSurface, Surface
 from .buildings import build_lod1_buildings
 
@@ -24,6 +26,18 @@ COPLANAR_OFFSET_TOLERANCE = 0.2
 NEAR_PARALLEL_NORMAL_TOLERANCE = 1e-2
 EDGE_TOLERANCE = 1e-3
 SHARED_VERTEX_KEY_DECIMALS = 6
+INVALID_FOOTPRINT = "invalid_footprint"
+INSUFFICIENT_ROOF_POINTS = "insufficient_roof_points"
+NO_PLANES_FOUND = "no_planes_found"
+UNSUPPORTED_PLANE_COUNT = "unsupported_plane_count"
+SHELL_ASSEMBLY_FAILED = "shell_assembly_failed"
+REJECTION_REASONS = (
+    INVALID_FOOTPRINT,
+    INSUFFICIENT_ROOF_POINTS,
+    NO_PLANES_FOUND,
+    UNSUPPORTED_PLANE_COUNT,
+    SHELL_ASSEMBLY_FAILED,
+)
 
 
 class RoofPlane:
@@ -353,26 +367,69 @@ def _multi_plane_roof_surfaces(points: np.ndarray, footprint: Polygon, planes: l
     return roof_surfaces
 
 
+def _record_rejection(rejections: Counter | None, reason: str) -> None:
+    if rejections is not None:
+        rejections[reason] += 1
+
+
+def _log_lod2_summary(
+    *,
+    total: int,
+    lod2_count: int,
+    fallback_count: int,
+    skipped_existing: int,
+    rejections: Counter,
+) -> None:
+    info(
+        "LOD2 build summary: "
+        f"total={total} lod2={lod2_count} fallback={fallback_count} "
+        f"skipped_existing={skipped_existing}"
+    )
+    rejection_parts = [
+        f"{reason}={rejections[reason]}"
+        for reason in REJECTION_REASONS
+        if rejections[reason] > 0
+    ]
+    if rejection_parts:
+        info("LOD2 rejection summary: " + " ".join(rejection_parts))
+
+
 def _candidate_lod2(
     building: Building,
     default_ground_height: float,
     always_use_default_ground: bool,
+    rejections: Counter | None = None,
 ) -> MultiSurface | None:
     footprint = _footprint_polygon(building)
+    if footprint is None:
+        _record_rejection(rejections, INVALID_FOOTPRINT)
+        return None
     roof_points = _roof_points(building)
-    if footprint is None or roof_points is None:
+    if roof_points is None:
+        _record_rejection(rejections, INSUFFICIENT_ROOF_POINTS)
         return None
     ground_height = default_ground_height if always_use_default_ground else building.attributes.get("ground_height", default_ground_height)
     planes = _ransac_planes(roof_points)
     if len(planes) == 0:
+        _record_rejection(rejections, NO_PLANES_FOUND)
+        return None
+    if len(planes) > 2:
+        _record_rejection(rejections, UNSUPPORTED_PLANE_COUNT)
         return None
     if len(planes) == 1:
         roof_surfaces = [_surface_from_xy(footprint, planes[0])]
-        return _build_shell(footprint, roof_surfaces, float(ground_height))
+        shell = _build_shell(footprint, roof_surfaces, float(ground_height))
+        if shell is None:
+            _record_rejection(rejections, SHELL_ASSEMBLY_FAILED)
+        return shell
     roof_surfaces = _multi_plane_roof_surfaces(roof_points, footprint, planes)
     if roof_surfaces is None:
+        _record_rejection(rejections, SHELL_ASSEMBLY_FAILED)
         return None
-    return _build_shell(footprint, roof_surfaces, float(ground_height))
+    shell = _build_shell(footprint, roof_surfaces, float(ground_height))
+    if shell is None:
+        _record_rejection(rejections, SHELL_ASSEMBLY_FAILED)
+    return shell
 
 
 def build_lod2_buildings(
@@ -382,22 +439,45 @@ def build_lod2_buildings(
     always_use_default_ground: bool = False,
     rebuild: bool = True,
     build_lod1_fallback: bool = True,
+    log_rejections: bool = False,
 ) -> list[Building]:
+    rejections = Counter()
+    lod2_count = 0
+    fallback_count = 0
+    skipped_existing = 0
+
     for building in buildings:
         if building.lod2 is not None and not rebuild:
+            skipped_existing += 1
             continue
         if rebuild:
             building.remove_geometry(GeometryType.LOD2)
-        candidate = _candidate_lod2(building, default_ground_height, always_use_default_ground)
+        candidate = _candidate_lod2(
+            building,
+            default_ground_height,
+            always_use_default_ground,
+            rejections if log_rejections else None,
+        )
         if candidate is not None:
             building.add_geometry(candidate, GeometryType.LOD2)
-        elif build_lod1_fallback and building.lod1 is None:
-            build_lod1_buildings(
-                [building],
-                default_ground_height=default_ground_height,
-                always_use_default_ground=always_use_default_ground,
-                rebuild=False,
-            )
+            lod2_count += 1
+        else:
+            fallback_count += 1
+            if build_lod1_fallback and building.lod1 is None:
+                build_lod1_buildings(
+                    [building],
+                    default_ground_height=default_ground_height,
+                    always_use_default_ground=always_use_default_ground,
+                    rebuild=False,
+                )
+    if log_rejections:
+        _log_lod2_summary(
+            total=len(buildings),
+            lod2_count=lod2_count,
+            fallback_count=fallback_count,
+            skipped_existing=skipped_existing,
+            rejections=rejections,
+        )
     return buildings
 
 

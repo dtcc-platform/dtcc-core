@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 from shapely.geometry import Polygon
 
+import dtcc_core.builder.geometry_builders.lod2 as lod2_module
 from dtcc_core.model import Building, City, GeometryType, MultiSurface, PointCloud, Surface
 from dtcc_core.builder.geometry_builders.lod2 import is_watertight
 from dtcc_core.builder.geometry_builders.lod2 import _fit_plane, _ransac_planes
@@ -111,6 +112,17 @@ def test_build_lod2_buildings_skips_sparse_roof_points():
     result = build_lod2_buildings([building], build_lod1_fallback=False)
 
     assert result[0].lod2 is None
+
+
+def test_build_lod2_buildings_does_not_log_rejection_summary_by_default(monkeypatch):
+    messages = []
+    monkeypatch.setattr(lod2_module, "info", messages.append, raising=False)
+    building = _building_with_footprint(_flat_roof_points()[:6])
+
+    build_lod2_buildings([building])
+
+    assert not any(message.startswith("LOD2 build summary:") for message in messages)
+    assert not any(message.startswith("LOD2 rejection summary:") for message in messages)
 
 
 def test_projected_roof_surfaces_must_cover_footprint():
@@ -231,6 +243,25 @@ def test_city_build_lod2_buildings_uses_existing_roof_points_without_recomputing
     assert result is city
     assert city.buildings[0].lod2 is not None
     assert is_watertight(city.buildings[0].lod2)
+
+
+def test_city_build_lod2_buildings_logs_rejection_summary_when_requested(monkeypatch):
+    messages = []
+    monkeypatch.setattr(lod2_module, "info", messages.append, raising=False)
+    city = City()
+    city.add_building(_building_with_footprint(_flat_roof_points()))
+    city.add_building(_building_with_footprint(_flat_roof_points()[:6]))
+
+    city.build_lod2_buildings(calculate_heights=False, log_rejections=True)
+
+    assert any(
+        message == "LOD2 build summary: total=2 lod2=1 fallback=1 skipped_existing=0"
+        for message in messages
+    )
+    assert any(
+        message == "LOD2 rejection summary: insufficient_roof_points=1"
+        for message in messages
+    )
 
 
 @pytest.fixture
