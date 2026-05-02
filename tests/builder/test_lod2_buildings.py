@@ -317,6 +317,31 @@ def test_build_lod2_buildings_logs_max_plane_coplanar_pair_summary(monkeypatch):
     )
 
 
+def test_build_lod2_buildings_logs_inlier_share_recovery_simulation(monkeypatch):
+    messages = []
+    monkeypatch.setattr(lod2_module, "info", messages.append, raising=False)
+    planes = [
+        lod2_module.RoofPlane(0.0, 0.0, 10.0, np.arange(100)),
+        lod2_module.RoofPlane(0.3, 0.0, 11.0, np.arange(100, 180)),
+        lod2_module.RoofPlane(0.0, 0.3, 12.0, np.arange(180, 189)),
+        lod2_module.RoofPlane(-0.3, 0.0, 13.0, np.arange(189, 197)),
+    ]
+    monkeypatch.setattr(lod2_module, "_ransac_planes", lambda points: planes)
+    building = _building_with_footprint(_flat_roof_points())
+
+    build_lod2_buildings([building], build_lod1_fallback=False, log_rejections=True)
+
+    assert any(
+        message
+        == "LOD2 inlier-share recovery simulation: would_recover_at_10pct=1 would_recover_at_15pct=1 would_recover_at_20pct=1"
+        for message in messages
+    )
+    assert any(
+        message == "LOD2 trailing plane summary: trailing_planes_at_min_inliers=2"
+        for message in messages
+    )
+
+
 @pytest.fixture
 def minimal_case_dir():
     return Path(__file__).parent / ".." / "data" / "MinimalCase"

@@ -19,6 +19,7 @@ MAX_PLANES = 6
 RANSAC_ITERATIONS = 200
 RANSAC_SEED = 0
 RANSAC_DISTANCE_THRESHOLD = 0.2
+INLIER_SHARE_RECOVERY_THRESHOLDS = (0.05, 0.10, 0.15, 0.20)
 MIN_PATCH_AREA = 2.0
 MAX_UNCOVERED_FOOTPRINT_FRACTION = 0.01
 COPLANAR_NORMAL_TOLERANCE = 1e-3
@@ -240,6 +241,33 @@ def _coplanar_pair_count(planes: list[RoofPlane]) -> int:
     return count
 
 
+def _record_inlier_share_diagnostics(
+    planes: list[RoofPlane],
+    recovery_counts: Counter | None,
+    trailing_plane_counts: Counter | None,
+) -> None:
+    if len(planes) <= 2:
+        return
+    inlier_counts = [len(plane.inliers) for plane in planes]
+    if not inlier_counts:
+        return
+    dominant_count = max(inlier_counts)
+    if dominant_count == 0:
+        return
+    if trailing_plane_counts is not None:
+        trailing_plane_counts["trailing_planes_at_min_inliers"] += sum(
+            MIN_PLANE_INLIERS <= count <= MIN_PLANE_INLIERS + 4
+            for count in inlier_counts
+            if count != dominant_count
+        )
+    if recovery_counts is None:
+        return
+    for threshold in INLIER_SHARE_RECOVERY_THRESHOLDS:
+        kept_count = sum(count >= threshold * dominant_count for count in inlier_counts)
+        if 1 <= kept_count <= 2:
+            recovery_counts[threshold] += 1
+
+
 def _patches_cover_footprint(footprint: Polygon, patches: list[Polygon]) -> bool:
     covered = unary_union(patches)
     missing = footprint.difference(covered)
@@ -410,6 +438,8 @@ def _log_lod2_summary(
     rejections: Counter,
     plane_counts: Counter,
     max_plane_coplanar_pair_counts: Counter,
+    inlier_share_recovery_counts: Counter,
+    trailing_plane_counts: Counter,
 ) -> None:
     info(
         "LOD2 build summary: "
@@ -430,6 +460,20 @@ def _log_lod2_summary(
     ]
     if coplanar_pair_parts:
         info("LOD2 max-plane coplanar pair summary: " + " ".join(coplanar_pair_parts))
+    recovery_parts = [
+        f"would_recover_at_{int(threshold * 100)}pct={inlier_share_recovery_counts[threshold]}"
+        for threshold in INLIER_SHARE_RECOVERY_THRESHOLDS
+        if inlier_share_recovery_counts[threshold] > 0
+    ]
+    if recovery_parts:
+        info("LOD2 inlier-share recovery simulation: " + " ".join(recovery_parts))
+    trailing_parts = [
+        f"{reason}={trailing_plane_counts[reason]}"
+        for reason in sorted(trailing_plane_counts)
+        if trailing_plane_counts[reason] > 0
+    ]
+    if trailing_parts:
+        info("LOD2 trailing plane summary: " + " ".join(trailing_parts))
     rejection_parts = [
         f"{reason}={rejections[reason]}"
         for reason in REJECTION_REASONS
@@ -446,6 +490,8 @@ def _candidate_lod2(
     rejections: Counter | None = None,
     plane_counts: Counter | None = None,
     max_plane_coplanar_pair_counts: Counter | None = None,
+    inlier_share_recovery_counts: Counter | None = None,
+    trailing_plane_counts: Counter | None = None,
 ) -> MultiSurface | None:
     footprint = _footprint_polygon(building)
     if footprint is None:
@@ -461,6 +507,11 @@ def _candidate_lod2(
         plane_counts[len(planes)] += 1
     if len(planes) == MAX_PLANES and max_plane_coplanar_pair_counts is not None:
         max_plane_coplanar_pair_counts[_coplanar_pair_count(planes)] += 1
+    _record_inlier_share_diagnostics(
+        planes,
+        inlier_share_recovery_counts,
+        trailing_plane_counts,
+    )
     if len(planes) == 0:
         _record_rejection(rejections, NO_PLANES_FOUND)
         return None
@@ -495,6 +546,8 @@ def build_lod2_buildings(
     rejections = Counter()
     plane_counts = Counter()
     max_plane_coplanar_pair_counts = Counter()
+    inlier_share_recovery_counts = Counter()
+    trailing_plane_counts = Counter()
     lod2_count = 0
     fallback_count = 0
     skipped_existing = 0
@@ -512,6 +565,8 @@ def build_lod2_buildings(
             rejections if log_rejections else None,
             plane_counts if log_rejections else None,
             max_plane_coplanar_pair_counts if log_rejections else None,
+            inlier_share_recovery_counts if log_rejections else None,
+            trailing_plane_counts if log_rejections else None,
         )
         if candidate is not None:
             building.add_geometry(candidate, GeometryType.LOD2)
@@ -534,6 +589,8 @@ def build_lod2_buildings(
             rejections=rejections,
             plane_counts=plane_counts,
             max_plane_coplanar_pair_counts=max_plane_coplanar_pair_counts,
+            inlier_share_recovery_counts=inlier_share_recovery_counts,
+            trailing_plane_counts=trailing_plane_counts,
         )
     return buildings
 
