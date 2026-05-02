@@ -46,11 +46,15 @@ _FORMAT_MEDIA_TYPE_MAP = {
     "shp.zip": "application/zip",
     "obj": "model/obj",
     "stl": "model/stl",
+    "vtk": "application/vnd.vtk",
+    "vtu": "application/vnd.vtk.vtu+xml",
+    "xdmf": "application/x-xdmf",
     "cityjson": "application/json",
     "city.json": "application/json",
     "json": "application/json",
     "json.zip": "application/zip",
     "tar.gz": "application/gzip",
+    "pb": "application/x-protobuf",
 }
 
 

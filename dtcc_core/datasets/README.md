@@ -117,10 +117,50 @@ Current Built-In Datasets
 | `city_volume_mesh` | derived | `VolumeMesh` | `xdmf`, `vtu` | `xdmf` is a multi-file format. |
 | `trees` | derived | `list[Tree]` | `tif`, `gpkg`, `geojson` | Raster tree heights or vector tree objects. |
 | `roads` | raw | `RoadNetwork` | `pb` | OSM/Overpass road network. |
+| `smoke` | simulation | `VolumeMesh` | `pb`, `vtu`, `geojson` | Synthetic velocity-field smoke test with `field`, `slice`, and `streamlines` products. |
 | `air_quality` | raw | `SensorCollection` | `pb` | SMHI air-quality snapshot. |
 | `weather` | raw | `SensorCollection` | `pb` | SMHI meteorological latest-hour snapshot. |
 | `hydrology` | raw | `SensorCollection` | `pb` | SMHI hydrology latest-day snapshot. |
 | `ocean` | raw | `SensorCollection` | `pb` | SMHI oceanographic latest-hour snapshot. |
+
+Smoke Dataset
+-------------
+
+`smoke` is the canonical local smoke-test dataset for Atlas integration. It
+has no live data dependency and no FEniCS dependency. It evaluates a synthetic
+analytical velocity field after mapping the requested physical bounds to
+`[-4, 4]^3`, but returns coordinates in the requested physical bounds.
+
+The default product is the full sampled field:
+
+    mesh = datasets.smoke(bounds=[xmin, ymin, xmax, ymax])
+    payload = datasets.smoke(bounds=[xmin, ymin, xmax, ymax], format="vtu")
+
+The returned `VolumeMesh` has point fields:
+
+- `velocity`: vector field with components `u`, `v`, `w`
+- `speed`: scalar velocity magnitude
+
+The dataset also exposes visualization products:
+
+    slice_payload = datasets.smoke(
+        bounds=[xmin, ymin, xmax, ymax],
+        product="slice",
+        format="geojson",
+    )
+    streamline_payload = datasets.smoke(
+        bounds=[xmin, ymin, xmax, ymax],
+        product="streamlines",
+        format="geojson",
+    )
+
+Use `datasets.smoke.describe()["products"]` to discover the supported products
+and formats. `product="field"` supports `pb`, `vtu`, and `geojson`;
+`product="slice"` and `product="streamlines"` support `geojson`.
+
+The GeoJSON outputs declare `EPSG:3006` by default for QGIS/GDAL compatibility.
+Set `crs=None` to omit that declaration, or `include_z=False` to write 2D
+coordinates for viewers that do not handle GeoJSON Z coordinates.
 
 Atlas Integration Checklist
 ---------------------------
