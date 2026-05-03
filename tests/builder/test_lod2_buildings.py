@@ -609,6 +609,83 @@ def test_decomposed_watertight_failure_detects_too_few_paired_vertices():
     assert reason == lod2_module.WATERTIGHT_TOO_FEW_PAIRED_VERTICES
 
 
+def test_edge_count_mismatch_reason_classifies_failed_edges():
+    footprint = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
+    slice_lines = [LineString([(5, 0), (5, 10)])]
+
+    slice_shell = MultiSurface(surfaces=[_surface([[5, 2, 0], [5, 8, 0], [6, 8, 0], [6, 2, 0]])])
+    exterior_shell = MultiSurface(surfaces=[_surface([[2, 0, 0], [4, 0, 0], [4, 1, 0], [2, 1, 0]])])
+    interior_shell = MultiSurface(surfaces=[_surface([[2, 2, 0], [4, 2, 0], [4, 4, 0], [2, 4, 0]])])
+    outside_shell = MultiSurface(surfaces=[_surface([[12, 2, 0], [14, 2, 0], [14, 4, 0], [12, 4, 0]])])
+    excess_shell = _closed_box()
+    excess_shell.surfaces.append(excess_shell.surfaces[0].copy(geometry_only=True))
+
+    assert (
+        lod2_module._edge_count_mismatch_reason(footprint, slice_lines, slice_shell)
+        == lod2_module.EDGE_COUNT_UNMATCHED_ON_SLICE
+    )
+    assert (
+        lod2_module._edge_count_mismatch_reason(footprint, slice_lines, exterior_shell)
+        == lod2_module.EDGE_COUNT_UNMATCHED_ON_FOOTPRINT_EXTERIOR
+    )
+    assert (
+        lod2_module._edge_count_mismatch_reason(footprint, slice_lines, interior_shell)
+        == lod2_module.EDGE_COUNT_UNMATCHED_INTERIOR
+    )
+    assert (
+        lod2_module._edge_count_mismatch_reason(footprint, slice_lines, outside_shell)
+        == lod2_module.EDGE_COUNT_OTHER
+    )
+    assert (
+        lod2_module._edge_count_mismatch_reason(footprint, slice_lines, excess_shell)
+        == lod2_module.EDGE_COUNT_EXCESS_COUNT
+    )
+
+
+def test_decomposition_edge_count_mismatch_preserves_counter_invariant(monkeypatch):
+    footprint = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
+    left_region = Polygon([(0, 0), (5, 0), (5, 10), (0, 10)])
+    right_region = Polygon([(5, 0), (10, 0), (10, 10), (5, 10)])
+    decomposition = lod2_module.FootprintDecomposition(
+        pieces=[left_region, right_region],
+        slice_lines=[LineString([(5, 0), (5, 10)])],
+        family_reason=lod2_module.DECOMPOSITION_L_LIKE,
+        concave_vertex_count=1,
+    )
+    left_roof = _surface([[0, 0, 10], [5, 0, 10], [5, 10, 10], [0, 10, 10]])
+    right_roof = _surface([[5, 0, 12], [10, 0, 12], [10, 10, 12], [5, 10, 12]])
+    region_surfaces = iter([([left_roof], None), ([right_roof], None)])
+    decomposition_counts = Counter()
+
+    monkeypatch.setattr(
+        lod2_module,
+        "_decompose_footprint",
+        lambda candidate_footprint, decomposition_counts=None: decomposition,
+    )
+    monkeypatch.setattr(
+        lod2_module,
+        "_region_roof_surfaces",
+        lambda points, region, decomposition_counts=None: next(region_surfaces),
+    )
+    monkeypatch.setattr(lod2_module, "_internal_junction_surfaces", lambda *args: [])
+
+    shell, reason = lod2_module._build_decomposed_shell(
+        footprint,
+        np.empty((0, 3)),
+        0.0,
+        decomposition_counts,
+    )
+
+    assert shell is None
+    assert reason == lod2_module.DECOMPOSITION_WATERTIGHT_FAILED
+    assert decomposition_counts[lod2_module.WATERTIGHT_EDGE_COUNT_MISMATCH] == 1
+    assert decomposition_counts[lod2_module.EDGE_COUNT_UNMATCHED_ON_SLICE] == 1
+    assert decomposition_counts[lod2_module.WATERTIGHT_EDGE_COUNT_MISMATCH] == sum(
+        decomposition_counts[subreason]
+        for subreason in lod2_module.EDGE_COUNT_MISMATCH_REASONS
+    )
+
+
 def test_decomposition_watertight_failure_preserves_counter_invariant(monkeypatch):
     messages = []
     monkeypatch.setattr(lod2_module, "info", messages.append, raising=False)

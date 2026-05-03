@@ -71,6 +71,11 @@ WATERTIGHT_TOO_FEW_PAIRED_VERTICES = "watertight_too_few_paired_vertices"
 WATERTIGHT_UNPAIRED_RIDGE_ON_SLICE = "watertight_unpaired_ridge_on_slice"
 WATERTIGHT_EDGE_COUNT_MISMATCH = "watertight_edge_count_mismatch"
 WATERTIGHT_OTHER = "watertight_other"
+EDGE_COUNT_UNMATCHED_ON_SLICE = "edge_count_unmatched_on_slice"
+EDGE_COUNT_UNMATCHED_ON_FOOTPRINT_EXTERIOR = "edge_count_unmatched_on_footprint_exterior"
+EDGE_COUNT_UNMATCHED_INTERIOR = "edge_count_unmatched_interior"
+EDGE_COUNT_EXCESS_COUNT = "edge_count_excess_count"
+EDGE_COUNT_OTHER = "edge_count_other"
 NO_VALID_SLICES_AXIS_MISALIGNED = "no_valid_slices_axis_misaligned"
 NO_VALID_SLICES_PIECE_TOO_SMALL = "no_valid_slices_piece_too_small"
 NO_VALID_SLICES_PIECE_NOT_RECTANGULAR = "no_valid_slices_piece_not_rectangular"
@@ -130,6 +135,13 @@ WATERTIGHT_FAILURE_REASONS = (
     WATERTIGHT_EDGE_COUNT_MISMATCH,
     WATERTIGHT_OTHER,
 )
+EDGE_COUNT_MISMATCH_REASONS = (
+    EDGE_COUNT_UNMATCHED_ON_SLICE,
+    EDGE_COUNT_UNMATCHED_ON_FOOTPRINT_EXTERIOR,
+    EDGE_COUNT_UNMATCHED_INTERIOR,
+    EDGE_COUNT_EXCESS_COUNT,
+    EDGE_COUNT_OTHER,
+)
 DECOMPOSITION_REASONS = (
     DECOMPOSITION_CANDIDATE,
     DECOMPOSITION_SUCCESS,
@@ -144,6 +156,7 @@ DECOMPOSITION_REASONS = (
     *AXIS_MISALIGNED_ANGLE_REASONS,
     *REGION_ROOF_REASONS,
     *WATERTIGHT_FAILURE_REASONS,
+    *EDGE_COUNT_MISMATCH_REASONS,
     DECOMPOSITION_L_LIKE,
     DECOMPOSITION_T_OR_U_LIKE,
     DECOMPOSITION_OTHER_SHAPE,
@@ -473,6 +486,44 @@ def _decomposed_watertight_failure_reason(
         if edge_counts and any(count != 2 for count in edge_counts.values()):
             return WATERTIGHT_EDGE_COUNT_MISMATCH
     return WATERTIGHT_OTHER
+
+
+def _edge_xy_midpoint(edge: tuple[tuple[int, int, int], tuple[int, int, int]]) -> np.ndarray:
+    start, end = edge
+    return np.array(
+        [
+            0.5 * (start[0] + end[0]) * EDGE_TOLERANCE,
+            0.5 * (start[1] + end[1]) * EDGE_TOLERANCE,
+        ],
+        dtype=float,
+    )
+
+
+def _edge_count_mismatch_reason(
+    footprint: Polygon,
+    slice_lines: list[LineString],
+    shell: MultiSurface,
+) -> str:
+    bad_edges = [
+        (edge, count)
+        for edge, count in _edge_counts(shell).items()
+        if count != 2
+    ]
+    if any(count > 2 for _, count in bad_edges):
+        return EDGE_COUNT_EXCESS_COUNT
+    for edge, _ in bad_edges:
+        midpoint = Point(_edge_xy_midpoint(edge))
+        if any(line.distance(midpoint) <= EDGE_TOLERANCE for line in slice_lines):
+            return EDGE_COUNT_UNMATCHED_ON_SLICE
+    for edge, _ in bad_edges:
+        midpoint = Point(_edge_xy_midpoint(edge))
+        if footprint.boundary.distance(midpoint) <= EDGE_TOLERANCE:
+            return EDGE_COUNT_UNMATCHED_ON_FOOTPRINT_EXTERIOR
+    for edge, _ in bad_edges:
+        midpoint = Point(_edge_xy_midpoint(edge))
+        if footprint.contains(midpoint):
+            return EDGE_COUNT_UNMATCHED_INTERIOR
+    return EDGE_COUNT_OTHER
 
 
 def _xy_close(first: np.ndarray, second: np.ndarray) -> bool:
@@ -1213,15 +1264,18 @@ def _build_decomposed_shell(
         return None, DECOMPOSITION_WATERTIGHT_FAILED
     shell = MultiSurface(surfaces=[*roof_surfaces, *junctions, *walls, _ground_surface(footprint, ground_height)])
     if not is_watertight(shell):
-        _record_decomposition_subreason(
-            decomposition_counts,
-            _decomposed_watertight_failure_reason(
-                footprint,
-                roof_surfaces,
-                decomposition.slice_lines,
-                shell,
-            ),
+        watertight_reason = _decomposed_watertight_failure_reason(
+            footprint,
+            roof_surfaces,
+            decomposition.slice_lines,
+            shell,
         )
+        _record_decomposition_subreason(decomposition_counts, watertight_reason)
+        if watertight_reason == WATERTIGHT_EDGE_COUNT_MISMATCH:
+            _record_decomposition_subreason(
+                decomposition_counts,
+                _edge_count_mismatch_reason(footprint, decomposition.slice_lines, shell),
+            )
         return None, DECOMPOSITION_WATERTIGHT_FAILED
     if decomposition_counts is not None:
         decomposition_counts[DECOMPOSITION_SUCCESS] += 1
