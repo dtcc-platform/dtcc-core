@@ -33,7 +33,7 @@ except ImportError:
 SCB_DESO_WFS_URL = "https://geodata.scb.se/geoserver/stat/wfs"
 SCB_PXWEB_API_BASE_URL = "https://api.scb.se/OV0104/v1/doris/sv/ssd/START"
 SCB_DESO_SUPPORTED_YEARS = (2018, 2025)
-SCB_DESO_STATISTICS = ("population", "households", "cars")
+SCB_DESO_STATISTICS = ("population", "households", "cars", "employment")
 _REQUEST_TIMEOUT_SECONDS = 60
 
 
@@ -95,6 +95,24 @@ _STATISTIC_QUERIES = {
                     "ContentsCode": "000007ZL",
                 },
             },
+        ],
+    },
+    "employment": {
+        "url": f"{SCB_PXWEB_API_BASE_URL}/AM/AM0210/AM0210G/ArRegDesoStatusN",
+        "year_values": (2020, 2021, 2022, 2023, 2024),
+        "fields": [
+            {
+                "name": "employed_residents_total",
+                "unit": "persons",
+                "description": (
+                    "Employed residents aged 15-74 by DeSO area from SCB BAS."
+                ),
+                "selections": {
+                    "Kon": "1+2",
+                    "Alder": "15-74",
+                    "ContentsCode": "0000089X",
+                },
+            }
         ],
     },
 }
@@ -229,18 +247,24 @@ def attach_deso_statistics(
         return deso
 
     topics = _normalize_statistics(statistics)
-    statistics_year = year or _default_statistics_year(deso)
+    _validate_statistics_geometry(deso)
+    statistics_years = _statistics_years(topics, year)
     fields = download_deso_statistics(
         codes=deso.codes,
         statistics=topics,
-        year=statistics_year,
+        year=year,
         source=source,
     )
     for field in fields:
         deso.attach_field(field)
 
     deso.attributes["statistics"] = topics
-    deso.attributes["statistics_year"] = statistics_year
+    deso.attributes["statistics_years"] = statistics_years
+    unique_years = set(statistics_years.values())
+    if year is not None or len(unique_years) == 1:
+        deso.attributes["statistics_year"] = next(iter(unique_years))
+    else:
+        deso.attributes.pop("statistics_year", None)
     deso.attributes["statistics_source"] = "SCB Statistikdatabasen"
     return deso
 
@@ -258,17 +282,11 @@ def download_deso_statistics(
     if not codes:
         return []
 
-    statistics_year = year or 2025
-    query_codes = [_scb_deso_region_code(code, statistics_year) for code in codes]
     fields = []
     for topic in topics:
         query = _STATISTIC_QUERIES[topic]
-        if statistics_year not in query["year_values"]:
-            supported = ", ".join(str(value) for value in query["year_values"])
-            raise ValueError(
-                f"Statistic '{topic}' does not support year {statistics_year}. "
-                f"Supported years: {supported}."
-            )
+        statistics_year = _statistic_year(topic, year)
+        query_codes = [_scb_deso_region_code(code, statistics_year) for code in codes]
 
         for field_spec in query["fields"]:
             values = _query_scb_statistic(
@@ -348,11 +366,27 @@ def _normalize_statistics(statistics: Sequence[str]) -> list[str]:
     return topics
 
 
-def _default_statistics_year(deso: DeSO) -> int:
+def _validate_statistics_geometry(deso: DeSO) -> None:
     year = deso.attributes.get("year", 2025)
-    if year == 2025:
-        return 2025
-    raise ValueError("DeSO statistics v1 currently supports DeSO 2025 only.")
+    if year != 2025:
+        raise ValueError("DeSO statistics v1 currently supports DeSO 2025 only.")
+
+
+def _statistics_years(topics: Sequence[str], year: int | None = None) -> dict[str, int]:
+    return {topic: _statistic_year(topic, year) for topic in topics}
+
+
+def _statistic_year(topic: str, year: int | None = None) -> int:
+    query = _STATISTIC_QUERIES[topic]
+    if year is None:
+        return max(query["year_values"])
+    if year not in query["year_values"]:
+        supported = ", ".join(str(value) for value in query["year_values"])
+        raise ValueError(
+            f"Statistic '{topic}' does not support year {year}. "
+            f"Supported years: {supported}."
+        )
+    return year
 
 
 def _scb_deso_region_code(code: str, year: int) -> str:

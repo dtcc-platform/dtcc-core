@@ -13,12 +13,12 @@ class DeSOArgs(DatasetBaseArgs):
     source: Literal["SCB"] = Field("SCB", description="Data source")
     year: Literal[2018, 2025] = Field(2025, description="DeSO geometry vintage")
     statistics: Optional[
-        list[Literal["population", "households", "cars"]]
+        list[Literal["population", "households", "cars", "employment"]]
     ] = Field(
         None,
         description=(
             "Optional SCB DeSO statistics to attach as area-aligned fields "
-            "(population, households, cars)."
+            "(population, households, cars, employment)."
         ),
     )
     statistics_year: Optional[int] = Field(

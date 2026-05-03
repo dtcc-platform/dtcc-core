@@ -95,6 +95,32 @@ def test_deso_dataset_passes_statistics(monkeypatch):
     assert deso.attributes["statistics"] == ["population", "cars"]
 
 
+def test_deso_dataset_accepts_employment_statistics(monkeypatch):
+    expected = _deso()
+
+    def fake_download_deso(
+        bounds,
+        year=2025,
+        source="SCB",
+        statistics=None,
+        statistics_year=None,
+    ):
+        assert statistics == ["employment"]
+        assert statistics_year is None
+        expected.attributes["statistics"] = statistics
+        return expected
+
+    monkeypatch.setattr("dtcc_core.io.data.download_deso", fake_download_deso)
+
+    deso = datasets.deso(
+        bounds=(0.0, 0.0, 2.0, 1.0),
+        statistics=["employment"],
+    )
+
+    assert deso is expected
+    assert deso.attributes["statistics"] == ["employment"]
+
+
 @pytest.mark.skipif(gpd is None, reason="GeoPandas is required")
 def test_deso_dataset_geojson_format(monkeypatch):
     gdf = gpd.GeoDataFrame(
