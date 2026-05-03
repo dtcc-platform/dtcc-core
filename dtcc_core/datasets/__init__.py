@@ -16,6 +16,7 @@ from .hydrology import HydrologyDataset
 from .ocean import OceanDataset
 from .footprints import FootprintsDataset
 from .roads import RoadsDataset
+from .deso import DeSODataset
 from .smoke import SmokeDataset
 
 # Remote dataset support (optional, requires httpx)
@@ -59,6 +60,7 @@ weather = get_dataset("weather")
 hydrology = get_dataset("hydrology")
 ocean = get_dataset("ocean")
 roads = get_dataset("roads")
+deso = get_dataset("deso")
 smoke = get_dataset("smoke")
 
 
