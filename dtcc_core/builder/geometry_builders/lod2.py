@@ -66,6 +66,16 @@ DECOMPOSITION_REGION_ROOF_FAILED = "decomposition_region_roof_failed"
 DECOMPOSITION_JUNCTION_FAILED = "decomposition_junction_failed"
 DECOMPOSITION_COVERAGE_FAILED = "decomposition_coverage_failed"
 DECOMPOSITION_WATERTIGHT_FAILED = "decomposition_watertight_failed"
+NO_VALID_SLICES_AXIS_MISALIGNED = "no_valid_slices_axis_misaligned"
+NO_VALID_SLICES_PIECE_TOO_SMALL = "no_valid_slices_piece_too_small"
+NO_VALID_SLICES_PIECE_NOT_RECTANGULAR = "no_valid_slices_piece_not_rectangular"
+NO_VALID_SLICES_COVERAGE_FAILED = "no_valid_slices_coverage_failed"
+NO_VALID_SLICES_OTHER = "no_valid_slices_other"
+REGION_ROOF_NO_PLANES = "region_roof_no_planes"
+REGION_ROOF_UNSUPPORTED_COUNT = "region_roof_unsupported_count"
+REGION_ROOF_SPLIT_FAILED = "region_roof_split_failed"
+REGION_ROOF_ASSIGNMENT_FAILED = "region_roof_assignment_failed"
+REGION_ROOF_OTHER = "region_roof_other"
 DECOMPOSITION_L_LIKE = "decomposition_l_like"
 DECOMPOSITION_T_OR_U_LIKE = "decomposition_t_or_u_like"
 DECOMPOSITION_OTHER_SHAPE = "decomposition_other_shape"
@@ -77,6 +87,20 @@ TEMPLATE_GATE_REASONS = (
     UNSUPPORTED_RECT_FEW_DOMINANT,
     UNSUPPORTED_OTHER,
 )
+NO_VALID_SLICE_REASONS = (
+    NO_VALID_SLICES_AXIS_MISALIGNED,
+    NO_VALID_SLICES_PIECE_TOO_SMALL,
+    NO_VALID_SLICES_PIECE_NOT_RECTANGULAR,
+    NO_VALID_SLICES_COVERAGE_FAILED,
+    NO_VALID_SLICES_OTHER,
+)
+REGION_ROOF_REASONS = (
+    REGION_ROOF_NO_PLANES,
+    REGION_ROOF_UNSUPPORTED_COUNT,
+    REGION_ROOF_SPLIT_FAILED,
+    REGION_ROOF_ASSIGNMENT_FAILED,
+    REGION_ROOF_OTHER,
+)
 DECOMPOSITION_REASONS = (
     DECOMPOSITION_CANDIDATE,
     DECOMPOSITION_SUCCESS,
@@ -87,6 +111,8 @@ DECOMPOSITION_REASONS = (
     DECOMPOSITION_JUNCTION_FAILED,
     DECOMPOSITION_COVERAGE_FAILED,
     DECOMPOSITION_WATERTIGHT_FAILED,
+    *NO_VALID_SLICE_REASONS,
+    *REGION_ROOF_REASONS,
     DECOMPOSITION_L_LIKE,
     DECOMPOSITION_T_OR_U_LIKE,
     DECOMPOSITION_OTHER_SHAPE,
@@ -554,16 +580,18 @@ def _flatten_polygons(geometry) -> list[Polygon]:
     return []
 
 
-def _split_by_slice_lines(footprint: Polygon, lines: list[LineString]) -> list[Polygon]:
+def _split_by_slice_lines(footprint: Polygon, lines: list[LineString], *, filter_small: bool = True) -> list[Polygon]:
     pieces = [footprint]
     for line in lines:
         next_pieces: list[Polygon] = []
         for piece in pieces:
             split_result = split(piece, line)
-            split_polygons = [
-                polygon for polygon in _flatten_polygons(split_result)
-                if polygon.area >= MIN_DECOMPOSITION_REGION_AREA
-            ]
+            split_polygons = _flatten_polygons(split_result)
+            if filter_small:
+                split_polygons = [
+                    polygon for polygon in split_polygons
+                    if polygon.area >= MIN_DECOMPOSITION_REGION_AREA
+                ]
             if len(split_polygons) == 0:
                 next_pieces.append(piece)
             else:
@@ -589,26 +617,44 @@ def _decomposition_score(footprint: Polygon, pieces: list[Polygon]) -> tuple[int
     return (len(pieces), -min_rectangularity, uncovered_fraction, area_imbalance)
 
 
-def _valid_decomposition_pieces(footprint: Polygon, pieces: list[Polygon], expected_count: int) -> bool:
+def _decomposition_piece_failure_reason(footprint: Polygon, pieces: list[Polygon], expected_count: int) -> str | None:
     if len(pieces) != expected_count:
-        return False
+        return NO_VALID_SLICES_OTHER
     if any(piece.area < MIN_DECOMPOSITION_REGION_AREA for piece in pieces):
-        return False
+        return NO_VALID_SLICES_PIECE_TOO_SMALL
     if not _patches_cover_footprint(footprint, pieces):
-        return False
-    return all(_piece_rectangularity(piece) >= DECOMPOSITION_RECTANGULARITY_MIN_RATIO for piece in pieces)
+        return NO_VALID_SLICES_COVERAGE_FAILED
+    if any(_piece_rectangularity(piece) < DECOMPOSITION_RECTANGULARITY_MIN_RATIO for piece in pieces):
+        return NO_VALID_SLICES_PIECE_NOT_RECTANGULAR
+    return None
 
 
-def _decompose_footprint(footprint: Polygon) -> FootprintDecomposition | None:
+def _most_common_no_valid_slice_reason(reasons: Counter) -> str:
+    for reason in NO_VALID_SLICE_REASONS:
+        if reasons[reason] == max(reasons.values()):
+            return reason
+    return NO_VALID_SLICES_OTHER
+
+
+def _decompose_footprint(
+    footprint: Polygon,
+    decomposition_counts: Counter | None = None,
+) -> FootprintDecomposition | None:
     simplified = _simplified_footprint_for_decomposition(footprint)
     if simplified is None:
+        _record_decomposition_subreason(decomposition_counts, NO_VALID_SLICES_OTHER)
         return None
     concave_indices = _concave_vertex_indices(simplified)
     concave_count = len(concave_indices)
     if concave_count < 1 or concave_count > MAX_DECOMPOSITION_CONCAVE_VERTICES:
+        _record_decomposition_subreason(decomposition_counts, NO_VALID_SLICES_OTHER)
         return None
     axes = _minimum_rotated_rectangle_axes(simplified)
-    if axes is None or not _concave_edges_align_to_axes(simplified, concave_indices, axes):
+    if axes is None:
+        _record_decomposition_subreason(decomposition_counts, NO_VALID_SLICES_OTHER)
+        return None
+    if not _concave_edges_align_to_axes(simplified, concave_indices, axes):
+        _record_decomposition_subreason(decomposition_counts, NO_VALID_SLICES_AXIS_MISALIGNED)
         return None
     family_reason = DECOMPOSITION_L_LIKE if concave_count == 1 else DECOMPOSITION_T_OR_U_LIKE
     expected_count = concave_count + 1
@@ -628,12 +674,24 @@ def _decompose_footprint(footprint: Polygon) -> FootprintDecomposition | None:
             for first_index, first in enumerate(candidate_lines)
             for second in candidate_lines[first_index + 1:]
         ]
+    failure_reasons = Counter()
     for lines in line_sets:
         pieces = _split_by_slice_lines(footprint, lines)
-        if not _valid_decomposition_pieces(footprint, pieces, expected_count):
+        failure_reason = _decomposition_piece_failure_reason(footprint, pieces, expected_count)
+        if failure_reason == NO_VALID_SLICES_OTHER:
+            raw_pieces = _split_by_slice_lines(footprint, lines, filter_small=False)
+            raw_failure_reason = _decomposition_piece_failure_reason(footprint, raw_pieces, expected_count)
+            if raw_failure_reason == NO_VALID_SLICES_PIECE_TOO_SMALL:
+                failure_reason = raw_failure_reason
+        if failure_reason is not None:
+            failure_reasons[failure_reason] += 1
             continue
         candidates.append((_decomposition_score(footprint, pieces), pieces, lines))
     if not candidates:
+        _record_decomposition_subreason(
+            decomposition_counts,
+            _most_common_no_valid_slice_reason(failure_reasons) if failure_reasons else NO_VALID_SLICES_OTHER,
+        )
         return None
     candidates.sort(key=lambda item: item[0])
     _, pieces, lines = candidates[0]
@@ -701,6 +759,11 @@ def _record_decomposition_failure(decomposition_counts: Counter | None, reason: 
     if decomposition_counts is not None:
         if reason not in DECOMPOSITION_FAILURE_REASONS:
             reason = DECOMPOSITION_REGION_ROOF_FAILED
+        decomposition_counts[reason] += 1
+
+
+def _record_decomposition_subreason(decomposition_counts: Counter | None, reason: str) -> None:
+    if decomposition_counts is not None:
         decomposition_counts[reason] += 1
 
 
@@ -874,13 +937,33 @@ def _points_in_polygon(points: np.ndarray, polygon: Polygon) -> np.ndarray:
     return np.asarray(selected, dtype=float)
 
 
-def _region_roof_surfaces(points: np.ndarray, region: Polygon) -> tuple[list[Surface] | None, str | None]:
+def _region_roof_failure_reason(reason: str | None) -> str:
+    if reason == NO_PLANES_FOUND:
+        return REGION_ROOF_NO_PLANES
+    if reason == UNSUPPORTED_PLANE_COUNT:
+        return REGION_ROOF_UNSUPPORTED_COUNT
+    if reason == SPLIT_FAILED:
+        return REGION_ROOF_SPLIT_FAILED
+    if reason == PATCH_ASSIGNMENT_FAILED:
+        return REGION_ROOF_ASSIGNMENT_FAILED
+    return REGION_ROOF_OTHER
+
+
+def _region_roof_surfaces(
+    points: np.ndarray,
+    region: Polygon,
+    decomposition_counts: Counter | None = None,
+) -> tuple[list[Surface] | None, str | None]:
     region_points = _points_in_polygon(points, region)
     if len(region_points) < MIN_ROOF_POINTS:
         return None, DECOMPOSITION_SPARSE_REGION_POINTS
     planes = _ransac_planes(region_points)
     roof_surfaces, reason = _roof_surfaces_for_planes(region_points, region, planes)
     if roof_surfaces is None:
+        _record_decomposition_subreason(
+            decomposition_counts,
+            _region_roof_failure_reason(reason),
+        )
         return None, reason or DECOMPOSITION_REGION_ROOF_FAILED
     return roof_surfaces, None
 
@@ -905,12 +988,12 @@ def _build_decomposed_shell(
     ground_height: float,
     decomposition_counts: Counter | None = None,
 ) -> tuple[MultiSurface | None, str]:
-    decomposition = _decompose_footprint(footprint)
+    decomposition = _decompose_footprint(footprint, decomposition_counts)
     if decomposition is None:
         return None, DECOMPOSITION_NO_VALID_SLICES
     roof_surfaces: list[Surface] = []
     for region in decomposition.pieces:
-        region_surfaces, reason = _region_roof_surfaces(roof_points, region)
+        region_surfaces, reason = _region_roof_surfaces(roof_points, region, decomposition_counts)
         if region_surfaces is None:
             return None, reason or DECOMPOSITION_REGION_ROOF_FAILED
         roof_surfaces.extend(region_surfaces)

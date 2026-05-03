@@ -110,6 +110,14 @@ def _flat_roof_points(z=10.0):
     return [[x, y, z] for x in np.linspace(1, 9, 5) for y in np.linspace(1, 9, 5)]
 
 
+def _decomposition_summary_values(messages):
+    summary = next(message for message in messages if message.startswith("LOD2 decomposition summary:"))
+    return {
+        part.split("=")[0]: int(part.split("=")[1])
+        for part in summary.removeprefix("LOD2 decomposition summary: ").split()
+    }
+
+
 def test_build_lod2_buildings_creates_watertight_flat_roof():
     building = _building_with_footprint(_flat_roof_points())
 
@@ -404,6 +412,55 @@ def test_decomposition_region_rejections_are_counted(monkeypatch):
     summary = next(message for message in messages if message.startswith("LOD2 decomposition summary:"))
     assert "decomposition_candidate=1" in summary
     assert "decomposition_region_roof_failed=1" in summary
+
+
+def test_decomposition_no_valid_slices_logs_axis_misaligned_subcounter(monkeypatch):
+    messages = []
+    monkeypatch.setattr(lod2_module, "info", messages.append, raising=False)
+    skewed = Polygon([(0, 0), (10, 0), (10, 4), (4, 7), (4, 10), (0, 10)])
+    planes = [
+        lod2_module.RoofPlane(0.0, 0.0, 10.0, np.arange(50)),
+        lod2_module.RoofPlane(0.2, 0.0, 11.0, np.arange(50, 80)),
+        lod2_module.RoofPlane(-0.2, 0.0, 13.0, np.arange(80, 110)),
+    ]
+    monkeypatch.setattr(lod2_module, "_ransac_planes", lambda points: planes)
+
+    build_lod2_buildings(
+        [_building_with_polygon(_flat_roof_points(), skewed)],
+        build_lod1_fallback=False,
+        log_rejections=True,
+    )
+
+    values = _decomposition_summary_values(messages)
+    assert values["decomposition_no_valid_slices"] == 1
+    assert values["no_valid_slices_axis_misaligned"] == 1
+    assert values["decomposition_no_valid_slices"] == sum(
+        values.get(reason, 0)
+        for reason in lod2_module.NO_VALID_SLICE_REASONS
+    )
+
+
+def test_decomposition_region_roof_failure_logs_subcounter(monkeypatch):
+    messages = []
+    monkeypatch.setattr(lod2_module, "info", messages.append, raising=False)
+    l_shape = Polygon([(0, 0), (10, 0), (10, 4), (4, 4), (4, 10), (0, 10)])
+    building = _building_with_polygon(_l_shape_flat_points(), l_shape)
+    planes = [
+        lod2_module.RoofPlane(0.0, 0.0, 10.0, np.arange(50)),
+        lod2_module.RoofPlane(0.2, 0.0, 11.0, np.arange(50, 80)),
+        lod2_module.RoofPlane(-0.2, 0.0, 13.0, np.arange(80, 110)),
+    ]
+    monkeypatch.setattr(lod2_module, "_ransac_planes", lambda points: planes)
+
+    build_lod2_buildings([building], build_lod1_fallback=False, log_rejections=True)
+
+    values = _decomposition_summary_values(messages)
+    assert values["decomposition_region_roof_failed"] == 1
+    assert values["region_roof_unsupported_count"] == 1
+    assert values["decomposition_region_roof_failed"] == sum(
+        values.get(reason, 0)
+        for reason in lod2_module.REGION_ROOF_REASONS
+    )
 
 
 def test_rebuild_false_preserves_existing_lod2():
