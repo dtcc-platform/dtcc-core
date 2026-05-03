@@ -157,6 +157,17 @@ def _gable_roof_points():
     return points
 
 
+def _u_shaped_gable_roof_points():
+    points = []
+    for x in np.linspace(1, 9, 7):
+        for y in [1.0, 2.0, 2.8]:
+            points.append([x, y, 10.0 + 0.5 * y])
+    for x in [1.0, 2.0, 8.0, 9.0]:
+        for y in [6.0, 8.0, 9.0]:
+            points.append([x, y, 15.0 - 0.5 * y])
+    return points
+
+
 def _edge_keys_for_surface(surface, tolerance=1e-3):
     keys = []
     for index, vertex in enumerate(surface.vertices):
@@ -177,6 +188,21 @@ def test_build_lod2_buildings_creates_watertight_gable_with_shared_ridge():
     assert is_watertight(result[0].lod2)
     assert len(roof_surfaces) == 2
     assert len(shared_edges) == 1
+
+
+def test_build_lod2_buildings_splits_nonconvex_two_plane_footprint(monkeypatch):
+    u_shape = Polygon([(0, 0), (10, 0), (10, 10), (7, 10), (7, 3), (3, 3), (3, 10), (0, 10)])
+    points = _u_shaped_gable_roof_points()
+    lower_plane = lod2_module.RoofPlane(0.0, 0.5, 10.0, np.arange(21))
+    upper_plane = lod2_module.RoofPlane(0.0, -0.5, 15.0, np.arange(21, 33))
+    monkeypatch.setattr(lod2_module, "_ransac_planes", lambda roof_points: [lower_plane, upper_plane])
+    building = _building_with_polygon(points, u_shape)
+
+    result = build_lod2_buildings([building], build_lod1_fallback=False)
+
+    assert result[0].lod2 is not None
+    assert is_watertight(result[0].lod2)
+    assert len(result[0].lod2.surfaces) == 12
 
 
 def test_rebuild_false_preserves_existing_lod2():

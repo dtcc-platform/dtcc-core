@@ -394,33 +394,33 @@ def _split_footprint_for_two_planes(footprint: Polygon, first: RoofPlane, second
         return None
     pieces = split(footprint, line)
     polygons = [geom for geom in pieces.geoms if geom.area >= MIN_PATCH_AREA]
-    if len(polygons) != 2:
+    if len(polygons) < 2:
         return None
     return polygons
 
 
-def _assign_patches_to_planes(points: np.ndarray, planes: list[RoofPlane], patches: list[Polygon]) -> list[Polygon] | None:
-    assigned: list[Polygon | None] = [None] * len(planes)
-    used_patch_indices: set[int] = set()
-    for plane_index, plane in enumerate(planes):
-        best_patch_index = -1
+def _assign_patches_to_planes(points: np.ndarray, planes: list[RoofPlane], patches: list[Polygon]) -> list[tuple[Polygon, RoofPlane]] | None:
+    assigned: list[tuple[Polygon, RoofPlane]] = []
+    assigned_plane_indices: set[int] = set()
+    for patch in patches:
+        best_plane_index = -1
         best_count = -1
-        for patch_index, patch in enumerate(patches):
-            if patch_index in used_patch_indices:
-                continue
-            buffered = patch.buffer(EDGE_TOLERANCE)
+        buffered = patch.buffer(EDGE_TOLERANCE)
+        for plane_index, plane in enumerate(planes):
             count = sum(
                 buffered.contains(Point(x, y)) or buffered.touches(Point(x, y))
                 for x, y in points[plane.inliers][:, :2]
             )
             if count > best_count:
                 best_count = count
-                best_patch_index = patch_index
-        if best_patch_index < 0 or best_count == 0:
+                best_plane_index = plane_index
+        if best_plane_index < 0 or best_count == 0:
             return None
-        assigned[plane_index] = patches[best_patch_index]
-        used_patch_indices.add(best_patch_index)
-    return [patch for patch in assigned if patch is not None]
+        assigned.append((patch, planes[best_plane_index]))
+        assigned_plane_indices.add(best_plane_index)
+    if len(assigned_plane_indices) != len(planes):
+        return None
+    return assigned
 
 
 def _ridge_xy(first: Polygon, second: Polygon) -> list[tuple[float, float]]:
@@ -463,10 +463,11 @@ def _multi_plane_roof_surfaces(
     split_patches = _split_footprint_for_two_planes(footprint, planes[0], planes[1])
     if split_patches is None:
         return None, SPLIT_FAILED
-    patches = _assign_patches_to_planes(points, planes, split_patches)
-    if patches is None:
+    assigned_patches = _assign_patches_to_planes(points, planes, split_patches)
+    if assigned_patches is None:
         return None, PATCH_ASSIGNMENT_FAILED
-    kept_planes = planes
+    patches = [patch for patch, _ in assigned_patches]
+    kept_planes = [plane for _, plane in assigned_patches]
     if len(patches) < 2 or not _patches_cover_footprint(footprint, patches):
         return None, PATCH_COVERAGE_FAILED
 
