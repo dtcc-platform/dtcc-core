@@ -440,6 +440,37 @@ def test_decomposition_no_valid_slices_logs_axis_misaligned_subcounter(monkeypat
     )
 
 
+def test_decomposition_axis_misalignment_logs_angle_histogram(monkeypatch):
+    messages = []
+    monkeypatch.setattr(lod2_module, "info", messages.append, raising=False)
+    mostly_aligned = Polygon([(0, 0), (10, 0), (10, 4), (4, 6), (4, 10), (0, 10)])
+    strongly_misaligned = Polygon([(0, 0), (10, 0), (10, 4), (4, 7), (4, 10), (0, 10)])
+    planes = [
+        lod2_module.RoofPlane(0.0, 0.0, 10.0, np.arange(50)),
+        lod2_module.RoofPlane(0.2, 0.0, 11.0, np.arange(50, 80)),
+        lod2_module.RoofPlane(-0.2, 0.0, 13.0, np.arange(80, 110)),
+    ]
+    monkeypatch.setattr(lod2_module, "_ransac_planes", lambda points: planes)
+
+    build_lod2_buildings(
+        [
+            _building_with_polygon(_flat_roof_points(), mostly_aligned),
+            _building_with_polygon(_flat_roof_points(), strongly_misaligned),
+        ],
+        build_lod1_fallback=False,
+        log_rejections=True,
+    )
+
+    values = _decomposition_summary_values(messages)
+    assert values["no_valid_slices_axis_misaligned"] == 2
+    assert values["axis_misaligned_angle_15_20"] == 1
+    assert values["axis_misaligned_angle_25_30"] == 1
+    assert values["no_valid_slices_axis_misaligned"] == sum(
+        values.get(reason, 0)
+        for reason in lod2_module.AXIS_MISALIGNED_ANGLE_REASONS
+    )
+
+
 def test_decomposition_region_roof_failure_logs_subcounter(monkeypatch):
     messages = []
     monkeypatch.setattr(lod2_module, "info", messages.append, raising=False)

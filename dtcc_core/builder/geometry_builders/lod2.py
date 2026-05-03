@@ -71,6 +71,13 @@ NO_VALID_SLICES_PIECE_TOO_SMALL = "no_valid_slices_piece_too_small"
 NO_VALID_SLICES_PIECE_NOT_RECTANGULAR = "no_valid_slices_piece_not_rectangular"
 NO_VALID_SLICES_COVERAGE_FAILED = "no_valid_slices_coverage_failed"
 NO_VALID_SLICES_OTHER = "no_valid_slices_other"
+AXIS_MISALIGNED_ANGLE_15_20 = "axis_misaligned_angle_15_20"
+AXIS_MISALIGNED_ANGLE_20_25 = "axis_misaligned_angle_20_25"
+AXIS_MISALIGNED_ANGLE_25_30 = "axis_misaligned_angle_25_30"
+AXIS_MISALIGNED_ANGLE_30_35 = "axis_misaligned_angle_30_35"
+AXIS_MISALIGNED_ANGLE_35_40 = "axis_misaligned_angle_35_40"
+AXIS_MISALIGNED_ANGLE_40_45 = "axis_misaligned_angle_40_45"
+AXIS_MISALIGNED_ANGLE_OVER_45 = "axis_misaligned_angle_over_45"
 REGION_ROOF_NO_PLANES = "region_roof_no_planes"
 REGION_ROOF_UNSUPPORTED_COUNT = "region_roof_unsupported_count"
 REGION_ROOF_SPLIT_FAILED = "region_roof_split_failed"
@@ -94,6 +101,15 @@ NO_VALID_SLICE_REASONS = (
     NO_VALID_SLICES_COVERAGE_FAILED,
     NO_VALID_SLICES_OTHER,
 )
+AXIS_MISALIGNED_ANGLE_REASONS = (
+    AXIS_MISALIGNED_ANGLE_15_20,
+    AXIS_MISALIGNED_ANGLE_20_25,
+    AXIS_MISALIGNED_ANGLE_25_30,
+    AXIS_MISALIGNED_ANGLE_30_35,
+    AXIS_MISALIGNED_ANGLE_35_40,
+    AXIS_MISALIGNED_ANGLE_40_45,
+    AXIS_MISALIGNED_ANGLE_OVER_45,
+)
 REGION_ROOF_REASONS = (
     REGION_ROOF_NO_PLANES,
     REGION_ROOF_UNSUPPORTED_COUNT,
@@ -112,6 +128,7 @@ DECOMPOSITION_REASONS = (
     DECOMPOSITION_COVERAGE_FAILED,
     DECOMPOSITION_WATERTIGHT_FAILED,
     *NO_VALID_SLICE_REASONS,
+    *AXIS_MISALIGNED_ANGLE_REASONS,
     *REGION_ROOF_REASONS,
     DECOMPOSITION_L_LIKE,
     DECOMPOSITION_T_OR_U_LIKE,
@@ -549,16 +566,42 @@ def _angle_to_axis_degrees(vector: np.ndarray, axes: tuple[np.ndarray, np.ndarra
     return float(np.degrees(np.arccos(best_alignment)))
 
 
-def _concave_edges_align_to_axes(footprint: Polygon, concave_indices: list[int], axes: tuple[np.ndarray, np.ndarray]) -> bool:
+def _axis_misalignment_angle_reason(angle: float) -> str:
+    if angle < 20.0:
+        return AXIS_MISALIGNED_ANGLE_15_20
+    if angle < 25.0:
+        return AXIS_MISALIGNED_ANGLE_20_25
+    if angle < 30.0:
+        return AXIS_MISALIGNED_ANGLE_25_30
+    if angle < 35.0:
+        return AXIS_MISALIGNED_ANGLE_30_35
+    if angle < 40.0:
+        return AXIS_MISALIGNED_ANGLE_35_40
+    if angle <= 45.0:
+        return AXIS_MISALIGNED_ANGLE_40_45
+    return AXIS_MISALIGNED_ANGLE_OVER_45
+
+
+def _max_concave_edge_angle_to_axes(footprint: Polygon, concave_indices: list[int], axes: tuple[np.ndarray, np.ndarray]) -> float:
     coords = np.asarray(footprint.exterior.coords[:-1], dtype=float)
+    max_angle = 0.0
     for index in concave_indices:
         previous_edge = coords[index] - coords[index - 1]
         next_edge = coords[(index + 1) % len(coords)] - coords[index]
-        if _angle_to_axis_degrees(previous_edge, axes) > DECOMPOSITION_AXIS_ANGLE_TOLERANCE:
-            return False
-        if _angle_to_axis_degrees(next_edge, axes) > DECOMPOSITION_AXIS_ANGLE_TOLERANCE:
-            return False
-    return True
+        max_angle = max(
+            max_angle,
+            _angle_to_axis_degrees(previous_edge, axes),
+            _angle_to_axis_degrees(next_edge, axes),
+        )
+    return max_angle
+
+
+def _concave_edges_align_to_axes(footprint: Polygon, concave_indices: list[int], axes: tuple[np.ndarray, np.ndarray]) -> bool:
+    return _max_concave_edge_angle_to_axes(
+        footprint,
+        concave_indices,
+        axes,
+    ) <= DECOMPOSITION_AXIS_ANGLE_TOLERANCE
 
 
 def _slice_line_through(point: np.ndarray, direction: np.ndarray, footprint: Polygon) -> LineString:
@@ -655,6 +698,12 @@ def _decompose_footprint(
         return None
     if not _concave_edges_align_to_axes(simplified, concave_indices, axes):
         _record_decomposition_subreason(decomposition_counts, NO_VALID_SLICES_AXIS_MISALIGNED)
+        _record_decomposition_subreason(
+            decomposition_counts,
+            _axis_misalignment_angle_reason(
+                _max_concave_edge_angle_to_axes(simplified, concave_indices, axes)
+            ),
+        )
         return None
     family_reason = DECOMPOSITION_L_LIKE if concave_count == 1 else DECOMPOSITION_T_OR_U_LIKE
     expected_count = concave_count + 1
