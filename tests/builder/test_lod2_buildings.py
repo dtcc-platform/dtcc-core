@@ -7,6 +7,8 @@ from shapely.geometry import Polygon
 import dtcc_core.builder.geometry_builders.lod2 as lod2_module
 from dtcc_core.model import Building, City, GeometryType, MultiSurface, PointCloud, Surface
 from dtcc_core.builder.geometry_builders.lod2 import is_watertight
+from dtcc_core.builder.geometry_builders.lod2 import _concave_vertex_indices
+from dtcc_core.builder.geometry_builders.lod2 import _decomposition_shape_reason
 from dtcc_core.builder.geometry_builders.lod2 import _fit_plane, _ransac_planes
 from dtcc_core.builder.geometry_builders.lod2 import _roof_surfaces_cover_footprint
 from dtcc_core.builder.geometry_builders.lod2 import build_lod2_buildings
@@ -145,6 +147,26 @@ def test_projected_roof_surfaces_must_cover_footprint():
 
     assert not _roof_surfaces_cover_footprint(footprint, [half_roof])
     assert _roof_surfaces_cover_footprint(footprint, [half_roof, other_half_roof])
+
+
+def test_concave_vertex_indices_classifies_basic_footprints():
+    rectangle = Polygon([(0, 0), (10, 0), (10, 4), (0, 4)])
+    l_shape = Polygon([(0, 0), (10, 0), (10, 4), (4, 4), (4, 10), (0, 10)])
+    u_shape = Polygon([(0, 0), (10, 0), (10, 10), (7, 10), (7, 3), (3, 3), (3, 10), (0, 10)])
+    plus_like = Polygon([(3, 0), (7, 0), (7, 3), (10, 3), (10, 7), (7, 7), (7, 10), (3, 10), (3, 7), (0, 7), (0, 3), (3, 3)])
+
+    assert len(_concave_vertex_indices(rectangle)) == 0
+    assert len(_concave_vertex_indices(l_shape)) == 1
+    assert len(_concave_vertex_indices(u_shape)) == 2
+    assert len(_concave_vertex_indices(plus_like)) == 4
+
+
+def test_decomposition_shape_reason_uses_simplified_footprint():
+    l_shape = Polygon([(0, 0), (10, 0), (10, 4), (4, 4), (4.1, 5), (4, 6), (4, 10), (0, 10)])
+    u_shape = Polygon([(0, 0), (10, 0), (10, 10), (7, 10), (7, 3), (3, 3), (3, 10), (0, 10)])
+
+    assert _decomposition_shape_reason(l_shape) == lod2_module.DECOMPOSITION_L_LIKE
+    assert _decomposition_shape_reason(u_shape) == lod2_module.DECOMPOSITION_T_OR_U_LIKE
 
 
 def _gable_roof_points():
@@ -436,7 +458,7 @@ def test_build_lod2_buildings_logs_decomposition_summary_when_requested(monkeypa
     ]
     assert len(summary_lines) == 1
     assert "decomposition_candidate=1" in summary_lines[0]
-    assert "decomposition_other_shape=1" in summary_lines[0]
+    assert "decomposition_l_like=1" in summary_lines[0]
     assert "decomposition_unsupported_shape=1" in summary_lines[0]
 
 

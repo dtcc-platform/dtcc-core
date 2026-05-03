@@ -349,6 +349,56 @@ def _minimum_rotated_rectangle_metrics(footprint: Polygon) -> tuple[float, float
     return rectangularity, side_ratio
 
 
+def _signed_area(coords: np.ndarray) -> float:
+    shifted = np.roll(coords, -1, axis=0)
+    return 0.5 * float(np.sum(coords[:, 0] * shifted[:, 1] - shifted[:, 0] * coords[:, 1]))
+
+
+def _concave_vertex_indices(footprint: Polygon) -> list[int]:
+    coords = np.asarray(footprint.exterior.coords[:-1], dtype=float)
+    if len(coords) < 4:
+        return []
+    orientation = 1.0 if _signed_area(coords) >= 0.0 else -1.0
+    concave: list[int] = []
+    for index, current in enumerate(coords):
+        previous = coords[index - 1]
+        following = coords[(index + 1) % len(coords)]
+        incoming = current - previous
+        outgoing = following - current
+        denom = float(np.linalg.norm(incoming) * np.linalg.norm(outgoing))
+        if denom == 0.0:
+            continue
+        cross = float(incoming[0] * outgoing[1] - incoming[1] * outgoing[0])
+        turn_sine = cross / denom
+        if abs(turn_sine) <= 1e-3:
+            continue
+        if turn_sine * orientation < 0.0:
+            concave.append(index)
+    return concave
+
+
+def _simplified_footprint_for_decomposition(footprint: Polygon) -> Polygon | None:
+    simplified = footprint.simplify(
+        FOOTPRINT_DECOMPOSITION_SIMPLIFY_TOLERANCE,
+        preserve_topology=True,
+    )
+    if simplified.geom_type != "Polygon" or simplified.is_empty or not simplified.is_valid or simplified.area <= 0:
+        return None
+    return simplified
+
+
+def _decomposition_shape_reason(footprint: Polygon) -> str:
+    simplified = _simplified_footprint_for_decomposition(footprint)
+    if simplified is None:
+        return DECOMPOSITION_OTHER_SHAPE
+    concave_count = len(_concave_vertex_indices(simplified))
+    if concave_count == 1:
+        return DECOMPOSITION_L_LIKE
+    if concave_count == 2:
+        return DECOMPOSITION_T_OR_U_LIKE
+    return DECOMPOSITION_OTHER_SHAPE
+
+
 def _dominant_plane_count(planes: list[RoofPlane], inlier_share: float = HIP_PLANE_INLIER_SHARE) -> int:
     if not planes:
         return 0
@@ -606,7 +656,10 @@ def _candidate_lod2_from_parts(
     if len(planes) > 2:
         _record_template_gate_diagnostics(footprint, planes, template_gate_counts)
         if _is_irregular_footprint(footprint):
-            _record_decomposition_candidate(decomposition_counts, DECOMPOSITION_OTHER_SHAPE)
+            _record_decomposition_candidate(
+                decomposition_counts,
+                _decomposition_shape_reason(footprint),
+            )
             _record_decomposition_failure(decomposition_counts, DECOMPOSITION_UNSUPPORTED_SHAPE)
         _record_rejection(rejections, UNSUPPORTED_PLANE_COUNT)
         return None
