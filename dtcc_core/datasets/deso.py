@@ -12,6 +12,19 @@ from .dataset import DatasetBaseArgs, DatasetDescriptor
 class DeSOArgs(DatasetBaseArgs):
     source: Literal["SCB"] = Field("SCB", description="Data source")
     year: Literal[2018, 2025] = Field(2025, description="DeSO geometry vintage")
+    statistics: Optional[
+        list[Literal["population", "households", "cars"]]
+    ] = Field(
+        None,
+        description=(
+            "Optional SCB DeSO statistics to attach as area-aligned fields "
+            "(population, households, cars)."
+        ),
+    )
+    statistics_year: Optional[int] = Field(
+        None,
+        description="Reference year for attached statistics; defaults to latest supported.",
+    )
     format: Optional[Literal["pb", "geojson", "gpkg"]] = Field(
         None,
         description="Output format (pb for protobuf bytes, geojson/gpkg for vector bytes)",
@@ -20,7 +33,7 @@ class DeSOArgs(DatasetBaseArgs):
 
 class DeSODataset(DatasetDescriptor):
     name = "deso"
-    description = "Swedish DeSO demographic statistical areas from SCB."
+    description = "Swedish DeSO statistical areas and optional SCB statistics."
     ArgsModel = DeSOArgs
     data_category = "raw"
     result_kind = "administrative_areas"
@@ -29,17 +42,29 @@ class DeSODataset(DatasetDescriptor):
     def build(self, args: DeSOArgs):
         bounds = self.parse_bounds(args.bounds)
         if args.format in ("geojson", "gpkg"):
-            gdf = dtcc_core.io.data.deso.download_deso_geodataframe(
-                bounds=bounds,
-                year=args.year,
-                source=args.source,
-            )
+            if args.statistics:
+                deso = dtcc_core.io.data.download_deso(
+                    bounds=bounds,
+                    year=args.year,
+                    source=args.source,
+                    statistics=args.statistics,
+                    statistics_year=args.statistics_year,
+                )
+                gdf = deso.to_dataframe()
+            else:
+                gdf = dtcc_core.io.data.deso.download_deso_geodataframe(
+                    bounds=bounds,
+                    year=args.year,
+                    source=args.source,
+                )
             return self._export_gdf_to_bytes(gdf, args.format)
 
         deso: DeSO = dtcc_core.io.data.download_deso(
             bounds=bounds,
             year=args.year,
             source=args.source,
+            statistics=args.statistics,
+            statistics_year=args.statistics_year,
         )
         if args.format == "pb":
             return deso.to_proto().SerializeToString()

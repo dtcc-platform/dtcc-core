@@ -1,13 +1,21 @@
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 import numpy as np
 import requests
 from shapely.geometry import box
 from shapely.validation import make_valid
 
-from dtcc_core.model import Bounds, DeSO, GeometryType, MultiSurface, Object, Surface
+from dtcc_core.model import (
+    Bounds,
+    DeSO,
+    Field,
+    GeometryType,
+    MultiSurface,
+    Object,
+    Surface,
+)
 from .cache import cache_dir
 from .logging import info, warning
 
@@ -23,14 +31,81 @@ except ImportError:
 
 
 SCB_DESO_WFS_URL = "https://geodata.scb.se/geoserver/stat/wfs"
+SCB_PXWEB_API_BASE_URL = "https://api.scb.se/OV0104/v1/doris/sv/ssd/START"
 SCB_DESO_SUPPORTED_YEARS = (2018, 2025)
+SCB_DESO_STATISTICS = ("population", "households", "cars")
 _REQUEST_TIMEOUT_SECONDS = 60
+
+
+_STATISTIC_QUERIES = {
+    "population": {
+        "url": f"{SCB_PXWEB_API_BASE_URL}/BE/BE0101/BE0101Y/FolkmDesoAldKon",
+        "year_values": (2024, 2025),
+        "fields": [
+            {
+                "name": "population_total",
+                "unit": "persons",
+                "description": "Total population by DeSO area from SCB.",
+                "selections": {
+                    "Alder": "totalt",
+                    "Kon": "1+2",
+                    "ContentsCode": "000007Y7",
+                },
+            }
+        ],
+    },
+    "households": {
+        "url": f"{SCB_PXWEB_API_BASE_URL}/BE/BE0101/BE0101Y/HushallDesoTyp",
+        "year_values": (2024, 2025),
+        "fields": [
+            {
+                "name": "households_total",
+                "unit": "households",
+                "description": "Total number of households by DeSO area from SCB.",
+                "selections": {
+                    "Hushallstyp": "TOTALT",
+                    "ContentsCode": "000007Y1",
+                },
+            }
+        ],
+    },
+    "cars": {
+        "url": f"{SCB_PXWEB_API_BASE_URL}/TK/TK1001/TK1001Z/PersBilarDesoN",
+        "year_values": (2024, 2025),
+        "fields": [
+            {
+                "name": "cars_total",
+                "unit": "cars",
+                "description": (
+                    "Total passenger cars registered to residents by DeSO area from SCB."
+                ),
+                "selections": {
+                    "Bestand": "TOT",
+                    "ContentsCode": "000007ZL",
+                },
+            },
+            {
+                "name": "cars_in_traffic",
+                "unit": "cars",
+                "description": (
+                    "Passenger cars in traffic registered to residents by DeSO area from SCB."
+                ),
+                "selections": {
+                    "Bestand": "ITRAF",
+                    "ContentsCode": "000007ZL",
+                },
+            },
+        ],
+    },
+}
 
 
 def download_deso(
     bounds: Bounds,
     year: int = 2025,
     source: str = "SCB",
+    statistics: Sequence[str] | None = None,
+    statistics_year: int | None = None,
     use_cache: bool = True,
 ) -> DeSO:
     """Download DeSO polygons and return a DTCC DeSO object."""
@@ -40,7 +115,15 @@ def download_deso(
         source=source,
         use_cache=use_cache,
     )
-    return deso_from_geodataframe(gdf, bounds=bounds, year=year, source=source)
+    deso = deso_from_geodataframe(gdf, bounds=bounds, year=year, source=source)
+    if statistics:
+        attach_deso_statistics(
+            deso,
+            statistics=statistics,
+            year=statistics_year,
+            source=source,
+        )
+    return deso
 
 
 def download_deso_geodataframe(
@@ -133,6 +216,163 @@ def deso_from_geodataframe(
     return deso
 
 
+def attach_deso_statistics(
+    deso: DeSO,
+    statistics: Sequence[str],
+    year: int | None = None,
+    source: str = "SCB",
+) -> DeSO:
+    """Attach SCB DeSO statistics as area-aligned fields."""
+    if source != "SCB":
+        raise ValueError("Only source='SCB' is supported for DeSO statistics v1.")
+    if not statistics:
+        return deso
+
+    topics = _normalize_statistics(statistics)
+    statistics_year = year or _default_statistics_year(deso)
+    fields = download_deso_statistics(
+        codes=deso.codes,
+        statistics=topics,
+        year=statistics_year,
+        source=source,
+    )
+    for field in fields:
+        deso.attach_field(field)
+
+    deso.attributes["statistics"] = topics
+    deso.attributes["statistics_year"] = statistics_year
+    deso.attributes["statistics_source"] = "SCB Statistikdatabasen"
+    return deso
+
+
+def download_deso_statistics(
+    codes: Sequence[str],
+    statistics: Sequence[str],
+    year: int | None = None,
+    source: str = "SCB",
+) -> list[Field]:
+    """Download selected SCB statistics for DeSO codes as DTCC Fields."""
+    if source != "SCB":
+        raise ValueError("Only source='SCB' is supported for DeSO statistics v1.")
+    topics = _normalize_statistics(statistics)
+    if not codes:
+        return []
+
+    statistics_year = year or 2025
+    query_codes = [_scb_deso_region_code(code, statistics_year) for code in codes]
+    fields = []
+    for topic in topics:
+        query = _STATISTIC_QUERIES[topic]
+        if statistics_year not in query["year_values"]:
+            supported = ", ".join(str(value) for value in query["year_values"])
+            raise ValueError(
+                f"Statistic '{topic}' does not support year {statistics_year}. "
+                f"Supported years: {supported}."
+            )
+
+        for field_spec in query["fields"]:
+            values = _query_scb_statistic(
+                url=query["url"],
+                region_codes=query_codes,
+                year=statistics_year,
+                selections=field_spec["selections"],
+            )
+            fields.append(
+                Field(
+                    name=field_spec["name"],
+                    unit=field_spec["unit"],
+                    description=field_spec["description"],
+                    values=np.asarray(values, dtype=float).reshape((-1, 1)),
+                    dim=1,
+                )
+            )
+    return fields
+
+
+def _query_scb_statistic(
+    url: str,
+    region_codes: Sequence[str],
+    year: int,
+    selections: dict[str, str],
+) -> np.ndarray:
+    query = [
+        {
+            "code": "Region",
+            "selection": {"filter": "item", "values": list(region_codes)},
+        }
+    ]
+    for code, value in selections.items():
+        query.append(
+            {
+                "code": code,
+                "selection": {"filter": "item", "values": [value]},
+            }
+        )
+    query.append(
+        {
+            "code": "Tid",
+            "selection": {"filter": "item", "values": [str(year)]},
+        }
+    )
+    payload = {"query": query, "response": {"format": "JSON"}}
+    response = requests.post(url, json=payload, timeout=_REQUEST_TIMEOUT_SECONDS)
+    response.raise_for_status()
+    return _parse_scb_statistic_response(response.json(), region_codes)
+
+
+def _parse_scb_statistic_response(
+    payload: dict[str, Any],
+    region_codes: Sequence[str],
+) -> np.ndarray:
+    values_by_region = {code: np.nan for code in region_codes}
+    for row in payload.get("data", []):
+        key = row.get("key", [])
+        values = row.get("values", [])
+        if not key or not values:
+            continue
+        values_by_region[key[0]] = _to_float(values[0])
+    return np.asarray([values_by_region[code] for code in region_codes], dtype=float)
+
+
+def _normalize_statistics(statistics: Sequence[str]) -> list[str]:
+    topics = []
+    for topic in statistics:
+        normalized = str(topic).lower()
+        if normalized not in SCB_DESO_STATISTICS:
+            supported = ", ".join(SCB_DESO_STATISTICS)
+            raise ValueError(
+                f"Unsupported DeSO statistic '{topic}'. Supported statistics: {supported}."
+            )
+        if normalized not in topics:
+            topics.append(normalized)
+    return topics
+
+
+def _default_statistics_year(deso: DeSO) -> int:
+    year = deso.attributes.get("year", 2025)
+    if year == 2025:
+        return 2025
+    raise ValueError("DeSO statistics v1 currently supports DeSO 2025 only.")
+
+
+def _scb_deso_region_code(code: str, year: int) -> str:
+    code = str(code)
+    if year >= 2024 and "_DeSO2025" not in code:
+        return f"{code}_DeSO2025"
+    return code
+
+
+def _to_float(value):
+    if value in (None, "", "..", ".", "-"):
+        return np.nan
+    if isinstance(value, str):
+        value = value.replace(" ", "").replace(",", ".")
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return np.nan
+
+
 def _geometry_to_multisurface(geometry) -> MultiSurface | None:
     if geometry is None or geometry.is_empty:
         return None
@@ -213,8 +453,11 @@ def _cache_path(bounds: Bounds, year: int) -> Path:
 __all__ = [
     "download_deso",
     "download_deso_geodataframe",
+    "download_deso_statistics",
+    "attach_deso_statistics",
     "filter_deso_geodataframe",
     "deso_from_geodataframe",
     "SCB_DESO_WFS_URL",
     "SCB_DESO_SUPPORTED_YEARS",
+    "SCB_DESO_STATISTICS",
 ]

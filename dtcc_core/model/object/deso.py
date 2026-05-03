@@ -7,6 +7,7 @@ import numpy as np
 
 from .object import Object, GeometryType
 from ..geometry import MultiSurface
+from ..values import Field
 
 
 @dataclass
@@ -22,6 +23,44 @@ class DeSO(Object):
     def codes(self) -> list[str]:
         """Return DeSO area codes."""
         return [area.attributes.get("desokod", area.id) for area in self.areas]
+
+    @property
+    def fields(self) -> dict[str, Field]:
+        """Return area-aligned fields aggregated from DeSO area geometries."""
+        fields: dict[str, Field] = {}
+        metadata: dict[str, Field] = {}
+        for area in self.areas:
+            geometry = area.geometry.get(GeometryType.LOD0)
+            if geometry is None:
+                continue
+            for field in geometry.fields:
+                if field.name not in fields:
+                    metadata[field.name] = field
+                    fields[field.name] = []
+
+        for name, rows in fields.items():
+            dim = metadata[name].dim
+            for area in self.areas:
+                value = self._area_field_value(area, name, dim)
+                rows.append(value)
+
+        return {
+            name: Field(
+                name=name,
+                unit=metadata[name].unit,
+                description=metadata[name].description,
+                values=np.asarray(values, dtype=float).reshape(
+                    (-1, metadata[name].dim)
+                ),
+                dim=metadata[name].dim,
+            )
+            for name, values in fields.items()
+        }
+
+    @property
+    def field_names(self) -> list[str]:
+        """Return names of area-aligned fields attached to the DeSO areas."""
+        return list(self.fields.keys())
 
     def __len__(self):
         return len(self.areas)
@@ -55,6 +94,13 @@ class DeSO(Object):
             lines.append(f"Bounds: {self.bounds}")
 
         if len(self) > 0:
+            fields = self.fields
+            if fields:
+                lines.append("")
+                lines.append("Fields:")
+                for field in fields.values():
+                    lines.append(f"  {field.name} ({field.unit})")
+
             area_types = Counter(
                 code[4]
                 for code in self.codes
@@ -92,7 +138,8 @@ class DeSO(Object):
 
         rows: list[dict[str, Any]] = []
         geometries = []
-        for area in self.areas:
+        fields = self.fields
+        for index, area in enumerate(self.areas):
             geometry = area.geometry.get(GeometryType.LOD0)
             if not isinstance(geometry, MultiSurface):
                 continue
@@ -108,6 +155,8 @@ class DeSO(Object):
 
             row = dict(area.attributes)
             row["id"] = area.id
+            for name, field in fields.items():
+                row.setdefault(name, self._to_python_value(field.values[index]))
             rows.append(row)
             geometry = polygons[0] if len(polygons) == 1 else MultiPolygon(polygons)
             geometries.append(geometry)
@@ -152,7 +201,53 @@ class DeSO(Object):
                 for key, value in attributes.items()
             }
 
+        fields = self.fields
+        if fields:
+            arrays["fields"] = {
+                name: field.values.copy()
+                for name, field in fields.items()
+            }
+
         return arrays
+
+    def attach_field(self, field: Field, attribute_name: str | None = None):
+        """Attach an area-aligned field to the DeSO areas.
+
+        The field must have one row per DeSO area. Each row is stored on the
+        corresponding area's LOD0 geometry and mirrored to area attributes so
+        tabular export and viewer picking can expose the values directly.
+        """
+        if not isinstance(field, Field):
+            raise TypeError("field must be a dtcc_core.model.Field.")
+        if len(field.values) != len(self):
+            raise ValueError(
+                f"Field '{field.name}' has {len(field.values)} values, "
+                f"but DeSO has {len(self)} areas."
+            )
+
+        values = np.asarray(field.values, dtype=float).reshape((-1, field.dim))
+        name = attribute_name or field.name
+        for area, value in zip(self.areas, values):
+            geometry = area.geometry.get(GeometryType.LOD0)
+            if geometry is None:
+                continue
+
+            area_field = Field(
+                name=field.name,
+                unit=field.unit,
+                description=field.description,
+                values=np.asarray(value, dtype=float).reshape((1, field.dim)),
+                dim=field.dim,
+            )
+            geometry.fields = [f for f in geometry.fields if f.name != field.name]
+            geometry.fields.append(area_field)
+            area.attributes[name] = self._to_python_value(value)
+
+        return self
+
+    def get_field(self, name: str) -> Field | None:
+        """Return an area-aligned field by name, if present."""
+        return self.fields.get(name)
 
     def plot(
         self,
@@ -187,6 +282,33 @@ class DeSO(Object):
         if show:
             plt.show()
         return ax
+
+    @staticmethod
+    def _area_field_value(area: Object, name: str, dim: int):
+        geometry = area.geometry.get(GeometryType.LOD0)
+        if geometry is not None:
+            for field in geometry.fields:
+                if field.name == name and len(field.values) > 0:
+                    value = np.asarray(field.values, dtype=float).reshape((-1, dim))[0]
+                    return value if dim != 1 else value[0]
+        if dim == 1:
+            return np.nan
+        return np.full(dim, np.nan)
+
+    @staticmethod
+    def _to_python_value(value):
+        value = np.asarray(value)
+        if value.size == 1:
+            scalar = value.reshape(-1)[0]
+            if np.isnan(scalar):
+                return None
+            return scalar.item() if hasattr(scalar, "item") else scalar
+        return [
+            None
+            if np.isnan(item)
+            else (item.item() if hasattr(item, "item") else item)
+            for item in value.reshape(-1)
+        ]
 
 
 __all__ = ["DeSO"]

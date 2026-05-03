@@ -4,7 +4,7 @@ import pytest
 from shapely.geometry import Polygon
 
 from dtcc_core.io.data.deso import deso_from_geodataframe
-from dtcc_core.model import Bounds, DeSO, GeometryType, Object
+from dtcc_core.model import Bounds, DeSO, Field, GeometryType, Object
 
 matplotlib.use("Agg")
 
@@ -63,6 +63,15 @@ def test_deso_from_geodataframe():
 
 def test_deso_info_arrays_dataframe_and_plot():
     deso = deso_from_geodataframe(_deso_gdf(), year=2025)
+    deso.attach_field(
+        Field(
+            name="population_total",
+            unit="persons",
+            description="Total population",
+            values=np.array([1729.0]),
+            dim=1,
+        )
+    )
 
     info = deso.info(print=False)
     arrays = deso.to_arrays()
@@ -71,15 +80,41 @@ def test_deso_info_arrays_dataframe_and_plot():
 
     assert "DTCC DeSO" in info
     assert "Areas: 1" in info
+    assert "population_total" in info
     assert arrays["codes"].tolist() == ["1480C1970"]
     assert arrays["centroids"].shape == (1, 3)
     assert np.allclose(arrays["centroids"][0, :2], [0.5, 0.5])
+    assert arrays["fields"]["population_total"].tolist() == [[1729.0]]
     assert dataframe["desokod"].tolist() == ["1480C1970"]
+    assert dataframe["population_total"].tolist() == [1729.0]
     assert ax is not None
+
+
+def test_deso_attach_field_validates_area_count():
+    deso = deso_from_geodataframe(_deso_gdf(), year=2025)
+
+    with pytest.raises(ValueError):
+        deso.attach_field(
+            Field(
+                name="population_total",
+                unit="persons",
+                values=np.array([1.0, 2.0]),
+                dim=1,
+            )
+        )
 
 
 def test_deso_protobuf_roundtrip():
     deso = deso_from_geodataframe(_deso_gdf(), year=2025)
+    deso.attach_field(
+        Field(
+            name="population_total",
+            unit="persons",
+            description="Total population",
+            values=np.array([1729.0]),
+            dim=1,
+        )
+    )
 
     payload = deso.to_proto().SerializeToString()
     restored = DeSO()
@@ -88,3 +123,4 @@ def test_deso_protobuf_roundtrip():
     assert len(restored) == 1
     assert restored.codes == ["1480C1970"]
     assert restored.attributes["year"] == 2025
+    assert restored.fields["population_total"].values.tolist() == [[1729.0]]

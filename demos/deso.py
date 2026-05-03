@@ -12,13 +12,14 @@ L = 2000.0
 # Define bounds
 bounds = dtcc.Bounds(x0 - 0.5 * L, y0 - 0.5 * L, x0 + 0.5 * L, y0 + 0.5 * L)
 
-# Download DeSO areas
-deso = dtcc.datasets.deso(bounds=bounds)
+# Download DeSO areas with basic statistics
+deso = dtcc.datasets.deso(bounds=bounds, statistics=["population", "cars"])
 deso.info()
 
 # Get data as arrays
 arrays = deso.to_arrays()
 print(f"Areas: {len(arrays['codes'])}")
+print(f"Population: {arrays['fields']['population_total'].sum():.0f}")
 
 # Plot DeSO areas with matplotlib
 deso.plot()
