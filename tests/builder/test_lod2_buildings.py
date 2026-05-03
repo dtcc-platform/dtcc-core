@@ -387,6 +387,25 @@ def test_decomposition_counter_invariant(monkeypatch):
     assert values["decomposition_candidate"] == values.get("decomposition_success", 0) + failures
 
 
+def test_decomposition_region_rejections_are_counted(monkeypatch):
+    messages = []
+    monkeypatch.setattr(lod2_module, "info", messages.append, raising=False)
+    l_shape = Polygon([(0, 0), (10, 0), (10, 4), (4, 4), (4, 10), (0, 10)])
+    building = _building_with_polygon(_l_shape_flat_points(), l_shape)
+    planes = [
+        lod2_module.RoofPlane(0.0, 0.0, 10.0, np.arange(50)),
+        lod2_module.RoofPlane(0.2, 0.0, 11.0, np.arange(50, 80)),
+        lod2_module.RoofPlane(-0.2, 0.0, 13.0, np.arange(80, 110)),
+    ]
+    monkeypatch.setattr(lod2_module, "_ransac_planes", lambda points: planes)
+
+    build_lod2_buildings([building], build_lod1_fallback=False, log_rejections=True)
+
+    summary = next(message for message in messages if message.startswith("LOD2 decomposition summary:"))
+    assert "decomposition_candidate=1" in summary
+    assert "decomposition_region_roof_failed=1" in summary
+
+
 def test_rebuild_false_preserves_existing_lod2():
     building = _building_with_footprint(_flat_roof_points())
     existing = _closed_box()

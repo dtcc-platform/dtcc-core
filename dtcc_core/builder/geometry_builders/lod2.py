@@ -699,6 +699,8 @@ def _record_decomposition_candidate(decomposition_counts: Counter | None, family
 
 def _record_decomposition_failure(decomposition_counts: Counter | None, reason: str) -> None:
     if decomposition_counts is not None:
+        if reason not in DECOMPOSITION_FAILURE_REASONS:
+            reason = DECOMPOSITION_REGION_ROOF_FAILED
         decomposition_counts[reason] += 1
 
 
