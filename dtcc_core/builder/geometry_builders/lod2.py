@@ -48,10 +48,16 @@ WATERTIGHT_SHELL_FAILED = "watertight_shell_failed"
 UNSUPPORTED_RECT_4PLANE = "unsupported_rect_4plane"
 UNSUPPORTED_NEAR_SQUARE_4PLANE = "unsupported_near_square_4plane"
 UNSUPPORTED_IRREGULAR_OR_OTHER = "unsupported_irregular_or_other"
+UNSUPPORTED_IRREGULAR_FOOTPRINT = "unsupported_irregular_footprint"
+UNSUPPORTED_RECT_FEW_DOMINANT = "unsupported_rect_few_dominant"
+UNSUPPORTED_OTHER = "unsupported_other"
 TEMPLATE_GATE_REASONS = (
     UNSUPPORTED_RECT_4PLANE,
     UNSUPPORTED_NEAR_SQUARE_4PLANE,
     UNSUPPORTED_IRREGULAR_OR_OTHER,
+    UNSUPPORTED_IRREGULAR_FOOTPRINT,
+    UNSUPPORTED_RECT_FEW_DOMINANT,
+    UNSUPPORTED_OTHER,
 )
 REJECTION_REASONS = (
     INVALID_FOOTPRINT,
@@ -321,13 +327,19 @@ def _record_template_gate_diagnostics(
     if template_gate_counts is None or len(planes) <= 2:
         return
     metrics = _minimum_rotated_rectangle_metrics(footprint)
-    dominant_plane_count = _dominant_plane_count(planes)
-    if metrics is None or dominant_plane_count < 4:
+    if metrics is None:
         template_gate_counts[UNSUPPORTED_IRREGULAR_OR_OTHER] += 1
+        template_gate_counts[UNSUPPORTED_OTHER] += 1
         return
     rectangularity, side_ratio = metrics
     if rectangularity < RECTANGULAR_FOOTPRINT_MIN_RATIO:
         template_gate_counts[UNSUPPORTED_IRREGULAR_OR_OTHER] += 1
+        template_gate_counts[UNSUPPORTED_IRREGULAR_FOOTPRINT] += 1
+        return
+    dominant_plane_count = _dominant_plane_count(planes)
+    if dominant_plane_count < 4:
+        template_gate_counts[UNSUPPORTED_IRREGULAR_OR_OTHER] += 1
+        template_gate_counts[UNSUPPORTED_RECT_FEW_DOMINANT] += 1
         return
     template_gate_counts[UNSUPPORTED_RECT_4PLANE] += 1
     if side_ratio >= NEAR_SQUARE_SIDE_RATIO and footprint.area <= MAX_PYRAMID_FOOTPRINT_AREA:

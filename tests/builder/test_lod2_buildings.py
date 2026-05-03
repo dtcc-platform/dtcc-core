@@ -357,21 +357,28 @@ def test_build_lod2_buildings_logs_inlier_share_recovery_simulation(monkeypatch)
 def test_build_lod2_buildings_logs_template_gate_summary(monkeypatch):
     messages = []
     monkeypatch.setattr(lod2_module, "info", messages.append, raising=False)
-    planes = [
+    four_planes = [
         lod2_module.RoofPlane(0.30, 0.00, 10.0, np.arange(100)),
         lod2_module.RoofPlane(-0.30, 0.00, 16.0, np.arange(100, 180)),
         lod2_module.RoofPlane(0.00, 0.30, 10.0, np.arange(180, 220)),
         lod2_module.RoofPlane(0.00, -0.30, 16.0, np.arange(220, 250)),
     ]
-    monkeypatch.setattr(lod2_module, "_ransac_planes", lambda points: planes)
+    three_planes = four_planes[:3]
+    monkeypatch.setattr(
+        lod2_module,
+        "_ransac_planes",
+        lambda points: three_planes if len(points) == 30 else four_planes,
+    )
     l_shape = Polygon([(0, 0), (10, 0), (10, 4), (4, 4), (4, 10), (0, 10)])
     wide_rect = Polygon([(0, 0), (30, 0), (30, 10), (0, 10)])
     large_square = Polygon([(0, 0), (20, 0), (20, 20), (0, 20)])
+    rectangular_few_dominant_points = [*_flat_roof_points(), *[[1, 1, 10]] * 5]
     buildings = [
         _building_with_footprint(_flat_roof_points()),
         _building_with_polygon(_flat_roof_points(), wide_rect),
         _building_with_polygon(_flat_roof_points(), large_square),
         _building_with_polygon(_flat_roof_points(), l_shape),
+        _building_with_footprint(rectangular_few_dominant_points),
     ]
 
     build_lod2_buildings(buildings, build_lod1_fallback=False, log_rejections=True)
@@ -383,7 +390,9 @@ def test_build_lod2_buildings_logs_template_gate_summary(monkeypatch):
     assert len(summary_lines) == 1
     assert "unsupported_rect_4plane=3" in summary_lines[0]
     assert "unsupported_near_square_4plane=1" in summary_lines[0]
-    assert "unsupported_irregular_or_other=1" in summary_lines[0]
+    assert "unsupported_irregular_or_other=2" in summary_lines[0]
+    assert "unsupported_irregular_footprint=1" in summary_lines[0]
+    assert "unsupported_rect_few_dominant=1" in summary_lines[0]
 
 
 @pytest.fixture
