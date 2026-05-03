@@ -92,6 +92,17 @@ def _building_with_footprint(points, *, ground_height=0.0):
     return building
 
 
+def _building_with_polygon(points, polygon, *, ground_height=0.0):
+    building = Building()
+    footprint = Surface()
+    footprint.from_polygon(polygon, 10.0)
+    building.add_geometry(footprint, GeometryType.LOD0)
+    building.add_geometry(PointCloud(points=np.array(points, dtype=float)), GeometryType.POINT_CLOUD)
+    building.attributes["ground_height"] = ground_height
+    building.attributes["height"] = 10.0 - ground_height
+    return building
+
+
 def _flat_roof_points(z=10.0):
     return [[x, y, z] for x in np.linspace(1, 9, 5) for y in np.linspace(1, 9, 5)]
 
@@ -123,6 +134,7 @@ def test_build_lod2_buildings_does_not_log_rejection_summary_by_default(monkeypa
 
     assert not any(message.startswith("LOD2 build summary:") for message in messages)
     assert not any(message.startswith("LOD2 rejection summary:") for message in messages)
+    assert not any(message.startswith("LOD2 template gate summary:") for message in messages)
 
 
 def test_projected_roof_surfaces_must_cover_footprint():
@@ -340,6 +352,38 @@ def test_build_lod2_buildings_logs_inlier_share_recovery_simulation(monkeypatch)
         message == "LOD2 trailing plane summary: trailing_planes_at_min_inliers=2"
         for message in messages
     )
+
+
+def test_build_lod2_buildings_logs_template_gate_summary(monkeypatch):
+    messages = []
+    monkeypatch.setattr(lod2_module, "info", messages.append, raising=False)
+    planes = [
+        lod2_module.RoofPlane(0.30, 0.00, 10.0, np.arange(100)),
+        lod2_module.RoofPlane(-0.30, 0.00, 16.0, np.arange(100, 180)),
+        lod2_module.RoofPlane(0.00, 0.30, 10.0, np.arange(180, 220)),
+        lod2_module.RoofPlane(0.00, -0.30, 16.0, np.arange(220, 250)),
+    ]
+    monkeypatch.setattr(lod2_module, "_ransac_planes", lambda points: planes)
+    l_shape = Polygon([(0, 0), (10, 0), (10, 4), (4, 4), (4, 10), (0, 10)])
+    wide_rect = Polygon([(0, 0), (30, 0), (30, 10), (0, 10)])
+    large_square = Polygon([(0, 0), (20, 0), (20, 20), (0, 20)])
+    buildings = [
+        _building_with_footprint(_flat_roof_points()),
+        _building_with_polygon(_flat_roof_points(), wide_rect),
+        _building_with_polygon(_flat_roof_points(), large_square),
+        _building_with_polygon(_flat_roof_points(), l_shape),
+    ]
+
+    build_lod2_buildings(buildings, build_lod1_fallback=False, log_rejections=True)
+
+    summary_lines = [
+        message for message in messages
+        if message.startswith("LOD2 template gate summary:")
+    ]
+    assert len(summary_lines) == 1
+    assert "unsupported_rect_4plane=3" in summary_lines[0]
+    assert "unsupported_near_square_4plane=1" in summary_lines[0]
+    assert "unsupported_irregular_or_other=1" in summary_lines[0]
 
 
 @pytest.fixture

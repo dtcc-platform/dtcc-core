@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from collections import Counter
 
 import numpy as np
@@ -27,6 +28,10 @@ COPLANAR_OFFSET_TOLERANCE = 0.2
 NEAR_PARALLEL_NORMAL_TOLERANCE = 1e-2
 EDGE_TOLERANCE = 1e-3
 SHARED_VERTEX_KEY_DECIMALS = 6
+RECTANGULAR_FOOTPRINT_MIN_RATIO = 0.85
+HIP_PLANE_INLIER_SHARE = 0.10
+NEAR_SQUARE_SIDE_RATIO = 0.75
+MAX_PYRAMID_FOOTPRINT_AREA = 200.0
 INVALID_FOOTPRINT = "invalid_footprint"
 INSUFFICIENT_ROOF_POINTS = "insufficient_roof_points"
 NO_PLANES_FOUND = "no_planes_found"
@@ -40,6 +45,14 @@ MISSING_SHARED_RIDGE = "missing_shared_ridge"
 RIDGE_HEIGHT_MISMATCH = "ridge_height_mismatch"
 ROOF_SURFACE_COVERAGE_FAILED = "roof_surface_coverage_failed"
 WATERTIGHT_SHELL_FAILED = "watertight_shell_failed"
+UNSUPPORTED_RECT_4PLANE = "unsupported_rect_4plane"
+UNSUPPORTED_NEAR_SQUARE_4PLANE = "unsupported_near_square_4plane"
+UNSUPPORTED_IRREGULAR_OR_OTHER = "unsupported_irregular_or_other"
+TEMPLATE_GATE_REASONS = (
+    UNSUPPORTED_RECT_4PLANE,
+    UNSUPPORTED_NEAR_SQUARE_4PLANE,
+    UNSUPPORTED_IRREGULAR_OR_OTHER,
+)
 REJECTION_REASONS = (
     INVALID_FOOTPRINT,
     INSUFFICIENT_ROOF_POINTS,
@@ -268,6 +281,59 @@ def _record_inlier_share_diagnostics(
             recovery_counts[threshold] += 1
 
 
+def _minimum_rotated_rectangle_metrics(footprint: Polygon) -> tuple[float, float] | None:
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=RuntimeWarning, module="shapely.constructive")
+        rectangle = footprint.minimum_rotated_rectangle
+    if rectangle.is_empty or rectangle.area <= 0:
+        return None
+    coords = np.asarray(rectangle.exterior.coords[:-1], dtype=float)
+    if coords.shape != (4, 2):
+        return None
+    edge_lengths = [
+        float(np.linalg.norm(coords[(index + 1) % 4] - coords[index]))
+        for index in range(4)
+    ]
+    longest = max(edge_lengths)
+    shortest = min(edge_lengths)
+    if longest <= 0:
+        return None
+    rectangularity = float(footprint.area / rectangle.area)
+    side_ratio = float(shortest / longest)
+    return rectangularity, side_ratio
+
+
+def _dominant_plane_count(planes: list[RoofPlane], inlier_share: float = HIP_PLANE_INLIER_SHARE) -> int:
+    if not planes:
+        return 0
+    inlier_counts = np.asarray([len(plane.inliers) for plane in planes], dtype=float)
+    dominant_count = float(np.max(inlier_counts))
+    if dominant_count <= 0:
+        return 0
+    return int(np.sum(inlier_counts >= inlier_share * dominant_count))
+
+
+def _record_template_gate_diagnostics(
+    footprint: Polygon,
+    planes: list[RoofPlane],
+    template_gate_counts: Counter | None,
+) -> None:
+    if template_gate_counts is None or len(planes) <= 2:
+        return
+    metrics = _minimum_rotated_rectangle_metrics(footprint)
+    dominant_plane_count = _dominant_plane_count(planes)
+    if metrics is None or dominant_plane_count < 4:
+        template_gate_counts[UNSUPPORTED_IRREGULAR_OR_OTHER] += 1
+        return
+    rectangularity, side_ratio = metrics
+    if rectangularity < RECTANGULAR_FOOTPRINT_MIN_RATIO:
+        template_gate_counts[UNSUPPORTED_IRREGULAR_OR_OTHER] += 1
+        return
+    template_gate_counts[UNSUPPORTED_RECT_4PLANE] += 1
+    if side_ratio >= NEAR_SQUARE_SIDE_RATIO and footprint.area <= MAX_PYRAMID_FOOTPRINT_AREA:
+        template_gate_counts[UNSUPPORTED_NEAR_SQUARE_4PLANE] += 1
+
+
 def _patches_cover_footprint(footprint: Polygon, patches: list[Polygon]) -> bool:
     covered = unary_union(patches)
     missing = footprint.difference(covered)
@@ -440,6 +506,7 @@ def _log_lod2_summary(
     max_plane_coplanar_pair_counts: Counter,
     inlier_share_recovery_counts: Counter,
     trailing_plane_counts: Counter,
+    template_gate_counts: Counter,
 ) -> None:
     info(
         "LOD2 build summary: "
@@ -474,6 +541,13 @@ def _log_lod2_summary(
     ]
     if trailing_parts:
         info("LOD2 trailing plane summary: " + " ".join(trailing_parts))
+    template_gate_parts = [
+        f"{reason}={template_gate_counts[reason]}"
+        for reason in TEMPLATE_GATE_REASONS
+        if template_gate_counts[reason] > 0
+    ]
+    if template_gate_parts:
+        info("LOD2 template gate summary: " + " ".join(template_gate_parts))
     rejection_parts = [
         f"{reason}={rejections[reason]}"
         for reason in REJECTION_REASONS
@@ -492,6 +566,7 @@ def _candidate_lod2(
     max_plane_coplanar_pair_counts: Counter | None = None,
     inlier_share_recovery_counts: Counter | None = None,
     trailing_plane_counts: Counter | None = None,
+    template_gate_counts: Counter | None = None,
 ) -> MultiSurface | None:
     footprint = _footprint_polygon(building)
     if footprint is None:
@@ -516,6 +591,7 @@ def _candidate_lod2(
         _record_rejection(rejections, NO_PLANES_FOUND)
         return None
     if len(planes) > 2:
+        _record_template_gate_diagnostics(footprint, planes, template_gate_counts)
         _record_rejection(rejections, UNSUPPORTED_PLANE_COUNT)
         return None
     if len(planes) == 1:
@@ -548,6 +624,7 @@ def build_lod2_buildings(
     max_plane_coplanar_pair_counts = Counter()
     inlier_share_recovery_counts = Counter()
     trailing_plane_counts = Counter()
+    template_gate_counts = Counter()
     lod2_count = 0
     fallback_count = 0
     skipped_existing = 0
@@ -567,6 +644,7 @@ def build_lod2_buildings(
             max_plane_coplanar_pair_counts if log_rejections else None,
             inlier_share_recovery_counts if log_rejections else None,
             trailing_plane_counts if log_rejections else None,
+            template_gate_counts if log_rejections else None,
         )
         if candidate is not None:
             building.add_geometry(candidate, GeometryType.LOD2)
@@ -591,6 +669,7 @@ def build_lod2_buildings(
             max_plane_coplanar_pair_counts=max_plane_coplanar_pair_counts,
             inlier_share_recovery_counts=inlier_share_recovery_counts,
             trailing_plane_counts=trailing_plane_counts,
+            template_gate_counts=template_gate_counts,
         )
     return buildings
 
