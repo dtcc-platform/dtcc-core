@@ -249,6 +249,13 @@ def _l_shape_flat_points():
     return [*left, *bottom]
 
 
+def _u_shape_flat_points():
+    left = [[x, y, 10.0] for x in np.linspace(1, 2.5, 5) for y in np.linspace(3.5, 9, 5)]
+    bottom = [[x, y, 12.0] for x in np.linspace(4, 6, 5) for y in np.linspace(1, 2.5, 5)]
+    right = [[x, y, 14.0] for x in np.linspace(7.5, 9, 5) for y in np.linspace(3.5, 9, 5)]
+    return [*left, *bottom, *right]
+
+
 def _edge_keys_for_surface(surface, tolerance=1e-3):
     keys = []
     for index, vertex in enumerate(surface.vertices):
@@ -308,6 +315,76 @@ def test_build_lod2_buildings_decomposes_l_shape_flat_regions(monkeypatch):
 
     assert result[0].lod2 is not None
     assert is_watertight(result[0].lod2)
+
+
+def test_build_lod2_buildings_decomposes_u_shape_flat_regions(monkeypatch):
+    u_shape = Polygon([(0, 0), (10, 0), (10, 10), (7, 10), (7, 3), (3, 3), (3, 10), (0, 10)])
+    building = _building_with_polygon(_u_shape_flat_points(), u_shape)
+    monkeypatch.setattr(
+        lod2_module,
+        "_ransac_planes",
+        lambda points: [
+            lod2_module.RoofPlane(0.0, 0.0, 10.0, np.arange(25)),
+            lod2_module.RoofPlane(0.0, 0.0, 12.0, np.arange(25, 50)),
+            lod2_module.RoofPlane(0.0, 0.0, 14.0, np.arange(50, len(points))),
+        ] if len(points) > 50 else [lod2_module._fit_plane(points)],
+    )
+
+    result = build_lod2_buildings([building], build_lod1_fallback=False)
+
+    assert result[0].lod2 is not None
+    assert is_watertight(result[0].lod2)
+
+
+def test_split_failed_irregular_footprint_attempts_decomposition(monkeypatch):
+    messages = []
+    monkeypatch.setattr(lod2_module, "info", messages.append, raising=False)
+    l_shape = Polygon([(0, 0), (10, 0), (10, 4), (4, 4), (4, 10), (0, 10)])
+    building = _building_with_polygon(_l_shape_flat_points(), l_shape)
+    two_planes = [
+        lod2_module.RoofPlane(0.0, 0.0, 10.0, np.arange(25)),
+        lod2_module.RoofPlane(0.0, 0.0, 12.0, np.arange(25, 50)),
+    ]
+    monkeypatch.setattr(
+        lod2_module,
+        "_ransac_planes",
+        lambda points: two_planes if len(points) > 30 else [lod2_module._fit_plane(points)],
+    )
+
+    build_lod2_buildings([building], build_lod1_fallback=False, log_rejections=True)
+
+    assert building.lod2 is not None
+    assert any("decomposition_candidate=1" in message for message in messages)
+    assert any("decomposition_success=1" in message for message in messages)
+
+
+def test_decomposition_counter_invariant(monkeypatch):
+    messages = []
+    monkeypatch.setattr(lod2_module, "info", messages.append, raising=False)
+    unsupported_shape = Polygon([
+        (3, 0), (7, 0), (7, 3), (10, 3), (10, 7), (7, 7),
+        (7, 10), (3, 10), (3, 7), (0, 7), (0, 3), (3, 3),
+    ])
+    planes = [
+        lod2_module.RoofPlane(0.0, 0.0, 10.0, np.arange(50)),
+        lod2_module.RoofPlane(0.2, 0.0, 11.0, np.arange(50, 80)),
+        lod2_module.RoofPlane(-0.2, 0.0, 13.0, np.arange(80, 110)),
+    ]
+    monkeypatch.setattr(lod2_module, "_ransac_planes", lambda points: planes)
+
+    build_lod2_buildings(
+        [_building_with_polygon(_flat_roof_points(), unsupported_shape)],
+        build_lod1_fallback=False,
+        log_rejections=True,
+    )
+
+    summary = next(message for message in messages if message.startswith("LOD2 decomposition summary:"))
+    values = {
+        part.split("=")[0]: int(part.split("=")[1])
+        for part in summary.removeprefix("LOD2 decomposition summary: ").split()
+    }
+    failures = sum(values.get(reason, 0) for reason in lod2_module.DECOMPOSITION_FAILURE_REASONS)
+    assert values["decomposition_candidate"] == values.get("decomposition_success", 0) + failures
 
 
 def test_rebuild_false_preserves_existing_lod2():

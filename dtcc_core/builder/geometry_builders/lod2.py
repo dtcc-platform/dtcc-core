@@ -327,13 +327,25 @@ def _build_shell(footprint: Polygon, roof_surfaces: list[Surface], ground_height
     return shell
 
 
-def _internal_junction_surfaces(roof_surfaces: list[Surface], slice_lines: list[LineString]) -> list[Surface] | None:
+def _internal_junction_surfaces(
+    footprint: Polygon,
+    roof_surfaces: list[Surface],
+    slice_lines: list[LineString],
+) -> list[Surface] | None:
     junctions: list[Surface] = []
     roof_vertices = [vertex for surface in roof_surfaces for vertex in surface.vertices]
+    handled_lines: set[tuple[tuple[int, int], tuple[int, int]]] = set()
     for line in slice_lines:
         coords = np.asarray(line.coords, dtype=float)
         start = coords[0]
         end = coords[-1]
+        line_key = tuple(sorted((
+            tuple(np.round(start / EDGE_TOLERANCE).astype(int)),
+            tuple(np.round(end / EDGE_TOLERANCE).astype(int)),
+        )))
+        if line_key in handled_lines:
+            continue
+        handled_lines.add(line_key)
         top = _points_on_edge(roof_vertices, start, end)
         if len(top) < 2:
             continue
@@ -352,9 +364,17 @@ def _internal_junction_surfaces(roof_surfaces: list[Surface], slice_lines: list[
         if len(low_high) < 2:
             continue
         low_high.sort(key=lambda pair: _edge_parameter(pair[0][:2], start, end))
-        low = [pair[0] for pair in low_high]
-        high = [pair[1] for pair in reversed(low_high)]
-        junctions.append(Surface(vertices=np.asarray([*low, *high], dtype=float)))
+        for first, second in zip(low_high, low_high[1:]):
+            first_xy = first[0][:2]
+            second_xy = second[0][:2]
+            if np.linalg.norm(second_xy - first_xy) <= EDGE_TOLERANCE:
+                continue
+            midpoint = 0.5 * (first_xy + second_xy)
+            if footprint.boundary.distance(Point(midpoint)) <= EDGE_TOLERANCE:
+                continue
+            if not footprint.buffer(EDGE_TOLERANCE).covers(LineString([first_xy, second_xy])):
+                continue
+            junctions.append(Surface(vertices=np.asarray([first[0], second[0], second[1], first[1]], dtype=float)))
     return junctions
 
 
@@ -894,7 +914,7 @@ def _build_decomposed_shell(
         roof_surfaces.extend(region_surfaces)
     if not _roof_surfaces_cover_footprint(footprint, roof_surfaces):
         return None, DECOMPOSITION_COVERAGE_FAILED
-    junctions = _internal_junction_surfaces(roof_surfaces, decomposition.slice_lines)
+    junctions = _internal_junction_surfaces(footprint, roof_surfaces, decomposition.slice_lines)
     if junctions is None:
         return None, DECOMPOSITION_JUNCTION_FAILED
     walls = _wall_surfaces(footprint, roof_surfaces, ground_height)
@@ -952,6 +972,21 @@ def _candidate_lod2_from_parts(
 
     roof_surfaces, rejection_reason = _roof_surfaces_for_planes(roof_points, footprint, planes)
     if roof_surfaces is None:
+        if rejection_reason == SPLIT_FAILED:
+            family_reason = _decomposition_shape_reason(footprint)
+            _record_decomposition_candidate(decomposition_counts, family_reason)
+            if family_reason == DECOMPOSITION_OTHER_SHAPE:
+                _record_decomposition_failure(decomposition_counts, DECOMPOSITION_UNSUPPORTED_SHAPE)
+            else:
+                shell, decomposition_reason = _build_decomposed_shell(
+                    footprint,
+                    roof_points,
+                    ground_height,
+                    decomposition_counts,
+                )
+                if shell is not None:
+                    return shell
+                _record_decomposition_failure(decomposition_counts, decomposition_reason)
         _record_rejection(rejections, rejection_reason or SHELL_ASSEMBLY_FAILED)
         return None
     shell = _build_shell(footprint, roof_surfaces, float(ground_height))
