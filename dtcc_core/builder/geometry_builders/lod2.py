@@ -567,6 +567,60 @@ def _record_rejection(rejections: Counter | None, reason: str) -> None:
         rejections[reason] += 1
 
 
+def _roof_surfaces_for_planes(
+    points: np.ndarray,
+    footprint: Polygon,
+    planes: list[RoofPlane],
+) -> tuple[list[Surface] | None, str | None]:
+    if len(planes) == 0:
+        return None, NO_PLANES_FOUND
+    if len(planes) > 2:
+        return None, UNSUPPORTED_PLANE_COUNT
+    if len(planes) == 1:
+        return [_surface_from_xy(footprint, planes[0])], None
+    return _multi_plane_roof_surfaces(points, footprint, planes)
+
+
+def _candidate_lod2_from_parts(
+    footprint: Polygon,
+    roof_points: np.ndarray,
+    ground_height: float,
+    rejections: Counter | None = None,
+    plane_counts: Counter | None = None,
+    max_plane_coplanar_pair_counts: Counter | None = None,
+    inlier_share_recovery_counts: Counter | None = None,
+    trailing_plane_counts: Counter | None = None,
+    template_gate_counts: Counter | None = None,
+    decomposition_counts: Counter | None = None,
+) -> MultiSurface | None:
+    planes = _ransac_planes(roof_points)
+    if plane_counts is not None:
+        plane_counts[len(planes)] += 1
+    if len(planes) == MAX_PLANES and max_plane_coplanar_pair_counts is not None:
+        max_plane_coplanar_pair_counts[_coplanar_pair_count(planes)] += 1
+    _record_inlier_share_diagnostics(
+        planes,
+        inlier_share_recovery_counts,
+        trailing_plane_counts,
+    )
+    if len(planes) > 2:
+        _record_template_gate_diagnostics(footprint, planes, template_gate_counts)
+        if _is_irregular_footprint(footprint):
+            _record_decomposition_candidate(decomposition_counts, DECOMPOSITION_OTHER_SHAPE)
+            _record_decomposition_failure(decomposition_counts, DECOMPOSITION_UNSUPPORTED_SHAPE)
+        _record_rejection(rejections, UNSUPPORTED_PLANE_COUNT)
+        return None
+
+    roof_surfaces, rejection_reason = _roof_surfaces_for_planes(roof_points, footprint, planes)
+    if roof_surfaces is None:
+        _record_rejection(rejections, rejection_reason or SHELL_ASSEMBLY_FAILED)
+        return None
+    shell = _build_shell(footprint, roof_surfaces, float(ground_height))
+    if shell is None:
+        _record_rejection(rejections, WATERTIGHT_SHELL_FAILED)
+    return shell
+
+
 def _log_lod2_summary(
     *,
     total: int,
@@ -658,40 +712,18 @@ def _candidate_lod2(
         _record_rejection(rejections, INSUFFICIENT_ROOF_POINTS)
         return None
     ground_height = default_ground_height if always_use_default_ground else building.attributes.get("ground_height", default_ground_height)
-    planes = _ransac_planes(roof_points)
-    if plane_counts is not None:
-        plane_counts[len(planes)] += 1
-    if len(planes) == MAX_PLANES and max_plane_coplanar_pair_counts is not None:
-        max_plane_coplanar_pair_counts[_coplanar_pair_count(planes)] += 1
-    _record_inlier_share_diagnostics(
-        planes,
+    return _candidate_lod2_from_parts(
+        footprint,
+        roof_points,
+        float(ground_height),
+        rejections,
+        plane_counts,
+        max_plane_coplanar_pair_counts,
         inlier_share_recovery_counts,
         trailing_plane_counts,
+        template_gate_counts,
+        decomposition_counts,
     )
-    if len(planes) == 0:
-        _record_rejection(rejections, NO_PLANES_FOUND)
-        return None
-    if len(planes) > 2:
-        _record_template_gate_diagnostics(footprint, planes, template_gate_counts)
-        if _is_irregular_footprint(footprint):
-            _record_decomposition_candidate(decomposition_counts, DECOMPOSITION_OTHER_SHAPE)
-            _record_decomposition_failure(decomposition_counts, DECOMPOSITION_UNSUPPORTED_SHAPE)
-        _record_rejection(rejections, UNSUPPORTED_PLANE_COUNT)
-        return None
-    if len(planes) == 1:
-        roof_surfaces = [_surface_from_xy(footprint, planes[0])]
-        shell = _build_shell(footprint, roof_surfaces, float(ground_height))
-        if shell is None:
-            _record_rejection(rejections, WATERTIGHT_SHELL_FAILED)
-        return shell
-    roof_surfaces, rejection_reason = _multi_plane_roof_surfaces(roof_points, footprint, planes)
-    if roof_surfaces is None:
-        _record_rejection(rejections, rejection_reason or SHELL_ASSEMBLY_FAILED)
-        return None
-    shell = _build_shell(footprint, roof_surfaces, float(ground_height))
-    if shell is None:
-        _record_rejection(rejections, WATERTIGHT_SHELL_FAILED)
-    return shell
 
 
 def build_lod2_buildings(

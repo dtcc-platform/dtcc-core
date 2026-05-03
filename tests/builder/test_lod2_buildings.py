@@ -180,6 +180,26 @@ def test_build_lod2_buildings_creates_watertight_gable_with_shared_ridge():
     assert len(shared_edges) == 1
 
 
+def test_candidate_from_parts_preserves_flat_and_gable_paths():
+    flat_building = _building_with_footprint(_flat_roof_points())
+    gable_building = _building_with_footprint(_gable_roof_points())
+    flat_candidate = lod2_module._candidate_lod2_from_parts(
+        flat_building.lod0.to_polygon(),
+        np.asarray(flat_building.point_cloud.points, dtype=float),
+        0.0,
+    )
+    gable_candidate = lod2_module._candidate_lod2_from_parts(
+        gable_building.lod0.to_polygon(),
+        np.asarray(gable_building.point_cloud.points, dtype=float),
+        0.0,
+    )
+
+    assert flat_candidate is not None
+    assert gable_candidate is not None
+    assert is_watertight(flat_candidate)
+    assert is_watertight(gable_candidate)
+
+
 def test_rebuild_false_preserves_existing_lod2():
     building = _building_with_footprint(_flat_roof_points())
     existing = _closed_box()
