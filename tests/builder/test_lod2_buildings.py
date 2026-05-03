@@ -1,3 +1,4 @@
+from collections import Counter
 from pathlib import Path
 
 import numpy as np
@@ -108,6 +109,22 @@ def _building_with_polygon(points, polygon, *, ground_height=0.0):
 
 def _flat_roof_points(z=10.0):
     return [[x, y, z] for x in np.linspace(1, 9, 5) for y in np.linspace(1, 9, 5)]
+
+
+def _region_points(count):
+    return np.asarray(
+        [[1.0 + 0.01 * (index % 10), 1.0 + 0.01 * (index // 10), 10.0] for index in range(count)],
+        dtype=float,
+    )
+
+
+def _planes_with_inlier_counts(*counts):
+    start = 0
+    planes = []
+    for index, count in enumerate(counts):
+        planes.append(lod2_module.RoofPlane(0.1 * index, 0.0, 10.0 + index, np.arange(start, start + count)))
+        start += count
+    return planes
 
 
 def _decomposition_summary_values(messages):
@@ -238,6 +255,45 @@ def test_decomposition_region_roof_surfaces_use_local_ransac():
     assert roof_surfaces is not None
     assert len(roof_surfaces) == 1
     assert np.allclose(roof_surfaces[0].vertices[:, 2], 10.0)
+
+
+@pytest.mark.parametrize("counts", [(200, 50, 20), (100, 90, 80)])
+def test_region_roof_surfaces_caps_oversegmented_planes(monkeypatch, counts):
+    region = Polygon([(0, 0), (4, 0), (4, 4), (0, 4)])
+    points = _region_points(sum(counts))
+    planes = _planes_with_inlier_counts(*counts)
+    captured = []
+    monkeypatch.setattr(lod2_module, "_ransac_planes", lambda region_points: planes)
+
+    def roof_surfaces_for_planes(region_points, footprint, kept_planes):
+        captured.append(kept_planes)
+        return [_surface([[0, 0, 10], [4, 0, 10], [4, 4, 10], [0, 4, 10]])], None
+
+    monkeypatch.setattr(lod2_module, "_roof_surfaces_for_planes", roof_surfaces_for_planes)
+
+    roof_surfaces, reason = lod2_module._region_roof_surfaces(points, region)
+
+    assert reason is None
+    assert roof_surfaces is not None
+    assert captured == [planes[:2]]
+
+
+def test_region_roof_surfaces_rejects_balanced_oversegmentation(monkeypatch):
+    region = Polygon([(0, 0), (4, 0), (4, 4), (0, 4)])
+    points = _region_points(200)
+    planes = _planes_with_inlier_counts(50, 50, 50, 50)
+    decomposition_counts = Counter()
+    monkeypatch.setattr(lod2_module, "_ransac_planes", lambda region_points: planes)
+
+    roof_surfaces, reason = lod2_module._region_roof_surfaces(
+        points,
+        region,
+        decomposition_counts,
+    )
+
+    assert roof_surfaces is None
+    assert reason == lod2_module.REGION_ROOF_DROPPED_TOO_MANY
+    assert decomposition_counts[lod2_module.REGION_ROOF_DROPPED_TOO_MANY] == 1
 
 
 def _gable_roof_points():
@@ -487,7 +543,29 @@ def test_decomposition_region_roof_failure_logs_subcounter(monkeypatch):
 
     values = _decomposition_summary_values(messages)
     assert values["decomposition_region_roof_failed"] == 1
-    assert values["region_roof_unsupported_count"] == 1
+    assert values["region_roof_split_failed"] == 1
+    assert values["decomposition_region_roof_failed"] == sum(
+        values.get(reason, 0)
+        for reason in lod2_module.REGION_ROOF_REASONS
+    )
+
+
+def test_decomposition_region_dropped_too_many_preserves_counter_invariant(monkeypatch):
+    messages = []
+    monkeypatch.setattr(lod2_module, "info", messages.append, raising=False)
+    l_shape = Polygon([(0, 0), (10, 0), (10, 4), (4, 4), (4, 10), (0, 10)])
+    planes = _planes_with_inlier_counts(50, 50, 50, 50)
+    monkeypatch.setattr(lod2_module, "_ransac_planes", lambda points: planes)
+
+    build_lod2_buildings(
+        [_building_with_polygon(_l_shape_flat_points(), l_shape)],
+        build_lod1_fallback=False,
+        log_rejections=True,
+    )
+
+    values = _decomposition_summary_values(messages)
+    assert values["decomposition_region_roof_failed"] == 1
+    assert values["region_roof_dropped_too_many"] == 1
     assert values["decomposition_region_roof_failed"] == sum(
         values.get(reason, 0)
         for reason in lod2_module.REGION_ROOF_REASONS

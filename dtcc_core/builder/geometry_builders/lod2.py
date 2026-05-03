@@ -31,6 +31,7 @@ EDGE_TOLERANCE = 1e-3
 SHARED_VERTEX_KEY_DECIMALS = 6
 RECTANGULAR_FOOTPRINT_MIN_RATIO = 0.85
 HIP_PLANE_INLIER_SHARE = 0.10
+MAX_TEMPLATE_DROPPED_INLIER_SHARE = 0.30
 NEAR_SQUARE_SIDE_RATIO = 0.75
 MAX_PYRAMID_FOOTPRINT_AREA = 200.0
 FOOTPRINT_DECOMPOSITION_SIMPLIFY_TOLERANCE = 1.0
@@ -82,6 +83,7 @@ REGION_ROOF_NO_PLANES = "region_roof_no_planes"
 REGION_ROOF_UNSUPPORTED_COUNT = "region_roof_unsupported_count"
 REGION_ROOF_SPLIT_FAILED = "region_roof_split_failed"
 REGION_ROOF_ASSIGNMENT_FAILED = "region_roof_assignment_failed"
+REGION_ROOF_DROPPED_TOO_MANY = "region_roof_dropped_too_many"
 REGION_ROOF_OTHER = "region_roof_other"
 DECOMPOSITION_L_LIKE = "decomposition_l_like"
 DECOMPOSITION_T_OR_U_LIKE = "decomposition_t_or_u_like"
@@ -115,6 +117,7 @@ REGION_ROOF_REASONS = (
     REGION_ROOF_UNSUPPORTED_COUNT,
     REGION_ROOF_SPLIT_FAILED,
     REGION_ROOF_ASSIGNMENT_FAILED,
+    REGION_ROOF_DROPPED_TOO_MANY,
     REGION_ROOF_OTHER,
 )
 DECOMPOSITION_REASONS = (
@@ -998,6 +1001,17 @@ def _region_roof_failure_reason(reason: str | None) -> str:
     return REGION_ROOF_OTHER
 
 
+def _cap_region_roof_planes(planes: list[RoofPlane]) -> tuple[list[RoofPlane], str | None]:
+    if len(planes) <= 2:
+        return planes, None
+    planes_by_inliers = sorted(planes, key=lambda plane: len(plane.inliers), reverse=True)
+    total_inliers = sum(len(plane.inliers) for plane in planes_by_inliers)
+    dropped_inliers = sum(len(plane.inliers) for plane in planes_by_inliers[2:])
+    if total_inliers > 0 and dropped_inliers / total_inliers > MAX_TEMPLATE_DROPPED_INLIER_SHARE:
+        return [], REGION_ROOF_DROPPED_TOO_MANY
+    return planes_by_inliers[:2], None
+
+
 def _region_roof_surfaces(
     points: np.ndarray,
     region: Polygon,
@@ -1007,6 +1021,10 @@ def _region_roof_surfaces(
     if len(region_points) < MIN_ROOF_POINTS:
         return None, DECOMPOSITION_SPARSE_REGION_POINTS
     planes = _ransac_planes(region_points)
+    planes, cap_reason = _cap_region_roof_planes(planes)
+    if cap_reason is not None:
+        _record_decomposition_subreason(decomposition_counts, cap_reason)
+        return None, cap_reason
     roof_surfaces, reason = _roof_surfaces_for_planes(region_points, region, planes)
     if roof_surfaces is None:
         _record_decomposition_subreason(
