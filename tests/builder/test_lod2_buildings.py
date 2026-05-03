@@ -8,6 +8,7 @@ import dtcc_core.builder.geometry_builders.lod2 as lod2_module
 from dtcc_core.model import Building, City, GeometryType, MultiSurface, PointCloud, Surface
 from dtcc_core.builder.geometry_builders.lod2 import is_watertight
 from dtcc_core.builder.geometry_builders.lod2 import _concave_vertex_indices
+from dtcc_core.builder.geometry_builders.lod2 import _decompose_footprint
 from dtcc_core.builder.geometry_builders.lod2 import _decomposition_shape_reason
 from dtcc_core.builder.geometry_builders.lod2 import _fit_plane, _ransac_planes
 from dtcc_core.builder.geometry_builders.lod2 import _roof_surfaces_cover_footprint
@@ -167,6 +168,54 @@ def test_decomposition_shape_reason_uses_simplified_footprint():
 
     assert _decomposition_shape_reason(l_shape) == lod2_module.DECOMPOSITION_L_LIKE
     assert _decomposition_shape_reason(u_shape) == lod2_module.DECOMPOSITION_T_OR_U_LIKE
+
+
+def test_decompose_footprint_splits_l_shape_into_two_regions():
+    l_shape = Polygon([(0, 0), (10, 0), (10, 4), (4, 4), (4, 10), (0, 10)])
+
+    decomposition = _decompose_footprint(l_shape)
+
+    assert decomposition is not None
+    assert decomposition.family_reason == lod2_module.DECOMPOSITION_L_LIKE
+    assert len(decomposition.pieces) == 2
+    assert len(decomposition.slice_lines) == 1
+    assert lod2_module._patches_cover_footprint(l_shape, decomposition.pieces)
+
+
+def test_decompose_footprint_splits_u_shape_into_three_regions():
+    u_shape = Polygon([(0, 0), (10, 0), (10, 10), (7, 10), (7, 3), (3, 3), (3, 10), (0, 10)])
+
+    decomposition = _decompose_footprint(u_shape)
+
+    assert decomposition is not None
+    assert decomposition.family_reason == lod2_module.DECOMPOSITION_T_OR_U_LIKE
+    assert len(decomposition.pieces) == 3
+    assert len(decomposition.slice_lines) == 2
+    assert lod2_module._patches_cover_footprint(u_shape, decomposition.pieces)
+
+
+def test_decompose_footprint_rejects_complex_shape():
+    plus_like = Polygon([(3, 0), (7, 0), (7, 3), (10, 3), (10, 7), (7, 7), (7, 10), (3, 10), (3, 7), (0, 7), (0, 3), (3, 3)])
+
+    assert _decompose_footprint(plus_like) is None
+
+
+def test_decompose_footprint_rejects_axis_misaligned_concavity():
+    skewed = Polygon([(0, 0), (10, 0), (10, 4), (4, 7), (4, 10), (0, 10)])
+
+    assert _decompose_footprint(skewed) is None
+
+
+def test_decompose_footprint_tiebreaking_is_deterministic():
+    u_shape = Polygon([(0, 0), (12, 0), (12, 10), (8, 10), (8, 4), (4, 4), (4, 10), (0, 10)])
+
+    first = _decompose_footprint(u_shape)
+    second = _decompose_footprint(u_shape)
+
+    assert first is not None
+    assert second is not None
+    assert [round(piece.area, 6) for piece in first.pieces] == [round(piece.area, 6) for piece in second.pieces]
+    assert [tuple(np.round(line.bounds, 6)) for line in first.slice_lines] == [tuple(np.round(line.bounds, 6)) for line in second.slice_lines]
 
 
 def _gable_roof_points():

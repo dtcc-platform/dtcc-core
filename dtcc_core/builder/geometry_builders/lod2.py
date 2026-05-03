@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import warnings
 from collections import Counter
+from dataclasses import dataclass
 
 import numpy as np
 from shapely.geometry import LineString, Point, Polygon
@@ -134,6 +135,14 @@ class RoofPlane:
     def distances(self, points: np.ndarray) -> np.ndarray:
         predicted = self.a * points[:, 0] + self.b * points[:, 1] + self.c
         return np.abs(points[:, 2] - predicted) / np.linalg.norm([-self.a, -self.b, 1.0])
+
+
+@dataclass(frozen=True)
+class FootprintDecomposition:
+    pieces: list[Polygon]
+    slice_lines: list[LineString]
+    family_reason: str
+    concave_vertex_count: int
 
 
 def _fit_plane(points: np.ndarray, inliers: np.ndarray | None = None) -> RoofPlane:
@@ -397,6 +406,155 @@ def _decomposition_shape_reason(footprint: Polygon) -> str:
     if concave_count == 2:
         return DECOMPOSITION_T_OR_U_LIKE
     return DECOMPOSITION_OTHER_SHAPE
+
+
+def _minimum_rotated_rectangle_axes(footprint: Polygon) -> tuple[np.ndarray, np.ndarray] | None:
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=RuntimeWarning, module="shapely.constructive")
+        rectangle = footprint.minimum_rotated_rectangle
+    coords = np.asarray(rectangle.exterior.coords[:-1], dtype=float)
+    if coords.shape != (4, 2):
+        return None
+    edges = [coords[(index + 1) % 4] - coords[index] for index in range(4)]
+    lengths = [float(np.linalg.norm(edge)) for edge in edges]
+    if max(lengths) <= 0:
+        return None
+    u = edges[int(np.argmax(lengths))]
+    u = u / np.linalg.norm(u)
+    v = np.array([-u[1], u[0]], dtype=float)
+    return u, v
+
+
+def _angle_to_axis_degrees(vector: np.ndarray, axes: tuple[np.ndarray, np.ndarray]) -> float:
+    norm = float(np.linalg.norm(vector))
+    if norm == 0.0:
+        return 90.0
+    direction = vector / norm
+    best_alignment = max(abs(float(np.dot(direction, axes[0]))), abs(float(np.dot(direction, axes[1]))))
+    best_alignment = min(1.0, max(-1.0, best_alignment))
+    return float(np.degrees(np.arccos(best_alignment)))
+
+
+def _concave_edges_align_to_axes(footprint: Polygon, concave_indices: list[int], axes: tuple[np.ndarray, np.ndarray]) -> bool:
+    coords = np.asarray(footprint.exterior.coords[:-1], dtype=float)
+    for index in concave_indices:
+        previous_edge = coords[index] - coords[index - 1]
+        next_edge = coords[(index + 1) % len(coords)] - coords[index]
+        if _angle_to_axis_degrees(previous_edge, axes) > DECOMPOSITION_AXIS_ANGLE_TOLERANCE:
+            return False
+        if _angle_to_axis_degrees(next_edge, axes) > DECOMPOSITION_AXIS_ANGLE_TOLERANCE:
+            return False
+    return True
+
+
+def _slice_line_through(point: np.ndarray, direction: np.ndarray, footprint: Polygon) -> LineString:
+    xmin, ymin, xmax, ymax = footprint.bounds
+    span = max(xmax - xmin, ymax - ymin) * 4.0
+    start = point - direction * span
+    end = point + direction * span
+    return LineString([(float(start[0]), float(start[1])), (float(end[0]), float(end[1]))])
+
+
+def _flatten_polygons(geometry) -> list[Polygon]:
+    if geometry.geom_type == "Polygon":
+        return [geometry]
+    if hasattr(geometry, "geoms"):
+        polygons: list[Polygon] = []
+        for geom in geometry.geoms:
+            polygons.extend(_flatten_polygons(geom))
+        return polygons
+    return []
+
+
+def _split_by_slice_lines(footprint: Polygon, lines: list[LineString]) -> list[Polygon]:
+    pieces = [footprint]
+    for line in lines:
+        next_pieces: list[Polygon] = []
+        for piece in pieces:
+            split_result = split(piece, line)
+            split_polygons = [
+                polygon for polygon in _flatten_polygons(split_result)
+                if polygon.area >= MIN_DECOMPOSITION_REGION_AREA
+            ]
+            if len(split_polygons) == 0:
+                next_pieces.append(piece)
+            else:
+                next_pieces.extend(split_polygons)
+        pieces = next_pieces
+    pieces.sort(key=lambda polygon: (round(polygon.bounds[0], 6), round(polygon.bounds[1], 6), round(polygon.area, 6)))
+    return pieces
+
+
+def _piece_rectangularity(piece: Polygon) -> float:
+    metrics = _minimum_rotated_rectangle_metrics(piece)
+    if metrics is None:
+        return 0.0
+    rectangularity, _ = metrics
+    return rectangularity
+
+
+def _decomposition_score(footprint: Polygon, pieces: list[Polygon]) -> tuple[int, float, float, float]:
+    min_rectangularity = min(_piece_rectangularity(piece) for piece in pieces)
+    uncovered_fraction = footprint.difference(unary_union(pieces)).area / footprint.area
+    areas = [piece.area for piece in pieces]
+    area_imbalance = max(areas) / min(areas)
+    return (len(pieces), -min_rectangularity, uncovered_fraction, area_imbalance)
+
+
+def _valid_decomposition_pieces(footprint: Polygon, pieces: list[Polygon], expected_count: int) -> bool:
+    if len(pieces) != expected_count:
+        return False
+    if any(piece.area < MIN_DECOMPOSITION_REGION_AREA for piece in pieces):
+        return False
+    if not _patches_cover_footprint(footprint, pieces):
+        return False
+    return all(_piece_rectangularity(piece) >= DECOMPOSITION_RECTANGULARITY_MIN_RATIO for piece in pieces)
+
+
+def _decompose_footprint(footprint: Polygon) -> FootprintDecomposition | None:
+    simplified = _simplified_footprint_for_decomposition(footprint)
+    if simplified is None:
+        return None
+    concave_indices = _concave_vertex_indices(simplified)
+    concave_count = len(concave_indices)
+    if concave_count < 1 or concave_count > MAX_DECOMPOSITION_CONCAVE_VERTICES:
+        return None
+    axes = _minimum_rotated_rectangle_axes(simplified)
+    if axes is None or not _concave_edges_align_to_axes(simplified, concave_indices, axes):
+        return None
+    family_reason = DECOMPOSITION_L_LIKE if concave_count == 1 else DECOMPOSITION_T_OR_U_LIKE
+    expected_count = concave_count + 1
+    coords = np.asarray(simplified.exterior.coords[:-1], dtype=float)
+    candidate_lines: list[LineString] = []
+    for index in concave_indices:
+        point = coords[index]
+        for direction in axes:
+            candidate_lines.append(_slice_line_through(point, direction, footprint))
+            candidate_lines.append(_slice_line_through(point, -direction, footprint))
+    candidates: list[tuple[tuple[int, float, float, float], list[Polygon], list[LineString]]] = []
+    if concave_count == 1:
+        line_sets = [[line] for line in candidate_lines]
+    else:
+        line_sets = [
+            [first, second]
+            for first_index, first in enumerate(candidate_lines)
+            for second in candidate_lines[first_index + 1:]
+        ]
+    for lines in line_sets:
+        pieces = _split_by_slice_lines(footprint, lines)
+        if not _valid_decomposition_pieces(footprint, pieces, expected_count):
+            continue
+        candidates.append((_decomposition_score(footprint, pieces), pieces, lines))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item[0])
+    _, pieces, lines = candidates[0]
+    return FootprintDecomposition(
+        pieces=pieces,
+        slice_lines=lines,
+        family_reason=family_reason,
+        concave_vertex_count=concave_count,
+    )
 
 
 def _dominant_plane_count(planes: list[RoofPlane], inlier_share: float = HIP_PLANE_INLIER_SHARE) -> int:
