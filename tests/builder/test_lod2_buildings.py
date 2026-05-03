@@ -135,6 +135,7 @@ def test_build_lod2_buildings_does_not_log_rejection_summary_by_default(monkeypa
     assert not any(message.startswith("LOD2 build summary:") for message in messages)
     assert not any(message.startswith("LOD2 rejection summary:") for message in messages)
     assert not any(message.startswith("LOD2 template gate summary:") for message in messages)
+    assert not any(message.startswith("LOD2 decomposition summary:") for message in messages)
 
 
 def test_projected_roof_surfaces_must_cover_footprint():
@@ -393,6 +394,30 @@ def test_build_lod2_buildings_logs_template_gate_summary(monkeypatch):
     assert "unsupported_irregular_or_other=2" in summary_lines[0]
     assert "unsupported_irregular_footprint=1" in summary_lines[0]
     assert "unsupported_rect_few_dominant=1" in summary_lines[0]
+
+
+def test_build_lod2_buildings_logs_decomposition_summary_when_requested(monkeypatch):
+    messages = []
+    monkeypatch.setattr(lod2_module, "info", messages.append, raising=False)
+    planes = [
+        lod2_module.RoofPlane(0.0, 0.0, 10.0, np.arange(100)),
+        lod2_module.RoofPlane(0.2, 0.0, 11.0, np.arange(100, 140)),
+        lod2_module.RoofPlane(-0.2, 0.0, 13.0, np.arange(140, 180)),
+    ]
+    monkeypatch.setattr(lod2_module, "_ransac_planes", lambda points: planes)
+    l_shape = Polygon([(0, 0), (10, 0), (10, 4), (4, 4), (4, 10), (0, 10)])
+    building = _building_with_polygon(_flat_roof_points(), l_shape)
+
+    build_lod2_buildings([building], build_lod1_fallback=False, log_rejections=True)
+
+    summary_lines = [
+        message for message in messages
+        if message.startswith("LOD2 decomposition summary:")
+    ]
+    assert len(summary_lines) == 1
+    assert "decomposition_candidate=1" in summary_lines[0]
+    assert "decomposition_other_shape=1" in summary_lines[0]
+    assert "decomposition_unsupported_shape=1" in summary_lines[0]
 
 
 @pytest.fixture

@@ -32,6 +32,11 @@ RECTANGULAR_FOOTPRINT_MIN_RATIO = 0.85
 HIP_PLANE_INLIER_SHARE = 0.10
 NEAR_SQUARE_SIDE_RATIO = 0.75
 MAX_PYRAMID_FOOTPRINT_AREA = 200.0
+FOOTPRINT_DECOMPOSITION_SIMPLIFY_TOLERANCE = 1.0
+MAX_DECOMPOSITION_CONCAVE_VERTICES = 2
+MIN_DECOMPOSITION_REGION_AREA = MIN_PATCH_AREA
+DECOMPOSITION_RECTANGULARITY_MIN_RATIO = 0.80
+DECOMPOSITION_AXIS_ANGLE_TOLERANCE = 15.0
 INVALID_FOOTPRINT = "invalid_footprint"
 INSUFFICIENT_ROOF_POINTS = "insufficient_roof_points"
 NO_PLANES_FOUND = "no_planes_found"
@@ -51,6 +56,18 @@ UNSUPPORTED_IRREGULAR_OR_OTHER = "unsupported_irregular_or_other"
 UNSUPPORTED_IRREGULAR_FOOTPRINT = "unsupported_irregular_footprint"
 UNSUPPORTED_RECT_FEW_DOMINANT = "unsupported_rect_few_dominant"
 UNSUPPORTED_OTHER = "unsupported_other"
+DECOMPOSITION_CANDIDATE = "decomposition_candidate"
+DECOMPOSITION_SUCCESS = "decomposition_success"
+DECOMPOSITION_UNSUPPORTED_SHAPE = "decomposition_unsupported_shape"
+DECOMPOSITION_NO_VALID_SLICES = "decomposition_no_valid_slices"
+DECOMPOSITION_SPARSE_REGION_POINTS = "decomposition_sparse_region_points"
+DECOMPOSITION_REGION_ROOF_FAILED = "decomposition_region_roof_failed"
+DECOMPOSITION_JUNCTION_FAILED = "decomposition_junction_failed"
+DECOMPOSITION_COVERAGE_FAILED = "decomposition_coverage_failed"
+DECOMPOSITION_WATERTIGHT_FAILED = "decomposition_watertight_failed"
+DECOMPOSITION_L_LIKE = "decomposition_l_like"
+DECOMPOSITION_T_OR_U_LIKE = "decomposition_t_or_u_like"
+DECOMPOSITION_OTHER_SHAPE = "decomposition_other_shape"
 TEMPLATE_GATE_REASONS = (
     UNSUPPORTED_RECT_4PLANE,
     UNSUPPORTED_NEAR_SQUARE_4PLANE,
@@ -58,6 +75,29 @@ TEMPLATE_GATE_REASONS = (
     UNSUPPORTED_IRREGULAR_FOOTPRINT,
     UNSUPPORTED_RECT_FEW_DOMINANT,
     UNSUPPORTED_OTHER,
+)
+DECOMPOSITION_REASONS = (
+    DECOMPOSITION_CANDIDATE,
+    DECOMPOSITION_SUCCESS,
+    DECOMPOSITION_UNSUPPORTED_SHAPE,
+    DECOMPOSITION_NO_VALID_SLICES,
+    DECOMPOSITION_SPARSE_REGION_POINTS,
+    DECOMPOSITION_REGION_ROOF_FAILED,
+    DECOMPOSITION_JUNCTION_FAILED,
+    DECOMPOSITION_COVERAGE_FAILED,
+    DECOMPOSITION_WATERTIGHT_FAILED,
+    DECOMPOSITION_L_LIKE,
+    DECOMPOSITION_T_OR_U_LIKE,
+    DECOMPOSITION_OTHER_SHAPE,
+)
+DECOMPOSITION_FAILURE_REASONS = (
+    DECOMPOSITION_UNSUPPORTED_SHAPE,
+    DECOMPOSITION_NO_VALID_SLICES,
+    DECOMPOSITION_SPARSE_REGION_POINTS,
+    DECOMPOSITION_REGION_ROOF_FAILED,
+    DECOMPOSITION_JUNCTION_FAILED,
+    DECOMPOSITION_COVERAGE_FAILED,
+    DECOMPOSITION_WATERTIGHT_FAILED,
 )
 REJECTION_REASONS = (
     INVALID_FOOTPRINT,
@@ -346,6 +386,26 @@ def _record_template_gate_diagnostics(
         template_gate_counts[UNSUPPORTED_NEAR_SQUARE_4PLANE] += 1
 
 
+def _is_irregular_footprint(footprint: Polygon) -> bool:
+    metrics = _minimum_rotated_rectangle_metrics(footprint)
+    if metrics is None:
+        return False
+    rectangularity, _ = metrics
+    return rectangularity < RECTANGULAR_FOOTPRINT_MIN_RATIO
+
+
+def _record_decomposition_candidate(decomposition_counts: Counter | None, family_reason: str) -> None:
+    if decomposition_counts is None:
+        return
+    decomposition_counts[DECOMPOSITION_CANDIDATE] += 1
+    decomposition_counts[family_reason] += 1
+
+
+def _record_decomposition_failure(decomposition_counts: Counter | None, reason: str) -> None:
+    if decomposition_counts is not None:
+        decomposition_counts[reason] += 1
+
+
 def _patches_cover_footprint(footprint: Polygon, patches: list[Polygon]) -> bool:
     covered = unary_union(patches)
     missing = footprint.difference(covered)
@@ -519,6 +579,7 @@ def _log_lod2_summary(
     inlier_share_recovery_counts: Counter,
     trailing_plane_counts: Counter,
     template_gate_counts: Counter,
+    decomposition_counts: Counter,
 ) -> None:
     info(
         "LOD2 build summary: "
@@ -560,6 +621,13 @@ def _log_lod2_summary(
     ]
     if template_gate_parts:
         info("LOD2 template gate summary: " + " ".join(template_gate_parts))
+    decomposition_parts = [
+        f"{reason}={decomposition_counts[reason]}"
+        for reason in DECOMPOSITION_REASONS
+        if decomposition_counts[reason] > 0
+    ]
+    if decomposition_parts:
+        info("LOD2 decomposition summary: " + " ".join(decomposition_parts))
     rejection_parts = [
         f"{reason}={rejections[reason]}"
         for reason in REJECTION_REASONS
@@ -579,6 +647,7 @@ def _candidate_lod2(
     inlier_share_recovery_counts: Counter | None = None,
     trailing_plane_counts: Counter | None = None,
     template_gate_counts: Counter | None = None,
+    decomposition_counts: Counter | None = None,
 ) -> MultiSurface | None:
     footprint = _footprint_polygon(building)
     if footprint is None:
@@ -604,6 +673,9 @@ def _candidate_lod2(
         return None
     if len(planes) > 2:
         _record_template_gate_diagnostics(footprint, planes, template_gate_counts)
+        if _is_irregular_footprint(footprint):
+            _record_decomposition_candidate(decomposition_counts, DECOMPOSITION_OTHER_SHAPE)
+            _record_decomposition_failure(decomposition_counts, DECOMPOSITION_UNSUPPORTED_SHAPE)
         _record_rejection(rejections, UNSUPPORTED_PLANE_COUNT)
         return None
     if len(planes) == 1:
@@ -637,6 +709,7 @@ def build_lod2_buildings(
     inlier_share_recovery_counts = Counter()
     trailing_plane_counts = Counter()
     template_gate_counts = Counter()
+    decomposition_counts = Counter()
     lod2_count = 0
     fallback_count = 0
     skipped_existing = 0
@@ -657,6 +730,7 @@ def build_lod2_buildings(
             inlier_share_recovery_counts if log_rejections else None,
             trailing_plane_counts if log_rejections else None,
             template_gate_counts if log_rejections else None,
+            decomposition_counts if log_rejections else None,
         )
         if candidate is not None:
             building.add_geometry(candidate, GeometryType.LOD2)
@@ -682,6 +756,7 @@ def build_lod2_buildings(
             inlier_share_recovery_counts=inlier_share_recovery_counts,
             trailing_plane_counts=trailing_plane_counts,
             template_gate_counts=template_gate_counts,
+            decomposition_counts=decomposition_counts,
         )
     return buildings
 
