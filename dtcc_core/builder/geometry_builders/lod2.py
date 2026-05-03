@@ -244,7 +244,7 @@ def _edge_parameter(point: np.ndarray, start: np.ndarray, end: np.ndarray) -> fl
     return float(np.dot(point - start, direction) / denom)
 
 
-def _points_on_edge(points: list[np.ndarray], start: np.ndarray, end: np.ndarray) -> list[np.ndarray]:
+def _points_on_edge(points: list[np.ndarray], start: np.ndarray, end: np.ndarray, *, for_wall: bool = False) -> list[np.ndarray]:
     edge = end - start
     length = np.linalg.norm(edge)
     if length == 0:
@@ -262,7 +262,44 @@ def _points_on_edge(points: list[np.ndarray], start: np.ndarray, end: np.ndarray
     for point in selected:
         if not unique or np.linalg.norm(point - unique[-1]) > EDGE_TOLERANCE:
             unique.append(point)
-    return unique
+    if not for_wall:
+        return unique
+    grouped: list[list[np.ndarray]] = []
+    for point in unique:
+        if not grouped:
+            grouped.append([point])
+            continue
+        previous_parameter = _edge_parameter(grouped[-1][0][:2], start, end)
+        parameter = _edge_parameter(point[:2], start, end)
+        if abs(parameter - previous_parameter) <= EDGE_TOLERANCE:
+            grouped[-1].append(point)
+        else:
+            grouped.append([point])
+    ordered: list[np.ndarray] = []
+    for index, group in enumerate(grouped):
+        if len(group) == 1:
+            ordered.extend(group)
+            continue
+        group = sorted(group, key=lambda point: point[2])
+        if index == 0 and len(grouped) > 1:
+            target_z = float(np.mean([point[2] for point in grouped[1]]))
+            ordered.append(min(group, key=lambda point: abs(point[2] - target_z)))
+        elif index == len(grouped) - 1 and ordered:
+            target_z = ordered[-1][2]
+            closest = min(group, key=lambda point: abs(point[2] - target_z))
+            remaining = [point for point in group if np.linalg.norm(point - closest) > EDGE_TOLERANCE]
+            remaining.sort(key=lambda point: abs(point[2] - target_z))
+            ordered.extend([closest, *remaining])
+        else:
+            if ordered:
+                target_z = ordered[-1][2]
+                closest = min(group, key=lambda point: abs(point[2] - target_z))
+                remaining = [point for point in group if np.linalg.norm(point - closest) > EDGE_TOLERANCE]
+                remaining.sort(key=lambda point: point[2])
+                ordered.extend([closest, *remaining])
+            else:
+                ordered.extend(group)
+    return ordered
 
 
 def _wall_surfaces(footprint: Polygon, roof_surfaces: list[Surface], ground_height: float) -> list[Surface]:
@@ -271,7 +308,7 @@ def _wall_surfaces(footprint: Polygon, roof_surfaces: list[Surface], ground_heig
     walls = []
     for index, start in enumerate(coords):
         end = coords[(index + 1) % len(coords)]
-        top = _points_on_edge(roof_vertices, start, end)
+        top = _points_on_edge(roof_vertices, start, end, for_wall=True)
         if len(top) < 2:
             return []
         bottom_end = np.array([end[0], end[1], ground_height], dtype=float)
@@ -288,6 +325,37 @@ def _build_shell(footprint: Polygon, roof_surfaces: list[Surface], ground_height
     if not is_watertight(shell):
         return None
     return shell
+
+
+def _internal_junction_surfaces(roof_surfaces: list[Surface], slice_lines: list[LineString]) -> list[Surface] | None:
+    junctions: list[Surface] = []
+    roof_vertices = [vertex for surface in roof_surfaces for vertex in surface.vertices]
+    for line in slice_lines:
+        coords = np.asarray(line.coords, dtype=float)
+        start = coords[0]
+        end = coords[-1]
+        top = _points_on_edge(roof_vertices, start, end)
+        if len(top) < 2:
+            continue
+        by_xy: dict[tuple[int, int], list[np.ndarray]] = {}
+        for vertex in top:
+            key = tuple(np.round(vertex[:2] / EDGE_TOLERANCE).astype(int))
+            by_xy.setdefault(key, []).append(vertex)
+        paired = [vertices for vertices in by_xy.values() if len(vertices) >= 2]
+        if not paired:
+            continue
+        low_high = []
+        for vertices in paired:
+            vertices = sorted(vertices, key=lambda vertex: vertex[2])
+            if abs(vertices[-1][2] - vertices[0][2]) > EDGE_TOLERANCE:
+                low_high.append((vertices[0], vertices[-1]))
+        if len(low_high) < 2:
+            continue
+        low_high.sort(key=lambda pair: _edge_parameter(pair[0][:2], start, end))
+        low = [pair[0] for pair in low_high]
+        high = [pair[1] for pair in reversed(low_high)]
+        junctions.append(Surface(vertices=np.asarray([*low, *high], dtype=float)))
+    return junctions
 
 
 def _planes_are_coplanar(first: RoofPlane, second: RoofPlane) -> bool:
@@ -809,6 +877,37 @@ def _roof_surfaces_for_planes(
     return _multi_plane_roof_surfaces(points, footprint, planes)
 
 
+def _build_decomposed_shell(
+    footprint: Polygon,
+    roof_points: np.ndarray,
+    ground_height: float,
+    decomposition_counts: Counter | None = None,
+) -> tuple[MultiSurface | None, str]:
+    decomposition = _decompose_footprint(footprint)
+    if decomposition is None:
+        return None, DECOMPOSITION_NO_VALID_SLICES
+    roof_surfaces: list[Surface] = []
+    for region in decomposition.pieces:
+        region_surfaces, reason = _region_roof_surfaces(roof_points, region)
+        if region_surfaces is None:
+            return None, reason or DECOMPOSITION_REGION_ROOF_FAILED
+        roof_surfaces.extend(region_surfaces)
+    if not _roof_surfaces_cover_footprint(footprint, roof_surfaces):
+        return None, DECOMPOSITION_COVERAGE_FAILED
+    junctions = _internal_junction_surfaces(roof_surfaces, decomposition.slice_lines)
+    if junctions is None:
+        return None, DECOMPOSITION_JUNCTION_FAILED
+    walls = _wall_surfaces(footprint, roof_surfaces, ground_height)
+    if len(walls) == 0:
+        return None, DECOMPOSITION_WATERTIGHT_FAILED
+    shell = MultiSurface(surfaces=[*roof_surfaces, *junctions, *walls, _ground_surface(footprint, ground_height)])
+    if not is_watertight(shell):
+        return None, DECOMPOSITION_WATERTIGHT_FAILED
+    if decomposition_counts is not None:
+        decomposition_counts[DECOMPOSITION_SUCCESS] += 1
+    return shell, DECOMPOSITION_SUCCESS
+
+
 def _candidate_lod2_from_parts(
     footprint: Polygon,
     roof_points: np.ndarray,
@@ -834,11 +933,20 @@ def _candidate_lod2_from_parts(
     if len(planes) > 2:
         _record_template_gate_diagnostics(footprint, planes, template_gate_counts)
         if _is_irregular_footprint(footprint):
-            _record_decomposition_candidate(
-                decomposition_counts,
-                _decomposition_shape_reason(footprint),
-            )
-            _record_decomposition_failure(decomposition_counts, DECOMPOSITION_UNSUPPORTED_SHAPE)
+            family_reason = _decomposition_shape_reason(footprint)
+            _record_decomposition_candidate(decomposition_counts, family_reason)
+            if family_reason == DECOMPOSITION_OTHER_SHAPE:
+                _record_decomposition_failure(decomposition_counts, DECOMPOSITION_UNSUPPORTED_SHAPE)
+            else:
+                shell, decomposition_reason = _build_decomposed_shell(
+                    footprint,
+                    roof_points,
+                    ground_height,
+                    decomposition_counts,
+                )
+                if shell is not None:
+                    return shell
+                _record_decomposition_failure(decomposition_counts, decomposition_reason)
         _record_rejection(rejections, UNSUPPORTED_PLANE_COUNT)
         return None
 

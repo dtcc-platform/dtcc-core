@@ -243,6 +243,12 @@ def _gable_roof_points():
     return points
 
 
+def _l_shape_flat_points():
+    left = [[x, y, 10.0] for x in np.linspace(1, 3, 5) for y in np.linspace(1, 9, 5)]
+    bottom = [[x, y, 12.0] for x in np.linspace(5, 9, 5) for y in np.linspace(1, 3, 5)]
+    return [*left, *bottom]
+
+
 def _edge_keys_for_surface(surface, tolerance=1e-3):
     keys = []
     for index, vertex in enumerate(surface.vertices):
@@ -283,6 +289,25 @@ def test_candidate_from_parts_preserves_flat_and_gable_paths():
     assert gable_candidate is not None
     assert is_watertight(flat_candidate)
     assert is_watertight(gable_candidate)
+
+
+def test_build_lod2_buildings_decomposes_l_shape_flat_regions(monkeypatch):
+    l_shape = Polygon([(0, 0), (10, 0), (10, 4), (4, 4), (4, 10), (0, 10)])
+    building = _building_with_polygon(_l_shape_flat_points(), l_shape)
+    monkeypatch.setattr(
+        lod2_module,
+        "_ransac_planes",
+        lambda points: [
+            lod2_module.RoofPlane(0.0, 0.0, 10.0, np.arange(24)),
+            lod2_module.RoofPlane(0.0, 0.0, 12.0, np.arange(24, len(points))),
+            lod2_module.RoofPlane(0.2, 0.0, 11.0, np.arange(20)),
+        ] if len(points) > 30 else [lod2_module._fit_plane(points)],
+    )
+
+    result = build_lod2_buildings([building], build_lod1_fallback=False)
+
+    assert result[0].lod2 is not None
+    assert is_watertight(result[0].lod2)
 
 
 def test_rebuild_false_preserves_existing_lod2():
@@ -522,7 +547,7 @@ def test_build_lod2_buildings_logs_decomposition_summary_when_requested(monkeypa
     assert len(summary_lines) == 1
     assert "decomposition_candidate=1" in summary_lines[0]
     assert "decomposition_l_like=1" in summary_lines[0]
-    assert "decomposition_unsupported_shape=1" in summary_lines[0]
+    assert "decomposition_sparse_region_points=1" in summary_lines[0]
 
 
 @pytest.fixture
