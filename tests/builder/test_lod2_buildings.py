@@ -66,8 +66,8 @@ def test_fit_plane_predicts_roof_z_values():
 
 
 def test_ransac_planes_is_deterministic_for_two_planes():
-    left = np.array([[x, y, 10 + 0.2 * x] for x in range(5) for y in range(5)], dtype=float)
-    right = np.array([[x + 6, y, 12 - 0.2 * x] for x in range(5) for y in range(5)], dtype=float)
+    left = np.array([[x, y, 10 + 0.3 * x] for x in range(6) for y in range(6)], dtype=float)
+    right = np.array([[x + 20, y, 30 - 0.3 * x] for x in range(6) for y in range(6)], dtype=float)
     points = np.vstack([left, right])
 
     first = _ransac_planes(points, seed=7)
@@ -321,10 +321,10 @@ def test_build_lod2_buildings_logs_inlier_share_recovery_simulation(monkeypatch)
     messages = []
     monkeypatch.setattr(lod2_module, "info", messages.append, raising=False)
     planes = [
-        lod2_module.RoofPlane(0.0, 0.0, 10.0, np.arange(100)),
-        lod2_module.RoofPlane(0.3, 0.0, 11.0, np.arange(100, 180)),
-        lod2_module.RoofPlane(0.0, 0.3, 12.0, np.arange(180, 189)),
-        lod2_module.RoofPlane(-0.3, 0.0, 13.0, np.arange(189, 197)),
+        lod2_module.RoofPlane(0.0, 0.0, 10.0, np.arange(240)),
+        lod2_module.RoofPlane(0.3, 0.0, 11.0, np.arange(240, 440)),
+        lod2_module.RoofPlane(0.0, 0.3, 12.0, np.arange(440, 460)),
+        lod2_module.RoofPlane(-0.3, 0.0, 13.0, np.arange(460, 483)),
     ]
     monkeypatch.setattr(lod2_module, "_ransac_planes", lambda points: planes)
     building = _building_with_footprint(_flat_roof_points())

@@ -13,7 +13,7 @@ from .buildings import build_lod1_buildings
 
 
 MIN_ROOF_POINTS = 24
-MIN_PLANE_INLIERS = 8
+MIN_PLANE_INLIERS = 20
 # RANSAC may inspect richer roofs; shell assembly currently accepts one or two planes.
 MAX_PLANES = 6
 RANSAC_ITERATIONS = 200
