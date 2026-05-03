@@ -218,6 +218,20 @@ def test_decompose_footprint_tiebreaking_is_deterministic():
     assert [tuple(np.round(line.bounds, 6)) for line in first.slice_lines] == [tuple(np.round(line.bounds, 6)) for line in second.slice_lines]
 
 
+def test_decomposition_region_roof_surfaces_use_local_ransac():
+    left = [[x, y, 10.0] for x in np.linspace(1, 3, 5) for y in np.linspace(1, 9, 5)]
+    right = [[x, y, 14.0] for x in np.linspace(5, 9, 5) for y in np.linspace(1, 3, 5)]
+    points = np.asarray([*left, *right], dtype=float)
+    region = Polygon([(0, 0), (4, 0), (4, 10), (0, 10)])
+
+    roof_surfaces, reason = lod2_module._region_roof_surfaces(points, region)
+
+    assert reason is None
+    assert roof_surfaces is not None
+    assert len(roof_surfaces) == 1
+    assert np.allclose(roof_surfaces[0].vertices[:, 2], 10.0)
+
+
 def _gable_roof_points():
     points = []
     for x in np.linspace(1, 4.5, 5):

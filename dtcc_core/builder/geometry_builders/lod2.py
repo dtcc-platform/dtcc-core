@@ -775,6 +775,26 @@ def _record_rejection(rejections: Counter | None, reason: str) -> None:
         rejections[reason] += 1
 
 
+def _points_in_polygon(points: np.ndarray, polygon: Polygon) -> np.ndarray:
+    buffered = polygon.buffer(EDGE_TOLERANCE)
+    selected = [
+        point for point in points
+        if buffered.contains(Point(point[0], point[1])) or buffered.touches(Point(point[0], point[1]))
+    ]
+    return np.asarray(selected, dtype=float)
+
+
+def _region_roof_surfaces(points: np.ndarray, region: Polygon) -> tuple[list[Surface] | None, str | None]:
+    region_points = _points_in_polygon(points, region)
+    if len(region_points) < MIN_ROOF_POINTS:
+        return None, DECOMPOSITION_SPARSE_REGION_POINTS
+    planes = _ransac_planes(region_points)
+    roof_surfaces, reason = _roof_surfaces_for_planes(region_points, region, planes)
+    if roof_surfaces is None:
+        return None, reason or DECOMPOSITION_REGION_ROOF_FAILED
+    return roof_surfaces, None
+
+
 def _roof_surfaces_for_planes(
     points: np.ndarray,
     footprint: Polygon,
