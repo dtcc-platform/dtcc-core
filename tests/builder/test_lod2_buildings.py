@@ -3,7 +3,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from shapely.geometry import Polygon
+from shapely.geometry import LineString, Polygon
 
 import dtcc_core.builder.geometry_builders.lod2 as lod2_module
 from dtcc_core.model import Building, City, GeometryType, MultiSurface, PointCloud, Surface
@@ -569,6 +569,71 @@ def test_decomposition_region_dropped_too_many_preserves_counter_invariant(monke
     assert values["decomposition_region_roof_failed"] == sum(
         values.get(reason, 0)
         for reason in lod2_module.REGION_ROOF_REASONS
+    )
+
+
+def test_decomposed_watertight_failure_detects_unpaired_ridge_on_slice():
+    footprint = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
+    slice_lines = [LineString([(5, 0), (5, 10)])]
+    roof_surfaces = [
+        _surface([[0, 0, 10], [5, 0, 10], [5, 10, 10], [0, 10, 10]]),
+        _surface([[5, 0, 12], [10, 0, 12], [10, 10, 12], [5, 10, 12]]),
+        _surface([[5, 4, 14], [7, 4, 14], [7, 6, 14], [5, 6, 14]]),
+    ]
+
+    reason = lod2_module._decomposed_watertight_failure_reason(
+        footprint,
+        roof_surfaces,
+        slice_lines,
+        MultiSurface(surfaces=[]),
+    )
+
+    assert reason == lod2_module.WATERTIGHT_UNPAIRED_RIDGE_ON_SLICE
+
+
+def test_decomposed_watertight_failure_detects_too_few_paired_vertices():
+    footprint = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
+    slice_lines = [LineString([(5, 0), (5, 10)])]
+    roof_surfaces = [
+        _surface([[0, 0, 10], [5, 0, 10], [5, 10, 10], [0, 10, 10]]),
+        _surface([[5, 0, 12], [10, 0, 12], [10, 10, 12], [8, 10, 12]]),
+    ]
+
+    reason = lod2_module._decomposed_watertight_failure_reason(
+        footprint,
+        roof_surfaces,
+        slice_lines,
+        MultiSurface(surfaces=[]),
+    )
+
+    assert reason == lod2_module.WATERTIGHT_TOO_FEW_PAIRED_VERTICES
+
+
+def test_decomposition_watertight_failure_preserves_counter_invariant(monkeypatch):
+    messages = []
+    monkeypatch.setattr(lod2_module, "info", messages.append, raising=False)
+    l_shape = Polygon([(0, 0), (10, 0), (10, 4), (4, 4), (4, 10), (0, 10)])
+    planes = _planes_with_inlier_counts(50, 40, 30)
+
+    def build_failed_shell(footprint, roof_points, ground_height, decomposition_counts=None):
+        decomposition_counts[lod2_module.WATERTIGHT_EDGE_COUNT_MISMATCH] += 1
+        return None, lod2_module.DECOMPOSITION_WATERTIGHT_FAILED
+
+    monkeypatch.setattr(lod2_module, "_ransac_planes", lambda points: planes)
+    monkeypatch.setattr(lod2_module, "_build_decomposed_shell", build_failed_shell)
+
+    build_lod2_buildings(
+        [_building_with_polygon(_l_shape_flat_points(), l_shape)],
+        build_lod1_fallback=False,
+        log_rejections=True,
+    )
+
+    values = _decomposition_summary_values(messages)
+    assert values["decomposition_watertight_failed"] == 1
+    assert values["watertight_edge_count_mismatch"] == 1
+    assert values["decomposition_watertight_failed"] == sum(
+        values.get(reason, 0)
+        for reason in lod2_module.WATERTIGHT_FAILURE_REASONS
     )
 
 

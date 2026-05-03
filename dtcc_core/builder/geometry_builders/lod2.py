@@ -67,6 +67,10 @@ DECOMPOSITION_REGION_ROOF_FAILED = "decomposition_region_roof_failed"
 DECOMPOSITION_JUNCTION_FAILED = "decomposition_junction_failed"
 DECOMPOSITION_COVERAGE_FAILED = "decomposition_coverage_failed"
 DECOMPOSITION_WATERTIGHT_FAILED = "decomposition_watertight_failed"
+WATERTIGHT_TOO_FEW_PAIRED_VERTICES = "watertight_too_few_paired_vertices"
+WATERTIGHT_UNPAIRED_RIDGE_ON_SLICE = "watertight_unpaired_ridge_on_slice"
+WATERTIGHT_EDGE_COUNT_MISMATCH = "watertight_edge_count_mismatch"
+WATERTIGHT_OTHER = "watertight_other"
 NO_VALID_SLICES_AXIS_MISALIGNED = "no_valid_slices_axis_misaligned"
 NO_VALID_SLICES_PIECE_TOO_SMALL = "no_valid_slices_piece_too_small"
 NO_VALID_SLICES_PIECE_NOT_RECTANGULAR = "no_valid_slices_piece_not_rectangular"
@@ -120,6 +124,12 @@ REGION_ROOF_REASONS = (
     REGION_ROOF_DROPPED_TOO_MANY,
     REGION_ROOF_OTHER,
 )
+WATERTIGHT_FAILURE_REASONS = (
+    WATERTIGHT_TOO_FEW_PAIRED_VERTICES,
+    WATERTIGHT_UNPAIRED_RIDGE_ON_SLICE,
+    WATERTIGHT_EDGE_COUNT_MISMATCH,
+    WATERTIGHT_OTHER,
+)
 DECOMPOSITION_REASONS = (
     DECOMPOSITION_CANDIDATE,
     DECOMPOSITION_SUCCESS,
@@ -133,6 +143,7 @@ DECOMPOSITION_REASONS = (
     *NO_VALID_SLICE_REASONS,
     *AXIS_MISALIGNED_ANGLE_REASONS,
     *REGION_ROOF_REASONS,
+    *WATERTIGHT_FAILURE_REASONS,
     DECOMPOSITION_L_LIKE,
     DECOMPOSITION_T_OR_U_LIKE,
     DECOMPOSITION_OTHER_SHAPE,
@@ -422,6 +433,51 @@ def _internal_junction_surfaces(
                 continue
             junctions.append(Surface(vertices=np.asarray([first[0], second[0], second[1], first[1]], dtype=float)))
     return junctions
+
+
+def _slice_line_vertex_groups(
+    roof_surfaces: list[Surface],
+    line: LineString,
+) -> tuple[list[np.ndarray], list[list[np.ndarray]], list[tuple[np.ndarray, np.ndarray]]]:
+    coords = np.asarray(line.coords, dtype=float)
+    start = coords[0]
+    end = coords[-1]
+    roof_vertices = [vertex for surface in roof_surfaces for vertex in surface.vertices]
+    top = _points_on_edge(roof_vertices, start, end)
+    by_xy: dict[tuple[int, int], list[np.ndarray]] = {}
+    for vertex in top:
+        key = tuple(np.round(vertex[:2] / EDGE_TOLERANCE).astype(int))
+        by_xy.setdefault(key, []).append(vertex)
+    unpaired = [vertices for vertices in by_xy.values() if len(vertices) == 1]
+    low_high = []
+    for vertices in by_xy.values():
+        if len(vertices) < 2:
+            continue
+        vertices = sorted(vertices, key=lambda vertex: vertex[2])
+        if abs(vertices[-1][2] - vertices[0][2]) > EDGE_TOLERANCE:
+            low_high.append((vertices[0], vertices[-1]))
+    return top, unpaired, low_high
+
+
+def _decomposed_watertight_failure_reason(
+    footprint: Polygon,
+    roof_surfaces: list[Surface],
+    slice_lines: list[LineString],
+    shell: MultiSurface | None,
+) -> str:
+    for line in slice_lines:
+        top, unpaired, low_high = _slice_line_vertex_groups(roof_surfaces, line)
+        for vertices in unpaired:
+            point = Point(vertices[0][:2])
+            if footprint.boundary.distance(point) > EDGE_TOLERANCE:
+                return WATERTIGHT_UNPAIRED_RIDGE_ON_SLICE
+        if len(top) >= 2 and len(low_high) < 2:
+            return WATERTIGHT_TOO_FEW_PAIRED_VERTICES
+    if shell is not None:
+        edge_counts = _edge_counts(shell)
+        if edge_counts and any(count != 2 for count in edge_counts.values()):
+            return WATERTIGHT_EDGE_COUNT_MISMATCH
+    return WATERTIGHT_OTHER
 
 
 def _planes_are_coplanar(first: RoofPlane, second: RoofPlane) -> bool:
@@ -1071,9 +1127,19 @@ def _build_decomposed_shell(
         return None, DECOMPOSITION_JUNCTION_FAILED
     walls = _wall_surfaces(footprint, roof_surfaces, ground_height)
     if len(walls) == 0:
+        _record_decomposition_subreason(decomposition_counts, WATERTIGHT_OTHER)
         return None, DECOMPOSITION_WATERTIGHT_FAILED
     shell = MultiSurface(surfaces=[*roof_surfaces, *junctions, *walls, _ground_surface(footprint, ground_height)])
     if not is_watertight(shell):
+        _record_decomposition_subreason(
+            decomposition_counts,
+            _decomposed_watertight_failure_reason(
+                footprint,
+                roof_surfaces,
+                decomposition.slice_lines,
+                shell,
+            ),
+        )
         return None, DECOMPOSITION_WATERTIGHT_FAILED
     if decomposition_counts is not None:
         decomposition_counts[DECOMPOSITION_SUCCESS] += 1
