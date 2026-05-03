@@ -390,7 +390,6 @@ def _internal_junction_surfaces(
     slice_lines: list[LineString],
 ) -> list[Surface] | None:
     junctions: list[Surface] = []
-    roof_vertices = [vertex for surface in roof_surfaces for vertex in surface.vertices]
     handled_lines: set[tuple[tuple[int, int], tuple[int, int]]] = set()
     for line in slice_lines:
         coords = np.asarray(line.coords, dtype=float)
@@ -403,27 +402,12 @@ def _internal_junction_surfaces(
         if line_key in handled_lines:
             continue
         handled_lines.add(line_key)
-        top = _points_on_edge(roof_vertices, start, end)
-        if len(top) < 2:
-            continue
-        by_xy: dict[tuple[int, int], list[np.ndarray]] = {}
-        for vertex in top:
-            key = tuple(np.round(vertex[:2] / EDGE_TOLERANCE).astype(int))
-            by_xy.setdefault(key, []).append(vertex)
-        paired = [vertices for vertices in by_xy.values() if len(vertices) >= 2]
-        if not paired:
-            continue
-        low_high = []
-        for vertices in paired:
-            vertices = sorted(vertices, key=lambda vertex: vertex[2])
-            if abs(vertices[-1][2] - vertices[0][2]) > EDGE_TOLERANCE:
-                low_high.append((vertices[0], vertices[-1]))
+        _, _, low_high = _slice_line_vertex_groups(roof_surfaces, line)
         if len(low_high) < 2:
             continue
-        low_high.sort(key=lambda pair: _edge_parameter(pair[0][:2], start, end))
-        for first, second in zip(low_high, low_high[1:]):
-            first_xy = first[0][:2]
-            second_xy = second[0][:2]
+        paired_xys = [pair[0][:2] for pair in low_high]
+        paired_xys.sort(key=lambda xy: _edge_parameter(xy, start, end))
+        for first_xy, second_xy in zip(paired_xys, paired_xys[1:]):
             if np.linalg.norm(second_xy - first_xy) <= EDGE_TOLERANCE:
                 continue
             midpoint = 0.5 * (first_xy + second_xy)
@@ -431,7 +415,18 @@ def _internal_junction_surfaces(
                 continue
             if not footprint.buffer(EDGE_TOLERANCE).covers(LineString([first_xy, second_xy])):
                 continue
-            junctions.append(Surface(vertices=np.asarray([first[0], second[0], second[1], first[1]], dtype=float)))
+            edges = _slice_line_surface_edges(roof_surfaces, first_xy, second_xy)
+            if len(edges) < 2:
+                continue
+            first_edge, second_edge = edges[:2]
+            junctions.append(
+                Surface(
+                    vertices=np.asarray(
+                        [first_edge[0], first_edge[1], second_edge[1], second_edge[0]],
+                        dtype=float,
+                    )
+                )
+            )
     return junctions
 
 
@@ -478,6 +473,88 @@ def _decomposed_watertight_failure_reason(
         if edge_counts and any(count != 2 for count in edge_counts.values()):
             return WATERTIGHT_EDGE_COUNT_MISMATCH
     return WATERTIGHT_OTHER
+
+
+def _xy_close(first: np.ndarray, second: np.ndarray) -> bool:
+    return np.linalg.norm(first - second) <= EDGE_TOLERANCE
+
+
+def _surface_edge_between_xys(
+    surface: Surface,
+    first_xy: np.ndarray,
+    second_xy: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray] | None:
+    vertices = np.asarray(surface.vertices, dtype=float)
+    for index, start in enumerate(vertices):
+        end = vertices[(index + 1) % len(vertices)]
+        if _xy_close(start[:2], first_xy) and _xy_close(end[:2], second_xy):
+            return start, end
+        if _xy_close(start[:2], second_xy) and _xy_close(end[:2], first_xy):
+            return end, start
+    return None
+
+
+def _slice_line_surface_edges(
+    roof_surfaces: list[Surface],
+    first_xy: np.ndarray,
+    second_xy: np.ndarray,
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    edges = []
+    for surface in roof_surfaces:
+        edge = _surface_edge_between_xys(surface, first_xy, second_xy)
+        if edge is not None:
+            edges.append(edge)
+    return edges
+
+
+def _surface_has_xy(surface: Surface, xy: np.ndarray) -> bool:
+    return any(np.linalg.norm(vertex[:2] - xy) <= EDGE_TOLERANCE for vertex in surface.vertices)
+
+
+def _edge_contains_xy(xy: np.ndarray, start: np.ndarray, end: np.ndarray) -> bool:
+    edge = end[:2] - start[:2]
+    length = float(np.linalg.norm(edge))
+    if length == 0.0:
+        return False
+    offset = xy - start[:2]
+    distance = abs(edge[0] * offset[1] - edge[1] * offset[0]) / length
+    parameter = _edge_parameter(xy, start[:2], end[:2])
+    return distance <= EDGE_TOLERANCE and EDGE_TOLERANCE < parameter < 1.0 - EDGE_TOLERANCE
+
+
+def _insert_xy_on_surface_edge(surface: Surface, xy: np.ndarray) -> Surface:
+    vertices = np.asarray(surface.vertices, dtype=float)
+    if _surface_has_xy(surface, xy):
+        return surface
+    for index, start in enumerate(vertices):
+        end = vertices[(index + 1) % len(vertices)]
+        if not _edge_contains_xy(xy, start, end):
+            continue
+        parameter = _edge_parameter(xy, start[:2], end[:2])
+        z = start[2] + parameter * (end[2] - start[2])
+        vertex = np.array([xy[0], xy[1], z], dtype=float)
+        new_vertices = np.vstack([vertices[: index + 1], vertex, vertices[index + 1 :]])
+        return Surface(vertices=new_vertices)
+    return surface
+
+
+def _reconcile_slice_line_vertices(
+    footprint: Polygon,
+    roof_surfaces: list[Surface],
+    slice_lines: list[LineString],
+) -> list[Surface]:
+    reconciled = [
+        Surface(vertices=np.asarray(surface.vertices, dtype=float).copy())
+        for surface in roof_surfaces
+    ]
+    for line in slice_lines:
+        _, unpaired, _ = _slice_line_vertex_groups(reconciled, line)
+        for vertices in unpaired:
+            xy = vertices[0][:2]
+            if footprint.boundary.distance(Point(xy)) <= EDGE_TOLERANCE:
+                continue
+            reconciled = [_insert_xy_on_surface_edge(surface, xy) for surface in reconciled]
+    return reconciled
 
 
 def _planes_are_coplanar(first: RoofPlane, second: RoofPlane) -> bool:
@@ -1122,6 +1199,11 @@ def _build_decomposed_shell(
         roof_surfaces.extend(region_surfaces)
     if not _roof_surfaces_cover_footprint(footprint, roof_surfaces):
         return None, DECOMPOSITION_COVERAGE_FAILED
+    roof_surfaces = _reconcile_slice_line_vertices(
+        footprint,
+        roof_surfaces,
+        decomposition.slice_lines,
+    )
     junctions = _internal_junction_surfaces(footprint, roof_surfaces, decomposition.slice_lines)
     if junctions is None:
         return None, DECOMPOSITION_JUNCTION_FAILED

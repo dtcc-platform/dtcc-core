@@ -637,6 +637,74 @@ def test_decomposition_watertight_failure_preserves_counter_invariant(monkeypatc
     )
 
 
+def test_decomposed_shell_reconciles_unpaired_ridge_on_slice(monkeypatch):
+    footprint = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
+    left_region = Polygon([(0, 0), (5, 0), (5, 10), (0, 10)])
+    right_region = Polygon([(5, 0), (10, 0), (10, 10), (5, 10)])
+    decomposition = lod2_module.FootprintDecomposition(
+        pieces=[left_region, right_region],
+        slice_lines=[LineString([(5, 0), (5, 10)])],
+        family_reason=lod2_module.DECOMPOSITION_L_LIKE,
+        concave_vertex_count=1,
+    )
+    left_roof = _surface(
+        [[0, 0, 10], [5, 0, 10], [5, 5, 14], [5, 10, 10], [0, 10, 10]]
+    )
+    right_roof = _surface([[5, 0, 8], [10, 0, 8], [10, 10, 8], [5, 10, 8]])
+    region_surfaces = iter([([left_roof], None), ([right_roof], None)])
+
+    monkeypatch.setattr(
+        lod2_module,
+        "_decompose_footprint",
+        lambda candidate_footprint, decomposition_counts=None: decomposition,
+    )
+    monkeypatch.setattr(
+        lod2_module,
+        "_region_roof_surfaces",
+        lambda points, region, decomposition_counts=None: next(region_surfaces),
+    )
+
+    shell, reason = lod2_module._build_decomposed_shell(footprint, np.empty((0, 3)), 0.0)
+
+    assert reason == lod2_module.DECOMPOSITION_SUCCESS
+    assert shell is not None
+    assert is_watertight(shell)
+
+
+def test_decomposed_shell_reconciles_slice_vertex_when_height_order_changes(monkeypatch):
+    footprint = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
+    left_region = Polygon([(0, 0), (5, 0), (5, 10), (0, 10)])
+    right_region = Polygon([(5, 0), (10, 0), (10, 10), (5, 10)])
+    decomposition = lod2_module.FootprintDecomposition(
+        pieces=[left_region, right_region],
+        slice_lines=[LineString([(5, 0), (5, 10)])],
+        family_reason=lod2_module.DECOMPOSITION_L_LIKE,
+        concave_vertex_count=1,
+    )
+    left_roof = _surface(
+        [[0, 0, 10], [5, 0, 10], [5, 5, 14], [5, 10, 10], [0, 10, 10]]
+    )
+    right_roof = _surface([[5, 0, 12], [10, 0, 12], [10, 10, 12], [5, 10, 12]])
+    region_surfaces = iter([([left_roof], None), ([right_roof], None)])
+
+    monkeypatch.setattr(
+        lod2_module,
+        "_decompose_footprint",
+        lambda candidate_footprint, decomposition_counts=None: decomposition,
+    )
+    monkeypatch.setattr(
+        lod2_module,
+        "_region_roof_surfaces",
+        lambda points, region, decomposition_counts=None: next(region_surfaces),
+    )
+
+    shell, reason = lod2_module._build_decomposed_shell(footprint, np.empty((0, 3)), 0.0)
+
+    assert reason == lod2_module.DECOMPOSITION_SUCCESS
+    assert shell is not None
+    assert is_watertight(shell)
+
+
 def test_rebuild_false_preserves_existing_lod2():
     building = _building_with_footprint(_flat_roof_points())
     existing = _closed_box()
