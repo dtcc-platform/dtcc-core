@@ -18,6 +18,7 @@ Bounds = model.Bounds
 _LAZY_SUBMODULES = {
     "io": "dtcc_core.io",
     "datasets": "dtcc_core.datasets",
+    "plotting": "dtcc_core.plotting",
     "reproject": "dtcc_core.reproject",
 }
 
@@ -42,5 +43,6 @@ __all__ = [
     "register_model_method",
     "io",
     "datasets",
+    "plotting",
     "reproject",
 ]

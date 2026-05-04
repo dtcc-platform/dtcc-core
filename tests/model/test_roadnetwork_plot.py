@@ -4,7 +4,9 @@ import pytest
 matplotlib = pytest.importorskip("matplotlib")
 matplotlib.use("Agg", force=True)
 plt = pytest.importorskip("matplotlib.pyplot")
+to_rgba = pytest.importorskip("matplotlib.colors").to_rgba
 
+from dtcc_core.plotting import DTCC_COLORS, DTCC_THEMES
 from dtcc_core.model import GeometryType, LineString, MultiLineString, RoadNetwork
 
 
@@ -42,6 +44,12 @@ def test_roadnetwork_plot_graph_only():
 
     assert len(ax.collections) == 1
     assert len(ax.collections[0].get_segments()) == 2
+    assert tuple(ax.collections[0].get_colors()[0]) == to_rgba(DTCC_COLORS["teal"])
+    assert ax.get_title() == "DTCC Road Network"
+    assert ax.figure.get_facecolor() == to_rgba(DTCC_THEMES["dark"]["figure"])
+    assert ax.get_legend() is not None
+    assert "Segments: 2" in ax.texts[0].get_text()
+    assert "Bounds:" in ax.texts[0].get_text()
     plt.close(ax.figure)
 
 

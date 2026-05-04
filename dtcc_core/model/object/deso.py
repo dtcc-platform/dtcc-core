@@ -5,6 +5,13 @@ from typing import Any
 
 import numpy as np
 
+from ...plotting import (
+    add_plot_context,
+    apply_dtcc_style,
+    get_axes,
+    plot_geodataframe,
+    show_plot,
+)
 from .object import Object, GeometryType
 from ..geometry import MultiSurface
 from ..values import Field
@@ -253,35 +260,72 @@ class DeSO(Object):
         self,
         ax=None,
         column: str | None = "desokod",
-        edgecolor: str = "black",
+        edgecolor: str | None = None,
         linewidth: float = 0.6,
         facecolor: str = "none",
-        legend: bool = False,
+        cmap=None,
+        legend: bool | None = None,
+        title: str | None = None,
+        metadata: bool | dict[str, Any] = True,
+        metadata_loc: str = "upper left",
+        theme: str = "dark",
         show: bool = True,
         **kwargs,
     ):
         """Plot DeSO polygons using GeoPandas/Matplotlib."""
-        try:
-            import matplotlib.pyplot as plt
-        except ImportError as exc:
-            raise ImportError("Matplotlib is required for DeSO.plot().") from exc
-
         gdf = self.to_dataframe()
-        if ax is None:
-            _, ax = plt.subplots()
-
-        plot_kwargs = dict(edgecolor=edgecolor, linewidth=linewidth, **kwargs)
-        if column is not None and column in gdf.columns:
-            gdf.plot(column=column, ax=ax, legend=legend, **plot_kwargs)
-        else:
-            gdf.plot(ax=ax, facecolor=facecolor, **plot_kwargs)
-
-        ax.set_aspect("equal", adjustable="box")
-        ax.set_axis_off()
-
-        if show:
-            plt.show()
+        ax = get_axes(ax)
+        show_legend = (
+            column is not None and column != "desokod"
+            if legend is None
+            else legend
+        )
+        plot_geodataframe(
+            ax,
+            gdf,
+            column=column,
+            edgecolor=edgecolor,
+            linewidth=linewidth,
+            facecolor=facecolor,
+            cmap=cmap,
+            legend=show_legend,
+            theme=theme,
+            **kwargs,
+        )
+        apply_dtcc_style(ax, theme=theme, equal_aspect=True, axis="off")
+        add_plot_context(
+            ax,
+            title=title or self._plot_title(),
+            metadata=self._plot_metadata(column, gdf, metadata),
+            bounds=self.bounds,
+            theme=theme,
+            metadata_loc=metadata_loc,
+        )
+        show_plot(show)
         return ax
+
+    def _plot_title(self) -> str:
+        year = self.attributes.get("year")
+        return f"DTCC DeSO {year}" if year else "DTCC DeSO"
+
+    def _plot_metadata(self, column: str | None, gdf, metadata):
+        if metadata is False:
+            return None
+
+        field_count = len(self.fields)
+        plot_metadata: dict[str, Any] = {
+            "Areas": len(gdf),
+            "CRS": self.transform.srs or getattr(gdf, "crs", None),
+            "Column": column if column in gdf.columns else None,
+            "Fields": field_count if field_count else None,
+        }
+        source = self.attributes.get("source")
+        if source:
+            plot_metadata["Source"] = source
+
+        if isinstance(metadata, dict):
+            plot_metadata.update(metadata)
+        return plot_metadata
 
     @staticmethod
     def _area_field_value(area: Object, name: str, dim: int):

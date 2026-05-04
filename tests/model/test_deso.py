@@ -3,10 +3,12 @@ import numpy as np
 import pytest
 from shapely.geometry import Polygon
 
+from dtcc_core.plotting import DTCC_THEMES
 from dtcc_core.io.data.deso import deso_from_geodataframe
 from dtcc_core.model import Bounds, DeSO, Field, GeometryType, Object
 
 matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 
 try:
     import geopandas as gpd
@@ -88,6 +90,15 @@ def test_deso_info_arrays_dataframe_and_plot():
     assert dataframe["desokod"].tolist() == ["1480C1970"]
     assert dataframe["population_total"].tolist() == [1729.0]
     assert ax is not None
+    assert ax.get_title() == "DTCC DeSO 2025"
+    assert "Areas: 1" in ax.texts[0].get_text()
+    assert "Bounds:" in ax.texts[0].get_text()
+    plt.close(ax.figure)
+
+    legend_ax = deso.plot(column="population_total", show=False)
+    assert len(legend_ax.figure.axes) == 2
+    assert legend_ax.figure.axes[1].yaxis.label.get_color() == DTCC_THEMES["dark"]["text"]
+    plt.close(legend_ax.figure)
 
 
 def test_deso_attach_field_validates_area_count():
