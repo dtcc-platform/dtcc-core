@@ -166,6 +166,7 @@ def test_descriptor_describe_returns_dataset_contract():
     metadata = ds.describe()
 
     assert metadata["name"] == "city_volume_mesh"
+    assert metadata["title"] == "City Volume Mesh"
     assert metadata["data_category"] == "derived"
     assert metadata["result_kind"] == "mesh"
     assert metadata["python_return_type"] == "dtcc_core.model.VolumeMesh"

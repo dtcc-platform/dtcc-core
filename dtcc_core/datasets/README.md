@@ -162,6 +162,20 @@ The GeoJSON outputs declare `EPSG:3006` by default for QGIS/GDAL compatibility.
 Set `crs=None` to omit that declaration, or `include_z=False` to write 2D
 coordinates for viewers that do not handle GeoJSON Z coordinates.
 
+Datasets can also export a serialized artifact and an Atlas-style manifest
+sidecar in one call:
+
+    result = datasets.smoke.export(
+        "output/smoke/smoke_slice.geojson",
+        bounds=[319720, 6397660, 320220, 6398160],
+        product="slice",
+    )
+
+This writes `smoke_slice.geojson` and `smoke_slice.manifest.json`. The manifest
+contains the full dataset descriptor plus the emitted filename, selected
+format, selected product, concrete request bounds, and validated parameters for
+that request.
+
 Atlas Integration Checklist
 ---------------------------
 
@@ -184,6 +198,8 @@ For a generated download:
 5. Use `result_kind` and each format's `data_kind` to decide whether the
    viewer should expect vector, raster, point cloud, mesh, city model,
    protobuf, or an unsupported download-only artifact.
+6. Use `dataset.export(path, ...)` when Atlas needs both the serialized data
+   file and a manifest sidecar for that concrete request.
 
 Creating Custom Datasets
 ------------------------

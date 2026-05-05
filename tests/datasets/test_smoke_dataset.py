@@ -163,6 +163,77 @@ def test_smoke_streamlines_geojson_format_returns_lines():
     assert all(len(feature["geometry"]["coordinates"]) >= 2 for feature in data["features"])
 
 
+def test_smoke_export_writes_payload_and_manifest(tmp_path):
+    path = tmp_path / "smoke_slice.geojson"
+
+    result = datasets.smoke.export(
+        path,
+        bounds=(319720, 6397660, 320220, 6398160),
+        resolution=4,
+        product="slice",
+    )
+
+    assert result.path == path
+    assert result.manifest_path == tmp_path / "smoke_slice.manifest.json"
+    assert path.exists()
+    assert result.manifest_path.exists()
+
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data["metadata"]["product"] == "slice"
+
+    manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+    assert manifest == result.manifest
+    descriptor = datasets.smoke.describe()
+    for key, value in descriptor.items():
+        assert manifest[key] == value
+    assert "id" not in manifest
+    assert "projectionBbox" not in manifest
+    assert manifest["file"] == "smoke_slice.geojson"
+    assert manifest["format"] == "geojson"
+    assert manifest["product"] == "slice"
+    assert manifest["bounds"] == [319720, 6397660, 320220, 6398160]
+    assert manifest["parameters"]["bounds"] == [319720, 6397660, 320220, 6398160]
+    assert manifest["parameters"]["product"] == "slice"
+    assert manifest["parameters"]["format"] == "geojson"
+    assert manifest["parameters"]["resolution"] == 4
+
+
+def test_smoke_export_manifest_can_be_disabled_or_overridden(tmp_path):
+    path = tmp_path / "slice.geojson"
+    manifest_path = tmp_path / "atlas.json"
+
+    result = datasets.smoke.export(
+        path,
+        bounds=(0.0, 0.0, 10.0, 20.0),
+        product="slice",
+        manifest=False,
+    )
+
+    assert path.exists()
+    assert result.manifest is None
+    assert result.manifest_path is None
+    assert not (tmp_path / "slice.manifest.json").exists()
+
+    result = datasets.smoke.export(
+        path,
+        bounds=(0.0, 0.0, 10.0, 20.0),
+        product="slice",
+        manifest_path=manifest_path,
+        manifest_id="atlas-smoke",
+        title="Atlas Smoke",
+        description="Smoke data prepared for Atlas++.",
+    )
+
+    assert result.manifest_path == manifest_path
+    assert result.manifest["id"] == "atlas-smoke"
+    assert result.manifest["name"] == "smoke"
+    assert result.manifest["title"] == "Atlas Smoke"
+    assert result.manifest["description"] == "Smoke data prepared for Atlas++."
+    assert result.manifest["bounds"] == [0.0, 0.0, 10.0, 20.0]
+    assert "projectionBbox" not in result.manifest
+    assert json.loads(manifest_path.read_text(encoding="utf-8")) == result.manifest
+
+
 def test_smoke_rejects_non_geojson_visualization_formats():
     with pytest.raises(ValueError, match="product='slice' only supports"):
         SmokeDataset().build(

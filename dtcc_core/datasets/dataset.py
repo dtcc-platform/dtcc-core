@@ -1,13 +1,16 @@
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+import json
+from pathlib import Path
+import tempfile
+from typing import Any, Optional, Sequence, Union
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
 import dtcc_core
 from dtcc_core.model import Bounds
 from dtcc_core.model import Object as DTCCObject
 from dtcc_core.model import Geometry as DTCCGeometry
-
-from abc import ABC, abstractmethod
-from typing import Any, Optional, Sequence, Union
-from pydantic import BaseModel, ConfigDict, Field, field_validator
-from pathlib import Path
-import tempfile
 
 
 _FORMAT_KIND_MAP = {
@@ -127,10 +130,20 @@ class DatasetUpstreamError(RuntimeError):
         return self.failure_class in {"connection", "timeout", "http_5xx"}
 
 
+@dataclass(frozen=True)
+class DatasetExportResult:
+    """Result returned by :meth:`DatasetDescriptor.export`."""
+
+    path: Path
+    manifest_path: Optional[Path]
+    manifest: Optional[dict[str, Any]]
+
+
 class DatasetDescriptor(ABC):
     """Callable, self-describing dataset."""
 
     name: str
+    title: Optional[str] = None
     description: str = ""
     ArgsModel: BaseModel
     data_category: str = "unknown"
@@ -264,6 +277,10 @@ class DatasetDescriptor(ABC):
             for fmt in self.list_supported_formats()
         ]
 
+    @staticmethod
+    def _title_from_identifier(identifier: str) -> str:
+        return str(identifier).replace("_", " ").replace("-", " ").title()
+
     def describe(self) -> dict[str, Any]:
         """Return the dataset contract used by Python clients and web services."""
         args_schema = self.show_options()
@@ -273,6 +290,8 @@ class DatasetDescriptor(ABC):
         )
         return {
             "name": self.name,
+            "title": getattr(self, "title", None)
+            or self._title_from_identifier(self.name),
             "description": self.description,
             "data_category": getattr(self, "data_category", "unknown"),
             "result_kind": getattr(self, "result_kind", "unknown"),
@@ -288,6 +307,131 @@ class DatasetDescriptor(ABC):
                 "format_parameter": "format" in schema_properties,
             },
         }
+
+    def _infer_format_from_path(self, path: Path) -> str:
+        """Infer a dataset format from a path suffix."""
+        candidates = sorted(
+            (
+                (item["extension"], item["format"])
+                for item in self.format_metadata()
+                if item.get("extension") and item.get("format")
+            ),
+            key=lambda item: len(item[0]),
+            reverse=True,
+        )
+        path_name = path.name.lower()
+        for extension, format_name in candidates:
+            if path_name.endswith(f".{extension.lower()}"):
+                return format_name
+
+        supported_formats = ", ".join(self.list_supported_formats()) or "none"
+        raise ValueError(
+            f"Could not infer export format from '{path}'. "
+            f"Pass format explicitly. Supported formats: {supported_formats}"
+        )
+
+    def _build_manifest(
+        self,
+        args,
+        path: Path,
+        *,
+        manifest_id: Optional[str] = None,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Build a manifest for a concrete exported dataset request."""
+        manifest = self.describe()
+        parameters = args.model_dump(mode="json")
+        product = getattr(args, "product", None)
+
+        if manifest_id is not None:
+            manifest["id"] = manifest_id
+        if title is not None:
+            manifest["title"] = title
+        if description is not None:
+            manifest["description"] = description
+
+        manifest["file"] = path.name
+        manifest["format"] = getattr(args, "format", None)
+        if product is not None:
+            manifest["product"] = product
+        manifest["bounds"] = list(parameters["bounds"])
+        manifest["parameters"] = parameters
+        return manifest
+
+    def export(
+        self,
+        path: Union[str, Path],
+        *,
+        format: Optional[str] = None,
+        manifest: bool = True,
+        manifest_path: Optional[Union[str, Path]] = None,
+        manifest_id: Optional[str] = None,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        **kwargs,
+    ) -> DatasetExportResult:
+        """Export a serialized dataset artifact and optional manifest to disk.
+
+        Args:
+            path: Output path for the serialized dataset file.
+            format: Dataset format. If omitted, inferred from ``path``.
+            manifest: Whether to write an Atlas-style manifest sidecar.
+            manifest_path: Optional manifest output path. Defaults to
+                ``path`` with ``.manifest.json`` as suffix.
+            manifest_id: Optional manifest ``id`` value to include.
+            title: Optional manifest title override.
+            description: Optional manifest description override.
+            **kwargs: Dataset arguments passed to the dataset build call.
+
+        Returns:
+            Paths and manifest data for the exported artifact.
+        """
+        output_path = Path(path)
+        output_format = format or self._infer_format_from_path(output_path)
+
+        request_kwargs = dict(kwargs)
+        request_kwargs["format"] = output_format
+        args = self.validate(request_kwargs)
+        payload = self.build(args)
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        if isinstance(payload, str):
+            output_path.write_text(payload, encoding="utf-8")
+        elif isinstance(payload, (bytes, bytearray)):
+            output_path.write_bytes(payload)
+        else:
+            raise TypeError(
+                f"Dataset export requires a serialized bytes or string payload, "
+                f"got {type(payload).__name__}. Pass a supported format."
+            )
+
+        exported_manifest = None
+        exported_manifest_path = None
+        if manifest:
+            exported_manifest_path = (
+                Path(manifest_path)
+                if manifest_path is not None
+                else output_path.with_suffix(".manifest.json")
+            )
+            exported_manifest = self._build_manifest(
+                args,
+                output_path,
+                manifest_id=manifest_id,
+                title=title,
+                description=description,
+            )
+            exported_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+            exported_manifest_path.write_text(
+                json.dumps(exported_manifest, indent=2) + "\n",
+                encoding="utf-8",
+            )
+
+        return DatasetExportResult(
+            path=output_path,
+            manifest_path=exported_manifest_path,
+            manifest=exported_manifest,
+        )
 
     def __str__(self):
         """Return a nicely formatted summary of the dataset."""

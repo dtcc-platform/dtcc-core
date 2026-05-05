@@ -1,4 +1,4 @@
-from .dataset import DatasetDescriptor, DatasetBaseArgs
+from .dataset import DatasetDescriptor, DatasetBaseArgs, DatasetExportResult
 
 # Import dataset classes to trigger auto-registration
 from .pointcloud import PointCloudDataset
