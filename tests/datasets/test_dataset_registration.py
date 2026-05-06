@@ -181,6 +181,44 @@ def test_descriptor_describe_returns_dataset_contract():
     assert xdmf["multi_file"] is True
 
 
+def test_dataset_info_groups_rows_by_category():
+    """Dataset info summary rows should be grouped in the public category order."""
+    grouped = datasets._group_dataset_summary_rows(
+        {
+            "smoke": datasets.smoke,
+            "city": datasets.city,
+            "point_cloud": datasets.point_cloud,
+        }
+    )
+
+    assert list(grouped) == ["raw", "derived", "simulation"]
+    assert grouped["raw"][0][0] == "point_cloud"
+    assert grouped["derived"][0][0] == "city"
+    assert grouped["simulation"][0][0] == "smoke"
+
+
+def test_dataset_info_prints_one_table_per_category(monkeypatch):
+    """datasets.info() should delegate grouped output to the common table logger."""
+    messages = []
+    tables = []
+
+    monkeypatch.setattr(datasets, "log_info", messages.append)
+
+    def capture_table(log_fn, message, columns, rows, **kwargs):
+        tables.append((message, columns, rows, kwargs))
+
+    monkeypatch.setattr(datasets, "log_table", capture_table)
+
+    datasets.info()
+
+    table_titles = [table[0] for table in tables]
+    assert "Raw Datasets" in table_titles[0]
+    assert any(title.startswith("Derived Datasets") for title in table_titles)
+    assert any(title.startswith("Simulation Datasets") for title in table_titles)
+    assert all(len(table[2]) > 0 for table in tables)
+    assert any("DTCC Datasets" in message for message in messages)
+
+
 # Explicit API Tests
 
 
