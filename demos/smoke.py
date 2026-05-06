@@ -77,6 +77,25 @@ dtcc.datasets.smoke.export(
     height=1920,
 )
 
+# Get dataset as streamlines in MP4 (for DTCC Table animation)
+try:
+    dtcc.datasets.smoke.export(
+        output_dir / "smoke_streamlines.mp4",
+        bounds=bounds,
+        product="streamlines",
+        format="mp4",
+        profile="table",
+        streamline_count=48,
+        streamline_steps=150,
+        width=960,
+        height=960,
+        fps=24,
+        duration=4.0,
+        period=4.0,
+    )
+except RuntimeError as exc:
+    print(f"Skipped smoke MP4 export: {exc}")
+
 print(f"Wrote data to {output_dir}")
 
 # Show the same visualization products as live Python plots.

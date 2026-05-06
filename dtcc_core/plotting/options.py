@@ -56,3 +56,43 @@ class RasterRenderOptions:
             "streamline_color_by": self.streamline_color_by,
             "interpolation": self.interpolation,
         }
+
+
+@dataclass(frozen=True)
+class VideoRenderOptions(RasterRenderOptions):
+    """Options for rendering a visualization product as an MP4 video."""
+
+    fps: int = 30
+    duration: float = 8.0
+    start_time: float = 0.0
+    codec: str = "h264"
+    bitrate: int | None = None
+    loop: bool = True
+
+    @property
+    def frame_count(self) -> int:
+        return max(1, int(round(self.duration * self.fps)))
+
+    @property
+    def frame_times(self) -> tuple[float, ...]:
+        return tuple(
+            self.start_time + frame / self.fps
+            for frame in range(self.frame_count)
+        )
+
+    def manifest_dict(self) -> dict[str, object]:
+        metadata = super().manifest_dict()
+        metadata.update(
+            {
+                "fps": self.fps,
+                "duration": self.duration,
+                "frame_count": self.frame_count,
+                "start_time": self.start_time,
+                "end_time": self.start_time + self.duration,
+                "codec": self.codec,
+                "bitrate": self.bitrate,
+                "loop": self.loop,
+                "container": "mp4",
+            }
+        )
+        return metadata

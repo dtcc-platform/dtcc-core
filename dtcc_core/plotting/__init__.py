@@ -6,9 +6,10 @@ Product containers and renderers live in their own submodules.
 """
 
 from . import style
-from .options import RasterRenderOptions
+from .options import RasterRenderOptions, VideoRenderOptions
 
 __all__ = [
     "RasterRenderOptions",
+    "VideoRenderOptions",
     "style",
 ]

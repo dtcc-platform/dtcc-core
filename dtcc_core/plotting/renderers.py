@@ -6,7 +6,7 @@ from io import BytesIO
 import os
 from pathlib import Path
 import tempfile
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 
@@ -20,7 +20,7 @@ from .style import (
     style_plot_extras,
 )
 
-from .options import RasterRenderOptions
+from .options import RasterRenderOptions, VideoRenderOptions
 from .products import SliceProduct, StreamlineProduct
 
 
@@ -55,6 +55,59 @@ def render_product_png(product: Any, options: RasterRenderOptions) -> bytes:
         edgecolor="none",
     )
     return buffer.getvalue()
+
+
+def render_product_mp4(
+    product_factory: Callable[[float], Any],
+    options: VideoRenderOptions,
+) -> bytes:
+    """Render a time-dependent visualization product as MP4 bytes."""
+    _ensure_mpl_config_dir()
+    from matplotlib.animation import FFMpegWriter
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
+
+    if not FFMpegWriter.isAvailable():
+        raise RuntimeError(
+            "MP4 video export requires ffmpeg to be available on PATH."
+        )
+
+    theme = get_theme(options.theme)
+    background = _background_color(options, theme)
+    figure_background = "none" if options.transparent else background
+    fig = Figure(
+        figsize=options.figsize,
+        dpi=options.dpi,
+        facecolor=figure_background,
+    )
+    FigureCanvasAgg(fig)
+
+    extra_args = ["-pix_fmt", "yuv420p", "-movflags", "+faststart"]
+    writer = FFMpegWriter(
+        fps=options.fps,
+        codec=options.codec,
+        bitrate=options.bitrate,
+        extra_args=extra_args,
+        metadata={"artist": "dtcc-core"},
+    )
+
+    output_path = _temporary_video_path()
+    try:
+        with writer.saving(fig, str(output_path), dpi=options.dpi):
+            for frame_time in options.frame_times:
+                fig.clear()
+                ax = fig.add_axes([0, 0, 1, 1])
+                ax.set_facecolor("none" if options.transparent else background)
+                product = product_factory(frame_time)
+                draw_product(ax, product, options)
+                _configure_axes(ax, product, options)
+                writer.grab_frame(
+                    facecolor=fig.get_facecolor(),
+                    edgecolor="none",
+                )
+        return output_path.read_bytes()
+    finally:
+        output_path.unlink(missing_ok=True)
 
 
 def plot_product(
@@ -215,3 +268,11 @@ def _ensure_mpl_config_dir() -> None:
     path = Path(tempfile.gettempdir()) / "dtcc-matplotlib"
     path.mkdir(parents=True, exist_ok=True)
     os.environ["MPLCONFIGDIR"] = str(path)
+
+
+def _temporary_video_path() -> Path:
+    handle = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
+    try:
+        return Path(handle.name)
+    finally:
+        handle.close()

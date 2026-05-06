@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from typing import Any, Literal, Optional
 
 import numpy as np
@@ -10,15 +11,19 @@ from pydantic import Field as PydanticField
 from pydantic import model_validator
 
 from dtcc_core.model import Bounds, Field, VolumeMesh
-from dtcc_core.plotting.options import RasterRenderOptions
+from dtcc_core.plotting.options import RasterRenderOptions, VideoRenderOptions
 from dtcc_core.plotting.products import SliceProduct, StreamlineProduct
-from dtcc_core.plotting.renderers import plot_product, render_product_png
+from dtcc_core.plotting.renderers import (
+    plot_product,
+    render_product_mp4,
+    render_product_png,
+)
 
 from .dataset import DatasetBaseArgs, DatasetDescriptor
 
 
 SmokeProduct = Literal["field", "slice", "streamlines"]
-SmokeFormat = Literal["pb", "vtu", "geojson", "png"]
+SmokeFormat = Literal["pb", "vtu", "geojson", "png", "mp4"]
 SmokeProfile = Literal["python", "table"]
 SmokeTheme = Literal["dark", "light"]
 StreamlineColorBy = Literal["speed", "constant"]
@@ -102,31 +107,71 @@ class SmokeArgs(DatasetBaseArgs):
         le=1.0,
         description="RK4 step size in normalized coordinates for streamlines.",
     )
+    time: float = PydanticField(
+        0.0,
+        description=(
+            "Snapshot time in seconds. Video exports use this as the first "
+            "frame time."
+        ),
+    )
+    period: float = PydanticField(
+        8.0,
+        gt=0.0,
+        description="Period in seconds for the loopable synthetic smoke field.",
+    )
+    duration: float = PydanticField(
+        8.0,
+        gt=0.0,
+        le=120.0,
+        description="MP4 artifact duration in seconds.",
+    )
+    fps: int = PydanticField(
+        30,
+        ge=1,
+        le=120,
+        description="MP4 artifact frames per second.",
+    )
+    codec: str = PydanticField(
+        "h264",
+        description="FFmpeg video codec for MP4 artifacts.",
+    )
+    bitrate: Optional[int] = PydanticField(
+        None,
+        gt=0,
+        description="Optional MP4 video bitrate in kbit/s.",
+    )
+    loop: bool = PydanticField(
+        True,
+        description="Whether the MP4 artifact is intended to loop seamlessly.",
+    )
     width: int = PydanticField(
         1920,
         ge=64,
         le=8192,
-        description="PNG artifact width in pixels.",
+        description="Rendered PNG/MP4 artifact width in pixels.",
     )
     height: int = PydanticField(
         1080,
         ge=64,
         le=8192,
-        description="PNG artifact height in pixels.",
+        description="Rendered PNG/MP4 artifact height in pixels.",
     )
     dpi: int = PydanticField(
         100,
         ge=50,
         le=600,
-        description="PNG rendering DPI used to size the Matplotlib canvas.",
+        description="Rendering DPI used to size the Matplotlib canvas.",
     )
     profile: SmokeProfile = PydanticField(
         "table",
-        description="Visualization profile: 'table' for full-bleed artifacts or 'python' for annotated plots.",
+        description=(
+            "Visualization profile: 'table' for full-bleed artifacts or "
+            "'python' for annotated plots."
+        ),
     )
     theme: SmokeTheme = PydanticField(
         "dark",
-        description="DTCC Matplotlib theme used for PNG artifacts.",
+        description="DTCC Matplotlib theme used for rendered artifacts.",
     )
     cmap: str = PydanticField(
         "dtcc",
@@ -134,7 +179,7 @@ class SmokeArgs(DatasetBaseArgs):
     )
     background: Optional[str] = PydanticField(
         None,
-        description="Optional PNG background color. Defaults to the selected theme.",
+        description="Optional render background color. Defaults to the selected theme.",
     )
     transparent: bool = PydanticField(
         False,
@@ -142,7 +187,7 @@ class SmokeArgs(DatasetBaseArgs):
     )
     legend: bool = PydanticField(
         False,
-        description="Whether PNG artifacts include a colorbar legend.",
+        description="Whether rendered artifacts include a colorbar legend.",
     )
     title: Optional[str] = PydanticField(
         None,
@@ -150,21 +195,24 @@ class SmokeArgs(DatasetBaseArgs):
     )
     preserve_aspect: bool = PydanticField(
         False,
-        description="Whether PNG rendering preserves coordinate aspect ratio instead of filling the canvas.",
+        description=(
+            "Whether rendering preserves coordinate aspect ratio instead of "
+            "filling the canvas."
+        ),
     )
     vmin: Optional[float] = PydanticField(
         None,
-        description="Optional lower scalar color limit for PNG artifacts.",
+        description="Optional lower scalar color limit for rendered artifacts.",
     )
     vmax: Optional[float] = PydanticField(
         None,
-        description="Optional upper scalar color limit for PNG artifacts.",
+        description="Optional upper scalar color limit for rendered artifacts.",
     )
     line_width: float = PydanticField(
         1.6,
         gt=0.0,
         le=20.0,
-        description="Streamline width in PNG artifacts.",
+        description="Streamline width in rendered artifacts.",
     )
     line_color: str = PydanticField(
         "#FADA36",
@@ -174,25 +222,27 @@ class SmokeArgs(DatasetBaseArgs):
         0.92,
         ge=0.0,
         le=1.0,
-        description="Streamline opacity in PNG artifacts.",
+        description="Streamline opacity in rendered artifacts.",
     )
     glow: bool = PydanticField(
         True,
-        description="Whether streamlines get a soft halo in PNG artifacts.",
+        description="Whether streamlines get a soft halo in rendered artifacts.",
     )
     streamline_color_by: StreamlineColorBy = PydanticField(
         "speed",
-        description="How streamlines are colored in PNG artifacts.",
+        description="How streamlines are colored in rendered artifacts.",
     )
     interpolation: str = PydanticField(
         "bilinear",
-        description="Matplotlib interpolation mode for slice PNG artifacts.",
+        description="Matplotlib interpolation mode for rendered slice artifacts.",
     )
 
     @model_validator(mode="after")
     def validate_product_resolution(self):
         if self.product == "field" and self.resolution > 64:
             raise ValueError("product='field' requires resolution <= 64")
+        if self.format == "mp4" and self.transparent:
+            raise ValueError("format='mp4' does not support transparent backgrounds")
         return self
 
 
@@ -220,14 +270,20 @@ class SmokeDataset(DatasetDescriptor):
             {
                 "name": "slice",
                 "python_return_type": "dict",
-                "formats": ["geojson", "png"],
-                "description": "Planar point sample or rendered PNG cut plane with velocity and speed properties.",
+                "formats": ["geojson", "png", "mp4"],
+                "description": (
+                    "Planar point sample, rendered PNG cut plane, or MP4 "
+                    "cut-plane animation with velocity and speed properties."
+                ),
             },
             {
                 "name": "streamlines",
                 "python_return_type": "dict",
-                "formats": ["geojson", "png"],
-                "description": "LineString or rendered PNG streamlines from deterministic seed points.",
+                "formats": ["geojson", "png", "mp4"],
+                "description": (
+                    "LineString, rendered PNG streamlines, or MP4 streamline "
+                    "animation from deterministic seed points."
+                ),
             },
         ]
         metadata["field_names"] = ["velocity", "speed"]
@@ -251,7 +307,7 @@ class SmokeDataset(DatasetDescriptor):
         bounds = _physical_bounds(args)
 
         if args.product == "field":
-            mesh = _build_volume_mesh(bounds, args.resolution)
+            mesh = _build_volume_mesh(bounds, args.resolution, args.time, args.period)
             if args.format is None:
                 return mesh
             if args.format == "pb":
@@ -260,31 +316,46 @@ class SmokeDataset(DatasetDescriptor):
                 return self.export_to_bytes(mesh, "vtu")
             if args.format == "geojson":
                 return _json_bytes(_field_geojson(mesh, args))
-            if args.format == "png":
+            if args.format in ("png", "mp4"):
                 raise ValueError(
-                    "product='field' does not support format='png'; "
+                    f"product='field' does not support format={args.format!r}; "
                     "choose product='slice' or product='streamlines'"
                 )
 
         if args.product == "slice":
-            if args.format not in (None, "geojson", "png"):
+            if args.format not in (None, "geojson", "png", "mp4"):
                 raise ValueError(
-                    "product='slice' only supports format='geojson' or format='png'"
+                    "product='slice' only supports format='geojson', "
+                    "format='png', or format='mp4'"
                 )
             if args.format == "png":
-                return render_product_png(_slice_product(bounds, args), _render_options(args))
+                return render_product_png(
+                    _slice_product(bounds, args),
+                    _render_options(args),
+                )
+            if args.format == "mp4":
+                return render_product_mp4(
+                    _product_factory(bounds, args),
+                    _video_options(args),
+                )
             geojson = _slice_geojson(bounds, args)
             return geojson if args.format is None else _json_bytes(geojson)
 
         if args.product == "streamlines":
-            if args.format not in (None, "geojson", "png"):
+            if args.format not in (None, "geojson", "png", "mp4"):
                 raise ValueError(
-                    "product='streamlines' only supports format='geojson' or format='png'"
+                    "product='streamlines' only supports format='geojson', "
+                    "format='png', or format='mp4'"
                 )
             if args.format == "png":
                 return render_product_png(
                     _streamlines_product(bounds, args),
                     _render_options(args),
+                )
+            if args.format == "mp4":
+                return render_product_mp4(
+                    _product_factory(bounds, args),
+                    _video_options(args),
                 )
             geojson = _streamlines_geojson(bounds, args)
             return geojson if args.format is None else _json_bytes(geojson)
@@ -305,15 +376,18 @@ class SmokeDataset(DatasetDescriptor):
         return plot_product(product, _render_options(args), ax=ax, show=show)
 
     def export_manifest_metadata(self, args: SmokeArgs, path) -> dict[str, Any]:
-        if args.format != "png":
+        if args.format not in ("png", "mp4"):
             return {}
 
         bounds = _physical_bounds(args)
         product = _visual_product(bounds, args)
-        visualization = _render_options(args).manifest_dict()
+        options = _video_options(args) if args.format == "mp4" else _render_options(args)
+        visualization = options.manifest_dict()
         visualization.update(product.manifest_dict())
         visualization["origin"] = "lower"
         visualization["file"] = path.name
+        if args.format == "mp4":
+            visualization["time_period"] = args.period
         return {
             "fields": product.fields,
             "visualization": visualization,
@@ -330,11 +404,16 @@ def _physical_bounds(args: SmokeArgs) -> Bounds:
     return bounds
 
 
-def _build_volume_mesh(bounds: Bounds, resolution: int) -> VolumeMesh:
+def _build_volume_mesh(
+    bounds: Bounds,
+    resolution: int,
+    time: float,
+    period: float,
+) -> VolumeMesh:
     normalized = _structured_points(_normalized_bounds(), resolution)
     vertices = _normalized_to_physical(normalized, bounds)
     cells = _structured_tetrahedra(resolution)
-    velocity = _velocity(normalized)
+    velocity = _velocity(normalized, time, period)
     speed = np.linalg.norm(velocity, axis=1).reshape((-1, 1))
 
     mesh = VolumeMesh(vertices=vertices, cells=cells)
@@ -410,13 +489,30 @@ def _structured_tetrahedra(resolution: int) -> np.ndarray:
     return np.asarray(cells, dtype=np.int64)
 
 
-def _velocity(points: np.ndarray) -> np.ndarray:
-    x = points[:, 0]
-    y = points[:, 1]
+def _velocity(
+    points: np.ndarray,
+    time: float = 0.0,
+    period: float = 1.0,
+) -> np.ndarray:
+    phase = 2.0 * math.pi * (time / period)
+    rotation = 0.18 * math.sin(phase)
+    c = math.cos(rotation)
+    s = math.sin(rotation)
+    x0 = points[:, 0]
+    y0 = points[:, 1]
+    x = c * x0 - s * y0 + 0.55 * math.sin(phase)
+    y = s * x0 + c * y0 + 0.45 * (math.cos(phase) - 1.0)
     u = -np.sin(y) + 0.1 * (x**2 - 2.0 * x * y)
     v = np.sin(x) + 0.1 * (y**2 - 2.0 * x * y)
-    w = x - y
-    return np.column_stack((u, v, w))
+    w = x - y + 0.25 * math.sin(phase) * np.cos(0.5 * (x0 + y0))
+    pulse = 0.12 * math.sin(phase)
+    return np.column_stack(
+        (
+            u + pulse * np.cos(y0),
+            v + pulse * np.sin(x0),
+            w,
+        )
+    )
 
 
 def _normalized_to_physical(points: np.ndarray, bounds: Bounds) -> np.ndarray:
@@ -450,15 +546,52 @@ def _render_options(args: SmokeArgs) -> RasterRenderOptions:
     )
 
 
+def _video_options(args: SmokeArgs) -> VideoRenderOptions:
+    return VideoRenderOptions(
+        width=args.width,
+        height=args.height,
+        dpi=args.dpi,
+        profile=args.profile,
+        theme=args.theme,
+        cmap=args.cmap,
+        background=args.background,
+        transparent=args.transparent,
+        legend=args.legend,
+        title=args.title,
+        preserve_aspect=args.preserve_aspect,
+        vmin=args.vmin,
+        vmax=args.vmax,
+        line_width=args.line_width,
+        line_color=args.line_color,
+        line_alpha=args.line_alpha,
+        glow=args.glow,
+        streamline_color_by=args.streamline_color_by,
+        interpolation=args.interpolation,
+        fps=args.fps,
+        duration=args.duration,
+        start_time=args.time,
+        codec=args.codec,
+        bitrate=args.bitrate,
+        loop=args.loop,
+    )
+
+
 def _visual_product(bounds: Bounds, args: SmokeArgs) -> SliceProduct | StreamlineProduct:
     if args.product == "slice":
         return _slice_product(bounds, args)
     if args.product == "streamlines":
         return _streamlines_product(bounds, args)
     raise ValueError(
-        "PNG visualization artifacts are only available for "
+        "Visualization artifacts are only available for "
         "product='slice' and product='streamlines'"
     )
+
+
+def _product_factory(bounds: Bounds, args: SmokeArgs):
+    def product_at_time(time: float) -> SliceProduct | StreamlineProduct:
+        return _visual_product(bounds, args.model_copy(update={"time": time}))
+
+    return product_at_time
 
 
 def _plot_title(product: str) -> str:
@@ -468,7 +601,7 @@ def _plot_title(product: str) -> str:
 def _slice_product(bounds: Bounds, args: SmokeArgs) -> SliceProduct:
     normalized = _slice_points(args.resolution, args.slice_axis, args.slice_position)
     physical = _normalized_to_physical(normalized, bounds)
-    velocity = _velocity(normalized)
+    velocity = _velocity(normalized, args.time, args.period)
     speed = np.linalg.norm(velocity, axis=1)
     return SliceProduct(
         name="smoke_slice",
@@ -482,7 +615,11 @@ def _slice_product(bounds: Bounds, args: SmokeArgs) -> SliceProduct:
         field_unit="m/s",
         vector_values=velocity,
         axes=_plane_axes(args.slice_axis),
-        metadata={"dataset": "smoke"},
+        metadata={
+            "dataset": "smoke",
+            "time": args.time,
+            "time_period": args.period,
+        },
     )
 
 
@@ -499,11 +636,13 @@ def _streamlines_product(bounds: Bounds, args: SmokeArgs) -> StreamlineProduct:
             seed,
             args.streamline_step_size,
             args.streamline_steps,
+            args.time,
+            args.period,
         )
         if len(line) < 2:
             continue
         lines.append(_normalized_to_physical(line, bounds))
-        velocity = _velocity(line)
+        velocity = _velocity(line, args.time, args.period)
         line_values.append(np.linalg.norm(velocity, axis=1))
 
     return StreamlineProduct(
@@ -522,6 +661,8 @@ def _streamlines_product(bounds: Bounds, args: SmokeArgs) -> StreamlineProduct:
             "requested_line_count": args.streamline_count,
             "streamline_steps": args.streamline_steps,
             "streamline_step_size": args.streamline_step_size,
+            "time": args.time,
+            "time_period": args.period,
         },
     )
 
@@ -544,6 +685,8 @@ def _field_geojson(mesh: VolumeMesh, args: SmokeArgs) -> dict[str, Any]:
         sample_count=len(features),
         crs=args.crs,
         include_z=args.include_z,
+        time=args.time,
+        time_period=args.period,
     )
 
 
@@ -567,6 +710,8 @@ def _slice_geojson(bounds: Bounds, args: SmokeArgs) -> dict[str, Any]:
         include_z=args.include_z,
         slice_axis=args.slice_axis,
         slice_position=args.slice_position,
+        time=args.time,
+        time_period=args.period,
     )
 
 
@@ -619,6 +764,8 @@ def _streamlines_geojson(bounds: Bounds, args: SmokeArgs) -> dict[str, Any]:
         include_z=args.include_z,
         slice_axis=args.slice_axis,
         slice_position=args.slice_position,
+        time=args.time,
+        time_period=args.period,
     )
 
 
@@ -637,17 +784,29 @@ def _streamline_seeds(count: int, axis: SliceAxis, position: float) -> np.ndarra
     return seeds[:count]
 
 
-def _trace_streamline(seed: np.ndarray, step_size: float, steps: int) -> np.ndarray:
-    backward = _integrate_streamline(seed, -step_size, steps)
-    forward = _integrate_streamline(seed, step_size, steps)
+def _trace_streamline(
+    seed: np.ndarray,
+    step_size: float,
+    steps: int,
+    time: float,
+    period: float,
+) -> np.ndarray:
+    backward = _integrate_streamline(seed, -step_size, steps, time, period)
+    forward = _integrate_streamline(seed, step_size, steps, time, period)
     return np.vstack((backward[:0:-1], forward))
 
 
-def _integrate_streamline(seed: np.ndarray, step_size: float, steps: int) -> np.ndarray:
+def _integrate_streamline(
+    seed: np.ndarray,
+    step_size: float,
+    steps: int,
+    time: float,
+    period: float,
+) -> np.ndarray:
     points = [np.asarray(seed, dtype=float)]
     point = points[0]
     for _ in range(steps):
-        next_point = _rk4_step(point, step_size)
+        next_point = _rk4_step(point, step_size, time, period)
         if not _inside_normalized_domain(next_point):
             break
         points.append(next_point)
@@ -655,18 +814,27 @@ def _integrate_streamline(seed: np.ndarray, step_size: float, steps: int) -> np.
     return np.asarray(points)
 
 
-def _rk4_step(point: np.ndarray, step_size: float) -> np.ndarray:
+def _rk4_step(
+    point: np.ndarray,
+    step_size: float,
+    time: float,
+    period: float,
+) -> np.ndarray:
     # Use the normalized direction field; it preserves streamlines and keeps
     # integration stable for a deterministic smoke-test artifact.
-    k1 = _streamline_direction(point)
-    k2 = _streamline_direction(point + 0.5 * step_size * k1)
-    k3 = _streamline_direction(point + 0.5 * step_size * k2)
-    k4 = _streamline_direction(point + step_size * k3)
+    k1 = _streamline_direction(point, time, period)
+    k2 = _streamline_direction(point + 0.5 * step_size * k1, time, period)
+    k3 = _streamline_direction(point + 0.5 * step_size * k2, time, period)
+    k4 = _streamline_direction(point + step_size * k3, time, period)
     return point + (step_size / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
 
 
-def _streamline_direction(point: np.ndarray) -> np.ndarray:
-    velocity = _velocity(np.asarray(point, dtype=float).reshape((1, 3)))[0]
+def _streamline_direction(point: np.ndarray, time: float, period: float) -> np.ndarray:
+    velocity = _velocity(
+        np.asarray(point, dtype=float).reshape((1, 3)),
+        time,
+        period,
+    )[0]
     speed = np.linalg.norm(velocity)
     if speed < 1.0e-12:
         return np.zeros(3, dtype=float)
