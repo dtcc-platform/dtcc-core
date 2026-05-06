@@ -5,7 +5,7 @@ from typing import Any
 
 import numpy as np
 
-from ...plotting import (
+from ...plotting.style import (
     add_plot_context,
     apply_dtcc_style,
     get_axes,

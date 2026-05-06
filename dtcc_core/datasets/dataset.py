@@ -42,6 +42,9 @@ _FORMAT_KIND_MAP = {
 
 
 _FORMAT_MEDIA_TYPE_MAP = {
+    "png": "image/png",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
     "tif": "image/tiff",
     "tiff": "image/tiff",
     "geojson": "application/geo+json",
@@ -353,11 +356,19 @@ class DatasetDescriptor(ABC):
 
         manifest["file"] = path.name
         manifest["format"] = getattr(args, "format", None)
+        if manifest["format"] is not None:
+            manifest["media_type"] = self.format_media_type(manifest["format"])
+            manifest["data_kind"] = self.format_kind(manifest["format"])
         if product is not None:
             manifest["product"] = product
         manifest["bounds"] = list(parameters["bounds"])
         manifest["parameters"] = parameters
+        manifest.update(self.export_manifest_metadata(args, path))
         return manifest
+
+    def export_manifest_metadata(self, args, path: Path) -> dict[str, Any]:
+        """Return dataset-specific metadata for an exported artifact."""
+        return {}
 
     def export(
         self,

@@ -6,7 +6,7 @@ matplotlib.use("Agg", force=True)
 plt = pytest.importorskip("matplotlib.pyplot")
 to_rgba = pytest.importorskip("matplotlib.colors").to_rgba
 
-from dtcc_core.plotting import DTCC_COLORS, DTCC_THEMES
+from dtcc_core.plotting.style import DTCC_COLORS, DTCC_THEMES
 from dtcc_core.model import GeometryType, LineString, MultiLineString, RoadNetwork
 
 

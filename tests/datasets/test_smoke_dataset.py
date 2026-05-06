@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+from io import BytesIO
 
 import numpy as np
 import pytest
+from PIL import Image
 
 import dtcc_core.datasets as datasets
 from dtcc_core.datasets import get_dataset
@@ -32,12 +34,12 @@ def test_smoke_describe_includes_products_and_formats():
     assert metadata["data_category"] == "simulation"
     assert metadata["result_kind"] == "vector_field"
     assert metadata["python_return_type"] == "dtcc_core.model.VolumeMesh"
-    assert set(metadata["supported_formats"]) == {"pb", "vtu", "geojson"}
+    assert set(metadata["supported_formats"]) == {"pb", "vtu", "geojson", "png"}
 
     products = {product["name"]: product for product in metadata["products"]}
     assert products["field"]["formats"] == ["pb", "vtu", "geojson"]
-    assert products["slice"]["formats"] == ["geojson"]
-    assert products["streamlines"]["formats"] == ["geojson"]
+    assert products["slice"]["formats"] == ["geojson", "png"]
+    assert products["streamlines"]["formats"] == ["geojson", "png"]
 
 
 def test_smoke_default_returns_volume_mesh_with_fields():
@@ -161,6 +163,73 @@ def test_smoke_streamlines_geojson_format_returns_lines():
         "LineString"
     }
     assert all(len(feature["geometry"]["coordinates"]) >= 2 for feature in data["features"])
+
+
+def test_smoke_slice_png_format_returns_exact_size_image():
+    payload = datasets.smoke(
+        bounds=(0.0, 0.0, 10.0, 20.0),
+        resolution=128,
+        product="slice",
+        format="png",
+        width=320,
+        height=240,
+    )
+
+    assert isinstance(payload, bytes)
+    assert payload.startswith(b"\x89PNG")
+    with Image.open(BytesIO(payload)) as image:
+        assert image.size == (320, 240)
+        assert image.format == "PNG"
+        assert np.asarray(image.convert("RGB")).std() > 0
+
+
+def test_smoke_field_product_keeps_resolution_guardrail():
+    with pytest.raises(ValueError, match="resolution <= 64"):
+        datasets.smoke(
+            bounds=(0.0, 0.0, 10.0, 20.0),
+            product="field",
+            resolution=128,
+        )
+
+
+def test_smoke_streamlines_png_export_writes_visualization_manifest(tmp_path):
+    path = tmp_path / "smoke_streamlines.png"
+
+    result = datasets.smoke.export(
+        path,
+        bounds=(0.0, 0.0, 10.0, 20.0),
+        product="streamlines",
+        streamline_count=9,
+        streamline_steps=40,
+        width=320,
+        height=240,
+        cmap="inferno",
+    )
+
+    assert result.path == path
+    assert result.manifest_path == tmp_path / "smoke_streamlines.manifest.json"
+    with Image.open(path) as image:
+        assert image.size == (320, 240)
+        assert image.format == "PNG"
+        assert np.asarray(image.convert("RGB")).std() > 0
+
+    manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["format"] == "png"
+    assert manifest["media_type"] == "image/png"
+    assert manifest["data_kind"] == "raster"
+    assert manifest["product"] == "streamlines"
+    assert manifest["fields"] == ["velocity", "speed"]
+
+    visualization = manifest["visualization"]
+    assert visualization["profile"] == "table"
+    assert visualization["width"] == 320
+    assert visualization["height"] == 240
+    assert visualization["colormap"] == "inferno"
+    assert visualization["product_kind"] == "streamlines"
+    assert visualization["visual_axes"] == ["x", "y"]
+    assert visualization["extent"] == [0.0, 0.0, 10.0, 20.0]
+    assert visualization["origin"] == "lower"
+    assert visualization["requested_line_count"] == 9
 
 
 def test_smoke_export_writes_payload_and_manifest(tmp_path):

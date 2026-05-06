@@ -6,7 +6,7 @@ from collections.abc import Sequence
 
 from shapely.geometry.base import BaseGeometry
 
-from dtcc_core.plotting import (
+from dtcc_core.plotting.style import (
     add_metadata_box,
     apply_dtcc_style,
     geometry_bounds,

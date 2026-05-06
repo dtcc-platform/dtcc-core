@@ -7,14 +7,21 @@ from typing import Any, Literal, Optional
 
 import numpy as np
 from pydantic import Field as PydanticField
+from pydantic import model_validator
 
 from dtcc_core.model import Bounds, Field, VolumeMesh
+from dtcc_core.plotting.options import RasterRenderOptions
+from dtcc_core.plotting.products import SliceProduct, StreamlineProduct
+from dtcc_core.plotting.renderers import plot_product, render_product_png
 
 from .dataset import DatasetBaseArgs, DatasetDescriptor
 
 
 SmokeProduct = Literal["field", "slice", "streamlines"]
-SmokeFormat = Literal["pb", "vtu", "geojson"]
+SmokeFormat = Literal["pb", "vtu", "geojson", "png"]
+SmokeProfile = Literal["python", "table"]
+SmokeTheme = Literal["dark", "light"]
+StreamlineColorBy = Literal["speed", "constant"]
 SliceAxis = Literal["x", "y", "z"]
 
 _NORMALIZED_MIN = -4.0
@@ -28,8 +35,11 @@ class SmokeArgs(DatasetBaseArgs):
     resolution: int = PydanticField(
         17,
         ge=3,
-        le=64,
-        description="Number of sample points per axis for field and slice products.",
+        le=1024,
+        description=(
+            "Number of sample points per axis. Full 3D field products are "
+            "capped at 64; 2D slice products can use higher resolutions."
+        ),
     )
     zmin: float = PydanticField(
         0.0,
@@ -92,6 +102,98 @@ class SmokeArgs(DatasetBaseArgs):
         le=1.0,
         description="RK4 step size in normalized coordinates for streamlines.",
     )
+    width: int = PydanticField(
+        1920,
+        ge=64,
+        le=8192,
+        description="PNG artifact width in pixels.",
+    )
+    height: int = PydanticField(
+        1080,
+        ge=64,
+        le=8192,
+        description="PNG artifact height in pixels.",
+    )
+    dpi: int = PydanticField(
+        100,
+        ge=50,
+        le=600,
+        description="PNG rendering DPI used to size the Matplotlib canvas.",
+    )
+    profile: SmokeProfile = PydanticField(
+        "table",
+        description="Visualization profile: 'table' for full-bleed artifacts or 'python' for annotated plots.",
+    )
+    theme: SmokeTheme = PydanticField(
+        "dark",
+        description="DTCC Matplotlib theme used for PNG artifacts.",
+    )
+    cmap: str = PydanticField(
+        "dtcc",
+        description="Matplotlib colormap name, or 'dtcc' for the DTCC numeric palette.",
+    )
+    background: Optional[str] = PydanticField(
+        None,
+        description="Optional PNG background color. Defaults to the selected theme.",
+    )
+    transparent: bool = PydanticField(
+        False,
+        description="Whether PNG artifacts should use transparent background pixels.",
+    )
+    legend: bool = PydanticField(
+        False,
+        description="Whether PNG artifacts include a colorbar legend.",
+    )
+    title: Optional[str] = PydanticField(
+        None,
+        description="Optional title used by the non-table visualization profile.",
+    )
+    preserve_aspect: bool = PydanticField(
+        False,
+        description="Whether PNG rendering preserves coordinate aspect ratio instead of filling the canvas.",
+    )
+    vmin: Optional[float] = PydanticField(
+        None,
+        description="Optional lower scalar color limit for PNG artifacts.",
+    )
+    vmax: Optional[float] = PydanticField(
+        None,
+        description="Optional upper scalar color limit for PNG artifacts.",
+    )
+    line_width: float = PydanticField(
+        1.6,
+        gt=0.0,
+        le=20.0,
+        description="Streamline width in PNG artifacts.",
+    )
+    line_color: str = PydanticField(
+        "#FADA36",
+        description="Constant streamline color used when streamline_color_by='constant'.",
+    )
+    line_alpha: float = PydanticField(
+        0.92,
+        ge=0.0,
+        le=1.0,
+        description="Streamline opacity in PNG artifacts.",
+    )
+    glow: bool = PydanticField(
+        True,
+        description="Whether streamlines get a soft halo in PNG artifacts.",
+    )
+    streamline_color_by: StreamlineColorBy = PydanticField(
+        "speed",
+        description="How streamlines are colored in PNG artifacts.",
+    )
+    interpolation: str = PydanticField(
+        "bilinear",
+        description="Matplotlib interpolation mode for slice PNG artifacts.",
+    )
+
+    @model_validator(mode="after")
+    def validate_product_resolution(self):
+        if self.product == "field" and self.resolution > 64:
+            raise ValueError("product='field' requires resolution <= 64")
+        return self
 
 
 class SmokeDataset(DatasetDescriptor):
@@ -118,14 +220,14 @@ class SmokeDataset(DatasetDescriptor):
             {
                 "name": "slice",
                 "python_return_type": "dict",
-                "formats": ["geojson"],
-                "description": "Planar GeoJSON point sample with velocity and speed properties.",
+                "formats": ["geojson", "png"],
+                "description": "Planar point sample or rendered PNG cut plane with velocity and speed properties.",
             },
             {
                 "name": "streamlines",
                 "python_return_type": "dict",
-                "formats": ["geojson"],
-                "description": "GeoJSON LineString streamlines from deterministic seed points.",
+                "formats": ["geojson", "png"],
+                "description": "LineString or rendered PNG streamlines from deterministic seed points.",
             },
         ]
         metadata["field_names"] = ["velocity", "speed"]
@@ -158,20 +260,64 @@ class SmokeDataset(DatasetDescriptor):
                 return self.export_to_bytes(mesh, "vtu")
             if args.format == "geojson":
                 return _json_bytes(_field_geojson(mesh, args))
+            if args.format == "png":
+                raise ValueError(
+                    "product='field' does not support format='png'; "
+                    "choose product='slice' or product='streamlines'"
+                )
 
         if args.product == "slice":
-            if args.format not in (None, "geojson"):
-                raise ValueError("product='slice' only supports format='geojson'")
+            if args.format not in (None, "geojson", "png"):
+                raise ValueError(
+                    "product='slice' only supports format='geojson' or format='png'"
+                )
+            if args.format == "png":
+                return render_product_png(_slice_product(bounds, args), _render_options(args))
             geojson = _slice_geojson(bounds, args)
             return geojson if args.format is None else _json_bytes(geojson)
 
         if args.product == "streamlines":
-            if args.format not in (None, "geojson"):
-                raise ValueError("product='streamlines' only supports format='geojson'")
+            if args.format not in (None, "geojson", "png"):
+                raise ValueError(
+                    "product='streamlines' only supports format='geojson' or format='png'"
+                )
+            if args.format == "png":
+                return render_product_png(
+                    _streamlines_product(bounds, args),
+                    _render_options(args),
+                )
             geojson = _streamlines_geojson(bounds, args)
             return geojson if args.format is None else _json_bytes(geojson)
 
         raise ValueError(f"Unsupported smoke product: {args.product}")
+
+    def plot(self, ax=None, show: bool = True, **kwargs):
+        """Plot a smoke visualization product with Matplotlib."""
+        request_kwargs = dict(kwargs)
+        request_kwargs.pop("format", None)
+        request_kwargs.setdefault("product", "slice")
+        request_kwargs.setdefault("profile", "python")
+        request_kwargs.setdefault("legend", True)
+        request_kwargs.setdefault("title", _plot_title(request_kwargs["product"]))
+        args = self.validate(request_kwargs)
+        bounds = _physical_bounds(args)
+        product = _visual_product(bounds, args)
+        return plot_product(product, _render_options(args), ax=ax, show=show)
+
+    def export_manifest_metadata(self, args: SmokeArgs, path) -> dict[str, Any]:
+        if args.format != "png":
+            return {}
+
+        bounds = _physical_bounds(args)
+        product = _visual_product(bounds, args)
+        visualization = _render_options(args).manifest_dict()
+        visualization.update(product.manifest_dict())
+        visualization["origin"] = "lower"
+        visualization["file"] = path.name
+        return {
+            "fields": product.fields,
+            "visualization": visualization,
+        }
 
 
 def _physical_bounds(args: SmokeArgs) -> Bounds:
@@ -280,6 +426,106 @@ def _normalized_to_physical(points: np.ndarray, bounds: Bounds) -> np.ndarray:
     return origin + normalized_unit * scale
 
 
+def _render_options(args: SmokeArgs) -> RasterRenderOptions:
+    return RasterRenderOptions(
+        width=args.width,
+        height=args.height,
+        dpi=args.dpi,
+        profile=args.profile,
+        theme=args.theme,
+        cmap=args.cmap,
+        background=args.background,
+        transparent=args.transparent,
+        legend=args.legend,
+        title=args.title,
+        preserve_aspect=args.preserve_aspect,
+        vmin=args.vmin,
+        vmax=args.vmax,
+        line_width=args.line_width,
+        line_color=args.line_color,
+        line_alpha=args.line_alpha,
+        glow=args.glow,
+        streamline_color_by=args.streamline_color_by,
+        interpolation=args.interpolation,
+    )
+
+
+def _visual_product(bounds: Bounds, args: SmokeArgs) -> SliceProduct | StreamlineProduct:
+    if args.product == "slice":
+        return _slice_product(bounds, args)
+    if args.product == "streamlines":
+        return _streamlines_product(bounds, args)
+    raise ValueError(
+        "PNG visualization artifacts are only available for "
+        "product='slice' and product='streamlines'"
+    )
+
+
+def _plot_title(product: str) -> str:
+    return f"DTCC Smoke {product.title()}"
+
+
+def _slice_product(bounds: Bounds, args: SmokeArgs) -> SliceProduct:
+    normalized = _slice_points(args.resolution, args.slice_axis, args.slice_position)
+    physical = _normalized_to_physical(normalized, bounds)
+    velocity = _velocity(normalized)
+    speed = np.linalg.norm(velocity, axis=1)
+    return SliceProduct(
+        name="smoke_slice",
+        bounds=bounds,
+        axis=args.slice_axis,
+        position=args.slice_position,
+        coordinates=physical,
+        values=speed,
+        resolution=args.resolution,
+        field_name="speed",
+        field_unit="m/s",
+        vector_values=velocity,
+        axes=_plane_axes(args.slice_axis),
+        metadata={"dataset": "smoke"},
+    )
+
+
+def _streamlines_product(bounds: Bounds, args: SmokeArgs) -> StreamlineProduct:
+    seeds = _streamline_seeds(
+        args.streamline_count,
+        args.slice_axis,
+        args.slice_position,
+    )
+    lines = []
+    line_values = []
+    for seed in seeds:
+        line = _trace_streamline(
+            seed,
+            args.streamline_step_size,
+            args.streamline_steps,
+        )
+        if len(line) < 2:
+            continue
+        lines.append(_normalized_to_physical(line, bounds))
+        velocity = _velocity(line)
+        line_values.append(np.linalg.norm(velocity, axis=1))
+
+    return StreamlineProduct(
+        name="smoke_streamlines",
+        bounds=bounds,
+        lines=tuple(lines),
+        line_values=tuple(line_values),
+        value_name="speed",
+        value_unit="m/s",
+        vector_field_name="velocity",
+        seed_axis=args.slice_axis,
+        seed_position=args.slice_position,
+        axes=_plane_axes(args.slice_axis),
+        metadata={
+            "dataset": "smoke",
+            "requested_line_count": args.streamline_count,
+            "streamline_steps": args.streamline_steps,
+            "streamline_step_size": args.streamline_step_size,
+        },
+    )
+
+
 def _field_geojson(mesh: VolumeMesh, args: SmokeArgs) -> dict[str, Any]:
     velocity = next(field.values for field in mesh.fields if field.name == "velocity")
     speed = next(field.values for field in mesh.fields if field.name == "speed").ravel()
@@ -302,10 +548,10 @@ def _field_geojson(mesh: VolumeMesh, args: SmokeArgs) -> dict[str, Any]:
 
 
 def _slice_geojson(bounds: Bounds, args: SmokeArgs) -> dict[str, Any]:
-    normalized = _slice_points(args.resolution, args.slice_axis, args.slice_position)
-    physical = _normalized_to_physical(normalized, bounds)
-    velocity = _velocity(normalized)
-    speed = np.linalg.norm(velocity, axis=1)
+    product = _slice_product(bounds, args)
+    physical = product.coordinates
+    velocity = np.asarray(product.vector_values)
+    speed = np.asarray(product.values)
 
     features = [
         _point_feature(point, vector, magnitude, index, args.include_z)
@@ -338,22 +584,17 @@ def _slice_points(resolution: int, axis: SliceAxis, position: float) -> np.ndarr
     return points
 
 
+def _plane_axes(axis: SliceAxis) -> tuple[int, int]:
+    axes = {"x": 0, "y": 1, "z": 2}
+    fixed_axis = axes[axis]
+    free_axes = [index for index in range(3) if index != fixed_axis]
+    return (free_axes[0], free_axes[1])
+
+
 def _streamlines_geojson(bounds: Bounds, args: SmokeArgs) -> dict[str, Any]:
-    seeds = _streamline_seeds(
-        args.streamline_count,
-        args.slice_axis,
-        args.slice_position,
-    )
+    product = _streamlines_product(bounds, args)
     features = []
-    for seed_index, seed in enumerate(seeds):
-        line = _trace_streamline(
-            seed,
-            args.streamline_step_size,
-            args.streamline_steps,
-        )
-        if len(line) < 2:
-            continue
-        physical_line = _normalized_to_physical(line, bounds)
+    for seed_index, physical_line in enumerate(product.lines):
         coordinates = _coordinates(physical_line, args.include_z)
         features.append(
             {

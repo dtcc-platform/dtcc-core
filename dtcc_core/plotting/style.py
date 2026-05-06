@@ -115,10 +115,11 @@ def apply_dtcc_style(
     ylabel: str | None = None,
     title: str | None = None,
     facecolor: str | None = None,
+    figure_facecolor: str | None = None,
 ):
     """Apply the DTCC visual style to an axes."""
     theme_values = get_theme(theme)
-    ax.figure.patch.set_facecolor(theme_values["figure"])
+    ax.figure.patch.set_facecolor(figure_facecolor or theme_values["figure"])
     ax.set_facecolor(facecolor or theme_values["axes"])
 
     if title is not None:
@@ -152,6 +153,16 @@ def apply_dtcc_style(
     if axis == "off":
         ax.set_axis_off()
     return ax
+
+
+def style_colorbar(colorbar, *, theme: str | Mapping[str, str] | None = "dark"):
+    """Apply the DTCC visual style to a Matplotlib colorbar."""
+    theme_values = get_theme(theme)
+    colorbar.ax.set_facecolor(theme_values["figure"])
+    colorbar.ax.yaxis.label.set_color(theme_values["text"])
+    colorbar.ax.tick_params(colors=theme_values["muted"], labelsize=9)
+    colorbar.outline.set_edgecolor(theme_values["grid"])
+    return colorbar
 
 
 def show_plot(show: bool):
@@ -399,11 +410,7 @@ def plot_line_segments(
         ax.add_collection(collection)
         if legend:
             colorbar = ax.figure.colorbar(collection, ax=ax, label=column_label)
-            theme_values = get_theme(theme)
-            colorbar.ax.set_facecolor(theme_values["figure"])
-            colorbar.ax.yaxis.label.set_color(theme_values["text"])
-            colorbar.ax.tick_params(colors=theme_values["muted"], labelsize=9)
-            colorbar.outline.set_edgecolor(theme_values["grid"])
+            style_colorbar(colorbar, theme=theme)
         return collection
 
     labels = categorical_labels(values)
@@ -704,5 +711,6 @@ __all__ = [
     "resolve_colormap",
     "set_axes_extent",
     "show_plot",
+    "style_colorbar",
     "style_plot_extras",
 ]

@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 from shapely.geometry import Polygon
 
-from dtcc_core.plotting import DTCC_THEMES
+from dtcc_core.plotting.style import DTCC_THEMES
 from dtcc_core.io.data.deso import deso_from_geodataframe
 from dtcc_core.model import Bounds, DeSO, Field, GeometryType, Object
 

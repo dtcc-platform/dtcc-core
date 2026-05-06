@@ -4,7 +4,7 @@ from collections import Counter
 from typing import Any, Union, List, Tuple
 from enum import Enum, auto
 from ...common import warning
-from ...plotting import (
+from ...plotting.style import (
     DTCC_COLORS,
     add_categorical_legend,
     add_plot_context,
