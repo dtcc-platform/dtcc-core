@@ -117,6 +117,7 @@ Current Built-In Datasets
 | `city_volume_mesh` | derived | `VolumeMesh` | `xdmf`, `vtu` | `xdmf` is a multi-file format. |
 | `trees` | derived | `list[Tree]` | `tif`, `gpkg`, `geojson` | Raster tree heights or vector tree objects. |
 | `roads` | raw | `RoadNetwork` | `pb` | OSM/Overpass road network. |
+| `space_syntax` | derived | `RoadNetwork` | `pb` | Segment-based road-network space syntax measures. |
 | `smoke` | simulation | `VolumeMesh` | `pb`, `vtu`, `geojson` | Synthetic velocity-field smoke test with `field`, `slice`, and `streamlines` products. |
 | `air_quality` | raw | `SensorCollection` | `pb` | SMHI air-quality snapshot. |
 | `weather` | raw | `SensorCollection` | `pb` | SMHI meteorological latest-hour snapshot. |
