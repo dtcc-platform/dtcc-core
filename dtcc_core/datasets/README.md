@@ -118,6 +118,12 @@ Current Built-In Datasets
 | `trees` | derived | `list[Tree]` | `tif`, `gpkg`, `geojson` | Raster tree heights or vector tree objects. |
 | `roads` | raw | `RoadNetwork` | `pb` | OSM/Overpass road network. |
 | `space_syntax` | derived | `RoadNetwork` | `pb` | Segment-based road-network space syntax measures. |
+| `transit_vehicles` | raw | `VehicleCollection` | `pb` | Live public-transport vehicle positions. |
+| `buses` | raw | `VehicleCollection` | `pb` | Shortcut for live bus positions. |
+| `trams` | raw | `VehicleCollection` | `pb` | Shortcut for live tram positions. |
+| `trains` | raw | `VehicleCollection` | `pb` | Shortcut for live train positions. |
+| `metros` | raw | `VehicleCollection` | `pb` | Shortcut for live metro positions. |
+| `ferries` | raw | `VehicleCollection` | `pb` | Shortcut for live ferry positions. |
 | `smoke` | simulation | `VolumeMesh` | `pb`, `vtu`, `geojson` | Synthetic velocity-field smoke test with `field`, `slice`, and `streamlines` products. |
 | `air_quality` | raw | `SensorCollection` | `pb` | SMHI air-quality snapshot. |
 | `weather` | raw | `SensorCollection` | `pb` | SMHI meteorological latest-hour snapshot. |

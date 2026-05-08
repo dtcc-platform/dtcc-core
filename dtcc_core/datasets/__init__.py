@@ -20,6 +20,14 @@ from .ocean import OceanDataset
 from .footprints import FootprintsDataset
 from .roads import RoadsDataset
 from .space_syntax import SpaceSyntaxDataset
+from .transit_vehicles import (
+    TransitVehiclesDataset,
+    BusesDataset,
+    TramsDataset,
+    TrainsDataset,
+    MetrosDataset,
+    FerriesDataset,
+)
 from .deso import DeSODataset
 from .smoke import SmokeDataset
 
@@ -65,6 +73,12 @@ hydrology = get_dataset("hydrology")
 ocean = get_dataset("ocean")
 roads = get_dataset("roads")
 space_syntax = get_dataset("space_syntax")
+transit_vehicles = get_dataset("transit_vehicles")
+buses = get_dataset("buses")
+trams = get_dataset("trams")
+trains = get_dataset("trains")
+metros = get_dataset("metros")
+ferries = get_dataset("ferries")
 deso = get_dataset("deso")
 smoke = get_dataset("smoke")
 
