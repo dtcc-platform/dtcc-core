@@ -156,6 +156,8 @@ class DatasetExportResult:
 
     @staticmethod
     def _infer_format_from_export_path(path: Path) -> str:
+        # Direct DatasetExportResult construction has no descriptor context.
+        # Use only global extension metadata as a compatibility fallback.
         format_extensions = {
             format_name: format_name
             for format_name in {*_FORMAT_KIND_MAP, *_FORMAT_MEDIA_TYPE_MAP}

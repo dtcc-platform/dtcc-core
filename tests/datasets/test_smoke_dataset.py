@@ -479,6 +479,19 @@ def test_smoke_export_result_publish_delegates_to_uploader(tmp_path):
     ]
 
 
+def test_smoke_publish_methods_are_keyword_only(tmp_path):
+    result = datasets.smoke.export(
+        tmp_path / "slice.geojson",
+        bounds=(0.0, 0.0, 10.0, 20.0),
+        product="slice",
+    )
+
+    with pytest.raises(TypeError):
+        result.publish("atlas/smoke", uploader=object())
+    with pytest.raises(TypeError):
+        datasets.smoke.publish("atlas/smoke")
+
+
 def test_smoke_export_result_publish_requires_manifest(tmp_path):
     from dtcc_core.datasets.publish import DatasetPackageError
 
