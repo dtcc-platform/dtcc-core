@@ -1,6 +1,18 @@
 from __future__ import annotations
 
 from .dataset import DatasetDescriptor, DatasetBaseArgs, DatasetExportResult
+from .publish import (
+    DatasetPackageError,
+    DatasetPublication,
+    DatasetPublishConfigurationError,
+    DatasetPublishError,
+    DatasetUploadClient,
+    DatasetUploadConflictError,
+    DatasetUploadError,
+    DatasetUploadInProgressError,
+    DatasetUploadRateLimitError,
+    PublishedFile,
+)
 from dtcc_core.common import info as log_info, log_table
 
 # Import dataset classes to trigger auto-registration
