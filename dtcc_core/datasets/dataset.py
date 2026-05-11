@@ -440,6 +440,65 @@ class DatasetDescriptor(ABC):
         """Return dataset-specific metadata for an exported artifact."""
         return {}
 
+    @staticmethod
+    def _sanitize_publish_filename(value: str) -> str:
+        filename = str(value).strip().replace(" ", "_").replace("-", "_").lower()
+        sanitized = "".join(
+            char if char.isalnum() or char in {"_", "."} else "_"
+            for char in filename
+        )
+        while "__" in sanitized:
+            sanitized = sanitized.replace("__", "_")
+        return sanitized.strip("_")
+
+    def _default_publish_filename(
+        self, *, format: str | None, kwargs: dict[str, Any]
+    ) -> str:
+        if format is None:
+            raise ValueError("publish() requires format when filename is omitted")
+
+        extension = self.format_extension(format)
+        product = kwargs.get("product")
+        stem = self.name if product in {None, "", "field"} else f"{self.name}_{product}"
+        filename = f"{self._sanitize_publish_filename(stem)}.{extension}"
+        if (
+            filename.startswith(".")
+            or filename.startswith("/")
+            or filename.startswith("\\")
+            or ".." in filename
+        ):
+            raise ValueError(f"Unsafe generated publish filename: {filename!r}")
+        return filename
+
+    @staticmethod
+    def _validate_publish_filename(value: Union[str, Path]) -> Path:
+        filename = str(value)
+        path = Path(filename)
+        if (
+            not filename
+            or path.is_absolute()
+            or path.name != filename
+            or filename in {".", ".."}
+            or filename.startswith(".")
+            or "/" in filename
+            or "\\" in filename
+            or ".." in filename
+        ):
+            raise ValueError(f"Unsafe publish filename: {filename!r}")
+        return path
+
+    def _reject_multi_file_publish_format(self, format: str) -> None:
+        multi_file_formats = {
+            str(fmt).lower() for fmt in getattr(self, "multi_file_formats", ())
+        }
+        if str(format).lower() in multi_file_formats:
+            from dtcc_core.datasets.publish import DatasetPackageError
+
+            raise DatasetPackageError(
+                f"publish() does not support multi-file format {format!r}.",
+                failure_class="invalid_package",
+            )
+
     def export(
         self,
         path: Union[str, Path],
@@ -515,6 +574,69 @@ class DatasetDescriptor(ABC):
             files=(output_path,),
             format=output_format,
         )
+
+    def publish(
+        self,
+        *,
+        dataset_key: str,
+        format: Optional[str] = None,
+        filename: Optional[Union[str, Path]] = None,
+        output_dir: Optional[Union[str, Path]] = None,
+        keep_export: bool = False,
+        manifest_id: Optional[str] = None,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        upload_url: Optional[str] = None,
+        token: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+        uploader=None,
+        **kwargs,
+    ):
+        if filename is None:
+            output_filename = Path(
+                self._default_publish_filename(format=format, kwargs=kwargs)
+            )
+        else:
+            output_filename = self._validate_publish_filename(filename)
+
+        output_format = format or self._infer_format_from_path(output_filename)
+        self._reject_multi_file_publish_format(output_format)
+
+        if keep_export:
+            package_dir = Path(output_dir) if output_dir is not None else Path(".")
+            package_dir.mkdir(parents=True, exist_ok=True)
+            package = self.export(
+                package_dir / output_filename,
+                format=output_format,
+                manifest_id=manifest_id,
+                title=title,
+                description=description,
+                **kwargs,
+            )
+            return package.publish(
+                dataset_key=dataset_key,
+                uploader=uploader,
+                upload_url=upload_url,
+                token=token,
+                idempotency_key=idempotency_key,
+            )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            package = self.export(
+                Path(tmpdir) / output_filename,
+                format=output_format,
+                manifest_id=manifest_id,
+                title=title,
+                description=description,
+                **kwargs,
+            )
+            return package.publish(
+                dataset_key=dataset_key,
+                uploader=uploader,
+                upload_url=upload_url,
+                token=token,
+                idempotency_key=idempotency_key,
+            )
 
     def __str__(self):
         """Return a nicely formatted summary of the dataset."""
