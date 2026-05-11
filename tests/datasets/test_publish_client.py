@@ -704,6 +704,25 @@ def test_upload_package_redacts_bearer_token_from_error_text_and_detail(tmp_path
     assert "<redacted>" in str(error.value)
 
 
+def test_upload_package_redacts_short_bearer_token_from_error_text_and_detail(
+    tmp_path,
+):
+    manifest_path, files, manifest = _write_package(tmp_path)
+    response = FakeResponse(401, {"detail": "Authorization failed for abc"})
+    client = DatasetUploadClient(
+        "https://upload.example",
+        "abc",
+        session=FakeSession(response=response),
+    )
+
+    with pytest.raises(DatasetUploadError) as error:
+        client.upload_package("smoke", manifest_path, files, manifest=manifest)
+
+    assert "abc" not in str(error.value)
+    assert "abc" not in error.value.detail
+    assert "<redacted>" in str(error.value)
+
+
 def test_upload_package_maps_rate_limit_retry_after(tmp_path):
     manifest_path, files, manifest = _write_package(tmp_path)
     response = FakeResponse(

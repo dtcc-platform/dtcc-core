@@ -417,7 +417,7 @@ def _retry_after(response: Any) -> float | None:
 
 def _sanitize_error_text(text: Any, *, token: str | None) -> str:
     rendered = str(text)
-    if token and len(token) >= 4:
+    if token:
         rendered = rendered.replace(token, "<redacted>")
     return rendered
 
