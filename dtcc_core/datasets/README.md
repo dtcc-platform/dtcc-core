@@ -183,6 +183,70 @@ contains the full dataset descriptor plus the emitted filename, selected
 format, selected product, concrete request bounds, and validated parameters for
 that request.
 
+Publishing
+----------
+
+Publishing turns an exported dataset package into a committed version in a
+table-facing `dtcc-upload` catalog.
+
+The three related operations are:
+
+- `datasets.foo(...)`: build or fetch a Python-side dataset result.
+- `datasets.foo.export(...)`: write a local artifact plus manifest.
+- `datasets.foo.publish(...)`: export, upload, and return publication metadata.
+
+Example:
+
+    from dtcc_core import datasets
+
+    publication = datasets.smoke.publish(
+        bounds=[319720, 6397660, 320220, 6398160],
+        product="slice",
+        resolution=64,
+        format="geojson",
+        dataset_key="stockholm-smoke-slice",
+        upload_url="http://127.0.0.1:8000",
+        token="replace-me",
+    )
+
+    print(publication.dataset_key, publication.version_number)
+
+`dataset_key` is the catalog key and ownership boundary. It is separate from
+`manifest["name"]`, which remains the dataset descriptor name such as `smoke`.
+
+For notebooks and scripts, upload configuration can come from environment
+variables:
+
+    export DTCC_UPLOAD_URL=http://127.0.0.1:8000
+    export DTCC_UPLOAD_TOKEN=replace-me
+
+Then:
+
+    publication = datasets.smoke.publish(
+        bounds=[0, 0, 1, 1],
+        product="slice",
+        resolution=4,
+        format="geojson",
+        dataset_key="smoke-slice",
+    )
+
+An exported package can also be published without recomputing the dataset:
+
+    package = datasets.smoke.export(
+        "smoke_slice.geojson",
+        bounds=[0, 0, 1, 1],
+        product="slice",
+    )
+
+    publication = package.publish(
+        dataset_key="smoke-slice",
+        upload_url="http://127.0.0.1:8000",
+        token="replace-me",
+    )
+
+Publishing v1 supports single-file formats only. Multi-file packages such as
+XDMF plus HDF5 are reserved for a later server and client contract.
+
 Atlas Integration Checklist
 ---------------------------
 
