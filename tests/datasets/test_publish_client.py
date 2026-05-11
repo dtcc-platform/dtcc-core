@@ -1,12 +1,17 @@
 import json
 
 import pytest
+import requests
 
 from dtcc_core.datasets.publish import (
     DatasetPackageError,
     DatasetPublication,
     DatasetPublishConfigurationError,
     DatasetUploadClient,
+    DatasetUploadConflictError,
+    DatasetUploadError,
+    DatasetUploadInProgressError,
+    DatasetUploadRateLimitError,
     PublishedFile,
     build_publish_idempotency_key,
 )
@@ -25,6 +30,67 @@ def _write_package(tmp_path):
     file_path.write_text('{"type":"FeatureCollection","features":[]}', encoding="utf-8")
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     return manifest_path, (file_path,), manifest
+
+
+class FakeResponse:
+    def __init__(self, status_code, payload, headers=None, json_exc=None):
+        self.status_code = status_code
+        self.payload = payload
+        self.headers = {} if headers is None else headers
+        self.text = json.dumps(payload)
+        self.json_exc = json_exc
+
+    def json(self):
+        if self.json_exc is not None:
+            raise self.json_exc
+        return self.payload
+
+
+class FakeSession:
+    def __init__(self, response=None, exc=None):
+        self.response = response
+        self.exc = exc
+        self.calls = []
+
+    def post(self, url, *, data=None, files=None, headers=None, timeout=None):
+        self.calls.append(
+            {
+                "url": url,
+                "data": data,
+                "files": files,
+                "headers": headers,
+                "timeout": timeout,
+            }
+        )
+        if self.exc is not None:
+            raise self.exc
+        return self.response
+
+
+def _success_response():
+    return FakeResponse(
+        200,
+        {
+            "dataset_key": "smoke",
+            "version_id": "ver_123",
+            "version_number": 1,
+            "owner": "dtcc",
+            "status": "published",
+            "manifest_sha256": "manifest-sha",
+            "file_set_sha256": "files-sha",
+            "manifest_url": "https://upload.example/manifests/ver_123",
+            "files": [
+                {
+                    "path": "smoke_slice.geojson",
+                    "original_filename": "smoke_slice.geojson",
+                    "size": 40,
+                    "sha256": "file-sha",
+                    "media_type": "application/geo+json",
+                    "sniffed_media_type": "application/json",
+                }
+            ],
+        },
+    )
 
 
 def test_publication_from_response_preserves_known_fields():
@@ -424,3 +490,342 @@ def test_package_validation_rejects_manifest_metadata_mismatch(tmp_path):
         build_publish_idempotency_key("smoke", manifest_path, files, provided_manifest)
 
     assert error.value.failure_class == "invalid_package"
+
+
+def test_upload_package_posts_expected_multipart_and_closes_handles(tmp_path):
+    manifest_path, files, manifest = _write_package(tmp_path)
+    session = FakeSession(response=_success_response())
+    client = DatasetUploadClient(
+        "https://upload.example",
+        token="secret-token",
+        timeout=12.5,
+        session=session,
+    )
+
+    publication = client.upload_package(
+        "smoke",
+        manifest_path,
+        files,
+        manifest=manifest,
+        idempotency_key="provided-key",
+    )
+
+    assert publication.version_id == "ver_123"
+    assert publication.manifest_url == "https://upload.example/manifests/ver_123"
+    assert len(session.calls) == 1
+    call = session.calls[0]
+    assert call["url"] == "https://upload.example/v1/datasets"
+    assert call["data"] == {"dataset_key": "smoke"}
+    assert call["headers"] == {
+        "Authorization": "Bearer secret-token",
+        "Idempotency-Key": "provided-key",
+    }
+    assert call["timeout"] == 12.5
+    assert set(call["files"]) == {"manifest", "files"}
+    manifest_part = call["files"]["manifest"]
+    file_part = call["files"]["files"]
+    assert manifest_part[0] == "manifest.json"
+    assert manifest_part[2] == "application/json"
+    assert manifest_part[1].closed
+    assert file_part[0] == "smoke_slice.geojson"
+    assert file_part[2] == "application/geo+json"
+    assert file_part[1].closed
+
+
+def test_upload_package_generates_idempotency_key_when_missing(tmp_path):
+    manifest_path, files, manifest = _write_package(tmp_path)
+    session = FakeSession(response=_success_response())
+    client = DatasetUploadClient(
+        "https://upload.example", "secret-token", session=session
+    )
+
+    client.upload_package("smoke", manifest_path, files, manifest=manifest)
+
+    key = session.calls[0]["headers"]["Idempotency-Key"]
+    assert key.startswith("dtcc-publish-v1:")
+
+
+def test_upload_package_reads_manifest_json_when_mapping_not_supplied(tmp_path):
+    manifest_path, files, _ = _write_package(tmp_path)
+    session = FakeSession(response=_success_response())
+    client = DatasetUploadClient(
+        "https://upload.example", "secret-token", session=session
+    )
+
+    client.upload_package("smoke", manifest_path, files)
+
+    assert len(session.calls) == 1
+
+
+def test_upload_package_rejects_multi_file_v1_packages(tmp_path):
+    manifest_path, files, manifest = _write_package(tmp_path)
+    extra_file = tmp_path / "extra.geojson"
+    extra_file.write_text("{}", encoding="utf-8")
+    client = DatasetUploadClient(
+        "https://upload.example",
+        "secret-token",
+        session=FakeSession(response=_success_response()),
+    )
+
+    with pytest.raises(DatasetPackageError, match="single-file"):
+        client.upload_package(
+            "smoke", manifest_path, (files[0], extra_file), manifest=manifest
+        )
+
+
+def test_upload_package_rejects_manifest_file_mismatch(tmp_path):
+    manifest_path, files, manifest = _write_package(tmp_path)
+    manifest["file"] = "different.geojson"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    client = DatasetUploadClient(
+        "https://upload.example",
+        "secret-token",
+        session=FakeSession(response=_success_response()),
+    )
+
+    with pytest.raises(DatasetPackageError):
+        client.upload_package("smoke", manifest_path, files, manifest=manifest)
+
+
+@pytest.mark.parametrize(
+    "logical_name",
+    ["nested/file.geojson", r"nested\file.geojson", "../file.geojson", ".hidden"],
+)
+def test_upload_package_rejects_unsafe_logical_file_names(tmp_path, logical_name):
+    manifest_path, files, manifest = _write_package(tmp_path)
+    manifest["file"] = logical_name
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    client = DatasetUploadClient(
+        "https://upload.example",
+        "secret-token",
+        session=FakeSession(response=_success_response()),
+    )
+
+    with pytest.raises(DatasetPackageError, match="invalid manifest file"):
+        client.upload_package("smoke", manifest_path, files, manifest=manifest)
+
+
+def test_upload_package_allows_inner_double_dot_file_names(tmp_path):
+    file_path = tmp_path / "foo..bar.geojson"
+    manifest_path = tmp_path / "manifest.json"
+    manifest = {"file": "foo..bar.geojson", "media_type": "application/geo+json"}
+    file_path.write_text("{}", encoding="utf-8")
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    session = FakeSession(response=_success_response())
+    client = DatasetUploadClient(
+        "https://upload.example", "secret-token", session=session
+    )
+
+    client.upload_package("smoke", manifest_path, (file_path,), manifest=manifest)
+
+    assert session.calls[0]["files"]["files"][0] == "foo..bar.geojson"
+
+
+def test_upload_package_rejects_manifest_files_mismatch(tmp_path):
+    manifest_path, files, manifest = _write_package(tmp_path)
+    manifest["files"] = ["different.geojson"]
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    client = DatasetUploadClient(
+        "https://upload.example",
+        "secret-token",
+        session=FakeSession(response=_success_response()),
+    )
+
+    with pytest.raises(DatasetPackageError, match="manifest.files"):
+        client.upload_package("smoke", manifest_path, files, manifest=manifest)
+
+
+def test_upload_package_maps_in_progress_conflict(tmp_path):
+    manifest_path, files, manifest = _write_package(tmp_path)
+    response = FakeResponse(
+        409,
+        {"detail": "Idempotency-Key is already in progress"},
+    )
+    client = DatasetUploadClient(
+        "https://upload.example",
+        "secret-token",
+        session=FakeSession(response=response),
+    )
+
+    with pytest.raises(DatasetUploadInProgressError) as error:
+        client.upload_package("smoke", manifest_path, files, manifest=manifest)
+
+    assert error.value.failure_class == "conflict"
+    assert not error.value.is_transient
+
+
+def test_upload_package_maps_other_conflict(tmp_path):
+    manifest_path, files, manifest = _write_package(tmp_path)
+    response = FakeResponse(409, {"detail": "dataset version already exists"})
+    client = DatasetUploadClient(
+        "https://upload.example",
+        "secret-token",
+        session=FakeSession(response=response),
+    )
+
+    with pytest.raises(DatasetUploadConflictError):
+        client.upload_package("smoke", manifest_path, files, manifest=manifest)
+
+
+@pytest.mark.parametrize("status_code", [401, 413])
+def test_upload_package_maps_client_errors(tmp_path, status_code):
+    manifest_path, files, manifest = _write_package(tmp_path)
+    response = FakeResponse(status_code, {"detail": "client error"})
+    client = DatasetUploadClient(
+        "https://upload.example",
+        "secret-token",
+        session=FakeSession(response=response),
+    )
+
+    with pytest.raises(DatasetUploadError) as error:
+        client.upload_package("smoke", manifest_path, files, manifest=manifest)
+
+    assert type(error.value) is DatasetUploadError
+    assert error.value.failure_class == "http_4xx"
+
+
+def test_upload_package_redacts_bearer_token_from_error_text_and_detail(tmp_path):
+    manifest_path, files, manifest = _write_package(tmp_path)
+    response = FakeResponse(
+        401,
+        {"detail": "Authorization failed for Bearer secret-token"},
+    )
+    client = DatasetUploadClient(
+        "https://upload.example",
+        "secret-token",
+        session=FakeSession(response=response),
+    )
+
+    with pytest.raises(DatasetUploadError) as error:
+        client.upload_package("smoke", manifest_path, files, manifest=manifest)
+
+    assert "secret-token" not in str(error.value)
+    assert "secret-token" not in error.value.detail
+    assert "<redacted>" in str(error.value)
+
+
+def test_upload_package_maps_rate_limit_retry_after(tmp_path):
+    manifest_path, files, manifest = _write_package(tmp_path)
+    response = FakeResponse(
+        429, {"detail": "slow down"}, headers={"Retry-After": "2.5"}
+    )
+    client = DatasetUploadClient(
+        "https://upload.example",
+        "secret-token",
+        session=FakeSession(response=response),
+    )
+
+    with pytest.raises(DatasetUploadRateLimitError) as error:
+        client.upload_package("smoke", manifest_path, files, manifest=manifest)
+
+    assert error.value.failure_class == "rate_limited"
+    assert error.value.retry_after == 2.5
+    assert error.value.is_transient
+
+
+def test_upload_package_maps_server_errors_as_transient(tmp_path):
+    manifest_path, files, manifest = _write_package(tmp_path)
+    response = FakeResponse(500, {"detail": "server error"})
+    client = DatasetUploadClient(
+        "https://upload.example",
+        "secret-token",
+        session=FakeSession(response=response),
+    )
+
+    with pytest.raises(DatasetUploadError) as error:
+        client.upload_package("smoke", manifest_path, files, manifest=manifest)
+
+    assert error.value.failure_class == "http_5xx"
+    assert error.value.is_transient
+
+
+def test_upload_package_maps_timeout_as_transient(tmp_path):
+    manifest_path, files, manifest = _write_package(tmp_path)
+    client = DatasetUploadClient(
+        "https://upload.example",
+        "secret-token",
+        session=FakeSession(exc=requests.Timeout("request timed out")),
+    )
+
+    with pytest.raises(DatasetUploadError) as error:
+        client.upload_package("smoke", manifest_path, files, manifest=manifest)
+
+    assert error.value.failure_class == "timeout"
+    assert error.value.is_transient
+
+
+def test_upload_package_maps_invalid_success_json_to_upload_error(tmp_path):
+    manifest_path, files, manifest = _write_package(tmp_path)
+    response = FakeResponse(
+        200,
+        {"detail": "Bearer secret-token invalid JSON"},
+        json_exc=ValueError("Bearer secret-token invalid JSON"),
+    )
+    client = DatasetUploadClient(
+        "https://upload.example",
+        "secret-token",
+        session=FakeSession(response=response),
+    )
+
+    with pytest.raises(DatasetUploadError) as error:
+        client.upload_package("smoke", manifest_path, files, manifest=manifest)
+
+    assert error.value.status_code == 200
+    assert error.value.failure_class == "request"
+    assert "secret-token" not in str(error.value)
+    assert "secret-token" not in error.value.detail
+    assert "<redacted>" in str(error.value)
+
+
+def test_upload_package_maps_success_array_to_upload_error(tmp_path):
+    manifest_path, files, manifest = _write_package(tmp_path)
+    response = FakeResponse(200, ["not", "an", "object"])
+    client = DatasetUploadClient(
+        "https://upload.example",
+        "secret-token",
+        session=FakeSession(response=response),
+    )
+
+    with pytest.raises(DatasetUploadError) as error:
+        client.upload_package("smoke", manifest_path, files, manifest=manifest)
+
+    assert error.value.status_code == 200
+    assert error.value.failure_class == "request"
+
+
+def test_upload_package_maps_missing_success_fields_to_upload_error(tmp_path):
+    manifest_path, files, manifest = _write_package(tmp_path)
+    payload = dict(_success_response().payload)
+    del payload["files"]
+    response = FakeResponse(200, payload)
+    client = DatasetUploadClient(
+        "https://upload.example",
+        "secret-token",
+        session=FakeSession(response=response),
+    )
+
+    with pytest.raises(DatasetUploadError) as error:
+        client.upload_package("smoke", manifest_path, files, manifest=manifest)
+
+    assert error.value.status_code == 200
+    assert error.value.failure_class == "request"
+    assert "files" in str(error.value)
+
+
+def test_upload_package_maps_malformed_success_file_entries_to_upload_error(tmp_path):
+    manifest_path, files, manifest = _write_package(tmp_path)
+    payload = dict(_success_response().payload)
+    payload["files"] = ["not an object"]
+    response = FakeResponse(200, payload)
+    client = DatasetUploadClient(
+        "https://upload.example",
+        "secret-token",
+        session=FakeSession(response=response),
+    )
+
+    with pytest.raises(DatasetUploadError) as error:
+        client.upload_package("smoke", manifest_path, files, manifest=manifest)
+
+    assert error.value.status_code == 200
+    assert error.value.failure_class == "request"
+    assert not isinstance(error.value, AttributeError)
