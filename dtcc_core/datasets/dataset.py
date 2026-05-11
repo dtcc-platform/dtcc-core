@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from importlib.metadata import PackageNotFoundError, version
 import json
 from pathlib import Path
 import tempfile
@@ -142,6 +143,61 @@ class DatasetExportResult:
     path: Path
     manifest_path: Optional[Path]
     manifest: Optional[dict[str, Any]]
+    files: tuple[Path, ...] = ()
+    format: str = ""
+
+    def __post_init__(self):
+        if not self.files:
+            object.__setattr__(self, "files", (Path(self.path),))
+        if not self.format:
+            object.__setattr__(
+                self, "format", self._infer_format_from_export_path(self.path)
+            )
+
+    @staticmethod
+    def _infer_format_from_export_path(path: Path) -> str:
+        format_extensions = {
+            format_name: format_name
+            for format_name in {*_FORMAT_KIND_MAP, *_FORMAT_MEDIA_TYPE_MAP}
+        }
+        for format_name, extension in _FORMAT_EXTENSION_MAP.items():
+            format_extensions[extension] = format_name
+
+        path_name = Path(path).name.lower()
+        for extension, format_name in sorted(
+            format_extensions.items(), key=lambda item: len(item[0]), reverse=True
+        ):
+            if path_name.endswith(f".{extension.lower()}"):
+                return format_name
+        return ""
+
+    def publish(
+        self,
+        *,
+        dataset_key: str,
+        uploader=None,
+        upload_url: Optional[str] = None,
+        token: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+    ):
+        from dtcc_core.datasets.publish import DatasetPackageError, DatasetUploadClient
+
+        if self.manifest_path is None or self.manifest is None:
+            raise DatasetPackageError(
+                "Cannot publish an export result without a manifest.",
+                failure_class="invalid_package",
+            )
+
+        resolved_uploader = uploader or DatasetUploadClient.from_config(
+            upload_url=upload_url, token=token
+        )
+        return resolved_uploader.upload_package(
+            dataset_key=dataset_key,
+            manifest_path=self.manifest_path,
+            files=self.files,
+            manifest=self.manifest,
+            idempotency_key=idempotency_key,
+        )
 
 
 class DatasetDescriptor(ABC):
@@ -286,6 +342,13 @@ class DatasetDescriptor(ABC):
     def _title_from_identifier(identifier: str) -> str:
         return str(identifier).replace("_", " ").replace("-", " ").title()
 
+    @staticmethod
+    def _package_version() -> str:
+        try:
+            return version("dtcc-core")
+        except PackageNotFoundError:
+            return "0.9.8dev"
+
     def describe(self) -> dict[str, Any]:
         """Return the dataset contract used by Python clients and web services."""
         args_schema = self.show_options()
@@ -346,6 +409,11 @@ class DatasetDescriptor(ABC):
     ) -> dict[str, Any]:
         """Build a manifest for a concrete exported dataset request."""
         manifest = self.describe()
+        manifest["manifest_schema_version"] = "dtcc-dataset-manifest-v1"
+        manifest["created_by"] = {
+            "package": "dtcc-core",
+            "version": self._package_version(),
+        }
         parameters = args.model_dump(mode="json")
         product = getattr(args, "product", None)
 
@@ -444,6 +512,8 @@ class DatasetDescriptor(ABC):
             path=output_path,
             manifest_path=exported_manifest_path,
             manifest=exported_manifest,
+            files=(output_path,),
+            format=output_format,
         )
 
     def __str__(self):

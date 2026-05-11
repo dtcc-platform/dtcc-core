@@ -12,6 +12,7 @@ from PIL import Image
 
 import dtcc_core.datasets as datasets
 from dtcc_core.datasets import get_dataset
+from dtcc_core.datasets.dataset import DatasetExportResult
 from dtcc_core.datasets.smoke import SmokeArgs, SmokeDataset
 from dtcc_core.model import VolumeMesh, proto
 
@@ -344,12 +345,18 @@ def test_smoke_export_writes_payload_and_manifest(tmp_path):
     assert result.manifest_path == tmp_path / "smoke_slice.manifest.json"
     assert path.exists()
     assert result.manifest_path.exists()
+    assert result.files == (path,)
+    assert result.format == "geojson"
 
     data = json.loads(path.read_text(encoding="utf-8"))
     assert data["metadata"]["product"] == "slice"
 
     manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
     assert manifest == result.manifest
+    assert manifest["manifest_schema_version"] == "dtcc-dataset-manifest-v1"
+    assert manifest["created_by"]["package"] == "dtcc-core"
+    assert isinstance(manifest["created_by"]["version"], str)
+    assert manifest["created_by"]["version"]
     descriptor = datasets.smoke.describe()
     for key, value in descriptor.items():
         assert manifest[key] == value
@@ -379,6 +386,8 @@ def test_smoke_export_manifest_can_be_disabled_or_overridden(tmp_path):
     assert path.exists()
     assert result.manifest is None
     assert result.manifest_path is None
+    assert result.files == (path,)
+    assert result.format == "geojson"
     assert not (tmp_path / "slice.manifest.json").exists()
 
     result = datasets.smoke.export(
@@ -399,6 +408,91 @@ def test_smoke_export_manifest_can_be_disabled_or_overridden(tmp_path):
     assert result.manifest["bounds"] == [0.0, 0.0, 10.0, 20.0]
     assert "projectionBbox" not in result.manifest
     assert json.loads(manifest_path.read_text(encoding="utf-8")) == result.manifest
+
+
+def test_dataset_export_result_supports_legacy_construction(tmp_path):
+    path = tmp_path / "slice.geojson"
+    manifest_path = tmp_path / "slice.manifest.json"
+    manifest = {"name": "smoke"}
+
+    result = DatasetExportResult(
+        path=path,
+        manifest_path=manifest_path,
+        manifest=manifest,
+    )
+
+    assert result.path == path
+    assert result.manifest_path == manifest_path
+    assert result.manifest == manifest
+    assert result.files == (path,)
+    assert result.format == "geojson"
+
+
+def test_smoke_export_result_publish_delegates_to_uploader(tmp_path):
+    path = tmp_path / "slice.geojson"
+    publication = object()
+    calls = []
+
+    class FakeUploader:
+        def upload_package(
+            self,
+            *,
+            dataset_key,
+            manifest_path,
+            files,
+            manifest,
+            idempotency_key,
+        ):
+            calls.append(
+                {
+                    "dataset_key": dataset_key,
+                    "manifest_path": manifest_path,
+                    "files": files,
+                    "manifest": manifest,
+                    "idempotency_key": idempotency_key,
+                }
+            )
+            return publication
+
+    result = datasets.smoke.export(
+        path,
+        bounds=(0.0, 0.0, 10.0, 20.0),
+        product="slice",
+    )
+
+    assert (
+        result.publish(
+            dataset_key="atlas/smoke",
+            uploader=FakeUploader(),
+            idempotency_key="upload-1",
+        )
+        is publication
+    )
+    assert calls == [
+        {
+            "dataset_key": "atlas/smoke",
+            "manifest_path": result.manifest_path,
+            "files": result.files,
+            "manifest": result.manifest,
+            "idempotency_key": "upload-1",
+        }
+    ]
+
+
+def test_smoke_export_result_publish_requires_manifest(tmp_path):
+    from dtcc_core.datasets.publish import DatasetPackageError
+
+    result = datasets.smoke.export(
+        tmp_path / "slice.geojson",
+        bounds=(0.0, 0.0, 10.0, 20.0),
+        product="slice",
+        manifest=False,
+    )
+
+    with pytest.raises(DatasetPackageError, match="without a manifest") as excinfo:
+        result.publish(dataset_key="atlas/smoke", uploader=object())
+
+    assert excinfo.value.failure_class == "invalid_package"
 
 
 def test_smoke_rejects_non_geojson_visualization_formats():
