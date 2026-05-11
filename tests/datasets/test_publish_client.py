@@ -93,6 +93,24 @@ def _success_response():
     )
 
 
+def _idempotency_key(dataset_key, manifest_path, files, manifest):
+    return build_publish_idempotency_key(
+        dataset_key=dataset_key,
+        manifest_path=manifest_path,
+        files=files,
+        manifest=manifest,
+    )
+
+
+def _upload_package(client, manifest_path, files, manifest, dataset_key="smoke"):
+    return client.upload_package(
+        dataset_key=dataset_key,
+        manifest_path=manifest_path,
+        files=files,
+        manifest=manifest,
+    )
+
+
 def test_publication_from_response_preserves_known_fields():
     response = {
         "dataset_key": 42,
@@ -144,6 +162,14 @@ def test_publication_from_response_preserves_known_fields():
     )
 
 
+def test_publication_from_response_requires_sniffed_media_type():
+    response = _success_response().payload
+    response["files"][0]["sniffed_media_type"] = None
+
+    with pytest.raises(ValueError, match="sniffed_media_type"):
+        DatasetPublication.from_response(response)
+
+
 def test_publication_dataclass_optional_defaults_are_independent():
     first = DatasetPublication(
         dataset_key="smoke",
@@ -170,6 +196,26 @@ def test_publication_dataclass_optional_defaults_are_independent():
     assert first.manifest_url is None
     assert first.raw == {}
     assert first.raw is not second.raw
+
+
+def test_in_progress_error_is_a_conflict_error():
+    assert issubclass(DatasetUploadInProgressError, DatasetUploadConflictError)
+
+
+def test_upload_client_package_methods_are_keyword_only(tmp_path):
+    manifest_path, files, manifest = _write_package(tmp_path)
+    client = DatasetUploadClient(
+        "https://upload.example",
+        "secret-token",
+        session=FakeSession(response=_success_response()),
+    )
+
+    with pytest.raises(TypeError):
+        DatasetUploadClient.from_config("https://upload.example", "secret-token")
+    with pytest.raises(TypeError):
+        build_publish_idempotency_key("smoke", manifest_path, files, manifest)
+    with pytest.raises(TypeError):
+        client.upload_package("smoke", manifest_path, files)
 
 
 @pytest.mark.parametrize(
@@ -333,8 +379,8 @@ def test_build_publish_idempotency_key_is_deterministic(tmp_path):
     manifest_path, files, manifest = _write_package(tmp_path)
     manifest_sha256 = "2b74c25b831f55cefe8f159321450bd6a85f940d4cd14dd3b99ae7e35f0a1e70"
 
-    first_key = build_publish_idempotency_key("smoke", manifest_path, files, manifest)
-    second_key = build_publish_idempotency_key("smoke", manifest_path, files, manifest)
+    first_key = _idempotency_key("smoke", manifest_path, files, manifest)
+    second_key = _idempotency_key("smoke", manifest_path, files, manifest)
 
     assert first_key == second_key
     assert first_key.startswith("dtcc-publish-v1:")
@@ -344,8 +390,8 @@ def test_build_publish_idempotency_key_is_deterministic(tmp_path):
 def test_build_publish_idempotency_key_changes_when_dataset_key_changes(tmp_path):
     manifest_path, files, manifest = _write_package(tmp_path)
 
-    first_key = build_publish_idempotency_key("smoke", manifest_path, files, manifest)
-    second_key = build_publish_idempotency_key("other", manifest_path, files, manifest)
+    first_key = _idempotency_key("smoke", manifest_path, files, manifest)
+    second_key = _idempotency_key("other", manifest_path, files, manifest)
 
     assert first_key != second_key
 
@@ -353,10 +399,10 @@ def test_build_publish_idempotency_key_changes_when_dataset_key_changes(tmp_path
 def test_build_publish_idempotency_key_changes_when_manifest_content_changes(tmp_path):
     manifest_path, files, manifest = _write_package(tmp_path)
 
-    first_key = build_publish_idempotency_key("smoke", manifest_path, files, manifest)
+    first_key = _idempotency_key("smoke", manifest_path, files, manifest)
     manifest["data_kind"] = "air_quality"
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-    second_key = build_publish_idempotency_key("smoke", manifest_path, files, manifest)
+    second_key = _idempotency_key("smoke", manifest_path, files, manifest)
 
     assert first_key != second_key
 
@@ -364,9 +410,9 @@ def test_build_publish_idempotency_key_changes_when_manifest_content_changes(tmp
 def test_build_publish_idempotency_key_changes_when_file_changes(tmp_path):
     manifest_path, files, manifest = _write_package(tmp_path)
 
-    first_key = build_publish_idempotency_key("smoke", manifest_path, files, manifest)
+    first_key = _idempotency_key("smoke", manifest_path, files, manifest)
     files[0].write_text('{"type":"FeatureCollection","features":[{}]}', encoding="utf-8")
-    second_key = build_publish_idempotency_key("smoke", manifest_path, files, manifest)
+    second_key = _idempotency_key("smoke", manifest_path, files, manifest)
 
     assert first_key != second_key
 
@@ -376,7 +422,7 @@ def test_package_validation_rejects_missing_manifest(tmp_path):
     manifest_path.unlink()
 
     with pytest.raises(DatasetPackageError):
-        build_publish_idempotency_key("smoke", manifest_path, files, manifest)
+        _idempotency_key("smoke", manifest_path, files, manifest)
 
 
 def test_package_validation_rejects_manifest_directory(tmp_path):
@@ -385,7 +431,7 @@ def test_package_validation_rejects_manifest_directory(tmp_path):
     manifest_dir.mkdir()
 
     with pytest.raises(DatasetPackageError) as error:
-        build_publish_idempotency_key("smoke", manifest_dir, files, manifest)
+        _idempotency_key("smoke", manifest_dir, files, manifest)
 
     assert error.value.failure_class == "invalid_package"
 
@@ -395,7 +441,7 @@ def test_package_validation_rejects_missing_package_file(tmp_path):
     files[0].unlink()
 
     with pytest.raises(DatasetPackageError) as error:
-        build_publish_idempotency_key("smoke", manifest_path, files, manifest)
+        _idempotency_key("smoke", manifest_path, files, manifest)
 
     assert error.value.failure_class == "invalid_package"
 
@@ -407,7 +453,12 @@ def test_package_validation_rejects_package_file_directory(tmp_path):
     package_dir.mkdir(exist_ok=True)
 
     with pytest.raises(DatasetPackageError) as error:
-        build_publish_idempotency_key("smoke", manifest_path, (package_dir,), manifest)
+        build_publish_idempotency_key(
+            dataset_key="smoke",
+            manifest_path=manifest_path,
+            files=(package_dir,),
+            manifest=manifest,
+        )
 
     assert error.value.failure_class == "invalid_package"
 
@@ -419,7 +470,10 @@ def test_package_validation_rejects_multiple_package_files(tmp_path):
 
     with pytest.raises(DatasetPackageError) as error:
         build_publish_idempotency_key(
-            "smoke", manifest_path, (files[0], extra_file), manifest
+            dataset_key="smoke",
+            manifest_path=manifest_path,
+            files=(files[0], extra_file),
+            manifest=manifest,
         )
 
     assert error.value.failure_class == "invalid_package"
@@ -431,7 +485,7 @@ def test_package_validation_rejects_missing_manifest_file_field(tmp_path):
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
     with pytest.raises(DatasetPackageError) as error:
-        build_publish_idempotency_key("smoke", manifest_path, files, manifest)
+        _idempotency_key("smoke", manifest_path, files, manifest)
 
     assert error.value.failure_class == "invalid_package"
 
@@ -442,7 +496,7 @@ def test_package_validation_rejects_non_string_manifest_file_field(tmp_path):
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
     with pytest.raises(DatasetPackageError) as error:
-        build_publish_idempotency_key("smoke", manifest_path, files, manifest)
+        _idempotency_key("smoke", manifest_path, files, manifest)
 
     assert error.value.failure_class == "invalid_package"
 
@@ -453,7 +507,7 @@ def test_package_validation_rejects_non_string_manifest_mapping_file(tmp_path):
     provided_manifest["file"] = ["smoke_slice.geojson"]
 
     with pytest.raises(DatasetPackageError) as error:
-        build_publish_idempotency_key("smoke", manifest_path, files, provided_manifest)
+        _idempotency_key("smoke", manifest_path, files, provided_manifest)
 
     assert error.value.failure_class == "invalid_package"
 
@@ -465,7 +519,10 @@ def test_package_validation_rejects_filename_mismatch(tmp_path):
 
     with pytest.raises(DatasetPackageError) as error:
         build_publish_idempotency_key(
-            "smoke", manifest_path, (mismatched_file,), manifest
+            dataset_key="smoke",
+            manifest_path=manifest_path,
+            files=(mismatched_file,),
+            manifest=manifest,
         )
 
     assert error.value.failure_class == "invalid_package"
@@ -476,7 +533,7 @@ def test_package_validation_rejects_manifest_mapping_mismatch(tmp_path):
     manifest["file"] = "different.geojson"
 
     with pytest.raises(DatasetPackageError) as error:
-        build_publish_idempotency_key("smoke", manifest_path, files, manifest)
+        _idempotency_key("smoke", manifest_path, files, manifest)
 
     assert error.value.failure_class == "invalid_package"
 
@@ -487,7 +544,7 @@ def test_package_validation_rejects_manifest_metadata_mismatch(tmp_path):
     provided_manifest["data_kind"] = "air_quality"
 
     with pytest.raises(DatasetPackageError) as error:
-        build_publish_idempotency_key("smoke", manifest_path, files, provided_manifest)
+        _idempotency_key("smoke", manifest_path, files, provided_manifest)
 
     assert error.value.failure_class == "invalid_package"
 
@@ -503,9 +560,9 @@ def test_upload_package_posts_expected_multipart_and_closes_handles(tmp_path):
     )
 
     publication = client.upload_package(
-        "smoke",
-        manifest_path,
-        files,
+        dataset_key="smoke",
+        manifest_path=manifest_path,
+        files=files,
         manifest=manifest,
         idempotency_key="provided-key",
     )
@@ -539,7 +596,7 @@ def test_upload_package_generates_idempotency_key_when_missing(tmp_path):
         "https://upload.example", "secret-token", session=session
     )
 
-    client.upload_package("smoke", manifest_path, files, manifest=manifest)
+    _upload_package(client, manifest_path, files, manifest)
 
     key = session.calls[0]["headers"]["Idempotency-Key"]
     assert key.startswith("dtcc-publish-v1:")
@@ -552,7 +609,7 @@ def test_upload_package_reads_manifest_json_when_mapping_not_supplied(tmp_path):
         "https://upload.example", "secret-token", session=session
     )
 
-    client.upload_package("smoke", manifest_path, files)
+    client.upload_package(dataset_key="smoke", manifest_path=manifest_path, files=files)
 
     assert len(session.calls) == 1
 
@@ -569,7 +626,10 @@ def test_upload_package_rejects_multi_file_v1_packages(tmp_path):
 
     with pytest.raises(DatasetPackageError, match="single-file"):
         client.upload_package(
-            "smoke", manifest_path, (files[0], extra_file), manifest=manifest
+            dataset_key="smoke",
+            manifest_path=manifest_path,
+            files=(files[0], extra_file),
+            manifest=manifest,
         )
 
 
@@ -584,7 +644,7 @@ def test_upload_package_rejects_manifest_file_mismatch(tmp_path):
     )
 
     with pytest.raises(DatasetPackageError):
-        client.upload_package("smoke", manifest_path, files, manifest=manifest)
+        _upload_package(client, manifest_path, files, manifest)
 
 
 @pytest.mark.parametrize(
@@ -602,7 +662,7 @@ def test_upload_package_rejects_unsafe_logical_file_names(tmp_path, logical_name
     )
 
     with pytest.raises(DatasetPackageError, match="invalid manifest file"):
-        client.upload_package("smoke", manifest_path, files, manifest=manifest)
+        _upload_package(client, manifest_path, files, manifest)
 
 
 def test_upload_package_allows_inner_double_dot_file_names(tmp_path):
@@ -616,7 +676,7 @@ def test_upload_package_allows_inner_double_dot_file_names(tmp_path):
         "https://upload.example", "secret-token", session=session
     )
 
-    client.upload_package("smoke", manifest_path, (file_path,), manifest=manifest)
+    _upload_package(client, manifest_path, (file_path,), manifest)
 
     assert session.calls[0]["files"]["files"][0] == "foo..bar.geojson"
 
@@ -632,7 +692,7 @@ def test_upload_package_rejects_manifest_files_mismatch(tmp_path):
     )
 
     with pytest.raises(DatasetPackageError, match="manifest.files"):
-        client.upload_package("smoke", manifest_path, files, manifest=manifest)
+        _upload_package(client, manifest_path, files, manifest)
 
 
 def test_upload_package_maps_in_progress_conflict(tmp_path):
@@ -648,7 +708,7 @@ def test_upload_package_maps_in_progress_conflict(tmp_path):
     )
 
     with pytest.raises(DatasetUploadInProgressError) as error:
-        client.upload_package("smoke", manifest_path, files, manifest=manifest)
+        _upload_package(client, manifest_path, files, manifest)
 
     assert error.value.failure_class == "conflict"
     assert not error.value.is_transient
@@ -664,7 +724,7 @@ def test_upload_package_maps_other_conflict(tmp_path):
     )
 
     with pytest.raises(DatasetUploadConflictError):
-        client.upload_package("smoke", manifest_path, files, manifest=manifest)
+        _upload_package(client, manifest_path, files, manifest)
 
 
 @pytest.mark.parametrize("status_code", [401, 413])
@@ -678,7 +738,7 @@ def test_upload_package_maps_client_errors(tmp_path, status_code):
     )
 
     with pytest.raises(DatasetUploadError) as error:
-        client.upload_package("smoke", manifest_path, files, manifest=manifest)
+        _upload_package(client, manifest_path, files, manifest)
 
     assert type(error.value) is DatasetUploadError
     assert error.value.failure_class == "http_4xx"
@@ -697,7 +757,7 @@ def test_upload_package_redacts_bearer_token_from_error_text_and_detail(tmp_path
     )
 
     with pytest.raises(DatasetUploadError) as error:
-        client.upload_package("smoke", manifest_path, files, manifest=manifest)
+        _upload_package(client, manifest_path, files, manifest)
 
     assert "secret-token" not in str(error.value)
     assert "secret-token" not in error.value.detail
@@ -716,7 +776,7 @@ def test_upload_package_redacts_short_bearer_token_from_error_text_and_detail(
     )
 
     with pytest.raises(DatasetUploadError) as error:
-        client.upload_package("smoke", manifest_path, files, manifest=manifest)
+        _upload_package(client, manifest_path, files, manifest)
 
     assert "abc" not in str(error.value)
     assert "abc" not in error.value.detail
@@ -735,7 +795,7 @@ def test_upload_package_maps_rate_limit_retry_after(tmp_path):
     )
 
     with pytest.raises(DatasetUploadRateLimitError) as error:
-        client.upload_package("smoke", manifest_path, files, manifest=manifest)
+        _upload_package(client, manifest_path, files, manifest)
 
     assert error.value.failure_class == "rate_limited"
     assert error.value.retry_after == 2.5
@@ -752,7 +812,7 @@ def test_upload_package_maps_server_errors_as_transient(tmp_path):
     )
 
     with pytest.raises(DatasetUploadError) as error:
-        client.upload_package("smoke", manifest_path, files, manifest=manifest)
+        _upload_package(client, manifest_path, files, manifest)
 
     assert error.value.failure_class == "http_5xx"
     assert error.value.is_transient
@@ -767,7 +827,7 @@ def test_upload_package_maps_timeout_as_transient(tmp_path):
     )
 
     with pytest.raises(DatasetUploadError) as error:
-        client.upload_package("smoke", manifest_path, files, manifest=manifest)
+        _upload_package(client, manifest_path, files, manifest)
 
     assert error.value.failure_class == "timeout"
     assert error.value.is_transient
@@ -782,7 +842,7 @@ def test_upload_package_request_exception_cause_does_not_leak_token(tmp_path):
     )
 
     with pytest.raises(DatasetUploadError) as error:
-        client.upload_package("smoke", manifest_path, files, manifest=manifest)
+        _upload_package(client, manifest_path, files, manifest)
 
     assert "abc" not in str(error.value)
     assert error.value.__cause__ is None
@@ -802,7 +862,7 @@ def test_upload_package_maps_invalid_success_json_to_upload_error(tmp_path):
     )
 
     with pytest.raises(DatasetUploadError) as error:
-        client.upload_package("smoke", manifest_path, files, manifest=manifest)
+        _upload_package(client, manifest_path, files, manifest)
 
     assert error.value.status_code == 200
     assert error.value.failure_class == "request"
@@ -822,7 +882,7 @@ def test_upload_package_maps_success_array_to_upload_error(tmp_path):
     )
 
     with pytest.raises(DatasetUploadError) as error:
-        client.upload_package("smoke", manifest_path, files, manifest=manifest)
+        _upload_package(client, manifest_path, files, manifest)
 
     assert error.value.status_code == 200
     assert error.value.failure_class == "request"
@@ -840,7 +900,7 @@ def test_upload_package_maps_missing_success_fields_to_upload_error(tmp_path):
     )
 
     with pytest.raises(DatasetUploadError) as error:
-        client.upload_package("smoke", manifest_path, files, manifest=manifest)
+        _upload_package(client, manifest_path, files, manifest)
 
     assert error.value.status_code == 200
     assert error.value.failure_class == "request"
@@ -859,7 +919,7 @@ def test_upload_package_maps_malformed_success_file_entries_to_upload_error(tmp_
     )
 
     with pytest.raises(DatasetUploadError) as error:
-        client.upload_package("smoke", manifest_path, files, manifest=manifest)
+        _upload_package(client, manifest_path, files, manifest)
 
     assert error.value.status_code == 200
     assert error.value.failure_class == "request"

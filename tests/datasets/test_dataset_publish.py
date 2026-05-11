@@ -47,7 +47,7 @@ class RecordingUploader:
                         "size": call["files"][0].stat().st_size,
                         "sha256": "file-sha",
                         "media_type": call["manifest"]["media_type"],
-                        "sniffed_media_type": None,
+                        "sniffed_media_type": call["manifest"]["media_type"],
                     }
                 ],
             }

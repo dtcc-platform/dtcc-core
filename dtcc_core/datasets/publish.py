@@ -15,12 +15,15 @@ class PublishedFile:
     size: int
     sha256: str
     media_type: str
-    sniffed_media_type: str | None
+    sniffed_media_type: str
     raw: Mapping[str, Any]
 
     @classmethod
     def from_response(cls, payload: Mapping[str, Any]) -> "PublishedFile":
         original_filename = payload.get("original_filename")
+        sniffed_media_type = payload["sniffed_media_type"]
+        if sniffed_media_type is None:
+            raise ValueError("Published file response missing sniffed_media_type")
         return cls(
             path=str(payload["path"]),
             original_filename=(
@@ -29,11 +32,7 @@ class PublishedFile:
             size=int(payload["size"]),
             sha256=str(payload["sha256"]),
             media_type=str(payload["media_type"]),
-            sniffed_media_type=(
-                str(payload["sniffed_media_type"])
-                if payload.get("sniffed_media_type") is not None
-                else None
-            ),
+            sniffed_media_type=str(sniffed_media_type),
             raw=payload,
         )
 
@@ -114,7 +113,7 @@ class DatasetUploadConflictError(DatasetUploadError):
     pass
 
 
-class DatasetUploadInProgressError(DatasetUploadError):
+class DatasetUploadInProgressError(DatasetUploadConflictError):
     pass
 
 
@@ -140,6 +139,7 @@ class DatasetUploadClient:
     @classmethod
     def from_config(
         cls,
+        *,
         upload_url: str | None = None,
         token: str | None = None,
         env: Mapping[str, str] | None = None,
@@ -167,10 +167,10 @@ class DatasetUploadClient:
 
     def upload_package(
         self,
+        *,
         dataset_key: str,
         manifest_path: str | Path,
         files: Sequence[str | Path],
-        *,
         manifest: Mapping[str, Any] | None = None,
         idempotency_key: str | None = None,
     ) -> DatasetPublication:
@@ -178,7 +178,10 @@ class DatasetUploadClient:
             manifest_path, files, manifest=manifest
         )
         key = idempotency_key or build_publish_idempotency_key(
-            dataset_key, manifest_path, files, manifest_payload
+            dataset_key=dataset_key,
+            manifest_path=manifest_path,
+            files=files,
+            manifest=manifest_payload,
         )
         headers = {
             "Authorization": f"Bearer {self.token}",
@@ -248,6 +251,7 @@ class DatasetUploadClient:
 
 
 def build_publish_idempotency_key(
+    *,
     dataset_key: str,
     manifest_path: str | Path,
     files: Sequence[str | Path],
