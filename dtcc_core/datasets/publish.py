@@ -212,21 +212,21 @@ class DatasetUploadClient:
                 f"Dataset upload timed out: {detail}",
                 detail=detail,
                 failure_class="timeout",
-            ) from error
+            ) from None
         except requests.ConnectionError as error:
             detail = _sanitize_error_text(str(error), token=self.token)
             raise DatasetUploadError(
                 f"Dataset upload connection failed: {detail}",
                 detail=detail,
                 failure_class="connection",
-            ) from error
+            ) from None
         except requests.RequestException as error:
             detail = _sanitize_error_text(str(error), token=self.token)
             raise DatasetUploadError(
                 f"Dataset upload request failed: {detail}",
                 detail=detail,
                 failure_class="request",
-            ) from error
+            ) from None
 
         if response.status_code < 200 or response.status_code >= 300:
             raise _upload_error_for_response(response, token=self.token)
@@ -235,7 +235,7 @@ class DatasetUploadClient:
             payload = response.json()
         except ValueError as error:
             detail = _response_detail(response, token=self.token)
-            raise _malformed_success_error(response, detail=detail) from error
+            raise _malformed_success_error(response, detail=detail) from None
         if not isinstance(payload, Mapping):
             detail = _response_detail(response, token=self.token)
             raise _malformed_success_error(response, detail=detail)
@@ -244,7 +244,7 @@ class DatasetUploadClient:
             return DatasetPublication.from_response(payload, upload_url=self.base_url)
         except (AttributeError, KeyError, TypeError, ValueError) as error:
             detail = _sanitize_error_text(str(error), token=self.token)
-            raise _malformed_success_error(response, detail=detail) from error
+            raise _malformed_success_error(response, detail=detail) from None
 
 
 def build_publish_idempotency_key(

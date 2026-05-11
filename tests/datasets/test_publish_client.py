@@ -773,6 +773,21 @@ def test_upload_package_maps_timeout_as_transient(tmp_path):
     assert error.value.is_transient
 
 
+def test_upload_package_request_exception_cause_does_not_leak_token(tmp_path):
+    manifest_path, files, manifest = _write_package(tmp_path)
+    client = DatasetUploadClient(
+        "https://upload.example",
+        "abc",
+        session=FakeSession(exc=requests.RequestException("Bearer abc failed")),
+    )
+
+    with pytest.raises(DatasetUploadError) as error:
+        client.upload_package("smoke", manifest_path, files, manifest=manifest)
+
+    assert "abc" not in str(error.value)
+    assert error.value.__cause__ is None
+
+
 def test_upload_package_maps_invalid_success_json_to_upload_error(tmp_path):
     manifest_path, files, manifest = _write_package(tmp_path)
     response = FakeResponse(
@@ -794,6 +809,7 @@ def test_upload_package_maps_invalid_success_json_to_upload_error(tmp_path):
     assert "secret-token" not in str(error.value)
     assert "secret-token" not in error.value.detail
     assert "<redacted>" in str(error.value)
+    assert error.value.__cause__ is None
 
 
 def test_upload_package_maps_success_array_to_upload_error(tmp_path):
