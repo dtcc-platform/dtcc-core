@@ -12,7 +12,9 @@ only and prints an INFO line.
 
 from __future__ import annotations
 
+import os
 import shutil
+import sys
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
@@ -161,3 +163,64 @@ def run_case(
         f"v{publication.version_number}"
     )
     return True, True, False
+
+
+def main(
+    *,
+    cases: list[dict[str, Any]] | None = None,
+    bounds: list[int] | None = None,
+    output_dir: Path | None = None,
+    env: Mapping[str, str] | None = None,
+    dataset: Any = None,
+) -> int:
+    """Run every case and print a one-line summary.
+
+    All arguments are injectable for testing. By default we use the
+    module-level constants and the live ``dtcc_core.datasets.smoke``
+    descriptor; the import is lazy so unit tests can skip the heavy
+    dependency chain.
+    """
+    cases = list(cases) if cases is not None else CASES
+    bounds = bounds if bounds is not None else BOUNDS
+    output_dir = output_dir if output_dir is not None else OUTPUT_DIR
+    env = env if env is not None else os.environ
+    if dataset is None:
+        import dtcc_core as dtcc
+
+        dataset = dtcc.datasets.smoke
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    publish_config = resolve_publish_config(env)
+    _, _, publish_enabled = publish_config
+    if not publish_enabled:
+        print(
+            "INFO: DTCC_UPLOAD_URL or DTCC_UPLOAD_TOKEN not set; "
+            "skipping publish step"
+        )
+
+    exported = 0
+    published = 0
+    skipped = 0
+
+    for case in cases:
+        e, p, s = run_case(
+            case,
+            bounds=bounds,
+            output_dir=output_dir,
+            publish_config=publish_config,
+            dataset=dataset,
+        )
+        exported += int(e)
+        published += int(p)
+        skipped += int(s)
+
+    print(
+        f"DONE: {exported} exported, {published} published, "
+        f"{skipped} skipped"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

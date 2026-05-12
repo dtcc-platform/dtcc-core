@@ -276,3 +276,152 @@ def test_run_case_publish_skipped_when_disabled(tmp_path):
 
     assert (exported, published, skipped) == (True, False, False)
     package.publish.assert_not_called()
+
+
+# ---------- main ----------
+
+
+def test_main_runs_all_seven_cases_without_publish(tmp_path, capsys):
+    dataset = MagicMock()
+    dataset.export.return_value = MagicMock()
+
+    exit_code = script.main(
+        bounds=[0, 0, 1, 1],
+        output_dir=tmp_path,
+        env={},
+        dataset=dataset,
+    )
+
+    assert exit_code == 0
+    assert dataset.export.call_count == 7
+
+    for case in script.CASES:
+        assert (tmp_path / case["name"]).is_dir()
+
+    captured = capsys.readouterr()
+    assert "DONE: 7 exported, 0 published, 0 skipped" in captured.out
+    assert "DTCC_UPLOAD_URL or DTCC_UPLOAD_TOKEN not set" in captured.out
+
+
+def test_main_mp4_skip_does_not_stop_other_cases(tmp_path, capsys):
+    # `streamlines_mp4` is the last entry in CASES, so a real cases list
+    # cannot prove the loop continues after the skip. Pass a custom cases
+    # list with cases on either side of the MP4 case so the assertion has
+    # something to bite on.
+    fake_cases = [
+        {
+            "name": "before_mp4",
+            "filename": "before.bin",
+            "dataset_key": "table-smoke-before",
+            "params": {"product": "field"},
+        },
+        {
+            "name": "streamlines_mp4",
+            "filename": "smoke_streamlines.mp4",
+            "dataset_key": "table-smoke-streamlines-mp4",
+            "params": {"product": "streamlines", "format": "mp4"},
+        },
+        {
+            "name": "after_mp4",
+            "filename": "after.bin",
+            "dataset_key": "table-smoke-after",
+            "params": {"product": "field"},
+        },
+    ]
+
+    dataset = MagicMock()
+
+    def export_side_effect(target, *, bounds, **params):
+        if str(target).endswith(".mp4"):
+            raise RuntimeError("ffmpeg unavailable in test env")
+        return MagicMock()
+
+    dataset.export.side_effect = export_side_effect
+
+    exit_code = script.main(
+        cases=fake_cases,
+        bounds=[0, 0, 1, 1],
+        output_dir=tmp_path,
+        env={},
+        dataset=dataset,
+    )
+
+    assert exit_code == 0
+    # All three cases attempted
+    assert dataset.export.call_count == 3
+
+    # Subsequent case ran successfully — this is the "doesn't stop" assertion
+    assert (tmp_path / "after_mp4").is_dir()
+
+    mp4_dir = tmp_path / "streamlines_mp4"
+    assert mp4_dir.is_dir()  # case dir was created and purged
+    assert not (mp4_dir / "smoke_streamlines.mp4").exists()
+
+    captured = capsys.readouterr()
+    assert "DONE: 2 exported, 0 published, 1 skipped" in captured.out
+    assert "SKIPPED" in captured.out
+
+
+def test_main_publishes_each_case_when_creds_set(tmp_path, capsys):
+    packages: list[MagicMock] = []
+
+    def export_side_effect(target, *, bounds, **params):
+        pkg = MagicMock()
+        pkg.publish.return_value = SimpleNamespace(
+            dataset_key=f"key-{target.parent.name}", version_number=1
+        )
+        packages.append(pkg)
+        return pkg
+
+    dataset = MagicMock()
+    dataset.export.side_effect = export_side_effect
+
+    exit_code = script.main(
+        bounds=[0, 0, 1, 1],
+        output_dir=tmp_path,
+        env={"DTCC_UPLOAD_URL": "http://upload.example", "DTCC_UPLOAD_TOKEN": "tok"},
+        dataset=dataset,
+    )
+
+    assert exit_code == 0
+    assert len(packages) == 7
+    for pkg in packages:
+        pkg.publish.assert_called_once()
+
+    captured = capsys.readouterr()
+    assert "DONE: 7 exported, 7 published, 0 skipped" in captured.out
+    assert "DTCC_UPLOAD_URL or DTCC_UPLOAD_TOKEN not set" not in captured.out
+
+
+def test_main_passes_stripped_creds_to_run_case(tmp_path):
+    packages: list[MagicMock] = []
+
+    def export_side_effect(target, *, bounds, **params):
+        pkg = MagicMock()
+        pkg.publish.return_value = SimpleNamespace(
+            dataset_key="k", version_number=1
+        )
+        packages.append(pkg)
+        return pkg
+
+    dataset = MagicMock()
+    dataset.export.side_effect = export_side_effect
+
+    script.main(
+        bounds=[0, 0, 1, 1],
+        output_dir=tmp_path,
+        env={
+            "DTCC_UPLOAD_URL": "  http://upload.example  ",
+            "DTCC_UPLOAD_TOKEN": "  tok-x  ",
+        },
+        dataset=dataset,
+    )
+
+    expected_keys = {f"table-smoke-{case['name'].replace('_', '-')}" for case in script.CASES}
+    seen_keys = set()
+    for pkg in packages:
+        kwargs = pkg.publish.call_args.kwargs
+        assert kwargs["upload_url"] == "http://upload.example"
+        assert kwargs["token"] == "tok-x"
+        seen_keys.add(kwargs["dataset_key"])
+    assert seen_keys == expected_keys
