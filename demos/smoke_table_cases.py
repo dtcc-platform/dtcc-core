@@ -13,7 +13,7 @@ only and prints an INFO line.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping, Optional
 
 BOUNDS: list[int] = [319720, 6397660, 320220, 6398160]
 OUTPUT_DIR: Path = Path("output/smoke/table_cases")
@@ -97,3 +97,17 @@ CASES: list[dict[str, Any]] = [
         },
     },
 ]
+
+
+def resolve_publish_config(
+    env: Mapping[str, str],
+) -> tuple[Optional[str], Optional[str], bool]:
+    """Resolve publish credentials from an environment mapping.
+
+    Blank or whitespace-only values are treated as unset, mirroring the
+    validation in ``DatasetUploadClient.from_config`` so the local-only
+    fallback fires at the gate instead of partway through publishing.
+    """
+    url = (env.get("DTCC_UPLOAD_URL") or "").strip() or None
+    token = (env.get("DTCC_UPLOAD_TOKEN") or "").strip() or None
+    return url, token, bool(url and token)

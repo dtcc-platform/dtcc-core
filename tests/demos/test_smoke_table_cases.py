@@ -79,3 +79,59 @@ def test_non_mp4_cases_omit_explicit_format():
         if case["name"] == "streamlines_mp4":
             continue
         assert "format" not in case["params"], case["name"]
+
+
+# ---------- resolve_publish_config ----------
+
+
+def test_resolve_publish_config_both_missing_returns_disabled():
+    url, token, enabled = script.resolve_publish_config({})
+    assert url is None
+    assert token is None
+    assert enabled is False
+
+
+def test_resolve_publish_config_blank_strings_disabled():
+    cfg = script.resolve_publish_config(
+        {"DTCC_UPLOAD_URL": "", "DTCC_UPLOAD_TOKEN": ""}
+    )
+    assert cfg == (None, None, False)
+
+
+def test_resolve_publish_config_whitespace_only_disabled():
+    cfg = script.resolve_publish_config(
+        {"DTCC_UPLOAD_URL": "   ", "DTCC_UPLOAD_TOKEN": "\t\n"}
+    )
+    assert cfg == (None, None, False)
+
+
+def test_resolve_publish_config_only_url_set_disabled():
+    url, token, enabled = script.resolve_publish_config(
+        {"DTCC_UPLOAD_URL": "http://x"}
+    )
+    assert url == "http://x"
+    assert token is None
+    assert enabled is False
+
+
+def test_resolve_publish_config_only_token_set_disabled():
+    url, token, enabled = script.resolve_publish_config(
+        {"DTCC_UPLOAD_TOKEN": "tok"}
+    )
+    assert url is None
+    assert token == "tok"
+    assert enabled is False
+
+
+def test_resolve_publish_config_both_set_enabled():
+    cfg = script.resolve_publish_config(
+        {"DTCC_UPLOAD_URL": "http://x", "DTCC_UPLOAD_TOKEN": "tok"}
+    )
+    assert cfg == ("http://x", "tok", True)
+
+
+def test_resolve_publish_config_strips_outer_whitespace():
+    cfg = script.resolve_publish_config(
+        {"DTCC_UPLOAD_URL": "  http://x  ", "DTCC_UPLOAD_TOKEN": "  tok  "}
+    )
+    assert cfg == ("http://x", "tok", True)
