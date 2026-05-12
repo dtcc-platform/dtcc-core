@@ -828,7 +828,7 @@ class DatasetDescriptor(ABC):
         Returns:
             File contents as bytes
         """
-        with tempfile.TemporaryDirectory(delete=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             tmpfile = Path(tmpdir) / f"data.{format}"
             if save_callable is not None:
                 save_callable(obj, tmpfile, **save_kwargs)

@@ -72,7 +72,7 @@ class DeSODataset(DatasetDescriptor):
 
     @staticmethod
     def _export_gdf_to_bytes(gdf, format: str) -> bytes:
-        with tempfile.TemporaryDirectory(delete=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             if format == "geojson":
                 path = Path(tmpdir) / "deso.geojson"
                 gdf.to_file(path, driver="GeoJSON")
