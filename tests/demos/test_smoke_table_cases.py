@@ -8,6 +8,10 @@ from __future__ import annotations
 import importlib.util
 import sys
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
+import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SCRIPT_PATH = _REPO_ROOT / "demos" / "smoke_table_cases.py"
@@ -135,3 +139,140 @@ def test_resolve_publish_config_strips_outer_whitespace():
         {"DTCC_UPLOAD_URL": "  http://x  ", "DTCC_UPLOAD_TOKEN": "  tok  "}
     )
     assert cfg == ("http://x", "tok", True)
+
+
+# ---------- run_case ----------
+
+
+def _fake_case(
+    name: str = "case_x",
+    filename: str = "out.bin",
+    params: dict | None = None,
+):
+    return {
+        "name": name,
+        "filename": filename,
+        "dataset_key": f"table-smoke-{name.replace('_', '-')}",
+        "params": params or {"product": "field"},
+    }
+
+
+def test_run_case_purges_stale_case_dir(tmp_path):
+    case_dir = tmp_path / "case_x"
+    case_dir.mkdir()
+    (case_dir / "stale_artifact.bin").write_text("old")
+    (case_dir / "stale.manifest.json").write_text("{}")
+
+    dataset = MagicMock()
+    dataset.export.return_value = MagicMock()
+
+    exported, published, skipped = script.run_case(
+        _fake_case(),
+        bounds=[0, 0, 1, 1],
+        output_dir=tmp_path,
+        publish_config=(None, None, False),
+        dataset=dataset,
+    )
+
+    assert (exported, published, skipped) == (True, False, False)
+    # Case dir was recreated; stale files gone
+    assert case_dir.is_dir()
+    assert not (case_dir / "stale_artifact.bin").exists()
+    assert not (case_dir / "stale.manifest.json").exists()
+
+
+def test_run_case_calls_export_with_target_bounds_and_params(tmp_path):
+    dataset = MagicMock()
+    dataset.export.return_value = MagicMock()
+
+    case = _fake_case(
+        name="slice_demo",
+        filename="smoke_slice.geojson",
+        params={"product": "slice", "resolution": 31, "slice_axis": "z"},
+    )
+    script.run_case(
+        case,
+        bounds=[10, 20, 30, 40],
+        output_dir=tmp_path,
+        publish_config=(None, None, False),
+        dataset=dataset,
+    )
+
+    assert dataset.export.call_count == 1
+    call = dataset.export.call_args
+    # First positional arg is the target path
+    assert call.args[0] == tmp_path / "slice_demo" / "smoke_slice.geojson"
+    assert call.kwargs["bounds"] == [10, 20, 30, 40]
+    assert call.kwargs["product"] == "slice"
+    assert call.kwargs["resolution"] == 31
+    assert call.kwargs["slice_axis"] == "z"
+
+
+def test_run_case_mp4_runtimeerror_is_skipped(tmp_path):
+    dataset = MagicMock()
+    dataset.export.side_effect = RuntimeError("ffmpeg not found on PATH")
+
+    exported, published, skipped = script.run_case(
+        _fake_case(name="streamlines_mp4", filename="smoke_streamlines.mp4"),
+        bounds=[0, 0, 1, 1],
+        output_dir=tmp_path,
+        publish_config=(None, None, False),
+        dataset=dataset,
+    )
+
+    assert (exported, published, skipped) == (False, False, True)
+
+
+def test_run_case_non_mp4_runtimeerror_propagates(tmp_path):
+    dataset = MagicMock()
+    dataset.export.side_effect = RuntimeError("disk full")
+
+    with pytest.raises(RuntimeError, match="disk full"):
+        script.run_case(
+            _fake_case(name="slice_png", filename="smoke_slice.png"),
+            bounds=[0, 0, 1, 1],
+            output_dir=tmp_path,
+            publish_config=(None, None, False),
+            dataset=dataset,
+        )
+
+
+def test_run_case_publish_called_when_enabled(tmp_path):
+    package = MagicMock()
+    package.publish.return_value = SimpleNamespace(
+        dataset_key="table-smoke-case-x", version_number=7
+    )
+    dataset = MagicMock()
+    dataset.export.return_value = package
+
+    exported, published, skipped = script.run_case(
+        _fake_case(name="case_x"),
+        bounds=[0, 0, 1, 1],
+        output_dir=tmp_path,
+        publish_config=("http://upload.example", "tok-abc", True),
+        dataset=dataset,
+    )
+
+    assert (exported, published, skipped) == (True, True, False)
+    package.publish.assert_called_once_with(
+        dataset_key="table-smoke-case-x",
+        upload_url="http://upload.example",
+        token="tok-abc",
+    )
+
+
+def test_run_case_publish_skipped_when_disabled(tmp_path):
+    package = MagicMock()
+    dataset = MagicMock()
+    dataset.export.return_value = package
+
+    exported, published, skipped = script.run_case(
+        _fake_case(),
+        bounds=[0, 0, 1, 1],
+        output_dir=tmp_path,
+        publish_config=(None, None, False),
+        dataset=dataset,
+    )
+
+    assert (exported, published, skipped) == (True, False, False)
+    package.publish.assert_not_called()

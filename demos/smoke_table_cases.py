@@ -12,6 +12,7 @@ only and prints an INFO line.
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
@@ -111,3 +112,52 @@ def resolve_publish_config(
     url = (env.get("DTCC_UPLOAD_URL") or "").strip() or None
     token = (env.get("DTCC_UPLOAD_TOKEN") or "").strip() or None
     return url, token, bool(url and token)
+
+
+def run_case(
+    case: Mapping[str, Any],
+    *,
+    bounds: list[int],
+    output_dir: Path,
+    publish_config: tuple[Optional[str], Optional[str], bool],
+    dataset: Any,
+) -> tuple[bool, bool, bool]:
+    """Execute one case end-to-end.
+
+    Purges the case subdirectory first, exports the artifact via the
+    injected dataset module, and optionally publishes the resulting
+    package. Returns (exported, published, skipped) flags so the caller
+    can keep summary counters.
+
+    A RuntimeError from the MP4 case is caught and reported as skipped;
+    any other RuntimeError propagates so the failure is loud.
+    """
+    case_dir = output_dir / case["name"]
+    if case_dir.exists():
+        shutil.rmtree(case_dir)
+    case_dir.mkdir(parents=True)
+    target = case_dir / case["filename"]
+    print(f"==> {case['name']}: exporting {target}")
+
+    try:
+        package = dataset.export(target, bounds=bounds, **case["params"])
+    except RuntimeError as exc:
+        if case["name"] == "streamlines_mp4":
+            print(f"    SKIPPED ({exc})")
+            return False, False, True
+        raise
+
+    url, token, publish_enabled = publish_config
+    if not publish_enabled:
+        return True, False, False
+
+    publication = package.publish(
+        dataset_key=case["dataset_key"],
+        upload_url=url,
+        token=token,
+    )
+    print(
+        f"    published {publication.dataset_key} "
+        f"v{publication.version_number}"
+    )
+    return True, True, False
