@@ -8,6 +8,8 @@ When DTCC_UPLOAD_URL and DTCC_UPLOAD_TOKEN are set in the environment,
 each case is also published to a dtcc-upload catalog under a
 table-smoke-<name> dataset_key. Otherwise the script writes local files
 only and prints an INFO line.
+
+Requires Python 3.12+ (inherited from dtcc_core's tempfile usage).
 """
 
 from __future__ import annotations
