@@ -247,6 +247,30 @@ An exported package can also be published without recomputing the dataset:
 Publishing v1 supports single-file formats only. Multi-file packages such as
 XDMF plus HDF5 are reserved for a later server and client contract.
 
+Seeding an Atlas Smoke Catalog
+------------------------------
+
+The table smoke demo is the canonical way to seed a `dtcc-upload` catalog for
+the Atlas MVP. It exports seven local cases under `output/smoke/table_cases/`
+and publishes only the five Atlas-renderable cases: GeoJSON, PNG, and MP4. The
+VTU and protobuf cases stay local-only.
+
+Start `dtcc-upload` with CORS configured for the Atlas dev origin:
+
+    export DTCC_UPLOAD_CORS_ORIGINS_JSON='["http://localhost:5175"]'
+
+Use the exact origin shown in the browser. If Atlas is opened at
+`http://127.0.0.1:5175`, include that origin instead.
+
+Then run the smoke table publisher from this repository:
+
+    export DTCC_UPLOAD_URL=http://127.0.0.1:8000
+    export DTCC_UPLOAD_TOKEN=replace-me
+    python demos/smoke_table_cases.py
+
+Atlas can browse the resulting catalog and fetch the published smoke datasets
+using their `table-smoke-*` dataset keys.
+
 Atlas Integration Checklist
 ---------------------------
 

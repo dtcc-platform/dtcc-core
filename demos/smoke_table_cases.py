@@ -5,9 +5,11 @@ one (product, format) case per subdirectory under output/smoke/table_cases/
 so that each case has a clean artifact + manifest pair.
 
 When DTCC_UPLOAD_URL and DTCC_UPLOAD_TOKEN are set in the environment,
-each case is also published to a dtcc-upload catalog under a
-table-smoke-<name> dataset_key. Otherwise the script writes local files
-only and prints an INFO line.
+the Atlas-renderable GeoJSON, PNG, and MP4 cases are also published to a
+dtcc-upload catalog under a table-smoke-<name> dataset_key. The VTU and
+protobuf cases stay local-only because Atlas does not render them.
+Without upload credentials, the script writes local files only and prints
+an INFO line.
 """
 
 from __future__ import annotations
@@ -26,18 +28,27 @@ CASES: list[dict[str, Any]] = [
         "name": "field_vtu",
         "filename": "smoke_field.vtu",
         "dataset_key": "table-smoke-field-vtu",
+        "title": "Smoke Field VTU",
+        "description": "Local-only VTU field smoke artifact.",
+        "publish_to_atlas": False,
         "params": {"product": "field", "resolution": 17},
     },
     {
         "name": "field_pb",
         "filename": "smoke_field.pb",
         "dataset_key": "table-smoke-field-pb",
+        "title": "Smoke Field Protobuf",
+        "description": "Local-only protobuf field smoke artifact.",
+        "publish_to_atlas": False,
         "params": {"product": "field", "resolution": 17},
     },
     {
         "name": "slice_geojson",
         "filename": "smoke_slice.geojson",
         "dataset_key": "table-smoke-slice-geojson",
+        "title": "Smoke Slice GeoJSON",
+        "description": "Atlas smoke scalar slice exported as GeoJSON.",
+        "publish_to_atlas": True,
         "params": {
             "product": "slice",
             "resolution": 31,
@@ -49,6 +60,9 @@ CASES: list[dict[str, Any]] = [
         "name": "streamlines_geojson",
         "filename": "smoke_streamlines.geojson",
         "dataset_key": "table-smoke-streamlines-geojson",
+        "title": "Smoke Streamlines GeoJSON",
+        "description": "Atlas smoke streamlines exported as GeoJSON.",
+        "publish_to_atlas": True,
         "params": {
             "product": "streamlines",
             "streamline_count": 25,
@@ -59,6 +73,9 @@ CASES: list[dict[str, Any]] = [
         "name": "slice_png",
         "filename": "smoke_slice.png",
         "dataset_key": "table-smoke-slice-png",
+        "title": "Smoke Slice PNG",
+        "description": "Atlas smoke scalar slice rendered as PNG.",
+        "publish_to_atlas": True,
         "params": {
             "product": "slice",
             "resolution": 128,
@@ -73,6 +90,9 @@ CASES: list[dict[str, Any]] = [
         "name": "streamlines_png",
         "filename": "smoke_streamlines.png",
         "dataset_key": "table-smoke-streamlines-png",
+        "title": "Smoke Streamlines PNG",
+        "description": "Atlas smoke streamlines rendered as PNG.",
+        "publish_to_atlas": True,
         "params": {
             "product": "streamlines",
             "streamline_count": 64,
@@ -86,6 +106,9 @@ CASES: list[dict[str, Any]] = [
         "name": "streamlines_mp4",
         "filename": "smoke_streamlines.mp4",
         "dataset_key": "table-smoke-streamlines-mp4",
+        "title": "Smoke Streamlines MP4",
+        "description": "Atlas smoke streamlines rendered as MP4.",
+        "publish_to_atlas": True,
         "params": {
             "product": "streamlines",
             "streamline_count": 48,
@@ -142,7 +165,13 @@ def run_case(
     print(f"==> {case['name']}: exporting {target}")
 
     try:
-        package = dataset.export(target, bounds=bounds, **case["params"])
+        package = dataset.export(
+            target,
+            bounds=bounds,
+            title=case["title"],
+            description=case["description"],
+            **case["params"],
+        )
     except RuntimeError as exc:
         if case["name"] == "streamlines_mp4":
             print(f"    SKIPPED ({exc})")
@@ -150,7 +179,7 @@ def run_case(
         raise
 
     url, token, publish_enabled = publish_config
-    if not publish_enabled:
+    if not publish_enabled or not case["publish_to_atlas"]:
         return True, False, False
 
     publication = package.publish(
