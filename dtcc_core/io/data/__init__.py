@@ -4,6 +4,21 @@
 #from dtcc_data.lidar import download_lidar
 #from dtcc_data.overpass import get_roads_for_bbox, get_buildings_for_bbox
 #from dtcc_data.geopkg import download_tiles
-from .wrapper import download_data, download_pointcloud, download_footprints, download_roadnetwork
+from .wrapper import (
+    download_data,
+    download_pointcloud,
+    download_footprints,
+    download_roadnetwork,
+)
+from .deso import attach_deso_statistics, download_deso, download_deso_statistics
 from .cache import empty_cache
-__all__ = ["download_data", "download_pointcloud", "download_footprints", "download_roadnetwork", "empty_cache"] 
+__all__ = [
+    "download_data",
+    "download_pointcloud",
+    "download_footprints",
+    "download_roadnetwork",
+    "download_deso",
+    "download_deso_statistics",
+    "attach_deso_statistics",
+    "empty_cache",
+]

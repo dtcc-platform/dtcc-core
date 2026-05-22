@@ -475,6 +475,9 @@ class AirQualityDataset(DatasetDescriptor):
         "within the specified bounds."
     )
     ArgsModel = AirQualityDatasetArgs
+    data_category = "raw"
+    result_kind = "sensor_collection"
+    python_return_type = "dtcc_core.model.SensorCollection"
 
     def build(self, args: AirQualityDatasetArgs):
         """Build the air quality dataset.

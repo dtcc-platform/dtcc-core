@@ -146,6 +146,79 @@ def test_dataset_base_args_reject_unknown_arguments():
         )
 
 
+def test_descriptor_extracts_format_metadata_from_schema():
+    """Descriptor metadata should expose formats without Atlas parsing schemas."""
+    ds = datasets.point_cloud
+
+    assert ds.list_supported_formats() == ["copc", "las", "laz"]
+    assert ds.format_metadata()[0] == {
+        "format": "copc",
+        "extension": "copc",
+        "media_type": "application/octet-stream",
+        "data_kind": "point_cloud",
+        "multi_file": False,
+    }
+
+
+def test_descriptor_describe_returns_dataset_contract():
+    """describe() should return the stable dataset contract for clients."""
+    ds = datasets.city_volume_mesh
+    metadata = ds.describe()
+
+    assert metadata["name"] == "city_volume_mesh"
+    assert metadata["title"] == "City Volume Mesh"
+    assert metadata["data_category"] == "derived"
+    assert metadata["result_kind"] == "mesh"
+    assert metadata["python_return_type"] == "dtcc_core.model.VolumeMesh"
+    assert metadata["supported_formats"] == ["xdmf", "vtu"]
+    assert metadata["multi_file_formats"] == ["xdmf"]
+    assert metadata["serialization"]["python_object_when_format_omitted"] is True
+    assert metadata["serialization"]["bytes_when_format_is_set"] is True
+    assert metadata["serialization"]["format_parameter"] is True
+
+    xdmf = next(item for item in metadata["formats"] if item["format"] == "xdmf")
+    assert xdmf["data_kind"] == "mesh"
+    assert xdmf["multi_file"] is True
+
+
+def test_dataset_info_groups_rows_by_category():
+    """Dataset info summary rows should be grouped in the public category order."""
+    grouped = datasets._group_dataset_summary_rows(
+        {
+            "smoke": datasets.smoke,
+            "city": datasets.city,
+            "point_cloud": datasets.point_cloud,
+        }
+    )
+
+    assert list(grouped) == ["raw", "derived", "simulation"]
+    assert grouped["raw"][0][0] == "point_cloud"
+    assert grouped["derived"][0][0] == "city"
+    assert grouped["simulation"][0][0] == "smoke"
+
+
+def test_dataset_info_prints_one_table_per_category(monkeypatch):
+    """datasets.info() should delegate grouped output to the common table logger."""
+    messages = []
+    tables = []
+
+    monkeypatch.setattr(datasets, "log_info", messages.append)
+
+    def capture_table(log_fn, message, columns, rows, **kwargs):
+        tables.append((message, columns, rows, kwargs))
+
+    monkeypatch.setattr(datasets, "log_table", capture_table)
+
+    datasets.info()
+
+    table_titles = [table[0] for table in tables]
+    assert "Raw Datasets" in table_titles[0]
+    assert any(title.startswith("Derived Datasets") for title in table_titles)
+    assert any(title.startswith("Simulation Datasets") for title in table_titles)
+    assert all(len(table[2]) > 0 for table in tables)
+    assert any("DTCC Datasets" in message for message in messages)
+
+
 # Explicit API Tests
 
 

@@ -69,6 +69,9 @@ class CityFlatMeshDataset(DatasetDescriptor):
         "Flat 2D triangular mesh at z=0 with building footprints marked as subdomains."
     )
     ArgsModel = CityFlatMeshArgs
+    data_category = "derived"
+    result_kind = "mesh"
+    python_return_type = "dtcc_core.model.Mesh"
 
     def _build_mesh_from_city(self, city: City, args: CityFlatMeshArgs):
         stage_audit = {} if args.stage_audit_enabled else None

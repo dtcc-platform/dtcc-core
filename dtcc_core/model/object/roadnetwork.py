@@ -1,8 +1,18 @@
 from dataclasses import dataclass, field
 import builtins
 from collections import Counter
-from typing import Union, List, Tuple
+from typing import Any, Union, List, Tuple
 from enum import Enum, auto
+from ...common import warning
+from ...plotting.style import (
+    DTCC_COLORS,
+    add_categorical_legend,
+    add_plot_context,
+    apply_dtcc_style,
+    get_axes,
+    plot_line_segments,
+    show_plot,
+)
 from .object import Object, GeometryType
 from ..geometry import LineString, MultiLineString
 from ..geometry import Bounds
@@ -236,11 +246,15 @@ class RoadNetwork(Object):
         self,
         ax=None,
         column=None,
-        color="black",
+        color=DTCC_COLORS["teal"],
         linewidth=1.0,
-        cmap="viridis",
+        cmap=None,
         legend=True,
         equal_aspect=True,
+        title: str | None = None,
+        metadata: bool | dict[str, Any] = True,
+        metadata_loc: str = "upper left",
+        theme: str = "dark",
         show=True,
         **kwargs,
     ):
@@ -255,12 +269,13 @@ class RoadNetwork(Object):
         column : str, optional
             Edge-aligned attribute to color by. ``"length"`` and ``"lengths"``
             refer to road segment lengths.
-        color : str, default "black"
+        color : str, default DTCC teal
             Line color when no column is given.
         linewidth : float, default 1.0
             Width of road lines.
-        cmap : str, default "viridis"
-            Matplotlib colormap for numeric or categorical columns.
+        cmap : str or matplotlib colormap, optional
+            Matplotlib colormap for numeric or categorical columns. Defaults to
+            the DTCC brand colormap.
         legend : bool, default True
             Whether to show a colorbar or categorical legend when coloring by a
             column.
@@ -276,66 +291,111 @@ class RoadNetwork(Object):
         matplotlib.axes.Axes
             Axes containing the road plot.
         """
-        try:
-            import matplotlib.pyplot as plt
-            from matplotlib.collections import LineCollection
-            from matplotlib.lines import Line2D
-        except ImportError as exc:
-            raise ImportError(
-                "matplotlib is required to plot RoadNetwork objects."
-            ) from exc
-
         segments = self._plot_segments()
-        if ax is None:
-            _, ax = plt.subplots()
+        ax = get_axes(ax)
 
         if len(segments) == 0:
             warning("RoadNetwork has no road segments to plot.")
+            apply_dtcc_style(
+                ax,
+                theme=theme,
+                equal_aspect=equal_aspect,
+                xlabel="x",
+                ylabel="y",
+                grid=True,
+            )
+            add_plot_context(
+                ax,
+                title=title or "DTCC Road Network",
+                metadata=self._plot_metadata(column, 0, metadata),
+                bounds=self.bounds,
+                theme=theme,
+                metadata_loc=metadata_loc,
+            )
+            show_plot(show)
             return ax
 
         if column is None:
-            collection = LineCollection(
-                segments, colors=color, linewidths=linewidth, **kwargs
+            plot_line_segments(
+                ax,
+                segments,
+                color=color,
+                linewidth=linewidth,
+                theme=theme,
+                **kwargs,
             )
-            ax.add_collection(collection)
+            if legend:
+                add_categorical_legend(
+                    ax,
+                    {"Road segments": color},
+                    title="Layers",
+                    linewidth=linewidth,
+                    theme=theme,
+                )
         else:
             values = self._plot_column_values(column, len(segments))
-            numeric_values = self._as_numeric_plot_values(values)
-            if numeric_values is not None:
-                collection = LineCollection(
-                    segments, linewidths=linewidth, cmap=cmap, **kwargs
-                )
-                collection.set_array(numeric_values)
-                ax.add_collection(collection)
-                if legend:
-                    ax.figure.colorbar(collection, ax=ax, label=column)
-            else:
-                labels = [str(value) if value not in (None, "") else "N/A" for value in values]
-                categories = sorted(set(labels))
-                colormap = plt.get_cmap(cmap, max(len(categories), 1))
-                color_lookup = {
-                    category: colormap(i) for i, category in enumerate(categories)
-                }
-                colors = [color_lookup[label] for label in labels]
-                collection = LineCollection(
-                    segments, colors=colors, linewidths=linewidth, **kwargs
-                )
-                ax.add_collection(collection)
-                if legend:
-                    handles = [
-                        Line2D([0], [0], color=color_lookup[category], lw=linewidth)
-                        for category in categories
-                    ]
-                    ax.legend(handles, categories, title=column)
+            plot_line_segments(
+                ax,
+                segments,
+                values=values,
+                column_label=column,
+                linewidth=linewidth,
+                cmap=cmap,
+                legend=legend,
+                theme=theme,
+                **kwargs,
+            )
 
         ax.autoscale()
-        if equal_aspect:
-            ax.set_aspect("equal", adjustable="box")
-        ax.set_xlabel("x")
-        ax.set_ylabel("y")
-        if show:
-            plt.show()
+        apply_dtcc_style(
+            ax,
+            theme=theme,
+            equal_aspect=equal_aspect,
+            xlabel="x",
+            ylabel="y",
+            grid=True,
+        )
+        add_plot_context(
+            ax,
+            title=title or "DTCC Road Network",
+            metadata=self._plot_metadata(column, len(segments), metadata),
+            bounds=self.bounds,
+            theme=theme,
+            metadata_loc=metadata_loc,
+        )
+        show_plot(show)
         return ax
+
+    def _plot_metadata(self, column, segment_count: int, metadata):
+        if metadata is False:
+            return None
+
+        plot_metadata: dict[str, Any] = {
+            "Segments": segment_count,
+            "Vertices": len(self.vertices),
+            "CRS": self._plot_crs(),
+            "Column": column,
+        }
+        if len(self.length) > 0:
+            plot_metadata["Total length"] = f"{float(np.sum(self.length)):.2f}"
+        highway_values = self.attributes.get("highway")
+        if highway_values is not None:
+            highway_classes = {
+                value for value in highway_values if value not in (None, "")
+            }
+            if highway_classes:
+                plot_metadata["Highway classes"] = len(highway_classes)
+
+        if isinstance(metadata, dict):
+            plot_metadata.update(metadata)
+        return plot_metadata
+
+    def _plot_crs(self):
+        crs = self.transform.srs
+        geom = self.geometry.get(GeometryType.MULTILINESTRING)
+        if not crs and geom is not None:
+            crs = geom.transform.srs
+        return crs
 
     def _plot_segments(self):
         segments = []
@@ -375,19 +435,6 @@ class RoadNetwork(Object):
                 f"but the plot has {segment_count} segment(s)."
             )
         return values
-
-    @staticmethod
-    def _as_numeric_plot_values(values):
-        numeric_values = []
-        for value in values:
-            if value is None or value == "":
-                numeric_values.append(np.nan)
-                continue
-            try:
-                numeric_values.append(float(value))
-            except (TypeError, ValueError):
-                return None
-        return np.asarray(numeric_values, dtype=float)
 
     def to_shapely(self):
         """

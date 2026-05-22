@@ -1,66 +1,306 @@
-DTCC Datasets - Dynamic Dataset Registration System
-===================================================
+DTCC Datasets
+=============
 
-This module provides a dynamic registration system for datasets in dtcc_core.
-Datasets automatically register when they are defined, making them discoverable
-and accessible at runtime.
+The dataset layer is the public contract between Python users, service
+wrappers, and DTCC Atlas. A dataset is a named, parametrized data product. It
+may expose raw provider data, derived data produced from one or more raw
+datasets, or simulation output produced from other datasets.
 
-Basic Usage
-----------
-
-Access built-in datasets::
+For Python users the normal shape is:
 
     from dtcc_core import datasets
 
-    # Use built-in datasets
-    pointcloud = datasets.pointcloud(bounds=[minx, miny, maxx, maxy])
-    buildings = datasets.buildings(bounds=[minx, miny, maxx, maxy])
-    terrain = datasets.terrain(bounds=[minx, miny, maxx, maxy])
+    mesh = datasets.city_surface_mesh(bounds=[xmin, ymin, xmax, ymax])
 
-    # List all available datasets
-    available = datasets.list()
-    print(available.keys())  # ['pointcloud', 'buildings', 'terrain', ...]
+For web and service users the normal shape is:
 
-Graceful Upstream Handling
---------------------------
-
-Live/network-backed datasets should follow this contract::
-
-    from dtcc_core import datasets
-
-    sensors = datasets.weather(
-        bounds=[minx, miny, maxx, maxy],
-        strict_live=False,  # default
+    descriptor = datasets.city_surface_mesh.describe()
+    schema = descriptor["args_schema"]
+    payload = datasets.city_surface_mesh(
+        bounds=[xmin, ymin, xmax, ymax],
+        format="vtu",
     )
 
-    if sensors.attributes.get("partial_result"):
-        print("Result is incomplete due to upstream failures")
-        print(sensors.attributes["upstream_errors"])
+Core Contract
+-------------
 
-Default mode (`strict_live=False`) degrades gracefully on upstream failures and
-returns an empty or partial `SensorCollection` with health metadata in
-`.attributes`, including:
+Every dataset is a `DatasetDescriptor` with:
+
+- `name`: stable registry name, used as `datasets.<name>()`.
+- `description`: human-readable description.
+- `ArgsModel`: Pydantic model describing accepted parameters.
+- `data_category`: one of `raw`, `derived`, `simulation`, `remote`, or
+  `unknown`.
+- `result_kind`: coarse Python result kind such as `mesh`, `point_cloud`,
+  `sensor_collection`, `city_model`, or `road_network`.
+- `python_return_type`: textual return type for Python clients when `format`
+  is omitted.
+- `timeout_hint`: optional expected upper bound in seconds for service UIs.
+- `multi_file_formats`: serialized formats that usually produce companion
+  files, such as `xdmf`.
+
+The shared API is:
+
+- `dataset(**kwargs)`: validate parameters and return the dataset result.
+- `dataset.show_options()`: return the Pydantic JSON schema for parameters.
+- `dataset.describe()`: return JSON-safe metadata for Atlas, services, and
+  documentation tooling.
+- `dataset.list_supported_formats()`: return accepted `format` values.
+- `dataset.format_metadata()`: return extension, media type, data kind, and
+  multi-file information for each serialized format.
+
+Return Semantics
+----------------
+
+Datasets have two intentionally different return modes:
+
+- If `format` is omitted or `None`, the dataset returns a Python object:
+  `PointCloud`, `City`, `Mesh`, `VolumeMesh`, `SensorCollection`,
+  `RoadNetwork`, or another DTCC object.
+- If `format` is set, the dataset returns serialized `bytes` for that format.
+
+This keeps the Python API ergonomic while giving Atlas and service wrappers a
+download-oriented path.
+
+Important: `DatasetDescriptor.export_to_bytes()` is a single-file helper. For
+multi-file formats such as `xdmf`, services should run the dataset without
+`format`, call `.save()` in a temporary directory, and package every generated
+file. The dtcc-sim service already follows this pattern.
+
+Bounds
+------
+
+All built-in datasets inherit `DatasetBaseArgs`, so they accept:
+
+- 2D bounds: `[xmin, ymin, xmax, ymax]`
+- 3D bounds: `[xmin, ymin, zmin, xmax, ymax, zmax]`
+- `dtcc_core.model.Bounds`, converted automatically by the descriptor
+
+Bounds are validated for length and ordering. Unknown arguments are rejected.
+
+Live Data And Partial Results
+-----------------------------
+
+Live/network-backed datasets should support `strict_live`:
+
+    sensors = datasets.weather(
+        bounds=[xmin, ymin, xmax, ymax],
+        strict_live=False,
+    )
+
+Default mode (`strict_live=False`) degrades gracefully and returns an empty or
+partial `SensorCollection` with health metadata in `.attributes`:
 
 - `partial_result`
 - `upstream_error_count`
 - `upstream_errors`
 - `stations_skipped_upstream`
-
-Datasets that fetch multiple parameters may also report:
-
 - `requested_parameters`
 - `fetched_parameters`
 
-Use `strict_live=True` when you want upstream failures to raise a typed
-`DatasetUpstreamError` instead of returning a degraded result. User input
-errors such as malformed bounds or unknown parameters still fail fast with a
-clear exception.
+Use `strict_live=True` when a live upstream failure should raise
+`DatasetUpstreamError` instead of returning a degraded result.
+
+Current Built-In Datasets
+-------------------------
+
+| Dataset | Category | Python result when `format=None` | Serialized formats | Notes |
+| --- | --- | --- | --- | --- |
+| `point_cloud` | raw | `PointCloud` | `copc`, `las`, `laz` | Lantmateriet point cloud with classification filters. |
+| `building_footprints` | raw | `list[Building]` | `geojson`, `gpkg`, `shp.zip` | Provider footprints, optionally height-enriched. |
+| `buildings` | derived | `list[Building]` | `obj`, `stl` | LoD1 buildings; exports are merged meshes. |
+| `city` | derived | `City` | `cityjson`, `json` | Both serialized paths currently produce CityJSON-compatible JSON bytes. |
+| `city_footprints` | derived | `CityMeshingFootprints` | none | Conditioned, meshing-ready footprints. |
+| `terrain_surface_mesh` | derived | `Mesh` or `Raster` | `tif`, `obj`, `stl` | `tif` returns terrain raster bytes. |
+| `city_flat_mesh` | derived | `Mesh` | `obj`, `stl`, `vtu` | Flat 2D mesh with building subdomains. |
+| `city_surface_mesh` | derived | `Mesh` | `obj`, `stl`, `vtu` | Terrain plus extruded building surfaces. |
+| `city_volume_mesh` | derived | `VolumeMesh` | `xdmf`, `vtu` | `xdmf` is a multi-file format. |
+| `trees` | derived | `list[Tree]` | `tif`, `gpkg`, `geojson` | Raster tree heights or vector tree objects. |
+| `roads` | raw | `RoadNetwork` | `pb` | OSM/Overpass road network. |
+| `space_syntax` | derived | `RoadNetwork` | `pb` | Segment-based road-network space syntax measures. |
+| `transit_vehicles` | raw | `VehicleCollection` | `pb` | Live public-transport vehicle positions. |
+| `buses` | raw | `VehicleCollection` | `pb` | Shortcut for live bus positions. |
+| `trams` | raw | `VehicleCollection` | `pb` | Shortcut for live tram positions. |
+| `trains` | raw | `VehicleCollection` | `pb` | Shortcut for live train positions. |
+| `metros` | raw | `VehicleCollection` | `pb` | Shortcut for live metro positions. |
+| `ferries` | raw | `VehicleCollection` | `pb` | Shortcut for live ferry positions. |
+| `smoke` | simulation | `VolumeMesh` | `pb`, `vtu`, `geojson` | Synthetic velocity-field smoke test with `field`, `slice`, and `streamlines` products. |
+| `air_quality` | raw | `SensorCollection` | `pb` | SMHI air-quality snapshot. |
+| `weather` | raw | `SensorCollection` | `pb` | SMHI meteorological latest-hour snapshot. |
+| `hydrology` | raw | `SensorCollection` | `pb` | SMHI hydrology latest-day snapshot. |
+| `ocean` | raw | `SensorCollection` | `pb` | SMHI oceanographic latest-hour snapshot. |
+
+Smoke Dataset
+-------------
+
+`smoke` is the canonical local smoke-test dataset for Atlas integration. It
+has no live data dependency and no FEniCS dependency. It evaluates a synthetic
+analytical velocity field after mapping the requested physical bounds to
+`[-4, 4]^3`, but returns coordinates in the requested physical bounds.
+
+The default product is the full sampled field:
+
+    mesh = datasets.smoke(bounds=[xmin, ymin, xmax, ymax])
+    payload = datasets.smoke(bounds=[xmin, ymin, xmax, ymax], format="vtu")
+
+The returned `VolumeMesh` has point fields:
+
+- `velocity`: vector field with components `u`, `v`, `w`
+- `speed`: scalar velocity magnitude
+
+The dataset also exposes visualization products:
+
+    slice_payload = datasets.smoke(
+        bounds=[xmin, ymin, xmax, ymax],
+        product="slice",
+        format="geojson",
+    )
+    streamline_payload = datasets.smoke(
+        bounds=[xmin, ymin, xmax, ymax],
+        product="streamlines",
+        format="geojson",
+    )
+
+Use `datasets.smoke.describe()["products"]` to discover the supported products
+and formats. `product="field"` supports `pb`, `vtu`, and `geojson`;
+`product="slice"` and `product="streamlines"` support `geojson`.
+
+The GeoJSON outputs declare `EPSG:3006` by default for QGIS/GDAL compatibility.
+Set `crs=None` to omit that declaration, or `include_z=False` to write 2D
+coordinates for viewers that do not handle GeoJSON Z coordinates.
+
+Datasets can also export a serialized artifact and an Atlas-style manifest
+sidecar in one call:
+
+    result = datasets.smoke.export(
+        "output/smoke/smoke_slice.geojson",
+        bounds=[319720, 6397660, 320220, 6398160],
+        product="slice",
+    )
+
+This writes `smoke_slice.geojson` and `smoke_slice.manifest.json`. The manifest
+contains the full dataset descriptor plus the emitted filename, selected
+format, selected product, concrete request bounds, and validated parameters for
+that request.
+
+Publishing
+----------
+
+Publishing turns an exported dataset package into a committed version in a
+table-facing `dtcc-upload` catalog.
+
+The three related operations are:
+
+- `datasets.foo(...)`: build or fetch a Python-side dataset result.
+- `datasets.foo.export(...)`: write a local artifact plus manifest.
+- `datasets.foo.publish(...)`: export, upload, and return publication metadata.
+
+Example:
+
+    from dtcc_core import datasets
+
+    publication = datasets.smoke.publish(
+        bounds=[319720, 6397660, 320220, 6398160],
+        product="slice",
+        resolution=64,
+        format="geojson",
+        dataset_key="stockholm-smoke-slice",
+        upload_url="http://127.0.0.1:8000",
+        token="replace-me",
+    )
+
+    print(publication.dataset_key, publication.version_number)
+
+`dataset_key` is the catalog key and ownership boundary. It is separate from
+`manifest["name"]`, which remains the dataset descriptor name such as `smoke`.
+
+For notebooks and scripts, upload configuration can come from environment
+variables:
+
+    export DTCC_UPLOAD_URL=http://127.0.0.1:8000
+    export DTCC_UPLOAD_TOKEN=replace-me
+
+Then:
+
+    publication = datasets.smoke.publish(
+        bounds=[0, 0, 1, 1],
+        product="slice",
+        resolution=4,
+        format="geojson",
+        dataset_key="smoke-slice",
+    )
+
+An exported package can also be published without recomputing the dataset:
+
+    package = datasets.smoke.export(
+        "smoke_slice.geojson",
+        bounds=[0, 0, 1, 1],
+        product="slice",
+    )
+
+    publication = package.publish(
+        dataset_key="smoke-slice",
+        upload_url="http://127.0.0.1:8000",
+        token="replace-me",
+    )
+
+Publishing v1 supports single-file formats only. Multi-file packages such as
+XDMF plus HDF5 are reserved for a later server and client contract.
+
+Seeding an Atlas Smoke Catalog
+------------------------------
+
+The table smoke demo is the canonical way to seed a `dtcc-upload` catalog for
+the Atlas MVP. It exports seven local cases under `output/smoke/table_cases/`
+and publishes only the five Atlas-renderable cases: GeoJSON, PNG, and MP4. The
+VTU and protobuf cases stay local-only.
+
+Start `dtcc-upload` with CORS configured for the Atlas dev origin:
+
+    export DTCC_UPLOAD_CORS_ORIGINS_JSON='["http://localhost:5175"]'
+
+Use the exact origin shown in the browser. If Atlas is opened at
+`http://127.0.0.1:5175`, include that origin instead.
+
+Then run the smoke table publisher from this repository:
+
+    export DTCC_UPLOAD_URL=http://127.0.0.1:8000
+    export DTCC_UPLOAD_TOKEN=replace-me
+    python demos/smoke_table_cases.py
+
+Atlas can browse the resulting catalog and fetch the published smoke datasets
+using their `table-smoke-*` dataset keys.
+
+Atlas Integration Checklist
+---------------------------
+
+Atlas should treat `describe()` as the discovery contract:
+
+    import dtcc_core.datasets as datasets
+
+    for name, dataset in datasets.list().items():
+        meta = dataset.describe()
+        print(name, meta["data_category"], meta["result_kind"])
+
+For a generated download:
+
+1. Read `args_schema` to build the parameter UI.
+2. Prefer `supported_formats` and `formats` from `describe()` over parsing the
+   schema manually.
+3. Pass `format` for single-file downloads.
+4. For any format where `multi_file` is true, run the dataset without `format`
+   and package all files produced by `.save()`.
+5. Use `result_kind` and each format's `data_kind` to decide whether the
+   viewer should expect vector, raster, point cloud, mesh, city model,
+   protobuf, or an unsupported download-only artifact.
+6. Use `dataset.export(path, ...)` when Atlas needs both the serialized data
+   file and a manifest sidecar for that concrete request.
 
 Creating Custom Datasets
------------------------
+------------------------
 
-Define a custom dataset by inheriting from DatasetDescriptor.
-The dataset will automatically register when the class is defined::
+Define a custom dataset by inheriting from `DatasetDescriptor`. The dataset
+registers when the class is defined.
 
     from dtcc_core.datasets import DatasetDescriptor, DatasetBaseArgs
     from pydantic import Field
@@ -71,114 +311,24 @@ The dataset will automatically register when the class is defined::
     class MyDataset(DatasetDescriptor):
         name = "my_dataset"
         description = "My custom dataset"
+        data_category = "derived"
+        result_kind = "mesh"
+        python_return_type = "dtcc_core.model.Mesh"
         ArgsModel = MyDatasetArgs
 
         def build(self, args):
-            # Implement data fetching/processing
             bounds = self.parse_bounds(args.bounds)
-            # ... fetch data using bounds and custom_param
             return result
 
-    # No registration needed - it's automatic!
-    # Access it like any other dataset
-    from dtcc_core import datasets
-    result = datasets.my_dataset(
-        bounds=[minx, miny, maxx, maxy],
-        custom_param="value"
-    )
+External Packages
+-----------------
 
-Abstract Base Classes
--------------------
-
-To create abstract base classes that should NOT register, use register=False::
-
-    class AbstractSpatialDataset(DatasetDescriptor, register=False):
-        \"\"\"Abstract base class - won't be registered.\"\"\"
-
-        def common_spatial_logic(self):
-            # Shared logic for spatial datasets
-            pass
-
-    class ConcreteDataset(AbstractSpatialDataset):
-        name = "concrete"  # This WILL register
-        ArgsModel = MyArgs
-
-        def build(self, args):
-            self.common_spatial_logic()
-            return result
-
-Explicit Registration API
--------------------------
-
-For advanced use cases, explicit registration is also available::
-
-    from dtcc_core.datasets import register, register_class, unregister
-
-    # Register an instance
-    my_dataset = MyDataset()
-    register("my_custom_name", my_dataset)
-
-    # Register a class (will instantiate it)
-    register_class("another_name", AnotherDataset)
-
-    # Unregister (useful for testing)
-    unregister("my_custom_name")
-
-External Plugins
---------------
-
-External packages can provide datasets by simply defining them::
-
-    # In your external package: my_dtcc_plugin/datasets.py
-    from dtcc_core.datasets import DatasetDescriptor, DatasetBaseArgs
-    from pydantic import Field
-
-    class PluginArgs(DatasetBaseArgs):
-        plugin_param: str = Field(..., description="Plugin parameter")
-
-    class PluginDataset(DatasetDescriptor):
-        name = "plugin_dataset"
-        description = "Dataset from external plugin"
-        ArgsModel = PluginArgs
-
-        def build(self, args):
-            # Plugin implementation
-            return result
-
-    # In user code:
-    from dtcc_core import datasets
-    import my_dtcc_plugin.datasets  # Import triggers registration
-
-    result = datasets.plugin_dataset(bounds=[...], plugin_param="value")
-
-Dataset Discovery
----------------
-
-All registered datasets can be discovered programmatically::
+External packages can register datasets by importing their dataset module:
 
     from dtcc_core import datasets
+    import dtcc_sim.datasets
 
-    # Get all datasets
-    all_datasets = datasets.list()
+    result = datasets.urban_wind_simulation(bounds=[...])
 
-    # Iterate through datasets
-    for name, dataset in all_datasets.items():
-        print(f"{name}: {dataset.description}")
-
-        # Get parameter schema
-        schema = dataset.show_options()
-        print(schema)
-
-Notes
------ 
-- Datasets are instantiated eagerly when classes are imported
-- The `name` attribute determines the dataset's registered name
-- Datasets without a name attribute won't register
-- Later registrations with the same name replace earlier ones (with a warning)
-- All datasets support `.show_options()` to get Pydantic JSON schema
-- Datasets are callable: `dataset(bounds=[...], param=value)`
-
-See Also
---------
-- DatasetDescriptor : Base class for all datasets
-- DatasetBaseArgs : Base class for dataset arguments with bounds validation
+Use `register=False` for abstract descriptor classes that should not appear in
+the registry.

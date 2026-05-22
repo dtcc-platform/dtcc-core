@@ -137,6 +137,10 @@ class CityVolumeMeshDataset(DatasetDescriptor):
     name = "city_volume_mesh"
     description = "Tetrahedral volume mesh from point cloud and building data, suitable for CFD/FEM simulations."
     ArgsModel = CityVolumeMeshArgs
+    data_category = "derived"
+    result_kind = "mesh"
+    python_return_type = "dtcc_core.model.VolumeMesh"
+    multi_file_formats = ("xdmf",)
 
     @staticmethod
     def _tetgen_switch_payload(args: CityVolumeMeshArgs) -> dict[str, Any]:

@@ -64,15 +64,18 @@ class RemoteDatasetDescriptor(DatasetDescriptor, register=False):
         supported_formats: List[str],
         source_service: str,
         timeout_hint: Optional[int] = None,
+        data_category: Optional[str] = None,
     ):
         self.name = name
         self.description = description
         self._args_schema = args_schema
         self.base_url = base_url.rstrip("/")
+        self.data_category = _remote_data_category(data_category, source_service)
         self.result_kind = result_kind
         self.supported_formats = supported_formats
         self.source_service = source_service
         self.timeout_hint = timeout_hint
+        self.python_return_type = "tuple[bytes, str, str]"
         self.ArgsModel = _PassthroughArgs
 
     def show_options(self):
@@ -279,6 +282,7 @@ def register_remote_service(base_url: str, timeout: int = 5) -> List[str]:
                 supported_formats=meta["supported_formats"],
                 source_service=service_info["service"],
                 timeout_hint=meta.get("timeout_hint"),
+                data_category=meta.get("data_category"),
             )
             register(name, descriptor)
             registered.append(name)
@@ -304,6 +308,7 @@ def register_remote_descriptors_from_cache(cached_discoveries: Dict[str, Dict]):
                 supported_formats=meta["supported_formats"],
                 source_service=service_info["service"],
                 timeout_hint=meta.get("timeout_hint"),
+                data_category=meta.get("data_category"),
             )
             register(name, descriptor)
 
@@ -311,3 +316,14 @@ def register_remote_descriptors_from_cache(cached_discoveries: Dict[str, Dict]):
 def get_cached_discoveries() -> Dict[str, Dict]:
     """Return cached discovery data for passing to worker processes."""
     return dict(_cached_service_discoveries)
+
+
+def _remote_data_category(
+    data_category: Optional[str],
+    source_service: str,
+) -> str:
+    if data_category:
+        return data_category
+    if source_service.lower() == "dtcc-sim":
+        return "simulation"
+    return "remote"

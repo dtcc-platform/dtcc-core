@@ -5,9 +5,10 @@ import numpy as np
 import pytest
 from shapely.geometry import GeometryCollection, MultiPolygon, Polygon, box
 
+from dtcc_core.model import Building, GeometryType, Surface
+from dtcc_core.plotting.style import DTCC_THEMES
 import dtcc_core.builder.cleaning as cleaning
 import dtcc_core.builder.cleaning.footprints as cleaning_footprints
-from dtcc_core.model import Building, GeometryType, Surface
 
 GBG_ACUTE_HOLE_WEDGE_WKT = (
     "POLYGON ((319877.28125 6399049.59375, 319877.21875 6399051.0625, "
@@ -319,6 +320,7 @@ def assert_conditioning_invariants(
 def test_plot_footprint_cleaning_comparison_returns_figure():
     matplotlib = pytest.importorskip("matplotlib")
     matplotlib.use("Agg", force=True)
+    to_rgba = pytest.importorskip("matplotlib.colors").to_rgba
     plt = pytest.importorskip("matplotlib.pyplot")
 
     fig, axes = cleaning.plot_footprint_cleaning_comparison(
@@ -331,6 +333,9 @@ def test_plot_footprint_cleaning_comparison_returns_figure():
     assert len(axes) == 2
     assert axes[0].get_title() == "Input footprints"
     assert axes[1].get_title() == "Conditioned footprints"
+    assert axes[0].get_facecolor() == to_rgba(DTCC_THEMES["dark"]["axes"])
+    assert "Polygons: 1" in axes[0].texts[0].get_text()
+    assert "Bounds:" in axes[0].texts[0].get_text()
     plt.close(fig)
 
 

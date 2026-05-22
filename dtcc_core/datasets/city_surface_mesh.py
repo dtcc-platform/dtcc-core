@@ -79,6 +79,9 @@ class CitySurfaceMeshDataset(DatasetDescriptor):
         "Triangular surface mesh of a city with terrain and extruded buildings."
     )
     ArgsModel = CitySurfaceMeshArgs
+    data_category = "derived"
+    result_kind = "mesh"
+    python_return_type = "dtcc_core.model.Mesh"
 
     def _build_mesh_from_city(self, city: City, args: CitySurfaceMeshArgs):
         stage_audit = {} if args.stage_audit_enabled else None

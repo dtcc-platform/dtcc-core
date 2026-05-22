@@ -17,6 +17,9 @@ class RoadsDataset(DatasetDescriptor):
     name = "roads"
     description = "Road network data from OSM/Overpass."
     ArgsModel = RoadsArgs
+    data_category = "raw"
+    result_kind = "road_network"
+    python_return_type = "dtcc_core.model.RoadNetwork"
 
     def build(self, args: RoadsArgs):
         bounds = self.parse_bounds(args.bounds)

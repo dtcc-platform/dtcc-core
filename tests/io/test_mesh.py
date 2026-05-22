@@ -4,8 +4,9 @@ import os
 import tempfile
 import pathlib
 import numpy as np
+import meshio
 from dtcc_core import io
-from dtcc_core.model import Mesh, VolumeMesh, City
+from dtcc_core.model import Mesh, VolumeMesh, City, Field
 
 
 @pytest.fixture
@@ -165,6 +166,24 @@ def test_write_read_volume_mesh(volume_mesh_cube):
         assert mesh.cells.dtype == np.int64
     finally:
         os.unlink(path)
+
+
+def test_save_volume_mesh_vtu_includes_point_fields(volume_mesh_cube, tmp_path):
+    velocity = np.ones((len(volume_mesh_cube.vertices), 3))
+    speed = np.ones((len(volume_mesh_cube.vertices), 1))
+    volume_mesh_cube.add_field(
+        Field(name="velocity", unit="m/s", values=velocity, dim=3)
+    )
+    volume_mesh_cube.add_field(Field(name="speed", unit="m/s", values=speed, dim=1))
+
+    path = tmp_path / "volume_mesh.vtu"
+    volume_mesh_cube.save(path)
+
+    saved = meshio.read(path)
+    assert "velocity" in saved.point_data
+    assert "speed" in saved.point_data
+    assert saved.point_data["velocity"].shape == (len(volume_mesh_cube.vertices), 3)
+    assert saved.point_data["speed"].shape == (len(volume_mesh_cube.vertices),)
 
 
 def test_save_xdmf_volume_mesh_writes_mesh_and_markers_to_single_file(

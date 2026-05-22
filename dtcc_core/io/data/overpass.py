@@ -28,6 +28,8 @@ OVERPASS_ENDPOINTS = [
     "https://overpass.private.coffee/api/interpreter",
 ]
 ROAD_CACHE_VERSION = 2
+OVERPASS_ENDPOINT_METADATA_KEY = "_dtcc_overpass_endpoint"
+OVERPASS_SOURCE_ENDPOINT_COLUMN = "source_endpoint"
 
 
 def create_retry_session(
@@ -81,16 +83,39 @@ def query_overpass_with_failover(query, timeout=60):
             resp = session.post(endpoint, data={"data": query}, timeout=timeout)
             if resp.status_code == 200:
                 debug(f"Overpass query successful via {endpoint}")
-                return resp.json()
+                data = resp.json()
+                data[OVERPASS_ENDPOINT_METADATA_KEY] = endpoint
+                return data
             else:
-                warning(f"Endpoint {endpoint} returned status {resp.status_code}")
+                debug(f"Endpoint {endpoint} returned status {resp.status_code}")
                 last_error = f"HTTP {resp.status_code}"
         except requests.exceptions.RequestException as e:
-            warning(f"Endpoint {endpoint} failed: {e}")
+            debug(f"Endpoint {endpoint} failed: {e}")
             last_error = str(e)
 
     error(f"All Overpass endpoints failed. Last error: {last_error}")
     raise RuntimeError(f"All Overpass endpoints failed: {last_error}")
+
+
+def _overpass_source_endpoint(payload):
+    return payload.get(OVERPASS_ENDPOINT_METADATA_KEY)
+
+
+def _set_overpass_source_endpoint(gdf, source_endpoint):
+    if source_endpoint:
+        gdf[OVERPASS_SOURCE_ENDPOINT_COLUMN] = source_endpoint
+        gdf.attrs[OVERPASS_SOURCE_ENDPOINT_COLUMN] = source_endpoint
+    return gdf
+
+
+def _gdf_source_endpoint(gdf):
+    source_endpoint = gdf.attrs.get(OVERPASS_SOURCE_ENDPOINT_COLUMN)
+    if source_endpoint:
+        return source_endpoint
+    if OVERPASS_SOURCE_ENDPOINT_COLUMN in gdf.columns and len(gdf) > 0:
+        source_endpoint = gdf[OVERPASS_SOURCE_ENDPOINT_COLUMN].iloc[0]
+        return source_endpoint if source_endpoint else None
+    return None
 
 
 # ------------------------------------------------------------------------
@@ -213,6 +238,7 @@ def download_overpass_buildings(bbox_3006):
     """
     info(f"Querying Overpass for buildings in bbox={bbox_3006}")
     data = query_overpass_with_failover(query)
+    source_endpoint = _overpass_source_endpoint(data)
 
     # Parse
     nodes = {}
@@ -247,7 +273,9 @@ def download_overpass_buildings(bbox_3006):
         geometry=polygons_4326,
         crs="EPSG:4326"
     )
+    _set_overpass_source_endpoint(gdf_4326, source_endpoint)
     gdf_3006 = gdf_4326.to_crs("EPSG:3006")
+    _set_overpass_source_endpoint(gdf_3006, source_endpoint)
     return gdf_3006
 
 def download_overpass_roads(bbox_3006):
@@ -269,6 +297,7 @@ def download_overpass_roads(bbox_3006):
     """
     info(f"Querying Overpass for roads in bbox={bbox_3006}")
     data = query_overpass_with_failover(query)
+    source_endpoint = _overpass_source_endpoint(data)
 
     # Parse
     nodes = {}
@@ -341,7 +370,9 @@ def download_overpass_roads(bbox_3006):
         geometry=road_geometries,
         crs="EPSG:4326"
     )
+    _set_overpass_source_endpoint(gdf_4326, source_endpoint)
     gdf_3006 = gdf_4326.to_crs("EPSG:3006")
+    _set_overpass_source_endpoint(gdf_3006, source_endpoint)
     return gdf_3006
 
 # ------------------------------------------------------------------------
@@ -359,7 +390,9 @@ def get_buildings_for_bbox(bbox_3006):
     if sup_rec:
         debug("Found superset bounding box for buildings:", sup_rec["bbox"])
         gdf_all = gpd.read_file(to_absolute_path(sup_rec["filepath"]), layer=sup_rec["layer"])
+        _set_overpass_source_endpoint(gdf_all, sup_rec.get("source_endpoint"))
         subset_gdf = filter_gdf_to_bbox(gdf_all, bbox_3006)
+        _set_overpass_source_endpoint(subset_gdf, sup_rec.get("source_endpoint"))
         saved_filename = to_absolute_path(sup_rec['filepath'])
         info(f"Subset size: {len(subset_gdf)} features for buildings in bbox={bbox_3006}")
         return subset_gdf, saved_filename
@@ -371,12 +404,16 @@ def get_buildings_for_bbox(bbox_3006):
         out_filename = os.path.join(CACHE_DIR,f"buildings_{bbox_3006[0]}_{bbox_3006[1]}_{bbox_3006[2]}_{bbox_3006[3]}.gpkg")
         new_gdf.to_file(out_filename, layer="buildings", driver="GPKG")
         # update metadata
-        records.append({
+        record = {
             "type": "buildings",
             "bbox": list(bbox_3006),
             "filepath": to_relative_path(out_filename),
             "layer": "buildings"
-        })
+        }
+        source_endpoint = _gdf_source_endpoint(new_gdf)
+        if source_endpoint:
+            record["source_endpoint"] = source_endpoint
+        records.append(record)
         save_cache_metadata(records)
         return new_gdf, out_filename
 
@@ -400,8 +437,10 @@ def get_roads_for_bbox(bbox_3006):
     if sup_rec:
         debug("Found superset bounding box for roads:", sup_rec["bbox"])
         gdf_all = gpd.read_file(to_absolute_path(sup_rec["filepath"]), layer=sup_rec["layer"])
+        _set_overpass_source_endpoint(gdf_all, sup_rec.get("source_endpoint"))
         saved_filename = to_absolute_path(sup_rec['filepath'])
         subset_gdf = filter_gdf_to_bbox(gdf_all, bbox_3006)
+        _set_overpass_source_endpoint(subset_gdf, sup_rec.get("source_endpoint"))
         info(f"Subset size: {len(subset_gdf)} features for roads in bbox={bbox_3006}")
         return subset_gdf, saved_filename
     else:
@@ -412,13 +451,17 @@ def get_roads_for_bbox(bbox_3006):
         out_filename = os.path.join(CACHE_DIR, f"roads_{bbox_3006[0]}_{bbox_3006[1]}_{bbox_3006[2]}_{bbox_3006[3]}.gpkg")
         new_gdf.to_file(out_filename, layer="roads", driver="GPKG")
         # update metadata
-        records.append({
+        record = {
             "type": "roads",
             "version": ROAD_CACHE_VERSION,
             "bbox": list(bbox_3006),
             "filepath": to_relative_path(out_filename),
             "layer": "roads"
-        })
+        }
+        source_endpoint = _gdf_source_endpoint(new_gdf)
+        if source_endpoint:
+            record["source_endpoint"] = source_endpoint
+        records.append(record)
         save_cache_metadata(records)
         return new_gdf, out_filename
 

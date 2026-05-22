@@ -146,11 +146,66 @@ def _load_meshio_city_mesh(
     return city
 
 
-def _save_meshio_mesh(mesh, path):
+def _meshio_data_from_fields(mesh, cell_count):
+    point_data = {}
     cell_data = {}
+    fields = getattr(mesh, "fields", []) or []
+    for index, field in enumerate(fields):
+        values = np.asarray(field.values)
+        if values.size == 0:
+            continue
+
+        dim = int(getattr(field, "dim", 1) or 1)
+        if dim > 1:
+            if values.ndim == 1:
+                if values.size % dim != 0:
+                    warning(
+                        "Skipping field %s during mesh export: values do not match dim=%s",
+                        field.name,
+                        dim,
+                    )
+                    continue
+                values = values.reshape((-1, dim))
+            elif values.ndim == 2 and values.shape[1] != dim:
+                if values.size % dim != 0:
+                    warning(
+                        "Skipping field %s during mesh export: values do not match dim=%s",
+                        field.name,
+                        dim,
+                    )
+                    continue
+                values = values.reshape((-1, dim))
+        else:
+            values = values.reshape((-1,))
+
+        name = field.name or f"field_{index}"
+        if len(values) == len(mesh.vertices):
+            point_data[name] = values
+        elif len(values) == cell_count:
+            cell_data[name] = [values]
+        else:
+            warning(
+                "Skipping field %s during mesh export: %s values do not match "
+                "%s vertices or %s cells",
+                name,
+                len(values),
+                len(mesh.vertices),
+                cell_count,
+            )
+
+    return point_data, cell_data
+
+
+def _save_meshio_mesh(mesh, path):
+    point_data, cell_data = _meshio_data_from_fields(mesh, len(mesh.faces))
     if mesh.markers is not None and len(mesh.markers) > 0:
         cell_data["markers"] = [mesh.markers]
-    _mesh = meshio.Mesh(mesh.vertices, [("triangle", mesh.faces)], cell_data=cell_data)
+    _mesh = meshio.Mesh(
+        mesh.vertices,
+        [("triangle", mesh.faces)],
+        point_data=point_data,
+        cell_data=cell_data,
+    )
     kwargs = {}
     if path.suffix == ".stl":
         kwargs["binary"] = True
@@ -158,7 +213,15 @@ def _save_meshio_mesh(mesh, path):
 
 
 def _save_meshio_volume_mesh(mesh, path):
-    _mesh = meshio.Mesh(mesh.vertices, [("tetra", mesh.cells)])
+    point_data, cell_data = _meshio_data_from_fields(mesh, len(mesh.cells))
+    if mesh.markers is not None and len(mesh.markers) > 0:
+        cell_data["markers"] = [mesh.markers]
+    _mesh = meshio.Mesh(
+        mesh.vertices,
+        [("tetra", mesh.cells)],
+        point_data=point_data,
+        cell_data=cell_data,
+    )
     meshio.write(path, _mesh)
 
 

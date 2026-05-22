@@ -1,4 +1,19 @@
-from .dataset import DatasetDescriptor, DatasetBaseArgs
+from __future__ import annotations
+
+from .dataset import DatasetDescriptor, DatasetBaseArgs, DatasetExportResult
+from .publish import (
+    DatasetPackageError,
+    DatasetPublication,
+    DatasetPublishConfigurationError,
+    DatasetPublishError,
+    DatasetUploadClient,
+    DatasetUploadConflictError,
+    DatasetUploadError,
+    DatasetUploadInProgressError,
+    DatasetUploadRateLimitError,
+    PublishedFile,
+)
+from dtcc_core.common import info as log_info, log_table
 
 # Import dataset classes to trigger auto-registration
 from .pointcloud import PointCloudDataset
@@ -16,6 +31,17 @@ from .hydrology import HydrologyDataset
 from .ocean import OceanDataset
 from .footprints import FootprintsDataset
 from .roads import RoadsDataset
+from .space_syntax import SpaceSyntaxDataset
+from .transit_vehicles import (
+    TransitVehiclesDataset,
+    BusesDataset,
+    TramsDataset,
+    TrainsDataset,
+    MetrosDataset,
+    FerriesDataset,
+)
+from .deso import DeSODataset
+from .smoke import SmokeDataset
 
 # Remote dataset support (optional, requires httpx)
 try:
@@ -58,6 +84,18 @@ weather = get_dataset("weather")
 hydrology = get_dataset("hydrology")
 ocean = get_dataset("ocean")
 roads = get_dataset("roads")
+space_syntax = get_dataset("space_syntax")
+transit_vehicles = get_dataset("transit_vehicles")
+buses = get_dataset("buses")
+trams = get_dataset("trams")
+trains = get_dataset("trains")
+metros = get_dataset("metros")
+ferries = get_dataset("ferries")
+deso = get_dataset("deso")
+smoke = get_dataset("smoke")
+
+
+_CATEGORY_ORDER = ("raw", "derived", "simulation", "remote", "unknown")
 
 
 def info():
@@ -74,39 +112,27 @@ def info():
     datasets_dict = list()
 
     if not datasets_dict:
-        print("=" * 70)
-        print("DTCC Datasets")
-        print("=" * 70)
-        print("No datasets are currently registered.")
-        print("=" * 70)
+        log_info("DTCC Datasets: no datasets are currently registered.")
         return
 
-    print()
-    print("=" * 70)
-    print(f"DTCC Datasets ({len(datasets_dict)} available)")
-    print("=" * 70)
-    print()
-    print("Use datasets.<name>() to access a dataset.")
-    print("Use print(datasets.<name>) to see dataset parameters.")
-    print()
+    grouped = _group_dataset_summary_rows(datasets_dict)
+    log_info(f"DTCC Datasets ({len(datasets_dict)} available)")
+    log_info("Use datasets.<name>() to access a dataset.")
+    log_info("Use print(datasets.<name>) to see dataset parameters.")
 
-    # Print a summary table
-    print("Available datasets:")
-    print("-" * 70)
-    for name, dataset in datasets_dict.items():
-        desc = (
-            dataset.description[:50] + "..."
-            if len(dataset.description) > 50
-            else dataset.description
+    columns = [
+        ("Dataset", "left"),
+        ("Product", "left"),
+        ("Formats", "left"),
+        ("Source", "left"),
+    ]
+    for category, rows in grouped.items():
+        log_table(
+            log_info,
+            f"{_format_category_title(category)} ({len(rows)})",
+            columns,
+            rows,
         )
-        print(f"  • {name:20s} - {desc}")
-
-    print()
-    print("=" * 70)
-    print()
-    print("For detailed information on a specific dataset, use:")
-    print("  print(datasets.<name>)")
-    print()
 
 
 def __getattr__(name):
@@ -128,3 +154,48 @@ def __getattr__(name):
         return get_dataset(name)
     except KeyError:
         raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+
+
+def _group_dataset_summary_rows(
+    datasets_dict: dict[str, DatasetDescriptor],
+) -> dict[str, list[tuple[str, str, str, str]]]:
+    grouped: dict[str, list[tuple[str, str, str, str]]] = {}
+    for name, dataset in sorted(datasets_dict.items()):
+        meta = dataset.describe()
+        category = str(meta.get("data_category") or "unknown")
+        grouped.setdefault(category, []).append(
+            (
+                name,
+                _format_identifier(str(meta.get("result_kind") or "unknown")),
+                _format_supported_formats(meta.get("supported_formats")),
+                _dataset_source(dataset),
+            )
+        )
+    return {
+        category: grouped[category]
+        for category in _ordered_categories(grouped)
+    }
+
+
+def _ordered_categories(grouped: dict[str, list]) -> list[str]:
+    known = [category for category in _CATEGORY_ORDER if category in grouped]
+    extra = sorted(category for category in grouped if category not in _CATEGORY_ORDER)
+    return known + extra
+
+
+def _format_supported_formats(formats) -> str:
+    if not formats:
+        return "python object"
+    return ", ".join(str(fmt) for fmt in formats)
+
+
+def _dataset_source(dataset: DatasetDescriptor) -> str:
+    return str(getattr(dataset, "source_service", None) or "dtcc-core")
+
+
+def _format_category_title(category: str) -> str:
+    return f"{_format_identifier(category).title()} Datasets"
+
+
+def _format_identifier(value: str) -> str:
+    return value.replace("_", " ")

@@ -21,6 +21,7 @@ class TestRemoteDatasetDescriptor:
         assert desc.name == "test_dataset"
         assert desc.description == "A test remote dataset"
         assert desc.source_service == "dtcc-sim"
+        assert desc.data_category == "simulation"
         assert desc.timeout_hint == 600
         assert desc.supported_formats == ["xdmf"]
         assert desc.base_url == "http://localhost:8001"
@@ -36,6 +37,32 @@ class TestRemoteDatasetDescriptor:
             source_service="test",
         )
         assert desc.base_url == "http://localhost:8001"
+        assert desc.data_category == "remote"
+
+    def test_explicit_data_category_is_preserved(self):
+        desc = RemoteDatasetDescriptor(
+            name="test",
+            description="",
+            args_schema={},
+            base_url="http://localhost:8001",
+            result_kind="mesh",
+            supported_formats=["xdmf"],
+            source_service="dtcc-sim",
+            data_category="derived",
+        )
+        assert desc.data_category == "derived"
+
+    def test_dtcc_sim_data_category_detection_is_case_insensitive(self):
+        desc = RemoteDatasetDescriptor(
+            name="test",
+            description="",
+            args_schema={},
+            base_url="http://localhost:8001",
+            result_kind="mesh",
+            supported_formats=["xdmf"],
+            source_service="DTCC-SIM",
+        )
+        assert desc.data_category == "simulation"
 
     def test_does_not_auto_register(self):
         """register=False prevents __init_subclass__ auto-registration."""
@@ -190,6 +217,7 @@ class TestRegisterRemoteService:
 
         ds = list_datasets()["mock_sim_dataset"]
         assert ds.source_service == "dtcc-sim"
+        assert ds.data_category == "simulation"
         assert ds.timeout_hint == 600
 
         unregister("mock_sim_dataset")

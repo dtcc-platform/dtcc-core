@@ -1,13 +1,75 @@
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from importlib.metadata import PackageNotFoundError, version
+import json
+from pathlib import Path
+import tempfile
+from typing import Any, Optional, Sequence, Union
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
 import dtcc_core
 from dtcc_core.model import Bounds
 from dtcc_core.model import Object as DTCCObject
 from dtcc_core.model import Geometry as DTCCGeometry
 
-from abc import ABC, abstractmethod
-from typing import Any, Optional, Sequence, Union
-from pydantic import BaseModel, ConfigDict, Field, field_validator
-from pathlib import Path
-import tempfile
+
+_FORMAT_KIND_MAP = {
+    "tif": "raster",
+    "tiff": "raster",
+    "asc": "raster",
+    "png": "raster",
+    "jpg": "raster",
+    "jpeg": "raster",
+    "mp4": "video",
+    "geojson": "vector",
+    "gpkg": "vector",
+    "shp.zip": "vector",
+    "obj": "mesh",
+    "stl": "mesh",
+    "ply": "mesh",
+    "vtk": "mesh",
+    "vtu": "mesh",
+    "xdmf": "mesh",
+    "inp": "mesh",
+    "bdf": "mesh",
+    "las": "point_cloud",
+    "laz": "point_cloud",
+    "copc": "point_cloud",
+    "cityjson": "city_model",
+    "city.json": "city_model",
+    "json.zip": "city_model",
+    "pb": "protobuf",
+}
+
+
+_FORMAT_MEDIA_TYPE_MAP = {
+    "png": "image/png",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "mp4": "video/mp4",
+    "tif": "image/tiff",
+    "tiff": "image/tiff",
+    "geojson": "application/geo+json",
+    "gpkg": "application/geopackage+sqlite3",
+    "shp.zip": "application/zip",
+    "obj": "model/obj",
+    "stl": "model/stl",
+    "vtk": "application/vnd.vtk",
+    "vtu": "application/vnd.vtk.vtu+xml",
+    "xdmf": "application/x-xdmf",
+    "cityjson": "application/json",
+    "city.json": "application/json",
+    "json": "application/json",
+    "json.zip": "application/zip",
+    "tar.gz": "application/gzip",
+    "pb": "application/x-protobuf",
+}
+
+
+_FORMAT_EXTENSION_MAP = {
+    "cityjson": "city.json",
+}
 
 
 class DatasetBaseArgs(BaseModel):
@@ -74,12 +136,84 @@ class DatasetUpstreamError(RuntimeError):
         return self.failure_class in {"connection", "timeout", "http_5xx"}
 
 
+@dataclass(frozen=True)
+class DatasetExportResult:
+    """Result returned by :meth:`DatasetDescriptor.export`."""
+
+    path: Path
+    manifest_path: Optional[Path]
+    manifest: Optional[dict[str, Any]]
+    files: tuple[Path, ...] = ()
+    format: str = ""
+
+    def __post_init__(self):
+        if not self.files:
+            object.__setattr__(self, "files", (Path(self.path),))
+        if not self.format:
+            object.__setattr__(
+                self, "format", self._infer_format_from_export_path(self.path)
+            )
+
+    @staticmethod
+    def _infer_format_from_export_path(path: Path) -> str:
+        # Direct DatasetExportResult construction has no descriptor context.
+        # Use only global extension metadata as a compatibility fallback.
+        format_extensions = {
+            format_name: format_name
+            for format_name in {*_FORMAT_KIND_MAP, *_FORMAT_MEDIA_TYPE_MAP}
+        }
+        for format_name, extension in _FORMAT_EXTENSION_MAP.items():
+            format_extensions[extension] = format_name
+
+        path_name = Path(path).name.lower()
+        for extension, format_name in sorted(
+            format_extensions.items(), key=lambda item: len(item[0]), reverse=True
+        ):
+            if path_name.endswith(f".{extension.lower()}"):
+                return format_name
+        return ""
+
+    def publish(
+        self,
+        *,
+        dataset_key: str,
+        uploader=None,
+        upload_url: Optional[str] = None,
+        token: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+    ):
+        from dtcc_core.datasets.publish import DatasetPackageError, DatasetUploadClient
+
+        if self.manifest_path is None or self.manifest is None:
+            raise DatasetPackageError(
+                "Cannot publish an export result without a manifest.",
+                failure_class="invalid_package",
+            )
+
+        resolved_uploader = uploader or DatasetUploadClient.from_config(
+            upload_url=upload_url, token=token
+        )
+        return resolved_uploader.upload_package(
+            dataset_key=dataset_key,
+            manifest_path=self.manifest_path,
+            files=self.files,
+            manifest=self.manifest,
+            idempotency_key=idempotency_key,
+        )
+
+
 class DatasetDescriptor(ABC):
     """Callable, self-describing dataset."""
 
     name: str
+    title: Optional[str] = None
     description: str = ""
     ArgsModel: BaseModel
+    data_category: str = "unknown"
+    result_kind: str = "unknown"
+    python_return_type: str = "object"
+    timeout_hint: Optional[int] = None
+    multi_file_formats: Sequence[str] = ()
 
     def __init_subclass__(cls, register=True, **kwargs):
         """
@@ -118,6 +252,393 @@ class DatasetDescriptor(ABC):
 
     def show_options(self):
         return self.ArgsModel.model_json_schema()
+
+    @staticmethod
+    def _normalize_format_values(value: Any) -> list[str]:
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            value = [value]
+        formats = []
+        for item in value:
+            if item is None:
+                continue
+            fmt = str(item).strip().lower()
+            if fmt and fmt not in {"none", "null"} and fmt not in formats:
+                formats.append(fmt)
+        return formats
+
+    @classmethod
+    def extract_supported_formats_from_schema(cls, schema: dict[str, Any]) -> list[str]:
+        """Extract supported ``format`` values from a Pydantic JSON schema."""
+        properties = schema.get("properties", {}) if isinstance(schema, dict) else {}
+        format_prop = properties.get("format", {}) if isinstance(properties, dict) else {}
+        if not isinstance(format_prop, dict):
+            return []
+
+        formats = []
+        formats.extend(cls._normalize_format_values(format_prop.get("enum")))
+        if "const" in format_prop:
+            formats.extend(cls._normalize_format_values(format_prop.get("const")))
+
+        any_of = format_prop.get("anyOf")
+        if isinstance(any_of, list):
+            for variant in any_of:
+                if not isinstance(variant, dict):
+                    continue
+                formats.extend(cls._normalize_format_values(variant.get("enum")))
+                if "const" in variant:
+                    formats.extend(cls._normalize_format_values(variant.get("const")))
+
+        if not formats:
+            formats.extend(cls._normalize_format_values(format_prop.get("default")))
+
+        deduped = []
+        for fmt in formats:
+            if fmt not in deduped:
+                deduped.append(fmt)
+        return deduped
+
+    def list_supported_formats(self) -> list[str]:
+        """Return serialized output formats supported by this dataset."""
+        explicit_formats = getattr(self, "supported_formats", None)
+        if explicit_formats is not None and not callable(explicit_formats):
+            return self._normalize_format_values(explicit_formats)
+        return self.extract_supported_formats_from_schema(self.show_options())
+
+    @staticmethod
+    def format_kind(format: str) -> str:
+        """Return a coarse data kind for a serialized output format."""
+        return _FORMAT_KIND_MAP.get(str(format).lower(), "unknown")
+
+    @staticmethod
+    def format_media_type(format: str) -> str:
+        """Return the default HTTP media type for a serialized output format."""
+        return _FORMAT_MEDIA_TYPE_MAP.get(
+            str(format).lower(), "application/octet-stream"
+        )
+
+    @staticmethod
+    def format_extension(format: str) -> str:
+        """Return the recommended filename extension for a format value."""
+        fmt = str(format).lower()
+        return _FORMAT_EXTENSION_MAP.get(fmt, fmt)
+
+    def format_metadata(self) -> list[dict[str, Any]]:
+        """Return JSON-safe metadata for each supported serialized format."""
+        multi_file_formats = {
+            str(fmt).lower() for fmt in getattr(self, "multi_file_formats", ())
+        }
+        return [
+            {
+                "format": fmt,
+                "extension": self.format_extension(fmt),
+                "media_type": self.format_media_type(fmt),
+                "data_kind": self.format_kind(fmt),
+                "multi_file": fmt in multi_file_formats,
+            }
+            for fmt in self.list_supported_formats()
+        ]
+
+    @staticmethod
+    def _title_from_identifier(identifier: str) -> str:
+        return str(identifier).replace("_", " ").replace("-", " ").title()
+
+    @staticmethod
+    def _package_version() -> str:
+        try:
+            return version("dtcc-core")
+        except PackageNotFoundError:
+            return "0.9.8dev"
+
+    def describe(self) -> dict[str, Any]:
+        """Return the dataset contract used by Python clients and web services."""
+        args_schema = self.show_options()
+        formats = self.list_supported_formats()
+        schema_properties = (
+            args_schema.get("properties", {}) if isinstance(args_schema, dict) else {}
+        )
+        return {
+            "name": self.name,
+            "title": getattr(self, "title", None)
+            or self._title_from_identifier(self.name),
+            "description": self.description,
+            "data_category": getattr(self, "data_category", "unknown"),
+            "result_kind": getattr(self, "result_kind", "unknown"),
+            "python_return_type": getattr(self, "python_return_type", "object"),
+            "args_schema": args_schema,
+            "supported_formats": formats,
+            "formats": self.format_metadata(),
+            "multi_file_formats": list(getattr(self, "multi_file_formats", ())),
+            "timeout_hint": getattr(self, "timeout_hint", None),
+            "serialization": {
+                "python_object_when_format_omitted": True,
+                "bytes_when_format_is_set": bool(formats),
+                "format_parameter": "format" in schema_properties,
+            },
+        }
+
+    def _infer_format_from_path(self, path: Path) -> str:
+        """Infer a dataset format from a path suffix."""
+        candidates = sorted(
+            (
+                (item["extension"], item["format"])
+                for item in self.format_metadata()
+                if item.get("extension") and item.get("format")
+            ),
+            key=lambda item: len(item[0]),
+            reverse=True,
+        )
+        path_name = path.name.lower()
+        for extension, format_name in candidates:
+            if path_name.endswith(f".{extension.lower()}"):
+                return format_name
+
+        supported_formats = ", ".join(self.list_supported_formats()) or "none"
+        raise ValueError(
+            f"Could not infer export format from '{path}'. "
+            f"Pass format explicitly. Supported formats: {supported_formats}"
+        )
+
+    def _build_manifest(
+        self,
+        args,
+        path: Path,
+        *,
+        manifest_id: Optional[str] = None,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Build a manifest for a concrete exported dataset request."""
+        manifest = self.describe()
+        manifest["manifest_schema_version"] = "dtcc-dataset-manifest-v1"
+        manifest["created_by"] = {
+            "package": "dtcc-core",
+            "version": self._package_version(),
+        }
+        parameters = args.model_dump(mode="json")
+        product = getattr(args, "product", None)
+
+        if manifest_id is not None:
+            manifest["id"] = manifest_id
+        if title is not None:
+            manifest["title"] = title
+        if description is not None:
+            manifest["description"] = description
+
+        manifest["file"] = path.name
+        manifest["format"] = getattr(args, "format", None)
+        if manifest["format"] is not None:
+            manifest["media_type"] = self.format_media_type(manifest["format"])
+            manifest["data_kind"] = self.format_kind(manifest["format"])
+        if product is not None:
+            manifest["product"] = product
+        manifest["bounds"] = list(parameters["bounds"])
+        manifest["parameters"] = parameters
+        manifest.update(self.export_manifest_metadata(args, path))
+        return manifest
+
+    def export_manifest_metadata(self, args, path: Path) -> dict[str, Any]:
+        """Return dataset-specific metadata for an exported artifact."""
+        return {}
+
+    @staticmethod
+    def _sanitize_publish_filename(value: str) -> str:
+        filename = str(value).strip().replace(" ", "_").replace("-", "_").lower()
+        sanitized = "".join(
+            char if char.isalnum() or char in {"_", "."} else "_"
+            for char in filename
+        )
+        while "__" in sanitized:
+            sanitized = sanitized.replace("__", "_")
+        return sanitized.strip("_")
+
+    def _default_publish_filename(
+        self, *, format: str | None, kwargs: dict[str, Any]
+    ) -> str:
+        if format is None:
+            raise ValueError("publish() requires format when filename is omitted")
+
+        extension = self.format_extension(format)
+        product = kwargs.get("product")
+        stem = self.name if product in {None, "", "field"} else f"{self.name}_{product}"
+        filename = f"{self._sanitize_publish_filename(stem)}.{extension}"
+        if (
+            filename.startswith(".")
+            or filename.startswith("/")
+            or filename.startswith("\\")
+            or ".." in filename
+        ):
+            raise ValueError(f"Unsafe generated publish filename: {filename!r}")
+        return filename
+
+    @staticmethod
+    def _validate_publish_filename(value: Union[str, Path]) -> Path:
+        filename = str(value)
+        path = Path(filename)
+        if (
+            not filename
+            or path.is_absolute()
+            or path.name != filename
+            or filename in {".", ".."}
+            or filename.startswith(".")
+            or "/" in filename
+            or "\\" in filename
+            or ".." in filename
+        ):
+            raise ValueError(f"Unsafe publish filename: {filename!r}")
+        return path
+
+    def _reject_multi_file_publish_format(self, format: str) -> None:
+        multi_file_formats = {
+            str(fmt).lower() for fmt in getattr(self, "multi_file_formats", ())
+        }
+        if str(format).lower() in multi_file_formats:
+            from dtcc_core.datasets.publish import DatasetPackageError
+
+            raise DatasetPackageError(
+                f"publish() does not support multi-file format {format!r}.",
+                failure_class="invalid_package",
+            )
+
+    def export(
+        self,
+        path: Union[str, Path],
+        *,
+        format: Optional[str] = None,
+        manifest: bool = True,
+        manifest_path: Optional[Union[str, Path]] = None,
+        manifest_id: Optional[str] = None,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        **kwargs,
+    ) -> DatasetExportResult:
+        """Export a serialized dataset artifact and optional manifest to disk.
+
+        Args:
+            path: Output path for the serialized dataset file.
+            format: Dataset format. If omitted, inferred from ``path``.
+            manifest: Whether to write an Atlas-style manifest sidecar.
+            manifest_path: Optional manifest output path. Defaults to
+                ``path`` with ``.manifest.json`` as suffix.
+            manifest_id: Optional manifest ``id`` value to include.
+            title: Optional manifest title override.
+            description: Optional manifest description override.
+            **kwargs: Dataset arguments passed to the dataset build call.
+
+        Returns:
+            Paths and manifest data for the exported artifact.
+        """
+        output_path = Path(path)
+        output_format = format or self._infer_format_from_path(output_path)
+
+        request_kwargs = dict(kwargs)
+        request_kwargs["format"] = output_format
+        args = self.validate(request_kwargs)
+        payload = self.build(args)
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        if isinstance(payload, str):
+            output_path.write_text(payload, encoding="utf-8")
+        elif isinstance(payload, (bytes, bytearray)):
+            output_path.write_bytes(payload)
+        else:
+            raise TypeError(
+                f"Dataset export requires a serialized bytes or string payload, "
+                f"got {type(payload).__name__}. Pass a supported format."
+            )
+
+        exported_manifest = None
+        exported_manifest_path = None
+        if manifest:
+            exported_manifest_path = (
+                Path(manifest_path)
+                if manifest_path is not None
+                else output_path.with_suffix(".manifest.json")
+            )
+            exported_manifest = self._build_manifest(
+                args,
+                output_path,
+                manifest_id=manifest_id,
+                title=title,
+                description=description,
+            )
+            exported_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+            exported_manifest_path.write_text(
+                json.dumps(exported_manifest, indent=2) + "\n",
+                encoding="utf-8",
+            )
+
+        return DatasetExportResult(
+            path=output_path,
+            manifest_path=exported_manifest_path,
+            manifest=exported_manifest,
+            files=(output_path,),
+            format=output_format,
+        )
+
+    def publish(
+        self,
+        *,
+        dataset_key: str,
+        format: Optional[str] = None,
+        filename: Optional[Union[str, Path]] = None,
+        output_dir: Optional[Union[str, Path]] = None,
+        keep_export: bool = False,
+        manifest_id: Optional[str] = None,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        upload_url: Optional[str] = None,
+        token: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+        uploader=None,
+        **kwargs,
+    ):
+        if filename is None:
+            output_filename = Path(
+                self._default_publish_filename(format=format, kwargs=kwargs)
+            )
+        else:
+            output_filename = self._validate_publish_filename(filename)
+
+        output_format = format or self._infer_format_from_path(output_filename)
+        self._reject_multi_file_publish_format(output_format)
+
+        if keep_export:
+            package_dir = Path(output_dir) if output_dir is not None else Path(".")
+            package_dir.mkdir(parents=True, exist_ok=True)
+            package = self.export(
+                package_dir / output_filename,
+                format=output_format,
+                manifest_id=manifest_id,
+                title=title,
+                description=description,
+                **kwargs,
+            )
+            return package.publish(
+                dataset_key=dataset_key,
+                uploader=uploader,
+                upload_url=upload_url,
+                token=token,
+                idempotency_key=idempotency_key,
+            )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            package = self.export(
+                Path(tmpdir) / output_filename,
+                format=output_format,
+                manifest_id=manifest_id,
+                title=title,
+                description=description,
+                **kwargs,
+            )
+            return package.publish(
+                dataset_key=dataset_key,
+                uploader=uploader,
+                upload_url=upload_url,
+                token=token,
+                idempotency_key=idempotency_key,
+            )
 
     def __str__(self):
         """Return a nicely formatted summary of the dataset."""
@@ -307,7 +828,7 @@ class DatasetDescriptor(ABC):
         Returns:
             File contents as bytes
         """
-        with tempfile.TemporaryDirectory(delete=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             tmpfile = Path(tmpdir) / f"data.{format}"
             if save_callable is not None:
                 save_callable(obj, tmpfile, **save_kwargs)

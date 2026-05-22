@@ -5,9 +5,43 @@ from dtcc_core.io.data import wrapper
 from dtcc_core.model import Bounds
 
 
+def test_overpass_failover_does_not_warn_when_fallback_succeeds(monkeypatch):
+    warnings = []
+
+    class Response:
+        def __init__(self, status_code, payload=None):
+            self.status_code = status_code
+            self._payload = payload or {}
+
+        def json(self):
+            return self._payload
+
+    class Session:
+        def __init__(self):
+            self.responses = [
+                Response(406),
+                Response(200, {"elements": []}),
+            ]
+
+        def post(self, endpoint, data, timeout):
+            return self.responses.pop(0)
+
+    session = Session()
+    monkeypatch.setattr(overpass, "OVERPASS_ENDPOINTS", ["endpoint-1", "endpoint-2"])
+    monkeypatch.setattr(overpass, "create_retry_session", lambda: session)
+    monkeypatch.setattr(overpass, "warning", lambda message: warnings.append(message))
+
+    data = overpass.query_overpass_with_failover("[out:json];")
+
+    assert data["elements"] == []
+    assert data[overpass.OVERPASS_ENDPOINT_METADATA_KEY] == "endpoint-2"
+    assert warnings == []
+
+
 def test_overpass_roads_are_segmented_with_traffic_attributes(monkeypatch):
     def fake_query(query):
         return {
+            overpass.OVERPASS_ENDPOINT_METADATA_KEY: "endpoint-2",
             "elements": [
                 {"type": "node", "id": 1, "lat": 57.7000, "lon": 11.9700},
                 {"type": "node", "id": 2, "lat": 57.7005, "lon": 11.9705},
@@ -49,12 +83,16 @@ def test_overpass_roads_are_segmented_with_traffic_attributes(monkeypatch):
     assert roads["bridge"].tolist() == ["yes", "yes"]
     assert roads["tunnel"].tolist() == ["no", "no"]
     assert roads["junction"].tolist() == ["roundabout", "roundabout"]
+    assert roads["source_endpoint"].tolist() == ["endpoint-2", "endpoint-2"]
+    assert roads.attrs["source_endpoint"] == "endpoint-2"
 
 
 def test_road_cache_ignores_legacy_records(monkeypatch):
     saved_records = []
 
     class FakeRoads:
+        attrs = {"source_endpoint": "endpoint-2"}
+
         def __len__(self):
             return 0
 
@@ -103,6 +141,7 @@ def test_road_cache_ignores_legacy_records(monkeypatch):
     overpass.get_roads_for_bbox((20.0, 20.0, 30.0, 30.0))
 
     assert saved_records[-1]["version"] == overpass.ROAD_CACHE_VERSION
+    assert saved_records[-1]["source_endpoint"] == "endpoint-2"
 
 
 def test_download_roadnetwork_defaults_to_osm(monkeypatch):
