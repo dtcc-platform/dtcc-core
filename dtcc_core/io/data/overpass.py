@@ -24,16 +24,26 @@ CACHE_METADATA_FILE = os.path.join(BASE_CACHE_DIR,"cache_metadata.json")
 
 OVERPASS_ENDPOINTS = [
     "https://overpass-api.de/api/interpreter",
-    # "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
     "https://overpass.private.coffee/api/interpreter",
 ]
 ROAD_CACHE_VERSION = 2
 OVERPASS_ENDPOINT_METADATA_KEY = "_dtcc_overpass_endpoint"
 OVERPASS_SOURCE_ENDPOINT_COLUMN = "source_endpoint"
+OVERPASS_CONNECT_TIMEOUT_SECONDS = float(
+    os.environ.get("DTCC_OVERPASS_CONNECT_TIMEOUT", "8")
+)
+OVERPASS_READ_TIMEOUT_SECONDS = float(os.environ.get("DTCC_OVERPASS_READ_TIMEOUT", "30"))
+OVERPASS_RETRIES = int(os.environ.get("DTCC_OVERPASS_RETRIES", "1"))
+OVERPASS_SERVER_TIMEOUT_SECONDS = int(os.environ.get("DTCC_OVERPASS_SERVER_TIMEOUT", "25"))
+OVERPASS_USER_AGENT = os.environ.get(
+    "DTCC_OVERPASS_USER_AGENT",
+    "dtcc-core/0.9.8 (https://github.com/dtcc-platform/dtcc-core)",
+)
 
 
 def create_retry_session(
-    retries=5,
+    retries=OVERPASS_RETRIES,
     backoff_factor=1.0,
     status_forcelist=(429, 500, 502, 503, 504),
 ):
@@ -41,15 +51,25 @@ def create_retry_session(
     Create a requests session with automatic retry and exponential backoff.
 
     Args:
-        retries: Total number of retry attempts
+        retries: Number of retry attempts for transient HTTP status responses.
+            Connect and read failures are not retried here; endpoint failover
+            handles those so DNS/connect issues do not block for minutes.
         backoff_factor: Multiplier for exponential backoff (1.0 = 1s, 2s, 4s, 8s, 16s)
         status_forcelist: HTTP status codes that trigger a retry
     """
     session = requests.Session()
+    session.headers.update(
+        {
+            "User-Agent": OVERPASS_USER_AGENT,
+            "Accept": "application/json",
+        }
+    )
     retry = Retry(
         total=retries,
-        read=retries,
-        connect=retries,
+        read=0,
+        connect=0,
+        status=retries,
+        other=0,
         backoff_factor=backoff_factor,
         status_forcelist=status_forcelist,
         allowed_methods=["GET", "POST"],
@@ -61,14 +81,22 @@ def create_retry_session(
     return session
 
 
-def query_overpass_with_failover(query, timeout=60):
+def query_overpass_with_failover(
+    query,
+    timeout=None,
+    connect_timeout=OVERPASS_CONNECT_TIMEOUT_SECONDS,
+    read_timeout=OVERPASS_READ_TIMEOUT_SECONDS,
+):
     """
     Query Overpass API with automatic failover between endpoints.
     Tries each endpoint with retries before moving to the next.
 
     Args:
         query: The Overpass QL query string
-        timeout: Request timeout in seconds
+        timeout: Backward-compatible read timeout override in seconds. Prefer
+            connect_timeout/read_timeout for new code.
+        connect_timeout: Timeout for DNS/TCP/TLS connection setup in seconds.
+        read_timeout: Timeout while waiting for the Overpass response in seconds.
 
     Returns:
         Parsed JSON response from the API
@@ -76,11 +104,19 @@ def query_overpass_with_failover(query, timeout=60):
     Raises:
         RuntimeError: If all endpoints fail
     """
+    if timeout is not None:
+        read_timeout = timeout
+
+    request_timeout = (connect_timeout, read_timeout)
     last_error = None
     for endpoint in OVERPASS_ENDPOINTS:
         try:
+            info(
+                "Trying Overpass endpoint "
+                f"{endpoint} (connect={connect_timeout:g}s, read={read_timeout:g}s)"
+            )
             session = create_retry_session()
-            resp = session.post(endpoint, data={"data": query}, timeout=timeout)
+            resp = session.post(endpoint, data={"data": query}, timeout=request_timeout)
             if resp.status_code == 200:
                 debug(f"Overpass query successful via {endpoint}")
                 data = resp.json()
@@ -89,6 +125,9 @@ def query_overpass_with_failover(query, timeout=60):
             else:
                 debug(f"Endpoint {endpoint} returned status {resp.status_code}")
                 last_error = f"HTTP {resp.status_code}"
+        except ValueError as e:
+            debug(f"Endpoint {endpoint} returned invalid JSON: {e}")
+            last_error = f"invalid JSON from {endpoint}: {e}"
         except requests.exceptions.RequestException as e:
             debug(f"Endpoint {endpoint} failed: {e}")
             last_error = str(e)
@@ -231,10 +270,9 @@ def download_overpass_buildings(bbox_3006):
     max_lon, max_lat = transformer.transform(xmax, maxy)
 
     query = f"""
-    [out:json];
+    [out:json][timeout:{OVERPASS_SERVER_TIMEOUT_SECONDS}];
     way["building"]({min_lat},{min_lon},{max_lat},{max_lon});
-    (._;>;);
-    out body;
+    out geom;
     """
     info(f"Querying Overpass for buildings in bbox={bbox_3006}")
     data = query_overpass_with_failover(query)
@@ -252,11 +290,7 @@ def download_overpass_buildings(bbox_3006):
     footprints_ll = []
     for elem in data.get("elements", []):
         if elem["type"] == "way" and "nodes" in elem:
-            refs = elem["nodes"]
-            coords = []
-            for r in refs:
-                if r in nodes:
-                    coords.append(nodes[r])  # (lat, lon)
+            coords = _way_coordinates_latlon(elem, nodes)
             if len(coords) > 2:
                 if coords[0] != coords[-1]:
                     coords.append(coords[0])  # close ring
@@ -290,10 +324,9 @@ def download_overpass_roads(bbox_3006):
     max_lon, max_lat = transformer.transform(xmax, maxy)
 
     query = f"""
-    [out:json];
+    [out:json][timeout:{OVERPASS_SERVER_TIMEOUT_SECONDS}];
     way["highway"]({min_lat},{min_lon},{max_lat},{max_lon});
-    (._;>;);
-    out body;
+    out geom;
     """
     info(f"Querying Overpass for roads in bbox={bbox_3006}")
     data = query_overpass_with_failover(query)
@@ -315,17 +348,20 @@ def download_overpass_roads(bbox_3006):
             continue
 
         tags = elem.get("tags", {})
-        refs = [r for r in elem["nodes"] if r in nodes]
-        if len(refs) < 2:
+        refs, coords = _way_node_ids_and_coordinates_latlon(elem, nodes)
+        if len(coords) < 2:
             continue
 
         reverse = _is_reverse_oneway(tags.get("oneway"))
         if reverse:
             refs = list(reversed(refs))
+            coords = list(reversed(coords))
 
-        for segment_index, (start_node, end_node) in enumerate(zip(refs[:-1], refs[1:])):
-            start_lat, start_lon = nodes[start_node]
-            end_lat, end_lon = nodes[end_node]
+        for segment_index, ((start_lat, start_lon), (end_lat, end_lon)) in enumerate(
+            zip(coords[:-1], coords[1:])
+        ):
+            start_node = refs[segment_index] if segment_index < len(refs) else None
+            end_node = refs[segment_index + 1] if segment_index + 1 < len(refs) else None
             road_geometries.append(
                 LineString([(start_lon, start_lat), (end_lon, end_lat)])
             )
@@ -374,6 +410,31 @@ def download_overpass_roads(bbox_3006):
     gdf_3006 = gdf_4326.to_crs("EPSG:3006")
     _set_overpass_source_endpoint(gdf_3006, source_endpoint)
     return gdf_3006
+
+
+def _way_coordinates_latlon(elem, nodes):
+    geometry = elem.get("geometry")
+    if geometry:
+        return [(point["lat"], point["lon"]) for point in geometry]
+
+    coords = []
+    for ref in elem.get("nodes", []):
+        if ref in nodes:
+            coords.append(nodes[ref])  # (lat, lon)
+    return coords
+
+
+def _way_node_ids_and_coordinates_latlon(elem, nodes):
+    refs = list(elem.get("nodes", []))
+    coords = _way_coordinates_latlon(elem, nodes)
+
+    if not elem.get("geometry"):
+        refs = [ref for ref in refs if ref in nodes]
+
+    if len(refs) != len(coords):
+        refs = [None] * len(coords)
+
+    return refs, coords
 
 # ------------------------------------------------------------------------
 # 5) Superset-based caching logic for Buildings

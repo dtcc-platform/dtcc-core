@@ -38,8 +38,43 @@ def test_overpass_failover_does_not_warn_when_fallback_succeeds(monkeypatch):
     assert warnings == []
 
 
+def test_overpass_uses_bounded_connect_and_read_timeouts(monkeypatch):
+    timeouts = []
+
+    class Response:
+        status_code = 200
+
+        def json(self):
+            return {"elements": []}
+
+    class Session:
+        def post(self, endpoint, data, timeout):
+            timeouts.append(timeout)
+            return Response()
+
+    monkeypatch.setattr(overpass, "OVERPASS_ENDPOINTS", ["endpoint-1"])
+    monkeypatch.setattr(overpass, "create_retry_session", lambda: Session())
+
+    data = overpass.query_overpass_with_failover(
+        "[out:json];",
+        connect_timeout=2.5,
+        read_timeout=7.5,
+    )
+
+    assert data["elements"] == []
+    assert timeouts == [(2.5, 7.5)]
+
+
+def test_overpass_retry_session_sets_user_agent():
+    session = overpass.create_retry_session()
+
+    assert session.headers["User-Agent"] == overpass.OVERPASS_USER_AGENT
+    assert session.headers["Accept"] == "application/json"
+
+
 def test_overpass_roads_are_segmented_with_traffic_attributes(monkeypatch):
     def fake_query(query):
+        assert f"[timeout:{overpass.OVERPASS_SERVER_TIMEOUT_SECONDS}]" in query
         return {
             overpass.OVERPASS_ENDPOINT_METADATA_KEY: "endpoint-2",
             "elements": [
@@ -85,6 +120,39 @@ def test_overpass_roads_are_segmented_with_traffic_attributes(monkeypatch):
     assert roads["junction"].tolist() == ["roundabout", "roundabout"]
     assert roads["source_endpoint"].tolist() == ["endpoint-2", "endpoint-2"]
     assert roads.attrs["source_endpoint"] == "endpoint-2"
+
+
+def test_overpass_roads_parse_direct_geometry_payload(monkeypatch):
+    def fake_query(query):
+        assert "out geom;" in query
+        return {
+            overpass.OVERPASS_ENDPOINT_METADATA_KEY: "endpoint-1",
+            "elements": [
+                {
+                    "type": "way",
+                    "id": 101,
+                    "nodes": [10, 11],
+                    "geometry": [
+                        {"lat": 57.7000, "lon": 11.9700},
+                        {"lat": 57.7005, "lon": 11.9705},
+                    ],
+                    "tags": {
+                        "highway": "primary",
+                        "oneway": "yes",
+                    },
+                },
+            ],
+        }
+
+    monkeypatch.setattr(overpass, "query_overpass_with_failover", fake_query)
+
+    roads = overpass.download_overpass_roads((319900.0, 6398900.0, 320100.0, 6399100.0))
+
+    assert len(roads) == 1
+    assert roads["osm_start_node_id"].tolist() == [10]
+    assert roads["osm_end_node_id"].tolist() == [11]
+    assert roads["highway"].tolist() == ["primary"]
+    assert roads["oneway"].tolist() == [True]
 
 
 def test_road_cache_ignores_legacy_records(monkeypatch):
