@@ -1,3 +1,5 @@
+import hashlib
+import json
 import os
 from pathlib import Path
 from typing import Any, Sequence
@@ -34,7 +36,17 @@ SCB_DESO_WFS_URL = "https://geodata.scb.se/geoserver/stat/wfs"
 SCB_PXWEB_API_BASE_URL = "https://api.scb.se/OV0104/v1/doris/sv/ssd/START"
 SCB_DESO_SUPPORTED_YEARS = (2018, 2025)
 SCB_DESO_STATISTICS = ("population", "households", "cars", "employment")
-_REQUEST_TIMEOUT_SECONDS = 60
+SCB_CONNECT_TIMEOUT_SECONDS = float(os.environ.get("DTCC_SCB_CONNECT_TIMEOUT", "8"))
+SCB_READ_TIMEOUT_SECONDS = float(os.environ.get("DTCC_SCB_READ_TIMEOUT", "30"))
+SCB_USER_AGENT = os.environ.get(
+    "DTCC_SCB_USER_AGENT",
+    "dtcc-core/0.9.8 (https://github.com/dtcc-platform/dtcc-core)",
+)
+SCB_WFS_REQUEST_HEADERS = {"User-Agent": SCB_USER_AGENT}
+SCB_API_REQUEST_HEADERS = {
+    "User-Agent": SCB_USER_AGENT,
+    "Accept": "application/json",
+}
 
 
 _STATISTIC_QUERIES = {
@@ -169,8 +181,17 @@ def download_deso_geodataframe(
     else:
         url = _wfs_url(bounds, year)
         info(f"Downloading DeSO {year} polygons from SCB")
-        response = requests.get(url, timeout=_REQUEST_TIMEOUT_SECONDS)
-        response.raise_for_status()
+        try:
+            response = requests.get(
+                url,
+                headers=SCB_WFS_REQUEST_HEADERS,
+                timeout=_scb_request_timeout(),
+            )
+            response.raise_for_status()
+        except requests.exceptions.RequestException as exc:
+            raise RuntimeError(
+                f"Failed to download DeSO {year} polygons from SCB"
+            ) from exc
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = cache_path.with_suffix(cache_path.suffix + ".part")
         tmp_path.write_bytes(response.content)
@@ -283,18 +304,46 @@ def download_deso_statistics(
         return []
 
     fields = []
+    statistics_years = _statistics_years(topics, year)
+    topic_labels = ", ".join(
+        f"{topic} ({statistics_years[topic]})" for topic in topics
+    )
+    info(
+        "Downloading DeSO statistics from SCB "
+        f"for {len(codes)} areas: {topic_labels}"
+    )
     for topic in topics:
         query = _STATISTIC_QUERIES[topic]
-        statistics_year = _statistic_year(topic, year)
+        statistics_year = statistics_years[topic]
         query_codes = [_scb_deso_region_code(code, statistics_year) for code in codes]
 
         for field_spec in query["fields"]:
-            values = _query_scb_statistic(
-                url=query["url"],
+            cache_path = _statistics_cache_path(
+                name=field_spec["name"],
                 region_codes=query_codes,
                 year=statistics_year,
                 selections=field_spec["selections"],
             )
+            values = _read_statistics_cache(cache_path, len(query_codes))
+            if values is not None:
+                info(
+                    "Using cached SCB DeSO statistic "
+                    f"{field_spec['name']} ({statistics_year})"
+                )
+            else:
+                info(
+                    "Querying SCB DeSO statistic "
+                    f"{field_spec['name']} ({statistics_year})"
+                )
+                values = _query_scb_statistic(
+                    url=query["url"],
+                    region_codes=query_codes,
+                    year=statistics_year,
+                    selections=field_spec["selections"],
+                    name=field_spec["name"],
+                )
+                _write_statistics_cache(cache_path, values)
+
             fields.append(
                 Field(
                     name=field_spec["name"],
@@ -312,6 +361,7 @@ def _query_scb_statistic(
     region_codes: Sequence[str],
     year: int,
     selections: dict[str, str],
+    name: str | None = None,
 ) -> np.ndarray:
     query = [
         {
@@ -333,9 +383,69 @@ def _query_scb_statistic(
         }
     )
     payload = {"query": query, "response": {"format": "JSON"}}
-    response = requests.post(url, json=payload, timeout=_REQUEST_TIMEOUT_SECONDS)
-    response.raise_for_status()
+    try:
+        response = requests.post(
+            url,
+            json=payload,
+            headers=SCB_API_REQUEST_HEADERS,
+            timeout=_scb_request_timeout(),
+        )
+        response.raise_for_status()
+    except requests.exceptions.RequestException as exc:
+        label = f" {name}" if name else ""
+        raise RuntimeError(
+            f"Failed to query SCB DeSO statistic{label} ({year})"
+        ) from exc
     return _parse_scb_statistic_response(response.json(), region_codes)
+
+
+def _scb_request_timeout() -> tuple[float, float]:
+    return (SCB_CONNECT_TIMEOUT_SECONDS, SCB_READ_TIMEOUT_SECONDS)
+
+
+def _statistics_cache_path(
+    name: str,
+    region_codes: Sequence[str],
+    year: int,
+    selections: dict[str, str],
+) -> Path:
+    key = {
+        "name": name,
+        "region_codes": list(region_codes),
+        "selections": selections,
+        "year": year,
+    }
+    digest = hashlib.sha256(
+        json.dumps(key, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:16]
+    return (
+        Path(cache_dir)
+        / "downloaded_deso"
+        / "statistics"
+        / f"{name}_{year}_{digest}.npy"
+    )
+
+
+def _read_statistics_cache(path: Path, expected_len: int) -> np.ndarray | None:
+    if not path.exists():
+        return None
+    try:
+        values = np.load(path, allow_pickle=False)
+    except (OSError, ValueError) as exc:
+        warning(f"Ignoring unreadable cached SCB DeSO statistic {path}: {exc}")
+        return None
+    if len(values) != expected_len:
+        warning(f"Ignoring cached SCB DeSO statistic with unexpected length: {path}")
+        return None
+    return np.asarray(values, dtype=float)
+
+
+def _write_statistics_cache(path: Path, values: np.ndarray) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_suffix(path.suffix + ".part")
+    with tmp_path.open("wb") as handle:
+        np.save(handle, np.asarray(values, dtype=float))
+    os.replace(tmp_path, path)
 
 
 def _parse_scb_statistic_response(

@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 from shapely.geometry import Polygon
 
+from dtcc_core.io.data import deso as deso_data
 from dtcc_core.io.data.deso import (
     attach_deso_statistics,
     deso_from_geodataframe,
@@ -33,8 +34,9 @@ def test_filter_deso_geodataframe_by_bounds():
     assert filtered["desokod"].tolist() == ["inside"]
 
 
-def test_download_deso_statistics_parses_scb_response(monkeypatch):
+def test_download_deso_statistics_parses_scb_response(monkeypatch, tmp_path):
     posted = []
+    messages = []
 
     class Response:
         def raise_for_status(self):
@@ -54,11 +56,13 @@ def test_download_deso_statistics_parses_scb_response(monkeypatch):
                 ]
             }
 
-    def fake_post(url, json, timeout):
-        posted.append((url, json, timeout))
+    def fake_post(url, json, headers, timeout):
+        posted.append((url, json, headers, timeout))
         return Response()
 
     monkeypatch.setattr("dtcc_core.io.data.deso.requests.post", fake_post)
+    monkeypatch.setattr("dtcc_core.io.data.deso.info", messages.append)
+    monkeypatch.setattr(deso_data, "cache_dir", tmp_path)
 
     fields = download_deso_statistics(
         codes=["inside", "outside"],
@@ -72,9 +76,19 @@ def test_download_deso_statistics_parses_scb_response(monkeypatch):
         "inside_DeSO2025",
         "outside_DeSO2025",
     ]
+    assert posted[0][2]["User-Agent"] == deso_data.SCB_USER_AGENT
+    assert posted[0][2]["Accept"] == "application/json"
+    assert posted[0][3] == (
+        deso_data.SCB_CONNECT_TIMEOUT_SECONDS,
+        deso_data.SCB_READ_TIMEOUT_SECONDS,
+    )
+    assert any(
+        "Downloading DeSO statistics from SCB" in message for message in messages
+    )
+    assert any("population_total" in message for message in messages)
 
 
-def test_download_deso_statistics_uses_topic_latest_years(monkeypatch):
+def test_download_deso_statistics_uses_topic_latest_years(monkeypatch, tmp_path):
     posted = []
 
     class Response:
@@ -91,11 +105,12 @@ def test_download_deso_statistics_uses_topic_latest_years(monkeypatch):
                 ]
             }
 
-    def fake_post(url, json, timeout):
-        posted.append((url, json, timeout))
+    def fake_post(url, json, headers, timeout):
+        posted.append((url, json, headers, timeout))
         return Response()
 
     monkeypatch.setattr("dtcc_core.io.data.deso.requests.post", fake_post)
+    monkeypatch.setattr(deso_data, "cache_dir", tmp_path)
 
     fields = download_deso_statistics(
         codes=["inside"],
@@ -123,6 +138,64 @@ def test_download_deso_statistics_rejects_unsupported_statistic_year():
             statistics=["employment"],
             year=2025,
         )
+
+
+def test_download_deso_statistics_reports_request_failure(monkeypatch, tmp_path):
+    def fake_post(url, json, headers, timeout):
+        raise deso_data.requests.exceptions.Timeout("timed out")
+
+    monkeypatch.setattr("dtcc_core.io.data.deso.requests.post", fake_post)
+    monkeypatch.setattr(deso_data, "cache_dir", tmp_path)
+
+    with pytest.raises(RuntimeError, match="population_total.*2025"):
+        download_deso_statistics(
+            codes=["inside"],
+            statistics=["population"],
+            year=2025,
+        )
+
+
+def test_download_deso_statistics_uses_cached_values(monkeypatch, tmp_path):
+    posted = []
+    messages = []
+
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {
+                "data": [
+                    {
+                        "key": ["inside_DeSO2025", "totalt", "1+2", "2025"],
+                        "values": ["123"],
+                    }
+                ]
+            }
+
+    def fake_post(url, json, headers, timeout):
+        posted.append((url, json, headers, timeout))
+        return Response()
+
+    monkeypatch.setattr("dtcc_core.io.data.deso.requests.post", fake_post)
+    monkeypatch.setattr("dtcc_core.io.data.deso.info", messages.append)
+    monkeypatch.setattr(deso_data, "cache_dir", tmp_path)
+
+    first = download_deso_statistics(
+        codes=["inside"],
+        statistics=["population"],
+        year=2025,
+    )
+    second = download_deso_statistics(
+        codes=["inside"],
+        statistics=["population"],
+        year=2025,
+    )
+
+    assert len(posted) == 1
+    assert first[0].values.tolist() == [[123.0]]
+    assert second[0].values.tolist() == [[123.0]]
+    assert any("Using cached SCB DeSO statistic" in message for message in messages)
 
 
 def test_attach_deso_statistics_adds_area_fields(monkeypatch):
