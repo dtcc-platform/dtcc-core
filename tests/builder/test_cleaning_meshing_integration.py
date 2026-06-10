@@ -146,6 +146,21 @@ def make_building(
     return building
 
 
+def _fake_tetgen_switch_defaults() -> dict:
+    # Stand-in for dtcc_tetgen_wrapper.switches.tetgen_defaults() so tests that
+    # mock is_tetgen_available() also run where TetGen is not installed (CI).
+    return {
+        "plc": True,
+        "preserve_surface": False,
+        "quality": None,
+        "max_volume": None,
+        "max_added_points": None,
+        "optimize_level": None,
+        "extra": "",
+        "refine": False,
+    }
+
+
 def make_flat_city(buildings: list[Building]) -> City:
     city = City()
     raster = Raster()
@@ -2725,6 +2740,9 @@ def test_build_city_volume_mesh_uses_shared_surface_pipeline(monkeypatch):
         fake_build_surface_from_ground,
     )
     monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
+    monkeypatch.setattr(
+        meshes_module, "get_default_tetgen_switches", _fake_tetgen_switch_defaults
+    )
     monkeypatch.setattr(meshes_module, "_tetgen_plc_audit", fake_tetgen_plc_audit)
     monkeypatch.setattr(
         meshes_module,
@@ -2892,6 +2910,9 @@ def test_build_city_volume_mesh_stage_audit_records_stage_contracts(monkeypatch)
         lambda mesh, *args, **kwargs: _fake_prebuilt_tetgen_plc(mesh),
     )
     monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
+    monkeypatch.setattr(
+        meshes_module, "get_default_tetgen_switches", _fake_tetgen_switch_defaults
+    )
     monkeypatch.setattr(meshes_module, "tetgen_build_volume_mesh", fake_tetgen_build)
 
     volume_mesh = build_city_volume_mesh(
@@ -3379,6 +3400,9 @@ def test_build_city_volume_mesh_keeps_requested_tetgen_switches(monkeypatch):
         lambda mesh, *args, **kwargs: _fake_prebuilt_tetgen_plc(mesh),
     )
     monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
+    monkeypatch.setattr(
+        meshes_module, "get_default_tetgen_switches", _fake_tetgen_switch_defaults
+    )
     monkeypatch.setattr(meshes_module, "tetgen_build_volume_mesh", fake_tetgen_build)
 
     build_city_volume_mesh(
@@ -3529,6 +3553,9 @@ def test_build_city_volume_mesh_uses_split_surface_default_without_flat_special_
         lambda mesh, *args, **kwargs: _fake_prebuilt_tetgen_plc(mesh),
     )
     monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
+    monkeypatch.setattr(
+        meshes_module, "get_default_tetgen_switches", _fake_tetgen_switch_defaults
+    )
     monkeypatch.setattr(meshes_module, "tetgen_build_volume_mesh", fake_tetgen_build)
     monkeypatch.setattr(
         meshes_module,
@@ -3682,6 +3709,9 @@ def test_build_city_volume_mesh_allows_empty_conditioned_footprints(monkeypatch)
         lambda mesh, *args, **kwargs: _fake_prebuilt_tetgen_plc(mesh),
     )
     monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
+    monkeypatch.setattr(
+        meshes_module, "get_default_tetgen_switches", _fake_tetgen_switch_defaults
+    )
     monkeypatch.setattr(meshes_module, "tetgen_build_volume_mesh", fake_tetgen_build)
 
     volume_mesh = build_city_volume_mesh(
@@ -3816,6 +3846,9 @@ def test_build_city_volume_mesh_respects_explicit_tetgen_switches_for_dtcc_meshe
         lambda mesh, *args, **kwargs: _fake_prebuilt_tetgen_plc(mesh),
     )
     monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
+    monkeypatch.setattr(
+        meshes_module, "get_default_tetgen_switches", _fake_tetgen_switch_defaults
+    )
     monkeypatch.setattr(meshes_module, "tetgen_build_volume_mesh", fake_tetgen_build)
 
     build_city_volume_mesh(
@@ -3962,6 +3995,9 @@ def test_build_city_volume_mesh_saves_tetgen_debug_meshes(monkeypatch, tmp_path)
     )
     monkeypatch.setattr(meshes_module, "_save_tetgen_debug_meshes", fake_save_debug_meshes)
     monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
+    monkeypatch.setattr(
+        meshes_module, "get_default_tetgen_switches", _fake_tetgen_switch_defaults
+    )
     monkeypatch.setattr(meshes_module, "tetgen_build_volume_mesh", fake_tetgen_build)
 
     build_city_volume_mesh(
@@ -4313,6 +4349,9 @@ def test_build_city_volume_mesh_captures_quality_failure_artifacts(monkeypatch, 
         lambda mesh, *args, **kwargs: _fake_prebuilt_tetgen_plc(mesh),
     )
     monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
+    monkeypatch.setattr(
+        meshes_module, "get_default_tetgen_switches", _fake_tetgen_switch_defaults
+    )
     monkeypatch.setattr(meshes_module, "tetgen_build_volume_mesh", fake_tetgen_build)
     monkeypatch.setattr(
         meshes_module,
@@ -4468,6 +4507,9 @@ def test_build_city_volume_mesh_ignores_quality_failure_capture_errors(
         lambda mesh, *args, **kwargs: _fake_prebuilt_tetgen_plc(mesh),
     )
     monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
+    monkeypatch.setattr(
+        meshes_module, "get_default_tetgen_switches", _fake_tetgen_switch_defaults
+    )
     monkeypatch.setattr(meshes_module, "tetgen_build_volume_mesh", fake_tetgen_build)
     monkeypatch.setattr(
         meshes_module,
@@ -4673,6 +4715,9 @@ def test_build_city_volume_mesh_uses_refined_shell_without_retry(
         lambda mesh, *args, **kwargs: _fake_prebuilt_tetgen_plc(mesh),
     )
     monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
+    monkeypatch.setattr(
+        meshes_module, "get_default_tetgen_switches", _fake_tetgen_switch_defaults
+    )
     monkeypatch.setattr(meshes_module, "tetgen_build_volume_mesh", fake_tetgen_build)
     monkeypatch.setattr(
         meshes_module,
@@ -4853,6 +4898,9 @@ def test_build_city_volume_mesh_keeps_shell_refinement_enabled_when_preserving_s
         lambda mesh, *args, **kwargs: _fake_prebuilt_tetgen_plc(mesh),
     )
     monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
+    monkeypatch.setattr(
+        meshes_module, "get_default_tetgen_switches", _fake_tetgen_switch_defaults
+    )
     monkeypatch.setattr(meshes_module, "tetgen_build_volume_mesh", fake_tetgen_build)
     monkeypatch.setattr(
         meshes_module,
