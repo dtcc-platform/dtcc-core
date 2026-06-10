@@ -624,8 +624,13 @@ private:
         return new_index;
       };
 
-      compacted_mesh.faces.push_back(
-          Simplex2D(map_vertex(face.v0), map_vertex(face.v1), map_vertex(face.v2)));
+      // Call map_vertex in a fixed order: argument evaluation order is
+      // unspecified in C++ (gcc and clang differ), and map_vertex assigns
+      // new vertex indices by first use.
+      const size_t new_v0 = map_vertex(face.v0);
+      const size_t new_v1 = map_vertex(face.v1);
+      const size_t new_v2 = map_vertex(face.v2);
+      compacted_mesh.faces.push_back(Simplex2D(new_v0, new_v1, new_v2));
 
       int marker = default_marker();
       if (i < mesh.markers.size())
