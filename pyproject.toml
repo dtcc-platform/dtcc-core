@@ -58,15 +58,11 @@ classifiers = [
 
 [project.optional-dependencies]
 test = ["pytest", "pytest-cov", "httpx>=0.27"]
-spade = ["dtcc-pyspade-native == 0.1.3"]
 remote = ["httpx>=0.27"]
 
 
 [tool.scikit-build]
 wheel.expand-macos-universal-tags = true
-
-[tool.uv.sources]
-pyspade = { git = "https://github.com/dtcc-platform/pyspade.git" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

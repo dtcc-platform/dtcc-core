@@ -35,49 +35,6 @@ else()
   target_compile_definitions(${BINDINGS} PRIVATE AMGCL_NO_BOOST)
 endif()
 
-if(DTCC_HAVE_SPADE AND TARGET pyspade_native::spade_wrapper)
-  # Get include directories from the imported target
-  get_target_property(SPADE_INCLUDE_DIRS pyspade_native::spade_wrapper INTERFACE_INCLUDE_DIRECTORIES)
-  if(SPADE_INCLUDE_DIRS)
-    target_include_directories(${BINDINGS} SYSTEM PRIVATE ${SPADE_INCLUDE_DIRS})
-  endif()
-
-  # Define DTCC_HAVE_SPADE so the code knows SPADE is available
-  target_compile_definitions(${BINDINGS} PRIVATE DTCC_HAVE_SPADE)
-
-  if(WIN32)
-    # On Windows, use the imported target directly - it has the proper .lib files
-    target_link_libraries(${BINDINGS} PRIVATE pyspade_native::spade_wrapper)
-  else()
-    # On Linux/macOS, link using library names (not full paths) to avoid
-    # embedding build paths in DT_NEEDED entries
-    target_link_directories(${BINDINGS} PRIVATE ${PYSPADE_NATIVE_LIBRARY_DIR})
-    target_link_libraries(${BINDINGS} PRIVATE spade_wrapper spade_ffi)
-
-    # Set RPATH so the module can find pyspade_native libraries at runtime
-    # The library will be at: site-packages/pyspade_native/lib/
-    # This module installs to: site-packages/dtcc_core/builder/
-    # So relative path is: ../../pyspade_native/lib
-    if(APPLE)
-      set_target_properties(${BINDINGS} PROPERTIES
-        BUILD_RPATH "${PYSPADE_NATIVE_LIBRARY_DIR}"
-        INSTALL_RPATH "@loader_path/../../pyspade_native/lib"
-      )
-    else()
-      set_target_properties(${BINDINGS} PROPERTIES
-        BUILD_RPATH "${PYSPADE_NATIVE_LIBRARY_DIR}"
-        INSTALL_RPATH "\$ORIGIN/../../pyspade_native/lib"
-      )
-    endif()
-  endif()
-
-  message(STATUS "SPADE integration enabled for ${BINDINGS}")
-  message(STATUS "  Library dir: ${PYSPADE_NATIVE_LIBRARY_DIR}")
-  message(STATUS "  Include dirs: ${SPADE_INCLUDE_DIRS}")
-else()
-  message(STATUS "SPADE integration disabled for ${BINDINGS}")
-endif()
-
 if(DTCC_HAVE_TRIANGLE)
   target_include_directories(${BINDINGS} SYSTEM PRIVATE ${TRIANGLE_INCLUDE_DIR})
   target_link_libraries(${BINDINGS} PRIVATE ${TRIANGLE_LIBRARY})
