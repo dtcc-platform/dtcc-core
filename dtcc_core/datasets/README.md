@@ -125,6 +125,7 @@ Current Built-In Datasets
 | `metros` | raw | `VehicleCollection` | `pb` | Shortcut for live metro positions. |
 | `ferries` | raw | `VehicleCollection` | `pb` | Shortcut for live ferry positions. |
 | `smoke` | simulation | `VolumeMesh` | `pb`, `vtu`, `geojson` | Synthetic velocity-field smoke test with `field`, `slice`, and `streamlines` products. |
+| `calibration_grid` | derived | `dict` | `geojson` | Synthetic evenly spaced line grid for table-projector alignment. |
 | `air_quality` | raw | `SensorCollection` | `pb` | SMHI air-quality snapshot. |
 | `weather` | raw | `SensorCollection` | `pb` | SMHI meteorological latest-hour snapshot. |
 | `hydrology` | raw | `SensorCollection` | `pb` | SMHI hydrology latest-day snapshot. |
@@ -270,6 +271,27 @@ Then run the smoke table publisher from this repository:
 
 Atlas can browse the resulting catalog and fetch the published smoke datasets
 using their `table-smoke-*` dataset keys.
+
+The smoke cases are synthetic, so they cannot show whether the projection
+actually lands on the printed buildings. The companion footprints demo
+publishes the real building footprints over the same table bounds as
+EPSG:3006 GeoJSON under the `table-footprints-geojson` dataset key, giving the
+table an alignment layer that should sit exactly on the physical model:
+
+    python demos/footprints_table_case.py
+
+Note that the table requires EPSG:3006 GeoJSON, while `building_footprints`
+reprojects GeoJSON output to EPSG:4326 by default. The demo passes
+`crs="EPSG:3006"` to keep coordinates in meters; do the same for any manual
+footprint exports aimed at the table. Unlike the smoke cases, this demo
+downloads live footprint data and needs network access.
+
+For checking the projector alignment itself, the calibration grid demo
+publishes a synthetic 41 x 41 line grid over the same bounds under the
+`table-calibration-grid-geojson` dataset key. The printed table model is
+40 cm x 40 cm at 1:1250, so the lines sit exactly 1 cm apart on the model:
+
+    python demos/grid_table_case.py
 
 Atlas Integration Checklist
 ---------------------------
