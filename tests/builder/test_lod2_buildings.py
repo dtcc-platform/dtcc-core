@@ -782,6 +782,137 @@ def test_decomposed_shell_reconciles_slice_vertex_when_height_order_changes(monk
     assert is_watertight(shell)
 
 
+def _surface_is_simple(surface):
+    vertices = np.asarray(surface.vertices, dtype=float)
+    centered = vertices - vertices.mean(axis=0)
+    _, _, rotation = np.linalg.svd(centered)
+    projected = centered @ rotation[:2].T
+    return Polygon(projected).is_valid
+
+
+def test_decomposed_shell_splits_crossing_junction_walls_into_simple_triangles(monkeypatch):
+    footprint = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
+    left_region = Polygon([(0, 0), (5, 0), (5, 10), (0, 10)])
+    right_region = Polygon([(5, 0), (10, 0), (10, 10), (5, 10)])
+    decomposition = lod2_module.FootprintDecomposition(
+        pieces=[left_region, right_region],
+        slice_lines=[LineString([(5, 0), (5, 10)])],
+        family_reason=lod2_module.DECOMPOSITION_L_LIKE,
+        concave_vertex_count=1,
+    )
+    left_roof = _surface(
+        [[0, 0, 10], [5, 0, 10], [5, 5, 14], [5, 10, 10], [0, 10, 10]]
+    )
+    right_roof = _surface([[5, 0, 12], [10, 0, 12], [10, 10, 12], [5, 10, 12]])
+    region_surfaces = iter([([left_roof], None), ([right_roof], None)])
+
+    monkeypatch.setattr(
+        lod2_module,
+        "_decompose_footprint",
+        lambda candidate_footprint, decomposition_counts=None: decomposition,
+    )
+    monkeypatch.setattr(
+        lod2_module,
+        "_region_roof_surfaces",
+        lambda points, region, decomposition_counts=None: next(region_surfaces),
+    )
+
+    shell, reason = lod2_module._build_decomposed_shell(footprint, np.empty((0, 3)), 0.0)
+
+    assert reason == lod2_module.DECOMPOSITION_SUCCESS
+    assert shell is not None
+    assert is_watertight(shell)
+    # The left ridge crosses the flat right roof twice along the slice line;
+    # each crossing must yield two simple triangles, never a bowtie quad.
+    assert all(_surface_is_simple(surface) for surface in shell.surfaces)
+    assert sum(len(surface.vertices) == 3 for surface in shell.surfaces) == 4
+
+
+def test_decomposed_shell_handles_near_coplanar_crossing_regions(monkeypatch):
+    footprint = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
+    left_region = Polygon([(0, 0), (5, 0), (5, 10), (0, 10)])
+    right_region = Polygon([(5, 0), (10, 0), (10, 10), (5, 10)])
+    decomposition = lod2_module.FootprintDecomposition(
+        pieces=[left_region, right_region],
+        slice_lines=[LineString([(5, 0), (5, 10)])],
+        family_reason=lod2_module.DECOMPOSITION_L_LIKE,
+        concave_vertex_count=1,
+    )
+    # Nearly coincident planes whose centimetre-scale height gap changes sign
+    # along the slice line (the Kungsbacka regression).
+    left_roof = _surface(
+        [[0, 0, 10.0], [5, 0, 10.0], [5, 10, 10.08], [0, 10, 10.08]]
+    )
+    right_roof = _surface(
+        [[5, 0, 10.03], [10, 0, 10.03], [10, 10, 10.0], [5, 10, 10.0]]
+    )
+    region_surfaces = iter([([left_roof], None), ([right_roof], None)])
+
+    monkeypatch.setattr(
+        lod2_module,
+        "_decompose_footprint",
+        lambda candidate_footprint, decomposition_counts=None: decomposition,
+    )
+    monkeypatch.setattr(
+        lod2_module,
+        "_region_roof_surfaces",
+        lambda points, region, decomposition_counts=None: next(region_surfaces),
+    )
+
+    shell, reason = lod2_module._build_decomposed_shell(footprint, np.empty((0, 3)), 0.0)
+
+    assert reason == lod2_module.DECOMPOSITION_SUCCESS
+    assert shell is not None
+    assert is_watertight(shell)
+    assert all(_surface_is_simple(surface) for surface in shell.surfaces)
+    assert sum(len(surface.vertices) == 3 for surface in shell.surfaces) == 2
+
+
+def test_decomposed_shell_rejects_crossing_too_close_to_region_corner(monkeypatch):
+    footprint = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
+    quadrants = [
+        Polygon([(0, 0), (5, 0), (5, 5), (0, 5)]),
+        Polygon([(5, 0), (10, 0), (10, 5), (5, 5)]),
+        Polygon([(0, 5), (5, 5), (5, 10), (0, 10)]),
+        Polygon([(5, 5), (10, 5), (10, 10), (5, 10)]),
+    ]
+    decomposition = lod2_module.FootprintDecomposition(
+        pieces=quadrants,
+        slice_lines=[LineString([(5, 0), (5, 10)]), LineString([(0, 5), (10, 5)])],
+        family_reason=lod2_module.DECOMPOSITION_T_OR_U_LIKE,
+        concave_vertex_count=2,
+    )
+    # The SW and NW planes cross on the y=5 slice line 0.75 mm west of the
+    # shared corner (5, 5), too close to insert a split vertex. The shell
+    # must be rejected; the unrelated SE/NE corner heights (3 m apart from
+    # the crossing pair) must never be averaged into the crossing repair.
+    sw_roof = _surface([[0, 0, 20.0], [5, 0, 10.0], [5, 5, 10.0], [0, 5, 20.0]])
+    se_roof = _surface([[5, 0, 3.0], [10, 0, 3.0], [10, 5, 3.0], [5, 5, 3.0]])
+    nw_roof = _surface(
+        [[0, 5, 10.0015], [5, 5, 10.0015], [5, 10, 10.0015], [0, 10, 10.0015]]
+    )
+    ne_roof = _surface([[5, 5, 15.0], [10, 5, 15.0], [10, 10, 15.0], [5, 10, 15.0]])
+    region_surfaces = iter(
+        [([sw_roof], None), ([se_roof], None), ([nw_roof], None), ([ne_roof], None)]
+    )
+
+    monkeypatch.setattr(
+        lod2_module,
+        "_decompose_footprint",
+        lambda candidate_footprint, decomposition_counts=None: decomposition,
+    )
+    monkeypatch.setattr(
+        lod2_module,
+        "_region_roof_surfaces",
+        lambda points, region, decomposition_counts=None: next(region_surfaces),
+    )
+
+    shell, reason = lod2_module._build_decomposed_shell(footprint, np.empty((0, 3)), 0.0)
+
+    assert shell is None
+    assert reason == lod2_module.DECOMPOSITION_JUNCTION_FAILED
+
+
 def test_rebuild_false_preserves_existing_lod2():
     building = _building_with_footprint(_flat_roof_points())
     existing = _closed_box()

@@ -415,12 +415,10 @@ def _internal_junction_surfaces(
         if line_key in handled_lines:
             continue
         handled_lines.add(line_key)
-        _, _, low_high = _slice_line_vertex_groups(roof_surfaces, line)
-        if len(low_high) < 2:
+        group_xys = _slice_line_group_xys(roof_surfaces, line)
+        if len(group_xys) < 2:
             continue
-        paired_xys = [pair[0][:2] for pair in low_high]
-        paired_xys.sort(key=lambda xy: _edge_parameter(xy, start, end))
-        for first_xy, second_xy in zip(paired_xys, paired_xys[1:]):
+        for first_xy, second_xy in zip(group_xys, group_xys[1:]):
             if np.linalg.norm(second_xy - first_xy) <= EDGE_TOLERANCE:
                 continue
             midpoint = 0.5 * (first_xy + second_xy)
@@ -432,15 +430,119 @@ def _internal_junction_surfaces(
             if len(edges) < 2:
                 continue
             first_edge, second_edge = edges[:2]
-            junctions.append(
-                Surface(
-                    vertices=np.asarray(
-                        [first_edge[0], first_edge[1], second_edge[1], second_edge[0]],
-                        dtype=float,
-                    )
-                )
-            )
+            start_gap = first_edge[0][2] - second_edge[0][2]
+            end_gap = first_edge[1][2] - second_edge[1][2]
+            if abs(start_gap) <= EDGE_TOLERANCE and abs(end_gap) <= EDGE_TOLERANCE:
+                # Roof edges coincide and pair with each other directly.
+                continue
+            if _crossing_parameter(first_edge, second_edge) is not None:
+                # Roof planes still cross inside this segment; a quad here
+                # would self-intersect. Crossings are split beforehand by
+                # _split_crossing_junction_edges, so refuse the shell rather
+                # than emit invalid geometry.
+                return None
+            if abs(start_gap) <= EDGE_TOLERANCE:
+                corners = [first_edge[0], first_edge[1], second_edge[1]]
+            elif abs(end_gap) <= EDGE_TOLERANCE:
+                corners = [first_edge[0], first_edge[1], second_edge[0]]
+            else:
+                corners = [first_edge[0], first_edge[1], second_edge[1], second_edge[0]]
+            junctions.append(Surface(vertices=np.asarray(corners, dtype=float)))
     return junctions
+
+
+def _slice_line_group_xys(
+    roof_surfaces: list[Surface],
+    line: LineString,
+) -> list[np.ndarray]:
+    coords = np.asarray(line.coords, dtype=float)
+    start = coords[0]
+    end = coords[-1]
+    top, _, _ = _slice_line_vertex_groups(roof_surfaces, line)
+    by_xy: dict[tuple[int, int], np.ndarray] = {}
+    for vertex in top:
+        key = tuple(np.round(vertex[:2] / EDGE_TOLERANCE).astype(int))
+        by_xy.setdefault(key, vertex[:2])
+    group_xys = list(by_xy.values())
+    group_xys.sort(key=lambda xy: _edge_parameter(xy, start, end))
+    return group_xys
+
+
+def _crossing_parameter(
+    first_edge: tuple[np.ndarray, np.ndarray],
+    second_edge: tuple[np.ndarray, np.ndarray],
+) -> float | None:
+    start_gap = first_edge[0][2] - second_edge[0][2]
+    end_gap = first_edge[1][2] - second_edge[1][2]
+    if abs(start_gap) <= EDGE_TOLERANCE or abs(end_gap) <= EDGE_TOLERANCE:
+        return None
+    if start_gap * end_gap >= 0.0:
+        return None
+    return start_gap / (start_gap - end_gap)
+
+
+def _snap_crossing_vertex_heights(
+    first_surface: Surface,
+    second_surface: Surface,
+    xy: np.ndarray,
+) -> None:
+    indices = []
+    for surface in (first_surface, second_surface):
+        index = next(
+            index
+            for index, vertex in enumerate(surface.vertices)
+            if np.linalg.norm(np.asarray(vertex[:2], dtype=float) - xy) <= EDGE_TOLERANCE
+        )
+        indices.append(index)
+    mean_z = 0.5 * (
+        first_surface.vertices[indices[0]][2] + second_surface.vertices[indices[1]][2]
+    )
+    first_surface.vertices[indices[0]][2] = mean_z
+    second_surface.vertices[indices[1]][2] = mean_z
+
+
+def _split_crossing_junction_edges(
+    roof_surfaces: list[Surface],
+    slice_lines: list[LineString],
+) -> list[Surface]:
+    """Insert a shared vertex where adjacent region roof planes cross.
+
+    Two nearly coincident roof planes can swap height order along a slice
+    line. A single junction quad between them would self-intersect, so the
+    crossing point is inserted into both roof edges; the junction builder
+    then emits two simple triangles instead. When the crossing falls too
+    close to an existing vertex to insert into both edges, the geometry is
+    left untouched and the junction builder rejects the shell.
+    """
+    surfaces = list(roof_surfaces)
+    for line in slice_lines:
+        group_xys = _slice_line_group_xys(surfaces, line)
+        for first_xy, second_xy in zip(group_xys, group_xys[1:]):
+            if np.linalg.norm(second_xy - first_xy) <= EDGE_TOLERANCE:
+                continue
+            owners = [
+                index
+                for index, surface in enumerate(surfaces)
+                if _surface_edge_between_xys(surface, first_xy, second_xy) is not None
+            ]
+            if len(owners) < 2:
+                continue
+            first_owner, second_owner = owners[:2]
+            parameter = _crossing_parameter(
+                _surface_edge_between_xys(surfaces[first_owner], first_xy, second_xy),
+                _surface_edge_between_xys(surfaces[second_owner], first_xy, second_xy),
+            )
+            if parameter is None:
+                continue
+            crossing_xy = first_xy + parameter * (second_xy - first_xy)
+            first_split = _insert_xy_on_surface_edge(surfaces[first_owner], crossing_xy)
+            second_split = _insert_xy_on_surface_edge(surfaces[second_owner], crossing_xy)
+            if first_split is surfaces[first_owner] or second_split is surfaces[second_owner]:
+                continue
+            _snap_crossing_vertex_heights(first_split, second_split, crossing_xy)
+            surfaces[first_owner] = first_split
+            surfaces[second_owner] = second_split
+    return surfaces
 
 
 def _slice_line_vertex_groups(
@@ -1255,6 +1357,7 @@ def _build_decomposed_shell(
         roof_surfaces,
         decomposition.slice_lines,
     )
+    roof_surfaces = _split_crossing_junction_edges(roof_surfaces, decomposition.slice_lines)
     junctions = _internal_junction_surfaces(footprint, roof_surfaces, decomposition.slice_lines)
     if junctions is None:
         return None, DECOMPOSITION_JUNCTION_FAILED
