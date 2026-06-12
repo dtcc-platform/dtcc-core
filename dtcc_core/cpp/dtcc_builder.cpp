@@ -1032,14 +1032,7 @@ PYBIND11_MODULE(_dtcc_builder, m)
   constexpr bool have_triangle = false;
 #endif
 
-#ifdef DTCC_HAVE_SPADE
-  constexpr bool have_spade = true;
-#else
-  constexpr bool have_spade = false;
-#endif
-
   m.attr("HAVE_TRIANGLE") = py::bool_(have_triangle);
-  m.attr("HAVE_SPADE") = py::bool_(have_spade);
 
   m.def(
       "triangulation_backends",
@@ -1048,8 +1041,6 @@ PYBIND11_MODULE(_dtcc_builder, m)
         std::vector<std::string> backends;
         if (have_triangle)
           backends.emplace_back("triangle");
-        if (have_spade)
-          backends.emplace_back("spade");
         if (backends.empty())
           backends.emplace_back("earcut");
         return backends;

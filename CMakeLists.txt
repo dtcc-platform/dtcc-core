@@ -15,7 +15,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(DTCC_ENABLE_WARNINGS "Enable recommended warning flags" ON)
-option(DTCC_USE_SPADE "Enable SPADE triangulation" ON)
 option(DTCC_USE_TRIANGLE "Enable external Triangle" OFF)
 option(DTCC_USE_HOMEBREW_LLVM "Use the Homebrew LLVM toolchain on macOS" OFF)
 set(DTCC_TRIANGLE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/dtcc_core/cpp/external/triangle" CACHE PATH "Prefix for Triangle installation (with include/triangle/triangle.h)")
@@ -113,37 +112,6 @@ if(DTCC_USE_TRIANGLE)
     list(APPEND DTCC_CORE_SYSTEM_INCLUDE_DIRS ${TRIANGLE_INCLUDE_DIR})
   else()
     message(FATAL_ERROR "DTCC_USE_TRIANGLE=ON but Triangle not found. Set DTCC_TRIANGLE_DIR or TRIANGLE_DIR to its prefix.")
-  endif()
-endif()
-
-# ------------------------------------------------------------------------------
-# SPADE integration (via pip-installed dtcc-pyspade-native)
-# ------------------------------------------------------------------------------
-if(DTCC_USE_SPADE)
-  # Add Python site-packages to CMAKE_PREFIX_PATH so find_package can find pyspade_native
-  execute_process(
-    COMMAND ${Python3_EXECUTABLE} -c "import sysconfig; print(sysconfig.get_path('platlib'))"
-    OUTPUT_VARIABLE PYTHON_SITE_PACKAGES
-    ERROR_QUIET
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-  )
-
-  if(PYTHON_SITE_PACKAGES)
-    list(APPEND CMAKE_PREFIX_PATH "${PYTHON_SITE_PACKAGES}/pyspade_native")
-    message(STATUS "Added Python site-packages to CMAKE_PREFIX_PATH: ${PYTHON_SITE_PACKAGES}/pyspade_native")
-  endif()
-
-  # Find the pyspade_native package
-  find_package(pyspade_native)
-
-  if(pyspade_native_FOUND)
-    message(STATUS "Found dtcc-pyspade-native: ${PYSPADE_NATIVE_INCLUDE_DIR}")
-    set(DTCC_HAVE_SPADE TRUE)
-  else()
-    message(WARNING "dtcc-pyspade-native not found. Install it with: pip install dtcc-pyspade-native")
-    message(WARNING "Disabling SPADE integration")
-    set(DTCC_USE_SPADE OFF CACHE BOOL "" FORCE)
-    set(DTCC_HAVE_SPADE FALSE)
   endif()
 endif()
 

@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import Mock, patch
+
+import numpy as np
 
 import dtcc_core.datasets as datasets
 from dtcc_core.datasets import get_dataset
 from dtcc_core.datasets.footprints import FootprintsArgs, FootprintsDataset
+from dtcc_core.model import Building, City, GeometryType, Surface
 
 
 def test_building_footprints_registered_name():
@@ -107,3 +111,89 @@ def test_building_footprints_geojson_export_returns_bytes(mock_city_cls):
     args, kwargs = mock_export.call_args
     assert args[:2] == (city, "geojson")
     assert kwargs["save_callable"] is not None
+
+
+@patch("dtcc_core.datasets.footprints.City")
+def test_building_footprints_crs_forwarded_to_export(mock_city_cls):
+    """The crs argument should reach export_to_bytes as the output_crs kwarg."""
+    city = Mock(name="city")
+    city.buildings = []
+    mock_city_cls.return_value = city
+
+    dataset = FootprintsDataset()
+    with patch.object(dataset, "export_to_bytes", return_value=b"x") as mock_export:
+        dataset.build(
+            FootprintsArgs(
+                bounds=(0.0, 0.0, 1.0, 1.0),
+                format="geojson",
+                crs="EPSG:3006",
+            )
+        )
+
+    assert mock_export.call_args.kwargs["output_crs"] == "EPSG:3006"
+
+
+def _city_with_one_footprint() -> City:
+    """A real City with one EPSG:3006 footprint inside the table bounds."""
+    surface = Surface()
+    surface.vertices = np.array(
+        [
+            [319900.0, 6397900.0, 0.0],
+            [319960.0, 6397900.0, 0.0],
+            [319960.0, 6397940.0, 0.0],
+            [319900.0, 6397940.0, 0.0],
+        ]
+    )
+    surface.transform.srs = "EPSG:3006"
+    building = Building()
+    building.id = "bldg-1"
+    building.add_geometry(surface, GeometryType.LOD0)
+    city = City()
+    city.add_buildings([building])
+    return city
+
+
+@patch("dtcc_core.datasets.footprints.City")
+def test_building_footprints_geojson_crs_3006_is_table_compatible(mock_city_cls):
+    """crs='EPSG:3006' GeoJSON keeps meter coordinates and declares SWEREF99 TM.
+
+    The DTCC table (Atlas) requires a crs member naming EPSG:3006 and
+    rejects WGS84-degree coordinates.
+    """
+    city = _city_with_one_footprint()
+    city.download_footprints = lambda: None
+    mock_city_cls.return_value = city
+
+    dataset = FootprintsDataset()
+    payload = dataset.build(
+        FootprintsArgs(
+            bounds=(319720.0, 6397660.0, 320220.0, 6398160.0),
+            format="geojson",
+            crs="EPSG:3006",
+        )
+    )
+
+    data = json.loads(payload)
+    assert data["crs"]["properties"]["name"] == "urn:ogc:def:crs:EPSG::3006"
+    x, y = data["features"][0]["geometry"]["coordinates"][0][0][:2]
+    assert abs(x) > 180 and abs(y) > 90, (x, y)
+
+
+@patch("dtcc_core.datasets.footprints.City")
+def test_building_footprints_geojson_default_remains_wgs84(mock_city_cls):
+    """Without crs, GeoJSON export keeps reprojecting to WGS84 degrees."""
+    city = _city_with_one_footprint()
+    city.download_footprints = lambda: None
+    mock_city_cls.return_value = city
+
+    dataset = FootprintsDataset()
+    payload = dataset.build(
+        FootprintsArgs(
+            bounds=(319720.0, 6397660.0, 320220.0, 6398160.0),
+            format="geojson",
+        )
+    )
+
+    data = json.loads(payload)
+    x, y = data["features"][0]["geometry"]["coordinates"][0][0][:2]
+    assert abs(x) <= 180 and abs(y) <= 90, (x, y)

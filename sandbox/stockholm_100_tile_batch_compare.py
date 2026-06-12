@@ -230,9 +230,6 @@ def _dyld_fallback_library_path() -> str:
     pieces = []
     if conda_prefix:
         pieces.append(str(Path(conda_prefix) / "lib"))
-        pieces.append(
-            str(Path(conda_prefix) / "lib" / "python3.12" / "site-packages" / "pyspade_native" / "lib")
-        )
     existing = os.environ.get("DYLD_FALLBACK_LIBRARY_PATH")
     if existing:
         pieces.append(existing)

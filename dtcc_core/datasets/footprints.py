@@ -20,6 +20,13 @@ class FootprintsArgs(DatasetBaseArgs):
     format: Optional[Literal["geojson", "gpkg", "shp.zip"]] = Field(
         None, description="Output file format"
     )
+    crs: Optional[str] = Field(
+        None,
+        description=(
+            "Output CRS for serialized formats (e.g. 'EPSG:3006'). If None, "
+            "format conventions apply: GeoJSON is reprojected to EPSG:4326."
+        ),
+    )
 
 
 class FootprintsDataset(DatasetDescriptor):
@@ -65,5 +72,8 @@ class FootprintsDataset(DatasetDescriptor):
                     return city.buildings
                 else:
                     return self.export_to_bytes(
-                        city, args.format, save_callable=dtcc_core.io.footprints.save
+                        city,
+                        args.format,
+                        save_callable=dtcc_core.io.footprints.save,
+                        output_crs=args.crs,
                     )

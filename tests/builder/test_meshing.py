@@ -169,7 +169,7 @@ def test_available_2d_meshers_reports_supported_python_backends(monkeypatch):
     monkeypatch.setattr(
         backends_module,
         "_builder_backend_available",
-        lambda name: name in {"triangle", "spade"},
+        lambda name: name in {"triangle"},
     )
 
     assert backends_module.available_2d_meshers() == ["dtcc_mesher", "triangle"]

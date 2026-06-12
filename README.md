@@ -62,7 +62,7 @@ Exit status `0` means all public functions were exercised by tests. A non‑zero
 ## Installation Notes
 
 * **Surface meshing backends**:
-  SPADE is used by default via [`dtcc-pyspade-native`](https://github.com/dtcc-platform/dtcc-pyspade-native). Earcut is provided as a fast alternative for cases where a lightweight triangulation method is preferred. Support for the Triangle backend is optional and disabled by default to keep the standard installation minimal.
+  Earcut is the built-in fast triangulation used for the lightweight (no-refinement) meshing path. Quality-controlled meshing uses the external `dtcc_mesher` package when installed (preferred by the `auto` mesher). Support for the Triangle backend is optional and disabled by default to keep the standard installation minimal.
 
 * **Enabling Triangle**:
   If you wish to build with Triangle support, ensure that the Triangle library is available on your system (a header-only setup is sufficient) and install `dtcc-core` with:
@@ -73,7 +73,7 @@ Exit status `0` means all public functions were exercised by tests. A non‑zero
     --config-settings=cmake.define.DTCC_TRIANGLE_DIR=/path/to/triangle/prefix
   ```
 
-  If these options are omitted, the build will proceed without Triangle and will use SPADE or earcut depending on configuration and availability.
+  If these options are omitted, the build will proceed without Triangle and will use earcut (and `dtcc_mesher`, if installed) depending on configuration and availability.
 
 * **Volume meshing with TetGen**:
   TetGen can be used for tetrahedral meshing through the minimal wrapper provided in the [`dtcc-tetgen-wrapper`](https://github.com/dtcc-platform/dtcc-tetgen-wrapper) repository:
