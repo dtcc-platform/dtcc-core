@@ -169,6 +169,7 @@ cython_debug/
 temp/
 .aider*
 .DS_Store
+.worktrees/
 
 sandbox/snapping
 
@@ -182,3 +183,6 @@ tetgen_fail*
 tetgen-tmpfile_skipped*
 benchmarks/__pycache__/
 benchmarks/output*/
+
+# Generated CityJSON smoke outputs
+sandbox/*.city.json
