@@ -3,7 +3,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from shapely.geometry import LineString, Polygon
+from shapely.geometry import LineString, Point, Polygon
 
 import dtcc_core.builder.geometry_builders.lod2 as lod2_module
 from dtcc_core.model import Building, City, GeometryType, MultiSurface, PointCloud, Surface
@@ -52,6 +52,25 @@ def test_watertight_validator_rejects_non_manifold_edge():
     assert not is_watertight(shell)
 
 
+def test_reconcile_shell_edge_vertices_splits_collinear_surface_edges():
+    top = _surface([[0, 0, 1], [2, 0, 1], [2, 1, 1], [0, 1, 1]])
+    ground = _surface([[0, 0, 0], [0, 1, 0], [2, 1, 0], [2, 0, 0]])
+    split_front = _surface(
+        [[0, 0, 1], [1, 0, 1], [2, 0, 1], [2, 0, 0], [1, 0, 0], [0, 0, 0]]
+    )
+    right = _surface([[2, 0, 0], [2, 1, 0], [2, 1, 1], [2, 0, 1]])
+    back = _surface([[2, 1, 0], [0, 1, 0], [0, 1, 1], [2, 1, 1]])
+    left = _surface([[0, 1, 0], [0, 0, 0], [0, 0, 1], [0, 1, 1]])
+    surfaces = [top, ground, split_front, right, back, left]
+
+    assert all(lod2_module._surface_is_simple(surface) for surface in surfaces)
+    assert not is_watertight(MultiSurface(surfaces=surfaces))
+
+    reconciled = lod2_module._reconcile_shell_edge_vertices(surfaces)
+
+    assert is_watertight(MultiSurface(surfaces=reconciled))
+
+
 def test_fit_plane_predicts_roof_z_values():
     points = np.array(
         [
@@ -83,6 +102,458 @@ def test_ransac_planes_is_deterministic_for_two_planes():
         [(plane.a, plane.b, plane.c) for plane in second],
     )
     assert len(first) == 2
+
+
+def test_stepped_flat_height_levels_cluster_by_elevation():
+    points = np.asarray(_stepped_flat_roof_points(), dtype=float)
+    planes = lod2_module._ransac_planes(points)
+
+    levels, reason = lod2_module._stepped_flat_height_levels(points, planes)
+
+    assert reason is None
+    assert levels is not None
+    assert [round(level.plane.c, 6) for level in levels] == [10.0, 11.0, 13.0]
+    assert all(level.plane.a == 0.0 and level.plane.b == 0.0 for level in levels)
+    assert [len(level.point_indices) for level in levels] == [25, 25, 25]
+
+
+def test_stepped_flat_height_levels_drop_minor_noise():
+    points = np.asarray(_stepped_flat_noisy_roof_points(), dtype=float)
+    planes = lod2_module._ransac_planes(points)
+
+    levels, reason = lod2_module._stepped_flat_height_levels(points, planes)
+
+    assert reason is None
+    assert levels is not None
+    assert [round(level.plane.c, 6) for level in levels] == [10.0, 11.0, 13.0]
+
+
+def test_stepped_flat_height_levels_ignores_minor_sloped_artifacts():
+    flat_levels = []
+    for x0, z in [(1, 10.0), (11, 13.0), (21, 11.0)]:
+        flat_levels.extend(
+            [x, y, z]
+            for x in np.linspace(x0, x0 + 8, 8)
+            for y in np.linspace(1, 9, 10)
+        )
+    sloped_artifact = [
+        [100.0 + index, 0.0, 20.0 + 0.3 * index]
+        for index in range(20)
+    ]
+    points = np.asarray([*flat_levels, *sloped_artifact], dtype=float)
+    planes = [
+        lod2_module.RoofPlane(0.0, 0.0, 10.0, np.arange(0, 80)),
+        lod2_module.RoofPlane(0.0, 0.0, 13.0, np.arange(80, 160)),
+        lod2_module.RoofPlane(0.0, 0.0, 11.0, np.arange(160, 240)),
+        lod2_module.RoofPlane(0.3, 0.0, 20.0, np.arange(240, 260)),
+    ]
+
+    levels, reason = lod2_module._stepped_flat_height_levels(points, planes)
+
+    assert reason is None
+    assert levels is not None
+    assert [round(level.plane.c, 6) for level in levels] == [10.0, 11.0, 13.0]
+
+
+def test_stepped_flat_height_levels_ignore_unassigned_roof_noise():
+    flat_levels = []
+    for x0, z in [(1, 10.0), (11, 13.0), (21, 11.0)]:
+        flat_levels.extend(
+            [x, y, z]
+            for x in np.linspace(x0, x0 + 8, 8)
+            for y in np.linspace(1, 9, 10)
+        )
+    unassigned_noise = [
+        [60.0 + index % 14, 60.0 + index // 14, 20.0 + 0.25 * index]
+        for index in range(140)
+    ]
+    points = np.asarray([*flat_levels, *unassigned_noise], dtype=float)
+    planes = [
+        lod2_module.RoofPlane(0.0, 0.0, 10.0, np.arange(0, 80)),
+        lod2_module.RoofPlane(0.0, 0.0, 13.0, np.arange(80, 160)),
+        lod2_module.RoofPlane(0.0, 0.0, 11.0, np.arange(160, 240)),
+    ]
+
+    levels, reason = lod2_module._stepped_flat_height_levels(points, planes)
+
+    assert reason is None
+    assert levels is not None
+    assert [round(level.plane.c, 6) for level in levels] == [10.0, 11.0, 13.0]
+
+
+def test_stepped_flat_height_levels_reject_sloped_major_planes():
+    points = np.asarray(_gable_roof_points(), dtype=float)
+    planes = lod2_module._ransac_planes(points)
+
+    levels, reason = lod2_module._stepped_flat_height_levels(points, planes)
+
+    assert levels is None
+    assert reason == lod2_module.STEPPED_FLAT_SLOPED_MAJOR_EVIDENCE
+
+
+def test_flat_collapse_plane_accepts_one_dominant_level_with_noise():
+    points = np.asarray(_dominant_flat_with_minor_noise_points(), dtype=float)
+    planes = [
+        lod2_module.RoofPlane(0.0, 0.0, 10.0, np.arange(0, 60)),
+        lod2_module.RoofPlane(0.0, 0.0, 10.0, np.arange(60, 100)),
+        lod2_module.RoofPlane(0.0, 0.0, 8.5, np.arange(100, 108)),
+    ]
+
+    plane = lod2_module._flat_collapse_plane(points, planes)
+
+    assert plane is not None
+    assert plane.a == 0.0
+    assert plane.b == 0.0
+    assert round(plane.c, 6) == 10.0
+
+
+def test_flat_collapse_plane_rejects_real_two_level_step():
+    points = np.asarray(
+        [
+            *[
+                [x, y, 10.0]
+                for x in np.linspace(1, 9, 8)
+                for y in np.linspace(1, 9, 10)
+            ],
+            *[
+                [x, y, 13.0]
+                for x in np.linspace(11, 19, 8)
+                for y in np.linspace(1, 9, 10)
+            ],
+        ],
+        dtype=float,
+    )
+    planes = [
+        lod2_module.RoofPlane(0.0, 0.0, 10.0, np.arange(0, 80)),
+        lod2_module.RoofPlane(0.0, 0.0, 13.0, np.arange(80, 160)),
+        lod2_module.RoofPlane(0.0, 0.0, 10.0, np.arange(0, 20)),
+    ]
+
+    assert lod2_module._flat_collapse_plane(points, planes) is None
+
+
+def test_flat_collapse_plane_rejects_continuous_near_flat_slope():
+    points = np.asarray(
+        [
+            [x, y, 10.0 + 1.2 * (x - 1.0) / 28.0]
+            for x in np.linspace(1, 29, 10)
+            for y in np.linspace(1, 9, 10)
+        ],
+        dtype=float,
+    )
+    planes = [
+        lod2_module.RoofPlane(0.04, 0.0, 10.0, np.arange(0, 40)),
+        lod2_module.RoofPlane(0.04, 0.0, 10.0, np.arange(40, 80)),
+        lod2_module.RoofPlane(0.04, 0.0, 10.0, np.arange(80, 100)),
+    ]
+
+    assert lod2_module._flat_collapse_plane(points, planes) is None
+
+
+def test_stepped_flat_patches_cover_rectangular_strip_levels():
+    footprint = Polygon([(0, 0), (30, 0), (30, 10), (0, 10)])
+    points = np.asarray(_stepped_flat_roof_points(), dtype=float)
+    levels, reason = lod2_module._stepped_flat_height_levels(
+        points,
+        lod2_module._ransac_planes(points),
+    )
+
+    patches, reason = lod2_module._stepped_flat_level_patches(points, footprint, levels)
+
+    assert reason is None
+    assert patches is not None
+    assert len(patches) == 3
+    assert lod2_module._patches_cover_footprint(footprint, patches)
+    assert [round(patch.area, 6) for patch in patches] == [100.0, 100.0, 100.0]
+
+
+def test_stepped_flat_region_patches_cover_corner_levels():
+    points, footprint, low_indices, high_indices = _corner_stepped_flat_roof_fixture()
+    levels = [
+        lod2_module.SteppedFlatLevel(
+            lod2_module.RoofPlane(0.0, 0.0, 10.0, low_indices),
+            low_indices,
+        ),
+        lod2_module.SteppedFlatLevel(
+            lod2_module.RoofPlane(0.0, 0.0, 13.0, high_indices),
+            high_indices,
+        ),
+    ]
+
+    patches, reason = lod2_module._stepped_flat_level_patches(points, footprint, levels)
+
+    assert reason is None
+    assert patches is not None
+    assert len(patches) == 2
+    assert all(patch.is_valid and patch.area > lod2_module.MIN_PATCH_AREA for patch in patches)
+    assert lod2_module._patches_cover_footprint(footprint, patches)
+    assert patches[0].covers(Point(3.5, 2.5))
+    assert patches[1].covers(Point(4.0, 9.0))
+    assert patches[1].covers(Point(16.5, 3.0))
+
+
+def test_stepped_flat_region_patches_reject_scattered_blob_level():
+    points, footprint, low_indices, high_indices = _scattered_blob_stepped_flat_roof_fixture()
+    levels = [
+        lod2_module.SteppedFlatLevel(
+            lod2_module.RoofPlane(0.0, 0.0, 10.0, low_indices),
+            low_indices,
+        ),
+        lod2_module.SteppedFlatLevel(
+            lod2_module.RoofPlane(0.0, 0.0, 13.0, high_indices),
+            high_indices,
+        ),
+    ]
+
+    patches, reason = lod2_module._stepped_flat_level_patches(points, footprint, levels)
+
+    assert patches is None
+    assert reason == lod2_module.STEPPED_FLAT_PATCH_FAILED
+
+
+def test_stepped_flat_region_assignment_rejects_overlapping_patches():
+    footprint = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
+    low_points = [
+        [x, y, 10.0]
+        for x in np.linspace(1, 2, 5)
+        for y in np.linspace(1, 9, 5)
+    ]
+    high_points = [
+        [x, y, 13.0]
+        for x in np.linspace(8, 9, 5)
+        for y in np.linspace(1, 9, 5)
+    ]
+    points = np.asarray([*low_points, *high_points], dtype=float)
+    levels = [
+        lod2_module.SteppedFlatLevel(
+            lod2_module.RoofPlane(0.0, 0.0, 10.0, np.arange(0, 25)),
+            np.arange(0, 25),
+        ),
+        lod2_module.SteppedFlatLevel(
+            lod2_module.RoofPlane(0.0, 0.0, 13.0, np.arange(25, 50)),
+            np.arange(25, 50),
+        ),
+    ]
+    patches = lod2_module._assign_candidate_regions_to_levels(
+        points,
+        footprint,
+        [
+            Polygon([(0, 0), (7, 0), (7, 10), (0, 10)]),
+            Polygon([(3, 0), (10, 0), (10, 10), (3, 10)]),
+        ],
+        levels,
+    )
+
+    assert patches is None
+
+
+def test_stepped_flat_patches_reject_unsupported_strip_fill_extent():
+    footprint = Polygon([(0, 0), (20, 0), (20, 10), (0, 10)])
+    low_points = [
+        [x, y, 10.0]
+        for x in np.linspace(1, 2, 3)
+        for y in np.linspace(1, 2, 3)
+    ]
+    high_points = [
+        [x, y, 13.0]
+        for x in np.linspace(11, 19, 5)
+        for y in np.linspace(1, 9, 5)
+    ]
+    points = np.asarray([*low_points, *high_points], dtype=float)
+    low_indices = np.arange(0, len(low_points))
+    high_indices = np.arange(len(low_points), len(points))
+    levels = [
+        lod2_module.SteppedFlatLevel(
+            lod2_module.RoofPlane(0.0, 0.0, 10.0, low_indices),
+            low_indices,
+        ),
+        lod2_module.SteppedFlatLevel(
+            lod2_module.RoofPlane(0.0, 0.0, 13.0, high_indices),
+            high_indices,
+        ),
+    ]
+
+    patches, reason = lod2_module._stepped_flat_level_patches(points, footprint, levels)
+
+    assert patches is None
+    assert reason == lod2_module.STEPPED_FLAT_PATCH_FAILED
+
+
+def test_stepped_flat_region_patches_cover_l_limb_levels():
+    footprint = Polygon([(0, 0), (10, 0), (10, 4), (4, 4), (4, 10), (0, 10)])
+    points = np.asarray(_l_limb_stepped_flat_points(), dtype=float)
+    levels = [
+        lod2_module.SteppedFlatLevel(
+            lod2_module.RoofPlane(0.0, 0.0, 10.0, np.arange(0, 36)),
+            np.arange(0, 36),
+        ),
+        lod2_module.SteppedFlatLevel(
+            lod2_module.RoofPlane(0.0, 0.0, 13.0, np.arange(36, len(points))),
+            np.arange(36, len(points)),
+        ),
+    ]
+
+    patches, reason = lod2_module._stepped_flat_level_patches(points, footprint, levels)
+
+    assert reason is None
+    assert patches is not None
+    assert len(patches) == 2
+    assert lod2_module._patches_cover_footprint(footprint, patches)
+
+
+def test_stepped_flat_patches_reject_unstriped_levels():
+    footprint = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
+    points = np.asarray(_mixed_height_unstriped_points(), dtype=float)
+    levels, reason = lod2_module._stepped_flat_height_levels(
+        points,
+        [
+            lod2_module.RoofPlane(0.0, 0.0, 10.0, np.arange(50)),
+            lod2_module.RoofPlane(0.0, 0.0, 13.0, np.arange(50, 100)),
+        ],
+    )
+
+    patches, reason = lod2_module._stepped_flat_level_patches(points, footprint, levels)
+
+    assert patches is None
+    assert reason == lod2_module.STEPPED_FLAT_PATCH_FAILED
+
+
+def test_stepped_flat_patches_reject_partly_mixed_strip_support():
+    footprint = Polygon([(0, 0), (20, 0), (20, 10), (0, 10)])
+    low_points = [
+        [x, y, 10.0]
+        for x in np.linspace(1, 9, 5)
+        for y in np.linspace(1, 9, 5)
+    ]
+    high_points = [
+        [x, y, 13.0]
+        for x in np.linspace(11, 19, 5)
+        for y in np.linspace(1, 9, 5)
+    ]
+    mixed_high_points = [
+        [x, y, 13.0]
+        for x in np.linspace(2, 6, 5)
+        for y in np.linspace(2, 8, 2)
+    ]
+    points = np.asarray([*low_points, *high_points, *mixed_high_points], dtype=float)
+    levels = [
+        lod2_module.SteppedFlatLevel(
+            lod2_module.RoofPlane(0.0, 0.0, 10.0, np.arange(0, 25)),
+            np.arange(0, 25),
+        ),
+        lod2_module.SteppedFlatLevel(
+            lod2_module.RoofPlane(0.0, 0.0, 13.0, np.arange(25, 60)),
+            np.arange(25, 60),
+        ),
+    ]
+
+    patches, reason = lod2_module._stepped_flat_level_patches(points, footprint, levels)
+
+    assert patches is None
+    assert reason == lod2_module.STEPPED_FLAT_PATCH_FAILED
+
+
+def test_build_stepped_flat_shell_from_patches_is_watertight():
+    footprint = Polygon([(0, 0), (30, 0), (30, 10), (0, 10)])
+    points = np.asarray(_stepped_flat_roof_points(), dtype=float)
+    levels, reason = lod2_module._stepped_flat_height_levels(
+        points,
+        lod2_module._ransac_planes(points),
+    )
+    patches, reason = lod2_module._stepped_flat_level_patches(points, footprint, levels)
+
+    shell, reason = lod2_module._build_stepped_flat_shell(footprint, patches, levels, 0.0)
+
+    assert reason == lod2_module.STEPPED_FLAT_SUCCESS
+    assert shell is not None
+    assert is_watertight(shell)
+
+
+def test_build_stepped_flat_shell_nodes_partial_shared_boundaries():
+    footprint = Polygon([(0, 0), (20, 0), (20, 20), (0, 20)])
+    patches = [
+        Polygon([(0, 0), (10, 0), (10, 20), (0, 20)]),
+        Polygon([(10, 0), (20, 0), (20, 10), (10, 10)]),
+        Polygon([(10, 10), (20, 10), (20, 20), (10, 20)]),
+    ]
+    levels = [
+        lod2_module.SteppedFlatLevel(
+            lod2_module.RoofPlane(0.0, 0.0, 10.0, np.array([], dtype=int)),
+            np.array([], dtype=int),
+        ),
+        lod2_module.SteppedFlatLevel(
+            lod2_module.RoofPlane(0.0, 0.0, 12.0, np.array([], dtype=int)),
+            np.array([], dtype=int),
+        ),
+        lod2_module.SteppedFlatLevel(
+            lod2_module.RoofPlane(0.0, 0.0, 12.0, np.array([], dtype=int)),
+            np.array([], dtype=int),
+        ),
+    ]
+
+    shell, reason = lod2_module._build_stepped_flat_shell(footprint, patches, levels, 0.0)
+
+    assert reason == lod2_module.STEPPED_FLAT_SUCCESS
+    assert shell is not None
+    assert is_watertight(shell)
+
+
+def test_build_stepped_flat_shell_rejects_three_height_t_junction():
+    footprint = Polygon([(0, 0), (20, 0), (20, 20), (0, 20)])
+    patches = [
+        Polygon([(0, 0), (10, 0), (10, 20), (0, 20)]),
+        Polygon([(10, 0), (20, 0), (20, 10), (10, 10)]),
+        Polygon([(10, 10), (20, 10), (20, 20), (10, 20)]),
+    ]
+    levels = [
+        lod2_module.SteppedFlatLevel(
+            lod2_module.RoofPlane(0.0, 0.0, 10.0, np.array([], dtype=int)),
+            np.array([], dtype=int),
+        ),
+        lod2_module.SteppedFlatLevel(
+            lod2_module.RoofPlane(0.0, 0.0, 12.0, np.array([], dtype=int)),
+            np.array([], dtype=int),
+        ),
+        lod2_module.SteppedFlatLevel(
+            lod2_module.RoofPlane(0.0, 0.0, 14.0, np.array([], dtype=int)),
+            np.array([], dtype=int),
+        ),
+    ]
+
+    shell, reason = lod2_module._build_stepped_flat_shell(footprint, patches, levels, 0.0)
+
+    assert shell is None
+    assert reason == lod2_module.STEPPED_FLAT_STEP_WALL_FAILED
+
+
+def test_build_stepped_flat_shell_rejects_non_simple_surfaces(monkeypatch):
+    footprint = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
+    patches = [
+        Polygon([(0, 0), (5, 0), (5, 10), (0, 10)]),
+        Polygon([(5, 0), (10, 0), (10, 10), (5, 10)]),
+    ]
+    levels = [
+        lod2_module.SteppedFlatLevel(
+            lod2_module.RoofPlane(0.0, 0.0, 10.0, np.array([], dtype=int)),
+            np.array([], dtype=int),
+        ),
+        lod2_module.SteppedFlatLevel(
+            lod2_module.RoofPlane(0.0, 0.0, 12.0, np.array([], dtype=int)),
+            np.array([], dtype=int),
+        ),
+    ]
+    bowtie_wall = _surface([[0, 0, 0], [1, 1, 0], [0, 1, 0], [1, 0, 0]])
+    monkeypatch.setattr(
+        lod2_module,
+        "_wall_surfaces",
+        lambda candidate_footprint, roof_surfaces, ground_height: [bowtie_wall],
+    )
+    monkeypatch.setattr(lod2_module, "is_watertight", lambda shell: True)
+
+    shell, reason = lod2_module._build_stepped_flat_shell(footprint, patches, levels, 0.0)
+
+    assert shell is None
+    assert reason == lod2_module.STEPPED_FLAT_WATERTIGHT_FAILED
 
 
 def _building_with_footprint(points, *, ground_height=0.0):
@@ -320,6 +791,102 @@ def _u_shape_flat_points():
     return [*left, *bottom, *right]
 
 
+def _l_limb_stepped_flat_points():
+    low = [
+        [x, y, 10.0]
+        for x in np.linspace(1, 3, 4)
+        for y in np.linspace(1, 9, 9)
+    ]
+    high = [
+        [x, y, 13.0]
+        for x in np.linspace(4.5, 9, 7)
+        for y in np.linspace(1, 3, 4)
+    ]
+    return [*low, *high]
+
+
+def _stepped_flat_roof_points():
+    points = []
+    for x0, x1, z in [(1, 9, 10.0), (11, 19, 13.0), (21, 29, 11.0)]:
+        for x in np.linspace(x0, x1, 5):
+            for y in np.linspace(1, 9, 5):
+                points.append([x, y, z])
+    return points
+
+
+def _stepped_flat_noisy_roof_points():
+    points = _stepped_flat_roof_points()
+    points.extend(
+        [[15.0 + 0.1 * index, 5.0, 18.0 + 0.02 * index] for index in range(6)]
+    )
+    return points
+
+
+def _corner_stepped_flat_roof_fixture():
+    footprint = Polygon([(0, 0), (20, 0), (20, 12), (0, 12)])
+    low_points = [
+        [x, y, 10.0]
+        for x in np.linspace(1, 6, 5)
+        for y in np.linspace(1, 4, 5)
+    ]
+    high_upper = [
+        [x, y, 13.0]
+        for x in np.linspace(1, 19, 7)
+        for y in np.linspace(6, 11, 4)
+    ]
+    high_right = [
+        [x, y, 13.0]
+        for x in np.linspace(9, 19, 5)
+        for y in np.linspace(1, 4, 4)
+    ]
+    points = np.asarray([*low_points, *high_upper, *high_right], dtype=float)
+    low_indices = np.arange(0, len(low_points))
+    high_indices = np.arange(len(low_points), len(points))
+    return points, footprint, low_indices, high_indices
+
+
+def _scattered_blob_stepped_flat_roof_fixture():
+    footprint = Polygon([(0, 0), (20, 0), (20, 12), (0, 12)])
+    high_points = [
+        [x, y, 13.0]
+        for x in np.linspace(1, 19, 7)
+        for y in np.linspace(1, 11, 6)
+    ]
+    low_points = [
+        [cx + dx, cy + dy, 10.0]
+        for cx, cy in [(3.0, 3.0), (17.0, 3.0), (4.0, 9.0), (16.0, 10.0)]
+        for dx in (-0.2, 0.2, 0.0)
+        for dy in (-0.2, 0.2)
+    ]
+    points = np.asarray([*high_points, *low_points], dtype=float)
+    high_indices = np.arange(0, len(high_points))
+    low_indices = np.arange(len(high_points), len(points))
+    return points, footprint, low_indices, high_indices
+
+
+def _dominant_flat_with_minor_noise_points():
+    flat = [
+        [x, y, 10.0]
+        for x in np.linspace(1, 29, 10)
+        for y in np.linspace(1, 9, 10)
+    ]
+    lower_edge = [
+        [x, y, 8.5]
+        for x in np.linspace(1, 29, 4)
+        for y in np.linspace(10.5, 11.5, 2)
+    ]
+    return [*flat, *lower_edge]
+
+
+def _mixed_height_unstriped_points():
+    points = []
+    for x in np.linspace(1, 9, 10):
+        for y in np.linspace(1, 9, 10):
+            z = 10.0 if int(x + y) % 2 == 0 else 13.0
+            points.append([x, y, z])
+    return points
+
+
 def _edge_keys_for_surface(surface, tolerance=1e-3):
     keys = []
     for index, vertex in enumerate(surface.vertices):
@@ -360,6 +927,147 @@ def test_candidate_from_parts_preserves_flat_and_gable_paths():
     assert gable_candidate is not None
     assert is_watertight(flat_candidate)
     assert is_watertight(gable_candidate)
+
+
+def _horizontal_roof_heights(multisurface):
+    heights = []
+    for surface in multisurface.surfaces:
+        z_values = np.asarray(surface.vertices, dtype=float)[:, 2]
+        if len(z_values) >= 3 and np.allclose(z_values, z_values[0]):
+            if z_values[0] > 0.0:
+                heights.append(round(float(z_values[0]), 6))
+    return sorted(set(heights))
+
+
+def _horizontal_surface_at_height_covers(multisurface, height, xy):
+    point = Point(xy)
+    for surface in multisurface.surfaces:
+        z_values = np.asarray(surface.vertices, dtype=float)[:, 2]
+        if len(z_values) < 3 or not np.allclose(z_values, height):
+            continue
+        polygon = Polygon(np.asarray(surface.vertices, dtype=float)[:, :2])
+        if polygon.is_valid and polygon.covers(point):
+            return True
+    return False
+
+
+def test_build_lod2_buildings_creates_watertight_stepped_flat_roof():
+    building = _building_with_polygon(
+        _stepped_flat_roof_points(),
+        Polygon([(0, 0), (30, 0), (30, 10), (0, 10)]),
+    )
+
+    result = build_lod2_buildings([building], build_lod1_fallback=False)
+
+    assert result[0].lod2 is not None
+    assert is_watertight(result[0].lod2)
+    assert _horizontal_roof_heights(result[0].lod2) == [10.0, 11.0, 13.0]
+
+
+def test_build_lod2_buildings_creates_corner_region_stepped_flat_roof(monkeypatch):
+    points, footprint, low_indices, high_indices = _corner_stepped_flat_roof_fixture()
+    planes = [
+        lod2_module.RoofPlane(0.0, 0.0, 10.0, low_indices),
+        lod2_module.RoofPlane(0.0, 0.0, 13.0, high_indices),
+    ]
+    monkeypatch.setattr(lod2_module, "_ransac_planes", lambda roof_points: planes)
+    building = _building_with_polygon(points, footprint)
+
+    result = build_lod2_buildings([building], build_lod1_fallback=False)
+
+    assert result[0].lod2 is not None
+    assert is_watertight(result[0].lod2)
+    assert _horizontal_roof_heights(result[0].lod2) == [10.0, 13.0]
+    assert _horizontal_surface_at_height_covers(result[0].lod2, 10.0, (3.5, 2.5))
+    assert _horizontal_surface_at_height_covers(result[0].lod2, 13.0, (4.0, 9.0))
+    assert _horizontal_surface_at_height_covers(result[0].lod2, 13.0, (16.5, 3.0))
+
+
+def test_build_lod2_buildings_rejects_scattered_region_stepped_flat_roof(monkeypatch):
+    points, footprint, low_indices, high_indices = _scattered_blob_stepped_flat_roof_fixture()
+    planes = [
+        lod2_module.RoofPlane(0.0, 0.0, 10.0, low_indices),
+        lod2_module.RoofPlane(0.0, 0.0, 13.0, high_indices),
+    ]
+    monkeypatch.setattr(lod2_module, "_ransac_planes", lambda roof_points: planes)
+    building = _building_with_polygon(points, footprint)
+
+    result = build_lod2_buildings([building], build_lod1_fallback=False)
+
+    assert result[0].lod2 is None
+
+
+def test_build_lod2_buildings_drops_minor_noise_for_stepped_flat_roof():
+    building = _building_with_polygon(
+        _stepped_flat_noisy_roof_points(),
+        Polygon([(0, 0), (30, 0), (30, 10), (0, 10)]),
+    )
+
+    result = build_lod2_buildings([building], build_lod1_fallback=False)
+
+    assert result[0].lod2 is not None
+    assert is_watertight(result[0].lod2)
+    assert _horizontal_roof_heights(result[0].lod2) == [10.0, 11.0, 13.0]
+
+
+def test_build_lod2_buildings_flat_collapses_dominant_level_with_noise(monkeypatch):
+    planes = [
+        lod2_module.RoofPlane(0.0, 0.0, 10.0, np.arange(0, 60)),
+        lod2_module.RoofPlane(0.0, 0.0, 10.0, np.arange(60, 100)),
+        lod2_module.RoofPlane(0.0, 0.0, 8.5, np.arange(100, 108)),
+    ]
+    monkeypatch.setattr(lod2_module, "_ransac_planes", lambda points: planes)
+    building = _building_with_polygon(
+        _dominant_flat_with_minor_noise_points(),
+        Polygon([(0, 0), (30, 0), (30, 12), (0, 12)]),
+    )
+
+    result = build_lod2_buildings([building], build_lod1_fallback=False)
+
+    assert result[0].lod2 is not None
+    assert is_watertight(result[0].lod2)
+    assert _horizontal_roof_heights(result[0].lod2) == [10.0]
+
+
+def test_build_lod2_buildings_does_not_flat_collapse_real_step(monkeypatch):
+    planes = [
+        lod2_module.RoofPlane(0.0, 0.0, 10.0, np.arange(0, 80)),
+        lod2_module.RoofPlane(0.0, 0.0, 13.0, np.arange(80, 160)),
+        lod2_module.RoofPlane(0.0, 0.0, 10.0, np.arange(0, 20)),
+    ]
+    monkeypatch.setattr(lod2_module, "_ransac_planes", lambda points: planes)
+    building = _building_with_polygon(
+        [
+            *[
+                [x, y, 10.0]
+                for x in np.linspace(1, 9, 8)
+                for y in np.linspace(1, 9, 10)
+            ],
+            *[
+                [x, y, 13.0]
+                for x in np.linspace(11, 19, 8)
+                for y in np.linspace(1, 9, 10)
+            ],
+        ],
+        Polygon([(0, 0), (20, 0), (20, 10), (0, 10)]),
+    )
+
+    result = build_lod2_buildings([building], build_lod1_fallback=False)
+
+    assert result[0].lod2 is not None
+    assert is_watertight(result[0].lod2)
+    assert _horizontal_roof_heights(result[0].lod2) == [10.0, 13.0]
+
+
+def test_build_lod2_buildings_rejects_unstriped_stepped_flat_points():
+    building = _building_with_polygon(
+        _mixed_height_unstriped_points(),
+        Polygon([(0, 0), (10, 0), (10, 10), (0, 10)]),
+    )
+
+    result = build_lod2_buildings([building], build_lod1_fallback=False)
+
+    assert result[0].lod2 is None
 
 
 def test_build_lod2_buildings_decomposes_l_shape_flat_regions(monkeypatch):
@@ -406,8 +1114,8 @@ def test_split_failed_irregular_footprint_attempts_decomposition(monkeypatch):
     l_shape = Polygon([(0, 0), (10, 0), (10, 4), (4, 4), (4, 10), (0, 10)])
     building = _building_with_polygon(_l_shape_flat_points(), l_shape)
     two_planes = [
-        lod2_module.RoofPlane(0.0, 0.0, 10.0, np.arange(25)),
-        lod2_module.RoofPlane(0.0, 0.0, 12.0, np.arange(25, 50)),
+        lod2_module.RoofPlane(0.2, 0.0, 10.0, np.arange(25)),
+        lod2_module.RoofPlane(0.2, 0.0, 12.0, np.arange(25, 50)),
     ]
     monkeypatch.setattr(
         lod2_module,
@@ -420,6 +1128,20 @@ def test_split_failed_irregular_footprint_attempts_decomposition(monkeypatch):
     assert building.lod2 is not None
     assert any("decomposition_candidate=1" in message for message in messages)
     assert any("decomposition_success=1" in message for message in messages)
+
+
+def test_irregular_flat_levels_use_decomposition_not_stepped_flat(monkeypatch):
+    messages = []
+    monkeypatch.setattr(lod2_module, "info", messages.append, raising=False)
+    l_shape = Polygon([(0, 0), (10, 0), (10, 4), (4, 4), (4, 10), (0, 10)])
+    building = _building_with_polygon(_l_shape_flat_points(), l_shape)
+
+    build_lod2_buildings([building], build_lod1_fallback=False, log_rejections=True)
+
+    assert building.lod2 is not None
+    assert is_watertight(building.lod2)
+    assert any("decomposition_success=1" in message for message in messages)
+    assert not any("stepped_flat_success" in message for message in messages)
 
 
 def test_decomposition_counter_invariant(monkeypatch):
@@ -868,6 +1590,47 @@ def test_decomposed_shell_handles_near_coplanar_crossing_regions(monkeypatch):
     assert sum(len(surface.vertices) == 3 for surface in shell.surfaces) == 2
 
 
+def test_decomposed_shell_welds_near_equal_boundary_endpoint_heights(monkeypatch):
+    footprint = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
+    left_region = Polygon([(0, 0), (5, 0), (5, 10), (0, 10)])
+    right_region = Polygon([(5, 0), (10, 0), (10, 10), (5, 10)])
+    decomposition = lod2_module.FootprintDecomposition(
+        pieces=[left_region, right_region],
+        slice_lines=[LineString([(5, -20), (5, 30)])],
+        family_reason=lod2_module.DECOMPOSITION_L_LIKE,
+        concave_vertex_count=1,
+    )
+    left_roof = _surface([[0, 0, 10.0], [5, 0, 10.0], [5, 10, 10.0], [0, 10, 10.0]])
+    right_roof = _surface(
+        [[5, 0, 10.009], [10, 0, 10.009], [10, 10, 10.0], [5, 10, 10.0]]
+    )
+    region_surfaces = iter([([left_roof], None), ([right_roof], None)])
+
+    monkeypatch.setattr(
+        lod2_module,
+        "_decompose_footprint",
+        lambda candidate_footprint, decomposition_counts=None: decomposition,
+    )
+    monkeypatch.setattr(
+        lod2_module,
+        "_region_roof_surfaces",
+        lambda points, region, decomposition_counts=None: next(region_surfaces),
+    )
+
+    shell, reason = lod2_module._build_decomposed_shell(footprint, np.empty((0, 3)), 0.0)
+
+    assert reason == lod2_module.DECOMPOSITION_SUCCESS
+    assert shell is not None
+    assert is_watertight(shell)
+    boundary_heights = [
+        vertex[2]
+        for surface in shell.surfaces
+        for vertex in surface.vertices
+        if vertex[2] > 0.0 and np.linalg.norm(vertex[:2] - np.array([5.0, 0.0])) <= 1e-3
+    ]
+    assert max(boundary_heights) - min(boundary_heights) <= 1e-3
+
+
 def test_decomposed_shell_rejects_crossing_too_close_to_region_corner(monkeypatch):
     footprint = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
     quadrants = [
@@ -1027,8 +1790,8 @@ def test_build_lod2_buildings_logs_shell_rejection_sub_reason(monkeypatch):
     messages = []
     monkeypatch.setattr(lod2_module, "info", messages.append, raising=False)
     planes = [
-        lod2_module.RoofPlane(0.0, 0.0, 10.0, np.arange(12)),
-        lod2_module.RoofPlane(0.0, 0.0, 10.0, np.arange(12, 24)),
+        lod2_module.RoofPlane(0.2, 0.0, 10.0, np.arange(12)),
+        lod2_module.RoofPlane(0.2, 0.0, 10.0, np.arange(12, 24)),
     ]
     monkeypatch.setattr(lod2_module, "_ransac_planes", lambda points: planes)
     building = _building_with_footprint(_flat_roof_points())
@@ -1037,6 +1800,23 @@ def test_build_lod2_buildings_logs_shell_rejection_sub_reason(monkeypatch):
 
     assert any(
         message == "LOD2 rejection summary: split_failed=1"
+        for message in messages
+    )
+
+
+def test_stepped_flat_success_is_logged_when_rejections_enabled(monkeypatch):
+    messages = []
+    monkeypatch.setattr(lod2_module, "info", messages.append, raising=False)
+    building = _building_with_polygon(
+        _stepped_flat_roof_points(),
+        Polygon([(0, 0), (30, 0), (30, 10), (0, 10)]),
+    )
+
+    build_lod2_buildings([building], build_lod1_fallback=False, log_rejections=True)
+
+    assert building.lod2 is not None
+    assert any(
+        message == "LOD2 stepped-flat summary: stepped_flat_candidate=1 stepped_flat_success=1"
         for message in messages
     )
 
