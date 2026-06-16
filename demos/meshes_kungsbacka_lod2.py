@@ -1,46 +1,32 @@
 # This demo builds LOD2 buildings for three areas in Kungsbacka.
 
-from pathlib import Path
-
-import dtcc_core as dtcc
-from dtcc_core.io import download_footprints, download_pointcloud
+from dtcc_core.builder.meshing import merge_meshes
+from dtcc_core.io import download_footprints, download_pointcloud, save_mesh
 from dtcc_core.model import City
 
-
-# Bounds are in EPSG:3006 / SWEREF 99 TM
-AREAS = (
-    {
-        "name": "verkstadsgatan_3",
-        "bounds": dtcc.Bounds(
-            xmin=324861,
-            ymin=6374485,
-            xmax=325668,
-            ymax=6375155,
-        ),
-    },
-    {
-        "name": "turkosvagen_4",
-        "bounds": dtcc.Bounds(
-            xmin=323963,
-            ymin=6374269,
-            xmax=324426,
-            ymax=6374687,
-        ),
-    },
-    {
-        "name": "alvsakersvagen_500",
-        "bounds": dtcc.Bounds(
-            xmin=330476,
-            ymin=6381158,
-            xmax=331668,
-            ymax=6382045,
-        ),
-    },
-)
+from kungsbacka_domains import AREAS, OUTPUT_ROOT
 
 
-output_dir = Path("output")
-output_dir.mkdir(exist_ok=True)
+def building_mesh(building):
+    geometry = building.lod2 if building.lod2 is not None else building.lod1
+    if geometry is None:
+        return None
+    return geometry.mesh(weld=True, snap=0.005)
+
+
+def city_building_mesh(city):
+    meshes = []
+    for building in city.buildings:
+        mesh = building_mesh(building)
+        if mesh is not None and len(mesh.faces) > 0:
+            meshes.append(mesh)
+    if len(meshes) == 0:
+        raise ValueError("No LOD2 or LOD1 fallback building meshes were generated.")
+    return merge_meshes(meshes, weld=True, snap=0.005)
+
+
+output_dir = OUTPUT_ROOT / "meshes_kungsbacka_lod2"
+output_dir.mkdir(parents=True, exist_ok=True)
 
 
 for area in AREAS:
@@ -57,4 +43,6 @@ for area in AREAS:
         f"lod2={lod2_count} lod1_fallback={len(city.buildings) - lod2_count}"
     )
 
-    city.save_cityjson(output_dir / f"lod2_kungsbacka_{area['name']}.city.json")
+    mesh = city_building_mesh(city)
+    save_mesh(mesh, output_dir / f"lod2_mesh_{area['name']}.xdmf")
+    save_mesh(mesh, output_dir / f"lod2_mesh_{area['name']}.stl")
