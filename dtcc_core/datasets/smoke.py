@@ -10,7 +10,14 @@ import numpy as np
 from pydantic import Field as PydanticField
 from pydantic import model_validator
 
-from dtcc_core.model import Bounds, DatasetValue, Field, VolumeMesh
+from dtcc_core.model import (
+    Bounds,
+    Field,
+    FieldSlice,
+    LineString,
+    StreamlineCollection,
+    VolumeMesh,
+)
 from dtcc_core.plotting.options import RasterRenderOptions, VideoRenderOptions
 from dtcc_core.plotting.products import SliceProduct, StreamlineProduct
 from dtcc_core.plotting.renderers import (
@@ -62,7 +69,8 @@ class SmokeArgs(DatasetBaseArgs):
         None,
         description=(
             "Serialized output format. If omitted, product='field' returns a "
-            "VolumeMesh and visualization products return GeoJSON dictionaries."
+            "VolumeMesh, product='slice' returns a FieldSlice, and "
+            "product='streamlines' returns a StreamlineCollection."
         ),
     )
     crs: Optional[str] = PydanticField(
@@ -265,28 +273,31 @@ class SmokeDataset(DatasetDescriptor):
                 "name": "field",
                 "python_return_type": "dtcc_core.model.VolumeMesh",
                 "formats": ["pb", "vtu", "geojson"],
+                "fields": ["velocity", "speed", "pressure"],
                 "description": "Sampled 3D vector field on a tetrahedral VolumeMesh.",
             },
             {
                 "name": "slice",
-                "python_return_type": "dict",
+                "python_return_type": "dtcc_core.model.FieldSlice",
                 "formats": ["geojson", "png", "mp4"],
+                "fields": ["velocity", "speed", "pressure"],
                 "description": (
-                    "Planar point sample, rendered PNG cut plane, or MP4 "
-                    "cut-plane animation with velocity and speed properties."
+                    "Planar point sample with velocity, speed, and pressure "
+                    "fields, rendered PNG cut plane, or MP4 cut-plane animation."
                 ),
             },
             {
                 "name": "streamlines",
-                "python_return_type": "dict",
+                "python_return_type": "dtcc_core.model.StreamlineCollection",
                 "formats": ["geojson", "png", "mp4"],
+                "fields": ["velocity", "speed", "pressure"],
                 "description": (
-                    "LineString, rendered PNG streamlines, or MP4 streamline "
-                    "animation from deterministic seed points."
+                    "LineString geometry with velocity, speed, and pressure "
+                    "fields, rendered PNG streamlines, or MP4 streamline animation."
                 ),
             },
         ]
-        metadata["field_names"] = ["velocity", "speed"]
+        metadata["field_names"] = ["velocity", "speed", "pressure"]
         metadata["normalized_domain"] = {
             "bounds": [
                 _NORMALIZED_MIN,
@@ -328,9 +339,12 @@ class SmokeDataset(DatasetDescriptor):
                     "product='slice' only supports format='geojson', "
                     "format='png', or format='mp4'"
                 )
+            field_slice = _field_slice(bounds, args)
+            if args.format is None:
+                return field_slice
             if args.format == "png":
                 return render_product_png(
-                    _slice_product(bounds, args),
+                    field_slice.to_plot_product(),
                     _render_options(args),
                 )
             if args.format == "mp4":
@@ -338,8 +352,9 @@ class SmokeDataset(DatasetDescriptor):
                     _product_factory(bounds, args),
                     _video_options(args),
                 )
-            geojson = _slice_geojson(bounds, args)
-            return geojson if args.format is None else _json_bytes(geojson)
+            return _json_bytes(
+                field_slice.to_geojson(include_z=args.include_z, crs=args.crs)
+            )
 
         if args.product == "streamlines":
             if args.format not in (None, "geojson", "png", "mp4"):
@@ -347,9 +362,12 @@ class SmokeDataset(DatasetDescriptor):
                     "product='streamlines' only supports format='geojson', "
                     "format='png', or format='mp4'"
                 )
+            streamlines = _streamline_collection(bounds, args)
+            if args.format is None:
+                return streamlines
             if args.format == "png":
                 return render_product_png(
-                    _streamlines_product(bounds, args),
+                    streamlines.to_plot_product(),
                     _render_options(args),
                 )
             if args.format == "mp4":
@@ -357,19 +375,11 @@ class SmokeDataset(DatasetDescriptor):
                     _product_factory(bounds, args),
                     _video_options(args),
                 )
-            geojson = _streamlines_geojson(bounds, args)
-            return geojson if args.format is None else _json_bytes(geojson)
+            return _json_bytes(
+                streamlines.to_geojson(include_z=args.include_z, crs=args.crs)
+            )
 
         raise ValueError(f"Unsupported smoke product: {args.product}")
-
-    def prepare_result(self, result, validated_args: SmokeArgs):
-        if (
-            validated_args.format is None
-            and validated_args.product in {"slice", "streamlines"}
-            and isinstance(result, dict)
-        ):
-            return DatasetValue(result)
-        return result
 
     def plot(self, ax=None, show: bool = True, **kwargs):
         """Plot a smoke visualization product with Matplotlib."""
@@ -424,6 +434,7 @@ def _build_volume_mesh(
     cells = _structured_tetrahedra(resolution)
     velocity = _velocity(normalized, time, period)
     speed = np.linalg.norm(velocity, axis=1).reshape((-1, 1))
+    pressure = _pressure(normalized, time, period).reshape((-1, 1))
 
     mesh = VolumeMesh(vertices=vertices, cells=cells)
     mesh.bounds = bounds
@@ -445,6 +456,18 @@ def _build_volume_mesh(
             unit="m/s",
             description="Magnitude of the synthetic analytical velocity field.",
             values=speed,
+            dim=1,
+        )
+    )
+    mesh.add_field(
+        Field(
+            name="pressure",
+            unit="Pa",
+            description=(
+                "Synthetic gauge pressure evaluated after affine mapping from "
+                "physical bounds to [-4, 4]^3."
+            ),
+            values=pressure,
             dim=1,
         )
     )
@@ -521,6 +544,22 @@ def _velocity(
             v + pulse * np.sin(x0),
             w,
         )
+    )
+
+
+def _pressure(
+    points: np.ndarray,
+    time: float = 0.0,
+    period: float = 1.0,
+) -> np.ndarray:
+    phase = 2.0 * math.pi * (time / period)
+    x = points[:, 0]
+    y = points[:, 1]
+    z = points[:, 2]
+    return (
+        35.0 * np.cos(0.5 * x - 0.35 * y + phase)
+        + 18.0 * np.sin(0.4 * z + 0.5 * phase)
+        - 6.0 * z
     )
 
 
@@ -608,38 +647,70 @@ def _plot_title(product: str) -> str:
 
 
 def _slice_product(bounds: Bounds, args: SmokeArgs) -> SliceProduct:
+    return _field_slice(bounds, args).to_plot_product()
+
+
+def _field_slice(bounds: Bounds, args: SmokeArgs) -> FieldSlice:
     normalized = _slice_points(args.resolution, args.slice_axis, args.slice_position)
     physical = _normalized_to_physical(normalized, bounds)
     velocity = _velocity(normalized, args.time, args.period)
-    speed = np.linalg.norm(velocity, axis=1)
-    return SliceProduct(
+    speed = np.linalg.norm(velocity, axis=1).reshape((-1, 1))
+    pressure = _pressure(normalized, args.time, args.period).reshape((-1, 1))
+
+    field_slice = FieldSlice(
         name="smoke_slice",
-        bounds=bounds,
-        axis=args.slice_axis,
-        position=args.slice_position,
-        coordinates=physical,
-        values=speed,
+        points=physical,
+        slice_axis=args.slice_axis,
+        slice_position=args.slice_position,
         resolution=args.resolution,
-        field_name="speed",
-        field_unit="m/s",
-        vector_values=velocity,
         axes=_plane_axes(args.slice_axis),
-        metadata={
-            "dataset": "smoke",
-            "time": args.time,
-            "time_period": args.period,
-        },
+        time=args.time,
+        period=args.period,
+        crs=args.crs,
+        include_z=args.include_z,
+        domain_bounds=bounds,
     )
+    field_slice.add_field(
+        Field(
+            name="velocity",
+            unit="m/s",
+            description="Synthetic analytical velocity sampled on the slice plane.",
+            values=velocity,
+            dim=3,
+        )
+    )
+    field_slice.add_field(
+        Field(
+            name="speed",
+            unit="m/s",
+            description="Magnitude of the synthetic analytical velocity field.",
+            values=speed,
+            dim=1,
+        )
+    )
+    field_slice.add_field(
+        Field(
+            name="pressure",
+            unit="Pa",
+            description="Synthetic gauge pressure sampled on the slice plane.",
+            values=pressure,
+            dim=1,
+        )
+    )
+    return field_slice
 
 
 def _streamlines_product(bounds: Bounds, args: SmokeArgs) -> StreamlineProduct:
+    return _streamline_collection(bounds, args).to_plot_product()
+
+
+def _streamline_collection(bounds: Bounds, args: SmokeArgs) -> StreamlineCollection:
     seeds = _streamline_seeds(
         args.streamline_count,
         args.slice_axis,
         args.slice_position,
     )
     lines = []
-    line_values = []
     for seed in seeds:
         line = _trace_streamline(
             seed,
@@ -650,40 +721,68 @@ def _streamlines_product(bounds: Bounds, args: SmokeArgs) -> StreamlineProduct:
         )
         if len(line) < 2:
             continue
-        lines.append(_normalized_to_physical(line, bounds))
+        physical_line = _normalized_to_physical(line, bounds)
         velocity = _velocity(line, args.time, args.period)
-        line_values.append(np.linalg.norm(velocity, axis=1))
+        speed = np.linalg.norm(velocity, axis=1).reshape((-1, 1))
+        pressure = _pressure(line, args.time, args.period).reshape((-1, 1))
+        linestring = LineString(vertices=physical_line)
+        linestring.add_field(
+            Field(
+                name="velocity",
+                unit="m/s",
+                description="Synthetic analytical velocity sampled on streamline vertices.",
+                values=velocity,
+                dim=3,
+            )
+        )
+        linestring.add_field(
+            Field(
+                name="speed",
+                unit="m/s",
+                description="Magnitude of the synthetic analytical velocity field.",
+                values=speed,
+                dim=1,
+            )
+        )
+        linestring.add_field(
+            Field(
+                name="pressure",
+                unit="Pa",
+                description="Synthetic gauge pressure sampled on streamline vertices.",
+                values=pressure,
+                dim=1,
+            )
+        )
+        lines.append(linestring)
 
-    return StreamlineProduct(
+    return StreamlineCollection(
         name="smoke_streamlines",
-        bounds=bounds,
-        lines=tuple(lines),
-        line_values=tuple(line_values),
-        value_name="speed",
-        value_unit="m/s",
-        vector_field_name="velocity",
         seed_axis=args.slice_axis,
         seed_position=args.slice_position,
+        requested_line_count=args.streamline_count,
+        streamline_steps=args.streamline_steps,
+        streamline_step_size=args.streamline_step_size,
+        time=args.time,
+        period=args.period,
+        crs=args.crs,
+        include_z=args.include_z,
         axes=_plane_axes(args.slice_axis),
-        metadata={
-            "dataset": "smoke",
-            "requested_line_count": args.streamline_count,
-            "streamline_steps": args.streamline_steps,
-            "streamline_step_size": args.streamline_step_size,
-            "time": args.time,
-            "time_period": args.period,
-        },
+        lines=lines,
+        domain_bounds=bounds,
     )
 
 
 def _field_geojson(mesh: VolumeMesh, args: SmokeArgs) -> dict[str, Any]:
     velocity = next(field.values for field in mesh.fields if field.name == "velocity")
     speed = next(field.values for field in mesh.fields if field.name == "speed").ravel()
+    pressure = next(
+        field.values for field in mesh.fields if field.name == "pressure"
+    ).ravel()
 
     features = [
-        _point_feature(point, vector, magnitude, index, args.include_z)
-        for index, (point, vector, magnitude) in enumerate(
-            zip(mesh.vertices, velocity, speed)
+        _point_feature(point, vector, magnitude, scalar_pressure, index, args.include_z)
+        for index, (point, vector, magnitude, scalar_pressure) in enumerate(
+            zip(mesh.vertices, velocity, speed, pressure)
         )
     ]
     return _feature_collection(
@@ -700,28 +799,7 @@ def _field_geojson(mesh: VolumeMesh, args: SmokeArgs) -> dict[str, Any]:
 
 
 def _slice_geojson(bounds: Bounds, args: SmokeArgs) -> dict[str, Any]:
-    product = _slice_product(bounds, args)
-    physical = product.coordinates
-    velocity = np.asarray(product.vector_values)
-    speed = np.asarray(product.values)
-
-    features = [
-        _point_feature(point, vector, magnitude, index, args.include_z)
-        for index, (point, vector, magnitude) in enumerate(zip(physical, velocity, speed))
-    ]
-    return _feature_collection(
-        features,
-        product="slice",
-        geometry="Point",
-        bounds=bounds,
-        sample_count=len(features),
-        crs=args.crs,
-        include_z=args.include_z,
-        slice_axis=args.slice_axis,
-        slice_position=args.slice_position,
-        time=args.time,
-        time_period=args.period,
-    )
+    return _field_slice(bounds, args).to_geojson(include_z=args.include_z, crs=args.crs)
 
 
 def _slice_points(resolution: int, axis: SliceAxis, position: float) -> np.ndarray:
@@ -746,35 +824,9 @@ def _plane_axes(axis: SliceAxis) -> tuple[int, int]:
 
 
 def _streamlines_geojson(bounds: Bounds, args: SmokeArgs) -> dict[str, Any]:
-    product = _streamlines_product(bounds, args)
-    features = []
-    for seed_index, physical_line in enumerate(product.lines):
-        coordinates = _coordinates(physical_line, args.include_z)
-        features.append(
-            {
-                "type": "Feature",
-                "geometry": {
-                    "type": "LineString",
-                    "coordinates": coordinates,
-                },
-                "properties": {
-                    "seed_index": seed_index,
-                    "num_points": int(len(physical_line)),
-                },
-            }
-        )
-    return _feature_collection(
-        features,
-        product="streamlines",
-        geometry="LineString",
-        bounds=bounds,
-        sample_count=len(features),
-        crs=args.crs,
+    return _streamline_collection(bounds, args).to_geojson(
         include_z=args.include_z,
-        slice_axis=args.slice_axis,
-        slice_position=args.slice_position,
-        time=args.time,
-        time_period=args.period,
+        crs=args.crs,
     )
 
 
@@ -860,6 +912,7 @@ def _point_feature(
     point: np.ndarray,
     vector: np.ndarray,
     magnitude: float,
+    pressure: float,
     index: int,
     include_z: bool,
 ) -> dict[str, Any]:
@@ -872,6 +925,7 @@ def _point_feature(
             "v": float(vector[1]),
             "w": float(vector[2]),
             "speed": float(magnitude),
+            "pressure": float(pressure),
         },
     }
 
@@ -903,7 +957,7 @@ def _feature_collection(
                 bounds.ymax,
                 bounds.zmax,
             ],
-            "fields": ["velocity", "speed"],
+            "fields": ["velocity", "speed", "pressure"],
             **metadata,
         },
     }

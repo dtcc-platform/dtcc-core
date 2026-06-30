@@ -130,6 +130,11 @@ def _write_directory_package(
 
 def _write_artifact(obj, path: Path, artifact_format: str) -> None:
     fmt = _normalize_format(artifact_format)
+    write_artifact = getattr(obj, "write_artifact", None)
+    if callable(write_artifact):
+        write_artifact(path, format=fmt)
+        return
+
     if fmt == "geojson" and hasattr(obj, "to_geojson"):
         path.write_text(
             json.dumps(obj.to_geojson(), indent=2, sort_keys=True) + "\n",
@@ -195,6 +200,12 @@ def _format_from_path(path: Path) -> str:
 
 
 def _default_format(obj) -> str | None:
+    default_artifact_format = getattr(obj, "default_artifact_format", None)
+    if callable(default_artifact_format):
+        return _normalize_format(default_artifact_format())
+    if isinstance(default_artifact_format, str):
+        return _normalize_format(default_artifact_format)
+
     type_name = type(obj).__name__
     defaults = {
         "City": "json",

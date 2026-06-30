@@ -36,10 +36,11 @@ Phase 1B adds transitional native containers, `DatasetCollection` and
 types. These containers are DTCC model objects and can carry dataset context.
 They are not result wrappers or the target public Dataset v2 return type;
 long-term, bare list/dict returns should be replaced with domain-specific
-containers where practical. `DatasetValue` currently remains for unresolved
-synthetic smoke products: `smoke(product="slice")` and
-`smoke(product="streamlines")`. See `docs/design/datasets-v2-return-types.md`
-for the current return-type audit.
+containers where practical. Smoke visualization products now use native
+simulation models instead of `DatasetValue`: `FieldSlice` for
+`smoke(product="slice")` and `StreamlineCollection` for
+`smoke(product="streamlines")`. See
+`docs/design/datasets-v2-return-types.md` for the current return-type audit.
 
 Phase 1C adds semantic model returns for city-domain collection datasets:
 `BuildingCollection`, `FootprintCollection`, `TreeCollection`, and
@@ -153,7 +154,7 @@ Current Built-In Datasets
 | `trains` | raw | `VehicleCollection` | `pb` | Shortcut for live train positions. |
 | `metros` | raw | `VehicleCollection` | `pb` | Shortcut for live metro positions. |
 | `ferries` | raw | `VehicleCollection` | `pb` | Shortcut for live ferry positions. |
-| `smoke` | simulation | `VolumeMesh` | `pb`, `vtu`, `geojson` | Synthetic velocity-field smoke test with `field`, `slice`, and `streamlines` products. |
+| `smoke` | simulation | `VolumeMesh`, `FieldSlice`, or `StreamlineCollection` | `pb`, `vtu`, `geojson`, `png`, `mp4` | Synthetic velocity/speed/pressure smoke test with `field`, `slice`, and `streamlines` products. |
 | `calibration_grid` | derived | `CalibrationGrid` | `geojson` | Synthetic evenly spaced line grid for table-projector alignment. |
 | `air_quality` | raw | `SensorCollection` | `pb` | SMHI air-quality snapshot. |
 | `weather` | raw | `SensorCollection` | `pb` | SMHI meteorological latest-hour snapshot. |
@@ -177,23 +178,41 @@ The returned `VolumeMesh` has point fields:
 
 - `velocity`: vector field with components `u`, `v`, `w`
 - `speed`: scalar velocity magnitude
+- `pressure`: deterministic synthetic gauge pressure in Pa
 
 The dataset also exposes visualization products:
 
-    slice_payload = datasets.smoke(
+    field_slice = datasets.smoke(
         bounds=[xmin, ymin, xmax, ymax],
         product="slice",
-        format="geojson",
     )
-    streamline_payload = datasets.smoke(
+    streamlines = datasets.smoke(
         bounds=[xmin, ymin, xmax, ymax],
         product="streamlines",
-        format="geojson",
     )
+
+`product="slice"` returns a `FieldSlice`: sampled plane points with
+`velocity`, `speed`, and `pressure` fields attached to those points.
+`product="streamlines"` returns a `StreamlineCollection`: `LineString`
+geometry with the same fields attached per vertex.
 
 Use `datasets.smoke.describe()["products"]` to discover the supported products
 and formats. `product="field"` supports `pb`, `vtu`, and `geojson`;
-`product="slice"` and `product="streamlines"` support `geojson`.
+`product="slice"` and `product="streamlines"` support `geojson`, `png`, and
+`mp4`. GeoJSON is an explicit serialized vector/debug/Atlas adapter, not the
+primary in-memory smoke model. PNG is the default object-first package artifact
+for smoke slice and streamline models:
+
+    package = field_slice.export("output/smoke_slice_pkg")
+    package = streamlines.export("output/smoke_streamlines_pkg")
+
+MP4 remains available through the dataset-level serialized path:
+
+    payload = datasets.smoke(
+        bounds=[xmin, ymin, xmax, ymax],
+        product="streamlines",
+        format="mp4",
+    )
 
 The GeoJSON outputs declare `EPSG:3006` by default for QGIS/GDAL compatibility.
 Set `crs=None` to omit that declaration, or `include_z=False` to write 2D
@@ -223,8 +242,9 @@ manifest, artifact metadata, files, and package format (`directory` or
 Object export uses the native object's serializers, not a second dataset call.
 If an object has no `DatasetContext`, `.export(...)` raises `ValueError`.
 Supported safe defaults include `City` to `json`, meshes to `vtu`, point clouds
-to `pb`, rasters to `tif`, and `FootprintCollection`/`CalibrationGrid` to
-`geojson`; pass `format=` explicitly when another serializer should be used.
+to `pb`, rasters to `tif`, `FootprintCollection`/`CalibrationGrid` to
+`geojson`, and smoke `FieldSlice`/`StreamlineCollection` to `png`; pass
+`format=` explicitly when another serializer should be used.
 
 Datasets can also export a serialized artifact and an Atlas-style manifest
 sidecar in one call:

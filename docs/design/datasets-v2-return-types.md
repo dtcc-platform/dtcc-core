@@ -36,26 +36,17 @@ so Dataset v2 context can attach directly.
 | `hydrology` | `SensorCollection` | Requires live SMHI data; not executed. |
 | `ocean` | `SensorCollection` | Requires live SMHI data; not executed. |
 | `smoke` with `product="field"` | `VolumeMesh` | Cheap local synthetic call covered by tests. |
+| `smoke` with `product="slice"` | `FieldSlice` | Synthetic simulation slice with velocity, speed, and pressure fields attached to sampled points. |
+| `smoke` with `product="streamlines"` | `StreamlineCollection` | Synthetic simulation streamlines with velocity, speed, and pressure fields attached to line vertices. |
 
-## Migrated In Phase 1B
+## DatasetValue Fallback Policy
 
-These datasets previously returned bare dictionaries for normal calls and now
-return `DatasetValue`, a transitional native model object that can carry
-`DatasetContext`. `DatasetValue` is a fallback, not the target public Dataset
-v2 return type.
-
-| Dataset | Previous return | Phase 1B return | Audit note |
-| --- | --- | --- | --- |
-| `smoke` with `product="slice"` | GeoJSON-like `dict` | `DatasetValue` | Cheap local synthetic call covered by tests. |
-| `smoke` with `product="streamlines"` | GeoJSON-like `dict` | `DatasetValue` | Cheap local synthetic path; mapping behavior preserved. |
-
-## Pending Semantic Model Decision
-
-The synthetic smoke visualization products still need a final semantic model
-choice. Candidate future model types are `FieldSlice` or
-`PointSampleCollection` for `smoke(product="slice")`, and
-`StreamlineCollection` for `smoke(product="streamlines")`. Until that design
-checkpoint, these two products are the remaining intended `DatasetValue` users.
+`DatasetValue` remains a transitional native model object for exceptional
+returns that do not yet have domain-specific model types. It is a fallback, not
+the target public Dataset v2 return type. The smoke visualization products are
+no longer `DatasetValue` users: GeoJSON is now an explicit serialized
+debug/Atlas adapter for those products, while normal Python calls return native
+simulation models.
 
 ## Migrated In Phase 1C
 
@@ -96,7 +87,8 @@ The implementation uses existing object serializers and does not rebuild the
 dataset. Directory paths create directory packages; `.dtccpkg` paths create zip
 archives with the same internal layout. Current safe defaults are intentionally
 small: `City` to `json`, `Mesh`/`VolumeMesh` to `vtu`, `PointCloud` to `pb`,
-`Raster` to `tif`, and `FootprintCollection`/`CalibrationGrid` to `geojson`.
+`Raster` to `tif`, `FootprintCollection`/`CalibrationGrid` to `geojson`, and
+smoke visualization models (`FieldSlice` and `StreamlineCollection`) to `png`.
 Other semantic collections should pass an explicit supported format once a
 reliable serializer exists.
 
@@ -109,6 +101,14 @@ is outside Phase 2A.
 - `DatasetCollection` and `DatasetValue` are transitional native model
   containers, not `DatasetResult`.
 - Domain-specific containers are now used for the Phase 1C city-domain returns.
+- Smoke is a synthetic simulation dataset. Its normal Python return values
+  store simulation values as `Field` objects attached to geometry:
+  `VolumeMesh` for `product="field"`, `FieldSlice` for `product="slice"`,
+  and `StreamlineCollection` for `product="streamlines"`.
+- Smoke GeoJSON is an optional explicit serialized vector/debug/Atlas format,
+  not the primary in-memory Dataset v2 model. PNG is the default object-first
+  package artifact for smoke slice and streamline models; MP4 remains supported
+  through the dataset-level `format="mp4"` path.
 - `city.building_collection()`, `city.building_footprints()`, and
   `building.footprint()` provide native model helper APIs without changing the
   `City.buildings` list property.
