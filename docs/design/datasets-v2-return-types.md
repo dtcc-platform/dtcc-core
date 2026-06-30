@@ -1,6 +1,6 @@
 # Dataset v2 Return-Type Audit
 
-Status: Phase 1C audit
+Status: Phase 1D audit
 
 Canonical design reference: `docs/design/datasets-v2.md`.
 
@@ -41,12 +41,21 @@ so Dataset v2 context can attach directly.
 
 These datasets previously returned bare dictionaries for normal calls and now
 return `DatasetValue`, a transitional native model object that can carry
-`DatasetContext`.
+`DatasetContext`. `DatasetValue` is a fallback, not the target public Dataset
+v2 return type.
 
 | Dataset | Previous return | Phase 1B return | Audit note |
 | --- | --- | --- | --- |
 | `smoke` with `product="slice"` | GeoJSON-like `dict` | `DatasetValue` | Cheap local synthetic call covered by tests. |
 | `smoke` with `product="streamlines"` | GeoJSON-like `dict` | `DatasetValue` | Cheap local synthetic path; mapping behavior preserved. |
+
+## Pending Semantic Model Decision
+
+The synthetic smoke visualization products still need a final semantic model
+choice. Candidate future model types are `FieldSlice` or
+`PointSampleCollection` for `smoke(product="slice")`, and
+`StreamlineCollection` for `smoke(product="streamlines")`. Until that design
+checkpoint, these two products are the remaining intended `DatasetValue` users.
 
 ## Migrated In Phase 1C
 
@@ -84,3 +93,10 @@ migrated in Phase 1B.
 - `city.building_collection()`, `city.building_footprints()`, and
   `building.footprint()` provide native model helper APIs without changing the
   `City.buildings` list property.
+- `building.footprint()` prefers LOD0, then LOD1, LOD2, and LOD3 when no
+  geometry type is specified. The footprint z-height policy is explicit:
+  `z="geometry"` uses source `zmax`, `z="ground"` uses source `zmin`, and a
+  numeric `z` uses that exact height.
+- `FootprintCollection` records lightweight source traceability for extracted
+  building footprints through `source_indices`, `source_ids`, and matching
+  GeoJSON feature properties.

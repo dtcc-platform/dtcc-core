@@ -1,4 +1,9 @@
-"""Transitional Dataset v2 value containers."""
+"""Transitional Dataset v2 value containers.
+
+These generic containers are fallback model objects for unresolved dataset
+return shapes. They are not the target public Dataset v2 return type when a
+domain-specific model can be introduced.
+"""
 
 from __future__ import annotations
 
@@ -43,7 +48,7 @@ class DatasetCollection(Model):
 
 @dataclass
 class DatasetValue(Model):
-    """Dataset-aware JSON-like value container for transitional returns."""
+    """Dataset-aware JSON-like value container for transitional fallback returns."""
 
     value: Any = None
 

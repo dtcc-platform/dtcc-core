@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 
@@ -20,20 +20,32 @@ class FootprintCollection(Model):
     """Collection of building footprint surfaces."""
 
     footprints: list[Surface] = field(default_factory=list)
+    source_ids: list[str | None] = field(default_factory=list)
+    source_indices: list[int] = field(default_factory=list)
 
     @classmethod
     def from_buildings(
         cls,
         buildings: list[Building],
         geom_type: GeometryType | None = None,
+        *,
+        z: Literal["geometry", "ground"] | float = "geometry",
     ) -> "FootprintCollection":
         """Build a footprint collection from buildings with available geometry."""
         footprints = []
-        for building in buildings:
-            footprint = building.footprint(geom_type)
+        source_ids: list[str | None] = []
+        source_indices: list[int] = []
+        for source_index, building in enumerate(buildings):
+            footprint = building.footprint(geom_type, z=z)
             if footprint is not None:
                 footprints.append(footprint)
-        return cls(footprints=footprints)
+                source_ids.append(getattr(building, "id", None))
+                source_indices.append(source_index)
+        return cls(
+            footprints=footprints,
+            source_ids=source_ids,
+            source_indices=source_indices,
+        )
 
     def __len__(self) -> int:
         return len(self.footprints)
@@ -74,7 +86,7 @@ class FootprintCollection(Model):
                         "type": "Polygon",
                         "coordinates": _polygon_coordinates(polygon),
                     },
-                    "properties": {"index": index},
+                    "properties": self._feature_properties(index),
                 }
             )
 
@@ -98,6 +110,14 @@ class FootprintCollection(Model):
         raise NotImplementedError(
             "FootprintCollection protobuf deserialization is not implemented."
         )
+
+    def _feature_properties(self, index: int) -> dict[str, Any]:
+        properties: dict[str, Any] = {"index": index}
+        if index < len(self.source_indices):
+            properties["source_index"] = self.source_indices[index]
+        if index < len(self.source_ids) and self.source_ids[index] is not None:
+            properties["source_id"] = self.source_ids[index]
+        return properties
 
 
 @dataclass
@@ -127,9 +147,11 @@ class BuildingCollection(Model):
     def footprints(
         self,
         geom_type: GeometryType | None = None,
+        *,
+        z: Literal["geometry", "ground"] | float = "geometry",
     ) -> FootprintCollection:
         """Return building footprints as a semantic collection."""
-        return FootprintCollection.from_buildings(self.buildings, geom_type)
+        return FootprintCollection.from_buildings(self.buildings, geom_type, z=z)
 
     def to_proto(self):
         raise NotImplementedError(

@@ -34,9 +34,12 @@ now exposes `dataset_context`, `metadata`, `provenance`, `presentation`, and
 Phase 1B adds transitional native containers, `DatasetCollection` and
 `DatasetValue`, for dataset returns that do not yet have domain-specific model
 types. These containers are DTCC model objects and can carry dataset context.
-They are not result wrappers; long-term, bare list/dict returns should be
-replaced with domain-specific containers where practical. See
-`docs/design/datasets-v2-return-types.md` for the current return-type audit.
+They are not result wrappers or the target public Dataset v2 return type;
+long-term, bare list/dict returns should be replaced with domain-specific
+containers where practical. `DatasetValue` currently remains for unresolved
+synthetic smoke products: `smoke(product="slice")` and
+`smoke(product="streamlines")`. See `docs/design/datasets-v2-return-types.md`
+for the current return-type audit.
 
 Phase 1C adds semantic model returns for city-domain collection datasets:
 `BuildingCollection`, `FootprintCollection`, `TreeCollection`, and

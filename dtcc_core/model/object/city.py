@@ -2,7 +2,7 @@
 # Licensed under the MIT License
 
 from dataclasses import dataclass, field
-from typing import Union
+from typing import Literal, Union
 from collections import defaultdict
 
 from .tree import Tree
@@ -139,9 +139,14 @@ class City(
         """Return city buildings as a semantic collection."""
         return BuildingCollection(self.buildings)
 
-    def building_footprints(self) -> FootprintCollection:
+    def building_footprints(
+        self,
+        geom_type: GeometryType | None = None,
+        *,
+        z: Literal["geometry", "ground"] | float = "geometry",
+    ) -> FootprintCollection:
         """Return city building footprints as a semantic collection."""
-        return self.building_collection().footprints()
+        return self.building_collection().footprints(geom_type, z=z)
 
     def replace_buildings(self, buildings: list[Building]):
         """Replace all buildings in city with new list of buildings."""

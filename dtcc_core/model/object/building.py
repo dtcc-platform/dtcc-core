@@ -2,7 +2,8 @@
 # Licensed under the MIT License
 
 from dataclasses import dataclass, field
-from typing import Union
+from numbers import Real
+from typing import Literal, Union
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
@@ -39,15 +40,26 @@ class Building(Object):
             height = self.bounds.zmax - self.bounds.zmin
         return height
 
-    def footprint(self, geom_type: GeometryType = None) -> Surface | None:
+    def footprint(
+        self,
+        geom_type: GeometryType | None = None,
+        *,
+        z: Literal["geometry", "ground"] | float = "geometry",
+    ) -> Surface | None:
         """
         Extract a footprint surface from the building geometry.
 
         Parameters
         ----------
         geom_type : GeometryType, optional
-            Specific geometry type to use. If omitted, the highest available
-            LOD geometry is used.
+            Specific geometry type to use. If omitted, the first available
+            footprint-compatible geometry is used in this order: LOD0, LOD1,
+            LOD2, LOD3.
+        z : {"geometry", "ground"} or float, default "geometry"
+            Height for the returned footprint surface. ``"geometry"`` uses the
+            source geometry ``zmax`` and preserves previous behavior.
+            ``"ground"`` uses the source geometry ``zmin``. A numeric value
+            places the footprint at that exact z height.
 
         Returns
         -------
@@ -63,10 +75,14 @@ class Building(Object):
         ]
 
         geom = self.flatten_geometry(geom_type) if geom_type is not None else None
+        if geom is not None and not _is_footprint_compatible(geom):
+            warning(f"Building {self.id} geometry cannot produce a footprint.")
+            return None
         if geom is None:
             for lod in lod_levels:
-                geom = self.flatten_geometry(lod)
-                if geom is not None:
+                candidate = self.flatten_geometry(lod)
+                if _is_footprint_compatible(candidate):
+                    geom = candidate
                     break
 
         if geom is None:
@@ -88,7 +104,7 @@ class Building(Object):
             return None
 
         surface = Surface()
-        surface.from_polygon(footprint, geom.bounds.zmax)
+        surface.from_polygon(footprint, _resolve_footprint_z(geom, z))
         return surface
 
     def to_proto(self) -> proto.Object:
@@ -171,3 +187,20 @@ class BuildingPart(Object):
 
         # Handle specific fields (currently none)
         pass
+
+
+def _resolve_footprint_z(
+    geom,
+    z: Literal["geometry", "ground"] | float,
+) -> float:
+    if z == "geometry":
+        return float(geom.bounds.zmax)
+    if z == "ground":
+        return float(geom.bounds.zmin)
+    if isinstance(z, Real) and not isinstance(z, bool):
+        return float(z)
+    raise ValueError("z must be 'geometry', 'ground', or a numeric height.")
+
+
+def _is_footprint_compatible(geom) -> bool:
+    return geom is not None and hasattr(geom, "to_polygon")

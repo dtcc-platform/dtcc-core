@@ -55,6 +55,8 @@ def test_footprint_collection_conversions_and_context():
     assert collection.to_arrays()[0].shape == (4, 3)
     assert collection.to_shapely()[0].area == 4.0
     assert collection.to_geojson()["features"][0]["geometry"]["type"] == "Polygon"
+    assert collection.source_ids == ["building-1"]
+    assert collection.source_indices == [0]
     assert collection.dataset_context is context
     assert json.loads(collection.manifest().model_dump_json())["identity"]["name"] == (
         "building_footprints"
@@ -136,17 +138,98 @@ def test_city_and_building_helpers_return_semantic_models():
     assert len(footprint_collection) == 1
 
 
-def _building() -> Building:
+def test_building_footprint_default_prefers_lod0_and_uses_geometry_zmax():
+    building = _building(z_values=(2.0, 4.0, 4.0, 2.0))
+    building.add_geometry(_surface((9.0, 9.0, 9.0, 9.0)), GeometryType.LOD3)
+
+    footprint = building.footprint()
+
+    assert isinstance(footprint, Surface)
+    assert np.allclose(footprint.vertices[:, 2], 4.0)
+
+
+def test_building_footprint_z_geometry_uses_geometry_zmax():
+    building = _building(z_values=(2.0, 4.0, 4.0, 2.0))
+
+    footprint = building.footprint(z="geometry")
+
+    assert isinstance(footprint, Surface)
+    assert np.allclose(footprint.vertices[:, 2], 4.0)
+
+
+def test_building_footprint_z_ground_uses_geometry_zmin():
+    building = _building(z_values=(2.0, 4.0, 4.0, 2.0))
+
+    footprint = building.footprint(z="ground")
+
+    assert isinstance(footprint, Surface)
+    assert np.allclose(footprint.vertices[:, 2], 2.0)
+
+
+def test_building_footprint_numeric_z_uses_given_height():
+    building = _building(z_values=(2.0, 4.0, 4.0, 2.0))
+
+    footprint = building.footprint(z=0.0)
+
+    assert isinstance(footprint, Surface)
+    assert np.allclose(footprint.vertices[:, 2], 0.0)
+
+
+def test_building_collection_footprints_passes_z_option():
+    building = _building(z_values=(2.0, 4.0, 4.0, 2.0))
+    collection = BuildingCollection([building])
+
+    footprints = collection.footprints(z="ground")
+
+    assert np.allclose(footprints[0].vertices[:, 2], 2.0)
+
+
+def test_city_building_footprints_passes_z_option():
+    building = _building(z_values=(2.0, 4.0, 4.0, 2.0))
+    city = City()
+    city.add_building(building)
+
+    footprints = city.building_footprints(z=0.0)
+
+    assert np.allclose(footprints[0].vertices[:, 2], 0.0)
+
+
+def test_footprint_collection_to_geojson_includes_source_traceability():
+    buildings = [
+        _building(id="building-1"),
+        _building(id="building-2"),
+    ]
+
+    collection = FootprintCollection.from_buildings(buildings)
+    feature = collection.to_geojson()["features"][1]
+
+    assert feature["properties"] == {
+        "index": 1,
+        "source_index": 1,
+        "source_id": "building-2",
+    }
+
+
+def _building(
+    *,
+    id: str = "building-1",
+    z_values: tuple[float, float, float, float] = (5.0, 5.0, 5.0, 5.0),
+    geom_type: GeometryType = GeometryType.LOD0,
+) -> Building:
+    building = Building()
+    building.id = id
+    building.add_geometry(_surface(z_values), geom_type)
+    return building
+
+
+def _surface(z_values: tuple[float, float, float, float]) -> Surface:
     surface = Surface()
     surface.vertices = np.array(
         [
-            [0.0, 0.0, 5.0],
-            [2.0, 0.0, 5.0],
-            [2.0, 2.0, 5.0],
-            [0.0, 2.0, 5.0],
+            [0.0, 0.0, z_values[0]],
+            [2.0, 0.0, z_values[1]],
+            [2.0, 2.0, z_values[2]],
+            [0.0, 2.0, z_values[3]],
         ]
     )
-    building = Building()
-    building.id = "building-1"
-    building.add_geometry(surface, GeometryType.LOD0)
-    return building
+    return surface

@@ -7,6 +7,7 @@ import json
 import pytest
 
 import dtcc_core.datasets as datasets
+import dtcc_core.model as model
 from dtcc_core.datasets import (
     Dataset,
     DatasetContext,
@@ -127,6 +128,8 @@ def test_dataset_value_can_carry_dataset_context():
 
 def test_no_dataset_result_or_run_api_is_introduced():
     assert not hasattr(datasets, "DatasetResult")
+    assert not hasattr(datasets, "VectorLayer")
+    assert not hasattr(model, "VectorLayer")
     for dataset in (
         datasets.smoke,
         datasets.buildings,
