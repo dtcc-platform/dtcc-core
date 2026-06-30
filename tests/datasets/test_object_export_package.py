@@ -57,6 +57,23 @@ def test_city_object_export_writes_manifest_and_artifact(tmp_path):
     assert city.manifest().artifacts == []
 
 
+def test_object_export_sanitizes_object_artifact_names(tmp_path):
+    city = City()
+    city.name = "evil/../City Name"
+    attach_dataset_context(city, _context(datasets.city))
+
+    package = city.export(tmp_path / "unsafe_name_pkg", format="json")
+
+    artifact_path = tmp_path / "unsafe_name_pkg" / "artifacts" / "evil_city_name.json"
+    artifact = package.manifest.artifacts[0]
+    assert artifact_path.exists()
+    assert package.manifest.identity.name == "city"
+    assert artifact.path == "artifacts/evil_city_name.json"
+    assert ".." not in artifact.path
+    assert artifact.size == artifact_path.stat().st_size
+    assert artifact.sha256 == _sha256(artifact_path)
+
+
 def test_object_export_without_dataset_context_is_rejected(tmp_path):
     with pytest.raises(ValueError, match="no DatasetContext"):
         City().export(tmp_path / "city_pkg", format="json")

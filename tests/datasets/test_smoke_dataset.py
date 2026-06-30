@@ -287,6 +287,7 @@ def test_smoke_field_slice_object_export_defaults_to_png_package(tmp_path):
         package,
         package_dir=tmp_path / "smoke_slice_pkg",
         product="slice",
+        expected_artifact_path="artifacts/smoke_slice.png",
     )
     with Image.open(artifact_path) as image:
         assert image.size == (160, 90)
@@ -310,6 +311,7 @@ def test_smoke_streamline_collection_object_export_defaults_to_png_package(tmp_p
         package,
         package_dir=tmp_path / "smoke_streamlines_pkg",
         product="streamlines",
+        expected_artifact_path="artifacts/smoke_streamlines.png",
     )
     with Image.open(artifact_path) as image:
         assert image.size == (160, 90)
@@ -651,7 +653,13 @@ def test_smoke_rejects_non_geojson_visualization_formats():
         )
 
 
-def _assert_smoke_visual_package(package, *, package_dir, product: str):
+def _assert_smoke_visual_package(
+    package,
+    *,
+    package_dir,
+    product: str,
+    expected_artifact_path: str,
+):
     manifest_path = package_dir / "manifest.json"
     artifact = package.manifest.artifacts[0]
     artifact_path = package_dir / artifact.path
@@ -663,6 +671,7 @@ def _assert_smoke_visual_package(package, *, package_dir, product: str):
     assert manifest["identity"]["name"] == "smoke"
     assert manifest["request"]["parameters"]["product"] == product
     assert artifact.path.startswith("artifacts/")
+    assert artifact.path == expected_artifact_path
     assert artifact.format == "png"
     assert artifact.media_type == "image/png"
     assert artifact.data_kind == "raster"

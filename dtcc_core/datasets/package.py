@@ -100,7 +100,7 @@ def _write_directory_package(
 
     context = obj.dataset_context
     extension = DatasetDescriptor.format_extension(artifact_format)
-    artifact_stem = _safe_stem(context.identity.name)
+    artifact_stem = _artifact_stem(obj, context)
     artifact_path = artifact_dir / f"{artifact_stem}.{extension}"
     _write_artifact(obj, artifact_path, artifact_format)
 
@@ -217,6 +217,26 @@ def _default_format(obj) -> str | None:
         "CalibrationGrid": "geojson",
     }
     return defaults.get(type_name)
+
+
+def _artifact_stem(obj, context) -> str:
+    """Return a safe package artifact stem for a dataset-produced object.
+
+    Object-first export prefers product/model-specific names when available:
+    ``dataset_artifact_stem()``, then ``artifact_stem``, then ``name``. The
+    dataset identity remains authoritative in the manifest and is used as the
+    fallback stem. All candidates are sanitized through ``_safe_stem`` before
+    being used under ``artifacts/``.
+    """
+    candidate = None
+    dataset_artifact_stem = getattr(obj, "dataset_artifact_stem", None)
+    if callable(dataset_artifact_stem):
+        candidate = dataset_artifact_stem()
+    elif isinstance(getattr(obj, "artifact_stem", None), str):
+        candidate = obj.artifact_stem
+    elif isinstance(getattr(obj, "name", None), str):
+        candidate = obj.name
+    return _safe_stem(candidate or context.identity.name)
 
 
 def _bounds_value(obj) -> list[float] | None:

@@ -241,6 +241,11 @@ manifest, artifact metadata, files, and package format (`directory` or
 
 Object export uses the native object's serializers, not a second dataset call.
 If an object has no `DatasetContext`, `.export(...)` raises `ValueError`.
+Artifact filenames prefer object/product-specific names when available, while
+`manifest.identity` remains the dataset identity. This lets multi-product
+datasets such as `smoke` write `artifacts/smoke_slice.png` and
+`artifacts/smoke_streamlines.png` inside packages whose identity is still
+`smoke`.
 Supported safe defaults include `City` to `json`, meshes to `vtu`, point clouds
 to `pb`, rasters to `tif`, `FootprintCollection`/`CalibrationGrid` to
 `geojson`, and smoke `FieldSlice`/`StreamlineCollection` to `png`; pass
