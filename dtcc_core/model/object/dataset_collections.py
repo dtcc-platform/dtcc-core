@@ -31,7 +31,12 @@ class FootprintCollection(Model):
         *,
         z: Literal["geometry", "ground"] | float = "geometry",
     ) -> "FootprintCollection":
-        """Build a footprint collection from buildings with available geometry."""
+        """Build a footprint collection from buildings with available geometry.
+
+        By default, this extracts canonical LOD0 building footprints only.
+        Passing ``geom_type`` requests an advanced/derived extraction from that
+        explicit geometry type.
+        """
         footprints = []
         source_ids: list[str | None] = []
         source_indices: list[int] = []
@@ -150,7 +155,12 @@ class BuildingCollection(Model):
         *,
         z: Literal["geometry", "ground"] | float = "geometry",
     ) -> FootprintCollection:
-        """Return building footprints as a semantic collection."""
+        """Return building footprints as a semantic collection.
+
+        By default, this extracts canonical LOD0 footprints only. Passing
+        ``geom_type`` requests an advanced/derived extraction from that explicit
+        geometry type.
+        """
         return FootprintCollection.from_buildings(self.buildings, geom_type, z=z)
 
     def to_proto(self):

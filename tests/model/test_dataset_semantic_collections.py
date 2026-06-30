@@ -138,14 +138,34 @@ def test_city_and_building_helpers_return_semantic_models():
     assert len(footprint_collection) == 1
 
 
-def test_building_footprint_default_prefers_lod0_and_uses_geometry_zmax():
+def test_building_footprint_default_uses_lod0_and_geometry_zmax():
     building = _building(z_values=(2.0, 4.0, 4.0, 2.0))
+    building.add_geometry(_surface((7.0, 7.0, 7.0, 7.0)), GeometryType.LOD1)
     building.add_geometry(_surface((9.0, 9.0, 9.0, 9.0)), GeometryType.LOD3)
 
     footprint = building.footprint()
 
     assert isinstance(footprint, Surface)
     assert np.allclose(footprint.vertices[:, 2], 4.0)
+
+
+def test_building_footprint_returns_none_when_lod0_is_missing():
+    building = _building(z_values=(7.0, 7.0, 7.0, 7.0), geom_type=GeometryType.LOD1)
+
+    footprint = building.footprint()
+
+    assert footprint is None
+
+
+def test_building_footprint_explicit_lod1_uses_only_lod1():
+    building = _building(z_values=(2.0, 4.0, 4.0, 2.0))
+    building.add_geometry(_surface((7.0, 7.0, 7.0, 7.0)), GeometryType.LOD1)
+    building.add_geometry(_surface((9.0, 9.0, 9.0, 9.0)), GeometryType.LOD3)
+
+    footprint = building.footprint(GeometryType.LOD1)
+
+    assert isinstance(footprint, Surface)
+    assert np.allclose(footprint.vertices[:, 2], 7.0)
 
 
 def test_building_footprint_z_geometry_uses_geometry_zmax():
@@ -192,6 +212,25 @@ def test_city_building_footprints_passes_z_option():
     footprints = city.building_footprints(z=0.0)
 
     assert np.allclose(footprints[0].vertices[:, 2], 0.0)
+
+
+def test_city_building_footprints_collects_lod0_only():
+    lod0_building = _building(id="lod0-building", z_values=(2.0, 4.0, 4.0, 2.0))
+    lod0_building.add_geometry(_surface((9.0, 9.0, 9.0, 9.0)), GeometryType.LOD1)
+    lod1_only_building = _building(
+        id="lod1-only-building",
+        z_values=(7.0, 7.0, 7.0, 7.0),
+        geom_type=GeometryType.LOD1,
+    )
+    city = City()
+    city.add_buildings([lod0_building, lod1_only_building])
+
+    footprints = city.building_footprints()
+
+    assert len(footprints) == 1
+    assert footprints.source_ids == ["lod0-building"]
+    assert footprints.source_indices == [0]
+    assert np.allclose(footprints[0].vertices[:, 2], 4.0)
 
 
 def test_footprint_collection_to_geojson_includes_source_traceability():

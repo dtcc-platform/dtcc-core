@@ -52,9 +52,10 @@ class Building(Object):
         Parameters
         ----------
         geom_type : GeometryType, optional
-            Specific geometry type to use. If omitted, the first available
-            footprint-compatible geometry is used in this order: LOD0, LOD1,
-            LOD2, LOD3.
+            Geometry type to use. If omitted, only ``GeometryType.LOD0`` is
+            considered because LOD0 is the canonical building footprint
+            geometry. Passing another geometry type is an advanced/derived
+            extraction path and only that explicit type is considered.
         z : {"geometry", "ground"} or float, default "geometry"
             Height for the returned footprint surface. ``"geometry"`` uses the
             source geometry ``zmax`` and preserves previous behavior.
@@ -67,26 +68,14 @@ class Building(Object):
             The footprint as a surface, or ``None`` when the building has no
             usable LOD geometry.
         """
-        lod_levels = [
-            GeometryType.LOD0,
-            GeometryType.LOD1,
-            GeometryType.LOD2,
-            GeometryType.LOD3,
-        ]
-
-        geom = self.flatten_geometry(geom_type) if geom_type is not None else None
+        selected_geom_type = GeometryType.LOD0 if geom_type is None else geom_type
+        geom = self.flatten_geometry(selected_geom_type)
         if geom is not None and not _is_footprint_compatible(geom):
             warning(f"Building {self.id} geometry cannot produce a footprint.")
             return None
-        if geom is None:
-            for lod in lod_levels:
-                candidate = self.flatten_geometry(lod)
-                if _is_footprint_compatible(candidate):
-                    geom = candidate
-                    break
 
         if geom is None:
-            warning(f"Building {self.id} has no LOD geometry.")
+            warning(f"Building {self.id} has no {selected_geom_type.name} geometry.")
             return None
 
         footprint = geom.to_polygon()

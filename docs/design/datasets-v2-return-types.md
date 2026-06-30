@@ -93,10 +93,12 @@ migrated in Phase 1B.
 - `city.building_collection()`, `city.building_footprints()`, and
   `building.footprint()` provide native model helper APIs without changing the
   `City.buildings` list property.
-- `building.footprint()` prefers LOD0, then LOD1, LOD2, and LOD3 when no
-  geometry type is specified. The footprint z-height policy is explicit:
-  `z="geometry"` uses source `zmax`, `z="ground"` uses source `zmin`, and a
-  numeric `z` uses that exact height.
+- `building.footprint()` uses canonical LOD0 footprints by default and returns
+  `None` if LOD0 is missing. Passing another `GeometryType` is an
+  advanced/derived extraction path and only that explicit type is considered.
+  The footprint z-height policy is explicit: `z="geometry"` uses source
+  `zmax`, `z="ground"` uses source `zmin`, and a numeric `z` uses that exact
+  height.
 - `FootprintCollection` records lightweight source traceability for extracted
   building footprints through `source_indices`, `source_ids`, and matching
   GeoJSON feature properties.

@@ -145,7 +145,12 @@ class City(
         *,
         z: Literal["geometry", "ground"] | float = "geometry",
     ) -> FootprintCollection:
-        """Return city building footprints as a semantic collection."""
+        """Return city building footprints as a semantic collection.
+
+        By default, this extracts canonical LOD0 footprints only. Passing
+        ``geom_type`` requests an advanced/derived extraction from that explicit
+        geometry type.
+        """
         return self.building_collection().footprints(geom_type, z=z)
 
     def replace_buildings(self, buildings: list[Building]):
