@@ -1,6 +1,6 @@
 # Dataset v2 Return-Type Audit
 
-Status: Phase 1D audit
+Status: Phase 2A audit
 
 Canonical design reference: `docs/design/datasets-v2.md`.
 
@@ -84,6 +84,25 @@ but is no longer exposed as a public dataset through the registry or
 Datasets that accept `format` may return `bytes` for serialized artifacts. This
 is intentionally outside the normal Dataset v2 object-return path and is not
 migrated in Phase 1B.
+
+## Object-First Export In Phase 2A
+
+Dataset calls still return native DTCC model objects when `format` is omitted.
+Objects that carry `DatasetContext` now support `.export(...)` as a Dataset
+Manifest v2 package writer. This object-first path writes `manifest.json` and
+primary artifacts under `artifacts/`, returning a `DatasetPackage`.
+
+The implementation uses existing object serializers and does not rebuild the
+dataset. Directory paths create directory packages; `.dtccpkg` paths create zip
+archives with the same internal layout. Current safe defaults are intentionally
+small: `City` to `json`, `Mesh`/`VolumeMesh` to `vtu`, `PointCloud` to `pb`,
+`Raster` to `tif`, and `FootprintCollection`/`CalibrationGrid` to `geojson`.
+Other semantic collections should pass an explicit supported format once a
+reliable serializer exists.
+
+`datasets.foo.export(...)` and `datasets.foo.publish(...)` remain the existing
+serialized v1 sidecar/publish path. Object-first publish is still planned and
+is outside Phase 2A.
 
 ## Notes
 

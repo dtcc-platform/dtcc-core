@@ -46,6 +46,14 @@ Phase 1C adds semantic model returns for city-domain collection datasets:
 `CalibrationGrid`. The specialized `city_footprints` meshing helper is no
 longer a public dataset registry entry.
 
+Phase 2A adds object-first Dataset Manifest v2 package export. A native object
+returned by `datasets.foo(...)` can call `.export("out/foo", format="json")`
+or `.export("out/foo.dtccpkg")` when it carries `DatasetContext`. The export
+returns a `DatasetPackage` and writes `manifest.json` plus primary artifact
+files under `artifacts/`. Object-first publish remains planned. The existing
+`datasets.foo.export(...)` and `datasets.foo.publish(...)` methods are still
+the v1 serialized artifact plus sidecar/publish path.
+
 Every dataset is a `DatasetDescriptor` with:
 
 - `name`: stable registry name, used as `datasets.<name>()`.
@@ -190,6 +198,33 @@ and formats. `product="field"` supports `pb`, `vtu`, and `geojson`;
 The GeoJSON outputs declare `EPSG:3006` by default for QGIS/GDAL compatibility.
 Set `crs=None` to omit that declaration, or `include_z=False` to write 2D
 coordinates for viewers that do not handle GeoJSON Z coordinates.
+
+Object-First Packages
+---------------------
+
+Dataset-produced model objects can export a Dataset Manifest v2 package:
+
+    from dtcc_core import datasets
+
+    city = datasets.city(bounds=[xmin, ymin, xmax, ymax])
+    package = city.export("output/city_pkg", format="json")
+
+This writes:
+
+    output/city_pkg/
+      manifest.json
+      artifacts/
+        city.json
+
+The returned `DatasetPackage` records the package path, manifest path, parsed
+manifest, artifact metadata, files, and package format (`directory` or
+`dtccpkg`). `.dtccpkg` paths write a zip archive with the same internal layout.
+
+Object export uses the native object's serializers, not a second dataset call.
+If an object has no `DatasetContext`, `.export(...)` raises `ValueError`.
+Supported safe defaults include `City` to `json`, meshes to `vtu`, point clouds
+to `pb`, rasters to `tif`, and `FootprintCollection`/`CalibrationGrid` to
+`geojson`; pass `format=` explicitly when another serializer should be used.
 
 Datasets can also export a serialized artifact and an Atlas-style manifest
 sidecar in one call:

@@ -101,12 +101,11 @@ class Model(ABC):
     def export(self, *args, **kwargs):
         """Export a Dataset v2 object package.
 
-        Object-first Dataset v2 export is planned for Phase 2.
+        Requires this object to carry ``DatasetContext`` from a dataset call.
         """
-        raise NotImplementedError(
-            "Dataset v2 object export is planned for Phase 2. "
-            "Use dataset.export(...) for the existing serialized export path."
-        )
+        from dtcc_core.datasets.package import export_model_package
+
+        return export_model_package(self, *args, **kwargs)
 
     def publish(self, *args, **kwargs):
         """Publish a Dataset v2 object package.

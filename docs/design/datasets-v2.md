@@ -650,7 +650,18 @@ artifacts/
   style/legend/auxiliary artifact(s)
 ```
 
-The exact internal layout may be finalized during implementation, but every package must contain `manifest.json`.
+Phase 2A implements the initial object-first package layout in `dtcc-core`:
+
+```text
+out/foo/
+  manifest.json
+  artifacts/
+    <safe-primary-name>.<extension>
+```
+
+For `.dtccpkg`, the package is a zip archive with the same internal layout.
+The returned `DatasetPackage` records `path`, `manifest_path`, `manifest`,
+`artifacts`, `files`, and `package_format` (`directory` or `dtccpkg`).
 
 ### 4.12 DatasetPublication
 
@@ -1315,13 +1326,13 @@ dtcc-core
 
 Goals:
 
-- implement package export;
+- implement object-first package export;
 - support directory and `.dtccpkg` packages;
 - write DatasetManifest v2;
 - use `artifacts[]`;
-- move public export/publish to dataset-produced objects;
-- keep dataset-level export/publish only as convenience shortcuts if desired;
-- remove or de-emphasize `format=` bytes-returning behavior from normal dataset calls.
+- move public export to dataset-produced objects;
+- keep dataset-level export/publish as the existing v1 serialized path during the transition;
+- keep `format=` bytes-returning behavior on dataset calls for service/download use.
 
 Checkpoint:
 
@@ -1341,6 +1352,12 @@ provenance
 presentation
 request
 ```
+
+Phase 2A status in `dtcc-core`: object-first `.export(...)` creates Dataset
+Manifest v2 packages for objects with `DatasetContext`. It uses existing object
+serializers and does not re-run the dataset. Object-first `.publish(...)`
+remains planned; dataset-level `.export(...)` and `.publish(...)` remain the
+legacy serialized artifact plus sidecar/upload path.
 
 ### Phase 3: `dtcc-upload` manifest/package v2 support
 
