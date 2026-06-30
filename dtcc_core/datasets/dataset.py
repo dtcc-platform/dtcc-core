@@ -13,6 +13,16 @@ from dtcc_core.model import Bounds
 from dtcc_core.model import Object as DTCCObject
 from dtcc_core.model import Geometry as DTCCGeometry
 
+from .context import attach_dataset_context
+from .schema import (
+    DatasetContext,
+    DatasetIdentity,
+    DatasetMetadata,
+    DatasetPresentation,
+    DatasetProvenance,
+    DatasetRequest,
+)
+
 
 _FORMAT_KIND_MAP = {
     "tif": "raster",
@@ -237,7 +247,9 @@ class DatasetDescriptor(ABC):
 
     def __call__(self, **kwargs):
         args = self.validate(kwargs)
-        return self.build(args)
+        result = self.build(args)
+        context = self.create_context(args)
+        return attach_dataset_context(result, context)
 
     def validate(self, kwargs):
         if isinstance(kwargs.get("bounds"), Bounds):
@@ -249,6 +261,110 @@ class DatasetDescriptor(ABC):
     def build(self, validated_args):
         """Resolve the dataset and return the result."""
         raise NotImplementedError
+
+    # TODO(Dataset v2): keep DatasetDescriptor during migration; Dataset is a
+    # public alias below so new code can use the Dataset name without breaking
+    # existing registrations.
+    def create_context(self, args) -> DatasetContext:
+        """Build initial Dataset v2 context from descriptor metadata."""
+        parameters = args.model_dump(mode="json")
+        descriptor = self.describe()
+        title = descriptor.get("title") or self._title_from_identifier(self.name)
+        bounds = parameters.get("bounds")
+        crs_values = self._context_crs_values(parameters)
+        data_category = descriptor.get("data_category")
+        result_kind = descriptor.get("result_kind")
+
+        return DatasetContext(
+            identity=DatasetIdentity(
+                name=self.name,
+                title=title,
+                version=getattr(self, "version", None),
+            ),
+            metadata=DatasetMetadata(
+                description=descriptor.get("description") or "",
+                provider=self._context_list_attr("provider", "providers"),
+                source=self._context_list_attr("source", "sources", "source_service"),
+                crs=crs_values,
+                lod=self._context_optional_string(parameters.get("lod")),
+                data_types=self._dedupe_strings(
+                    item for item in (result_kind,) if item
+                ),
+                formats=list(descriptor.get("supported_formats") or ()),
+                data_category=str(data_category) if data_category else None,
+                result_kind=str(result_kind) if result_kind else None,
+                python_return_type=descriptor.get("python_return_type"),
+            ),
+            provenance=DatasetProvenance(
+                sources=self._context_list_attr("source", "sources", "source_service"),
+                processing_steps=[f"Build dataset '{self.name}'"],
+                generated_by={
+                    "package": "dtcc-core",
+                    "version": self._package_version(),
+                },
+            ),
+            presentation=DatasetPresentation(
+                headline=title,
+                summary=descriptor.get("description") or None,
+            ),
+            request=DatasetRequest(
+                dataset_name=self.name,
+                parameters=parameters,
+                bounds=bounds,
+            ),
+        )
+
+    @staticmethod
+    def _dedupe_strings(values) -> list[str]:
+        strings: list[str] = []
+        for value in values:
+            if value is None:
+                continue
+            text = str(value)
+            if text and text not in strings:
+                strings.append(text)
+        return strings
+
+    @staticmethod
+    def _context_optional_string(value: Any) -> str | None:
+        if value is None:
+            return None
+        if hasattr(value, "name"):
+            return str(value.name)
+        return str(value)
+
+    @classmethod
+    def _context_crs_values(cls, parameters: dict[str, Any]) -> list[str]:
+        crs = parameters.get("crs")
+        if crs is None:
+            return []
+        if isinstance(crs, (list, tuple, set)):
+            return cls._dedupe_strings(crs)
+        return cls._dedupe_strings((crs,))
+
+    def _context_list_attr(self, *names: str) -> list[Any]:
+        values: list[Any] = []
+        for name in names:
+            value = getattr(self, name, None)
+            if value is None:
+                continue
+            if isinstance(value, (list, tuple, set)):
+                values.extend(value)
+            else:
+                values.append(value)
+
+        deduped: list[Any] = []
+        seen: set[str] = set()
+        for value in values:
+            marker = (
+                json.dumps(value, sort_keys=True)
+                if isinstance(value, dict)
+                else str(value)
+            )
+            if marker not in seen:
+                deduped.append(value)
+                seen.add(marker)
+        return deduped
 
     def show_options(self):
         return self.ArgsModel.model_json_schema()
@@ -835,3 +951,6 @@ class DatasetDescriptor(ABC):
             else:
                 obj.save(tmpfile, **save_kwargs)
             return Path(tmpfile).read_bytes()
+
+
+Dataset = DatasetDescriptor

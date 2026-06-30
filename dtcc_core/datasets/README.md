@@ -24,6 +24,13 @@ For web and service users the normal shape is:
 Core Contract
 -------------
 
+Dataset v2 is starting in dtcc-core. The canonical design reference is
+`docs/design/datasets-v2.md`. Phase 1A keeps the existing `DatasetDescriptor`
+name while also exposing `Dataset` as a public alias. Dataset calls still
+return native DTCC model objects; when the returned object can carry context it
+now exposes `dataset_context`, `metadata`, `provenance`, `presentation`, and
+`manifest()`.
+
 Every dataset is a `DatasetDescriptor` with:
 
 - `name`: stable registry name, used as `datasets.<name>()`.

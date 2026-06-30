@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from .dataset import DatasetDescriptor, DatasetBaseArgs, DatasetExportResult
+from .context import attach_dataset_context
+from .dataset import Dataset, DatasetDescriptor, DatasetBaseArgs, DatasetExportResult
 from .publish import (
     DatasetPackageError,
     DatasetPublication,
@@ -12,6 +13,16 @@ from .publish import (
     DatasetUploadInProgressError,
     DatasetUploadRateLimitError,
     PublishedFile,
+)
+from .schema import (
+    DatasetArtifact,
+    DatasetContext,
+    DatasetIdentity,
+    DatasetManifest,
+    DatasetMetadata,
+    DatasetPresentation,
+    DatasetProvenance,
+    DatasetRequest,
 )
 from dtcc_core.common import info as log_info, log_table
 

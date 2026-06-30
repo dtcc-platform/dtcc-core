@@ -61,6 +61,63 @@ class Model(ABC):
             setattr(c, key, value)
         return c
 
+    @property
+    def dataset_context(self):
+        """Dataset v2 context attached to this object, when available."""
+        return getattr(self, "_dataset_context", None)
+
+    @dataset_context.setter
+    def dataset_context(self, context):
+        """Attach Dataset v2 context to this object."""
+        self._dataset_context = context
+
+    @property
+    def metadata(self):
+        """Dataset v2 factual metadata, when this object came from a dataset."""
+        context = self.dataset_context
+        return None if context is None else context.metadata
+
+    @property
+    def provenance(self):
+        """Dataset v2 lineage information, when available."""
+        context = self.dataset_context
+        return None if context is None else context.provenance
+
+    @property
+    def presentation(self):
+        """Dataset v2 presentation guidance, when available."""
+        context = self.dataset_context
+        return None if context is None else context.presentation
+
+    def manifest(self):
+        """Return a Dataset Manifest v2 snapshot for a dataset-produced object."""
+        context = self.dataset_context
+        if context is None:
+            raise ValueError(
+                "Cannot build a DatasetManifest: this object has no DatasetContext."
+            )
+        return context.manifest()
+
+    def export(self, *args, **kwargs):
+        """Export a Dataset v2 object package.
+
+        Object-first Dataset v2 export is planned for Phase 2.
+        """
+        raise NotImplementedError(
+            "Dataset v2 object export is planned for Phase 2. "
+            "Use dataset.export(...) for the existing serialized export path."
+        )
+
+    def publish(self, *args, **kwargs):
+        """Publish a Dataset v2 object package.
+
+        Object-first Dataset v2 publishing is planned for Phase 2.
+        """
+        raise NotImplementedError(
+            "Dataset v2 object publish is planned for Phase 2. "
+            "Use dataset.publish(...) for the existing serialized publish path."
+        )
+
     def info(self, print: bool = True) -> str | None:
         """Print or return a human-readable summary of the model.
 
