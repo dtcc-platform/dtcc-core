@@ -13,7 +13,7 @@ from dtcc_core.datasets import (
     DatasetManifest,
     attach_dataset_context,
 )
-from dtcc_core.model import VolumeMesh
+from dtcc_core.model import DatasetCollection, DatasetValue, VolumeMesh
 
 
 def test_dataset_alias_keeps_descriptor_compatibility():
@@ -86,3 +86,45 @@ def test_attach_dataset_context_leaves_bare_containers_unchanged():
     assert attach_dataset_context(mapping, context) is mapping
     assert not hasattr(values, "dataset_context")
     assert not hasattr(mapping, "dataset_context")
+
+
+def test_dataset_collection_can_carry_dataset_context():
+    context = datasets.smoke.create_context(
+        datasets.smoke.validate({"bounds": (0.0, 0.0, 10.0, 20.0)})
+    )
+    collection = DatasetCollection(items=["a", "b"])
+
+    result = attach_dataset_context(collection, context)
+
+    assert result is collection
+    assert len(collection) == 2
+    assert list(collection) == ["a", "b"]
+    assert collection[0] == "a"
+    assert collection.to_list() == ["a", "b"]
+    assert collection.dataset_context is context
+    assert collection.metadata is context.metadata
+    assert isinstance(collection.manifest(), DatasetManifest)
+
+
+def test_dataset_value_can_carry_dataset_context():
+    context = datasets.smoke.create_context(
+        datasets.smoke.validate({"bounds": (0.0, 0.0, 10.0, 20.0)})
+    )
+    value = DatasetValue({"type": "FeatureCollection", "features": []})
+
+    result = attach_dataset_context(value, context)
+
+    assert result is value
+    assert value["type"] == "FeatureCollection"
+    assert value.get("missing", "fallback") == "fallback"
+    assert list(value.keys()) == ["type", "features"]
+    assert list(value.items())[0] == ("type", "FeatureCollection")
+    assert value.to_python() == {"type": "FeatureCollection", "features": []}
+    assert value.dataset_context is context
+    assert value.provenance is context.provenance
+    assert isinstance(value.manifest(), DatasetManifest)
+
+
+def test_no_dataset_result_or_run_api_is_introduced():
+    assert not hasattr(datasets, "DatasetResult")
+    assert not hasattr(datasets.smoke, "run")

@@ -14,7 +14,7 @@ import dtcc_core.datasets as datasets
 from dtcc_core.datasets import get_dataset
 from dtcc_core.datasets.dataset import DatasetExportResult
 from dtcc_core.datasets.smoke import SmokeArgs, SmokeDataset
-from dtcc_core.model import VolumeMesh, proto
+from dtcc_core.model import DatasetValue, VolumeMesh, proto
 
 
 def test_smoke_dataset_registered_name():
@@ -126,16 +126,22 @@ def test_smoke_slice_geojson_format_returns_plane_points():
     assert {feature["geometry"]["type"] for feature in data["features"]} == {"Point"}
 
 
-def test_smoke_slice_without_format_returns_geojson_dict():
+def test_smoke_slice_without_format_returns_dataset_value():
     result = datasets.smoke(
         bounds=(0.0, 0.0, 10.0, 20.0),
         resolution=4,
         product="slice",
     )
 
-    assert isinstance(result, dict)
+    assert isinstance(result, DatasetValue)
+    assert result.dataset_context is not None
+    assert result.metadata is not None
+    assert result.provenance is not None
+    assert result.presentation is not None
     assert result["type"] == "FeatureCollection"
     assert result["metadata"]["product"] == "slice"
+    assert result.to_python()["type"] == "FeatureCollection"
+    json.dumps(result.manifest().model_dump(mode="json"))
 
 
 def test_smoke_slice_snapshots_are_time_dependent():

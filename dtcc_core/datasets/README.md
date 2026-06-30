@@ -31,6 +31,13 @@ return native DTCC model objects; when the returned object can carry context it
 now exposes `dataset_context`, `metadata`, `provenance`, `presentation`, and
 `manifest()`.
 
+Phase 1B adds transitional native containers, `DatasetCollection` and
+`DatasetValue`, for dataset returns that do not yet have domain-specific model
+types. These containers are DTCC model objects and can carry dataset context.
+They are not result wrappers; long-term, bare list/dict returns should be
+replaced with domain-specific containers where practical. See
+`docs/design/datasets-v2-return-types.md` for the current return-type audit.
+
 Every dataset is a `DatasetDescriptor` with:
 
 - `name`: stable registry name, used as `datasets.<name>()`.

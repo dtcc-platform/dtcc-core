@@ -248,6 +248,7 @@ class DatasetDescriptor(ABC):
     def __call__(self, **kwargs):
         args = self.validate(kwargs)
         result = self.build(args)
+        result = self.prepare_result(result, args)
         context = self.create_context(args)
         return attach_dataset_context(result, context)
 
@@ -261,6 +262,15 @@ class DatasetDescriptor(ABC):
     def build(self, validated_args):
         """Resolve the dataset and return the result."""
         raise NotImplementedError
+
+    def prepare_result(self, result, validated_args):
+        """Adapt a public dataset-call result before context is attached.
+
+        Subclasses can override this to migrate selected bare list/dict
+        returns to DatasetCollection or DatasetValue without changing internal
+        build/export code paths.
+        """
+        return result
 
     # TODO(Dataset v2): keep DatasetDescriptor during migration; Dataset is a
     # public alias below so new code can use the Dataset name without breaking

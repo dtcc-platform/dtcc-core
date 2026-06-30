@@ -10,7 +10,7 @@ import numpy as np
 from pydantic import Field as PydanticField
 from pydantic import model_validator
 
-from dtcc_core.model import Bounds, Field, VolumeMesh
+from dtcc_core.model import Bounds, DatasetValue, Field, VolumeMesh
 from dtcc_core.plotting.options import RasterRenderOptions, VideoRenderOptions
 from dtcc_core.plotting.products import SliceProduct, StreamlineProduct
 from dtcc_core.plotting.renderers import (
@@ -361,6 +361,15 @@ class SmokeDataset(DatasetDescriptor):
             return geojson if args.format is None else _json_bytes(geojson)
 
         raise ValueError(f"Unsupported smoke product: {args.product}")
+
+    def prepare_result(self, result, validated_args: SmokeArgs):
+        if (
+            validated_args.format is None
+            and validated_args.product in {"slice", "streamlines"}
+            and isinstance(result, dict)
+        ):
+            return DatasetValue(result)
+        return result
 
     def plot(self, ax=None, show: bool = True, **kwargs):
         """Plot a smoke visualization product with Matplotlib."""

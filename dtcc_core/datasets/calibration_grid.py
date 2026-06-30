@@ -8,7 +8,7 @@ from typing import Any, Literal, Optional
 import numpy as np
 from pydantic import Field
 
-from dtcc_core.model import Bounds
+from dtcc_core.model import Bounds, DatasetValue
 
 from .dataset import DatasetBaseArgs, DatasetDescriptor
 
@@ -61,6 +61,11 @@ class CalibrationGridDataset(DatasetDescriptor):
         if args.format is None:
             return geojson
         return json.dumps(geojson, separators=(",", ":")).encode("utf-8")
+
+    def prepare_result(self, result, validated_args: CalibrationGridArgs):
+        if validated_args.format is None and isinstance(result, dict):
+            return DatasetValue(result)
+        return result
 
 
 def _grid_geojson(bounds: Bounds, args: CalibrationGridArgs) -> dict[str, Any]:
