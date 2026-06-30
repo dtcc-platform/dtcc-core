@@ -313,6 +313,15 @@ def test_list_values_are_instances():
         assert isinstance(dataset, DatasetDescriptor)
 
 
+def test_city_footprints_is_not_publicly_registered():
+    """The internal meshing-footprint helper is not a public Dataset v2 return."""
+    available = list_datasets()
+
+    assert "city_footprints" not in available
+    with pytest.raises(KeyError):
+        datasets.get_dataset("city_footprints")
+
+
 # Backward Compatibility Tests
 
 

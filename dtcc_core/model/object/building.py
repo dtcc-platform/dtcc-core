@@ -4,10 +4,12 @@
 from dataclasses import dataclass, field
 from typing import Union
 from shapely.geometry import Polygon
+from shapely.ops import unary_union
 
 from .object import Object, GeometryType
-from ..geometry import Bounds
+from ..geometry import Bounds, Surface
 from .. import dtcc_pb2 as proto
+from ..logging import warning
 
 
 @dataclass
@@ -36,6 +38,58 @@ class Building(Object):
         if height is None:
             height = self.bounds.zmax - self.bounds.zmin
         return height
+
+    def footprint(self, geom_type: GeometryType = None) -> Surface | None:
+        """
+        Extract a footprint surface from the building geometry.
+
+        Parameters
+        ----------
+        geom_type : GeometryType, optional
+            Specific geometry type to use. If omitted, the highest available
+            LOD geometry is used.
+
+        Returns
+        -------
+        Surface or None
+            The footprint as a surface, or ``None`` when the building has no
+            usable LOD geometry.
+        """
+        lod_levels = [
+            GeometryType.LOD0,
+            GeometryType.LOD1,
+            GeometryType.LOD2,
+            GeometryType.LOD3,
+        ]
+
+        geom = self.flatten_geometry(geom_type) if geom_type is not None else None
+        if geom is None:
+            for lod in lod_levels:
+                geom = self.flatten_geometry(lod)
+                if geom is not None:
+                    break
+
+        if geom is None:
+            warning(f"Building {self.id} has no LOD geometry.")
+            return None
+
+        footprint = geom.to_polygon()
+        if footprint is None or footprint.is_empty:
+            warning(f"Building {self.id} has no footprint polygon.")
+            return None
+        if footprint.geom_type == "MultiPolygon":
+            merged = unary_union(footprint.geoms)
+            if merged.geom_type == "MultiPolygon":
+                footprint = max(merged.geoms, key=lambda p: p.area)
+            else:
+                footprint = merged
+        if footprint.geom_type != "Polygon":
+            warning(f"Building {self.id} footprint is not a polygon.")
+            return None
+
+        surface = Surface()
+        surface.from_polygon(footprint, geom.bounds.zmax)
+        return surface
 
     def to_proto(self) -> proto.Object:
         """Return a protobuf representation of the Building.

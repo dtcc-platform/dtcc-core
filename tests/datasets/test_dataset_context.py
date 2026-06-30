@@ -127,4 +127,11 @@ def test_dataset_value_can_carry_dataset_context():
 
 def test_no_dataset_result_or_run_api_is_introduced():
     assert not hasattr(datasets, "DatasetResult")
-    assert not hasattr(datasets.smoke, "run")
+    for dataset in (
+        datasets.smoke,
+        datasets.buildings,
+        datasets.building_footprints,
+        datasets.trees,
+        datasets.calibration_grid,
+    ):
+        assert not hasattr(dataset, "run")

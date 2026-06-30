@@ -4,24 +4,24 @@ from __future__ import annotations
 
 from unittest.mock import ANY, Mock, patch
 
+import pytest
+
 import dtcc_core.datasets as datasets
-from dtcc_core.datasets import get_dataset
+from dtcc_core.datasets import DatasetDescriptor, get_dataset, list as list_datasets
 from dtcc_core.datasets.city_footprints import CityFootprintsArgs, CityFootprintsDataset
 
 
-def test_city_footprints_registered_name():
+def test_city_footprints_internal_name():
     assert CityFootprintsDataset().name == "city_footprints"
 
 
-def test_city_footprints_get_dataset():
-    ds = get_dataset("city_footprints")
-    assert ds is not None
-    assert ds.name == "city_footprints"
-
-
-def test_city_footprints_module_attribute():
-    assert hasattr(datasets, "city_footprints")
-    assert callable(datasets.city_footprints)
+def test_city_footprints_is_not_public_dataset():
+    with pytest.raises(KeyError):
+        get_dataset("city_footprints")
+    assert "city_footprints" not in list_datasets()
+    public_attr = getattr(datasets, "city_footprints", None)
+    assert not isinstance(public_attr, DatasetDescriptor)
+    assert not callable(public_attr)
 
 
 @patch("dtcc_core.datasets.city_footprints.prepare_footprint_city_from_bounds")

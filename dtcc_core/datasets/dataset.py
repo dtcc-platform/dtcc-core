@@ -267,8 +267,8 @@ class DatasetDescriptor(ABC):
         """Adapt a public dataset-call result before context is attached.
 
         Subclasses can override this to migrate selected bare list/dict
-        returns to DatasetCollection or DatasetValue without changing internal
-        build/export code paths.
+        returns to semantic model objects or transitional Dataset v2
+        containers without changing internal build/export code paths.
         """
         return result
 

@@ -1,6 +1,6 @@
 # Dataset v2 Return-Type Audit
 
-Status: Phase 1B audit
+Status: Phase 1C audit
 
 Canonical design reference: `docs/design/datasets-v2.md`.
 
@@ -47,28 +47,28 @@ return `DatasetValue`, a transitional native model object that can carry
 | --- | --- | --- | --- |
 | `smoke` with `product="slice"` | GeoJSON-like `dict` | `DatasetValue` | Cheap local synthetic call covered by tests. |
 | `smoke` with `product="streamlines"` | GeoJSON-like `dict` | `DatasetValue` | Cheap local synthetic path; mapping behavior preserved. |
-| `calibration_grid` | GeoJSON-like `dict` | `DatasetValue` | Cheap local synthetic call covered by tests. |
 
-## Returns Bare List
+## Migrated In Phase 1C
 
-These datasets still return bare Python lists when `format` is omitted. They
-should move to `DatasetCollection` or, preferably, domain-specific native model
-containers in a later phase.
+These datasets previously returned bare lists or dictionaries for normal calls
+and now return domain-specific DTCC model objects.
 
-| Dataset | Current return | Phase 1C TODO |
+| Dataset | Previous return | Phase 1C return | Audit note |
+| --- | --- | --- | --- |
+| `building_footprints` | `list[Building]` | `FootprintCollection` | Public calls adapt raw build output through `prepare_result`; serialized vector formats still return bytes. |
+| `buildings` | `list[Building]` | `BuildingCollection` | Public calls adapt raw build output through `prepare_result`; mesh exports still return bytes. |
+| `trees` | `list[Tree]` | `TreeCollection` | Public calls adapt raw build output through `prepare_result`; raster/vector exports still return bytes. |
+| `calibration_grid` | GeoJSON-like `dict` | `CalibrationGrid` | Cheap local synthetic call covered by tests; `to_geojson()` preserves serialized payload shape. |
+
+## Hidden Internal Helper
+
+The specialized meshing-footprint stage remains available as an internal helper
+but is no longer exposed as a public dataset through the registry or
+`dtcc_core.datasets` module attributes.
+
+| Internal helper | Internal return | Audit note |
 | --- | --- | --- |
-| `building_footprints` | `list[Building]` | Migrate to a building/footprint collection after checking city and export callers. |
-| `buildings` | `list[Building]` | Migrate to a building collection after checking mesh/export callers. |
-| `trees` | `list[Tree]` | Migrate to a tree collection after checking vector export callers. |
-
-## Returns Non-Model Typed Object
-
-These returns are typed, but do not yet inherit from the DTCC model base, so
-Dataset v2 context does not attach directly.
-
-| Dataset | Current return | Phase 1C TODO |
-| --- | --- | --- |
-| `city_footprints` | `CityMeshingFootprints` dataclass | Either make this type a native model object or wrap/replace it with a domain-specific context-capable container. Check downstream mesh datasets first. |
+| `CityFootprintsDataset` / `city_footprints` | `CityMeshingFootprints` dataclass | Kept for benchmark/meshing internals; not a public Dataset v2 return. |
 
 ## Serialized Values When `format` Is Used
 
@@ -80,6 +80,7 @@ migrated in Phase 1B.
 
 - `DatasetCollection` and `DatasetValue` are transitional native model
   containers, not `DatasetResult`.
-- Long-term, domain-specific containers are preferred over generic containers.
-- Remaining bare list/dict returns should be eliminated progressively as their
-  internal callers are reviewed.
+- Domain-specific containers are now used for the Phase 1C city-domain returns.
+- `city.building_collection()`, `city.building_footprints()`, and
+  `building.footprint()` provide native model helper APIs without changing the
+  `City.buildings` list property.

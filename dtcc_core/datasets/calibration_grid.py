@@ -8,7 +8,7 @@ from typing import Any, Literal, Optional
 import numpy as np
 from pydantic import Field
 
-from dtcc_core.model import Bounds, DatasetValue
+from dtcc_core.model import Bounds, CalibrationGrid
 
 from .dataset import DatasetBaseArgs, DatasetDescriptor
 
@@ -38,7 +38,7 @@ class CalibrationGridArgs(DatasetBaseArgs):
         None,
         description=(
             "Serialized output format. If omitted, the dataset returns a "
-            "GeoJSON FeatureCollection dictionary."
+            "CalibrationGrid model."
         ),
     )
 
@@ -51,8 +51,8 @@ class CalibrationGridDataset(DatasetDescriptor):
     )
     ArgsModel = CalibrationGridArgs
     data_category = "derived"
-    result_kind = "vector"
-    python_return_type = "dict"
+    result_kind = "calibration_grid"
+    python_return_type = "dtcc_core.model.CalibrationGrid"
     timeout_hint = 2
 
     def build(self, args: CalibrationGridArgs):
@@ -64,7 +64,7 @@ class CalibrationGridDataset(DatasetDescriptor):
 
     def prepare_result(self, result, validated_args: CalibrationGridArgs):
         if validated_args.format is None and isinstance(result, dict):
-            return DatasetValue(result)
+            return CalibrationGrid.from_geojson(result)
         return result
 
 

@@ -38,6 +38,11 @@ They are not result wrappers; long-term, bare list/dict returns should be
 replaced with domain-specific containers where practical. See
 `docs/design/datasets-v2-return-types.md` for the current return-type audit.
 
+Phase 1C adds semantic model returns for city-domain collection datasets:
+`BuildingCollection`, `FootprintCollection`, `TreeCollection`, and
+`CalibrationGrid`. The specialized `city_footprints` meshing helper is no
+longer a public dataset registry entry.
+
 Every dataset is a `DatasetDescriptor` with:
 
 - `name`: stable registry name, used as `datasets.<name>()`.
@@ -70,7 +75,7 @@ Datasets have two intentionally different return modes:
 
 - If `format` is omitted or `None`, the dataset returns a Python object:
   `PointCloud`, `City`, `Mesh`, `VolumeMesh`, `SensorCollection`,
-  `RoadNetwork`, or another DTCC object.
+  `RoadNetwork`, semantic collections, or another DTCC object.
 - If `format` is set, the dataset returns serialized `bytes` for that format.
 
 This keeps the Python API ergonomic while giving Atlas and service wrappers a
@@ -121,15 +126,14 @@ Current Built-In Datasets
 | Dataset | Category | Python result when `format=None` | Serialized formats | Notes |
 | --- | --- | --- | --- | --- |
 | `point_cloud` | raw | `PointCloud` | `copc`, `las`, `laz` | Lantmateriet point cloud with classification filters. |
-| `building_footprints` | raw | `list[Building]` | `geojson`, `gpkg`, `shp.zip` | Provider footprints, optionally height-enriched. |
-| `buildings` | derived | `list[Building]` | `obj`, `stl` | LoD1 buildings; exports are merged meshes. |
+| `building_footprints` | raw | `FootprintCollection` | `geojson`, `gpkg`, `shp.zip` | Provider footprints, optionally height-enriched. |
+| `buildings` | derived | `BuildingCollection` | `obj`, `stl` | LoD1 buildings; exports are merged meshes. |
 | `city` | derived | `City` | `cityjson`, `json` | Both serialized paths currently produce CityJSON-compatible JSON bytes. |
-| `city_footprints` | derived | `CityMeshingFootprints` | none | Conditioned, meshing-ready footprints. |
 | `terrain_surface_mesh` | derived | `Mesh` or `Raster` | `tif`, `obj`, `stl` | `tif` returns terrain raster bytes. |
 | `city_flat_mesh` | derived | `Mesh` | `obj`, `stl`, `vtu` | Flat 2D mesh with building subdomains. |
 | `city_surface_mesh` | derived | `Mesh` | `obj`, `stl`, `vtu` | Terrain plus extruded building surfaces. |
 | `city_volume_mesh` | derived | `VolumeMesh` | `xdmf`, `vtu` | `xdmf` is a multi-file format. |
-| `trees` | derived | `list[Tree]` | `tif`, `gpkg`, `geojson` | Raster tree heights or vector tree objects. |
+| `trees` | derived | `TreeCollection` | `tif`, `gpkg`, `geojson` | Raster tree heights or vector tree objects. |
 | `roads` | raw | `RoadNetwork` | `pb` | OSM/Overpass road network. |
 | `space_syntax` | derived | `RoadNetwork` | `pb` | Segment-based road-network space syntax measures. |
 | `transit_vehicles` | raw | `VehicleCollection` | `pb` | Live public-transport vehicle positions. |
@@ -139,7 +143,7 @@ Current Built-In Datasets
 | `metros` | raw | `VehicleCollection` | `pb` | Shortcut for live metro positions. |
 | `ferries` | raw | `VehicleCollection` | `pb` | Shortcut for live ferry positions. |
 | `smoke` | simulation | `VolumeMesh` | `pb`, `vtu`, `geojson` | Synthetic velocity-field smoke test with `field`, `slice`, and `streamlines` products. |
-| `calibration_grid` | derived | `dict` | `geojson` | Synthetic evenly spaced line grid for table-projector alignment. |
+| `calibration_grid` | derived | `CalibrationGrid` | `geojson` | Synthetic evenly spaced line grid for table-projector alignment. |
 | `air_quality` | raw | `SensorCollection` | `pb` | SMHI air-quality snapshot. |
 | `weather` | raw | `SensorCollection` | `pb` | SMHI meteorological latest-hour snapshot. |
 | `hydrology` | raw | `SensorCollection` | `pb` | SMHI hydrology latest-day snapshot. |

@@ -1,7 +1,7 @@
 import dtcc_core
 from dtcc_core import datasets
 from dtcc_core.builder import tree_raster_from_pointcloud
-from dtcc_core.model import PointCloud, Building, Raster, City
+from dtcc_core.model import PointCloud, Building, Raster, City, TreeCollection
 from dtcc_core.io.trees import save_trees
 from pydantic import BaseModel, Field
 from typing import Optional, Literal
@@ -35,7 +35,7 @@ class TreesDataset(DatasetDescriptor):
     ArgsModel = TreeArgs
     data_category = "derived"
     result_kind = "tree_collection"
-    python_return_type = "list[dtcc_core.model.Tree]"
+    python_return_type = "dtcc_core.model.TreeCollection"
 
     def build(self, args: TreeArgs):
         bounds = self.parse_bounds(args.bounds)
@@ -65,3 +65,8 @@ class TreesDataset(DatasetDescriptor):
                     save_callable=save_trees,
                     as_circles=as_circles,
                 )
+
+    def prepare_result(self, result, validated_args: TreeArgs):
+        if validated_args.format is None and isinstance(result, list):
+            return TreeCollection(result)
+        return result

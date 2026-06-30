@@ -1,5 +1,5 @@
 import dtcc_core
-from dtcc_core.model import Building, City
+from dtcc_core.model import Building, City, FootprintCollection
 from typing import List, Literal, Optional
 from pydantic import Field
 
@@ -35,7 +35,7 @@ class FootprintsDataset(DatasetDescriptor):
     ArgsModel = FootprintsArgs
     data_category = "raw"
     result_kind = "building_footprints"
-    python_return_type = "list[dtcc_core.model.Building]"
+    python_return_type = "dtcc_core.model.FootprintCollection"
 
     def build(self, args: FootprintsArgs):
         progress_phases = {
@@ -77,3 +77,8 @@ class FootprintsDataset(DatasetDescriptor):
                         save_callable=dtcc_core.io.footprints.save,
                         output_crs=args.crs,
                     )
+
+    def prepare_result(self, result, validated_args: FootprintsArgs):
+        if validated_args.format is None and isinstance(result, list):
+            return FootprintCollection.from_buildings(result)
+        return result
