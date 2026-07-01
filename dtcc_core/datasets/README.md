@@ -47,11 +47,14 @@ Phase 1C adds semantic model returns for city-domain collection datasets:
 `CalibrationGrid`. The specialized `city_footprints` meshing helper is no
 longer a public dataset registry entry.
 
-Phase 2A adds object-first Dataset Manifest v2 package export. A native object
+Phase 2A adds object-first Dataset Manifest v2 package export and publish. A native object
 returned by `datasets.foo(...)` can call `.export("out/foo", format="json")`
 or `.export("out/foo.dtccpkg")` when it carries `DatasetContext`. The export
 returns a `DatasetPackage` and writes `manifest.json` plus primary artifact
-files under `artifacts/`. Object-first publish remains planned. The existing
+files under `artifacts/`. `.publish(dataset_key=...)` exports the same
+Manifest v2 package to a temporary directory and submits its manifest and
+artifact files to `dtcc-upload`; it does not rebuild through `format=`.
+The existing
 `datasets.foo.export(...)` and `datasets.foo.publish(...)` methods are still
 the v1 serialized artifact plus sidecar/publish path.
 
@@ -269,23 +272,28 @@ Publishing
 ----------
 
 Publishing turns an exported dataset package into a committed version in a
-table-facing `dtcc-upload` catalog.
+table-facing `dtcc-upload` catalog. Object-first publishing is the Dataset
+Manifest v2 path; dataset-level publishing remains the transitional v1
+serialized artifact path.
 
 The three related operations are:
 
 - `datasets.foo(...)`: build or fetch a Python-side dataset result.
-- `datasets.foo.export(...)`: write a local artifact plus manifest.
-- `datasets.foo.publish(...)`: export, upload, and return publication metadata.
+- `obj.export(...)`: write a Manifest v2 package with `manifest.json` and `artifacts/*`.
+- `obj.publish(...)`: export that Manifest v2 package, upload it, and return publication metadata.
+- `datasets.foo.export(...)` and `datasets.foo.publish(...)`: keep the v1 single-file compatibility path.
 
 Example:
 
     from dtcc_core import datasets
 
-    publication = datasets.smoke.publish(
+    obj = datasets.smoke(
         bounds=[319720, 6397660, 320220, 6398160],
         product="slice",
         resolution=64,
-        format="geojson",
+    )
+
+    publication = obj.publish(
         dataset_key="stockholm-smoke-slice",
         upload_url="http://127.0.0.1:8000",
         token="replace-me",
@@ -294,7 +302,8 @@ Example:
     print(publication.dataset_key, publication.version_number)
 
 `dataset_key` is the catalog key and ownership boundary. It is separate from
-`manifest["name"]`, which remains the dataset descriptor name such as `smoke`.
+`manifest.identity.name`, which remains the dataset descriptor name such as
+`smoke`.
 
 For notebooks and scripts, upload configuration can come from environment
 variables:
@@ -304,27 +313,50 @@ variables:
 
 Then:
 
-    publication = datasets.smoke.publish(
+    obj = datasets.smoke(
         bounds=[0, 0, 1, 1],
         product="slice",
         resolution=4,
-        format="geojson",
+    )
+
+    publication = obj.publish(
         dataset_key="smoke-slice",
     )
 
-An exported package can also be published without recomputing the dataset:
+An object-first Manifest v2 package can also be published without recomputing
+the dataset:
 
-    package = datasets.smoke.export(
-        "smoke_slice.geojson",
+    obj = datasets.smoke(
         bounds=[0, 0, 1, 1],
         product="slice",
     )
+    package = obj.export("smoke_slice_pkg")
 
     publication = package.publish(
         dataset_key="smoke-slice",
         upload_url="http://127.0.0.1:8000",
         token="replace-me",
     )
+
+For an explicit upload smoke test against a local `dtcc-upload` instance:
+
+    obj = datasets.smoke(
+        bounds=[0, 0, 10, 20],
+        product="slice",
+        resolution=16,
+        width=320,
+        height=180,
+    )
+    package = obj.export("/tmp/smoke_slice_pkg")
+    print(package.manifest_path)
+    print([artifact.path for artifact in package.artifacts])
+
+    publication = package.publish(
+        dataset_key="smoke-slice-test",
+        upload_url="http://127.0.0.1:8000",
+        token="replace-me",
+    )
+    print(publication.version_id)
 
 Publishing v1 supports single-file formats only. Multi-file packages such as
 XDMF plus HDF5 are reserved for a later server and client contract.

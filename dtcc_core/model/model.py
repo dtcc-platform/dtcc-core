@@ -107,15 +107,41 @@ class Model(ABC):
 
         return export_model_package(self, *args, **kwargs)
 
-    def publish(self, *args, **kwargs):
+    def publish(
+        self,
+        *,
+        dataset_key: str,
+        format: str | None = None,
+        uploader=None,
+        upload_url: str | None = None,
+        token: str | None = None,
+        idempotency_key: str | None = None,
+    ):
         """Publish a Dataset v2 object package.
 
-        Object-first Dataset v2 publishing is planned for Phase 2.
+        Requires this object to carry ``DatasetContext`` from a dataset call.
         """
-        raise NotImplementedError(
-            "Dataset v2 object publish is planned for Phase 2. "
-            "Use dataset.publish(...) for the existing serialized publish path."
+        from pathlib import Path
+        import tempfile
+
+        from dtcc_core.datasets.publish import DatasetUploadClient
+
+        if self.dataset_context is None:
+            raise ValueError(
+                "Cannot publish Dataset v2 package: this object has no DatasetContext."
+            )
+
+        resolved_uploader = uploader or DatasetUploadClient.from_config(
+            upload_url=upload_url,
+            token=token,
         )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            package = self.export(Path(tmpdir) / "dataset_package", format=format)
+            return package.publish(
+                dataset_key=dataset_key,
+                uploader=resolved_uploader,
+                idempotency_key=idempotency_key,
+            )
 
     def info(self, print: bool = True) -> str | None:
         """Print or return a human-readable summary of the model.

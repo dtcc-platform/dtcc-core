@@ -1384,9 +1384,11 @@ Phase 2A status in `dtcc-core`: object-first `.export(...)` creates Dataset
 Manifest v2 packages for objects with `DatasetContext`. It uses existing object
 serializers and model-provided artifact writers and does not re-run the
 dataset. Smoke `FieldSlice` and `StreamlineCollection` packages default to a
-PNG primary artifact rather than GeoJSON. Object-first `.publish(...)` remains
-planned; dataset-level `.export(...)` and `.publish(...)` remain the legacy
-serialized artifact plus sidecar/upload path.
+PNG primary artifact rather than GeoJSON. Object-first `.publish(...)` exports
+the same Manifest v2 package to a temporary directory and uploads its
+`manifest.json` plus `artifacts/*` files to `dtcc-upload`; dataset-level
+`.export(...)` and `.publish(...)` remain the legacy serialized artifact plus
+sidecar/upload path.
 
 ### Phase 3: `dtcc-upload` manifest/package v2 support
 

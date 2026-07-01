@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import tempfile
 import zipfile
 from dataclasses import dataclass
@@ -23,6 +24,72 @@ class DatasetPackage:
     artifacts: tuple[DatasetArtifact, ...]
     files: tuple[Path, ...]
     package_format: str
+
+    def publish(
+        self,
+        *,
+        dataset_key: str,
+        uploader=None,
+        upload_url: str | None = None,
+        token: str | None = None,
+        idempotency_key: str | None = None,
+    ):
+        """Publish this Dataset Manifest v2 package through dtcc-upload."""
+        from dtcc_core.datasets.publish import DatasetUploadClient
+
+        resolved_uploader = uploader or DatasetUploadClient.from_config(
+            upload_url=upload_url,
+            token=token,
+        )
+        manifest_payload = self.manifest.model_dump(mode="json")
+
+        if self.package_format == "directory":
+            artifact_files = self._directory_artifact_files()
+            return resolved_uploader.upload_package(
+                dataset_key=dataset_key,
+                manifest_path=self.manifest_path,
+                files=artifact_files,
+                manifest=manifest_payload,
+                idempotency_key=idempotency_key,
+            )
+
+        if self.package_format == "dtccpkg":
+            with tempfile.TemporaryDirectory() as tmpdir:
+                package_dir = Path(tmpdir) / _safe_stem(self.path.stem)
+                manifest_path, artifact_files = self._extract_archive_package(
+                    package_dir
+                )
+                return resolved_uploader.upload_package(
+                    dataset_key=dataset_key,
+                    manifest_path=manifest_path,
+                    files=artifact_files,
+                    manifest=manifest_payload,
+                    idempotency_key=idempotency_key,
+                )
+
+        raise ValueError(f"Unsupported Dataset package format: {self.package_format}")
+
+    def _directory_artifact_files(self) -> tuple[Path, ...]:
+        package_dir = self.manifest_path.parent
+        artifact_files = tuple(package_dir / artifact.path for artifact in self.artifacts)
+        missing = [path for path in artifact_files if not path.is_file()]
+        if missing:
+            raise ValueError(f"Dataset package artifact file does not exist: {missing[0]}")
+        return artifact_files
+
+    def _extract_archive_package(self, package_dir: Path) -> tuple[Path, tuple[Path, ...]]:
+        if not self.path.is_file():
+            raise ValueError(f"Dataset package archive does not exist: {self.path}")
+        package_dir.mkdir(parents=True, exist_ok=False)
+        with zipfile.ZipFile(self.path) as archive:
+            manifest_path = package_dir / "manifest.json"
+            _extract_zip_member(archive, "manifest.json", manifest_path)
+            artifact_files = []
+            for artifact in self.artifacts:
+                artifact_path = package_dir / artifact.path
+                _extract_zip_member(archive, artifact.path, artifact_path)
+                artifact_files.append(artifact_path)
+        return manifest_path, tuple(artifact_files)
 
 
 def export_model_package(
@@ -288,3 +355,15 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _extract_zip_member(archive: zipfile.ZipFile, member: str, target: Path) -> None:
+    try:
+        info = archive.getinfo(member)
+    except KeyError as error:
+        raise ValueError(f"Dataset package archive is missing {member!r}.") from error
+    if info.is_dir():
+        raise ValueError(f"Dataset package archive member is a directory: {member!r}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with archive.open(info) as source, target.open("wb") as destination:
+        shutil.copyfileobj(source, destination)

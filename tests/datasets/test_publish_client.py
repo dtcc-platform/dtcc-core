@@ -1,3 +1,4 @@
+import hashlib
 import json
 
 import pytest
@@ -30,6 +31,56 @@ def _write_package(tmp_path):
     file_path.write_text('{"type":"FeatureCollection","features":[]}', encoding="utf-8")
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     return manifest_path, (file_path,), manifest
+
+
+def _write_v2_package(tmp_path):
+    artifact_dir = tmp_path / "artifacts"
+    artifact_dir.mkdir()
+    png_path = artifact_dir / "smoke_slice.png"
+    geojson_path = artifact_dir / "smoke_slice.geojson"
+    png_payload = b"png-bytes"
+    geojson_payload = b'{"type":"FeatureCollection","features":[]}'
+    png_path.write_bytes(png_payload)
+    geojson_path.write_bytes(geojson_payload)
+    manifest_path = tmp_path / "manifest.json"
+    manifest = {
+        "schema_version": "dtcc-dataset-manifest-v2",
+        "identity": {"name": "smoke", "title": "Smoke"},
+        "metadata": {},
+        "provenance": {},
+        "presentation": {},
+        "request": {
+            "dataset_name": "smoke",
+            "parameters": {"product": "slice"},
+            "bounds": [0, 0, 10, 20],
+        },
+        "artifacts": [
+            {
+                "path": "artifacts/smoke_slice.png",
+                "role": "primary",
+                "format": "png",
+                "media_type": "image/png",
+                "data_kind": "raster",
+                "size": len(png_payload),
+                "sha256": _sha256(png_path),
+            },
+            {
+                "path": "artifacts/smoke_slice.geojson",
+                "role": "auxiliary",
+                "format": "geojson",
+                "media_type": "application/geo+json",
+                "data_kind": "vector",
+                "size": len(geojson_payload),
+                "sha256": _sha256(geojson_path),
+            },
+        ],
+    }
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    return manifest_path, (png_path, geojson_path), manifest
+
+
+def _sha256(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 class FakeResponse:
@@ -87,6 +138,31 @@ def _success_response():
                     "sha256": "file-sha",
                     "media_type": "application/geo+json",
                     "sniffed_media_type": "application/json",
+                }
+            ],
+        },
+    )
+
+
+def _v2_success_response():
+    return FakeResponse(
+        200,
+        {
+            "dataset_key": "smoke-v2",
+            "version_id": "ver_123",
+            "version_number": 1,
+            "owner": "dtcc",
+            "status": "committed",
+            "manifest_sha256": "manifest-sha",
+            "file_set_sha256": "files-sha",
+            "files": [
+                {
+                    "path": "artifacts/smoke_slice.png",
+                    "original_filename": "artifacts/smoke_slice.png",
+                    "size": 9,
+                    "sha256": "file-sha",
+                    "media_type": "image/png",
+                    "sniffed_media_type": "image/png",
                 }
             ],
         },
@@ -417,6 +493,16 @@ def test_build_publish_idempotency_key_changes_when_file_changes(tmp_path):
     assert first_key != second_key
 
 
+def test_build_publish_idempotency_key_supports_v2_multi_artifact_packages(tmp_path):
+    manifest_path, files, manifest = _write_v2_package(tmp_path)
+
+    first_key = _idempotency_key("smoke-v2", manifest_path, files, manifest)
+    second_key = _idempotency_key("smoke-v2", manifest_path, tuple(reversed(files)), manifest)
+
+    assert first_key == second_key
+    assert first_key.startswith("dtcc-publish-v2:")
+
+
 def test_package_validation_rejects_missing_manifest(tmp_path):
     manifest_path, files, manifest = _write_package(tmp_path)
     manifest_path.unlink()
@@ -600,6 +686,110 @@ def test_upload_package_generates_idempotency_key_when_missing(tmp_path):
 
     key = session.calls[0]["headers"]["Idempotency-Key"]
     assert key.startswith("dtcc-publish-v1:")
+
+
+def test_upload_package_posts_manifest_v2_multipart_and_closes_handles(tmp_path):
+    manifest_path, files, manifest = _write_v2_package(tmp_path)
+    session = FakeSession(response=_v2_success_response())
+    client = DatasetUploadClient(
+        "https://upload.example",
+        "secret-token",
+        timeout=12.5,
+        session=session,
+    )
+
+    publication = client.upload_package(
+        dataset_key="smoke-v2",
+        manifest_path=manifest_path,
+        files=files,
+        manifest=manifest,
+        idempotency_key="provided-key",
+    )
+
+    assert publication.dataset_key == "smoke-v2"
+    call = session.calls[0]
+    assert call["url"] == "https://upload.example/v1/datasets"
+    assert call["data"] == {"dataset_key": "smoke-v2"}
+    assert call["headers"] == {
+        "Authorization": "Bearer secret-token",
+        "Idempotency-Key": "provided-key",
+    }
+    assert call["timeout"] == 12.5
+    parts = call["files"]
+    assert [part[0] for part in parts] == ["manifest", "files", "files"]
+    assert parts[0][1][0] == "manifest.json"
+    assert parts[0][1][2] == "application/json"
+    assert parts[0][1][1].closed
+    assert parts[1][1][0] == "artifacts/smoke_slice.png"
+    assert parts[1][1][2] == "image/png"
+    assert parts[1][1][1].closed
+    assert parts[2][1][0] == "artifacts/smoke_slice.geojson"
+    assert parts[2][1][2] == "application/geo+json"
+    assert parts[2][1][1].closed
+
+
+def test_upload_package_rejects_missing_v2_artifact_file(tmp_path):
+    manifest_path, files, manifest = _write_v2_package(tmp_path)
+    files[0].unlink()
+    client = DatasetUploadClient(
+        "https://upload.example",
+        "secret-token",
+        session=FakeSession(response=_v2_success_response()),
+    )
+
+    with pytest.raises(DatasetPackageError, match="does not exist"):
+        client.upload_package(
+            dataset_key="smoke-v2",
+            manifest_path=manifest_path,
+            files=files,
+            manifest=manifest,
+        )
+
+
+def test_upload_package_rejects_v2_artifact_hash_mismatch(tmp_path):
+    manifest_path, files, manifest = _write_v2_package(tmp_path)
+    files[0].write_bytes(b"different")
+    client = DatasetUploadClient(
+        "https://upload.example",
+        "secret-token",
+        session=FakeSession(response=_v2_success_response()),
+    )
+
+    with pytest.raises(DatasetPackageError, match="sha256"):
+        client.upload_package(
+            dataset_key="smoke-v2",
+            manifest_path=manifest_path,
+            files=files,
+            manifest=manifest,
+        )
+
+
+def test_upload_package_rejects_v2_shape_without_schema_version(tmp_path):
+    manifest_path, files, manifest = _write_v2_package(tmp_path)
+    del manifest["schema_version"]
+    manifest.update(
+        {
+            "name": "smoke",
+            "file": "smoke_slice.geojson",
+            "format": "geojson",
+            "media_type": "application/geo+json",
+            "data_kind": "vector",
+        }
+    )
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    client = DatasetUploadClient(
+        "https://upload.example",
+        "secret-token",
+        session=FakeSession(response=_v2_success_response()),
+    )
+
+    with pytest.raises(DatasetPackageError, match="schema_version"):
+        client.upload_package(
+            dataset_key="smoke-v2",
+            manifest_path=manifest_path,
+            files=files,
+            manifest=manifest,
+        )
 
 
 def test_upload_package_reads_manifest_json_when_mapping_not_supplied(tmp_path):
