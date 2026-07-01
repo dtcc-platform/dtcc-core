@@ -358,6 +358,30 @@ For an explicit upload smoke test against a local `dtcc-upload` instance:
     )
     print(publication.version_id)
 
+End-to-end QA for a published Manifest v2 package should verify the complete
+consumer path:
+
+1. Build a native object with `datasets.foo(...)` and confirm it has
+   `dataset_context`, `metadata`, `provenance`, and `presentation`.
+2. Export with `obj.export("pkg")` and inspect `pkg/manifest.json` plus every
+   path in `manifest.artifacts[]`.
+3. Publish with `obj.publish(...)` or `package.publish(...)`; this must upload
+   the same package and must not rebuild the dataset or call the dataset-level
+   `format=` path.
+4. Fetch catalog version detail from
+   `/v1/datasets/{dataset_key}/versions/{version_id}` and confirm the file list
+   includes nested artifact paths such as `artifacts/smoke_slice.png`.
+5. Fetch the manifest from
+   `/v1/datasets/{dataset_key}/versions/{version_id}/manifest` and confirm
+   identity, metadata, provenance, presentation, request, and artifacts survived
+   the round trip.
+6. Fetch at least one artifact from
+   `/v1/datasets/{dataset_key}/versions/{version_id}/files/{artifact_path}` and
+   compare the size/hash/media type against the manifest.
+7. In Atlas or tangible-twin, select the display artifact from
+   `manifest.artifacts[]`; prefer supported presentation media such as
+   `image/png` or `video/mp4`, and fail visibly if no supported artifact exists.
+
 Publishing v1 supports single-file formats only. Multi-file packages such as
 XDMF plus HDF5 are reserved for a later server and client contract.
 

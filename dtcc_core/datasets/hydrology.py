@@ -327,6 +327,20 @@ class HydrologyDataset(DatasetDescriptor):
     data_category = "raw"
     result_kind = "sensor_collection"
     python_return_type = "dtcc_core.model.SensorCollection"
+    provider = [{"name": "SMHI", "role": "source_provider"}]
+    source = ["SMHI HydroObs API"]
+    license = "Review SMHI source terms before redistribution."
+    geographic_coverage = "Sweden, constrained by station coverage and requested bounds"
+    update_frequency = "latest-day observation snapshot"
+    processing_steps = [
+        "Resolve requested hydrological parameters",
+        "Fetch latest-day observations within requested bounds",
+        "Normalize observations to a SensorCollection",
+    ]
+    presentation_summary = (
+        "Latest-day hydrological observations within the requested bounds."
+    )
+    view_hints = {"preferred_geometry": "points"}
 
     def build(self, args: HydrologyDatasetArgs):
         """Build the hydrology dataset.

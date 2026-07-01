@@ -36,6 +36,23 @@ class FootprintsDataset(DatasetDescriptor):
     data_category = "raw"
     result_kind = "building_footprints"
     python_return_type = "dtcc_core.model.FootprintCollection"
+    provider = [
+        {"name": "Lantmateriet", "role": "source_provider"},
+        {"name": "OpenStreetMap", "role": "source_provider"},
+    ]
+    source = ["Building footprint source selected by the dataset request"]
+    license = "Review selected upstream footprint source terms before redistribution."
+    default_crs = "EPSG:3006"
+    geographic_coverage = "Sweden, constrained by requested bounds and source coverage"
+    update_frequency = "varies by selected upstream provider"
+    processing_steps = [
+        "Download building footprints for requested bounds",
+        "Optionally estimate building heights from point cloud data",
+    ]
+    presentation_summary = (
+        "Building footprints for the requested area, with optional height "
+        "enrichment from point cloud data."
+    )
 
     def build(self, args: FootprintsArgs):
         progress_phases = {

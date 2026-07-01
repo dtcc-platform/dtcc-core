@@ -406,6 +406,20 @@ class OceanDataset(DatasetDescriptor):
     data_category = "raw"
     result_kind = "sensor_collection"
     python_return_type = "dtcc_core.model.SensorCollection"
+    provider = [{"name": "SMHI", "role": "source_provider"}]
+    source = ["SMHI OcObs API"]
+    license = "Review SMHI source terms before redistribution."
+    geographic_coverage = "Sweden, constrained by station coverage and requested bounds"
+    update_frequency = "latest-hour observation snapshot"
+    processing_steps = [
+        "Resolve requested oceanographic parameters",
+        "Fetch latest-hour observations within requested bounds",
+        "Normalize observations to a SensorCollection",
+    ]
+    presentation_summary = (
+        "Latest-hour oceanographic observations within the requested bounds."
+    )
+    view_hints = {"preferred_geometry": "points"}
 
     def build(self, args: OceanDatasetArgs):
         """Build the ocean dataset.

@@ -36,6 +36,19 @@ class TreesDataset(DatasetDescriptor):
     data_category = "derived"
     result_kind = "tree_collection"
     python_return_type = "dtcc_core.model.TreeCollection"
+    provider = [{"name": "DTCC Platform", "role": "processor"}]
+    source = ["Point cloud data"]
+    license = "Derived from upstream point cloud data; verify source terms before redistribution."
+    default_crs = "EPSG:3006"
+    geographic_coverage = "Sweden, constrained by requested bounds and source coverage"
+    update_frequency = "derived on demand from upstream source data"
+    processing_steps = [
+        "Download point cloud data for requested bounds",
+        "Detect tree locations or tree-height raster values",
+    ]
+    presentation_summary = (
+        "Tree objects or tree-height raster derived from point cloud data."
+    )
 
     def build(self, args: TreeArgs):
         bounds = self.parse_bounds(args.bounds)
