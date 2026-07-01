@@ -143,14 +143,22 @@ class Model(ABC):
                 idempotency_key=idempotency_key,
             )
 
-    def info(self, print: bool = True) -> str | None:
+    def info(self, print: bool = True, presentation: bool = True) -> str | None:
         """Print or return a human-readable summary of the model.
 
         Subclasses may override this for richer multi-line summaries. The base
         implementation intentionally follows ``str(self)`` so every model has a
-        lightweight, uniform information API.
+        lightweight, uniform information API. Dataset-produced objects include
+        their Dataset v2 presentation and metadata by default.
         """
         summary = str(self)
+        if presentation and self.dataset_context is not None:
+            from dtcc_core.datasets.presentation import format_dataset_context
+
+            summary = (
+                f"{summary}\n\n"
+                f"{format_dataset_context(self.dataset_context, obj=self)}"
+            )
         if print:
             builtins.print(summary)
             return None

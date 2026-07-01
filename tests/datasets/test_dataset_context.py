@@ -51,6 +51,43 @@ def test_smoke_returns_native_model_with_dataset_context():
     assert manifest.artifacts == []
 
 
+def test_dataset_object_info_includes_presentation_tables():
+    field_slice = datasets.smoke(
+        bounds=(0.0, 0.0, 10.0, 20.0),
+        product="slice",
+        resolution=4,
+        width=80,
+        height=64,
+    )
+
+    text = field_slice.info(print=False)
+
+    assert "Tangible Table Metadata" in text
+    assert "C-P1 Provider / Source" in text
+    assert "DTCC Platform (generator)" in text
+    assert "C-S7 Processing / Methodology" in text
+    assert "Presentation" in text
+    assert "No live data dependency" in text
+    assert "velocity" in text
+    assert "speed" in text
+    assert "pressure" in text
+
+
+def test_dataset_object_info_can_hide_presentation_tables():
+    field_slice = datasets.smoke(
+        bounds=(0.0, 0.0, 10.0, 20.0),
+        product="slice",
+        resolution=4,
+        width=80,
+        height=64,
+    )
+
+    text = field_slice.info(print=False, presentation=False)
+
+    assert "Tangible Table Metadata" not in text
+    assert "Presentation" not in text
+
+
 def test_descriptor_metadata_flows_to_context_manifest():
     context = datasets.smoke.create_context(
         datasets.smoke.validate({"bounds": (0.0, 0.0, 10.0, 20.0)})

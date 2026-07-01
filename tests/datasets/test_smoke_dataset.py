@@ -295,6 +295,89 @@ def test_smoke_field_slice_object_export_defaults_to_png_package(tmp_path):
         assert np.asarray(image.convert("RGB")).std() > 0
 
 
+def test_smoke_field_slice_plot_shows_presentation_by_default():
+    import matplotlib
+
+    matplotlib.use("Agg", force=True)
+
+    field_slice = datasets.smoke(
+        bounds=(0.0, 0.0, 10.0, 20.0),
+        resolution=8,
+        product="slice",
+        width=160,
+        height=90,
+    )
+
+    ax = field_slice.plot(show=False)
+
+    try:
+        assert len(ax.figure.axes) >= 2
+        assert any(
+            "Synthetic smoke field" in text.get_text()
+            for figure_ax in ax.figure.axes
+            for text in figure_ax.texts
+        )
+    finally:
+        import matplotlib.pyplot as plt
+
+        plt.close(ax.figure)
+
+
+def test_smoke_field_slice_plot_can_hide_presentation():
+    import matplotlib
+
+    matplotlib.use("Agg", force=True)
+
+    field_slice = datasets.smoke(
+        bounds=(0.0, 0.0, 10.0, 20.0),
+        resolution=8,
+        product="slice",
+        width=160,
+        height=90,
+    )
+
+    ax = field_slice.plot(show=False, presentation=False)
+
+    try:
+        assert len(ax.figure.axes) == 1
+        assert not any(
+            "Synthetic smoke field" in text.get_text()
+            for figure_ax in ax.figure.axes
+            for text in figure_ax.texts
+        )
+    finally:
+        import matplotlib.pyplot as plt
+
+        plt.close(ax.figure)
+
+
+def test_smoke_descriptor_plot_shows_presentation_by_default():
+    import matplotlib
+
+    matplotlib.use("Agg", force=True)
+
+    ax = datasets.smoke.plot(
+        bounds=(0.0, 0.0, 10.0, 20.0),
+        resolution=8,
+        product="slice",
+        width=160,
+        height=90,
+        show=False,
+    )
+
+    try:
+        assert len(ax.figure.axes) >= 2
+        assert any(
+            "Synthetic smoke field" in text.get_text()
+            for figure_ax in ax.figure.axes
+            for text in figure_ax.texts
+        )
+    finally:
+        import matplotlib.pyplot as plt
+
+        plt.close(ax.figure)
+
+
 def test_smoke_streamline_collection_object_export_defaults_to_png_package(tmp_path):
     streamlines = datasets.smoke(
         bounds=(0.0, 0.0, 10.0, 20.0),
