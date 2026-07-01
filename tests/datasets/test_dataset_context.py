@@ -62,15 +62,19 @@ def test_dataset_object_info_includes_presentation_tables():
 
     text = field_slice.info(print=False)
 
-    assert "Tangible Table Metadata" in text
-    assert "C-P1 Provider / Source" in text
+    assert "Metadata" in text
+    assert "Provider" in text
     assert "DTCC Platform (generator)" in text
-    assert "C-S7 Processing / Methodology" in text
     assert "Presentation" in text
     assert "No live data dependency" in text
+    assert "Provenance" in text
+    assert "Processing steps" in text
     assert "velocity" in text
     assert "speed" in text
     assert "pressure" in text
+    assert "C-P1" not in text
+    assert "C-S7" not in text
+    assert "Tangible Table Metadata" not in text
 
 
 def test_dataset_object_info_can_hide_presentation_tables():
@@ -84,8 +88,10 @@ def test_dataset_object_info_can_hide_presentation_tables():
 
     text = field_slice.info(print=False, presentation=False)
 
-    assert "Tangible Table Metadata" not in text
+    assert "Metadata" not in text
+    assert "Provider" not in text
     assert "Presentation" not in text
+    assert "Provenance" not in text
 
 
 def test_descriptor_metadata_flows_to_context_manifest():
