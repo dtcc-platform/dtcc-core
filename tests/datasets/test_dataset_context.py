@@ -51,6 +51,88 @@ def test_smoke_returns_native_model_with_dataset_context():
     assert manifest.artifacts == []
 
 
+def test_descriptor_metadata_flows_to_context_manifest():
+    context = datasets.smoke.create_context(
+        datasets.smoke.validate({"bounds": (0.0, 0.0, 10.0, 20.0)})
+    )
+    manifest = context.manifest()
+
+    assert manifest.metadata.provider == [
+        {"name": "DTCC Platform", "role": "generator"}
+    ]
+    assert manifest.metadata.source == [
+        "Synthetic analytical velocity, speed, and pressure fields"
+    ]
+    assert manifest.metadata.license == "MIT"
+    assert manifest.metadata.update_frequency == "generated on demand"
+    assert manifest.provenance.processing_steps[:3] == [
+        "Map requested bounds to the normalized smoke domain",
+        "Evaluate deterministic analytical smoke fields",
+        "Generate requested field, slice, or streamline product",
+    ]
+    assert manifest.provenance.processing_steps[-1] == "Build dataset 'smoke'"
+    assert manifest.presentation.summary == datasets.smoke.presentation_summary
+    assert manifest.presentation.view_hints["preferred_media_types"] == [
+        "image/png",
+        "video/mp4",
+        "application/geo+json",
+    ]
+
+
+def test_public_dataset_context_metadata_audit():
+    missing = {}
+    for name, dataset in datasets.list().items():
+        context = dataset.create_context(
+            dataset.validate({"bounds": (0.0, 0.0, 1.0, 1.0)})
+        )
+        failures = []
+        if not context.metadata.description:
+            failures.append("description")
+        if not context.metadata.provider:
+            failures.append("provider")
+        if not context.metadata.source:
+            failures.append("source")
+        if not context.metadata.license:
+            failures.append("license")
+        if not context.metadata.update_frequency:
+            failures.append("update_frequency")
+        if not context.provenance.processing_steps:
+            failures.append("processing_steps")
+        if not context.provenance.generated_by:
+            failures.append("generated_by")
+        if not context.presentation.headline:
+            failures.append("presentation.headline")
+        if not context.presentation.summary:
+            failures.append("presentation.summary")
+        if failures:
+            missing[name] = failures
+
+    assert missing == {}
+
+
+def test_known_epsg3006_datasets_have_context_crs_without_request_crs():
+    dataset_names = [
+        "point_cloud",
+        "building_footprints",
+        "buildings",
+        "city",
+        "terrain_surface_mesh",
+        "city_flat_mesh",
+        "city_surface_mesh",
+        "city_volume_mesh",
+        "trees",
+        "roads",
+        "space_syntax",
+    ]
+
+    for name in dataset_names:
+        dataset = datasets.get_dataset(name)
+        context = dataset.create_context(
+            dataset.validate({"bounds": (0.0, 0.0, 1.0, 1.0)})
+        )
+        assert "EPSG:3006" in context.metadata.crs
+
+
 def test_dataset_context_serializes_to_json_safe_data():
     mesh = datasets.smoke(
         bounds=(0.0, 0.0, 10.0, 20.0),

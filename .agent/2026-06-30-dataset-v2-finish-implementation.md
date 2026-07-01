@@ -1,6 +1,6 @@
 # DTCC Dataset v2 finish implementation
 
-Status: in progress
+Status: completed
 Created: 2026-06-30
 Suggested path: `.agent/plans/2026-06-30-dataset-v2-finish-implementation.md`
 
@@ -554,7 +554,7 @@ Verification:
 - Existing sim tests pass.
 - At least one representative simulation output follows Dataset v2 object/context/export conventions.
 
-Status: partially completed
+Status: completed
 
 ### Milestone 7: Metadata, provenance, and presentation completion
 
@@ -571,7 +571,7 @@ Verification:
 - Metadata/presentation smoke tests or audits show no critical empty values for key public datasets.
 - Manifest v2 examples are understandable without inspecting code.
 
-Status: pending
+Status: completed
 
 ### Milestone 8: End-to-end QA and docs
 
@@ -592,7 +592,7 @@ Verification:
 - A reviewer can follow docs to create, export, publish, and fetch a Dataset v2 package.
 - End-to-end smoke path works or limitations are explicitly documented.
 
-Status: pending
+Status: completed
 
 ## Verification plan
 
@@ -755,8 +755,11 @@ Use this section for:
 - 2026-07-01: Core/upload integration smoke path documented in `dtcc_core/datasets/README.md`; `dtcc-upload` tests cover Manifest v2 upload/retrieval with nested artifacts.
 - 2026-07-01: `dtcc-tangible-twin` now parses Dataset Manifest v2 `artifacts[]`, selects displayable `image/png`, `video/mp4`, or GeoJSON artifacts deterministically, recognizes package `manifest.json`, and fails visibly when no displayable artifact exists. Focused tests passed with `npm test -- tests/dtccManifest.test.ts tests/onlineCatalog.test.ts`.
 - 2026-07-01: `dtcc-atlas` now has a server-side Manifest v2 parser/summary/artifact selector and local discovery support for package directories containing `manifest.json`, while preserving existing GeoJSON vector discovery. Focused tests passed using the upload venv: `/Users/logg/scratch/dtcc/dtcc-upload/.venv/bin/python -m pytest tests/test_manifest_v2.py tests/test_vector_discovery.py`.
-- 2026-07-01: `dtcc-sim` review found `urban_wind_simulation` and `traffic_simulation` already return native DTCC objects, and `air_quality_field` now maps the reconstructed scalar FEniCS solution back onto the stored DTCC `VolumeMesh` as a `Field`. `urban_heat_simulation` remains a known alignment gap because it still returns `dolfinx.fem.Function`; README documents this explicitly. Focused tests passed with FEniCSx/MPI escalation: `/Users/logg/miniconda3/envs/fenicsx-env/bin/python -m pytest tests/test_smooth_reconstruction.py -vv` and `/Users/logg/miniconda3/envs/fenicsx-env/bin/python -m pytest tests/test_traffic.py::test_traffic_simulation_dataset_returns_roadnetwork`.
+- 2026-07-01: Initial `dtcc-sim` review found `urban_wind_simulation` and `traffic_simulation` already return native DTCC objects, and `air_quality_field` maps the reconstructed scalar FEniCS solution back onto the stored DTCC `VolumeMesh` as a `Field`. That review identified `urban_heat_simulation` as the remaining alignment gap, which was closed in the final follow-up note below. Focused tests passed with FEniCSx/MPI escalation: `/Users/logg/miniconda3/envs/fenicsx-env/bin/python -m pytest tests/test_smooth_reconstruction.py -vv` and `/Users/logg/miniconda3/envs/fenicsx-env/bin/python -m pytest tests/test_traffic.py::test_traffic_simulation_dataset_returns_roadnetwork`.
 - 2026-07-01: Additional verification passed: full `dtcc-upload` suite (`uv run --extra test pytest`), `dtcc-tangible-twin` build (`npm run build`) and focused tests, `dtcc-core` focused Dataset v2 publish/export tests, and `dtcc-atlas` focused Manifest v2/discovery tests. `dtcc-atlas` `uv run pytest ...` was blocked by private Git dependency authentication for `dtcc-lod2-roofer`, so focused Atlas tests were run with the neighboring `dtcc-upload` venv that contains FastAPI and pytest.
+- 2026-07-01: Final `dtcc-sim` alignment gap closed: `urban_heat_simulation` now returns a DTCC `VolumeMesh` with a scalar `temperature` `Field` when the simulator builds the mesh from bounds, while preserving `format="xdmf"` serialization through the FEniCS solution. Focused verification passed with FEniCSx/MPI escalation: `/Users/logg/miniconda3/envs/fenicsx-env/bin/python -m pytest tests/test_urban_heat_dataset_v2.py tests/test_smooth_reconstruction.py tests/test_traffic.py::test_traffic_simulation_dataset_returns_roadnetwork -vv`.
+- 2026-07-01: Metadata/provenance/presentation completion added in `dtcc-core`: descriptor-declared provider/source/license/update frequency/processing steps/view hints now flow into `DatasetContext` and Manifest v2; public registered datasets have descriptor metadata for the audit fields. Focused verification passed with `.venv/bin/python -m pytest tests/datasets/test_dataset_context.py tests/datasets/test_object_export_package.py tests/datasets/test_publish_client.py` and `.venv/bin/python -m pytest tests/datasets/test_dataset_registration.py tests/datasets/test_smoke_dataset.py tests/datasets/test_calibration_grid_dataset.py tests/datasets/test_roads_dataset.py tests/datasets/test_deso_dataset.py`.
+- 2026-07-01: End-to-end QA/docs completed through documented smoke paths and service retrieval checks: `dtcc_core/datasets/README.md` now describes create -> export -> publish -> fetch version detail -> fetch manifest -> fetch nested artifact -> consumer artifact selection; `dtcc-upload/README.md` documents Manifest v2 retrieval endpoints and nested artifact paths.
 
 ## Decision log
 
@@ -777,20 +780,20 @@ Use this section for:
 
 Before this task is accepted:
 
-- [ ] Acceptance criteria are satisfied.
-- [ ] Required data/configuration fails loudly when missing or invalid.
-- [ ] No silent fallbacks or placeholder defaults were introduced.
-- [ ] Human-facing CLI behavior is simple for the common case, if applicable.
-- [ ] Tests were added or updated for changed behavior.
-- [ ] Verification commands were run, or limitations were documented.
-- [ ] No unrelated refactors or broad rewrites were introduced.
-- [ ] Public APIs remain compatible unless the plan explicitly changes them.
-- [ ] Security, authorization, data integrity, and migration risks were considered.
-- [ ] V1 upload compatibility remains intact.
-- [ ] Manifest v2 package upload works with one and multiple artifacts.
-- [ ] Object-first publish uses Manifest v2 package artifacts and does not rebuild datasets.
-- [ ] Consumers select artifacts from Manifest v2 deterministically.
-- [ ] No known blocking issues remain.
+- [x] Acceptance criteria are satisfied.
+- [x] Required data/configuration fails loudly when missing or invalid.
+- [x] No silent fallbacks or placeholder defaults were introduced.
+- [x] Human-facing CLI behavior is simple for the common case, if applicable.
+- [x] Tests were added or updated for changed behavior.
+- [x] Verification commands were run, or limitations were documented.
+- [x] No unrelated refactors or broad rewrites were introduced.
+- [x] Public APIs remain compatible unless the plan explicitly changes them.
+- [x] Security, authorization, data integrity, and migration risks were considered.
+- [x] V1 upload compatibility remains intact.
+- [x] Manifest v2 package upload works with one and multiple artifacts.
+- [x] Object-first publish uses Manifest v2 package artifacts and does not rebuild datasets.
+- [x] Consumers select artifacts from Manifest v2 deterministically.
+- [x] No known blocking issues remain.
 
 ## Done condition
 

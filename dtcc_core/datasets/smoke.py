@@ -265,6 +265,29 @@ class SmokeDataset(DatasetDescriptor):
     result_kind = "vector_field"
     python_return_type = "dtcc_core.model.VolumeMesh"
     timeout_hint = 2
+    provider = [{"name": "DTCC Platform", "role": "generator"}]
+    source = ["Synthetic analytical velocity, speed, and pressure fields"]
+    license = "MIT"
+    geographic_coverage = "requested synthetic bounds"
+    update_frequency = "generated on demand"
+    processing_steps = [
+        "Map requested bounds to the normalized smoke domain",
+        "Evaluate deterministic analytical smoke fields",
+        "Generate requested field, slice, or streamline product",
+    ]
+    presentation_summary = (
+        "Synthetic smoke field used to test Dataset v2 packaging, catalog, "
+        "and presentation workflows."
+    )
+    key_points = [
+        "No live data dependency",
+        "Deterministic output for a fixed request",
+        "PNG presentation artifacts are preferred for slice and streamline packages",
+    ]
+    view_hints = {
+        "preferred_media_types": ["image/png", "video/mp4", "application/geo+json"],
+        "default_products": ["slice", "streamlines"],
+    }
 
     def describe(self) -> dict[str, Any]:
         metadata = super().describe()

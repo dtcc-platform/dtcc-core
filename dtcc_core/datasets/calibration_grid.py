@@ -54,6 +54,20 @@ class CalibrationGridDataset(DatasetDescriptor):
     result_kind = "calibration_grid"
     python_return_type = "dtcc_core.model.CalibrationGrid"
     timeout_hint = 2
+    provider = [{"name": "DTCC Platform", "role": "generator"}]
+    source = ["Synthetic grid generated from requested bounds"]
+    license = "MIT"
+    geographic_coverage = "requested synthetic bounds"
+    update_frequency = "generated on demand"
+    processing_steps = ["Generate evenly spaced grid lines for requested bounds"]
+    presentation_summary = (
+        "Synthetic alignment grid for checking table-projector calibration."
+    )
+    key_points = [
+        "Generated locally from the request",
+        "Useful for table and projector alignment checks",
+    ]
+    view_hints = {"preferred_geometry": "lines", "default_style": "calibration_grid"}
 
     def build(self, args: CalibrationGridArgs):
         bounds = self.parse_bounds(args.bounds)

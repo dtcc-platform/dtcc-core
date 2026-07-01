@@ -282,8 +282,16 @@ class DatasetDescriptor(ABC):
         title = descriptor.get("title") or self._title_from_identifier(self.name)
         bounds = parameters.get("bounds")
         crs_values = self._context_crs_values(parameters)
+        if not crs_values:
+            crs_values = self._dedupe_strings(
+                self._context_list_attr("default_crs", "crs_values")
+            )
         data_category = descriptor.get("data_category")
         result_kind = descriptor.get("result_kind")
+        default_processing_step = f"Build dataset '{self.name}'"
+        processing_steps = self._context_list_attr("processing_steps")
+        if default_processing_step not in processing_steps:
+            processing_steps.append(default_processing_step)
 
         return DatasetContext(
             identity=DatasetIdentity(
@@ -295,27 +303,53 @@ class DatasetDescriptor(ABC):
                 description=descriptor.get("description") or "",
                 provider=self._context_list_attr("provider", "providers"),
                 source=self._context_list_attr("source", "sources", "source_service"),
+                license=self._context_attr("license", "license_info"),
+                collection_period=self._context_attr("collection_period"),
                 crs=crs_values,
                 lod=self._context_optional_string(parameters.get("lod")),
                 data_types=self._dedupe_strings(
-                    item for item in (result_kind,) if item
+                    item
+                    for item in (
+                        *self._context_list_attr("data_types"),
+                        result_kind,
+                    )
+                    if item
                 ),
                 formats=list(descriptor.get("supported_formats") or ()),
+                geographic_coverage=self._context_attr("geographic_coverage"),
+                update_frequency=self._context_attr("update_frequency"),
                 data_category=str(data_category) if data_category else None,
                 result_kind=str(result_kind) if result_kind else None,
                 python_return_type=descriptor.get("python_return_type"),
             ),
             provenance=DatasetProvenance(
                 sources=self._context_list_attr("source", "sources", "source_service"),
-                processing_steps=[f"Build dataset '{self.name}'"],
-                generated_by={
+                processing_steps=processing_steps,
+                generated_by=self._context_attr("generated_by")
+                or {
                     "package": "dtcc-core",
                     "version": self._package_version(),
                 },
+                derived_from=self._context_list_attr("derived_from"),
             ),
             presentation=DatasetPresentation(
-                headline=title,
-                summary=descriptor.get("description") or None,
+                headline=self._context_attr("presentation_headline") or title,
+                summary=self._context_attr("presentation_summary")
+                or descriptor.get("description")
+                or None,
+                narrative=self._context_list_attr("presentation_narrative"),
+                key_points=self._dedupe_strings(
+                    self._context_list_attr("key_points", "presentation_key_points")
+                ),
+                legend=self._context_attr("legend", "presentation_legend"),
+                annotations=self._context_list_attr("annotations"),
+                view_hints=self._context_attr("view_hints", "presentation_view_hints"),
+                warnings=self._dedupe_strings(
+                    self._context_list_attr("warnings", "presentation_warnings")
+                ),
+                limitations=self._dedupe_strings(
+                    self._context_list_attr("limitations", "presentation_limitations")
+                ),
             ),
             request=DatasetRequest(
                 dataset_name=self.name,
@@ -351,6 +385,13 @@ class DatasetDescriptor(ABC):
         if isinstance(crs, (list, tuple, set)):
             return cls._dedupe_strings(crs)
         return cls._dedupe_strings((crs,))
+
+    def _context_attr(self, *names: str) -> Any | None:
+        for name in names:
+            value = getattr(self, name, None)
+            if value is not None:
+                return value
+        return None
 
     def _context_list_attr(self, *names: str) -> list[Any]:
         values: list[Any] = []
