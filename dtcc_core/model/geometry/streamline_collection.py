@@ -18,6 +18,7 @@ from .field_slice import (
     _interactive_plot_overrides,
     _bounds_values,
     _normalize_format,
+    _plot_smoke_object_with_dataset_modes,
     _raster_options_from_context,
     _raster_options_with_overrides,
 )
@@ -179,6 +180,18 @@ class StreamlineCollection(Model):
         """Plot the streamlines, optionally with a Dataset v2 presentation panel."""
         from dtcc_core.datasets.presentation import plot_product_with_presentation
         from dtcc_core.plotting.renderers import plot_product
+
+        smoke_plot = _plot_smoke_object_with_dataset_modes(
+            self,
+            ax=ax,
+            show=show,
+            presentation=presentation,
+            field_name=field_name,
+            product="streamlines",
+            plot_kwargs=dict(kwargs),
+        )
+        if smoke_plot is not None:
+            return smoke_plot
 
         product = self.to_plot_product(field_name=field_name)
         plot_kwargs = _interactive_plot_overrides(
