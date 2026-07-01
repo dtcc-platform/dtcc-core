@@ -14,6 +14,9 @@ from dtcc_core.common.dtcc_logging import make_table
 
 
 MISSING = "Not specified"
+PANEL_BACKGROUND = "#F7F7F7"
+PANEL_TEXT = "#111111"
+PANEL_ACCENT = "#FADA36"
 
 
 def format_dataset_context(context, obj: Any | None = None) -> str:
@@ -78,28 +81,30 @@ def plot_product_with_presentation(
     if ax is None:
         plt = require_matplotlib("dataset presentation plotting")
         width, height = options.figsize
-        fig_width = max(width * 1.42, 8.5)
-        fig_height = max(height, 4.8)
+        fig_width = max(width * 1.55, 10.5)
+        fig_height = max(height, 5.6)
         fig, (data_ax, panel_ax) = plt.subplots(
             1,
             2,
             figsize=(fig_width, fig_height),
-            gridspec_kw={"width_ratios": [2.75, 1.25]},
+            gridspec_kw={"width_ratios": [2.85, 1.35]},
         )
         fig.subplots_adjust(
             left=0.06,
             right=0.97,
-            top=0.93,
+            top=0.82,
             bottom=0.09,
             wspace=0.12,
         )
         plot_product(product, options, ax=data_ax, show=False)
+        draw_preview_header(data_ax, context, product, options)
         draw_presentation_panel(panel_ax, context, obj=obj)
         show_plot(show)
         return data_ax
 
     data_ax = plot_product(product, options, ax=ax, show=False)
     data_ax.figure.subplots_adjust(right=0.72)
+    draw_preview_header(data_ax, context, product, options)
     data_ax.text(
         1.03,
         1.0,
@@ -108,10 +113,10 @@ def plot_product_with_presentation(
         va="top",
         ha="left",
         fontsize=8.5,
-        color="#111111",
+        color=PANEL_TEXT,
         bbox={
             "boxstyle": "round,pad=0.45",
-            "facecolor": "#f7f7f7",
+            "facecolor": PANEL_BACKGROUND,
             "edgecolor": "#d0d0d0",
             "alpha": 0.96,
         },
@@ -123,7 +128,7 @@ def plot_product_with_presentation(
 
 def draw_presentation_panel(ax, context, obj: Any | None = None) -> None:
     """Draw a compact Dataset v2 presentation panel on a Matplotlib axes."""
-    ax.set_facecolor("#f7f7f7")
+    ax.set_facecolor(PANEL_BACKGROUND)
     ax.patch.set_visible(True)
     ax.patch.set_alpha(1.0)
     ax.set_xlim(0.0, 1.0)
@@ -145,9 +150,56 @@ def draw_presentation_panel(ax, context, obj: Any | None = None) -> None:
         transform=ax.transAxes,
         va="top",
         ha="left",
-        fontsize=8.5,
-        color="#111111",
+        fontsize=8.0,
+        color=PANEL_TEXT,
         wrap=True,
+    )
+
+
+def draw_preview_header(ax, context, product, options) -> None:
+    """Add a polished title treatment above the data preview axes."""
+    from dtcc_core.plotting.style import get_theme
+
+    theme = get_theme(options.theme)
+    ax.set_title("")
+
+    title = _first_text(
+        getattr(options, "title", None),
+        context.presentation.headline,
+        context.identity.title,
+        context.identity.name,
+    )
+    ax.text(
+        0.0,
+        1.12,
+        title,
+        transform=ax.transAxes,
+        va="bottom",
+        ha="left",
+        fontsize=19,
+        fontweight=700,
+        color=theme["text"],
+        clip_on=False,
+    )
+    ax.text(
+        0.0,
+        1.065,
+        _preview_subtitle(context, product),
+        transform=ax.transAxes,
+        va="bottom",
+        ha="left",
+        fontsize=9.5,
+        color=theme["muted"],
+        clip_on=False,
+    )
+    ax.plot(
+        [0.0, 0.18],
+        [1.035, 1.035],
+        transform=ax.transAxes,
+        color=PANEL_ACCENT,
+        linewidth=3.2,
+        solid_capstyle="round",
+        clip_on=False,
     )
 
 
@@ -155,7 +207,7 @@ def presentation_panel_text(
     context,
     obj: Any | None = None,
     *,
-    width: int = 30,
+    width: int = 38,
 ) -> str:
     """Return concise plain text for a plot-side Dataset v2 presentation panel."""
     identity = context.identity
@@ -191,6 +243,28 @@ def presentation_panel_text(
         lines.extend(_key_value_lines("Fields", ", ".join(fields), width=width))
 
     return "\n".join(lines).strip()
+
+
+def _preview_subtitle(context, product) -> str:
+    crs = _plain_value(context.metadata.crs)
+    if crs == MISSING:
+        crs = "local coordinates"
+
+    product_label = "field preview"
+    field_name = None
+    if hasattr(product, "field_name"):
+        product_label = f"{getattr(product, 'axis', 'plane')}-slice preview"
+        field_name = product.field_name
+    elif hasattr(product, "value_name"):
+        product_label = "streamline preview"
+        field_name = product.value_name
+
+    parts = [product_label]
+    if field_name:
+        parts.append(str(field_name))
+    parts.append(crs)
+    parts.append("synthetic city-flow fixture")
+    return " | ".join(parts)
 
 
 def _metadata_rows(context, obj: Any | None) -> list[tuple[str, str]]:
@@ -262,15 +336,22 @@ def _field_names(obj: Any | None) -> list[str]:
 
 def _resource_links(*sources) -> list[str]:
     links = []
+    seen = set()
     for source_group in sources:
         for source in source_group or ():
             if isinstance(source, str) and source.startswith(("http://", "https://")):
-                links.append(source)
+                if source not in seen:
+                    links.append(source)
+                    seen.add(source)
             elif isinstance(source, dict):
                 for key in ("url", "href", "link", "resource"):
                     value = source.get(key)
-                    if isinstance(value, str) and value.startswith(("http://", "https://")):
-                        links.append(value)
+                    if isinstance(value, str) and value.startswith(
+                        ("http://", "https://")
+                    ):
+                        if value not in seen:
+                            links.append(value)
+                            seen.add(value)
     return links
 
 

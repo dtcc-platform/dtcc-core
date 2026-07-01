@@ -42,8 +42,13 @@ def test_smoke_returns_native_model_with_dataset_context():
     assert manifest.metadata.description == datasets.smoke.description
     assert manifest.metadata.data_category == "simulation"
     assert manifest.metadata.result_kind == "vector_field"
+    assert manifest.metadata.lod.startswith("Not applicable")
+    assert {"mesh", "vector", "raster", "video", "protobuf", "vector_field"} <= set(
+        manifest.metadata.data_types
+    )
     assert manifest.metadata.formats == ["pb", "vtu", "geojson", "png", "mp4"]
     assert manifest.provenance.generated_by["package"] == "dtcc-core"
+    assert manifest.provenance.generated_at == "Computed at request time by dtcc-core."
     assert manifest.presentation.headline == "Smoke"
     assert manifest.request.dataset_name == "smoke"
     assert manifest.request.bounds == [0.0, 0.0, 10.0, 20.0]
@@ -64,7 +69,7 @@ def test_dataset_object_info_includes_presentation_tables():
 
     assert "Metadata" in text
     assert "Provider" in text
-    assert "DTCC Platform (generator)" in text
+    assert "DTCC Platform (synthetic data fixture maintainer)" in text
     assert "Presentation" in text
     assert "No live data dependency" in text
     assert "Provenance" in text
@@ -72,6 +77,7 @@ def test_dataset_object_info_includes_presentation_tables():
     assert "velocity" in text
     assert "speed" in text
     assert "pressure" in text
+    assert "Not specified" not in text
     assert "C-P1" not in text
     assert "C-S7" not in text
     assert "Tangible Table Metadata" not in text
@@ -101,25 +107,49 @@ def test_descriptor_metadata_flows_to_context_manifest():
     manifest = context.manifest()
 
     assert manifest.metadata.provider == [
-        {"name": "DTCC Platform", "role": "generator"}
+        {
+            "name": "DTCC Platform",
+            "role": "synthetic data fixture maintainer",
+            "url": "https://github.com/dtcc-platform/dtcc-core",
+        }
     ]
     assert manifest.metadata.source == [
-        "Synthetic analytical velocity, speed, and pressure fields"
+        {
+            "name": "dtcc-core analytical smoke-field fixture",
+            "role": "deterministic generator",
+            "url": "https://github.com/dtcc-platform/dtcc-core",
+        }
     ]
     assert manifest.metadata.license == "MIT"
-    assert manifest.metadata.update_frequency == "generated on demand"
-    assert manifest.provenance.processing_steps[:3] == [
+    assert manifest.metadata.collection_period.startswith("Timeless synthetic fixture")
+    assert manifest.metadata.update_frequency == (
+        "Generated on demand from deterministic analytical functions."
+    )
+    assert manifest.provenance.processing_steps[:4] == [
         "Map requested bounds to the normalized smoke domain",
         "Evaluate deterministic analytical smoke fields",
         "Generate requested field, slice, or streamline product",
+        "Attach Dataset v2 metadata, provenance, and presentation context",
     ]
     assert manifest.provenance.processing_steps[-1] == "Build dataset 'smoke'"
+    assert manifest.provenance.derived_from == [
+        {
+            "name": "Analytical smoke-flow equations embedded in dtcc-core",
+            "url": "https://github.com/dtcc-platform/dtcc-core",
+        }
+    ]
     assert manifest.presentation.summary == datasets.smoke.presentation_summary
+    assert manifest.presentation.narrative
+    assert manifest.presentation.legend.startswith("Color encodes")
+    assert manifest.presentation.annotations
     assert manifest.presentation.view_hints["preferred_media_types"] == [
         "image/png",
         "video/mp4",
         "application/geo+json",
     ]
+    assert manifest.presentation.view_hints["default_scalar_field"] == "speed"
+    assert manifest.presentation.warnings
+    assert manifest.presentation.limitations
 
 
 def test_public_dataset_context_metadata_audit():
