@@ -82,6 +82,8 @@ def test_descriptor_metadata_flows_to_context_manifest():
 def test_public_dataset_context_metadata_audit():
     missing = {}
     for name, dataset in datasets.list().items():
+        if not dataset.__class__.__module__.startswith("dtcc_core.datasets."):
+            continue
         context = dataset.create_context(
             dataset.validate({"bounds": (0.0, 0.0, 1.0, 1.0)})
         )

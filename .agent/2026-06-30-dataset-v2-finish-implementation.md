@@ -1,6 +1,6 @@
 # DTCC Dataset v2 finish implementation
 
-Status: completed
+Status: stabilized; Atlas live catalog integration remains follow-up
 Created: 2026-06-30
 Suggested path: `.agent/plans/2026-06-30-dataset-v2-finish-implementation.md`
 
@@ -537,7 +537,16 @@ Verification:
 - Atlas can list and download artifacts.
 - Existing GeoJSON map-layer behavior still works.
 
-Status: completed
+Status: partially completed
+
+Completed scope: `dtcc-atlas` has server-side Manifest v2 parsing, artifact
+selection, summary generation, and local package directory discovery while
+preserving existing GeoJSON vector discovery.
+
+Remaining follow-up: live browsing of a remote `dtcc-upload` catalog in
+`dtcc-atlas`, including fetching version detail, manifest, and nested artifact
+downloads from `/v1/datasets/...`, is not implemented in this stabilization
+pass.
 
 ### Milestone 6: `dtcc-sim` alignment
 
@@ -760,6 +769,7 @@ Use this section for:
 - 2026-07-01: Final `dtcc-sim` alignment gap closed: `urban_heat_simulation` now returns a DTCC `VolumeMesh` with a scalar `temperature` `Field` when the simulator builds the mesh from bounds, while preserving `format="xdmf"` serialization through the FEniCS solution. Focused verification passed with FEniCSx/MPI escalation: `/Users/logg/miniconda3/envs/fenicsx-env/bin/python -m pytest tests/test_urban_heat_dataset_v2.py tests/test_smooth_reconstruction.py tests/test_traffic.py::test_traffic_simulation_dataset_returns_roadnetwork -vv`.
 - 2026-07-01: Metadata/provenance/presentation completion added in `dtcc-core`: descriptor-declared provider/source/license/update frequency/processing steps/view hints now flow into `DatasetContext` and Manifest v2; public registered datasets have descriptor metadata for the audit fields. Focused verification passed with `.venv/bin/python -m pytest tests/datasets/test_dataset_context.py tests/datasets/test_object_export_package.py tests/datasets/test_publish_client.py` and `.venv/bin/python -m pytest tests/datasets/test_dataset_registration.py tests/datasets/test_smoke_dataset.py tests/datasets/test_calibration_grid_dataset.py tests/datasets/test_roads_dataset.py tests/datasets/test_deso_dataset.py`.
 - 2026-07-01: End-to-end QA/docs completed through documented smoke paths and service retrieval checks: `dtcc_core/datasets/README.md` now describes create -> export -> publish -> fetch version detail -> fetch manifest -> fetch nested artifact -> consumer artifact selection; `dtcc-upload/README.md` documents Manifest v2 retrieval endpoints and nested artifact paths.
+- 2026-07-01: Final stabilization pass clarified Atlas/tangible live-catalog scope after merging current `develop`. `dtcc-tangible-twin` includes live `dtcc-upload` online catalog helpers/tests for `/v1/datasets`, version detail, manifest, and artifact fetch. `dtcc-atlas` remains scoped to Manifest v2 parsing and local package discovery; live remote `dtcc-upload` catalog browsing is a documented follow-up, not claimed complete.
 
 ## Decision log
 
@@ -780,7 +790,7 @@ Use this section for:
 
 Before this task is accepted:
 
-- [x] Acceptance criteria are satisfied.
+- [x] Stabilization acceptance criteria are satisfied; Atlas live catalog browsing is documented as follow-up.
 - [x] Required data/configuration fails loudly when missing or invalid.
 - [x] No silent fallbacks or placeholder defaults were introduced.
 - [x] Human-facing CLI behavior is simple for the common case, if applicable.
@@ -792,7 +802,7 @@ Before this task is accepted:
 - [x] V1 upload compatibility remains intact.
 - [x] Manifest v2 package upload works with one and multiple artifacts.
 - [x] Object-first publish uses Manifest v2 package artifacts and does not rebuild datasets.
-- [x] Consumers select artifacts from Manifest v2 deterministically.
+- [x] Consumers select artifacts from Manifest v2 deterministically in the implemented local/package and tangible online flows.
 - [x] No known blocking issues remain.
 
 ## Done condition
@@ -803,7 +813,10 @@ The Dataset v2 implementation is done when:
 2. Object-first export writes Manifest v2 packages with artifacts.
 3. Object-first publish uploads/registers those packages in `dtcc-upload`.
 4. `dtcc-upload` accepts and serves Manifest v2 packages while preserving v1 compatibility.
-5. Atlas and tangible-twin can consume Manifest v2 manifests and artifacts.
+5. Tangible-twin can consume Manifest v2 manifests/artifacts from the live
+   online catalog flow, and Atlas can consume Manifest v2 manifests/artifacts
+   from local package discovery. Atlas live `dtcc-upload` catalog browsing is
+   a remaining follow-up.
 6. Simulation results use native geometry + `Field` objects, not GeoJSON wrappers.
 7. End-to-end verification has passed or any limitations are explicitly documented.
 8. Review finds no blocking correctness, safety, test, security, or maintainability issues.
