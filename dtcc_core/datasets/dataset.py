@@ -341,31 +341,64 @@ class DatasetDescriptor(ABC):
                 generated_at=self._context_attr("generated_at"),
                 derived_from=self._context_list_attr("derived_from"),
             ),
-            presentation=DatasetPresentation(
-                headline=self._context_attr("presentation_headline") or title,
-                summary=self._context_attr("presentation_summary")
-                or descriptor.get("description")
-                or None,
-                narrative=self._context_list_attr("presentation_narrative"),
-                key_points=self._dedupe_strings(
-                    self._context_list_attr("key_points", "presentation_key_points")
-                ),
-                legend=self._context_attr("legend", "presentation_legend"),
-                annotations=self._context_list_attr("annotations"),
-                view_hints=self._context_attr("view_hints", "presentation_view_hints"),
-                warnings=self._dedupe_strings(
-                    self._context_list_attr("warnings", "presentation_warnings")
-                ),
-                limitations=self._dedupe_strings(
-                    self._context_list_attr("limitations", "presentation_limitations")
-                ),
-            ),
+            presentation=self._context_presentation(descriptor, title),
             request=DatasetRequest(
                 dataset_name=self.name,
                 parameters=parameters,
                 bounds=bounds,
             ),
         )
+
+    def _context_presentation(
+        self,
+        descriptor: dict[str, Any],
+        title: str,
+    ) -> DatasetPresentation:
+        values: dict[str, Any] = {
+            "headline": self._context_attr("presentation_headline") or title,
+            "summary": self._context_attr("presentation_summary")
+            or descriptor.get("description")
+            or None,
+            "narrative": self._context_list_attr("presentation_narrative"),
+            "key_points": self._dedupe_strings(
+                self._context_list_attr("key_points", "presentation_key_points")
+            ),
+            "legend": self._context_attr("legend", "presentation_legend"),
+            "annotations": self._context_list_attr("annotations"),
+            "view_hints": self._context_attr("view_hints", "presentation_view_hints"),
+            "warnings": self._dedupe_strings(
+                self._context_list_attr("warnings", "presentation_warnings")
+            ),
+            "limitations": self._dedupe_strings(
+                self._context_list_attr("limitations", "presentation_limitations")
+            ),
+        }
+
+        presentation = descriptor.get("presentation")
+        if presentation is None:
+            return DatasetPresentation(**values)
+        if not isinstance(presentation, dict):
+            raise ValueError(
+                f"Dataset '{self.name}' descriptor presentation must be a mapping."
+            )
+
+        allowed = set(DatasetPresentation.model_fields)
+        unknown = sorted(set(presentation) - allowed)
+        if unknown:
+            raise ValueError(
+                f"Dataset '{self.name}' descriptor presentation has unsupported "
+                f"field {unknown[0]!r}."
+            )
+
+        for key, value in presentation.items():
+            if value is not None:
+                values[key] = value
+
+        if not values.get("headline"):
+            values["headline"] = title
+        if not values.get("summary"):
+            values["summary"] = descriptor.get("description") or None
+        return DatasetPresentation(**values)
 
     @staticmethod
     def _dedupe_strings(values) -> list[str]:

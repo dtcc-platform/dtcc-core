@@ -164,6 +164,18 @@ class FieldSlice(PointCloud):
         from dtcc_core.datasets.presentation import plot_product_with_presentation
         from dtcc_core.plotting.renderers import plot_product
 
+        smoke_plot = _plot_smoke_object_with_dataset_modes(
+            self,
+            ax=ax,
+            show=show,
+            presentation=presentation,
+            field_name=field_name,
+            product="slice",
+            plot_kwargs=dict(kwargs),
+        )
+        if smoke_plot is not None:
+            return smoke_plot
+
         product = self.to_plot_product(field_name=field_name)
         plot_kwargs = _interactive_plot_overrides(
             self,
@@ -339,3 +351,59 @@ def _dataset_name(obj) -> str | None:
     identity = getattr(context, "identity", None)
     name = getattr(identity, "name", None)
     return str(name) if name else None
+
+
+def _plot_smoke_object_with_dataset_modes(
+    obj,
+    *,
+    ax,
+    show: bool,
+    presentation: bool,
+    field_name: str,
+    product: str,
+    plot_kwargs: dict[str, Any],
+):
+    if _dataset_name(obj) != "smoke":
+        return None
+
+    explicit_mode = plot_kwargs.get("mode")
+    profile_supplied = "profile" in plot_kwargs
+    if presentation is False and explicit_mode is None and not profile_supplied:
+        return None
+
+    if field_name != "speed":
+        if explicit_mode in {"artifact", "preview"}:
+            raise ValueError(
+                "Smoke object mode='artifact' and mode='preview' currently "
+                "support field_name='speed'; use mode='plot' for other fields."
+            )
+        return None
+
+    context = getattr(obj, "dataset_context", None)
+    request = getattr(context, "request", None)
+    parameters = dict(getattr(request, "parameters", {}) or {})
+    if not parameters.get("bounds"):
+        raise ValueError(
+            "Smoke object preview requires dataset_context request bounds. "
+            "Create the object with dtcc.datasets.smoke(...)."
+        )
+
+    # Context stores validated defaults such as profile='table'. Remove mode-owned
+    # visual defaults so object.plot() follows the same resolution rules as
+    # dtcc.datasets.smoke.plot().
+    for key in ("format", "profile", "legend", "title", "cmap"):
+        parameters.pop(key, None)
+    parameters["product"] = product
+
+    mode = plot_kwargs.pop("mode", None)
+    parameters.update(plot_kwargs)
+
+    import dtcc_core.datasets as datasets
+
+    return datasets.smoke.plot(
+        ax=ax,
+        show=show,
+        mode=mode,
+        presentation=presentation,
+        **parameters,
+    )

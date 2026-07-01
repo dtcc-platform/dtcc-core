@@ -98,29 +98,52 @@ except RuntimeError as exc:
 
 print(f"Wrote data to {output_dir}")
 
-# Show the same visualization products as live Python plots.
-fig, axes = plt.subplots(1, 2, figsize=(14, 6))
-fig.suptitle("DTCC Smoke Visualization Products")
-
-dtcc.datasets.smoke.plot(
-    ax=axes[0],
+# Create a smoke slice object first; object.plot() defaults to the rich preview.
+smoke_slice = dtcc.datasets.smoke(
     bounds=bounds,
-    resolution=128,
     product="slice",
-    profile="python",
+    resolution=128,
+    streamline_count=64,
+    streamline_steps=180,
+)
+
+# Preview mode is the polished Python-side approximation of the table experience.
+preview_fig = smoke_slice.plot(
+    show=False,
+)
+preview_fig.savefig(output_dir / "smoke_preview.png", dpi=120)
+
+# Artifact mode is the bare visual layer intended for table/export consumption.
+artifact_ax = smoke_slice.plot(
+    mode="artifact",
+    width=960,
+    height=540,
+    show=False,
+)
+artifact_ax.figure.savefig(output_dir / "smoke_artifact.png", dpi=120)
+
+# Plot mode is ordinary Matplotlib. Supplying ax without mode also defaults to plot.
+fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+fig.suptitle("DTCC Smoke Plot Mode")
+
+smoke_slice.plot(
+    ax=axes[0],
     title="Smoke Slice",
     show=False,
 )
 
-dtcc.datasets.smoke.plot(
-    ax=axes[1],
+smoke_streamlines = dtcc.datasets.smoke(
     bounds=bounds,
     product="streamlines",
-    profile="python",
     streamline_count=64,
     streamline_steps=180,
+)
+smoke_streamlines.plot(
+    ax=axes[1],
+    mode="plot",
     title="Smoke Streamlines",
     show=False,
 )
+fig.savefig(output_dir / "smoke_plot_mode.png", dpi=120)
 
 plt.show()

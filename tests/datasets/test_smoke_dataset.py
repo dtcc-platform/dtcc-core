@@ -58,6 +58,9 @@ def test_smoke_describe_includes_products_and_formats():
     assert products["streamlines"]["formats"] == ["geojson", "png", "mp4"]
     assert products["streamlines"]["fields"] == ["velocity", "speed", "pressure"]
     assert metadata["field_names"] == ["velocity", "speed", "pressure"]
+    assert metadata["presentation"]["headline"] == "Synthetic Urban Smoke Flow"
+    assert metadata["presentation"]["legend"]["title"] == "Smoke speed"
+    assert len(metadata["presentation"]["annotations"]) >= 2
 
 
 def test_smoke_default_returns_volume_mesh_with_fields():
@@ -295,7 +298,7 @@ def test_smoke_field_slice_object_export_defaults_to_png_package(tmp_path):
         assert np.asarray(image.convert("RGB")).std() > 0
 
 
-def test_smoke_field_slice_plot_shows_presentation_by_default():
+def test_smoke_field_slice_plot_defaults_to_rich_preview():
     import matplotlib
 
     matplotlib.use("Agg", force=True)
@@ -308,30 +311,24 @@ def test_smoke_field_slice_plot_shows_presentation_by_default():
         height=90,
     )
 
-    ax = field_slice.plot(show=False)
+    fig = field_slice.plot(show=False)
 
     try:
-        assert len(ax.figure.axes) >= 2
-        assert ax.collections
-        panel_ax = ax.figure.axes[1]
-        assert panel_ax.patch.get_visible()
-        assert panel_ax.get_facecolor()[:3] == pytest.approx(
-            (247 / 255, 247 / 255, 247 / 255)
-        )
+        assert len(fig.axes) >= 3
         assert any(
-            "Smoke Field - Slice Preview" in text.get_text()
-            for figure_ax in ax.figure.axes
+            "Synthetic Urban Smoke Flow" in text.get_text()
+            for figure_ax in fig.axes
             for text in figure_ax.texts
         )
         assert any(
-            "Synthetic smoke moving" in text.get_text()
-            for figure_ax in ax.figure.axes
+            "Fast corridor" in text.get_text()
+            for figure_ax in fig.axes
             for text in figure_ax.texts
         )
     finally:
         import matplotlib.pyplot as plt
 
-        plt.close(ax.figure)
+        plt.close(fig)
 
 
 def test_smoke_field_slice_plot_can_hide_presentation():
@@ -352,7 +349,7 @@ def test_smoke_field_slice_plot_can_hide_presentation():
     try:
         assert len(ax.figure.axes) == 1
         assert not any(
-            "Synthetic smoke moving" in text.get_text()
+            "A deterministic smoke-test dataset" in text.get_text()
             for figure_ax in ax.figure.axes
             for text in figure_ax.texts
         )
@@ -362,42 +359,37 @@ def test_smoke_field_slice_plot_can_hide_presentation():
         plt.close(ax.figure)
 
 
-def test_smoke_descriptor_plot_shows_presentation_by_default():
+def test_smoke_descriptor_plot_defaults_to_rich_preview():
     import matplotlib
 
     matplotlib.use("Agg", force=True)
 
-    ax = datasets.smoke.plot(
+    fig = datasets.smoke.plot(
         bounds=(0.0, 0.0, 10.0, 20.0),
-        resolution=8,
-        product="slice",
-        width=160,
-        height=90,
+        resolution=16,
+        streamline_count=4,
+        streamline_steps=20,
+        width=640,
+        height=360,
         show=False,
     )
 
     try:
-        assert len(ax.figure.axes) >= 2
-        assert ax.collections
-        panel_ax = ax.figure.axes[1]
-        assert panel_ax.patch.get_visible()
-        assert panel_ax.get_facecolor()[:3] == pytest.approx(
-            (247 / 255, 247 / 255, 247 / 255)
-        )
+        assert len(fig.axes) >= 3
         assert any(
-            "Smoke Field - Slice Preview" in text.get_text()
-            for figure_ax in ax.figure.axes
+            "Synthetic Urban Smoke Flow" in text.get_text()
+            for figure_ax in fig.axes
             for text in figure_ax.texts
         )
         assert any(
-            "Synthetic smoke moving" in text.get_text()
-            for figure_ax in ax.figure.axes
+            "Fast corridor" in text.get_text()
+            for figure_ax in fig.axes
             for text in figure_ax.texts
         )
     finally:
         import matplotlib.pyplot as plt
 
-        plt.close(ax.figure)
+        plt.close(fig)
 
 
 def test_smoke_streamline_collection_object_export_defaults_to_png_package(tmp_path):

@@ -49,7 +49,7 @@ def test_smoke_returns_native_model_with_dataset_context():
     assert manifest.metadata.formats == ["pb", "vtu", "geojson", "png", "mp4"]
     assert manifest.provenance.generated_by["package"] == "dtcc-core"
     assert manifest.provenance.generated_at == "Computed at request time by dtcc-core."
-    assert manifest.presentation.headline == "Smoke"
+    assert manifest.presentation.headline == "Synthetic Urban Smoke Flow"
     assert manifest.request.dataset_name == "smoke"
     assert manifest.request.bounds == [0.0, 0.0, 10.0, 20.0]
     assert manifest.request.parameters["resolution"] == 4
@@ -71,7 +71,7 @@ def test_dataset_object_info_includes_presentation_tables():
     assert "Provider" in text
     assert "DTCC Platform (synthetic data fixture maintainer)" in text
     assert "Presentation" in text
-    assert "No live data dependency" in text
+    assert "Deterministic synthetic vector field" in text
     assert "Provenance" in text
     assert "Processing steps" in text
     assert "velocity" in text
@@ -138,16 +138,18 @@ def test_descriptor_metadata_flows_to_context_manifest():
             "url": "https://github.com/dtcc-platform/dtcc-core",
         }
     ]
-    assert manifest.presentation.summary == datasets.smoke.presentation_summary
-    assert manifest.presentation.narrative
-    assert manifest.presentation.legend.startswith("Color encodes")
-    assert manifest.presentation.annotations
-    assert manifest.presentation.view_hints["preferred_media_types"] == [
-        "image/png",
-        "video/mp4",
-        "application/geo+json",
+    assert manifest.presentation.summary == datasets.smoke.describe()["presentation"][
+        "summary"
     ]
-    assert manifest.presentation.view_hints["default_scalar_field"] == "speed"
+    assert manifest.presentation.narrative
+    assert manifest.presentation.legend["title"] == "Smoke speed"
+    assert manifest.presentation.annotations
+    assert manifest.presentation.annotations[0]["label"] == "Fast corridor"
+    assert manifest.presentation.view_hints["default_plot_mode"] == "preview"
+    assert (
+        manifest.presentation.view_hints["preview_mode"]["main_visual"]
+        == "speed_slice_with_streamlines"
+    )
     assert manifest.presentation.warnings
     assert manifest.presentation.limitations
 
