@@ -404,8 +404,10 @@ class SmokeDataset(DatasetDescriptor):
 
         raise ValueError(f"Unsupported smoke product: {args.product}")
 
-    def plot(self, ax=None, show: bool = True, **kwargs):
+    def plot(self, ax=None, show: bool = True, presentation: bool = True, **kwargs):
         """Plot a smoke visualization product with Matplotlib."""
+        from dtcc_core.datasets.presentation import plot_product_with_presentation
+
         request_kwargs = dict(kwargs)
         request_kwargs.pop("format", None)
         request_kwargs.setdefault("product", "slice")
@@ -415,7 +417,16 @@ class SmokeDataset(DatasetDescriptor):
         args = self.validate(request_kwargs)
         bounds = _physical_bounds(args)
         product = _visual_product(bounds, args)
-        return plot_product(product, _render_options(args), ax=ax, show=show)
+        options = _render_options(args)
+        if presentation:
+            return plot_product_with_presentation(
+                product,
+                options,
+                context=self.create_context(args),
+                ax=ax,
+                show=show,
+            )
+        return plot_product(product, options, ax=ax, show=show)
 
     def export_manifest_metadata(self, args: SmokeArgs, path) -> dict[str, Any]:
         if args.format not in ("png", "mp4"):

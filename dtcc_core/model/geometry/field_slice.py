@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field as dataclass_field
+from dataclasses import dataclass, field as dataclass_field, replace
 from pathlib import Path
 from typing import Any
 
@@ -151,6 +151,32 @@ class FieldSlice(PointCloud):
             metadata=metadata,
         )
 
+    def plot(
+        self,
+        ax=None,
+        show: bool = True,
+        *,
+        presentation: bool = True,
+        field_name: str = "speed",
+        **kwargs,
+    ):
+        """Plot the slice, optionally with a Dataset v2 presentation panel."""
+        from dtcc_core.datasets.presentation import plot_product_with_presentation
+        from dtcc_core.plotting.renderers import plot_product
+
+        product = self.to_plot_product(field_name=field_name)
+        options = _raster_options_with_overrides(self, kwargs)
+        if presentation:
+            return plot_product_with_presentation(
+                product,
+                options,
+                context=self.dataset_context,
+                obj=self,
+                ax=ax,
+                show=show,
+            )
+        return plot_product(product, options, ax=ax, show=show)
+
     def write_artifact(self, path: str | Path, format: str | None = None) -> None:
         """Write a smoke visualization artifact for object-first package export."""
         fmt = _normalize_format(format or self.default_artifact_format)
@@ -259,3 +285,13 @@ def _raster_options_from_context(obj):
         if key in parameters and parameters[key] is not None
     }
     return RasterRenderOptions(**option_values)
+
+
+def _raster_options_with_overrides(obj, overrides: dict[str, Any]):
+    from dtcc_core.plotting.options import RasterRenderOptions
+
+    allowed = set(RasterRenderOptions.__dataclass_fields__)
+    unknown = sorted(set(overrides) - allowed)
+    if unknown:
+        raise TypeError(f"Unsupported plot option: {unknown[0]}")
+    return replace(_raster_options_from_context(obj), **overrides)

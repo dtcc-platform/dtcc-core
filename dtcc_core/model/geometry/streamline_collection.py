@@ -18,6 +18,7 @@ from .field_slice import (
     _bounds_values,
     _normalize_format,
     _raster_options_from_context,
+    _raster_options_with_overrides,
 )
 from .linestring import LineString
 
@@ -164,6 +165,32 @@ class StreamlineCollection(Model):
             axes=self.axes,
             metadata=metadata,
         )
+
+    def plot(
+        self,
+        ax=None,
+        show: bool = True,
+        *,
+        presentation: bool = True,
+        field_name: str = "speed",
+        **kwargs,
+    ):
+        """Plot the streamlines, optionally with a Dataset v2 presentation panel."""
+        from dtcc_core.datasets.presentation import plot_product_with_presentation
+        from dtcc_core.plotting.renderers import plot_product
+
+        product = self.to_plot_product(field_name=field_name)
+        options = _raster_options_with_overrides(self, kwargs)
+        if presentation:
+            return plot_product_with_presentation(
+                product,
+                options,
+                context=self.dataset_context,
+                obj=self,
+                ax=ax,
+                show=show,
+            )
+        return plot_product(product, options, ax=ax, show=show)
 
     def write_artifact(self, path: str | Path, format: str | None = None) -> None:
         """Write a smoke visualization artifact for object-first package export."""
