@@ -312,13 +312,19 @@ def test_smoke_field_slice_plot_shows_presentation_by_default():
 
     try:
         assert len(ax.figure.axes) >= 2
+        assert ax.collections
         panel_ax = ax.figure.axes[1]
         assert panel_ax.patch.get_visible()
         assert panel_ax.get_facecolor()[:3] == pytest.approx(
             (247 / 255, 247 / 255, 247 / 255)
         )
         assert any(
-            "Synthetic smoke field" in text.get_text()
+            "Smoke Field - Slice Preview" in text.get_text()
+            for figure_ax in ax.figure.axes
+            for text in figure_ax.texts
+        )
+        assert any(
+            "Synthetic smoke moving" in text.get_text()
             for figure_ax in ax.figure.axes
             for text in figure_ax.texts
         )
@@ -346,7 +352,7 @@ def test_smoke_field_slice_plot_can_hide_presentation():
     try:
         assert len(ax.figure.axes) == 1
         assert not any(
-            "Synthetic smoke field" in text.get_text()
+            "Synthetic smoke moving" in text.get_text()
             for figure_ax in ax.figure.axes
             for text in figure_ax.texts
         )
@@ -372,13 +378,19 @@ def test_smoke_descriptor_plot_shows_presentation_by_default():
 
     try:
         assert len(ax.figure.axes) >= 2
+        assert ax.collections
         panel_ax = ax.figure.axes[1]
         assert panel_ax.patch.get_visible()
         assert panel_ax.get_facecolor()[:3] == pytest.approx(
             (247 / 255, 247 / 255, 247 / 255)
         )
         assert any(
-            "Synthetic smoke field" in text.get_text()
+            "Smoke Field - Slice Preview" in text.get_text()
+            for figure_ax in ax.figure.axes
+            for text in figure_ax.texts
+        )
+        assert any(
+            "Synthetic smoke moving" in text.get_text()
             for figure_ax in ax.figure.axes
             for text in figure_ax.texts
         )

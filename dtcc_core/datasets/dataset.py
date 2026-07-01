@@ -296,6 +296,10 @@ class DatasetDescriptor(ABC):
         processing_steps = self._context_list_attr("processing_steps")
         if default_processing_step not in processing_steps:
             processing_steps.append(default_processing_step)
+        lod = self._context_optional_string(parameters.get("lod")) or self._context_attr(
+            "lod",
+            "level_of_detail",
+        )
 
         return DatasetContext(
             identity=DatasetIdentity(
@@ -310,7 +314,7 @@ class DatasetDescriptor(ABC):
                 license=self._context_attr("license", "license_info"),
                 collection_period=self._context_attr("collection_period"),
                 crs=crs_values,
-                lod=self._context_optional_string(parameters.get("lod")),
+                lod=lod,
                 data_types=self._dedupe_strings(
                     item
                     for item in (
@@ -334,6 +338,7 @@ class DatasetDescriptor(ABC):
                     "package": "dtcc-core",
                     "version": self._package_version(),
                 },
+                generated_at=self._context_attr("generated_at"),
                 derived_from=self._context_list_attr("derived_from"),
             ),
             presentation=DatasetPresentation(

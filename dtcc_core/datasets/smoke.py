@@ -257,37 +257,101 @@ class SmokeArgs(DatasetBaseArgs):
 class SmokeDataset(DatasetDescriptor):
     name = "smoke"
     description = (
-        "Synthetic analytical velocity-field simulation for smoke-testing DTCC "
-        "dataset discovery, serialization, and visualization paths."
+        "Synthetic analytical smoke-flow fixture for testing DTCC city digital "
+        "twin dataset discovery, serialization, visualization, catalog, and "
+        "presentation workflows."
     )
     ArgsModel = SmokeArgs
     data_category = "simulation"
     result_kind = "vector_field"
     python_return_type = "dtcc_core.model.VolumeMesh"
     timeout_hint = 2
-    provider = [{"name": "DTCC Platform", "role": "generator"}]
-    source = ["Synthetic analytical velocity, speed, and pressure fields"]
+    provider = [
+        {
+            "name": "DTCC Platform",
+            "role": "synthetic data fixture maintainer",
+            "url": "https://github.com/dtcc-platform/dtcc-core",
+        }
+    ]
+    source = [
+        {
+            "name": "dtcc-core analytical smoke-field fixture",
+            "role": "deterministic generator",
+            "url": "https://github.com/dtcc-platform/dtcc-core",
+        }
+    ]
     license = "MIT"
-    geographic_coverage = "requested synthetic bounds"
-    update_frequency = "generated on demand"
+    collection_period = (
+        "Timeless synthetic fixture; each request generates a deterministic "
+        "snapshot for the requested time parameter."
+    )
+    lod = (
+        "Not applicable: analytical field fixture rather than a city-model or "
+        "mesh level-of-detail product."
+    )
+    data_types = ["mesh", "vector", "raster", "video", "protobuf"]
+    geographic_coverage = (
+        "Any requested city bounding box; coordinates are affinely mapped into "
+        "the synthetic smoke domain."
+    )
+    update_frequency = "Generated on demand from deterministic analytical functions."
+    generated_at = "Computed at request time by dtcc-core."
+    derived_from = [
+        {
+            "name": "Analytical smoke-flow equations embedded in dtcc-core",
+            "url": "https://github.com/dtcc-platform/dtcc-core",
+        }
+    ]
     processing_steps = [
         "Map requested bounds to the normalized smoke domain",
         "Evaluate deterministic analytical smoke fields",
         "Generate requested field, slice, or streamline product",
+        "Attach Dataset v2 metadata, provenance, and presentation context",
     ]
     presentation_summary = (
-        "Synthetic smoke field used to test Dataset v2 packaging, catalog, "
-        "and presentation workflows."
+        "Synthetic smoke moving through a requested city extent, designed as a "
+        "stable fixture for Dataset v2 packaging, catalog browsing, and "
+        "tangible-table presentation UX."
     )
+    presentation_narrative = [
+        (
+            "The smoke dataset behaves like a compact city-flow simulation "
+            "without depending on live sensors, weather models, or external "
+            "services."
+        ),
+        (
+            "It gives designers and developers a predictable visual story for "
+            "checking how scalar fields, vector flow, exports, manifests, and "
+            "catalog metadata appear in a digital twin experience."
+        ),
+    ]
     key_points = [
-        "No live data dependency",
-        "Deterministic output for a fixed request",
-        "PNG presentation artifacts are preferred for slice and streamline packages",
+        "No live data dependency, so demos and regression tests are repeatable",
+        "Velocity, speed, and pressure are generated for every requested extent",
+        "Slice and streamline products provide presentation-ready PNG and MP4 artifacts",
+    ]
+    presentation_legend = (
+        "Color encodes the selected scalar field; the interactive slice preview "
+        "can overlay velocity direction arrows for flow context."
+    )
+    annotations = [
+        "Use product='slice' for a fast scalar-field preview.",
+        "Use product='streamlines' when the table story should emphasize flow direction.",
     ]
     view_hints = {
         "preferred_media_types": ["image/png", "video/mp4", "application/geo+json"],
         "default_products": ["slice", "streamlines"],
+        "default_scalar_field": "speed",
+        "default_vector_field": "velocity",
+        "presentation_role": "synthetic city-flow fixture",
     }
+    presentation_warnings = [
+        "Synthetic values are not calibrated to observed wind, smoke, or air-quality events."
+    ]
+    presentation_limitations = [
+        "Use for workflow, UX, and integration testing, not for physical decision support.",
+        "The field is mapped to requested bounds and does not model local buildings or terrain.",
+    ]
 
     def describe(self) -> dict[str, Any]:
         metadata = super().describe()
@@ -413,6 +477,7 @@ class SmokeDataset(DatasetDescriptor):
         request_kwargs.setdefault("product", "slice")
         request_kwargs.setdefault("profile", "python")
         request_kwargs.setdefault("legend", True)
+        request_kwargs.setdefault("cmap", "magma")
         request_kwargs.setdefault("title", _plot_title(request_kwargs["product"]))
         args = self.validate(request_kwargs)
         bounds = _physical_bounds(args)
@@ -677,7 +742,7 @@ def _product_factory(bounds: Bounds, args: SmokeArgs):
 
 
 def _plot_title(product: str) -> str:
-    return f"DTCC Smoke {product.title()}"
+    return f"Smoke Field - {product.title()} Preview"
 
 
 def _slice_product(bounds: Bounds, args: SmokeArgs) -> SliceProduct:

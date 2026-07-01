@@ -15,6 +15,7 @@ from ..values import Field
 from .bounds import Bounds
 from .field_slice import (
     _axis_names,
+    _interactive_plot_overrides,
     _bounds_values,
     _normalize_format,
     _raster_options_from_context,
@@ -180,7 +181,13 @@ class StreamlineCollection(Model):
         from dtcc_core.plotting.renderers import plot_product
 
         product = self.to_plot_product(field_name=field_name)
-        options = _raster_options_with_overrides(self, kwargs)
+        plot_kwargs = _interactive_plot_overrides(
+            self,
+            kwargs,
+            presentation=presentation,
+            label="Streamline Preview",
+        )
+        options = _raster_options_with_overrides(self, plot_kwargs)
         if presentation:
             return plot_product_with_presentation(
                 product,

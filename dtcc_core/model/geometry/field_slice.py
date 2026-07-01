@@ -165,7 +165,13 @@ class FieldSlice(PointCloud):
         from dtcc_core.plotting.renderers import plot_product
 
         product = self.to_plot_product(field_name=field_name)
-        options = _raster_options_with_overrides(self, kwargs)
+        plot_kwargs = _interactive_plot_overrides(
+            self,
+            kwargs,
+            presentation=presentation,
+            label="Slice Preview",
+        )
+        options = _raster_options_with_overrides(self, plot_kwargs)
         if presentation:
             return plot_product_with_presentation(
                 product,
@@ -295,3 +301,41 @@ def _raster_options_with_overrides(obj, overrides: dict[str, Any]):
     if unknown:
         raise TypeError(f"Unsupported plot option: {unknown[0]}")
     return replace(_raster_options_from_context(obj), **overrides)
+
+
+def _interactive_plot_overrides(
+    obj,
+    overrides: dict[str, Any],
+    *,
+    presentation: bool,
+    label: str,
+) -> dict[str, Any]:
+    values = {
+        "profile": "python",
+        "title": _interactive_plot_title(obj, label),
+    }
+    if presentation:
+        values["legend"] = True
+        if _dataset_name(obj) == "smoke":
+            values["cmap"] = "magma"
+    values.update(overrides)
+    return values
+
+
+def _interactive_plot_title(obj, label: str) -> str:
+    context = getattr(obj, "dataset_context", None)
+    identity = getattr(context, "identity", None)
+    dataset_name = getattr(identity, "name", None)
+    if dataset_name == "smoke":
+        return f"Smoke Field - {label}"
+    title = getattr(identity, "title", None)
+    if title:
+        return f"{title} - {label}"
+    return f"DTCC {label}"
+
+
+def _dataset_name(obj) -> str | None:
+    context = getattr(obj, "dataset_context", None)
+    identity = getattr(context, "identity", None)
+    name = getattr(identity, "name", None)
+    return str(name) if name else None
