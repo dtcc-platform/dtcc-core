@@ -406,8 +406,11 @@ Then run the smoke table publisher from this repository:
     export DTCC_UPLOAD_TOKEN=replace-me
     python demos/smoke_table_cases.py
 
-Atlas can browse the resulting catalog and fetch the published smoke datasets
-using their `table-smoke-*` dataset keys.
+The tangible/Atlas++ MVP online catalog flow can browse the resulting
+`dtcc-upload` catalog and fetch the published smoke datasets using their
+`table-smoke-*` dataset keys. The `dtcc-atlas` repository currently has
+server-side Manifest v2 parsing and local package discovery; live
+`dtcc-upload` catalog browsing in `dtcc-atlas` remains a follow-up.
 
 The smoke cases are synthetic, so they cannot show whether the projection
 actually lands on the printed buildings. The companion footprints demo
