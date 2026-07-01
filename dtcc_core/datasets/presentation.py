@@ -27,11 +27,11 @@ def format_dataset_context(context, obj: Any | None = None) -> str:
         soft_wrap=False,
     )
 
-    console.print("Tangible Table Metadata", style="bold")
+    console.print("Metadata", style="bold")
     console.print(
         make_table(
-            [("Criterion", "left"), ("Value", "left")],
-            _criteria_rows(context, obj),
+            [("Field", "left"), ("Value", "left")],
+            _metadata_rows(context, obj),
             overflow="fold",
         )
     )
@@ -42,6 +42,16 @@ def format_dataset_context(context, obj: Any | None = None) -> str:
         make_table(
             [("Field", "left"), ("Value", "left")],
             _presentation_rows(context),
+            overflow="fold",
+        )
+    )
+
+    console.print()
+    console.print("Provenance", style="bold")
+    console.print(
+        make_table(
+            [("Field", "left"), ("Value", "left")],
+            _provenance_rows(context),
             overflow="fold",
         )
     )
@@ -68,12 +78,20 @@ def plot_product_with_presentation(
     if ax is None:
         plt = require_matplotlib("dataset presentation plotting")
         width, height = options.figsize
+        fig_width = max(width * 1.42, 8.5)
+        fig_height = max(height, 4.8)
         fig, (data_ax, panel_ax) = plt.subplots(
             1,
             2,
-            figsize=(width * 1.42, height),
-            gridspec_kw={"width_ratios": [3.0, 1.15]},
-            constrained_layout=True,
+            figsize=(fig_width, fig_height),
+            gridspec_kw={"width_ratios": [2.75, 1.25]},
+        )
+        fig.subplots_adjust(
+            left=0.06,
+            right=0.97,
+            top=0.93,
+            bottom=0.09,
+            wspace=0.12,
         )
         plot_product(product, options, ax=data_ax, show=False)
         draw_presentation_panel(panel_ax, context, obj=obj)
@@ -105,8 +123,21 @@ def plot_product_with_presentation(
 
 def draw_presentation_panel(ax, context, obj: Any | None = None) -> None:
     """Draw a compact Dataset v2 presentation panel on a Matplotlib axes."""
-    ax.set_axis_off()
     ax.set_facecolor("#f7f7f7")
+    ax.patch.set_visible(True)
+    ax.patch.set_alpha(1.0)
+    ax.set_xlim(0.0, 1.0)
+    ax.set_ylim(0.0, 1.0)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.tick_params(
+        left=False,
+        bottom=False,
+        labelleft=False,
+        labelbottom=False,
+    )
+    for spine in ax.spines.values():
+        spine.set_visible(False)
     ax.text(
         0.03,
         0.97,
@@ -114,80 +145,78 @@ def draw_presentation_panel(ax, context, obj: Any | None = None) -> None:
         transform=ax.transAxes,
         va="top",
         ha="left",
-        fontsize=9,
+        fontsize=8.5,
         color="#111111",
         wrap=True,
     )
 
 
-def presentation_panel_text(context, obj: Any | None = None) -> str:
+def presentation_panel_text(
+    context,
+    obj: Any | None = None,
+    *,
+    width: int = 30,
+) -> str:
     """Return concise plain text for a plot-side Dataset v2 presentation panel."""
     identity = context.identity
     metadata = context.metadata
     presentation = context.presentation
-    provenance = context.provenance
 
     lines = [
         _first_text(presentation.headline, identity.title, identity.name),
         "",
     ]
     if presentation.summary:
-        lines.extend(_wrap(presentation.summary, width=34))
+        lines.extend(_wrap(presentation.summary, width=width))
         lines.append("")
 
     key_points = list(presentation.key_points or ())
     if key_points:
         lines.append("Key points")
-        lines.extend(f"- {line}" for item in key_points for line in _wrap(item, width=32))
+        for item in key_points[:3]:
+            lines.extend(_bullet_lines(item, width=width))
         lines.append("")
 
-    lines.extend(
-        [
-            f"Provider: {_plain_value(metadata.provider)}",
-            f"Source: {_plain_value(metadata.source)}",
-            f"License: {_plain_value(metadata.license)}",
-            f"CRS: {_plain_value(metadata.crs)}",
-            f"Type: {_data_type_value(metadata)}",
-            f"Formats: {_plain_value(metadata.formats)}",
-        ]
-    )
+    lines.append("Metadata")
+    for label, value in (
+        ("Provider", metadata.provider),
+        ("License", metadata.license),
+        ("CRS", metadata.crs),
+        ("Formats", metadata.formats),
+    ):
+        lines.extend(_key_value_lines(label, _plain_value(value), width=width))
 
     fields = _field_names(obj)
     if fields:
-        lines.append(f"Fields: {', '.join(fields)}")
-
-    if provenance.processing_steps:
-        lines.append("")
-        lines.append("Method")
-        for step in provenance.processing_steps[:3]:
-            lines.extend(f"- {line}" for line in _wrap(_plain_value(step), width=32))
+        lines.extend(_key_value_lines("Fields", ", ".join(fields), width=width))
 
     return "\n".join(lines).strip()
 
 
-def _criteria_rows(context, obj: Any | None) -> list[tuple[str, str]]:
+def _metadata_rows(context, obj: Any | None) -> list[tuple[str, str]]:
     metadata = context.metadata
     provenance = context.provenance
     fields = _field_names(obj)
     rows = [
-        ("C-P1 Provider / Source", _join_values(metadata.provider, metadata.source)),
-        ("C-P2 Data Collection Year", _value(metadata.collection_period)),
-        ("C-P3 License", _value(metadata.license)),
-        ("C-P4 CRS", _value(metadata.crs)),
-        ("C-P5 LOD", _value(metadata.lod)),
-        ("C-P6 Data Type", _data_type_value(metadata)),
-        ("C-P7 Available Formats", _value(metadata.formats)),
-        ("C-S1 Scale", MISSING),
-        ("C-S2 Geographic Coverage", _value(metadata.geographic_coverage)),
-        ("C-S3 Description", _value(metadata.description)),
-        ("C-S4 Attributes", _value(fields)),
-        ("C-S5 Update Frequency", _value(metadata.update_frequency)),
+        ("Description", _value(metadata.description)),
+        ("Provider", _value(metadata.provider)),
+        ("Source", _value(metadata.source)),
+        ("License", _value(metadata.license)),
+        ("Collection period", _value(metadata.collection_period)),
+        ("CRS", _value(metadata.crs)),
+        ("LOD", _value(metadata.lod)),
+        ("Data types", _value(metadata.data_types)),
+        ("Formats", _value(metadata.formats)),
+        ("Geographic coverage", _value(metadata.geographic_coverage)),
+        ("Update frequency", _value(metadata.update_frequency)),
+        ("Data category", _value(metadata.data_category)),
+        ("Result kind", _value(metadata.result_kind)),
+        ("Python return type", _value(metadata.python_return_type)),
+        ("Fields", _value(fields)),
         (
-            "C-S6 Link to Original Resource",
+            "Resource links",
             _value(_resource_links(metadata.source, provenance.sources)),
         ),
-        ("C-S7 Processing / Methodology", _value(provenance.processing_steps)),
-        ("C-S8 Machine-Readable Fields", _machine_fields_value(fields)),
     ]
     return [(escape(label), escape(value)) for label, value in rows]
 
@@ -208,6 +237,18 @@ def _presentation_rows(context) -> list[tuple[str, str]]:
     return [(escape(label), escape(value)) for label, value in rows]
 
 
+def _provenance_rows(context) -> list[tuple[str, str]]:
+    provenance = context.provenance
+    rows = [
+        ("Sources", _value(provenance.sources)),
+        ("Processing steps", _value(provenance.processing_steps)),
+        ("Generated by", _value(provenance.generated_by)),
+        ("Generated at", _value(provenance.generated_at)),
+        ("Derived from", _value(provenance.derived_from)),
+    ]
+    return [(escape(label), escape(value)) for label, value in rows]
+
+
 def _field_names(obj: Any | None) -> list[str]:
     if obj is None:
         return []
@@ -217,26 +258,6 @@ def _field_names(obj: Any | None) -> list[str]:
     if names is None:
         return []
     return [str(name) for name in names if str(name)]
-
-
-def _machine_fields_value(fields: list[str]) -> str:
-    if not fields:
-        return "Manifest v2 is machine-readable; present fields not specified."
-    return f"Manifest v2 is machine-readable; present fields: {', '.join(fields)}"
-
-
-def _data_type_value(metadata) -> str:
-    values = [
-        *list(metadata.data_types or ()),
-        metadata.data_category,
-        metadata.result_kind,
-        metadata.python_return_type,
-    ]
-    deduped = []
-    for value in values:
-        if value and str(value) not in deduped:
-            deduped.append(str(value))
-    return _value(deduped)
 
 
 def _resource_links(*sources) -> list[str]:
@@ -251,11 +272,6 @@ def _resource_links(*sources) -> list[str]:
                     if isinstance(value, str) and value.startswith(("http://", "https://")):
                         links.append(value)
     return links
-
-
-def _join_values(*values) -> str:
-    parts = [_value(value) for value in values if _value(value) != MISSING]
-    return "\n".join(parts) if parts else MISSING
 
 
 def _value(value: Any) -> str:
@@ -303,3 +319,18 @@ def _first_text(*values: Any) -> str:
 
 def _wrap(text: str, *, width: int) -> list[str]:
     return textwrap.wrap(text, width=width) or [text]
+
+
+def _bullet_lines(value: Any, *, width: int) -> list[str]:
+    wrapped = _wrap(_plain_value(value), width=max(width - 2, 10))
+    return [f"- {wrapped[0]}", *[f"  {line}" for line in wrapped[1:]]]
+
+
+def _key_value_lines(label: str, value: str, *, width: int) -> list[str]:
+    prefix = f"{label}: "
+    available = max(width - len(prefix), 10)
+    wrapped = _wrap(value, width=available)
+    return [
+        f"{prefix}{wrapped[0]}",
+        *[f"{' ' * len(prefix)}{line}" for line in wrapped[1:]],
+    ]

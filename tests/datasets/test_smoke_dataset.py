@@ -312,6 +312,11 @@ def test_smoke_field_slice_plot_shows_presentation_by_default():
 
     try:
         assert len(ax.figure.axes) >= 2
+        panel_ax = ax.figure.axes[1]
+        assert panel_ax.patch.get_visible()
+        assert panel_ax.get_facecolor()[:3] == pytest.approx(
+            (247 / 255, 247 / 255, 247 / 255)
+        )
         assert any(
             "Synthetic smoke field" in text.get_text()
             for figure_ax in ax.figure.axes
@@ -367,6 +372,11 @@ def test_smoke_descriptor_plot_shows_presentation_by_default():
 
     try:
         assert len(ax.figure.axes) >= 2
+        panel_ax = ax.figure.axes[1]
+        assert panel_ax.patch.get_visible()
+        assert panel_ax.get_facecolor()[:3] == pytest.approx(
+            (247 / 255, 247 / 255, 247 / 255)
+        )
         assert any(
             "Synthetic smoke field" in text.get_text()
             for figure_ax in ax.figure.axes
