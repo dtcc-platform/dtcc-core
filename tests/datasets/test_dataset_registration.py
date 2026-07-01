@@ -219,6 +219,20 @@ def test_dataset_info_prints_one_table_per_category(monkeypatch):
     assert any("DTCC Datasets" in message for message in messages)
 
 
+def test_dataset_descriptor_string_uses_parameter_table():
+    """print(datasets.foo) should show one-dataset help as a table."""
+    output = str(datasets.smoke)
+
+    assert "Dataset: smoke" in output
+    assert "Available Parameters:" in output
+    assert "Parameter" in output
+    assert "Default" in output
+    assert "Description" in output
+    assert "bounds" in output
+    assert "resolution" in output
+    assert "* = required parameter" in output
+
+
 # Explicit API Tests
 
 

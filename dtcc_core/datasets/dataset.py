@@ -1,14 +1,18 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, version
+from io import StringIO
 import json
 from pathlib import Path
 import tempfile
 from typing import Any, Optional, Sequence, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from rich.console import Console
+from rich.markup import escape
 
 import dtcc_core
+from dtcc_core.common.dtcc_logging import make_table
 from dtcc_core.model import Bounds
 from dtcc_core.model import Object as DTCCObject
 from dtcc_core.model import Geometry as DTCCGeometry
@@ -809,61 +813,89 @@ class DatasetDescriptor(ABC):
 
     def __str__(self):
         """Return a nicely formatted summary of the dataset."""
-        lines = []
-        lines.append("=" * 70)
-        lines.append(f"Dataset: {self.name}")
-        lines.append("=" * 70)
+        console = Console(
+            file=StringIO(),
+            record=True,
+            width=120,
+            color_system=None,
+            force_terminal=False,
+            soft_wrap=False,
+        )
+        console.print(f"Dataset: {self.name}", style="bold")
 
         if self.description:
-            lines.append(f"\nDescription:")
-            # Wrap long descriptions nicely
-            desc_lines = self.description.split("\n")
-            for desc_line in desc_lines:
-                lines.append(f"  {desc_line}")
-
-        lines.append(f"\nAvailable Parameters:")
-        lines.append("-" * 70)
+            console.print()
+            console.print("Description:", style="bold")
+            console.print(self.description, markup=False)
 
         # Get schema information from ArgsModel
         schema = self.ArgsModel.model_json_schema()
         properties = schema.get("properties", {})
         required_fields = schema.get("required", [])
 
+        rows = []
         if properties:
             for param_name, param_info in properties.items():
-                param_type = param_info.get("type", "any")
+                param_type = self._schema_type_label(param_info)
                 param_desc = param_info.get("description", "")
-                default_val = param_info.get("default")
                 is_required = param_name in required_fields
-
-                # Format parameter type
-                if "anyOf" in param_info:
-                    # Handle union types
-                    types = [t.get("type", str(t)) for t in param_info["anyOf"]]
-                    param_type = " | ".join(str(t) for t in types)
-                elif "items" in param_info:
-                    # Handle array types
-                    item_type = param_info["items"].get("type", "any")
-                    param_type = f"array of {item_type}"
-
-                # Format the line
-                required_marker = "*" if is_required else " "
-                param_line = f"  {required_marker} {param_name} ({param_type})"
-
-                # Add default value if present
-                if default_val is not None and not is_required:
-                    param_line += f" = {default_val}"
-
-                lines.append(param_line)
-                if param_desc:
-                    lines.append(f"      {param_desc}")
+                rows.append(
+                    (
+                        "*" if is_required else "",
+                        escape(param_name),
+                        escape(param_type),
+                        escape(self._schema_default_label(param_info, is_required)),
+                        escape(param_desc),
+                    )
+                )
         else:
-            lines.append("  No parameters defined")
+            rows.append(("", "No parameters defined", "", "", ""))
 
-        lines.append("\n" + "=" * 70)
-        lines.append("* = required parameter")
+        console.print()
+        console.print("Available Parameters:", style="bold")
+        console.print(
+            make_table(
+                [
+                    ("", "center"),
+                    ("Parameter", "left"),
+                    ("Type", "left"),
+                    ("Default", "left"),
+                    ("Description", "left"),
+                ],
+                rows,
+                overflow="fold",
+            )
+        )
+        console.print("* = required parameter")
 
-        return "\n".join(lines)
+        return console.export_text(styles=False).rstrip()
+
+    @staticmethod
+    def _schema_type_label(param_info: dict[str, Any]) -> str:
+        if "anyOf" in param_info:
+            types = [
+                DatasetDescriptor._schema_type_label(item)
+                for item in param_info["anyOf"]
+            ]
+            return " | ".join(types)
+        if "items" in param_info:
+            item_type = param_info["items"].get("type", "any")
+            return f"array of {item_type}"
+        return str(param_info.get("type", "any"))
+
+    @staticmethod
+    def _schema_default_label(param_info: dict[str, Any], is_required: bool) -> str:
+        if is_required or "default" not in param_info:
+            return ""
+        default_val = param_info["default"]
+        if default_val is None:
+            return ""
+        if isinstance(default_val, str):
+            return default_val
+        try:
+            return json.dumps(default_val, sort_keys=True)
+        except TypeError:
+            return str(default_val)
 
     @staticmethod
     def parse_bounds(bounds: Sequence[float]) -> Bounds:
