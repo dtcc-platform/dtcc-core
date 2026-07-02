@@ -12,6 +12,7 @@ import numpy as np
 import dtcc_core as dtcc
 
 from benchmarks.benchmark_catalog import DATASET_NAMES
+from dtcc_core.datasets.city_footprints import CityFootprintsDataset
 
 
 BLOCKED_PARAMETER_NAMES = {"bounds", "strict_live", "mesher"}
@@ -57,6 +58,16 @@ WARNING_CLASS_PRIORITY = (
     "stage_contract_warning",
 )
 
+_INTERNAL_DATASETS = {
+    "city_footprints": CityFootprintsDataset(),
+}
+
+
+def _dataset_descriptor(dataset_name: str):
+    if dataset_name in _INTERNAL_DATASETS:
+        return _INTERNAL_DATASETS[dataset_name]
+    return getattr(dtcc.datasets, dataset_name)
+
 
 def json_ready(value: Any) -> Any:
     if isinstance(value, dict):
@@ -71,7 +82,7 @@ def json_ready(value: Any) -> Any:
 
 
 def dataset_parameters(dataset_name: str, parameters: dict[str, Any]) -> dict[str, Any]:
-    dataset_fn = getattr(dtcc.datasets, dataset_name)
+    dataset_fn = _dataset_descriptor(dataset_name)
     fields = set(dataset_fn.ArgsModel.model_fields)
     aliases = DATASET_PARAMETER_ALIASES.get(dataset_name, {})
     kwargs: dict[str, Any] = {}
@@ -404,7 +415,7 @@ def run_dataset(task: dict[str, Any]) -> dict[str, Any]:
 
     started = time.perf_counter()
     try:
-        dataset_fn = getattr(dtcc.datasets, dataset_name)
+        dataset_fn = _dataset_descriptor(dataset_name)
         result = dataset_fn(bounds=bounds, **kwargs)
         elapsed = time.perf_counter() - started
 

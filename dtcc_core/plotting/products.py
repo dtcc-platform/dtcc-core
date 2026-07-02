@@ -52,6 +52,9 @@ class SliceProduct:
 
     @property
     def fields(self) -> list[str]:
+        metadata_fields = self.metadata.get("fields")
+        if isinstance(metadata_fields, (list, tuple)):
+            return [str(field) for field in metadata_fields]
         fields = []
         if self.vector_values is not None:
             fields.append("velocity")
@@ -106,6 +109,9 @@ class StreamlineProduct:
 
     @property
     def fields(self) -> list[str]:
+        metadata_fields = self.metadata.get("fields")
+        if isinstance(metadata_fields, (list, tuple)):
+            return [str(field) for field in metadata_fields]
         return [self.vector_field_name, self.value_name]
 
     def manifest_dict(self) -> dict[str, Any]:

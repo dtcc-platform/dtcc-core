@@ -8,7 +8,7 @@ from typing import Any, Literal, Optional
 import numpy as np
 from pydantic import Field
 
-from dtcc_core.model import Bounds
+from dtcc_core.model import Bounds, CalibrationGrid
 
 from .dataset import DatasetBaseArgs, DatasetDescriptor
 
@@ -38,7 +38,7 @@ class CalibrationGridArgs(DatasetBaseArgs):
         None,
         description=(
             "Serialized output format. If omitted, the dataset returns a "
-            "GeoJSON FeatureCollection dictionary."
+            "CalibrationGrid model."
         ),
     )
 
@@ -51,9 +51,23 @@ class CalibrationGridDataset(DatasetDescriptor):
     )
     ArgsModel = CalibrationGridArgs
     data_category = "derived"
-    result_kind = "vector"
-    python_return_type = "dict"
+    result_kind = "calibration_grid"
+    python_return_type = "dtcc_core.model.CalibrationGrid"
     timeout_hint = 2
+    provider = [{"name": "DTCC Platform", "role": "generator"}]
+    source = ["Synthetic grid generated from requested bounds"]
+    license = "MIT"
+    geographic_coverage = "requested synthetic bounds"
+    update_frequency = "generated on demand"
+    processing_steps = ["Generate evenly spaced grid lines for requested bounds"]
+    presentation_summary = (
+        "Synthetic alignment grid for checking table-projector calibration."
+    )
+    key_points = [
+        "Generated locally from the request",
+        "Useful for table and projector alignment checks",
+    ]
+    view_hints = {"preferred_geometry": "lines", "default_style": "calibration_grid"}
 
     def build(self, args: CalibrationGridArgs):
         bounds = self.parse_bounds(args.bounds)
@@ -61,6 +75,11 @@ class CalibrationGridDataset(DatasetDescriptor):
         if args.format is None:
             return geojson
         return json.dumps(geojson, separators=(",", ":")).encode("utf-8")
+
+    def prepare_result(self, result, validated_args: CalibrationGridArgs):
+        if validated_args.format is None and isinstance(result, dict):
+            return CalibrationGrid.from_geojson(result)
+        return result
 
 
 def _grid_geojson(bounds: Bounds, args: CalibrationGridArgs) -> dict[str, Any]:

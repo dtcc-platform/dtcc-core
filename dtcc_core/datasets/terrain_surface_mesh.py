@@ -52,6 +52,19 @@ class TerrainSurfaceMeshDataset(DatasetDescriptor):
     data_category = "derived"
     result_kind = "mesh"
     python_return_type = "dtcc_core.model.Mesh | dtcc_core.model.Raster"
+    provider = [{"name": "DTCC Platform", "role": "processor"}]
+    source = ["Point cloud data"]
+    license = "Derived from upstream point cloud data; verify source terms before redistribution."
+    default_crs = "EPSG:3006"
+    geographic_coverage = "Sweden, constrained by requested bounds and source coverage"
+    update_frequency = "derived on demand from upstream source data"
+    processing_steps = [
+        "Download point cloud data for requested bounds",
+        "Build a terrain raster or terrain surface mesh",
+    ]
+    presentation_summary = (
+        "Terrain raster or surface mesh derived from point cloud data."
+    )
 
     def build(self, args: TerrainSurfaceMeshArgs):
         progress_phases = {

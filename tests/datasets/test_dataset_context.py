@@ -7,13 +7,14 @@ import json
 import pytest
 
 import dtcc_core.datasets as datasets
+import dtcc_core.model as model
 from dtcc_core.datasets import (
     Dataset,
     DatasetContext,
     DatasetManifest,
     attach_dataset_context,
 )
-from dtcc_core.model import VolumeMesh
+from dtcc_core.model import DatasetCollection, DatasetValue, VolumeMesh
 
 
 def test_dataset_alias_keeps_descriptor_compatibility():
@@ -41,13 +42,172 @@ def test_smoke_returns_native_model_with_dataset_context():
     assert manifest.metadata.description == datasets.smoke.description
     assert manifest.metadata.data_category == "simulation"
     assert manifest.metadata.result_kind == "vector_field"
+    assert manifest.metadata.lod.startswith("Not applicable")
+    assert {"mesh", "vector", "raster", "video", "protobuf", "vector_field"} <= set(
+        manifest.metadata.data_types
+    )
     assert manifest.metadata.formats == ["pb", "vtu", "geojson", "png", "mp4"]
     assert manifest.provenance.generated_by["package"] == "dtcc-core"
-    assert manifest.presentation.headline == "Smoke"
+    assert manifest.provenance.generated_at == "Computed at request time by dtcc-core."
+    assert manifest.presentation.headline == "Synthetic Urban Smoke Flow"
     assert manifest.request.dataset_name == "smoke"
     assert manifest.request.bounds == [0.0, 0.0, 10.0, 20.0]
     assert manifest.request.parameters["resolution"] == 4
     assert manifest.artifacts == []
+
+
+def test_dataset_object_info_includes_presentation_tables():
+    field_slice = datasets.smoke(
+        bounds=(0.0, 0.0, 10.0, 20.0),
+        product="slice",
+        resolution=4,
+        width=80,
+        height=64,
+    )
+
+    text = field_slice.info(print=False)
+
+    assert "Metadata" in text
+    assert "Provider" in text
+    assert "DTCC Platform (synthetic data fixture maintainer)" in text
+    assert "Presentation" in text
+    assert "Deterministic synthetic vector field" in text
+    assert "Provenance" in text
+    assert "Processing steps" in text
+    assert "velocity" in text
+    assert "speed" in text
+    assert "pressure" in text
+    assert "Not specified" not in text
+    assert "C-P1" not in text
+    assert "C-S7" not in text
+    assert "Tangible Table Metadata" not in text
+
+
+def test_dataset_object_info_can_hide_presentation_tables():
+    field_slice = datasets.smoke(
+        bounds=(0.0, 0.0, 10.0, 20.0),
+        product="slice",
+        resolution=4,
+        width=80,
+        height=64,
+    )
+
+    text = field_slice.info(print=False, presentation=False)
+
+    assert "Metadata" not in text
+    assert "Provider" not in text
+    assert "Presentation" not in text
+    assert "Provenance" not in text
+
+
+def test_descriptor_metadata_flows_to_context_manifest():
+    context = datasets.smoke.create_context(
+        datasets.smoke.validate({"bounds": (0.0, 0.0, 10.0, 20.0)})
+    )
+    manifest = context.manifest()
+
+    assert manifest.metadata.provider == [
+        {
+            "name": "DTCC Platform",
+            "role": "synthetic data fixture maintainer",
+            "url": "https://github.com/dtcc-platform/dtcc-core",
+        }
+    ]
+    assert manifest.metadata.source == [
+        {
+            "name": "dtcc-core analytical smoke-field fixture",
+            "role": "deterministic generator",
+            "url": "https://github.com/dtcc-platform/dtcc-core",
+        }
+    ]
+    assert manifest.metadata.license == "MIT"
+    assert manifest.metadata.collection_period.startswith("Timeless synthetic fixture")
+    assert manifest.metadata.update_frequency == (
+        "Generated on demand from deterministic analytical functions."
+    )
+    assert manifest.provenance.processing_steps[:4] == [
+        "Map requested bounds to the normalized smoke domain",
+        "Evaluate deterministic analytical smoke fields",
+        "Generate requested field, slice, or streamline product",
+        "Attach Dataset v2 metadata, provenance, and presentation context",
+    ]
+    assert manifest.provenance.processing_steps[-1] == "Build dataset 'smoke'"
+    assert manifest.provenance.derived_from == [
+        {
+            "name": "Analytical smoke-flow equations embedded in dtcc-core",
+            "url": "https://github.com/dtcc-platform/dtcc-core",
+        }
+    ]
+    assert manifest.presentation.summary == datasets.smoke.describe()["presentation"][
+        "summary"
+    ]
+    assert manifest.presentation.narrative
+    assert manifest.presentation.legend["title"] == "Smoke speed"
+    assert manifest.presentation.annotations
+    assert manifest.presentation.annotations[0]["label"] == "Fast corridor"
+    assert manifest.presentation.view_hints["default_plot_mode"] == "preview"
+    assert (
+        manifest.presentation.view_hints["preview_mode"]["main_visual"]
+        == "speed_slice_with_streamlines"
+    )
+    assert manifest.presentation.warnings
+    assert manifest.presentation.limitations
+
+
+def test_public_dataset_context_metadata_audit():
+    missing = {}
+    for name, dataset in datasets.list().items():
+        if not dataset.__class__.__module__.startswith("dtcc_core.datasets."):
+            continue
+        context = dataset.create_context(
+            dataset.validate({"bounds": (0.0, 0.0, 1.0, 1.0)})
+        )
+        failures = []
+        if not context.metadata.description:
+            failures.append("description")
+        if not context.metadata.provider:
+            failures.append("provider")
+        if not context.metadata.source:
+            failures.append("source")
+        if not context.metadata.license:
+            failures.append("license")
+        if not context.metadata.update_frequency:
+            failures.append("update_frequency")
+        if not context.provenance.processing_steps:
+            failures.append("processing_steps")
+        if not context.provenance.generated_by:
+            failures.append("generated_by")
+        if not context.presentation.headline:
+            failures.append("presentation.headline")
+        if not context.presentation.summary:
+            failures.append("presentation.summary")
+        if failures:
+            missing[name] = failures
+
+    assert missing == {}
+
+
+def test_known_epsg3006_datasets_have_context_crs_without_request_crs():
+    dataset_names = [
+        "point_cloud",
+        "building_footprints",
+        "buildings",
+        "city",
+        "terrain_surface_mesh",
+        "city_flat_mesh",
+        "city_surface_mesh",
+        "city_volume_mesh",
+        "trees",
+        "roads",
+        "space_syntax",
+    ]
+
+    for name in dataset_names:
+        dataset = datasets.get_dataset(name)
+        context = dataset.create_context(
+            dataset.validate({"bounds": (0.0, 0.0, 1.0, 1.0)})
+        )
+        assert "EPSG:3006" in context.metadata.crs
 
 
 def test_dataset_context_serializes_to_json_safe_data():
@@ -86,3 +246,54 @@ def test_attach_dataset_context_leaves_bare_containers_unchanged():
     assert attach_dataset_context(mapping, context) is mapping
     assert not hasattr(values, "dataset_context")
     assert not hasattr(mapping, "dataset_context")
+
+
+def test_dataset_collection_can_carry_dataset_context():
+    context = datasets.smoke.create_context(
+        datasets.smoke.validate({"bounds": (0.0, 0.0, 10.0, 20.0)})
+    )
+    collection = DatasetCollection(items=["a", "b"])
+
+    result = attach_dataset_context(collection, context)
+
+    assert result is collection
+    assert len(collection) == 2
+    assert list(collection) == ["a", "b"]
+    assert collection[0] == "a"
+    assert collection.to_list() == ["a", "b"]
+    assert collection.dataset_context is context
+    assert collection.metadata is context.metadata
+    assert isinstance(collection.manifest(), DatasetManifest)
+
+
+def test_dataset_value_can_carry_dataset_context():
+    context = datasets.smoke.create_context(
+        datasets.smoke.validate({"bounds": (0.0, 0.0, 10.0, 20.0)})
+    )
+    value = DatasetValue({"type": "FeatureCollection", "features": []})
+
+    result = attach_dataset_context(value, context)
+
+    assert result is value
+    assert value["type"] == "FeatureCollection"
+    assert value.get("missing", "fallback") == "fallback"
+    assert list(value.keys()) == ["type", "features"]
+    assert list(value.items())[0] == ("type", "FeatureCollection")
+    assert value.to_python() == {"type": "FeatureCollection", "features": []}
+    assert value.dataset_context is context
+    assert value.provenance is context.provenance
+    assert isinstance(value.manifest(), DatasetManifest)
+
+
+def test_no_dataset_result_or_run_api_is_introduced():
+    assert not hasattr(datasets, "DatasetResult")
+    assert not hasattr(datasets, "VectorLayer")
+    assert not hasattr(model, "VectorLayer")
+    for dataset in (
+        datasets.smoke,
+        datasets.buildings,
+        datasets.building_footprints,
+        datasets.trees,
+        datasets.calibration_grid,
+    ):
+        assert not hasattr(dataset, "run")

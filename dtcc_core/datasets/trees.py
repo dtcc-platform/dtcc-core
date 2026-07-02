@@ -1,7 +1,7 @@
 import dtcc_core
 from dtcc_core import datasets
 from dtcc_core.builder import tree_raster_from_pointcloud
-from dtcc_core.model import PointCloud, Building, Raster, City
+from dtcc_core.model import PointCloud, Building, Raster, City, TreeCollection
 from dtcc_core.io.trees import save_trees
 from pydantic import BaseModel, Field
 from typing import Optional, Literal
@@ -35,7 +35,20 @@ class TreesDataset(DatasetDescriptor):
     ArgsModel = TreeArgs
     data_category = "derived"
     result_kind = "tree_collection"
-    python_return_type = "list[dtcc_core.model.Tree]"
+    python_return_type = "dtcc_core.model.TreeCollection"
+    provider = [{"name": "DTCC Platform", "role": "processor"}]
+    source = ["Point cloud data"]
+    license = "Derived from upstream point cloud data; verify source terms before redistribution."
+    default_crs = "EPSG:3006"
+    geographic_coverage = "Sweden, constrained by requested bounds and source coverage"
+    update_frequency = "derived on demand from upstream source data"
+    processing_steps = [
+        "Download point cloud data for requested bounds",
+        "Detect tree locations or tree-height raster values",
+    ]
+    presentation_summary = (
+        "Tree objects or tree-height raster derived from point cloud data."
+    )
 
     def build(self, args: TreeArgs):
         bounds = self.parse_bounds(args.bounds)
@@ -65,3 +78,8 @@ class TreesDataset(DatasetDescriptor):
                     save_callable=save_trees,
                     as_circles=as_circles,
                 )
+
+    def prepare_result(self, result, validated_args: TreeArgs):
+        if validated_args.format is None and isinstance(result, list):
+            return TreeCollection(result)
+        return result

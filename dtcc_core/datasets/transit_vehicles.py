@@ -148,6 +148,22 @@ class TransitVehiclesDataset(DatasetDescriptor):
     result_kind = "vehicle_collection"
     python_return_type = "dtcc_core.model.VehicleCollection"
     timeout_hint = 20
+    provider = [
+        {"name": "Trafiklab", "role": "source_provider"},
+        {"name": "Vasttrafik", "role": "source_provider"},
+    ]
+    source = ["Live regional Swedish public transport APIs"]
+    license = "Review selected public transport provider terms before redistribution."
+    geographic_coverage = "Sweden, constrained by provider coverage and requested bounds"
+    update_frequency = "live snapshot"
+    processing_steps = [
+        "Select providers for requested bounds and modes",
+        "Fetch live vehicle positions and normalize to VehicleCollection",
+    ]
+    presentation_summary = (
+        "Live public transport vehicle positions for the requested bounds."
+    )
+    view_hints = {"preferred_geometry": "points"}
 
     default_modes: tuple[str, ...] | None = None
 

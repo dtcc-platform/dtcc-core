@@ -650,7 +650,18 @@ artifacts/
   style/legend/auxiliary artifact(s)
 ```
 
-The exact internal layout may be finalized during implementation, but every package must contain `manifest.json`.
+Phase 2A implements the initial object-first package layout in `dtcc-core`:
+
+```text
+out/foo/
+  manifest.json
+  artifacts/
+    <safe-primary-name>.<extension>
+```
+
+For `.dtccpkg`, the package is a zip archive with the same internal layout.
+The returned `DatasetPackage` records `path`, `manifest_path`, `manifest`,
+`artifacts`, `files`, and `package_format` (`directory` or `dtccpkg`).
 
 ### 4.12 DatasetPublication
 
@@ -745,6 +756,9 @@ datasets.city_surface_mesh(...)     -> Mesh
 datasets.city_volume_mesh(...)      -> VolumeMesh
 datasets.point_cloud(...)           -> PointCloud
 datasets.transit_vehicles(...)      -> VehicleCollection
+datasets.smoke(product="field")     -> VolumeMesh
+datasets.smoke(product="slice")     -> FieldSlice
+datasets.smoke(product="streamlines") -> StreamlineCollection
 ```
 
 Datasets should avoid returning bare Python containers such as:
@@ -766,6 +780,14 @@ arbitrary dict      -> typed DTCC model object, or fallback DatasetValue only if
 ```
 
 A fallback generic dataset-aware value type may exist for exceptional cases, but it should not be the normal path.
+
+For simulation datasets, values should be attached to geometry through
+`Field` objects. The synthetic `smoke` dataset follows this model:
+`product="field"` returns a `VolumeMesh` with velocity, speed, and pressure
+fields; `product="slice"` returns a `FieldSlice` with sampled fields attached
+to points; and `product="streamlines"` returns a `StreamlineCollection` with
+fields attached to line vertices. GeoJSON remains available only as an
+explicit serialized vector/debug/Atlas format for these products.
 
 ## 7. Format and Serialization Policy
 
@@ -1168,6 +1190,22 @@ A product may affect:
 
 This is acceptable if products are explicit and documented.
 
+For `smoke`, product selection also changes the native Python model:
+
+```text
+product="field"        -> VolumeMesh
+product="slice"        -> FieldSlice
+product="streamlines"  -> StreamlineCollection
+```
+
+All three products carry `velocity`, `speed`, and `pressure` as `Field`
+values attached to geometry. `format="geojson"` is an explicit adapter for
+debug/vector/Atlas workflows; it is not the primary in-memory representation.
+For tangible-table-style object packages, `FieldSlice.export(...)` and
+`StreamlineCollection.export(...)` default to a PNG primary artifact. MP4
+remains supported through the dataset-level `format="mp4"` export path unless
+and until object-first video export is implemented cleanly.
+
 ## 15. CRS and Table Profile
 
 The current tangible-table/projector workflow is based on EPSG:3006 for the Gothenburg table.
@@ -1315,13 +1353,13 @@ dtcc-core
 
 Goals:
 
-- implement package export;
+- implement object-first package export;
 - support directory and `.dtccpkg` packages;
 - write DatasetManifest v2;
 - use `artifacts[]`;
-- move public export/publish to dataset-produced objects;
-- keep dataset-level export/publish only as convenience shortcuts if desired;
-- remove or de-emphasize `format=` bytes-returning behavior from normal dataset calls.
+- move public export to dataset-produced objects;
+- keep dataset-level export/publish as the existing v1 serialized path during the transition;
+- keep `format=` bytes-returning behavior on dataset calls for service/download use.
 
 Checkpoint:
 
@@ -1341,6 +1379,16 @@ provenance
 presentation
 request
 ```
+
+Phase 2A status in `dtcc-core`: object-first `.export(...)` creates Dataset
+Manifest v2 packages for objects with `DatasetContext`. It uses existing object
+serializers and model-provided artifact writers and does not re-run the
+dataset. Smoke `FieldSlice` and `StreamlineCollection` packages default to a
+PNG primary artifact rather than GeoJSON. Object-first `.publish(...)` exports
+the same Manifest v2 package to a temporary directory and uploads its
+`manifest.json` plus `artifacts/*` files to `dtcc-upload`; dataset-level
+`.export(...)` and `.publish(...)` remain the legacy serialized artifact plus
+sidecar/upload path.
 
 ### Phase 3: `dtcc-upload` manifest/package v2 support
 

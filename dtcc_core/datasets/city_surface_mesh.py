@@ -82,6 +82,19 @@ class CitySurfaceMeshDataset(DatasetDescriptor):
     data_category = "derived"
     result_kind = "mesh"
     python_return_type = "dtcc_core.model.Mesh"
+    provider = [{"name": "DTCC Platform", "role": "processor"}]
+    source = ["Point cloud data", "Building footprints"]
+    license = "Derived from upstream geodata; verify source terms before redistribution."
+    default_crs = "EPSG:3006"
+    geographic_coverage = "Sweden, constrained by requested bounds and source coverage"
+    update_frequency = "derived on demand from upstream source data"
+    processing_steps = [
+        "Prepare point cloud, terrain, and footprint source data",
+        "Generate terrain plus extruded building surface mesh",
+    ]
+    presentation_summary = (
+        "Surface mesh with terrain and extruded buildings for the requested bounds."
+    )
 
     def _build_mesh_from_city(self, city: City, args: CitySurfaceMeshArgs):
         stage_audit = {} if args.stage_audit_enabled else None
