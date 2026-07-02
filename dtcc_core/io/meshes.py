@@ -5,10 +5,12 @@ import meshio
 import pygltflib
 import numpy as np
 import h5py
+import re
 from pathlib import Path
 from os.path import splitext, basename
+from xml.sax.saxutils import quoteattr
 
-from ..model import Mesh, VolumeMesh, City, Building
+from ..model import Mesh, VolumeMesh, City, Building, Field
 from ..model import GeometryType
 from ..builder.meshing import disjoint_meshes, merge_meshes
 
@@ -17,6 +19,9 @@ from ..builder.geometry.multisurface import merge_coplanar
 from .logging import info, warning, error
 from . import generic
 from .xdmf import XDMF_SURFACE_TEMPLATE, XDMF_VOLUME_TEMPLATE
+
+
+_XDMF_FIELD_GROUP = "Mesh/mesh/fields"
 
 try:
     import pyassimp
@@ -115,6 +120,7 @@ def _load_xdmf_volume_mesh(path):
                     volume_mesh.boundary_faces = boundary_faces
                     volume_mesh.boundary_markers = boundary_markers
 
+            volume_mesh.fields = _load_native_xdmf_fields(h5_file)
             return volume_mesh
     except (OSError, KeyError, TypeError, ValueError) as exc:
         warning(
@@ -196,6 +202,261 @@ def _meshio_data_from_fields(mesh, cell_count):
     return point_data, cell_data
 
 
+def _decode_hdf5_attr(value, default=""):
+    if value is None:
+        return default
+    if isinstance(value, bytes):
+        return value.decode("utf-8")
+    return value
+
+
+def _raise_xdmf_field_value_error(
+    field_name,
+    dim,
+    actual_shape,
+    actual_count,
+    vertex_count,
+    cell_count,
+    reason,
+):
+    raise ValueError(
+        f"Cannot serialize VolumeMesh field {field_name!r} to XDMF: {reason}; "
+        f"dim={dim}, actual shape={actual_shape}, actual entry count={actual_count}, "
+        f"expected vertex count={vertex_count}, expected cell count={cell_count}."
+    )
+
+
+def _sanitize_hdf5_field_name(name, index, used_names):
+    fallback = f"field_{index}"
+    raw_name = str(name) if name else fallback
+    candidate = re.sub(r"[^0-9A-Za-z_.-]+", "_", raw_name).strip("_")
+    if not candidate:
+        candidate = fallback
+
+    base = candidate
+    suffix = 2
+    while candidate in used_names:
+        candidate = f"{base}_{suffix}"
+        suffix += 1
+    used_names.add(candidate)
+    return candidate
+
+
+def _xdmf_number_type_and_precision(dtype):
+    if np.issubdtype(dtype, np.integer):
+        return "Int", np.dtype(dtype).itemsize
+    if np.issubdtype(dtype, np.floating):
+        return "Float", np.dtype(dtype).itemsize
+    raise TypeError(f"Unsupported XDMF field dtype {np.dtype(dtype)}")
+
+
+def _normalize_xdmf_field(field, index, vertex_count, cell_count, used_dataset_names):
+    field_name = getattr(field, "name", "") or f"field_{index}"
+    raw_values = np.asarray(getattr(field, "values", np.empty(0)))
+    actual_shape = raw_values.shape
+
+    try:
+        dim = int(getattr(field, "dim", 1) or 1)
+    except (TypeError, ValueError):
+        _raise_xdmf_field_value_error(
+            field_name,
+            getattr(field, "dim", None),
+            actual_shape,
+            raw_values.size,
+            vertex_count,
+            cell_count,
+            "field dim must be an integer",
+        )
+
+    if dim not in (1, 2, 3):
+        _raise_xdmf_field_value_error(
+            field_name,
+            dim,
+            actual_shape,
+            raw_values.size,
+            vertex_count,
+            cell_count,
+            "field dim must be 1, 2, or 3",
+        )
+
+    if raw_values.size == 0:
+        _raise_xdmf_field_value_error(
+            field_name,
+            dim,
+            actual_shape,
+            0,
+            vertex_count,
+            cell_count,
+            "field values are empty",
+        )
+
+    if np.issubdtype(raw_values.dtype, np.complexfloating) or not (
+        np.issubdtype(raw_values.dtype, np.integer)
+        or np.issubdtype(raw_values.dtype, np.floating)
+    ):
+        _raise_xdmf_field_value_error(
+            field_name,
+            dim,
+            actual_shape,
+            raw_values.size,
+            vertex_count,
+            cell_count,
+            f"field values must be real numeric data, got dtype {raw_values.dtype}",
+        )
+
+    if dim == 1:
+        values = raw_values.reshape(-1)
+    elif raw_values.ndim == 1:
+        if raw_values.size % dim != 0:
+            _raise_xdmf_field_value_error(
+                field_name,
+                dim,
+                actual_shape,
+                raw_values.size,
+                vertex_count,
+                cell_count,
+                "flat field values cannot be reshaped by dim",
+            )
+        values = raw_values.reshape((-1, dim))
+    elif raw_values.ndim == 2 and raw_values.shape[1] == dim:
+        values = raw_values
+    else:
+        _raise_xdmf_field_value_error(
+            field_name,
+            dim,
+            actual_shape,
+            raw_values.shape[0] if raw_values.ndim > 0 else raw_values.size,
+            vertex_count,
+            cell_count,
+            "field values shape is inconsistent with dim",
+        )
+
+    actual_count = len(values)
+    if actual_count == vertex_count:
+        center = "Node"
+    elif actual_count == cell_count:
+        center = "Cell"
+    else:
+        _raise_xdmf_field_value_error(
+            field_name,
+            dim,
+            actual_shape,
+            actual_count,
+            vertex_count,
+            cell_count,
+            "field value count does not match vertices or cells",
+        )
+
+    number_type, precision = _xdmf_number_type_and_precision(values.dtype)
+    dataset_name = _sanitize_hdf5_field_name(
+        field_name, index, used_dataset_names
+    )
+
+    return {
+        "name": str(field_name),
+        "dataset_name": dataset_name,
+        "values": values,
+        "dim": dim,
+        "center": center,
+        "attribute_type": "Scalar" if dim == 1 else "Vector",
+        "number_type": number_type,
+        "precision": precision,
+        "unit": str(getattr(field, "unit", "") or ""),
+        "description": str(getattr(field, "description", "") or ""),
+        "index": index,
+    }
+
+
+def _normalize_xdmf_fields(mesh):
+    used_dataset_names = set()
+    vertex_count = len(mesh.vertices)
+    cell_count = len(mesh.cells)
+    fields = getattr(mesh, "fields", []) or []
+    return [
+        _normalize_xdmf_field(
+            field, index, vertex_count, cell_count, used_dataset_names
+        )
+        for index, field in enumerate(fields)
+    ]
+
+
+def _write_xdmf_fields(h5_file, field_specs):
+    if not field_specs:
+        return
+
+    fields_group = h5_file.require_group(_XDMF_FIELD_GROUP)
+    for field_spec in field_specs:
+        dataset = fields_group.create_dataset(
+            field_spec["dataset_name"], data=field_spec["values"]
+        )
+        dataset.attrs["name"] = field_spec["name"]
+        dataset.attrs["unit"] = field_spec["unit"]
+        dataset.attrs["description"] = field_spec["description"]
+        dataset.attrs["dim"] = field_spec["dim"]
+        dataset.attrs["center"] = field_spec["center"]
+        dataset.attrs["index"] = field_spec["index"]
+
+
+def _xdmf_data_dimensions(field_spec):
+    if field_spec["dim"] == 1:
+        return str(len(field_spec["values"]))
+    return f"{len(field_spec['values'])} {field_spec['dim']}"
+
+
+def _xdmf_field_attributes(field_specs, h5_filename):
+    if not field_specs:
+        return ""
+
+    attributes = []
+    for field_spec in field_specs:
+        hdf5_path = f"{h5_filename}:/{_XDMF_FIELD_GROUP}/{field_spec['dataset_name']}"
+        attributes.append(
+            f"""      <Attribute Name={quoteattr(field_spec["name"])}
+                 AttributeType="{field_spec["attribute_type"]}"
+                 Center="{field_spec["center"]}">
+        <DataItem Format="HDF"
+                  NumberType="{field_spec["number_type"]}"
+                  Precision="{field_spec["precision"]}"
+                  Dimensions="{_xdmf_data_dimensions(field_spec)}">
+          {hdf5_path}
+        </DataItem>
+      </Attribute>"""
+        )
+    return "\n".join(attributes)
+
+
+def _load_native_xdmf_fields(h5_file):
+    fields_group = h5_file.get(_XDMF_FIELD_GROUP)
+    if fields_group is None:
+        return []
+
+    datasets = sorted(
+        fields_group.values(),
+        key=lambda dataset: int(dataset.attrs.get("index", 0)),
+    )
+    fields = []
+    for dataset in datasets:
+        dim = int(dataset.attrs.get("dim", 1))
+        values = np.asarray(dataset)
+        if dim == 1:
+            values = values.reshape((-1, 1))
+        else:
+            values = values.reshape((-1, dim))
+
+        fields.append(
+            Field(
+                name=str(_decode_hdf5_attr(dataset.attrs.get("name"), "")),
+                unit=str(_decode_hdf5_attr(dataset.attrs.get("unit"), "")),
+                description=str(
+                    _decode_hdf5_attr(dataset.attrs.get("description"), "")
+                ),
+                values=values,
+                dim=dim,
+            )
+        )
+    return fields
+
+
 def _save_meshio_mesh(mesh, path):
     point_data, cell_data = _meshio_data_from_fields(mesh, len(mesh.faces))
     if mesh.markers is not None and len(mesh.markers) > 0:
@@ -254,6 +515,7 @@ def _save_xdmf_volume_mesh(mesh, path):
     base, ext = splitext(path)
     h5_path = base + ".h5"
     marker_sidecar_path = path.with_name(f"{path.stem}_boundary_markers{path.suffix}")
+    field_specs = _normalize_xdmf_fields(mesh)
 
     if not hasattr(mesh, "boundary_markers") or mesh.boundary_markers is None:
         facet_cells = np.empty((0, 3), dtype=int)
@@ -281,12 +543,14 @@ def _save_xdmf_volume_mesh(mesh, path):
         tags_grp = h5_file.require_group("MeshTags/boundary_markers")
         tags_grp.create_dataset("topology", data=facet_cells, dtype="int64")
         tags_grp.create_dataset("values", data=facet_markers, dtype="int32")
+        _write_xdmf_fields(h5_file, field_specs)
 
     xdmf_content = XDMF_VOLUME_TEMPLATE.format(
         h5file=basename(h5_path),
         n_tets=len(mesh.cells),
         n_pts=len(mesh.vertices),
         n_facets=len(facet_markers),
+        field_attributes=_xdmf_field_attributes(field_specs, basename(h5_path)),
     )
 
     with open(path, "w") as xdmf_file:
