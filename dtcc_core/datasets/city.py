@@ -27,6 +27,19 @@ class CityDataset(DatasetDescriptor):
     data_category = "derived"
     result_kind = "city_model"
     python_return_type = "dtcc_core.model.City"
+    provider = [{"name": "DTCC Platform", "role": "processor"}]
+    source = ["Point cloud data", "Building footprints"]
+    license = "Derived from upstream geodata; verify source terms before redistribution."
+    default_crs = "EPSG:3006"
+    geographic_coverage = "Sweden, constrained by requested bounds and source coverage"
+    update_frequency = "derived on demand from upstream source data"
+    processing_steps = [
+        "Download point cloud and building footprint data",
+        "Build terrain and LoD1 city geometry",
+    ]
+    presentation_summary = (
+        "A DTCC city model with terrain and LoD1 buildings for the requested bounds."
+    )
 
     def build(self, args: CityArgs):
         progress_phases = {

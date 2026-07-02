@@ -10,7 +10,7 @@ import numpy as np
 import dtcc_core.datasets as datasets
 from dtcc_core.datasets import get_dataset
 from dtcc_core.datasets.footprints import FootprintsArgs, FootprintsDataset
-from dtcc_core.model import Building, City, GeometryType, Surface
+from dtcc_core.model import Building, City, FootprintCollection, GeometryType, Surface
 
 
 def test_building_footprints_registered_name():
@@ -29,6 +29,19 @@ def test_building_footprints_module_attribute():
     """The dataset should be exposed through the datasets module."""
     assert hasattr(datasets, "building_footprints")
     assert callable(datasets.building_footprints)
+
+
+def test_building_footprints_prepare_result_returns_footprint_collection():
+    """Public no-format calls adapt raw buildings to semantic footprints."""
+    city = _city_with_one_footprint()
+    dataset = FootprintsDataset()
+    args = FootprintsArgs(bounds=(319720.0, 6397660.0, 320220.0, 6398160.0))
+
+    result = dataset.prepare_result(city.buildings, args)
+
+    assert isinstance(result, FootprintCollection)
+    assert len(result) == 1
+    assert result[0].vertices.shape == (4, 3)
 
 
 @patch("dtcc_core.datasets.footprints.City")

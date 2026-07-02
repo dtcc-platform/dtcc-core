@@ -41,6 +41,20 @@ class PointCloudDataset(DatasetDescriptor):
     data_category = "raw"
     result_kind = "point_cloud"
     python_return_type = "dtcc_core.model.PointCloud"
+    provider = [{"name": "Lantmateriet", "role": "source_provider"}]
+    source = ["Lantmateriet point cloud data"]
+    license = "Review Lantmateriet source terms before redistribution."
+    default_crs = "EPSG:3006"
+    geographic_coverage = "Sweden, constrained by requested bounds and source coverage"
+    update_frequency = "varies by Lantmateriet source product"
+    processing_steps = [
+        "Download point cloud data for requested bounds",
+        "Apply optional classification and outlier filtering",
+    ]
+    presentation_summary = (
+        "Point cloud data for the requested area, optionally filtered by "
+        "classification and outlier settings."
+    )
 
     @staticmethod
     def _resolve_classifications(classifications) -> List[int]:

@@ -98,6 +98,20 @@ class SpaceSyntaxDataset(DatasetDescriptor):
     result_kind = "road_network"
     python_return_type = "dtcc_core.model.RoadNetwork"
     timeout_hint = 300
+    provider = [{"name": "DTCC Platform", "role": "processor"}]
+    source = ["OpenStreetMap road network data via the roads dataset"]
+    derived_from = ["roads"]
+    license = "Derived from OpenStreetMap data; review ODbL terms before redistribution."
+    default_crs = "EPSG:3006"
+    geographic_coverage = "Global OpenStreetMap coverage, constrained by requested bounds"
+    update_frequency = "derived on demand from OpenStreetMap source data"
+    processing_steps = [
+        "Download road network data for requested bounds",
+        "Build dual segment graph and compute space syntax measures",
+    ]
+    presentation_summary = (
+        "Road network enriched with segment-based space syntax measures."
+    )
 
     def build(self, args: SpaceSyntaxArgs):
         import dtcc_core.datasets as datasets

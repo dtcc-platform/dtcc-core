@@ -1,5 +1,5 @@
 import dtcc_core
-from dtcc_core.model import City, Bounds
+from dtcc_core.model import BuildingCollection, City, Bounds
 from typing import Literal, Optional, List, Tuple, Sequence, Union
 from pydantic import BaseModel, Field
 import tempfile
@@ -29,7 +29,23 @@ class BuildingDataset(DatasetDescriptor):
     ArgsModel = BuildingArgs
     data_category = "derived"
     result_kind = "building_collection"
-    python_return_type = "list[dtcc_core.model.Building]"
+    python_return_type = "dtcc_core.model.BuildingCollection"
+    provider = [{"name": "DTCC Platform", "role": "processor"}]
+    source = [
+        "Point cloud data",
+        "Building footprints",
+    ]
+    license = "Derived from upstream geodata; verify source terms before redistribution."
+    default_crs = "EPSG:3006"
+    geographic_coverage = "Sweden, constrained by requested bounds and source coverage"
+    update_frequency = "derived on demand from upstream source data"
+    processing_steps = [
+        "Download point cloud data and building footprints",
+        "Estimate building heights and build LoD1 building geometry",
+    ]
+    presentation_summary = (
+        "LoD1 building objects derived from point cloud and footprint source data."
+    )
 
     def build(self, args: BuildingArgs):
         progress_phases = {
@@ -106,3 +122,8 @@ class BuildingDataset(DatasetDescriptor):
                     )
                     report_progress(percent=80, message=f"Writing {args.format}...")
                     return self.export_to_bytes(merged_mesh, args.format)
+
+    def prepare_result(self, result, validated_args: BuildingArgs):
+        if validated_args.format is None and isinstance(result, list):
+            return BuildingCollection(result)
+        return result

@@ -478,6 +478,20 @@ class AirQualityDataset(DatasetDescriptor):
     data_category = "raw"
     result_kind = "sensor_collection"
     python_return_type = "dtcc_core.model.SensorCollection"
+    provider = [{"name": "SMHI", "role": "source_provider"}]
+    source = ["SMHI datavardluft air-quality API"]
+    license = "Review SMHI source terms before redistribution."
+    geographic_coverage = "Sweden, constrained by station coverage and requested bounds"
+    update_frequency = "latest available observation snapshot"
+    processing_steps = [
+        "Resolve requested air-quality phenomenon",
+        "Fetch stations and latest measurements within requested bounds",
+        "Normalize measurements to a SensorCollection",
+    ]
+    presentation_summary = (
+        "Latest available air-quality station measurements within the requested bounds."
+    )
+    view_hints = {"preferred_geometry": "points"}
 
     def build(self, args: AirQualityDatasetArgs):
         """Build the air quality dataset.

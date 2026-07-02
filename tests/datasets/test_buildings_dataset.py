@@ -8,6 +8,7 @@ from unittest.mock import Mock, patch
 import dtcc_core.datasets as datasets
 from dtcc_core.datasets import get_dataset
 from dtcc_core.datasets.buildings import BuildingArgs, BuildingDataset
+from dtcc_core.model import Building, BuildingCollection
 
 
 def test_buildings_registered_name():
@@ -26,6 +27,19 @@ def test_buildings_module_attribute():
     """The dataset should be exposed as a callable module attribute."""
     assert hasattr(datasets, "buildings")
     assert callable(datasets.buildings)
+
+
+def test_buildings_prepare_result_returns_building_collection():
+    """Public no-format calls adapt raw building lists to a semantic collection."""
+    buildings = [Building(), Building()]
+    dataset = BuildingDataset()
+    args = BuildingArgs(bounds=(0.0, 0.0, 1.0, 1.0))
+
+    result = dataset.prepare_result(buildings, args)
+
+    assert isinstance(result, BuildingCollection)
+    assert list(result) == buildings
+    assert result[0] is buildings[0]
 
 
 @patch("dtcc_core.datasets.buildings.dtcc_core.builder.build_lod1_buildings")

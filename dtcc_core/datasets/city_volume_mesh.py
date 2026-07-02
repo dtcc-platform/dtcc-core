@@ -141,6 +141,19 @@ class CityVolumeMeshDataset(DatasetDescriptor):
     result_kind = "mesh"
     python_return_type = "dtcc_core.model.VolumeMesh"
     multi_file_formats = ("xdmf",)
+    provider = [{"name": "DTCC Platform", "role": "processor"}]
+    source = ["Point cloud data", "Building footprints"]
+    license = "Derived from upstream geodata; verify source terms before redistribution."
+    default_crs = "EPSG:3006"
+    geographic_coverage = "Sweden, constrained by requested bounds and source coverage"
+    update_frequency = "derived on demand from upstream source data"
+    processing_steps = [
+        "Prepare point cloud, terrain, and footprint source data",
+        "Generate tetrahedral city volume mesh for FEM/CFD workflows",
+    ]
+    presentation_summary = (
+        "Tetrahedral city volume mesh for simulation workflows over the requested bounds."
+    )
 
     @staticmethod
     def _tetgen_switch_payload(args: CityVolumeMeshArgs) -> dict[str, Any]:

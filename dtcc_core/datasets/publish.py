@@ -1,11 +1,42 @@
 import hashlib
 import json
 import os
+import re
+from contextlib import ExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 import requests
+
+
+MANIFEST_V2_SCHEMA_VERSION = "dtcc-dataset-manifest-v2"
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+WINDOWS_DRIVE_RE = re.compile(r"^[A-Za-z]:")
+WINDOWS_RESERVED_BASENAMES = {
+    "con",
+    "prn",
+    "aux",
+    "nul",
+    "com1",
+    "com2",
+    "com3",
+    "com4",
+    "com5",
+    "com6",
+    "com7",
+    "com8",
+    "com9",
+    "lpt1",
+    "lpt2",
+    "lpt3",
+    "lpt4",
+    "lpt5",
+    "lpt6",
+    "lpt7",
+    "lpt8",
+    "lpt9",
+}
 
 
 @dataclass(frozen=True)
@@ -121,6 +152,22 @@ class DatasetUploadRateLimitError(DatasetUploadError):
     pass
 
 
+@dataclass(frozen=True)
+class _PackageUploadFile:
+    logical_path: str
+    path: Path
+    media_type: str
+    size: int
+    sha256: str
+
+
+@dataclass(frozen=True)
+class _ValidatedUploadPackage:
+    manifest: dict[str, Any]
+    files: tuple[_PackageUploadFile, ...]
+    idempotency_prefix: str
+
+
 class DatasetUploadClient:
     def __init__(
         self,
@@ -174,38 +221,68 @@ class DatasetUploadClient:
         manifest: Mapping[str, Any] | None = None,
         idempotency_key: str | None = None,
     ) -> DatasetPublication:
-        manifest_payload, file_path, logical_name = _validate_single_file_package(
-            manifest_path, files, manifest=manifest
+        package = _validate_upload_package(
+            manifest_path,
+            files,
+            manifest=manifest,
         )
         key = idempotency_key or build_publish_idempotency_key(
             dataset_key=dataset_key,
             manifest_path=manifest_path,
             files=files,
-            manifest=manifest_payload,
+            manifest=package.manifest,
         )
         headers = {
             "Authorization": f"Bearer {self.token}",
             "Idempotency-Key": key,
         }
-        media_type = str(
-            manifest_payload.get("media_type") or "application/octet-stream"
-        )
 
         try:
-            with Path(manifest_path).open("rb") as manifest_handle, file_path.open(
-                "rb"
-            ) as file_handle:
-                response = self.session.post(
-                    self.datasets_url,
-                    data={"dataset_key": dataset_key},
-                    files={
+            with ExitStack() as stack:
+                manifest_handle = stack.enter_context(Path(manifest_path).open("rb"))
+                file_handles = [
+                    stack.enter_context(upload_file.path.open("rb"))
+                    for upload_file in package.files
+                ]
+                multipart_files: Any
+                if package.idempotency_prefix == "dtcc-publish-v1":
+                    upload_file = package.files[0]
+                    multipart_files = {
                         "manifest": (
                             "manifest.json",
                             manifest_handle,
                             "application/json",
                         ),
-                        "files": (logical_name, file_handle, media_type),
-                    },
+                        "files": (
+                            upload_file.logical_path,
+                            file_handles[0],
+                            upload_file.media_type,
+                        ),
+                    }
+                else:
+                    multipart_files = [
+                        (
+                            "manifest",
+                            ("manifest.json", manifest_handle, "application/json"),
+                        ),
+                        *[
+                            (
+                                "files",
+                                (
+                                    upload_file.logical_path,
+                                    file_handle,
+                                    upload_file.media_type,
+                                ),
+                            )
+                            for upload_file, file_handle in zip(
+                                package.files, file_handles
+                            )
+                        ],
+                    ]
+                response = self.session.post(
+                    self.datasets_url,
+                    data={"dataset_key": dataset_key},
+                    files=multipart_files,
                     headers=headers,
                     timeout=self.timeout,
                 )
@@ -257,60 +334,13 @@ def build_publish_idempotency_key(
     files: Sequence[str | Path],
     manifest: Mapping[str, Any],
 ) -> str:
-    manifest_file = Path(manifest_path)
-    if not manifest_file.is_file():
-        raise _package_error(f"Manifest file does not exist: {manifest_file}")
-
-    try:
-        manifest_payload = json.loads(manifest_file.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as error:
-        raise _package_error(f"Unable to read manifest JSON: {manifest_file}") from error
-
-    if not isinstance(manifest_payload, Mapping):
-        raise _package_error("Manifest file must contain a JSON object.")
-    if manifest_payload != manifest:
-        raise _package_error(
-            "Manifest mapping does not match manifest file content."
-        )
-
-    logical_path = manifest.get("file")
-    manifest_file_path = manifest_payload.get("file")
-    if not isinstance(logical_path, str) or not logical_path:
-        raise _package_error("Manifest is missing required 'file' field.")
-    if not isinstance(manifest_file_path, str) or not manifest_file_path:
-        raise _package_error("Manifest file is missing required 'file' field.")
-    if manifest_file_path != logical_path:
-        raise _package_error(
-            "Manifest mapping 'file' field does not match manifest file content."
-        )
-
-    if len(files) != 1:
-        raise _package_error("Package must include exactly one file.")
-
-    manifest_sha256 = _sha256_file(manifest_file)
-    records = []
-    for file in files:
-        file_path = Path(file)
-        if not file_path.is_file():
-            raise _package_error(f"Package file does not exist: {file_path}")
-        if file_path.name != logical_path:
-            raise _package_error(
-                f"Package file name {file_path.name!r} does not match manifest file "
-                f"{logical_path!r}."
-            )
-        records.append(
-            {
-                "path": logical_path,
-                "size": file_path.stat().st_size,
-                "sha256": _sha256_file(file_path),
-            }
-        )
-
-    records.sort(key=lambda record: record["path"])
-    file_set_payload = json.dumps(
-        records, separators=(",", ":"), sort_keys=True
-    ).encode("utf-8")
-    file_set_sha256 = hashlib.sha256(file_set_payload).hexdigest()
+    package = _validate_upload_package(
+        manifest_path,
+        files,
+        manifest=manifest,
+    )
+    manifest_sha256 = _sha256_file(Path(manifest_path))
+    file_set_sha256 = _file_set_sha256(package.files)
     key_payload = json.dumps(
         {
             "dataset_key": dataset_key,
@@ -321,7 +351,7 @@ def build_publish_idempotency_key(
         sort_keys=True,
     ).encode("utf-8")
 
-    return f"dtcc-publish-v1:{hashlib.sha256(key_payload).hexdigest()}"
+    return f"{package.idempotency_prefix}:{hashlib.sha256(key_payload).hexdigest()}"
 
 
 def _normalize_datasets_url(upload_url: str) -> str:
@@ -361,6 +391,50 @@ def _read_manifest(manifest_path: Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise _package_error("Manifest file must contain a JSON object.")
     return payload
+
+
+def _validate_upload_package(
+    manifest_path: str | Path,
+    files: Sequence[str | Path],
+    *,
+    manifest: Mapping[str, Any] | None = None,
+) -> _ValidatedUploadPackage:
+    manifest_file = Path(manifest_path)
+    manifest_payload = _read_manifest(manifest_file)
+    if manifest is not None and dict(manifest) != manifest_payload:
+        raise _package_error("Manifest mapping does not match manifest file content.")
+
+    schema_version = manifest_payload.get("schema_version")
+    if schema_version == MANIFEST_V2_SCHEMA_VERSION:
+        return _validate_v2_package(manifest_file, files, manifest_payload)
+    if schema_version is not None:
+        raise _package_error(
+            f"Unsupported manifest schema_version: {schema_version!r}; "
+            f"expected {MANIFEST_V2_SCHEMA_VERSION!r}"
+        )
+    if "artifacts" in manifest_payload or "identity" in manifest_payload:
+        raise _package_error(
+            f"Dataset Manifest v2 packages must declare schema_version={MANIFEST_V2_SCHEMA_VERSION!r}"
+        )
+    manifest_payload, file_path, logical_name = _validate_single_file_package(
+        manifest_file,
+        files,
+        manifest=manifest_payload,
+    )
+    media_type = str(manifest_payload.get("media_type") or "application/octet-stream")
+    return _ValidatedUploadPackage(
+        manifest=manifest_payload,
+        files=(
+            _PackageUploadFile(
+                logical_path=logical_name,
+                path=file_path,
+                media_type=media_type,
+                size=file_path.stat().st_size,
+                sha256=_sha256_file(file_path),
+            ),
+        ),
+        idempotency_prefix="dtcc-publish-v1",
+    )
 
 
 def _validate_logical_filename(name: str) -> str:
@@ -407,6 +481,159 @@ def _validate_single_file_package(
             f"{logical_name!r}."
         )
     return manifest_payload, file_path, logical_name
+
+
+def _validate_v2_package(
+    manifest_path: Path,
+    files: Sequence[str | Path],
+    manifest: Mapping[str, Any],
+) -> _ValidatedUploadPackage:
+    artifacts = manifest.get("artifacts")
+    if not isinstance(artifacts, list) or not artifacts:
+        raise _package_error("Dataset Manifest v2 must contain a non-empty artifacts list.")
+
+    expected_artifacts: dict[str, Mapping[str, Any]] = {}
+    for index, artifact in enumerate(artifacts):
+        if not isinstance(artifact, Mapping):
+            raise _package_error(f"Manifest artifact at index {index} must be an object.")
+        artifact_path = _required_artifact_string(artifact, "path", index)
+        logical_path = _validate_package_path(artifact_path)
+        for field_name in ("role", "format", "media_type", "data_kind"):
+            _required_artifact_string(artifact, field_name, index)
+        if logical_path in expected_artifacts:
+            raise _package_error(f"Duplicate artifact path in manifest: {logical_path}")
+        expected_artifacts[logical_path] = artifact
+
+    package_root = manifest_path.parent.resolve()
+    provided: dict[str, Path] = {}
+    for file in files:
+        file_path = Path(file)
+        if not file_path.is_file():
+            raise _package_error(f"Package file does not exist: {file_path}")
+        logical_path = _relative_package_path(package_root, file_path)
+        if logical_path not in expected_artifacts:
+            raise _package_error(f"Unexpected package artifact file: {logical_path}")
+        if logical_path in provided:
+            raise _package_error(f"Duplicate package artifact file: {logical_path}")
+        provided[logical_path] = file_path
+
+    missing_paths = [path for path in expected_artifacts if path not in provided]
+    if missing_paths:
+        raise _package_error(f"Missing package artifact file: {missing_paths[0]}")
+    if len(provided) != len(expected_artifacts):
+        raise _package_error("Package artifact files do not match manifest artifacts.")
+
+    upload_files: list[_PackageUploadFile] = []
+    for logical_path, artifact in expected_artifacts.items():
+        file_path = provided[logical_path]
+        size = file_path.stat().st_size
+        declared_size = artifact.get("size")
+        if declared_size is not None:
+            if not isinstance(declared_size, int) or declared_size < 0:
+                raise _package_error(
+                    f"Manifest artifact {logical_path!r} has invalid size."
+                )
+            if size != declared_size:
+                raise _package_error(
+                    f"Package artifact size does not match manifest for {logical_path}."
+                )
+        sha256 = _sha256_file(file_path)
+        declared_sha256 = artifact.get("sha256")
+        if declared_sha256 is not None:
+            if not isinstance(declared_sha256, str) or not SHA256_RE.fullmatch(
+                declared_sha256
+            ):
+                raise _package_error(
+                    f"Manifest artifact {logical_path!r} has invalid sha256."
+                )
+            if sha256 != declared_sha256:
+                raise _package_error(
+                    f"Package artifact sha256 does not match manifest for {logical_path}."
+                )
+        media_type = str(artifact["media_type"]).strip()
+        if not media_type:
+            raise _package_error(
+                f"Manifest artifact {logical_path!r} has invalid media_type."
+            )
+        upload_files.append(
+            _PackageUploadFile(
+                logical_path=logical_path,
+                path=file_path,
+                media_type=media_type,
+                size=size,
+                sha256=sha256,
+            )
+        )
+
+    return _ValidatedUploadPackage(
+        manifest=dict(manifest),
+        files=tuple(upload_files),
+        idempotency_prefix="dtcc-publish-v2",
+    )
+
+
+def _required_artifact_string(
+    artifact: Mapping[str, Any], field_name: str, index: int
+) -> str:
+    value = artifact.get(field_name)
+    if not isinstance(value, str) or not value.strip():
+        raise _package_error(
+            f"Manifest artifact at index {index} is missing required {field_name!r}."
+        )
+    return value.strip()
+
+
+def _validate_package_path(value: str) -> str:
+    if not isinstance(value, str):
+        raise _package_error("Invalid artifact path")
+    normalized = value
+    if not normalized or normalized in {".", ".."}:
+        raise _package_error("Invalid artifact path")
+    if normalized.startswith("/") or normalized.startswith("."):
+        raise _package_error("Invalid artifact path")
+    if WINDOWS_DRIVE_RE.match(normalized):
+        raise _package_error("Invalid artifact path")
+    if "\\" in normalized or "\x00" in normalized or "//" in normalized:
+        raise _package_error("Invalid artifact path")
+    if any(ord(char) < 32 or ord(char) == 127 for char in normalized):
+        raise _package_error("Invalid artifact path")
+
+    parts = normalized.split("/")
+    for part in parts:
+        if not part or part in {".", ".."} or part.startswith("."):
+            raise _package_error("Invalid artifact path")
+        basename = part.rsplit(".", 1)[0].lower()
+        if basename in WINDOWS_RESERVED_BASENAMES:
+            raise _package_error("Invalid artifact path")
+    return normalized
+
+
+def _relative_package_path(package_root: Path, file_path: Path) -> str:
+    try:
+        relative = file_path.resolve().relative_to(package_root).as_posix()
+    except ValueError as error:
+        raise _package_error(
+            "V2 package artifact files must be under the manifest directory."
+        ) from error
+    return _validate_package_path(relative)
+
+
+def _file_set_sha256(files: Sequence[_PackageUploadFile]) -> str:
+    records = sorted(
+        (
+            {
+                "path": upload_file.logical_path,
+                "size": upload_file.size,
+                "sha256": upload_file.sha256,
+            }
+            for upload_file in files
+        ),
+        key=lambda record: record["path"],
+    )
+    payload = json.dumps(records, separators=(",", ":"), sort_keys=True).encode(
+        "utf-8"
+    )
+    return hashlib.sha256(payload).hexdigest()
 
 
 def _retry_after(response: Any) -> float | None:

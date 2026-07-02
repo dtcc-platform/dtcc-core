@@ -52,7 +52,7 @@ class CityFootprintsArgs(DatasetBaseArgs):
     )
 
 
-class CityFootprintsDataset(DatasetDescriptor):
+class CityFootprintsDataset(DatasetDescriptor, register=False):
     name = "city_footprints"
     description = (
         "Meshing-ready conditioned building footprints prepared from a city tile."

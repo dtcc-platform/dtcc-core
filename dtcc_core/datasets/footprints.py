@@ -1,5 +1,5 @@
 import dtcc_core
-from dtcc_core.model import Building, City
+from dtcc_core.model import Building, City, FootprintCollection
 from typing import List, Literal, Optional
 from pydantic import Field
 
@@ -35,7 +35,24 @@ class FootprintsDataset(DatasetDescriptor):
     ArgsModel = FootprintsArgs
     data_category = "raw"
     result_kind = "building_footprints"
-    python_return_type = "list[dtcc_core.model.Building]"
+    python_return_type = "dtcc_core.model.FootprintCollection"
+    provider = [
+        {"name": "Lantmateriet", "role": "source_provider"},
+        {"name": "OpenStreetMap", "role": "source_provider"},
+    ]
+    source = ["Building footprint source selected by the dataset request"]
+    license = "Review selected upstream footprint source terms before redistribution."
+    default_crs = "EPSG:3006"
+    geographic_coverage = "Sweden, constrained by requested bounds and source coverage"
+    update_frequency = "varies by selected upstream provider"
+    processing_steps = [
+        "Download building footprints for requested bounds",
+        "Optionally estimate building heights from point cloud data",
+    ]
+    presentation_summary = (
+        "Building footprints for the requested area, with optional height "
+        "enrichment from point cloud data."
+    )
 
     def build(self, args: FootprintsArgs):
         progress_phases = {
@@ -77,3 +94,8 @@ class FootprintsDataset(DatasetDescriptor):
                         save_callable=dtcc_core.io.footprints.save,
                         output_crs=args.crs,
                     )
+
+    def prepare_result(self, result, validated_args: FootprintsArgs):
+        if validated_args.format is None and isinstance(result, list):
+            return FootprintCollection.from_buildings(result)
+        return result

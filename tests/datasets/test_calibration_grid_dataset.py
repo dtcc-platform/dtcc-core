@@ -13,6 +13,7 @@ from dtcc_core.datasets.calibration_grid import (
     CalibrationGridArgs,
     CalibrationGridDataset,
 )
+from dtcc_core.model import CalibrationGrid
 
 # The DTCC table bounds: 500 m x 500 m mapped onto the 40 cm printed model.
 BOUNDS = [319720.0, 6397660.0, 320220.0, 6398160.0]
@@ -37,12 +38,19 @@ def test_calibration_grid_module_attribute():
 
 
 def test_default_build_returns_feature_collection_with_sweref_crs():
-    """Without format, the dataset returns a GeoJSON dict declaring EPSG:3006."""
+    """Without format, the dataset returns a context-capable grid model."""
     result = datasets.calibration_grid(bounds=BOUNDS)
 
-    assert isinstance(result, dict)
+    assert isinstance(result, CalibrationGrid)
+    assert result.dataset_context is not None
+    assert result.metadata is not None
+    assert result.presentation is not None
+    assert result.bounds.tuple == tuple(BOUNDS)
+    assert result.divisions == 40
+    assert result.crs == "EPSG:3006"
     assert result["type"] == "FeatureCollection"
     assert result["crs"]["properties"]["name"] == "EPSG:3006"
+    json.dumps(result.manifest().model_dump(mode="json"))
 
 
 def test_default_divisions_40_gives_41_lines_per_axis():
@@ -111,7 +119,7 @@ def test_geojson_format_returns_bytes_matching_dict():
     payload = datasets.calibration_grid(bounds=BOUNDS, format="geojson")
 
     assert isinstance(payload, bytes)
-    assert json.loads(payload) == datasets.calibration_grid(bounds=BOUNDS)
+    assert json.loads(payload) == datasets.calibration_grid(bounds=BOUNDS).to_geojson()
 
 
 def test_metadata_describes_the_grid():

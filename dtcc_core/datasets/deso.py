@@ -38,6 +38,18 @@ class DeSODataset(DatasetDescriptor):
     data_category = "raw"
     result_kind = "administrative_areas"
     python_return_type = "dtcc_core.model.DeSO"
+    provider = [{"name": "SCB", "role": "source_provider"}]
+    source = ["SCB DeSO boundaries and optional statistics"]
+    license = "Review SCB source terms before redistribution."
+    geographic_coverage = "Sweden, constrained by requested bounds"
+    update_frequency = "selected DeSO geometry/statistics vintage"
+    processing_steps = [
+        "Download DeSO geometry for requested bounds",
+        "Attach optional SCB statistics as requested",
+    ]
+    presentation_summary = (
+        "Swedish DeSO statistical areas with optional area-aligned statistics."
+    )
 
     def build(self, args: DeSOArgs):
         bounds = self.parse_bounds(args.bounds)

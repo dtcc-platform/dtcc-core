@@ -20,6 +20,14 @@ class RoadsDataset(DatasetDescriptor):
     data_category = "raw"
     result_kind = "road_network"
     python_return_type = "dtcc_core.model.RoadNetwork"
+    provider = [{"name": "OpenStreetMap", "role": "source_provider"}]
+    source = ["OpenStreetMap road network data via Overpass"]
+    license = "Review OpenStreetMap/ODbL terms before redistribution."
+    default_crs = "EPSG:3006"
+    geographic_coverage = "Global OpenStreetMap coverage, constrained by requested bounds"
+    update_frequency = "depends on OpenStreetMap edits and Overpass availability"
+    processing_steps = ["Download road network data for requested bounds"]
+    presentation_summary = "Road network for the requested bounds from OpenStreetMap."
 
     def build(self, args: RoadsArgs):
         bounds = self.parse_bounds(args.bounds)

@@ -69,6 +69,7 @@ XDMF_VOLUME_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
           {h5file}:/Mesh/mesh/geometry
         </DataItem>
       </Geometry>
+{field_attributes}
     </Grid>
 
     <!-- 2) Facet markers -->

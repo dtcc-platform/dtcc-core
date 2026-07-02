@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch
 import dtcc_core.datasets as datasets
 from dtcc_core.datasets import get_dataset
 from dtcc_core.datasets.trees import TreeArgs, TreesDataset
+from dtcc_core.model import Tree, TreeCollection
 
 
 def test_trees_registered_name():
@@ -25,6 +26,19 @@ def test_trees_module_attribute():
     """The dataset should be exposed through the datasets module."""
     assert hasattr(datasets, "trees")
     assert callable(datasets.trees)
+
+
+def test_trees_prepare_result_returns_tree_collection():
+    """Public no-format calls adapt raw tree lists to a semantic collection."""
+    trees = [Tree(), Tree()]
+    dataset = TreesDataset()
+    args = TreeArgs(bounds=(0.0, 0.0, 1.0, 1.0))
+
+    result = dataset.prepare_result(trees, args)
+
+    assert isinstance(result, TreeCollection)
+    assert list(result) == trees
+    assert result[1] is trees[1]
 
 
 @patch("dtcc_core.datasets.trees.City")
