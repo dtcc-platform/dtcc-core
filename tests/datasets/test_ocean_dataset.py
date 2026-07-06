@@ -345,6 +345,7 @@ class TestOceanBuild:
         # At least one quality attribute should exist
         q_attrs = [k for k in st.attributes if k.startswith("q_")]
         assert len(q_attrs) >= 1
+        assert st.attributes["timestamp_sea_temperature"] == "2026-02-13 12:00:00"
 
     @patch("dtcc_core.datasets.ocean._get_text", side_effect=_mock_get_text)
     def test_coordinate_reproject(self, mock_text):
@@ -387,6 +388,18 @@ class TestOceanBuild:
         assert sc.attributes["stations_skipped_upstream"] == 0
         assert sc.attributes["requested_parameters"] == [5, 6]
         assert sc.attributes["fetched_parameters"] == [5, 6]
+        metadata = sc.attributes["parameter_metadata"]
+        sea_temperature = next(
+            item for item in metadata if item["field_name"] == "sea_temperature"
+        )
+        assert sea_temperature["parameter_id"] == 5
+        assert sea_temperature["smhi_name"] == "Havstemperatur"
+        assert sea_temperature["unit"] == "°C"
+        assert sea_temperature["timestamp"] == "2026-02-13 12:00:00"
+        assert sea_temperature["period_from"] == "2010-06-17 11:00:00"
+        assert sea_temperature["endpoint_path"].endswith(
+            "/parameter/5/station-set/all/period/latest-hour/data.csv"
+        )
 
     @patch("dtcc_core.datasets.ocean._get_text", side_effect=_mock_get_text)
     def test_parameter_name_strings(self, mock_text):
@@ -511,6 +524,39 @@ class TestOceanRegistration:
         import dtcc_core.datasets as datasets
 
         assert hasattr(datasets, "ocean")
+
+    def test_context_documents_smhi_ocobs_semantics(self):
+        dataset = OceanDataset()
+        context = dataset.create_context(
+            dataset.validate(
+                {
+                    "bounds": (0.0, 0.0, 1.0, 1.0),
+                    "crs": "EPSG:4326",
+                    "parameters": ["temperature", "level"],
+                    "field_name_style": "smhi",
+                }
+            )
+        )
+        manifest = context.manifest()
+
+        assert manifest.metadata.provider == [
+            {"name": "SMHI", "slug": "smhi", "role": "source_provider"}
+        ]
+        assert manifest.metadata.source[0]["service"] == "ocobs"
+        assert "station-set/all" in manifest.metadata.source[0]["endpoint_pattern"]
+        assert "Requires review" in manifest.metadata.license
+        assert "Latest-hour snapshot" in manifest.metadata.collection_period
+        assert "ocean_observations" in manifest.metadata.data_types
+        assert any(
+            "period comments" in step
+            for step in manifest.provenance.processing_steps
+        )
+        assert manifest.presentation.headline == "Latest-Hour SMHI Ocean Stations"
+        assert manifest.presentation.legend["title"] == "Ocean station fields"
+        assert manifest.presentation.view_hints["quality_attribute_prefix"] == "q_"
+        assert any("partial results" in warning for warning in manifest.presentation.warnings)
+        assert manifest.presentation.limitations
+        assert manifest.request.parameters["field_name_style"] == "smhi"
 
 
 # ── Str representation tests ─────────────────────────────────────────────

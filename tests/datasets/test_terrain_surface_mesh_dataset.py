@@ -201,3 +201,47 @@ def test_terrain_surface_mesh_obj_export_returns_bytes(mock_download, mock_build
 
     assert result == b"terrain-mesh"
     mock_export.assert_called_once_with(surface_mesh, "obj")
+
+
+def test_terrain_surface_mesh_context_documents_lineage_and_limits():
+    dataset = TerrainSurfaceMeshDataset()
+    context = dataset.create_context(
+        dataset.validate(
+            {
+                "bounds": (0.0, 0.0, 1.0, 1.0),
+                "format": "obj",
+                "adaptive_mesh": True,
+                "error_threshold": 0.25,
+                "remove_outliers": False,
+                "mesher": "triangle",
+            }
+        )
+    )
+    manifest = context.manifest()
+
+    provider_roles = {
+        provider["name"]: provider["role"] for provider in manifest.metadata.provider
+    }
+    assert provider_roles == {
+        "Lantmäteriet": "source_provider",
+        "DTCC Platform": "processor",
+    }
+    assert manifest.metadata.lod.startswith("Terrain raster")
+    assert "Requires review" in manifest.metadata.license
+    assert "Requires review" in manifest.metadata.collection_period
+    assert manifest.provenance.derived_from == [
+        {
+            "name": "point_cloud",
+            "relationship": "terrain elevation source",
+            "source_terms_status": "requires_review",
+        }
+    ]
+    assert any("adaptive_mesh=True" in step for step in manifest.provenance.processing_steps)
+    assert any("remove global point-cloud outliers" in step for step in manifest.provenance.processing_steps)
+    assert manifest.presentation.headline == "Point-Cloud Terrain Surface"
+    assert manifest.presentation.legend["title"] == "Terrain outputs"
+    assert manifest.presentation.view_hints["mesh_role"] == "terrain_visualization_or_preprocessing"
+    assert any("not automatically certified" in warning for warning in manifest.presentation.warnings)
+    assert manifest.presentation.limitations
+    assert manifest.request.parameters["adaptive_mesh"] is True
+    assert manifest.request.parameters["mesher"] == "triangle"

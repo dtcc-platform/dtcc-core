@@ -275,7 +275,7 @@ class SmokeDataset(DatasetDescriptor):
         "presentation workflows."
     )
     ArgsModel = SmokeArgs
-    data_category = "simulation"
+    data_category = "synthetic"
     result_kind = "vector_field"
     python_return_type = "dtcc_core.model.VolumeMesh"
     timeout_hint = 2

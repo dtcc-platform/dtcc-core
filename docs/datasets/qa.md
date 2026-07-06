@@ -30,6 +30,8 @@ Run the fixture/parser checks with:
 ```bash
 pytest tests/datasets/test_provider_fixtures.py
 pytest tests/datasets/test_weather_dataset.py tests/datasets/test_hydrology_dataset.py tests/datasets/test_ocean_dataset.py tests/datasets/test_air_quality_dataset.py
+pytest tests/datasets/test_roads_dataset.py tests/datasets/test_space_syntax_dataset.py
+pytest tests/datasets/test_transit_vehicles_dataset.py
 ```
 
 ## Live Provider QA
@@ -52,6 +54,13 @@ If live tests are selected without `DTCC_LIVE_DATASET_TESTS=1`, pytest skips
 them with an explicit reason. Credentialed providers must report missing
 credentials with actionable skip or failure messages when strict live checks
 are requested.
+
+Live dataset tests run provider calls in strict mode when the dataset supports
+it. Transient upstream failures classified as `connection`, `timeout`, or
+`http_5xx` may skip the affected live case because they do not prove a dataset
+contract regression. Non-transient `DatasetUpstreamError` failures such as
+`http_4xx`, malformed provider payloads, invalid parameters, or untyped
+exceptions fail the live run and should be investigated.
 
 ## Table Catalog QA
 

@@ -41,6 +41,51 @@ def test_trees_prepare_result_returns_tree_collection():
     assert result[1] is trees[1]
 
 
+def test_trees_context_documents_pointcloud_lineage_and_limits():
+    dataset = TreesDataset()
+    context = dataset.create_context(
+        dataset.validate(
+            {
+                "bounds": (0.0, 0.0, 1.0, 1.0),
+                "tree_type": "dense",
+                "format": "geojson",
+                "vector_geometry": "circle",
+            }
+        )
+    )
+    manifest = context.manifest()
+
+    provider_roles = {
+        provider["name"]: provider["role"] for provider in manifest.metadata.provider
+    }
+    assert provider_roles == {
+        "Lantmäteriet": "source_provider",
+        "DTCC Platform": "processor",
+    }
+    assert any(
+        source.get("role") == "upstream_dataset"
+        and source.get("source_terms_status") == "requires_review"
+        for source in manifest.metadata.source
+    )
+    assert "Requires review" in manifest.metadata.license
+    assert "Requires review" in manifest.metadata.collection_period
+    assert any("vegetation" in step for step in manifest.provenance.processing_steps)
+    assert any("tree_type" in step for step in manifest.provenance.processing_steps)
+    assert manifest.provenance.derived_from[0]["name"] == "point_cloud"
+    assert manifest.presentation.headline == "Detected Tree Layer"
+    assert manifest.presentation.legend["title"] == "Tree extraction"
+    assert manifest.presentation.view_hints["tree_type_profiles"] == [
+        "urban",
+        "mixed",
+        "dense",
+        "arid",
+    ]
+    assert manifest.presentation.warnings
+    assert manifest.presentation.limitations
+    assert manifest.request.parameters["tree_type"] == "dense"
+    assert manifest.request.parameters["vector_geometry"] == "circle"
+
+
 @patch("dtcc_core.datasets.trees.City")
 @patch("dtcc_core.datasets.trees.dtcc_core.io.data.download_pointcloud")
 def test_trees_default_build_returns_tree_collection(mock_download, mock_city_cls):

@@ -40,7 +40,7 @@ def test_smoke_returns_native_model_with_dataset_context():
     assert manifest.identity.name == "smoke"
     assert manifest.identity.title == "Smoke"
     assert manifest.metadata.description == datasets.smoke.description
-    assert manifest.metadata.data_category == "simulation"
+    assert manifest.metadata.data_category == "synthetic"
     assert manifest.metadata.result_kind == "vector_field"
     assert manifest.metadata.lod.startswith("Not applicable")
     assert {"mesh", "vector", "raster", "video", "protobuf", "vector_field"} <= set(

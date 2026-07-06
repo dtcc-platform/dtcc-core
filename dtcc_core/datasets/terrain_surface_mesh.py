@@ -1,11 +1,10 @@
 import dtcc_core
-from dtcc_core.model import City, PointCloud, Bounds, Terrain, Raster
-from typing import Literal, Optional, List, Tuple, Sequence, Union
+from typing import Literal, Optional
 from pydantic import Field
-import tempfile
 
 from .dataset import DatasetDescriptor, DatasetBaseArgs
-from dtcc_core.common.progress import ProgressTracker, report_progress
+from .providers import provider_entry
+from dtcc_core.common.progress import ProgressTracker
 
 
 class TerrainSurfaceMeshArgs(DatasetBaseArgs):
@@ -47,24 +46,117 @@ class TerrainSurfaceMeshArgs(DatasetBaseArgs):
 
 class TerrainSurfaceMeshDataset(DatasetDescriptor):
     name = "terrain_surface_mesh"
-    description = "Terrain surface mesh from point cloud data."
+    title = "Terrain Surface Mesh"
+    description = (
+        "Terrain raster or triangular surface mesh derived from point cloud "
+        "ground data for the requested bounds."
+    )
     ArgsModel = TerrainSurfaceMeshArgs
     data_category = "derived"
     result_kind = "mesh"
     python_return_type = "dtcc_core.model.Mesh | dtcc_core.model.Raster"
-    provider = [{"name": "DTCC Platform", "role": "processor"}]
-    source = ["Point cloud data"]
-    license = "Derived from upstream point cloud data; verify source terms before redistribution."
+    provider = [
+        provider_entry("lantmateriet", role="source_provider"),
+        provider_entry("dtcc-platform", role="processor"),
+    ]
+    source = [
+        {
+            "name": "DTCC/Lantmäteriet point cloud backend/cache",
+            "role": "upstream_dataset",
+            "source_terms_status": "requires_review",
+        }
+    ]
+    license = (
+        "Requires review: derived from upstream point cloud data; verify "
+        "source terms before redistribution."
+    )
+    collection_period = (
+        "Requires review: inherits point cloud acquisition date/cache vintage, "
+        "which is not currently surfaced in the terrain result."
+    )
     default_crs = "EPSG:3006"
+    lod = "Terrain raster or terrain surface mesh; no building LoD"
+    data_types = ["terrain", "point_cloud_derived", "raster", "surface_mesh", "mesh"]
     geographic_coverage = "Sweden, constrained by requested bounds and source coverage"
     update_frequency = "derived on demand from upstream source data"
     processing_steps = [
-        "Download point cloud data for requested bounds",
-        "Build a terrain raster or terrain surface mesh",
+        "Download point cloud data for the requested bounds in EPSG:3006",
+        "Optionally remove global point-cloud outliers using remove_outlier_threshold",
+        "For format='tif', build a terrain raster with raster_resolution cell size",
+        "For adaptive_mesh=True, build an adaptive terrain mesh using error_threshold and raster_resolution",
+        "Otherwise build a terrain surface mesh using max_mesh_size, smoothing, and the selected mesher backend",
+        "Return the native mesh/raster object or serialize the requested terrain format",
     ]
+    derived_from = [
+        {
+            "name": "point_cloud",
+            "relationship": "terrain elevation source",
+            "source_terms_status": "requires_review",
+        }
+    ]
+    presentation_headline = "Point-Cloud Terrain Surface"
     presentation_summary = (
-        "Terrain raster or surface mesh derived from point cloud data."
+        "A terrain-only raster or triangular mesh built from point cloud data."
     )
+    presentation_narrative = [
+        {
+            "heading": "What you are seeing",
+            "body": (
+                "The result represents terrain elevation over the requested "
+                "bounds. It does not include buildings, vegetation semantics, "
+                "or simulation boundary conditions."
+            ),
+        },
+        {
+            "heading": "How it is made",
+            "body": (
+                "The dataset downloads point cloud data, optionally removes "
+                "global outliers, and then builds either a terrain raster or a "
+                "triangular surface mesh with the requested size and mesher settings."
+            ),
+        },
+        {
+            "heading": "Limitations",
+            "body": (
+                "Mesh usefulness depends on point-cloud coverage, classification "
+                "quality, raster resolution, smoothing, and later validation for "
+                "the intended analysis."
+            ),
+        },
+    ]
+    key_points = [
+        "format='tif' returns raster bytes instead of a Mesh object",
+        "adaptive_mesh=True uses error_threshold rather than max_mesh_size",
+        "remove_outliers=True applies a global point-cloud outlier filter before terrain construction",
+        "mesher selects the 2D terrain triangulation backend when supported",
+    ]
+    presentation_legend = {
+        "title": "Terrain outputs",
+        "entries": [
+            {"label": "Raster cell", "meaning": "terrain elevation sample in meters"},
+            {"label": "Triangle", "meaning": "terrain surface facet"},
+            {
+                "label": "Mesh edge size",
+                "meaning": "controlled by max_mesh_size or adaptive error settings",
+            },
+        ],
+    }
+    view_hints = {
+        "preferred_geometry": "terrain_surface_mesh",
+        "default_crs": "EPSG:3006",
+        "mesh_role": "terrain_visualization_or_preprocessing",
+        "z_units": "meters",
+    }
+    presentation_warnings = [
+        "Source and license terms inherit upstream point-cloud review status.",
+        "Terrain mesh quality is not automatically certified for FEM, CFD, or hydrology use.",
+        "Outlier removal and smoothing can change terrain detail.",
+    ]
+    presentation_limitations = [
+        "Point-cloud acquisition date, density, and classification quality are not currently surfaced in the result.",
+        "The dataset does not add building, road, vegetation, or water semantics.",
+        "No mesh-quality threshold is enforced beyond the selected builder parameters.",
+    ]
 
     def build(self, args: TerrainSurfaceMeshArgs):
         progress_phases = {
