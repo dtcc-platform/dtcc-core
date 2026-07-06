@@ -140,7 +140,7 @@ Current Built-In Datasets
 
 | Dataset | Category | Python result when `format=None` | Serialized formats | Notes |
 | --- | --- | --- | --- | --- |
-| `point_cloud` | raw | `PointCloud` | `copc`, `las`, `laz` | Lantmateriet point cloud with classification filters. |
+| `point_cloud` | raw | `PointCloud` | `copc`, `las`, `laz` | Lantmäteriet point cloud with classification filters. |
 | `building_footprints` | raw | `FootprintCollection` | `geojson`, `gpkg`, `shp.zip` | Provider footprints, optionally height-enriched. |
 | `buildings` | derived | `BuildingCollection` | `obj`, `stl` | LoD1 buildings; exports are merged meshes. |
 | `city` | derived | `City` | `cityjson`, `json` | Both serialized paths currently produce CityJSON-compatible JSON bytes. |
@@ -388,10 +388,11 @@ XDMF plus HDF5 are reserved for a later server and client contract.
 Seeding an Atlas Smoke Catalog
 ------------------------------
 
-The table smoke demo is the canonical way to seed a `dtcc-upload` catalog for
-the Atlas MVP. It exports seven local cases under `output/smoke/table_cases/`
-and publishes only the five Atlas-renderable cases: GeoJSON, PNG, and MP4. The
-VTU and protobuf cases stay local-only.
+The legacy smoke table script can seed a `dtcc-upload` catalog for the Atlas
+MVP until the tangible-table repository owns declarative model profiles and the
+canonical table catalog generator. It exports seven local cases under
+`output/smoke/table_cases/` and publishes only the five Atlas-renderable cases:
+GeoJSON, PNG, and MP4. The VTU and protobuf cases stay local-only.
 
 Start `dtcc-upload` with CORS configured for the Atlas dev origin:
 
@@ -404,7 +405,7 @@ Then run the smoke table publisher from this repository:
 
     export DTCC_UPLOAD_URL=http://127.0.0.1:8000
     export DTCC_UPLOAD_TOKEN=replace-me
-    python demos/smoke_table_cases.py
+    python scripts/table_cases/smoke_table_cases.py
 
 The tangible/Atlas++ MVP online catalog flow can browse the resulting
 `dtcc-upload` catalog and fetch the published smoke datasets using their
@@ -413,25 +414,25 @@ server-side Manifest v2 parsing and local package discovery; live
 `dtcc-upload` catalog browsing in `dtcc-atlas` remains a follow-up.
 
 The smoke cases are synthetic, so they cannot show whether the projection
-actually lands on the printed buildings. The companion footprints demo
+actually lands on the printed buildings. The companion footprints script
 publishes the real building footprints over the same table bounds as
 EPSG:3006 GeoJSON under the `table-footprints-geojson` dataset key, giving the
 table an alignment layer that should sit exactly on the physical model:
 
-    python demos/footprints_table_case.py
+    python scripts/table_cases/footprints_table_case.py
 
 Note that the table requires EPSG:3006 GeoJSON, while `building_footprints`
-reprojects GeoJSON output to EPSG:4326 by default. The demo passes
+reprojects GeoJSON output to EPSG:4326 by default. The script passes
 `crs="EPSG:3006"` to keep coordinates in meters; do the same for any manual
-footprint exports aimed at the table. Unlike the smoke cases, this demo
+footprint exports aimed at the table. Unlike the smoke cases, this script
 downloads live footprint data and needs network access.
 
-For checking the projector alignment itself, the calibration grid demo
+For checking the projector alignment itself, the calibration grid script
 publishes a synthetic 41 x 41 line grid over the same bounds under the
 `table-calibration-grid-geojson` dataset key. The printed table model is
 40 cm x 40 cm at 1:1250, so the lines sit exactly 1 cm apart on the model:
 
-    python demos/grid_table_case.py
+    python scripts/table_cases/grid_table_case.py
 
 Atlas Integration Checklist
 ---------------------------

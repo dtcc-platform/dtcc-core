@@ -1,6 +1,6 @@
-"""Tests for demos/grid_table_case.py.
+"""Tests for scripts/table_cases/grid_table_case.py.
 
-Loaded by file path because demos/ is intentionally not a Python package.
+Loaded by file path because scripts/ is intentionally not a Python package.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_SCRIPT_PATH = _REPO_ROOT / "demos" / "grid_table_case.py"
+_SCRIPT_PATH = _REPO_ROOT / "scripts" / "table_cases" / "grid_table_case.py"
 _spec = importlib.util.spec_from_file_location("grid_table_case", _SCRIPT_PATH)
 script = importlib.util.module_from_spec(_spec)
 sys.modules.setdefault("grid_table_case", script)
@@ -26,7 +26,7 @@ _SERVER_DATASET_KEY_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$")
 def test_bounds_matches_smoke_table_cases():
     """The grid must share the table bounds exactly: Atlas only reuses the
     physical calibration for tuple-equal bounds."""
-    smoke_path = _REPO_ROOT / "demos" / "smoke_table_cases.py"
+    smoke_path = _REPO_ROOT / "scripts" / "table_cases" / "smoke_table_cases.py"
     smoke_spec = importlib.util.spec_from_file_location(
         "smoke_table_cases_for_grid_bounds", smoke_path
     )

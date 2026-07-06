@@ -1,6 +1,6 @@
 # Dataset QA and tangible table catalog implementation
 
-Status: planned
+Status: complete
 Created: 2026-07-06
 Suggested path: `.agent/plans/2026-07-06-dataset-qa-table-catalog-implementation.md`
 
@@ -91,33 +91,33 @@ Approved decisions from the design:
 
 The full design implementation is not complete until these are true.
 
-- [ ] `docs/datasets/qa-matrix.md` exists and has one row per built-in `dtcc-core` public dataset.
-- [ ] `dtcc_core.datasets.qa` exposes structured QA findings for registered datasets.
-- [ ] QA findings distinguish `present`, `missing`, `explicitly_unknown`, `not_applicable`, and `requires_review`.
-- [ ] A targeted offline test validates that all built-in `dtcc-core` datasets can be audited without network access.
-- [ ] Static QA tests fail when a required contract field is missing without being explicitly marked unknown/not-applicable/requires-review.
-- [ ] Provider display names and slugs are normalized through shared helpers where practical.
-- [ ] A shared bounds-to-WGS84 helper uses all four bbox corners and has tests.
-- [ ] Provider-backed datasets that transform bounds use the shared helper or document why they cannot.
-- [ ] Provider parser tests use committed fixtures for at least weather, ocean, hydrology, and air quality.
-- [ ] Live provider tests are opt-in behind `DTCC_LIVE_DATASET_TESTS=1` and never run silently in default CI.
-- [ ] Credentialed live tests skip or fail with actionable messages when required credentials are missing.
-- [ ] Minimal demos do not contain table catalog generation, credential handling, or publish logic.
-- [ ] Table-oriented smoke/grid/footprints case logic is represented as declarative table model specs in the tangible table repo.
-- [ ] Table model specs include `model.yaml` and `datasets.yaml` with required validation.
-- [ ] Table catalog generation fails if required model/spec fields are missing or invalid.
-- [ ] Table catalog generation produces Dataset Manifest v2 packages and validates artifact presence.
-- [ ] `--publish` requires explicit upload configuration and never silently falls back to local-only behavior.
-- [ ] `dtcc-sim` has a QA matrix or QA skeleton for simulation datasets.
-- [ ] At least one simulation validation test per major simulation family is planned or implemented with explicit status.
-- [ ] Documentation explains how to run static QA, live QA, and table catalog generation.
+- [x] `docs/datasets/qa-matrix.md` exists and has one row per built-in `dtcc-core` public dataset.
+- [x] `dtcc_core.datasets.qa` exposes structured QA findings for registered datasets.
+- [x] QA findings distinguish `present`, `missing`, `explicitly_unknown`, `not_applicable`, and `requires_review`.
+- [x] A targeted offline test validates that all built-in `dtcc-core` datasets can be audited without network access.
+- [x] Static QA tests fail when a required contract field is missing without being explicitly marked unknown/not-applicable/requires-review.
+- [x] Provider display names and slugs are normalized through shared helpers where practical.
+- [x] A shared bounds-to-WGS84 helper uses all four bbox corners and has tests.
+- [x] Provider-backed datasets that transform bounds use the shared helper or document why they cannot.
+- [x] Provider parser tests use committed fixtures for at least weather, ocean, hydrology, and air quality.
+- [x] Live provider tests are opt-in behind `DTCC_LIVE_DATASET_TESTS=1` and never run silently in default CI.
+- [x] Credentialed live tests skip or fail with actionable messages when required credentials are missing.
+- [x] Minimal demos do not contain table catalog generation, credential handling, or publish logic.
+- [x] Table-oriented smoke/grid/footprints case logic is represented as declarative table model specs in the tangible table repo.
+- [x] Table model specs include `model.yaml` and `datasets.yaml` with required validation.
+- [x] Table catalog generation fails if required model/spec fields are missing or invalid.
+- [x] Table catalog generation produces Dataset Manifest v2 packages and validates artifact presence.
+- [x] `--publish` requires explicit upload configuration and never silently falls back to local-only behavior.
+- [x] `dtcc-sim` has a QA matrix or QA skeleton for simulation datasets.
+- [x] At least one simulation validation test per major simulation family is planned or implemented with explicit status.
+- [x] Documentation explains how to run static QA, live QA, and table catalog generation.
 
 For a first `dtcc-core` PR, the smaller acceptance target is:
 
-- [ ] add `docs/datasets/qa-matrix.md`;
-- [ ] add `dtcc_core.datasets.qa`;
-- [ ] add offline tests for the QA helper;
-- [ ] do not change runtime dataset behavior beyond harmless metadata/status improvements.
+- [x] add `docs/datasets/qa-matrix.md`;
+- [x] add `dtcc_core.datasets.qa`;
+- [x] add offline tests for the QA helper;
+- [x] do not change runtime dataset behavior beyond harmless metadata/status improvements.
 
 ## Fail-loud requirements
 
@@ -215,10 +215,10 @@ Required flags:
 
 Help and examples required:
 
-- [ ] `--help` explains the common case.
-- [ ] `--help` includes at least one copy-pasteable example.
-- [ ] Missing required inputs fail with actionable errors.
-- [ ] Destructive operations require explicit confirmation such as `--yes`, `--force`, or an interactive prompt.
+- [x] `--help` explains the common case.
+- [x] `--help` includes at least one copy-pasteable example.
+- [x] Missing required inputs fail with actionable errors.
+- [x] Destructive operations require explicit confirmation such as `--yes`, `--force`, or an interactive prompt.
 
 ### Table catalog generator CLI
 
@@ -254,10 +254,10 @@ Required flags:
 
 Help and examples required:
 
-- [ ] `--help` explains the common case.
-- [ ] `--help` includes at least one copy-pasteable example.
-- [ ] Missing required inputs fail with actionable errors.
-- [ ] Destructive operations require explicit confirmation such as `--clean`.
+- [x] `--help` explains the common case.
+- [x] `--help` includes at least one copy-pasteable example.
+- [x] Missing required inputs fail with actionable errors.
+- [x] Destructive operations require explicit confirmation such as `--clean`.
 
 ## Relevant files
 
@@ -535,7 +535,7 @@ pytest tests/datasets/test_dataset_context.py tests/datasets/test_dataset_qa.py
 python -m dtcc_core.datasets.qa --format markdown
 ```
 
-Status: pending
+Status: complete
 
 ### Milestone 2: Provider/geospatial helper consolidation
 
@@ -554,7 +554,7 @@ pytest tests/datasets/test_weather_dataset.py tests/datasets/test_hydrology_data
 pytest tests/datasets/test_dataset_qa.py
 ```
 
-Status: pending
+Status: complete
 
 ### Milestone 3: Provider fixture and live test structure
 
@@ -575,7 +575,7 @@ DTCC_LIVE_DATASET_TESTS=1 pytest tests/datasets/live
 
 The live test command may fail because of provider outages or missing credentials; if so, Codex must record the exact failure and classification in implementation notes.
 
-Status: pending
+Status: complete
 
 ### Milestone 4: Demo cleanup and table-case extraction preparation
 
@@ -595,7 +595,7 @@ python demos/roads.py
 
 Only run demos that are cheap and do not require unavailable network/provider dependencies. Document skipped demos.
 
-Status: pending
+Status: complete
 
 ### Milestone 5: Tangible table model specs and generator
 
@@ -617,7 +617,7 @@ python scripts/generate_table_catalog.py gbg_500m_2026_07 --only calibration_gri
 pytest
 ```
 
-Status: pending
+Status: complete
 
 ### Milestone 6: `dtcc-sim` simulation QA skeleton
 
@@ -636,7 +636,7 @@ pytest
 
 If full solver tests are too heavy for default CI, add them as explicitly marked slow tests and document how to run them.
 
-Status: pending
+Status: complete
 
 ### Milestone 7: End-to-end table package validation
 
@@ -656,7 +656,7 @@ python scripts/generate_table_catalog.py gbg_500m_2026_07 --only smoke_streamlin
 python scripts/generate_table_catalog.py gbg_500m_2026_07 --publish --dry-run
 ```
 
-Status: pending
+Status: complete
 
 ## Verification plan
 
@@ -770,6 +770,117 @@ Use this section for:
 ### Notes
 
 - 2026-07-06: Plan created from approved `docs/design/dataset-qa-and-table-catalog.md`.
+- 2026-07-06: Started Milestone 1 in `dtcc-core` only. The workspace
+  top-level directory is not a git repository; `dtcc-core` is on
+  `develop...origin/develop` with pre-existing untracked `tmp/`.
+- 2026-07-06: Completed Milestone 1. Added `dtcc_core.datasets.qa`, the
+  initial `docs/datasets/qa-matrix.md`, and offline QA tests. Added
+  `default_crs = "EPSG:3006"` to `deso` as a harmless metadata fix so every
+  built-in public dataset has explicit context CRS in static QA.
+- 2026-07-06: Verification passed with
+  `../venv/bin/python -m pytest tests/datasets/test_dataset_context.py tests/datasets/test_dataset_registration.py tests/datasets/test_dataset_qa.py`
+  and `../venv/bin/python -m dtcc_core.datasets.qa --format markdown`.
+  Bare `python` is unavailable in this shell, so verification used the
+  workspace virtual environment at `../venv/bin/python`.
+- 2026-07-06: Started Milestone 2 in `dtcc-core`, focusing on shared
+  bounds-to-WGS84/provider helpers and provider-backed dataset adoption.
+- 2026-07-06: Completed Milestone 2. Added shared
+  `dtcc_core.datasets.geospatial.bounds_to_wgs84` with four-corner
+  reprojection and validation, plus `dtcc_core.datasets.providers` for
+  provider slugs/display names. Updated weather, hydrology, ocean,
+  air-quality, transit, point-cloud, footprints, roads, and DeSO metadata or
+  bounds call sites where practical.
+- 2026-07-06: Milestone 2 verification passed with
+  `../venv/bin/python -m pytest tests/datasets/test_weather_dataset.py tests/datasets/test_hydrology_dataset.py tests/datasets/test_ocean_dataset.py tests/datasets/test_air_quality_dataset.py tests/datasets/test_transit_vehicles_dataset.py tests/datasets/test_dataset_qa.py tests/datasets/test_dataset_helpers.py`,
+  `../venv/bin/python -m pytest tests/datasets/test_pointcloud_dataset.py tests/datasets/test_footprints_dataset.py tests/datasets/test_roads_dataset.py tests/datasets/test_deso_dataset.py`,
+  `../venv/bin/python -m pytest tests/datasets`, and
+  `../venv/bin/python -m dtcc_core.datasets.qa --format markdown`.
+- 2026-07-06: Started Milestone 3. Existing provider parser tests use inline
+  payload constants; existing live tests are marked `live` and deselected by
+  default but do not yet require `DTCC_LIVE_DATASET_TESTS=1` when explicitly
+  selected.
+- 2026-07-06: Completed Milestone 3. Moved weather, ocean, hydrology, and
+  air-quality parser payloads into committed fixtures under
+  `tests/datasets/fixtures/smhi/`; added fixture contract tests; moved live
+  SMHI tests to `tests/datasets/live/`; and updated pytest gating so selected
+  live tests require `DTCC_LIVE_DATASET_TESTS=1`.
+- 2026-07-06: Milestone 3 verification passed with
+  `../venv/bin/python -m pytest tests/datasets/test_provider_fixtures.py tests/datasets/test_weather_dataset.py tests/datasets/test_hydrology_dataset.py tests/datasets/test_ocean_dataset.py tests/datasets/test_air_quality_dataset.py`,
+  `../venv/bin/python -m pytest tests/datasets/live` (50 skipped with the
+  explicit env-gate reason),
+  `DTCC_LIVE_DATASET_TESTS=1 ../venv/bin/python -m pytest tests/datasets/live --collect-only -q`,
+  `../venv/bin/python -m pytest tests/datasets`, and
+  `../venv/bin/python -m dtcc_core.datasets.qa --format markdown`. Actual live
+  provider execution was not run from this restricted environment.
+- 2026-07-06: Started Milestone 4 demo cleanup and table-case extraction
+  preparation.
+- 2026-07-06: Completed the remaining Milestone 3 credentialed-live-test
+  acceptance item. Added `tests/datasets/live/test_transit_vehicles_live.py`
+  for Trafiklab and Västtrafik transit cases. The tests are marked `live`,
+  skip with provider-specific credential instructions when keys are absent,
+  and only call providers when `DTCC_LIVE_DATASET_TESTS=1` and credentials
+  are present.
+- 2026-07-06: Completed Milestone 4 in `dtcc-core`. Moved table-oriented
+  smoke/grid/footprints operational scripts from `demos/` to
+  `scripts/table_cases/`, left compatibility wrappers in `demos/`, updated
+  tests and README commands, and reduced `demos/smoke.py` to a minimal local
+  smoke preview example. No table catalog generation, credential handling, or
+  publish logic remains under `demos/`.
+- 2026-07-06: Milestone 4 verification passed with
+  `../venv/bin/python -m py_compile demos/smoke.py demos/smoke_table_cases.py demos/grid_table_case.py demos/footprints_table_case.py scripts/table_cases/smoke_table_cases.py scripts/table_cases/grid_table_case.py scripts/table_cases/footprints_table_case.py tests/demos/test_table_case_wrappers.py`,
+  `../venv/bin/python -m pytest tests/demos`, and
+  `../venv/bin/python demos/smoke.py`. `demos/roads.py` was not run because
+  it depends on live OSM/Overpass/provider network access. The generated smoke
+  preview artifact was removed after verification.
+- 2026-07-06: Live/credential verification passed with
+  `../venv/bin/python -m pytest tests/datasets/live` (52 skipped by the
+  explicit env gate),
+  `env -u TRAFIKLAB_API_KEY -u SAMTRAFIKEN_API_KEY -u VASTTRAFIK_AUTHENTICATION_KEY DTCC_LIVE_DATASET_TESTS=1 ../venv/bin/python -m pytest tests/datasets/live/test_transit_vehicles_live.py -q`
+  (2 skipped with credential-specific reasons), and
+  `DTCC_LIVE_DATASET_TESTS=1 ../venv/bin/python -m pytest tests/datasets/live --collect-only -q`
+  (52 tests collected). A credentialed Västtrafik live execution attempted in
+  this restricted environment failed on provider DNS/name resolution, so actual
+  transit provider execution remains manually verified outside restricted
+  network environments.
+- 2026-07-06: Static QA CLI help was verified with
+  `../venv/bin/python -m dtcc_core.datasets.qa --help`; the help describes
+  the common offline audit and includes copy-pasteable examples. The CLI has
+  no destructive operation.
+- 2026-07-06: Completed Milestone 5 in `dtcc-tangible-twin`. Added
+  `table_models/gbg_500m_2026_07/model.yaml` and `datasets.yaml` with
+  declarative calibration-grid, smoke, and building-footprint table cases.
+  Added `scripts/generate_table_catalog.py` with typed validation, dry-run,
+  `--only`/`--skip`, explicit `--clean` for non-empty output directories, and
+  guarded `--publish` configuration. Network/expensive cases remain present in
+  specs and are explicitly skipped by default with reasons.
+- 2026-07-06: Milestone 5 verification passed in `dtcc-tangible-twin` with
+  `../venv/bin/python -m py_compile scripts/generate_table_catalog.py tests/test_table_model_specs.py tests/test_table_catalog_generation.py`,
+  `../venv/bin/python -m pytest tests/test_table_model_specs.py tests/test_table_catalog_generation.py`,
+  `../venv/bin/python scripts/generate_table_catalog.py --help`, and
+  `../venv/bin/python scripts/generate_table_catalog.py gbg_500m_2026_07 --dry-run`.
+- 2026-07-06: Completed Milestone 7 table package validation in
+  `dtcc-tangible-twin`. Generated and validated local Dataset Manifest v2
+  packages with
+  `../venv/bin/python scripts/generate_table_catalog.py gbg_500m_2026_07 --only calibration_grid --clean`
+  and
+  `../venv/bin/python scripts/generate_table_catalog.py gbg_500m_2026_07 --only smoke_streamlines --clean`.
+  Both packages contained `manifest.json`, expected `artifacts/` files, and
+  request bounds matching the model bounds. Verified publish fails before
+  generation when configuration is missing with
+  `env -u DTCC_UPLOAD_URL -u DTCC_UPLOAD_TOKEN ../venv/bin/python scripts/generate_table_catalog.py gbg_500m_2026_07 --publish --dry-run`.
+- 2026-07-06: Completed Milestone 6 in `dtcc-sim`. Added
+  `dtcc_sim.qa`, `docs/datasets/qa-matrix.md`, and
+  `tests/test_dataset_qa.py` to audit registered simulation Dataset v2
+  descriptors offline and document explicit validation status for urban heat,
+  urban wind, air-quality field, and traffic. Marked existing FEniCS-dependent
+  tests with explicit `dolfinx` collection skips so default pytest is clear in
+  non-FEniCSx environments.
+- 2026-07-06: Milestone 6 verification passed with
+  `../venv/bin/python -m py_compile dtcc_sim/qa.py tests/test_dataset_qa.py tests/test_fenics_io.py tests/test_smooth_reconstruction.py tests/test_urban_heat_dataset_v2.py tests/test_urban_wind.py`,
+  `../venv/bin/python -m pytest tests/test_dataset_qa.py`,
+  `../venv/bin/python -m pytest tests/test_air_quality_dataset_v2.py tests/test_traffic.py`,
+  and `../venv/bin/python -m pytest` in `dtcc-sim` (31 passed, 4 skipped
+  with explicit `dolfinx` reasons).
 
 ## Decision log
 
@@ -787,16 +898,16 @@ Record important implementation decisions.
 
 Before this task is accepted:
 
-- [ ] Acceptance criteria are satisfied.
-- [ ] Required data/configuration fails loudly when missing or invalid.
-- [ ] No silent fallbacks or placeholder defaults were introduced.
-- [ ] Human-facing CLI behavior is simple for the common case, if applicable.
-- [ ] Tests were added or updated for changed behavior.
-- [ ] Verification commands were run, or limitations were documented.
-- [ ] No unrelated refactors or broad rewrites were introduced.
-- [ ] Public APIs remain compatible unless the plan explicitly changes them.
-- [ ] Security, authorization, data integrity, and migration risks were considered.
-- [ ] No known blocking issues remain.
+- [x] Acceptance criteria are satisfied.
+- [x] Required data/configuration fails loudly when missing or invalid.
+- [x] No silent fallbacks or placeholder defaults were introduced.
+- [x] Human-facing CLI behavior is simple for the common case, if applicable.
+- [x] Tests were added or updated for changed behavior.
+- [x] Verification commands were run, or limitations were documented.
+- [x] No unrelated refactors or broad rewrites were introduced.
+- [x] Public APIs remain compatible unless the plan explicitly changes them.
+- [x] Security, authorization, data integrity, and migration risks were considered.
+- [x] No known blocking issues remain.
 
 ## Done condition
 

@@ -1,0 +1,12 @@
+[
+  {
+    "id": "station1",
+    "properties": {"label": "Test Station 1", "operator": "SMHI"},
+    "geometry": {"coordinates": [18.0, 59.3, 0.0]}
+  },
+  {
+    "id": "station2",
+    "properties": {"label": "Test Station 2", "operator": "SMHI"},
+    "geometry": {"coordinates": [18.1, 59.4, 0.0]}
+  }
+]

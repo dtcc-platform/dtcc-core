@@ -20,6 +20,8 @@ import json
 from datetime import datetime, timezone
 
 from .dataset import DatasetBaseArgs, DatasetDescriptor, DatasetUpstreamError
+from .geospatial import bounds_to_wgs84, is_wgs84_crs
+from .providers import provider_entry
 from ..model.object import Object, SensorCollection
 from ..model.geometry import Point
 from ..model.values import Field as DtccField
@@ -146,39 +148,6 @@ def _resolve_phenomenon_id(
     return phenomenon_str
 
 
-def _transform_bounds_to_wgs84(
-    bounds: Tuple[float, float, float, float], crs: str
-) -> Tuple[float, float, float, float]:
-    """Transform bounds to WGS84 (CRS84) for API requests.
-
-    The SMHI API expects coordinates in WGS84/CRS84 (longitude, latitude).
-    This function transforms bounds from the specified CRS to WGS84 using
-    the existing reproject_array function.
-
-    Parameters
-    ----------
-    bounds : tuple
-        (xmin, ymin, xmax, ymax) bounding box in source CRS
-    crs : str
-        Source coordinate reference system (e.g., "EPSG:3006", "CRS84")
-
-    Returns
-    -------
-    tuple
-        (lon_min, lat_min, lon_max, lat_max) in WGS84
-    """
-    # If already in CRS84/WGS84, return as-is
-    if crs.upper() in ["CRS84", "EPSG:4326", "WGS84"]:
-        return bounds
-
-    # Transform corner points using existing reproject functionality
-    xmin, ymin, xmax, ymax = bounds
-    corners = np.array([[xmin, ymin, 0], [xmax, ymax, 0]])
-    transformed = reproject_array(corners, crs, "EPSG:4326")
-
-    return (transformed[0, 0], transformed[0, 1], transformed[1, 0], transformed[1, 1])
-
-
 def _fetch_stations(
     base_url: str,
     bounds: Tuple[float, float, float, float],
@@ -209,7 +178,7 @@ def _fetch_stations(
     info(f"Querying air quality API for stations...")
 
     # Transform bounds to WGS84 if necessary
-    wgs84_bounds = _transform_bounds_to_wgs84(bounds, crs)
+    wgs84_bounds = bounds_to_wgs84(bounds, crs)
 
     # API expects bbox as: xmin,ymin,xmax,ymax in WGS84/CRS84
     bbox_str = (
@@ -478,7 +447,7 @@ class AirQualityDataset(DatasetDescriptor):
     data_category = "raw"
     result_kind = "sensor_collection"
     python_return_type = "dtcc_core.model.SensorCollection"
-    provider = [{"name": "SMHI", "role": "source_provider"}]
+    provider = [provider_entry("smhi")]
     source = ["SMHI datavardluft air-quality API"]
     license = "Review SMHI source terms before redistribution."
     geographic_coverage = "Sweden, constrained by station coverage and requested bounds"
@@ -567,7 +536,7 @@ class AirQualityDataset(DatasetDescriptor):
 
                 stations_to_process = stations_data[: args.max_stations]
                 total_stations = len(stations_to_process)
-                need_reproject = args.crs.upper() not in ("CRS84", "EPSG:4326", "WGS84")
+                need_reproject = not is_wgs84_crs(args.crs)
 
                 for i, station_data in enumerate(stations_to_process):
                     report_progress(

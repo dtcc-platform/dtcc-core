@@ -22,6 +22,8 @@ import numpy as np
 from pydantic import Field, field_validator
 
 from .dataset import DatasetBaseArgs, DatasetDescriptor, DatasetUpstreamError
+from .geospatial import bounds_to_wgs84, is_wgs84_crs
+from .providers import provider_entry
 from .transport.base import SUPPORTED_TRANSIT_MODES, TransitMode
 from .transport.trafiklab_gtfs import (
     fetch_trafiklab_gtfs_vehicles,
@@ -149,8 +151,8 @@ class TransitVehiclesDataset(DatasetDescriptor):
     python_return_type = "dtcc_core.model.VehicleCollection"
     timeout_hint = 20
     provider = [
-        {"name": "Trafiklab", "role": "source_provider"},
-        {"name": "Vasttrafik", "role": "source_provider"},
+        provider_entry("trafiklab"),
+        provider_entry("vasttrafik"),
     ]
     source = ["Live regional Swedish public transport APIs"]
     license = "Review selected public transport provider terms before redistribution."
@@ -237,7 +239,7 @@ def _build_transit_vehicles(
 
     with progress:
         with progress.phase("prepare", "Preparing transport request..."):
-            bounds_wgs84 = _transform_bounds_to_wgs84(bounds_tuple, args.crs)
+            bounds_wgs84 = bounds_to_wgs84(bounds_tuple, args.crs)
             providers = _select_providers(args.provider, bounds_wgs84)
             report_progress(
                 percent=100,
@@ -419,24 +421,8 @@ def _log_live_data_status(dataset_name: str, attributes: dict[str, Any]) -> None
     )
 
 
-def _transform_bounds_to_wgs84(
-    bounds: tuple[float, float, float, float], crs: str
-) -> tuple[float, float, float, float]:
-    if crs.upper() in ("CRS84", "EPSG:4326", "WGS84"):
-        return bounds
-    xmin, ymin, xmax, ymax = bounds
-    corners = np.array(
-        [[xmin, ymin, 0.0], [xmin, ymax, 0.0], [xmax, ymin, 0.0], [xmax, ymax, 0.0]],
-        dtype=float,
-    )
-    transformed = reproject_array(corners, crs, "EPSG:4326")
-    xs = transformed[:, 0]
-    ys = transformed[:, 1]
-    return (float(xs.min()), float(ys.min()), float(xs.max()), float(ys.max()))
-
-
 def _transform_point_from_wgs84(lon: float, lat: float, crs: str):
-    if crs.upper() in ("CRS84", "EPSG:4326", "WGS84"):
+    if is_wgs84_crs(crs):
         return float(lon), float(lat), 0.0
     transformed = reproject_array(np.array([[lon, lat, 0.0]], dtype=float), "EPSG:4326", crs)
     return float(transformed[0, 0]), float(transformed[0, 1]), float(transformed[0, 2])

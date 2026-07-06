@@ -1,5 +1,6 @@
 """Tests for the ocean dataset (SMHI OcObs latest-hour)."""
 
+from pathlib import Path
 import pytest
 import math
 import numpy as np
@@ -18,51 +19,20 @@ from dtcc_core.datasets.ocean import (
 
 # ── Fixtures ─────────────────────────────────────────────────────────────
 
-# Minimal CSV that mimics the real SMHI OcObs latest-hour response for
-# parameter 5 (sea temperature).  Structure:
-#   - 2 metadata rows
-#   - blank line
-#   - column header (StationsId;Stationsnamn;Latitude;Longitude;<Param>;Kvalitet)
-#   - station rows with metadata comments appended after ;;
+FIXTURE_DIR = Path(__file__).parent / "fixtures" / "smhi" / "ocobs"
 
-SAMPLE_CSV_PARAM5 = """\
-Parameternamn;Beskrivning;Enhet
-Havstemperatur;null;°C
 
-StationsId;Stationsnamn;Latitude;Longitude;Havstemperatur;Kvalitet;;Tidsperiod (fr.o.m.) = 2010-06-17 11:00:00 (UTC)
-2541;UDDEVALLA;58.3475;11.8948;0.9;O;;Tidsperiod (t.o.m.) = 2026-02-13 12:00:00 (UTC)
-33084;ONSALA;57.392;11.919;0.21;G;;
-33089;Göteborg-Krossholmen;57.6913;11.7712;-0.52;O;;Kvalitetskoderna:
-2507;LANDSORT NORRA;58.7687;17.8589;0.26;O;;
-2088;KUNGSHOLMSFORT;56.1052;15.5893;-0.28;O;;
-2099;BARSEBÄCK;55.7564;12.9033;4.6;O;;
-"""
+def _fixture_text(name: str) -> str:
+    path = FIXTURE_DIR / name
+    return path.read_text(encoding="utf-8")
 
-SAMPLE_CSV_PARAM6 = """\
-Parameternamn;Beskrivning;Enhet
-Havsvattenstånd;null;cm
 
-StationsId;Stationsnamn;Latitude;Longitude;Havsvattenstånd;Kvalitet;;Tidsperiod (fr.o.m.) = 1886-12-01 00:00:00 (UTC)
-33097;Göteborg-Hisingsbron;57.7149;11.9687;-3.8;O;;Tidsperiod (t.o.m.) = 2026-02-13 13:00:00 (UTC)
-2541;UDDEVALLA;58.3475;11.8948;-9.0;O;;
-33084;ONSALA;57.392;11.919;-7.5;G;;
-2507;LANDSORT NORRA;58.7687;17.8589;-35.7;O;;
-"""
-
-SAMPLE_CSV_EMPTY = """\
-Parameternamn;Beskrivning;Enhet
-Våghöjd, signifikant 30 min;null;m
-
-StationsId;Stationsnamn;Latitude;Longitude;Våghöjd, signifikant 30 min;Kvalitet;;
-"""
-
-SAMPLE_CSV_MISSING_VALUES = """\
-Parameternamn;Beskrivning;Enhet
-Havstemperatur;null;°C
-
-StationsId;Stationsnamn;Latitude;Longitude;Havstemperatur;Kvalitet;;
-100;TEST STATION;59.0;18.0;;G;;
-"""
+# Minimal committed CSV fixtures that mimic SMHI OcObs latest-hour responses,
+# including station rows, quality codes, empty payloads, and missing values.
+SAMPLE_CSV_PARAM5 = _fixture_text("latest_hour_parameter_5.csv")
+SAMPLE_CSV_PARAM6 = _fixture_text("latest_hour_parameter_6.csv")
+SAMPLE_CSV_EMPTY = _fixture_text("empty_parameter_1.csv")
+SAMPLE_CSV_MISSING_VALUES = _fixture_text("missing_values_parameter_5.csv")
 
 
 # ── Mock helper ──────────────────────────────────────────────────────────

@@ -1,4 +1,7 @@
-"""Live SMHI dataset checks over deterministic Sweden bbox samples."""
+"""Live SMHI dataset checks over deterministic Sweden bbox samples.
+
+Run with ``DTCC_LIVE_DATASET_TESTS=1 pytest tests/datasets/live``.
+"""
 
 from __future__ import annotations
 

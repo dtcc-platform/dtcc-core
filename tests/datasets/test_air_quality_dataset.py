@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 from datetime import datetime
 import json
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import numpy as np
@@ -27,59 +28,20 @@ BASE_URL = "http://test-api.example.com"
 DEFAULT_BOUNDS = (17.9, 59.2, 18.2, 59.5)
 DEFAULT_CRSS = "EPSG:4326"
 
+FIXTURE_DIR = Path(__file__).parent / "fixtures" / "smhi" / "air_quality"
 
-MOCK_STATIONS_LIST = [
-    {
-        "id": "station1",
-        "properties": {"label": "Test Station 1", "operator": "SMHI"},
-        "geometry": {"coordinates": [18.0, 59.3, 0.0]},
-    },
-    {
-        "id": "station2",
-        "properties": {"label": "Test Station 2", "operator": "SMHI"},
-        "geometry": {"coordinates": [18.1, 59.4, 0.0]},
-    },
-]
 
-MOCK_STATION1_DETAIL = {
-    "id": "station1",
-    "properties": {
-        "label": "Test Station 1",
-        "operator": "SMHI",
-        "timeseries": {"ts1": {"phenomenon": {"id": "8", "label": "NO2"}}},
-    },
-    "geometry": {"coordinates": [18.0, 59.3, 0.0]},
-}
+def _fixture_json(name: str):
+    path = FIXTURE_DIR / name
+    return json.loads(path.read_text(encoding="utf-8"))
 
-MOCK_STATION2_DETAIL = {
-    "id": "station2",
-    "properties": {
-        "label": "Test Station 2",
-        "operator": "SMHI",
-        "timeseries": {"ts2": {"phenomenon": {"id": "8", "label": "NO2"}}},
-    },
-    "geometry": {"coordinates": [18.1, 59.4, 0.0]},
-}
 
-MOCK_TS1_DATA = {
-    "id": "ts1",
-    "label": "NO2",
-    "lastValue": {"timestamp": 1738569600000, "value": 25.5},
-    "uom": "µg/m³",
-}
-
-MOCK_TS2_DATA = {
-    "id": "ts2",
-    "label": "NO2",
-    "lastValue": {"timestamp": 1738569600000, "value": 30.0},
-    "uom": "µg/m³",
-}
-
-MOCK_PHENOMENA = [
-    {"id": "8", "label": "NO2"},
-    {"id": "5", "label": "PM10"},
-    {"id": "7", "label": "O3"},
-]
+MOCK_STATIONS_LIST = _fixture_json("stations.json")
+MOCK_STATION1_DETAIL = _fixture_json("station1.json")
+MOCK_STATION2_DETAIL = _fixture_json("station2.json")
+MOCK_TS1_DATA = _fixture_json("timeseries_ts1.json")
+MOCK_TS2_DATA = _fixture_json("timeseries_ts2.json")
+MOCK_PHENOMENA = _fixture_json("phenomena.json")
 
 
 def _upstream_error(

@@ -1,5 +1,6 @@
 """Tests for the weather dataset (SMHI metobs latest-hour)."""
 
+from pathlib import Path
 import pytest
 import math
 import numpy as np
@@ -17,36 +18,19 @@ from dtcc_core.datasets.weather import (
 
 # ── Fixtures ─────────────────────────────────────────────────────────────
 
-# Minimal CSV that mimics the real SMHI metobs latest-hour response for
-# parameter 1 (air temperature).  Includes:
-#   - 2 metadata rows
-#   - blank line
-#   - column header with a datetime in position 5
-#   - "Data från senaste timmen" subtitle (should be skipped)
-#   - 3 station rows (one with quality Y, one with empty value)
-#   - metadata comments appended after ;; on some rows
+FIXTURE_DIR = Path(__file__).parent / "fixtures" / "smhi" / "metobs"
 
-SAMPLE_CSV_PARAM1 = """\
-Parameternamn;Beskrivning;Enhet
-Lufttemperatur;momentanvärde, 1 gång/tim;celsius
 
-StationsId;Stationsnamn;Latitude;Longitude;Height;2026-02-12 19:00:00;Kvalitet;;
-Data från senaste timmen
-100;Stockholm City;59.3293;18.0686;28.0;-3.5;G;;Tidsperiod (fr.o.m.) = 2026-02-12 18:00:01 (UTC)
-200;Göteborg Landvetter;57.6628;12.2960;169.0;-5.1;Y;;Tidsperiod (t.o.m.) = 2026-02-12 19:00:00 (UTC)
-300;Malmö Airport;55.5364;13.3762;18.0;;G;;
-"""
+def _fixture_text(name: str) -> str:
+    path = FIXTURE_DIR / name
+    return path.read_text(encoding="utf-8")
 
-SAMPLE_CSV_PARAM4 = """\
-Parameternamn;Beskrivning;Enhet
-Vindhastighet;medelvärde 10 min, 1 gång/tim;m/s
 
-StationsId;Stationsnamn;Latitude;Longitude;Height;2026-02-12 19:00:00;Kvalitet;;
-Data från senaste timmen
-100;Stockholm City;59.3293;18.0686;28.0;4.2;G;;
-200;Göteborg Landvetter;57.6628;12.2960;169.0;7.8;G;;
-300;Malmö Airport;55.5364;13.3762;18.0;5.0;G;;
-"""
+# Minimal committed CSV fixtures that mimic real SMHI metobs latest-hour
+# responses and exercise metadata rows, subtitles, quality codes, and missing
+# values.
+SAMPLE_CSV_PARAM1 = _fixture_text("latest_hour_parameter_1.csv")
+SAMPLE_CSV_PARAM4 = _fixture_text("latest_hour_parameter_4.csv")
 
 
 # ── CSV parser tests ─────────────────────────────────────────────────────
