@@ -4,6 +4,7 @@ from typing import List, Literal, Optional
 from pydantic import Field
 
 from .dataset import DatasetDescriptor, DatasetBaseArgs
+from .providers import provider_entry
 from dtcc_core.common.progress import ProgressTracker
 
 
@@ -37,8 +38,8 @@ class FootprintsDataset(DatasetDescriptor):
     result_kind = "building_footprints"
     python_return_type = "dtcc_core.model.FootprintCollection"
     provider = [
-        {"name": "Lantmateriet", "role": "source_provider"},
-        {"name": "OpenStreetMap", "role": "source_provider"},
+        provider_entry("lantmateriet"),
+        provider_entry("openstreetmap"),
     ]
     source = ["Building footprint source selected by the dataset request"]
     license = "Review selected upstream footprint source terms before redistribution."

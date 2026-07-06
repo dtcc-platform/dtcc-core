@@ -1,0 +1,8 @@
+Parameternamn;Beskrivning;Enhet
+Havsvattenstånd;null;cm
+
+StationsId;Stationsnamn;Latitude;Longitude;Havsvattenstånd;Kvalitet;;Tidsperiod (fr.o.m.) = 1886-12-01 00:00:00 (UTC)
+33097;Göteborg-Hisingsbron;57.7149;11.9687;-3.8;O;;Tidsperiod (t.o.m.) = 2026-02-13 13:00:00 (UTC)
+2541;UDDEVALLA;58.3475;11.8948;-9.0;O;;
+33084;ONSALA;57.392;11.919;-7.5;G;;
+2507;LANDSORT NORRA;58.7687;17.8589;-35.7;O;;

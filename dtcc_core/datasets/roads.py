@@ -4,6 +4,7 @@ from pydantic import Field
 from typing import Literal, Optional
 
 from .dataset import DatasetDescriptor, DatasetBaseArgs
+from .providers import provider_entry
 
 
 class RoadsArgs(DatasetBaseArgs):
@@ -20,7 +21,7 @@ class RoadsDataset(DatasetDescriptor):
     data_category = "raw"
     result_kind = "road_network"
     python_return_type = "dtcc_core.model.RoadNetwork"
-    provider = [{"name": "OpenStreetMap", "role": "source_provider"}]
+    provider = [provider_entry("openstreetmap")]
     source = ["OpenStreetMap road network data via Overpass"]
     license = "Review OpenStreetMap/ODbL terms before redistribution."
     default_crs = "EPSG:3006"

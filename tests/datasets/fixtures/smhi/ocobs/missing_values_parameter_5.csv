@@ -1,0 +1,5 @@
+Parameternamn;Beskrivning;Enhet
+Havstemperatur;null;°C
+
+StationsId;Stationsnamn;Latitude;Longitude;Havstemperatur;Kvalitet;;
+100;TEST STATION;59.0;18.0;;G;;

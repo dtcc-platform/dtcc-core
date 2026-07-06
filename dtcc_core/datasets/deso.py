@@ -7,6 +7,7 @@ from dtcc_core.model import DeSO
 from pydantic import Field
 
 from .dataset import DatasetBaseArgs, DatasetDescriptor
+from .providers import provider_entry
 
 
 class DeSOArgs(DatasetBaseArgs):
@@ -38,7 +39,8 @@ class DeSODataset(DatasetDescriptor):
     data_category = "raw"
     result_kind = "administrative_areas"
     python_return_type = "dtcc_core.model.DeSO"
-    provider = [{"name": "SCB", "role": "source_provider"}]
+    default_crs = "EPSG:3006"
+    provider = [provider_entry("scb")]
     source = ["SCB DeSO boundaries and optional statistics"]
     license = "Review SCB source terms before redistribution."
     geographic_coverage = "Sweden, constrained by requested bounds"

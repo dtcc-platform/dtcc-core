@@ -1,6 +1,6 @@
-"""Tests for demos/smoke_table_cases.py.
+"""Tests for scripts/table_cases/smoke_table_cases.py.
 
-Loaded by file path because demos/ is intentionally not a Python package.
+Loaded by file path because scripts/ is intentionally not a Python package.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from unittest.mock import MagicMock
 import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_SCRIPT_PATH = _REPO_ROOT / "demos" / "smoke_table_cases.py"
+_SCRIPT_PATH = _REPO_ROOT / "scripts" / "table_cases" / "smoke_table_cases.py"
 _spec = importlib.util.spec_from_file_location(
     "smoke_table_cases", _SCRIPT_PATH
 )

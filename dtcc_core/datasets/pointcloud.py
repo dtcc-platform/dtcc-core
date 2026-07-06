@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 import tempfile
 
 from .dataset import DatasetDescriptor, DatasetBaseArgs
+from .providers import provider_display_name, provider_entry
 from dtcc_core.common.progress import ProgressTracker, report_progress
 
 
@@ -41,12 +42,17 @@ class PointCloudDataset(DatasetDescriptor):
     data_category = "raw"
     result_kind = "point_cloud"
     python_return_type = "dtcc_core.model.PointCloud"
-    provider = [{"name": "Lantmateriet", "role": "source_provider"}]
-    source = ["Lantmateriet point cloud data"]
-    license = "Review Lantmateriet source terms before redistribution."
+    provider = [provider_entry("lantmateriet")]
+    source = [f"{provider_display_name('lantmateriet')} point cloud data"]
+    license = (
+        f"Review {provider_display_name('lantmateriet')} source terms before "
+        "redistribution."
+    )
     default_crs = "EPSG:3006"
     geographic_coverage = "Sweden, constrained by requested bounds and source coverage"
-    update_frequency = "varies by Lantmateriet source product"
+    update_frequency = (
+        f"varies by {provider_display_name('lantmateriet')} source product"
+    )
     processing_steps = [
         "Download point cloud data for requested bounds",
         "Apply optional classification and outlier filtering",

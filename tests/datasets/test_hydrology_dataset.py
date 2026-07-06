@@ -4,6 +4,7 @@ import pytest
 import math
 import json
 import numpy as np
+from pathlib import Path
 from unittest.mock import patch, Mock, MagicMock
 
 from dtcc_core.datasets.dataset import DatasetUpstreamError
@@ -20,124 +21,23 @@ from dtcc_core.datasets.hydrology import (
 
 # ── Fixtures ─────────────────────────────────────────────────────────────
 
-# Minimal station list JSON mimicking the real SMHI HydroObs response for
-# parameter 1 (daily discharge).  Contains stations in different locations
-# so bbox filtering can be tested.
+FIXTURE_DIR = Path(__file__).parent / "fixtures" / "smhi" / "hydroobs"
 
-SAMPLE_STATION_LIST = {
-    "key": "1",
-    "title": "Vattenföring (Dygn)",
-    "unit": "m³/s",
-    "station": [
-        {
-            "key": "2357",
-            "name": "ABISKO",
-            "id": 2357,
-            "latitude": 68.1936,
-            "longitude": 19.9859,
-            "active": True,
-            "owner": "SMHI",
-            "measuringStations": "CORE",
-            "catchmentName": "Abiskojokk",
-            "catchmentNumber": "123",
-            "catchmentSize": "560",
-            "from": 946684800000,
-            "to": 1739404800000,
-            "link": [],
-        },
-        {
-            "key": "2100",
-            "name": "STOCKHOLM STN",
-            "id": 2100,
-            "latitude": 59.33,
-            "longitude": 18.07,
-            "active": True,
-            "owner": "SMHI",
-            "measuringStations": "CORE",
-            "catchmentName": "Norrström",
-            "catchmentNumber": "456",
-            "catchmentSize": "22600",
-            "from": 946684800000,
-            "to": 1739404800000,
-            "link": [],
-        },
-        {
-            "key": "2200",
-            "name": "MALMÖ STN",
-            "id": 2200,
-            "latitude": 55.60,
-            "longitude": 13.00,
-            "active": False,
-            "owner": "SMHI",
-            "measuringStations": "ADDITIONAL",
-            "catchmentName": "Höje å",
-            "catchmentNumber": "789",
-            "catchmentSize": "310",
-            "from": 946684800000,
-            "to": 1739404800000,
-            "link": [],
-        },
-    ],
-}
 
-# Minimal latest-day JSON response for a single station.
-SAMPLE_LATEST_DAY_P1 = {
-    "updated": 1739404800000,
-    "parameter": {
-        "key": "1",
-        "name": "Vattenföring (Dygn)",
-        "summary": "Dygnsmedelvärde",
-        "unit": "m³/s",
-    },
-    "station": {
-        "key": "2100",
-        "name": "STOCKHOLM STN",
-    },
-    "period": {"key": "latest-day"},
-    "position": [],
-    "link": [],
-    "value": [
-        {"date": 1739318400000, "value": 42.5, "quality": "G"},
-    ],
-}
+def _fixture_json(name: str) -> dict:
+    path = FIXTURE_DIR / name
+    return json.loads(path.read_text(encoding="utf-8"))
 
-SAMPLE_LATEST_DAY_P3 = {
-    "updated": 1739404800000,
-    "parameter": {
-        "key": "3",
-        "name": "Vattenstånd",
-        "summary": "Momentanvärde",
-        "unit": "cm",
-    },
-    "station": {
-        "key": "2100",
-        "name": "STOCKHOLM STN",
-    },
-    "period": {"key": "latest-day"},
-    "position": [],
-    "link": [],
-    "value": [
-        {"date": 1739318400000, "value": 125.0, "quality": "O"},
-    ],
-}
 
-SAMPLE_LATEST_DAY_EMPTY = {
-    "updated": 1739404800000,
-    "parameter": {
-        "key": "1",
-        "name": "Vattenföring (Dygn)",
-        "summary": "Dygnsmedelvärde",
-        "unit": "m³/s",
-    },
-    "station": {
-        "key": "2200",
-        "name": "MALMÖ STN",
-    },
-    "period": {"key": "latest-day"},
-    "position": [],
-    "link": [],
-    "value": [],
-}
+# Minimal committed JSON fixtures mimicking SMHI HydroObs station and
+# latest-day responses. They cover active/inactive stations, bbox filtering,
+# quality codes, and empty station values.
+SAMPLE_STATION_LIST = _fixture_json("parameter_1_stations.json")
+SAMPLE_LATEST_DAY_P1 = _fixture_json("station_2100_parameter_1_latest_day.json")
+SAMPLE_LATEST_DAY_P3 = _fixture_json("station_2100_parameter_3_latest_day.json")
+SAMPLE_LATEST_DAY_EMPTY = _fixture_json(
+    "station_2200_parameter_1_latest_day_empty.json"
+)
 
 
 # ── Mock helper ──────────────────────────────────────────────────────────

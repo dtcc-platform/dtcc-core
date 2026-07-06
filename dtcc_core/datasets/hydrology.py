@@ -28,6 +28,8 @@ import numpy as np
 from datetime import datetime, timezone
 
 from .dataset import DatasetBaseArgs, DatasetDescriptor, DatasetUpstreamError
+from .geospatial import bounds_to_wgs84, is_wgs84_crs
+from .providers import provider_entry
 from ..model.object import Object, SensorCollection
 from ..model.geometry import Point
 from ..model.values import Field as DtccField
@@ -153,40 +155,6 @@ def _get_json(url: str, timeout_s: float = 10.0) -> dict:
         raise DatasetDescriptor.build_upstream_error(
             "hydrology", "fetch_json", url, e
         ) from e
-
-
-# ── Coordinate helpers ───────────────────────────────────────────────────
-
-
-def _transform_bounds_to_wgs84(
-    bounds: Tuple[float, float, float, float], crs: str
-) -> Tuple[float, float, float, float]:
-    """Transform bounds from *crs* to WGS84 (lon, lat).
-
-    Parameters
-    ----------
-    bounds : tuple
-        (xmin, ymin, xmax, ymax) in source CRS.
-    crs : str
-        Source coordinate reference system (e.g. ``"EPSG:3006"``).
-
-    Returns
-    -------
-    tuple
-        (lon_min, lat_min, lon_max, lat_max) in WGS84.
-    """
-    if crs.upper() in ("CRS84", "EPSG:4326", "WGS84"):
-        return bounds
-
-    xmin, ymin, xmax, ymax = bounds
-    corners = np.array([[xmin, ymin, 0], [xmax, ymax, 0]])
-    transformed = reproject_array(corners, crs, "EPSG:4326")
-    return (
-        transformed[0, 0],
-        transformed[0, 1],
-        transformed[1, 0],
-        transformed[1, 1],
-    )
 
 
 # ── Station list + data fetchers ─────────────────────────────────────────
@@ -327,7 +295,7 @@ class HydrologyDataset(DatasetDescriptor):
     data_category = "raw"
     result_kind = "sensor_collection"
     python_return_type = "dtcc_core.model.SensorCollection"
-    provider = [{"name": "SMHI", "role": "source_provider"}]
+    provider = [provider_entry("smhi")]
     source = ["SMHI HydroObs API"]
     license = "Review SMHI source terms before redistribution."
     geographic_coverage = "Sweden, constrained by station coverage and requested bounds"
@@ -362,7 +330,7 @@ class HydrologyDataset(DatasetDescriptor):
         # ── Parse bounds ─────────────────────────────────────────────
         bounds = self.parse_bounds(args.bounds)
         bounds_tuple = (bounds.xmin, bounds.ymin, bounds.xmax, bounds.ymax)
-        wgs84_bounds = _transform_bounds_to_wgs84(bounds_tuple, args.crs)
+        wgs84_bounds = bounds_to_wgs84(bounds_tuple, args.crs)
         lon_min, lat_min, lon_max, lat_max = wgs84_bounds
 
         info(
@@ -497,7 +465,7 @@ class HydrologyDataset(DatasetDescriptor):
             info(f"  {len(station_map)} station(s) after dropping all-missing")
 
         # ── Coordinate transform for output ──────────────────────────
-        need_reproject = args.crs.upper() not in ("CRS84", "EPSG:4326", "WGS84")
+        need_reproject = not is_wgs84_crs(args.crs)
 
         if need_reproject and station_map:
             skeys = list(station_map.keys())
