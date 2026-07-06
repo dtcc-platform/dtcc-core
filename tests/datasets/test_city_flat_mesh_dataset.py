@@ -126,3 +126,42 @@ def test_city_flat_mesh_export_returns_bytes(
 
     assert result == b"flat-mesh"
     mock_export.assert_called_once_with(flat_mesh, "obj")
+
+
+def test_city_flat_mesh_context_documents_subdomain_lineage_and_limits():
+    dataset = CityFlatMeshDataset()
+    context = dataset.create_context(
+        dataset.validate(
+            {
+                "bounds": (0.0, 0.0, 1.0, 1.0),
+                "format": "vtu",
+                "max_mesh_size": None,
+                "merge_buildings": False,
+                "stage_audit_enabled": True,
+            }
+        )
+    )
+    manifest = context.manifest()
+
+    provider_roles = {
+        provider["name"]: provider["role"] for provider in manifest.metadata.provider
+    }
+    assert provider_roles == {
+        "Lantmäteriet": "source_provider",
+        "DTCC Platform": "processor",
+    }
+    assert manifest.metadata.lod.startswith("Flat 2D mesh")
+    assert "building_subdomains" in manifest.metadata.data_types
+    assert {item["name"] for item in manifest.provenance.derived_from} == {
+        "point_cloud",
+        "building_footprints",
+    }
+    assert any("LOD0 footprints" in step for step in manifest.provenance.processing_steps)
+    assert any("flat z=0" in step for step in manifest.provenance.processing_steps)
+    assert manifest.presentation.headline == "Flat City Mesh With Building Subdomains"
+    assert manifest.presentation.legend["title"] == "Flat mesh layers"
+    assert manifest.presentation.view_hints["z_behavior"] == "flat_z0"
+    assert any("remove terrain elevation" in warning for warning in manifest.presentation.warnings)
+    assert manifest.presentation.limitations
+    assert manifest.request.parameters["max_mesh_size"] is None
+    assert manifest.request.parameters["stage_audit_enabled"] is True

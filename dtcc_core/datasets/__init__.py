@@ -107,7 +107,7 @@ smoke = get_dataset("smoke")
 calibration_grid = get_dataset("calibration_grid")
 
 
-_CATEGORY_ORDER = ("raw", "derived", "simulation", "remote", "unknown")
+_CATEGORY_ORDER = ("raw", "derived", "synthetic", "simulation", "remote", "unknown")
 
 
 def info():

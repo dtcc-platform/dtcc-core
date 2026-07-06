@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from inspect import signature
 import json
 import shutil
 import tempfile
@@ -169,7 +170,7 @@ def _write_directory_package(
     extension = DatasetDescriptor.format_extension(artifact_format)
     artifact_stem = _artifact_stem(obj, context)
     artifact_path = artifact_dir / f"{artifact_stem}.{extension}"
-    _write_artifact(obj, artifact_path, artifact_format)
+    _write_artifact(obj, artifact_path, artifact_format, crs=_crs_value(obj))
 
     artifact_files = _artifact_files(artifact_dir, artifact_path)
     artifacts = tuple(
@@ -195,7 +196,13 @@ def _write_directory_package(
     )
 
 
-def _write_artifact(obj, path: Path, artifact_format: str) -> None:
+def _write_artifact(
+    obj,
+    path: Path,
+    artifact_format: str,
+    *,
+    crs: str | None = None,
+) -> None:
     fmt = _normalize_format(artifact_format)
     write_artifact = getattr(obj, "write_artifact", None)
     if callable(write_artifact):
@@ -203,8 +210,14 @@ def _write_artifact(obj, path: Path, artifact_format: str) -> None:
         return
 
     if fmt == "geojson" and hasattr(obj, "to_geojson"):
+        to_geojson = obj.to_geojson
+        parameters = signature(to_geojson).parameters
+        if "crs" in parameters:
+            payload = to_geojson(crs=crs)
+        else:
+            payload = to_geojson()
         path.write_text(
-            json.dumps(obj.to_geojson(), indent=2, sort_keys=True) + "\n",
+            json.dumps(payload, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
         return

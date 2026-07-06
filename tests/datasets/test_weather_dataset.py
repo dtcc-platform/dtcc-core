@@ -264,6 +264,7 @@ class TestWeatherDatasetBuild:
         assert station.attributes["station_name"] == "Stockholm City"
         assert station.attributes["elevation"] == pytest.approx(28.0)
         assert station.attributes["q_air_temperature"] == "G"
+        assert station.attributes["timestamp_air_temperature"] == "2026-02-12 19:00:00"
 
     @patch("dtcc_core.datasets.weather._get_text", side_effect=_mock_get_text)
     def test_collection_attributes(self, mock_fetch):
@@ -287,6 +288,19 @@ class TestWeatherDatasetBuild:
         assert attrs["stations_skipped_upstream"] == 0
         assert attrs["requested_parameters"] == [1, 4]
         assert attrs["fetched_parameters"] == [1, 4]
+        metadata = attrs["parameter_metadata"]
+        air_temperature = next(
+            item for item in metadata if item["field_name"] == "air_temperature"
+        )
+        assert air_temperature["parameter_id"] == 1
+        assert air_temperature["smhi_name"] == "Lufttemperatur"
+        assert air_temperature["unit"] == "celsius"
+        assert air_temperature["timestamp"] == "2026-02-12 19:00:00"
+        assert air_temperature["period_from"] == "2026-02-12 18:00:01"
+        assert air_temperature["period_to"] == "2026-02-12 19:00:00"
+        assert air_temperature["endpoint_path"].endswith(
+            "/parameter/1/station-set/all/period/latest-hour/data.csv"
+        )
 
     @patch("dtcc_core.datasets.weather._get_text", side_effect=_mock_get_text)
     def test_format_pb_returns_bytes(self, mock_fetch):
@@ -421,6 +435,39 @@ class TestWeatherDatasetRegistration:
 
         assert hasattr(datasets, "weather")
         assert callable(datasets.weather)
+
+    def test_context_documents_smhi_metobs_semantics(self):
+        dataset = WeatherDataset()
+        context = dataset.create_context(
+            dataset.validate(
+                {
+                    "bounds": (0.0, 0.0, 1.0, 1.0),
+                    "crs": "EPSG:4326",
+                    "parameters": ["temperature", "wind_speed"],
+                    "field_name_style": "smhi",
+                }
+            )
+        )
+        manifest = context.manifest()
+
+        assert manifest.metadata.provider == [
+            {"name": "SMHI", "slug": "smhi", "role": "source_provider"}
+        ]
+        assert manifest.metadata.source[0]["service"] == "metobs"
+        assert "station-set/all" in manifest.metadata.source[0]["endpoint_pattern"]
+        assert "Requires review" in manifest.metadata.license
+        assert "Latest-hour snapshot" in manifest.metadata.collection_period
+        assert "weather_observations" in manifest.metadata.data_types
+        assert any(
+            "quality codes" in step
+            for step in manifest.provenance.processing_steps
+        )
+        assert manifest.presentation.headline == "Latest-Hour SMHI Weather Stations"
+        assert manifest.presentation.legend["title"] == "Weather station fields"
+        assert manifest.presentation.view_hints["quality_attribute_prefix"] == "q_"
+        assert any("partial results" in warning for warning in manifest.presentation.warnings)
+        assert manifest.presentation.limitations
+        assert manifest.request.parameters["field_name_style"] == "smhi"
 
 
 class TestParameterNames:

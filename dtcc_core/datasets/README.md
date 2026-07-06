@@ -63,7 +63,7 @@ Every dataset is a `DatasetDescriptor` with:
 - `name`: stable registry name, used as `datasets.<name>()`.
 - `description`: human-readable description.
 - `ArgsModel`: Pydantic model describing accepted parameters.
-- `data_category`: one of `raw`, `derived`, `simulation`, `remote`, or
+- `data_category`: one of `raw`, `derived`, `synthetic`, `simulation`, `remote`, or
   `unknown`.
 - `result_kind`: coarse Python result kind such as `mesh`, `point_cloud`,
   `sensor_collection`, `city_model`, or `road_network`.
@@ -140,29 +140,30 @@ Current Built-In Datasets
 
 | Dataset | Category | Python result when `format=None` | Serialized formats | Notes |
 | --- | --- | --- | --- | --- |
-| `point_cloud` | raw | `PointCloud` | `copc`, `las`, `laz` | Lantmäteriet point cloud with classification filters. |
-| `building_footprints` | raw | `FootprintCollection` | `geojson`, `gpkg`, `shp.zip` | Provider footprints, optionally height-enriched. |
-| `buildings` | derived | `BuildingCollection` | `obj`, `stl` | LoD1 buildings; exports are merged meshes. |
-| `city` | derived | `City` | `cityjson`, `json` | Both serialized paths currently produce CityJSON-compatible JSON bytes. |
-| `terrain_surface_mesh` | derived | `Mesh` or `Raster` | `tif`, `obj`, `stl` | `tif` returns terrain raster bytes. |
-| `city_flat_mesh` | derived | `Mesh` | `obj`, `stl`, `vtu` | Flat 2D mesh with building subdomains. |
-| `city_surface_mesh` | derived | `Mesh` | `obj`, `stl`, `vtu` | Terrain plus extruded building surfaces. |
-| `city_volume_mesh` | derived | `VolumeMesh` | `xdmf`, `vtu` | `xdmf` is a multi-file format. |
-| `trees` | derived | `TreeCollection` | `tif`, `gpkg`, `geojson` | Raster tree heights or vector tree objects. |
-| `roads` | raw | `RoadNetwork` | `pb` | OSM/Overpass road network. |
-| `space_syntax` | derived | `RoadNetwork` | `pb` | Segment-based road-network space syntax measures. |
-| `transit_vehicles` | raw | `VehicleCollection` | `pb` | Live public-transport vehicle positions. |
-| `buses` | raw | `VehicleCollection` | `pb` | Shortcut for live bus positions. |
-| `trams` | raw | `VehicleCollection` | `pb` | Shortcut for live tram positions. |
-| `trains` | raw | `VehicleCollection` | `pb` | Shortcut for live train positions. |
-| `metros` | raw | `VehicleCollection` | `pb` | Shortcut for live metro positions. |
-| `ferries` | raw | `VehicleCollection` | `pb` | Shortcut for live ferry positions. |
-| `smoke` | simulation | `VolumeMesh`, `FieldSlice`, or `StreamlineCollection` | `pb`, `vtu`, `geojson`, `png`, `mp4` | Synthetic velocity/speed/pressure smoke test with `field`, `slice`, and `streamlines` products. |
-| `calibration_grid` | derived | `CalibrationGrid` | `geojson` | Synthetic evenly spaced line grid for table-projector alignment. |
-| `air_quality` | raw | `SensorCollection` | `pb` | SMHI air-quality snapshot. |
-| `weather` | raw | `SensorCollection` | `pb` | SMHI meteorological latest-hour snapshot. |
-| `hydrology` | raw | `SensorCollection` | `pb` | SMHI hydrology latest-day snapshot. |
-| `ocean` | raw | `SensorCollection` | `pb` | SMHI oceanographic latest-hour snapshot. |
+| `point_cloud` | raw | `PointCloud` | `copc`, `las`, `laz` | Lantmäteriet/DTCC backend point cloud with classification presets and optional outlier removal. |
+| `building_footprints` | raw | `FootprintCollection` | `geojson`, `gpkg`, `shp.zip` | Provider/cache footprints for context and table alignment; use `crs="EPSG:3006"` for table GeoJSON. |
+| `buildings` | derived | `BuildingCollection` | `obj`, `stl` | LoD1 block buildings from selected footprints and point-cloud-derived heights. |
+| `city` | derived | `City` | `cityjson`, `json` | Terrain plus LoD1 buildings; both serialized paths currently produce CityJSON-compatible JSON bytes. |
+| `terrain_surface_mesh` | derived | `Mesh` or `Raster` | `tif`, `obj`, `stl` | Point-cloud-derived terrain raster or mesh with outlier, adaptive meshing, smoothing, and mesher controls. |
+| `city_flat_mesh` | derived | `Mesh` | `obj`, `stl`, `vtu` | Flat z=0 2D mesh with conditioned LOD0 building subdomains. |
+| `city_surface_mesh` | derived | `Mesh` | `obj`, `stl`, `vtu` | Terrain plus generalized building surface mesh for visualization or preprocessing. |
+| `city_volume_mesh` | derived | `VolumeMesh` | `xdmf`, `vtu` | TetGen-backed tetrahedral computational-domain mesh; `xdmf` is a multi-file format. |
+| `trees` | derived | `TreeCollection` | `tif`, `gpkg`, `geojson` | Tree points or canopy-height raster derived from point-cloud vegetation returns. |
+| `roads` | raw | `RoadNetwork` | `pb` | OpenStreetMap/Overpass road network in EPSG:3006 with highway-tag semantics, cache/live source caveats, and ODbL review status. |
+| `space_syntax` | derived | `RoadNetwork` | `pb` | RoadNetwork enriched with dual-segment graph measures: connectivity, reach, mean depth, integration, choice, radius/cost metadata, and component labels. |
+| `transit_vehicles` | raw | `VehicleCollection` | `pb` | Live Trafiklab/Västtrafik vehicle snapshot with provider metadata, credential guidance, mode filtering, timestamps, speed/bearing fields, and partial-result health. |
+| `buses` | raw | `VehicleCollection` | `pb` | Mode-preset shortcut for `transit_vehicles(..., modes=("bus",))`. |
+| `trams` | raw | `VehicleCollection` | `pb` | Mode-preset shortcut for `transit_vehicles(..., modes=("tram",))`. |
+| `trains` | raw | `VehicleCollection` | `pb` | Mode-preset shortcut for `transit_vehicles(..., modes=("train",))`. |
+| `metros` | raw | `VehicleCollection` | `pb` | Mode-preset shortcut for `transit_vehicles(..., modes=("metro",))`. |
+| `ferries` | raw | `VehicleCollection` | `pb` | Mode-preset shortcut for `transit_vehicles(..., modes=("ferry",))`. |
+| `smoke` | synthetic | `VolumeMesh`, `FieldSlice`, or `StreamlineCollection` | `pb`, `vtu`, `geojson`, `png`, `mp4` | Synthetic velocity/speed/pressure smoke test with `field`, `slice`, and `streamlines` products. |
+| `calibration_grid` | synthetic | `CalibrationGrid` | `geojson` | Synthetic evenly spaced line grid for table-projector alignment. |
+| `air_quality` | raw | `SensorCollection` | `pb` | SMHI datavardluft station observations with phenomenon metadata, units, UTC timestamps, stale-value flags, and getData fallback provenance. |
+| `weather` | raw | `SensorCollection` | `pb` | SMHI metobs latest-hour station observations with units, timestamps, quality codes, and parameter metadata. |
+| `hydrology` | raw | `SensorCollection` | `pb` | SMHI HydroObs latest-day station observations with catchment metadata, units, value timestamps, and quality codes. |
+| `ocean` | raw | `SensorCollection` | `pb` | SMHI OcObs latest-hour station/platform observations with units, period timestamps, quality codes, and parameter metadata. |
+| `deso` | raw | `DeSO` | `pb`, `geojson`, `gpkg` | SCB DeSO statistical areas for 2018/2025 with optional population, household, car, and employment statistics. |
 
 Smoke Dataset
 -------------
@@ -414,18 +415,20 @@ server-side Manifest v2 parsing and local package discovery; live
 `dtcc-upload` catalog browsing in `dtcc-atlas` remains a follow-up.
 
 The smoke cases are synthetic, so they cannot show whether the projection
-actually lands on the printed buildings. The companion footprints script
-publishes the real building footprints over the same table bounds as
+actually lands on the printed buildings. The companion footprints case exports
+cached or live provider building footprints over the same table bounds as
 EPSG:3006 GeoJSON under the `table-footprints-geojson` dataset key, giving the
-table an alignment layer that should sit exactly on the physical model:
+table an alignment layer for checking physical-model registration:
 
     python scripts/table_cases/footprints_table_case.py
 
 Note that the table requires EPSG:3006 GeoJSON, while `building_footprints`
-reprojects GeoJSON output to EPSG:4326 by default. The script passes
-`crs="EPSG:3006"` to keep coordinates in meters; do the same for any manual
-footprint exports aimed at the table. Unlike the smoke cases, this script
-downloads live footprint data and needs network access.
+reprojects GeoJSON output to EPSG:4326 by default. The script and table model
+profile pass `crs="EPSG:3006"` to keep coordinates in meters; do the same for
+any manual footprint exports aimed at the table. Unlike the smoke cases,
+footprint exports depend on the selected provider/cache (`source="LM"` for the
+DTCC/Lantmäteriet path or `source="OSM"` for OpenStreetMap) and require
+source/license review before default publishing.
 
 For checking the projector alignment itself, the calibration grid script
 publishes a synthetic 41 x 41 line grid over the same bounds under the

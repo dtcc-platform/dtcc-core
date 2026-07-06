@@ -48,6 +48,48 @@ def test_deso_dataset_returns_deso(monkeypatch):
     assert isinstance(deso, DeSO)
 
 
+def test_deso_context_documents_scb_vintages_statistics_and_limits():
+    context = datasets.deso.create_context(
+        datasets.deso.validate(
+            {
+                "bounds": (0.0, 0.0, 2.0, 1.0),
+                "year": 2025,
+                "statistics": ["population", "employment"],
+                "statistics_year": 2024,
+            }
+        )
+    )
+    manifest = context.manifest()
+
+    provider_roles = {
+        provider["name"]: provider["role"] for provider in manifest.metadata.provider
+    }
+    assert provider_roles == {
+        "SCB": "source_provider",
+        "DTCC Platform": "processor",
+    }
+    assert manifest.metadata.source[0]["supported_years"] == [2018, 2025]
+    assert manifest.metadata.source[0]["source_terms_status"] == "requires_review"
+    assert manifest.metadata.source[1]["topics"] == [
+        "population",
+        "households",
+        "cars",
+        "employment",
+    ]
+    assert "Requires review" in manifest.metadata.license
+    assert "2018 and 2025" in manifest.metadata.collection_period
+    assert any("SCB WFS" in step for step in manifest.provenance.processing_steps)
+    assert any("Statistikdatabasen" in step for step in manifest.provenance.processing_steps)
+    assert manifest.provenance.derived_from[0]["name"] == "SCB DeSO boundary dataset"
+    assert manifest.presentation.legend["title"] == "DeSO areas"
+    assert manifest.presentation.view_hints["geometry_years"] == [2018, 2025]
+    assert "employment" in manifest.presentation.view_hints["statistics_topics"]
+    assert any("not building-level" in warning for warning in manifest.presentation.warnings)
+    assert manifest.presentation.limitations
+    assert manifest.request.parameters["statistics"] == ["population", "employment"]
+    assert manifest.request.parameters["statistics_year"] == 2024
+
+
 def test_deso_dataset_protobuf_format(monkeypatch):
     expected = _deso()
 

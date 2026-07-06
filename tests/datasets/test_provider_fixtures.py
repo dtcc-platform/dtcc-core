@@ -27,6 +27,10 @@ JSON_FIXTURES = [
     "air_quality/station2.json",
     "air_quality/timeseries_ts1.json",
     "air_quality/timeseries_ts2.json",
+    "air_quality/timeseries_ts1_stale.json",
+    "air_quality/timeseries_ts1_no_current.json",
+    "air_quality/getdata_ts1_empty.json",
+    "air_quality/getdata_ts1_recent.json",
     "air_quality/phenomena.json",
 ]
 
