@@ -135,6 +135,30 @@ def test_metadata_describes_the_grid():
     assert metadata["crs"] == "EPSG:3006"
 
 
+def test_dataset_context_marks_calibration_grid_table_ready_synthetic_fixture():
+    result = datasets.calibration_grid(bounds=BOUNDS)
+    context = result.dataset_context
+
+    assert context.metadata.data_category == "synthetic"
+    assert context.metadata.description.startswith("Deterministic synthetic")
+    assert context.metadata.collection_period.startswith("Not applicable")
+    assert context.metadata.provider[0]["role"] == "synthetic_generator"
+    assert context.metadata.source[0]["role"] == "synthetic_generator"
+    assert context.provenance.generated_at == "Computed at request time by dtcc-core."
+    assert len(context.provenance.processing_steps) >= 4
+    assert "Build dataset 'calibration_grid'" in context.provenance.processing_steps
+
+    presentation = context.presentation
+    assert presentation.headline == "Table Calibration Grid"
+    assert "What you are seeing" in {
+        item["heading"] for item in presentation.narrative
+    }
+    assert presentation.legend["title"] == "Calibration grid"
+    assert presentation.view_hints["table_role"] == "alignment"
+    assert presentation.warnings
+    assert any("not a surveyed control network" in item for item in presentation.limitations)
+
+
 def test_crs_none_omits_crs_member():
     """crs=None should omit the legacy GeoJSON crs member, mirroring smoke."""
     result = datasets.calibration_grid(bounds=BOUNDS, crs=None)

@@ -1,0 +1,8 @@
+Parameternamn;Beskrivning;Enhet
+Vindhastighet;medelvärde 10 min, 1 gång/tim;m/s
+
+StationsId;Stationsnamn;Latitude;Longitude;Height;2026-02-12 19:00:00;Kvalitet;;
+Data från senaste timmen
+100;Stockholm City;59.3293;18.0686;28.0;4.2;G;;
+200;Göteborg Landvetter;57.6628;12.2960;169.0;7.8;G;;
+300;Malmö Airport;55.5364;13.3762;18.0;5.0;G;;

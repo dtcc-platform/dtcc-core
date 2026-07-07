@@ -1,6 +1,8 @@
 import numpy as np
+import pytest
 
 import dtcc_core.datasets as datasets
+from dtcc_core.datasets.roads import RoadsDataset
 from dtcc_core.model import Bounds, RoadNetwork
 
 
@@ -31,6 +33,62 @@ def test_roads_dataset_returns_roadnetwork(monkeypatch):
 
     assert roads is expected
     assert isinstance(roads, RoadNetwork)
+
+
+def test_roads_plot_uses_presentation_panel_by_default(monkeypatch):
+    matplotlib = pytest.importorskip("matplotlib")
+    matplotlib.use("Agg", force=True)
+
+    expected = _road_network()
+
+    monkeypatch.setattr(
+        "dtcc_core.io.data.download_roadnetwork",
+        lambda bounds, provider="dtcc", epsg="3006": expected,
+    )
+
+    roads = datasets.roads(bounds=(0.0, 0.0, 2.0, 1.0))
+    ax = roads.plot(column="highway", show=False)
+    simple_ax = roads.plot(column="highway", show=False, presentation=False)
+
+    assert len(ax.figure.axes) >= 2
+    assert len(simple_ax.figure.axes) == 1
+
+
+def test_roads_info_uses_dataset_tables(monkeypatch):
+    expected = _road_network()
+
+    monkeypatch.setattr(
+        "dtcc_core.io.data.download_roadnetwork",
+        lambda bounds, provider="dtcc", epsg="3006": expected,
+    )
+
+    roads = datasets.roads(bounds=(0.0, 0.0, 2.0, 1.0))
+    text = roads.info(print=False)
+
+    assert "DTCC RoadNetwork" in text
+    assert "Presentation" in text
+    assert "Provenance" in text
+
+
+def test_roads_context_metadata_and_presentation():
+    dataset = RoadsDataset()
+    context = dataset.create_context(
+        dataset.validate({"bounds": (0.0, 0.0, 2.0, 1.0)})
+    )
+    manifest = context.manifest()
+
+    assert manifest.identity.title == "OpenStreetMap Roads"
+    assert manifest.metadata.provider[0]["name"] == "OpenStreetMap"
+    assert manifest.metadata.source[0]["service"] == "overpass"
+    assert manifest.metadata.source[0]["license"] == "ODbL"
+    assert manifest.metadata.collection_period.startswith("Current OpenStreetMap")
+    assert "road_network" in manifest.metadata.data_types
+    assert "EPSG:3006" in manifest.metadata.crs
+    assert manifest.presentation.headline == "OpenStreetMap Road Network"
+    assert manifest.presentation.legend["title"] == "Road network attributes"
+    assert manifest.presentation.view_hints["table_role"] == "network_context"
+    assert manifest.presentation.warnings
+    assert manifest.presentation.limitations
 
 
 def test_roads_dataset_protobuf_format(monkeypatch):

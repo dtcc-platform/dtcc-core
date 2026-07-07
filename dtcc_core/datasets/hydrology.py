@@ -28,6 +28,8 @@ import numpy as np
 from datetime import datetime, timezone
 
 from .dataset import DatasetBaseArgs, DatasetDescriptor, DatasetUpstreamError
+from .geospatial import bounds_to_wgs84, is_wgs84_crs
+from .providers import provider_entry
 from ..model.object import Object, SensorCollection
 from ..model.geometry import Point
 from ..model.values import Field as DtccField
@@ -114,6 +116,16 @@ def _resolve_parameter(p) -> int:
     )
 
 
+def _timestamp_ms_to_iso(value: Any) -> str:
+    """Convert a SMHI millisecond timestamp to UTC ISO-8601, if possible."""
+    if value in (None, ""):
+        return ""
+    try:
+        return datetime.fromtimestamp(float(value) / 1000.0, tz=timezone.utc).isoformat()
+    except (TypeError, ValueError, OSError):
+        return ""
+
+
 # ── HTTP helpers ─────────────────────────────────────────────────────────
 
 
@@ -153,40 +165,6 @@ def _get_json(url: str, timeout_s: float = 10.0) -> dict:
         raise DatasetDescriptor.build_upstream_error(
             "hydrology", "fetch_json", url, e
         ) from e
-
-
-# ── Coordinate helpers ───────────────────────────────────────────────────
-
-
-def _transform_bounds_to_wgs84(
-    bounds: Tuple[float, float, float, float], crs: str
-) -> Tuple[float, float, float, float]:
-    """Transform bounds from *crs* to WGS84 (lon, lat).
-
-    Parameters
-    ----------
-    bounds : tuple
-        (xmin, ymin, xmax, ymax) in source CRS.
-    crs : str
-        Source coordinate reference system (e.g. ``"EPSG:3006"``).
-
-    Returns
-    -------
-    tuple
-        (lon_min, lat_min, lon_max, lat_max) in WGS84.
-    """
-    if crs.upper() in ("CRS84", "EPSG:4326", "WGS84"):
-        return bounds
-
-    xmin, ymin, xmax, ymax = bounds
-    corners = np.array([[xmin, ymin, 0], [xmax, ymax, 0]])
-    transformed = reproject_array(corners, crs, "EPSG:4326")
-    return (
-        transformed[0, 0],
-        transformed[0, 1],
-        transformed[1, 0],
-        transformed[1, 1],
-    )
 
 
 # ── Station list + data fetchers ─────────────────────────────────────────
@@ -318,6 +296,7 @@ class HydrologyDataset(DatasetDescriptor):
     """
 
     name = "hydrology"
+    title = "Hydrology Observations"
     description = (
         "Hydrological observations from SMHI HydroObs (latest-day snapshot) "
         "as a SensorCollection with one Field per parameter per station "
@@ -327,20 +306,102 @@ class HydrologyDataset(DatasetDescriptor):
     data_category = "raw"
     result_kind = "sensor_collection"
     python_return_type = "dtcc_core.model.SensorCollection"
-    provider = [{"name": "SMHI", "role": "source_provider"}]
-    source = ["SMHI HydroObs API"]
-    license = "Review SMHI source terms before redistribution."
+    provider = [provider_entry("smhi", role="source_provider")]
+    source = [
+        {
+            "name": "SMHI Hydrological Observations download API",
+            "role": "source_provider",
+            "service": "hydroobs",
+            "base_url": "https://opendata-download-hydroobs.smhi.se/api",
+            "station_endpoint_pattern": "/version/{version}/parameter/{parameter_id}.json",
+            "data_endpoint_pattern": "/version/{version}/parameter/{parameter_id}/station/{station_key}/period/latest-day/data.json",
+            "source_terms_status": "requires_review",
+        }
+    ]
+    license = "Requires review: verify SMHI source terms before redistribution."
+    collection_period = (
+        "Latest-day snapshot; station lists include measurement-period metadata "
+        "and station data payloads include millisecond timestamps per value."
+    )
+    default_crs = "EPSG:3006"
+    data_types = ["sensor_collection", "hydrology_observations", "points", "time_series_snapshot"]
     geographic_coverage = "Sweden, constrained by station coverage and requested bounds"
     update_frequency = "latest-day observation snapshot"
     processing_steps = [
-        "Resolve requested hydrological parameters",
-        "Fetch latest-day observations within requested bounds",
-        "Normalize observations to a SensorCollection",
+        "Resolve requested hydrological parameters from SMHI IDs, numeric strings, or aliases",
+        "For each parameter, fetch the SMHI HydroObs station-list JSON endpoint",
+        "Filter stations by active_only, requested WGS84 bounds, and available coordinates",
+        "For each candidate station, fetch latest-day JSON data for the requested parameter",
+        "Parse parameter name, unit, value timestamp, station coordinates, values, catchment metadata, and quality codes",
+        "Reproject station points to the requested output CRS and apply a final output-bounds filter",
+        "Drop stations with all-missing values when drop_missing=True",
+        "Record requested/fetched parameter IDs, units, timestamps, and upstream errors in SensorCollection attributes",
+        "Return a SensorCollection or serialize protobuf bytes when format='pb'",
     ]
+    presentation_headline = "Latest-Day SMHI Hydrology Stations"
     presentation_summary = (
-        "Latest-day hydrological observations within the requested bounds."
+        "Point observations from SMHI hydrological stations, filtered to the "
+        "requested bounds and carrying one field per hydrology parameter."
     )
-    view_hints = {"preferred_geometry": "points"}
+    presentation_narrative = [
+        {
+            "heading": "What you are seeing",
+            "body": (
+                "Each point is an SMHI hydrology station with latest-day values "
+                "such as discharge, water level, water temperature, snow, or ice measurements."
+            ),
+        },
+        {
+            "heading": "How to interpret it",
+            "body": (
+                "Values are station observations associated with catchment metadata, "
+                "not gridded hydrological model outputs. Quality codes are preserved "
+                "as q_<field> station attributes."
+            ),
+        },
+        {
+            "heading": "Limitations",
+            "body": (
+                "Hydrology station availability varies by parameter and active "
+                "status. Some listed stations may have no latest-day payload and "
+                "are skipped without marking the whole dataset partial."
+            ),
+        },
+    ]
+    key_points = [
+        "Default parameters are discharge_daily (ID 1) and water_level (ID 3)",
+        "HydroObs fetches station lists first, then latest-day data per station",
+        "active_only=True excludes inactive stations before station data fetches",
+        "parameter_metadata records IDs, units, endpoint paths, and fetched value timestamps",
+    ]
+    presentation_legend = {
+        "title": "Hydrology station fields",
+        "entries": [
+            {"label": "discharge_daily", "meaning": "SMHI parameter 1, daily discharge"},
+            {"label": "water_level", "meaning": "SMHI parameter 3, water level"},
+            {"label": "water_temperature", "meaning": "SMHI parameter 4, water temperature"},
+            {"label": "ice_thickness", "meaning": "SMHI parameter 7, ice thickness"},
+            {"label": "snow_density", "meaning": "SMHI parameter 8, snow density"},
+            {"label": "water_equivalent", "meaning": "SMHI parameter 9, snow water equivalent"},
+        ],
+    }
+    view_hints = {
+        "preferred_geometry": "points",
+        "default_crs": "EPSG:3006",
+        "table_role": "station_context",
+        "quality_attribute_prefix": "q_",
+    }
+    presentation_warnings = [
+        "Source and license terms require review before redistributing generated packages.",
+        "Station observations are not interpolated and should not be read as catchment-wide hydrology surfaces.",
+        "A non-strict run may return partial results when a station-list or station-data fetch fails; inspect result health attributes.",
+    ]
+    presentation_limitations = [
+        "Station coverage and active status vary by parameter and location.",
+        "The dataset currently uses latest-day snapshots only.",
+        "Quality-code meanings are preserved but not translated into pass/fail filtering.",
+        "Station-level latest-day 404 responses are treated as no current data for that station.",
+    ]
 
     def build(self, args: HydrologyDatasetArgs):
         """Build the hydrology dataset.
@@ -362,7 +423,7 @@ class HydrologyDataset(DatasetDescriptor):
         # ── Parse bounds ─────────────────────────────────────────────
         bounds = self.parse_bounds(args.bounds)
         bounds_tuple = (bounds.xmin, bounds.ymin, bounds.xmax, bounds.ymax)
-        wgs84_bounds = _transform_bounds_to_wgs84(bounds_tuple, args.crs)
+        wgs84_bounds = bounds_to_wgs84(bounds_tuple, args.crs)
         lon_min, lat_min, lon_max, lat_max = wgs84_bounds
 
         info(
@@ -445,6 +506,7 @@ class HydrologyDataset(DatasetDescriptor):
                 if not values:
                     value = float("nan")
                     quality = ""
+                    timestamp = ""
                 else:
                     # Take the last (most recent) entry
                     latest = values[-1]
@@ -454,6 +516,7 @@ class HydrologyDataset(DatasetDescriptor):
                     except (ValueError, TypeError):
                         value = float("nan")
                     quality = latest.get("quality", "")
+                    timestamp = _timestamp_ms_to_iso(latest.get("date"))
 
                 # Extract parameter metadata
                 param_info = data.get("parameter", {})
@@ -462,6 +525,7 @@ class HydrologyDataset(DatasetDescriptor):
 
                 param_meta[pid] = {
                     "parameter_name": param_name_smhi,
+                    "summary": param_info.get("summary", ""),
                     "unit": unit,
                 }
 
@@ -483,7 +547,12 @@ class HydrologyDataset(DatasetDescriptor):
                         "fields": {},
                     }
 
-                station_map[skey]["fields"][field_name] = (value, unit, quality)
+                station_map[skey]["fields"][field_name] = (
+                    value,
+                    unit,
+                    quality,
+                    timestamp,
+                )
 
         info(f"  {len(station_map)} station(s) within bounds (all parameters)")
 
@@ -492,12 +561,14 @@ class HydrologyDataset(DatasetDescriptor):
             station_map = {
                 skey: data
                 for skey, data in station_map.items()
-                if any(not np.isnan(v) for v, _u, _q in data["fields"].values())
+                if any(
+                    not np.isnan(v) for v, _u, _q, _ts in data["fields"].values()
+                )
             }
             info(f"  {len(station_map)} station(s) after dropping all-missing")
 
         # ── Coordinate transform for output ──────────────────────────
-        need_reproject = args.crs.upper() not in ("CRS84", "EPSG:4326", "WGS84")
+        need_reproject = not is_wgs84_crs(args.crs)
 
         if need_reproject and station_map:
             skeys = list(station_map.keys())
@@ -545,6 +616,7 @@ class HydrologyDataset(DatasetDescriptor):
 
         # Collect field→unit mapping for collection-level metadata
         parameter_fields: Dict[str, str] = {}
+        parameter_metadata: list[dict[str, Any]] = []
         first_field_name = None
         first_field_unit = ""
         for pid, pmeta in param_meta.items():
@@ -553,10 +625,34 @@ class HydrologyDataset(DatasetDescriptor):
             else:
                 fname = pmeta.get("parameter_name", f"parameter_{pid}")
             parameter_fields[fname] = pmeta.get("unit", "")
+            timestamps = sorted(
+                {
+                    fields[fname][3]
+                    for fields in (data["fields"] for data in station_map.values())
+                    if fname in fields and fields[fname][3]
+                }
+            )
+            parameter_metadata.append(
+                {
+                    "parameter_id": pid,
+                    "field_name": fname,
+                    "smhi_name": pmeta.get("parameter_name", ""),
+                    "summary": pmeta.get("summary", ""),
+                    "unit": pmeta.get("unit", ""),
+                    "period": "latest-day",
+                    "timestamps": timestamps,
+                    "station_endpoint_path": f"/version/{args.version}/parameter/{pid}.json",
+                    "data_endpoint_path": (
+                        f"/version/{args.version}/parameter/{pid}"
+                        "/station/{station_key}/period/latest-day/data.json"
+                    ),
+                }
+            )
             if first_field_name is None:
                 first_field_name = fname
                 first_field_unit = pmeta.get("unit", "")
         sensor_collection.attributes["parameter_fields"] = parameter_fields
+        sensor_collection.attributes["parameter_metadata"] = parameter_metadata
 
         # Apply max_stations limit
         sorted_skeys = sorted(station_map.keys())
@@ -578,19 +674,21 @@ class HydrologyDataset(DatasetDescriptor):
             # Set 'value' and 'unit' from the first field so that
             # SensorCollection.__str__ can show it in the summary.
             if first_field_name and first_field_name in data["fields"]:
-                fv, fu, _fq = data["fields"][first_field_name]
+                fv, fu, _fq, _fts = data["fields"][first_field_name]
                 if not np.isnan(fv):
                     station.attributes["value"] = float(fv)
                 station.attributes["unit"] = fu
 
             # Add per-parameter quality codes
-            for fname, (_val, _unit, qual) in data["fields"].items():
+            for fname, (_val, _unit, qual, timestamp) in data["fields"].items():
                 station.attributes[f"q_{fname}"] = qual
+                if timestamp:
+                    station.attributes[f"timestamp_{fname}"] = timestamp
 
             point = Point(x=data["x"], y=data["y"])
             point.fields = []
 
-            for fname, (val, unit, _qual) in data["fields"].items():
+            for fname, (val, unit, _qual, _timestamp) in data["fields"].items():
                 field = DtccField()
                 field.name = fname
                 field.unit = unit

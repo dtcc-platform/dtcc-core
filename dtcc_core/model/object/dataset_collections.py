@@ -13,6 +13,15 @@ from ..model import Model
 from .building import Building
 from .object import GeometryType
 from .tree import Tree
+from ...plotting.style import (
+    add_categorical_legend,
+    add_plot_context,
+    apply_dtcc_style,
+    plot_line_segments,
+    plot_polygon_geometries,
+    resolve_colormap,
+    style_colorbar,
+)
 
 
 @dataclass
@@ -54,6 +63,9 @@ class FootprintCollection(Model):
 
     def __len__(self) -> int:
         return len(self.footprints)
+
+    def __str__(self) -> str:
+        return f"DTCC FootprintCollection with {len(self)} footprint(s)"
 
     def __iter__(self) -> Iterator[Surface]:
         return iter(self.footprints)
@@ -116,6 +128,71 @@ class FootprintCollection(Model):
             "FootprintCollection protobuf deserialization is not implemented."
         )
 
+    def plot(
+        self,
+        ax=None,
+        edgecolor: str | None = None,
+        linewidth: float = 0.8,
+        alpha: float = 0.45,
+        title: str | None = None,
+        theme: str = "dark",
+        presentation: bool = True,
+        show: bool = True,
+        **kwargs,
+    ):
+        """Plot building footprint polygons with matplotlib."""
+        from dtcc_core.datasets.presentation import (
+            draw_empty_preview_state,
+            finalize_presentation_plot,
+            presentation_plot_axes,
+        )
+
+        context = self.dataset_context
+        presentation_enabled = presentation and context is not None
+        ax, panel_ax = presentation_plot_axes(
+            context,
+            ax=ax,
+            presentation=presentation,
+        )
+        geometries = self.to_shapely()
+        if presentation_enabled and len(geometries) == 0:
+            draw_empty_preview_state(ax, context)
+        plot_polygon_geometries(
+            ax,
+            geometries,
+            edgecolor=edgecolor,
+            linewidth=linewidth,
+            alpha=alpha,
+            **kwargs,
+        )
+        ax.autoscale()
+        apply_dtcc_style(
+            ax,
+            theme=theme,
+            equal_aspect=True,
+            axis="off" if presentation_enabled else "on",
+            xlabel=None if presentation_enabled else "x",
+            ylabel=None if presentation_enabled else "y",
+            grid=False if presentation_enabled else True,
+        )
+        add_plot_context(
+            ax,
+            title=None if presentation_enabled else title or "DTCC Building Footprints",
+            metadata=None if presentation_enabled else {"Footprints": len(self)},
+            bounds=None if presentation_enabled else self.bounds,
+            theme=theme,
+        )
+        return finalize_presentation_plot(
+            ax,
+            context=context,
+            obj=self,
+            panel_ax=panel_ax,
+            presentation=presentation,
+            show=show,
+            theme=theme,
+            title=title,
+        )
+
     def _feature_properties(self, index: int) -> dict[str, Any]:
         properties: dict[str, Any] = {"index": index}
         if index < len(self.source_indices):
@@ -133,6 +210,9 @@ class BuildingCollection(Model):
 
     def __len__(self) -> int:
         return len(self.buildings)
+
+    def __str__(self) -> str:
+        return f"DTCC BuildingCollection with {len(self)} building(s)"
 
     def __iter__(self) -> Iterator[Building]:
         return iter(self.buildings)
@@ -183,6 +263,9 @@ class TreeCollection(Model):
     def __len__(self) -> int:
         return len(self.trees)
 
+    def __str__(self) -> str:
+        return f"DTCC TreeCollection with {len(self)} tree(s)"
+
     def __iter__(self) -> Iterator[Tree]:
         return iter(self.trees)
 
@@ -205,6 +288,11 @@ class TreeCollection(Model):
             return np.empty((0, 3))
         return np.asarray(positions, dtype=float)
 
+    @property
+    def bounds(self) -> Bounds:
+        """Return bounds spanning all tree positions."""
+        return _bounds_for_points(self.to_arrays())
+
     def to_proto(self):
         raise NotImplementedError(
             "TreeCollection protobuf serialization is not implemented."
@@ -213,6 +301,108 @@ class TreeCollection(Model):
     def from_proto(self, pb):
         raise NotImplementedError(
             "TreeCollection protobuf deserialization is not implemented."
+        )
+
+    def plot(
+        self,
+        ax=None,
+        column: str = "height",
+        size: float = 42.0,
+        cmap=None,
+        title: str | None = None,
+        theme: str = "dark",
+        presentation: bool = True,
+        show: bool = True,
+        **kwargs,
+    ):
+        """Plot tree positions with matplotlib."""
+        from dtcc_core.datasets.presentation import (
+            draw_empty_preview_state,
+            finalize_presentation_plot,
+            presentation_plot_axes,
+        )
+
+        context = self.dataset_context
+        presentation_enabled = presentation and context is not None
+        ax, panel_ax = presentation_plot_axes(
+            context,
+            ax=ax,
+            presentation=presentation,
+        )
+        points = self.to_arrays()
+        values = np.asarray([float(getattr(tree, column, np.nan)) for tree in self])
+
+        if len(points) == 0:
+            if presentation_enabled:
+                draw_empty_preview_state(ax, context)
+            apply_dtcc_style(
+                ax,
+                theme=theme,
+                equal_aspect=True,
+                axis="off" if presentation_enabled else "on",
+                xlabel=None if presentation_enabled else "x",
+                ylabel=None if presentation_enabled else "y",
+            )
+            add_plot_context(
+                ax,
+                title=None if presentation_enabled else title or "DTCC Trees",
+                metadata=None if presentation_enabled else {"Trees": 0, "Column": column},
+                bounds=None if presentation_enabled else self.bounds,
+                theme=theme,
+            )
+            return finalize_presentation_plot(
+                ax,
+                context=context,
+                obj=self,
+                panel_ax=panel_ax,
+                presentation=presentation,
+                show=show,
+                theme=theme,
+                title=title,
+            )
+
+        if np.all(np.isnan(values)):
+            ax.scatter(points[:, 0], points[:, 1], s=size, **kwargs)
+        else:
+            scatter = ax.scatter(
+                points[:, 0],
+                points[:, 1],
+                s=size,
+                c=values,
+                cmap=resolve_colormap(cmap),
+                **kwargs,
+            )
+            if not presentation_enabled:
+                colorbar = ax.figure.colorbar(scatter, ax=ax, shrink=0.78)
+                colorbar.set_label(column)
+                style_colorbar(colorbar, theme=theme)
+
+        ax.autoscale()
+        apply_dtcc_style(
+            ax,
+            theme=theme,
+            equal_aspect=True,
+            axis="off" if presentation_enabled else "on",
+            xlabel=None if presentation_enabled else "x",
+            ylabel=None if presentation_enabled else "y",
+            grid=False if presentation_enabled else True,
+        )
+        add_plot_context(
+            ax,
+            title=None if presentation_enabled else title or "DTCC Trees",
+            metadata=None if presentation_enabled else {"Trees": len(self), "Column": column},
+            bounds=None if presentation_enabled else self.bounds,
+            theme=theme,
+        )
+        return finalize_presentation_plot(
+            ax,
+            context=context,
+            obj=self,
+            panel_ax=panel_ax,
+            presentation=presentation,
+            show=show,
+            theme=theme,
+            title=title,
         )
 
 
@@ -256,6 +446,12 @@ class CalibrationGrid(Model):
 
     def __len__(self) -> int:
         return len(self.features)
+
+    def __str__(self) -> str:
+        return (
+            f"DTCC CalibrationGrid with {len(self.features)} line feature(s), "
+            f"{self.divisions} division(s), {self.crs or 'unknown CRS'}"
+        )
 
     def __iter__(self) -> Iterator[dict[str, Any]]:
         return iter(self.features)
@@ -342,6 +538,91 @@ class CalibrationGrid(Model):
             "CalibrationGrid protobuf deserialization is not implemented."
         )
 
+    def plot(
+        self,
+        ax=None,
+        color: str | None = None,
+        linewidth: float = 0.8,
+        title: str | None = None,
+        theme: str = "dark",
+        presentation: bool = True,
+        show: bool = True,
+        **kwargs,
+    ):
+        """Plot calibration grid line features with matplotlib."""
+        from dtcc_core.datasets.presentation import (
+            draw_empty_preview_state,
+            finalize_presentation_plot,
+            presentation_plot_axes,
+        )
+
+        context = self.dataset_context
+        presentation_enabled = presentation and context is not None
+        ax, panel_ax = presentation_plot_axes(
+            context,
+            ax=ax,
+            presentation=presentation,
+        )
+        segments = []
+        for feature in self.features:
+            geometry = feature.get("geometry") or {}
+            if geometry.get("type") != "LineString":
+                continue
+            coordinates = geometry.get("coordinates") or []
+            if len(coordinates) >= 2:
+                segments.append([(float(x), float(y)) for x, y, *_ in coordinates])
+
+        effective_color = color or "#4cc9f0"
+        if presentation_enabled and len(segments) == 0:
+            draw_empty_preview_state(ax, context)
+        plot_line_segments(
+            ax,
+            segments,
+            color=effective_color,
+            linewidth=linewidth,
+            theme=theme,
+            **kwargs,
+        )
+        if segments and not presentation_enabled:
+            add_categorical_legend(
+                ax,
+                {"Calibration grid": effective_color},
+                title="Layers",
+                linewidth=linewidth,
+                theme=theme,
+            )
+        ax.autoscale()
+        apply_dtcc_style(
+            ax,
+            theme=theme,
+            equal_aspect=True,
+            axis="off" if presentation_enabled else "on",
+            xlabel=None if presentation_enabled else "x",
+            ylabel=None if presentation_enabled else "y",
+            grid=False if presentation_enabled else True,
+        )
+        add_plot_context(
+            ax,
+            title=None if presentation_enabled else title or "DTCC Calibration Grid",
+            metadata=(
+                None
+                if presentation_enabled
+                else {"Lines": len(self.features), "Divisions": self.divisions}
+            ),
+            bounds=None if presentation_enabled else self.bounds,
+            theme=theme,
+        )
+        return finalize_presentation_plot(
+            ax,
+            context=context,
+            obj=self,
+            panel_ax=panel_ax,
+            presentation=presentation,
+            show=show,
+            theme=theme,
+            title=title,
+        )
+
 
 def _bounds_for_models(models) -> Bounds:
     bounds = None
@@ -354,6 +635,17 @@ def _bounds_for_models(models) -> Bounds:
         else:
             bounds.union(model_bounds)
     return bounds or Bounds()
+
+
+def _bounds_for_points(points: np.ndarray) -> Bounds:
+    if len(points) == 0:
+        return Bounds()
+    return Bounds(
+        xmin=float(np.min(points[:, 0])),
+        ymin=float(np.min(points[:, 1])),
+        xmax=float(np.max(points[:, 0])),
+        ymax=float(np.max(points[:, 1])),
+    )
 
 
 def _polygon_coordinates(polygon) -> list[list[list[float]]]:

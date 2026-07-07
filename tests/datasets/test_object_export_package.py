@@ -229,10 +229,12 @@ def test_footprint_collection_export_defaults_to_geojson(tmp_path):
     artifact = package.manifest.artifacts[0]
     payload = json.loads(artifact_path.read_text())
     assert payload["type"] == "FeatureCollection"
+    assert payload["crs"]["properties"]["name"] == "EPSG:3006"
     assert payload["features"][0]["properties"]["source_id"] == "building-1"
     assert artifact.path == "artifacts/building_footprints.geojson"
     assert artifact.format == "geojson"
     assert artifact.media_type == "application/geo+json"
+    assert artifact.crs == "EPSG:3006"
     assert artifact.size == artifact_path.stat().st_size
     assert artifact.sha256 == _sha256(artifact_path)
 

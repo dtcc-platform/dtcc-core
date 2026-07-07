@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import Mock, patch
 
+import pytest
+
 import dtcc_core.datasets as datasets
 from dtcc_core.datasets import get_dataset
 from dtcc_core.datasets.pointcloud import PointCloudDataset, PointCloudArgs
@@ -48,7 +50,18 @@ def test_resolve_classifications_vegetation_alias():
 
 
 def test_resolve_classifications_unknown_string():
-    assert PointCloudDataset._resolve_classifications("unknown") == []
+    with pytest.raises(ValueError, match="Unsupported point cloud classification"):
+        PointCloudDataset._resolve_classifications("unknown")
+
+
+def test_resolve_classifications_empty_list_rejected():
+    with pytest.raises(ValueError, match="must contain at least one"):
+        PointCloudDataset._resolve_classifications([])
+
+
+def test_point_cloud_rejects_unsupported_crs():
+    with pytest.raises(ValueError, match="does not currently reproject"):
+        PointCloudArgs(bounds=(0.0, 0.0, 1.0, 1.0), crs="EPSG:4326")
 
 
 @patch("dtcc_core.datasets.pointcloud.dtcc_core.io.data.download_pointcloud")
@@ -61,6 +74,8 @@ def test_point_cloud_default_build_returns_downloaded_pointcloud(mock_download):
     result = dataset.build(PointCloudArgs(bounds=(0.0, 0.0, 1.0, 1.0)))
 
     assert result is downloaded_pc
+    mock_download.assert_called_once()
+    assert mock_download.call_args.kwargs["provider"] == "dtcc"
     downloaded_pc.classification_filter.assert_not_called()
     downloaded_pc.get_vegetation.assert_not_called()
     downloaded_pc.remove_global_outliers.assert_not_called()
@@ -104,7 +119,7 @@ def test_point_cloud_integer_classification_uses_classification_filter(mock_down
     )
 
     assert result is filtered_pc
-    downloaded_pc.classification_filter.assert_called_once_with([6])
+    downloaded_pc.classification_filter.assert_called_once_with([6], keep=True)
 
 
 @patch("dtcc_core.datasets.pointcloud.dtcc_core.io.data.download_pointcloud")
@@ -124,7 +139,7 @@ def test_point_cloud_list_classification_uses_classification_filter(mock_downloa
     )
 
     assert result is filtered_pc
-    downloaded_pc.classification_filter.assert_called_once_with([2, 9])
+    downloaded_pc.classification_filter.assert_called_once_with([2, 9], keep=True)
 
 
 @patch("dtcc_core.datasets.pointcloud.dtcc_core.io.data.download_pointcloud")
@@ -148,6 +163,7 @@ def test_point_cloud_remove_outliers_true_uses_threshold(mock_download):
     )
 
     assert result is denoised_pc
+    downloaded_pc.classification_filter.assert_called_once_with([2, 9], keep=True)
     filtered_pc.remove_global_outliers.assert_called_once_with(4.5)
 
 
@@ -168,3 +184,42 @@ def test_point_cloud_export_returns_bytes(mock_download):
 
     assert result == b"pc-bytes"
     mock_export.assert_called_once_with(downloaded_pc, "las")
+
+
+def test_point_cloud_context_documents_classification_presets_and_review_status():
+    dataset = PointCloudDataset()
+    context = dataset.create_context(
+        dataset.validate(
+            {
+                "bounds": (0.0, 0.0, 1.0, 1.0),
+                "classifications": "buildings",
+                "remove_outliers": True,
+                "remove_outlier_threshold": 4.5,
+            }
+        )
+    )
+    manifest = context.manifest()
+
+    provider_roles = {
+        provider["name"]: provider["role"] for provider in manifest.metadata.provider
+    }
+    assert provider_roles == {
+        "Lantmäteriet": "source_provider",
+        "DTCC Platform": "processor",
+    }
+    assert manifest.metadata.source[0]["selected_when"] == 'source="LM"'
+    assert manifest.metadata.source[0]["source_terms_status"] == "requires_review"
+    assert "Requires review" in manifest.metadata.license
+    assert "Requires review" in manifest.metadata.collection_period
+    assert any("terrain=[2, 8]" in step for step in manifest.provenance.processing_steps)
+    assert any("remove_outlier_threshold" in step for step in manifest.provenance.processing_steps)
+    assert manifest.presentation.legend["title"] == "Classification presets"
+    assert any(entry["label"] == "buildings" for entry in manifest.presentation.legend["entries"])
+    assert manifest.presentation.view_hints["recommended_filters"] == [
+        "terrain",
+        "buildings",
+        "vegetation",
+    ]
+    assert manifest.presentation.warnings
+    assert manifest.presentation.limitations
+    assert manifest.request.parameters["classifications"] == "buildings"

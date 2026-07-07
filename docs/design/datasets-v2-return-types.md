@@ -18,23 +18,23 @@ so Dataset v2 context can attach directly.
 | --- | --- | --- |
 | `point_cloud` | `PointCloud` | Requires provider/cache data; not executed. |
 | `city` | `City` | Requires provider/cache data; not executed. |
-| `terrain_surface_mesh` | `Mesh` or `Raster` | Requires provider/cache data; not executed. |
-| `city_surface_mesh` | `Mesh` | Requires provider/cache data; not executed. |
-| `city_flat_mesh` | `Mesh` | Requires provider/cache data; not executed. |
-| `city_volume_mesh` | `VolumeMesh` | Requires provider/cache data; not executed. |
-| `roads` | `RoadNetwork` | Requires live Overpass/network data; not executed. |
-| `space_syntax` | `RoadNetwork` | Derived from `roads`; not executed. |
-| `transit_vehicles` | `VehicleCollection` | Requires live provider data; not executed. |
-| `buses` | `VehicleCollection` | Requires live provider data; not executed. |
-| `trams` | `VehicleCollection` | Requires live provider data; not executed. |
-| `trains` | `VehicleCollection` | Requires live provider data; not executed. |
-| `metros` | `VehicleCollection` | Requires live provider data; not executed. |
-| `ferries` | `VehicleCollection` | Requires live provider data; not executed. |
+| `terrain_surface_mesh` | `Mesh` or `Raster` | Mocked wrapper/context checked; live provider/cache generation not executed. |
+| `city_surface_mesh` | `Mesh` | Mocked wrapper/context checked; live provider/cache generation not executed. |
+| `city_flat_mesh` | `Mesh` | Mocked wrapper/context checked; live provider/cache generation not executed. |
+| `city_volume_mesh` | `VolumeMesh` | Mocked wrapper/context checked; live provider/cache/TetGen generation not executed. |
+| `roads` | `RoadNetwork` | Mocked download/context checked; live Overpass data not executed. |
+| `space_syntax` | `RoadNetwork` | Synthetic graph/context checked; live upstream roads data not executed. |
+| `transit_vehicles` | `VehicleCollection` | Mocked provider/context checked; credentialed live providers not executed. |
+| `buses` | `VehicleCollection` | Mode-preset shortcut over `transit_vehicles`; mocked/context checked. |
+| `trams` | `VehicleCollection` | Mode-preset shortcut over `transit_vehicles`; mocked/context checked. |
+| `trains` | `VehicleCollection` | Mode-preset shortcut over `transit_vehicles`; mocked/context checked. |
+| `metros` | `VehicleCollection` | Mode-preset shortcut over `transit_vehicles`; mocked/context checked. |
+| `ferries` | `VehicleCollection` | Mode-preset shortcut over `transit_vehicles`; mocked/context checked. |
 | `deso` | `DeSO` | Requires data files/provider path; not executed. |
-| `air_quality` | `SensorCollection` | Requires live SMHI data; not executed. |
-| `weather` | `SensorCollection` | Requires live SMHI data; not executed. |
-| `hydrology` | `SensorCollection` | Requires live SMHI data; not executed. |
-| `ocean` | `SensorCollection` | Requires live SMHI data; not executed. |
+| `air_quality` | `SensorCollection` | Fixture/context checked with mocked SMHI datavardluft JSON; live SMHI data not executed. |
+| `weather` | `SensorCollection` | Fixture/context checked with mocked SMHI metobs CSV; live SMHI data not executed. |
+| `hydrology` | `SensorCollection` | Fixture/context checked with mocked SMHI HydroObs JSON; live SMHI data not executed. |
+| `ocean` | `SensorCollection` | Fixture/context checked with mocked SMHI OcObs CSV; live SMHI data not executed. |
 | `smoke` with `product="field"` | `VolumeMesh` | Cheap local synthetic call covered by tests. |
 | `smoke` with `product="slice"` | `FieldSlice` | Synthetic simulation slice with velocity, speed, and pressure fields attached to sampled points. |
 | `smoke` with `product="streamlines"` | `StreamlineCollection` | Synthetic simulation streamlines with velocity, speed, and pressure fields attached to line vertices. |
@@ -101,7 +101,7 @@ is outside Phase 2A.
 - `DatasetCollection` and `DatasetValue` are transitional native model
   containers, not `DatasetResult`.
 - Domain-specific containers are now used for the Phase 1C city-domain returns.
-- Smoke is a synthetic simulation dataset. Its normal Python return values
+- Smoke is a synthetic fixture dataset. Its normal Python return values
   store simulation values as `Field` objects attached to geometry:
   `VolumeMesh` for `product="field"`, `FieldSlice` for `product="slice"`,
   and `StreamlineCollection` for `product="streamlines"`.

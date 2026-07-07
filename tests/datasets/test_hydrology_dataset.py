@@ -4,6 +4,7 @@ import pytest
 import math
 import json
 import numpy as np
+from pathlib import Path
 from unittest.mock import patch, Mock, MagicMock
 
 from dtcc_core.datasets.dataset import DatasetUpstreamError
@@ -20,124 +21,23 @@ from dtcc_core.datasets.hydrology import (
 
 # ── Fixtures ─────────────────────────────────────────────────────────────
 
-# Minimal station list JSON mimicking the real SMHI HydroObs response for
-# parameter 1 (daily discharge).  Contains stations in different locations
-# so bbox filtering can be tested.
+FIXTURE_DIR = Path(__file__).parent / "fixtures" / "smhi" / "hydroobs"
 
-SAMPLE_STATION_LIST = {
-    "key": "1",
-    "title": "Vattenföring (Dygn)",
-    "unit": "m³/s",
-    "station": [
-        {
-            "key": "2357",
-            "name": "ABISKO",
-            "id": 2357,
-            "latitude": 68.1936,
-            "longitude": 19.9859,
-            "active": True,
-            "owner": "SMHI",
-            "measuringStations": "CORE",
-            "catchmentName": "Abiskojokk",
-            "catchmentNumber": "123",
-            "catchmentSize": "560",
-            "from": 946684800000,
-            "to": 1739404800000,
-            "link": [],
-        },
-        {
-            "key": "2100",
-            "name": "STOCKHOLM STN",
-            "id": 2100,
-            "latitude": 59.33,
-            "longitude": 18.07,
-            "active": True,
-            "owner": "SMHI",
-            "measuringStations": "CORE",
-            "catchmentName": "Norrström",
-            "catchmentNumber": "456",
-            "catchmentSize": "22600",
-            "from": 946684800000,
-            "to": 1739404800000,
-            "link": [],
-        },
-        {
-            "key": "2200",
-            "name": "MALMÖ STN",
-            "id": 2200,
-            "latitude": 55.60,
-            "longitude": 13.00,
-            "active": False,
-            "owner": "SMHI",
-            "measuringStations": "ADDITIONAL",
-            "catchmentName": "Höje å",
-            "catchmentNumber": "789",
-            "catchmentSize": "310",
-            "from": 946684800000,
-            "to": 1739404800000,
-            "link": [],
-        },
-    ],
-}
 
-# Minimal latest-day JSON response for a single station.
-SAMPLE_LATEST_DAY_P1 = {
-    "updated": 1739404800000,
-    "parameter": {
-        "key": "1",
-        "name": "Vattenföring (Dygn)",
-        "summary": "Dygnsmedelvärde",
-        "unit": "m³/s",
-    },
-    "station": {
-        "key": "2100",
-        "name": "STOCKHOLM STN",
-    },
-    "period": {"key": "latest-day"},
-    "position": [],
-    "link": [],
-    "value": [
-        {"date": 1739318400000, "value": 42.5, "quality": "G"},
-    ],
-}
+def _fixture_json(name: str) -> dict:
+    path = FIXTURE_DIR / name
+    return json.loads(path.read_text(encoding="utf-8"))
 
-SAMPLE_LATEST_DAY_P3 = {
-    "updated": 1739404800000,
-    "parameter": {
-        "key": "3",
-        "name": "Vattenstånd",
-        "summary": "Momentanvärde",
-        "unit": "cm",
-    },
-    "station": {
-        "key": "2100",
-        "name": "STOCKHOLM STN",
-    },
-    "period": {"key": "latest-day"},
-    "position": [],
-    "link": [],
-    "value": [
-        {"date": 1739318400000, "value": 125.0, "quality": "O"},
-    ],
-}
 
-SAMPLE_LATEST_DAY_EMPTY = {
-    "updated": 1739404800000,
-    "parameter": {
-        "key": "1",
-        "name": "Vattenföring (Dygn)",
-        "summary": "Dygnsmedelvärde",
-        "unit": "m³/s",
-    },
-    "station": {
-        "key": "2200",
-        "name": "MALMÖ STN",
-    },
-    "period": {"key": "latest-day"},
-    "position": [],
-    "link": [],
-    "value": [],
-}
+# Minimal committed JSON fixtures mimicking SMHI HydroObs station and
+# latest-day responses. They cover active/inactive stations, bbox filtering,
+# quality codes, and empty station values.
+SAMPLE_STATION_LIST = _fixture_json("parameter_1_stations.json")
+SAMPLE_LATEST_DAY_P1 = _fixture_json("station_2100_parameter_1_latest_day.json")
+SAMPLE_LATEST_DAY_P3 = _fixture_json("station_2100_parameter_3_latest_day.json")
+SAMPLE_LATEST_DAY_EMPTY = _fixture_json(
+    "station_2200_parameter_1_latest_day_empty.json"
+)
 
 
 # ── Mock helper ──────────────────────────────────────────────────────────
@@ -427,6 +327,10 @@ class TestHydrologyBuild:
         )
         st = sc.stations()[0]
         assert st.attributes["q_discharge_daily"] == "G"
+        assert (
+            st.attributes["timestamp_discharge_daily"]
+            == "2025-02-12T00:00:00+00:00"
+        )
 
     @patch("dtcc_core.datasets.hydrology._get_json", side_effect=_mock_get_json)
     def test_coordinate_reproject(self, mock_json):
@@ -470,6 +374,20 @@ class TestHydrologyBuild:
         assert sc.attributes["stations_skipped_upstream"] == 0
         assert sc.attributes["requested_parameters"] == [1, 3]
         assert sc.attributes["fetched_parameters"] == [1, 3]
+        metadata = sc.attributes["parameter_metadata"]
+        discharge = next(
+            item for item in metadata if item["field_name"] == "discharge_daily"
+        )
+        assert discharge["parameter_id"] == 1
+        assert discharge["smhi_name"] == "Vattenföring (Dygn)"
+        assert discharge["summary"] == "Dygnsmedelvärde"
+        assert discharge["unit"] == "m³/s"
+        assert discharge["period"] == "latest-day"
+        assert discharge["timestamps"] == ["2025-02-12T00:00:00+00:00"]
+        assert discharge["station_endpoint_path"] == "/version/latest/parameter/1.json"
+        assert discharge["data_endpoint_path"].endswith(
+            "/parameter/1/station/{station_key}/period/latest-day/data.json"
+        )
 
     @patch("dtcc_core.datasets.hydrology._get_json", side_effect=_mock_get_json)
     def test_parameter_name_strings(self, mock_json):
@@ -614,6 +532,41 @@ class TestHydrologyRegistration:
         import dtcc_core.datasets as datasets
 
         assert hasattr(datasets, "hydrology")
+
+    def test_context_documents_smhi_hydroobs_semantics(self):
+        dataset = HydrologyDataset()
+        context = dataset.create_context(
+            dataset.validate(
+                {
+                    "bounds": (0.0, 0.0, 1.0, 1.0),
+                    "crs": "EPSG:4326",
+                    "parameters": ["discharge", "level"],
+                    "field_name_style": "smhi",
+                    "active_only": False,
+                }
+            )
+        )
+        manifest = context.manifest()
+
+        assert manifest.metadata.provider == [
+            {"name": "SMHI", "slug": "smhi", "role": "source_provider"}
+        ]
+        assert manifest.metadata.source[0]["service"] == "hydroobs"
+        assert "station_endpoint_pattern" in manifest.metadata.source[0]
+        assert "data_endpoint_pattern" in manifest.metadata.source[0]
+        assert "Requires review" in manifest.metadata.license
+        assert "Latest-day snapshot" in manifest.metadata.collection_period
+        assert "hydrology_observations" in manifest.metadata.data_types
+        assert any(
+            "latest-day JSON" in step
+            for step in manifest.provenance.processing_steps
+        )
+        assert manifest.presentation.headline == "Latest-Day SMHI Hydrology Stations"
+        assert manifest.presentation.legend["title"] == "Hydrology station fields"
+        assert manifest.presentation.view_hints["quality_attribute_prefix"] == "q_"
+        assert any("partial results" in warning for warning in manifest.presentation.warnings)
+        assert manifest.presentation.limitations
+        assert manifest.request.parameters["active_only"] is False
 
 
 # ── Str representation tests ─────────────────────────────────────────────

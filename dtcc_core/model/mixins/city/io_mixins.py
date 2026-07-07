@@ -129,14 +129,17 @@ class CityDownloadMixin:
     def download_footprints(
         self: "City",
         bounds: Union[Bounds, None] = None,
+        provider: str = "dtcc",
     ) -> "City":
         """
         Download building footprints from a URL and load them into a City object.
 
         Args:
             self (City): The City object to load the footprints into.
-            url (str): The URL to download the building footprints from.
-            user_city_bounds (bool, optional): only load footprints within the set bounds
+            bounds (Bounds, optional): Bounds to intersect with existing city
+                bounds before downloading.
+            provider (str): Footprint provider. Use ``"dtcc"`` for the DTCC
+                footprint backend/cache and ``"OSM"`` for OpenStreetMap.
 
         Returns:
             City: The updated City object with the loaded footprints.
@@ -147,7 +150,10 @@ class CityDownloadMixin:
 
         download_bounds = _get_download_bounds(self.bounds, bounds)
 
-        footprints = io.data.download_footprints(bounds=download_bounds)
+        footprints = io.data.download_footprints(
+            bounds=download_bounds,
+            provider=provider,
+        )
         self.add_buildings(footprints)
         return self
 

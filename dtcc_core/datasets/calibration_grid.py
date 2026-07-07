@@ -45,29 +45,106 @@ class CalibrationGridArgs(DatasetBaseArgs):
 
 class CalibrationGridDataset(DatasetDescriptor):
     name = "calibration_grid"
+    title = "Calibration Grid"
     description = (
-        "Synthetic alignment grid of evenly spaced lines spanning the "
-        "requested bounds, for checking table-projector calibration."
+        "Deterministic synthetic line grid spanning the requested bounds, "
+        "used to check tangible-table projector alignment against known map "
+        "coordinates."
     )
     ArgsModel = CalibrationGridArgs
-    data_category = "derived"
+    data_category = "synthetic"
     result_kind = "calibration_grid"
     python_return_type = "dtcc_core.model.CalibrationGrid"
     timeout_hint = 2
-    provider = [{"name": "DTCC Platform", "role": "generator"}]
-    source = ["Synthetic grid generated from requested bounds"]
+    provider = [{"name": "DTCC Platform", "role": "synthetic_generator"}]
+    source = [
+        {
+            "name": "dtcc-core calibration grid generator",
+            "role": "synthetic_generator",
+            "url": "https://github.com/dtcc-platform/dtcc-core",
+        }
+    ]
     license = "MIT"
+    collection_period = (
+        "Not applicable: deterministic synthetic geometry generated from "
+        "the request bounds and divisions."
+    )
+    data_types = ["vector", "line", "calibration_grid"]
     geographic_coverage = "requested synthetic bounds"
     update_frequency = "generated on demand"
-    processing_steps = ["Generate evenly spaced grid lines for requested bounds"]
-    presentation_summary = (
-        "Synthetic alignment grid for checking table-projector calibration."
-    )
-    key_points = [
-        "Generated locally from the request",
-        "Useful for table and projector alignment checks",
+    generated_at = "Computed at request time by dtcc-core."
+    processing_steps = [
+        "Validate requested bounds, CRS, and positive grid division count",
+        "Sample divisions + 1 x positions and divisions + 1 y positions including both bounds edges",
+        "Create vertical and horizontal LineString features that span the opposite axis",
+        "Attach deterministic grid metadata including spacing, line count, bounds, divisions, and CRS",
     ]
-    view_hints = {"preferred_geometry": "lines", "default_style": "calibration_grid"}
+    presentation_headline = "Table Calibration Grid"
+    presentation_summary = (
+        "A deterministic coordinate grid for checking whether the projected "
+        "table overlay lines up with the physical 500 m model bounds."
+    )
+    presentation_narrative = [
+        {
+            "heading": "What you are seeing",
+            "body": (
+                "Vertical and horizontal lines cover the requested bounds. "
+                "The default 40 divisions create 41 lines in each direction, "
+                "including the four outer edges."
+            ),
+        },
+        {
+            "heading": "How to interpret it",
+            "body": (
+                "On the Gothenburg 500 m table model, 40 divisions across "
+                "500 m corresponds to 12.5 m in map space or 1 cm on the "
+                "1:1250 physical model."
+            ),
+        },
+        {
+            "heading": "Limitations",
+            "body": (
+                "This is synthetic alignment geometry only. It does not "
+                "confirm projector focus, physical fabrication accuracy, or "
+                "whether any real-world dataset is spatially correct."
+            ),
+        },
+    ]
+    key_points = [
+        "Generated locally from request bounds and division count",
+        "Default spacing is 12.5 m for the canonical 500 m table bounds",
+        "Every boundary edge is represented by a grid line",
+        "No provider, network, or external data dependency",
+    ]
+    presentation_legend = {
+        "title": "Calibration grid",
+        "unit": "m",
+        "entries": [
+            {
+                "label": "Grid line",
+                "meaning": "constant x or y coordinate in the declared CRS",
+            },
+            {
+                "label": "Outer line",
+                "meaning": "requested table bounds edge",
+            },
+        ],
+    }
+    view_hints = {
+        "preferred_geometry": "lines",
+        "default_style": "calibration_grid",
+        "table_role": "alignment",
+        "default_crs": "EPSG:3006",
+        "legend_required": False,
+    }
+    presentation_warnings = [
+        "Use only with table/model bounds that match the physical table profile."
+    ]
+    presentation_limitations = [
+        "Synthetic alignment helper; not a surveyed control network.",
+        "A correct grid overlay does not validate real dataset source accuracy.",
+        "The 1 cm physical spacing claim applies to the 500 m by 500 m, 1:1250 table profile.",
+    ]
 
     def build(self, args: CalibrationGridArgs):
         bounds = self.parse_bounds(args.bounds)

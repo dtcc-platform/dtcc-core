@@ -20,12 +20,25 @@ import json
 from datetime import datetime, timezone
 
 from .dataset import DatasetBaseArgs, DatasetDescriptor, DatasetUpstreamError
+from .geospatial import bounds_to_wgs84, is_wgs84_crs
+from .providers import provider_entry
 from ..model.object import Object, SensorCollection
 from ..model.geometry import Point
 from ..model.values import Field as DtccField
 from ..common import info
 from ..common.progress import ProgressTracker, report_progress
 from ..reproject.reproject import reproject_array
+
+
+STALE_VALUE_DAYS = 7
+
+# Fixture-verified phenomenon aliases. Other labels are resolved through the
+# provider's /phenomena endpoint so stale hard-coded IDs do not silently win.
+_FIXTURE_VERIFIED_PHENOMENA: Dict[str, Dict[str, str]] = {
+    "NO2": {"id": "8", "label": "NO2"},
+    "PM10": {"id": "5", "label": "PM10"},
+    "O3": {"id": "7", "label": "O3"},
+}
 
 
 # API helper functions (kept private to this module)
@@ -59,7 +72,8 @@ def _get_json(
         import requests
     except ImportError:
         raise RuntimeError(
-            "requests library required for air quality dataset. Install with: pip install requests"
+            "requests library required for air quality dataset. "
+            "Install with: pip install requests"
         )
 
     try:
@@ -80,17 +94,18 @@ def _get_json(
         ) from e
 
 
-def _resolve_phenomenon_id(
+def _resolve_phenomenon(
     base_url: str,
     phenomenon_str: str,
     timeout_s: float,
     strict_live: bool = False,
     upstream_errors: Optional[List[DatasetUpstreamError]] = None,
-) -> str:
+) -> Tuple[str, Dict[str, Any]]:
     """Resolve phenomenon name/ID to phenomenon ID.
 
-    The API uses phenomenon IDs like "1" for NO2, "5" for PM10, etc.
-    This function accepts either numeric IDs or common names.
+    The API uses numeric phenomenon IDs. This function accepts either numeric
+    IDs or labels. Only fixture-verified labels are resolved through a static
+    fallback; all other labels are resolved through the provider endpoint.
 
     Parameters
     ----------
@@ -103,80 +118,147 @@ def _resolve_phenomenon_id(
 
     Returns
     -------
-    str
-        Phenomenon ID
+    tuple
+        ``(phenomenon_id, metadata)``.
     """
-    # If it's already numeric, return it
-    if phenomenon_str.isdigit():
-        info(f"Using numeric phenomenon ID: {phenomenon_str}")
-        return phenomenon_str
+    requested = str(phenomenon_str).strip()
+    if not requested:
+        raise ValueError("Air quality phenomenon must be a non-empty string or ID.")
 
-    # Common mappings (verified against API 2024)
-    common_mappings = {
-        "NO2": "8",
-        "O3": "7",
-        "PM10": "5",
-        "PM2.5": "6001",
-        "SO2": "1",
-        "CO": "2064",
+    metadata: Dict[str, Any] = {
+        "requested": requested,
+        "phenomenon_id": "",
+        "label": requested,
+        "resolution_source": "",
+        "static_mapping_status": "not_used",
+        "verified_static_aliases": sorted(_FIXTURE_VERIFIED_PHENOMENA),
     }
 
-    if phenomenon_str.upper() in common_mappings:
-        result = common_mappings[phenomenon_str.upper()]
-        info(f"Mapped phenomenon '{phenomenon_str}' to ID {result}")
-        return result
+    # If it's already numeric, return it.
+    if requested.isdigit():
+        metadata.update(
+            {
+                "phenomenon_id": requested,
+                "resolution_source": "numeric_id",
+                "static_mapping_status": "not_applicable",
+            }
+        )
+        info(f"Using numeric phenomenon ID: {requested}")
+        return requested, metadata
+
+    phenomenon_key = requested.upper()
+    if phenomenon_key in _FIXTURE_VERIFIED_PHENOMENA:
+        match = _FIXTURE_VERIFIED_PHENOMENA[phenomenon_key]
+        phenomenon_id = match["id"]
+        metadata.update(
+            {
+                "phenomenon_id": phenomenon_id,
+                "label": match["label"],
+                "resolution_source": "fixture_verified_alias",
+                "static_mapping_status": "fixture_verified",
+            }
+        )
+        info(f"Mapped phenomenon '{requested}' to fixture-verified ID {phenomenon_id}")
+        return phenomenon_id, metadata
 
     # Try to fetch from API
     try:
         url = f"{base_url}/phenomena"
         data = _get_json(url, timeout_s=timeout_s)
+        if not isinstance(data, list):
+            raise DatasetUpstreamError(
+                dataset="air_quality",
+                operation="resolve_phenomenon",
+                target=url,
+                failure_class="invalid_payload",
+                message=(
+                    "air_quality resolve_phenomenon expected /phenomena to return "
+                    f"a list, got {type(data).__name__}"
+                ),
+            )
         for phen in data:
-            if phen.get("label", "").upper() == phenomenon_str.upper():
-                return str(phen["id"])
+            if not isinstance(phen, dict):
+                continue
+            if str(phen.get("label", "")).strip().upper() == phenomenon_key:
+                if "id" not in phen:
+                    raise ValueError(
+                        "Air quality phenomenon lookup matched "
+                        f"'{requested}' but the provider payload has no 'id'."
+                    )
+                phenomenon_id = str(phen["id"])
+                label = str(phen.get("label", requested))
+                metadata.update(
+                    {
+                        "phenomenon_id": phenomenon_id,
+                        "label": label,
+                        "resolution_source": "provider_lookup",
+                        "static_mapping_status": "not_applicable",
+                    }
+                )
+                return phenomenon_id, metadata
     except DatasetUpstreamError as exc:
         if upstream_errors is not None:
             upstream_errors.append(exc)
-        if strict_live:
+        if strict_live or exc.failure_class == "invalid_payload":
             raise
-        pass
+        metadata.update(
+            {
+                "phenomenon_id": requested,
+                "resolution_source": "raw_unresolved_due_to_lookup_failure",
+                "static_mapping_status": "unverified_raw",
+            }
+        )
     else:
-        raise ValueError(f"Unknown air quality phenomenon: {phenomenon_str}")
+        raise ValueError(f"Unknown air quality phenomenon: {requested}")
 
     # Upstream unreachable (non-strict mode): treat input as a raw ID
-    return phenomenon_str
+    return requested, metadata
 
 
-def _transform_bounds_to_wgs84(
-    bounds: Tuple[float, float, float, float], crs: str
-) -> Tuple[float, float, float, float]:
-    """Transform bounds to WGS84 (CRS84) for API requests.
+def _resolve_phenomenon_id(
+    base_url: str,
+    phenomenon_str: str,
+    timeout_s: float,
+    strict_live: bool = False,
+    upstream_errors: Optional[List[DatasetUpstreamError]] = None,
+) -> str:
+    """Resolve phenomenon name/ID to phenomenon ID."""
+    phenomenon_id, _metadata = _resolve_phenomenon(
+        base_url,
+        phenomenon_str,
+        timeout_s,
+        strict_live=strict_live,
+        upstream_errors=upstream_errors,
+    )
+    return phenomenon_id
 
-    The SMHI API expects coordinates in WGS84/CRS84 (longitude, latitude).
-    This function transforms bounds from the specified CRS to WGS84 using
-    the existing reproject_array function.
 
-    Parameters
-    ----------
-    bounds : tuple
-        (xmin, ymin, xmax, ymax) bounding box in source CRS
-    crs : str
-        Source coordinate reference system (e.g., "EPSG:3006", "CRS84")
+def _parse_measurement_datetime(timestamp: str) -> Optional[datetime]:
+    """Parse a provider measurement timestamp as UTC when possible."""
+    if not timestamp:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(timestamp).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
-    Returns
-    -------
-    tuple
-        (lon_min, lat_min, lon_max, lat_max) in WGS84
-    """
-    # If already in CRS84/WGS84, return as-is
-    if crs.upper() in ["CRS84", "EPSG:4326", "WGS84"]:
-        return bounds
 
-    # Transform corner points using existing reproject functionality
-    xmin, ymin, xmax, ymax = bounds
-    corners = np.array([[xmin, ymin, 0], [xmax, ymax, 0]])
-    transformed = reproject_array(corners, crs, "EPSG:4326")
-
-    return (transformed[0, 0], transformed[0, 1], transformed[1, 0], transformed[1, 1])
+def _measurement_staleness(
+    timestamp: str,
+    reference_time: datetime,
+    *,
+    stale_after_days: int = STALE_VALUE_DAYS,
+) -> Tuple[bool, Optional[float]]:
+    """Return whether a timestamp is stale and its age in days."""
+    parsed = _parse_measurement_datetime(timestamp)
+    if parsed is None:
+        return False, None
+    age = reference_time.astimezone(timezone.utc) - parsed
+    age_days = age.total_seconds() / 86400.0
+    return age_days > stale_after_days, age_days
 
 
 def _fetch_stations(
@@ -209,7 +291,7 @@ def _fetch_stations(
     info(f"Querying air quality API for stations...")
 
     # Transform bounds to WGS84 if necessary
-    wgs84_bounds = _transform_bounds_to_wgs84(bounds, crs)
+    wgs84_bounds = bounds_to_wgs84(bounds, crs)
 
     # API expects bbox as: xmin,ymin,xmax,ymax in WGS84/CRS84
     bbox_str = (
@@ -325,15 +407,14 @@ def _extract_latest_value(
             value = float(last_value_dict.get("value"))
             timestamp_ms = last_value_dict.get("timestamp")
 
-            # Convert timestamp from milliseconds to ISO format
+            # Convert timestamp from milliseconds to UTC ISO format.
             timestamp_iso = ""
-            if timestamp_ms:
-                from datetime import datetime
-
-                dt = datetime.fromtimestamp(timestamp_ms / 1000.0)
+            if timestamp_ms is not None:
+                dt = datetime.fromtimestamp(float(timestamp_ms) / 1000.0, timezone.utc)
                 timestamp_iso = dt.isoformat()
                 info(
-                    f"Extracted value {value} with timestamp {timestamp_iso} (raw: {timestamp_ms} ms)"
+                    f"Extracted value {value} with timestamp {timestamp_iso} "
+                    f"(raw: {timestamp_ms} ms)"
                 )
 
             unit = timeseries_dict.get("uom", "")
@@ -374,7 +455,8 @@ def _fallback_get_latest_from_getData(
 
     try:
         info(
-            f"Fallback: Fetching recent data from getData endpoint for timeseries {timeseries_id}"
+            "Fallback: Fetching recent data from getData endpoint for "
+            f"timeseries {timeseries_id}"
         )
         data = _get_json(url, params=params, timeout_s=timeout_s)
         values = data.get("values", [])
@@ -451,7 +533,9 @@ class AirQualityDataset(DatasetDescriptor):
     The dataset queries stations within the specified geographic bounds and
     retrieves the most recent measurement for the selected phenomenon (pollutant).
 
-    Supported phenomena include NO2, O3, PM10, PM2.5, SO2, CO, and others.
+    Fixture-verified aliases include NO2, O3, and PM10. Other phenomena can
+    be requested with a numeric ID or resolved from the provider /phenomena
+    endpoint when available.
 
     Example
     -------
@@ -469,29 +553,187 @@ class AirQualityDataset(DatasetDescriptor):
     """
 
     name = "air_quality"
+    title = "Air Quality Observations"
     description = (
-        "Air quality sensor measurements from datavardluft.smhi.se "
-        "as a SensorCollection with latest snapshot readings from stations "
-        "within the specified bounds."
+        "Air-quality station measurements from the SMHI datavardluft API "
+        "as a SensorCollection with latest available readings for one "
+        "requested phenomenon within the specified bounds."
     )
     ArgsModel = AirQualityDatasetArgs
     data_category = "raw"
     result_kind = "sensor_collection"
     python_return_type = "dtcc_core.model.SensorCollection"
-    provider = [{"name": "SMHI", "role": "source_provider"}]
-    source = ["SMHI datavardluft air-quality API"]
-    license = "Review SMHI source terms before redistribution."
+    provider = [provider_entry("smhi", role="source_provider")]
+    source = [
+        {
+            "name": "SMHI datavardluft air-quality API",
+            "role": "source_provider",
+            "service": "datavardluft",
+            "base_url": "https://datavardluft.smhi.se/52North/api",
+            "endpoint_patterns": [
+                "/phenomena",
+                "/stations?bbox={bbox}&crs=CRS84",
+                "/stations/{station_id}",
+                "/timeseries/{timeseries_id}",
+                "/timeseries/{timeseries_id}/getData?timespan=P7D",
+            ],
+            "source_terms_status": "requires_review",
+        }
+    ]
+    license = (
+        "Requires review: verify SMHI datavardluft source terms before "
+        "redistribution."
+    )
+    collection_period = (
+        "Latest available station snapshot. The provider /timeseries metadata "
+        "may expose lastValue; stale or missing lastValue readings trigger a "
+        "P7D getData lookup when a timeseries ID is available."
+    )
+    default_crs = "EPSG:3006"
+    data_types = [
+        "sensor_collection",
+        "air_quality_observations",
+        "points",
+        "time_series_snapshot",
+    ]
     geographic_coverage = "Sweden, constrained by station coverage and requested bounds"
     update_frequency = "latest available observation snapshot"
     processing_steps = [
-        "Resolve requested air-quality phenomenon",
-        "Fetch stations and latest measurements within requested bounds",
-        "Normalize measurements to a SensorCollection",
+        (
+            "Resolve the requested air-quality phenomenon from a numeric ID, "
+            "fixture-verified alias, or provider /phenomena lookup"
+        ),
+        "Transform requested bounds to WGS84/CRS84 for provider station filtering",
+        (
+            "Fetch station metadata and matching timeseries IDs for the "
+            "requested phenomenon"
+        ),
+        "Read latest values from /timeseries/{id} lastValue metadata",
+        (
+            "When lastValue is missing or stale, check "
+            "/timeseries/{id}/getData over the recent P7D window"
+        ),
+        (
+            "Reproject station points to the requested output CRS and preserve "
+            "station/operator metadata"
+        ),
+        (
+            "Record phenomenon metadata, value timestamps, units, source "
+            "endpoint, stale counts, fallback counts, and upstream errors"
+        ),
+        "Return a SensorCollection or serialize protobuf bytes when format='pb'",
     ]
+    presentation_headline = "Latest SMHI Air-Quality Stations"
     presentation_summary = (
-        "Latest available air-quality station measurements within the requested bounds."
+        "Point observations from SMHI air-quality monitoring stations, filtered "
+        "to the requested bounds for one pollutant or phenomenon."
     )
-    view_hints = {"preferred_geometry": "points"}
+    presentation_narrative = [
+        {
+            "heading": "What you are seeing",
+            "body": (
+                "Each point is a monitoring station. The attached field is the "
+                "latest available value for the requested phenomenon, such as "
+                "NO2, PM10, or a provider phenomenon ID."
+            ),
+        },
+        {
+            "heading": "How to interpret it",
+            "body": (
+                "Measurements are station observations, not an interpolated air "
+                "quality surface. Station attributes preserve operator, unit, "
+                "phenomenon ID, timestamp, value source, and staleness metadata."
+            ),
+        },
+        {
+            "heading": "Limitations",
+            "body": (
+                "Station coverage and update cadence vary by pollutant and "
+                "operator. Empty results may mean no station or no current "
+                "measurement in the requested area."
+            ),
+        },
+    ]
+    key_points = [
+        "Fixture-verified aliases are NO2, PM10, and O3",
+        (
+            "Unverified phenomenon labels are resolved through the provider "
+            "/phenomena endpoint"
+        ),
+        (
+            "Station attributes preserve operator, unit, timestamp, timeseries "
+            "ID, value source, and stale-value flags"
+        ),
+        (
+            "Stale lastValue readings trigger a recent getData lookup before "
+            "the stale value is retained"
+        ),
+        (
+            "The dataset is table-visible as station-level context and upstream "
+            "lineage for derived air-quality fields"
+        ),
+    ]
+    presentation_legend = {
+        "title": "Air-quality station field",
+        "entries": [
+            {
+                "label": "NO2",
+                "meaning": "Nitrogen dioxide, fixture-verified phenomenon ID 8",
+            },
+            {
+                "label": "PM10",
+                "meaning": "Particulate matter PM10, fixture-verified ID 5",
+            },
+            {
+                "label": "O3",
+                "meaning": "Ozone, fixture-verified phenomenon ID 7",
+            },
+            {
+                "label": "value_source",
+                "meaning": "Station attribute identifying lastValue or getData",
+            },
+        ],
+    }
+    view_hints = {
+        "preferred_geometry": "points",
+        "default_crs": "EPSG:3006",
+        "table_role": "station_context",
+        "quality_attribute": "is_stale",
+    }
+    presentation_warnings = [
+        (
+            "Source and license terms require review before redistributing "
+            "generated packages."
+        ),
+        (
+            "Sparse monitoring stations should not be interpreted as continuous "
+            "area coverage."
+        ),
+        (
+            "Stale readings are retained only with explicit station attributes; "
+            "inspect is_stale and value_age_days before analysis."
+        ),
+        (
+            "Interpolation from station points can misrepresent street-canyon, "
+            "source-proximity, and meteorological effects."
+        ),
+        (
+            "A non-strict run may return partial results when station or "
+            "timeseries requests fail; inspect result health attributes."
+        ),
+    ]
+    presentation_limitations = [
+        "Only one phenomenon is fetched per dataset call.",
+        "Station and phenomenon availability vary by monitoring network and operator.",
+        (
+            "The provider's lastValue metadata can be stale or absent; getData "
+            "fallback checks only the recent P7D window."
+        ),
+        (
+            "Quality assurance beyond unit/timestamp/source preservation "
+            "remains a domain review task."
+        ),
+    ]
 
     def build(self, args: AirQualityDatasetArgs):
         """Build the air quality dataset.
@@ -521,7 +763,7 @@ class AirQualityDataset(DatasetDescriptor):
             with progress.phase(
                 "resolve_api", f"Resolving phenomenon '{args.phenomenon}'..."
             ):
-                phenomenon_id = _resolve_phenomenon_id(
+                phenomenon_id, phenomenon_metadata = _resolve_phenomenon(
                     args.base_url,
                     args.phenomenon,
                     args.timeout_s,
@@ -530,6 +772,7 @@ class AirQualityDataset(DatasetDescriptor):
                 )
                 info(f"Resolved phenomenon {args.phenomenon} to ID {phenomenon_id}")
 
+            retrieval_time = datetime.now(timezone.utc)
             with progress.phase("fetch_stations", "Fetching stations within bounds..."):
                 stations_data = _fetch_stations(
                     args.base_url,
@@ -553,10 +796,12 @@ class AirQualityDataset(DatasetDescriptor):
                     "source": "datavardluft.smhi.se",
                     "phenomenon": args.phenomenon,
                     "phenomenon_id": phenomenon_id,
+                    "phenomenon_metadata": phenomenon_metadata,
                     "crs": args.crs,
                     "bounds": f"{bounds_tuple}",
-                    "retrieval_time": datetime.now(timezone.utc).isoformat(),
+                    "retrieval_time": retrieval_time.isoformat(),
                     "total_stations_found": len(stations_data),
+                    "stale_after_days": STALE_VALUE_DAYS,
                 }
 
                 stations_used = 0
@@ -564,10 +809,13 @@ class AirQualityDataset(DatasetDescriptor):
                 stations_skipped_no_coords = 0
                 stations_skipped_no_timeseries = 0
                 stations_skipped_no_value = 0
+                stale_value_count = 0
+                fallback_getdata_attempts = 0
+                fallback_getdata_successes = 0
 
                 stations_to_process = stations_data[: args.max_stations]
                 total_stations = len(stations_to_process)
-                need_reproject = args.crs.upper() not in ("CRS84", "EPSG:4326", "WGS84")
+                need_reproject = not is_wgs84_crs(args.crs)
 
                 for i, station_data in enumerate(stations_to_process):
                     report_progress(
@@ -624,34 +872,74 @@ class AirQualityDataset(DatasetDescriptor):
                     value = None
                     timestamp = ""
                     unit = ""
+                    timeseries_id = ""
+                    value_source = ""
+                    fallback_reason = ""
+                    fallback_status = ""
+                    metadata_last_value_timestamp = ""
 
                     for ts in timeseries_list:
+                        ts_id = str(ts.get("id", ""))
+                        if ts.get("uom") and not unit:
+                            unit = str(ts.get("uom", ""))
+
                         # First try to extract from metadata
                         result = _extract_latest_value(ts)
                         if result:
                             value, timestamp, unit = result
-                            # Check if data is old (more than 7 days)
-                            if timestamp:
-                                from datetime import timedelta
+                            timeseries_id = ts_id
+                            value_source = "metadata.lastValue"
+                            metadata_last_value_timestamp = timestamp
 
-                                try:
-                                    ts_dt = datetime.fromisoformat(
-                                        timestamp.replace("Z", "+00:00")
+                            is_stale, _age_days = _measurement_staleness(
+                                timestamp, retrieval_time
+                            )
+                            if is_stale and ts_id:
+                                fallback_reason = "stale_lastValue"
+                                fallback_getdata_attempts += 1
+                                fallback_error_count_before = len(upstream_errors)
+                                fallback = _fallback_get_latest_from_getData(
+                                    args.base_url,
+                                    ts_id,
+                                    args.timeout_s,
+                                    strict_live=args.strict_live,
+                                    upstream_errors=upstream_errors,
+                                )
+                                if fallback:
+                                    (
+                                        fallback_value,
+                                        fallback_timestamp,
+                                        fallback_unit,
+                                    ) = fallback
+                                    metadata_dt = _parse_measurement_datetime(timestamp)
+                                    fallback_dt = _parse_measurement_datetime(
+                                        fallback_timestamp
                                     )
-                                    age = datetime.now(timezone.utc) - ts_dt.replace(
-                                        tzinfo=timezone.utc
-                                    )
-                                    if age > timedelta(days=7):
-                                        info(
-                                            f"Warning: Station {station_id} has old data (age: {age.days} days)"
-                                        )
-                                except Exception:
-                                    pass
+                                    if (
+                                        metadata_dt is None
+                                        or fallback_dt is None
+                                        or fallback_dt >= metadata_dt
+                                    ):
+                                        value = fallback_value
+                                        timestamp = fallback_timestamp
+                                        unit = fallback_unit or unit
+                                        value_source = "getData"
+                                        fallback_status = "used"
+                                        fallback_getdata_successes += 1
+                                    else:
+                                        fallback_status = "older_than_lastValue"
+                                elif len(upstream_errors) > fallback_error_count_before:
+                                    fallback_status = "upstream_error"
+                                else:
+                                    fallback_status = "no_recent_values"
                             break
 
                         # Fallback: fetch from getData
-                        ts_id = str(ts.get("id", ""))
                         if ts_id:
+                            timeseries_id = ts_id
+                            fallback_reason = "missing_lastValue"
+                            fallback_getdata_attempts += 1
+                            fallback_error_count_before = len(upstream_errors)
                             result = _fallback_get_latest_from_getData(
                                 args.base_url,
                                 ts_id,
@@ -661,7 +949,14 @@ class AirQualityDataset(DatasetDescriptor):
                             )
                             if result:
                                 value, timestamp, unit = result
+                                value_source = "getData"
+                                fallback_status = "used"
+                                fallback_getdata_successes += 1
                                 break
+                            if len(upstream_errors) > fallback_error_count_before:
+                                fallback_status = "upstream_error"
+                            else:
+                                fallback_status = "no_recent_values"
 
                     if value is None:
                         if args.drop_missing:
@@ -672,6 +967,18 @@ class AirQualityDataset(DatasetDescriptor):
                             continue
                         else:
                             value = np.nan
+                            value_source = "missing"
+
+                    is_stale, value_age_days = _measurement_staleness(
+                        timestamp, retrieval_time
+                    )
+                    if is_stale:
+                        stale_value_count += 1
+                        rounded_age = int(value_age_days) if value_age_days else 0
+                        info(
+                            f"Warning: Station {station_id} has stale air-quality data "
+                            f"(age: {rounded_age} days)"
+                        )
 
                     # Create station object
                     station = Object()
@@ -685,6 +992,17 @@ class AirQualityDataset(DatasetDescriptor):
                         "unit": unit,
                         "timestamp": timestamp,
                         "value": value,
+                        "timeseries_id": timeseries_id,
+                        "value_source": value_source,
+                        "fallback_reason": fallback_reason,
+                        "fallback_status": fallback_status,
+                        "metadata_last_value_timestamp": metadata_last_value_timestamp,
+                        "is_stale": is_stale,
+                        "value_age_days": (
+                            round(value_age_days, 3)
+                            if value_age_days is not None
+                            else None
+                        ),
                     }
 
                     # Create Point geometry
@@ -718,8 +1036,13 @@ class AirQualityDataset(DatasetDescriptor):
                         "stations_used": stations_used,
                         "stations_skipped_upstream": stations_skipped_upstream,
                         "stations_skipped_no_coords": stations_skipped_no_coords,
-                        "stations_skipped_no_timeseries": stations_skipped_no_timeseries,
+                        "stations_skipped_no_timeseries": (
+                            stations_skipped_no_timeseries
+                        ),
                         "stations_skipped_no_value": stations_skipped_no_value,
+                        "stale_value_count": stale_value_count,
+                        "fallback_getdata_attempts": fallback_getdata_attempts,
+                        "fallback_getdata_successes": fallback_getdata_successes,
                     }
                 )
                 self.apply_result_health_metadata(
@@ -733,7 +1056,8 @@ class AirQualityDataset(DatasetDescriptor):
                 )
                 if stations_skipped_no_value > 0:
                     info(
-                        f"Skipped {stations_skipped_no_value} stations with no current measurements"
+                        f"Skipped {stations_skipped_no_value} stations with no "
+                        "current measurements"
                     )
                 report_progress(percent=50, message="Calculating bounds...")
                 sensor_collection.calculate_bounds()

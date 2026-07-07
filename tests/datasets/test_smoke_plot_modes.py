@@ -63,7 +63,7 @@ def test_smoke_plot_default_preview_returns_figure():
         assert "How to read it" in text
         assert "Fast corridor" in text
         assert "Recirculation" in text
-        assert "Key facts" in text
+        assert "Preview facts" in text
         assert "not a validated CFD simulation" in text
     finally:
         _close(fig)
@@ -77,7 +77,7 @@ def test_smoke_plot_explicit_preview_returns_figure():
         text = _figure_text(fig)
         assert "Synthetic Urban Smoke Flow" in text
         assert "Smoke speed" in text
-        assert "PNG preview" in text
+        assert "Preview facts" in text
     finally:
         _close(fig)
 
@@ -146,7 +146,7 @@ def test_smoke_streamline_object_plot_defaults_to_preview():
         text = _figure_text(fig)
         assert "Synthetic Urban Smoke Flow" in text
         assert "Smoke speed" in text
-        assert "Key facts" in text
+        assert "Preview facts" in text
     finally:
         _close(fig)
 
