@@ -25,6 +25,8 @@ import numpy as np
 from datetime import datetime, timezone
 
 from .dataset import DatasetBaseArgs, DatasetDescriptor, DatasetUpstreamError
+from .geospatial import bounds_to_wgs84, is_wgs84_crs
+from .providers import provider_entry
 from ..model.object import Object, SensorCollection
 from ..model.geometry import Point
 from ..model.values import Field as DtccField
@@ -165,40 +167,6 @@ def _get_text(url: str, timeout_s: float = 10.0) -> str:
         raise DatasetDescriptor.build_upstream_error("ocean", "fetch", url, e) from e
 
 
-# ── Coordinate helpers ───────────────────────────────────────────────────
-
-
-def _transform_bounds_to_wgs84(
-    bounds: Tuple[float, float, float, float], crs: str
-) -> Tuple[float, float, float, float]:
-    """Transform bounds from *crs* to WGS84 (lon, lat).
-
-    Parameters
-    ----------
-    bounds : tuple
-        (xmin, ymin, xmax, ymax) in source CRS.
-    crs : str
-        Source coordinate reference system (e.g. ``"EPSG:3006"``).
-
-    Returns
-    -------
-    tuple
-        (lon_min, lat_min, lon_max, lat_max) in WGS84.
-    """
-    if crs.upper() in ("CRS84", "EPSG:4326", "WGS84"):
-        return bounds
-
-    xmin, ymin, xmax, ymax = bounds
-    corners = np.array([[xmin, ymin, 0], [xmax, ymax, 0]])
-    transformed = reproject_array(corners, crs, "EPSG:4326")
-    return (
-        transformed[0, 0],
-        transformed[0, 1],
-        transformed[1, 0],
-        transformed[1, 1],
-    )
-
-
 # ── CSV parser ───────────────────────────────────────────────────────────
 
 
@@ -248,10 +216,23 @@ def _parse_latest_hour_csv(text: str):
 
     # ── Pass 2: find the column header row (starts with StationsId) ──────
     header_idx = None
+    period_from_pattern = re.compile(
+        r"Tidsperiod\s*\(fr\.o\.m\.\)\s*=\s*([^;]+?)\s*\(UTC\)"
+    )
+    period_to_pattern = re.compile(
+        r"Tidsperiod\s*\(t\.o\.m\.\)\s*=\s*([^;]+?)\s*\(UTC\)"
+    )
     for i, line in enumerate(lines):
+        if "period_from" not in meta:
+            match = period_from_pattern.search(line)
+            if match:
+                meta["period_from"] = match.group(1).strip()
+        if "timestamp" not in meta:
+            match = period_to_pattern.search(line)
+            if match:
+                meta["timestamp"] = match.group(1).strip()
         if line.startswith("StationsId"):
             header_idx = i
-            break
 
     if header_idx is None:
         return meta, records
@@ -397,6 +378,7 @@ class OceanDataset(DatasetDescriptor):
     """
 
     name = "ocean"
+    title = "Ocean Observations"
     description = (
         "Oceanographic observations from SMHI OcObs (latest-hour snapshot) "
         "as a SensorCollection with one Field per parameter per station "
@@ -406,20 +388,98 @@ class OceanDataset(DatasetDescriptor):
     data_category = "raw"
     result_kind = "sensor_collection"
     python_return_type = "dtcc_core.model.SensorCollection"
-    provider = [{"name": "SMHI", "role": "source_provider"}]
-    source = ["SMHI OcObs API"]
-    license = "Review SMHI source terms before redistribution."
+    provider = [provider_entry("smhi", role="source_provider")]
+    source = [
+        {
+            "name": "SMHI Oceanographic Observations download API",
+            "role": "source_provider",
+            "service": "ocobs",
+            "base_url": "https://opendata-download-ocobs.smhi.se/api",
+            "endpoint_pattern": "/version/{version}/parameter/{parameter_id}/station-set/all/period/latest-hour/data.csv",
+            "source_terms_status": "requires_review",
+        }
+    ]
+    license = "Requires review: verify SMHI source terms before redistribution."
+    collection_period = (
+        "Latest-hour snapshot; OcObs CSV payloads may include period comments "
+        "with the latest observation time."
+    )
+    default_crs = "EPSG:3006"
+    data_types = ["sensor_collection", "ocean_observations", "points", "time_series_snapshot"]
     geographic_coverage = "Sweden, constrained by station coverage and requested bounds"
     update_frequency = "latest-hour observation snapshot"
     processing_steps = [
-        "Resolve requested oceanographic parameters",
-        "Fetch latest-hour observations within requested bounds",
-        "Normalize observations to a SensorCollection",
+        "Resolve requested oceanographic parameters from SMHI IDs, numeric strings, or aliases",
+        "For each parameter, fetch station-set/all latest-hour CSV from the SMHI OcObs download API",
+        "Parse parameter name, unit, period comments, station coordinates, values, and quality codes from the CSV payload",
+        "Transform requested bounds to WGS84 for provider filtering, then reproject station points to the requested output CRS",
+        "Drop stations with all-missing values when drop_missing=True",
+        "Record requested/fetched parameter IDs, units, timestamps when present, and upstream errors in SensorCollection attributes",
+        "Return a SensorCollection or serialize protobuf bytes when format='pb'",
     ]
+    presentation_headline = "Latest-Hour SMHI Ocean Stations"
     presentation_summary = (
-        "Latest-hour oceanographic observations within the requested bounds."
+        "Point observations from SMHI oceanographic stations, filtered to the "
+        "requested bounds and carrying one field per ocean parameter."
     )
-    view_hints = {"preferred_geometry": "points"}
+    presentation_narrative = [
+        {
+            "heading": "What you are seeing",
+            "body": (
+                "Each point is an SMHI ocean station or platform with latest-hour "
+                "measurements such as sea temperature, sea level, salinity, waves, "
+                "currents, or dissolved oxygen."
+            ),
+        },
+        {
+            "heading": "How to interpret it",
+            "body": (
+                "Values are point observations at monitoring locations, not a "
+                "coastal model or interpolated sea-state surface. Quality codes "
+                "are preserved as q_<field> station attributes."
+            ),
+        },
+        {
+            "heading": "Limitations",
+            "body": (
+                "Ocean stations are sparse and coastal/offshore coverage is uneven. "
+                "Small inland or non-coastal bounds may legitimately return no stations."
+            ),
+        },
+    ]
+    key_points = [
+        "Default parameters are sea_temperature (ID 5) and sea_level (ID 6)",
+        "Field names can use stable DTCC names or Swedish SMHI parameter names",
+        "Ocean station points use z=0.0 in the returned geometry",
+        "parameter_metadata records IDs, units, endpoint paths, and timestamps when the CSV exposes them",
+    ]
+    presentation_legend = {
+        "title": "Ocean station fields",
+        "entries": [
+            {"label": "sea_temperature", "meaning": "SMHI parameter 5, water temperature"},
+            {"label": "sea_level", "meaning": "SMHI parameter 6, sea water level"},
+            {"label": "salinity", "meaning": "SMHI parameter 4, salinity"},
+            {"label": "wave_height_significant", "meaning": "SMHI parameter 1, significant wave height"},
+            {"label": "current_speed", "meaning": "SMHI parameter 3, current speed"},
+            {"label": "dissolved_oxygen", "meaning": "SMHI parameter 15, oxygen concentration"},
+        ],
+    }
+    view_hints = {
+        "preferred_geometry": "points",
+        "default_crs": "EPSG:3006",
+        "table_role": "station_context",
+        "quality_attribute_prefix": "q_",
+    }
+    presentation_warnings = [
+        "Source and license terms require review before redistributing generated packages.",
+        "Ocean station observations are not interpolated and should not be read as full coastal fields.",
+        "A non-strict run may return partial results when some parameter fetches fail; inspect result health attributes.",
+    ]
+    presentation_limitations = [
+        "Station coverage varies strongly by coast, parameter, and observation platform.",
+        "The dataset currently uses latest-hour snapshots only.",
+        "Quality-code meanings are preserved but not translated into pass/fail filtering.",
+    ]
 
     def build(self, args: OceanDatasetArgs):
         """Build the ocean dataset.
@@ -441,7 +501,7 @@ class OceanDataset(DatasetDescriptor):
         # ── Parse bounds ─────────────────────────────────────────────
         bounds = self.parse_bounds(args.bounds)
         bounds_tuple = (bounds.xmin, bounds.ymin, bounds.xmax, bounds.ymax)
-        wgs84_bounds = _transform_bounds_to_wgs84(bounds_tuple, args.crs)
+        wgs84_bounds = bounds_to_wgs84(bounds_tuple, args.crs)
         lon_min, lat_min, lon_max, lat_max = wgs84_bounds
 
         info(
@@ -505,6 +565,7 @@ class OceanDataset(DatasetDescriptor):
                     rec["value"],
                     unit,
                     rec["quality"],
+                    meta.get("timestamp", ""),
                 )
 
         info(f"  {len(station_map)} station(s) within bounds")
@@ -514,12 +575,14 @@ class OceanDataset(DatasetDescriptor):
             station_map = {
                 sid: data
                 for sid, data in station_map.items()
-                if any(not np.isnan(v) for v, _u, _q in data["fields"].values())
+                if any(
+                    not np.isnan(v) for v, _u, _q, _ts in data["fields"].values()
+                )
             }
             info(f"  {len(station_map)} station(s) after dropping all-missing")
 
         # ── Coordinate transform for output ──────────────────────────
-        need_reproject = args.crs.upper() not in ("CRS84", "EPSG:4326", "WGS84")
+        need_reproject = not is_wgs84_crs(args.crs)
 
         if need_reproject and station_map:
             sids = list(station_map.keys())
@@ -567,6 +630,7 @@ class OceanDataset(DatasetDescriptor):
 
         # Collect field→unit mapping for collection-level metadata
         parameter_fields: Dict[str, str] = {}
+        parameter_metadata: list[dict[str, Any]] = []
         first_field_name = None
         first_field_unit = ""
         for pid, pmeta in param_meta.items():
@@ -575,10 +639,27 @@ class OceanDataset(DatasetDescriptor):
             else:
                 fname = pmeta.get("parameter_name", f"parameter_{pid}")
             parameter_fields[fname] = pmeta.get("unit", "")
+            parameter_metadata.append(
+                {
+                    "parameter_id": pid,
+                    "field_name": fname,
+                    "smhi_name": pmeta.get("parameter_name", ""),
+                    "description": pmeta.get("description", ""),
+                    "unit": pmeta.get("unit", ""),
+                    "period": args.period,
+                    "timestamp": pmeta.get("timestamp", ""),
+                    "period_from": pmeta.get("period_from", ""),
+                    "endpoint_path": (
+                        f"/version/{args.version}/parameter/{pid}"
+                        f"/station-set/all/period/{args.period}/data.csv"
+                    ),
+                }
+            )
             if first_field_name is None:
                 first_field_name = fname
                 first_field_unit = pmeta.get("unit", "")
         sensor_collection.attributes["parameter_fields"] = parameter_fields
+        sensor_collection.attributes["parameter_metadata"] = parameter_metadata
 
         # Apply max_stations limit
         sorted_sids = sorted(station_map.keys())
@@ -597,19 +678,21 @@ class OceanDataset(DatasetDescriptor):
             # Set 'value' and 'unit' from the first field so that
             # SensorCollection.__str__ can show it in the summary.
             if first_field_name and first_field_name in data["fields"]:
-                fv, fu, _fq = data["fields"][first_field_name]
+                fv, fu, _fq, _fts = data["fields"][first_field_name]
                 if not np.isnan(fv):
                     station.attributes["value"] = float(fv)
                 station.attributes["unit"] = fu
 
             # Add per-parameter quality codes
-            for fname, (_val, _unit, qual) in data["fields"].items():
+            for fname, (_val, _unit, qual, timestamp) in data["fields"].items():
                 station.attributes[f"q_{fname}"] = qual
+                if timestamp:
+                    station.attributes[f"timestamp_{fname}"] = timestamp
 
             point = Point(x=data["x"], y=data["y"], z=0.0)
             point.fields = []
 
-            for fname, (val, unit, _qual) in data["fields"].items():
+            for fname, (val, unit, _qual, _timestamp) in data["fields"].items():
                 field = DtccField()
                 field.name = fname
                 field.unit = unit

@@ -1,0 +1,55 @@
+{
+  "key": "1",
+  "title": "Vattenföring (Dygn)",
+  "unit": "m³/s",
+  "station": [
+    {
+      "key": "2357",
+      "name": "ABISKO",
+      "id": 2357,
+      "latitude": 68.1936,
+      "longitude": 19.9859,
+      "active": true,
+      "owner": "SMHI",
+      "measuringStations": "CORE",
+      "catchmentName": "Abiskojokk",
+      "catchmentNumber": "123",
+      "catchmentSize": "560",
+      "from": 946684800000,
+      "to": 1739404800000,
+      "link": []
+    },
+    {
+      "key": "2100",
+      "name": "STOCKHOLM STN",
+      "id": 2100,
+      "latitude": 59.33,
+      "longitude": 18.07,
+      "active": true,
+      "owner": "SMHI",
+      "measuringStations": "CORE",
+      "catchmentName": "Norrström",
+      "catchmentNumber": "456",
+      "catchmentSize": "22600",
+      "from": 946684800000,
+      "to": 1739404800000,
+      "link": []
+    },
+    {
+      "key": "2200",
+      "name": "MALMÖ STN",
+      "id": 2200,
+      "latitude": 55.60,
+      "longitude": 13.00,
+      "active": false,
+      "owner": "SMHI",
+      "measuringStations": "ADDITIONAL",
+      "catchmentName": "Höje å",
+      "catchmentNumber": "789",
+      "catchmentSize": "310",
+      "from": 946684800000,
+      "to": 1739404800000,
+      "link": []
+    }
+  ]
+}

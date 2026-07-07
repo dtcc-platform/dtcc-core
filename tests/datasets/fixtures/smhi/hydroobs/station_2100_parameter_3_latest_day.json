@@ -1,0 +1,19 @@
+{
+  "updated": 1739404800000,
+  "parameter": {
+    "key": "3",
+    "name": "Vattenstånd",
+    "summary": "Momentanvärde",
+    "unit": "cm"
+  },
+  "station": {
+    "key": "2100",
+    "name": "STOCKHOLM STN"
+  },
+  "period": {"key": "latest-day"},
+  "position": [],
+  "link": [],
+  "value": [
+    {"date": 1739318400000, "value": 125.0, "quality": "O"}
+  ]
+}

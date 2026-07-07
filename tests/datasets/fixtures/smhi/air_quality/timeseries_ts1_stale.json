@@ -1,0 +1,9 @@
+{
+  "id": "ts1",
+  "label": "NO2",
+  "lastValue": {
+    "timestamp": 1577836800000,
+    "value": 12.5
+  },
+  "uom": "\u00b5g/m\u00b3"
+}

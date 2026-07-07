@@ -34,7 +34,7 @@ def test_smoke_describe_includes_products_and_formats():
     metadata = datasets.smoke.describe()
 
     assert metadata["name"] == "smoke"
-    assert metadata["data_category"] == "simulation"
+    assert metadata["data_category"] == "synthetic"
     assert metadata["result_kind"] == "vector_field"
     assert metadata["python_return_type"] == "dtcc_core.model.VolumeMesh"
     assert set(metadata["supported_formats"]) == {

@@ -5,6 +5,7 @@ from pydantic import Field
 
 from .dataset import DatasetDescriptor, DatasetBaseArgs
 from ._city_mesh_common import prepare_city_from_bounds
+from .providers import provider_entry
 from dtcc_core.common.progress import ProgressTracker
 
 
@@ -65,27 +66,126 @@ class CityFlatMeshArgs(DatasetBaseArgs):
 
 class CityFlatMeshDataset(DatasetDescriptor):
     name = "city_flat_mesh"
+    title = "City Flat Mesh"
     description = (
-        "Flat 2D triangular mesh at z=0 with building footprints marked as subdomains."
+        "Flat 2D triangular mesh at z=0 with conditioned building footprints "
+        "marked as subdomains for analysis or preprocessing."
     )
     ArgsModel = CityFlatMeshArgs
     data_category = "derived"
     result_kind = "mesh"
     python_return_type = "dtcc_core.model.Mesh"
-    provider = [{"name": "DTCC Platform", "role": "processor"}]
-    source = ["Point cloud data", "Building footprints"]
-    license = "Derived from upstream geodata; verify source terms before redistribution."
+    provider = [
+        provider_entry("lantmateriet", role="source_provider"),
+        provider_entry("dtcc-platform", role="processor"),
+    ]
+    source = [
+        {
+            "name": "DTCC/Lantmäteriet point cloud backend/cache",
+            "role": "upstream_dataset",
+            "source_terms_status": "requires_review",
+        },
+        {
+            "name": "DTCC/Lantmäteriet footprint backend/cache",
+            "role": "upstream_dataset",
+            "source_terms_status": "requires_review",
+        },
+    ]
+    license = (
+        "Requires review: derived from upstream point cloud and footprint data; "
+        "verify source terms before redistribution."
+    )
+    collection_period = (
+        "Requires review: inherits point cloud acquisition date and footprint "
+        "provider/cache vintage, which are not currently surfaced in the result."
+    )
     default_crs = "EPSG:3006"
+    lod = "Flat 2D mesh with LOD0 building-footprint subdomains"
+    data_types = ["flat_mesh", "building_subdomains", "terrain_derived", "mesh"]
     geographic_coverage = "Sweden, constrained by requested bounds and source coverage"
     update_frequency = "derived on demand from upstream source data"
     processing_steps = [
-        "Prepare point cloud, terrain, and footprint source data",
-        "Generate a flat 2D triangular mesh with building subdomains",
+        "Download point cloud and DTCC footprint data for the requested bounds in EPSG:3006",
+        "Optionally remove global point-cloud outliers using outlier_threshold",
+        "Build a terrain raster with raster_cell_size and raster_radius for height context",
+        "Extract roof points and compute building heights before city assembly",
+        "Condition LOD0 footprints using min_building_detail, min_building_area, merge_buildings, and pipeline_mode",
+        "Generate a flat z=0 triangular mesh with building subdomains using max_mesh_size, min_mesh_angle, mesher, and mesh-quality reporting settings",
+        "Return the native Mesh object or serialize the requested mesh format",
     ]
+    derived_from = [
+        {
+            "name": "point_cloud",
+            "relationship": "terrain and height context during city preparation",
+            "source_terms_status": "requires_review",
+        },
+        {
+            "name": "building_footprints",
+            "relationship": "LOD0 building subdomain outlines",
+            "source_terms_status": "requires_review",
+        },
+    ]
+    presentation_headline = "Flat City Mesh With Building Subdomains"
     presentation_summary = (
         "Flat 2D city mesh for the requested bounds, with building footprints "
         "represented as subdomains."
     )
+    presentation_narrative = [
+        {
+            "heading": "What you are seeing",
+            "body": (
+                "The result is a planar triangular mesh. Building footprints are "
+                "represented as subdomains, while terrain elevation is not present "
+                "in the final geometry."
+            ),
+        },
+        {
+            "heading": "How it is made",
+            "body": (
+                "The dataset prepares source terrain and building information, "
+                "conditions LOD0 footprints, and triangulates a flat coverage mesh "
+                "with the requested size, angle, backend, and diagnostic settings."
+            ),
+        },
+        {
+            "heading": "Limitations",
+            "body": (
+                "The mesh is useful for 2D analysis or as a preprocessing layer. "
+                "It does not contain real terrain height, building volumes, or "
+                "simulation boundary conditions."
+            ),
+        },
+    ]
+    key_points = [
+        "LOD0 footprints become building subdomains in a flat z=0 mesh",
+        "max_mesh_size=None allows the backend to choose size behavior",
+        "min_building_area and min_building_detail condition small or complex footprints",
+        "report_mesh_quality controls logging; stage_audit_enabled requests diagnostic data from the builder",
+    ]
+    presentation_legend = {
+        "title": "Flat mesh layers",
+        "entries": [
+            {"label": "Ground triangle", "meaning": "2D mesh element at z=0"},
+            {"label": "Building subdomain", "meaning": "conditioned LOD0 footprint area"},
+            {"label": "Subdomain boundary", "meaning": "building or coverage edge used by the mesher"},
+        ],
+    }
+    view_hints = {
+        "preferred_geometry": "flat_mesh",
+        "default_crs": "EPSG:3006",
+        "mesh_role": "2d_analysis_or_preprocessing",
+        "z_behavior": "flat_z0",
+    }
+    presentation_warnings = [
+        "Source and license terms inherit upstream point-cloud and footprint review status.",
+        "Flat meshes remove terrain elevation and are not a replacement for surface or volume meshes.",
+        "Subdomain quality depends on source footprints and selected conditioning parameters.",
+    ]
+    presentation_limitations = [
+        "Point-cloud acquisition date, density, and footprint cache vintage are not currently surfaced in the result.",
+        "The final mesh does not include building heights, walls, roofs, or terrain topography.",
+        "Mesh-quality reports are builder diagnostics and do not replace downstream model validation.",
+    ]
 
     def _build_mesh_from_city(self, city: City, args: CityFlatMeshArgs):
         stage_audit = {} if args.stage_audit_enabled else None

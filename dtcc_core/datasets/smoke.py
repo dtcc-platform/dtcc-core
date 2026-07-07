@@ -37,6 +37,16 @@ from dtcc_core.plotting.style import (
 )
 
 from .dataset import DatasetBaseArgs, DatasetDescriptor
+from .presentation import (
+    PREVIEW_COLOR_RAMP_AXES_BOUNDS,
+    PREVIEW_STORY_AXES_BOUNDS,
+    PREVIEW_STORY_PANEL_BOUNDS,
+    PREVIEW_VISUAL_AXES_BOUNDS,
+    PREVIEW_VISUAL_PANEL_BOUNDS,
+    add_preview_panel,
+    draw_preview_chips,
+    draw_preview_fact_rows,
+)
 
 
 SmokeProduct = Literal["field", "slice", "streamlines"]
@@ -275,7 +285,7 @@ class SmokeDataset(DatasetDescriptor):
         "presentation workflows."
     )
     ArgsModel = SmokeArgs
-    data_category = "simulation"
+    data_category = "synthetic"
     result_kind = "vector_field"
     python_return_type = "dtcc_core.model.VolumeMesh"
     timeout_hint = 2
@@ -678,31 +688,31 @@ def _plot_smoke_preview(bounds: Bounds, args: SmokeArgs, *, show: bool, overview
         facecolor=DTCC_COLORS["dark"],
     )
 
-    _add_preview_panel(
+    add_preview_panel(
         fig,
-        (0.04, 0.08, 0.66, 0.84),
+        PREVIEW_VISUAL_PANEL_BOUNDS,
         facecolor="#101016",
         edgecolor=DTCC_COLORS["grid_dark"],
         shadow=True,
     )
-    _add_preview_panel(
+    add_preview_panel(
         fig,
-        (0.735, 0.08, 0.225, 0.84),
+        PREVIEW_STORY_PANEL_BOUNDS,
         facecolor=DTCC_COLORS["dark_surface"],
         edgecolor=DTCC_COLORS["grid_dark"],
         shadow=True,
     )
 
-    visual_ax = fig.add_axes([0.055, 0.16, 0.63, 0.69], zorder=2)
+    visual_ax = fig.add_axes(PREVIEW_VISUAL_AXES_BOUNDS, zorder=2)
     visual_ax.set_facecolor("#101016")
     _draw_smoke_visual(visual_ax, bounds, args, options, overview=overview)
     _style_smoke_visual_axes(visual_ax, options, axis="off")
     _draw_preview_annotations(visual_ax, presentation["annotations"])
 
-    ramp_ax = fig.add_axes([0.085, 0.105, 0.31, 0.028], zorder=3)
+    ramp_ax = fig.add_axes(PREVIEW_COLOR_RAMP_AXES_BOUNDS, zorder=3)
     _draw_preview_color_ramp(ramp_ax, options, presentation["legend"])
 
-    panel_ax = fig.add_axes([0.755, 0.11, 0.185, 0.78], zorder=3)
+    panel_ax = fig.add_axes(PREVIEW_STORY_AXES_BOUNDS, zorder=3)
     _draw_preview_story_panel(panel_ax, presentation, args, overview=overview)
 
     footer = _limitations_footer(presentation)
@@ -854,46 +864,6 @@ def _background_color(options: RasterRenderOptions) -> str:
     return theme["axes"] if options.profile == "table" else theme["figure"]
 
 
-def _add_preview_panel(
-    fig,
-    bounds: tuple[float, float, float, float],
-    *,
-    facecolor: str,
-    edgecolor: str,
-    shadow: bool,
-) -> None:
-    from matplotlib.patches import FancyBboxPatch
-
-    x, y, width, height = bounds
-    if shadow:
-        fig.patches.append(
-            FancyBboxPatch(
-                (x + 0.006, y - 0.008),
-                width,
-                height,
-                boxstyle="round,pad=0.008,rounding_size=0.026",
-                transform=fig.transFigure,
-                linewidth=0,
-                facecolor="#000000",
-                alpha=0.24,
-                zorder=0,
-            )
-        )
-    fig.patches.append(
-        FancyBboxPatch(
-            (x, y),
-            width,
-            height,
-            boxstyle="round,pad=0.008,rounding_size=0.026",
-            transform=fig.transFigure,
-            linewidth=0.9,
-            edgecolor=edgecolor,
-            facecolor=facecolor,
-            zorder=1,
-        )
-    )
-
-
 def _draw_preview_color_ramp(
     ax,
     options: RasterRenderOptions,
@@ -1034,7 +1004,7 @@ def _draw_preview_story_panel(
         transform=ax.transAxes,
     )
 
-    _draw_chips(ax, _preview_chips(args), y=0.705)
+    draw_preview_chips(ax, _preview_chips(args), y=0.705)
 
     y = 0.62
     for item in presentation["narrative"][:3]:
@@ -1076,8 +1046,8 @@ def _draw_preview_story_panel(
 
     ax.text(
         0.0,
-        0.14,
-        "Key facts",
+        0.16,
+        "Preview facts",
         ha="left",
         va="top",
         color=DTCC_COLORS["surface"],
@@ -1085,78 +1055,11 @@ def _draw_preview_story_panel(
         fontweight=700,
         transform=ax.transAxes,
     )
-    _draw_fact_strip(
+    draw_preview_fact_rows(
         ax,
         _smoke_preview_facts(args, overview=overview),
-        y=0.095,
+        y=0.118,
     )
-
-    ax.text(
-        0.0,
-        0.012,
-        _wrap(_limitations_footer(presentation), width=45),
-        ha="left",
-        va="bottom",
-        color=DTCC_COLORS["muted_light"],
-        fontsize=7.0,
-        linespacing=1.15,
-        transform=ax.transAxes,
-    )
-
-
-def _draw_chips(ax, chips: list[str], *, y: float) -> None:
-    x = 0.0
-    for chip in chips:
-        width = min(0.28, 0.052 + 0.014 * len(chip))
-        if x + width > 1.0:
-            x = 0.0
-            y -= 0.052
-        ax.text(
-            x,
-            y,
-            chip,
-            ha="left",
-            va="center",
-            color=DTCC_COLORS["dark"],
-            fontsize=7.5,
-            fontweight=700,
-            transform=ax.transAxes,
-            bbox={
-                "boxstyle": "round,pad=0.26",
-                "facecolor": DTCC_COLORS["teal"],
-                "edgecolor": "none",
-                "alpha": 0.96,
-            },
-        )
-        x += width + 0.035
-
-
-def _draw_fact_strip(ax, facts: list[str], *, y: float) -> None:
-    if not facts:
-        return
-    x = 0.0
-    for fact in facts[:4]:
-        width = min(0.32, 0.07 + 0.012 * len(fact))
-        if x + width > 1.0:
-            x = 0.0
-            y -= 0.052
-        ax.text(
-            x,
-            y,
-            fact,
-            ha="left",
-            va="center",
-            color=DTCC_COLORS["surface"],
-            fontsize=7.4,
-            transform=ax.transAxes,
-            bbox={
-                "boxstyle": "round,pad=0.24",
-                "facecolor": "#101016",
-                "edgecolor": DTCC_COLORS["grid_dark"],
-                "linewidth": 0.7,
-            },
-        )
-        x += width + 0.035
 
 
 def _preview_chips(args: SmokeArgs) -> list[str]:
@@ -1169,15 +1072,32 @@ def _preview_chips(args: SmokeArgs) -> list[str]:
     return chips
 
 
-def _smoke_preview_facts(args: SmokeArgs, *, overview: bool) -> list[str]:
-    facts: list[str] = []
+def _smoke_preview_facts(args: SmokeArgs, *, overview: bool) -> list[tuple[str, str]]:
+    facts: list[tuple[str, str]] = []
+    facts.append(("Domain", _smoke_domain_label(args)))
     if overview or args.product == "streamlines":
-        facts.append(f"{args.streamline_count} flow lines")
-    facts.append(f"{args.period:g}s loop")
-    facts.append("PNG preview")
-    if args.loop:
-        facts.append("MP4 motion")
-    return facts
+        records = f"{args.streamline_count:,} streamlines"
+    elif args.product == "slice":
+        records = f"{args.resolution * args.resolution:,} samples"
+    else:
+        records = f"{args.resolution ** 3:,} samples"
+    facts.append(("Records", records))
+    facts.append(("CRS", args.crs or "not declared"))
+    facts.append(("Formats", "png, mp4" if args.loop else "png"))
+    return facts[:4]
+
+
+def _smoke_domain_label(args: SmokeArgs) -> str:
+    bounds = DatasetDescriptor.parse_bounds(args.bounds)
+    return f"{_format_distance(bounds.width)} x {_format_distance(bounds.height)}"
+
+
+def _format_distance(value: float) -> str:
+    if value >= 1000.0:
+        text = f"{value / 1000.0:.1f}".rstrip("0").rstrip(".")
+        return f"{text} km"
+    text = f"{value:.0f}" if value >= 10.0 else f"{value:.1f}"
+    return f"{text} m"
 
 
 def _annotation_position(annotation: dict[str, Any]) -> tuple[float, float]:

@@ -161,3 +161,44 @@ def test_city_surface_mesh_export_returns_bytes(
 
     assert result == b"surface-mesh"
     mock_export.assert_called_once_with(surface_mesh, "obj")
+
+
+def test_city_surface_mesh_context_documents_meshing_lineage_and_limits():
+    dataset = CitySurfaceMeshDataset()
+    context = dataset.create_context(
+        dataset.validate(
+            {
+                "bounds": (0.0, 0.0, 1.0, 1.0),
+                "format": "vtu",
+                "flat_ground": True,
+                "ground_level": 17.5,
+                "max_mesh_size": 18.0,
+                "min_mesh_angle": 31.0,
+                "stage_audit_enabled": True,
+            }
+        )
+    )
+    manifest = context.manifest()
+
+    provider_roles = {
+        provider["name"]: provider["role"] for provider in manifest.metadata.provider
+    }
+    assert provider_roles == {
+        "Lantmäteriet": "source_provider",
+        "DTCC Platform": "processor",
+    }
+    assert manifest.metadata.lod.startswith("Terrain surface")
+    assert "surface_mesh" in manifest.metadata.data_types
+    assert {item["name"] for item in manifest.provenance.derived_from} == {
+        "point_cloud",
+        "building_footprints",
+    }
+    assert any("flat_ground=True" in step for step in manifest.provenance.processing_steps)
+    assert any("mesh-quality" in step for step in manifest.provenance.processing_steps)
+    assert manifest.presentation.headline == "Terrain and Building Surface Mesh"
+    assert manifest.presentation.legend["title"] == "Surface mesh layers"
+    assert manifest.presentation.view_hints["mesh_role"] == "visualization_or_surface_preprocessing"
+    assert any("watertightness" in warning for warning in manifest.presentation.warnings)
+    assert manifest.presentation.limitations
+    assert manifest.request.parameters["flat_ground"] is True
+    assert manifest.request.parameters["stage_audit_enabled"] is True

@@ -7,6 +7,7 @@ from pydantic import Field
 
 from .dataset import DatasetDescriptor, DatasetBaseArgs
 from ._city_mesh_common import prepare_city_from_bounds
+from .providers import provider_entry
 from dtcc_core.common.progress import ProgressTracker
 
 
@@ -135,25 +136,149 @@ class CityVolumeMeshArgs(DatasetBaseArgs):
 
 class CityVolumeMeshDataset(DatasetDescriptor):
     name = "city_volume_mesh"
-    description = "Tetrahedral volume mesh from point cloud and building data, suitable for CFD/FEM simulations."
+    title = "City Volume Mesh"
+    description = (
+        "Tetrahedral volume mesh for FEM/CFD preprocessing, derived from point "
+        "cloud terrain and default DTCC footprint sources."
+    )
     ArgsModel = CityVolumeMeshArgs
     data_category = "derived"
     result_kind = "mesh"
     python_return_type = "dtcc_core.model.VolumeMesh"
     multi_file_formats = ("xdmf",)
-    provider = [{"name": "DTCC Platform", "role": "processor"}]
-    source = ["Point cloud data", "Building footprints"]
-    license = "Derived from upstream geodata; verify source terms before redistribution."
+    provider = [
+        provider_entry("lantmateriet", role="source_provider"),
+        provider_entry("dtcc-platform", role="processor"),
+        {"name": "TetGen", "role": "tetrahedral_meshing_backend"},
+    ]
+    source = [
+        {
+            "name": "DTCC/Lantmäteriet point cloud backend/cache",
+            "role": "upstream_dataset",
+            "source_terms_status": "requires_review",
+        },
+        {
+            "name": "DTCC/Lantmäteriet footprint backend/cache",
+            "role": "upstream_dataset",
+            "source_terms_status": "requires_review",
+        },
+    ]
+    license = (
+        "Requires review: derived from upstream point cloud and footprint data; "
+        "verify source terms before redistribution."
+    )
+    collection_period = (
+        "Requires review: inherits point cloud acquisition date and footprint "
+        "provider/cache vintage, which are not currently surfaced in the result."
+    )
     default_crs = "EPSG:3006"
+    lod = "3D computational volume with terrain, building, and domain boundary surfaces"
+    data_types = [
+        "volume_mesh",
+        "tetrahedral_mesh",
+        "terrain",
+        "buildings",
+        "fem",
+        "cfd",
+        "boundary_markers",
+    ]
     geographic_coverage = "Sweden, constrained by requested bounds and source coverage"
     update_frequency = "derived on demand from upstream source data"
     processing_steps = [
-        "Prepare point cloud, terrain, and footprint source data",
-        "Generate tetrahedral city volume mesh for FEM/CFD workflows",
+        "Download point cloud and DTCC footprint data for the requested bounds in EPSG:3006",
+        "Optionally remove global point-cloud outliers using outlier_threshold",
+        "Build a terrain raster with raster_cell_size and raster_radius",
+        "Optionally replace topography with a flat terrain raster when flat_ground=True",
+        "Extract roof points and compute building heights from the terrain raster",
+        "Condition building footprints using lod, min_building_detail, min_building_area, merge_buildings, and pipeline_mode",
+        "Build intermediate ground, shell, and top-cap surfaces using max_mesh_size, top_cap_max_mesh_size, min_mesh_angle, smoothing, and mesher",
+        "Run TetGen with max_volume and tetgen_switches/tetgen_extra to produce tetrahedra",
+        "Optionally attach boundary face markers (-1 ground, -2 top, -3 west, -4 east, -5 south, -6 north)",
+        "Return the native VolumeMesh object or serialize VTU/XDMF output",
     ]
+    derived_from = [
+        {
+            "name": "point_cloud",
+            "relationship": "terrain and building-height estimation",
+            "source_terms_status": "requires_review",
+        },
+        {
+            "name": "building_footprints",
+            "relationship": "building outlines and domain obstacles",
+            "source_terms_status": "requires_review",
+        },
+    ]
+    presentation_headline = "Tetrahedral City Volume Mesh"
     presentation_summary = (
-        "Tetrahedral city volume mesh for simulation workflows over the requested bounds."
+        "A tetrahedral computational-domain mesh for downstream FEM or CFD "
+        "experiments over the requested city bounds."
     )
+    presentation_narrative = [
+        {
+            "heading": "What you are seeing",
+            "body": (
+                "The result is a 3D tetrahedral mesh bounded by terrain, the top "
+                "cap, side walls, and building obstacle surfaces."
+            ),
+        },
+        {
+            "heading": "How it is made",
+            "body": (
+                "The dataset prepares a city model from point cloud and footprint "
+                "sources, conditions building footprints, constructs intermediate "
+                "surface meshes, and tetrahedralizes the domain with TetGen."
+            ),
+        },
+        {
+            "heading": "Limitations",
+            "body": (
+                "The mesh is a preprocessing artifact. Boundary markers are labels, "
+                "not physical boundary conditions, and the dataset does not prove "
+                "solver convergence or scientific validity."
+            ),
+        },
+    ]
+    key_points = [
+        "domain_height sets the top of the computational domain in meters",
+        "max_volume defaults to the regular-tetrahedron volume implied by max_mesh_size",
+        "boundary_face_markers=True labels ground, top, and side boundary faces",
+        "XDMF is a multi-file export format; VTU is single-file",
+        "TetGen/dtcc-tetgen-wrapper availability is required for actual volume meshing",
+    ]
+    presentation_legend = {
+        "title": "Volume mesh boundaries",
+        "entries": [
+            {"label": "-1 ground", "meaning": "terrain boundary face marker"},
+            {"label": "-2 top", "meaning": "top cap boundary face marker"},
+            {"label": "-3 west / -4 east", "meaning": "xmin/xmax side boundary markers"},
+            {"label": "-5 south / -6 north", "meaning": "ymin/ymax side boundary markers"},
+            {"label": "Tetrahedron", "meaning": "interior computational volume element"},
+        ],
+    }
+    view_hints = {
+        "preferred_geometry": "volume_mesh",
+        "default_crs": "EPSG:3006",
+        "mesh_role": "fem_cfd_preprocessing",
+        "boundary_marker_convention": {
+            "ground": -1,
+            "top": -2,
+            "west_xmin": -3,
+            "east_xmax": -4,
+            "south_ymin": -5,
+            "north_ymax": -6,
+        },
+    }
+    presentation_warnings = [
+        "Source and license terms inherit upstream point-cloud and footprint review status.",
+        "TetGen/dtcc-tetgen-wrapper must be available for actual volume meshing.",
+        "Boundary markers do not define simulation boundary conditions by themselves.",
+        "The generated mesh is not automatically validated for solver stability or scientific accuracy.",
+    ]
+    presentation_limitations = [
+        "Point-cloud acquisition date, density, and footprint cache vintage are not currently surfaced in the result.",
+        "Mesh quality depends on source data, conditioning choices, TetGen settings, and domain_height.",
+        "No CFD/FEM solver assumptions, material parameters, or boundary conditions are included in this dataset.",
+    ]
 
     @staticmethod
     def _tetgen_switch_payload(args: CityVolumeMeshArgs) -> dict[str, Any]:

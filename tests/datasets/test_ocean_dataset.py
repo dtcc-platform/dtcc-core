@@ -1,5 +1,6 @@
 """Tests for the ocean dataset (SMHI OcObs latest-hour)."""
 
+from pathlib import Path
 import pytest
 import math
 import numpy as np
@@ -18,51 +19,20 @@ from dtcc_core.datasets.ocean import (
 
 # ── Fixtures ─────────────────────────────────────────────────────────────
 
-# Minimal CSV that mimics the real SMHI OcObs latest-hour response for
-# parameter 5 (sea temperature).  Structure:
-#   - 2 metadata rows
-#   - blank line
-#   - column header (StationsId;Stationsnamn;Latitude;Longitude;<Param>;Kvalitet)
-#   - station rows with metadata comments appended after ;;
+FIXTURE_DIR = Path(__file__).parent / "fixtures" / "smhi" / "ocobs"
 
-SAMPLE_CSV_PARAM5 = """\
-Parameternamn;Beskrivning;Enhet
-Havstemperatur;null;°C
 
-StationsId;Stationsnamn;Latitude;Longitude;Havstemperatur;Kvalitet;;Tidsperiod (fr.o.m.) = 2010-06-17 11:00:00 (UTC)
-2541;UDDEVALLA;58.3475;11.8948;0.9;O;;Tidsperiod (t.o.m.) = 2026-02-13 12:00:00 (UTC)
-33084;ONSALA;57.392;11.919;0.21;G;;
-33089;Göteborg-Krossholmen;57.6913;11.7712;-0.52;O;;Kvalitetskoderna:
-2507;LANDSORT NORRA;58.7687;17.8589;0.26;O;;
-2088;KUNGSHOLMSFORT;56.1052;15.5893;-0.28;O;;
-2099;BARSEBÄCK;55.7564;12.9033;4.6;O;;
-"""
+def _fixture_text(name: str) -> str:
+    path = FIXTURE_DIR / name
+    return path.read_text(encoding="utf-8")
 
-SAMPLE_CSV_PARAM6 = """\
-Parameternamn;Beskrivning;Enhet
-Havsvattenstånd;null;cm
 
-StationsId;Stationsnamn;Latitude;Longitude;Havsvattenstånd;Kvalitet;;Tidsperiod (fr.o.m.) = 1886-12-01 00:00:00 (UTC)
-33097;Göteborg-Hisingsbron;57.7149;11.9687;-3.8;O;;Tidsperiod (t.o.m.) = 2026-02-13 13:00:00 (UTC)
-2541;UDDEVALLA;58.3475;11.8948;-9.0;O;;
-33084;ONSALA;57.392;11.919;-7.5;G;;
-2507;LANDSORT NORRA;58.7687;17.8589;-35.7;O;;
-"""
-
-SAMPLE_CSV_EMPTY = """\
-Parameternamn;Beskrivning;Enhet
-Våghöjd, signifikant 30 min;null;m
-
-StationsId;Stationsnamn;Latitude;Longitude;Våghöjd, signifikant 30 min;Kvalitet;;
-"""
-
-SAMPLE_CSV_MISSING_VALUES = """\
-Parameternamn;Beskrivning;Enhet
-Havstemperatur;null;°C
-
-StationsId;Stationsnamn;Latitude;Longitude;Havstemperatur;Kvalitet;;
-100;TEST STATION;59.0;18.0;;G;;
-"""
+# Minimal committed CSV fixtures that mimic SMHI OcObs latest-hour responses,
+# including station rows, quality codes, empty payloads, and missing values.
+SAMPLE_CSV_PARAM5 = _fixture_text("latest_hour_parameter_5.csv")
+SAMPLE_CSV_PARAM6 = _fixture_text("latest_hour_parameter_6.csv")
+SAMPLE_CSV_EMPTY = _fixture_text("empty_parameter_1.csv")
+SAMPLE_CSV_MISSING_VALUES = _fixture_text("missing_values_parameter_5.csv")
 
 
 # ── Mock helper ──────────────────────────────────────────────────────────
@@ -375,6 +345,7 @@ class TestOceanBuild:
         # At least one quality attribute should exist
         q_attrs = [k for k in st.attributes if k.startswith("q_")]
         assert len(q_attrs) >= 1
+        assert st.attributes["timestamp_sea_temperature"] == "2026-02-13 12:00:00"
 
     @patch("dtcc_core.datasets.ocean._get_text", side_effect=_mock_get_text)
     def test_coordinate_reproject(self, mock_text):
@@ -417,6 +388,18 @@ class TestOceanBuild:
         assert sc.attributes["stations_skipped_upstream"] == 0
         assert sc.attributes["requested_parameters"] == [5, 6]
         assert sc.attributes["fetched_parameters"] == [5, 6]
+        metadata = sc.attributes["parameter_metadata"]
+        sea_temperature = next(
+            item for item in metadata if item["field_name"] == "sea_temperature"
+        )
+        assert sea_temperature["parameter_id"] == 5
+        assert sea_temperature["smhi_name"] == "Havstemperatur"
+        assert sea_temperature["unit"] == "°C"
+        assert sea_temperature["timestamp"] == "2026-02-13 12:00:00"
+        assert sea_temperature["period_from"] == "2010-06-17 11:00:00"
+        assert sea_temperature["endpoint_path"].endswith(
+            "/parameter/5/station-set/all/period/latest-hour/data.csv"
+        )
 
     @patch("dtcc_core.datasets.ocean._get_text", side_effect=_mock_get_text)
     def test_parameter_name_strings(self, mock_text):
@@ -541,6 +524,39 @@ class TestOceanRegistration:
         import dtcc_core.datasets as datasets
 
         assert hasattr(datasets, "ocean")
+
+    def test_context_documents_smhi_ocobs_semantics(self):
+        dataset = OceanDataset()
+        context = dataset.create_context(
+            dataset.validate(
+                {
+                    "bounds": (0.0, 0.0, 1.0, 1.0),
+                    "crs": "EPSG:4326",
+                    "parameters": ["temperature", "level"],
+                    "field_name_style": "smhi",
+                }
+            )
+        )
+        manifest = context.manifest()
+
+        assert manifest.metadata.provider == [
+            {"name": "SMHI", "slug": "smhi", "role": "source_provider"}
+        ]
+        assert manifest.metadata.source[0]["service"] == "ocobs"
+        assert "station-set/all" in manifest.metadata.source[0]["endpoint_pattern"]
+        assert "Requires review" in manifest.metadata.license
+        assert "Latest-hour snapshot" in manifest.metadata.collection_period
+        assert "ocean_observations" in manifest.metadata.data_types
+        assert any(
+            "period comments" in step
+            for step in manifest.provenance.processing_steps
+        )
+        assert manifest.presentation.headline == "Latest-Hour SMHI Ocean Stations"
+        assert manifest.presentation.legend["title"] == "Ocean station fields"
+        assert manifest.presentation.view_hints["quality_attribute_prefix"] == "q_"
+        assert any("partial results" in warning for warning in manifest.presentation.warnings)
+        assert manifest.presentation.limitations
+        assert manifest.request.parameters["field_name_style"] == "smhi"
 
 
 # ── Str representation tests ─────────────────────────────────────────────

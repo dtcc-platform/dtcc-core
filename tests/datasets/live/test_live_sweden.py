@@ -1,4 +1,7 @@
-"""Live SMHI dataset checks over deterministic Sweden bbox samples."""
+"""Live SMHI dataset checks over deterministic Sweden bbox samples.
+
+Run with ``DTCC_LIVE_DATASET_TESTS=1 pytest tests/datasets/live``.
+"""
 
 from __future__ import annotations
 
@@ -176,6 +179,13 @@ def _unwrap_structural_case(case: CaseResult) -> SensorCollection:
     return case.result
 
 
+def _case_result_from_exception(exc: BaseException) -> CaseResult:
+    """Classify live-case exceptions according to live QA failure policy."""
+    if isinstance(exc, DatasetUpstreamError) and exc.is_transient:
+        return CaseResult(status="skip", error=exc)
+    return CaseResult(status="fail", error=exc)
+
+
 def _assert_metadata_contract(result: SensorCollection, dataset: str) -> None:
     """Validate the graceful-degradation metadata contract."""
     attrs = result.attributes
@@ -246,9 +256,9 @@ def live_results(
         try:
             result = builder(bounds)
         except DatasetUpstreamError as exc:
-            results[key] = CaseResult(status="skip", error=exc)
+            results[key] = _case_result_from_exception(exc)
         except Exception as exc:  # pragma: no cover - intentional capture path
-            results[key] = CaseResult(status="fail", error=exc)
+            results[key] = _case_result_from_exception(exc)
         else:
             results[key] = CaseResult(
                 status="ok",

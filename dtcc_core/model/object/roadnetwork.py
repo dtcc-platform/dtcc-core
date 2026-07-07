@@ -9,9 +9,7 @@ from ...plotting.style import (
     add_categorical_legend,
     add_plot_context,
     apply_dtcc_style,
-    get_axes,
     plot_line_segments,
-    show_plot,
 )
 from .object import Object, GeometryType
 from ..geometry import LineString, MultiLineString
@@ -172,7 +170,7 @@ class RoadNetwork(Object):
 
         return arrays
 
-    def info(self, print: bool = True) -> str | None:
+    def info(self, print: bool = True, presentation: bool = True) -> str | None:
         """Print or return a human-readable multi-line summary."""
         lines = []
         lines.append("=" * 70)
@@ -237,6 +235,13 @@ class RoadNetwork(Object):
 
         lines.append("=" * 70)
         summary = "\n".join(lines)
+        if presentation and self.dataset_context is not None:
+            from dtcc_core.datasets.presentation import format_dataset_context
+
+            summary = (
+                f"{summary}\n\n"
+                f"{format_dataset_context(self.dataset_context, obj=self)}"
+            )
         if print:
             builtins.print(summary)
             return None
@@ -255,6 +260,7 @@ class RoadNetwork(Object):
         metadata: bool | dict[str, Any] = True,
         metadata_loc: str = "upper left",
         theme: str = "dark",
+        presentation: bool = True,
         show=True,
         **kwargs,
     ):
@@ -291,29 +297,56 @@ class RoadNetwork(Object):
         matplotlib.axes.Axes
             Axes containing the road plot.
         """
+        from dtcc_core.datasets.presentation import (
+            draw_empty_preview_state,
+            finalize_presentation_plot,
+            presentation_plot_axes,
+        )
+
+        context = self.dataset_context
+        presentation_enabled = presentation and context is not None
         segments = self._plot_segments()
-        ax = get_axes(ax)
+        ax, panel_ax = presentation_plot_axes(
+            context,
+            ax=ax,
+            presentation=presentation,
+        )
 
         if len(segments) == 0:
             warning("RoadNetwork has no road segments to plot.")
+            if presentation_enabled:
+                draw_empty_preview_state(ax, context)
             apply_dtcc_style(
                 ax,
                 theme=theme,
                 equal_aspect=equal_aspect,
-                xlabel="x",
-                ylabel="y",
-                grid=True,
+                axis="off" if presentation_enabled else "on",
+                xlabel=None if presentation_enabled else "x",
+                ylabel=None if presentation_enabled else "y",
+                grid=False if presentation_enabled else True,
             )
             add_plot_context(
                 ax,
-                title=title or "DTCC Road Network",
-                metadata=self._plot_metadata(column, 0, metadata),
-                bounds=self.bounds,
+                title=None if presentation_enabled else title or "DTCC Road Network",
+                metadata=(
+                    None
+                    if presentation_enabled
+                    else self._plot_metadata(column, 0, metadata)
+                ),
+                bounds=None if presentation_enabled else self.bounds,
                 theme=theme,
                 metadata_loc=metadata_loc,
             )
-            show_plot(show)
-            return ax
+            return finalize_presentation_plot(
+                ax,
+                context=context,
+                obj=self,
+                panel_ax=panel_ax,
+                presentation=presentation,
+                show=show,
+                theme=theme,
+                title=title,
+            )
 
         if column is None:
             plot_line_segments(
@@ -324,7 +357,7 @@ class RoadNetwork(Object):
                 theme=theme,
                 **kwargs,
             )
-            if legend:
+            if legend and not presentation_enabled:
                 add_categorical_legend(
                     ax,
                     {"Road segments": color},
@@ -341,7 +374,7 @@ class RoadNetwork(Object):
                 column_label=column,
                 linewidth=linewidth,
                 cmap=cmap,
-                legend=legend,
+                legend=legend and not presentation_enabled,
                 theme=theme,
                 **kwargs,
             )
@@ -351,20 +384,33 @@ class RoadNetwork(Object):
             ax,
             theme=theme,
             equal_aspect=equal_aspect,
-            xlabel="x",
-            ylabel="y",
-            grid=True,
+            axis="off" if presentation_enabled else "on",
+            xlabel=None if presentation_enabled else "x",
+            ylabel=None if presentation_enabled else "y",
+            grid=False if presentation_enabled else True,
         )
         add_plot_context(
             ax,
-            title=title or "DTCC Road Network",
-            metadata=self._plot_metadata(column, len(segments), metadata),
-            bounds=self.bounds,
+            title=None if presentation_enabled else title or "DTCC Road Network",
+            metadata=(
+                None
+                if presentation_enabled
+                else self._plot_metadata(column, len(segments), metadata)
+            ),
+            bounds=None if presentation_enabled else self.bounds,
             theme=theme,
             metadata_loc=metadata_loc,
         )
-        show_plot(show)
-        return ax
+        return finalize_presentation_plot(
+            ax,
+            context=context,
+            obj=self,
+            panel_ax=panel_ax,
+            presentation=presentation,
+            show=show,
+            theme=theme,
+            title=title,
+        )
 
     def _plot_metadata(self, column, segment_count: int, metadata):
         if metadata is False:

@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import copy
-from datetime import datetime
 import json
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import numpy as np
@@ -27,59 +27,24 @@ BASE_URL = "http://test-api.example.com"
 DEFAULT_BOUNDS = (17.9, 59.2, 18.2, 59.5)
 DEFAULT_CRSS = "EPSG:4326"
 
+FIXTURE_DIR = Path(__file__).parent / "fixtures" / "smhi" / "air_quality"
 
-MOCK_STATIONS_LIST = [
-    {
-        "id": "station1",
-        "properties": {"label": "Test Station 1", "operator": "SMHI"},
-        "geometry": {"coordinates": [18.0, 59.3, 0.0]},
-    },
-    {
-        "id": "station2",
-        "properties": {"label": "Test Station 2", "operator": "SMHI"},
-        "geometry": {"coordinates": [18.1, 59.4, 0.0]},
-    },
-]
 
-MOCK_STATION1_DETAIL = {
-    "id": "station1",
-    "properties": {
-        "label": "Test Station 1",
-        "operator": "SMHI",
-        "timeseries": {"ts1": {"phenomenon": {"id": "8", "label": "NO2"}}},
-    },
-    "geometry": {"coordinates": [18.0, 59.3, 0.0]},
-}
+def _fixture_json(name: str):
+    path = FIXTURE_DIR / name
+    return json.loads(path.read_text(encoding="utf-8"))
 
-MOCK_STATION2_DETAIL = {
-    "id": "station2",
-    "properties": {
-        "label": "Test Station 2",
-        "operator": "SMHI",
-        "timeseries": {"ts2": {"phenomenon": {"id": "8", "label": "NO2"}}},
-    },
-    "geometry": {"coordinates": [18.1, 59.4, 0.0]},
-}
 
-MOCK_TS1_DATA = {
-    "id": "ts1",
-    "label": "NO2",
-    "lastValue": {"timestamp": 1738569600000, "value": 25.5},
-    "uom": "µg/m³",
-}
-
-MOCK_TS2_DATA = {
-    "id": "ts2",
-    "label": "NO2",
-    "lastValue": {"timestamp": 1738569600000, "value": 30.0},
-    "uom": "µg/m³",
-}
-
-MOCK_PHENOMENA = [
-    {"id": "8", "label": "NO2"},
-    {"id": "5", "label": "PM10"},
-    {"id": "7", "label": "O3"},
-]
+MOCK_STATIONS_LIST = _fixture_json("stations.json")
+MOCK_STATION1_DETAIL = _fixture_json("station1.json")
+MOCK_STATION2_DETAIL = _fixture_json("station2.json")
+MOCK_TS1_DATA = _fixture_json("timeseries_ts1.json")
+MOCK_TS2_DATA = _fixture_json("timeseries_ts2.json")
+MOCK_TS1_STALE_DATA = _fixture_json("timeseries_ts1_stale.json")
+MOCK_TS1_NO_CURRENT_DATA = _fixture_json("timeseries_ts1_no_current.json")
+MOCK_GETDATA_TS1_EMPTY = _fixture_json("getdata_ts1_empty.json")
+MOCK_GETDATA_TS1_RECENT = _fixture_json("getdata_ts1_recent.json")
+MOCK_PHENOMENA = _fixture_json("phenomena.json")
 
 
 def _upstream_error(
@@ -107,7 +72,7 @@ def _default_payloads() -> dict[str, object]:
         f"{BASE_URL}/stations/station2": copy.deepcopy(MOCK_STATION2_DETAIL),
         f"{BASE_URL}/timeseries/ts1": copy.deepcopy(MOCK_TS1_DATA),
         f"{BASE_URL}/timeseries/ts2": copy.deepcopy(MOCK_TS2_DATA),
-        f"{BASE_URL}/timeseries/ts1/getData": {"values": [], "uom": "µg/m³"},
+        f"{BASE_URL}/timeseries/ts1/getData": copy.deepcopy(MOCK_GETDATA_TS1_EMPTY),
         f"{BASE_URL}/timeseries/ts2/getData": {"values": [], "uom": "µg/m³"},
         f"{BASE_URL}/phenomena": copy.deepcopy(MOCK_PHENOMENA),
     }
@@ -194,6 +159,14 @@ def test_air_quality_collection_attributes():
     assert attrs["source"] == "datavardluft.smhi.se"
     assert attrs["phenomenon"] == "NO2"
     assert attrs["phenomenon_id"] == "8"
+    assert attrs["phenomenon_metadata"] == {
+        "requested": "NO2",
+        "phenomenon_id": "8",
+        "label": "NO2",
+        "resolution_source": "fixture_verified_alias",
+        "static_mapping_status": "fixture_verified",
+        "verified_static_aliases": ["NO2", "O3", "PM10"],
+    }
     assert attrs["crs"] == "EPSG:4326"
     assert attrs["bounds"] == str(DEFAULT_BOUNDS)
     assert attrs["total_stations_found"] == 2
@@ -202,6 +175,10 @@ def test_air_quality_collection_attributes():
     assert attrs["stations_skipped_no_coords"] == 0
     assert attrs["stations_skipped_no_timeseries"] == 0
     assert attrs["stations_skipped_no_value"] == 0
+    assert attrs["stale_after_days"] == 7
+    assert attrs["stale_value_count"] == 2
+    assert attrs["fallback_getdata_attempts"] == 2
+    assert attrs["fallback_getdata_successes"] == 0
     assert attrs["partial_result"] is False
     assert attrs["upstream_error_count"] == 0
     assert attrs["upstream_errors"] == []
@@ -223,7 +200,17 @@ def test_air_quality_station_attributes_and_string_summary():
     assert station.attributes["phenomenon_id"] == "8"
     assert station.attributes["unit"] == "µg/m³"
     assert station.attributes["value"] == pytest.approx(25.5)
-    assert station.attributes["timestamp"]
+    assert station.attributes["timestamp"] == "2025-02-03T08:00:00+00:00"
+    assert station.attributes["timeseries_id"] == "ts1"
+    assert station.attributes["value_source"] == "metadata.lastValue"
+    assert station.attributes["fallback_reason"] == "stale_lastValue"
+    assert station.attributes["fallback_status"] == "no_recent_values"
+    assert (
+        station.attributes["metadata_last_value_timestamp"]
+        == "2025-02-03T08:00:00+00:00"
+    )
+    assert station.attributes["is_stale"] is True
+    assert station.attributes["value_age_days"] > 7
     assert point.fields[0].name == "NO2"
     assert point.fields[0].unit == "µg/m³"
     assert point.fields[0].values[0] == pytest.approx(25.5)
@@ -264,6 +251,9 @@ def test_air_quality_empty_bbox_is_not_marked_partial():
     assert len(result.stations()) == 0
     assert result.attributes["total_stations_found"] == 0
     assert result.attributes["stations_used"] == 0
+    assert result.attributes["stale_value_count"] == 0
+    assert result.attributes["fallback_getdata_attempts"] == 0
+    assert result.attributes["fallback_getdata_successes"] == 0
     assert result.attributes["partial_result"] is False
     assert result.attributes["upstream_error_count"] == 0
     assert result.attributes["upstream_errors"] == []
@@ -277,7 +267,8 @@ def test_air_quality_max_stations_caps_processing():
     assert len(result.stations()) == 1
     assert result.attributes["total_stations_found"] == 2
     assert result.attributes["stations_used"] == 1
-    assert f"{BASE_URL}/stations/station2" not in {url for url, _params, _timeout in calls}
+    called_urls = {url for url, _params, _timeout in calls}
+    assert f"{BASE_URL}/stations/station2" not in called_urls
 
 
 def test_air_quality_missing_coordinates_increment_counter():
@@ -294,11 +285,12 @@ def test_air_quality_missing_coordinates_increment_counter():
     assert len(result.stations()) == 1
     assert result.attributes["stations_skipped_no_coords"] == 1
     assert result.attributes["stations_used"] == 1
-    assert f"{BASE_URL}/stations/station2" not in {url for url, _params, _timeout in calls}
+    called_urls = {url for url, _params, _timeout in calls}
+    assert f"{BASE_URL}/stations/station2" not in called_urls
 
 
 def test_air_quality_missing_matching_timeseries_increments_counter():
-    """Stations with no timeseries for the requested phenomenon should be skipped cleanly."""
+    """Stations with no requested-phenomenon timeseries should be skipped cleanly."""
     station1_detail = copy.deepcopy(MOCK_STATION1_DETAIL)
     station1_detail["properties"]["timeseries"] = {
         "ts1": {"phenomenon": {"id": "999", "label": "OTHER"}}
@@ -319,14 +311,15 @@ def test_air_quality_missing_matching_timeseries_increments_counter():
 
 def test_air_quality_drop_missing_true_skips_station_without_value():
     """Stations with no current value should be dropped when drop_missing=True."""
-    ts1_without_value = {"id": "ts1", "label": "NO2", "uom": "µg/m³"}
     calls: list[tuple[str, dict | None, float]] = []
 
     result = _build_dataset(
         payloads={
             f"{BASE_URL}/stations": [copy.deepcopy(MOCK_STATIONS_LIST[0])],
-            f"{BASE_URL}/timeseries/ts1": ts1_without_value,
-            f"{BASE_URL}/timeseries/ts1/getData": {"values": [], "uom": "µg/m³"},
+            f"{BASE_URL}/timeseries/ts1": copy.deepcopy(MOCK_TS1_NO_CURRENT_DATA),
+            f"{BASE_URL}/timeseries/ts1/getData": copy.deepcopy(
+                MOCK_GETDATA_TS1_EMPTY
+            ),
         },
         calls=calls,
     )
@@ -334,18 +327,20 @@ def test_air_quality_drop_missing_true_skips_station_without_value():
     assert len(result.stations()) == 0
     assert result.attributes["stations_skipped_no_value"] == 1
     assert result.attributes["partial_result"] is False
-    assert any(url.endswith("/timeseries/ts1/getData") for url, _params, _timeout in calls)
+    assert any(
+        url.endswith("/timeseries/ts1/getData") for url, _params, _timeout in calls
+    )
 
 
 def test_air_quality_drop_missing_false_keeps_nan_station_without_value():
     """When drop_missing=False, stations with no value should be kept with NaN."""
-    ts1_without_value = {"id": "ts1", "label": "NO2", "uom": "µg/m³"}
-
     result = _build_dataset(
         payloads={
             f"{BASE_URL}/stations": [copy.deepcopy(MOCK_STATIONS_LIST[0])],
-            f"{BASE_URL}/timeseries/ts1": ts1_without_value,
-            f"{BASE_URL}/timeseries/ts1/getData": {"values": [], "uom": "µg/m³"},
+            f"{BASE_URL}/timeseries/ts1": copy.deepcopy(MOCK_TS1_NO_CURRENT_DATA),
+            f"{BASE_URL}/timeseries/ts1/getData": copy.deepcopy(
+                MOCK_GETDATA_TS1_EMPTY
+            ),
         },
         drop_missing=False,
     )
@@ -354,6 +349,11 @@ def test_air_quality_drop_missing_false_keeps_nan_station_without_value():
     station = result.stations()[0]
     point = station.geometry["location"]
     assert np.isnan(station.attributes["value"])
+    assert station.attributes["unit"] == "µg/m³"
+    assert station.attributes["value_source"] == "missing"
+    assert station.attributes["fallback_reason"] == "missing_lastValue"
+    assert station.attributes["fallback_status"] == "no_recent_values"
+    assert station.attributes["is_stale"] is False
     assert np.isnan(point.fields[0].values[0])
     assert result.attributes["stations_skipped_no_value"] == 0
     assert result.attributes["partial_result"] is False
@@ -456,10 +456,9 @@ def test_air_quality_strict_live_raises_on_timeseries_failure():
 def test_extract_latest_value_valid_payload():
     """_extract_latest_value should parse the standard lastValue payload."""
     value, timestamp, unit = _extract_latest_value(copy.deepcopy(MOCK_TS1_DATA))
-    expected_timestamp = datetime.fromtimestamp(1738569600000 / 1000.0).isoformat()
 
     assert value == pytest.approx(25.5)
-    assert timestamp == expected_timestamp
+    assert timestamp == "2025-02-03T08:00:00+00:00"
     assert unit == "µg/m³"
 
 
@@ -480,13 +479,12 @@ def test_extract_latest_value_malformed_last_value_returns_none():
 
 def test_air_quality_fallback_getdata_success():
     """If lastValue is missing, the dataset should use /getData as a fallback."""
-    ts1_without_value = {"id": "ts1", "label": "NO2", "uom": "µg/m³"}
     calls: list[tuple[str, dict | None, float]] = []
 
     result = _build_dataset(
         payloads={
             f"{BASE_URL}/stations": [copy.deepcopy(MOCK_STATIONS_LIST[0])],
-            f"{BASE_URL}/timeseries/ts1": ts1_without_value,
+            f"{BASE_URL}/timeseries/ts1": copy.deepcopy(MOCK_TS1_NO_CURRENT_DATA),
             f"{BASE_URL}/timeseries/ts1/getData": {
                 "values": [{"timestamp": "2025-02-03T00:00:00Z", "value": "31.0"}],
                 "uom": "µg/m³",
@@ -500,22 +498,76 @@ def test_air_quality_fallback_getdata_success():
     assert station.attributes["value"] == pytest.approx(31.0)
     assert station.attributes["timestamp"] == "2025-02-03T00:00:00Z"
     assert station.attributes["unit"] == "µg/m³"
+    assert station.attributes["value_source"] == "getData"
+    assert station.attributes["fallback_reason"] == "missing_lastValue"
+    assert station.attributes["fallback_status"] == "used"
+    assert station.attributes["timeseries_id"] == "ts1"
     assert point.fields[0].values[0] == pytest.approx(31.0)
     assert (
         f"{BASE_URL}/timeseries/ts1/getData",
         {"timespan": "P7D"},
         10.0,
     ) in calls
+    assert result.attributes["fallback_getdata_attempts"] == 1
+    assert result.attributes["fallback_getdata_successes"] == 1
 
 
-def test_air_quality_fallback_getdata_upstream_failure_marks_partial_in_non_strict_mode():
-    """Fallback failures should mark the result partial and skip the station."""
-    ts1_without_value = {"id": "ts1", "label": "NO2", "uom": "µg/m³"}
-
+def test_air_quality_stale_last_value_uses_recent_getdata_when_newer():
+    """Stale lastValue metadata should be replaced by newer getData values."""
     result = _build_dataset(
         payloads={
             f"{BASE_URL}/stations": [copy.deepcopy(MOCK_STATIONS_LIST[0])],
-            f"{BASE_URL}/timeseries/ts1": ts1_without_value,
+            f"{BASE_URL}/timeseries/ts1": copy.deepcopy(MOCK_TS1_STALE_DATA),
+            f"{BASE_URL}/timeseries/ts1/getData": copy.deepcopy(
+                MOCK_GETDATA_TS1_RECENT
+            ),
+        }
+    )
+
+    station = result.stations()[0]
+    assert station.attributes["value"] == pytest.approx(31.0)
+    assert station.attributes["timestamp"] == "2025-02-03T09:00:00+00:00"
+    assert station.attributes["metadata_last_value_timestamp"] == (
+        "2020-01-01T00:00:00+00:00"
+    )
+    assert station.attributes["value_source"] == "getData"
+    assert station.attributes["fallback_reason"] == "stale_lastValue"
+    assert station.attributes["fallback_status"] == "used"
+    assert station.attributes["is_stale"] is True
+    assert result.attributes["fallback_getdata_attempts"] == 1
+    assert result.attributes["fallback_getdata_successes"] == 1
+    assert result.attributes["stale_value_count"] == 1
+
+
+def test_air_quality_stale_last_value_is_retained_when_getdata_has_no_values():
+    """A stale metadata value should remain available when getData is empty."""
+    result = _build_dataset(
+        payloads={
+            f"{BASE_URL}/stations": [copy.deepcopy(MOCK_STATIONS_LIST[0])],
+            f"{BASE_URL}/timeseries/ts1": copy.deepcopy(MOCK_TS1_STALE_DATA),
+            f"{BASE_URL}/timeseries/ts1/getData": copy.deepcopy(
+                MOCK_GETDATA_TS1_EMPTY
+            ),
+        }
+    )
+
+    station = result.stations()[0]
+    assert station.attributes["value"] == pytest.approx(12.5)
+    assert station.attributes["timestamp"] == "2020-01-01T00:00:00+00:00"
+    assert station.attributes["value_source"] == "metadata.lastValue"
+    assert station.attributes["fallback_reason"] == "stale_lastValue"
+    assert station.attributes["fallback_status"] == "no_recent_values"
+    assert station.attributes["is_stale"] is True
+    assert result.attributes["fallback_getdata_attempts"] == 1
+    assert result.attributes["fallback_getdata_successes"] == 0
+
+
+def test_air_quality_fallback_getdata_failure_marks_partial_non_strict():
+    """Fallback failures should mark the result partial and skip the station."""
+    result = _build_dataset(
+        payloads={
+            f"{BASE_URL}/stations": [copy.deepcopy(MOCK_STATIONS_LIST[0])],
+            f"{BASE_URL}/timeseries/ts1": copy.deepcopy(MOCK_TS1_NO_CURRENT_DATA),
         },
         errors={
             f"{BASE_URL}/timeseries/ts1/getData": _upstream_error(
@@ -533,13 +585,13 @@ def test_air_quality_fallback_getdata_upstream_failure_marks_partial_in_non_stri
 
 def test_air_quality_fallback_getdata_upstream_failure_raises_in_strict_mode():
     """strict_live should raise when the fallback /getData request fails."""
-    ts1_without_value = {"id": "ts1", "label": "NO2", "uom": "µg/m³"}
-
     with pytest.raises(DatasetUpstreamError) as exc_info:
         _build_dataset(
             payloads={
                 f"{BASE_URL}/stations": [copy.deepcopy(MOCK_STATIONS_LIST[0])],
-                f"{BASE_URL}/timeseries/ts1": ts1_without_value,
+                f"{BASE_URL}/timeseries/ts1": copy.deepcopy(
+                    MOCK_TS1_NO_CURRENT_DATA
+                ),
             },
             errors={
                 f"{BASE_URL}/timeseries/ts1/getData": _upstream_error(
@@ -553,7 +605,7 @@ def test_air_quality_fallback_getdata_upstream_failure_raises_in_strict_mode():
 
 
 def test_air_quality_dataset_phenomenon_resolution_common_names():
-    """Common hardcoded phenomenon names should map to the expected IDs."""
+    """Fixture-verified phenomenon aliases should map to the expected IDs."""
     assert _resolve_phenomenon_id("https://test.api", "1", 10.0) == "1"
     assert _resolve_phenomenon_id("https://test.api", "NO2", 10.0) == "8"
     assert _resolve_phenomenon_id("https://test.api", "PM10", 10.0) == "5"
@@ -569,7 +621,16 @@ def test_air_quality_api_lookup_resolves_unknown_but_valid_phenomenon():
         assert _resolve_phenomenon_id(BASE_URL, "CUSTOM", 10.0) == "42"
 
 
-def test_air_quality_non_strict_lookup_failure_falls_back_to_raw_phenomenon_and_records_error():
+def test_air_quality_unverified_phenomenon_labels_use_provider_lookup():
+    """Unverified old static mappings should not bypass the provider lookup."""
+    with patch(
+        "dtcc_core.datasets.air_quality._get_json",
+        return_value=[{"id": "99", "label": "SO2"}],
+    ):
+        assert _resolve_phenomenon_id(BASE_URL, "SO2", 10.0) == "99"
+
+
+def test_air_quality_non_strict_lookup_failure_records_raw_phenomenon():
     """Lookup failures in non-strict mode should record the error and continue."""
     station1_detail = copy.deepcopy(MOCK_STATION1_DETAIL)
     station1_detail["properties"]["timeseries"] = {
@@ -644,3 +705,23 @@ def test_air_quality_module_attribute():
     """The dataset should be exposed as a callable module attribute."""
     assert hasattr(datasets, "air_quality")
     assert callable(datasets.air_quality)
+
+
+def test_air_quality_context_metadata_and_presentation():
+    """Dataset v2 context should describe air-quality semantics without live calls."""
+    dataset = AirQualityDataset()
+    context = dataset.create_context(_make_args())
+    manifest = context.manifest()
+
+    assert manifest.identity.title == "Air Quality Observations"
+    assert manifest.metadata.provider[0]["name"] == "SMHI"
+    assert manifest.metadata.source[0]["service"] == "datavardluft"
+    assert manifest.metadata.source[0]["source_terms_status"] == "requires_review"
+    assert manifest.metadata.collection_period.startswith("Latest available station")
+    assert "sensor_collection" in manifest.metadata.data_types
+    assert "air_quality_observations" in manifest.metadata.data_types
+    assert manifest.presentation.headline == "Latest SMHI Air-Quality Stations"
+    assert manifest.presentation.legend["title"] == "Air-quality station field"
+    assert manifest.presentation.view_hints["table_role"] == "station_context"
+    assert manifest.presentation.warnings
+    assert manifest.presentation.limitations

@@ -5,6 +5,7 @@ from pydantic import Field
 
 from .dataset import DatasetDescriptor, DatasetBaseArgs
 from ._city_mesh_common import prepare_city_from_bounds
+from .providers import provider_entry
 from dtcc_core.common.progress import ProgressTracker
 
 
@@ -75,26 +76,125 @@ class CitySurfaceMeshArgs(DatasetBaseArgs):
 
 class CitySurfaceMeshDataset(DatasetDescriptor):
     name = "city_surface_mesh"
+    title = "City Surface Mesh"
     description = (
-        "Triangular surface mesh of a city with terrain and extruded buildings."
+        "Triangular surface mesh of terrain and extruded building surfaces, "
+        "prepared from point cloud data and default DTCC footprint sources."
     )
     ArgsModel = CitySurfaceMeshArgs
     data_category = "derived"
     result_kind = "mesh"
     python_return_type = "dtcc_core.model.Mesh"
-    provider = [{"name": "DTCC Platform", "role": "processor"}]
-    source = ["Point cloud data", "Building footprints"]
-    license = "Derived from upstream geodata; verify source terms before redistribution."
+    provider = [
+        provider_entry("lantmateriet", role="source_provider"),
+        provider_entry("dtcc-platform", role="processor"),
+    ]
+    source = [
+        {
+            "name": "DTCC/Lantmäteriet point cloud backend/cache",
+            "role": "upstream_dataset",
+            "source_terms_status": "requires_review",
+        },
+        {
+            "name": "DTCC/Lantmäteriet footprint backend/cache",
+            "role": "upstream_dataset",
+            "source_terms_status": "requires_review",
+        },
+    ]
+    license = (
+        "Requires review: derived from upstream point cloud and footprint data; "
+        "verify source terms before redistribution."
+    )
+    collection_period = (
+        "Requires review: inherits point cloud acquisition date and footprint "
+        "provider/cache vintage, which are not currently surfaced in the result."
+    )
     default_crs = "EPSG:3006"
+    lod = "Terrain surface plus extruded building surface mesh"
+    data_types = ["terrain", "buildings", "surface_mesh", "mesh", "lod1"]
     geographic_coverage = "Sweden, constrained by requested bounds and source coverage"
     update_frequency = "derived on demand from upstream source data"
     processing_steps = [
-        "Prepare point cloud, terrain, and footprint source data",
-        "Generate terrain plus extruded building surface mesh",
+        "Download point cloud and DTCC footprint data for the requested bounds in EPSG:3006",
+        "Optionally remove global point-cloud outliers using outlier_threshold",
+        "Build a terrain raster with raster_cell_size and raster_radius",
+        "Optionally replace topography with a flat terrain raster when flat_ground=True",
+        "Extract roof points and compute building heights from the terrain raster",
+        "Condition footprints using min_building_detail, min_building_area, merge_buildings, merge_tolerance, and pipeline_mode",
+        "Generate a terrain plus extruded-building surface mesh using max_mesh_size, min_mesh_angle, smoothing, mesher, and mesh-quality reporting settings",
+        "Return the native Mesh object or serialize the requested mesh format",
     ]
+    derived_from = [
+        {
+            "name": "point_cloud",
+            "relationship": "terrain and building-height estimation",
+            "source_terms_status": "requires_review",
+        },
+        {
+            "name": "building_footprints",
+            "relationship": "building outlines for surface meshing",
+            "source_terms_status": "requires_review",
+        },
+    ]
+    presentation_headline = "Terrain and Building Surface Mesh"
     presentation_summary = (
-        "Surface mesh with terrain and extruded buildings for the requested bounds."
+        "A triangular shell mesh combining point-cloud terrain with generalized "
+        "building surfaces."
     )
+    presentation_narrative = [
+        {
+            "heading": "What you are seeing",
+            "body": (
+                "The mesh is a surface representation of the city envelope: "
+                "terrain triangles plus extruded building walls and roofs."
+            ),
+        },
+        {
+            "heading": "How it is made",
+            "body": (
+                "The dataset prepares a City object from point cloud and footprint "
+                "sources, conditions building footprints, and runs the DTCC surface "
+                "meshing pipeline with the requested size, angle, smoothing, and backend settings."
+            ),
+        },
+        {
+            "heading": "Limitations",
+            "body": (
+                "The result is preprocessing geometry. It is not automatically "
+                "validated as a watertight CFD/FEM boundary or as surveyed LoD geometry."
+            ),
+        },
+    ]
+    key_points = [
+        "max_mesh_size and min_mesh_angle control terrain/building surface triangles",
+        "min_building_area and min_building_detail condition small or complex footprints",
+        "flat_ground=True replaces terrain topography before meshing",
+        "report_mesh_quality controls logging; stage_audit_enabled requests diagnostic data from the builder",
+    ]
+    presentation_legend = {
+        "title": "Surface mesh layers",
+        "entries": [
+            {"label": "Terrain triangle", "meaning": "point-cloud-derived ground surface facet"},
+            {"label": "Building surface", "meaning": "extruded and conditioned footprint boundary"},
+            {"label": "Conditioned footprint", "meaning": "merged or simplified source footprint used for meshing"},
+        ],
+    }
+    view_hints = {
+        "preferred_geometry": "surface_mesh",
+        "default_crs": "EPSG:3006",
+        "mesh_role": "visualization_or_surface_preprocessing",
+        "building_lod": "generalized extruded surfaces",
+    }
+    presentation_warnings = [
+        "Source and license terms inherit upstream point-cloud and footprint review status.",
+        "Surface mesh quality depends on source data, footprint conditioning, and selected meshing parameters.",
+        "The dataset does not prove watertightness, solver suitability, or scientific validity.",
+    ]
+    presentation_limitations = [
+        "Point-cloud acquisition date, density, and footprint cache vintage are not currently surfaced in the result.",
+        "Buildings are generalized from footprints and height estimates, not detailed roof/facade reconstructions.",
+        "Mesh-quality reports are builder diagnostics and do not replace downstream solver validation.",
+    ]
 
     def _build_mesh_from_city(self, city: City, args: CitySurfaceMeshArgs):
         stage_audit = {} if args.stage_audit_enabled else None
