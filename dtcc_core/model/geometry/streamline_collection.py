@@ -48,6 +48,10 @@ class StreamlineCollection(Model):
     def __len__(self) -> int:
         return len(self.lines)
 
+    def __str__(self) -> str:
+        fields = ", ".join(self.field_names) or "no fields"
+        return f"DTCC StreamlineCollection with {len(self)} streamline(s), {fields}"
+
     def __iter__(self) -> Iterator[LineString]:
         return iter(self.lines)
 

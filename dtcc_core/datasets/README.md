@@ -386,14 +386,13 @@ consumer path:
 Publishing v1 supports single-file formats only. Multi-file packages such as
 XDMF plus HDF5 are reserved for a later server and client contract.
 
-Seeding an Atlas Smoke Catalog
-------------------------------
+Seeding a Tangible-Table Catalog
+--------------------------------
 
-The legacy smoke table script can seed a `dtcc-upload` catalog for the Atlas
-MVP until the tangible-table repository owns declarative model profiles and the
-canonical table catalog generator. It exports seven local cases under
-`output/smoke/table_cases/` and publishes only the five Atlas-renderable cases:
-GeoJSON, PNG, and MP4. The VTU and protobuf cases stay local-only.
+Tangible-table packages are generated from declarative model profiles in
+`dtcc-tangible-twin`, not from `dtcc-core` demos or legacy table-case scripts.
+The development profile `gbg_500m_2026_07` owns concrete table dataset IDs,
+tiers, export formats, filenames, publish settings, and skip reasons.
 
 Start `dtcc-upload` with CORS configured for the Atlas dev origin:
 
@@ -402,40 +401,26 @@ Start `dtcc-upload` with CORS configured for the Atlas dev origin:
 Use the exact origin shown in the browser. If Atlas is opened at
 `http://127.0.0.1:5175`, include that origin instead.
 
-Then run the smoke table publisher from this repository:
+From `dtcc-tangible-twin`, preview or generate the core catalog:
+
+    python scripts/generate_table_catalog.py gbg_500m_2026_07 --dry-run
+    python scripts/generate_table_catalog.py gbg_500m_2026_07 --clean
+
+Generate the larger development catalog explicitly:
+
+    python scripts/generate_table_catalog.py gbg_500m_2026_07 --tier dev --clean
+
+Publishing is still explicit and belongs to the table generator:
 
     export DTCC_UPLOAD_URL=http://127.0.0.1:8000
     export DTCC_UPLOAD_TOKEN=replace-me
-    python scripts/table_cases/smoke_table_cases.py
+    python scripts/generate_table_catalog.py gbg_500m_2026_07 --publish --clean
 
-The tangible/Atlas++ MVP online catalog flow can browse the resulting
-`dtcc-upload` catalog and fetch the published smoke datasets using their
-`table-smoke-*` dataset keys. The `dtcc-atlas` repository currently has
-server-side Manifest v2 parsing and local package discovery; live
-`dtcc-upload` catalog browsing in `dtcc-atlas` remains a follow-up.
-
-The smoke cases are synthetic, so they cannot show whether the projection
-actually lands on the printed buildings. The companion footprints case exports
-cached or live provider building footprints over the same table bounds as
-EPSG:3006 GeoJSON under the `table-footprints-geojson` dataset key, giving the
-table an alignment layer for checking physical-model registration:
-
-    python scripts/table_cases/footprints_table_case.py
-
-Note that the table requires EPSG:3006 GeoJSON, while `building_footprints`
-reprojects GeoJSON output to EPSG:4326 by default. The script and table model
-profile pass `crs="EPSG:3006"` to keep coordinates in meters; do the same for
-any manual footprint exports aimed at the table. Unlike the smoke cases,
-footprint exports depend on the selected provider/cache (`source="LM"` for the
-DTCC/Lantmäteriet path or `source="OSM"` for OpenStreetMap) and require
-source/license review before default publishing.
-
-For checking the projector alignment itself, the calibration grid script
-publishes a synthetic 41 x 41 line grid over the same bounds under the
-`table-calibration-grid-geojson` dataset key. The printed table model is
-40 cm x 40 cm at 1:1250, so the lines sit exactly 1 cm apart on the model:
-
-    python scripts/table_cases/grid_table_case.py
+The profile passes `crs="EPSG:3006"` for table GeoJSON entries that must stay
+in meter coordinates. Provider-backed entries such as footprints, roads, DeSO,
+weather, air quality, hydrology, ocean, trees, and transit remain review-gated
+development or credentialed entries until their source terms, live behavior,
+and domain interpretation are checked.
 
 Atlas Integration Checklist
 ---------------------------

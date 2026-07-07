@@ -48,6 +48,19 @@ def test_deso_dataset_returns_deso(monkeypatch):
     assert isinstance(deso, DeSO)
 
 
+def test_deso_info_uses_dataset_tables(monkeypatch):
+    expected = _deso()
+
+    monkeypatch.setattr("dtcc_core.io.data.download_deso", lambda *args, **kwargs: expected)
+
+    deso = datasets.deso(bounds=(0.0, 0.0, 2.0, 1.0))
+    text = deso.info(print=False)
+
+    assert "DTCC DeSO" in text
+    assert "Presentation" in text
+    assert "Provenance" in text
+
+
 def test_deso_context_documents_scb_vintages_statistics_and_limits():
     context = datasets.deso.create_context(
         datasets.deso.validate(

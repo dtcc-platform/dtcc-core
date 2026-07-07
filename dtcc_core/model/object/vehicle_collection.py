@@ -16,9 +16,7 @@ from ...plotting.style import (
     add_categorical_legend,
     add_plot_context,
     apply_dtcc_style,
-    get_axes,
     resolve_colormap,
-    show_plot,
     style_colorbar,
 )
 
@@ -92,6 +90,7 @@ class VehicleCollection(Object):
         metadata: bool | dict[str, Any] = True,
         metadata_loc: str = "upper left",
         theme: str = "dark",
+        presentation: bool = True,
         show: bool = True,
         **kwargs,
     ):
@@ -104,28 +103,55 @@ class VehicleCollection(Object):
         show_direction : bool, default True
             Draw small heading arrows when vehicle bearings are available.
         """
-        ax = get_axes(ax)
+        from dtcc_core.datasets.presentation import (
+            draw_empty_preview_state,
+            finalize_presentation_plot,
+            presentation_plot_axes,
+        )
+
+        context = self.dataset_context
+        presentation_enabled = presentation and context is not None
+        ax, panel_ax = presentation_plot_axes(
+            context,
+            ax=ax,
+            presentation=presentation,
+        )
         points, values = self.to_arrays(column)
 
         if len(points) == 0:
+            if presentation_enabled:
+                draw_empty_preview_state(ax, context)
             apply_dtcc_style(
                 ax,
                 theme=theme,
                 equal_aspect=equal_aspect,
-                xlabel="x",
-                ylabel="y",
-                grid=True,
+                axis="off" if presentation_enabled else "on",
+                xlabel=None if presentation_enabled else "x",
+                ylabel=None if presentation_enabled else "y",
+                grid=False if presentation_enabled else True,
             )
             add_plot_context(
                 ax,
-                title=title or "DTCC Transit Vehicles",
-                metadata=self._plot_metadata(column, 0, metadata),
-                bounds=self.bounds,
+                title=None if presentation_enabled else title or "DTCC Transit Vehicles",
+                metadata=(
+                    None
+                    if presentation_enabled
+                    else self._plot_metadata(column, 0, metadata)
+                ),
+                bounds=None if presentation_enabled else self.bounds,
                 theme=theme,
                 metadata_loc=metadata_loc,
             )
-            show_plot(show)
-            return ax
+            return finalize_presentation_plot(
+                ax,
+                context=context,
+                obj=self,
+                panel_ax=panel_ax,
+                presentation=presentation,
+                show=show,
+                theme=theme,
+                title=title,
+            )
 
         if column is None or len(values) == 0 or all(value is None for value in values):
             ax.scatter(points[:, 0], points[:, 1], s=size, c=color, **kwargs)
@@ -138,7 +164,7 @@ class VehicleCollection(Object):
                 cmap=resolve_colormap(cmap),
                 **kwargs,
             )
-            if legend:
+            if legend and not presentation_enabled:
                 cbar = ax.figure.colorbar(mappable, ax=ax, shrink=0.78)
                 cbar.set_label(column)
                 style_colorbar(cbar, theme=theme)
@@ -146,7 +172,7 @@ class VehicleCollection(Object):
             categories = [str(value) if value is not None else "unknown" for value in values]
             colors = _categorical_colors(categories)
             ax.scatter(points[:, 0], points[:, 1], s=size, c=colors, **kwargs)
-            if legend:
+            if legend and not presentation_enabled:
                 legend_items = {
                     category: _color_for_category(category)
                     for category in sorted(set(categories))
@@ -167,20 +193,33 @@ class VehicleCollection(Object):
             ax,
             theme=theme,
             equal_aspect=equal_aspect,
-            xlabel="x",
-            ylabel="y",
-            grid=True,
+            axis="off" if presentation_enabled else "on",
+            xlabel=None if presentation_enabled else "x",
+            ylabel=None if presentation_enabled else "y",
+            grid=False if presentation_enabled else True,
         )
         add_plot_context(
             ax,
-            title=title or "DTCC Transit Vehicles",
-            metadata=self._plot_metadata(column, len(points), metadata),
-            bounds=self.bounds,
+            title=None if presentation_enabled else title or "DTCC Transit Vehicles",
+            metadata=(
+                None
+                if presentation_enabled
+                else self._plot_metadata(column, len(points), metadata)
+            ),
+            bounds=None if presentation_enabled else self.bounds,
             theme=theme,
             metadata_loc=metadata_loc,
         )
-        show_plot(show)
-        return ax
+        return finalize_presentation_plot(
+            ax,
+            context=context,
+            obj=self,
+            panel_ax=panel_ax,
+            presentation=presentation,
+            show=show,
+            theme=theme,
+            title=title,
+        )
 
     def _point_geometry(self, vehicle: Object):
         for geom in vehicle.geometry.values():

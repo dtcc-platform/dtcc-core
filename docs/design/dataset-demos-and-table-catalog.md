@@ -283,12 +283,12 @@ dtcc-tangible-twin/table_models/<model_id>/datasets.yaml
 dtcc-tangible-twin/scripts/generate_table_catalog.py
 ```
 
-Recommended migration:
+Required migration:
 
-1. Keep compatibility wrappers only for one transition period if needed.
-2. Mark them as deprecated or remove them once downstream users have moved.
-3. Do not add new table-case demos in `dtcc-core`.
-4. Move any remaining operational table logic to `dtcc-tangible-twin`.
+1. Remove compatibility wrappers instead of preserving table-case entry points.
+2. Do not add new table-case demos in `dtcc-core`.
+3. Move operational table logic to `dtcc-tangible-twin`.
+4. Keep `demos/` focused on small human-facing examples.
 
 ## 8. What Belongs Inside the Library
 

@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 import dtcc_core.datasets as datasets
 from dtcc_core.datasets.roads import RoadsDataset
@@ -32,6 +33,41 @@ def test_roads_dataset_returns_roadnetwork(monkeypatch):
 
     assert roads is expected
     assert isinstance(roads, RoadNetwork)
+
+
+def test_roads_plot_uses_presentation_panel_by_default(monkeypatch):
+    matplotlib = pytest.importorskip("matplotlib")
+    matplotlib.use("Agg", force=True)
+
+    expected = _road_network()
+
+    monkeypatch.setattr(
+        "dtcc_core.io.data.download_roadnetwork",
+        lambda bounds, provider="dtcc", epsg="3006": expected,
+    )
+
+    roads = datasets.roads(bounds=(0.0, 0.0, 2.0, 1.0))
+    ax = roads.plot(column="highway", show=False)
+    simple_ax = roads.plot(column="highway", show=False, presentation=False)
+
+    assert len(ax.figure.axes) >= 2
+    assert len(simple_ax.figure.axes) == 1
+
+
+def test_roads_info_uses_dataset_tables(monkeypatch):
+    expected = _road_network()
+
+    monkeypatch.setattr(
+        "dtcc_core.io.data.download_roadnetwork",
+        lambda bounds, provider="dtcc", epsg="3006": expected,
+    )
+
+    roads = datasets.roads(bounds=(0.0, 0.0, 2.0, 1.0))
+    text = roads.info(print=False)
+
+    assert "DTCC RoadNetwork" in text
+    assert "Presentation" in text
+    assert "Provenance" in text
 
 
 def test_roads_context_metadata_and_presentation():
