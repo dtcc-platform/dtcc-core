@@ -1,6 +1,6 @@
 # Curated demos and expanded tangible-table catalog
 
-Status: planned
+Status: implemented
 Created: 2026-07-07
 Suggested path: `.agent/plans/2026-07-07-demo-catalog-expansion-and-cleanup.md`
 
@@ -110,31 +110,31 @@ Important decisions for this plan:
 
 The task is not complete until these are true.
 
-- [ ] `docs/design/dataset-demos-and-table-catalog.md` is present and referenced by the demo/catalog cleanup work.
-- [ ] `dtcc-core/demos/` contains only curated demos we intentionally keep.
-- [ ] `demos/smoke_table_cases.py`, `demos/grid_table_case.py`, and `demos/footprints_table_case.py` are removed.
-- [ ] `dtcc-core/scripts/table_cases/` is removed if all table-case generation is superseded by `dtcc-tangible-twin`; if any file remains, it has a current non-table-generation purpose documented in code and tests.
-- [ ] Tests that only exist to preserve legacy table-case wrappers are removed.
-- [ ] A lightweight demo hygiene test flags forbidden imports/patterns in normal demos.
-- [ ] Every normal demo imports `dtcc_core as dtcc` and avoids unnecessary imports.
-- [ ] No normal demo uses `Path`, `os`, `tempfile`, `MPLCONFIGDIR`, `MPLBACKEND`, manual `mkdir`, credential handling, publish/upload logic, or table dataset keys.
-- [ ] Demos remain short, boring, and understandable in under one minute.
-- [ ] Every dataset/story included in the tangible-table development catalog has a corresponding simple demo or an explicit no-demo reason.
-- [ ] Demo names and table dataset IDs are documented in a mapping file or table profile README.
-- [ ] Demos produce a useful preview with simple calls, preferably `data.plot()` plus optional simple save if supported without boilerplate.
-- [ ] If a dataset cannot plot or preview simply, the limitation is fixed in the library or explicitly documented.
-- [ ] `dtcc-tangible-twin/table_models/gbg_500m_2026_07/datasets.yaml` is expanded beyond calibration/smoke to include a development set of useful datasets.
-- [ ] Each table dataset entry has `tier`, `role`, `title`, `description`, `export.format`, `export.filename`, `export.media_type`, `export.data_kind`, and CRS where relevant.
-- [ ] Table dataset entries explain why they are included and what UX surface they exercise.
-- [ ] The table generator supports selecting default vs development vs expensive/credentialed tiers with a simple CLI.
-- [ ] `python scripts/generate_table_catalog.py gbg_500m_2026_07 --dry-run` shows all planned and skipped entries with tier and reason.
-- [ ] `python scripts/generate_table_catalog.py gbg_500m_2026_07 --tier dev --clean` generates all dev-tier datasets that do not require missing credentials or unavailable dependencies.
-- [ ] Expensive, simulation, and credentialed table entries fail or skip loudly with clear reasons unless explicitly selected/configured.
-- [ ] The table profile README documents how to run default, dev, credentialed, and expensive generation.
-- [ ] The table profile README documents who is responsible for running generation and publishing.
-- [ ] Dataset metadata/provenance/presentation for every table-included dataset is revisited and hardened.
-- [ ] QA matrices are updated truthfully; no dataset is marked table-ready/provider-reviewed/domain-reviewed without evidence.
-- [ ] No generated previews, packages, large data, credentials, or local output directories are committed.
+- [x] `docs/design/dataset-demos-and-table-catalog.md` is present and referenced by the demo/catalog cleanup work.
+- [x] `dtcc-core/demos/` contains only curated demos we intentionally keep.
+- [x] `demos/smoke_table_cases.py`, `demos/grid_table_case.py`, and `demos/footprints_table_case.py` are removed.
+- [x] `dtcc-core/scripts/table_cases/` is removed if all table-case generation is superseded by `dtcc-tangible-twin`; if any file remains, it has a current non-table-generation purpose documented in code and tests.
+- [x] Tests that only exist to preserve legacy table-case wrappers are removed.
+- [x] A lightweight demo hygiene test flags forbidden imports/patterns in normal demos.
+- [x] Every normal demo imports `dtcc_core as dtcc` and avoids unnecessary imports.
+- [x] No normal demo uses `Path`, `os`, `tempfile`, `MPLCONFIGDIR`, `MPLBACKEND`, manual `mkdir`, credential handling, publish/upload logic, or table dataset keys.
+- [x] Demos remain short, boring, and understandable in under one minute.
+- [x] Every dataset/story included in the tangible-table development catalog has a corresponding simple demo or an explicit no-demo reason.
+- [x] Demo names and table dataset IDs are documented in a mapping file or table profile README.
+- [x] Demos produce a useful preview with simple calls, preferably `data.plot()` plus optional simple save if supported without boilerplate.
+- [x] If a dataset cannot plot or preview simply, the limitation is fixed in the library or explicitly documented.
+- [x] `dtcc-tangible-twin/table_models/gbg_500m_2026_07/datasets.yaml` is expanded beyond calibration/smoke to include a development set of useful datasets.
+- [x] Each table dataset entry has `tier`, `role`, `title`, `description`, `export.format`, `export.filename`, `export.media_type`, `export.data_kind`, and CRS where relevant.
+- [x] Table dataset entries explain why they are included and what UX surface they exercise.
+- [x] The table generator supports selecting default vs development vs expensive/credentialed tiers with a simple CLI.
+- [x] `python scripts/generate_table_catalog.py gbg_500m_2026_07 --dry-run` shows all planned and skipped entries with tier and reason.
+- [x] `python scripts/generate_table_catalog.py gbg_500m_2026_07 --tier dev --clean` generates all dev-tier datasets that do not require missing credentials or unavailable dependencies.
+- [x] Expensive, simulation, and credentialed table entries fail or skip loudly with clear reasons unless explicitly selected/configured.
+- [x] The table profile README documents how to run default, dev, credentialed, and expensive generation.
+- [x] The table profile README documents who is responsible for running generation and publishing.
+- [x] Dataset metadata/provenance/presentation for every table-included dataset is revisited and hardened.
+- [x] QA matrices are updated truthfully; no dataset is marked table-ready/provider-reviewed/domain-reviewed without evidence.
+- [x] No generated previews, packages, large data, credentials, or local output directories are committed.
 
 ## Fail-loud requirements
 
@@ -244,11 +244,11 @@ Required flags:
 
 Help and examples required:
 
-- [ ] `--help` explains the common case.
-- [ ] `--help` includes examples for core, dev, credentialed, simulation, dry-run, and publish.
-- [ ] Missing required inputs fail with actionable errors.
-- [ ] Destructive cleanup requires `--clean`.
-- [ ] Publishing requires explicit upload configuration.
+- [x] `--help` explains the common case.
+- [x] `--help` includes examples for core, dev, credentialed, simulation, dry-run, and publish.
+- [x] Missing required inputs fail with actionable errors.
+- [x] Destructive cleanup requires `--clean`.
+- [x] Publishing requires explicit upload configuration.
 
 ### Demo hygiene test/helper
 
@@ -541,7 +541,7 @@ pytest tests/demos
 
 Expected: no legacy table-case demos remain; tests pass.
 
-Status: pending
+Status: completed
 
 ### Milestone 2: Add demo hygiene tests and curated demo inventory
 
@@ -579,7 +579,7 @@ Verification:
 pytest tests/demos/test_demo_hygiene.py
 ```
 
-Status: pending
+Status: completed
 
 ### Milestone 3: Rewrite core demos into boring human examples
 
@@ -614,7 +614,7 @@ python demos/space_syntax.py
 
 Run only demos that are cheap and do not require credentials/live provider dependencies by default. For live/heavy demos, use static hygiene tests plus explicit manual commands.
 
-Status: pending
+Status: completed
 
 ### Milestone 4: Expand table profile schema with tiers and inclusion reasons
 
@@ -633,7 +633,7 @@ pytest tests/test_table_model_specs.py tests/test_table_catalog_generation.py
 python scripts/generate_table_catalog.py gbg_500m_2026_07 --dry-run
 ```
 
-Status: pending
+Status: completed
 
 ### Milestone 5: Add table generator tier selection
 
@@ -657,7 +657,7 @@ python scripts/generate_table_catalog.py gbg_500m_2026_07 --tier all --dry-run
 pytest tests/test_table_catalog_generation.py
 ```
 
-Status: pending
+Status: completed
 
 ### Milestone 6: Expand tangible-table development dataset list
 
@@ -686,7 +686,7 @@ python scripts/generate_table_catalog.py gbg_500m_2026_07 --tier dev --clean
 
 If live/provider entries fail due to network or missing credentials, the generator must report clear skipped/failed items without marking them generated.
 
-Status: pending
+Status: completed
 
 ### Milestone 7: One simple demo per table dataset/story
 
@@ -726,7 +726,7 @@ pytest tests/demos
 
 Optionally run cheap demos manually.
 
-Status: pending
+Status: completed
 
 ### Milestone 8: Harden all table-included dataset metadata/provenance/presentation once more
 
@@ -759,7 +759,7 @@ pytest tests/datasets/test_dataset_qa.py
 pytest tests/datasets/test_*<relevant_dataset>*
 ```
 
-Status: pending
+Status: completed
 
 ### Milestone 9: Document table catalog population and responsibility
 
@@ -781,7 +781,7 @@ python scripts/generate_table_catalog.py gbg_500m_2026_07 --help
 python scripts/generate_table_catalog.py gbg_500m_2026_07 --dry-run
 ```
 
-Status: pending
+Status: completed
 
 ### Milestone 10: Final integrated smoke run
 
@@ -811,7 +811,7 @@ python demos/smoke.py
 python demos/roads.py
 ```
 
-Status: pending
+Status: completed
 
 ## Verification plan
 
@@ -948,6 +948,21 @@ Use this section for:
 
 - 2026-07-07: Plan created. Human decision: do not preserve backward compatibility for old table-case demos/scripts; remove old confusing entry points.
 - 2026-07-07: Human decision: expand table catalog during development even if some datasets are imperfect, because the catalog should drive UX work and expose dataset limitations.
+- 2026-07-07: Removed legacy `demos/*table_case*.py`, `scripts/table_cases/`, and wrapper-preservation tests from `dtcc-core`. The replacement owner for table package generation is `dtcc-tangible-twin/scripts/generate_table_catalog.py`.
+- 2026-07-07: Rewrote normal demos to simple `import dtcc_core as dtcc` examples and added demos for calibration grid, building footprints, weather, air quality, hydrology, ocean, transit vehicles, trees, terrain surface mesh, and city meshes. Removed operational/output-heavy mesh and bus demos from the normal demo set.
+- 2026-07-07: Added demo hygiene inventory/tests and `docs/datasets/demo-catalog.md` so every normal demo is classified and every table dataset/story has a demo or explicit no-demo reason.
+- 2026-07-07: Added lightweight `plot()` helpers for `SensorCollection`, `FootprintCollection`, `TreeCollection`, and `CalibrationGrid` so demos can preview data without local plotting boilerplate.
+- 2026-07-07: Follow-up UX review found that smoke previews and generic collection previews had drifted into different styles. Consolidated the shared preview shell, chip/fact rendering, and layout constants in `dtcc_core/datasets/presentation.py`, kept smoke-specific annotations/color ramp in `smoke.py`, and made dataset-backed `.plot()` default to the smoke-style presentation view while preserving `presentation=False` for simple Matplotlib plots.
+- 2026-07-07: Expanded `gbg_500m_2026_07/datasets.yaml` to 22 table entries grouped into `core`, `dev`, `credentialed`, `simulation`, and `expensive` tiers. Every entry has a tier, reason, role, export metadata, dependency requirements, and skip rationale where relevant.
+- 2026-07-07: Updated the table generator with `--tier`, `--strict`, and `--run-expensive`; default generation selects only `core`; selected missing credentials/modules and expensive entries skip or fail loudly with actionable reasons.
+- 2026-07-07: During dev-tier verification, `roads_pb` exposed a generator bug where serialized protobuf bytes were treated as model objects. Fixed the generator to package serialized byte/string payloads as Dataset Manifest v2 packages and added a regression test.
+- 2026-07-07: `--tier dev --clean` passed after the serialized-payload fix, generating 15 packages and skipping 7 non-dev/guarded entries. Live station-context datasets may legitimately contain zero stations for the small 500 m bounds and require visual inspection before publication.
+- 2026-07-07: Dataset QA audit passed with `missing 0`, `present 696`, `not_applicable 1`, and `requires_review 47`. The QA matrix keeps provider/license/domain review limitations explicit rather than promoting dev entries to table-ready.
+- 2026-07-07: Generated catalog output is written under ignored `temp/`; `.gitignore` also covers local `tmp/`, `output/`, and `demos/output/` artifacts.
+- 2026-07-07: Final demo UX audit ran all 13 curated dataset plot demos against the same requested 500 m Gothenburg bounds (`319720, 6397660, 320220, 6398160`). The audit verified presentation plots for every demo, explicit empty-domain states for live station/vehicle datasets with zero records, a shared `Preview facts` grid (`Domain`, `Records`, `CRS`, `Formats`), and uniform `Presentation`/`Provenance` console tables from `.info()`. Audit artifacts were written to `/private/tmp/dtcc-demo-ux/`.
+- 2026-07-07: Follow-up live coverage probe found that the 500 m physical table bounds are too small for sparse station layers. Weather appears at 10 km, air quality at 5 km, ocean at 10 km, and hydrology first appears in the tested sweep at 45 km. The sparse/live Python demos now share a 45 km regional Gothenburg domain (`297470, 6375410, 342470, 6420410`) while the physical table profile remains on the 500 m model bounds.
+- 2026-07-07: Follow-up table packaging clarification: the default tangible-table offering should be all current `dtcc-core` demo stories rendered for the actual 500 m printed-model bounds as canonical Dataset Manifest v2 packages. The `dtcc-tangible-twin` default catalog now uses PNG/MP4 media artifacts plus `.dtccpkg` zip archives; raw GeoJSON/protobuf smoke artifacts remain development/debug entries outside the default set. Live buses are a default dataset but require `VASTTRAFIK_AUTHENTICATION_KEY` so missing credentials skip/fail loudly.
+- 2026-07-07: Follow-up package contract cleanup: `.dtccpkg` is now the durable table package output. The table generator uses temporary exploded package directories only while validating, leaves only `.dtccpkg` archives plus `generation_report.json`, publishes by extracting those archives, and the Atlas/tangible-twin consumers can load or ingest `.dtccpkg` directly.
 
 ## Decision log
 
@@ -958,32 +973,37 @@ Use this section for:
 | 2026-07-07 | Add a larger development-tier catalog. | More datasets are needed to drive tangible-twin UX and reveal limitations. |
 | 2026-07-07 | Use tiers for catalog generation. | Default generation should remain reliable while dev/credentialed/simulation/expensive datasets are easy to opt into. |
 | 2026-07-07 | Demos may preview table UX, but must remain boring. | Plotting/preview complexity belongs in the library or table tooling, not demo scripts. |
+| 2026-07-07 | Use the smoke preview visual language for dataset-backed `.plot()` previews. | Python users should see a tangible-twin-style preview by default, and demo plots should not drift into separate style systems. |
+| 2026-07-07 | Use one common demo domain for normal dataset plots. | Consistent bounds make empty datasets understandable, make record counts comparable, and keep Python demos aligned with the `gbg_500m_2026_07` table-model preview. |
+| 2026-07-07 | Use a separate common regional domain for sparse live station/vehicle Python demos. | The physical 500 m model domain is correct for the table profile, but too small for weather, air quality, hydrology, ocean, and live transit preview UX. |
 | 2026-07-07 | Do another dataset hardening pass for all table-included datasets. | Table inclusion should improve metadata, provenance, narratives, legends, warnings, and limitations. |
+| 2026-07-07 | Make the default table offering media-package-first. | The table should consume canonical packages with manifest metadata and table-facing PNG/MP4 artifacts, while raw vector/protobuf outputs stay available only for development/debug workflows. |
+| 2026-07-07 | Treat `.dtccpkg` as the durable table package artifact. | Directory packages are useful as an internal build representation, but users and consumers should see one package file per dataset. |
 
 ## Final review checklist
 
 Before this task is accepted:
 
-- [ ] Acceptance criteria are satisfied.
-- [ ] Legacy table-case demos and wrappers are removed.
-- [ ] No unnecessary backward compatibility remains.
-- [ ] Demo directory is curated and clear.
-- [ ] Demo hygiene tests exist and pass.
-- [ ] Every table dataset/story has a demo or explicit no-demo reason.
-- [ ] Demos are simple and human-readable.
-- [ ] No normal demo contains environment setup, Path/mkdir boilerplate, upload logic, credentials, or table keys.
-- [ ] Table catalog includes expanded development entries.
-- [ ] Table generator supports tier selection and clear dry-run reporting.
-- [ ] Table profile README documents inclusion choices, run commands, responsibility, and visual inspection.
-- [ ] Dataset metadata/provenance/presentation was revisited for all table-included datasets.
-- [ ] QA matrices were updated truthfully.
-- [ ] Required data/configuration fails loudly when missing or invalid.
-- [ ] No generated outputs or credentials are committed.
-- [ ] Tests were added or updated for changed behavior.
-- [ ] Verification commands were run, or limitations were documented.
-- [ ] No unrelated refactors were introduced.
-- [ ] Security, authorization, data integrity, and runtime-cost risks were considered.
-- [ ] No known blocking issues remain.
+- [x] Acceptance criteria are satisfied.
+- [x] Legacy table-case demos and wrappers are removed.
+- [x] No unnecessary backward compatibility remains.
+- [x] Demo directory is curated and clear.
+- [x] Demo hygiene tests exist and pass.
+- [x] Every table dataset/story has a demo or explicit no-demo reason.
+- [x] Demos are simple and human-readable.
+- [x] No normal demo contains environment setup, Path/mkdir boilerplate, upload logic, credentials, or table keys.
+- [x] Table catalog includes expanded development entries.
+- [x] Table generator supports tier selection and clear dry-run reporting.
+- [x] Table profile README documents inclusion choices, run commands, responsibility, and visual inspection.
+- [x] Dataset metadata/provenance/presentation was revisited for all table-included datasets.
+- [x] QA matrices were updated truthfully.
+- [x] Required data/configuration fails loudly when missing or invalid.
+- [x] No generated outputs or credentials are committed.
+- [x] Tests were added or updated for changed behavior.
+- [x] Verification commands were run, or limitations were documented.
+- [x] No unrelated refactors were introduced.
+- [x] Security, authorization, data integrity, and runtime-cost risks were considered.
+- [x] No known blocking issues remain.
 
 ## Done condition
 

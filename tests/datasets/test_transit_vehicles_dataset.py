@@ -4,13 +4,15 @@ import pytest
 from pydantic import ValidationError
 
 import dtcc_core.datasets as datasets
+from dtcc_core.datasets import attach_dataset_context
 from dtcc_core.datasets.dataset import DatasetUpstreamError
 from dtcc_core.datasets.transport.base import TransportProviderResult, VehicleRecord
 from dtcc_core.datasets.transit_vehicles import (
     TransitVehiclesArgs,
     TransitVehiclesDataset,
 )
-from dtcc_core.model.object import VehicleCollection
+from dtcc_core.model.geometry import Point
+from dtcc_core.model.object import Object, VehicleCollection
 
 
 def test_transit_vehicles_registered():
@@ -65,6 +67,27 @@ def test_transit_vehicles_context_metadata_and_presentation():
     assert manifest.presentation.view_hints["table_role"] == "live_mobility"
     assert manifest.presentation.warnings
     assert manifest.presentation.limitations
+
+
+def test_vehicle_collection_plot_uses_presentation_panel_by_default():
+    matplotlib = pytest.importorskip("matplotlib")
+    matplotlib.use("Agg", force=True)
+
+    collection = VehicleCollection()
+    vehicle = Object()
+    vehicle.attributes = {"mode": "bus", "bearing": 90.0}
+    vehicle.geometry["position"] = Point(x=18.0, y=59.3, z=0.0)
+    collection.add_vehicle(vehicle)
+    context = TransitVehiclesDataset().create_context(
+        TransitVehiclesDataset().validate({"bounds": (17.9, 59.2, 18.2, 59.4)})
+    )
+    attach_dataset_context(collection, context)
+
+    ax = collection.plot(show=False)
+    simple_ax = collection.plot(show=False, presentation=False)
+
+    assert len(ax.figure.axes) >= 2
+    assert len(simple_ax.figure.axes) == 1
 
 
 @pytest.mark.parametrize(

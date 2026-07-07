@@ -3,6 +3,11 @@
 import pytest
 import numpy as np
 
+matplotlib = pytest.importorskip("matplotlib")
+matplotlib.use("Agg", force=True)
+
+import dtcc_core.datasets as datasets
+from dtcc_core.datasets import attach_dataset_context
 from dtcc_core.model.object import SensorCollection, Object
 from dtcc_core.model.geometry import Point
 from dtcc_core.model.values import Field
@@ -60,6 +65,52 @@ def test_sensor_collection_with_field():
     assert points.shape == (1, 3)
     assert values.shape == (1,)
     assert values[0] == pytest.approx(42.5)
+
+
+def test_sensor_collection_plot_returns_axes():
+    sc = SensorCollection()
+    station = Object()
+    point = Point(x=100.0, y=200.0, z=0.0)
+    field = Field()
+    field.name = "NO2"
+    field.unit = "ug/m3"
+    field.dim = 1
+    field.values = np.array([42.5], dtype=np.float32)
+    point.fields = [field]
+    station.geometry["location"] = point
+    sc.add_station(station)
+
+    ax = sc.plot("NO2", show=False)
+
+    assert ax.get_title()
+
+
+def test_sensor_collection_plot_uses_presentation_panel_by_default():
+    sc = SensorCollection()
+    station = Object()
+    point = Point(x=100.0, y=200.0, z=0.0)
+    field = Field()
+    field.name = "air_temperature"
+    field.unit = "celsius"
+    field.dim = 1
+    field.values = np.array([12.5], dtype=np.float32)
+    point.fields = [field]
+    station.geometry["location"] = point
+    sc.add_station(station)
+    context = datasets.weather.create_context(
+        datasets.weather.validate(
+            {"bounds": (0.0, 0.0, 1.0, 1.0), "parameters": ["temperature"]}
+        )
+    )
+    attach_dataset_context(sc, context)
+
+    ax = sc.plot("air_temperature", show=False)
+    simple_ax = sc.plot("air_temperature", show=False, presentation=False)
+
+    assert len(ax.figure.axes) >= 2
+    assert ax.get_title() == ""
+    assert ax.figure.get_figwidth() > simple_ax.figure.get_figwidth()
+    assert simple_ax.get_title()
 
 
 def test_sensor_collection_protobuf_roundtrip():
