@@ -1,8 +1,8 @@
 # Dataset Demo Catalog
 
-This catalog enforces the separation defined in
-`docs/design/dataset-demos-and-table-catalog.md`: demos teach the public Python
-API, while tangible-table profiles deploy concrete artifacts.
+This catalog follows the separation defined in
+[DESIGN.md](../../DESIGN.md): demos teach the public Python API, while
+tangible-table profiles deploy concrete artifacts.
 
 ## Curated Demos
 

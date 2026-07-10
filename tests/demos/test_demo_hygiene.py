@@ -32,14 +32,12 @@ FORBIDDEN_PATTERNS = (
 
 
 def test_design_document_exists_and_demo_catalog_references_it():
-    design = REPO_ROOT / "docs" / "design" / "dataset-demos-and-table-catalog.md"
+    design = REPO_ROOT / "DESIGN.md"
     catalog = REPO_ROOT / "docs" / "datasets" / "demo-catalog.md"
 
     assert design.is_file()
     assert catalog.is_file()
-    assert "docs/design/dataset-demos-and-table-catalog.md" in catalog.read_text(
-        encoding="utf-8"
-    )
+    assert "DESIGN.md" in catalog.read_text(encoding="utf-8")
 
 
 def test_legacy_table_case_entry_points_are_removed():

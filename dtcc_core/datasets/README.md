@@ -24,12 +24,11 @@ For web and service users the normal shape is:
 Core Contract
 -------------
 
-Dataset v2 is starting in dtcc-core. The canonical design reference is
-`docs/design/datasets-v2.md`. Phase 1A keeps the existing `DatasetDescriptor`
-name while also exposing `Dataset` as a public alias. Dataset calls still
-return native DTCC model objects; when the returned object can carry context it
-now exposes `dataset_context`, `metadata`, `provenance`, `presentation`, and
-`manifest()`.
+The canonical design reference is `DESIGN.md`. Phase 1A keeps the existing
+`DatasetDescriptor` name while also exposing `Dataset` as a public alias.
+Dataset calls still return native DTCC model objects; when the returned object
+can carry context it now exposes `dataset_context`, `metadata`, `provenance`,
+`presentation`, and `manifest()`.
 
 Phase 1B adds transitional native containers, `DatasetCollection` and
 `DatasetValue`, for dataset returns that do not yet have domain-specific model
@@ -39,8 +38,8 @@ long-term, bare list/dict returns should be replaced with domain-specific
 containers where practical. Smoke visualization products now use native
 simulation models instead of `DatasetValue`: `FieldSlice` for
 `smoke(product="slice")` and `StreamlineCollection` for
-`smoke(product="streamlines")`. See
-`docs/design/datasets-v2-return-types.md` for the current return-type audit.
+`smoke(product="streamlines")`. The core return-type rule is defined in
+`DESIGN.md`; the current built-in return types are listed below.
 
 Phase 1C adds semantic model returns for city-domain collection datasets:
 `BuildingCollection`, `FootprintCollection`, `TreeCollection`, and
