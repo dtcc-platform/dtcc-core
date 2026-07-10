@@ -4,7 +4,7 @@ Status: planned
 Created: 2026-07-06
 Suggested path: `.agent/plans/2026-07-06-dataset-curation-one-by-one.md`
 
-This plan is the second-stage follow-up to `docs/design/dataset-qa-and-table-catalog.md` and the initial Dataset QA/table-catalog implementation. The previous work created QA infrastructure, status matrices, shared provider helpers, table model specs, and the table catalog generator. This plan is about the actual dataset curation work: making the datasets better, validating them, filling metadata/provenance/presentation gaps, improving or rewriting weak dataset implementations, and proving which datasets are genuinely ready for Python users, Atlas, and the tangible twin.
+This plan is the second-stage follow-up to `DESIGN.md` and the initial Dataset QA/table-catalog implementation. The previous work created QA infrastructure, status matrices, shared provider helpers, table model specs, and the table catalog generator. This plan is about the actual dataset curation work: making the datasets better, validating them, filling metadata/provenance/presentation gaps, improving or rewriting weak dataset implementations, and proving which datasets are genuinely ready for Python users, Atlas, and the tangible twin.
 
 The plan covers all affected repositories:
 
@@ -403,7 +403,7 @@ Help and examples required for any new CLI:
 
 ### Cross-repository design and plans
 
-- `docs/design/dataset-qa-and-table-catalog.md`: approved high-level design.
+- `DESIGN.md`: consolidated high-level design.
 - `.agent/plans/2026-07-06-dataset-qa-table-catalog-implementation.md`: first implementation/infrastructure plan.
 - `.agent/plans/2026-07-06-dataset-curation-one-by-one.md`: this plan.
 

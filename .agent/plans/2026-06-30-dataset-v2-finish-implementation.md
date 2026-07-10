@@ -306,9 +306,8 @@ This plan does not require creating or changing a human-facing CLI. If a CLI is 
 - `dtcc_core/model/geometry/streamline_collection.py`: native smoke streamline model.
 - `tests/datasets/test_object_export_package.py`: object-first package export tests.
 - `tests/datasets/test_smoke_dataset.py`: smoke native model and presentation export tests.
-- `docs/design/datasets-v2.md`: canonical Dataset v2 design doc.
-- `docs/design/datasets-v2-return-types.md`: return-type audit.
-- `dtcc_core/datasets/README.md`: dataset layer documentation.
+- `DESIGN.md`: canonical DTCC Core and Dataset design.
+- `dtcc_core/datasets/README.md`: dataset layer documentation and current built-in return types.
 
 ### `dtcc-upload`
 

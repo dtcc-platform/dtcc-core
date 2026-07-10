@@ -347,10 +347,9 @@ Expected behavior:
 
 ### Cross-cutting design and plans
 
-- `docs/design/dataset-qa-and-table-catalog.md`: approved design that motivates this curation work.
+- `DESIGN.md`: consolidated design, Dataset terminology, and metadata/provenance/presentation boundaries.
 - `.agent/plans/2026-07-06-dataset-qa-table-catalog-implementation.md`: previous infrastructure plan; this plan builds on it.
-- `docs/design/datasets-v2.md`: Dataset v2 terminology, schema, metadata/provenance/presentation boundaries.
-- `docs/design/datasets-v2-return-types.md`: return-type audit to keep in sync.
+- `dtcc_core/datasets/README.md`: built-in dataset return types to keep in sync.
 - uploaded `PLAN_TEMPLATE.md`: planning structure to follow for Codex tasks.
 
 ### `dtcc-core` QA and docs

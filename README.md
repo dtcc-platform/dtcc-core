@@ -14,8 +14,8 @@ supported by Sweden’s Innovation Agency Vinnova under Grant No. 2019-421 00041
 This project is documented as part of the
 [DTCC Platform Documentation](https://platform.dtcc.chalmers.se/).
 
-
-
+The guiding architecture and design principles are described in
+[DESIGN.md](DESIGN.md).
 
 ## Authors (in order of appearance)
 

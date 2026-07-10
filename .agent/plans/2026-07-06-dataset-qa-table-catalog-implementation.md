@@ -4,7 +4,7 @@ Status: complete
 Created: 2026-07-06
 Suggested path: `.agent/plans/2026-07-06-dataset-qa-table-catalog-implementation.md`
 
-This plan implements the approved design in `docs/design/dataset-qa-and-table-catalog.md`. It is intentionally staged. Codex should implement one milestone per PR unless the human maintainer explicitly asks for a broader implementation pass.
+This plan implements the approved design now consolidated in `DESIGN.md`. It is intentionally staged. Codex should implement one milestone per PR unless the human maintainer explicitly asks for a broader implementation pass.
 
 The first implementation pass should happen in `dtcc-core` and establish the QA foundation. Later milestones touch `dtcc-tangible-twin` and `dtcc-sim`. If Codex is running in a single-repository workspace, it should complete only the milestones that belong to the current repository and leave explicit notes for the cross-repository milestones.
 
@@ -123,7 +123,7 @@ For a first `dtcc-core` PR, the smaller acceptance target is:
 
 Do not allow missing required data to become empty strings, zeroes, empty arrays, default objects, or placeholder values unless that default is explicit domain behavior.
 
-- Required item: design document `docs/design/dataset-qa-and-table-catalog.md`
+- Required item: design document `DESIGN.md`
   - Valid when: file exists and describes dataset QA/table catalog design.
   - Invalid/missing behavior: implementation PR should not proceed; fail with a clear note that the design doc is missing.
   - Silent fallback forbidden: yes
@@ -263,9 +263,8 @@ Help and examples required:
 
 ### `dtcc-core`
 
-- `docs/design/dataset-qa-and-table-catalog.md`: approved design to implement.
-- `docs/design/datasets-v2.md`: canonical Dataset v2 design and terminology.
-- `docs/design/datasets-v2-return-types.md`: current return-type audit.
+- `DESIGN.md`: consolidated design and Dataset terminology.
+- `dtcc_core/datasets/README.md`: current built-in return types.
 - `docs/datasets/qa-matrix.md`: new QA matrix to create.
 - `dtcc_core/datasets/__init__.py`: imports/registers public datasets and exposes `datasets.list()`.
 - `dtcc_core/datasets/schema.py`: Dataset v2 schema objects.
@@ -769,7 +768,7 @@ Use this section for:
 
 ### Notes
 
-- 2026-07-06: Plan created from approved `docs/design/dataset-qa-and-table-catalog.md`.
+- 2026-07-06: Plan created from the dataset QA design now consolidated in `DESIGN.md`.
 - 2026-07-06: Started Milestone 1 in `dtcc-core` only. The workspace
   top-level directory is not a git repository; `dtcc-core` is on
   `develop...origin/develop` with pre-existing untracked `tmp/`.

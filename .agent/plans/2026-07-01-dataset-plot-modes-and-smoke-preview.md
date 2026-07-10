@@ -164,7 +164,7 @@ Likely files to inspect or modify:
 - `dtcc_core/datasets/dataset.py`: generic dataset context creation. Consider consuming descriptor-level `presentation` data here so smoke-produced objects expose richer `obj.presentation`.
 - `dtcc_core/datasets/schema.py`: DatasetPresentation schema already exists. Modify only if needed; prefer using existing fields.
 - `demos/smoke.py`: update the demo to show artifact, preview, and plot modes.
-- `docs/design/datasets-v2.md`: reference only; do not rewrite unless a small docs update is needed.
+- `DESIGN.md`: reference only; do not rewrite unless a small docs update is needed.
 - `tests/`: discover existing dataset or plotting tests. Add or update focused tests for smoke plot modes. If no suitable file exists, add `tests/datasets/test_smoke_plot_modes.py` or another path consistent with repository conventions.
 
 If relevant tests are not obvious, discover them with:

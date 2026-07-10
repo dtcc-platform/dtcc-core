@@ -1,7 +1,6 @@
 """Dataset v2 schema models.
 
-These models are the initial dtcc-core representation of the Dataset v2
-concepts described in ``docs/design/datasets-v2.md``.
+These models implement the dataset concepts described in ``DESIGN.md``.
 """
 
 from __future__ import annotations

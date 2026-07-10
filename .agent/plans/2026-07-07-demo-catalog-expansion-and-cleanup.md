@@ -110,7 +110,7 @@ Important decisions for this plan:
 
 The task is not complete until these are true.
 
-- [x] `docs/design/dataset-demos-and-table-catalog.md` is present and referenced by the demo/catalog cleanup work.
+- [x] `DESIGN.md` is present and referenced by the demo/catalog cleanup work.
 - [x] `dtcc-core/demos/` contains only curated demos we intentionally keep.
 - [x] `demos/smoke_table_cases.py`, `demos/grid_table_case.py`, and `demos/footprints_table_case.py` are removed.
 - [x] `dtcc-core/scripts/table_cases/` is removed if all table-case generation is superseded by `dtcc-tangible-twin`; if any file remains, it has a current non-table-generation purpose documented in code and tests.
@@ -141,7 +141,7 @@ The task is not complete until these are true.
 Do not allow missing required data to become empty strings, zeroes, empty arrays, default objects, or placeholder values unless that default is explicit domain behavior.
 
 - Required item: demo design document
-  - Valid when: `docs/design/dataset-demos-and-table-catalog.md` exists and defines the demo/catalog separation.
+  - Valid when: `DESIGN.md` exists and defines the demo/catalog separation.
   - Invalid/missing behavior: fail this task and add the design doc first.
   - Silent fallback forbidden: yes
 
@@ -277,8 +277,7 @@ Required flags:
 
 ### `dtcc-core` docs/plans
 
-- `docs/design/dataset-demos-and-table-catalog.md`: demo/catalog design to enforce.
-- `docs/design/dataset-qa-and-table-catalog.md`: original dataset QA/table catalog design.
+- `DESIGN.md`: consolidated demo/catalog and dataset QA design to enforce.
 - `.agent/plans/2026-07-07-demo-catalog-expansion-and-cleanup.md`: this plan.
 - `docs/datasets/qa-matrix.md`: update statuses after demo/catalog curation.
 - `docs/datasets/qa.md`: document demo/catalog QA relationship if useful.
