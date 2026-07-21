@@ -1,4 +1,6 @@
+import gc
 import itertools
+import weakref
 from types import SimpleNamespace
 
 import numpy as np
@@ -3131,6 +3133,33 @@ def test_cached_coverage_defect_signature_reuses_polygon_acute_tip_metrics(
     assert calls.count((id(shared), 0.5)) == 1
     assert calls.count((id(first_unique), 0.5)) == 1
     assert calls.count((id(second_unique), 0.5)) == 1
+
+
+def test_coverage_eval_cache_retains_polygon_identities_for_its_lifetime():
+    polygons = [box(0.0, 0.0, 1.0, 1.0), box(2.0, 0.0, 3.0, 1.0)]
+    acute_tip_polygon = box(4.0, 0.0, 5.0, 1.0)
+    references = [weakref.ref(polygon) for polygon in [*polygons, acute_tip_polygon]]
+    cache = cleaning_footprints._CoverageEvalCache()
+
+    cleaning_footprints._cached_coverage_defect_signature(
+        cache,
+        polygons,
+        target_scale=0.5,
+    )
+    cleaning_footprints._cached_meshing_hostile_acute_tip_metrics(
+        cache,
+        acute_tip_polygon,
+        target_scale=0.5,
+    )
+
+    del polygons
+    del acute_tip_polygon
+    gc.collect()
+    assert all(reference() is not None for reference in references)
+
+    del cache
+    gc.collect()
+    assert all(reference() is None for reference in references)
 
 
 def test_nearest_nonadjacent_ring_segment_projects_with_exclusions():
