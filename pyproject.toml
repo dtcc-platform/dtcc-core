@@ -48,7 +48,7 @@ authors = [
     { name = "George Spaias", email = "gspaiasa@ece.auth.gr" },
     { name = "Jens Olsson", email = "jens.olsson@chalmersindustriteknik.se" },
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 classifiers = [
     "Intended Audience :: Science/Research",
     "Programming Language :: Python :: 3",
