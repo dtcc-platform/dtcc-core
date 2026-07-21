@@ -189,6 +189,8 @@ class _PostCoverageBranch:
 
 @dataclass(slots=True)
 class _CoverageEvalCache:
+    # Keep identity-keyed polygons alive so their ids cannot be reused mid-evaluation.
+    polygon_references: dict[int, Polygon] = field(default_factory=dict)
     union_cache: dict[tuple[int, ...], BaseGeometry] = field(default_factory=dict)
     overlap_area_cache: dict[tuple[int, ...], float] = field(default_factory=dict)
     edit_zone_cache: dict[tuple[tuple[int, ...], float, float], BaseGeometry] = (
@@ -220,6 +222,14 @@ class _CoverageEvalCache:
         tuple[tuple[int, ...], tuple[int, ...]], dict[str, float]
     ] = field(default_factory=dict)
 
+    def polygon_sequence_key(
+        self,
+        polygons: Sequence[Polygon],
+    ) -> tuple[int, ...]:
+        key = _polygon_sequence_key(polygons)
+        self.polygon_references.update(zip(key, polygons))
+        return key
+
 
 _AREA_BALANCE_RELATIVE_TOLERANCE = 0.35
 _AREA_BALANCE_ABSOLUTE_GRID_MULTIPLIER = 4.0
@@ -241,7 +251,7 @@ def _cached_union(
     if cache is None:
         return unary_union(polygons)
 
-    key = _polygon_sequence_key(polygons)
+    key = cache.polygon_sequence_key(polygons)
     cached = cache.union_cache.get(key)
     if cached is not None:
         return cached
@@ -258,7 +268,7 @@ def _cached_overlap_area(
     if cache is None:
         return _coverage_overlap_area(list(polygons))
 
-    key = _polygon_sequence_key(polygons)
+    key = cache.polygon_sequence_key(polygons)
     cached = cache.overlap_area_cache.get(key)
     if cached is not None:
         return cached
@@ -278,7 +288,7 @@ def _cached_coverage_defect_signature(
     if cache is None:
         return _coverage_defect_signature(polygons, target_scale=target_scale)
 
-    key = (_polygon_sequence_key(polygons), float(target_scale))
+    key = (cache.polygon_sequence_key(polygons), float(target_scale))
     cached = cache.signature_cache.get(key)
     if cached is not None:
         return cached
@@ -302,7 +312,7 @@ def _cached_meshing_hostile_acute_tip_metrics(
     *,
     target_scale: float,
 ) -> tuple[int, float]:
-    key = (id(polygon), float(target_scale))
+    key = (cache.polygon_sequence_key((polygon,))[0], float(target_scale))
     cached = cache.acute_tip_metrics_cache.get(key)
     if cached is not None:
         return cached
@@ -324,7 +334,7 @@ def _cached_pair_issue_candidates(
     if cache is None:
         return _pair_issue_candidates(polygons, target_scale=target_scale)
 
-    key = (_polygon_sequence_key(polygons), float(target_scale))
+    key = (cache.polygon_sequence_key(polygons), float(target_scale))
     cached = cache.pair_issue_candidates_cache.get(key)
     if cached is not None:
         return cached
@@ -348,7 +358,11 @@ def _cached_coverage_defect_clusters(
             cluster_radius=cluster_radius,
         )
 
-    key = (_polygon_sequence_key(polygons), float(target_scale), float(cluster_radius))
+    key = (
+        cache.polygon_sequence_key(polygons),
+        float(target_scale),
+        float(cluster_radius),
+    )
     cached = cache.defect_cluster_cache.get(key)
     if cached is not None:
         return cached
@@ -427,8 +441,8 @@ def _cached_difference_area_metrics(
             unary_union(candidate_polygons),
         )
 
-    reference_key = _polygon_sequence_key(reference_polygons)
-    candidate_key = _polygon_sequence_key(candidate_polygons)
+    reference_key = cache.polygon_sequence_key(reference_polygons)
+    candidate_key = cache.polygon_sequence_key(candidate_polygons)
     if reference_key == candidate_key:
         return _zero_difference_metrics()
 
@@ -459,7 +473,7 @@ def _cached_coverage_edit_zone(
             radius=radius,
         )
 
-    key = (_polygon_sequence_key(polygons), float(target_scale), float(radius))
+    key = (cache.polygon_sequence_key(polygons), float(target_scale), float(radius))
     cached = cache.edit_zone_cache.get(key)
     if cached is not None:
         return cached
@@ -492,7 +506,7 @@ def _cached_polygon_boundary_payload(
     if cache is None:
         return [_polygon_boundary_payload(polygon) for polygon in polygons]
 
-    key = _polygon_sequence_key(polygons)
+    key = cache.polygon_sequence_key(polygons)
     cached = cache.boundary_payload_cache.get(key)
     if cached is not None:
         return cached
@@ -512,7 +526,11 @@ def _builder_boundary_defect_clusters(
     if _dtcc_builder is None:
         return None
     if cache is not None:
-        key = (_polygon_sequence_key(polygons), float(target_scale), float(pair_tolerance))
+        key = (
+            cache.polygon_sequence_key(polygons),
+            float(target_scale),
+            float(pair_tolerance),
+        )
         cached = cache.boundary_descriptor_cache.get(key)
         if cached is not None:
             return cached
