@@ -123,13 +123,28 @@ jobs:
             contract-artifacts/
           if-no-files-found: error
 
-  notify:
+  dispatch-dtcc-sim:
     needs: [build-and-test, python-compatibility, contract-artifacts]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch dtcc-sim contract tests
+        env:
+          GH_TOKEN: ${{ secrets.DTCC_REPOSITORY_DISPATCH_TOKEN }}
+        run: |
+          gh api \
+            --method POST \
+            repos/dtcc-platform/dtcc-sim/dispatches \
+            --field event_type=dtcc-core-contract \
+            --field "client_payload[core_sha]=${GITHUB_SHA}"
+
+  notify:
+    needs: [build-and-test, python-compatibility, contract-artifacts, dispatch-dtcc-sim]
     runs-on: ubuntu-latest
     if: always()  # always run even if build fails
     steps:
       - name: Slack notification on success
-        if: ${{ needs.build-and-test.result == 'success' && needs.python-compatibility.result == 'success' && needs.contract-artifacts.result == 'success' }}
+        if: ${{ needs.build-and-test.result == 'success' && needs.python-compatibility.result == 'success' && needs.contract-artifacts.result == 'success' && (needs.dispatch-dtcc-sim.result == 'success' || needs.dispatch-dtcc-sim.result == 'skipped') }}
         run: |
           # Gather some info from the context
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
@@ -145,7 +160,7 @@ jobs:
             ${{ secrets.SLACK_WEBHOOK_URL_GITHUB }}
 
       - name: Slack notification on failure
-        if: ${{ needs.build-and-test.result == 'failure' || needs.python-compatibility.result == 'failure' || needs.contract-artifacts.result == 'failure' }}
+        if: ${{ needs.build-and-test.result == 'failure' || needs.python-compatibility.result == 'failure' || needs.contract-artifacts.result == 'failure' || needs.dispatch-dtcc-sim.result == 'failure' }}
         run: |
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
           REPO_NAME="${{ github.repository }}"
