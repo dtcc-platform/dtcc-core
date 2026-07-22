@@ -168,6 +168,7 @@ cython_debug/
 /data/
 temp/
 .aider*
+# macOS metadata files (at any depth)
 .DS_Store
 .worktrees/
 

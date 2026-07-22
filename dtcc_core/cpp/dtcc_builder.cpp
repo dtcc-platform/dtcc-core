@@ -1069,12 +1069,6 @@ PYBIND11_MODULE(_dtcc_builder, m)
       .def_readonly("y", &DTCC_BUILDER::Vector3D::y)
       .def_readonly("z", &DTCC_BUILDER::Vector3D::z);
 
-  // py::class_<DTCC_BUILDER::Vector3D>(m, "Vector3D")
-  //     .def(py::init<>())
-  //     .def_readonly("x", &DTCC_BUILDER::Vector3D::x)
-  //     .def_readonly("y", &DTCC_BUILDER::Vector3D::y)
-  //     .def_readonly("z", &DTCC_BUILDER::Vector3D::z);
-
   py::class_<DTCC_BUILDER::BoundingBox2D>(m, "bounding_box")
       .def(py::init<>())
       .def_readonly("P", &DTCC_BUILDER::BoundingBox2D::P)
@@ -1185,9 +1179,6 @@ PYBIND11_MODULE(_dtcc_builder, m)
 
   m.def("smooth_field", &DTCC_BUILDER::VertexSmoother::smooth_field, "Smooth grid field");
 
-  // m.def("build_mesh", &DTCC_BUILDER::MeshBuilder::build_mesh,
-  //       "build mesh for city, returning a list of meshes");
-
   m.def("build_city_flat_mesh", &DTCC_BUILDER::MeshBuilder::build_city_flat_mesh,
         "build city flat mesh");
 
@@ -1210,17 +1201,11 @@ PYBIND11_MODULE(_dtcc_builder, m)
   m.def("trim_volume_mesh", &DTCC_BUILDER::MeshBuilder::trim_volume_mesh,
         "Trim volume mesh by removing cells inside buildings");
 
-  // m.def("extrude_footprint", &DTCC_BUILDER::MeshBuilder::extrude_footprint,
-  //       "Extrude footprint to a mesh");
-
   m.def("compute_boundary_mesh", &DTCC_BUILDER::MeshProcessor::compute_boundary_mesh,
         "Compute boundary mesh from volume mesh");
 
   m.def("compute_boundary_face_markers", &DTCC_BUILDER::compute_boundary_face_markers,
         "Compute markers and outward normals for volume mesh boundary faces");
-
-  m.def("compute_boundary_mesh", &DTCC_BUILDER::MeshProcessor::compute_boundary_mesh,
-        "Compute boundary mesh from volume mesh");
 
   m.def("compute_open_mesh", &DTCC_BUILDER::MeshProcessor::compute_open_mesh,
         "Compute open mesh from boundary, excluding top and sides");
