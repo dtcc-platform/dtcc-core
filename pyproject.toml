@@ -34,7 +34,7 @@ dependencies = [
     "polyforge == 0.1.0a9",
     "pydantic>=2.12.5",
     "rich>=13.0.0",
-    "dtcc-mesher @ git+https://github.com/dtcc-platform/dtcc-mesher.git@main",
+    "dtcc-mesher",
 ]
 
 version = "0.9.8dev"
