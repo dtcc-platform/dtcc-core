@@ -107,9 +107,6 @@ public:
     // Volume mesh smoothing
     logger.step_begin("2: Volume mesh smoothing (ground only)");
     const bool fix_top = false;
-    // volume_mesh = Smoother::smooth_volume_mesh_poisson(volume_mesh, _buildings, _dem, 0.0, false,
-    //                                                    fix_top, smoother_iterations,
-    //                                                    smoother_relative_tolerance);
     volume_mesh = Smoother::smooth_volume_mesh_elastic(volume_mesh, _buildings, _dem, 0.0, false,
                                                        fix_top, smoother_iterations,
                                                        smoother_relative_tolerance, mesh_bounds);

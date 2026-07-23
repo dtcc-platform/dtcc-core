@@ -8,7 +8,6 @@
 #include "fem/Assembler.h"
 #include "fem/Elasticity.h"
 #include "fem/LinearSolver.h"
-#include "fem/Poisson.h"
 #include "fem/SparseMatrix.h"
 
 #include "BoundaryConditions.h"
@@ -57,40 +56,6 @@ public:
 
     // Solve linear system
     solve_unassembled_gauss_seidel(volume_mesh, AK, b, u, max_iterations, relative_tolerance);
-
-    // Update mesh coordinates
-    VolumeMesh _volume_mesh{volume_mesh};
-    for (std::size_t i = 0; i < volume_mesh.vertices.size(); i++)
-      _volume_mesh.vertices[i].z += u[i];
-
-    return _volume_mesh;
-  }
-
-  // Smooth mesh using Laplacian smoothing
-  static VolumeMesh smooth_volume_mesh_poisson(const VolumeMesh &volume_mesh,
-                                       const std::vector<Surface> &building_surfaces,
-                                       const GridField &dem, double top_height, bool fix_buildings,
-                                       bool fix_top, size_t max_iterations,
-                                       double relative_tolerance)
-
-  {
-    info("Smoothing volume mesh using amgcl...");
-    info(volume_mesh.__str__());
-
-    dtcc::Poisson bilinear_form;
-
-    // Compute (local) stiffness matrices
-    dtcc::SparseMatrix A = dtcc::Assembler::assemble(bilinear_form,volume_mesh);
-
-    std::vector<double> b(volume_mesh.vertices.size(),0.0);
-    std::vector<double> u = b; 
-
-    // Apply boundary conditions
-    BoundaryConditions bc(volume_mesh, building_surfaces, dem, top_height, fix_buildings, fix_top);
-    bc.apply(A);
-    bc.apply(b);
-
-    dtcc::LinearSolver::solve(A,b,u,max_iterations, relative_tolerance);
 
     // Update mesh coordinates
     VolumeMesh _volume_mesh{volume_mesh};
