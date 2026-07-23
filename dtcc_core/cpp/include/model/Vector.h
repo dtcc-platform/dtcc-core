@@ -8,7 +8,6 @@
 #include <functional>
 
 #include "Logging.h"
-// #include "Point.h"
 
 namespace DTCC_BUILDER
 {

@@ -23,8 +23,6 @@ if(APPLE AND NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET)
   set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0" CACHE STRING "Minimum macOS version to target" FORCE)
 endif()
 
-option(DTCC_USE_HOMEBREW_LLVM "Use the Homebrew LLVM toolchain on macOS" OFF)
-
 if(APPLE AND DTCC_USE_HOMEBREW_LLVM)
   find_program(HOMEBREW_CLANG /opt/homebrew/opt/llvm/bin/clang)
   find_program(HOMEBREW_CLANGXX /opt/homebrew/opt/llvm/bin/clang++)
@@ -79,7 +77,6 @@ find_package(pybind11 CONFIG REQUIRED)
 set(DTCC_CPP_DIR ${CMAKE_CURRENT_SOURCE_DIR}/dtcc_core/cpp)
 set(DTCC_CORE_PUBLIC_INCLUDE_DIRS
   ${DTCC_CPP_DIR}/include
-  ${DTCC_CPP_DIR}/include/citymodel
 )
 set(DTCC_CORE_LINK_LIBS "")
 set(DTCC_CORE_SYSTEM_INCLUDE_DIRS
