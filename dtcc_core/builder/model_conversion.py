@@ -1,4 +1,4 @@
-from ..model import Surface, MultiSurface, Mesh, City, PointCloud, Raster, Mesh, VolumeMesh
+from ..model import Surface, MultiSurface, Mesh, PointCloud, Raster, VolumeMesh
 
 from typing import Union
 import numpy as np
@@ -95,41 +95,6 @@ def raster_to_builder_gridfield(raster: Raster):
         raster.bounds.tuple,
         raster.width,
         raster.height,
-    )
-
-
-def create_builder_city(city: City):
-    """
-    Create a DTCC builder City object through the pybind exposed C++
-
-    `DTCC_BUILDER::create_city()` function.
-
-    Parameters
-    ----------
-    city : City
-        The input City object.
-
-    Returns
-    -------
-    _dtcc_builder.City
-        A `DTCC_BUILDER` City object.
-
-    """
-    building_shells = [
-        list(building.footprint.exterior.coords[:-1]) for building in city.buildings
-    ]
-
-    building_holes = []
-    for building in city.buildings:
-        holes = [list(hole.coords[:-1]) for hole in building.footprint.interiors]
-        building_holes.append(holes)
-
-    uuids = [building.uuid for building in city.buildings]
-    heights = [building.height for building in city.buildings]
-    ground_levels = [building.ground_level for building in city.buildings]
-    origin = city.origin
-    return _dtcc_builder.create_city(
-        building_shells, building_holes, uuids, heights, ground_levels, origin
     )
 
 
