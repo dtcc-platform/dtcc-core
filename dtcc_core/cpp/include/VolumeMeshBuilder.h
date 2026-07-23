@@ -114,7 +114,6 @@ public:
     logger.step_stop();
     std::tie(min_ar, max_ar, median_ar) = Geometry::aspect_ratio(volume_mesh);
     logger.log_step(min_ar,median_ar,max_ar);
-    // check_mesh_quality(volume_mesh, 3);
 
     // Debugging
     if (debug_step == 3)
@@ -170,82 +169,6 @@ public:
   }
 
 private:
-
-  // Check mesh quality
-  std::tuple<double,double,double> check_mesh_quality(const VolumeMesh &volume_mesh, int step, bool write_to_file = false)
-  {
-    // Compute aspect ratios
-    const auto aspect_ratios = Geometry::aspect_ratio(volume_mesh);
-    const double min = std::get<0>(aspect_ratios);
-    const double max = std::get<1>(aspect_ratios);
-    const double median = std::get<2>(aspect_ratios);
-
-    // Write aspect ratios to file for debugging
-    const auto _aspect_ratios = Geometry::aspect_ratios(volume_mesh);
-    if (write_to_file)
-    {
-      std::ofstream file("aspect_ratios_" + str(step) + ".txt");
-      for (const auto &ar : _aspect_ratios)
-        file << ar << std::endl;
-      file.close();
-    }
-    // Print aspect ratios
-    info("Mesh quality (aspect ratio): min = " + str(min, 3L) + ", max = " + str(max, 3L) +
-         ", median = " + str(median, 3L));
-
-    return std::tie(min,max,median);
-  }
-
-void report(const VolumeMesh &volume_mesh, double elapsed_time, int step)
-{
-    // compute your mesh quality metrics as before
-    double min_ar, max_ar, median_ar;
-    std::tie(min_ar, max_ar, median_ar) = check_mesh_quality(volume_mesh, step);
-
-    // single static stream object, reused across calls
-    static std::ofstream ofs;
-
-    if (step == 2) {
-        // every time we hit step 2, start fresh
-        if (ofs.is_open()) {
-            ofs.close();
-        }
-        ofs.clear();  // clear any flags
-        ofs.open("mesh_report.txt", std::ios::out | std::ios::trunc);
-        if (!ofs) {
-            std::cerr << "[MESH REPORT] ERROR: cannot open mesh_report.txt for truncate\n";
-        }
-    }
-    else {
-        // for steps > 2, make sure it's open in append mode
-        if (!ofs.is_open()) {
-            ofs.open("mesh_report.txt", std::ios::out | std::ios::app);
-            if (!ofs) {
-                std::cerr << "[MESH REPORT] ERROR: cannot open mesh_report.txt for append\n";
-            }
-        }
-    }
-
-    // build a single formatted line
-    std::ostringstream line;
-    line << "step="      << step
-         << " vertices=" << volume_mesh.vertices.size()
-         << " cells="    << volume_mesh.cells.size()
-         << " time_s="   << std::fixed << std::setprecision(3) << elapsed_time
-         << " min_ar="   << std::fixed << std::setprecision(3) << min_ar
-         << " median_ar="<< std::fixed << std::setprecision(3) << median_ar
-         << " max_ar="   << std::fixed << std::setprecision(3) << max_ar
-         << "\n";
-
-    // always echo to console
-    std::cout << "[MESH REPORT] " << line.str();
-
-    // write (and flush) to file
-    if (ofs) {
-        ofs << line.str();
-        ofs.flush();
-    }
-}
 
   // Layer ground mesh
   VolumeMesh layer_ground_mesh(BuilderMesh &mesh)

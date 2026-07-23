@@ -49,9 +49,6 @@ public:
     bc.apply(b);
 
     // Set initial guess
-    //    if (!fix_buildings)
-    //      set_initial_guess(u, volume_mesh, dem, top_height, bc);
-    //   else
     u = b;
 
     // Solve linear system
@@ -188,47 +185,6 @@ private:
            " iterations with residual " + str(residual));
     }
     std::cout << prof << std::endl;
-  }
-
-  // Set initial guess for solution vector
-  static void set_initial_guess(std::vector<double> &u, const VolumeMesh &volume_mesh,
-                                const GridField &dem, double top_height, BoundaryConditions &bc)
-  {
-    info("Setting initial guess for solution vector");
-
-    for (size_t i = 0; i < volume_mesh.vertices.size(); i++)
-    {
-      if (bc.vertex_markers[i] == -4)
-      {
-        const Vector2D p(volume_mesh.vertices[i].x, volume_mesh.vertices[i].y);
-        u[i] = dem(p) * (1 - volume_mesh.vertices[i].z / top_height);
-      }
-      else
-        u[i] = 0.0;
-    }
-  }
-
-  static std::vector<double>
-  get_adjusted_building_heights(const VolumeMesh &volume_mesh,
-                                const std::vector<Surface> &building_surfaces)
-  {
-    std::vector<double> adj_heights(building_surfaces.size(), 0.0);
-
-    for (size_t i = 0; i < volume_mesh.vertices.size(); i++)
-    {
-      int marker = volume_mesh.markers[i];
-      if (marker >= 0)
-      {
-        adj_heights[marker] = volume_mesh.vertices[i].z;
-      }
-    }
-    for (size_t i = 0; i < adj_heights.size(); i++)
-    {
-      std::cout << i << ") Building max height: " << building_surfaces[i].max_height()
-                << " adj: " << adj_heights[i] << std::endl;
-    }
-
-    return adj_heights;
   }
 
   // Compute the number of cells to which each vertex belongs
