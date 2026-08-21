@@ -9,6 +9,12 @@ and exchange digital twins of cities.
 > DTCC Core should be a simple, general, efficient, lean, intuitive, and
 > unified core for building digital twins of cities.
 
+DTCC Platform's product vision is automatic digital twins on demand: general
+in scope, efficient at scale, and simple to create and experience. DTCC Core
+enables that vision through general semantic contracts, efficient operations,
+and simple APIs. The user-facing workflow and orchestration are defined by the
+[DTCC Twin design](https://github.com/dtcc-platform/dtcc-twin/blob/develop/DESIGN.md).
+
 A city digital twin may combine geometry, terrain, buildings, networks,
 observations, fields, and simulation results. These should feel like parts of
 one system rather than unrelated file formats and application-specific data
@@ -39,15 +45,24 @@ DTCC Core owns the concepts and contracts shared across that flow:
   rasters, meshes, and fields;
 - broadly useful algorithms for constructing and transforming those models;
 - input/output, serialization, coordinate transformation, and inspection;
+- the versioned DTCC Protobuf model-exchange contract;
 - the Dataset contract, registry, context, manifest, and package format;
 - small convenience APIs that make the common Python workflow direct.
 
 Other DTCC components build on the core without duplicating it. Specialized
 meshing and numerical kernels may live in packages such as `dtcc-mesher`.
-Simulation models and solvers belong in `dtcc-sim`. Atlas and the tangible twin
-are consumers and presentation environments. Catalog storage and distribution
-belong in `dtcc-upload`. Physical-table profiles and deployment configuration
-belong with the tangible-twin application.
+Dependency-light, broadly useful analysis, generation, and simulation
+capabilities may live in DTCC Core. Specialized scenario methods and solvers,
+especially those requiring heavy numerical dependencies, belong in DTCC Sim.
+Both expose semantic results through the common Dataset and DTCC Model
+contracts.
+
+DTCC Twin consumes Core and Sim capabilities and owns the application and
+orchestration layer for Atlas and Table. This includes Twin Workspaces, Package
+and Table Catalog operation, Table Models and releases, and Table Installation
+configuration. DTCC Core owns the shared contracts implemented at these
+boundaries, not application storage or user experience. Repository ownership
+does not require these responsibilities to run in one process.
 
 Unification means shared models and contracts, not putting every platform
 feature into one package.
@@ -56,7 +71,7 @@ feature into one package.
 
 ### One semantic model
 
-The DTCC model is the common language of the platform. Public APIs should use
+DTCC Model is the common language of the platform. Public APIs should use
 typed domain objects such as `City`, `Building`, `RoadNetwork`, `PointCloud`,
 `Raster`, `Mesh`, `SensorCollection`, and `Field`, including semantic collection
 types where needed. Bare dictionaries, loosely structured lists, and parallel
@@ -65,6 +80,37 @@ application DTOs should not become competing public models.
 Geometry and values belong together through explicit relationships. Coordinate
 reference systems, units, dimensions, and other facts required to interpret an
 object must be explicit when relevant.
+
+### Model exchange contract
+
+All digital-twin domain data that DTCC Platform accepts, generates, simulates,
+stores, or publishes must be representable faithfully in DTCC Model. If valid
+platform data cannot be represented, the model is incomplete and must be
+extended; an application-specific DTO or lossy display format is not an
+acceptable semantic substitute.
+
+DTCC Core owns the versioned DTCC Protobuf schema as the canonical binary
+exchange representation of semantic DTCC Model data. Every model type admitted
+to canonical exchange must support a complete round trip:
+
+```text
+DTCC Model object -> Protobuf -> DTCC Model object
+```
+
+The round trip preserves every fact needed for interpretation or later
+computation, including concrete types and relationships, geometry and topology,
+coordinate precision and reference systems, transforms, fields and their
+association, units, markers and classifications, typed attributes, and
+temporal, scenario, or other semantic axes. Documented canonical normalization
+may be acceptable; silent loss, flattening, type substitution, or precision
+loss is not.
+
+Canonical model artifacts identify their schema version and concrete root model
+type. Readers validate compatibility and fail clearly on unsupported data.
+Derived render and presentation formats may supplement canonical model data but
+never replace it. Dataset Context remains attached to the in-memory realization
+and is snapshotted in a Package manifest rather than encoded into the model
+artifact unless a fact is intrinsic to interpreting the model itself.
 
 ### Object-first workflows
 
@@ -129,12 +175,19 @@ The core is organized into a few cooperating layers:
    independently of data providers, applications, and expensive algorithms.
 2. **Builders and algorithms** construct, clean, enrich, mesh, and transform
    model objects. Model methods are convenience entry points to these operations.
-3. **I/O and reprojection** translate between external representations and the
-   model. Format-specific details end at this boundary.
+3. **I/O and reprojection** form the semantic-admission boundary for provider,
+   file, and user data. They validate and translate supported external
+   representations into the model; format-specific details end here.
 4. **Datasets** define named, parameterized data products that acquire or derive
    model objects and attach the information needed to understand their origin.
 5. **Presentation conveniences** such as `info()`, plotting, and viewing make
    objects easy to explore but do not change their meaning.
+
+Raw I/O may also be used directly. When an import participates in the Dataset
+or Twin workflow, a versioned import Dataset Definition completes admission and
+returns a Dataset Realization whose Request and Context record the declared
+input and actual source, parser, provenance, terms, health, and any retained
+source artifact.
 
 Dependencies should point toward the model. Higher-level conveniences must not
 make the semantic types depend on an application or optional backend merely to
@@ -142,36 +195,56 @@ exist.
 
 ## Dataset contract
 
-A Dataset is a reusable definition; calling it produces a concrete native model
-object. The distinction is deliberate:
+A **Dataset Definition** — exposed as `Dataset` in the DTCC Core Python API —
+is a named, reusable, parameterized capability. One validated invocation is a
+**Dataset Request**. It produces a native DTCC Model object with attached
+Dataset Context; that concrete result is a **Dataset Realization**. The
+distinction is deliberate:
 
 ```text
-dtcc.datasets.city              dataset definition
-dtcc.datasets.city(bounds=...) concrete City with dataset context
+dtcc.datasets.city              Dataset Definition
+dtcc.datasets.city(bounds=...) Dataset Realization: City with Dataset Context
 ```
 
-Context is attached to the object rather than wrapped around it. It keeps these
-concerns separate:
+A Dataset Request selects and parameterizes a semantic product. Serialization
+format is an export or delivery choice, not part of that product's meaning.
+Core and Sim contribute versioned Dataset Definition descriptors through the
+Core registry contract. DTCC Twin's Capability Catalog is a runtime discovery
+view of those descriptors, not a competing definition registry.
 
-- **identity** — stable naming and versioning;
+Dataset Context is attached to the realization rather than wrapped around it.
+It keeps these concerns separate:
+
+- **identity** — stable Dataset Definition naming and versioning;
 - **metadata** — concise factual discovery information;
-- **provenance** — sources, lineage, processing, and reproducibility;
-- **presentation** — human explanation and display guidance;
-- **request** — the concrete parameters that produced the object;
+- **provenance** — actual sources, lineage, processing, and reproducibility;
+- **presentation** — reusable Dataset-level explanation, legend semantics,
+  annotations, and non-binding display guidance, not application layout,
+  controls, or audience-specific editorial narrative;
+- **request** — the concrete domain, parameters, and declared inputs;
 - **health and warnings** — partial, degraded, synthetic, or limited results.
 
-Export snapshots that context into a versioned manifest and one or more
-artifacts. Publish registers such a package with a catalog service; it does not
-deliver directly to a particular application. Consumers use the manifest
-instead of inferring meaning from filenames or maintaining parallel metadata.
+Export records the Dataset Context in a versioned manifest and snapshots the
+Dataset Realization as one or more artifacts. Every Dataset Package containing
+semantic DTCC data includes a canonical DTCC Protobuf model artifact. It may
+also include derived representations or supporting source and provenance
+artifacts. The manifest explicitly describes their roles, relationships,
+declared semantic dimensions and artifact capabilities, formats, coordinate
+context, and integrity information. Any manifest index or summary of an
+intrinsic Model fact must match the canonical model artifact, which remains
+authoritative.
 
-A concrete deployment, such as a tangible-table dataset for fixed bounds and
-scale, is configuration owned by that application. It materializes the shared
-Dataset contract but is not part of the core Dataset definition. In short:
+DTCC Core owns creation, validation, and reading of Dataset Packages through
+the shared package contract. Storing a private Package snapshot and creating a
+Package Publication are separate Twin-owned Package Catalog operations. Core
+owns neither catalog credentials, storage, distribution, nor audience policy.
+Consumers use the manifest instead of inferring meaning from filenames or
+maintaining parallel metadata.
 
-```text
-demos teach; profiles deploy
-```
+A concrete application release, such as a Table Catalog Release for a Table
+Model with a fixed domain and scale, is Twin-owned curation and configuration.
+It materializes the shared Dataset contract but is not part of the Core Dataset
+Definition.
 
 ## Trust and quality
 
@@ -186,7 +259,8 @@ Verification is layered:
 - provider parsers use small committed fixtures;
 - live-provider checks are explicit and opt-in;
 - geometric, scientific, and numerical claims receive domain-specific tests;
-- public packages and manifests are checked as consumer-facing contracts.
+- Dataset Packages and manifests are checked as consumer-facing contracts
+  whenever they cross a persistence or publication boundary.
 
 CRS, units, source terms, licenses, assumptions, and limitations are part of
 correctness, not decorative documentation.
