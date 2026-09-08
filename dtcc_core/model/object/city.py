@@ -2,12 +2,13 @@
 # Licensed under the MIT License
 
 from dataclasses import dataclass, field
-from typing import Union
+from typing import Literal, Union
 from collections import defaultdict
 
 from .tree import Tree
 from .object import Object, GeometryType
 from .building import Building
+from .dataset_collections import BuildingCollection, FootprintCollection
 from .terrain import Terrain
 from ..values.raster import Raster
 from .. import geometry
@@ -133,6 +134,24 @@ class City(
     def add_building(self, building: Building):
         """Add building to city."""
         self.add_child(building)
+
+    def building_collection(self) -> BuildingCollection:
+        """Return city buildings as a semantic collection."""
+        return BuildingCollection(self.buildings)
+
+    def building_footprints(
+        self,
+        geom_type: GeometryType | None = None,
+        *,
+        z: Literal["geometry", "ground"] | float = "geometry",
+    ) -> FootprintCollection:
+        """Return city building footprints as a semantic collection.
+
+        By default, this extracts canonical LOD0 footprints only. Passing
+        ``geom_type`` requests an advanced/derived extraction from that explicit
+        geometry type.
+        """
+        return self.building_collection().footprints(geom_type, z=z)
 
     def replace_buildings(self, buildings: list[Building]):
         """Replace all buildings in city with new list of buildings."""

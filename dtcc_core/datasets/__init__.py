@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from .dataset import DatasetDescriptor, DatasetBaseArgs, DatasetExportResult
+from .context import attach_dataset_context
+from .dataset import Dataset, DatasetDescriptor, DatasetBaseArgs, DatasetExportResult
+from .package import DatasetPackage
 from .publish import (
     DatasetPackageError,
     DatasetPublication,
@@ -13,6 +15,16 @@ from .publish import (
     DatasetUploadRateLimitError,
     PublishedFile,
 )
+from .schema import (
+    DatasetArtifact,
+    DatasetContext,
+    DatasetIdentity,
+    DatasetManifest,
+    DatasetMetadata,
+    DatasetPresentation,
+    DatasetProvenance,
+    DatasetRequest,
+)
 from dtcc_core.common import info as log_info, log_table
 
 # Import dataset classes to trigger auto-registration
@@ -22,7 +34,6 @@ from .city import CityDataset
 from .terrain_surface_mesh import TerrainSurfaceMeshDataset
 from .city_surface_mesh import CitySurfaceMeshDataset
 from .city_flat_mesh import CityFlatMeshDataset
-from .city_footprints import CityFootprintsDataset
 from .city_volume_mesh import CityVolumeMeshDataset
 from .air_quality import AirQualityDataset
 from .trees import TreesDataset
@@ -73,7 +84,6 @@ point_cloud = get_dataset("point_cloud")
 buildings = get_dataset("buildings")
 building_footprints = get_dataset("building_footprints")
 city = get_dataset("city")
-city_footprints = get_dataset("city_footprints")
 
 terrain_surface_mesh = get_dataset("terrain_surface_mesh")
 city_surface_mesh = get_dataset("city_surface_mesh")
@@ -97,7 +107,7 @@ smoke = get_dataset("smoke")
 calibration_grid = get_dataset("calibration_grid")
 
 
-_CATEGORY_ORDER = ("raw", "derived", "simulation", "remote", "unknown")
+_CATEGORY_ORDER = ("raw", "derived", "synthetic", "simulation", "remote", "unknown")
 
 
 def info():

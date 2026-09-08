@@ -167,6 +167,9 @@ cython_debug/
 
 /data/
 temp/
+tmp/
+output/
+demos/output/
 .aider*
 .DS_Store
 .worktrees/

@@ -191,10 +191,10 @@ def test_dataset_info_groups_rows_by_category():
         }
     )
 
-    assert list(grouped) == ["raw", "derived", "simulation"]
+    assert list(grouped) == ["raw", "derived", "synthetic"]
     assert grouped["raw"][0][0] == "point_cloud"
     assert grouped["derived"][0][0] == "city"
-    assert grouped["simulation"][0][0] == "smoke"
+    assert grouped["synthetic"][0][0] == "smoke"
 
 
 def test_dataset_info_prints_one_table_per_category(monkeypatch):
@@ -214,9 +214,23 @@ def test_dataset_info_prints_one_table_per_category(monkeypatch):
     table_titles = [table[0] for table in tables]
     assert "Raw Datasets" in table_titles[0]
     assert any(title.startswith("Derived Datasets") for title in table_titles)
-    assert any(title.startswith("Simulation Datasets") for title in table_titles)
+    assert any(title.startswith("Synthetic Datasets") for title in table_titles)
     assert all(len(table[2]) > 0 for table in tables)
     assert any("DTCC Datasets" in message for message in messages)
+
+
+def test_dataset_descriptor_string_uses_parameter_table():
+    """print(datasets.foo) should show one-dataset help as a table."""
+    output = str(datasets.smoke)
+
+    assert "Dataset: smoke" in output
+    assert "Available Parameters:" in output
+    assert "Parameter" in output
+    assert "Default" in output
+    assert "Description" in output
+    assert "bounds" in output
+    assert "resolution" in output
+    assert "* = required parameter" in output
 
 
 # Explicit API Tests
@@ -311,6 +325,15 @@ def test_list_values_are_instances():
     available = list_datasets()
     for name, dataset in available.items():
         assert isinstance(dataset, DatasetDescriptor)
+
+
+def test_city_footprints_is_not_publicly_registered():
+    """The internal meshing-footprint helper is not a public Dataset v2 return."""
+    available = list_datasets()
+
+    assert "city_footprints" not in available
+    with pytest.raises(KeyError):
+        datasets.get_dataset("city_footprints")
 
 
 # Backward Compatibility Tests

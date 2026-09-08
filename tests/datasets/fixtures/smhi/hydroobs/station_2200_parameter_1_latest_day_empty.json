@@ -1,0 +1,17 @@
+{
+  "updated": 1739404800000,
+  "parameter": {
+    "key": "1",
+    "name": "Vattenföring (Dygn)",
+    "summary": "Dygnsmedelvärde",
+    "unit": "m³/s"
+  },
+  "station": {
+    "key": "2200",
+    "name": "MALMÖ STN"
+  },
+  "period": {"key": "latest-day"},
+  "position": [],
+  "link": [],
+  "value": []
+}
