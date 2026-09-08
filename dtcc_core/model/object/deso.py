@@ -8,9 +8,7 @@ import numpy as np
 from ...plotting.style import (
     add_plot_context,
     apply_dtcc_style,
-    get_axes,
     plot_geodataframe,
-    show_plot,
 )
 from .object import Object, GeometryType
 from ..geometry import MultiSurface
@@ -77,7 +75,7 @@ class DeSO(Object):
         year_text = f" {year}" if year else ""
         return f"DTCC DeSO{year_text} with {len(self)} area(s)"
 
-    def info(self, print: bool = True) -> str | None:
+    def info(self, print: bool = True, presentation: bool = True) -> str | None:
         """Print or return a human-readable multi-line summary."""
         lines = []
         lines.append("=" * 70)
@@ -130,6 +128,13 @@ class DeSO(Object):
 
         lines.append("=" * 70)
         summary = "\n".join(lines)
+        if presentation and self.dataset_context is not None:
+            from dtcc_core.datasets.presentation import format_dataset_context
+
+            summary = (
+                f"{summary}\n\n"
+                f"{format_dataset_context(self.dataset_context, obj=self)}"
+            )
         if print:
             builtins.print(summary)
             return None
@@ -269,12 +274,27 @@ class DeSO(Object):
         metadata: bool | dict[str, Any] = True,
         metadata_loc: str = "upper left",
         theme: str = "dark",
+        presentation: bool = True,
         show: bool = True,
         **kwargs,
     ):
         """Plot DeSO polygons using GeoPandas/Matplotlib."""
+        from dtcc_core.datasets.presentation import (
+            draw_empty_preview_state,
+            finalize_presentation_plot,
+            presentation_plot_axes,
+        )
+
         gdf = self.to_dataframe()
-        ax = get_axes(ax)
+        context = self.dataset_context
+        presentation_enabled = presentation and context is not None
+        ax, panel_ax = presentation_plot_axes(
+            context,
+            ax=ax,
+            presentation=presentation,
+        )
+        if presentation_enabled and len(gdf) == 0:
+            draw_empty_preview_state(ax, context)
         show_legend = (
             column is not None and column != "desokod"
             if legend is None
@@ -288,21 +308,33 @@ class DeSO(Object):
             linewidth=linewidth,
             facecolor=facecolor,
             cmap=cmap,
-            legend=show_legend,
+            legend=show_legend and not presentation_enabled,
             theme=theme,
             **kwargs,
         )
         apply_dtcc_style(ax, theme=theme, equal_aspect=True, axis="off")
         add_plot_context(
             ax,
-            title=title or self._plot_title(),
-            metadata=self._plot_metadata(column, gdf, metadata),
-            bounds=self.bounds,
+            title=None if presentation_enabled else title or self._plot_title(),
+            metadata=(
+                None
+                if presentation_enabled
+                else self._plot_metadata(column, gdf, metadata)
+            ),
+            bounds=None if presentation_enabled else self.bounds,
             theme=theme,
             metadata_loc=metadata_loc,
         )
-        show_plot(show)
-        return ax
+        return finalize_presentation_plot(
+            ax,
+            context=context,
+            obj=self,
+            panel_ax=panel_ax,
+            presentation=presentation,
+            show=show,
+            theme=theme,
+            title=title,
+        )
 
     def _plot_title(self) -> str:
         year = self.attributes.get("year")

@@ -61,14 +61,104 @@ class Model(ABC):
             setattr(c, key, value)
         return c
 
-    def info(self, print: bool = True) -> str | None:
+    @property
+    def dataset_context(self):
+        """Dataset v2 context attached to this object, when available."""
+        return getattr(self, "_dataset_context", None)
+
+    @dataset_context.setter
+    def dataset_context(self, context):
+        """Attach Dataset v2 context to this object."""
+        self._dataset_context = context
+
+    @property
+    def metadata(self):
+        """Dataset v2 factual metadata, when this object came from a dataset."""
+        context = self.dataset_context
+        return None if context is None else context.metadata
+
+    @property
+    def provenance(self):
+        """Dataset v2 lineage information, when available."""
+        context = self.dataset_context
+        return None if context is None else context.provenance
+
+    @property
+    def presentation(self):
+        """Dataset v2 presentation guidance, when available."""
+        context = self.dataset_context
+        return None if context is None else context.presentation
+
+    def manifest(self):
+        """Return a Dataset Manifest v2 snapshot for a dataset-produced object."""
+        context = self.dataset_context
+        if context is None:
+            raise ValueError(
+                "Cannot build a DatasetManifest: this object has no DatasetContext."
+            )
+        return context.manifest()
+
+    def export(self, *args, **kwargs):
+        """Export a Dataset v2 object package.
+
+        Requires this object to carry ``DatasetContext`` from a dataset call.
+        """
+        from dtcc_core.datasets.package import export_model_package
+
+        return export_model_package(self, *args, **kwargs)
+
+    def publish(
+        self,
+        *,
+        dataset_key: str,
+        format: str | None = None,
+        uploader=None,
+        upload_url: str | None = None,
+        token: str | None = None,
+        idempotency_key: str | None = None,
+    ):
+        """Publish a Dataset v2 object package.
+
+        Requires this object to carry ``DatasetContext`` from a dataset call.
+        """
+        from pathlib import Path
+        import tempfile
+
+        from dtcc_core.datasets.publish import DatasetUploadClient
+
+        if self.dataset_context is None:
+            raise ValueError(
+                "Cannot publish Dataset v2 package: this object has no DatasetContext."
+            )
+
+        resolved_uploader = uploader or DatasetUploadClient.from_config(
+            upload_url=upload_url,
+            token=token,
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            package = self.export(Path(tmpdir) / "dataset_package", format=format)
+            return package.publish(
+                dataset_key=dataset_key,
+                uploader=resolved_uploader,
+                idempotency_key=idempotency_key,
+            )
+
+    def info(self, print: bool = True, presentation: bool = True) -> str | None:
         """Print or return a human-readable summary of the model.
 
         Subclasses may override this for richer multi-line summaries. The base
         implementation intentionally follows ``str(self)`` so every model has a
-        lightweight, uniform information API.
+        lightweight, uniform information API. Dataset-produced objects include
+        their Dataset v2 presentation and metadata by default.
         """
         summary = str(self)
+        if presentation and self.dataset_context is not None:
+            from dtcc_core.datasets.presentation import format_dataset_context
+
+            summary = (
+                f"{summary}\n\n"
+                f"{format_dataset_context(self.dataset_context, obj=self)}"
+            )
         if print:
             builtins.print(summary)
             return None

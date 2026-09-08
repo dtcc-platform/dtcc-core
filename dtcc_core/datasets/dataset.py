@@ -1,17 +1,31 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, version
+from io import StringIO
 import json
 from pathlib import Path
 import tempfile
 from typing import Any, Optional, Sequence, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from rich.console import Console
+from rich.markup import escape
 
 import dtcc_core
+from dtcc_core.common.dtcc_logging import make_table
 from dtcc_core.model import Bounds
 from dtcc_core.model import Object as DTCCObject
 from dtcc_core.model import Geometry as DTCCGeometry
+
+from .context import attach_dataset_context
+from .schema import (
+    DatasetContext,
+    DatasetIdentity,
+    DatasetMetadata,
+    DatasetPresentation,
+    DatasetProvenance,
+    DatasetRequest,
+)
 
 
 _FORMAT_KIND_MAP = {
@@ -237,7 +251,10 @@ class DatasetDescriptor(ABC):
 
     def __call__(self, **kwargs):
         args = self.validate(kwargs)
-        return self.build(args)
+        result = self.build(args)
+        result = self.prepare_result(result, args)
+        context = self.create_context(args)
+        return attach_dataset_context(result, context)
 
     def validate(self, kwargs):
         if isinstance(kwargs.get("bounds"), Bounds):
@@ -249,6 +266,198 @@ class DatasetDescriptor(ABC):
     def build(self, validated_args):
         """Resolve the dataset and return the result."""
         raise NotImplementedError
+
+    def prepare_result(self, result, validated_args):
+        """Adapt a public dataset-call result before context is attached.
+
+        Subclasses can override this to migrate selected bare list/dict
+        returns to semantic model objects or transitional Dataset v2
+        containers without changing internal build/export code paths.
+        """
+        return result
+
+    # TODO(Dataset v2): keep DatasetDescriptor during migration; Dataset is a
+    # public alias below so new code can use the Dataset name without breaking
+    # existing registrations.
+    def create_context(self, args) -> DatasetContext:
+        """Build initial Dataset v2 context from descriptor metadata."""
+        parameters = args.model_dump(mode="json")
+        descriptor = self.describe()
+        title = descriptor.get("title") or self._title_from_identifier(self.name)
+        bounds = parameters.get("bounds")
+        crs_values = self._context_crs_values(parameters)
+        if not crs_values:
+            crs_values = self._dedupe_strings(
+                self._context_list_attr("default_crs", "crs_values")
+            )
+        data_category = descriptor.get("data_category")
+        result_kind = descriptor.get("result_kind")
+        default_processing_step = f"Build dataset '{self.name}'"
+        processing_steps = self._context_list_attr("processing_steps")
+        if default_processing_step not in processing_steps:
+            processing_steps.append(default_processing_step)
+        lod = self._context_optional_string(parameters.get("lod")) or self._context_attr(
+            "lod",
+            "level_of_detail",
+        )
+
+        return DatasetContext(
+            identity=DatasetIdentity(
+                name=self.name,
+                title=title,
+                version=getattr(self, "version", None),
+            ),
+            metadata=DatasetMetadata(
+                description=descriptor.get("description") or "",
+                provider=self._context_list_attr("provider", "providers"),
+                source=self._context_list_attr("source", "sources", "source_service"),
+                license=self._context_attr("license", "license_info"),
+                collection_period=self._context_attr("collection_period"),
+                crs=crs_values,
+                lod=lod,
+                data_types=self._dedupe_strings(
+                    item
+                    for item in (
+                        *self._context_list_attr("data_types"),
+                        result_kind,
+                    )
+                    if item
+                ),
+                formats=list(descriptor.get("supported_formats") or ()),
+                geographic_coverage=self._context_attr("geographic_coverage"),
+                update_frequency=self._context_attr("update_frequency"),
+                data_category=str(data_category) if data_category else None,
+                result_kind=str(result_kind) if result_kind else None,
+                python_return_type=descriptor.get("python_return_type"),
+            ),
+            provenance=DatasetProvenance(
+                sources=self._context_list_attr("source", "sources", "source_service"),
+                processing_steps=processing_steps,
+                generated_by=self._context_attr("generated_by")
+                or {
+                    "package": "dtcc-core",
+                    "version": self._package_version(),
+                },
+                generated_at=self._context_attr("generated_at"),
+                derived_from=self._context_list_attr("derived_from"),
+            ),
+            presentation=self._context_presentation(descriptor, title),
+            request=DatasetRequest(
+                dataset_name=self.name,
+                parameters=parameters,
+                bounds=bounds,
+            ),
+        )
+
+    def _context_presentation(
+        self,
+        descriptor: dict[str, Any],
+        title: str,
+    ) -> DatasetPresentation:
+        values: dict[str, Any] = {
+            "headline": self._context_attr("presentation_headline") or title,
+            "summary": self._context_attr("presentation_summary")
+            or descriptor.get("description")
+            or None,
+            "narrative": self._context_list_attr("presentation_narrative"),
+            "key_points": self._dedupe_strings(
+                self._context_list_attr("key_points", "presentation_key_points")
+            ),
+            "legend": self._context_attr("legend", "presentation_legend"),
+            "annotations": self._context_list_attr("annotations"),
+            "view_hints": self._context_attr("view_hints", "presentation_view_hints"),
+            "warnings": self._dedupe_strings(
+                self._context_list_attr("warnings", "presentation_warnings")
+            ),
+            "limitations": self._dedupe_strings(
+                self._context_list_attr("limitations", "presentation_limitations")
+            ),
+        }
+
+        presentation = descriptor.get("presentation")
+        if presentation is None:
+            return DatasetPresentation(**values)
+        if not isinstance(presentation, dict):
+            raise ValueError(
+                f"Dataset '{self.name}' descriptor presentation must be a mapping."
+            )
+
+        allowed = set(DatasetPresentation.model_fields)
+        unknown = sorted(set(presentation) - allowed)
+        if unknown:
+            raise ValueError(
+                f"Dataset '{self.name}' descriptor presentation has unsupported "
+                f"field {unknown[0]!r}."
+            )
+
+        for key, value in presentation.items():
+            if value is not None:
+                values[key] = value
+
+        if not values.get("headline"):
+            values["headline"] = title
+        if not values.get("summary"):
+            values["summary"] = descriptor.get("description") or None
+        return DatasetPresentation(**values)
+
+    @staticmethod
+    def _dedupe_strings(values) -> list[str]:
+        strings: list[str] = []
+        for value in values:
+            if value is None:
+                continue
+            text = str(value)
+            if text and text not in strings:
+                strings.append(text)
+        return strings
+
+    @staticmethod
+    def _context_optional_string(value: Any) -> str | None:
+        if value is None:
+            return None
+        if hasattr(value, "name"):
+            return str(value.name)
+        return str(value)
+
+    @classmethod
+    def _context_crs_values(cls, parameters: dict[str, Any]) -> list[str]:
+        crs = parameters.get("crs")
+        if crs is None:
+            return []
+        if isinstance(crs, (list, tuple, set)):
+            return cls._dedupe_strings(crs)
+        return cls._dedupe_strings((crs,))
+
+    def _context_attr(self, *names: str) -> Any | None:
+        for name in names:
+            value = getattr(self, name, None)
+            if value is not None:
+                return value
+        return None
+
+    def _context_list_attr(self, *names: str) -> list[Any]:
+        values: list[Any] = []
+        for name in names:
+            value = getattr(self, name, None)
+            if value is None:
+                continue
+            if isinstance(value, (list, tuple, set)):
+                values.extend(value)
+            else:
+                values.append(value)
+
+        deduped: list[Any] = []
+        seen: set[str] = set()
+        for value in values:
+            marker = (
+                json.dumps(value, sort_keys=True)
+                if isinstance(value, dict)
+                else str(value)
+            )
+            if marker not in seen:
+                deduped.append(value)
+                seen.add(marker)
+        return deduped
 
     def show_options(self):
         return self.ArgsModel.model_json_schema()
@@ -642,61 +851,89 @@ class DatasetDescriptor(ABC):
 
     def __str__(self):
         """Return a nicely formatted summary of the dataset."""
-        lines = []
-        lines.append("=" * 70)
-        lines.append(f"Dataset: {self.name}")
-        lines.append("=" * 70)
+        console = Console(
+            file=StringIO(),
+            record=True,
+            width=120,
+            color_system=None,
+            force_terminal=False,
+            soft_wrap=False,
+        )
+        console.print(f"Dataset: {self.name}", style="bold")
 
         if self.description:
-            lines.append(f"\nDescription:")
-            # Wrap long descriptions nicely
-            desc_lines = self.description.split("\n")
-            for desc_line in desc_lines:
-                lines.append(f"  {desc_line}")
-
-        lines.append(f"\nAvailable Parameters:")
-        lines.append("-" * 70)
+            console.print()
+            console.print("Description:", style="bold")
+            console.print(self.description, markup=False)
 
         # Get schema information from ArgsModel
         schema = self.ArgsModel.model_json_schema()
         properties = schema.get("properties", {})
         required_fields = schema.get("required", [])
 
+        rows = []
         if properties:
             for param_name, param_info in properties.items():
-                param_type = param_info.get("type", "any")
+                param_type = self._schema_type_label(param_info)
                 param_desc = param_info.get("description", "")
-                default_val = param_info.get("default")
                 is_required = param_name in required_fields
-
-                # Format parameter type
-                if "anyOf" in param_info:
-                    # Handle union types
-                    types = [t.get("type", str(t)) for t in param_info["anyOf"]]
-                    param_type = " | ".join(str(t) for t in types)
-                elif "items" in param_info:
-                    # Handle array types
-                    item_type = param_info["items"].get("type", "any")
-                    param_type = f"array of {item_type}"
-
-                # Format the line
-                required_marker = "*" if is_required else " "
-                param_line = f"  {required_marker} {param_name} ({param_type})"
-
-                # Add default value if present
-                if default_val is not None and not is_required:
-                    param_line += f" = {default_val}"
-
-                lines.append(param_line)
-                if param_desc:
-                    lines.append(f"      {param_desc}")
+                rows.append(
+                    (
+                        "*" if is_required else "",
+                        escape(param_name),
+                        escape(param_type),
+                        escape(self._schema_default_label(param_info, is_required)),
+                        escape(param_desc),
+                    )
+                )
         else:
-            lines.append("  No parameters defined")
+            rows.append(("", "No parameters defined", "", "", ""))
 
-        lines.append("\n" + "=" * 70)
-        lines.append("* = required parameter")
+        console.print()
+        console.print("Available Parameters:", style="bold")
+        console.print(
+            make_table(
+                [
+                    ("", "center"),
+                    ("Parameter", "left"),
+                    ("Type", "left"),
+                    ("Default", "left"),
+                    ("Description", "left"),
+                ],
+                rows,
+                overflow="fold",
+            )
+        )
+        console.print("* = required parameter")
 
-        return "\n".join(lines)
+        return console.export_text(styles=False).rstrip()
+
+    @staticmethod
+    def _schema_type_label(param_info: dict[str, Any]) -> str:
+        if "anyOf" in param_info:
+            types = [
+                DatasetDescriptor._schema_type_label(item)
+                for item in param_info["anyOf"]
+            ]
+            return " | ".join(types)
+        if "items" in param_info:
+            item_type = param_info["items"].get("type", "any")
+            return f"array of {item_type}"
+        return str(param_info.get("type", "any"))
+
+    @staticmethod
+    def _schema_default_label(param_info: dict[str, Any], is_required: bool) -> str:
+        if is_required or "default" not in param_info:
+            return ""
+        default_val = param_info["default"]
+        if default_val is None:
+            return ""
+        if isinstance(default_val, str):
+            return default_val
+        try:
+            return json.dumps(default_val, sort_keys=True)
+        except TypeError:
+            return str(default_val)
 
     @staticmethod
     def parse_bounds(bounds: Sequence[float]) -> Bounds:
@@ -835,3 +1072,6 @@ class DatasetDescriptor(ABC):
             else:
                 obj.save(tmpfile, **save_kwargs)
             return Path(tmpfile).read_bytes()
+
+
+Dataset = DatasetDescriptor

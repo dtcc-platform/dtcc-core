@@ -152,6 +152,8 @@ def _draw_slice(ax, product: SliceProduct, options: RasterRenderOptions):
         interpolation=options.interpolation,
         aspect="auto",
     )
+    if options.profile != "table" and product.vector_values is not None:
+        _draw_slice_vectors(ax, product)
     if options.legend:
         label = product.field_name
         if product.field_unit:
@@ -159,6 +161,54 @@ def _draw_slice(ax, product: SliceProduct, options: RasterRenderOptions):
         colorbar = ax.figure.colorbar(artist, ax=ax, label=label)
         style_colorbar(colorbar, theme=options.theme)
     return artist
+
+
+def _draw_slice_vectors(ax, product: SliceProduct):
+    """Draw sparse velocity direction arrows on interactive slice previews."""
+    coordinates = np.asarray(product.coordinates, dtype=float)
+    vectors = np.asarray(product.vector_values, dtype=float)
+    if len(coordinates) != len(vectors) or len(coordinates) == 0:
+        return None
+
+    resolution = max(int(product.resolution), 1)
+    if len(coordinates) == resolution * resolution:
+        grid = np.arange(len(coordinates)).reshape((resolution, resolution))
+        step = max(1, int(np.ceil(resolution / 18)))
+        indices = grid[::step, ::step].ravel()
+    else:
+        target_count = 256
+        step = max(1, int(np.ceil(len(coordinates) / target_count)))
+        indices = np.arange(0, len(coordinates), step)
+
+    xy = coordinates[indices][:, product.axes]
+    uv = vectors[indices][:, product.axes]
+    magnitudes = np.linalg.norm(uv, axis=1)
+    valid = magnitudes > 0.0
+    if not np.any(valid):
+        return None
+
+    xy = xy[valid]
+    uv = uv[valid] / magnitudes[valid, None]
+    xmin, xmax, ymin, ymax = product.extent
+    arrow_length = max(min(abs(xmax - xmin), abs(ymax - ymin)) * 0.035, 1e-9)
+    uv = uv * arrow_length
+    return ax.quiver(
+        xy[:, 0],
+        xy[:, 1],
+        uv[:, 0],
+        uv[:, 1],
+        angles="xy",
+        scale_units="xy",
+        scale=1,
+        color="#FFFFFF",
+        alpha=0.72,
+        width=0.0026,
+        headwidth=3.6,
+        headlength=4.6,
+        headaxislength=3.8,
+        pivot="middle",
+        zorder=4,
+    )
 
 
 def _draw_streamlines(ax, product: StreamlineProduct, options: RasterRenderOptions):

@@ -1,0 +1,9 @@
+{
+  "id": "station2",
+  "properties": {
+    "label": "Test Station 2",
+    "operator": "SMHI",
+    "timeseries": {"ts2": {"phenomenon": {"id": "8", "label": "NO2"}}}
+  },
+  "geometry": {"coordinates": [18.1, 59.4, 0.0]}
+}
