@@ -45,3 +45,19 @@ def test_write_shp_zip(simple_city, loaded_buildings):
         data = f.read()
         assert data[:2] == b"PK"  # zip file signature
     Path("footprints.shp.zip").unlink()
+
+
+@pytest.mark.parametrize("extension", ["pb", "pb2"])
+def test_footprint_protobuf_save_is_explicitly_unsupported(tmp_path, extension):
+    path = tmp_path / f"footprints.{extension}"
+    with pytest.raises(NotImplementedError, match="Footprint protobuf saving"):
+        dtcc_core.io.save_footprints(dtcc_core.model.City(), path)
+    assert not path.exists()
+
+
+@pytest.mark.parametrize("extension", ["pb", "pb2"])
+def test_footprint_protobuf_load_is_explicitly_unsupported(tmp_path, extension):
+    path = tmp_path / f"footprints.{extension}"
+    path.write_bytes(dtcc_core.model.City().to_proto().SerializeToString())
+    with pytest.raises(NotImplementedError, match="Footprint protobuf loading"):
+        dtcc_core.io.load_footprints(path)

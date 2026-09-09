@@ -246,12 +246,16 @@ def load(
     )
 
 
-def _load_proto_footprints(filename) -> City:
-    pass
+def _load_proto_footprints(filename, **kwargs) -> City:
+    raise NotImplementedError(
+        "Footprint protobuf loading is not implemented; use io.load_city for a City protobuf file."
+    )
 
 
-def _save_proto_footprints(city: City, filename):
-    pass
+def _save_proto_footprints(city: City, filename, output_crs=None):
+    raise NotImplementedError(
+        "Footprint protobuf saving is not implemented; use City.save for a City protobuf file."
+    )
 
 
 def _save_json_city(city: City, filename):
