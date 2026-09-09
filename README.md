@@ -59,6 +59,39 @@ CI enforces that every public API function (exported via `__all__`) in `dtcc_cor
 
 Exit status `0` means all public functions were exercised by tests. A non‑zero exit prints the list of missed functions with their source locations so you can add or adjust tests.
 
+## Demos and Examples
+
+We ship several demos to illustrate how to interact with the API. They are separated into two main categories:
+
+1. **Dataset Demos**: small scripts that fetch one dataset and print a summary or
+   preview (e.g., `demos/weather.py`, `demos/building_footprints.py`).
+2. **Workflow Demos**: end-to-end pipelines that assemble multiple builder
+   components to produce meshes, point clouds, and terrain (e.g.,
+   `demos/build_city.py`, `demos/build_city_volume_mesh.py`).
+
+The full list, with the preview each demo produces, is in
+[docs/datasets/demo-catalog.md](docs/datasets/demo-catalog.md).
+
+**Running Demos:**
+All demos can be run directly as Python scripts from the repository root:
+```bash
+python demos/build_city.py
+```
+Most workflow demos download footprints and point clouds from the DTCC data
+service and run meshing, so they need network access and are not run by normal
+CI. `tests/demos/` static-checks every demo (syntax, imports, viewer guards); to
+actually execute the workflow demos as a test, opt in with:
+```bash
+DTCC_RUN_DEMOS=1 pytest tests/demos/test_demo_execution.py
+```
+
+**Viewing Output:**
+Some workflow demos generate meshes and point clouds. To interactively view the results, append the `--view` flag to the command:
+```bash
+python demos/build_city_flat_mesh.py --view
+```
+*Note: The 3D viewer will block execution until the window is closed.*
+
 ## Installation Notes
 
 * **Surface meshing backends**:

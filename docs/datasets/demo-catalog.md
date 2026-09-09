@@ -28,6 +28,35 @@ weather, air-quality, hydrology, ocean, and transit layers.
 | `demos/terrain_surface_mesh.py` | Terrain surface mesh | `terrain.view()` |
 | `demos/city_meshes.py` | City surface mesh | `surface_mesh.view()` |
 
+
+## Workflow Demos
+
+These demos assemble multiple builder-level components and write output
+to `demos/output/`. Pass `--view` to open the result in the 3D viewer.
+
+Demos that download from the DTCC data service need network access and are not
+run by normal CI. `tests/demos/` static-checks every demo; execute the workflow
+demos as a test with `DTCC_RUN_DEMOS=1 pytest tests/demos/test_demo_execution.py`.
+The CityJSON demos load a small bundled file (`demos/data/DenHaag_01.city.json.zip`)
+and run fully offline.
+
+| Demo | Workflow | Data |
+|---|---|---|
+| `demos/build_city.py` | Download footprints + point cloud → build terrain + LOD1 → save city | DTCC service |
+| `demos/create_cityjson.py` | Build city and export as CityJSON | DTCC service |
+| `demos/build_lod1_buildings.py` | Builder-level LOD1 extrusion pipeline | DTCC service |
+| `demos/build_terrain_raster.py` | Point cloud → terrain raster (DEM) via builder | DTCC service |
+| `demos/build_terrain_surface_mesh.py` | Point cloud → terrain surface mesh via builder | DTCC service |
+| `demos/build_terrain_with_footprints.py` | Footprint-conforming terrain surface mesh | DTCC service |
+| `demos/build_city_flat_mesh.py` | 2D flat mesh with building footprint subdomains | DTCC service |
+| `demos/build_city_volume_mesh.py` | 3D tetrahedral volume mesh of air domain | DTCC service |
+| `demos/build_cityjson_surface_mesh.py` | CityJSON → LOD2 surface mesh | bundled |
+| `demos/simplify_building_footprints.py` | Footprint merge / simplify / clearance / wall-split pipeline | DTCC service |
+| `demos/view_cityjson.py` | Load bundled CityJSON and view it | bundled |
+| `demos/build_view_cityjson.py` | Load bundled CityJSON, add attributes, and view | bundled |
+| `demos/view_pointcloud.py` | Download and view a LiDAR point cloud | DTCC service |
+
+
 ## Table Mapping
 
 The tangible-table development profile maps table dataset IDs to demos or

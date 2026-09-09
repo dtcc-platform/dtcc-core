@@ -168,6 +168,35 @@ class Model(ABC):
         """Print the human-readable model summary returned by ``info()``."""
         builtins.print(self.info(print=False), file=file)
 
+    def save(self, *args, **kwargs):
+        """Save the model to disk.
+
+        IO methods are imported lazily so dtcc-core does not require them
+        at import time. Importing ``dtcc_core.io`` registers object-specific
+        ``save`` methods on DTCC model classes; this method then delegates
+        to the registered implementation.
+        """
+        save_method = getattr(type(self), "save", None)
+        if save_method is not None and save_method is not Model.save:
+            return save_method(self, *args, **kwargs)
+
+        try:
+            importlib.import_module("dtcc_core.io")
+        except Exception as exc:
+            raise AttributeError(
+                f"Cannot save object: {self.__class__.__name__}. "
+                f"Failed to load dtcc_core.io module ({exc})."
+            ) from exc
+
+        save_method = getattr(type(self), "save", None)
+        if save_method is not None and save_method is not Model.save:
+            return save_method(self, *args, **kwargs)
+
+        raise AttributeError(
+            f"Cannot save object: {self.__class__.__name__}. "
+            "No IO save method is registered for this model type."
+        )
+
     def view(self, *args, **kwargs):
         """View the model using dtcc-viewer when available.
 
