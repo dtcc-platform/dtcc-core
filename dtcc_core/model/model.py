@@ -47,7 +47,7 @@ class Model(ABC):
             str
                 A JSON string representing the object.
         """
-        return MessageToJson(self.to_proto(), including_default_value_fields=True)
+        return MessageToJson(self.to_proto(), always_print_fields_with_no_presence=True)
 
     def copy(self, **kwargs):
         """Return a copy of the object.

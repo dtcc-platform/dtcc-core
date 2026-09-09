@@ -82,7 +82,10 @@ class Landuse(Object):
         proto.Object
             Protobuf message encoding the land use data.
         """
-        pass
+        raise NotImplementedError(
+            "Landuse protobuf serialization is not supported: the schema stores "
+            "one land-use code, but Landuse.landuses is a list"
+        )
 
     def from_proto(self, pb: Union[proto.Object, bytes]):
         """
@@ -93,4 +96,7 @@ class Landuse(Object):
         pb : proto.Object or bytes
             Protobuf message or serialized bytes containing land use data.
         """
-        pass
+        raise NotImplementedError(
+            "Landuse protobuf deserialization is not supported: the schema stores "
+            "one land-use code, but Landuse.landuses is a list"
+        )

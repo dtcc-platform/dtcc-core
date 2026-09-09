@@ -42,6 +42,22 @@ class Field(Model):
     values: np.ndarray = field(default_factory=lambda: np.empty(0))
     dim: int = 1
 
+    def _validate_values(self):
+        if isinstance(self.dim, (bool, np.bool_)) or not isinstance(
+            self.dim, (int, np.integer)
+        ) or self.dim < 1:
+            raise ValueError("Field.dim must be a positive integer.")
+        if not isinstance(self.values, np.ndarray) or self.values.dtype.kind not in "biuf":
+            raise ValueError("Field.values must be a real numeric NumPy array.")
+        if not (
+            (self.values.ndim == 1 and self.dim == 1)
+            or (self.values.ndim == 2 and self.values.shape[1] == self.dim)
+        ):
+            raise ValueError(
+                "Field.values must have shape (N, dim), or (N,) for dim=1; "
+                f"got shape {self.values.shape} with dim={self.dim}."
+            )
+
     def to_proto(self) -> proto.Field:
         """Return a protobuf representation of the Field.
 
@@ -51,6 +67,7 @@ class Field(Model):
             A protobuf representation of the Field.
         """
 
+        self._validate_values()
         pb = proto.Field()
         pb.name = self.name
         pb.unit = self.unit
@@ -71,8 +88,14 @@ class Field(Model):
 
         if isinstance(pb, bytes):
             pb = proto.Field.FromString(pb)
+        if pb.dim < 1:
+            raise ValueError("Field protobuf dim must be a positive integer.")
+        if len(pb.values) % pb.dim:
+            raise ValueError("Field protobuf value count must be divisible by dim.")
         self.name = pb.name
         self.unit = pb.unit
         self.description = pb.description
+        # The legacy wire format stores flattened float32 values. Decoding
+        # intentionally returns a two-dimensional (N, dim) array, also for scalars.
         self.values = np.array(pb.values).reshape((-1, pb.dim))
         self.dim = pb.dim

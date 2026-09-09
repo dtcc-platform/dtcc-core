@@ -13,6 +13,22 @@ from ..logging import info, warning, error
 from ..model import Model
 from .. import dtcc_pb2 as proto
 
+
+def _validate_integer_pixels(values, dtype):
+    if dtype.kind not in "biu" or values.size == 0:
+        return
+    if not np.isfinite(values).all() or np.any(values != np.floor(values)):
+        raise ValueError("Raster protobuf integer pixels must be finite integers.")
+    # Exclusive power-of-two upper bounds remain exact as floats, unlike int64.max.
+    if dtype.kind == "b":
+        lower, upper = 0, 2
+    else:
+        bits = np.iinfo(dtype).bits
+        upper = 2 ** (bits - 1) if dtype.kind == "i" else 2 ** bits
+        lower = -upper if dtype.kind == "i" else 0
+    if np.any(values < lower) or np.any(values >= upper):
+        raise ValueError(f"Raster protobuf pixels are outside the range of {dtype}.")
+
 # FIXME: Make Raster fit the UML diagram
 # FIXME: Make Raster own a Grid that holds Transform and Bounds
 
@@ -38,7 +54,8 @@ class Raster(Model):
 
     """
 
-    data: np.ndarray = field(default_factory=lambda: np.empty(()))
+    # Shape () denotes an empty raster; initialize its sentinel deterministically.
+    data: np.ndarray = field(default_factory=lambda: np.array(np.nan))
     georef: Affine = field(default_factory=Affine.identity)
     nodata: float = np.nan
     crs: str = ""
@@ -128,18 +145,12 @@ class Raster(Model):
 
         """
 
-        _xmin = self.georef.c  # + (self.georef.a / 2)
-        _ymin = self.georef.f + self.georef.e * self.height  # - (self.georef.e / 2)
-        _xmax = self.georef.c + self.georef.a * self.width  # - (self.georef.a / 2)
-        _ymax = self.georef.f  # + (self.georef.e / 2)
-        zmin = 0
-        zmax = 0
-
-        xmin = min(_xmin, _xmax)
-        ymin = min(_ymin, _ymax)
-        xmax = max(_xmin, _xmax)
-        ymax = max(_ymin, _ymax)
-        return Bounds(xmin, ymin, xmax, ymax, zmin, zmax)
+        corners = [
+            self.georef * (x, y)
+            for x, y in ((0, 0), (self.width, 0), (0, self.height), (self.width, self.height))
+        ]
+        x, y = zip(*corners)
+        return Bounds(min(x), min(y), max(x), max(y), 0, 0)
 
     def set_bounds(self, bounds: Bounds):
         """
@@ -283,11 +294,35 @@ class Raster(Model):
             A protobuf representation of the Raster.
 
         """
+        if not isinstance(self.data, np.ndarray) or self.data.dtype.kind not in "biuf":
+            raise ValueError("Raster.data must be a real numeric NumPy array.")
+        if self.data.ndim not in (0, 2, 3):
+            raise ValueError("Raster.data must have shape (H, W) or (H, W, C).")
+        if self.data.ndim == 0 and not np.isnan(self.data):
+            raise ValueError(
+                "Raster.data scalar values are unsupported; use shape (1, 1) "
+                "for one pixel or Raster() for an empty raster."
+            )
+        if self.data.ndim == 3 and self.channels < 1:
+            raise ValueError("Raster.data must have at least one channel.")
+        if not isinstance(self.georef, Affine) or not np.isfinite(self.georef).all():
+            raise ValueError("Raster.georef must be a finite Affine transform.")
+        if self.data.dtype.kind in "biu":
+            encoded = self.data.astype(np.float32)
+            _validate_integer_pixels(encoded, self.data.dtype)
+            if not np.array_equal(encoded.astype(self.data.dtype), self.data):
+                raise ValueError(
+                    "Raster protobuf float32 values cannot preserve these integer pixels; "
+                    "use a lossless raster format such as GeoTIFF."
+                )
+
         pb = proto.Raster()
         pb.height = self.height
         pb.width = self.width
         pb.channels = self.channels
-        pb.values.extend(self.data.flatten())
+        # The scalar sentinel has no pixels and must never emit a value.
+        if self.data.ndim != 0:
+            pb.values.extend(self.data.flatten())
         pb.nodata = self.nodata
         pb.dtype = self.data.dtype.name
         pb.georef.extend(
@@ -321,19 +356,43 @@ class Raster(Model):
         if isinstance(pb, bytes):
             pb = proto.Raster.FromString(pb)
 
-        height = pb.height or pb.grid.height
-        width = pb.width or pb.grid.width
-        channels = pb.channels or (1 if height and width else 0)
+        height, width, channels = pb.height, pb.width, pb.channels
+        # Older payloads stored dimensions only in grid and omitted channels.
+        if height == 0 and width == 0 and pb.HasField("grid"):
+            height, width = pb.grid.height, pb.grid.width
+        if min(height, width, channels) < 0:
+            raise ValueError("Raster protobuf dimensions must be nonnegative.")
+        if channels == 0 and (height or width):
+            channels = 1
+        # The previous empty-raster writer emitted one uninitialized scalar,
+        # despite all dimensions being zero. It never represented a pixel.
+        legacy_empty = height == width == channels == 0 and len(pb.values) == 1
+        if not legacy_empty and len(pb.values) != height * width * channels:
+            raise ValueError(
+                "Raster protobuf value count does not match height * width * channels."
+            )
+        if len(pb.georef) not in (0, 6):
+            raise ValueError("Raster protobuf georef must contain exactly six coefficients.")
+        # An absent georef and dtype mean identity and float64 in legacy files.
+        georef = Affine.identity() if not pb.georef else Affine(*pb.georef)
+        if not np.isfinite(georef).all():
+            raise ValueError("Raster protobuf georef coefficients must be finite.")
+        try:
+            dtype = np.dtype(pb.dtype) if pb.dtype else np.dtype(float)
+        except TypeError as exc:
+            raise ValueError(f"Invalid Raster protobuf dtype: {pb.dtype!r}.") from exc
+        if dtype.kind not in "biuf":
+            raise ValueError("Raster protobuf dtype must be real numeric.")
 
-        if height == 0 or width == 0 or channels == 0:
-            self.data = np.empty(())
+        values = np.empty(0) if legacy_empty else np.array(pb.values)
+        _validate_integer_pixels(values, dtype)
+        if channels == 0:
+            data = np.array(np.nan)
         elif channels == 1:
-            self.data = np.array(pb.values).reshape((height, width))
+            data = values.astype(dtype).reshape((height, width))
         else:
-            self.data = np.array(pb.values).reshape((height, width, channels))
-        if pb.dtype:
-            self.data = self.data.astype(pb.dtype)
+            data = values.astype(dtype).reshape((height, width, channels))
+        self.data = data
         self.nodata = pb.nodata
-        if len(pb.georef) >= 6:
-            self.georef = Affine(*pb.georef[:6])
+        self.georef = georef
         self.crs = pb.crs

@@ -62,7 +62,7 @@ class Mesh(MeshProcessingMixin, Geometry):
 
     def calculate_bounds(self) -> Bounds:
         """Calculate the bounding box of the mesh."""
-        if len(self.vertices) < 3:
+        if len(self.vertices) == 0:
             self._bounds = Bounds()
             return self._bounds
 
@@ -222,12 +222,9 @@ class VolumeMesh(VolumeMeshProcessingMixin, Geometry):
     def calculate_bounds(self) -> Bounds:
         """Calculate the bounding box of the mesh."""
 
-        if len(self.vertices) < 4:
+        if len(self.vertices) == 0:
             self._bounds = Bounds()
             return self._bounds
-
-        print("VolumeMesh vertices: ")
-        print(self.vertices.shape)
 
         self._bounds = Bounds(
             xmin=np.min(self.vertices[:, 0]),
@@ -274,6 +271,7 @@ class VolumeMesh(VolumeMeshProcessingMixin, Geometry):
         """
         offset = np.array(offset)
         self.vertices += offset
+        self._bounds = None
         return self
 
     def offset_to_origin(self):
@@ -322,6 +320,3 @@ class VolumeMesh(VolumeMeshProcessingMixin, Geometry):
         _pb = pb.volume_mesh
         self.vertices = np.array(_pb.vertices).reshape((-1, 3))
         self.cells = np.array(_pb.cells, dtype=np.int64).reshape((-1, 4))
-
-        # Handle Geometry fields
-        Geometry.from_proto(self, pb)

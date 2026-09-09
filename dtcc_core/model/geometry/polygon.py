@@ -18,7 +18,9 @@ class Polygon(Geometry):
         proto.Geometry
             Serialized representation of the polygon.
         """
-        return None
+        raise NotImplementedError(
+            "Polygon does not support protobuf serialization; use Surface instead."
+        )
 
     def from_proto(self, pb):
         """
@@ -29,7 +31,9 @@ class Polygon(Geometry):
         pb : proto.Geometry
             Protobuf geometry containing polygon data.
         """
-        return None
+        raise NotImplementedError(
+            "Polygon does not support protobuf deserialization; use Surface instead."
+        )
 
     @property
     def shapely(self):
