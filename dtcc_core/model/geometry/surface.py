@@ -373,6 +373,7 @@ class MultiSurface(Geometry):
 
         # Handle specific fields
         _pb = pb.multi_surface
+        self.surfaces = []
         for surface in _pb.surfaces:
             _surface = Surface()
             _surface.from_proto(surface, only_surface_fields=True)

@@ -27,7 +27,7 @@ class LineString(Geometry):
             coordinates of the line string's vertices. Each row corresponds to a point
             in 2D (x, y) or 3D (x, y, z) space.
     """
-    vertices: np.ndarray = field(default_factory=lambda: np.empty(0))
+    vertices: np.ndarray = field(default_factory=lambda: np.empty((0, 3)))
 
     def calculate_bounds(self):
         """Calculate the bounding box of the line string."""
@@ -78,6 +78,9 @@ class LineString(Geometry):
             A protobuf representation of the MultiSurface as a Geometry.
         """
 
+        if self.vertices.ndim != 2 or self.vertices.shape[1] not in (2, 3):
+            raise ValueError("LineString.vertices must have shape (N, 2) or (N, 3).")
+
         # Handle Geometry fields
         pb = Geometry.to_proto(self)
         _pb = proto.LineString()
@@ -107,6 +110,10 @@ class LineString(Geometry):
 
         _pb = pb if only_linestring_field else pb.line_string
         dim = _pb.dim
+        if dim not in (2, 3) or len(_pb.vertices) % dim:
+            raise ValueError(
+                "LineString protobuf requires dim=2 or dim=3 and a matching vertex count."
+            )
         self.vertices = np.array(_pb.vertices).reshape(-1, dim)
 
 
@@ -187,6 +194,7 @@ class MultiLineString(Geometry):
         Geometry.from_proto(self, pb)
         # Handle specific fields
         _pb = pb.multi_line_string
+        self.linestrings = []
         for line_string in _pb.line_strings:
             _linestring = LineString()
             _linestring.from_proto(line_string, only_linestring_field=True)
