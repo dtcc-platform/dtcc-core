@@ -6,7 +6,8 @@ from dataclasses import dataclass, field
 from collections import defaultdict
 from typing import Optional, Union
 from enum import Enum, auto
-import json, re
+import json
+import math
 
 from copy import copy, deepcopy
 
@@ -81,12 +82,13 @@ class GeometryType(Enum):
         ValueError
             If the string does not match any known geometry type.
         """
-        s = s.upper()
-        try:
-            t = GeometryType[s]
-        except KeyError:
-            raise ValueError(f"Unknown geometry type: {s}")
-        return t
+        if not isinstance(s, str):
+            raise TypeError("Geometry type name must be a string")
+        name = s.upper().replace("_", "")
+        for geometry_type in GeometryType:
+            if geometry_type.name.replace("_", "") == name:
+                return geometry_type
+        raise ValueError(f"Unknown geometry type: {s}")
 
     @staticmethod
     def from_class_name(s):
@@ -103,7 +105,7 @@ class GeometryType(Enum):
         GeometryType
             Corresponding geometry type enum.
         """
-        return GeometryType.from_str(re.sub(r"(?<!^)(?=[A-Z])", "_", s).upper())
+        return GeometryType.from_str(s)
 
     @staticmethod
     def from_class(s):
@@ -134,11 +136,78 @@ def _proto_type_to_object_class(_type):
 
 def _proto_type_to_geometry_class(_type):
     """Get geometry class from protobuf type string."""
+    if _type is None:
+        raise ValueError("Protobuf geometry has no concrete geometry type")
     class_name = _type.title().replace("_", "")
     _class = getattr(dtcc_core.model.geometry, class_name, None)
     if _class is None:
         error(f"Invalid geometry type: {_type}")
     return _class
+
+
+def _normalize_geometry_type(geometry_type):
+    """Normalize built-in representations while preserving custom string roles."""
+    if isinstance(geometry_type, GeometryType):
+        return geometry_type
+    if not isinstance(geometry_type, str):
+        raise TypeError("Geometry key must be a GeometryType or a nonempty string")
+    if not geometry_type.strip():
+        raise ValueError("Geometry key must be a nonempty string")
+    if geometry_type.lower().startswith("geometrytype"):
+        prefix = "GeometryType."
+        if not geometry_type.lower().startswith(prefix.lower()):
+            raise ValueError(f"Malformed reserved geometry key: {geometry_type!r}")
+        return GeometryType.from_str(geometry_type[len(prefix):])
+    try:
+        return GeometryType.from_str(geometry_type)
+    except ValueError:
+        # Custom roles such as "location", "centerlines", and "grid" are
+        # intentional parts of the generic object model.
+        return geometry_type
+
+
+def _validate_attributes(attributes):
+    """Require JSON data without conversions that silently change its meaning."""
+    if not isinstance(attributes, dict):
+        raise TypeError("Object attributes must be a dictionary with string keys")
+
+    active_containers = set()
+
+    def validate(value, path):
+        if value is None or isinstance(value, (str, bool, int)):
+            return
+        if isinstance(value, float):
+            if not math.isfinite(value):
+                raise ValueError(f"{path} must be a finite JSON number")
+            return
+        if not isinstance(value, (dict, list)):
+            raise TypeError(
+                f"{path} contains unsupported {type(value).__name__}; use JSON "
+                "values (null, boolean, number, string, list, or dictionary)"
+            )
+        if id(value) in active_containers:
+            raise ValueError(f"{path} contains a circular reference")
+        active_containers.add(id(value))
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if not isinstance(key, str):
+                    raise TypeError(f"{path} has a non-string dictionary key: {key!r}")
+                validate(item, f"{path}[{key!r}]")
+        else:
+            for index, item in enumerate(value):
+                validate(item, f"{path}[{index}]")
+        active_containers.remove(id(value))
+
+    validate(attributes, "attributes")
+
+
+def _validate_geometry_value(geometry):
+    """Validate values also accepted by the existing in-memory geometry map."""
+    if not isinstance(geometry, (Geometry, Raster, Bounds)):
+        raise TypeError(
+            "Object geometry must be a Geometry, Raster, or Bounds instance; "
+            f"got {type(geometry).__name__}"
+        )
 
 
 @dataclass
@@ -159,7 +228,9 @@ class Object(Model):
     id : str
         Unique identifier of the object.
     attributes : dict
-        Dictionary of attributes.
+        Dictionary of attributes. Protobuf serialization requires string keys
+        and JSON values: null, booleans, finite numbers, strings, lists, and
+        nested dictionaries. Other Python values must be converted explicitly.
     children : dict of lists
         Dictionary of child objects (key is type).
     geometry : dict
@@ -266,21 +337,24 @@ class Object(Model):
 
     def add_geometry(
         self,
-        geometry: Geometry,
+        geometry: Union[Geometry, Raster, Bounds],
         geometry_type: Optional[Union[GeometryType, str]] = None,
     ):
-        """Add geometry to object."""
-        if isinstance(geometry_type, str) and geometry_type.startswith("GeometryType."):
-            geometry_type = GeometryType.from_str(geometry_type[13:])
-        elif isinstance(geometry_type, str):
+        """Add geometry under a built-in representation or custom string role.
+
+        Geometry classes without a GeometryType member, including Point and
+        Grid, require an explicit role such as ``"location"`` or ``"grid"``.
+        """
+        _validate_geometry_value(geometry)
+        if geometry_type is None:
             try:
-                geometry_type = GeometryType.from_str(geometry_type)
-            except ValueError:
-                pass
-        elif geometry_type is None:
-            geometry_type = GeometryType.from_class(type(geometry))
-        if not isinstance(geometry_type, GeometryType):
-            warning(f"Invalid geometry type (but I'll allow it): {geometry_type}")
+                geometry_type = GeometryType.from_class(type(geometry))
+            except ValueError as exc:
+                raise ValueError(
+                    f"{type(geometry).__name__} has no default GeometryType; "
+                    "pass an explicit geometry_type string role"
+                ) from exc
+        geometry_type = _normalize_geometry_type(geometry_type)
         self.geometry[geometry_type] = geometry
 
     def add_mesh(self, mesh: Mesh):
@@ -307,13 +381,7 @@ class Object(Model):
 
     def remove_geometry(self, geometry_type: Union[GeometryType, str]):
         """Remove geometry from object."""
-        if isinstance(geometry_type, str) and geometry_type.startswith("GeometryType."):
-            geometry_type = GeometryType.from_str(geometry_type[13:])
-        if not isinstance(geometry_type, GeometryType):
-            try:
-                geometry_type = GeometryType(geometry_type)
-            except ValueError:
-                warning(f"Invalid geometry type (but I'll allow it): {geometry_type}")
+        geometry_type = _normalize_geometry_type(geometry_type)
         if geometry_type in self.geometry:
             del self.geometry[geometry_type]
 
@@ -321,9 +389,10 @@ class Object(Model):
         """Add a field to a geometry of the object."""
         if isinstance(geometry_type, type):
             geometry_type = GeometryType.from_class(geometry_type)
+        geometry_type = _normalize_geometry_type(geometry_type)
         geometry = self.geometry.get(geometry_type, None)
         if geometry is None:
-            error("No geometry of type {geometry_type} defined on object")
+            raise ValueError(f"No geometry of type {geometry_type} defined on object")
         geometry.add_field(field)
 
     def get_children(self, child_type):
@@ -456,7 +525,7 @@ class Object(Model):
     def defined_geometries(self):
         """Return a list of the types of geometries
         defined on this object."""
-        return sorted(list(self.geometry.keys()))
+        return sorted(self.geometry, key=str)
 
     def defined_attributes(self):
         """Return a list of the attributes defined on this object."""
@@ -488,6 +557,10 @@ class Object(Model):
     def to_proto(self) -> proto.Object:
         """Return a protobuf representation of the Object.
 
+        Nested objects must have a concrete type represented in the protobuf
+        schema. Collections without a schema discriminator can be serialized
+        at the top level when the reader already knows their Python class.
+
         Returns
         -------
         proto.Object
@@ -500,19 +573,67 @@ class Object(Model):
             pb.id = ""
         else:
             pb.id = self.id
-        pb.attributes = json.dumps(self.attributes)
-        bounds = self.bounds
-        if bounds is not None:
-            pb.bounds.CopyFrom(bounds.to_proto())
-
+        _validate_attributes(self.attributes)
+        pb.attributes = json.dumps(self.attributes, allow_nan=False)
         # Handle children
         children = [c for cs in self.children.values() for c in cs]
-        pb.children.extend([c.to_proto() for c in children])
+        for child in children:
+            if type(child) is not Object and type(child).to_proto is Object.to_proto:
+                raise NotImplementedError(
+                    f"Nested {type(child).__name__} protobuf serialization is not "
+                    "supported: the schema has no discriminator for this type"
+                )
+            child_pb = child.to_proto()
+            if not isinstance(child_pb, proto.Object):
+                raise TypeError(
+                    f"{type(child).__name__}.to_proto must return a protobuf Object"
+                )
+            child_type = child_pb.WhichOneof("type")
+            restored_class = (
+                Object if child_type is None else _proto_type_to_object_class(child_type)
+            )
+            if restored_class is not type(child):
+                raise NotImplementedError(
+                    f"Nested {type(child).__name__} protobuf serialization would "
+                    f"restore {restored_class.__name__}; the concrete object type "
+                    "must be preserved"
+                )
+            pb.children.append(child_pb)
 
         # Handle geometry
         for key, geometry in self.geometry.items():
-            _key = str(key)
-            pb.geometry[_key].CopyFrom(geometry.to_proto())
+            _validate_geometry_value(geometry)
+            if isinstance(geometry, (Raster, Bounds)):
+                raise NotImplementedError(
+                    f"{type(geometry).__name__} cannot be serialized in Object.geometry: "
+                    "the protobuf Geometry schema has no representation for it"
+                )
+            _key = str(_normalize_geometry_type(key))
+            if _key in pb.geometry:
+                raise ValueError(f"Duplicate normalized geometry key: {_key}")
+            geometry_pb = geometry.to_proto()
+            if not isinstance(geometry_pb, proto.Geometry):
+                raise NotImplementedError(
+                    f"{type(geometry).__name__}.to_proto must return a protobuf "
+                    "Geometry to be serialized in Object.geometry"
+                )
+            geometry_type = geometry_pb.WhichOneof("type")
+            if geometry_type is None:
+                raise NotImplementedError(
+                    f"{type(geometry).__name__} has no concrete protobuf geometry type"
+                )
+            restored_class = _proto_type_to_geometry_class(geometry_type)
+            if restored_class is not type(geometry):
+                raise NotImplementedError(
+                    f"{type(geometry).__name__} protobuf serialization would restore "
+                    f"{restored_class.__name__}; the concrete geometry type must be preserved"
+                )
+            pb.geometry[_key].CopyFrom(geometry_pb)
+
+        # Inspect bounds only after validating entries in the public maps.
+        bounds = self.bounds
+        if bounds is not None:
+            pb.bounds.CopyFrom(bounds.to_proto())
 
         return pb
 
@@ -530,23 +651,35 @@ class Object(Model):
             pb = proto.Object.FromString(pb)
 
         # Handle basic fields
-        self.id = pb.id
-        self.attributes = json.loads(pb.attributes) if pb.attributes else {}
+        attributes = json.loads(pb.attributes) if pb.attributes else {}
+        _validate_attributes(attributes)
+        bounds = None
         if pb.HasField("bounds"):
-            self._bounds = Bounds()
-            self._bounds.from_proto(pb.bounds)
+            bounds = Bounds()
+            bounds.from_proto(pb.bounds)
 
         # Handle children
+        children = defaultdict(list)
         for child in pb.children:
             _type = child.WhichOneof("type")
             _child = Object() if _type is None else _proto_type_to_object_class(_type)()
             _child.from_proto(child)
-            self.add_child(_child)
+            children[type(_child)].append(_child)
 
         # Handle geometry
+        geometries = {}
         for key, geometry in pb.geometry.items():
             _type = geometry.WhichOneof("type")
             _class = _proto_type_to_geometry_class(_type)
             _geometry = _class()
             _geometry.from_proto(geometry)
-            self.add_geometry(_geometry, key)
+            normalized_key = _normalize_geometry_type(key)
+            if normalized_key in geometries:
+                raise ValueError(f"Duplicate normalized geometry key: {normalized_key}")
+            geometries[normalized_key] = _geometry
+
+        self.id = pb.id
+        self.attributes = attributes
+        self._bounds = bounds
+        self.children = children
+        self.geometry = geometries

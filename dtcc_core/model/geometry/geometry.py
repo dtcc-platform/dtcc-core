@@ -123,9 +123,15 @@ class Geometry(Model):
         """
         if isinstance(pb, bytes):
             pb = proto.Geometry.FromString(pb)
-        self.bounds.from_proto(pb.bounds)
-        self.transform.from_proto(pb.transform)
+        bounds = Bounds()
+        bounds.from_proto(pb.bounds)
+        transform = Transform()
+        transform.from_proto(pb.transform)
+        fields = []
         for _field in pb.fields:
             field = Field()
             field.from_proto(_field)
-            self.fields.append(field)
+            fields.append(field)
+        self._bounds = bounds
+        self.transform = transform
+        self.fields = fields

@@ -91,7 +91,8 @@ class City(
         Returns
         -------
         dict[str, list]
-            Mapping of attribute names to lists of values across buildings.
+            Mapping of all attribute names to building-aligned lists. A missing
+            attribute is represented by None, and keys follow first-seen order.
         """
 
         city_buildings = self.buildings
@@ -99,9 +100,9 @@ class City(
             return {}
 
         building_attributes = defaultdict(list)
-        # assuming all buildings have the same attributes
-        # TODO: handle buildings with different attributes
-        attribute_keys = city_buildings[0].attributes.keys()
+        attribute_keys = dict.fromkeys(
+            key for building in city_buildings for key in building.attributes
+        )
         for b in city_buildings:
             for key in attribute_keys:
                 building_attributes[key].append(b.attributes.get(key, None))
