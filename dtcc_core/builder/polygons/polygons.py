@@ -17,8 +17,6 @@ import shapely.ops
 import shapely.affinity
 from shapely.validation import make_valid
 import numpy as np
-from scipy.sparse import lil_matrix
-from scipy.sparse.csgraph import connected_components
 from collections import defaultdict
 from itertools import combinations, groupby
 import copy
@@ -335,6 +333,11 @@ def find_merge_candidates(polygons: List[Polygon], tol: float) -> List[List[int]
         Lists of polygon indices representing connected components of
         polygons within ``tol`` distance.
     """
+    # Imported here rather than at module scope to keep scipy off the
+    # `import dtcc_core` path. See issue #87.
+    from scipy.sparse import lil_matrix
+    from scipy.sparse.csgraph import connected_components
+
     rtree = shapely.strtree.STRtree(polygons)
     merge_idxs = rtree.query(polygons, predicate="dwithin", distance=tol)
     merge_idxs = merge_idxs.T

@@ -4,7 +4,6 @@ from shapely.geometry import Polygon, MultiPolygon
 from shapely.validation import make_valid
 
 import numpy as np
-from scipy.spatial.transform import Rotation as R
 from shapely.ops import unary_union
 from ...model.geometry import Surface, MultiSurface, PointCloud
 
@@ -309,6 +308,11 @@ def _transform_to_planar(s: Surface) -> (np.ndarray, np.ndarray):
         Forward and inverse 4x4 transforms (to planar space and back). Returns
         ``(None, None)`` if the surface normal is zero.
     """
+    # Imported here rather than at module scope: pulling in scipy.spatial costs
+    # well over half the time of `import dtcc_core`, and this is the only place
+    # in the package start-up path that needs it. See issue #87.
+    from scipy.spatial.transform import Rotation as R
+
     z_normal = np.array([0, 0, 1])
     normal = s.calculate_normal()
     if np.allclose(normal, 0):

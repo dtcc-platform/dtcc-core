@@ -1,6 +1,3 @@
-import rasterio
-from rasterio.features import rasterize
-
 from ...model import Raster
 from ..register import register_model_method
 from shapely.geometry import Polygon
@@ -28,6 +25,11 @@ def burn_polygons(
     Raster
         Copy of the input raster with polygons burned in.
     """
+    # Imported here rather than at module scope to keep rasterio off the
+    # `import dtcc_core` path. See issue #87.
+    import rasterio
+    from rasterio.features import rasterize
+
     out_raster = raster.copy()
     arr = out_raster.data
 

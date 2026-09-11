@@ -1,15 +1,22 @@
 from ...model import RoadNetwork, GeometryType
 
-from scipy.sparse import csr_matrix
 import numpy as np
 from ..register import register_model_method
 from ...model.geometry import Surface
 
-from typing import Any, Union, List, Tuple
+from typing import TYPE_CHECKING, Any, Union, List, Tuple
+
+if TYPE_CHECKING:
+    from scipy.sparse import csr_matrix
+
+# NOTE: this module must NOT use `from __future__ import annotations`.
+# register_model_method inspects the first parameter's annotation with
+# issubclass(), which requires a real class rather than a string. Defer
+# individual annotations by quoting them instead.
 
 
 @register_model_method
-def to_matrix(roadnetwork: RoadNetwork, bidirectional=True) -> csr_matrix:
+def to_matrix(roadnetwork: RoadNetwork, bidirectional=True) -> "csr_matrix":
     """
     Convert a road network to a sparse adjacency matrix representation.
     
@@ -30,6 +37,10 @@ def to_matrix(roadnetwork: RoadNetwork, bidirectional=True) -> csr_matrix:
         Sparse adjacency matrix where (i,j) entry contains the length of the road
         segment connecting vertices i and j.
     """
+    # Imported here rather than at module scope to keep scipy off the
+    # `import dtcc_core` path. See issue #87.
+    from scipy.sparse import csr_matrix
+
     edges = np.asarray(roadnetwork.edges, dtype=np.int64).reshape((-1, 2))
     weights = np.asarray(roadnetwork.length)
 

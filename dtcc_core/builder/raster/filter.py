@@ -2,7 +2,6 @@ from ...model import Raster, PointCloud
 from ..register import register_model_method
 
 import numpy as np
-import skimage as ski
 
 
 @register_model_method
@@ -31,6 +30,10 @@ def remove_small_masks(raster: Raster, min_size=1, nodata=None) -> Raster:
         nodata = raster.nodata
     if nodata is None:
         raise ValueError("No nodata value provided and raster has no nodata value.")
+    # Imported here rather than at module scope to keep skimage off the
+    # `import dtcc_core` path. See issue #87.
+    import skimage as ski
+
     mask_data = raster.data != nodata
     # inv_mask = 1 - mask_data
     objects = ski.measure.label(mask_data)
@@ -84,6 +87,10 @@ def erode_small_lines(raster: Raster, neighborhood_size=0, nodata=None) -> Raste
         nodata = raster.nodata
     if nodata is None:
         raise ValueError("No nodata value provided and raster has no nodata value.")
+    # Imported here rather than at module scope to keep skimage off the
+    # `import dtcc_core` path. See issue #87.
+    import skimage as ski
+
     mask_data = raster.data != nodata
     if neighborhood_size == 0 or neighborhood_size is None:
         neighborhood_size = None
