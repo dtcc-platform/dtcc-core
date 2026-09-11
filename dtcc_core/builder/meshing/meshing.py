@@ -13,8 +13,6 @@ from ..model_conversion import (
 from dtcc_core.builder.polygons.surface import clean_surface, clean_multisurface
 
 import numpy as np
-from scipy import sparse
-from scipy.sparse.csgraph import connected_components
 from typing import List, Tuple
 from dtcc_core.builder.logging import warning, info
 
@@ -304,6 +302,11 @@ def disjoint_meshes(mesh: Mesh) -> List[Mesh]:
     list[Mesh]
         Meshes, each containing one connected component.
     """
+    # Imported here rather than at module scope to keep scipy off the
+    # `import dtcc_core` path. See issue #87.
+    from scipy import sparse
+    from scipy.sparse.csgraph import connected_components
+
     num_vertices = len(mesh.vertices)
     edges = np.vstack(
         [

@@ -84,6 +84,41 @@ Exit status `0` means all public functions were exercised by tests. A non‑zero
   pip install .
   ```
   
+## Import Time
+
+`import dtcc_core` is kept deliberately cheap, because it runs before any
+useful work in every script, test, and CLI invocation that touches the package.
+
+Measure it with:
+
+```
+python scripts/measure_import_time.py
+```
+
+or `make measure-import-time`. The script reports the wall-clock cost, the
+cumulative cost per top-level package, and the most expensive individual
+imports. Pass `--module dtcc_core.io` to measure a subpackage, and use
+`python -X importtime -c "import dtcc_core"` for the raw trace.
+
+Two rules keep the import from drifting upward:
+
+* **Heavy third-party imports go inside the function that uses them**, not at
+  module scope. This applies to `scipy`, `rasterio`, `rasterstats`, `fiona`,
+  `laspy`, `geopandas`, and `skimage`. A single module-scope `from
+  scipy.spatial.transform import Rotation` once accounted for over half the
+  cost of importing the package, for one call in one function.
+  `tests/test_import_time.py` fails if any of them reach `sys.modules` on a
+  bare import.
+
+* **A module using `@register_model_method` must be imported eagerly.** Those
+  decorators attach methods to model classes as an import side effect, so
+  deferring such a module silently removes public API — `Raster.slope_aspect()`
+  and eleven siblings went missing this way. `tests/test_model_methods.py`
+  pins the expected method set per class. Note also that such a module cannot
+  use `from __future__ import annotations`: `register_model_method` resolves
+  the first parameter's annotation with `issubclass()`, which needs a real
+  class rather than a string. Quote individual annotations instead.
+
 ### Makefile shortcuts
 
 If you have `make` available, you can use these shortcuts from the repository root:
@@ -93,3 +128,4 @@ If you have `make` available, you can use these shortcuts from the repository ro
 - `make coverage` — run tests with coverage and write `tests/coverage.json`.
 - `make check-public-api` — check that all public API functions were executed.
 - `make verify-public-api` — run coverage and then the public API check.
+- `make measure-import-time` — report the cost of `import dtcc_core`.
