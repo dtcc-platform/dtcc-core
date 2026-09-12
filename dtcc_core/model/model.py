@@ -1,7 +1,7 @@
 # Copyright(C) 2023 Dag Wästberg
 # Licensed under the MIT License
 
-from abc import ABC, abstractmethod
+from abc import ABC
 import builtins
 import importlib
 from dataclasses import dataclass, field
@@ -15,29 +15,50 @@ from ..common import warning
 class Model(ABC):
     """Base class for all DTCC Model classes."""
 
-    @abstractmethod
-    def to_proto(self):
-        """
-        Convert the model to its protobuf representation.
+    @property
+    def schema_id(self):
+        """Root semantic schema ID; None selects the bundled default.
 
-        Returns
-        -------
-        google.protobuf.message.Message
-            Protobuf message encoding the model.
+        This is root I/O metadata, independent of Object domain-profile labels.
+        It is consulted at canonical and strict CityJSON I/O boundaries.
+        Only the canonical format persists the declaration.
         """
-        pass
+        return getattr(self, '_schema_id', None)
 
-    @abstractmethod
-    def from_proto(self, pb):
-        """
-        Populate the model from a protobuf message.
+    @schema_id.setter
+    def schema_id(self, value):
+        self._schema_id = value
 
-        Parameters
-        ----------
-        pb : google.protobuf.message.Message or bytes
-            Serialized or in-memory protobuf message representing the model.
+    @property
+    def schema_version(self):
+        """Root semantic schema version, paired with schema_id."""
+        return getattr(self, '_schema_version', None)
+
+    @schema_version.setter
+    def schema_version(self, value):
+        self._schema_version = value
+
+    def to_proto(self, *, validate_schema=True):
+        """Return the ModelFile message defined by dtcc.proto.
+
+        Uses the same admission and default schema validation as .dtcc files.
         """
-        pass
+        from .exchange import _encode_model
+        return _encode_model(self, validate_schema=validate_schema)
+
+    def from_proto(self, pb, *, validate_schema=True):
+        """Replace this model from a ModelFile message or its binary bytes.
+
+        Invalid data or a different concrete root type leaves this model intact.
+        """
+        from .exchange import _decode_model, SUPPORTED_ROOTS
+        if type(self) not in SUPPORTED_ROOTS:
+            raise NotImplementedError(f'Protobuf model {type(self).__name__} is unsupported')
+        restored, _ = _decode_model(pb, validate_schema=validate_schema)
+        if type(restored) is not type(self):
+            raise ValueError(f'Expected {type(self).__name__}, received {type(restored).__name__}')
+        self.__dict__.clear()
+        self.__dict__.update(restored.__dict__)
 
     def to_json(self) -> str:
         """Return a JSON representation of the object.
@@ -99,9 +120,11 @@ class Model(ABC):
         return context.manifest()
 
     def export(self, *args, **kwargs):
-        """Export a Dataset v2 object package.
+        """Export an object package with its attached ``DatasetContext``.
 
-        Requires this object to carry ``DatasetContext`` from a dataset call.
+        Pass ``canonical=True`` for a canonical v3 package of the supported model
+        subset. ``format`` then selects an optional supplemental artifact. The
+        default remains legacy v2 while producers and consumers migrate.
         """
         from dtcc_core.datasets.package import export_model_package
 

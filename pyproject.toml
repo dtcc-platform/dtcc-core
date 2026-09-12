@@ -12,7 +12,7 @@ dependencies = [
     "meshio >= 5.0.0, < 6.0.0",
     "numpy >= 1.20.0, < 3.0.0",
     "pillow >= 9.0.0, < 12.0.0",
-    "protobuf >= 5.0.0, < 6.0.0",
+    "protobuf >= 5.29.0, < 6.0.0",
     "psutil",
     "pyassimp",
     "pybind11",
@@ -33,6 +33,8 @@ dependencies = [
     "h5py == 3.16.0",
     "polyforge == 0.1.0a9",
     "pydantic>=2.12.5",
+    "linkml==1.11.1",
+    "linkml-runtime==1.11.1",
     "rich>=13.0.0",
     "dtcc-mesher @ git+https://github.com/dtcc-platform/dtcc-mesher.git@7ada8a89c98dbbedc34213387ee598bd92826f10",
 ]

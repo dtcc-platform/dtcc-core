@@ -7,6 +7,8 @@ import numpy as np
 import h5py
 import re
 from pathlib import Path
+from functools import partial
+from .model import load_model, save_model
 from os.path import splitext, basename
 from xml.sax.saxutils import quoteattr
 
@@ -46,28 +48,12 @@ def has_assimp():
     return HAS_ASSIMP
 
 
-def _load_proto_mesh(path):
-    with open(path, "rb") as f:
-        mesh = Mesh()
-        mesh.from_proto(f.read())
-    return mesh
 
 
-def _load_proto_volume_mesh(path):
-    with open(path, "rb") as f:
-        volume_mesh = VolumeMesh()
-        volume_mesh.from_proto(f.read())
-    return volume_mesh
 
 
-def _save_proto_mesh(mesh, path):
-    with open(path, "wb") as f:
-        f.write(mesh.to_proto().SerializeToString())
 
 
-def _save_proto_volume_mesh(volume_mesh, path):
-    with open(path, "wb") as f:
-        f.write(volume_mesh.to_proto().SerializeToString())
 
 
 def _load_meshio_mesh(path):
@@ -649,8 +635,7 @@ def _save_assimp_mesh(mesh, path):
 
 _load_formats = {
     Mesh: {
-        ".pb": _load_proto_mesh,
-        ".pb2": _load_proto_mesh,
+        ".dtcc": partial(load_model, expected_type=Mesh),
         ".obj": _load_meshio_mesh,
         ".ply": _load_meshio_mesh,
         ".stl": _load_meshio_mesh,
@@ -659,8 +644,7 @@ _load_formats = {
         ".xdmf": _load_meshio_mesh,
     },
     VolumeMesh: {
-        ".pb": _load_proto_volume_mesh,
-        ".pb2": _load_proto_volume_mesh,
+        ".dtcc": partial(load_model, expected_type=VolumeMesh),
         ".obj": _load_meshio_volume_mesh,
         ".ply": _load_meshio_volume_mesh,
         ".stl": _load_meshio_volume_mesh,
@@ -681,8 +665,7 @@ _load_formats = {
 
 _save_formats = {
     Mesh: {
-        ".pb": _save_proto_mesh,
-        ".pb2": _save_proto_mesh,
+        ".dtcc": save_model,
         ".obj": _save_meshio_mesh,
         ".ply": _save_meshio_mesh,
         ".stl": _save_meshio_mesh,
@@ -694,8 +677,7 @@ _save_formats = {
         ".xdmf": _save_xdmf_mesh,
     },
     VolumeMesh: {
-        ".pb": _save_proto_volume_mesh,
-        ".pb2": _save_proto_volume_mesh,
+        ".dtcc": save_model,
         ".obj": _save_meshio_volume_mesh,
         ".ply": _save_meshio_volume_mesh,
         ".stl": _save_meshio_volume_mesh,
@@ -722,9 +704,11 @@ if HAS_ASSIMP:
     )
 
 
-def load_mesh(path):
+def load_mesh(path, **kwargs):
     """
     Load a surface mesh from file.
+
+    For canonical .dtcc input, validate_schema=False bypasses semantic evaluation.
 
     Parameters
     ----------
@@ -736,10 +720,10 @@ def load_mesh(path):
     Mesh
         Loaded mesh instance.
     """
-    return generic.load(path, "mesh", Mesh, _load_formats)
+    return generic.load(path, "mesh", Mesh, _load_formats, **kwargs)
 
 
-def load_volume_mesh(path):
+def load_volume_mesh(path, **kwargs):
     """
     Load a volume mesh from file.
 
@@ -753,7 +737,7 @@ def load_volume_mesh(path):
     VolumeMesh
         Loaded volume mesh instance.
     """
-    return generic.load(path, "mesh", VolumeMesh, _load_formats)
+    return generic.load(path, "mesh", VolumeMesh, _load_formats, **kwargs)
 
 
 def load_mesh_as_city(
@@ -786,9 +770,11 @@ def load_mesh_as_city(
     )
 
 
-def save(mesh, path):
+def save(mesh, path, **kwargs):
     """
     Save a mesh to a file
+
+    For canonical .dtcc output, validate_schema=False bypasses semantic evaluation.
 
     Parameters
     ----------
@@ -797,7 +783,7 @@ def save(mesh, path):
     path : str or Path
         The path to save the mesh to
     """
-    generic.save(mesh, path, "mesh", _save_formats)
+    generic.save(mesh, path, "mesh", _save_formats, **kwargs)
 
 
 def list_io():

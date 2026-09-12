@@ -118,15 +118,6 @@ class FootprintCollection(Model):
             }
         return payload
 
-    def to_proto(self):
-        raise NotImplementedError(
-            "FootprintCollection protobuf serialization is not implemented."
-        )
-
-    def from_proto(self, pb):
-        raise NotImplementedError(
-            "FootprintCollection protobuf deserialization is not implemented."
-        )
 
     def plot(
         self,
@@ -243,16 +234,6 @@ class BuildingCollection(Model):
         """
         return FootprintCollection.from_buildings(self.buildings, geom_type, z=z)
 
-    def to_proto(self):
-        raise NotImplementedError(
-            "BuildingCollection protobuf serialization is not implemented."
-        )
-
-    def from_proto(self, pb):
-        raise NotImplementedError(
-            "BuildingCollection protobuf deserialization is not implemented."
-        )
-
 
 @dataclass
 class TreeCollection(Model):
@@ -293,15 +274,6 @@ class TreeCollection(Model):
         """Return bounds spanning all tree positions."""
         return _bounds_for_points(self.to_arrays())
 
-    def to_proto(self):
-        raise NotImplementedError(
-            "TreeCollection protobuf serialization is not implemented."
-        )
-
-    def from_proto(self, pb):
-        raise NotImplementedError(
-            "TreeCollection protobuf deserialization is not implemented."
-        )
 
     def plot(
         self,
@@ -528,15 +500,6 @@ class CalibrationGrid(Model):
             metadata["crs"] = self.crs
         return metadata
 
-    def to_proto(self):
-        raise NotImplementedError(
-            "CalibrationGrid protobuf serialization is not implemented."
-        )
-
-    def from_proto(self, pb):
-        raise NotImplementedError(
-            "CalibrationGrid protobuf deserialization is not implemented."
-        )
 
     def plot(
         self,

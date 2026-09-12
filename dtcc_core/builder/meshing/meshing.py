@@ -16,6 +16,7 @@ import numpy as np
 from scipy import sparse
 from scipy.sparse.csgraph import connected_components
 from typing import List, Tuple
+from copy import deepcopy
 from dtcc_core.builder.logging import warning, info
 
 from .backends import resolve_2d_mesher
@@ -73,7 +74,18 @@ def mesh_multisurface(
     -------
     Mesh
         Triangular mesh representation of the MultiSurface.
+
+    Notes
+    -----
+    Semantic regions are copied and reindexed onto output triangles. This path
+    preserves the enclosing transform and leaves the input unchanged. It requires
+    nonzero-area rings and surfaces in the enclosing coordinate frame; cleaning,
+    welding/snapping and attached field interpolation are not supported.
     """
+    if ms is not None and any(surface.regions for surface in ms.surfaces):
+        raise NotImplementedError("Semantic regions must belong to the MultiSurface, not its individual surfaces")
+    if ms is not None and ms.regions:
+        return _mesh_surface_collection(ms, triangle_size, weld, snap, clean, mesher)
     if clean:
         ms = clean_multisurface(ms)
     if ms is None:
@@ -100,6 +112,53 @@ def mesh_multisurface(
     )
     mesh = builder_mesh_to_mesh(builder_mesh)
     return mesh
+
+
+def _mesh_surface_collection(ms, triangle_size, weld, snap, clean, mesher):
+    """Triangulate a Solid or semantic MultiSurface, transferring membership."""
+    from ...model import exchange
+
+    # A public numerical operation accepts mutable native input. Reuse canonical
+    # admission for this supported subset rather than duplicating region rules.
+    exchange.validate(ms)
+    if any(surface.regions for surface in ms.surfaces):
+        raise NotImplementedError("Semantic regions must belong to the enclosing geometry, not its individual surfaces")
+    if clean or weld or snap != 0:
+        raise NotImplementedError("Meshing semantic regions with cleaning, welding or snapping needs a face mapping")
+    if ms.fields or ms.dataset_context is not None:
+        raise NotImplementedError("Meshing semantic regions cannot transfer fields or Dataset Context")
+    for surface in ms.surfaces:
+        if surface.fields:
+            raise NotImplementedError("Meshing semantic regions cannot interpolate surface fields")
+        if (not np.array_equal(surface.transform.affine, np.eye(4))
+                or surface.transform.srs not in ('', ms.transform.srs)):
+            raise NotImplementedError("Meshing semantic regions requires surfaces in their enclosing geometry frame")
+        for ring in ([surface.vertices] + surface.holes) if surface.vertices.size else []:
+            local = ring - ring[0]
+            area_vector = np.cross(local, np.roll(local, -1, axis=0)).sum(axis=0)
+            if not np.any(area_vector):
+                raise ValueError("Meshing semantic regions requires nonzero-area polygon rings")
+    active_mesher = resolve_2d_mesher(mesher)
+    meshes, offsets = [], [0]
+    for surface_index, surface in enumerate(ms.surfaces):
+        # Backends may calculate/store normals. Keep the source model untouched.
+        try:
+            mesh = mesh_surface(surface.copy(), triangle_size=triangle_size, mesher=active_mesher)
+        except RuntimeError as exc:
+            raise RuntimeError(f"Meshing surface {surface_index} failed: {exc}") from exc
+        if surface.vertices.size and not len(mesh.faces):
+            raise ValueError("Meshing produced no triangles for a nonempty semantic surface")
+        meshes.append(mesh)
+        offsets.append(offsets[-1] + len(mesh.faces))
+    # Unwelded merge concatenates triangles in input order. Regions are attached
+    # afterwards, so no semantic facts cross the geometry-only C++ adapter.
+    result = merge_meshes([mesh for mesh in meshes if len(mesh.faces)]) if offsets[-1] else Mesh()
+    result.transform = deepcopy(ms.transform)
+    result.regions = deepcopy(ms.regions)
+    for region in result.regions:
+        spans = [np.arange(offsets[i], offsets[i + 1], dtype=np.int64) for i in region.indices]
+        region.indices = np.concatenate(spans) if spans else np.empty(0, dtype=np.int64)
+    return result
 
 
 def mesh_surface(
@@ -130,6 +189,8 @@ def mesh_surface(
     Mesh
         Triangular mesh representation of the Surface.
     """
+    if s.regions:
+        raise NotImplementedError("Semantic regions must belong to a MultiSurface for triangulation")
     if clean:
         s = clean_surface(s)
         if s is None:
@@ -178,8 +239,18 @@ def mesh_multisurfaces(
     -------
     list[Mesh]
         Meshes corresponding to each input MultiSurface.
+
+    Notes
+    -----
+    Inputs with semantic regions use the same preservation rules as
+    ``mesh_multisurface`` and currently require ``min_mesh_angle=20.7``.
     """
 
+    if any(ms.regions or any(s.regions for s in ms.surfaces) for ms in multisurfaces):
+        if min_mesh_angle != 20.7:
+            raise NotImplementedError("Batch meshing semantic regions currently requires the default minimum mesh angle")
+        return [mesh_multisurface(ms, triangle_size=max_mesh_edge_size, weld=weld,
+                                 clean=clean, mesher=mesher) for ms in multisurfaces]
     if clean:
         multisurfaces = [clean_multisurface(ms) for ms in multisurfaces]
         multisurfaces = [ms for ms in multisurfaces if ms is not None]

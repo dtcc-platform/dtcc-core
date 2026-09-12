@@ -136,7 +136,9 @@ class VertexIndexer:
             q = np.ceil(q)
         else:
             raise ValueError(f"Unknown rounding_mode: {rounding_mode}")
-        return q.astype(int)
+        if not np.isfinite(q).all() or (q < -(2.0**63)).any() or (q >= 2.0**63).any():
+            raise ValueError("Quantized coordinates exceed signed 64-bit integer range")
+        return q.astype(np.int64)
 
     def add_points(self, points: np.ndarray, factor: float, rounding_mode: str = "round") -> List[int]:
         """
@@ -256,10 +258,14 @@ def convert_multisurface(
         semantic_surfaces.append({"type": config.semantic_types["surface"]})
         semantic_values.append(i)
 
+    semantics = {"surfaces": semantic_surfaces, "values": semantic_values}
+    if multisurface.regions:
+        from .semantics import write_regions
+        semantics = write_regions(multisurface.regions, len(multisurface.surfaces))
     return {
         "type": "MultiSurface",
         "boundaries": boundaries,
-        "semantics": {"surfaces": semantic_surfaces, "values": semantic_values},
+        "semantics": semantics,
     }
 
 
@@ -287,10 +293,14 @@ def convert_mesh(
     semantic_surfaces = [{"type": config.semantic_types["surface"]}] * len(mesh.faces)
     semantic_values = list(range(len(mesh.faces)))
 
+    semantics = {"surfaces": semantic_surfaces, "values": semantic_values}
+    if mesh.regions:
+        from .semantics import write_regions
+        semantics = write_regions(mesh.regions, len(mesh.faces))
     return {
         "type": "MultiSurface",
         "boundaries": boundaries,
-        "semantics": {"surfaces": semantic_surfaces, "values": semantic_values},
+        "semantics": semantics,
     }
 
 

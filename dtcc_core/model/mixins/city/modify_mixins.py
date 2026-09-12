@@ -20,7 +20,7 @@ class CityModifyingMixin:
         keep_roof_points=False,
     ) -> "T_City":
         """
-        Calculate building heights from point cloud and set as building attribute.
+        Calculate estimated_height from point cloud, preserving measured_height.
 
         Args:
             self (City): The city object to modify.

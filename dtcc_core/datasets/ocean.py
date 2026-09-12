@@ -693,14 +693,14 @@ class OceanDataset(DatasetDescriptor):
             point.fields = []
 
             for fname, (val, unit, _qual, _timestamp) in data["fields"].items():
-                field = DtccField()
+                field = DtccField(association="sample")
                 field.name = fname
                 field.unit = unit
                 field.dim = 1
                 field.values = np.array([val], dtype=np.float32)
                 point.fields.append(field)
 
-            station.geometry["location"] = point
+            station.add_geometry(point, "location")
             sensor_collection.add_station(station)
 
         sensor_collection.calculate_bounds()

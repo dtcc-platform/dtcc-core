@@ -1,4 +1,6 @@
 import json
+import math
+import numpy as np
 import zipfile
 from pathlib import Path
 from typing import Dict, List
@@ -76,9 +78,14 @@ def to_cityjson_terrain_mesh(
 
 
 def to_cityjson(
-    city: City, scale: float = 0.001, config: CityJSONConfig = None
+    city: City, scale: float = 0.001, config: CityJSONConfig = None, *, strict=False,
+    validate_schema=None
 ) -> Dict:
     """Convert a DTCC City to CityJSON format.
+
+    Strict mode evaluates the root's selected standard schema by default.
+    validate_schema=False skips only semantics; explicit True requires strict=True.
+    The native schema declaration is consulted but not encoded in CityJSON.
 
     Parameters
     ----------
@@ -94,10 +101,21 @@ def to_cityjson(
     Dict
         CityJSON formatted dictionary
     """
+    from .admission import schema_validation
+    validate_schema = schema_validation(strict, validate_schema)
     config = config or CityJSONConfig()
+    if strict:
+        from .admission import validate_export
+        from ...model.exchange import _schema_for_model
+        from ...model._standard_schema import validate_admitted
+        validate_export(city)
+        schema_id, schema_version = _schema_for_model(city)
+        if validate_schema:
+            validate_admitted(city, schema_id, schema_version)
+        city.calculate_bounds()  # Public arrays may have changed since the cache was computed.
 
     # Validate scale
-    if scale <= 0 or not (scale == scale):
+    if scale <= 0 or not math.isfinite(scale):
         raise ValueError("Transform scale must be a positive finite number")
 
     # Initialize CityJSON structure
@@ -128,56 +146,96 @@ def to_cityjson(
             crs = None
         if not crs and hasattr(city, "attributes"):
             crs = city.attributes.get("crs")
+        if strict:
+            crs = city.transform.srs
         if crs:
             cityjson["metadata"]["referenceSystem"] = crs
+
+    if strict and city.transform.srs:
+        cityjson.setdefault('metadata', {})['referenceSystem'] = city.transform.srs
 
     # Quantization factor for integer vertices
     quantize_factor = 1.0 / scale
     indexer = VertexIndexer()
     vertices = indexer.vertices  # keep alias for converters that expect a list
 
-    # Process buildings deterministically
-    if Building in city.children:
-        buildings = list(city.children[Building])
-        buildings.sort(key=lambda b: getattr(b, "id", ""))
+    # Use the same recursive traversal for legacy and strict exports.
+    def add_feature(feature, parent=None):
+        if strict:
+            from .admission import feature_type
+            name = feature_type(feature)
+        else:
+            name = type(feature).__name__
+        from .attributes import write_attributes
+        data = {"type": name, "attributes": write_attributes(feature.attributes, name), "geometry": []}
+        if parent is not None:
+            data["parents"] = [parent.id]
+        parts = sorted(feature.children.get(BuildingPart, []), key=lambda p: p.id)
+        if parts:
+            data["children"] = [part.id for part in parts]
+        if strict:
+            from .converters import convert_multisurface, convert_mesh
+            from ...model import Solid, Point, Mesh, MultiLineString
+            for record in feature.geometry.values():
+                geometry = record.geometry
+                if type(geometry) is Point:
+                    indices = indexer.add_points(np.array([[geometry.x, geometry.y, geometry.z]]),
+                                                 quantize_factor, config.rounding_mode)
+                    data['geometry'].append({'type': 'MultiPoint', 'lod': record.lod, 'boundaries': indices})
+                    continue
+                if type(geometry) is MultiLineString:
+                    boundaries = []
+                    for line in geometry.linestrings:
+                        indices = indexer.add_points(line.vertices, quantize_factor, config.rounding_mode)
+                        if len(set(indices)) < 2 and len(np.unique(line.vertices, axis=0)) >= 2:
+                            raise ValueError('Requested CityJSON quantization collapses a line')
+                        boundaries.append(indices)
+                    data['geometry'].append({'type': 'MultiLineString', 'lod': record.lod,
+                                             'boundaries': boundaries})
+                    continue
+                if type(geometry) is Mesh:
+                    encoded = convert_mesh(geometry, vertices, quantize_factor, config, indexer=indexer)
+                    encoded['type'] = 'CompositeSurface'
+                    encoded['lod'] = record.lod
+                    # No relief surface vocabulary is asserted in this subset.
+                    del encoded['semantics']
+                    if any(len(set(polygon[0])) != 3 for polygon in encoded['boundaries']):
+                        raise ValueError('Requested CityJSON quantization collapses a TINRelief triangle')
+                    data['geometry'].append(encoded)
+                    continue
+                # The converter uses the shared polygon/region representation;
+                # Solid shells are restored explicitly below.
+                encoded = convert_multisurface(geometry, vertices, quantize_factor, config, indexer=indexer)
+                encoded['lod'] = record.lod
+                from .admission import COMPOSITE_SURFACE_ROLE
+                if record.role == COMPOSITE_SURFACE_ROLE:
+                    encoded['type'] = 'CompositeSurface'
+                for surface, polygon in zip(geometry.surfaces, encoded['boundaries']):
+                    for source_ring, ring in zip([surface.vertices, *surface.holes], polygon):
+                        if len(set(ring)) < 3 and len(np.unique(source_ring, axis=0)) >= 3:
+                            raise ValueError('Requested CityJSON quantization collapses a polygon ring')
+                if not geometry.regions:
+                    encoded['semantics'] = {'surfaces': [], 'values': [None] * len(geometry.surfaces)}
+                if type(geometry) is Solid:
+                    encoded['type'] = 'Solid'
+                    flat = encoded['boundaries']
+                    encoded['boundaries'] = [[flat[i] for i in shell] for shell in geometry.shells]
+                    values = encoded['semantics']['values']
+                    encoded['semantics']['values'] = [[values[i] for i in shell] for shell in geometry.shells]
+                data['geometry'].append(encoded)
+        else:
+            _add_object_geometries(feature, data, vertices, quantize_factor, config, indexer=indexer)
+        cityjson["CityObjects"][feature.id] = data
+        for part in parts:
+            add_feature(part, feature)
 
-        for building in buildings:
-            building_data = {
-                "type": "Building",
-                "attributes": building.attributes.copy(),
-                "geometry": [],
-            }
-
-            # Process BuildingParts deterministically
-            if building.children and BuildingPart in building.children:
-                building_data["children"] = []
-                parts = list(building.children[BuildingPart])
-                parts.sort(key=lambda p: getattr(p, "id", ""))
-                for part in parts:
-                    part_data = {
-                        "type": "BuildingPart",
-                        "attributes": part.attributes.copy(),
-                        "geometry": [],
-                        "parents": [building.id],
-                    }
-
-                    # Add geometries from the part
-                    _add_object_geometries(
-                        part, part_data, vertices, quantize_factor, config, indexer=indexer
-                    )
-
-                    cityjson["CityObjects"][part.id] = part_data
-                    building_data["children"].append(part.id)
-
-            # Add geometries directly attached to the building
-            _add_object_geometries(
-                building, building_data, vertices, quantize_factor, config, indexer=indexer
-            )
-
-            cityjson["CityObjects"][building.id] = building_data
+    roots = ([child for group in city.children.values() for child in group]
+             if strict else city.children.get(Building, []))
+    for feature in sorted(roots, key=lambda b: b.id):
+        add_feature(feature)
 
     # Process terrain deterministically
-    if Terrain in city.children:
+    if not strict and Terrain in city.children:
         terrains = list(city.children[Terrain])
         terrains.sort(key=lambda t: getattr(t, "id", ""))
         for terrain in terrains:
@@ -212,8 +270,16 @@ def _add_object_geometries(
     config = config or CityJSONConfig()
 
     # Iterate deterministically by geometry type
-    for geom_type in sorted(list(obj.geometry.keys()), key=lambda gt: getattr(gt, "name", str(gt))):
-        geometry = obj.geometry.get(geom_type)
+    for key, record in sorted(obj.geometry.items()):
+        geometry = record.geometry
+        geom_type = GeometryType.from_str('lod' + record.lod) if record.lod in ('0', '1', '2', '3') else record.role
+        if record.lod is not None and record.lod not in ('0', '1', '2', '3'):
+            raise NotImplementedError('Fractional LoD requires strict CityJSON export')
+        if record.role is not None:
+            try:
+                geom_type = GeometryType.from_str(record.role)
+            except ValueError:
+                raise NotImplementedError(f'No legacy CityJSON mapping for role {record.role!r}')
         if geometry is None:
             continue
 
@@ -264,8 +330,13 @@ def save(
     config: CityJSONConfig = None,
     indent: int | None = 2,
     ensure_ascii: bool = False,
+    strict: bool = False,
+    validate_schema=None,
 ):
     """Save a city to a CityJSON file.
+
+    Strict mode validates the selected standard schema before opening the output.
+    Pass validate_schema=False to skip semantics, retaining strict format checks.
 
     Parameters
     ----------
@@ -287,7 +358,8 @@ def save(
     ValueError
         If the file format is not supported
     """
-    cj = to_cityjson(city, scale=scale, config=config)
+    cj = to_cityjson(city, scale=scale, config=config, strict=strict,
+                     validate_schema=validate_schema)
     path = Path(path)
 
     suffix = path.suffix.lower()

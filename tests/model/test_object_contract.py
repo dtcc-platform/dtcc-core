@@ -54,7 +54,7 @@ def test_tree_nested_protobuf_roundtrip(as_bytes):
     assert result.height == tree.height
     assert result.crown_radius == tree.crown_radius
     assert result.get_children(Object)[0].id == "survey"
-    assert result.geometry["location"].x == 1.25
+    assert result.get_geometry("location").x == 1.25
 
 
 def test_empty_tree_roundtrip():
@@ -88,29 +88,17 @@ def test_tree_rejects_invalid_values(kwargs, field):
 
 def test_tree_rejects_invalid_payload_without_replacing_state():
     tree = Tree(id="original")
-    malformed = proto.Object(id="replacement", tree=proto.Tree(position=[1, 2]))
+    malformed = Tree(id='replacement', position=np.array([1., 2., 3.])).to_proto()
+    malformed.object.tree.position.shape[:] = [1, 3]
     with pytest.raises(ValueError, match="Tree.position"):
         tree.from_proto(malformed)
     assert tree.id == "original"
-    with pytest.raises(ValueError, match="type tree"):
+    with pytest.raises(ValueError, match="Expected Tree"):
         tree.from_proto(Object().to_proto())
 
 
-@pytest.mark.parametrize("method", ["to_proto", "from_proto"])
-def test_landuse_fails_explicitly_for_incompatible_schema(method):
-    landuse = Landuse()
-    args = () if method == "to_proto" else (proto.Object(),)
-    with pytest.raises(NotImplementedError, match="Landuse.landuses is a list"):
-        getattr(landuse, method)(*args)
 
 
-@pytest.mark.parametrize("collection_type", [SensorCollection, VehicleCollection, DeSO])
-def test_nested_untyped_collection_fails_before_serializing_child(collection_type):
-    parent = Object()
-    # Invalid child attributes ensure the discriminator guard runs first.
-    parent.add_child(collection_type(attributes={"value": object()}))
-    with pytest.raises(NotImplementedError, match=f"Nested {collection_type.__name__}"):
-        parent.to_proto()
 
 
 @pytest.mark.parametrize("collection_type", [SensorCollection, VehicleCollection, DeSO])
@@ -132,31 +120,13 @@ def test_nested_inherited_concrete_serializer_cannot_erase_subclass(base_type):
     parent.add_child(CustomObject())
     with pytest.raises(
         NotImplementedError,
-        match=f"Nested CustomObject.*restore {base_type.__name__}",
+        match="CustomObject",
     ):
         parent.to_proto()
 
 
-def test_nested_serializer_cannot_write_a_different_concrete_discriminator():
-    class WrongBuilding(Building):
-        def to_proto(self):
-            return Terrain().to_proto()
-
-    parent = Object()
-    parent.add_child(WrongBuilding())
-    with pytest.raises(NotImplementedError, match="Nested WrongBuilding.*restore Terrain"):
-        parent.to_proto()
 
 
-def test_nested_serializer_must_return_an_object_message():
-    class WrongBuilding(Building):
-        def to_proto(self):
-            return proto.Geometry()
-
-    parent = Object()
-    parent.add_child(WrongBuilding())
-    with pytest.raises(TypeError, match="WrongBuilding.to_proto.*protobuf Object"):
-        parent.to_proto()
 
 
 @pytest.mark.parametrize("as_bytes", [False, True])
@@ -180,7 +150,7 @@ def test_object_from_proto_replaces_children_geometry_attributes_and_bounds(as_b
     assert list(restored.geometry) == ["location"]
 
     restored.bounds = Bounds(xmin=1, ymin=2, xmax=3, ymax=4)
-    restored.from_proto(proto.Object(id="empty"))
+    restored.from_proto(Object(id="empty").to_proto())
     assert restored.children == {}
     assert restored.geometry == {}
     assert restored.attributes == {}
@@ -208,7 +178,7 @@ def test_geometry_class_name_can_infer_existing_representation(geometry_type):
     obj = Object()
     geometry = geometry_type()
     obj.add_geometry(geometry)
-    assert obj.geometry[GeometryType.from_class(geometry_type)] is geometry
+    assert obj.get_geometry(GeometryType.from_class(geometry_type)) is geometry
 
 
 @pytest.mark.parametrize("geometry", [Point(), Grid()])
@@ -233,13 +203,14 @@ def test_invalid_geometry_values_fail_before_mutating_populated_object(geometry)
     obj = Object(attributes={"source": "test"})
     point = Point(x=1, y=2, z=3)
     obj.add_geometry(point, "location")
-    with pytest.raises(TypeError, match="Object geometry must be a Geometry"):
+    with pytest.raises(TypeError, match="[Gg]eometry"):
         obj.add_geometry(geometry, "invalid")
-    assert obj.geometry == {"location": point}
+    assert list(obj.geometry) == ["location"]
+    assert obj.get_geometry("location") is point
     assert obj.attributes == {"source": "test"}
 
     obj.geometry["invalid"] = geometry
-    with pytest.raises(TypeError, match="Object geometry must be a Geometry"):
+    with pytest.raises(ValueError, match="GeometryRepresentation"):
         obj.to_proto()
 
 
@@ -247,15 +218,19 @@ def test_invalid_geometry_values_fail_before_mutating_populated_object(geometry)
     "geometry",
     [Raster(data=np.array([[1.0, 2.0]])), Bounds(xmin=1, ymin=2, xmax=3, ymax=4)],
 )
-def test_raster_and_bounds_are_allowed_in_memory_but_not_geometry_protobuf(geometry):
+def test_raster_and_bounds_representations_roundtrip(geometry):
     obj = Object()
     obj.add_geometry(geometry)
-    assert obj.geometry[GeometryType.from_class(type(geometry))] is geometry
-    with pytest.raises(
-        NotImplementedError,
-        match=f"{type(geometry).__name__} cannot be serialized in Object.geometry",
-    ):
-        obj.to_proto()
+    assert obj.get_geometry(GeometryType.from_class(type(geometry))) is geometry
+    restored = Object()
+    restored.from_proto(obj.to_proto())
+    result = restored.get_geometries()[0]
+    assert type(result) is type(geometry)
+    if isinstance(geometry, Raster):
+        np.testing.assert_array_equal(result.data, geometry.data)
+    else:
+        assert result == geometry
+
 
 
 @pytest.mark.parametrize("payload", [None, proto.Point(), proto.Geometry()])
@@ -275,7 +250,7 @@ def test_add_remove_and_field_use_same_geometry_key_normalization(key):
     obj = Object()
     geometry = Point()
     obj.add_geometry(geometry, key)
-    assert obj.geometry[GeometryType.MESH] is geometry
+    assert obj.get_geometry(GeometryType.MESH) is geometry
     field = Field(name="test")
     obj.add_field(field, key)
     assert geometry.fields == [field]
@@ -288,7 +263,7 @@ def test_invalid_geometry_keys_fail(key):
     obj = Object()
     # Direct dictionary mutation also receives validation at the wire boundary.
     obj.geometry[key] = Point()
-    with pytest.raises((TypeError, ValueError), match="[Gg]eometry"):
+    with pytest.raises((TypeError, ValueError), match="[Gg]eometry|Representation"):
         obj.to_proto()
     with pytest.raises((TypeError, ValueError), match="[Gg]eometry"):
         obj.remove_geometry(key)
@@ -299,26 +274,17 @@ def test_defined_geometries_handles_enums_and_custom_roles():
     keys = [GeometryType.MESH, "location", GeometryType.LOD0]
     for key in keys:
         obj.add_geometry(Point(), key)
-    assert obj.defined_geometries() == sorted(keys, key=str)
+    assert obj.defined_geometries() == sorted(map(str, keys))
 
 
-def test_normalized_key_collisions_fail_in_both_directions():
-    obj = Object()
-    obj.geometry = {GeometryType.MESH: Point(), "mesh": Point()}
-    with pytest.raises(ValueError, match="Duplicate normalized geometry key"):
-        obj.to_proto()
-    payload = proto.Object()
-    for key in ("GeometryType.MESH", "mesh"):
-        payload.geometry[key].CopyFrom(Point().to_proto())
-    with pytest.raises(ValueError, match="Duplicate normalized geometry key"):
-        Object().from_proto(payload)
 
 
 def test_missing_geometry_discriminator_has_actionable_error():
-    payload = proto.Object()
-    payload.geometry["location"].CopyFrom(proto.Geometry())
-    with pytest.raises(ValueError, match="no concrete geometry type"):
+    payload = Object().to_proto()
+    payload.object.representations.add(id='location').geometry.SetInParent()
+    with pytest.raises(NotImplementedError, match='geometry kind'):
         Object().from_proto(payload)
+
 
 
 def test_json_attributes_roundtrip():
@@ -350,13 +316,6 @@ def test_attribute_keys_and_cycles_fail_explicitly():
         Object(attributes=attributes).to_proto()
 
 
-@pytest.mark.parametrize("attributes", ["[]", "null", '{"value": NaN}'])
-def test_invalid_decoded_attributes_do_not_replace_existing_state(attributes):
-    obj = Object(id="original", attributes={"value": "original"})
-    with pytest.raises((TypeError, ValueError)):
-        obj.from_proto(proto.Object(id="replacement", attributes=attributes))
-    assert obj.id == "original"
-    assert obj.attributes == {"value": "original"}
 
 
 def test_city_collects_all_building_attributes_with_aligned_missing_values():

@@ -14,7 +14,6 @@ from ...plotting.style import (
 from .object import Object, GeometryType
 from ..geometry import LineString, MultiLineString
 from ..geometry import Bounds
-from .. import dtcc_pb2 as proto
 
 import numpy as np
 
@@ -77,7 +76,7 @@ class RoadNetwork(Object):
         list[LineString]
             Line strings stored under the MultiLineString geometry, or an empty list.
         """
-        geom = self.geometry.get(GeometryType.MULTILINESTRING)
+        geom = self.get_geometry(GeometryType.MULTILINESTRING)
         if geom is None:
             return []
         return geom.linestrings
@@ -92,7 +91,7 @@ class RoadNetwork(Object):
         MultiLineString or None
             Stored multilinestring geometry if available.
         """
-        geom = self.geometry.get(GeometryType.MULTILINESTRING)
+        geom = self.get_geometry(GeometryType.MULTILINESTRING)
         return geom
 
     @property
@@ -108,7 +107,7 @@ class RoadNetwork(Object):
         """
         if self._bounds is not None:
             return self._bounds
-        geom = self.geometry.get(GeometryType.MULTILINESTRING)
+        geom = self.get_geometry(GeometryType.MULTILINESTRING)
         if geom is None:
             if len(self.vertices) == 0:
                 return Bounds()
@@ -186,7 +185,7 @@ class RoadNetwork(Object):
             lines.append(f"Bounds: {bounds}")
 
         crs = self.transform.srs
-        geom = self.geometry.get(GeometryType.MULTILINESTRING)
+        geom = self.get_geometry(GeometryType.MULTILINESTRING)
         if not crs and geom is not None:
             crs = geom.transform.srs
         if crs:
@@ -438,7 +437,7 @@ class RoadNetwork(Object):
 
     def _plot_crs(self):
         crs = self.transform.srs
-        geom = self.geometry.get(GeometryType.MULTILINESTRING)
+        geom = self.get_geometry(GeometryType.MULTILINESTRING)
         if not crs and geom is not None:
             crs = geom.transform.srs
         return crs
@@ -491,48 +490,7 @@ class RoadNetwork(Object):
         shapely.geometry.MultiLineString or None
             Shapely representation when geometry exists, else ``None``.
         """
-        multilinestring = self.geometry.get(GeometryType.MULTILINESTRING)
+        multilinestring = self.get_geometry(GeometryType.MULTILINESTRING)
         if multilinestring is None:
             return None
         return multilinestring.to_shapely()
-
-    def to_proto(self):
-        """
-        Convert the road network to a protobuf Object message.
-
-        Returns
-        -------
-        proto.Object
-            Serialized road network including vertices, edges, and lengths.
-        """
-        pb = Object.to_proto(self)
-        _pb = proto.RoadNetwork()
-        dim = self.vertices.shape[1] if self.vertices.ndim == 2 else 0
-        _pb.vertices.extend(self.vertices.flatten())
-        _pb.dim = dim
-        _pb.edges.extend(self.edges.flatten())
-        _pb.lengths.extend(self.length.flatten())
-        pb.road_network.CopyFrom(_pb)
-
-        return pb
-
-    def from_proto(self, pb):
-        """
-        Populate the road network from a protobuf Object message.
-
-        Parameters
-        ----------
-        pb : proto.Object or bytes
-            Protobuf message or serialized bytes containing a road network.
-        """
-        if isinstance(pb, bytes):
-            pb = proto.Object.FromString(pb)
-        Object.from_proto(self, pb)
-        _pb = pb.road_network
-        dim = _pb.dim
-        if dim == 0:
-            self.vertices = np.empty((0, 0))
-        else:
-            self.vertices = np.array(_pb.vertices).reshape(-1, dim)
-        self.edges = np.array(_pb.edges).reshape(-1, 2)
-        self.length = np.array(_pb.lengths)

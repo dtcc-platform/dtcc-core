@@ -7,6 +7,25 @@ import numpy as np
 from pathlib import Path
 import json
 import zipfile
+from .attributes import _AttributeNameError
+
+
+
+def _read_json(stream, strict):
+    if not strict:
+        return json.load(stream)
+    from ...model.exchange import MAX_BYTES
+    data = stream.read(MAX_BYTES + 1)
+    if len(data) > MAX_BYTES:
+        raise ValueError("CityJSON input exceeds 256 MiB limit")
+    def unique_pairs(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"Duplicate CityJSON key {key!r}")
+            result[key] = value
+        return result
+    return json.loads(data, object_pairs_hook=unique_pairs)
 
 
 def setup_city(cj_obj: dict):
@@ -61,8 +80,18 @@ def setup_city(cj_obj: dict):
     return city, verts
 
 
-def load(cityjson_path: str | dict) -> City:
-    """Load a CityJSON file into a City object."""
+def load(cityjson_path: str | dict, *, strict=False, extent_policy='validate',
+         validate_schema=None) -> City:
+    """Load CityJSON; strict mode evaluates the default standard schema.
+
+    validate_schema=False bypasses semantics only. Omission follows strict mode;
+    explicit True requires strict=True. Strict imports record the selected schema
+    on the City; the source CityJSON does not declare a DTCC schema version.
+    """
+    from .admission import schema_validation
+    validate_schema = schema_validation(strict, validate_schema)
+    if not strict and extent_policy != 'validate':
+        raise ValueError('extent_policy requires strict CityJSON import')
     try:
         if isinstance(cityjson_path, dict):
             cj = cityjson_path
@@ -77,10 +106,21 @@ def load(cityjson_path: str | dict) -> City:
                     if len(files) != 1 or not files[0].endswith(".json"):
                         raise ValueError("Invalid CityJSON zip file: must contain exactly one .json file")
                     with z.open(files[0]) as f:
-                        cj = json.load(f)
+                        cj = _read_json(f, strict)
             else:
-                with open(cityjson_path, "r", encoding='utf-8') as f:
-                    cj = json.load(f)
+                with open(cityjson_path, "rb") as f:
+                    cj = _read_json(f, strict)
+
+        if strict:
+            from .admission import load_city
+            from ...model.exchange import _schema_for_model
+            from ...model._standard_schema import validate_admitted
+            city = load_city(cj, extent_policy=extent_policy)
+            schema_id, schema_version = _schema_for_model(city)
+            if validate_schema:
+                validate_admitted(city, schema_id, schema_version)
+            city.schema_id, city.schema_version = schema_id, schema_version
+            return city
 
         # Validate CityJSON structure
         if not isinstance(cj, dict):
@@ -101,6 +141,8 @@ def load(cityjson_path: str | dict) -> City:
         if "Building" in root_objects:
             try:
                 set_buildings(cj_obj, root_objects["Building"], verts, city)
+            except _AttributeNameError:
+                raise
             except Exception as e:
                 print(f"Warning: Error processing buildings: {e}")
 
@@ -110,7 +152,7 @@ def load(cityjson_path: str | dict) -> City:
                 tin = get_terrain_mesh(root_objects["TINRelief"], verts)
                 if len(tin.vertices) > 0:
                     terrain = Terrain()
-                    terrain.geometry[GeometryType.MESH] = tin
+                    terrain.add_geometry(tin, GeometryType.MESH)
                     city.children[Terrain].append(terrain)
             except Exception as e:
                 print(f"Warning: Error processing terrain: {e}")

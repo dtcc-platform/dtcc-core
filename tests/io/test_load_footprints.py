@@ -48,7 +48,7 @@ def test_load_with_bounds_filter(building_shp_path, bounds, expected_count):
 
 def test_read_crs(basic_buildings):
     building = basic_buildings[2]
-    srs = building.geometry[GeometryType.LOD0].transform.srs
+    srs = building.get_geometry(GeometryType.LOD0).transform.srs
     assert srs.upper() == "EPSG:3857"
 
 

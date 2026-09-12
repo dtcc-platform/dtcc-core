@@ -33,7 +33,7 @@ def _geometry_roadnetwork():
     line.vertices = np.array([(0, 0), (1, 0), (2, 1)], dtype=float)
     multilinestring = MultiLineString()
     multilinestring.linestrings.append(line)
-    roadnetwork.geometry[GeometryType.MULTILINESTRING] = multilinestring
+    roadnetwork.add_geometry(multilinestring, GeometryType.MULTILINESTRING)
     return roadnetwork
 
 

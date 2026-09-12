@@ -7,8 +7,6 @@ import numpy as np
 
 from ..model import Model
 
-from .. import proto
-
 
 @dataclass
 class Transform(Model):
@@ -104,32 +102,3 @@ class Transform(Model):
             3,
         ), "Rotation matrix should be of shape (3, 3)"
         self.affine[:3, :3] = rotation_matrix
-
-    def to_proto(self) -> proto.Transform:
-        """Return a protobuf representation of the Transform.
-
-        Returns
-        -------
-        proto.Transform
-            A protobuf representation of the Transform.
-        """
-        pb = proto.Transform()
-        pb.srs = self.srs
-        pb.affine.extend(self._validate_affine(self.affine).flatten())
-        return pb
-
-    def from_proto(self, pb: Union[proto.Transform, bytes]):
-        """Initialize Transform from a protobuf representation.
-
-        Parameters
-        ----------
-        pb: Union[proto.Transform, bytes]
-            The protobuf message or its serialized bytes representation.
-        """
-        if isinstance(pb, bytes):
-            pb = proto.Transform.FromString(pb)
-        if len(pb.affine) != 16:
-            raise ValueError("Transform protobuf affine must contain exactly 16 values.")
-        affine = self._validate_affine(np.array(pb.affine).reshape((4, 4)))
-        self.srs = pb.srs
-        self.affine = affine

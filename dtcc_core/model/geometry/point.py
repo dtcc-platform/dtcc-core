@@ -7,7 +7,6 @@ import numpy as np
 
 from .geometry import Geometry
 from .bounds import Bounds
-from .. import dtcc_pb2 as proto
 
 
 @dataclass
@@ -71,44 +70,3 @@ class Point(Geometry):
         self.y += dy
         self.z += dz
         self.calculate_bounds()
-
-    def to_proto(self) -> proto.Geometry:
-        """Return a protobuf representation of the Point.
-
-        Returns
-        -------
-        proto.Geometry
-            A protobuf representation of the Point as a Geometry.
-        """
-        # Handle Geometry fields (bounds, transform, fields)
-        pb = Geometry.to_proto(self)
-
-        # Handle specific fields for Point
-        _pb = proto.Point()
-        _pb.x = self.x
-        _pb.y = self.y
-        _pb.z = self.z
-        pb.point.CopyFrom(_pb)
-
-        return pb
-
-    def from_proto(self, pb: Union[proto.Geometry, bytes]):
-        """Initialize Point from a protobuf representation.
-
-        Parameters
-        ----------
-        pb : Union[proto.Geometry, bytes]
-            The protobuf message or its serialized bytes representation.
-        """
-        # Handle byte representation
-        if isinstance(pb, bytes):
-            pb = proto.Geometry.FromString(pb)
-
-        # Handle Geometry fields (bounds, transform, fields)
-        Geometry.from_proto(self, pb)
-
-        # Handle specific fields for Point
-        _pb = pb.point
-        self.x = _pb.x
-        self.y = _pb.y
-        self.z = _pb.z

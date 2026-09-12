@@ -141,7 +141,7 @@ def make_building(
             make_surface(lod2_polygon, lod2_z if lod2_z is not None else roof_z),
             GeometryType.LOD2,
         )
-    building.attributes["height"] = roof_z
+    building.attributes["estimated_height"] = roof_z
     building.attributes["ground_height"] = 0.0
     return building
 
@@ -4980,7 +4980,7 @@ def test_build_city_mesh_auto_lod_prefers_available_geometry():
         make_surface(box(22, 8, 32, 18), 12.0),
         GeometryType.LOD2,
     )
-    lod2_building.attributes["height"] = 12.0
+    lod2_building.attributes["estimated_height"] = 12.0
     lod2_building.attributes["ground_height"] = 0.0
     lod0_building = make_building(box(36, 8, 46, 18), roof_z=8.0)
 

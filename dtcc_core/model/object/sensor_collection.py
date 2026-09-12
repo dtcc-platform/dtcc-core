@@ -80,7 +80,7 @@ class SensorCollection(Object):
         for station in self.stations():
             # Find Point geometry
             point_geom = None
-            for geom_type, geom in station.geometry.items():
+            for geom in station.get_geometries():
                 if isinstance(geom, Point):
                     point_geom = geom
                     break
@@ -232,7 +232,7 @@ class SensorCollection(Object):
 
     def _first_field_name(self) -> str | None:
         for station in self.stations():
-            for geom in station.geometry.values():
+            for geom in station.get_geometries():
                 fields = getattr(geom, "fields", ())
                 if fields:
                     return fields[0].name
@@ -295,7 +295,7 @@ class SensorCollection(Object):
                         phenomenon = next(iter(pf))
                 if phenomenon is None:
                     for st in stations:
-                        for _k, geom in st.geometry.items():
+                        for geom in st.get_geometries():
                             if hasattr(geom, "fields") and geom.fields:
                                 phenomenon = geom.fields[0].name
                                 break
@@ -327,7 +327,7 @@ class SensorCollection(Object):
 
                 # Get location
                 loc_str = "N/A"
-                for geom_type, geom in station.geometry.items():
+                for geom in station.get_geometries():
                     if hasattr(geom, "x") and hasattr(geom, "y"):
                         loc_str = f"({geom.x:.4f}, {geom.y:.4f})"
                         break
@@ -337,7 +337,7 @@ class SensorCollection(Object):
                 value_str = attrs.get("value", None)
                 unit = attrs.get("unit", "")
                 if value_str is None:
-                    for _gk, geom in station.geometry.items():
+                    for geom in station.get_geometries():
                         if hasattr(geom, "fields") and geom.fields:
                             f = geom.fields[0]
                             v = f.values[0] if len(f.values) > 0 else None

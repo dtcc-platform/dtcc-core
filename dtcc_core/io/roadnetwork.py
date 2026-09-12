@@ -93,7 +93,7 @@ def _load_fiona(filename, id_field="id", round_coordinates=2, load_geometry=True
             ls.from_shapely(g)
             rn_geom.linestrings.append(ls)
 
-        road_network.geometry[GeometryType.MULTILINESTRING] = rn_geom
+        road_network.add_geometry(rn_geom, GeometryType.MULTILINESTRING)
 
     # Set CRS on road network
     set_geometry_crs(road_network, target_crs)
@@ -170,9 +170,7 @@ def to_dataframe(road_network: RoadNetwork, crs=None):
     df = gpd.GeoDataFrame.from_dict(road_network.attributes)
     road_geometry = [
         linestring.to_shapely()
-        for linestring in road_network.geometry[
-            GeometryType.MULTILINESTRING
-        ].linestrings
+        for linestring in road_network.get_geometry(GeometryType.MULTILINESTRING).linestrings
     ]
     df.set_geometry(road_geometry, inplace=True, crs=crs)
     return df

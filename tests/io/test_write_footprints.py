@@ -50,7 +50,7 @@ def test_write_shp_zip(simple_city, loaded_buildings):
 @pytest.mark.parametrize("extension", ["pb", "pb2"])
 def test_footprint_protobuf_save_is_explicitly_unsupported(tmp_path, extension):
     path = tmp_path / f"footprints.{extension}"
-    with pytest.raises(NotImplementedError, match="Footprint protobuf saving"):
+    with pytest.raises(RuntimeError, match="format .pb.*not supported"):
         dtcc_core.io.save_footprints(dtcc_core.model.City(), path)
     assert not path.exists()
 
@@ -59,5 +59,5 @@ def test_footprint_protobuf_save_is_explicitly_unsupported(tmp_path, extension):
 def test_footprint_protobuf_load_is_explicitly_unsupported(tmp_path, extension):
     path = tmp_path / f"footprints.{extension}"
     path.write_bytes(dtcc_core.model.City().to_proto().SerializeToString())
-    with pytest.raises(NotImplementedError, match="Footprint protobuf loading"):
+    with pytest.raises(RuntimeError, match="format .pb.*not supported"):
         dtcc_core.io.load_footprints(path)
