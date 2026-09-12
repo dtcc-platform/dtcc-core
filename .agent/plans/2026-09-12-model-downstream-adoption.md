@@ -1,6 +1,6 @@
 # Adopt the revised model in downstream DTCC packages
 
-Status: in progress. Authority: the user requested principled downstream fixes
+Status: complete locally (13 September 2026). Authority: the user requested principled downstream fixes
 following the local audit of seven sibling repositories. No PLAN_TEMPLATE.md was
 found in this workspace. Core DESIGN.md and the model/package contracts control
 behavior; this milestone does not add a viewer, solver, or CityGML capabilities.
@@ -25,7 +25,7 @@ claimed. Numerical solver verification is limited to available runtimes.
       package, exact download/reload proof, and corrupt-input rejection.
 - [x] Update Atlas format metadata/package consumption and Tangible Twin catalogue,
       importer, and browser package handling using real canonical fixtures.
-- [ ] Coordinate dependency revisions, document consumer responsibilities, review
+- [x] Coordinate dependency revisions, document consumer responsibilities, review
       all changes, and run focused cross-repository regression checks.
 
 ## Verification
@@ -62,8 +62,8 @@ specified verification. Do not expand model scope or publish remote changes.
   after the final publication tests and idempotency change, 91 focused checks
   passed. The model publication workflow and rejection of extra ZIP members are
   covered in Core itself as well as the cross-repository Upload tests.
-- Upload: the full 165-test suite passed before the last catalogue-summary check;
-  final confirmation is pending. Real Core packages, both v2 and v3, traverse the
+- Upload: the final full 165-test suite passed, including the catalogue summary
+  selecting the canonical model rather than its alphabetically first sidecar. Real Core packages, both v2 and v3, traverse the
   authenticated API with exact byte preservation. Real Core publication client
   paths cover directories and ZIP packages, download/reload and corrupted input.
 - Atlas: 226 tests passed after integrating listing, format-choice schema, native
@@ -73,7 +73,8 @@ specified verification. Do not expand model scope or publish remote changes.
   command passed. It produced one .dtcc package without network simulation data
   or publication. 276 browser/CLI tests passed; the additional online canonical
   preview case and affected control-panel tests passed (74 focused checks).
-  Final TypeScript/production-build confirmation is pending.
+  The final complete browser/CLI run passed 277 tests. TypeScript checking and
+  production Vite build passed; the existing large-bundle advisory remains.
 - Real canonical fixture: /private/tmp/dtcc-downstream-contract-20260912.
   Smoke workflow: /private/tmp/dtcc-downstream-smoke-catalog.
 - Bounded work: archive member/size limits and bounded decompression protect the
@@ -83,3 +84,20 @@ specified verification. Do not expand model scope or publish remote changes.
   decoded the native model. Native-only packages have no projector preview.
 - No new production dependencies or production browser model SDK. Existing v2
   artifact workflows remain supported. No service deployment or remote writes.
+
+
+### Local integration
+
+Core runtime/publication revision: `5ca2ca410f24763591dc62c7b61f870cef13f717`.
+Sim (`e24a1f2`) and Atlas (`b201ff8`) both pin that exact revision; Atlas's UV
+source declaration agrees with its project dependency. Upload is `26a53e3` and
+Tangible Twin is `4f49558`. Core's final completion record is documentation-only.
+Upload and Atlas had no configured Git identity, so their commits used the
+identity already configured in Core for those commands only; no global or local
+Git configuration was changed.
+
+All changed-repository diff checks passed. Generated untracked Python caches were
+removed from Tangible Twin; unrelated history images were retained. These are
+local commits only. Publish the Core revision before installing the downstream
+pins from GitHub, then roll out the consumers together. No remote push, service
+publication, deployment, data deletion, or legacy-file migration occurred.

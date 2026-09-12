@@ -1,5 +1,7 @@
 # Downstream adoption of the revised DTCC Model
 
+Status: implemented and verified locally, 13 September 2026.
+
 This milestone updates the existing Core, Sim, Upload, Atlas and Tangible Twin
 workflows for native wire version 6 and standard semantic schema 0.9.0. The native
 format is `dtcc`, suffix `.dtcc`, media type
@@ -63,8 +65,8 @@ The active plan records final verification:
 
 ## Integration and limits
 
-Sim and Atlas must use the same Core revision containing both the model overhaul
-and these publication/format-metadata corrections. Publish that Core revision
+Sim and Atlas both pin Core revision `5ca2ca410f24763591dc62c7b61f870cef13f717`,
+containing both the model overhaul and these publication/format-metadata corrections. Publish that Core revision
 before installing the updated downstream Git dependency pins, then release the
 updated consumers together. Local source verification does not deploy services
 or migrate existing stored legacy Protobuf data.
