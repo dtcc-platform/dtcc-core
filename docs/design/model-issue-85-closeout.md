@@ -1,6 +1,6 @@
 # Model hardening: issue 85 closeout
 
-Status: acceptance verified; local integration pending, 12 September 2026. This assessment applies
+Status: complete locally, 12 September 2026. This assessment applies
 to [issue 85](https://github.com/dtcc-platform/dtcc-core/issues/85), its review
 comments and the user's subsequent explicit format and schema decisions.
 It is the issue acceptance checklist, not a promise to implement all CityGML.
@@ -151,8 +151,11 @@ exchange/profile/package/reprojection paths. Identified blockers were fixed;
 proof of every algorithm or downstream consumer. Earlier timing and real 3DBAG
 evidence remain in the completed exterior-city milestone.
 
-Local integration is the remaining administrative step. No release, remote push,
-GitHub comment or issue creation/closure is part of this local acceptance run.
+The reviewed implementation is integrated locally on `develop` in commit
+`3bbafbe3ba90d38ea89dbf69d13db92df2156dc5`. The unrelated untracked history image was
+preserved. The completion record is a subsequent documentation-only commit.
+No release, remote push, GitHub comment or issue creation/closure was performed;
+the issue is ready for publication of the changes and the closure summary below.
 
 ## Copy-ready GitHub closure summary
 

@@ -1,6 +1,6 @@
 # Close out model hardening issue 85
 
-Status: active. Authority: user agreed to the final issue-closeout milestone after
+Status: complete locally (12 September 2026). Authority: user agreed to the final issue-closeout milestone after
 reviewing the original issue's acceptance criteria. Existing DESIGN.md and the
 model contract control behavior; this plan does not expand the exterior profile.
 
@@ -22,9 +22,9 @@ Do not publish, push, or post GitHub messages as part of this local milestone.
       run a real browser and preserve numerical/semantic/unknown-field failures.
 - [x] Record bounds and transform behavior, exercise mutation/recalculation and
       exchange, and define separately scoped follow-ups for remaining contracts.
-- [ ] Review accumulated implementation, run affected checks and normal examples,
+- [x] Review accumulated implementation, run affected checks and normal examples,
       resolve blockers, and integrate task changes locally while preserving unrelated work.
-- [ ] Record exact verification and completion evidence; prepare issue85 closure
+- [x] Record exact verification and completion evidence; prepare issue85 closure
       summary and actionable follow-up drafts with no implied full CityGML claim.
 
 ## Verification
@@ -48,6 +48,35 @@ These are corrections to current integrity requirements, not new city features.
 No general transform hierarchy, observer framework or metadata transformation
 engine was introduced. Four follow-up drafts bound the remaining broader work.
 Existing milestone plans remain completed historical evidence.
+
+## Completion evidence
+
+- Implementation integrated on `develop` as `3bbafbe3ba90d38ea89dbf69d13db92df2156dc5`; this final
+  plan/closeout record is documentation-only. All reviewed task files were staged
+  explicitly; unrelated `git-loc-history-2026-08-01_21-06-37.png` was excluded.
+- Current acceptance checklist, final contracts and copy-ready closure/follow-up
+  text: `docs/design/model-issue-85-closeout.md`. Four bounded follow-up drafts
+  cover global-frame semantics, empty/intrinsic aggregate extents, production
+  consumers/package adoption and simulation/wrapper meaning. They are local
+  drafts, not published issue numbers.
+- Final affected suite: **1,811 passed, 5 skipped, 53 live tests deselected**,
+  52.84s. Command and log are recorded in the closeout document. Earlier two
+  obsolete normal-preservation expectations were replaced with meaningful
+  fail-closed checks; no final test failures remain.
+- Actual Chromium152 Python/browser/Python under schema0.9.0 passed unchanged and
+  edited values plus semantic, array and unknown-wire failures. JavaScript syntax,
+  Python compilation and staged diff checks passed. Browser fixture expectations
+  now come from the selected Python schema, avoiding duplicated version/URI constants.
+- Grid/VolumeGrid retain explicit and degenerate domains through recursive refresh,
+  resolution edits and persistence. Public reprojection preserves supported bare
+  source state, fails ambiguous/unmapped cases, and cannot silently change integer
+  Z values. Focused spatial/reprojection proofs and independent review passed.
+- Built `/private/tmp/dtcc-issue85-dist/` wheel and installed without new dependencies.
+  Exterior/DEM examples and spatial/reprojection checks passed from outside the
+  checkout; changed installed production files and schema match source bytes.
+- No push, release, external message or GitHub issue mutation. The local test
+  server was stopped after browser verification. Publication/issue closure is
+  a separate authorized action, not an unreported part of this milestone.
 
 ## Independent-agent handoff
 
