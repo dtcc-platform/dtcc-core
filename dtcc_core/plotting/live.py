@@ -185,7 +185,7 @@ def vehicle_positions(vehicles) -> dict[str, tuple[float, float]]:
         point = next(
             (
                 geom
-                for geom in vehicle.geometry.values()
+                for geom in vehicle.get_geometries()
                 if hasattr(geom, "x") and hasattr(geom, "y")
             ),
             None,

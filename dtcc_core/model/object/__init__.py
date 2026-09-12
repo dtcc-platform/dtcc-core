@@ -1,4 +1,5 @@
 from .object import Object, GeometryType
+from .representation import GeometryRepresentation
 from .building import Building, BuildingPart
 from .tree import Tree
 from .dataset_collections import (
@@ -18,6 +19,7 @@ from .deso import DeSO
 __all__ = [
     "Object",
     "GeometryType",
+    "GeometryRepresentation",
     "Building",
     "BuildingPart",
     "BuildingCollection",

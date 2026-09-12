@@ -15,7 +15,7 @@ def _vehicles(*items):
     for vehicle_id, x, y in items:
         vehicle = Object()
         vehicle.attributes = {"vehicle_id": vehicle_id, "mode": "bus"}
-        vehicle.geometry["location"] = Point(x=x, y=y, z=0.0)
+        vehicle.add_geometry(Point(x=x, y=y, z=0.0), "location")
         collection.add_vehicle(vehicle)
     return collection
 

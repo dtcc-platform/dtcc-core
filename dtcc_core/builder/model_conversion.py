@@ -45,6 +45,8 @@ def create_builder_surface(surface: Surface):
         A `DTCC_BUILDER` Surface object.
 
     """
+    if surface.regions:
+        raise NotImplementedError("The C++ geometry adapter cannot preserve semantic regions")
     return _dtcc_builder.create_surface(surface.vertices, surface.holes)
 
 
@@ -64,6 +66,8 @@ def create_builder_multisurface(multisurface: MultiSurface):
         A `DTCC_BUILDER` MultiSurface object.
 
     """
+    if multisurface.regions or any(surface.regions for surface in multisurface.surfaces):
+        raise NotImplementedError("The C++ geometry adapter cannot preserve semantic regions")
     surfaces = [
         _dtcc_builder.create_surface(surface.vertices, surface.holes)
         for surface in multisurface.surfaces
@@ -125,7 +129,10 @@ def create_builder_city(city: City):
         building_holes.append(holes)
 
     uuids = [building.uuid for building in city.buildings]
-    heights = [building.height for building in city.buildings]
+    heights = [
+        building.measured_height if building.estimated_height is None else building.estimated_height
+        for building in city.buildings
+    ]
     ground_levels = [building.ground_level for building in city.buildings]
     origin = city.origin
     return _dtcc_builder.create_city(
@@ -149,6 +156,8 @@ def mesh_to_builder_mesh(mesh:Mesh):
         A DTCC builder Mesh object.
 
     """
+    if mesh.regions:
+        raise NotImplementedError("The C++ geometry adapter cannot preserve semantic regions")
     return _dtcc_builder.create_mesh(mesh.vertices, mesh.faces, mesh.markers)
 
 

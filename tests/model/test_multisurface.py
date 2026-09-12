@@ -5,8 +5,8 @@ from dtcc_core.model import Surface, MultiSurface
 
 @pytest.fixture
 def surface_pair():
-    s1 = Surface(vertices=np.array([[0, 0, 0], [1, 0, 0], [1, 1, 0]]))
-    s2 = Surface(vertices=np.array([[0, 0, 1], [1, 0, 1], [1, 1, 2]]))
+    s1 = Surface(vertices=np.array([[0., 0., 0.], [1., 0., 0.], [1., 1., 0.]]))
+    s2 = Surface(vertices=np.array([[0., 0., 1.], [1., 0., 1.], [1., 1., 2.]]))
     return s1, s2
 
 
@@ -22,7 +22,7 @@ def test_zmax(multi_surface):
 
 def test_to_proto(multi_surface):
     pb = multi_surface.to_proto()
-    assert len(pb.multi_surface.surfaces) == 2
+    assert len(pb.geometry.multi_surface.surfaces) == 2
 
 
 def test_from_proto(multi_surface):

@@ -1009,7 +1009,7 @@ class AirQualityDataset(DatasetDescriptor):
                     point = Point(x=x_out, y=y_out, z=z_out)
 
                     # Create Field with value
-                    field = DtccField()
+                    field = DtccField(association="sample")
                     field.name = args.phenomenon
                     field.unit = unit
                     field.dim = 1
@@ -1019,7 +1019,7 @@ class AirQualityDataset(DatasetDescriptor):
                     point.fields = [field]
 
                     # Add geometry to station
-                    station.geometry["location"] = point
+                    station.add_geometry(point, "location")
 
                     # Add station to collection
                     sensor_collection.add_station(station)

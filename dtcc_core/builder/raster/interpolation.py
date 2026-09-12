@@ -26,7 +26,9 @@ def fill_holes(raster: Raster) -> Raster:
     filled_raster = raster.copy()
     data = filled_raster.data
     nodata = filled_raster.nodata
-    mask = data == nodata
+    mask = np.isnan(data) if np.isnan(nodata) else data == nodata
+    if np.all(mask):
+        raise ValueError("Cannot fill a raster without any valid values")
     if np.any(mask):
         info(f"filling {mask.sum()} holes in raster")
         ind = scipy.ndimage.distance_transform_edt(

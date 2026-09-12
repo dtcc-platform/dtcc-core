@@ -222,7 +222,7 @@ class VehicleCollection(Object):
         )
 
     def _point_geometry(self, vehicle: Object):
-        for geom in vehicle.geometry.values():
+        for geom in vehicle.get_geometries():
             if isinstance(geom, Point):
                 return geom
             if hasattr(geom, "x") and hasattr(geom, "y"):

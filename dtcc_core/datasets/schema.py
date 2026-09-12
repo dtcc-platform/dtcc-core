@@ -91,10 +91,13 @@ class DatasetArtifact(DatasetSchemaModel):
     bounds: list[float] | None = None
     size: int | None = None
     sha256: str | None = None
+    model_type: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    model_schema_version: int | None = Field(default=None, exclude_if=lambda value: value is None)
+    derived_from: str | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class DatasetManifest(DatasetSchemaModel):
-    """Machine-readable Dataset Manifest v2 package contract."""
+    """Machine-readable legacy v2 and canonical v3 package manifest."""
 
     schema_version: str = "dtcc-dataset-manifest-v2"
     identity: DatasetIdentity
@@ -103,6 +106,9 @@ class DatasetManifest(DatasetSchemaModel):
     presentation: DatasetPresentation
     request: DatasetRequest
     artifacts: list[DatasetArtifact] = Field(default_factory=list)
+    # Canonical package v3 carries Context health; legacy v2 emission is unchanged.
+    health: JsonObject | None = Field(default=None, exclude_if=lambda value: value is None)
+    warnings: list[str] | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class DatasetContext(DatasetSchemaModel):

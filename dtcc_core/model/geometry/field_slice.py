@@ -225,16 +225,6 @@ class FieldSlice(PointCloud):
             f"FieldSlice object-first export does not support format {fmt!r}."
         )
 
-    def to_proto(self):
-        raise NotImplementedError(
-            "FieldSlice protobuf serialization is not implemented; use "
-            "PointCloud or explicit GeoJSON/PNG export when needed."
-        )
-
-    def from_proto(self, pb):
-        raise NotImplementedError(
-            "FieldSlice protobuf deserialization is not implemented."
-        )
 
     def _metadata(self, sample_count: int, *, include_z: bool) -> dict[str, Any]:
         metadata = {

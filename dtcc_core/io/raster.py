@@ -1,3 +1,5 @@
+from functools import partial
+from .model import load_model, save_model
 import rasterio
 import rasterio.merge
 from rasterio.transform import from_origin
@@ -14,10 +16,6 @@ from ..model import Raster
 from .logging import info, error, warning
 
 
-def _load_proto_raster(path, **kwargs):
-    raster = Raster()
-    raster.from_proto(path.read_bytes())
-    return raster
 
 
 def _load_rasterio(path: Union[Path, List], **kwargs):
@@ -62,7 +60,7 @@ def _load_csv(path, delimiter=",", **kwargs):
     return raster
 
 
-def load(path, delimiter=",") -> Raster:
+def load(path, delimiter=",", *, validate_schema=True) -> Raster:
     """
     Load a raster file as a `Raster` object.
 
@@ -77,11 +75,13 @@ def load(path, delimiter=",") -> Raster:
 
 
 
+    if isinstance(path, (str, Path)) and Path(path).suffix.lower() == '.dtcc':
+        return load_model(path, expected_type=Raster, validate_schema=validate_schema)
+    if validate_schema is not True:
+        raise ValueError('validate_schema applies to .dtcc input')
     return generic.load(path, "raster", Raster, _load_formats, delimiter=delimiter)
 
 
-def _save_proto_raster(raster, path):
-    path.write_bytes(raster.to_proto().SerializeToString())
 
 
 def _save_json_raster(raster, path):
@@ -129,7 +129,7 @@ def _save_csv(raster, path):
     return True
 
 
-def save(raster: Raster, path):
+def save(raster: Raster, path, **kwargs):
     """
     Save a `Raster` object to a file.
 
@@ -142,13 +142,12 @@ def save(raster: Raster, path):
     """
 
     path = Path(path)
-    return generic.save(raster, path, "raster", _save_formats)
+    return generic.save(raster, path, "raster", _save_formats, **kwargs)
 
 
 _load_formats = {
     Raster: {
-        ".pb": _load_proto_raster,
-        ".pb2": _load_proto_raster,
+        ".dtcc": partial(load_model, expected_type=Raster),
         ".tif": _load_rasterio,
         ".geotif": _load_rasterio,
         ".png": _load_rasterio,
@@ -160,8 +159,7 @@ _load_formats = {
 
 _save_formats = {
     Raster: {
-        ".pb": _save_proto_raster,
-        ".pb2": _save_proto_raster,
+        ".dtcc": save_model,
         ".json": _save_json_raster,
         ".tif": _save_geotif,
         ".png": _save_image,

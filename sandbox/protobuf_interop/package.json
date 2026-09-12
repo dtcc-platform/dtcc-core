@@ -1,0 +1,8 @@
+{
+  "name": "dtcc-protobuf-browser-example",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "protobufjs": "8.8.0"
+  }
+}

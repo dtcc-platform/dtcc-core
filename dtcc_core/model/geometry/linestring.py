@@ -11,8 +11,6 @@ from shapely.geometry import (
     MultiLineString as ShapelyMultiLineString,
 )
 
-from .. import dtcc_pb2 as proto
-
 
 @dataclass
 class LineString(Geometry):
@@ -69,53 +67,6 @@ class LineString(Geometry):
         self.vertices = np.array(shape.coords)
         return self
 
-    def to_proto(self) -> proto.Geometry:
-        """Return a protobuf representation of the LineString.
-
-        Returns
-        -------
-        proto.Geometry
-            A protobuf representation of the MultiSurface as a Geometry.
-        """
-
-        if self.vertices.ndim != 2 or self.vertices.shape[1] not in (2, 3):
-            raise ValueError("LineString.vertices must have shape (N, 2) or (N, 3).")
-
-        # Handle Geometry fields
-        pb = Geometry.to_proto(self)
-        _pb = proto.LineString()
-        _pb.vertices.extend(self.vertices.flatten())
-        _pb.dim = self.vertices.shape[1]
-        pb.line_string.CopyFrom(_pb)
-        return pb
-
-    def from_proto(self, pb: Union[proto.Geometry, bytes], only_linestring_field=False):
-        """
-        Initialize the LineString from a protobuf Geometry or LineString field.
-
-        Parameters
-        ----------
-        pb : proto.Geometry or bytes
-            Protobuf message or serialized bytes containing a LineString.
-        only_linestring_field : bool, default False
-            When ``True``, interpret ``pb`` as a LineString message instead of a full Geometry wrapper.
-        """
-        # Handle byte representation
-        if isinstance(pb, bytes):
-            pb = proto.Geometry.FromString(pb)
-
-        # Handle Geometry fields
-        if not only_linestring_field:
-            Geometry.from_proto(self, pb)
-
-        _pb = pb if only_linestring_field else pb.line_string
-        dim = _pb.dim
-        if dim not in (2, 3) or len(_pb.vertices) % dim:
-            raise ValueError(
-                "LineString protobuf requires dim=2 or dim=3 and a matching vertex count."
-            )
-        self.vertices = np.array(_pb.vertices).reshape(-1, dim)
-
 
 @dataclass
 class MultiLineString(Geometry):
@@ -157,45 +108,3 @@ class MultiLineString(Geometry):
         """Initialize the MultiLineString from a Shapely MultiLineString."""
         self.linestrings = [LineString().from_shapely(l) for l in shape]
         return self
-
-    def to_proto(self):
-        """Return a protobuf representation of the MultiSurface.
-
-        Returns
-        -------
-        proto.Geometry
-            A protobuf representation of the MultiSurface as a Geometry.
-        """
-
-        # Handle Geometry fields
-        pb = Geometry.to_proto(self)
-        _pb = proto.MultiLineString()
-        _pb.line_strings.extend(
-            [line.to_proto().line_string for line in self.linestrings]
-        )
-        pb.multi_line_string.CopyFrom(_pb)
-
-        return pb
-
-    def from_proto(self, pb: Union[proto.Geometry, bytes]):
-        """
-        Initialize the MultiLineString from a protobuf Geometry message.
-
-        Parameters
-        ----------
-        pb : proto.Geometry or bytes
-            Protobuf message or serialized bytes containing a MultiLineString.
-        """
-        # Handle byte representation
-        if isinstance(pb, bytes):
-            pb = proto.Geometry.FromString(pb)
-
-        # Handle Geometry fields
-        Geometry.from_proto(self, pb)
-        # Handle specific fields
-        _pb = pb.multi_line_string
-        self.linestrings = []
-        for line_string in _pb.line_strings:
-            _linestring = LineString()
-            _linestring.from_proto(line_string, only_linestring_field=True)
-            self.linestrings.append(_linestring)

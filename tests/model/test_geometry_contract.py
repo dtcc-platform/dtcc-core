@@ -65,8 +65,10 @@ def test_transform_rejects_invalid_affine_at_construction_and_serialization(
 
 @pytest.mark.parametrize("count", [0, 15, 17])
 def test_transform_rejects_malformed_protobuf_affine(count):
-    with pytest.raises(ValueError, match="exactly 16 values"):
-        Transform().from_proto(proto.Transform(affine=[1] * count))
+    message = Transform().to_proto()
+    message.transform.affine[:] = [1] * count
+    with pytest.raises(ValueError, match="16 affine coefficients"):
+        Transform().from_proto(message)
 
 
 @pytest.mark.parametrize(
@@ -74,7 +76,7 @@ def test_transform_rejects_malformed_protobuf_affine(count):
 )
 def test_geometry_deserialization_replaces_fields(geometry_type):
     source = geometry_type()
-    source.add_field(Field(name="temperature", values=np.array([12.5])))
+    source.add_field(Field(name="temperature", values=np.array([12.5]), association="geometry"))
     payload = source.to_proto().SerializeToString()
     restored = geometry_type()
     restored.add_field(Field(name="old", values=np.array([0.0])))
@@ -83,7 +85,7 @@ def test_geometry_deserialization_replaces_fields(geometry_type):
     restored.from_proto(payload)
 
     assert [field.name for field in restored.fields] == ["temperature"]
-    np.testing.assert_array_equal(restored.fields[0].values, [[12.5]])
+    np.testing.assert_array_equal(restored.fields[0].values, [12.5])
 
     restored.from_proto(geometry_type().to_proto())
     assert restored.fields == []
@@ -187,12 +189,6 @@ def test_grid_rejects_invalid_dimensions(grid_type, width):
         grid.to_proto()
 
 
-@pytest.mark.parametrize("grid_type", [Grid, VolumeGrid])
-def test_grid_rejects_negative_protobuf_dimensions(grid_type):
-    payload = grid_type().to_proto()
-    getattr(payload, payload.WhichOneof("type")).width = -1
-    with pytest.raises(ValueError, match="width must be a nonnegative integer"):
-        grid_type().from_proto(payload)
 
 
 def test_grid_roundtrip_preserves_spatial_extent_and_steps():

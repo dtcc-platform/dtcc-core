@@ -14,7 +14,6 @@ from ..values.raster import Raster
 from .. import geometry
 from ..geometry import Bounds
 
-from .. import dtcc_pb2 as proto
 from ..logging import info, warning, error, debug
 
 from ..mixins.city import (
@@ -192,81 +191,7 @@ class City(
         """
         self.add_children(trees)
 
-    def to_proto(self) -> proto.Object:
-        """Return a protobuf representation of the City.
-
-        Returns
-        -------
-        proto.Object
-            A protobuf representation of the City as an Object.
-        """
-
-        # Handle Object fields
-        pb = Object.to_proto(self)
-
-        # Handle specific fields (currently none)
-        _pb = proto.City()
-        pb.city.CopyFrom(_pb)
-
-        return pb
-
-    def from_proto(self, pb: Union[proto.Object, bytes]):
-        """Initialize City from a protobuf representation.
-
-        Parameters
-        ----------
-        pb: Union[proto.Object, bytes]
-            The protobuf message or its serialized bytes representation.
-        """
-
-        # Handle byte representation
-        if isinstance(pb, bytes):
-            pb = proto.Object.FromString(pb)
-
-        # Handle Object fields
-        Object.from_proto(self, pb)
-
-        # Handle specific fields (currently none)
-        pass
-
 
 @dataclass
 class CityObject(Object):
     """Represents a generic object in a city."""
-
-    def to_proto(self) -> proto.Object:
-        """Return a protobuf representation of the CityObject.
-
-        Returns
-        -------
-        proto.Object
-            A protobuf representation of the CityObject as an Object.
-        """
-
-        # Handle Object fields
-        pb = Object.to_proto(self)
-
-        # Handle specific fields (currently none)
-        _pb = proto.CityObject()
-        pb.city_object.CopyFrom(_pb)
-
-        return pb
-
-    def from_proto(self, pb: Union[proto.Object, bytes]):
-        """Initialize CityObject from a protobuf representation.
-
-        Parameters
-        ----------
-        pb: Union[proto.Object, bytes]
-            The protobuf message or its serialized bytes representation.
-        """
-
-        # Handle byte representation
-        if isinstance(pb, bytes):
-            pb = proto.Object.FromString(pb)
-
-        # Handle Object fields
-        Object.from_proto(self, pb)
-
-        # Handle specific fields (currently none)
-        pass

@@ -193,7 +193,7 @@ class TestOceanBuild:
             )
         )
         st = sc.stations()[0]
-        point = st.geometry["location"]
+        point = st.get_geometry("location")
         assert len(point.fields) >= 1
         f = point.fields[0]
         assert f.name == "sea_temperature"
@@ -213,7 +213,7 @@ class TestOceanBuild:
         )
         # Find a station that has both params (UDDEVALLA or ONSALA)
         for st in sc.stations():
-            point = st.geometry["location"]
+            point = st.get_geometry("location")
             field_names = {f.name for f in point.fields}
             if "sea_temperature" in field_names and "sea_level" in field_names:
                 break
@@ -298,7 +298,7 @@ class TestOceanBuild:
             )
         )
         st = sc.stations()[0]
-        point = st.geometry["location"]
+        point = st.get_geometry("location")
         assert point.fields[0].name == "Havstemperatur"
 
     @patch("dtcc_core.datasets.ocean._get_text", side_effect=_mock_get_text)
@@ -360,7 +360,7 @@ class TestOceanBuild:
         )
         stations = sc.stations()
         if len(stations) > 0:
-            pt = stations[0].geometry["location"]
+            pt = stations[0].get_geometry("location")
             # EPSG:3006 coordinates should be in typical Swedish range
             assert 200000 < pt.x < 900000
             assert 6100000 < pt.y < 7700000
@@ -414,7 +414,7 @@ class TestOceanBuild:
         )
         assert len(sc.stations()) >= 1
         st = sc.stations()[0]
-        point = st.geometry["location"]
+        point = st.get_geometry("location")
         field_names = {f.name for f in point.fields}
         # Should have at least one of these
         assert "sea_temperature" in field_names or "sea_level" in field_names
@@ -445,7 +445,7 @@ class TestOceanBuild:
         )
         assert len(sc.stations()) >= 1
         st = sc.stations()[0]
-        point = st.geometry["location"]
+        point = st.get_geometry("location")
         field_names = {f.name for f in point.fields}
         assert "sea_temperature" in field_names
         assert "sea_level" not in field_names
@@ -499,7 +499,7 @@ class TestOceanBuild:
             )
         )
         for st in sc.stations():
-            pt = st.geometry["location"]
+            pt = st.get_geometry("location")
             assert pt.z == pytest.approx(0.0)
 
 

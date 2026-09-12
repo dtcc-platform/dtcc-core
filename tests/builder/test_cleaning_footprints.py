@@ -124,7 +124,7 @@ def make_building(polygon: Polygon, height: float = 10.0) -> Building:
     surface.from_polygon(polygon, height)
     building = Building()
     building.add_geometry(surface, GeometryType.LOD0)
-    building.attributes["height"] = height
+    building.attributes["estimated_height"] = height
     building.attributes["ground_height"] = 0.0
     return building
 

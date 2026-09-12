@@ -71,15 +71,15 @@ def test_roadnetwork_protobuf_conversion(basic_roadnetwork):
     assert len(basic_roadnetwork.length) == len(rn2.length)
     assert np.allclose(basic_roadnetwork.length, rn2.length)
     assert basic_roadnetwork.attributes == rn2.attributes
-    assert GeometryType.MULTILINESTRING in rn2.geometry
+    assert rn2.get_geometry(GeometryType.MULTILINESTRING) is not None
     assert len(rn2.linestrings) == len(basic_roadnetwork.linestrings)
     assert np.allclose(
         rn2.linestrings[0].vertices,
         basic_roadnetwork.linestrings[0].vertices,
     )
     assert (
-        rn2.geometry[GeometryType.MULTILINESTRING].transform.srs.lower()
-        == basic_roadnetwork.geometry[GeometryType.MULTILINESTRING].transform.srs.lower()
+        rn2.get_geometry(GeometryType.MULTILINESTRING).transform.srs.lower()
+        == basic_roadnetwork.get_geometry(GeometryType.MULTILINESTRING).transform.srs.lower()
     )
     assert rn2.bounds.tuple == pytest.approx(basic_roadnetwork.bounds.tuple)
 

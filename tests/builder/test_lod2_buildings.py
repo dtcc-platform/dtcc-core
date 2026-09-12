@@ -563,7 +563,7 @@ def _building_with_footprint(points, *, ground_height=0.0):
     building.add_geometry(footprint, GeometryType.LOD0)
     building.add_geometry(PointCloud(points=np.array(points, dtype=float)), GeometryType.POINT_CLOUD)
     building.attributes["ground_height"] = ground_height
-    building.attributes["height"] = 10.0 - ground_height
+    building.attributes["estimated_height"] = 10.0 - ground_height
     return building
 
 
@@ -574,7 +574,7 @@ def _building_with_polygon(points, polygon, *, ground_height=0.0):
     building.add_geometry(footprint, GeometryType.LOD0)
     building.add_geometry(PointCloud(points=np.array(points, dtype=float)), GeometryType.POINT_CLOUD)
     building.attributes["ground_height"] = ground_height
-    building.attributes["height"] = 10.0 - ground_height
+    building.attributes["estimated_height"] = 10.0 - ground_height
     return building
 
 
@@ -1948,7 +1948,7 @@ def test_city_build_lod2_buildings_calculates_heights_and_keeps_roof_points(mini
     assert result is city
     assert len(city.buildings) == 5
     for building in city.buildings:
-        assert building.attributes.get("height") is not None
+        assert building.attributes.get("estimated_height") is not None
         assert building.attributes.get("ground_height") is not None
         assert building.point_cloud is not None
         assert building.lod1 is not None or building.lod2 is not None

@@ -1277,6 +1277,7 @@ def _build_volume_mesh(
     mesh.bounds = bounds
     mesh.add_field(
         Field(
+            association="vertex",
             name="velocity",
             unit="m/s",
             description=(
@@ -1289,6 +1290,7 @@ def _build_volume_mesh(
     )
     mesh.add_field(
         Field(
+            association="vertex",
             name="speed",
             unit="m/s",
             description="Magnitude of the synthetic analytical velocity field.",
@@ -1298,6 +1300,7 @@ def _build_volume_mesh(
     )
     mesh.add_field(
         Field(
+            association="vertex",
             name="pressure",
             unit="Pa",
             description=(

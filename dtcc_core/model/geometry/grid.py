@@ -1,13 +1,12 @@
 # Copyright(C) 2023 Anders Logg
 # Licensed under the MIT License
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Union
 import numpy as np
 
 
 from .geometry import Geometry, Bounds
-from .. import proto
 
 
 def _validate_dimensions(**dimensions):
@@ -39,6 +38,8 @@ class Grid(Geometry):
         Number of cells in the y-direction (vertical).
     """
 
+    # The domain is intrinsic state; None alone means it has not been initialized.
+    _bounds: Bounds | None = field(default=None)
     width: int = 0
     height: int = 0
 
@@ -53,15 +54,15 @@ class Grid(Geometry):
 
     def calculate_bounds(self):
         """
-        Compute the grid bounds based on width and height.
+        Return the intrinsic domain, initializing it from cell counts if absent.
 
-        Returns
-        -------
-        Bounds
-            Bounding box from (0,0) to (width, height).
+        Changing the resolution does not redefine an existing physical domain.
+        Assign ``bounds`` explicitly to change the domain, including zero-area
+        domains. On first initialization the default is (0,0) to (width,height).
         """
         _validate_dimensions(width=self.width, height=self.height)
-        self._bounds = Bounds(xmin=0, ymin=0, xmax=self.width, ymax=self.height)
+        if self._bounds is None:
+            self._bounds = Bounds(xmin=0, ymin=0, xmax=self.width, ymax=self.height)
         return self._bounds
 
     @property
@@ -127,51 +128,6 @@ class Grid(Geometry):
         X, Y = np.meshgrid(x, y)
         return np.vstack([X.ravel(), Y.ravel()]).T
 
-    def to_proto(self) -> proto.Geometry:
-        """Return a protobuf representation of the Grid.
-
-        Returns
-        -------
-        proto.Geometry
-            A protobuf representation of the Grid as a Geometry.
-        """
-
-        _validate_dimensions(width=self.width, height=self.height)
-
-        # Handle Geometry fields
-        pb = Geometry.to_proto(self)
-
-        # Handle specific fields
-        _pb = proto.Grid()
-        _pb.width = self.width
-        _pb.height = self.height
-        pb.grid.CopyFrom(_pb)
-
-        return pb
-
-    def from_proto(self, pb: Union[proto.Geometry, bytes]):
-        """Initialize Grid from a protobuf representation.
-
-        Parameters
-        ----------
-        pb: Union[proto.Geometry, bytes]
-            The protobuf message or its serialized bytes representation.
-        """
-
-        # Handle byte representation
-        if isinstance(pb, bytes):
-            pb = proto.Geometry.FromString(pb)
-
-        _pb = pb.grid
-        _validate_dimensions(width=_pb.width, height=_pb.height)
-
-        # Handle Geometry fields
-        Geometry.from_proto(self, pb)
-
-        # Handle specific fields
-        self.width = _pb.width
-        self.height = _pb.height
-
 
 @dataclass
 class VolumeGrid(Geometry):
@@ -187,6 +143,8 @@ class VolumeGrid(Geometry):
         Number of cells in the z-direction.
     """
 
+    # The domain is intrinsic state; None alone means it has not been initialized.
+    _bounds: Bounds | None = field(default=None)
     width: int = 0
     height: int = 0
     depth: int = 0
@@ -200,17 +158,17 @@ class VolumeGrid(Geometry):
 
     def calculate_bounds(self):
         """
-        Compute the volume grid bounds based on dimensions.
+        Return the intrinsic domain, initializing it from cell counts if absent.
 
-        Returns
-        -------
-        Bounds
-            Bounding box from (0,0,0) to (width, height, depth).
+        Changing the resolution does not redefine an existing physical domain.
+        Assign ``bounds`` explicitly to change it. The initial default is (0,0,0)
+        to (width,height,depth), including when a dimension is zero.
         """
         _validate_dimensions(width=self.width, height=self.height, depth=self.depth)
-        self._bounds = Bounds(
-            xmin=0, ymin=0, zmin=0, xmax=self.width, ymax=self.height, zmax=self.depth
-        )
+        if self._bounds is None:
+            self._bounds = Bounds(
+                xmin=0, ymin=0, zmin=0, xmax=self.width, ymax=self.height, zmax=self.depth
+            )
         return self._bounds
 
     @property
@@ -288,50 +246,3 @@ class VolumeGrid(Geometry):
         z = np.linspace(self.bounds.zmin, self.bounds.zmax, self.depth + 1)
         X, Y, Z = np.meshgrid(x, y, z)
         return np.vstack([X.ravel(), Y.ravel(), Z.ravel()]).T
-
-    def to_proto(self) -> proto.Geometry:
-        """Return a protobuf representation of the VolumeGrid.
-
-        Returns
-        -------
-        proto.Geometry
-            A protobuf representation of the VolumeGrid as a Geometry.
-        """
-
-        _validate_dimensions(width=self.width, height=self.height, depth=self.depth)
-
-        # Handle Geometry fields
-        pb = Geometry.to_proto(self)
-
-        # Handle specific fields
-        _pb = proto.VolumeGrid()
-        _pb.width = self.width
-        _pb.height = self.height
-        _pb.depth = self.depth
-        pb.volume_grid.CopyFrom(_pb)
-
-        return pb
-
-    def from_proto(self, pb: Union[proto.Geometry, bytes]):
-        """Initialize VolumeGrid from a protobuf representation.
-
-        Parameters
-        ----------
-        pb: Union[proto.Geometry, bytes]
-            The protobuf message or its serialized bytes representation.
-        """
-
-        # Handle byte representation
-        if isinstance(pb, bytes):
-            pb = proto.Geometry.FromString(pb)
-
-        _pb = pb.volume_grid
-        _validate_dimensions(width=_pb.width, height=_pb.height, depth=_pb.depth)
-
-        # Handle Geometry fields
-        Geometry.from_proto(self, pb)
-
-        # Handle specific fields
-        self.width = _pb.width
-        self.height = _pb.height
-        self.depth = _pb.depth

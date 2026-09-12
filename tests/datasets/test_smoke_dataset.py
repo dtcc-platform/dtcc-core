@@ -98,9 +98,9 @@ def test_smoke_protobuf_format_returns_volume_mesh_bytes():
     )
 
     assert isinstance(payload, bytes)
-    pb = proto.Geometry.FromString(payload)
-    assert len(pb.volume_mesh.vertices) == 4**3 * 3
-    assert len(pb.volume_mesh.cells) == 5 * 3**3 * 4
+    pb = proto.ModelFile.FromString(payload).geometry
+    assert list(pb.volume_mesh.vertices.shape) == [4**3, 3]
+    assert list(pb.volume_mesh.cells.shape) == [5 * 3**3, 4]
     assert [field.name for field in pb.fields] == ["velocity", "speed", "pressure"]
 
 

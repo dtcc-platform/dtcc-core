@@ -204,14 +204,14 @@ def test_mesh_like_object_export_uses_object_serializer(tmp_path):
     )
     attach_dataset_context(mesh, _context(datasets.city_surface_mesh))
 
-    package = mesh.export(tmp_path / "mesh_pkg", format="pb")
+    package = mesh.export(tmp_path / "mesh_pkg", format="dtcc")
 
-    artifact_path = tmp_path / "mesh_pkg" / "artifacts" / "city_surface_mesh.pb"
+    artifact_path = tmp_path / "mesh_pkg" / "artifacts" / "city_surface_mesh.dtcc"
     artifact = package.manifest.artifacts[0]
     assert artifact_path.exists()
-    assert artifact.path == "artifacts/city_surface_mesh.pb"
+    assert artifact.path == "artifacts/city_surface_mesh.dtcc"
     assert artifact.role == "primary"
-    assert artifact.format == "pb"
+    assert artifact.format == "dtcc"
     assert artifact.size == artifact_path.stat().st_size
     assert artifact.sha256 == _sha256(artifact_path)
 

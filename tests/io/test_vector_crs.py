@@ -217,7 +217,7 @@ class TestSetGeometryCrs:
 
         set_geometry_crs(building, "EPSG:4326")
 
-        assert building.geometry[GeometryType.LOD0].transform.srs == "EPSG:4326"
+        assert building.get_geometry(GeometryType.LOD0).transform.srs == "EPSG:4326"
 
     def test_set_crs_on_tree(self):
         """Test setting CRS on Tree object."""
@@ -237,8 +237,8 @@ class TestSetGeometryCrs:
 
         set_geometry_crs(building, "EPSG:4326")
 
-        assert building.geometry[GeometryType.LOD0].transform.srs == "EPSG:4326"
-        assert building.geometry[GeometryType.LOD1].transform.srs == "EPSG:4326"
+        assert building.get_geometry(GeometryType.LOD0).transform.srs == "EPSG:4326"
+        assert building.get_geometry(GeometryType.LOD1).transform.srs == "EPSG:4326"
 
     def test_set_crs_overwrites_existing(self):
         """Test setting CRS overwrites existing value."""
@@ -249,7 +249,7 @@ class TestSetGeometryCrs:
 
         set_geometry_crs(building, "EPSG:4326")
 
-        assert building.geometry[GeometryType.LOD0].transform.srs == "EPSG:4326"
+        assert building.get_geometry(GeometryType.LOD0).transform.srs == "EPSG:4326"
 
 
 class TestLoadWithTargetCrs:
@@ -292,7 +292,7 @@ class TestLoadWithTargetCrs:
             assert get_geometry_crs(buildings[0]).lower() == "epsg:3006"
 
             # Verify coordinates are in SWEREF99 range
-            surface = buildings[0].geometry[GeometryType.LOD0]
+            surface = buildings[0].get_geometry(GeometryType.LOD0)
             coords = surface.vertices
             assert np.all(coords[:, 0] > 300000)
             assert np.all(coords[:, 1] > 6000000)
@@ -311,7 +311,7 @@ class TestLoadWithTargetCrs:
             assert get_geometry_crs(buildings[0]).upper() == "EPSG:4326"
 
             # Verify coordinates are in WGS84 range
-            surface = buildings[0].geometry[GeometryType.LOD0]
+            surface = buildings[0].get_geometry(GeometryType.LOD0)
             coords = surface.vertices
             assert np.all(np.abs(coords[:, 0]) < 180)  # Longitude
             assert np.all(np.abs(coords[:, 1]) < 90)   # Latitude
@@ -471,8 +471,8 @@ class TestRoundtrip:
 
             # Verify coordinates are approximately the same
             # Note: Comparing bounds since vertex count might differ (closed vs open rings)
-            original_surface = buildings_original[0].geometry[GeometryType.LOD0]
-            reloaded_surface = buildings_reloaded[0].geometry[GeometryType.LOD0]
+            original_surface = buildings_original[0].get_geometry(GeometryType.LOD0)
+            reloaded_surface = buildings_reloaded[0].get_geometry(GeometryType.LOD0)
 
             original_bounds = (
                 np.min(original_surface.vertices[:, 0]),

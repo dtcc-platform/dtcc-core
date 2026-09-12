@@ -3985,7 +3985,9 @@ def _extract_meshing_polygon(
         roof_z = 0.0
 
     try:
-        height = float(building.height)
+        # Meshing/conditioning uses the modelled height when one was computed.
+        value = building.estimated_height
+        height = float(building.measured_height if value is None else value)
     except (AttributeError, TypeError):
         height = None
 

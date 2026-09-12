@@ -699,7 +699,7 @@ def _vehicle_object_from_record(record, x: float, y: float, z: float) -> Object:
         field.values = np.array([float(value)], dtype=np.float32)
         fields.append(field)
     point.fields = fields
-    vehicle.geometry["location"] = point
+    vehicle.add_geometry(point, "location")
     return vehicle
 
 

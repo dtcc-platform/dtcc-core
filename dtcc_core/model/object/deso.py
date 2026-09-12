@@ -35,7 +35,7 @@ class DeSO(Object):
         fields: dict[str, Field] = {}
         metadata: dict[str, Field] = {}
         for area in self.areas:
-            geometry = area.geometry.get(GeometryType.LOD0)
+            geometry = area.get_geometry(GeometryType.LOD0)
             if geometry is None:
                 continue
             for field in geometry.fields:
@@ -152,7 +152,7 @@ class DeSO(Object):
         geometries = []
         fields = self.fields
         for index, area in enumerate(self.areas):
-            geometry = area.geometry.get(GeometryType.LOD0)
+            geometry = area.get_geometry(GeometryType.LOD0)
             if not isinstance(geometry, MultiSurface):
                 continue
 
@@ -188,7 +188,7 @@ class DeSO(Object):
         centroids = []
         codes = []
         for area in self.areas:
-            geometry = area.geometry.get(GeometryType.LOD0)
+            geometry = area.get_geometry(GeometryType.LOD0)
             if not isinstance(geometry, MultiSurface) or len(geometry.surfaces) == 0:
                 continue
             centroid = np.asarray(geometry.centroid(), dtype=float)
@@ -240,7 +240,7 @@ class DeSO(Object):
         values = np.asarray(field.values, dtype=float).reshape((-1, field.dim))
         name = attribute_name or field.name
         for area, value in zip(self.areas, values):
-            geometry = area.geometry.get(GeometryType.LOD0)
+            geometry = area.get_geometry(GeometryType.LOD0)
             if geometry is None:
                 continue
 
@@ -250,6 +250,7 @@ class DeSO(Object):
                 description=field.description,
                 values=np.asarray(value, dtype=float).reshape((1, field.dim)),
                 dim=field.dim,
+                association="geometry",
             )
             geometry.fields = [f for f in geometry.fields if f.name != field.name]
             geometry.fields.append(area_field)
@@ -361,7 +362,7 @@ class DeSO(Object):
 
     @staticmethod
     def _area_field_value(area: Object, name: str, dim: int):
-        geometry = area.geometry.get(GeometryType.LOD0)
+        geometry = area.get_geometry(GeometryType.LOD0)
         if geometry is not None:
             for field in geometry.fields:
                 if field.name == name and len(field.values) > 0:

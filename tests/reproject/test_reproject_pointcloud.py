@@ -1,6 +1,5 @@
 import pytest
 import numpy as np
-from unittest.mock import Mock, patch, MagicMock
 from dtcc_core.reproject.reproject import reproject_pointcloud
 from dtcc_core.model import PointCloud
 from dtcc_core.model.geometry.transform import Transform
@@ -140,39 +139,25 @@ class TestCRSDetection:
         result = reproject_pointcloud(basic_pointcloud, "", "EPSG:4326")
         assert result.transform.srs == "EPSG:4326"
 
-    @patch("dtcc_core.reproject.reproject.warning")
-    def test_no_crs_anywhere_defaults_to_3006(self, mock_warning, pointcloud_no_crs):
-        """When no CRS is available, default to EPSG:3006 with warning"""
-        result = reproject_pointcloud(pointcloud_no_crs, None, "EPSG:4326")
-        mock_warning.assert_called_once_with(
-            "Source CRS not provided, defaulting to EPSG:3006"
-        )
-        assert result.transform.srs == "EPSG:4326"
+    def test_no_crs_anywhere_fails(self, pointcloud_no_crs):
+        with pytest.raises(ValueError, match="Source CRS"):
+            reproject_pointcloud(pointcloud_no_crs, None, "EPSG:4326")
 
-    @patch("dtcc_core.reproject.reproject.warning")
-    def test_override_geometry_crs_flag(self, mock_warning, basic_pointcloud):
+    def test_override_geometry_crs_flag(self, basic_pointcloud):
         """Test override_geometry_crs flag behavior"""
         # When override is True, provided src_crs should be used
         result = reproject_pointcloud(
             basic_pointcloud,
-            "EPSG:4326",  # Different from pointcloud's EPSG:3006
-            "EPSG:32633",
+            "EPSG:32633",  # Different declared CRS, compatible coordinate range.
+            "EPSG:4326",
             override_geometry_crs=True,
         )
-        assert result.transform.srs == "EPSG:32633"
-        # Should not warn when override is explicit
-        assert not mock_warning.called
+        assert result.transform.srs == "EPSG:4326"
+        assert basic_pointcloud.transform.srs == "EPSG:3006"
 
-    def test_provided_src_crs_uses_geometry_crs_by_default(self, basic_pointcloud):
-        """When src_crs is provided but override is False, use geometry CRS"""
-        result = reproject_pointcloud(
-            basic_pointcloud,
-            "EPSG:4326",  # This should be ignored
-            "EPSG:32633",
-            override_geometry_crs=False,
-        )
-        # Should use the pointcloud's EPSG:3006, not the provided EPSG:4326
-        assert result.transform.srs == "EPSG:32633"
+    def test_conflicting_source_crs_fails(self, basic_pointcloud):
+        with pytest.raises(ValueError, match="conflicts"):
+            reproject_pointcloud(basic_pointcloud, "EPSG:4326", "EPSG:32633")
 
 
 class TestTransformHandling:

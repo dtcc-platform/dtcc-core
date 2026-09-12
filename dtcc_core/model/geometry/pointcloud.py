@@ -8,7 +8,6 @@ import numpy as np
 
 from .geometry import Geometry
 from .bounds import Bounds
-from .. import dtcc_pb2 as proto
 
 from ..mixins.pointcloud.mixins import PointCloudBuilderMixin, PointcloudFilterMixin
 
@@ -196,50 +195,3 @@ class PointCloud(PointCloudBuilderMixin, PointcloudFilterMixin, Geometry):
         self.points += offset
         self.calculate_bounds()
         return self
-
-    def to_proto(self) -> proto.Geometry:
-        """Return a protobuf representation of the PointCloud.
-
-        Returns
-        -------
-        proto.Geometry
-            A protobuf representation of the PointCloud and as a Geometry.
-        """
-
-        # Handle Geometry fields
-        pb = Geometry.to_proto(self)
-
-        # Handle specific fields
-        _pb = proto.PointCloud()
-        _pb.points.extend(self.points.flatten())
-        _pb.classification.extend(self.classification)
-        _pb.intensity.extend(self.intensity)
-        _pb.return_number.extend(self.return_number)
-        _pb.num_returns.extend(self.num_returns)
-        pb.point_cloud.CopyFrom(_pb)
-
-        return pb
-
-    def from_proto(self, pb: Union[proto.Geometry, bytes]):
-        """Initialize PointCloud from a protobuf representation.
-
-        Parameters
-        ----------
-        pb: Union[proto.Geometry, bytes]
-            The protobuf message or its serialized bytes representation.
-        """
-
-        # Handle byte representation
-        if isinstance(pb, bytes):
-            pb = proto.Geometry.FromString(pb)
-
-        # Handle Geometry fields
-        Geometry.from_proto(self, pb)
-
-        # Handle specific fields
-        _pb = pb.point_cloud
-        self.points = np.array(_pb.points).reshape(-1, 3)
-        self.classification = np.array(_pb.classification).astype(np.uint8)
-        self.intensity = np.array(_pb.intensity).astype(np.uint16)
-        self.return_number = np.array(_pb.return_number).astype(np.uint8)
-        self.num_returns = np.array(_pb.num_returns).astype(np.uint8)

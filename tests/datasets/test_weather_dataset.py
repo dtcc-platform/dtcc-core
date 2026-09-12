@@ -171,7 +171,7 @@ class TestWeatherDatasetBuild:
             assert "location" in station.geometry
             from dtcc_core.model.geometry import Point
 
-            assert isinstance(station.geometry["location"], Point)
+            assert isinstance(station.get_geometry("location"), Point)
 
     @patch("dtcc_core.datasets.weather._get_text", side_effect=_mock_get_text)
     def test_field_names_dtcc_style(self, mock_fetch):
@@ -184,7 +184,7 @@ class TestWeatherDatasetBuild:
         )
         result = dataset.build(args)
         station = result.stations()[0]
-        point = station.geometry["location"]
+        point = station.get_geometry("location")
         field_names = {f.name for f in point.fields}
         assert "air_temperature" in field_names
         assert "wind_speed" in field_names
@@ -200,7 +200,7 @@ class TestWeatherDatasetBuild:
         )
         result = dataset.build(args)
         station = result.stations()[0]
-        point = station.geometry["location"]
+        point = station.get_geometry("location")
         field_names = {f.name for f in point.fields}
         assert "Lufttemperatur" in field_names
         assert "Vindhastighet" in field_names
@@ -327,7 +327,7 @@ class TestWeatherDatasetBuild:
         result = dataset.build(args)
         # If any stations matched, their x/y should be in SWEREF99 range
         for station in result.stations():
-            pt = station.geometry["location"]
+            pt = station.get_geometry("location")
             # SWEREF99 TM x is typically 100 000 – 900 000
             # y is typically 6 100 000 – 7 700 000
             if result.stations():
@@ -359,7 +359,7 @@ class TestWeatherDatasetBuild:
             )
         )
 
-        point = result.stations()[0].geometry["location"]
+        point = result.stations()[0].get_geometry("location")
         field_names = {f.name for f in point.fields}
         assert "air_temperature" in field_names
         assert "wind_speed" not in field_names
@@ -522,7 +522,7 @@ class TestParameterNames:
         )
         result = dataset.build(args)
         station = result.stations()[0]
-        point = station.geometry["location"]
+        point = station.get_geometry("location")
         field_names = {f.name for f in point.fields}
         assert "air_temperature" in field_names
         assert "wind_speed" in field_names

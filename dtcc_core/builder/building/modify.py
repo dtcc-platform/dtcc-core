@@ -102,7 +102,9 @@ def _extract_building_metadata(
             roof_z = 0.0
 
     try:
-        height = float(building.height)
+        # Meshing/conditioning uses the modelled height when one was computed.
+        value = building.estimated_height
+        height = float(building.measured_height if value is None else value)
     except (AttributeError, TypeError):
         height = None
     if height is not None and height <= 0:
@@ -198,8 +200,13 @@ def _build_conditioned_buildings(
         building = Building()
         building.add_geometry(surface, GeometryType.LOD0)
         building.attributes = merge_building_attributes(originals)
+        if len(originals) != 1:
+            # An aggregate has no single source measurement. Keep only its estimate.
+            building.measured_height = None
+        elif originals[0].measured_height is not None:
+            building.measured_height = originals[0].measured_height
         if height is not None:
-            building.attributes["height"] = height
+            building.estimated_height = height
         if ground_height is not None:
             building.attributes["ground_height"] = ground_height
         conditioned_buildings.append(building)
@@ -505,7 +512,7 @@ def clean_building_geometry(
     Building
         Building with cleaned geometry.
     """
-    building_geom = building.geometry.get(lod, None)
+    building_geom = building.get_geometry(lod)
     if building_geom is None:
         return building
     if isinstance(building_geom, MultiSurface):

@@ -216,7 +216,7 @@ def get_geometry_crs(obj, fallback="EPSG:3006"):
     """
     # Check if object has geometry dict (Building, City, etc.)
     if hasattr(obj, "geometry") and isinstance(obj.geometry, dict):
-        for geom_type, geom in obj.geometry.items():
+        for geom in obj.get_geometries():
             if geom and hasattr(geom, "transform") and geom.transform.srs:
                 return geom.transform.srs
 
@@ -241,7 +241,7 @@ def set_geometry_crs(obj, crs):
     """
     # Set on all geometry types if object has geometry dict
     if hasattr(obj, "geometry") and isinstance(obj.geometry, dict):
-        for geom_type, geom in obj.geometry.items():
+        for geom in obj.get_geometries():
             if geom and hasattr(geom, "transform"):
                 geom.transform.srs = crs
 

@@ -9,31 +9,6 @@ import numpy as np
 class Polygon(Geometry):
     geom: ShapelyPolygon = field(default_factory=ShapelyPolygon)
 
-    def to_proto(self):
-        """
-        Convert the polygon to a protobuf Geometry message.
-
-        Returns
-        -------
-        proto.Geometry
-            Serialized representation of the polygon.
-        """
-        raise NotImplementedError(
-            "Polygon does not support protobuf serialization; use Surface instead."
-        )
-
-    def from_proto(self, pb):
-        """
-        Populate the polygon from a protobuf Geometry message.
-
-        Parameters
-        ----------
-        pb : proto.Geometry
-            Protobuf geometry containing polygon data.
-        """
-        raise NotImplementedError(
-            "Polygon does not support protobuf deserialization; use Surface instead."
-        )
 
     @property
     def shapely(self):

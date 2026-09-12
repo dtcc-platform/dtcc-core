@@ -1,0 +1,723 @@
+id: https://github.com/dtcc-platform/dtcc-core/schemas/model
+name: dtcc_model
+version: 0.9.0
+description: Standard DTCC semantic contract for canonical model exchange. Numerical arrays,
+  topology, transforms and native typed state are admitted by Core. Unfamiliar classifications
+  retain generic native meaning; known classifications receive the declared rules. This schema
+  is self-contained.
+see_also:
+- https://docs.ogc.org/is/20-010/20-010.html
+- https://www.cityjson.org/specs/2.0.2/
+prefixes:
+  dtcc: https://github.com/dtcc-platform/dtcc-core/schemas/model#
+  xsd: http://www.w3.org/2001/XMLSchema#
+  linkml: https://w3id.org/linkml/
+default_prefix: dtcc
+default_range: string
+types:
+  string:
+    base: str
+    uri: xsd:string
+  float:
+    base: float
+    uri: xsd:double
+  integer:
+    base: int
+    uri: xsd:integer
+slots:
+  id:
+    identifier: true
+    required: true
+    description: Projection-local identifier. Native Object IDs and generated geometry, region
+      and field locators are namespaced to avoid collisions; Core admits original Object ID
+      syntax and uniqueness without changing the stored IDs.
+  parent:
+    range: Entity
+    required: false
+    annotations:
+      containment: true
+classes:
+  Entity:
+    abstract: true
+    slots:
+    - id
+  City:
+    is_a: Object
+    description: DTCC aggregate of city objects; CityJSON represents this at document level.
+    annotations:
+      dtcc_native_type: City
+  AbstractBuilding:
+    abstract: true
+    is_a: ClassifiedCityFeature
+    description: Shared building and building-part facts, independent of geometry. This is
+      a schema class only; the native objects remain generic carriers.
+    attributes:
+      description:
+        description: Optional human-readable description of the building or part.
+      storeys_above_ground:
+        range: integer
+        minimum_value: 0
+        description: Optional count of storeys above ground. Missing remains unknown; zero
+          is explicit. Booleans and fractional counts are invalid.
+      storeys_below_ground:
+        range: integer
+        minimum_value: 0
+        description: Optional count of storeys below ground, independent of the above-ground
+          count. Missing is not interpreted as zero.
+      measured_height:
+        range: float
+        minimum_value: 0
+        description: Optional measured height in metres in this profile; not inferred from
+          geometry.
+      estimated_height:
+        range: float
+        minimum_value: 0
+        description: Optional modelling height in metres, including calculated, defaulted
+          or clamped values. Distinct from measured_height; never substituted for a missing
+          measurement.
+      roof_type:
+        any_of:
+        - range: string
+        - range: QualifiedCode
+        inlined: true
+        description: Optional source roof classification. Each code is a string or a value
+          with explicit code_space; no conversion or remote code-list membership check.
+        range: AnyValue
+      elevation_measurements:
+        range: ElevationMeasurement
+        multivalued: true
+        inlined: true
+        inlined_as_list: true
+        description: Signed elevations with explicit vertical reference; independent of scalar
+          height and height_measurements. No datum or unit conversion.
+      height_measurements:
+        range: HeightMeasurement
+        multivalued: true
+        inlined: true
+        inlined_as_list: true
+        description: Optional independent qualified vertical distances. These do not populate
+          or override scalar measured_height or estimated_height.
+  Building:
+    is_a: AbstractBuilding
+    description: Building entity, independent of the geometry used to represent it.
+    annotations:
+      dtcc_native_type: Building
+  BuildingPart:
+    is_a: AbstractBuilding
+    description: Physical or functional subdivision of a building, retaining its own identity.
+    slot_usage:
+      parent:
+        range: AbstractBuilding
+    annotations:
+      dtcc_native_type: BuildingPart
+  SurfaceRegion:
+    abstract: true
+    is_a: Entity
+    description: Semantic entity assigned to existing geometry elements. The projection's
+      parent identifies the owning Building/BuildingPart or standalone Geometry; the semantic
+      region does not become an extra native Object.
+    slots:
+    - parent
+    slot_usage:
+      parent:
+        any_of:
+        - range: AbstractBuilding
+        - range: Geometry
+  RoofSurface:
+    is_a: SurfaceRegion
+    description: Boundary delimiting a major roof part of a construction.
+  WallSurface:
+    is_a: SurfaceRegion
+    description: Boundary delimiting an exterior lateral part of a construction.
+  GroundSurface:
+    is_a: SurfaceRegion
+    description: Lower construction boundary in contact with the ground.
+  ClosureSurface:
+    is_a: SurfaceRegion
+    description: Virtual boundary closing an opening in a volumetric representation; it does
+      not assert a physical wall or a watertight solid.
+  OuterCeilingSurface:
+    is_a: SurfaceRegion
+    description: Downward-facing exterior construction boundary, such as a loggia ceiling.
+      Classification does not validate geometric orientation.
+  OuterFloorSurface:
+    is_a: SurfaceRegion
+    description: Upward-facing exterior construction boundary, such as a loggia floor. Classification
+      does not validate geometric orientation.
+  InteriorWallSurface:
+    is_a: SurfaceRegion
+    description: Wall boundary visible from inside a construction. Region ownership does not
+      imply that a room object has been represented.
+  CeilingSurface:
+    is_a: SurfaceRegion
+    description: Interior ceiling boundary of a construction.
+  FloorSurface:
+    is_a: SurfaceRegion
+    description: Interior floor boundary of a construction.
+  FillingSurface:
+    abstract: true
+    is_a: SurfaceRegion
+    description: Surface sealing an opening. This is not a physical filling-element Object.
+      Ownership remains the Building/BuildingPart; host is a separate, optional region relationship.
+      Missing host is not inferred from polygon holes.
+    attributes:
+      host:
+        any_of:
+        - range: WallSurface
+        - range: RoofSurface
+        description: Optional wall or roof region hosting this opening surface.
+  Window:
+    is_a: FillingSurface
+    description: Window surface, using the CityJSON semantic spelling Window. Corresponds
+      conceptually to CityGML 3.0 WindowSurface, not its physical Window feature.
+  Door:
+    is_a: FillingSurface
+    description: Door surface, using the CityJSON semantic spelling Door. Corresponds conceptually
+      to CityGML 3.0 DoorSurface, not its physical Door feature.
+  CityFeature:
+    abstract: true
+    is_a: Object
+    description: City object owning geometry representations; specialized classes refine its
+      containment.
+    slots:
+    - parent
+    slot_usage:
+      parent:
+        range: Object
+    attributes:
+      name:
+        description: Optional human-readable source name.
+  LandUse:
+    is_a: CityFeature
+    description: Area classified by use or cover. Source class/function/usage codes are retained
+      without translating them to native LanduseClasses codes.
+    attributes:
+      native_landuses:
+        multivalued: true
+        range: NativeLanduseCode
+        description: Explicit native Landuse.landuses enum names, when present; not source
+          codes.
+    annotations:
+      dtcc_native_type: Landuse
+  SolitaryVegetationObject:
+    is_a: CityFeature
+    description: Individual plant, including trees and bushes; does not imply native Tree.
+    attributes:
+      species:
+        description: Optional source species name or code; no universal code list is assumed.
+      height:
+        range: float
+        minimum_value: 0
+        description: Optional height in metres in this profile; never inferred from absence.
+      crown_diameter:
+        range: float
+        minimum_value: 0
+        description: Optional crown diameter in metres, distinct from native crown radius.
+      trunk_diameter:
+        range: float
+        minimum_value: 0
+        description: Optional trunk diameter in metres.
+  Tree:
+    is_a: SolitaryVegetationObject
+    description: Explicit DTCC tree classification; native measurements project without copying
+      their authority.
+    attributes:
+      crown_radius:
+        range: float
+        minimum_value: 0
+        description: Native crown_radius in metres, with no implicit diameter conversion.
+    annotations:
+      dtcc_native_type: Tree
+  CityFurniture:
+    is_a: CityFeature
+    description: Outdoor furniture/equipment such as a bench, represented by generic Object.
+  Object:
+    is_a: Entity
+    slots:
+    - parent
+    annotations:
+      dtcc_native_type: Object
+    description: Generic native object. Undeclared attributes and relationships retain their
+      generic meaning; Core checks attribute structure and reference integrity.
+  Geometry:
+    is_a: Entity
+    abstract: true
+    description: Numerical geometry is validated by Core. Only semantic regions and field
+      metadata are projected; coordinate buffers never enter LinkML.
+  Mesh:
+    is_a: Geometry
+    annotations:
+      dtcc_native_type: Mesh
+  Point:
+    is_a: Geometry
+    annotations:
+      dtcc_native_type: Point
+  Surface:
+    is_a: Geometry
+    annotations:
+      dtcc_native_type: Surface
+  MultiSurface:
+    is_a: Geometry
+    annotations:
+      dtcc_native_type: MultiSurface
+  Solid:
+    is_a: Geometry
+    annotations:
+      dtcc_native_type: Solid
+  SemanticRegion:
+    is_a: Entity
+    slots:
+    - parent
+    annotations:
+      dtcc_native_type: SemanticRegion
+    attributes:
+      host:
+        range: Entity
+    description: Generic assignment to geometry elements. Parent is the owning Object or standalone
+      Geometry; host denotes the native region-parent index.
+  Field:
+    is_a: Entity
+    annotations:
+      dtcc_native_type: Field
+    description: Numerical shape, component count and association with the owning geometry
+      are validated by Core. These are the native descriptive metadata.
+    attributes:
+      name:
+        description: Native field name.
+      unit:
+        description: Unit spelling supplied by the author; no implicit unit conversion.
+      description:
+        description: Native field description.
+      association:
+        description: Native association; admissible values and element counts are checked
+          by Core.
+  CityObject:
+    is_a: Object
+    description: Native DTCC CityObject; generic object rules, without a claim of CityGML
+      equivalence.
+    annotations:
+      dtcc_native_type: CityObject
+  Terrain:
+    is_a: Object
+    description: Native DTCC Terrain; generic object rules, without a claim of CityGML equivalence.
+    annotations:
+      dtcc_native_type: Terrain
+    attributes:
+      elevation_rasters:
+        range: RasterElevation
+        multivalued: true
+        inlined: true
+        inlined_as_list: true
+        description: Explicit interpretation of local raster representations as elevation
+          data. Numerical values, georeference, CRS and nodata remain authoritative on Raster.
+  TINRelief:
+    is_a: Terrain
+    description: Explicit terrain TIN classification, compatible with native Terrain. The
+      strict CityJSON adapter admits triangular CompositeSurface as Mesh. Coordinate buffers
+      and topology are not evaluated by LinkML; this vocabulary does not certify terrain accuracy,
+      connectivity or full CityGML conformance.
+  RoadNetwork:
+    is_a: Object
+    description: Native DTCC RoadNetwork; generic object rules, without a claim of CityGML
+      equivalence.
+    annotations:
+      dtcc_native_type: RoadNetwork
+  SensorCollection:
+    is_a: Object
+    description: Native DTCC SensorCollection; generic object rules, without a claim of CityGML
+      equivalence.
+    annotations:
+      dtcc_native_type: SensorCollection
+  VehicleCollection:
+    is_a: Object
+    description: Native DTCC VehicleCollection; generic object rules, without a claim of CityGML
+      equivalence.
+    annotations:
+      dtcc_native_type: VehicleCollection
+  DeSO:
+    is_a: Object
+    description: Native DTCC DeSO; generic object rules, without a claim of CityGML equivalence.
+    annotations:
+      dtcc_native_type: DeSO
+  PointCloud:
+    is_a: Geometry
+    description: Native DTCC PointCloud. Numerical state and domain bounds are admitted by
+      Core.
+    annotations:
+      dtcc_native_type: PointCloud
+  VolumeMesh:
+    is_a: Geometry
+    description: Native DTCC VolumeMesh. Numerical state and domain bounds are admitted by
+      Core.
+    annotations:
+      dtcc_native_type: VolumeMesh
+  LineString:
+    is_a: Geometry
+    description: Native DTCC LineString. Numerical state and domain bounds are admitted by
+      Core.
+    annotations:
+      dtcc_native_type: LineString
+  MultiLineString:
+    is_a: Geometry
+    description: Native DTCC MultiLineString. Numerical state and domain bounds are admitted
+      by Core.
+    annotations:
+      dtcc_native_type: MultiLineString
+  Grid:
+    is_a: Geometry
+    description: Native DTCC Grid. Numerical state and domain bounds are admitted by Core.
+    annotations:
+      dtcc_native_type: Grid
+  VolumeGrid:
+    is_a: Geometry
+    description: Native DTCC VolumeGrid. Numerical state and domain bounds are admitted by
+      Core.
+    annotations:
+      dtcc_native_type: VolumeGrid
+  Raster:
+    is_a: Entity
+    description: Native DTCC Raster; numerical state is admitted by Core.
+    annotations:
+      dtcc_native_type: Raster
+  Bounds:
+    is_a: Entity
+    description: Native DTCC Bounds; numerical state is admitted by Core.
+    annotations:
+      dtcc_native_type: Bounds
+  Transform:
+    is_a: Entity
+    description: Native DTCC Transform; numerical state is admitted by Core.
+    annotations:
+      dtcc_native_type: Transform
+  QualifiedCode:
+    description: Identifier-free code value with an explicit code-list identifier. Code-list
+      membership is not resolved.
+    attributes:
+      value:
+        range: string
+        required: true
+        pattern: \S
+      code_space:
+        range: string
+        required: true
+        pattern: \S
+        description: Author-supplied code-list identifier, such as a URI. Not fetched or resolved.
+      label:
+        range: string
+        description: Optional display label; the code and namespace remain authoritative.
+  HeightMeasurement:
+    description: Identifier-free qualified vertical distance, following the facts required
+      by CityGML 3.0 Height. DTCC keeps the amount and unit flat for simple Python access;
+      no scalar-height synchronization.
+    attributes:
+      value:
+        range: float
+        required: true
+        minimum_value: 0
+      unit:
+        range: LengthUnit
+        required: true
+      high_reference:
+        any_of:
+        - range: string
+          pattern: \S
+        - range: QualifiedCode
+        inlined: true
+        required: true
+        description: Upper reference code; no roof reference is inferred.
+        range: AnyValue
+      low_reference:
+        any_of:
+        - range: string
+          pattern: \S
+        - range: QualifiedCode
+        inlined: true
+        required: true
+        description: Lower reference code; no ground or datum is inferred.
+        range: AnyValue
+      status:
+        range: HeightStatus
+        required: true
+      source:
+        range: string
+        pattern: \S
+        description: Optional author-supplied provenance reference or description. Not fetched
+          or interpreted.
+  ElevationMeasurement:
+    description: Identifier-free signed vertical coordinate or statistic. The vertical_reference
+      identifies the vertical CRS used by value, while reference identifies the sampled point
+      or statistic. No inferred capture status.
+    attributes:
+      value:
+        range: float
+        required: true
+      unit:
+        range: LengthUnit
+        required: true
+      vertical_reference:
+        range: string
+        required: true
+        pattern: \S
+        description: Explicit vertical CRS identifier; preserved, not remotely resolved.
+      reference:
+        range: AnyValue
+        any_of:
+        - range: string
+          pattern: \S
+        - range: QualifiedCode
+        inlined: true
+        required: true
+      source:
+        range: string
+        pattern: \S
+        description: Optional provenance reference or description.
+  AnyValue:
+    class_uri: linkml:Any
+    description: LinkML union helper; every use here is constrained by any_of. Not a native
+      entity classification.
+  ClassifiedCityFeature:
+    abstract: true
+    is_a: CityFeature
+    description: City feature with explicitly qualified classification, intended purpose and
+      actual use. Codes are preserved without conversion or remote resolution.
+    attributes:
+      class:
+        any_of:
+        - range: string
+        - range: QualifiedCode
+        inlined: true
+        description: Optional source classification. Each code is a string or a value with
+          explicit code_space; no conversion or remote code-list membership check.
+        range: AnyValue
+      function:
+        any_of:
+        - range: string
+        - range: QualifiedCode
+        inlined: true
+        description: Optional list of codes for intended purposes, independent of usage. Each
+          code is a string or a value with explicit code_space; no conversion or remote code-list
+          membership check.
+        multivalued: true
+        inlined_as_list: true
+        range: AnyValue
+      usage:
+        any_of:
+        - range: string
+        - range: QualifiedCode
+        inlined: true
+        description: Optional list of codes for actual uses, independent of function. Each
+          code is a string or a value with explicit code_space; no conversion or remote code-list
+          membership check.
+        multivalued: true
+        inlined_as_list: true
+        range: AnyValue
+  TransportationFeature:
+    abstract: true
+    is_a: ClassifiedCityFeature
+    description: Physical exterior transportation feature; no routing graph, lane topology
+      or inferred connectivity.
+  Road:
+    is_a: TransportationFeature
+    description: Road transportation space.
+  Railway:
+    is_a: TransportationFeature
+    description: Rail transportation space.
+  Waterway:
+    is_a: TransportationFeature
+    description: Water transportation space, distinct from the physical WaterBody.
+  TransportSquare:
+    is_a: TransportationFeature
+    description: Transportation square; CityJSON spelling corresponding to CityGML transportation
+      Square.
+  WaterBody:
+    is_a: ClassifiedCityFeature
+    description: Physical water body, distinct from its transportation use and from absolute
+      water elevations.
+  PlantCover:
+    is_a: ClassifiedCityFeature
+    description: Vegetation cover as an area or volume, distinct from an individual plant.
+    attributes:
+      average_height:
+        range: float
+        minimum_value: 0
+        description: Optional average vegetation height in metres; no inferred value or unit
+          conversion.
+  TransportationRegion:
+    abstract: true
+    is_a: Entity
+    slots:
+    - parent
+    description: CityJSON transportation surface classification; this flattened region does
+      not implement the full CityGML space hierarchy.
+    slot_usage:
+      parent:
+        any_of:
+        - range: Road
+        - range: Railway
+        - range: TransportSquare
+        - range: Geometry
+    attributes:
+      host:
+        range: TransportationRegion
+        description: Optional source-supplied parent region on the same geometry. Retains
+          a thematic grouping; no physical host, space hierarchy or geometric containment
+          is inferred.
+  WaterRegion:
+    abstract: true
+    is_a: Entity
+    slots:
+    - parent
+    description: Water-body boundary classification, independent of building boundary semantics.
+    slot_usage:
+      parent:
+        any_of:
+        - range: WaterBody
+        - range: Geometry
+    attributes:
+      host:
+        range: WaterRegion
+        description: Optional source-supplied parent region on the same geometry. Retains
+          a thematic grouping; no physical host, space hierarchy or geometric containment
+          is inferred.
+  TrafficArea:
+    is_a: TransportationRegion
+    attributes:
+      class:
+        range: string
+        description: Optional scalar CityJSON surface code; qualified records and repeated
+          codes are outside this exchange profile.
+      function:
+        range: string
+        description: Optional scalar CityJSON surface code; qualified records and repeated
+          codes are outside this exchange profile.
+      usage:
+        range: string
+        description: Optional scalar CityJSON surface code; qualified records and repeated
+          codes are outside this exchange profile.
+      surface_material:
+        range: string
+        description: Optional scalar CityJSON surface code; qualified records and repeated
+          codes are outside this exchange profile.
+  AuxiliaryTrafficArea:
+    is_a: TransportationRegion
+    attributes:
+      class:
+        range: string
+        description: Optional scalar CityJSON surface code; qualified records and repeated
+          codes are outside this exchange profile.
+      function:
+        range: string
+        description: Optional scalar CityJSON surface code; qualified records and repeated
+          codes are outside this exchange profile.
+      usage:
+        range: string
+        description: Optional scalar CityJSON surface code; qualified records and repeated
+          codes are outside this exchange profile.
+      surface_material:
+        range: string
+        description: Optional scalar CityJSON surface code; qualified records and repeated
+          codes are outside this exchange profile.
+  TransportationMarking:
+    is_a: TransportationRegion
+  TransportationHole:
+    is_a: TransportationRegion
+  WaterSurface:
+    is_a: WaterRegion
+    attributes:
+      water_level:
+        range: string
+        description: Optional categorical water-level code, not a numerical elevation or a
+          vertical reference.
+  WaterGroundSurface:
+    is_a: WaterRegion
+  WaterClosureSurface:
+    is_a: WaterRegion
+    description: CityJSON virtual water-body closing boundary; corresponds conceptually to
+      CityGML 3.0 core ClosureSurface, not a building surface.
+  RasterElevation:
+    description: Identifier-free interpretation of one local Raster as elevation data. The
+      builder records its method explicitly; no datum conversion, XML RasterRelief mapping
+      or surface accuracy is certified.
+    attributes:
+      geometry_id:
+        range: string
+        required: true
+        pattern: \S
+        annotations:
+          dtcc_representation_reference: Raster
+        description: ID of a Raster representation on this same owning Object.
+      unit:
+        range: LengthUnit
+        required: true
+      vertical_reference:
+        range: string
+        required: true
+        pattern: \S
+      sampling:
+        range: RasterSampling
+        required: true
+      interpolation:
+        range: RasterInterpolation
+        required: true
+      hole_fill:
+        range: RasterHoleFill
+        required: true
+      source_selection:
+        range: RasterSourceSelection
+        required: true
+      window_size:
+        range: integer
+        minimum_value: 0
+        required: true
+      radius:
+        range: float
+        minimum_value: 0
+        required: true
+      source:
+        range: string
+        pattern: \S
+enums:
+  NativeLanduseCode:
+    description: Native DTCC computational code names, not a CityGML/CityJSON code list.
+    permissible_values:
+      WATER: {}
+      GRASS: {}
+      FOREST: {}
+      FARMLAND: {}
+      LIGHT_URBAN: {}
+      URBAN: {}
+      HEAVY_URBAN: {}
+      INDUSTRIAL: {}
+      MILITARY: {}
+      ROAD: {}
+      RAIL: {}
+      UNKNOWN: {}
+  HeightStatus:
+    description: CityGML 3.0 HeightStatusValue capture methods.
+    permissible_values:
+      measured: {}
+      estimated: {}
+  LengthUnit:
+    description: Supported SI length symbols for qualified heights and elevations. No automatic
+      conversion; extending this vocabulary requires a schema version.
+    permissible_values:
+      m: {}
+      cm: {}
+      mm: {}
+      km: {}
+  RasterSampling:
+    permissible_values:
+      cell_center: {}
+  RasterInterpolation:
+    permissible_values:
+      inverse_distance_weighted: {}
+  RasterHoleFill:
+    permissible_values:
+      none: {}
+      nearest: {}
+  RasterSourceSelection:
+    permissible_values:
+      ground: {}
+      all: {}
+annotations:
+  dtcc_open_semantics: true

@@ -33,18 +33,6 @@ class DatasetCollection(Model):
         """Return the contained items as a plain list."""
         return list(self.items)
 
-    def to_proto(self):
-        """DatasetCollection protobuf serialization is not implemented."""
-        raise NotImplementedError(
-            "DatasetCollection protobuf serialization is not implemented."
-        )
-
-    def from_proto(self, pb):
-        """DatasetCollection protobuf deserialization is not implemented."""
-        raise NotImplementedError(
-            "DatasetCollection protobuf deserialization is not implemented."
-        )
-
 
 @dataclass
 class DatasetValue(Model):
@@ -95,15 +83,3 @@ class DatasetValue(Model):
                 f"DatasetValue contains {type(self.value).__name__}, not a mapping."
             )
         return self.value
-
-    def to_proto(self):
-        """DatasetValue protobuf serialization is not implemented."""
-        raise NotImplementedError(
-            "DatasetValue protobuf serialization is not implemented."
-        )
-
-    def from_proto(self, pb):
-        """DatasetValue protobuf deserialization is not implemented."""
-        raise NotImplementedError(
-            "DatasetValue protobuf deserialization is not implemented."
-        )

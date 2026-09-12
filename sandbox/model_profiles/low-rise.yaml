@@ -1,0 +1,27 @@
+id: https://example.org/dtcc/profiles/low-rise
+name: dtcc_low_rise_experiment
+version: 0.1.0
+prefixes:
+  linkml: https://w3id.org/linkml/
+  ex: https://example.org/dtcc/
+default_prefix: ex
+default_range: string
+imports:
+  - city
+
+classes:
+  Building:
+    is_a: Entity
+    slots: [parent, height, usage]
+    slot_usage:
+      parent:
+        range: City
+      height:
+        maximum_value: 10
+  WeatherStation:
+    is_a: Sensor
+    attributes:
+      accuracy:
+        range: float
+        required: true
+        minimum_value: 0
