@@ -139,8 +139,9 @@ class Model(ABC):
         upload_url: str | None = None,
         token: str | None = None,
         idempotency_key: str | None = None,
+        canonical: bool = False,
     ):
-        """Publish a Dataset v2 object package.
+        """Publish an object package; ``canonical=True`` preserves the native model.
 
         Requires this object to carry ``DatasetContext`` from a dataset call.
         """
@@ -159,7 +160,10 @@ class Model(ABC):
             token=token,
         )
         with tempfile.TemporaryDirectory() as tmpdir:
-            package = self.export(Path(tmpdir) / "dataset_package", format=format)
+            package = self.export(
+                Path(tmpdir) / "dataset_package", format=format,
+                canonical=canonical,
+            )
             return package.publish(
                 dataset_key=dataset_key,
                 uploader=resolved_uploader,

@@ -18,6 +18,7 @@ ARTIFACT_NAMES = (
     "contract.json",
     "manifest-v2.schema.json",
     "golden.dtccpkg",
+    "canonical.dtccpkg",
 )
 
 

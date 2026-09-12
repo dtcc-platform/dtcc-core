@@ -40,11 +40,7 @@ class DatasetPackage:
         token: str | None = None,
         idempotency_key: str | None = None,
     ):
-        """Publish this Dataset Manifest v2 package through dtcc-upload."""
-        if self.manifest.schema_version == CANONICAL_MANIFEST_VERSION:
-            raise NotImplementedError(
-                "Canonical package publication requires a v3 catalog consumer; local export/read is supported."
-            )
+        """Publish an artifact or canonical model package through dtcc-upload."""
         from dtcc_core.datasets.publish import DatasetUploadClient
 
         resolved_uploader = uploader or DatasetUploadClient.from_config(
@@ -92,6 +88,15 @@ class DatasetPackage:
             raise ValueError(f"Dataset package archive does not exist: {self.path}")
         package_dir.mkdir(parents=True, exist_ok=False)
         with zipfile.ZipFile(self.path) as archive:
+            if self.manifest.schema_version == CANONICAL_MANIFEST_VERSION:
+                from .publish import _validate_package_path
+                entries = archive.infolist()
+                expected = {"manifest.json", *(_validate_package_path(a.path) for a in self.artifacts)}
+                names = [entry.filename for entry in entries]
+                if len(names) != len(set(names)) or set(names) != expected:
+                    raise ValueError("Canonical archive members must match the manifest exactly")
+                if sum(entry.file_size for entry in entries) > 256 * 1024 * 1024:
+                    raise ValueError("Canonical archive exceeds 256 MiB limit")
             manifest_path = package_dir / "manifest.json"
             _extract_zip_member(archive, "manifest.json", manifest_path)
             artifact_files = []

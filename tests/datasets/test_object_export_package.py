@@ -212,6 +212,8 @@ def test_mesh_like_object_export_uses_object_serializer(tmp_path):
     assert artifact.path == "artifacts/city_surface_mesh.dtcc"
     assert artifact.role == "primary"
     assert artifact.format == "dtcc"
+    assert artifact.media_type == "application/vnd.dtcc.model+protobuf"
+    assert artifact.data_kind == "model"
     assert artifact.size == artifact_path.stat().st_size
     assert artifact.sha256 == _sha256(artifact_path)
 

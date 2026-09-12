@@ -151,8 +151,28 @@ def test_canonical_package_round_trip_restores_context_and_model(city, tmp_path,
     assert package.manifest.schema_version == 'dtcc-dataset-manifest-v3'
     assert package.artifacts[0].model_type == 'City'
     assert package.artifacts[0].bounds is None  # Request bounds are a different fact.
-    with pytest.raises(NotImplementedError, match='publication'):
-        package.publish(dataset_key='not-published')
+
+
+def test_canonical_publication_passes_a_complete_package_to_the_uploader(city):
+    class Uploader:
+        def upload_package(self, *, manifest_path, **kwargs):
+            restored = load_model_package(manifest_path.parent)
+            assert_model_equal(city, restored)
+            assert restored.dataset_context == city.dataset_context
+            return {"published": kwargs["dataset_key"]}
+
+    assert city.publish(dataset_key="canonical-city", canonical=True, uploader=Uploader()) == {
+        "published": "canonical-city",
+    }
+
+
+def test_canonical_archive_publication_rejects_unlisted_members(city, tmp_path):
+    import zipfile
+    package = city.export(tmp_path / "package.dtccpkg", canonical=True)
+    with zipfile.ZipFile(package.path, "a") as archive:
+        archive.writestr("unlisted.txt", b"unexpected")
+    with pytest.raises(ValueError, match="members must match"):
+        package.publish(dataset_key="invalid-package", uploader=object())
 
 
 def test_requested_supplement_keeps_canonical_artifact(city, tmp_path):
