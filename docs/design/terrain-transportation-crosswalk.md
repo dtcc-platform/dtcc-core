@@ -25,7 +25,7 @@ road classification, traffic direction, or a faithful CityJSON conversion.
   encoded property cardinalities and enum values, inspected directly as XML.
 - [CityJSON 2.0.2](https://www.cityjson.org/specs/2.0.2/): §§2.11, 2.12, 3.3,
   plus the linked machine schemas. Its payload version is still `2.0`.
-- DTCC [native inventory](model-inventory.md), [standard schema](../../schemas/archive/model/0.7.0/schema.yaml),
+- DTCC [native inventory](model-inventory.md), [standard schema](https://github.com/dtcc-platform/dtcc-core/blob/349cdfa8ae3eabceb65a7131aa6a1e8c847c0e46/schemas/archive/model/0.7.0/schema.yaml),
   [exchange admission](../../dtcc_core/model/exchange.py),
   [strict CityJSON admission](../../dtcc_core/io/cityjson/admission.py),
   [terrain builder](../../dtcc_core/builder/geometry_builders/terrain.py),

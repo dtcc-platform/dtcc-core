@@ -10,8 +10,8 @@ The naming cleanup introduced schema 0.3.0; current
 [schema 0.9.0](../../dtcc_core/schemas/dtcc.yaml) retains it. The naming version changed because
 names inside the attribute map are semantic contract data, even though the binary Protobuf definition and wire version stay
 unchanged. The current optional profiles use the same convention:
-[city 0.2.0](../../schemas/profiles/city/0.2.0/schema.yaml) and
-[buildings 0.3.0](../../schemas/profiles/buildings/0.3.0/schema.yaml).
+[city 0.2.0](../../sandbox/model_profiles/profiles/city/0.2.0/schema.yaml) and
+[buildings 0.3.0](../../sandbox/model_profiles/profiles/buildings/0.3.0/schema.yaml).
 
 | Source or earlier spelling | Current property | CityJSON spelling when mapped |
 | --- | --- | --- |
@@ -77,9 +77,8 @@ so `attributes.measured_height` stays snake_case in the browser. The real
 
 ## Version handling
 
-Earlier standard definitions remain unchanged under
-[schemas/archive/model](../../schemas/archive/model). They are outside the runtime
-bundle; default schema evaluation rejects their unavailable versions. The existing
+Earlier standard definitions are preserved in Git history, not in the checkout
+or runtime bundle. Default schema evaluation rejects their unavailable versions. The existing
 `validate_schema=False` bypass preserves declarations and metadata without pretending
 to migrate them. There are no aliases or automatic reinterpretations of old names.
 

@@ -19,7 +19,7 @@ constraints it must satisfy. It can now be applied directly to native objects:
 ```python
 from dtcc_core.model.profiles import SemanticProfile
 
-profile = SemanticProfile("schemas/profiles/city/0.1.0/schema.yaml")
+profile = SemanticProfile("sandbox/model_profiles/profiles/city/0.1.0/schema.yaml")
 report = profile.validate(city)
 print(report.valid)
 for issue in report.issues:

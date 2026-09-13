@@ -61,7 +61,7 @@ reconciling the conceptual UML/catalogue and encoding; this milestone makes no s
 conformance claim.
 
 Current implementation authorities are the
-[standard schema](../../schemas/archive/model/0.2.0/schema.yaml),
+[standard schema](https://github.com/dtcc-platform/dtcc-core/blob/349cdfa8ae3eabceb65a7131aa6a1e8c847c0e46/schemas/archive/model/0.2.0/schema.yaml),
 [native Building API](../../dtcc_core/model/object/building.py),
 [semantic projection](../../dtcc_core/model/profiles.py),
 [LinkML backend](../../dtcc_core/model/_profile_backend.py),

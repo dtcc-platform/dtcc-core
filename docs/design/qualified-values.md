@@ -4,7 +4,7 @@ Current schema 0.8.0 retains these records and adds [qualified elevations and
 the 3DBAG mapping](3dbag-attribute-mapping.md). The measurements below are historical
 0.6.0 evidence; its schema is archived unchanged outside the runtime bundle.
 
-Standard [schema 0.6.0](../../schemas/archive/model/0.6.0/schema.yaml) adds
+Standard [schema 0.6.0](https://github.com/dtcc-platform/dtcc-core/blob/349cdfa8ae3eabceb65a7131aa6a1e8c847c0e46/schemas/archive/model/0.6.0/schema.yaml) adds
 qualified values for Building and BuildingPart using ordinary nested dictionaries
 and lists. Their definitions live in YAML; there are no new native Python classes,
 Protobuf fields or dependencies. Wire version 6 is unchanged.

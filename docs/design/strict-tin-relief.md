@@ -1,6 +1,6 @@
 # Strict triangular TINRelief exchange
 
-Implemented 12 September 2026, using [standard schema 0.8.0](../../schemas/archive/model/0.8.0/schema.yaml)
+Implemented 12 September 2026, using [standard schema 0.8.0](https://github.com/dtcc-platform/dtcc-core/blob/349cdfa8ae3eabceb65a7131aa6a1e8c847c0e46/schemas/archive/model/0.8.0/schema.yaml)
 and unchanged Protobuf wire v6. This implements the bounded terrain slice from
 the [terrain/transportation crosswalk](terrain-transportation-crosswalk.md).
 

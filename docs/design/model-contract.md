@@ -198,8 +198,8 @@ dictionaries and one generic LinkML backend; they do not override scalar measure
 The [terrain/transportation crosswalk](terrain-transportation-crosswalk.md) records
 both the earlier comparison and the subsequent bounded implementation without
 replacing native graph/raster carriers.
-Earlier standard schemas 0.1.0 through 0.8.0 remain unchanged historical snapshots under
-`schemas/archive/model`, outside the runtime bundle. No old-name migration or alias
+Earlier standard schemas 0.1.0 through 0.8.0 are preserved in Git history, outside
+the checkout and runtime bundle. No old-name migration or alias
 is applied. The explicit semantic bypass can still preserve their declarations.
 Semantic versions are independent of the wire version. A valid declaration selects
 a local bundled schema; an explicit bypass can preserve an unavailable semantic

@@ -10,8 +10,10 @@ The current finite acceptance examples are:
 
 See [exterior coverage](../../docs/design/exterior-city-profile.md) and
 [DEM interpretation](../../docs/design/terrain-dem.md). Historical profile examples
-below retain their explicitly selected experimental schemas; they are not the
-standard save/load contract.
+below retain their explicitly selected experimental schemas in [profiles/](profiles/);
+they are not the standard save/load contract. Archived standard schemas are
+available in Git history; the active specifications live in
+[`dtcc_core/schemas/`](../../dtcc_core/schemas/).
 
 Current wire definition: `dtcc_core/schemas/dtcc.proto`; standard schema: model 0.9.0.
 
@@ -52,7 +54,7 @@ CityGML/CityJSON conformance profile. The subsequent
 explicit experimental API and real-tile measurements; LinkML remains optional.
 
 The next [buildings milestone](../../docs/design/buildings-profile.md) has a
-[self-contained versioned schema](../../schemas/profiles/buildings/0.2.0/schema.yaml)
+[self-contained versioned schema](../../sandbox/model_profiles/profiles/buildings/0.2.0/schema.yaml)
 and an end-to-end CityJSON/native/canonical example. The shared optional validator
 is now `dtcc_core/model/_profile_backend.py`, loaded by the `linkml_profile.py`
 development shim. The original city/low-rise files below remain comparison
@@ -263,7 +265,7 @@ the accounting boundaries and the measured reader-local string-reuse improvement
 
 ## Opening surfaces and hosts
 
-[Buildings profile 0.2.0](../../schemas/profiles/buildings/0.2.0/schema.yaml) adds
+[Buildings profile 0.2.0](../../sandbox/model_profiles/profiles/buildings/0.2.0/schema.yaml) adds
 Window/Door surface regions and optional wall/roof host rules. Native parent
 indices, canonical v4, CityJSON normalization, version compatibility and all
 reproduction commands are documented in [the openings contract](../../docs/design/building-openings.md).
@@ -277,7 +279,7 @@ checks the portable schema in the isolated LinkML environment. The original
 
 The [coverage map and contract](../../docs/design/model-semantic-coverage.md)
 distinguish semantic-only extensions from native numerical gaps. The single
-[city/0.1.0 schema](../../schemas/profiles/city/0.1.0/schema.yaml) adds land use,
+[city/0.1.0 schema](../../sandbox/model_profiles/profiles/city/0.1.0/schema.yaml) adds land use,
 individual vegetation, explicit native trees and furniture to the buildings
 vocabulary. Existing building profiles remain available.
 
