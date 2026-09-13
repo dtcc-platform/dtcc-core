@@ -9,6 +9,29 @@ developed at the
 [Digital Twin Cities Centre](https://dtcc.chalmers.se/)
 supported by Sweden’s Innovation Agency Vinnova under Grant No. 2019-421 00041.
 
+## Load a city
+
+```python
+import dtcc_core as dtcc
+
+city = dtcc.load_city("path/to/city.dtcc")
+```
+
+All existing `load_*` functions are available directly: `load_model`, `load_city`,
+`load_cityjson`, `load_3dbag`, `load_mesh`, `load_volume_mesh`, `load_mesh_as_city`,
+`load_pointcloud`, `load_pointcloud_directory`, `load_raster`, `load_footprints`,
+`load_landuse` and `load_roadnetwork`. These lazy aliases use the same loaders as
+`dtcc.io`, including default native schema validation. Model classes live under
+`dtcc.model`; other I/O operations remain under `dtcc.io`.
+
+```python
+city.plot()                                  # quick 3D Matplotlib inspection
+ax = city.plot(field="velocity", show=False)  # vector magnitudes at their samples
+```
+
+See [native model previews](docs/model-preview.md) for representation selection,
+supported geometry and preview limitations. Full visualization belongs in DTCC Twin.
+
 ## Documentation
 
 This project is documented as part of the

@@ -15,6 +15,22 @@ from ..common import warning
 class Model(ABC):
     """Base class for all DTCC Model classes."""
 
+    def plot(self, ax=None, *, lod=None, representation=None, field=None,
+             max_elements=20000, theme="dark", show=True):
+        """Quick 3D Matplotlib preview; return the axes for further customization.
+
+        Objects select one representation each and traverse their children.
+        Use ``representation`` (attachment ID), exact ``lod`` or a ``field`` name
+        to inspect a particular part of the model. Fields appear as coloured
+        samples; vector fields use magnitude. Large inputs are sampled within
+        ``max_elements``. This is a preview, not a full scene renderer.
+
+        See docs/model-preview.md for selection, geometry and coordinate limits.
+        """
+        from ..plotting.model import _plot_model
+        return _plot_model(self, ax=ax, lod=lod, representation=representation,
+                           field=field, max_elements=max_elements, theme=theme, show=show)
+
     @property
     def schema_id(self):
         """Root semantic schema ID; None selects the bundled default.
