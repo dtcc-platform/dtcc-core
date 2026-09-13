@@ -1,7 +1,9 @@
 # Standard schema at save/load boundaries
 
 The current standard DTCC semantic schema is
-[model/0.9.0/schema.yaml](../../dtcc_core/schemas/model/0.9.0/schema.yaml).
+[dtcc.yaml](../../dtcc_core/schemas/dtcc.yaml), alongside the Protobuf wire
+definition [dtcc.proto](../../dtcc_core/schemas/dtcc.proto). Both specifications
+have stable paths; semantic and wire versions remain independent.
 It is a self-contained LinkML file shipped inside the installed Core package.
 It declares the semantic rules applied by default to canonical I/O and
 [strict CityJSON I/O](cityjson-schema-io.md). Native
@@ -64,7 +66,7 @@ a schema version. That declaration identifies the intended contract; it is not
 a claim that the data was successfully validated.
 
 Coverage includes **canonical .dtcc files and canonical packages**, including
-directory packages, and **strict CityJSON JSON/ZIP I/O**. The sole wire definition is `dtcc_core/proto/dtcc.proto`; a `.dtcc` file is one
+directory packages, and **strict CityJSON JSON/ZIP I/O**. The sole wire definition is `dtcc_core/schemas/dtcc.proto`; a `.dtcc` file is one
 binary ModelFile message. `to_proto` and `from_proto` use the same boundary.
 Legacy `.pb`/`.pb2` file handlers and old model layouts have been removed. Other
 format adapters and default artifact-only packages are not universally validated. Continue
@@ -160,16 +162,17 @@ exchange but do not select or replace the standard contract.
 - Default reads/writes reject an unavailable schema ID/version. An explicit
   bypass permits handling such data while retaining its declaration for re-save.
   Missing/malformed v6 declarations and unsupported wire versions still fail.
-- New schema versions are separate immutable package files. Updating the default
-  does not edit old versions or silently revalidate old files against the newest
-  rules. A schema edit requires a new version and a new loaded profile instance.
+- The package bundles one active schema at `dtcc_core/schemas/dtcc.yaml`.
+  Contract changes update its declared version and the runtime default together;
+  Git retains earlier definitions. Older files are not silently validated against
+  newer rules: their requested version must match the bundled declaration.
 
 These root properties are I/O selection metadata. Only the serialized root's
 properties select an artifact's schema; nesting an independently loaded mesh in a
 city does not select a second schema for that representation. Numerical structure
 and native facts remain independent of the schema-loading machinery.
 
-The schema loader admits only known local schema identity and safe version paths,
+The schema loader admits only the bundled schema identity and version,
 verifies the loaded YAML's declaration and rejects imports. It performs no remote
 lookup. At most eight standard profile instances are retained by the selector;
 their compiled validators are reused. Model validity is never cached. Canonical

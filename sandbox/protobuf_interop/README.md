@@ -7,7 +7,7 @@ version remains6.
 
 This development example proves that `.dtcc` is an ordinary Protobuf message that
 a browser can read and write using the public
-[dtcc.proto](../../dtcc_core/proto/dtcc.proto). It adds no production dependency or
+[dtcc.proto](../../dtcc_core/schemas/dtcc.proto). It adds no production dependency or
 second wire definition. The example code is JavaScript; a production TypeScript
 SDK and downstream application integration are separate work.
 

@@ -6,7 +6,7 @@ covers a useful exterior urban model on the existing generic native carriers.
 It does not claim full CityGML conformance or complete CityJSON support.
 
 The authority for declared semantic rules is
-[`schema.yaml`](../../dtcc_core/schemas/model/0.9.0/schema.yaml). Numerical arrays,
+[`dtcc.yaml`](../../dtcc_core/schemas/dtcc.yaml). Numerical arrays,
 indices, native types and persistence integrity remain Core responsibilities.
 The CityJSON adapter separately checks whether the selected external format can
 preserve each representation and value. These checks remain active with

@@ -10,11 +10,10 @@ from dtcc_core import io
 from dtcc_core.datasets import load_model_package
 from dtcc_core.model import Building, Object, exchange
 from dtcc_core.model.profiles import SemanticProfile
-from dtcc_core.model._standard_schema import DEFAULT_VERSION
 from sandbox.model_profiles.qualified_values_example import example_city
 
 ROOT = Path(__file__).resolve().parents[2]
-SCHEMA = ROOT / f'dtcc_core/schemas/model/{DEFAULT_VERSION}/schema.yaml'
+SCHEMA = ROOT / 'dtcc_core/schemas/dtcc.yaml'
 
 
 def test_qualified_values_survive_public_boundaries_without_inference(tmp_path):

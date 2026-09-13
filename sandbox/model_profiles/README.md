@@ -13,7 +13,7 @@ See [exterior coverage](../../docs/design/exterior-city-profile.md) and
 below retain their explicitly selected experimental schemas; they are not the
 standard save/load contract.
 
-Current wire definition: `dtcc_core/proto/dtcc.proto`; standard schema: model 0.9.0.
+Current wire definition: `dtcc_core/schemas/dtcc.proto`; standard schema: model 0.9.0.
 
 Run `python -m sandbox.model_profiles.tin_relief_example OUTPUT` for the synthetic
 mixed building/terrain strict CityJSON and native/package workflow. See

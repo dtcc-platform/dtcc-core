@@ -10,10 +10,10 @@ import yaml
 from dtcc_core import io
 from dtcc_core.model import Object, exchange
 from dtcc_core.model.profiles import SemanticProfile
-from dtcc_core.model._standard_schema import DEFAULT_VERSION, SEMANTIC_NAMESPACE
+from dtcc_core.model._standard_schema import SEMANTIC_NAMESPACE
 
 HERE = Path(__file__).resolve().parent
-SCHEMA = HERE.parents[1] / f'dtcc_core/schemas/model/{DEFAULT_VERSION}/schema.yaml'
+SCHEMA = HERE.parents[1] / 'dtcc_core/schemas/dtcc.yaml'
 NS = SEMANTIC_NAMESPACE
 
 

@@ -9,10 +9,10 @@ import yaml
 
 from dtcc_core import io
 from dtcc_core.model import GeometryRepresentation, Mesh, Raster, Terrain, exchange
-from dtcc_core.model._standard_schema import DEFAULT_VERSION, SEMANTIC_NAMESPACE
+from dtcc_core.model._standard_schema import SEMANTIC_NAMESPACE
 from dtcc_core.model.profiles import SemanticProfile
 
-SCHEMA = Path(__file__).resolve().parents[2] / f'dtcc_core/schemas/model/{DEFAULT_VERSION}/schema.yaml'
+SCHEMA = Path(__file__).resolve().parents[2] / 'dtcc_core/schemas/dtcc.yaml'
 
 
 def terrain_with_elevation():

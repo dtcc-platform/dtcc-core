@@ -2,7 +2,7 @@
 
 Strict CityJSON import and export now evaluate the selected standard DTCC schema,
 using the same semantic evaluator as canonical .dtcc I/O. The boundary was introduced with schema 0.5.0; the current schema is
-[0.9.0](../../dtcc_core/schemas/model/0.9.0/schema.yaml), including
+[0.9.0](../../dtcc_core/schemas/dtcc.yaml), including
 [qualified records](qualified-values.md). The wire layout is unchanged.
 The strict subset now also includes [triangular TINRelief](strict-tin-relief.md),
 mapped explicitly to the existing Terrain and Mesh classes.

@@ -154,7 +154,7 @@ def test_bypass_never_accepts_malformed_or_unknown_wire_declarations():
 
 def test_schema_only_field_metadata_rule_uses_the_native_field(tmp_path):
     import yaml
-    schema = yaml.safe_load((ROOT / f'dtcc_core/schemas/model/{DEFAULT_VERSION}/schema.yaml').read_text())
+    schema = yaml.safe_load((ROOT / 'dtcc_core/schemas/dtcc.yaml').read_text())
     schema['classes']['Field']['attributes']['unit']['pattern'] = '^K$'
     path = tmp_path / 'schema.yaml'
     path.write_text(yaml.safe_dump(schema))

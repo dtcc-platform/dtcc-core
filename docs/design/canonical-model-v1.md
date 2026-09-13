@@ -14,7 +14,7 @@ applicable to v1 data; the v1-only writer/reader statements record the initial s
 
 This is the first implemented subset of the [model contract](model-contract.md),
 not completion of issue #85. The authority is [Core Design](../../DESIGN.md).
-Its wire definition is the former `model_exchange.proto` (now superseded by [dtcc.proto](../../dtcc_core/proto/dtcc.proto));
+Its wire definition is the former `model_exchange.proto` (now superseded by [dtcc.proto](../../dtcc_core/schemas/dtcc.proto));
 admission and mapping live in [exchange.py](../../dtcc_core/model/exchange.py).
 
 ## Public workflow
@@ -135,7 +135,7 @@ The generated Python binding requires existing dependency `protobuf>=5.29.0,<6`.
 Regenerate only this schema with the development compiler `grpcio-tools==1.71.0`:
 
 ```bash
-python -m grpc_tools.protoc -I dtcc_core/proto --python_out=dtcc_core/model dtcc_core/proto/dtcc.proto
+python -m grpc_tools.protoc -I dtcc_core/schemas --python_out=dtcc_core/model dtcc_core/schemas/dtcc.proto
 ```
 
 LinkML remains isolated in [the profile experiment](../../sandbox/model_profiles/README.md).
