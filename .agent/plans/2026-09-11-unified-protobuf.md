@@ -6,7 +6,7 @@ backward compatibility, DESIGN.md and docs/design/model-contract.md.
 
 ## Acceptance boundary
 
-Make dtcc_core/proto/dtcc.proto the sole model wire definition. A .dtcc file is
+Make dtcc_core/schemas/dtcc.proto the sole model wire definition. A .dtcc file is
 one ordinary ModelFile Protobuf message. Remove the parallel definition, legacy
 class serializers and old wire readers. Keep one shared native admission/codec
 and default semantic validation, including to_proto/from_proto. Preserve existing

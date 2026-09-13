@@ -19,7 +19,7 @@ SURFACES = ['ClosureSurface', 'OuterCeilingSurface', 'OuterFloorSurface',
 
 @pytest.fixture(scope='module')
 def profile():
-    return SemanticProfile(ROOT / f'dtcc_core/schemas/model/{DEFAULT_VERSION}/schema.yaml')
+    return SemanticProfile(ROOT / 'dtcc_core/schemas/dtcc.yaml')
 
 
 def test_building_attributes_and_surfaces_through_cityjson_and_native_io(tmp_path):

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 PROTODOT=./protodot
-PROTOBUF=../../src/proto/dtcc.proto
+PROTOBUF=../../dtcc_core/schemas/dtcc.proto
 
 # Check for protodot binary
 if [ ! -x "$PROTODOT" ]; then

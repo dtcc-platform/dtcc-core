@@ -7,7 +7,7 @@ Native enum constants retain uppercase spelling. Measurement status and unit
 symbols retain their declared lexical values, such as `measured` and `m`.
 
 The naming cleanup introduced schema 0.3.0; current
-[schema 0.9.0](../../dtcc_core/schemas/model/0.9.0/schema.yaml) retains it. The naming version changed because
+[schema 0.9.0](../../dtcc_core/schemas/dtcc.yaml) retains it. The naming version changed because
 names inside the attribute map are semantic contract data, even though the binary Protobuf definition and wire version stay
 unchanged. The current optional profiles use the same convention:
 [city 0.2.0](../../schemas/profiles/city/0.2.0/schema.yaml) and

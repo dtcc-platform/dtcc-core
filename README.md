@@ -34,6 +34,11 @@ supported geometry and preview limitations. Full visualization belongs in DTCC T
 
 ## Documentation
 
+The DTCC data contract lives in [`dtcc_core/schemas/`](dtcc_core/schemas/):
+[`dtcc.yaml`](dtcc_core/schemas/dtcc.yaml) defines the LinkML semantic schema, and
+[`dtcc.proto`](dtcc_core/schemas/dtcc.proto) defines the Protobuf wire format.
+Their versions are independent; both specifications have stable file paths.
+
 This project is documented as part of the
 [DTCC Platform Documentation](https://platform.dtcc.chalmers.se/).
 

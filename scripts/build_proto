@@ -2,7 +2,7 @@
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROTO_DIR=$script_dir/../dtcc_core/proto
+PROTO_DIR=$script_dir/../dtcc_core/schemas
 
 PYTHON_DIR=$script_dir/../dtcc_core/model
 echo "Building Python classes..."

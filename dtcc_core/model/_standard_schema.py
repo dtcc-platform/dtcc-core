@@ -2,7 +2,6 @@
 
 from functools import lru_cache
 from importlib.resources import files
-import re
 
 SCHEMA_ID = 'https://github.com/dtcc-platform/dtcc-core/schemas/model'
 SEMANTIC_NAMESPACE = SCHEMA_ID + '#'
@@ -13,9 +12,9 @@ DEFAULT_VERSION = '0.9.0'
 def _profile(schema_id, version):
     from .profiles import SemanticProfile
 
-    if schema_id != SCHEMA_ID or re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', version) is None:
+    if (schema_id, version) != (SCHEMA_ID, DEFAULT_VERSION):
         raise ValueError(f'Unsupported semantic schema {schema_id!r} version {version!r}')
-    path = files('dtcc_core').joinpath('schemas', 'model', version, 'schema.yaml')
+    path = files('dtcc_core').joinpath('schemas', 'dtcc.yaml')
     if not path.is_file():
         raise ValueError(f'Unsupported semantic schema {schema_id!r} version {version!r}')
     profile = SemanticProfile(str(path))

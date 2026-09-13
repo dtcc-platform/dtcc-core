@@ -23,7 +23,7 @@ identity/version are explicit. A filename is not the format definition.
 
 ## Scope achieved beyond the original issue
 
-The standard [schema 0.9.0](../../dtcc_core/schemas/model/0.9.0/schema.yaml) is
+The standard [schema 0.9.0](../../dtcc_core/schemas/dtcc.yaml) is
 self-contained and evaluated by default at native/canonical-package and strict
 CityJSON boundaries. `validate_schema=False` skips semantic evaluation, not
 numerical, graph, file or package integrity checks. Direct Python access remains

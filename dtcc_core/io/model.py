@@ -10,7 +10,7 @@ from ..model import exchange
 def save_model(model, path, *, validate_schema=True):
     """Atomically save the supported canonical model subset to a .dtcc file.
 
-    The message structure is defined by dtcc_core/proto/dtcc.proto.
+    The message structure is defined by dtcc_core/schemas/dtcc.proto.
     Invalid or unsupported state fails before replacing an existing file.
     Semantic schema validation runs by default; False bypasses only that stage.
     """

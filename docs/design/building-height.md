@@ -1,7 +1,7 @@
 # Building height
 
 The height contract introduced in schema 0.4.0 is retained in current
-[schema 0.9.0](../../dtcc_core/schemas/model/0.9.0/schema.yaml). It separates
+[schema 0.9.0](../../dtcc_core/schemas/dtcc.yaml). It separates
 supplied measurements from the values used to construct building geometry.
 This applies equally to native Building and BuildingPart.
 

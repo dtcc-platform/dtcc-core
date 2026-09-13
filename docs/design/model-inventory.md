@@ -11,9 +11,9 @@ historical. It covers all 36 exported Model subclasses: 27 supported concrete
 roots, eight explicitly unsupported result/container types and abstract Geometry.
 Model itself and module-visible Polygon are noted separately below.
 
-The wire authority is [dtcc.proto](../../dtcc_core/proto/dtcc.proto), generated as
+The wire authority is [dtcc.proto](../../dtcc_core/schemas/dtcc.proto), generated as
 [dtcc_pb2.py](../../dtcc_core/model/dtcc_pb2.py). The default semantic contract is
-[model/0.9.0/schema.yaml](../../dtcc_core/schemas/model/0.9.0/schema.yaml).
+[dtcc.yaml](../../dtcc_core/schemas/dtcc.yaml), alongside the wire definition.
 Earlier standard schemas are retained unchanged under `schemas/archive/model` as
 historical definitions, outside the runtime bundle. Default evaluation requires an
 available schema version; it does not migrate old property names. Every admitted

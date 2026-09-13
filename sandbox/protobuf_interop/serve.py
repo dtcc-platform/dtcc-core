@@ -109,7 +109,7 @@ def serve(output, port):
         '/': (HERE / 'index.html', 'text/html'),
         '/browser.js': (HERE / 'browser.js', 'text/javascript'),
         '/protobuf.js': (HERE / 'node_modules/protobufjs/dist/protobuf.js', 'text/javascript'),
-        '/dtcc.proto': (ROOT / 'dtcc_core/proto/dtcc.proto', 'text/plain'),
+        '/dtcc.proto': (ROOT / 'dtcc_core/schemas/dtcc.proto', 'text/plain'),
         '/fixture.json': (output / 'fixture.json', 'application/json'),
         '/python.dtcc': (output / 'python.dtcc', 'application/octet-stream'),
     }
