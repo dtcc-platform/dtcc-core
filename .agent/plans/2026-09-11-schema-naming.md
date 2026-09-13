@@ -12,8 +12,8 @@ at import/export. Preserve arbitrary metadata spelling and reject reserved-name
 collisions instead of overwriting data. No change to height meaning, units, schema
 coverage, native class hierarchy, dependencies or the Protobuf definition.
 
-Earlier standard schema definitions remain byte-for-byte historical snapshots in
-schemas/archive/model, outside the runtime bundle. No compatibility aliases or
+Earlier standard schema definitions are preserved byte-for-byte in Git history,
+outside the checkout and runtime bundle. No compatibility aliases or
 automatic old-attribute migration. Earlier optional profiles remain historical;
 current examples use new snake_case versions. Unsupported standard versions fail
 default validation; the existing explicit semantic bypass remains available.

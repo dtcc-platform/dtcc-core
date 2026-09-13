@@ -3,7 +3,7 @@
 Current schema 0.8.0 retains this mapping and adds [strict triangular TINRelief](strict-tin-relief.md).
 The 0.7.0 schema and performance evidence below are archived milestone evidence.
 
-Implemented 12 September 2026. Standard [schema 0.7.0](../../schemas/archive/model/0.7.0/schema.yaml)
+Implemented 12 September 2026. Standard [schema 0.7.0](https://github.com/dtcc-platform/dtcc-core/blob/349cdfa8ae3eabceb65a7131aa6a1e8c847c0e46/schemas/archive/model/0.7.0/schema.yaml)
 adds `ElevationMeasurement` and optional building/part `elevation_measurements`.
 The explicit [load_3dbag loader](../../dtcc_core/io/three_d_bag.py) implements the
 audited `b3_h_dak` naming convention. Ordinary `load_city` preserves supplier

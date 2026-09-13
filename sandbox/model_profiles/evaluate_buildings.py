@@ -11,7 +11,7 @@ import yaml
 from linkml_profile import LinkMLProfile, payload
 
 HERE = Path(__file__).resolve().parent
-SCHEMA = HERE.parents[1] / 'schemas/profiles/buildings/0.3.0/schema.yaml'
+SCHEMA = HERE / 'profiles/buildings/0.3.0/schema.yaml'
 
 
 def main():

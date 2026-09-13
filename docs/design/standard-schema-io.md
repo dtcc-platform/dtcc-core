@@ -141,8 +141,8 @@ Schema 0.8.0 declares TINRelief as a specialization of Terrain and accompanies
 
 The standard schema ID is
 `https://github.com/dtcc-platform/dtcc-core/schemas/model`, currently version
-`0.9.0`. Earlier standard schemas 0.1.0 through 0.8.0 are unchanged historical
-snapshots under `schemas/archive/model`, outside the runtime bundle; default
+`0.9.0`. Earlier standard schemas 0.1.0 through 0.8.0 are preserved in Git
+history, outside the checkout and runtime bundle; default
 validation rejects those unavailable versions. The explicit bypass preserves
 declarations and data without migration. See [naming](model-naming.md).
 The schema ID is a logical identifier, not a URL fetched during I/O. The existing

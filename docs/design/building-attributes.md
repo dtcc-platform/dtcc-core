@@ -4,7 +4,7 @@ Current schema 0.8.0 extends the scalar code rules below with
 [qualified codes and height records](qualified-values.md). The 0.5.0 milestone
 is retained here as historical evidence.
 
-Standard [schema 0.5.0](../../schemas/archive/model/0.5.0/schema.yaml) extends the
+Standard [schema 0.5.0](https://github.com/dtcc-platform/dtcc-core/blob/349cdfa8ae3eabceb65a7131aa6a1e8c847c0e46/schemas/archive/model/0.5.0/schema.yaml) extends the
 [reviewed building crosswalk](building-semantic-crosswalk.md) with six optional
 attributes and six surface classifications. It retains the height contract and
 uses the existing native Object/Building/BuildingPart and SemanticRegion carriers.

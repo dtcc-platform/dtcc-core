@@ -14,8 +14,8 @@ direct Python access and independently editable versioned semantic schemas.
 ## Read and edit the schema
 
 The current entry point is
-[`schemas/profiles/buildings/0.2.0/schema.yaml`](../../schemas/profiles/buildings/0.2.0/schema.yaml).
-The unchanged [0.1.0 schema](../../schemas/profiles/buildings/0.1.0/schema.yaml)
+[`sandbox/model_profiles/profiles/buildings/0.2.0/schema.yaml`](../../sandbox/model_profiles/profiles/buildings/0.2.0/schema.yaml).
+The unchanged [0.1.0 schema](../../sandbox/model_profiles/profiles/buildings/0.1.0/schema.yaml)
 records the first subset described below; [0.2.0 adds opening surfaces and hosts](building-openings.md).
 It contains all its own classes, slots and primitive type definitions; it has no
 imports and needs no network resolution. The `example.org` namespace explicitly

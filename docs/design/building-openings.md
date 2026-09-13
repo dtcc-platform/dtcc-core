@@ -8,7 +8,7 @@ serialization paths described below have since been removed.
 Status: implemented local slice, 10 September 2026. Governed by
 [Core Design](../../DESIGN.md) and the [model contract](model-contract.md).
 The self-contained schema is
-[buildings/0.2.0/schema.yaml](../../schemas/profiles/buildings/0.2.0/schema.yaml).
+[buildings/0.2.0/schema.yaml](../../sandbox/model_profiles/profiles/buildings/0.2.0/schema.yaml).
 Version 0.1.0 remains unchanged and usable independently.
 
 ## Standards decision

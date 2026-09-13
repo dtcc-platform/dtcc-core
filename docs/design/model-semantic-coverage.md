@@ -18,7 +18,7 @@ implements that one terrain conversion; other relief forms and transport remain 
 Status: implemented bounded mixed-city slice, 11 September 2026. Authority:
 [Core Design](../../DESIGN.md) and the [model contract](model-contract.md).
 The current city schema is the single self-contained file
-[city/0.1.0/schema.yaml](../../schemas/profiles/city/0.1.0/schema.yaml).
+[city/0.1.0/schema.yaml](../../sandbox/model_profiles/profiles/city/0.1.0/schema.yaml).
 The buildings 0.1.0 and 0.2.0 files remain usable and unchanged.
 
 ## Coverage map

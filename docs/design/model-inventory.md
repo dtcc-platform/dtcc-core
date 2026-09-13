@@ -14,8 +14,8 @@ Model itself and module-visible Polygon are noted separately below.
 The wire authority is [dtcc.proto](../../dtcc_core/schemas/dtcc.proto), generated as
 [dtcc_pb2.py](../../dtcc_core/model/dtcc_pb2.py). The default semantic contract is
 [dtcc.yaml](../../dtcc_core/schemas/dtcc.yaml), alongside the wire definition.
-Earlier standard schemas are retained unchanged under `schemas/archive/model` as
-historical definitions, outside the runtime bundle. Default evaluation requires an
+Earlier standard schemas are preserved in Git history, outside the checkout and
+runtime bundle. Default evaluation requires an
 available schema version; it does not migrate old property names. Every admitted
 concrete native type has an explicit 0.9.0 schema binding.
 A binding to a generic class is not validation of every possible domain meaning.

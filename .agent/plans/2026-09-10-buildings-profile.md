@@ -60,7 +60,7 @@ the new building profile workflow. No broad test matrix or remote data calls.
 
 - Mapping, decisions, ordinary Python example and limitations are recorded in
   `docs/design/buildings-profile.md`. The portable profile is
-  `schemas/profiles/buildings/0.1.0/schema.yaml`.
+  `sandbox/model_profiles/profiles/buildings/0.1.0/schema.yaml`.
 - `buildings_example.py` passed public strict CityJSON import/export, native file
   and canonical package round trips: footprint 96 m² with a courtyard hole, part
   identity, two roof polygons sharing one region, and unclassified surfaces.

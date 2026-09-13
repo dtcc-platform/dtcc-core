@@ -11,7 +11,7 @@ from dtcc_core.model import City, Object, Tree, exchange
 from dtcc_core.model.profiles import SemanticProfile
 
 ROOT = Path(__file__).resolve().parents[2]
-SCHEMA = ROOT / 'schemas/profiles/city/0.2.0/schema.yaml'
+SCHEMA = ROOT / 'sandbox/model_profiles/profiles/city/0.2.0/schema.yaml'
 FIXTURES = ROOT / 'sandbox/model_profiles/fixtures'
 NS = 'https://example.org/dtcc/'
 

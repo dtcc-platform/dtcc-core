@@ -10,7 +10,7 @@ import yaml
 
 from linkml_profile import LinkMLProfile, payload
 
-SCHEMAS = Path(__file__).resolve().parents[2] / 'schemas/profiles/buildings'
+SCHEMAS = Path(__file__).resolve().parent / 'profiles/buildings'
 
 
 def main():
