@@ -81,7 +81,7 @@ Helsingborg tile `079` and Uppsala center `350m`. Use it after robustness fixes
 to confirm the known failure set is shrinking before running another full
 survey.
 
-The active suite no longer compares Spade or Triangle as benchmark dimensions.
+The active suite does not compare 2D meshers (such as Triangle) as benchmark dimensions.
 It uses the default DTCC meshing path exposed through the dataset APIs.
 
 Run outputs are written under:
