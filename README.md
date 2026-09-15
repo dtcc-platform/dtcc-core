@@ -203,8 +203,8 @@ python demos/build_city_flat_mesh.py --view
   Install the optional volume-meshing dependencies from the lockfile:
 
   ```
-  uv sync --locked --extra volume
-  uv run --locked --extra volume python demos/build_city_volume_mesh.py
+  uv sync --extra volume
+  uv run --extra volume python demos/build_city_volume_mesh.py
   ```
 
   The [`dtcc-tetgen-wrapper`](https://github.com/dtcc-platform/dtcc-tetgen-wrapper)
@@ -218,6 +218,16 @@ python demos/build_city_flat_mesh.py --view
   Include `--extra volume` when syncing this environment; a plain `uv sync`
   omits the extra and removes the wrapper. The demo above also downloads city
   data and writes its output under `demos/output/`.
+
+  TetGen is the only 3D meshing backend. A missing wrapper raises an installation
+  error before geometry preparation or dataset downloads; TetGen errors propagate.
+  Base installation still supports non-volume operations.
+
+  The legacy columnar mesher and its options `smoother_max_iterations`,
+  `smoothing_relative_tolerance`, `aspect_ratio_threshold`, and `debug_step` have
+  been removed from `build_city_volume_mesh()` and `City.build_volume_mesh()`.
+  Pass remaining options after `tetgen_switch_overrides` by keyword. Footprint
+  `smoothing` and the intermediate 2D `mesher` option remain supported.
 
   TetGen and its wrapper use the AGPL license. The wrapper includes the relevant
   license and third-party notices; installing it as an optional dependency does

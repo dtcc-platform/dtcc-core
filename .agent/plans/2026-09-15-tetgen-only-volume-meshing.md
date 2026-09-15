@@ -1,20 +1,20 @@
 # TetGen-only volume meshing — issue #38
 
-Status: installation changes merged into develop; platform CI follow-up in progress.
-Backend removal is deferred.
+Status: TetGen-only backend removal implemented and verified locally; ready for review.
+Issue #38 has additional deferred audit findings.
 Updated 15 September 2026.
 Authority: the user approved coordinated installation/dependency changes in
 dtcc-tetgen-wrapper and dtcc-core, then merging both into develop and making
 develop the wrapper default branch. DTCC packages use Git
 commits, without PyPI publication or GitHub releases. The wrapper owns TetGen
 download, verification, compilation, installation, and its own uv development
-workflow. Columnar-mesher/API removal is a later slice of
+workflow. The user has now authorized continuing columnar-mesher/API removal for
 [issue #38](https://github.com/dtcc-platform/dtcc-core/issues/38).
 No applicable PLAN_TEMPLATE.md was found in the repository or ancestor guidance.
 
 ## Acceptance boundary
 
-### Current task: installation only
+### Completed prerequisite: installation
 
 Deliver one wrapper commit and one core commit that pins it. A clean wrapper Git
 checkout must build through scikit-build-core/CMake without manual vendoring:
@@ -38,7 +38,7 @@ rewrite to the local repository for integration verification; keep the real HTTP
 URL in core's metadata/lockfile and report that remote installation requires
 pushing the wrapper commit first. Do not misrepresent this as public-remote proof.
 
-### Later task: TetGen-only backend (deferred)
+### Current task: TetGen-only backend
 
 `build_city_volume_mesh()` and the city-volume-mesh dataset use TetGen as their
 only tetrahedral mesher. A documented, locked uv installation can run a real
@@ -53,11 +53,10 @@ TetGen geometry, quality, cell topology, boundary-face marker conventions, and
 shared surface/terrain functionality.
 
 Dependency policy selected for this plan: expose the existing TetGen wrapper as
-the `volume` extra (`uv sync --locked --extra volume`). This keeps installation
-optional. Making it mandatory for volume operations belongs to the later backend
-removal task.
+the `volume` extra (`uv sync --extra volume`). It is required for volume
+operations; ordinary non-volume use does not require it.
 
-## Current evidence and constraints
+## Initial evidence and constraints (historical)
 
 - Planning checkout: `develop`, commit
   `3067cb5f1469af0ccdc7b685836bcb69724f689d`. The earlier audit used
@@ -82,7 +81,7 @@ removal task.
 
 ## Checkpoints
 
-### 1. Establish the installation and baseline (current task)
+### 1. Establish the installation and baseline (complete)
 
 - [x] Start a dedicated cleanup branch, preserving unrelated work. Inspect the
       current diff and revalidate affected callers before editing.
@@ -105,32 +104,32 @@ removal task.
       dependency selection; create the coordinated core commit and record both
       hashes and any remote/platform verification limitations.
 
-### 2. Retire the legacy volume path as one coherent change (deferred)
+### 2. Retire the legacy volume path as one coherent change (complete)
 
-- [ ] Require the TetGen wrapper at volume-operation entry points. Use one small
+- [x] Require the TetGen wrapper at volume-operation entry points. Use one small
       authoritative availability/error helper shared by the direct builder,
       lower-level adapter, and dataset entry points as needed. The error gives
       the actual uv installation command and retains the import failure cause.
       Base package import must not warn that a fallback exists.
-- [ ] Remove the fallback branch and obsolete backend audit/configuration paths.
+- [x] Remove the fallback branch and obsolete backend audit/configuration paths.
       Preserve TetGen exceptions and useful stage-audit failure reporting.
-- [ ] Remove `smoother_max_iterations`, `smoothing_relative_tolerance`,
+- [x] Remove `smoother_max_iterations`, `smoothing_relative_tolerance`,
       `aspect_ratio_threshold`, and `debug_step`, updating callers and docs.
       Preserve the positional prefix preceding those parameters and make the
       remaining tail keyword-only so old positional values cannot silently bind
       to different options. Document this intentional API change; do not keep
       ignored compatibility parameters or add an alternate legacy entry point.
-- [ ] Remove the four legacy bindings above and their exclusive implementations.
+- [x] Remove the four legacy bindings above and their exclusive implementations.
       Recheck all native and Python references, including tracked backup files,
       before deleting the dependent headers. Remove obsolete legacy-only tests
       and backup callers in this same change.
-- [ ] Remove the confirmed exclusive closure: candidates include
+- [x] Remove the confirmed exclusive closure: candidates include
       `VolumeMeshBuilder.h`, `model/ColumnMesh.h`, column processing/layer/padding
       helpers, `Smoother.h`, its boundary-condition classes, `fem/` (including
       generated forms), and vendored AMGCL. Record the final retained/deleted
       boundary here. Do not delete a helper merely because its directory or name
       mentions volume meshes.
-- [ ] Remove AMGCL/Boost CMake wiring only after confirming no retained consumer.
+- [x] Remove AMGCL/Boost CMake wiring only after confirming no retained consumer.
       Preserve Eigen, `VertexSmoother`, shared geometry and mesh processing,
       numerical volume types/conversions, and 2D/Triangle configuration where
       still used. Inspect `compute_boundary_face_markers` for legacy vertex-tag
@@ -140,22 +139,22 @@ removal task.
 Keep the removal buildable and testable as a unit; do not split commits between
 deleting a native implementation and removing its live binding or caller.
 
-### 3. Verify and complete the backend-removal slice (deferred)
+### 3. Verify and complete the backend-removal slice (complete)
 
-- [ ] Add one focused missing-wrapper regression covering early failure through
+- [x] Add one focused missing-wrapper regression covering early failure through
       the public builder and dataset boundary (before preparation/download), and
       verify that a TetGen execution error propagates without fallback.
-- [ ] Exercise the existing real synthetic-city smoke fixture with TetGen.
+- [x] Exercise the existing real synthetic-city smoke fixture with TetGen.
       Check finite vertices, nonempty valid tetrahedral connectivity and nonzero
       volumes. Exercise requested boundary faces and their aligned markers using
       the existing convention. Extend the existing fixture only as needed.
-- [ ] Exercise the dataset's `build_from_city()` with that real local city so the
+- [x] Exercise the dataset's `build_from_city()` with that real local city so the
       dataset path is checked without network acquisition or a mocked mesher.
-- [ ] Run the focused suite below, then the existing full suite and packaging
+- [x] Run the focused suite below, then the existing full suite and packaging
       checks once the native/API removal is complete. Wire a CI path to install
       TetGen and assert availability before the real smoke test; skipped TetGen
       tests must not qualify that path as passing. Keep base-install coverage.
-- [ ] Review the diff for dangling includes/options/docs, accidental removal of
+- [x] Review the diff for dangling includes/options/docs, accidental removal of
       shared algorithms, and unrelated work. Record actual evidence and remaining
       platform limitations here. Do not claim issue #38 as fully completed.
 
@@ -200,6 +199,59 @@ Those independent handoff findings remain for later issue #38 slices or focused
 bug fixes. Do not change TetGen refinement defaults or mesh quality policy.
 
 ## Completion evidence
+
+### Backend removal (15 September 2026)
+
+Implemented on `cleanup/remove-columnar-volume-mesher`, based on develop
+`3fe924532a85969793f2debd2f5d87d6d2766198`. No wrapper/dependency pin changes.
+
+Removed the columnar fallback and four obsolete Python options from the public
+builder and City mixin. Both preserve their prior positional prefix and use a
+keyword-only remaining tail. One dependency helper retains the original import
+failure and gives the uv installation command. Builder/adapter checks precede
+geometry work; dataset build checks precede download. TetGen failures preserve
+exception identity and failed stage-audit results; no alternate mesher is tried.
+
+Native deletion boundary: 362 exclusive files (336 vendored AMGCL files, 15 FEM
+and generated-form files, six columnar meshing helpers, VolumeMeshBuilder,
+ColumnMesh, Smoother and its two boundary-condition headers). Removed legacy
+bindings, MeshBuilder layering/trimming, vertex-tag boundary-marker conversion,
+and AMGCL/Boost CMake wiring. Also removed tracked `builders.py.old`, which called
+the retired bindings. Retained VolumeMesh types/conversions, general boundary
+extraction, Eigen, VertexSmoother, shared mesh/geometry and 2D/Triangle support.
+The native/CMake change deletes 73,044 lines without adding replacement code.
+
+Verification observed on macOS ARM64 / Python 3.11.14:
+
+- Fresh native build via `uv sync --locked --extra volume --reinstall-package
+  dtcc-core`, using `/tmp/dtcc-core-volume-env` and explicit fresh build directory
+  `/tmp/dtcc-columnar-native-build`, succeeded. Rebuilt module inspection confirmed
+  the five retired exports absent and shared volume/boundary exports present.
+- Full default test suite against that build: **1,950 passed, 6 skipped,
+  66 deselected** (opt-in live dataset tests). Focused Python checks also passed.
+- Real builder and dataset city smokes check finite coordinates, valid/nonempty
+  tetrahedra, positive volumes, and aligned boundary markers. Missing-wrapper
+  checks cover builder, City mixin, low-level adapter and dataset, including
+  failure before preparation/download; TetGen execution failure is tested.
+- `uv build` produced an sdist and successfully built its wheel. Both archives
+  were inspected: retired native/vendor/backup sources are absent.
+- Installed base wheel outside checkout: import and actual missing-wrapper error
+  passed; **13 tests passed**, including real flat/surface meshing, dataset
+  forwarding and early dependency errors. Installing that same wheel's `[volume]`
+  extra from the public pinned Git source then passed **4 tests** covering real
+  builder/dataset volume meshes, auto LOD and execution-error propagation.
+- Parent and subagent review found no blocking issue. AST comparison confirms
+  the retained TetGen execution/error body is unchanged except its always-enabled
+  shell-refinement flag. No dangling retired includes/references remain;
+  whitespace and workflow YAML checks passed.
+
+CI now includes the execution-failure test alongside the real builder/dataset
+smokes and explicit availability assertion. This cleanup has not been pushed:
+Linux/Windows validation awaits remote CI. Earlier installation-only CI passed
+on all three platforms. No user environment or unrelated untracked PNG changed.
+No live network dataset tests, Triangle-enabled build or sanitizer checks ran.
+Other issue #38 findings (conversion validation/metadata, remaining dead code,
+point filtering, timer concurrency, general packaging cleanup) remain deferred.
 
 ### Current installation work (15 September 2026)
 
@@ -271,12 +323,13 @@ fix. Core now pins this public commit: isolated `uv sync --locked --extra volume
 fetched it directly from GitHub, and all 40 focused meshing tests passed without
 skips. `uv lock --check` passed; unrelated lockfile metadata refresh was removed.
 
-Wrapper source/sdist/wheel CI passed on Linux and macOS; Windows is still running.
-All five wrapper Python matrix tests passed. Separate documentation/lint jobs
-failed and are being inspected. The original core run passed Python 3.12–3.14
+Wrapper source/sdist/wheel CI passed on Linux, macOS and Windows. All five
+wrapper Python matrix tests passed. Separate documentation/lint jobs retain
+pre-existing failures unrelated to installation. The original core run passed Python 3.12–3.14
 compatibility, then failed the Linux optional install on the fixed GCC error;
-its other main matrix jobs were cancelled. A new core run will test the updated
-pin. No columnar code was removed.
+its other main matrix jobs were cancelled. Updated core run 34966236608 passed
+all jobs, including all three platforms, Python 3.12–3.14 and packaged artifacts.
+No columnar code was removed in the installation slice.
 
 ### Original prerequisite evidence (15 September 2026; scope since revised)
 
@@ -330,13 +383,14 @@ shared mesh utilities.
 
 ## Independent-agent handoff
 
-Implement the plan `.agent/plans/2026-09-15-tetgen-only-volume-meshing.md` in
-`/Users/logg/scratch/dtcc/dtcc-core` through its checkpoints. Keep this plan updated
-as material decisions or status change, preserve unrelated work, use dedicated
-branches, and run the specified verification. Execute checkpoint 1 only for the
-current task: coordinated installation changes in dtcc-tetgen-wrapper and
-dtcc-core, using pinned Git source and checksum-verified upstream TetGen. Both
-are merged into develop; complete the platform-build follow-up and synchronize
-core's pin. Keep backend/API removal and other audit findings deferred. Pushing
-the reviewed installation fixes to develop is authorized. Do not create releases
-or send messages to others.
+Review the completed checkpoints 2 and 3 of the plan
+`.agent/plans/2026-09-15-tetgen-only-volume-meshing.md` in
+`/Users/logg/scratch/dtcc/dtcc-core` on `cleanup/remove-columnar-volume-mesher`.
+Keep the plan updated for material decisions and completion evidence, preserve
+unrelated work, and run the specified verification for any corrections. The
+implemented acceptance boundary is:
+require the installed TetGen wrapper for volume operations, remove the legacy
+columnar backend and its exclusive native dependencies, and verify real meshing,
+early missing-dependency errors, base imports and wheel-from-sdist installation.
+Preserve shared meshing utilities and TetGen numerical behavior. Other issue #38
+audit findings remain out of scope. Do not create releases or send messages.

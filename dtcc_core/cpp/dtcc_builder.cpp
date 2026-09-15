@@ -21,9 +21,7 @@
 #include "Intersection.h"
 #include "MeshBuilder.h"
 #include "MeshProcessor.h"
-#include "Smoother.h"
 #include "VertexSmoother.h"
-#include "VolumeMeshBuilder.h"
 #include "model/GridField.h"
 #include "model/Mesh.h"
 #include "model/Polygon.h"
@@ -1002,25 +1000,6 @@ py::array_t<size_t> statistical_outlier_finder(py::array_t<double> &points, size
   return py::array_t<size_t>(outliers.size(), outliers.data());
 }
 
-py::dict compute_boundary_face_markers(const VolumeMesh &mesh)
-{
-  auto data = MeshProcessor::compute_boundary_facet_markers(mesh);
-  py::dict out;
-  // out.reserve(data.size());
-  for (auto const &kv : data)
-  {
-    const Simplex2D &f = kv.first;
-    int marker = kv.second.first;
-    // auto  &n     = kv.second.second;
-
-    py::tuple key = py::make_tuple(f.v0, f.v1, f.v2);
-    // py::tuple normal = py::make_tuple(n.x, n.y, n.z);
-    // py::tuple val    = py::make_tuple(marker, normal);
-    out[key] = marker;
-  }
-  return out;
-}
-
 } // namespace DTCC_BUILDER
 
 PYBIND11_MODULE(_dtcc_builder, m)
@@ -1203,21 +1182,11 @@ PYBIND11_MODULE(_dtcc_builder, m)
         &DTCC_BUILDER::MeshBuilder::build_city_surface_mesh_from_terrain_mesh,
         "build city surface mesh from a prebuilt terrain mesh");
 
-  m.def("layer_ground_mesh", &DTCC_BUILDER::MeshBuilder::layer_ground_mesh, "Layer ground mesh");
-
-  m.def("smooth_volume_mesh", &DTCC_BUILDER::Smoother::smooth_volume_mesh, "Smooth volume mesh");
-
-  m.def("trim_volume_mesh", &DTCC_BUILDER::MeshBuilder::trim_volume_mesh,
-        "Trim volume mesh by removing cells inside buildings");
-
   // m.def("extrude_footprint", &DTCC_BUILDER::MeshBuilder::extrude_footprint,
   //       "Extrude footprint to a mesh");
 
   m.def("compute_boundary_mesh", &DTCC_BUILDER::MeshProcessor::compute_boundary_mesh,
         "Compute boundary mesh from volume mesh");
-
-  m.def("compute_boundary_face_markers", &DTCC_BUILDER::compute_boundary_face_markers,
-        "Compute markers and outward normals for volume mesh boundary faces");
 
   m.def("compute_boundary_mesh", &DTCC_BUILDER::MeshProcessor::compute_boundary_mesh,
         "Compute boundary mesh from volume mesh");
@@ -1250,20 +1219,4 @@ PYBIND11_MODULE(_dtcc_builder, m)
 
   m.def("statistical_outlier_finder", &DTCC_BUILDER::statistical_outlier_finder,
         "Find statistical outliers in point cloud");
-
-  py::class_<DTCC_BUILDER::VolumeMeshBuilder>(m, "VolumeMeshBuilder")
-      .def(py::init<const std::vector<DTCC_BUILDER::Surface> &, const DTCC_BUILDER::GridField &,
-                    DTCC_BUILDER::Mesh &, double>(),
-           py::arg("buildings"), py::arg("dem"), py::arg("ground_mesh"), py::arg("domain_height"),
-           "Constructor for VolumeMeshBuilder taking city, dem, ground_mesh, "
-           "and domain_height as arguments")
-      .def("build", &DTCC_BUILDER::VolumeMeshBuilder::build,
-           "Layers the ground mesh and returns a VolumeMesh")
-      // Expose public variables directly
-      .def_readwrite("domain_height", &DTCC_BUILDER::VolumeMeshBuilder::domain_height)
-      .def_readwrite("top_height", &DTCC_BUILDER::VolumeMeshBuilder::top_height)
-      // If you need to expose std::vectors or similar, pybind11/stl.h header
-      // takes care of this. For custom types like City, GridField, Mesh, ensure
-      // you've also provided bindings for them.
-      ;
 }

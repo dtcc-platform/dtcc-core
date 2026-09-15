@@ -369,10 +369,7 @@ class CityBuilderMixin:
         boundary_face_markers: bool = True,
         tetgen_switches=None,
         tetgen_switch_overrides=None,
-        smoother_max_iterations: int = 5000,
-        smoothing_relative_tolerance: float = 0.005,
-        aspect_ratio_threshold: float = 10.0,
-        debug_step: int = 7,
+        *,
         show_footprints: bool = False,
         footprint_cleaning_plot_block: bool = True,
         mesher: str | None = None,
@@ -420,18 +417,6 @@ class CityBuilderMixin:
             High-level TetGen parameters.
         tetgen_switch_overrides : dict, optional
             Low-level TetGen switch overrides.
-        smoother_max_iterations : int, optional
-            Legacy DTCC-only compatibility parameter. Ignored in the normal
-            TetGen path.
-        smoothing_relative_tolerance : float, optional
-            Legacy DTCC-only compatibility parameter. Ignored in the normal
-            TetGen path.
-        aspect_ratio_threshold : float, optional
-            Legacy DTCC-only compatibility parameter. Ignored in the normal
-            TetGen path.
-        debug_step : int, optional
-            Legacy DTCC-only compatibility parameter. Ignored in the normal
-            TetGen path.
         mesher : {"auto", "dtcc_mesher", "triangle"}, optional
             Select the 2D meshing backend used for the intermediate flat and
             surface mesh stages. ``None`` and ``"auto"`` both resolve to
@@ -463,10 +448,6 @@ class CityBuilderMixin:
             max_volume=max_volume,
             tetgen_switches=tetgen_switches,
             tetgen_switch_overrides=tetgen_switch_overrides,
-            smoother_max_iterations=smoother_max_iterations,
-            smoothing_relative_tolerance=smoothing_relative_tolerance,
-            aspect_ratio_threshold=aspect_ratio_threshold,
-            debug_step=debug_step,
             show_footprints=show_footprints,
             footprint_cleaning_plot_block=footprint_cleaning_plot_block,
             mesher=mesher,

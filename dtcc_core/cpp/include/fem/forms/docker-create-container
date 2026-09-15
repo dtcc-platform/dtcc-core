@@ -1,3 +1,0 @@
-#!/usr/bin/env bash
-NAME=dtcc-core-forms
-docker create -ti --name $NAME -v$(pwd)/:/home/fenics/fenics fenicsimage

@@ -64,6 +64,7 @@ jobs:
           uv run --locked --extra volume pytest builder/test_meshing.py \
             builder/test_cleaning_meshing_integration.py::test_build_city_volume_mesh_smoke \
             builder/test_cleaning_meshing_integration.py::test_build_city_volume_mesh_smoke_auto_lod_resolution \
+            builder/test_cleaning_meshing_integration.py::test_city_volume_mesh_propagates_tetgen_failure \
             datasets/test_city_volume_mesh_dataset.py
         shell: bash
 

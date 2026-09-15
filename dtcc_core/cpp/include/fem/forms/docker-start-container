@@ -1,4 +1,0 @@
-#!/usr/bin/env bash
-NAME=dtcc-core-forms
-docker start $NAME
-docker exec -it $NAME bash
