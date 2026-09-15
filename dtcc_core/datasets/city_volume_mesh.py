@@ -330,6 +330,9 @@ class CityVolumeMeshDataset(DatasetDescriptor):
         return volume_mesh
 
     def build(self, args: CityVolumeMeshArgs):
+        from dtcc_core.builder.meshing.tetgen import _require_tetgen
+
+        _require_tetgen()
         progress_phases = {
             "download_pointcloud": 0.15,
             "download_footprints": 0.10,

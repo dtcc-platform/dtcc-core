@@ -29,12 +29,6 @@ if(DTCC_CORE_LINK_LIBS)
   target_link_libraries(${BINDINGS} PRIVATE ${DTCC_CORE_LINK_LIBS})
 endif()
 
-if(DTCC_HAVE_BOOST)
-  target_include_directories(${BINDINGS} SYSTEM PRIVATE ${Boost_INCLUDE_DIRS})
-else()
-  target_compile_definitions(${BINDINGS} PRIVATE AMGCL_NO_BOOST)
-endif()
-
 if(DTCC_HAVE_TRIANGLE)
   target_include_directories(${BINDINGS} SYSTEM PRIVATE ${TRIANGLE_INCLUDE_DIR})
   target_link_libraries(${BINDINGS} PRIVATE ${TRIANGLE_LIBRARY})

@@ -36,11 +36,13 @@ def test_city_volume_mesh_rejects_unknown_arguments():
         CityVolumeMeshArgs(bounds=(0.0, 0.0, 1.0, 1.0), doman_height=95.0)
 
 
+@patch("dtcc_core.builder.meshing.tetgen._require_tetgen", return_value=None)
 @patch("dtcc_core.datasets.city_volume_mesh.prepare_city_from_bounds")
 @patch("dtcc_core.datasets.city_volume_mesh.dtcc_core.builder.build_city_volume_mesh")
 def test_city_volume_mesh_default_build_returns_volume_mesh(
     mock_build_city_volume_mesh,
     mock_prepare_city_from_bounds,
+    mock_require_tetgen,
 ):
     city = Mock(name="city")
     volume_mesh = Mock(name="volume_mesh")
@@ -51,6 +53,7 @@ def test_city_volume_mesh_default_build_returns_volume_mesh(
     result = dataset.build(CityVolumeMeshArgs(bounds=(0.0, 0.0, 1.0, 1.0)))
 
     assert result is volume_mesh
+    mock_require_tetgen.assert_called_once_with()
     mock_prepare_city_from_bounds.assert_called_once_with(
         ANY,
         raster_cell_size=2.0,
@@ -146,11 +149,13 @@ def test_city_volume_mesh_build_from_city_forwards_advanced_args(
     assert isinstance(kwargs["stage_audit"], dict)
 
 
+@patch("dtcc_core.builder.meshing.tetgen._require_tetgen", return_value=None)
 @patch("dtcc_core.datasets.city_volume_mesh.prepare_city_from_bounds")
 @patch("dtcc_core.datasets.city_volume_mesh.dtcc_core.builder.build_city_volume_mesh")
 def test_city_volume_mesh_flat_ground_is_forwarded_to_shared_preparation(
     mock_build_city_volume_mesh,
     mock_prepare_city_from_bounds,
+    mock_require_tetgen,
 ):
     mock_prepare_city_from_bounds.return_value = Mock(name="city")
     mock_build_city_volume_mesh.return_value = Mock(name="volume_mesh")
@@ -169,11 +174,13 @@ def test_city_volume_mesh_flat_ground_is_forwarded_to_shared_preparation(
     assert helper_kwargs["ground_level"] == 21.0
 
 
+@patch("dtcc_core.builder.meshing.tetgen._require_tetgen", return_value=None)
 @patch("dtcc_core.datasets.city_volume_mesh.prepare_city_from_bounds")
 @patch("dtcc_core.datasets.city_volume_mesh.dtcc_core.builder.build_city_volume_mesh")
 def test_city_volume_mesh_export_returns_bytes(
     mock_build_city_volume_mesh,
     mock_prepare_city_from_bounds,
+    mock_require_tetgen,
 ):
     city = Mock(name="city")
     volume_mesh = Mock(name="volume_mesh")
@@ -191,6 +198,25 @@ def test_city_volume_mesh_export_returns_bytes(
 
     assert result == b"volume-mesh"
     mock_export.assert_called_once_with(volume_mesh, "vtu")
+
+
+@patch("dtcc_core.datasets.city_volume_mesh.prepare_city_from_bounds")
+def test_city_volume_mesh_requires_tetgen_before_preparing_city(
+    mock_prepare_city_from_bounds, monkeypatch
+):
+    from dtcc_core.builder.meshing import tetgen
+
+    import_error = ImportError("TetGen wrapper unavailable")
+    monkeypatch.setattr(tetgen, "HAS_TETGEN", False)
+    monkeypatch.setattr(tetgen, "_tetgen_import_error", import_error)
+
+    with pytest.raises(ImportError, match="uv sync --extra volume") as exc_info:
+        CityVolumeMeshDataset().build(
+            CityVolumeMeshArgs(bounds=(0.0, 0.0, 1.0, 1.0))
+        )
+
+    assert exc_info.value.__cause__ is import_error
+    mock_prepare_city_from_bounds.assert_not_called()
 
 
 def test_city_volume_mesh_context_documents_tetgen_and_boundary_markers():

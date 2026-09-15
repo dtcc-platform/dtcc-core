@@ -84,18 +84,7 @@ set(DTCC_CORE_PUBLIC_INCLUDE_DIRS
 set(DTCC_CORE_LINK_LIBS "")
 set(DTCC_CORE_SYSTEM_INCLUDE_DIRS
   ${DTCC_CPP_DIR}/external
-  ${DTCC_CPP_DIR}/external/amgcl
 )
-
-find_package(Boost)
-if(Boost_FOUND)
-  message(STATUS "Boost include dirs: ${Boost_INCLUDE_DIRS}")
-  list(APPEND DTCC_CORE_SYSTEM_INCLUDE_DIRS ${Boost_INCLUDE_DIRS})
-  set(DTCC_HAVE_BOOST TRUE)
-else()
-  message(STATUS "Boost not found; building AMGCL without Boost support")
-  set(DTCC_HAVE_BOOST FALSE)
-endif()
 
 # ------------------------------------------------------------------------------
 # Triangle integration (optional, external)
