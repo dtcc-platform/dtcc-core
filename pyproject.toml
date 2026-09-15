@@ -59,12 +59,24 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest", "pytest-cov", "httpx>=0.27"]
+test = ["pytest>=9.0.2", "pytest-cov", "httpx>=0.27"]
 remote = ["httpx>=0.27"]
-
 
 [tool.scikit-build]
 wheel.expand-macos-universal-tags = true
+# Keep CMake build trees between builds so `uv sync` recompiles incrementally.
+build-dir = "build/{wheel_tag}"
+
+[tool.uv]
+# `uv sync` installs dtcc-core in editable mode, which only picks up Python
+# changes. Reinstall (and recompile) when the native build inputs change.
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "CMakeLists.txt" },
+    { file = "dtcc_core/CMakeLists.txt" },
+    { file = "dtcc_core/cpp/dtcc_builder.cpp" },
+    { file = "dtcc_core/cpp/include/**/*" },
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -73,7 +85,9 @@ python_functions = ["test_*"]
 python_classes = ["Test*"]
 
 [dependency-groups]
+# Installed by default with `uv sync`.
 dev = [
     "pytest>=9.0.2",
     "pytest-cov",
+    "httpx>=0.27",
 ]

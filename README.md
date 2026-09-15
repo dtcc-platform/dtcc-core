@@ -9,6 +9,62 @@ developed at the
 [Digital Twin Cities Centre](https://dtcc.chalmers.se/)
 supported by Sweden’s Innovation Agency Vinnova under Grant No. 2019-421 00041.
 
+## Installation
+
+DTCC Core is installed from source with [uv](https://docs.astral.sh/uv/). It is
+not installed from PyPI. The package includes a C++ extension, so a C++17
+compiler is required. CMake and Ninja are downloaded during the build if they are
+not already installed.
+
+```bash
+git clone https://github.com/dtcc-platform/dtcc-core.git
+cd dtcc-core
+uv sync
+```
+
+`uv sync` creates `.venv`, installs the exact dependency versions recorded in
+`uv.lock` together with the development tools, and builds DTCC Core in editable
+mode. Run commands in that environment with `uv run`, for example
+`uv run python my_script.py`.
+
+To depend on DTCC Core from another uv project, add it from Git or from a local
+checkout:
+
+```bash
+uv add "dtcc-core @ git+https://github.com/dtcc-platform/dtcc-core.git@develop"
+uv add --editable ../dtcc-core
+```
+
+## Development
+
+| Task | Command |
+|---|---|
+| Set up or update the environment | `uv sync` |
+| Run the tests | `cd tests && uv run pytest` |
+| Build a source distribution and wheel into `dist/` | `uv build` |
+| Add a dependency | `uv add <package>` |
+| Upgrade one locked dependency | `uv lock --upgrade-package <package>` |
+
+Commit `uv.lock` together with any change to dependencies in `pyproject.toml`.
+
+Editing Python files needs no reinstall. After editing C++ sources or CMake files,
+run `uv sync` (or any `uv run` command) and uv rebuilds the extension. Build trees
+are kept in `build/` so rebuilds are incremental.
+
+### Using a local dtcc-mesher checkout
+
+By default `dtcc-mesher` is installed from the Git commit pinned in
+`pyproject.toml`. To test DTCC Core against a local checkout instead, install it
+into the environment and pass `--no-sync` so uv does not restore the pinned
+version:
+
+```bash
+uv pip install -e ../dtcc-mesher
+cd tests && uv run --no-sync pytest
+```
+
+Run `uv sync` to return to the pinned version.
+
 ## Load a city
 
 ```python
@@ -72,18 +128,16 @@ us through Issues, Pull Requests, and Discussions on our GitHub page.
 
 CI enforces that every public API function (exported via `__all__`) in `dtcc_core` is executed at least once by the test suite. You can run the same check locally:
 
-- Create a virtual environment and install the project and test tools:
-  - `python -m venv .venv && source .venv/bin/activate`  (Windows: `python -m venv .venv && .venv\\Scripts\\activate`)
-  - `pip install -e .`
-  - `pip install pytest pytest-cov`
+- Install the project and test tools:
+  - `uv sync`
 
 - Run tests with coverage to produce `tests/coverage.json` (run from the `tests` directory to match CI):
   - `cd tests`
-  - `pytest --maxfail=1 --disable-warnings --cov=dtcc_core --cov-report=term-missing --cov-report=json:coverage.json`
+  - `uv run pytest --maxfail=1 --disable-warnings --cov=dtcc_core --cov-report=term-missing --cov-report=json:coverage.json`
 
 - From the project root, run the function-call checker:
   - `cd ..`
-  - `python scripts/check_public_api_calls.py --package dtcc_core --coverage-file tests/coverage.json`
+  - `uv run python scripts/check_public_api_calls.py --package dtcc_core --coverage-file tests/coverage.json`
 
 Exit status `0` means all public functions were exercised by tests. A non‑zero exit prints the list of missed functions with their source locations so you can add or adjust tests.
 
@@ -93,12 +147,21 @@ Exit status `0` means all public functions were exercised by tests. A non‑zero
   Earcut is the built-in fast triangulation used for the lightweight (no-refinement) meshing path. Quality-controlled meshing uses the external `dtcc_mesher` package when installed (preferred by the `auto` mesher). Support for the Triangle backend is optional and disabled by default to keep the standard installation minimal.
 
 * **Enabling Triangle**:
-  If you wish to build with Triangle support, ensure that the Triangle library is available on your system (a header-only setup is sufficient) and install `dtcc-core` with:
+  Triangle headers are bundled in `dtcc_core/cpp/external/triangle`, which is the default `DTCC_TRIANGLE_DIR`. To use a different Triangle installation, also pass `cmake.define.DTCC_TRIANGLE_DIR=/path/to/triangle/prefix`. Build settings are passed to the CMake build as config settings.
+
+  For the development environment:
 
   ```
-  pip install . \
-    --config-settings=cmake.define.DTCC_USE_TRIANGLE=ON \
-    --config-settings=cmake.define.DTCC_TRIANGLE_DIR=/path/to/triangle/prefix
+  uv sync --reinstall-package dtcc-core \
+    --config-settings-package dtcc-core:cmake.define.DTCC_USE_TRIANGLE=ON
+  ```
+
+  Build settings are not remembered: a later plain `uv sync` rebuilds without Triangle. Repeat the options on each `uv sync`, or use `uv run --no-sync` to keep the current build.
+
+  For a wheel:
+
+  ```
+  uv build --wheel -C cmake.define.DTCC_USE_TRIANGLE=ON
   ```
 
   If these options are omitted, the build will proceed without Triangle and will use earcut (and `dtcc_mesher`, if installed) depending on configuration and availability.
@@ -107,16 +170,18 @@ Exit status `0` means all public functions were exercised by tests. A non‑zero
   TetGen can be used for tetrahedral meshing through the minimal wrapper provided in the [`dtcc-tetgen-wrapper`](https://github.com/dtcc-platform/dtcc-tetgen-wrapper) repository:
 
   ```
-  git clone https://github.com/dtcc-platform/dtcc-tetgen-wrapper.git
-  cd dtcc-tetgen-wrapper
-  pip install .
+  git clone https://github.com/dtcc-platform/dtcc-tetgen-wrapper.git ../dtcc-tetgen-wrapper
+  (cd ../dtcc-tetgen-wrapper && bash vendor_tetgen.sh)
+  uv pip install ../dtcc-tetgen-wrapper
   ```
+
+  The wrapper is not a dependency listed in `uv.lock`, so a plain `uv sync` removes it. Use `uv sync --inexact` to keep it installed while updating the environment; `uv run` keeps it.
   
 ### Makefile shortcuts
 
 If you have `make` available, you can use these shortcuts from the repository root:
 
-- `make install` — install the package and test tooling.
+- `make install` — set up the environment with `uv sync`.
 - `make test` — run the test suite.
 - `make coverage` — run tests with coverage and write `tests/coverage.json`.
 - `make check-public-api` — check that all public API functions were executed.
