@@ -1,4 +1,3 @@
-import rasterstats
 from ...model import Raster
 from shapely.geometry import Polygon
 from typing import Union, List
@@ -28,6 +27,11 @@ def stats(raster: Raster, polygons: Union[Polygon, List[Polygon]], stats=["mean"
         If one polygon and one stat: scalar; if one polygon and multiple stats:
         dict; if multiple polygons: list of dicts/scalars matching the request.
     """
+    # Imported here rather than at module scope to keep rasterstats (and the
+    # rasterio/fiona stack it pulls) off the `import dtcc_core` path.
+    # See issue #87.
+    import rasterstats
+
     if isinstance(polygons, Polygon):
         polygons = [polygons]
 
