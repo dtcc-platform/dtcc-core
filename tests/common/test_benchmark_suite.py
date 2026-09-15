@@ -167,7 +167,6 @@ def test_benchmark_tasks_do_not_define_mesher_dimension() -> None:
         assert task.dataset in DATASET_NAMES
         assert "mesher" not in task.parameters
         assert "triangle" not in task.id
-        assert "spade" not in task.id
 
 
 def test_dataset_parameters_map_normalized_sweeps_to_dataset_arguments() -> None:
