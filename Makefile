@@ -1,7 +1,7 @@
 UV ?= uv
 COVERAGE_JSON := tests/coverage.json
 
-.PHONY: install test coverage check-public-api verify-public-api check-public-api-strict verify-public-api-strict clean
+.PHONY: install test coverage check-public-api verify-public-api check-public-api-strict verify-public-api-strict measure-import-time clean
 
 install:
 	$(UV) sync
@@ -25,6 +25,10 @@ check-public-api-strict:
 	  --coverage-file $(COVERAGE_JSON)
 
 verify-public-api-strict: coverage check-public-api-strict
+
+# Reports the cost of `import dtcc_core` and the modules responsible for it
+measure-import-time:
+	$(PYTHON) scripts/measure_import_time.py
 
 clean:
 	rm -f $(COVERAGE_JSON)

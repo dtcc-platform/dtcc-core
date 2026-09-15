@@ -6,13 +6,14 @@ from collections import defaultdict
 from copy import deepcopy
 import heapq
 import math
-from typing import Callable, Literal, Sequence
+from typing import TYPE_CHECKING, Callable, Literal, Sequence
 
 import numpy as np
-from scipy.sparse import csr_matrix
-from scipy.sparse.csgraph import connected_components
 
 from ...model import RoadNetwork
+
+if TYPE_CHECKING:
+    from scipy.sparse import csr_matrix
 
 
 SpaceSyntaxCost = Literal["topological", "metric", "angular"]
@@ -83,6 +84,10 @@ def analyze_space_syntax(
     unknown = set(selected_measures).difference(DEFAULT_SPACE_SYNTAX_MEASURES)
     if unknown:
         raise ValueError(f"Unknown space syntax measure(s): {sorted(unknown)}")
+
+    # Imported here rather than at module scope to keep scipy off the
+    # `import dtcc_core` path. See issue #87.
+    from scipy.sparse.csgraph import connected_components
 
     vertices, edges, lengths = _road_arrays(roads)
     if len(edges) == 0:
@@ -275,6 +280,10 @@ def _outgoing_vector(
 
 
 def _adjacency_matrix(adjacency: Sequence[Sequence[tuple[int, float]]]) -> csr_matrix:
+    # Imported here rather than at module scope to keep scipy off the
+    # `import dtcc_core` path. See issue #87.
+    from scipy.sparse import csr_matrix
+
     rows: list[int] = []
     cols: list[int] = []
     data: list[float] = []

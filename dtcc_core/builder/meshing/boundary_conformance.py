@@ -17,14 +17,17 @@ For axis-aligned rectangular tiles, the algorithm:
 Building vertices are never modified during smoothing.
 """
 
-from typing import List, Optional, Tuple
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, List, Optional, Tuple
 
 import numpy as np
-from scipy.spatial import cKDTree
-from scipy import sparse
 
 from dtcc_core.model.geometry.mesh import Mesh
 from dtcc_core.builder.logging import info, warning
+
+if TYPE_CHECKING:
+    from scipy import sparse
 
 
 def conform_boundary(
@@ -414,6 +417,10 @@ def _sample_old_mesh_heights(
     if len(old_mesh.faces) == 0 or len(old_mesh.vertices) == 0:
         return z_values, valid_mask
 
+    # Imported here rather than at module scope to keep scipy off the
+    # `import dtcc_core` path. See issue #87.
+    from scipy.spatial import cKDTree
+
     verts = old_mesh.vertices
     faces = old_mesh.faces
 
@@ -513,6 +520,10 @@ def _build_adjacency(
     scipy.sparse.csr_matrix
         Binary symmetric adjacency matrix of shape (N, N).
     """
+    # Imported here rather than at module scope to keep scipy off the
+    # `import dtcc_core` path. See issue #87.
+    from scipy import sparse
+
     edges = np.vstack(
         [
             faces[:, [0, 1]],

@@ -1,6 +1,4 @@
 import numpy as np
-from scipy.signal import convolve2d
-from scipy.ndimage import convolve
 from ...model import Raster
 from ..register import register_model_method
 
@@ -25,6 +23,10 @@ def slope_aspect(dem: Raster) -> tuple[Raster, Raster]:
         - slope_raster: Raster containing slope values in radians
         - aspect_raster: Raster containing aspect values in radians
     """
+    # Imported here rather than at module scope to keep scipy off the
+    # `import dtcc_core` path. See issue #87.
+    from scipy.signal import convolve2d
+
     cell_size = dem.cell_size[0]
     kernel_x = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]]) / (8.0 * cell_size)
     kernel_y = np.array([[1, 2, 1], [0, 0, 0], [-1, -2, -1]]) / (8.0 * cell_size)
@@ -61,6 +63,10 @@ def TRI(dem: Raster) -> Raster:
     - A Raster object representing the TRI.
     """
 
+    # Imported here rather than at module scope to keep scipy off the
+    # `import dtcc_core` path. See issue #87.
+    from scipy.ndimage import convolve
+
     window_size = 3
     # Create a kernel that has ones in all positions but the center.
     kernel = np.ones((window_size, window_size))
@@ -90,6 +96,9 @@ def TRI(dem: Raster) -> Raster:
 @register_model_method
 def TPI(dem: Raster, window_size=3):
     """Compute the Topographic Position Index (TPI) of a DEM."""
+    # Imported here rather than at module scope to keep scipy off the
+    # `import dtcc_core` path. See issue #87.
+    from scipy.signal import convolve2d
 
     if (window_size % 2) == 0 or window_size < 2:
         raise ValueError("Window size must be odd and greater than 1.")
@@ -114,6 +123,10 @@ def VRM(dem: Raster, window_size=3):
 
     if (window_size % 2) == 0 or window_size < 2:
         raise ValueError("Window size must be odd and greater than 1.")
+    # Imported here rather than at module scope to keep scipy off the
+    # `import dtcc_core` path. See issue #87.
+    from scipy.signal import convolve2d
+
     slope, aspect = slope_aspect(dem)
     slope = slope.data
     aspect = aspect.data
