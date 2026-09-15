@@ -1,9 +1,11 @@
 # TetGen-only volume meshing — issue #38
 
-Status: installation prerequisite complete locally; backend removal is deferred.
+Status: installation changes merged into develop; platform CI follow-up in progress.
+Backend removal is deferred.
 Updated 15 September 2026.
-Authority: the user approved two coordinated local commits in dtcc-tetgen-wrapper
-and dtcc-core for installation/dependency handling only. DTCC packages use Git
+Authority: the user approved coordinated installation/dependency changes in
+dtcc-tetgen-wrapper and dtcc-core, then merging both into develop and making
+develop the wrapper default branch. DTCC packages use Git
 commits, without PyPI publication or GitHub releases. The wrapper owns TetGen
 download, verification, compilation, installation, and its own uv development
 workflow. Columnar-mesher/API removal is a later slice of
@@ -27,7 +29,8 @@ meshing behavior, including the legacy fallback, unchanged in these commits.
 Verify the wrapper's isolated wheel/sdist and installed tests, then core's locked
 extra installation and existing real synthetic-city mesh tests. Also verify base
 installation remains usable. No new runtime dependencies beyond the approved
-wrapper and no releases, remote pushes, or messages to others.
+wrapper. Merging and pushing develop is authorized; no releases or messages to
+others.
 
 Create the wrapper commit after review, then lock and commit core against that
 hash. If the wrapper commit is not yet on GitHub, use a command-scoped Git URL
@@ -242,15 +245,38 @@ workflow YAML parsing, and whitespace checks passed. Existing dependency version
 were unchanged. The wrapper subagent independently reviewed core's final
 metadata/lock/docs/CI diff and reported no actionable findings.
 
-Tests used macOS ARM64 / Python 3.11.14. Full core suite, remote CI and other
-platforms were not run for this installation-only change. The wrapper commit was
+Initial local tests used macOS ARM64 / Python 3.11.14. Full core suite and other
+platforms were not run locally. The wrapper commit was
 fetched through a command-scoped Git URL rewrite to the local repository, with
 the real HTTPS URL retained in metadata and uv.lock. There are no persistent Git
-URL rewrites or local-path dependencies. Neither commit was pushed: the wrapper
-commit must become reachable on GitHub before remote core installs/CI can use it.
+URL rewrites or local-path dependencies. Both installation commits were
+subsequently pushed to develop after user authorization; the wrapper Git dependency is publicly reachable.
 No backend/API changes or columnar deletions were made. The unrelated PNG and
 the user's core development environment were preserved; integration used an
 isolated temporary environment.
+
+### Develop integration and compiler follow-up (15 September 2026)
+
+Both installation commits were fast-forward merged and pushed to develop:
+wrapper `896a23a413157453f22306e6bc9b6b0a7dce6c70` and core
+`d2a899fa81b855754b83ecf15a29034f3b664d7f`. Wrapper follow-up `114ff0e` enables
+CI for develop pull requests; its GitHub default branch is now develop.
+
+Remote CI exposed GCC ambiguity in two empty NumPy array constructors and MSVC's
+lack of the POSIX `ssize_t` name. Reviewed wrapper fix
+`22ab9ff2ee1dd03f82ce24dd0f378f00da7e487c` uses explicit shapes and pybind11's
+portable index type, without changing mesh behavior. Native rebuild and all 16
+wrapper tests passed locally; a full GCC 15 wheel build verified the constructor
+fix. Core now pins this public commit: isolated `uv sync --locked --extra volume`
+fetched it directly from GitHub, and all 40 focused meshing tests passed without
+skips. `uv lock --check` passed; unrelated lockfile metadata refresh was removed.
+
+Wrapper source/sdist/wheel CI passed on Linux and macOS; Windows is still running.
+All five wrapper Python matrix tests passed. Separate documentation/lint jobs
+failed and are being inspected. The original core run passed Python 3.12–3.14
+compatibility, then failed the Linux optional install on the fixed GCC error;
+its other main matrix jobs were cancelled. A new core run will test the updated
+pin. No columnar code was removed.
 
 ### Original prerequisite evidence (15 September 2026; scope since revised)
 
@@ -308,7 +334,9 @@ Implement the plan `.agent/plans/2026-09-15-tetgen-only-volume-meshing.md` in
 `/Users/logg/scratch/dtcc/dtcc-core` through its checkpoints. Keep this plan updated
 as material decisions or status change, preserve unrelated work, use dedicated
 branches, and run the specified verification. Execute checkpoint 1 only for the
-current task: two coordinated local installation commits in dtcc-tetgen-wrapper
-and dtcc-core, using pinned Git source and checksum-verified upstream TetGen.
-Keep backend/API removal and other audit findings deferred. Do not publish,
-push, create releases, or send messages to others.
+current task: coordinated installation changes in dtcc-tetgen-wrapper and
+dtcc-core, using pinned Git source and checksum-verified upstream TetGen. Both
+are merged into develop; complete the platform-build follow-up and synchronize
+core's pin. Keep backend/API removal and other audit findings deferred. Pushing
+the reviewed installation fixes to develop is authorized. Do not create releases
+or send messages to others.

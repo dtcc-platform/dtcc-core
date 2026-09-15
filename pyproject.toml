@@ -61,7 +61,7 @@ classifiers = [
 [project.optional-dependencies]
 test = ["pytest>=9.0.2", "pytest-cov", "httpx>=0.27"]
 remote = ["httpx>=0.27"]
-volume = ["dtcc-tetgen-wrapper @ git+https://github.com/dtcc-platform/dtcc-tetgen-wrapper.git@896a23a413157453f22306e6bc9b6b0a7dce6c70"]
+volume = ["dtcc-tetgen-wrapper @ git+https://github.com/dtcc-platform/dtcc-tetgen-wrapper.git@22ab9ff2ee1dd03f82ce24dd0f378f00da7e487c"]
 
 [tool.scikit-build]
 wheel.expand-macos-universal-tags = true

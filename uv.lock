@@ -989,7 +989,7 @@ requires-dist = [
     { name = "affine" },
     { name = "aiohttp" },
     { name = "dtcc-mesher", git = "https://github.com/dtcc-platform/dtcc-mesher.git?rev=7ada8a89c98dbbedc34213387ee598bd92826f10" },
-    { name = "dtcc-tetgen-wrapper", marker = "extra == 'volume'", git = "https://github.com/dtcc-platform/dtcc-tetgen-wrapper.git?rev=896a23a413157453f22306e6bc9b6b0a7dce6c70" },
+    { name = "dtcc-tetgen-wrapper", marker = "extra == 'volume'", git = "https://github.com/dtcc-platform/dtcc-tetgen-wrapper.git?rev=22ab9ff2ee1dd03f82ce24dd0f378f00da7e487c" },
     { name = "fiona", specifier = ">=1.8.0,<2.0.0" },
     { name = "folium" },
     { name = "geopandas", specifier = ">=1.0.1" },
@@ -1046,7 +1046,7 @@ dependencies = [
 [[package]]
 name = "dtcc-tetgen-wrapper"
 version = "0.1.0"
-source = { git = "https://github.com/dtcc-platform/dtcc-tetgen-wrapper.git?rev=896a23a413157453f22306e6bc9b6b0a7dce6c70#896a23a413157453f22306e6bc9b6b0a7dce6c70" }
+source = { git = "https://github.com/dtcc-platform/dtcc-tetgen-wrapper.git?rev=22ab9ff2ee1dd03f82ce24dd0f378f00da7e487c#22ab9ff2ee1dd03f82ce24dd0f378f00da7e487c" }
 dependencies = [
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
