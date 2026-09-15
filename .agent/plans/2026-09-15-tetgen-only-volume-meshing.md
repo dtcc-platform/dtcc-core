@@ -1,6 +1,6 @@
 # TetGen-only volume meshing — issue #38
 
-Status: TetGen-only backend removal implemented and verified locally; ready for review.
+Status: TetGen-only backend removal complete; merged into develop as 9dea9a9.
 Issue #38 has additional deferred audit findings.
 Updated 15 September 2026.
 Authority: the user approved coordinated installation/dependency changes in
@@ -246,9 +246,10 @@ Verification observed on macOS ARM64 / Python 3.11.14:
   whitespace and workflow YAML checks passed.
 
 CI now includes the execution-failure test alongside the real builder/dataset
-smokes and explicit availability assertion. This cleanup has not been pushed:
-Linux/Windows validation awaits remote CI. Earlier installation-only CI passed
-on all three platforms. No user environment or unrelated untracked PNG changed.
+smokes and explicit availability assertion. The user authorized merging into
+develop and continuing there with local tests, without waiting for remote CI.
+Linux/Windows validation of the removal has not run locally. Earlier
+installation-only CI passed on all three platforms. No user environment or unrelated untracked PNG changed.
 No live network dataset tests, Triangle-enabled build or sanitizer checks ran.
 Other issue #38 findings (conversion validation/metadata, remaining dead code,
 point filtering, timer concurrency, general packaging cleanup) remain deferred.
@@ -385,7 +386,7 @@ shared mesh utilities.
 
 Review the completed checkpoints 2 and 3 of the plan
 `.agent/plans/2026-09-15-tetgen-only-volume-meshing.md` in
-`/Users/logg/scratch/dtcc/dtcc-core` on `cleanup/remove-columnar-volume-mesher`.
+`/Users/logg/scratch/dtcc/dtcc-core` on `develop`, as directed by the user.
 Keep the plan updated for material decisions and completion evidence, preserve
 unrelated work, and run the specified verification for any corrections. The
 implemented acceptance boundary is:

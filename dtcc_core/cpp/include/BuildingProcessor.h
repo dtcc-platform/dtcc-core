@@ -13,7 +13,6 @@
 #include "KDTreeVectorOfVectorsAdaptor.h"
 #include "Logging.h"
 #include "PointCloudProcessor.h"
-#include "Polyfix.h"
 #include "Timer.h"
 #include "model/GridField.h"
 #include "model/Polygon.h"
