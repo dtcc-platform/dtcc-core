@@ -184,7 +184,7 @@ operation, without re-entering the public standalone validator.
 Core now declares LinkML **1.11.1** and linkml-runtime **1.11.1** as dependencies.
 They are loaded lazily when evaluation is needed. An environment installed before
 this dependency change needs its Core dependencies updated, normally with
-`python -m pip install -e .` from the checkout. A normal wheel installation includes
+`uv sync` from the checkout. A normal wheel installation includes
 the standard YAML and declares the same requirements. The development requirements
 also pin jsonschema 4.26.0 for repeatable experiment comparisons.
 
