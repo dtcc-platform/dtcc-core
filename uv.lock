@@ -973,6 +973,9 @@ test = [
     { name = "pytest" },
     { name = "pytest-cov" },
 ]
+volume = [
+    { name = "dtcc-tetgen-wrapper" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -986,6 +989,7 @@ requires-dist = [
     { name = "affine" },
     { name = "aiohttp" },
     { name = "dtcc-mesher", git = "https://github.com/dtcc-platform/dtcc-mesher.git?rev=7ada8a89c98dbbedc34213387ee598bd92826f10" },
+    { name = "dtcc-tetgen-wrapper", marker = "extra == 'volume'", git = "https://github.com/dtcc-platform/dtcc-tetgen-wrapper.git?rev=896a23a413157453f22306e6bc9b6b0a7dce6c70" },
     { name = "fiona", specifier = ">=1.8.0,<2.0.0" },
     { name = "folium" },
     { name = "geopandas", specifier = ">=1.0.1" },
@@ -1021,7 +1025,7 @@ requires-dist = [
     { name = "shapely", specifier = ">=2.0.0,<3.0.0" },
     { name = "tqdm", specifier = ">=4.66.1" },
 ]
-provides-extras = ["test", "remote"]
+provides-extras = ["test", "remote", "volume"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1034,6 +1038,15 @@ dev = [
 name = "dtcc-mesher"
 version = "0.1.0"
 source = { git = "https://github.com/dtcc-platform/dtcc-mesher.git?rev=7ada8a89c98dbbedc34213387ee598bd92826f10#7ada8a89c98dbbedc34213387ee598bd92826f10" }
+dependencies = [
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+]
+
+[[package]]
+name = "dtcc-tetgen-wrapper"
+version = "0.1.0"
+source = { git = "https://github.com/dtcc-platform/dtcc-tetgen-wrapper.git?rev=896a23a413157453f22306e6bc9b6b0a7dce6c70#896a23a413157453f22306e6bc9b6b0a7dce6c70" }
 dependencies = [
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
