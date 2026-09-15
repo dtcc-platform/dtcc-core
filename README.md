@@ -200,15 +200,30 @@ python demos/build_city_flat_mesh.py --view
   If these options are omitted, the build will proceed without Triangle and will use earcut (and `dtcc_mesher`, if installed) depending on configuration and availability.
 
 * **Volume meshing with TetGen**:
-  TetGen can be used for tetrahedral meshing through the minimal wrapper provided in the [`dtcc-tetgen-wrapper`](https://github.com/dtcc-platform/dtcc-tetgen-wrapper) repository:
+  Install the optional volume-meshing dependencies from the lockfile:
 
   ```
-  git clone https://github.com/dtcc-platform/dtcc-tetgen-wrapper.git ../dtcc-tetgen-wrapper
-  (cd ../dtcc-tetgen-wrapper && bash vendor_tetgen.sh)
-  uv pip install ../dtcc-tetgen-wrapper
+  uv sync --locked --extra volume
+  uv run --locked --extra volume python demos/build_city_volume_mesh.py
   ```
 
-  The wrapper is not a dependency listed in `uv.lock`, so a plain `uv sync` removes it. Use `uv sync --inexact` to keep it installed while updating the environment; `uv run` keeps it.
+  The [`dtcc-tetgen-wrapper`](https://github.com/dtcc-platform/dtcc-tetgen-wrapper)
+  dependency is pinned to a Git commit. Its build downloads a fixed upstream
+  TetGen source archive, verifies its SHA-256 checksum, and compiles and installs
+  the native Python module. A fresh build requires internet access and a C++
+  compiler; no separate wrapper clone or vendoring command is needed. TetGen's
+  source version and checksum belong to the wrapper, while `uv.lock` records
+  the wrapper revision used by dtcc-core.
+
+  Include `--extra volume` when syncing this environment; a plain `uv sync`
+  omits the extra and removes the wrapper. The demo above also downloads city
+  data and writes its output under `demos/output/`.
+
+  TetGen and its wrapper use the AGPL license. The wrapper includes the relevant
+  license and third-party notices; installing it as an optional dependency does
+  not change those terms. See the wrapper documentation and
+  [TetGen licensing information](https://www.wias-berlin.de/software/tetgen/FAQ-license.jsp?lang=0)
+  before distributing applications containing it or deploying a service using it.
   
 ## Import Time
 
