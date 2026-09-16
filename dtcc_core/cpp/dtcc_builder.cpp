@@ -756,13 +756,16 @@ void copy_integer_mesh_array(const py::array &array, const char *name, Copy copy
     copy(py::array_t<std::uint64_t, py::array::c_style | py::array::forcecast>(array));
 }
 
-std::vector<Vector3D> copy_mesh_vertices(const py::array &vertices)
+std::vector<Vector3D> copy_mesh_vectors(const py::array &array, const char *name,
+                                       py::ssize_t expected_count = -1)
 {
-  const auto count = mesh_array_rows(vertices, 3, "vertices");
-  const char kind = vertices.dtype().kind();
+  const auto count = mesh_array_rows(array, 3, name);
+  if (count != 0 && expected_count >= 0 && count != expected_count)
+    throw py::value_error(std::string(name) + " must be empty or contain one vector per face");
+  const char kind = array.dtype().kind();
   if (kind != 'f' && kind != 'i' && kind != 'u')
-    throw py::value_error("vertices must contain finite real coordinates");
-  py::array_t<double, py::array::c_style | py::array::forcecast> values(vertices);
+    throw py::value_error(std::string(name) + " must contain finite real values");
+  py::array_t<double, py::array::c_style | py::array::forcecast> values(array);
   std::vector<Vector3D> result;
   result.reserve(count);
   for (py::ssize_t i = 0; i < count; ++i)
@@ -771,7 +774,7 @@ std::vector<Vector3D> copy_mesh_vertices(const py::array &vertices)
     const double y = mesh_array_value(values.data(), 3 * i + 1);
     const double z = mesh_array_value(values.data(), 3 * i + 2);
     if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z))
-      throw py::value_error("vertices must contain finite real coordinates");
+      throw py::value_error(std::string(name) + " must contain finite real values");
     result.emplace_back(x, y, z);
   }
   return result;
@@ -837,19 +840,20 @@ std::vector<int> copy_mesh_markers(const py::array &markers, std::size_t num_ele
 
 } // namespace
 
-Mesh create_mesh(py::array vertices, py::array faces, py::array markers)
+Mesh create_mesh(py::array vertices, py::array faces, py::array markers, py::array normals)
 {
   Mesh mesh;
-  mesh.vertices = copy_mesh_vertices(vertices);
+  mesh.vertices = copy_mesh_vectors(vertices, "vertices");
   mesh.faces = copy_mesh_connectivity<3, Simplex2D>(faces, mesh.vertices.size(), "faces");
   mesh.markers = copy_mesh_markers(markers, mesh.faces.size());
+  mesh.normals = copy_mesh_vectors(normals, "normals", mesh.faces.size());
   return mesh;
 }
 
 VolumeMesh create_volume_mesh(py::array vertices, py::array cells, py::array markers)
 {
   VolumeMesh mesh;
-  mesh.vertices = copy_mesh_vertices(vertices);
+  mesh.vertices = copy_mesh_vectors(vertices, "vertices");
   mesh.cells = copy_mesh_connectivity<4, Simplex3D>(cells, mesh.vertices.size(), "cells");
   mesh.markers = copy_mesh_markers(markers, mesh.cells.size());
   return mesh;
@@ -860,6 +864,8 @@ py::tuple mesh_as_arrays(const Mesh &mesh)
   py::array_t<double> vertices(mesh.vertices.size() * 3);
   py::array_t<size_t> faces(mesh.faces.size() * 3);
   py::array_t<int> markers(mesh.markers.size());
+  py::array_t<double> normals(mesh.normals.size() * 3);
+  auto *n = normals.mutable_data();
   auto *v = vertices.mutable_data();
   auto *f = faces.mutable_data();
   auto *m = markers.mutable_data();
@@ -877,7 +883,13 @@ py::tuple mesh_as_arrays(const Mesh &mesh)
   }
   for (size_t i = 0; i < mesh.markers.size(); ++i)
     m[i] = mesh.markers[i];
-  return py::make_tuple(vertices, faces, markers);
+  for (size_t i = 0; i < mesh.normals.size(); ++i)
+  {
+    n[3 * i] = mesh.normals[i].x;
+    n[3 * i + 1] = mesh.normals[i].y;
+    n[3 * i + 2] = mesh.normals[i].z;
+  }
+  return py::make_tuple(vertices, faces, markers, normals);
 }
 
 py::tuple volume_mesh_as_arrays(const VolumeMesh &mesh)
@@ -1251,7 +1263,9 @@ PYBIND11_MODULE(_dtcc_builder, m)
 
   m.def("create_polygon", &DTCC_BUILDER::create_polygon, "Create C++ polygon");
 
-  m.def("create_mesh", &DTCC_BUILDER::create_mesh, "Create C++ mesh");
+  m.def("create_mesh", &DTCC_BUILDER::create_mesh, "Create C++ mesh",
+        py::arg("vertices"), py::arg("faces"), py::arg("markers"),
+        py::arg("normals") = py::array_t<double>(py::ssize_t{0}));
 
   m.def("create_volume_mesh", &DTCC_BUILDER::create_volume_mesh, "Create C++ volume mesh");
 

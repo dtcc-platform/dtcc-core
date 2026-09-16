@@ -102,6 +102,28 @@ def raster_to_builder_gridfield(raster: Raster):
     )
 
 
+def _check_mesh_metadata(mesh, *, allow_transform=False):
+    """Admit only metadata whose meaning the numerical operation can retain."""
+    from ..model.exchange import _transform
+
+    if mesh.regions:
+        raise NotImplementedError("The C++ geometry adapter cannot preserve semantic regions")
+    if mesh.fields:
+        raise NotImplementedError("The C++ geometry adapter cannot transfer fields")
+    if mesh.dataset_context is not None:
+        raise NotImplementedError("The C++ geometry adapter cannot transfer Dataset Context")
+    if mesh.schema_id is not None or mesh.schema_version is not None:
+        raise NotImplementedError("The C++ geometry adapter cannot transfer schema declarations")
+    _transform(mesh.transform)
+    if not allow_transform and (
+        mesh.transform.srs or not np.array_equal(mesh.transform.affine, np.eye(4))
+    ):
+        raise NotImplementedError(
+            "Direct C++ conversion cannot preserve a transform or coordinate system. "
+            "Keep coordinate-frame metadata in Python when calling native geometry routines."
+        )
+
+
 def mesh_to_builder_mesh(mesh:Mesh):
     """
     Convert a model Mesh to a DTCC builder Mesh through the pybind exposed C++
@@ -122,12 +144,16 @@ def mesh_to_builder_mesh(mesh:Mesh):
     ValueError
         If coordinates are not finite real triples, face indices are not
         integers within the vertex range, or nonempty markers are not one
-        native-range integer per face.
+        native-range integer per face. Nonempty normals must contain one finite
+        real triple per face.
+    NotImplementedError
+        If the mesh carries a nonidentity transform, SRS, fields, semantic
+        regions, Dataset Context or schema declarations. These require explicit
+        handling in Python; the native mesh stores numerical data only.
 
     """
-    if mesh.regions:
-        raise NotImplementedError("The C++ geometry adapter cannot preserve semantic regions")
-    return _dtcc_builder.create_mesh(mesh.vertices, mesh.faces, mesh.markers)
+    _check_mesh_metadata(mesh)
+    return _dtcc_builder.create_mesh(mesh.vertices, mesh.faces, mesh.markers, mesh.normals)
 
 
 def builder_mesh_to_mesh(_mesh: _dtcc_builder.Mesh):
@@ -146,10 +172,11 @@ def builder_mesh_to_mesh(_mesh: _dtcc_builder.Mesh):
 
     """
     mesh = Mesh()
-    vertices, faces, markers = _dtcc_builder.mesh_as_arrays(_mesh)
+    vertices, faces, markers, normals = _dtcc_builder.mesh_as_arrays(_mesh)
     mesh.vertices = vertices.reshape((-1, 3))
     mesh.faces = faces.reshape((-1, 3))
     mesh.markers = markers
+    mesh.normals = normals.reshape((-1, 3))
     return mesh
 
 def volume_mesh_to_builder_volume_mesh(volume_mesh: VolumeMesh)-> _dtcc_builder.VolumeMesh:
@@ -173,8 +200,13 @@ def volume_mesh_to_builder_volume_mesh(volume_mesh: VolumeMesh)-> _dtcc_builder.
         If coordinates are not finite real triples, cell indices are not
         integers within the vertex range, or nonempty markers are not one
         native-range integer per cell.
+    NotImplementedError
+        If the mesh carries a nonidentity transform, SRS, fields, semantic
+        regions, Dataset Context or schema declarations. These require explicit
+        handling in Python; the native mesh stores numerical data only.
 
     """
+    _check_mesh_metadata(volume_mesh)
     return _dtcc_builder.create_volume_mesh(volume_mesh.vertices, volume_mesh.cells, volume_mesh.markers)
 
 def builder_volume_mesh_to_volume_mesh(_volume_mesh: _dtcc_builder.VolumeMesh):
