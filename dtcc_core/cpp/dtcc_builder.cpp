@@ -1023,28 +1023,46 @@ MultiSurface create_multisurface(py::list surfaces)
   return multi_surface;
 }
 
-GridField create_gridfield(py::array_t<double> data, py::tuple bounds, size_t xsize, size_t ysize)
+GridField create_gridfield(py::array data, py::tuple bounds, py::ssize_t xsize, py::ssize_t ysize)
 {
+  if (xsize <= 0 || ysize <= 0)
+    throw py::value_error("Grid dimensions must be positive");
+  if (data.ndim() != 1 || data.size() / xsize != ysize || data.size() % xsize != 0)
+    throw py::value_error("Grid data must be a flat array matching the grid dimensions");
+  const char kind = data.dtype().kind();
+  if (kind != 'f' && kind != 'i' && kind != 'u')
+    throw py::value_error("Grid data must contain finite real values; fill missing data before meshing");
+  if (bounds.size() != 4)
+    throw py::value_error("Grid bounds must contain xmin, ymin, xmax, ymax");
   GridField grid_field;
   double px = bounds[0].cast<double>();
   double py = bounds[1].cast<double>();
   double qx = bounds[2].cast<double>();
   double qy = bounds[3].cast<double>();
+  if (!std::isfinite(px) || !std::isfinite(py) || !std::isfinite(qx) || !std::isfinite(qy) ||
+      qx <= px || qy <= py)
+    throw py::value_error("Grid bounds must be finite with positive width and height");
   auto bbox = BoundingBox2D(Vector2D(px, py), Vector2D(qx, qy));
 
   grid_field.grid.bounding_box = bbox;
   grid_field.grid.xstep = (qx - px) / xsize;
   grid_field.grid.ystep = (qy - py) / ysize;
+  if (!std::isfinite(grid_field.grid.xstep) || !std::isfinite(grid_field.grid.ystep) ||
+      grid_field.grid.xstep <= 0 || grid_field.grid.ystep <= 0)
+    throw py::value_error("Grid pixel spacing must be finite and positive");
+  grid_field.grid.cell_centered = true;
 
   grid_field.grid.xsize = xsize;
   grid_field.grid.ysize = ysize;
 
-  auto data_r = data.unchecked<1>();
-  size_t data_count = data_r.size();
-
-  for (size_t i = 0; i < data_count; i++)
+  py::array_t<double, py::array::c_style | py::array::forcecast> values(data);
+  grid_field.values.reserve(values.size());
+  for (py::ssize_t i = 0; i < values.size(); i++)
   {
-    grid_field.values.push_back(data_r(i));
+    const double value = mesh_array_value(values.data(), i);
+    if (!std::isfinite(value))
+      throw py::value_error("Grid data must contain finite real values; fill missing data before meshing");
+    grid_field.values.push_back(value);
   }
 
   return grid_field;
@@ -1073,8 +1091,9 @@ terrain_mesher::core::RasterDouble gridfield_to_raster(const GridField &grid_fie
 
   terrain_mesher::core::RasterDouble raster(grid_field.grid.xsize, grid_field.grid.ysize);
   raster.set_cell_size(xstep);
-  raster.set_pos_x(grid_field.grid.bounding_box.P.x - 0.5 * xstep);
-  raster.set_pos_y(grid_field.grid.bounding_box.P.y - 0.5 * ystep);
+  const auto first_sample = grid_field.grid.index_to_point(0);
+  raster.set_pos_x(first_sample.x - 0.5 * xstep);
+  raster.set_pos_y(first_sample.y - 0.5 * ystep);
 
   for (size_t row = 0; row < grid_field.grid.ysize; row++)
   {
