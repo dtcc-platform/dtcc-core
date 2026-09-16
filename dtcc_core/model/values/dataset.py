@@ -14,11 +14,22 @@ from typing import Any
 from ..model import Model
 
 
-@dataclass
+@dataclass(repr=False)
 class DatasetCollection(Model):
     """Dataset-aware sequence container for transitional dataset returns."""
 
     items: list[Any] = field(default_factory=list)
+
+    def _info_sections(self):
+        from .._display import sample_section
+
+        sections = super()._info_sections()
+        if self.items:
+            sections.append(sample_section("Items", self.items))
+        return sections
+
+    def _summary_items(self):
+        return [("num_items", len(self.items))]
 
     def __len__(self) -> int:
         return len(self.items)
@@ -34,11 +45,25 @@ class DatasetCollection(Model):
         return list(self.items)
 
 
-@dataclass
+@dataclass(repr=False)
 class DatasetValue(Model):
     """Dataset-aware JSON-like value container for transitional fallback returns."""
 
     value: Any = None
+
+    def _info_sections(self):
+        from ...common._display import value_text
+
+        sections = super()._info_sections()
+        if isinstance(self.value, Mapping):
+            sections.append(("Values", ("Key", "Value"),
+                             [(key, value_text(value)) for key, value in self.value.items()]))
+        else:
+            sections[0][2].append(("Value", value_text(self.value)))
+        return sections
+
+    def _summary_items(self):
+        return [("value_type", type(self.value).__name__)]
 
     def to_python(self) -> Any:
         """Return the contained Python value."""

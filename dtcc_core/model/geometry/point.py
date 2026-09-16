@@ -9,7 +9,7 @@ from .geometry import Geometry
 from .bounds import Bounds
 
 
-@dataclass
+@dataclass(repr=False)
 class Point(Geometry):
     """Represents a single point in 3D space.
 
@@ -27,18 +27,28 @@ class Point(Geometry):
     y: float = 0.0
     z: float = 0.0
 
-    def __str__(self):
-        """Return a string representation of the Point.
+    def _summary_items(self):
+        items = [("x", self.x), ("y", self.y), ("z", self.z)]
+        if self.fields or self.regions:
+            items += super()._summary_items()
+        if self.transform.srs:
+            items.append(("srs", self.transform.srs))
+        if not np.array_equal(self.transform.affine, np.eye(4)):
+            items.append(("transform", self.transform))
+        return items
 
-        Returns
-        -------
-        str
-            A string representation of the Point.
-        """
-        return f"DTCC Point at ({self.x:.3f}, {self.y:.3f}, {self.z:.3f})"
+    def _repr_is_complete(self):
+        from ...common._display import is_literal_number
 
-    def __repr__(self):
-        return f"Point(x={self.x}, y={self.y}, z={self.z})"
+        return (type(self) is Point and not self.fields and not self.regions
+                and not self.transform.srs
+                and np.array_equal(self.transform.affine, np.eye(4))
+                and self.dataset_context is None
+                and self.schema_id is None and self.schema_version is None
+                and self.transform.dataset_context is None
+                and self.transform.schema_id is None
+                and self.transform.schema_version is None
+                and all(is_literal_number(value) for value in (self.x, self.y, self.z)))
 
     def calculate_bounds(self):
         """Calculate the bounds of the point and update the bounds attribute.

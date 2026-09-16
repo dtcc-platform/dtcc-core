@@ -77,7 +77,9 @@ def test_dataset_object_info_includes_presentation_tables():
     assert "velocity" in text
     assert "speed" in text
     assert "pressure" in text
-    assert "Not specified" not in text
+    # Dataset metadata is complete; the native geometry may separately have no CRS.
+    context_text = text.split("\nMetadata\n", 1)[1]
+    assert "Not specified" not in context_text
     assert "C-P1" not in text
     assert "C-S7" not in text
     assert "Tangible Table Metadata" not in text

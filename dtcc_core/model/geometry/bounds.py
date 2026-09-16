@@ -8,7 +8,7 @@ import numpy as np
 from ..model import Model
 
 
-@dataclass
+@dataclass(repr=False)
 class Bounds(Model):
     """Represents the boundaries of a rectangular region in the xy plane) with
     optional extension along the z-axis (depth)
@@ -36,9 +36,16 @@ class Bounds(Model):
     zmin: float = 0.0
     zmax: float = 0.0
 
-    def __str__(self):
-        """Returns a formatted string representation of the bounds."""
-        return f"DTCC Bounds {self.bndstr}"
+    def _summary_items(self):
+        return [(name, getattr(self, name)) for name in
+                ("xmin", "ymin", "xmax", "ymax", "zmin", "zmax")]
+
+    def _repr_is_complete(self):
+        from ...common._display import is_literal_number
+
+        return (type(self) is Bounds and self.dataset_context is None
+                and self.schema_id is None and self.schema_version is None
+                and all(is_literal_number(value) for _, value in self._summary_items()))
 
     def calculate_bounds(self):
         """Calculate the bounds of the object."""
@@ -176,6 +183,7 @@ class Bounds(Model):
         return self.width * self.height * self.depth
 
     # FIXME: How to handle z-axis?
+
     @property
     def center(self) -> Tuple[float, float]:
         """Returns the center point of the bounds.
@@ -188,6 +196,7 @@ class Bounds(Model):
         return (self.xmin + self.width / 2, self.ymin + self.height / 2)
 
     # FIXME: How to handle z-axis?
+
     def buffer(self, distance: float):
         """Increases the size of the bounds by a specified distance.
 
@@ -230,6 +239,7 @@ class Bounds(Model):
         return self
 
     # FIXME: How to handle z-axis?
+
     def intersect(self, other):
         """Modifies this bounds to be the intersection with another.
 

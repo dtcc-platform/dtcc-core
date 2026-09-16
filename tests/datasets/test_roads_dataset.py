@@ -65,7 +65,7 @@ def test_roads_info_uses_dataset_tables(monkeypatch):
     roads = datasets.roads(bounds=(0.0, 0.0, 2.0, 1.0))
     text = roads.info(print=False)
 
-    assert "DTCC RoadNetwork" in text
+    assert text.startswith("RoadNetwork\n")
     assert "Presentation" in text
     assert "Provenance" in text
 

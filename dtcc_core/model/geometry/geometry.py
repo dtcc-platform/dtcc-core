@@ -12,7 +12,7 @@ from .transform import Transform
 from .semantic_region import SemanticRegion
 
 
-@dataclass
+@dataclass(repr=False)
 class Geometry(Model):
     """Base class for all geometry classes.
 
@@ -40,6 +40,35 @@ class Geometry(Model):
     transform: Transform = field(default_factory=Transform)
     fields: list[Field] = field(default_factory=list)
     regions: list[SemanticRegion] = field(default_factory=list, kw_only=True)
+
+    def _summary_items(self):
+        items = [("num_fields", len(self.fields))]
+        if self.regions:
+            items.append(("num_regions", len(self.regions)))
+        return items
+
+    def _info_sections(self):
+        from dataclasses import fields
+        import numpy as np
+        from .._display import field_section
+
+        sections = super()._info_sections()
+        sections[0][2].extend([("Bounds (local)", self.bounds.bndstr),
+                               ("CRS", self.transform.srs or "Not specified"),
+                               ("Transform", "Identity" if np.array_equal(self.transform.affine, np.eye(4))
+                                else str(self.transform.affine))])
+        arrays = [(f.name, value.shape, value.dtype) for f in fields(self)
+                  if not f.name.startswith("_")
+                  and isinstance(value := getattr(self, f.name), np.ndarray)]
+        if arrays:
+            sections.append(("Arrays", ("Name", "Shape", "Type"), arrays))
+        if self.fields:
+            sections.append(field_section(self.fields))
+        if self.regions:
+            sections.append(("Semantic regions", ("Type", "ID", "Elements", "Parent"),
+                             [(r.semantic_type, r.id, len(r.indices), r.parent)
+                              for r in self.regions]))
+        return sections
 
     @abstractmethod
     def calculate_bounds(self):
