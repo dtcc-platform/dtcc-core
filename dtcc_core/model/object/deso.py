@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-import builtins
 from collections import Counter
 from typing import Any
 
@@ -15,9 +14,15 @@ from ..geometry import MultiSurface
 from ..values import Field
 
 
-@dataclass
+@dataclass(repr=False)
 class DeSO(Object):
     """Collection of Swedish DeSO demographic statistical areas."""
+
+    def _summary_items(self):
+        return [
+            ("num_areas", len(self.children.get(Object, []))),
+            ("year", self.attributes.get("year")),
+        ]
 
     @property
     def areas(self) -> list[Object]:
@@ -70,75 +75,20 @@ class DeSO(Object):
     def __len__(self):
         return len(self.areas)
 
-    def __str__(self):
-        year = self.attributes.get("year")
-        year_text = f" {year}" if year else ""
-        return f"DTCC DeSO{year_text} with {len(self)} area(s)"
+    def _info_sections(self):
+        from .._display import field_section
 
-    def info(self, print: bool = True, presentation: bool = True) -> str | None:
-        """Print or return a human-readable multi-line summary."""
-        lines = []
-        lines.append("=" * 70)
-        lines.append("DTCC DeSO")
-        lines.append("=" * 70)
-        lines.append(f"Areas: {len(self)}")
-
-        year = self.attributes.get("year")
-        if year is not None:
-            lines.append(f"Year: {year}")
-
-        source = self.attributes.get("source")
-        if source:
-            lines.append(f"Source: {source}")
-
-        crs = self.transform.srs
-        if crs:
-            lines.append(f"CRS: {crs}")
-
-        if self.bounds is not None:
-            lines.append(f"Bounds: {self.bounds}")
-
-        if len(self) > 0:
-            fields = self.fields
-            if fields:
-                lines.append("")
-                lines.append("Fields:")
-                for field in fields.values():
-                    lines.append(f"  {field.name} ({field.unit})")
-
-            area_types = Counter(
-                code[4]
-                for code in self.codes
-                if isinstance(code, str) and len(code) > 4
-            )
-            if area_types:
-                lines.append("")
-                lines.append("Area Types:")
-                for area_type, count in sorted(area_types.items()):
-                    lines.append(f"  {area_type}: {count}")
-
-            attribute_keys = sorted(
-                {key for area in self.areas for key in area.attributes.keys()}
-            )
-            if attribute_keys:
-                lines.append("")
-                lines.append("Attributes:")
-                for key in attribute_keys:
-                    lines.append(f"  {key}")
-
-        lines.append("=" * 70)
-        summary = "\n".join(lines)
-        if presentation and self.dataset_context is not None:
-            from dtcc_core.datasets.presentation import format_dataset_context
-
-            summary = (
-                f"{summary}\n\n"
-                f"{format_dataset_context(self.dataset_context, obj=self)}"
-            )
-        if print:
-            builtins.print(summary)
-            return None
-        return summary
+        sections = super()._info_sections()
+        fields = self.fields
+        if fields:
+            sections.append(field_section(fields.values()))
+        area_types = Counter(code[4] for code in self.codes if isinstance(code, str) and len(code) > 4)
+        if area_types:
+            sections.append(("Area types", ("Type", "Count"), sorted(area_types.items())))
+        keys = sorted({key for area in self.areas for key in area.attributes})
+        if keys:
+            sections.append(("Area attributes", ("Name",), [(key,) for key in keys]))
+        return sections
 
     def to_dataframe(self):
         """Convert DeSO areas to a GeoPandas GeoDataFrame."""

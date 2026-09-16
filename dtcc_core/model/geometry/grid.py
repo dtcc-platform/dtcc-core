@@ -26,7 +26,7 @@ def _step(extent: float, count: int, dimension: str) -> float:
     return extent / count
 
 
-@dataclass
+@dataclass(repr=False)
 class Grid(Geometry):
     """Represents a structured quadrilateral grid in 2D.
 
@@ -43,14 +43,12 @@ class Grid(Geometry):
     width: int = 0
     height: int = 0
 
+    def _summary_items(self):
+        return [("width", self.width), ("height", self.height)] + super()._summary_items()
+
     def __post_init__(self):
         # Zero dimensions intentionally represent an empty grid.
         _validate_dimensions(width=self.width, height=self.height)
-
-    def __str__(self):
-        return (
-            f"DTCC Grid on {self.bounds.bndstr} with {self.width} x {self.height} cells"
-        )
 
     def calculate_bounds(self):
         """
@@ -129,7 +127,7 @@ class Grid(Geometry):
         return np.vstack([X.ravel(), Y.ravel()]).T
 
 
-@dataclass
+@dataclass(repr=False)
 class VolumeGrid(Geometry):
     """Represents a structured hexahedral grid in 3D.
 
@@ -149,12 +147,16 @@ class VolumeGrid(Geometry):
     height: int = 0
     depth: int = 0
 
+    def _summary_items(self):
+        return [
+            ("width", self.width),
+            ("height", self.height),
+            ("depth", self.depth),
+        ] + super()._summary_items()
+
     def __post_init__(self):
         # Zero dimensions intentionally represent an empty grid.
         _validate_dimensions(width=self.width, height=self.height, depth=self.depth)
-
-    def __str__(self):
-        return f"DTCC VolumeGrid on {self.bounds.bndstr} with {self.width} x {self.height} x {self.depth} cells"
 
     def calculate_bounds(self):
         """

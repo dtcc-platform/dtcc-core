@@ -203,7 +203,7 @@ def _validate_geometry_value(geometry):
         )
 
 
-@dataclass
+@dataclass(repr=False)
 class Object(Model):
     """Base class for all object classes.
 
@@ -249,6 +249,44 @@ class Object(Model):
     profile_id: Optional[str] = field(default=None, kw_only=True)
     profile_version: Optional[str] = field(default=None, kw_only=True)
     relations: dict[str, list[str]] = field(default_factory=dict, kw_only=True)
+
+    def _summary_items(self):
+        return [("id", self.id),
+                ("num_children", sum(len(group) for group in self.children.values())),
+                ("num_geometries", len(self.geometry)),
+                ("num_attributes", len(self.attributes))]
+
+    def _info_sections(self):
+        import numpy as np
+        from ...common._display import value_text
+
+        sections = super()._info_sections()
+        rows = sections[0][2]
+        rows.extend([("CRS", self.transform.srs or "Not specified"),
+                     ("Transform", "Identity" if np.array_equal(self.transform.affine, np.eye(4))
+                      else str(self.transform.affine))])
+        bounds = self.bounds
+        if bounds is not None:
+            rows.append(("Bounds", bounds.bndstr))
+        for key in ("semantic_type", "profile_id", "profile_version"):
+            value = getattr(self, key)
+            if value is not None:
+                rows.append((key, value))
+        if self.attributes:
+            sections.append(("Attributes", ("Name", "Value"),
+                             [(key, value_text(value)) for key, value in self.attributes.items()]))
+        if self.geometry:
+            sections.append(("Geometries", ("ID", "Type", "LOD", "Role", "Summary"),
+                             [(key, type(record.geometry).__name__, record.lod,
+                               record.role, repr(record.geometry))
+                              for key, record in self.geometry.items()]))
+        if self.children:
+            sections.append(("Children", ("Type", "Count"),
+                             [(kind.__name__, len(group)) for kind, group in self.children.items()]))
+        if self.relations:
+            sections.append(("Relations", ("Name", "References"),
+                             [(key, len(value)) for key, value in self.relations.items()]))
+        return sections
 
     @property
     def num_children(self):

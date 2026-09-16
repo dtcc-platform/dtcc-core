@@ -16,7 +16,7 @@ from ...plotting.style import (
 )
 
 
-@dataclass
+@dataclass(repr=False)
 class SensorCollection(Object):
     """Represents a collection of sensor stations/devices.
 
@@ -28,6 +28,50 @@ class SensorCollection(Object):
     This class provides convenience methods for working with sensor data
     in the DTCC object model.
     """
+
+    def _info_sections(self):
+        from ...common._display import value_text
+
+        sections = super()._info_sections()
+        stations = self.stations()
+        phenomenon = self.attributes.get("phenomenon")
+        if phenomenon is None:
+            phenomenon = next(iter(self.attributes.get("parameter_fields") or {}), None)
+        if phenomenon is None:
+            phenomenon = next((f.name for station in stations
+                               for geometry in station.get_geometries() for f in geometry.fields), None)
+        if phenomenon is not None:
+            _, values = self.to_arrays(phenomenon)
+            if values.dtype.kind in "biuf":
+                valid = values[np.isfinite(values)]
+                if valid.size:
+                    sections.append((f"Measurement statistics: {phenomenon}", ("Statistic", "Value"), [
+                        ("Count", valid.size), ("Min", f"{valid.min():.2f}"),
+                        ("Max", f"{valid.max():.2f}"), ("Mean", f"{valid.mean():.2f}"),
+                        ("Median", f"{np.median(valid):.2f}"),
+                    ]))
+        rows = []
+        for station in stations[:3]:
+            attrs = station.attributes
+            point = next((g for g in station.get_geometries() if isinstance(g, Point)), None)
+            value, unit = attrs.get("value"), attrs.get("unit", "")
+            if value is None and point is not None and point.fields:
+                field = next((f for f in point.fields if f.name == phenomenon), point.fields[0])
+                value = field.values[0] if len(field.values) else None
+                unit = field.unit
+            if isinstance(value, np.ndarray):
+                value = np.array2string(value, threshold=6, edgeitems=2)
+
+            rows.append((attrs.get("station_name", station.id),
+                         "N/A" if point is None else f"({point.x:.4f}, {point.y:.4f})",
+                         value_text(value), unit, attrs.get("timestamp", "N/A")))
+        if rows:
+            sections.append(("Sample stations (first 3)",
+                             ("Station", "Location", "Value", "Unit", "Timestamp"), rows))
+        return sections
+
+    def _summary_items(self):
+        return [("num_stations", sum(len(group) for group in self.children.values()))]
 
     def add_station(self, station: Object) -> None:
         """Add a sensor station as a child object.
@@ -245,131 +289,6 @@ class SensorCollection(Object):
         if isinstance(metadata, dict):
             values.update(metadata)
         return values
-
-    def __str__(self):
-        """Return a pretty-printed representation of the SensorCollection."""
-        lines = []
-        lines.append("=" * 70)
-        lines.append("DTCC SensorCollection")
-        lines.append("=" * 70)
-
-        # Get basic info
-        stations = self.stations()
-        n_stations = len(stations)
-
-        lines.append(f"Number of stations: {n_stations}")
-
-        # Get bounds if available
-        if self.bounds:
-            lines.append(f"Bounds: {self.bounds}")
-
-        # Get attributes if available
-        if self.attributes:
-            # Show key attributes
-            attrs_to_show = [
-                ("source", "Source"),
-                ("phenomenon", "Phenomenon"),
-                ("crs", "CRS"),
-                ("retrieval_time", "Retrieved"),
-            ]
-
-            lines.append("")
-            lines.append("Dataset Information:")
-            for key, label in attrs_to_show:
-                if key in self.attributes:
-                    lines.append(f"  {label}: {self.attributes[key]}")
-
-        # Show statistics if we have numeric values
-        if n_stations > 0:
-            try:
-                import numpy as np
-
-                # Try to get values for statistics
-                # Discover the field name: check 'phenomenon' attribute first,
-                # then try 'parameter_fields' keys, then fall back to the first
-                # field on the first station's geometry.
-                phenomenon = self.attributes.get("phenomenon")
-                if phenomenon is None:
-                    pf = self.attributes.get("parameter_fields")
-                    if pf and isinstance(pf, dict):
-                        phenomenon = next(iter(pf))
-                if phenomenon is None:
-                    for st in stations:
-                        for geom in st.get_geometries():
-                            if hasattr(geom, "fields") and geom.fields:
-                                phenomenon = geom.fields[0].name
-                                break
-                        if phenomenon:
-                            break
-                if phenomenon is None:
-                    phenomenon = "value"
-                points, values = self.to_arrays(phenomenon)
-
-                if len(values) > 0 and not np.all(np.isnan(values)):
-                    lines.append("")
-                    lines.append("Measurement Statistics:")
-                    valid_values = values[~np.isnan(values)]
-                    if len(valid_values) > 0:
-                        lines.append(f"  Count: {len(valid_values)}")
-                        lines.append(f"  Min: {np.min(valid_values):.2f}")
-                        lines.append(f"  Max: {np.max(valid_values):.2f}")
-                        lines.append(f"  Mean: {np.mean(valid_values):.2f}")
-                        lines.append(f"  Median: {np.median(valid_values):.2f}")
-            except Exception:
-                pass  # Skip statistics if there's any issue
-
-        # Get sample station info
-        if n_stations > 0:
-            lines.append("")
-            lines.append("Sample Stations:")
-            for i, station in enumerate(stations[:3]):  # Show first 3
-                attrs = station.attributes
-
-                # Get location
-                loc_str = "N/A"
-                for geom in station.get_geometries():
-                    if hasattr(geom, "x") and hasattr(geom, "y"):
-                        loc_str = f"({geom.x:.4f}, {geom.y:.4f})"
-                        break
-
-                # Get value – try attrs['value'] first, then read from
-                # the first Field on the Point geometry.
-                value_str = attrs.get("value", None)
-                unit = attrs.get("unit", "")
-                if value_str is None:
-                    for geom in station.get_geometries():
-                        if hasattr(geom, "fields") and geom.fields:
-                            f = geom.fields[0]
-                            v = f.values[0] if len(f.values) > 0 else None
-                            if v is not None and not np.isnan(v):
-                                value_str = v
-                                unit = getattr(f, "unit", unit)
-                            break
-                if value_str is None:
-                    value_str = "N/A"
-                if isinstance(value_str, (int, float)):
-                    value_str = f"{value_str:.2f}"
-                timestamp = attrs.get("timestamp", "N/A")
-
-                station_name = attrs.get("station_name", f"Station {i+1}")
-                lines.append(f"  {i+1}. {station_name}")
-                lines.append(f"     Location: {loc_str}")
-                lines.append(f"     Value: {value_str} {unit}")
-                if timestamp and timestamp != "N/A":
-                    # Shorten timestamp if it's ISO format
-                    if "T" in timestamp:
-                        timestamp = timestamp.split("T")[0]
-                    lines.append(f"     Timestamp: {timestamp}")
-
-            if n_stations > 3:
-                lines.append(f"  ... and {n_stations - 3} more stations")
-
-        lines.append("=" * 70)
-
-        return "\n".join(lines)
-
-    def __repr__(self):
-        return self.__str__()
 
 
 def _numeric_values(values):

@@ -12,7 +12,7 @@ from ..geometry import Bounds, Surface
 from ..logging import warning
 
 
-@dataclass
+@dataclass(repr=False)
 class Building(Object):
     """Represents a building in a city."""
 

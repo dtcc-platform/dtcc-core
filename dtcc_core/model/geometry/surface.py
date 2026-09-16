@@ -16,13 +16,19 @@ from ..logging import info, warning, error, debug
 from copy import deepcopy
 
 
-@dataclass
+@dataclass(repr=False)
 class Surface(Geometry):
     """Represents a planar surface in 3D."""
 
     vertices: np.ndarray = field(default_factory=lambda: np.empty(0))
     normal: np.ndarray = field(default_factory=lambda: np.empty(0))
     holes: list[np.ndarray] = field(default_factory=lambda: [])
+
+    def _summary_items(self):
+        return [
+            ("num_vertices", len(self.vertices)),
+            ("num_holes", len(self.holes)),
+        ] + super()._summary_items()
 
     def calculate_bounds(self):
         """Calculate the bounding box of the surface."""
@@ -176,10 +182,6 @@ class Surface(Geometry):
         else:
             return deepcopy(self)
 
-
-    def __str__(self) -> str:
-        return f"DTCC Surface with {len(self.vertices)} vertices"
-
     def _find_dups(self):
         return False
         # """Find duplicate vertices."""
@@ -197,11 +199,14 @@ class Surface(Geometry):
         #         return True
 
 
-@dataclass
+@dataclass(repr=False)
 class MultiSurface(Geometry):
     """Represents a planar surfaces in 3D."""
 
     surfaces: list[Surface] = field(default_factory=list)
+
+    def _summary_items(self):
+        return [("num_surfaces", len(self.surfaces))] + super()._summary_items()
 
     def __len__(self):
         """
@@ -288,10 +293,6 @@ class MultiSurface(Geometry):
             return MultiSurface(surfaces=[s.copy(True) for s in self.surfaces])
         else:
             return deepcopy(self)
-
-
-    def __str__(self) -> str:
-        return f"DTCC MultiSurface with {len(self.surfaces)} surfaces"
 
     def find_dups(self):
         """Find duplicate vertices."""

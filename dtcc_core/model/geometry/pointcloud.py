@@ -12,10 +12,9 @@ from .bounds import Bounds
 from ..mixins.pointcloud.mixins import PointCloudBuilderMixin, PointcloudFilterMixin
 
 
-@dataclass
+@dataclass(repr=False)
 class PointCloud(PointCloudBuilderMixin, PointcloudFilterMixin, Geometry):
     """Represents a set of points in 3D.
-
 
     Attributes
     ----------
@@ -37,22 +36,8 @@ class PointCloud(PointCloudBuilderMixin, PointcloudFilterMixin, Geometry):
     return_number: np.ndarray = field(default_factory=lambda: np.empty(0))
     num_returns: np.ndarray = field(default_factory=lambda: np.empty(0))
 
-    def __str__(self):
-        """
-        Return a string representation of the PointCloud, containing its boundaries
-        and number of points.
-
-        Returns
-        -------
-        str
-            A string representation of the PointCloud.
-
-        """
-        return f"DTCC PointCloud on {self.bounds} with {len(self.points)} points"
-
-    def __repr__(self):
-        result = f"DTCC PointCloud on {self.bounds} with {len(self.points)} points"
-        return result
+    def _summary_items(self):
+        return [("num_points", len(self.points))] + super()._summary_items()
 
     def __len__(self):
         """
