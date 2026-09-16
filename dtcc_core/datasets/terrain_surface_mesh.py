@@ -5,6 +5,12 @@ from pydantic import Field
 from .dataset import DatasetDescriptor, DatasetBaseArgs
 from .providers import provider_entry
 from dtcc_core.common.progress import ProgressTracker
+from .centering import (
+    CENTER_ON_ORIGIN_DESCRIPTION,
+    CENTER_ON_ORIGIN_PROCESSING_STEP,
+    center_result_if_requested,
+    warn_if_far_from_origin,
+)
 
 
 class TerrainSurfaceMeshArgs(DatasetBaseArgs):
@@ -39,6 +45,7 @@ class TerrainSurfaceMeshArgs(DatasetBaseArgs):
     remove_outlier_threshold: float = Field(
         3.0, description="Threshold for outlier removal"
     )
+    center_on_origin: bool = Field(False, description=CENTER_ON_ORIGIN_DESCRIPTION)
     format: Optional[Literal["tif", "obj", "stl"]] = Field(
         None, description="Output file format"
     )
@@ -86,6 +93,7 @@ class TerrainSurfaceMeshDataset(DatasetDescriptor):
         "For adaptive_mesh=True, build an adaptive terrain mesh using error_threshold and raster_resolution",
         "Otherwise build a terrain surface mesh using max_mesh_size, smoothing, and the selected mesher backend",
         "Return the native mesh/raster object or serialize the requested terrain format",
+        CENTER_ON_ORIGIN_PROCESSING_STEP,
     ]
     derived_from = [
         {
@@ -217,6 +225,8 @@ class TerrainSurfaceMeshDataset(DatasetDescriptor):
                     else "Preparing terrain result..."
                 ),
             ):
+                result = center_result_if_requested(result, args)
+                warn_if_far_from_origin(result, args.format)
                 if args.format == "tif":
                     return self.export_to_bytes(result, "tif")
                 elif args.format is None:
