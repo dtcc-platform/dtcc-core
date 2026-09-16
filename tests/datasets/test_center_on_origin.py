@@ -55,9 +55,11 @@ def test_centering_moves_geometry_to_the_origin_without_changing_shape():
     mesh = _mesh_at(319123.456, 6398765.432)
     before = np.asarray(mesh.vertices, dtype=float).copy()
 
-    center_geometry_on_origin(mesh, GBG_BOUNDS)
+    centred = center_geometry_on_origin(mesh, GBG_BOUNDS)
 
-    after = np.asarray(mesh.vertices, dtype=float)
+    # The input is left alone; only the returned copy moves.
+    assert np.array_equal(np.asarray(mesh.vertices, dtype=float), before)
+    after = np.asarray(centred.vertices, dtype=float)
     assert abs(after[:, 0]).max() < 100.0
     assert abs(after[:, 1]).max() < 100.0
     # Shape and heights are untouched: only x and y shift, by one constant.
@@ -70,17 +72,17 @@ def test_centering_uses_requested_bounds_so_datasets_stay_aligned():
     second = _mesh_at(319131.0, 6398772.0)
     gap = np.asarray(second.vertices)[0] - np.asarray(first.vertices)[0]
 
-    center_geometry_on_origin(first, GBG_BOUNDS)
-    center_geometry_on_origin(second, GBG_BOUNDS)
+    first = center_geometry_on_origin(first, GBG_BOUNDS)
+    second = center_geometry_on_origin(second, GBG_BOUNDS)
 
     moved_gap = np.asarray(second.vertices)[0] - np.asarray(first.vertices)[0]
     assert np.allclose(gap, moved_gap)
 
 
-def _stl_roundtrip_error(mesh, path):
-    mesh.save(path)
+def _stl_roundtrip_error(mesh, path, expected=None, **save_kwargs):
+    mesh.save(path, **save_kwargs)
     written = np.asarray(meshio.read(path).points, dtype=float)
-    original = np.asarray(mesh.vertices, dtype=float)
+    original = np.asarray((expected if expected is not None else mesh).vertices, dtype=float)
     original = original[np.lexsort(original.T)]
     written = written[np.lexsort(written.T)]
     return float(np.abs(original - written).max())
@@ -88,12 +90,13 @@ def _stl_roundtrip_error(mesh, path):
 
 def test_centering_removes_stl_precision_loss(tmp_path):
     """STL stores 32-bit floats, which cannot resolve SWEREF99 coordinates."""
-    far = _mesh_at(319123.456, 6398765.432)
-    near = _mesh_at(319123.456, 6398765.432)
-    center_geometry_on_origin(near, GBG_BOUNDS)
+    mesh = _mesh_at(319123.456, 6398765.432)
+    expected_near = center_geometry_on_origin(mesh, GBG_BOUNDS)
 
-    far_error = _stl_roundtrip_error(far, tmp_path / "far.stl")
-    near_error = _stl_roundtrip_error(near, tmp_path / "near.stl")
+    far_error = _stl_roundtrip_error(mesh, tmp_path / "far.stl")
+    near_error = _stl_roundtrip_error(
+        mesh, tmp_path / "near.stl", expected=expected_near, center_on_origin=GBG_BOUNDS
+    )
 
     assert far_error > 0.01, "expected decimetre errors far from the origin"
     assert near_error < 0.0001, "centred geometry should survive the round trip"
@@ -130,9 +133,13 @@ def test_center_result_if_requested_centres_a_mesh():
     mesh = _mesh_at(319123.456, 6398765.432)
     args = BuildingArgs(bounds=GBG_BOUNDS, center_on_origin=True)
 
+    before = np.asarray(mesh.vertices, dtype=float).copy()
+
     result = center_result_if_requested(mesh, args)
 
+    assert result is not mesh
     assert abs(np.asarray(result.vertices, dtype=float)[:, 0]).max() < 100.0
+    assert np.array_equal(np.asarray(mesh.vertices, dtype=float), before)
 
 
 def test_stl_export_far_from_origin_warns(caplog):
@@ -143,8 +150,7 @@ def test_stl_export_far_from_origin_warns(caplog):
 
 
 def test_no_warning_for_centred_stl_or_other_formats(caplog):
-    mesh = _mesh_at(319123.456, 6398765.432)
-    center_geometry_on_origin(mesh, GBG_BOUNDS)
+    mesh = center_geometry_on_origin(_mesh_at(319123.456, 6398765.432), GBG_BOUNDS)
     with caplog.at_level("WARNING"):
         warn_if_far_from_origin(mesh, "stl")
         warn_if_far_from_origin(_mesh_at(319123.456, 6398765.432), "obj")
@@ -165,15 +171,15 @@ def test_buildings_export_centres_the_merged_mesh(
     mock_build_lod1_buildings,
     mock_merge_meshes,
 ):
-    """center_on_origin=True should shift the merged mesh before export."""
+    """center_on_origin=True should export a centred copy of the merged mesh."""
     raw_pointcloud = Mock(name="raw_pointcloud")
     raw_pointcloud.remove_global_outliers.return_value = Mock(name="filtered_pointcloud")
     mock_build_terrain_raster.return_value = Mock(name="terrain_raster")
     mock_extract_roof_points.return_value = Mock(name="roof_buildings")
     mock_compute_building_heights.return_value = Mock(name="heighted_buildings")
 
-    merged_mesh = Mock(name="merged_mesh")
-    merged_mesh.offset.return_value = merged_mesh
+    merged_mesh = _mesh_at(319123.456, 6398765.432)
+    merged_before = np.asarray(merged_mesh.vertices, dtype=float).copy()
     mock_merge_meshes.return_value = merged_mesh
 
     lod1_building = Mock(name="lod1_building")
@@ -197,8 +203,13 @@ def test_buildings_export_centres_the_merged_mesh(
             )
         )
 
-    merged_mesh.offset.assert_called_once_with(bounds_center_offset(GBG_BOUNDS))
-    mock_export.assert_called_once_with(merged_mesh, "stl")
+    mock_export.assert_called_once()
+    exported, exported_format = mock_export.call_args.args
+    assert exported_format == "stl"
+    assert exported is not merged_mesh
+    expected = merged_before + np.asarray(bounds_center_offset(GBG_BOUNDS))
+    assert np.allclose(np.asarray(exported.vertices, dtype=float), expected)
+    assert np.array_equal(np.asarray(merged_mesh.vertices, dtype=float), merged_before)
 
 
 def test_buildings_manifest_records_the_centring_request():
