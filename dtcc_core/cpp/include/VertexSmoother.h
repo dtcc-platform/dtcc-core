@@ -246,40 +246,6 @@ public:
     }
   }
 
-  // Smooth grid field
-  static GridField smooth_field(const GridField &field, size_t num_smoothings)
-  {
-    debug("Smoothing grid field...");
-    Timer timer("smooth_field");
-
-    // Create copy of field
-    GridField _field{field};
-
-    // Neighbor indices
-    std::vector<size_t> indices{};
-    indices.reserve(4);
-
-    // Smooth by setting each value to average of neighbors
-    for (size_t n = 0; n < num_smoothings; n++)
-    {
-      debug("Smoothing iteration " + str(n));
-      for (size_t i = 0; i < _field.values.size(); i++)
-      {
-        // Get neighbors
-        indices.clear();
-        _field.grid.index_to_boundary(i, indices);
-
-        // Compute average
-        double value = 0.0;
-        for (const size_t &j : indices)
-          value += _field.values[j];
-        value /= static_cast<double>(indices.size());
-        _field.values[i] = value;
-      }
-    }
-
-    return _field;
-  }
 };
 
 } // namespace DTCC_BUILDER

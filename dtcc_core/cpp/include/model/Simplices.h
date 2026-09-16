@@ -171,15 +171,6 @@ struct CompareSimplex1D
   }
 };
 
-// Comparison function for Simplex2D (for use in e.g. maps)
-struct CompareSimplex2D
-{
-  bool operator()(const Simplex2D &s, const Simplex2D &t) const
-  {
-    return std::tie(s.v0, s.v1, s.v2) < std::tie(t.v0, t.v1, t.v2);
-  }
-};
-
 // Comparison function for Simplex3D (for use in e.g. maps)
 struct CompareSimplex3D
 {
