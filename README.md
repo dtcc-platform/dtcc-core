@@ -126,7 +126,9 @@ us through Issues, Pull Requests, and Discussions on our GitHub page.
 
 ## Local Function-Call Check
 
-CI enforces that every public API function (exported via `__all__`) in `dtcc_core` is executed at least once by the test suite. You can run the same check locally:
+CI checks that every public Python function exported via `__all__` has at least
+one executed body line in test coverage. Importing a function, evaluating its
+defaults, or applying its decorators does not count. You can run the same check locally:
 
 - Install the project and test tools:
   - `uv sync`
@@ -139,7 +141,12 @@ CI enforces that every public API function (exported via `__all__`) in `dtcc_cor
   - `cd ..`
   - `uv run python scripts/check_public_api_calls.py --package dtcc_core --coverage-file tests/coverage.json`
 
-Exit status `0` means all public functions were exercised by tests. A non‑zero exit prints the list of missed functions with their source locations so you can add or adjust tests.
+Exit status `0` means each discovered function has body-execution evidence. A
+non-zero exit prints missed functions and their source locations. Line coverage
+cannot distinguish imports from calls for a function written entirely on its
+`def` line; give it a separate body line to make it verifiable. Docstring-only
+functions and native functions without Python source also cannot be verified.
+This check does not measure native C++ coverage, all model methods, or call counts.
 
 ## Demos and Examples
 

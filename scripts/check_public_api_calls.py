@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
 Check that every public API function exported via __all__ in the package
-has at least one executed line in coverage.
+has at least one executed function-body line in coverage. Definition-time lines
+(including decorators and defaults) do not count. Functions with no separate
+body lines cannot be verified by this line-based check.
 
 Usage:
   python scripts/check_public_api_calls.py \
@@ -9,7 +11,7 @@ Usage:
       --coverage-file tests/coverage.json
 
 Exit codes:
-  0: All public functions covered by at least one executed line
+  0: All public functions covered by at least one executed body line
   1: One or more public functions missed
   2: Invalid input or unexpected error
 """
@@ -17,12 +19,14 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import ast
 import importlib
 import inspect
 import json
 import os
 import pkgutil
 import sys
+import textwrap
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
@@ -35,6 +39,7 @@ class FuncInfo:
     file: str
     start: int
     end: int
+    body_lines: Set[int]
 
     @property
     def key(self) -> Tuple[str, int, int, str]:
@@ -48,6 +53,36 @@ def iter_modules(package_name: str) -> Iterable[str]:
     if hasattr(pkg, "__path__"):
         for m in pkgutil.walk_packages(pkg.__path__, pkg.__name__ + "."):
             yield m.name
+
+
+def function_body_lines(lines: List[str], start: int) -> Set[int]:
+    """Return source lines that cannot be covered merely by defining a function."""
+    if not lines:
+        return set()
+    node = ast.parse(textwrap.dedent("".join(lines))).body[0]
+    if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        # For example, an exported lambda can share its line with an assignment.
+        return set()
+    body = node.body
+    if (isinstance(body[0], ast.Expr)
+            and isinstance(body[0].value, ast.Constant)
+            and isinstance(body[0].value.value, str)):
+        body = body[1:]
+    if not body:
+        return set()
+
+    # Defaults and annotations may span lines. Exclude their entire ranges,
+    # including a body statement sharing the final definition-time line.
+    definition_nodes = [node.args, *node.decorator_list]
+    if node.returns is not None:
+        definition_nodes.append(node.returns)
+    definition_end = max(
+        [node.lineno]
+        + [getattr(part, "end_lineno", None) or node.lineno
+           for expression in definition_nodes for part in ast.walk(expression)]
+    )
+    first = max(body[0].lineno, definition_end + 1)
+    return set(range(start + first - 1, start + node.end_lineno))
 
 
 def get_public_functions_from_loaded_module(module) -> List[FuncInfo]:
@@ -70,6 +105,9 @@ def get_public_functions_from_loaded_module(module) -> List[FuncInfo]:
         if not inspect.isfunction(obj) and not inspect.isbuiltin(obj):
             continue
 
+        # Match the source/body of functions decorated with functools.wraps.
+        obj = inspect.unwrap(obj)
+
         # Try to resolve source file and lines
         try:
             src_file = inspect.getsourcefile(obj) or inspect.getfile(obj)
@@ -87,6 +125,7 @@ def get_public_functions_from_loaded_module(module) -> List[FuncInfo]:
                     file="<built-in>",
                     start=0,
                     end=0,
+                    body_lines=set(),
                 )
             )
             continue
@@ -106,6 +145,7 @@ def get_public_functions_from_loaded_module(module) -> List[FuncInfo]:
                 file=os.path.realpath(src_file),
                 start=int(start),
                 end=int(end),
+                body_lines=function_body_lines(lines, start),
             )
         )
     return found
@@ -187,8 +227,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             misses.append(fi)
             continue
 
-        # Check any executed line within [start, end]
-        if any(fi.start <= ln <= fi.end for ln in executed):
+        if fi.body_lines.intersection(executed):
             covered_count += 1
         else:
             misses.append(fi)
@@ -203,7 +242,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         print("\nMissed public functions (module:name @ file:start-end):")
         for fi in misses:
             loc = f"{fi.file}:{fi.start}-{fi.end}" if fi.file else "<unknown>"
-            print(f" - {fi.module}:{fi.name} ({fi.qualname}) @ {loc}")
+            reason = " [no separate body lines to verify]" if not fi.body_lines else ""
+            print(f" - {fi.module}:{fi.name} ({fi.qualname}) @ {loc}{reason}")
         return 1
 
     return 0
