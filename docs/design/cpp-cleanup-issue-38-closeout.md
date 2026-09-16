@@ -1,7 +1,7 @@
 # C++ cleanup — issue #38 closeout review
 
-Reviewed 16 September 2026 on `develop`, including the final removal pass after
-`b7e01ce`.
+Reviewed 16 September 2026 on `develop`, including the removal pass at `4a70876`
+and the follow-up comparison with `refactor/dead-code-removal` at `19f7d0c`.
 
 **Status: the reviewed cleanup and local verification are complete; issue #38
 is ready to close within the acceptance boundary below.** No GitHub issue status
@@ -59,7 +59,7 @@ This pass does not claim that every generic model operator is exercised.
 
 ## Verification evidence
 
-Final native source, macOS ARM64 / Python 3.11.14, using the isolated uv
+Native source at `4a70876`, macOS ARM64 / Python 3.11.14, using the isolated uv
 environment `/tmp/dtcc-core-volume-env`:
 
 - Default editable extension rebuilt successfully with the locked `volume` extra.
@@ -88,6 +88,34 @@ Local evidence: `/tmp/dtcc-final-cleanup-tests.log`,
 The reference audit is the user's September 15 handoff; its separate detailed
 review/evidence archive was not supplied. Conclusions here are based on the
 current source, repository-wide references, build dependency records and tests.
+
+## Preliminary-branch follow-up
+
+Comparison with `refactor/dead-code-removal` found two removals missed by the
+earlier review. Both are now applied: `BuildingProcessor::point_coverage` and
+`MeshBuilder::compute_domain_markers`, together with the former's unused set,
+bounding-box-tree and self-includes. Neither method had callers. The active
+`MeshProcessor::compute_mesh_domain_markers` and its call from
+`build_city_flat_mesh` remain unchanged. The tracked macOS `.DS_Store` and stale
+commented `Point.h` include were also removed.
+
+The branch's other substantive removals are already incorporated or superseded
+by the broader cleanup. Its old native export inventory test was not adopted:
+it requires intentionally retired exports and omits `volume_mesh_as_arrays`.
+
+Follow-up verification on the same platform passed:
+
+- Default editable extension and Triangle/OpenMP wheel rebuilds.
+- **52 tests** covering building heights, meshing, semantic meshing, terrain
+  meshing and point-cloud filtering.
+- Public roof-point extraction using the rebuilt default extension.
+- Triangle runtime checks for ground/building/halo markers, roof-point
+  extraction and invalid-backend rejection.
+
+Logs: `/tmp/dtcc-branch-followup-build.log`,
+`/tmp/dtcc-branch-followup-optional.log`, and
+`/tmp/dtcc-branch-followup-tests.log`. The full-suite and source-archive evidence
+above predates this follow-up; the affected builds and workflows were rerun.
 
 ## Limits and separately scoped work
 
