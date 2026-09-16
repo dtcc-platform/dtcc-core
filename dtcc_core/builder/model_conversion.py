@@ -117,6 +117,13 @@ def mesh_to_builder_mesh(mesh:Mesh):
     _dtcc_builder.Mesh
         A DTCC builder Mesh object.
 
+    Raises
+    ------
+    ValueError
+        If coordinates are not finite real triples, face indices are not
+        integers within the vertex range, or nonempty markers are not one
+        native-range integer per face.
+
     """
     if mesh.regions:
         raise NotImplementedError("The C++ geometry adapter cannot preserve semantic regions")
@@ -157,19 +164,26 @@ def volume_mesh_to_builder_volume_mesh(volume_mesh: VolumeMesh)-> _dtcc_builder.
 
     Returns
     -------
-    _dtcc_builder.Mesh
+    _dtcc_builder.VolumeMesh
         A DTCC builder VolumeMesh object.
+
+    Raises
+    ------
+    ValueError
+        If coordinates are not finite real triples, cell indices are not
+        integers within the vertex range, or nonempty markers are not one
+        native-range integer per cell.
 
     """
     return _dtcc_builder.create_volume_mesh(volume_mesh.vertices, volume_mesh.cells, volume_mesh.markers)
 
-def builder_volume_mesh_to_volume_mesh(_volume_mesh: _dtcc_builder.Mesh):
+def builder_volume_mesh_to_volume_mesh(_volume_mesh: _dtcc_builder.VolumeMesh):
     """
     Convert a DTCC builder VolumeMesh to a model VolumeMesh.
 
     Parameters
     ----------
-    _volume_mesh : _dtcc_builder.Mesh
+    _volume_mesh : _dtcc_builder.VolumeMesh
         The input DTCC builder VolumeMesh object.
 
     Returns
@@ -179,7 +193,8 @@ def builder_volume_mesh_to_volume_mesh(_volume_mesh: _dtcc_builder.Mesh):
 
     """
     volume_mesh = VolumeMesh()
-    volume_mesh.vertices = np.array([[v.x, v.y, v.z] for v in _volume_mesh.vertices])
-    volume_mesh.cells = np.array([[c.v0, c.v1, c.v2, c.v3] for c in _volume_mesh.cells])
-    volume_mesh.markers = np.array(_volume_mesh.markers)
+    vertices, cells, markers = _dtcc_builder.volume_mesh_as_arrays(_volume_mesh)
+    volume_mesh.vertices = vertices.reshape((-1, 3))
+    volume_mesh.cells = cells.reshape((-1, 4))
+    volume_mesh.markers = markers
     return volume_mesh
