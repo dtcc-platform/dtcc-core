@@ -196,35 +196,6 @@ public:
   }
 
   static std::vector<Mesh>
-  build_city_surface_mesh(const std::vector<Surface> &buildings, const std::vector<Surface> &holes,
-                          const std::vector<int> meshing_directive,
-                          const std::vector<double> &subdomain_triangle_size, const GridField &dtm,
-                          double max_mesh_size, double min_mesh_angle, size_t smooth_ground = 0,
-                          bool merge_meshes = true, bool sort_triangles = false)
-  {
-    auto build_city_surface_t = Timer("build_city_surface_mesh");
-    auto terrain_time = Timer("build_city_surface_mesh: step 1 terrain");
-    std::vector<Polygon> subdomains;
-    subdomains.reserve(buildings.size());
-    for (const auto &b : buildings)
-    {
-      subdomains.push_back(b.to_polygon());
-    }
-    std::vector<Polygon> hole_domains;
-    hole_domains.reserve(holes.size());
-    for (const auto &h : holes)
-    {
-      hole_domains.push_back(h.to_polygon());
-    }
-    Mesh terrain_mesh =
-        build_terrain_surface_mesh(subdomains, hole_domains, subdomain_triangle_size, dtm,
-                                   max_mesh_size, min_mesh_angle, smooth_ground, sort_triangles);
-    terrain_time.stop();
-    return build_city_surface_mesh_from_terrain_mesh(
-        buildings, meshing_directive, terrain_mesh, smooth_ground, merge_meshes);
-  }
-
-  static std::vector<Mesh>
   build_city_surface_mesh_from_terrain_mesh(
       const std::vector<Surface> &buildings,
       const std::vector<int> meshing_directive,

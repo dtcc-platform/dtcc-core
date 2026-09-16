@@ -64,9 +64,7 @@ struct BoundaryPolygonData
 
 struct BoundaryStatsData
 {
-  size_t edge_count = 0;
   size_t short_edge_count = 0;
-  size_t vertex_count = 0;
   double min_edge_length = std::numeric_limits<double>::infinity();
 };
 
@@ -204,13 +202,11 @@ void accumulate_ring_stats(const std::vector<BoundaryPoint> &ring, double short_
   if (ring.size() < 3)
     return;
 
-  stats.vertex_count += ring.size();
   for (size_t i = 0; i < ring.size(); ++i)
   {
     const BoundaryPoint &a = ring[i];
     const BoundaryPoint &b = ring[(i + 1) % ring.size()];
     const double length = segment_length(a, b);
-    stats.edge_count += 1;
     stats.min_edge_length = std::min(stats.min_edge_length, length);
     if (short_edge_threshold > 0.0 && length + 1e-12 < short_edge_threshold)
       stats.short_edge_count += 1;
@@ -224,11 +220,6 @@ BoundaryStatsData compute_boundary_stats(const BoundaryPolygonData &polygon, dou
   for (const auto &hole : polygon.holes)
     accumulate_ring_stats(hole, threshold, stats);
   return stats;
-}
-
-double dot(const BoundaryPoint &a, const BoundaryPoint &b, const BoundaryPoint &c)
-{
-  return (b.x - a.x) * (c.x - a.x) + (b.y - a.y) * (c.y - a.y);
 }
 
 bool on_segment(const BoundaryPoint &a, const BoundaryPoint &b, const BoundaryPoint &c,
@@ -467,31 +458,6 @@ std::pair<std::vector<BoundaryPoint>, int> clean_ring_short_edge_chains(
   if (unique.size() < 3)
     return {{}, removed_count};
   return {unique, removed_count};
-}
-
-py::list boundary_stats(py::list polygons_xy, double short_edge_threshold)
-{
-  const auto polygons = parse_boundary_polygons(polygons_xy);
-  py::list stats_list;
-  for (const auto &polygon : polygons)
-  {
-    const auto stats = compute_boundary_stats(polygon, short_edge_threshold);
-    py::dict item;
-    item["edge_count"] = py::int_(stats.edge_count);
-    item["short_edge_count"] = py::int_(stats.short_edge_count);
-    item["vertex_count"] = py::int_(stats.vertex_count);
-    if (std::isfinite(stats.min_edge_length))
-      item["min_edge_length"] = py::float_(stats.min_edge_length);
-    else
-      item["min_edge_length"] = py::none();
-    if (bbox_is_valid(polygon.bbox))
-      item["bbox"] =
-          py::make_tuple(polygon.bbox.min_x, polygon.bbox.min_y, polygon.bbox.max_x, polygon.bbox.max_y);
-    else
-      item["bbox"] = py::none();
-    stats_list.append(item);
-  }
-  return stats_list;
 }
 
 py::list boundary_defect_clusters(py::list polygons_xy, double target_scale, double pair_tolerance)
@@ -1264,7 +1230,6 @@ PYBIND11_MODULE(_dtcc_builder, m)
 
   py::class_<DTCC_BUILDER::VolumeMesh>(m, "VolumeMesh")
       .def(py::init<>())
-      .def_readonly("num_layers", &DTCC_BUILDER::VolumeMesh::num_layers)
       .def_readonly("vertices", &DTCC_BUILDER::VolumeMesh::vertices)
       .def_readonly("cells", &DTCC_BUILDER::VolumeMesh::cells)
       .def_readonly("markers", &DTCC_BUILDER::VolumeMesh::markers)
@@ -1311,19 +1276,11 @@ PYBIND11_MODULE(_dtcc_builder, m)
 
   m.def("points_in_polygons", &DTCC_BUILDER::points_in_polygons, "Find points inside polygons");
 
-  m.def("boundary_stats", &DTCC_BUILDER::boundary_stats,
-        "Compute lightweight polygon boundary statistics for cleaner runtime shortcuts");
-
   m.def("boundary_defect_clusters", &DTCC_BUILDER::boundary_defect_clusters,
         "Detect short-edge and pair-defect clusters for the cleaner");
 
   m.def("rewrite_defect_cluster", &DTCC_BUILDER::rewrite_defect_cluster,
         "Apply deterministic short-edge boundary rewrites for simple cleaner clusters");
-
-  m.def("smooth_field", &DTCC_BUILDER::VertexSmoother::smooth_field, "Smooth grid field");
-
-  // m.def("build_mesh", &DTCC_BUILDER::MeshBuilder::build_mesh,
-  //       "build mesh for city, returning a list of meshes");
 
   m.def("build_city_flat_mesh", &DTCC_BUILDER::MeshBuilder::build_city_flat_mesh,
         "build city flat mesh");
@@ -1334,23 +1291,9 @@ PYBIND11_MODULE(_dtcc_builder, m)
         &DTCC_BUILDER::MeshBuilder::build_terrain_surface_mesh_from_ground_mesh,
         "build terrain surface mesh from a prebuilt ground mesh");
 
-  m.def("build_city_surface_mesh", &DTCC_BUILDER::MeshBuilder::build_city_surface_mesh,
-        "build city surface mesh");
   m.def("build_city_surface_mesh_from_terrain_mesh",
         &DTCC_BUILDER::MeshBuilder::build_city_surface_mesh_from_terrain_mesh,
         "build city surface mesh from a prebuilt terrain mesh");
-
-  // m.def("extrude_footprint", &DTCC_BUILDER::MeshBuilder::extrude_footprint,
-  //       "Extrude footprint to a mesh");
-
-  m.def("compute_boundary_mesh", &DTCC_BUILDER::MeshProcessor::compute_boundary_mesh,
-        "Compute boundary mesh from volume mesh");
-
-  m.def("compute_boundary_mesh", &DTCC_BUILDER::MeshProcessor::compute_boundary_mesh,
-        "Compute boundary mesh from volume mesh");
-
-  m.def("compute_open_mesh", &DTCC_BUILDER::MeshProcessor::compute_open_mesh,
-        "Compute open mesh from boundary, excluding top and sides");
 
   m.def("merge_meshes", &DTCC_BUILDER::MeshProcessor::merge_meshes,
         "Merge meshes into a single mesh");

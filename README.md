@@ -181,6 +181,8 @@ python demos/build_city_flat_mesh.py --view
   `pybind11` is required there only. Installed wheels contain the extension and
   dependency notices, while source archives retain the C++ and vendor inputs.
   Third-party notices are listed in [licenses/README.md](licenses/README.md).
+  The [native code map](docs/native-code.md) lists the retained kernels and their
+  Python callers.
   On macOS, `cmake.define.DTCC_USE_HOMEBREW_LLVM=ON` selects Homebrew Clang before
   CMake configures the compiler; use a fresh build directory when changing compilers.
 
