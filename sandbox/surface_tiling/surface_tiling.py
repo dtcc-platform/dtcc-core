@@ -33,5 +33,5 @@ print_tiles = [t.create_printable_solid() for t in tiles]
 
 # hack to view a lits of meshes
 obj = Object()
-obj.geometry[GeometryType.MESH] = print_tiles
+obj.add_geometry(print_tiles, GeometryType.MESH)
 obj.view()

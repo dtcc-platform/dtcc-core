@@ -29,7 +29,7 @@ def test_sensor_collection_add_station():
     
     # Add geometry
     point = Point(x=10.0, y=20.0, z=0.0)
-    station.geometry["location"] = point
+    station.add_geometry(point, "location")
     
     # Add station
     sc.add_station(station)
@@ -48,14 +48,14 @@ def test_sensor_collection_with_field():
     
     point = Point(x=100.0, y=200.0, z=0.0)
     
-    field = Field()
+    field = Field(association="sample")
     field.name = "NO2"
     field.unit = "µg/m³"
     field.dim = 1
     field.values = np.array([42.5], dtype=np.float32)
     
     point.fields = [field]
-    station.geometry["location"] = point
+    station.add_geometry(point, "location")
     
     sc.add_station(station)
     
@@ -71,13 +71,13 @@ def test_sensor_collection_plot_returns_axes():
     sc = SensorCollection()
     station = Object()
     point = Point(x=100.0, y=200.0, z=0.0)
-    field = Field()
+    field = Field(association="sample")
     field.name = "NO2"
     field.unit = "ug/m3"
     field.dim = 1
     field.values = np.array([42.5], dtype=np.float32)
     point.fields = [field]
-    station.geometry["location"] = point
+    station.add_geometry(point, "location")
     sc.add_station(station)
 
     ax = sc.plot("NO2", show=False)
@@ -89,13 +89,13 @@ def test_sensor_collection_plot_uses_presentation_panel_by_default():
     sc = SensorCollection()
     station = Object()
     point = Point(x=100.0, y=200.0, z=0.0)
-    field = Field()
+    field = Field(association="sample")
     field.name = "air_temperature"
     field.unit = "celsius"
     field.dim = 1
     field.values = np.array([12.5], dtype=np.float32)
     point.fields = [field]
-    station.geometry["location"] = point
+    station.add_geometry(point, "location")
     sc.add_station(station)
     context = datasets.weather.create_context(
         datasets.weather.validate(
@@ -129,14 +129,14 @@ def test_sensor_collection_protobuf_roundtrip():
         
         point = Point(x=float(i), y=float(i * 2), z=0.0)
         
-        field = Field()
+        field = Field(association="sample")
         field.name = "PM10"
         field.unit = "µg/m³"
         field.dim = 1
         field.values = np.array([float(i * 10)], dtype=np.float32)
         
         point.fields = [field]
-        station.geometry["location"] = point
+        station.add_geometry(point, "location")
         
         sc1.add_station(station)
     
@@ -157,7 +157,7 @@ def test_sensor_collection_protobuf_roundtrip():
         
         # Check geometry
         assert "location" in station.geometry
-        point = station.geometry["location"]
+        point = station.get_geometry("location")
         assert point.x == float(i)
         assert point.y == float(i * 2)
         

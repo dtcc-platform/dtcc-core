@@ -79,10 +79,14 @@ class CityBuilderMixin:
         always_use_default=False,
         rebuild=True,
         calculate_heights=True,
-        building_height_attribute: str = "height",
+        building_height_attribute: str = "measured_height",
     ) -> "T_City":
         """
         Build LOD1 buildings for a city.
+
+        Heights and coordinates must be in metres. Modelling values are stored
+        as estimated_height; measured_height is preserved. With attribute input,
+        missing or smaller heights use min_building_height for geometry.
 
         Args:
             self (City): The city object to build LOD1 buildings for.
@@ -99,6 +103,7 @@ class CityBuilderMixin:
         from dtcc_core.builder import (
             building_heights_from_pointcloud,
             build_lod1_buildings,
+            set_building_heights_from_attribute,
         )
 
         if len(self.buildings) == 0:
@@ -128,36 +133,15 @@ class CityBuilderMixin:
             self.remove_buildings()
             self.add_buildings(buildings_with_heights)
         else:
-            for b in self.buildings:
-                footprint = b.lod0
-                if footprint is None:
-                    warning(f"Building {b.id} has no LOD0 geometry.")
-                    continue
-                if always_use_default:
-                    ground_height = default_ground_height
-                else:
-                    centroid = footprint.centroid
-                    if np.isnan(centroid[0]) or np.isnan(centroid[1]):
-                        warning(f"Building {b.id} has an invalid centroid.")
-                        ground_height = default_ground_height
-                    else:
-                        ground_height = self.terrain.raster.terrain.get_value(
-                            centroid[0], centroid[1]
-                        )
-                b.attributes["ground_height"] = ground_height
-                height = b.attributes.get(building_height_attribute, None)
-                if height is None:
-                    warning(
-                        f"Building {b.id} has no {building_height_attribute} attribute. Using default ground height."
-                    )
-                    height = default_ground_height
-                if height < min_building_height:
-                    warning(
-                        f"Building {b.id} has a height of {height}, which is less than the minimum building height of {min_building_height}. Setting height to {min_building_height}."
-                    )
-                    height = min_building_height
-                footprint.set_z(ground_height + height)
-                b.attributes["height"] = height
+            set_building_heights_from_attribute(
+                self.buildings,
+                self.terrain.raster,
+                height_attribute=building_height_attribute,
+                default_ground_height=default_ground_height,
+                always_use_default_ground=always_use_default,
+                min_building_height=min_building_height,
+                default_building_height=min_building_height,
+            )
         lod1_buildings = build_lod1_buildings(
             self.buildings,
             default_ground_height=default_ground_height,
@@ -385,10 +369,7 @@ class CityBuilderMixin:
         boundary_face_markers: bool = True,
         tetgen_switches=None,
         tetgen_switch_overrides=None,
-        smoother_max_iterations: int = 5000,
-        smoothing_relative_tolerance: float = 0.005,
-        aspect_ratio_threshold: float = 10.0,
-        debug_step: int = 7,
+        *,
         show_footprints: bool = False,
         footprint_cleaning_plot_block: bool = True,
         mesher: str | None = None,
@@ -436,18 +417,6 @@ class CityBuilderMixin:
             High-level TetGen parameters.
         tetgen_switch_overrides : dict, optional
             Low-level TetGen switch overrides.
-        smoother_max_iterations : int, optional
-            Legacy DTCC-only compatibility parameter. Ignored in the normal
-            TetGen path.
-        smoothing_relative_tolerance : float, optional
-            Legacy DTCC-only compatibility parameter. Ignored in the normal
-            TetGen path.
-        aspect_ratio_threshold : float, optional
-            Legacy DTCC-only compatibility parameter. Ignored in the normal
-            TetGen path.
-        debug_step : int, optional
-            Legacy DTCC-only compatibility parameter. Ignored in the normal
-            TetGen path.
         mesher : {"auto", "dtcc_mesher", "triangle"}, optional
             Select the 2D meshing backend used for the intermediate flat and
             surface mesh stages. ``None`` and ``"auto"`` both resolve to
@@ -479,10 +448,6 @@ class CityBuilderMixin:
             max_volume=max_volume,
             tetgen_switches=tetgen_switches,
             tetgen_switch_overrides=tetgen_switch_overrides,
-            smoother_max_iterations=smoother_max_iterations,
-            smoothing_relative_tolerance=smoothing_relative_tolerance,
-            aspect_ratio_threshold=aspect_ratio_threshold,
-            debug_step=debug_step,
             show_footprints=show_footprints,
             footprint_cleaning_plot_block=footprint_cleaning_plot_block,
             mesher=mesher,

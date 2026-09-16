@@ -6,7 +6,6 @@ from typing import Union, Tuple
 import numpy as np
 
 from ..model import Model
-from .. import dtcc_pb2 as proto
 
 
 @dataclass
@@ -347,37 +346,3 @@ class Bounds(Model):
                 tiles.append(tile)
 
         return tiles
-
-    def to_proto(self) -> proto.Bounds:
-        """Return a protobuf representation of the Bounds.
-
-        Returns
-        -------
-        proto.Bounds
-            A protobuf representation of the Bounds.
-        """
-        pb = proto.Bounds()
-        pb.xmin = self.xmin
-        pb.xmax = self.xmax
-        pb.ymin = self.ymin
-        pb.ymax = self.ymax
-        pb.zmin = self.zmin
-        pb.zmax = self.zmax
-        return pb
-
-    def from_proto(self, pb: Union[proto.Bounds, bytes]):
-        """Initialize Bounds from a protobuf representation.
-
-        Parameters
-        ----------
-        pb: Union[proto.Bounds, bytes]
-            The protobuf message or its serialized bytes representation.
-        """
-        if isinstance(pb, bytes):
-            pb = proto.Bounds.FromString(pb)
-        self.xmin = pb.xmin
-        self.xmax = pb.xmax
-        self.ymin = pb.ymin
-        self.ymax = pb.ymax
-        self.zmin = pb.zmin
-        self.zmax = pb.zmax

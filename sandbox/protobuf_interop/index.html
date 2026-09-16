@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DTCC Protobuf interchange</title>
+<style>
+  body { font: 16px/1.6 system-ui, sans-serif; max-width: 850px; margin: 48px auto; padding: 0 24px; }
+  button { font: inherit; padding: 8px 16px; cursor: pointer; }
+  pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #f3f5f7; padding: 20px; }
+</style>
+<h1>DTCC Protobuf interchange</h1>
+<p>Python saves a city. Your browser reads it using <a href="/dtcc.proto">dtcc.proto</a>,
+  inspects its footprint and numerical data, edits it, and returns Protobuf bytes.
+  Python checks those bytes with the standard DTCC reader and semantic schema.</p>
+<p>This local development example uses a synthetic building, bench and raster.</p>
+<button id="run" type="button">Run interchange check</button>
+<pre id="result" role="status">Ready.</pre>
+<script src="/protobuf.js"></script>
+<script type="module" src="/browser.js"></script>
+</html>

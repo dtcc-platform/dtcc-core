@@ -1,0 +1,74 @@
+id: https://example.org/dtcc/profiles/city
+name: dtcc_city_experiment
+version: 0.1.0
+description: Experimental rules, not a DTCC or CityGML standard profile.
+prefixes:
+  linkml: https://w3id.org/linkml/
+  ex: https://example.org/dtcc/
+default_prefix: ex
+default_range: string
+imports:
+  - linkml:types
+
+slots:
+  id:
+    identifier: true
+    required: true
+  parent:
+    range: Entity
+    required: true
+    annotations:
+      containment: true
+  height:
+    range: float
+    required: true
+    minimum_value: 0
+    description: Height in metres; an experiment rule rather than a core invariant.
+  usage:
+    range: Usage
+    required: true
+  observes:
+    range: Building
+    required: true
+    multivalued: true
+    minimum_cardinality: 1
+    maximum_cardinality: 1
+  phenomenon:
+    required: true
+    equals_string: temperature
+
+enums:
+  Usage:
+    permissible_values:
+      residential:
+      public:
+
+classes:
+  Entity:
+    abstract: true
+    slots: [id]
+  City:
+    is_a: Entity
+    attributes:
+      name:
+        required: true
+  Building:
+    is_a: Entity
+    slots: [parent, height, usage]
+    slot_usage:
+      parent:
+        range: City
+  BuildingPart:
+    is_a: Entity
+    slots: [parent]
+    slot_usage:
+      parent:
+        any_of:
+          - range: Building
+          - range: BuildingPart
+  Sensor:
+    is_a: Entity
+    slots: [parent, observes, phenomenon]
+    slot_usage:
+      parent:
+        range: City

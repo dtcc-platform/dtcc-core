@@ -59,7 +59,7 @@ def extrude_building(
 def set_building_heights_from_attribute(
     buildings: List[Building],
     terrain: Raster,
-    height_attribute: str = "height",
+    height_attribute: str = "measured_height",
     default_ground_height: float = 0,
     always_use_default_ground: bool = False,
     min_building_height: float = 2.5,
@@ -74,8 +74,9 @@ def set_building_heights_from_attribute(
         List of buildings to set heights for.
     terrain : Raster
         Terrain raster used to determine ground elevation.
-    height_attribute : str, default "height"
-        Attribute name to use for building height.
+    height_attribute : str, default "measured_height"
+        Source height attribute in metres. The modelling result is stored as
+        estimated_height; the source measurement is preserved.
     default_ground_height : float, default 0
         Default ground height if not available from terrain.
     always_use_default_ground : bool, default False
@@ -128,14 +129,16 @@ def set_building_heights_from_attribute(
                 ground_height = default_ground_height
         building.attributes["ground_height"] = ground_height
 
-        height = building.attributes.get(height_attribute, default_building_height)
+        height = building.attributes.get(height_attribute)
+        if height is None:
+            height = default_building_height
         if height < min_building_height:
             warning(
                 f"Building {building.id} has a height of {height}, which is less than the minimum building height of {min_building_height}. Setting height to {min_building_height}."
             )
             height = min_building_height
         footprint.set_z(ground_height + height)
-        building.attributes["height"] = height
+        building.estimated_height = height
     return buildings
 
 
@@ -151,6 +154,8 @@ def compute_building_heights(
 
     This function calculates building heights by determining the ground elevation
     from the terrain raster and the roof elevation from building roof points.
+    Results (including minimum-height defaults) are stored as estimated_height;
+    measured_height is preserved. Terrain and point coordinates must be in metres.
 
     Parameters
     ----------
@@ -194,7 +199,7 @@ def compute_building_heights(
             if roof_points is None or len(roof_points) == 0:
                 warning(f"Building {building.id} has no roof points. using min height")
                 footprint.set_z(ground_height + min_building_height)
-                building.attributes["height"] = min_building_height
+                building.estimated_height = min_building_height
             else:
                 z_values = roof_points.points[:, 2]
                 roof_top = np.percentile(z_values, roof_percentile * 100)
@@ -202,7 +207,7 @@ def compute_building_heights(
                 if height < min_building_height:
                     height = min_building_height
                 footprint.set_z(ground_height + height)
-                building.attributes["height"] = height
+                building.estimated_height = height
         if (i + 1) % 20 == 0 or i + 1 == total_buildings:
             report_progress(
                 current=i + 1,

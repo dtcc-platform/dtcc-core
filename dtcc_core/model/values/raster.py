@@ -11,7 +11,7 @@ from copy import deepcopy
 from ..geometry.bounds import Bounds
 from ..logging import info, warning, error
 from ..model import Model
-from .. import dtcc_pb2 as proto
+
 
 # FIXME: Make Raster fit the UML diagram
 # FIXME: Make Raster own a Grid that holds Transform and Bounds
@@ -38,7 +38,8 @@ class Raster(Model):
 
     """
 
-    data: np.ndarray = field(default_factory=lambda: np.empty(()))
+    # Shape () denotes an empty raster; initialize its sentinel deterministically.
+    data: np.ndarray = field(default_factory=lambda: np.array(np.nan))
     georef: Affine = field(default_factory=Affine.identity)
     nodata: float = np.nan
     crs: str = ""
@@ -128,18 +129,12 @@ class Raster(Model):
 
         """
 
-        _xmin = self.georef.c  # + (self.georef.a / 2)
-        _ymin = self.georef.f + self.georef.e * self.height  # - (self.georef.e / 2)
-        _xmax = self.georef.c + self.georef.a * self.width  # - (self.georef.a / 2)
-        _ymax = self.georef.f  # + (self.georef.e / 2)
-        zmin = 0
-        zmax = 0
-
-        xmin = min(_xmin, _xmax)
-        ymin = min(_ymin, _ymax)
-        xmax = max(_xmin, _xmax)
-        ymax = max(_ymin, _ymax)
-        return Bounds(xmin, ymin, xmax, ymax, zmin, zmax)
+        corners = [
+            self.georef * (x, y)
+            for x, y in ((0, 0), (self.width, 0), (0, self.height), (self.width, self.height))
+        ]
+        x, y = zip(*corners)
+        return Bounds(min(x), min(y), max(x), max(y), 0, 0)
 
     def set_bounds(self, bounds: Bounds):
         """
@@ -272,68 +267,3 @@ class Raster(Model):
             copy_raster.nodata = self.nodata
             copy_raster.crs = self.crs
             return copy_raster
-
-    def to_proto(self) -> proto.Raster:
-        """
-        Convert the Raster object to a protobuf representation.
-
-        Returns
-        -------
-        proto.Raster
-            A protobuf representation of the Raster.
-
-        """
-        pb = proto.Raster()
-        pb.height = self.height
-        pb.width = self.width
-        pb.channels = self.channels
-        pb.values.extend(self.data.flatten())
-        pb.nodata = self.nodata
-        pb.dtype = self.data.dtype.name
-        pb.georef.extend(
-            [
-                self.georef.a,
-                self.georef.b,
-                self.georef.c,
-                self.georef.d,
-                self.georef.e,
-                self.georef.f,
-            ]
-        )
-        pb.crs = self.crs
-
-        return pb
-
-    def from_proto(self, pb: Union[proto.Raster, bytes]):
-        """
-        Initialize the Raster object from a protobuf representation.
-
-        Parameters
-        ----------
-        pb : Union[proto.Raster, bytes]
-            A protobuf representation of the Raster or a bytes object.
-
-        Returns
-        -------
-        None
-
-        """
-        if isinstance(pb, bytes):
-            pb = proto.Raster.FromString(pb)
-
-        height = pb.height or pb.grid.height
-        width = pb.width or pb.grid.width
-        channels = pb.channels or (1 if height and width else 0)
-
-        if height == 0 or width == 0 or channels == 0:
-            self.data = np.empty(())
-        elif channels == 1:
-            self.data = np.array(pb.values).reshape((height, width))
-        else:
-            self.data = np.array(pb.values).reshape((height, width, channels))
-        if pb.dtype:
-            self.data = self.data.astype(pb.dtype)
-        self.nodata = pb.nodata
-        if len(pb.georef) >= 6:
-            self.georef = Affine(*pb.georef[:6])
-        self.crs = pb.crs

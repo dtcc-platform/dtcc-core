@@ -5,11 +5,11 @@ from dataclasses import dataclass, field
 from typing import Union
 from abc import abstractmethod
 
-from .. import dtcc_pb2 as proto
 from ..model import Model
 from ..values import Field
 from .bounds import Bounds
 from .transform import Transform
+from .semantic_region import SemanticRegion
 
 
 @dataclass
@@ -39,6 +39,7 @@ class Geometry(Model):
     _bounds: Bounds = field(default_factory=Bounds)
     transform: Transform = field(default_factory=Transform)
     fields: list[Field] = field(default_factory=list)
+    regions: list[SemanticRegion] = field(default_factory=list, kw_only=True)
 
     @abstractmethod
     def calculate_bounds(self):
@@ -56,6 +57,11 @@ class Geometry(Model):
     def bounds(self) -> Bounds:
         """
         Bounding box of the geometry in local coordinates.
+
+        Public array edits are not observed. Call ``calculate_bounds()`` to
+        refresh derived geometry bounds explicitly; transforms are not applied.
+        Grid domain bounds are intrinsic state and should not be recalculated
+        as though they were a derived coordinate cache.
 
         Returns
         -------
@@ -88,6 +94,10 @@ class Geometry(Model):
         """
         self.fields.append(field)
 
+    def regions_of(self, semantic_type: str) -> list[SemanticRegion]:
+        """Return regions with this exact semantic URI, retaining native arrays."""
+        return [region for region in self.regions if region.semantic_type == semantic_type]
+
     def tree(self, indent="", geometry_type=None):
         """Print a summary of the geometry including its fields."""
         if geometry_type is None:
@@ -98,34 +108,3 @@ class Geometry(Model):
             print(f"{indent}  Fields:")
             for field in self.fields:
                 print(f"{indent}    {field.name} ({field.unit}), {field.description}")
-
-    def to_proto(self) -> proto.Geometry:
-        """Return a protobuf representation of the Geometry.
-
-        Returns
-        -------
-        proto.Geometry
-            A protobuf representation of the Geometry.
-        """
-        _pb = proto.Geometry()
-        _pb.bounds.CopyFrom(self.bounds.to_proto())
-        _pb.transform.CopyFrom(self.transform.to_proto())
-        _pb.fields.extend([f.to_proto() for f in self.fields])
-        return _pb
-
-    def from_proto(self, pb: Union[proto.Geometry, bytes]):
-        """Initialize Geometry from a protobuf representation.
-
-        Parameters
-        ----------
-        pb: Union[proto.Geometry, bytes]
-            The protobuf message or its serialized bytes representation.
-        """
-        if isinstance(pb, bytes):
-            pb = proto.Geometry.FromString(pb)
-        self.bounds.from_proto(pb.bounds)
-        self.transform.from_proto(pb.transform)
-        for _field in pb.fields:
-            field = Field()
-            field.from_proto(_field)
-            self.fields.append(field)

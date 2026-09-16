@@ -1,11 +1,11 @@
 from ..model import City, GeometryType
 from pathlib import Path
+from functools import partial
+from .model import load_model, save_model
 from .cityjson import cityjson
 from .logging import info, warning, error
 from .meshes import load_mesh_as_city
 from . import generic
-import json
-import zipfile
 from collections import defaultdict
 
 from .cityjson import write_cityjson
@@ -22,57 +22,27 @@ except ImportError:
     warning("Geopandas not found, some functionality may be disabled")
 
 
-def _load_json(path):
-    """Load a city from a file.
-
-    Args:
-        path (str or Path): Path to the file.
-
-    Returns:
-        City: The loaded city.
-    """
-    path = Path(path)
-    if path.suffix == ".json":
-        with open(path, "r") as file:
-            data = json.load(file)
-    elif path.suffix == ".zip":
-        with zipfile.ZipFile(path, "r") as z:
-            files = z.namelist()
-            if len(files) != 1 or not files[0].endswith("json"):
-                raise ValueError("Invalid cityjson zip file")
-            with z.open(files[0]) as f:
-                data = json.load(f)
-    else:
-        raise ValueError(f"Unknown file format: {path.suffix}")
-    if data.get("type") == "CityJSON":
-        return cityjson.load(data)
-    else:
-        raise ValueError(f"{path} is not a CityJSON file")
-
-
-
-def _load_proto_city(filename) -> City:
-    with open(filename, "rb") as f:
-        city = City()
-        city.from_proto(f.read())
-    return city
+def _load_json(path, *, strict=False, extent_policy='validate', validate_schema=None):
+    """Use the same CityJSON admission for public JSON and ZIP loading."""
+    return cityjson.load(path, strict=strict, extent_policy=extent_policy,
+                         validate_schema=validate_schema)
 
 
 def _load_mesh_city(filename, lod=GeometryType.LOD1, merge_coplanar_surfaces=True) -> City:
     return load_mesh_as_city(filename, lod=lod, merge_coplanar_surfaces=merge_coplanar_surfaces)
 
 
-def _save_proto_city(city: City, filename):
-    with open(filename, "wb") as f:
-        f.write(city.to_proto().SerializeToString())
 
 
-def load(path):
+def load(path, **kwargs):
     """
     Load a City object from a file.
     
     Supports various formats including protobuf, CityJSON, and mesh formats.
     The format is automatically detected based on the file extension.
+    Canonical .dtcc and strict=True CityJSON input validate the standard schema
+    by default; validate_schema=False bypasses only semantic evaluation.
+    Explicit True on CityJSON requires strict=True.
     
     Parameters
     ----------
@@ -84,15 +54,18 @@ def load(path):
     City
         The loaded city object.
     """
-    return generic.load(path, "city", City, _load_formats)
+    return generic.load(path, "city", City, _load_formats, **kwargs)
 
 
-def save(city, path):
+def save(city, path, **kwargs):
     """
     Save a City object to a file.
     
-    Supports protobuf format (.pb, .pb2) for binary serialization.
+    Supports DTCC Protobuf (.dtcc) serialization.
     The format is automatically determined from the file extension.
+    Canonical .dtcc and strict=True CityJSON output validate the standard schema
+    by default; validate_schema=False bypasses only semantic evaluation.
+    Explicit True on CityJSON requires strict=True.
     
     Parameters
     ----------
@@ -101,7 +74,7 @@ def save(city, path):
     path : str or Path
         Path where the city will be saved.
     """
-    return generic.save(city, path, "city", _save_formats)
+    return generic.save(city, path, "city", _save_formats, **kwargs)
 
 
 def buildings_to_df(city: City, include_geometry=True, crs=None):
@@ -156,14 +129,15 @@ def buildings_to_df(city: City, include_geometry=True, crs=None):
     df = gpd.GeoDataFrame(building_attributes, geometry=building_footprints)
     return df
 
-def _save_cityjson(city: City, filename: str, scale: float = 0.001):
+def _save_cityjson(city: City, filename: str, scale: float = 0.001, *, strict=False,
+                   validate_schema=None):
     filename = Path(filename)
-    write_cityjson.save(city, filename, scale=scale)
+    write_cityjson.save(city, filename, scale=scale, strict=strict,
+                       validate_schema=validate_schema)
 
 _load_formats = {
     City: {
-        ".pb": _load_proto_city,
-        ".pb2": _load_proto_city,
+        ".dtcc": partial(load_model, expected_type=City),
         ".json": _load_json,
         ".json.zip": _load_json,
         ".obj": _load_mesh_city,
@@ -176,8 +150,7 @@ _load_formats = {
 
 _save_formats = {
     City: {
-        ".pb": _save_proto_city,
-        ".pb2": _save_proto_city,
+        ".dtcc": save_model,
         ".json": _save_cityjson,
         ".json.zip": _save_cityjson,
     }

@@ -31,8 +31,8 @@ def test_calc_bounds(pc):
 def test_to_proto(pc):
 
     proto_pc = pc.to_proto()
-    assert proto_pc.point_cloud.points == [0, 0, 0, 1, 1, 1, 2, 2, 2]
-    assert proto_pc.point_cloud.classification == [1, 2, 3]
+    assert list(proto_pc.geometry.point_cloud.points.shape) == [3, 3]
+    assert list(proto_pc.geometry.point_cloud.classification.shape) == [3]
 
 
 def test_to_protobuf_missing_fields():
@@ -40,8 +40,8 @@ def test_to_protobuf_missing_fields():
     pc.points = np.array([[0, 0, 0], [1, 1, 1], [2, 2, 2]])
     pc.calculate_bounds()
     proto_pc = pc.to_proto()
-    assert proto_pc.point_cloud.points == [0, 0, 0, 1, 1, 1, 2, 2, 2]
-    assert proto_pc.point_cloud.classification == []
+    assert list(proto_pc.geometry.point_cloud.points.shape) == [3, 3]
+    assert proto_pc.geometry.point_cloud.classification.data == b""
 
 
 def test_from_proto(pc):

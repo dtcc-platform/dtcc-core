@@ -41,5 +41,5 @@ def test_lod1_buildings(building_shp_path, las_path):
     assert len(city.buildings) == 5
     for building in city.buildings:
         assert building.lod1 is not None
-        assert building.attributes.get("height") is not None
+        assert building.attributes.get("estimated_height") is not None
         assert building.attributes.get("ground_height") is not None

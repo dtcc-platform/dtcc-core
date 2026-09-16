@@ -76,7 +76,7 @@ def test_vehicle_collection_plot_uses_presentation_panel_by_default():
     collection = VehicleCollection()
     vehicle = Object()
     vehicle.attributes = {"mode": "bus", "bearing": 90.0}
-    vehicle.geometry["position"] = Point(x=18.0, y=59.3, z=0.0)
+    vehicle.add_geometry(Point(x=18.0, y=59.3, z=0.0), "position")
     collection.add_vehicle(vehicle)
     context = TransitVehiclesDataset().create_context(
         TransitVehiclesDataset().validate({"bounds": (17.9, 59.2, 18.2, 59.4)})
@@ -165,12 +165,12 @@ def test_dataset_builds_vehicle_collection(monkeypatch):
     vehicle = vehicles.vehicles()[0]
     assert vehicle.attributes["mode"] == "bus"
     assert vehicle.attributes["line"] == "1"
-    assert {field.name for field in vehicle.geometry["location"].fields} == {
+    assert {field.name for field in vehicle.get_geometry("location").fields} == {
         "speed",
         "bearing",
     }
-    assert vehicle.geometry["location"].x == pytest.approx(18.0)
-    assert vehicle.geometry["location"].y == pytest.approx(59.3)
+    assert vehicle.get_geometry("location").x == pytest.approx(18.0)
+    assert vehicle.get_geometry("location").y == pytest.approx(59.3)
 
 
 def test_shortcut_sets_default_mode(monkeypatch):

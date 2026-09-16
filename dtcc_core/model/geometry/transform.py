@@ -7,11 +7,6 @@ import numpy as np
 
 from ..model import Model
 
-from .. import proto
-
-
-default_affine = np.eye(4)
-
 
 @dataclass
 class Transform(Model):
@@ -33,7 +28,23 @@ class Transform(Model):
     """
 
     srs: str = ""
-    affine: np.ndarray = field(default_factory=lambda: default_affine)
+    affine: np.ndarray = field(default_factory=lambda: np.eye(4))
+
+    def __post_init__(self):
+        self.affine = self._validate_affine(self.affine).copy()
+
+    @staticmethod
+    def _validate_affine(affine) -> np.ndarray:
+        affine = np.asarray(affine)
+        if affine.shape != (4, 4):
+            raise ValueError("Transform affine must have shape (4, 4).")
+        if not np.issubdtype(affine.dtype, np.number) or np.iscomplexobj(affine):
+            raise ValueError("Transform affine must contain real numeric values.")
+        if not np.all(np.isfinite(affine)):
+            raise ValueError("Transform affine must contain only finite values.")
+        if not np.array_equal(affine[3], [0, 0, 0, 1]):
+            raise ValueError("Transform affine must have final row [0, 0, 0, 1].")
+        return affine.astype(float, copy=False)
 
     def __call__(self, points):
         """
@@ -91,29 +102,3 @@ class Transform(Model):
             3,
         ), "Rotation matrix should be of shape (3, 3)"
         self.affine[:3, :3] = rotation_matrix
-
-    def to_proto(self) -> proto.City:
-        """Return a protobuf representation of the Transform.
-
-        Returns
-        -------
-        proto.Transform
-            A protobuf representation of the Transform.
-        """
-        pb = proto.Transform()
-        pb.srs = self.srs
-        pb.affine.extend(self.affine.flatten())
-        return pb
-
-    def from_proto(self, pb: Union[proto.Transform, bytes]):
-        """Initialize Transform from a protobuf representation.
-
-        Parameters
-        ----------
-        pb: Union[proto.Transform, bytes]
-            The protobuf message or its serialized bytes representation.
-        """
-        if isinstance(pb, bytes):
-            pb = proto.Transform.FromString(pb)
-        self.srs = pb.srs
-        self.affine = np.array(pb.affine).reshape((4, 4))

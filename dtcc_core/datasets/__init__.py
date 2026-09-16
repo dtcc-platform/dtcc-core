@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from .context import attach_dataset_context
 from .dataset import Dataset, DatasetDescriptor, DatasetBaseArgs, DatasetExportResult
-from .package import DatasetPackage
+from .package import DatasetPackage, load_model_package
 from .publish import (
     DatasetPackageError,
     DatasetPublication,

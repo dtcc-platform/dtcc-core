@@ -86,6 +86,6 @@ def test_flatten_root_and_child(building3):
     assert len(f.surfaces) == 6
     # don't mutate original building
     assert len(building3.geometry) == 1
-    orig_geom = building3.geometry.get(GeometryType.LOD1, None)
+    orig_geom = building3.get_geometry(GeometryType.LOD1)
     assert orig_geom is not None
     assert len(orig_geom.surfaces) == 4

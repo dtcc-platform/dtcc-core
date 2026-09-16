@@ -22,12 +22,23 @@ _LAZY_SUBMODULES = {
     "reproject": "dtcc_core.reproject",
 }
 
+_LAZY_LOADERS = (
+    "load_3dbag", "load_model", "load_city", "load_cityjson",
+    "load_mesh", "load_volume_mesh", "load_mesh_as_city",
+    "load_pointcloud", "load_pointcloud_directory", "load_raster",
+    "load_footprints", "load_landuse", "load_roadnetwork",
+)
+
 
 def __getattr__(name: str):
     if name in _LAZY_SUBMODULES:
         module = importlib.import_module(_LAZY_SUBMODULES[name])
         globals()[name] = module
         return module
+    if name in _LAZY_LOADERS:
+        loader = getattr(importlib.import_module("dtcc_core.io"), name)
+        globals()[name] = loader
+        return loader
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 
 
@@ -40,6 +51,7 @@ __all__ = [
     "model",
     "builder",
     "Bounds",
+    *_LAZY_LOADERS,
     "register_model_method",
     "io",
     "datasets",

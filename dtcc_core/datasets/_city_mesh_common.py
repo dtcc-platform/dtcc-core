@@ -109,7 +109,7 @@ def prepare_city_from_bounds(
             buildings = dtcc_core.builder.set_building_heights_from_attribute(
                 buildings,
                 raster,
-                height_attribute="height",
+                height_attribute="estimated_height",
                 default_ground_height=ground_level_from_raster(raster),
                 always_use_default_ground=True,
             )

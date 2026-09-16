@@ -226,11 +226,10 @@ class DatasetUploadClient:
             files,
             manifest=manifest,
         )
-        key = idempotency_key or build_publish_idempotency_key(
+        key = idempotency_key or _validated_publish_idempotency_key(
             dataset_key=dataset_key,
             manifest_path=manifest_path,
-            files=files,
-            manifest=package.manifest,
+            package=package,
         )
         headers = {
             "Authorization": f"Bearer {self.token}",
@@ -339,6 +338,13 @@ def build_publish_idempotency_key(
         files,
         manifest=manifest,
     )
+    return _validated_publish_idempotency_key(
+        dataset_key=dataset_key, manifest_path=manifest_path, package=package,
+    )
+
+
+def _validated_publish_idempotency_key(*, dataset_key, manifest_path, package) -> str:
+    """Build a key from admitted files without repeating model validation."""
     manifest_sha256 = _sha256_file(Path(manifest_path))
     file_set_sha256 = _file_set_sha256(package.files)
     key_payload = json.dumps(
@@ -405,6 +411,15 @@ def _validate_upload_package(
         raise _package_error("Manifest mapping does not match manifest file content.")
 
     schema_version = manifest_payload.get("schema_version")
+    from .package import CANONICAL_MANIFEST_VERSION, load_model_package
+    if schema_version == CANONICAL_MANIFEST_VERSION:
+        # Reuse the canonical persistence boundary, including model admission,
+        # provenance and artifact integrity, before sending a stored package.
+        try:
+            load_model_package(manifest_file.parent)
+        except (ValueError, TypeError, NotImplementedError) as error:
+            raise _package_error(f"Invalid canonical package: {error}") from error
+        return _validate_v2_package(manifest_file, files, manifest_payload)
     if schema_version == MANIFEST_V2_SCHEMA_VERSION:
         return _validate_v2_package(manifest_file, files, manifest_payload)
     if schema_version is not None:

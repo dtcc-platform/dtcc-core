@@ -190,6 +190,7 @@ def test_convert_multisurface():
 
     mock_multisurface = Mock()
     mock_multisurface.surfaces = [mock_surface1, mock_surface2]
+    mock_multisurface.regions = []
 
     vertices = []
     result = convert_multisurface(mock_multisurface, vertices, scale=1000.0, config=config)
@@ -210,6 +211,7 @@ def test_convert_mesh():
 
     # Create mock mesh
     mock_mesh = Mock()
+    mock_mesh.regions = []
     mock_mesh.vertices = np.array([
         [0.0, 0.0, 0.0],
         [1.0, 0.0, 0.0],
@@ -244,6 +246,7 @@ def test_convert_terrain_mesh():
 
     # Create mock terrain mesh
     mock_mesh = Mock()
+    mock_mesh.regions = []
     mock_mesh.vertices = np.array([
         [0.0, 0.0, 0.0],
         [1.0, 0.0, 0.0],

@@ -220,17 +220,11 @@ class TestDifferentCRSTypes:
 class TestNormalPreservation:
     """Test that normal vectors are handled correctly"""
 
-    def test_normal_is_not_modified(self, basic_surface):
-        """Normal vector should not be automatically updated during reprojection"""
-        # Set a normal vector
+    def test_normal_requires_explicit_transformation(self, basic_surface):
         basic_surface.normal = np.array([0.0, 0.0, 1.0])
-
-        result = reproject_surface(basic_surface, "EPSG:3006", "EPSG:4326")
-
-        # The normal vector is not reprojected (it's a direction, not a position)
-        # In the current implementation, it's simply not copied
-        # This test just ensures no errors occur
-        assert result is not None
+        with pytest.raises(NotImplementedError, match="normals"):
+            reproject_surface(basic_surface, "EPSG:3006", "EPSG:4326")
+        np.testing.assert_array_equal(basic_surface.normal, [0., 0., 1.])
 
 
 class TestLargeSurfaces:

@@ -53,7 +53,7 @@ _FORMAT_KIND_MAP = {
     "cityjson": "city_model",
     "city.json": "city_model",
     "json.zip": "city_model",
-    "pb": "protobuf",
+    "dtcc": "model",
 }
 
 
@@ -77,7 +77,7 @@ _FORMAT_MEDIA_TYPE_MAP = {
     "json": "application/json",
     "json.zip": "application/zip",
     "tar.gz": "application/gzip",
-    "pb": "application/x-protobuf",
+    "dtcc": "application/vnd.dtcc.model+protobuf",
 }
 
 

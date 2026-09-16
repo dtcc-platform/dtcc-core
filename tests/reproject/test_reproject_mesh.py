@@ -85,10 +85,9 @@ class TestReprojectionBasics:
         result = reproject_mesh(mesh_with_markers, "EPSG:3006", "EPSG:4326")
         np.testing.assert_array_equal(result.markers, mesh_with_markers.markers)
 
-    def test_normals_preserved(self, mesh_with_normals):
-        """Normals should be preserved during reprojection"""
-        result = reproject_mesh(mesh_with_normals, "EPSG:3006", "EPSG:4326")
-        np.testing.assert_array_equal(result.normals, mesh_with_normals.normals)
+    def test_normals_require_explicit_transformation(self, mesh_with_normals):
+        with pytest.raises(NotImplementedError, match="normals"):
+            reproject_mesh(mesh_with_normals, "EPSG:3006", "EPSG:4326")
 
     def test_mesh_is_copied(self, basic_mesh):
         """Result should be a new mesh, not modifying the original"""
@@ -321,8 +320,8 @@ class TestTopologyPreservation:
 class TestAttributePreservation:
     """Test that all mesh attributes are properly preserved"""
 
-    def test_all_attributes_preserved(self):
-        """Test that all optional mesh attributes are preserved"""
+    def test_connectivity_and_markers_preserved(self):
+        """Supported optional mesh attributes remain independent of coordinates."""
         vertices = np.array([
             [500000.0, 6500000.0, 100.0],
             [500100.0, 6500000.0, 100.0],
@@ -330,14 +329,11 @@ class TestAttributePreservation:
         ])
         faces = np.array([[0, 1, 2]], dtype=np.int64)
         markers = np.array([5])
-        normals = np.array([[0.0, 0.0, 1.0]])
-
-        mesh = Mesh(vertices=vertices, faces=faces, markers=markers, normals=normals)
+        mesh = Mesh(vertices=vertices, faces=faces, markers=markers)
         result = reproject_mesh(mesh, "EPSG:3006", "EPSG:4326")
 
         np.testing.assert_array_equal(result.faces, faces)
         np.testing.assert_array_equal(result.markers, markers)
-        np.testing.assert_array_equal(result.normals, normals)
 
     def test_empty_attributes_preserved(self):
         """Test that empty attributes are preserved correctly"""

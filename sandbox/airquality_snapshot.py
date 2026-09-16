@@ -48,7 +48,7 @@ try:
         print("Sample stations:")
         for i, station in enumerate(sensors.stations()[:3]):
             attrs = station.attributes
-            point = station.geometry.get("location")
+            point = station.get_geometry("location")
             print(f"  {i+1}. {attrs.get('station_name', 'Unknown')}")
             print(f"     Location: ({point.x:.4f}, {point.y:.4f})")
             print(f"     Value: {attrs.get('value', 'N/A')} {attrs.get('unit', '')}")

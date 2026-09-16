@@ -20,6 +20,7 @@ from pypoints2grid import points2grid
 from affine import Affine
 from .. import _dtcc_builder
 from typing import List, Optional, Union
+from numbers import Real
 from shapely.geometry import Polygon, box
 from shapely.geometry.polygon import orient
 from shapely.ops import unary_union
@@ -92,8 +93,12 @@ def _terrain_mesh_regions(
 def adaptive_terrain_mesh(
     data: Union[PointCloud, Raster], max_error: float, raster_size=1, smoothing=0
 ) -> Mesh:
-    """builds an adaptive terrain mesh from a point cloud or raster data. The mesh generates the minimum number of
-    triangles necessary to represent the terrain within a specified error margin, using the Zemlya algorithm."""
+    """Build an adaptive terrain mesh using the Zemlya algorithm.
+
+    Raster inputs must be nonempty 2D arrays with finite values, no missing data,
+    and an axis-aligned georeference with square pixels. Vertices use raster
+    pixel-center coordinates. Reproject rotated rasters and fill nodata first.
+    """
 
     if isinstance(data, PointCloud):
         dem = build_terrain_raster(data, cell_size=raster_size)
@@ -135,6 +140,10 @@ def build_terrain_surface_mesh(
     ----------
     data : Union[PointCloud, Raster]
         Input terrain data to mesh.
+        Rasters must be nonempty 2D arrays with finite values, no missing data,
+        and an axis-aligned georeference. Values are interpolated between pixel
+        centers and clamped to the nearest sample at the outer half-pixel margins.
+        Reproject rotated rasters and fill nodata before meshing.
     subdomains : list[Surface], optional
         List of surface subdomains for varying mesh resolution.
     holes : list[Surface], optional
@@ -279,61 +288,145 @@ def build_terrain_raster(
     radius=0,
     ground_only=True,
     _report_progress=True,
+    *,
+    hole_fill="nearest",
 ) -> Raster:
-    """
-    Rasterize a point cloud into a `Raster` object.
+    """Rasterize elevations by inverse-distance weighting at cell centers.
 
-    Args:
-        cell_size (float): The size of the raster cells in meters.
-        bounds (Bounds): The bounds of the area to rasterize (default None, uses the bounds of the point cloud).
-        window_size (int): The size of the window for the interpolation (default 3).
-        radius (float): The radius of the search for the interpolation (default 0).
-        ground_only (bool): Whether to only use ground points for the rasterization (default True).
-
-    Returns:
-        Raster: A `Raster` object representing the rasterized point cloud.
+    ``ground_only=True`` requires LAS class 2 points; water (class 9) and
+    unclassified points are not ground. Pass False explicitly to use all points.
+    Cell size and radius use the input coordinate units. Zero radius selects the
+    backend default; window_size=0 disables its window interpolation. Remaining
+    gaps use NaN, with optional nearest-neighbor filling (the historical default).
+    No reprojection or vertical-unit conversion is performed. Nonidentity point
+    transforms must be applied explicitly before calling this builder.
     """
+    if not isinstance(pc, PointCloud):
+        raise TypeError("pc must be a PointCloud")
+    points = np.asarray(pc.points)
+    if (points.ndim != 2 or points.shape[1] != 3 or len(points) == 0
+            or points.dtype.kind not in "fiu" or not np.isfinite(points).all()):
+        raise ValueError("PointCloud must contain finite real points with shape (N, 3)")
+    if not np.array_equal(pc.transform.affine, np.eye(4)):
+        raise ValueError("Apply the PointCloud transform before rasterization")
+    if (isinstance(cell_size, (bool, np.bool_)) or not isinstance(cell_size, Real)
+            or not np.isfinite(cell_size) or cell_size <= 0):
+        raise ValueError("cell_size must be finite and positive")
+    if (isinstance(radius, (bool, np.bool_)) or not isinstance(radius, Real)
+            or not np.isfinite(radius) or radius < 0):
+        raise ValueError("radius must be finite and nonnegative")
+    if (isinstance(window_size, (bool, np.bool_))
+            or not isinstance(window_size, (int, np.integer))
+            or window_size < 0 or (window_size != 0 and window_size % 2 == 0)):
+        raise ValueError("window_size must be zero or a positive odd integer")
+    if not isinstance(ground_only, bool):
+        raise ValueError("ground_only must be a boolean")
+    if hole_fill not in {"nearest", "none"}:
+        raise ValueError("hole_fill must be 'nearest' or 'none'")
     if _report_progress:
         report_progress(percent=0, message="Filtering ground points...")
-
-    if (
-        ground_only
-        and (len(pc.classification) == len(pc.points))
-        and 2 in pc.used_classifications()
-    ):
-        ground_point_idx = np.where(np.isin(pc.classification, [2, 9]))[0]
-        ground_points = pc.points[ground_point_idx]
-    else:
-        ground_points = pc.points
+    if ground_only:
+        classifications = np.asarray(pc.classification)
+        if classifications.shape != (len(points),) or classifications.dtype.kind not in "iu":
+            raise ValueError("ground_only=True requires one integer LAS classification per point")
+        points = points[classifications == 2]
+        if len(points) == 0:
+            raise ValueError("ground_only=True requires LAS class 2 ground points; use False explicitly for all points")
     if bounds is None:
-        if pc.bounds is None or pc.bounds.area == 0:
-            pc.calculate_bounds()
-        bounds = pc.bounds
-
+        # Use the complete source footprint, even when ground selection leaves gaps.
+        bounds = pc.calculate_bounds()
+    if (not isinstance(bounds, Bounds) or not np.isfinite(bounds.tuple).all()
+            or bounds.width <= 0 or bounds.height <= 0):
+        raise ValueError("bounds must be finite with positive width and height")
+    # The compiled grid backend indexes cells with signed integers. Reject a
+    # numerically impossible request before narrowing dimensions or allocating.
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        grid_shape = np.ceil(np.array([bounds.width, bounds.height]) / cell_size)
+        cell_count = np.prod(grid_shape)
+    if (not np.isfinite(cell_count) or np.any(grid_shape < 1)
+            or cell_count > np.iinfo(np.int32).max):
+        raise ValueError("Requested raster exceeds the backend signed cell-index limit")
     if _report_progress:
         report_progress(percent=30, message="Rasterizing points to grid...")
-
-    dem = points2grid(
-        ground_points, cell_size, bounds.tuple, window_size=window_size, radius=radius
+    dem = points2grid(points, cell_size, bounds.tuple, window_size=window_size, radius=radius)
+    # The backend uses zero both for missing support and valid elevations. A
+    # constant positive signal isolates support using identical interpolation;
+    # shifting the elevations instead would lose precision near zero.
+    if np.any(dem == 0):
+        support_points = points.copy()
+        support_points[:, 2] = 1
+        support = points2grid(support_points, cell_size, bounds.tuple,
+                              window_size=window_size, radius=radius)
+        dem[support == 0] = np.nan
+    if not np.isfinite(dem).any():
+        raise ValueError("No selected points support the requested raster grid")
+    if np.isinf(dem).any():
+        raise ValueError("Raster interpolation produced nonfinite elevations")
+    # points2grid rounds dimensions up from the lower-left bound. The upper
+    # raster edge may therefore extend beyond the requested y maximum.
+    dem_raster = Raster(
+        data=dem, nodata=np.nan, crs=pc.transform.srs,
+        georef=Affine.translation(bounds.xmin, bounds.ymin + dem.shape[0] * cell_size)
+               * Affine.scale(cell_size, -cell_size),
     )
-
-    if _report_progress:
-        report_progress(percent=70, message="Creating raster object...")
-
-    dem_raster = Raster()
-    dem_raster.data = dem
-    dem_raster.nodata = 0
-    dem_raster.georef = Affine.translation(bounds.xmin, bounds.ymax) * Affine.scale(
-        cell_size, -cell_size
-    )
-
-    if _report_progress:
-        report_progress(percent=90, message="Filling holes in raster...")
-    dem_raster = fill_raster_holes(dem_raster)
-
+    if hole_fill == "nearest":
+        if _report_progress:
+            report_progress(percent=90, message="Filling holes in raster...")
+        dem_raster = fill_raster_holes(dem_raster)
     if _report_progress:
         report_progress(percent=100, message="Raster complete")
     return dem_raster
+
+
+def build_terrain_dem(
+    pc: PointCloud, cell_size, *, unit: str, vertical_reference: str,
+    bounds=None, ground_only=True, window_size=0, radius=0,
+    hole_fill="none", source: str | None = None,
+) -> Terrain:
+    """Build a native Terrain with an explicitly interpreted elevation raster.
+
+    The source must declare its coordinate reference system. ``unit`` describes
+    its Z values; ``vertical_reference`` identifies their datum/reference without
+    resolving or converting it. Values are point estimates at raster cell centers,
+    not cell averages or direct measurements. No CityGML RasterRelief equivalence
+    is claimed. Access the array with ``terrain.get_geometry(id="dem").data``.
+    """
+    if not isinstance(pc, PointCloud) or not isinstance(pc.transform.srs, str) or not pc.transform.srs.strip():
+        raise ValueError("A DEM requires the source PointCloud CRS in transform.srs")
+    from pyproj import CRS
+    source_crs = CRS.from_user_input(pc.transform.srs)
+    if not source_crs.is_projected:
+        raise ValueError("A DEM requires a projected source CRS; reproject geographic coordinates first")
+    vertical_axes = [axis for axis in source_crs.axis_info if axis.direction in {"up", "down"}]
+    if vertical_axes:
+        scale = {"m": 1.0, "cm": .01, "mm": .001, "km": 1000.0}.get(unit)
+        if scale is not None and any(not np.isclose(axis.unit_conversion_factor, scale) for axis in vertical_axes):
+            raise ValueError("DEM unit conflicts with the source CRS vertical axis unit")
+        if any(axis.direction != "up" for axis in vertical_axes):
+            raise ValueError("A DEM requires upward-positive elevations; transform depth coordinates first")
+    raster = build_terrain_raster(
+        pc, cell_size, bounds=bounds, ground_only=ground_only,
+        window_size=window_size, radius=radius, hole_fill=hole_fill,
+    )
+    terrain = Terrain()
+    from ...model._standard_schema import SEMANTIC_NAMESPACE
+    terrain.semantic_type = SEMANTIC_NAMESPACE + "Terrain"
+    terrain.transform.srs = raster.crs
+    terrain.add_geometry(raster, id="dem", role="elevation")
+    interpretation = {
+        "geometry_id": "dem", "unit": unit, "vertical_reference": vertical_reference,
+        "sampling": "cell_center", "interpolation": "inverse_distance_weighted",
+        "hole_fill": hole_fill, "source_selection": "ground" if ground_only else "all",
+        "window_size": int(window_size), "radius": float(radius),
+    }
+    if source is not None:
+        interpretation["source"] = source
+    terrain.attributes["elevation_rasters"] = [interpretation]
+    # Use the standard authority for semantic metadata, without serializing or
+    # rebuilding the numerical buffers merely to validate the new object.
+    from ...model._standard_schema import SCHEMA_ID, DEFAULT_VERSION, validate_admitted
+    validate_admitted(terrain, SCHEMA_ID, DEFAULT_VERSION)
+    return terrain
 
 
 def flatten_terrain_raster(raster: Raster, height: Optional[float] = None) -> Raster:

@@ -248,15 +248,6 @@ class StreamlineCollection(Model):
             f"format {fmt!r}."
         )
 
-    def to_proto(self):
-        raise NotImplementedError(
-            "StreamlineCollection protobuf serialization is not implemented."
-        )
-
-    def from_proto(self, pb):
-        raise NotImplementedError(
-            "StreamlineCollection protobuf deserialization is not implemented."
-        )
 
     def _metadata(self, line_count: int, *, include_z: bool) -> dict[str, Any]:
         return {

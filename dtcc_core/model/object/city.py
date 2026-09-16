@@ -14,7 +14,6 @@ from ..values.raster import Raster
 from .. import geometry
 from ..geometry import Bounds
 
-from .. import dtcc_pb2 as proto
 from ..logging import info, warning, error, debug
 
 from ..mixins.city import (
@@ -91,7 +90,8 @@ class City(
         Returns
         -------
         dict[str, list]
-            Mapping of attribute names to lists of values across buildings.
+            Mapping of all attribute names to building-aligned lists. A missing
+            attribute is represented by None, and keys follow first-seen order.
         """
 
         city_buildings = self.buildings
@@ -99,9 +99,9 @@ class City(
             return {}
 
         building_attributes = defaultdict(list)
-        # assuming all buildings have the same attributes
-        # TODO: handle buildings with different attributes
-        attribute_keys = city_buildings[0].attributes.keys()
+        attribute_keys = dict.fromkeys(
+            key for building in city_buildings for key in building.attributes
+        )
         for b in city_buildings:
             for key in attribute_keys:
                 building_attributes[key].append(b.attributes.get(key, None))
@@ -191,81 +191,7 @@ class City(
         """
         self.add_children(trees)
 
-    def to_proto(self) -> proto.Object:
-        """Return a protobuf representation of the City.
-
-        Returns
-        -------
-        proto.Object
-            A protobuf representation of the City as an Object.
-        """
-
-        # Handle Object fields
-        pb = Object.to_proto(self)
-
-        # Handle specific fields (currently none)
-        _pb = proto.City()
-        pb.city.CopyFrom(_pb)
-
-        return pb
-
-    def from_proto(self, pb: Union[proto.Object, bytes]):
-        """Initialize City from a protobuf representation.
-
-        Parameters
-        ----------
-        pb: Union[proto.Object, bytes]
-            The protobuf message or its serialized bytes representation.
-        """
-
-        # Handle byte representation
-        if isinstance(pb, bytes):
-            pb = proto.Object.FromString(pb)
-
-        # Handle Object fields
-        Object.from_proto(self, pb)
-
-        # Handle specific fields (currently none)
-        pass
-
 
 @dataclass
 class CityObject(Object):
     """Represents a generic object in a city."""
-
-    def to_proto(self) -> proto.Object:
-        """Return a protobuf representation of the CityObject.
-
-        Returns
-        -------
-        proto.Object
-            A protobuf representation of the CityObject as an Object.
-        """
-
-        # Handle Object fields
-        pb = Object.to_proto(self)
-
-        # Handle specific fields (currently none)
-        _pb = proto.CityObject()
-        pb.city_object.CopyFrom(_pb)
-
-        return pb
-
-    def from_proto(self, pb: Union[proto.Object, bytes]):
-        """Initialize CityObject from a protobuf representation.
-
-        Parameters
-        ----------
-        pb: Union[proto.Object, bytes]
-            The protobuf message or its serialized bytes representation.
-        """
-
-        # Handle byte representation
-        if isinstance(pb, bytes):
-            pb = proto.Object.FromString(pb)
-
-        # Handle Object fields
-        Object.from_proto(self, pb)
-
-        # Handle specific fields (currently none)
-        pass
