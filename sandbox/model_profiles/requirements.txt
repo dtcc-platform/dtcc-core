@@ -1,0 +1,5 @@
+# Reproduce the evaluated tooling. Core now declares LinkML/runtime for default
+# canonical schema validation; jsonschema is also pinned here for experiments.
+linkml==1.11.1
+linkml-runtime==1.11.1
+jsonschema==4.26.0

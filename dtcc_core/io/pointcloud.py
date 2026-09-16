@@ -1,3 +1,5 @@
+from functools import partial
+from .model import load_model, save_model
 from pathlib import Path
 import numpy as np
 import laspy
@@ -90,6 +92,7 @@ def load(
     points_classification_only=False,
     delimiter=",",
     bounds: Bounds = None,
+    *, validate_schema=True,
 ) -> PointCloud:
     """
     Load a LAS/LAZ/CSV file or a directory containing LAS/LAZ/CSV files as a `PointCloud` object.
@@ -104,6 +107,12 @@ def load(
     Returns:
         PointCloud: A `PointCloud` object representing the file(s) loaded.
     """
+    if isinstance(path, (str, Path)) and Path(path).suffix.lower() == '.dtcc':
+        if points_only or points_classification_only or bounds is not None:
+            raise ValueError('DTCC model loading preserves the whole point cloud; filter it after loading')
+        return load_model(path, expected_type=PointCloud, validate_schema=validate_schema)
+    if validate_schema is not True:
+        raise ValueError('validate_schema applies to .dtcc input')
     if isinstance(path, str):
         path = Path(path)
     if isinstance(path, Path) and not path.exists():
@@ -260,14 +269,9 @@ def _load_las(
     return pc
 
 
-def _load_proto_pointcloud(path, **kwargs):
-    with open(path, "rb") as f:
-        pc = PointCloud()
-        pc.from_proto(f.read())
-    return pc
 
 
-def save(pointcloud, outfile, format=None):
+def save(pointcloud, outfile, format=None, **kwargs):
     """
     Save a point cloud to disk using a registered format.
 
@@ -278,7 +282,7 @@ def save(pointcloud, outfile, format=None):
     outfile : str or Path
         Output path with extension determining the format.
     """
-    generic.save(pointcloud, outfile, "pointcloud", _save_formats, format=format)
+    generic.save(pointcloud, outfile, "pointcloud", _save_formats, format=format, **kwargs)
 
 
 def _save_csv(pointcloud, outfile):
@@ -301,9 +305,6 @@ def _save_las(pointcloud, las_file):
     outfile.write(las_file)
 
 
-def _save_proto_pointcloud(pointcloud, outfile):
-    outfile = Path(outfile)
-    outfile.write_bytes(pointcloud.to_proto().SerializeToString())
 
 
 def _save_json_pointcloud(pointcloud, outfile):
@@ -337,8 +338,7 @@ def print_io():
 
 _load_formats = {
     PointCloud: {
-        ".pb": _load_proto_pointcloud,
-        ".pb2": _load_proto_pointcloud,
+        ".dtcc": partial(load_model, expected_type=PointCloud),
         ".las": _load_las,
         ".laz": _load_las,
         ".csv": _load_csv,
@@ -347,8 +347,7 @@ _load_formats = {
 
 _save_formats = {
     PointCloud: {
-        ".pb": _save_proto_pointcloud,
-        ".pb2": _save_proto_pointcloud,
+        ".dtcc": save_model,
         ".json": _save_json_pointcloud,
         ".las": _save_las,
         ".laz": _save_las,

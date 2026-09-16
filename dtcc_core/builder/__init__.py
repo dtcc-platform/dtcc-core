@@ -10,6 +10,14 @@ from . import building
 from . import polygons
 from . import roadnetwork
 
+# Imported eagerly, unlike pointcloud/trees below: every module under
+# builder.raster registers Raster methods via @register_model_method, and those
+# methods only exist once the module has been imported. Deferring it made
+# Raster.slope_aspect() and friends appear or vanish depending on unrelated
+# import order. Its heavy dependencies are imported inside the functions that
+# use them, so this costs almost nothing at start-up. See issue #87.
+from . import raster
+
 from .building.modify import (
     merge_building_footprints,
     simplify_building_footprints,
@@ -39,9 +47,9 @@ from .meshing import (
 
 _LAZY_IMPORTS = {
     "pointcloud": "dtcc_core.builder.pointcloud",
-    "raster": "dtcc_core.builder.raster",
     "trees": "dtcc_core.builder.trees",
     "build_terrain_surface_mesh": "dtcc_core.builder.geometry_builders.terrain",
+    "build_terrain_dem": "dtcc_core.builder.geometry_builders.terrain",
     "build_terrain_raster": "dtcc_core.builder.geometry_builders.terrain",
     "flat_terrain": "dtcc_core.builder.geometry_builders.terrain",
     "flatten_terrain_raster": "dtcc_core.builder.geometry_builders.terrain",
@@ -83,6 +91,7 @@ __all__ = [
     "build_city_surface_mesh",
     "build_city_flat_mesh",
     "build_terrain_surface_mesh",
+    "build_terrain_dem",
     "build_terrain_raster",
     "flat_terrain",
     "flatten_terrain_raster",

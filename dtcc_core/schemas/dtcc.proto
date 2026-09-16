@@ -1,0 +1,217 @@
+syntax = "proto3";
+package DTCC;
+
+// DTCC Model wire contract. A .dtcc file is one binary ModelFile message.
+// Legacy layouts and earlier experiment versions are not supported.
+message ModelFile {
+  string format = 1; // Exactly "dtcc-model".
+  uint32 version = 2; // Version 6 declares the semantic schema; only version 6 is supported.
+  oneof root {
+    Object object = 3;
+    Geometry geometry = 4;
+    Field field = 5;
+    Raster raster = 8;
+    Bounds bounds = 9;
+    Transform transform = 10;
+  }
+  string schema_id = 6; // Required absolute URI in v6, including when evaluation is bypassed.
+  string schema_version = 7; // Required nonempty version, independent of the wire version.
+}
+
+message Object {
+  enum Kind {
+    UNSPECIFIED = 0;
+    OBJECT = 1;
+    CITY = 2;
+    BUILDING = 3;
+    BUILDING_PART = 4;
+    TREE = 5;
+    LANDUSE = 6;
+    CITY_OBJECT = 7;
+    TERRAIN = 8;
+    ROAD_NETWORK = 9;
+    SENSOR_COLLECTION = 10;
+    VEHICLE_COLLECTION = 11;
+    DESO = 12;
+  }
+  Kind kind = 1;
+  string id = 2;
+  map<string, Value> attributes = 3;
+  repeated Object children = 4;
+  reserved 5; // Removed experimental geometry map; representations are authoritative.
+  Transform transform = 6;
+  string semantic_type = 7; // Optional absolute URI.
+  string profile_id = 8; // Optional absolute URI, paired with profile_version.
+  string profile_version = 9;
+  map<string, IdList> relations = 10;
+  repeated Representation representations = 11; // Sole ordered representation store.
+  oneof state { // Must match kind; required for Tree, Landuse and RoadNetwork.
+    Tree tree = 12;
+    Landuse landuse = 13;
+    RoadNetwork road_network = 14;
+  }
+}
+message Tree {
+  Array position = 1;
+  double height = 2;
+  double crown_radius = 3;
+}
+message Landuse {
+  repeated string landuses = 1;
+} // Stable native enum names, not source classifications.
+message Representation {
+  string id = 1;
+  oneof value {
+    Geometry geometry = 2;
+    Raster raster = 5;
+    Bounds bounds = 6;
+  }
+  optional string lod = 3;
+  optional string role = 4;
+}
+message IdList {
+  repeated string ids = 1;
+}
+message Transform {
+  string srs = 1;
+  repeated double affine = 2;
+}
+
+// Finite JSON-like attributes with explicit numeric type identity. Integers use
+// canonical decimal strings (no + sign or leading zeros), including beyond int64.
+message Value {
+  oneof kind {
+    bool null_value = 1; // Must be true.
+    bool boolean = 2;
+    string integer = 3;
+    double number = 4;
+    string text = 5;
+    ValueList list = 6;
+    ValueMap object = 7;
+  }
+}
+message ValueList {
+  repeated Value values = 1;
+}
+message ValueMap {
+  map<string, Value> values = 1;
+}
+
+// Row-major, little-endian arrays. No NumPy dependency is required to decode.
+// dtype: |b1 (boolean byte 0/1), |i1 / |u1 (signed/unsigned byte),
+// <i2, <i4, <i8 (signed integers), <u2, <u4, <u8 (unsigned integers),
+// <f4, <f8 (IEEE-754 floats). Numbers in dtype are bytes per element.
+// Shape is explicit; data length must equal product(shape) * element size.
+// Raster allows 0D (empty NaN sentinel), 2D or 3D; other arrays allow at most 2D.
+message Array {
+  string dtype = 1;
+  repeated uint64 shape = 2;
+  bytes data = 3;
+}
+message Geometry {
+  Transform transform = 1;
+  repeated Field fields = 2;
+  repeated SemanticRegion regions = 7;
+  oneof shape {
+    Mesh mesh = 3;
+    Point point = 4;
+    Surface surface = 5;
+    MultiSurface multi_surface = 6;
+    Solid solid = 8;
+    VolumeMesh volume_mesh = 9;
+    PointCloud point_cloud = 10;
+    LineString line_string = 11;
+    MultiLineString multi_line_string = 12;
+    Grid grid = 13;
+    VolumeGrid volume_grid = 14;
+  }
+}
+message Mesh {
+  Array vertices = 1;
+  Array faces = 2;
+  Array markers = 3;
+  Array normals = 4;
+}
+message Point {
+  double x = 1;
+  double y = 2;
+  double z = 3;
+}
+message Field {
+  string name = 1;
+  string unit = 2;
+  string description = 3;
+  Array values = 4;
+  uint32 dim = 5;
+  string association = 6;
+}
+
+message Surface {
+  Array vertices = 1;
+  Array normal = 2;
+  repeated Array holes = 3;
+}
+message MultiSurface {
+  repeated Geometry surfaces = 1;
+}
+message Solid {
+  repeated Geometry surfaces = 1;
+  repeated Array shells = 2;
+}
+message SemanticRegion {
+  string semantic_type = 1;
+  Array indices = 2;
+  optional string id = 3;
+  map<string, Value> attributes = 4;
+  optional uint32 parent = 5; // Index in the owning geometry's regions list.
+}
+
+message Bounds {
+  double xmin = 1;
+  double ymin = 2;
+  double zmin = 3;
+  double xmax = 4;
+  double ymax = 5;
+  double zmax = 6;
+}
+message Raster {
+  Array data = 1;
+  repeated double georef = 2;
+  double nodata = 3;
+  string crs = 4;
+}
+message VolumeMesh {
+  Array vertices = 1;
+  Array cells = 2;
+  Array markers = 3;
+}
+message PointCloud {
+  Array points = 1;
+  Array classification = 2;
+  Array intensity = 3;
+  Array return_number = 4;
+  Array num_returns = 5;
+}
+message LineString {
+  Array vertices = 1;
+}
+message MultiLineString {
+  repeated Geometry linestrings = 1;
+}
+// Grid bounds describe the numerical domain, not a disposable geometry cache.
+message Grid {
+  uint32 width = 1;
+  uint32 height = 2;
+  Bounds bounds = 3;
+}
+message VolumeGrid {
+  uint32 width = 1;
+  uint32 height = 2;
+  uint32 depth = 3;
+  Bounds bounds = 4;
+}
+message RoadNetwork {
+  Array vertices = 1;
+  Array edges = 2;
+  Array length = 3;
+}

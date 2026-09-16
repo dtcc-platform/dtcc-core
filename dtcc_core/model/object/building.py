@@ -9,7 +9,6 @@ from shapely.ops import unary_union
 
 from .object import Object, GeometryType
 from ..geometry import Bounds, Surface
-from .. import dtcc_pb2 as proto
 from ..logging import warning
 
 
@@ -23,22 +22,34 @@ class Building(Object):
         return self.children[BuildingPart] if BuildingPart in self.children else []
 
     @property
-    def height(self):
+    def measured_height(self) -> float | None:
+        """Stored measured height in metres, or None when absent.
+
+        This is direct access to ``attributes["measured_height"]``. Validation
+        occurs at save/load; neither estimates nor geometry are substituted.
         """
-        Get the height of the building.
-        
-        Returns the height from the building's attributes, or calculates it
-        from the bounds if no height attribute is set.
-        
-        Returns
-        -------
-        float
-            The height of the building in meters.
-        """
-        height = self.attributes.get("height", None)
-        if height is None:
-            height = self.bounds.zmax - self.bounds.zmin
-        return height
+        return self.attributes.get("measured_height")
+
+    @measured_height.setter
+    def measured_height(self, value: float | None):
+        if value is None:
+            self.attributes.pop("measured_height", None)
+        else:
+            self.attributes["measured_height"] = value
+
+    height = measured_height
+
+    @property
+    def estimated_height(self) -> float | None:
+        """Stored modelling height in metres, or None; never a measurement fallback."""
+        return self.attributes.get("estimated_height")
+
+    @estimated_height.setter
+    def estimated_height(self, value: float | None):
+        if value is None:
+            self.attributes.pop("estimated_height", None)
+        else:
+            self.attributes["estimated_height"] = value
 
     def footprint(
         self,
@@ -96,43 +107,6 @@ class Building(Object):
         surface.from_polygon(footprint, _resolve_footprint_z(geom, z))
         return surface
 
-    def to_proto(self) -> proto.Object:
-        """Return a protobuf representation of the Building.
-
-        Returns
-        -------
-        proto.Object
-            A protobuf representation of the Building as an Object.
-        """
-
-        # Handle Object fields
-        pb = Object.to_proto(self)
-
-        # Handle specific fields (currently none)
-        _pb = proto.Building()
-        pb.building.CopyFrom(_pb)
-
-        return pb
-
-    def from_proto(self, pb: Union[proto.Object, bytes]):
-        """Initialize Building from a protobuf representation.
-
-        Parameters
-        ----------
-        pb: Union[proto.Object, bytes]
-            The protobuf message or its serialized bytes representation.
-        """
-
-        # Handle byte representation
-        if isinstance(pb, bytes):
-            pb = proto.Object.FromString(pb)
-
-        # Handle Object fields
-        Object.from_proto(self, pb)
-
-        # Handle specific fields (currently none)
-        pass
-
 
 class BuildingPart(Object):
     """Represents a building part object with protobuf serialization support.
@@ -140,42 +114,10 @@ class BuildingPart(Object):
         A specialized Object subclass that provides conversion methods for 
         protobuf serialization and deserialization of building part data.
     """
-    def to_proto(self) -> proto.Object:
-        """Return a protobuf representation of the BuildingPart.
-
-        Returns
-        -------
-        proto.Object
-            A protobuf representation of the BuildingPart as an Object.
-        """
-
-        # Handle Object fields
-        pb = Object.to_proto(self)
-
-        # Handle specific fields (currently none)
-        _pb = proto.BuildingPart()
-        pb.building_part.CopyFrom(_pb)
-
-        return pb
-
-    def from_proto(self, pb: Union[proto.Object, bytes]):
-        """Initialize BuildingPart from a protobuf representation.
-
-        Parameters
-        ----------
-        pb: Union[proto.Object, bytes]
-            The protobuf message or its serialized bytes representation.
-        """
-
-        # Handle byte representation
-        if isinstance(pb, bytes):
-            pb = proto.Object.FromString(pb)
-
-        # Handle Object fields
-        Object.from_proto(self, pb)
-
-        # Handle specific fields (currently none)
-        pass
+    building_parts = Building.building_parts
+    measured_height = Building.measured_height
+    height = Building.height
+    estimated_height = Building.estimated_height
 
 
 def _resolve_footprint_z(

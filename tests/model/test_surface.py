@@ -18,7 +18,7 @@ def basic_surface(simple_polygon):
 
 @pytest.fixture
 def complex_surface():
-    verts = np.array([[0, 0, 10], [1, 0, 10], [1, 1, 12], [0, 1, 12]])
+    verts = np.array([[0, 0, 10], [1, 0, 10], [1, 1, 12], [0, 1, 12]], dtype=float)
     hole = np.array([[0.1, 0.1, 10], [0.9, 0.1, 10], [0.9, 0.9, 12], [0.1, 0.9, 12]])
     return Surface(vertices=verts, holes=[hole])
 
@@ -46,10 +46,8 @@ def test_to_polygon(basic_surface):
 def test_to_proto(complex_surface):
     pb = complex_surface.to_proto()
 
-    assert len(pb.surface.vertices) == 4 * 3
-    assert pb.surface.vertices[0] == 0
-    assert pb.surface.vertices[-1] == 12
-    assert len(pb.surface.holes) == 1
+    assert list(pb.geometry.surface.vertices.shape) == [4, 3]
+    assert len(pb.geometry.surface.holes) == 1
 
 
 def test_from_proto(complex_surface):

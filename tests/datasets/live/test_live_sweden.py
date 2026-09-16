@@ -289,7 +289,7 @@ def test_structural(
     _assert_metadata_contract(result, case_key.dataset)
 
     for station in result.stations():
-        point = station.geometry["location"]
+        point = station.get_geometry("location")
         assert isinstance(point, Point)
         assert len(point.fields) >= 1
         assert xmin - EPS <= point.x <= xmax + EPS

@@ -1,0 +1,83 @@
+id: https://example.org/dtcc/profiles/buildings
+name: dtcc_buildings
+version: 0.1.0
+description: >-
+  Experimental DTCC buildings profile informed by CityGML 3.0 and CityJSON 2.0.2.
+  This file is self-contained. It describes semantic records, not NumPy geometry
+  buffers or the binary model envelope. Optional properties remain optional.
+see_also:
+  - https://docs.ogc.org/is/20-010/20-010.html
+  - https://www.cityjson.org/specs/2.0.2/
+prefixes:
+  dtcc: https://example.org/dtcc/
+  xsd: http://www.w3.org/2001/XMLSchema#
+default_prefix: dtcc
+default_range: string
+# Inline the scalar definitions so this exact profile has no imported files or
+# remotely resolved types. These are LinkML primitive declarations.
+types:
+  string:
+    base: str
+    uri: xsd:string
+  float:
+    base: float
+    uri: xsd:double
+slots:
+  id:
+    identifier: true
+    required: true
+  parent:
+    range: Entity
+    required: true
+    annotations:
+      containment: true
+classes:
+  Entity:
+    abstract: true
+    slots: [id]
+  City:
+    is_a: Entity
+    description: DTCC aggregate of city objects; CityJSON represents this at document level.
+  Building:
+    is_a: Entity
+    description: Building entity, independent of the geometry used to represent it.
+    slots: [parent]
+    slot_usage:
+      parent:
+        range: City
+    attributes:
+      name:
+        description: Optional human-readable name.
+      measuredHeight:
+        range: float
+        minimum_value: 0
+        description: Optional measured height in metres in this profile; not inferred from geometry.
+      roofType:
+        description: Optional source roof classification; no invented universal code list.
+  BuildingPart:
+    is_a: Building
+    description: Physical or functional subdivision of a building, retaining its own identity.
+    slot_usage:
+      parent:
+        any_of:
+          - range: Building
+          - range: BuildingPart
+  SurfaceRegion:
+    abstract: true
+    is_a: Entity
+    description: >-
+      Semantic entity assigned to existing geometry elements. The projection's
+      parent identifies the owning Building/BuildingPart, not an extra native node.
+    slots: [parent]
+    slot_usage:
+      parent:
+        range: Building
+  RoofSurface:
+    is_a: SurfaceRegion
+    description: Boundary delimiting a major roof part of a construction.
+  WallSurface:
+    is_a: SurfaceRegion
+    description: Boundary delimiting an exterior lateral part of a construction.
+  GroundSurface:
+    is_a: SurfaceRegion
+    description: Lower construction boundary in contact with the ground.

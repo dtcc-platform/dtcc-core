@@ -9,7 +9,6 @@ from copy import deepcopy
 
 from .geometry import Geometry, Bounds
 from .surface import Surface, MultiSurface
-from .. import dtcc_pb2 as proto
 
 from ..mixins.mesh.mixins import MeshProcessingMixin, VolumeMeshProcessingMixin
 
@@ -62,7 +61,7 @@ class Mesh(MeshProcessingMixin, Geometry):
 
     def calculate_bounds(self) -> Bounds:
         """Calculate the bounding box of the mesh."""
-        if len(self.vertices) < 3:
+        if len(self.vertices) == 0:
             self._bounds = Bounds()
             return self._bounds
 
@@ -128,46 +127,6 @@ class Mesh(MeshProcessingMixin, Geometry):
         else:
             return deepcopy(self)
 
-    def to_proto(self) -> proto.Geometry:
-        """Return a protobuf representation of the Mesh.
-
-        Returns
-        -------
-        proto.Geometry
-            A protobuf representation of the Mesh as a Geometry.
-        """
-
-        # Handle Geometry fields
-        pb = Geometry.to_proto(self)
-
-        # Handle specific fields
-        _pb = proto.Mesh()
-        _pb.vertices.extend(self.vertices.flatten())
-        _pb.faces.extend(self.faces.flatten())
-        pb.mesh.CopyFrom(_pb)
-
-        return pb
-
-    def from_proto(self, pb: Union[proto.Geometry, bytes]):
-        """Initialize Mesh from a protobuf representation.
-
-        Parameters
-        ----------
-        pb: Union[proto.Geometry, bytes]
-            The protobuf message or its serialized bytes representation.
-        """
-
-        # Handle byte representation
-        if isinstance(pb, bytes):
-            pb = proto.Geometry.FromString(pb)
-
-        # Handle Geometry fields
-        Geometry.from_proto(self, pb)
-
-        # Handle specific fields
-        _pb = pb.mesh
-        self.vertices = np.array(_pb.vertices).reshape((-1, 3))
-        self.faces = np.array(_pb.faces, dtype=np.int64).reshape((-1, 3))
 
     def to_multisurface(self) -> MultiSurface:
         """Convert the mesh to a MultiSurface object.
@@ -222,12 +181,9 @@ class VolumeMesh(VolumeMeshProcessingMixin, Geometry):
     def calculate_bounds(self) -> Bounds:
         """Calculate the bounding box of the mesh."""
 
-        if len(self.vertices) < 4:
+        if len(self.vertices) == 0:
             self._bounds = Bounds()
             return self._bounds
-
-        print("VolumeMesh vertices: ")
-        print(self.vertices.shape)
 
         self._bounds = Bounds(
             xmin=np.min(self.vertices[:, 0]),
@@ -274,6 +230,7 @@ class VolumeMesh(VolumeMeshProcessingMixin, Geometry):
         """
         offset = np.array(offset)
         self.vertices += offset
+        self._bounds = None
         return self
 
     def offset_to_origin(self):
@@ -281,47 +238,3 @@ class VolumeMesh(VolumeMeshProcessingMixin, Geometry):
         bounds = self.bounds
         offset = (-bounds.xmin, -bounds.ymin, -bounds.zmin)
         return self.offset(offset)
-
-    def to_proto(self) -> proto.Geometry:
-        """Return a protobuf representation of the VolumeMesh.
-
-        Returns
-        -------
-        proto.Geometry
-            A protobuf representation of the VolumeMesh as a Geometry.
-        """
-
-        # Handle Geometry fields
-        pb = Geometry.to_proto(self)
-
-        # Handle specific fields
-        _pb = proto.VolumeMesh()
-        _pb.vertices.extend(self.vertices.flatten())
-        _pb.cells.extend(self.cells.flatten())
-        pb.volume_mesh.CopyFrom(_pb)
-
-        return pb
-
-    def from_proto(self, pb: Union[proto.Geometry, bytes]):
-        """Initialize VolumeMesh from a protobuf representation.
-
-        Parameters
-        ----------
-        pb: Union[proto.Geometry, bytes]
-            The protobuf message or its serialized bytes representation.
-        """
-
-        # Handle byte representation
-        if isinstance(pb, bytes):
-            pb = proto.Geometry.FromString(pb)
-
-        # Handle Geometry fields
-        Geometry.from_proto(self, pb)
-
-        # Handle specific fields
-        _pb = pb.volume_mesh
-        self.vertices = np.array(_pb.vertices).reshape((-1, 3))
-        self.cells = np.array(_pb.cells, dtype=np.int64).reshape((-1, 4))
-
-        # Handle Geometry fields
-        Geometry.from_proto(self, pb)

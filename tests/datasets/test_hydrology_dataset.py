@@ -162,7 +162,7 @@ class TestHydrologyBuild:
             )
         )
         st = sc.stations()[0]
-        point = st.geometry["location"]
+        point = st.get_geometry("location")
         assert len(point.fields) == 1
         f = point.fields[0]
         assert f.name == "discharge_daily"
@@ -181,7 +181,7 @@ class TestHydrologyBuild:
             )
         )
         st = sc.stations()[0]
-        point = st.geometry["location"]
+        point = st.get_geometry("location")
         field_names = {f.name for f in point.fields}
         assert "discharge_daily" in field_names
         assert "water_level" in field_names
@@ -282,7 +282,7 @@ class TestHydrologyBuild:
             )
         )
         st = sc.stations()[0]
-        point = st.geometry["location"]
+        point = st.get_geometry("location")
         assert point.fields[0].name == "Vattenföring (Dygn)"
 
     @patch("dtcc_core.datasets.hydrology._get_json", side_effect=_mock_get_json)
@@ -346,7 +346,7 @@ class TestHydrologyBuild:
         )
         stations = sc.stations()
         if len(stations) > 0:
-            pt = stations[0].geometry["location"]
+            pt = stations[0].get_geometry("location")
             # EPSG:3006 easting should be in the ~670k–690k range
             assert 600000 < pt.x < 800000
             assert 6500000 < pt.y < 6700000
@@ -401,7 +401,7 @@ class TestHydrologyBuild:
             )
         )
         st = sc.stations()[0]
-        point = st.geometry["location"]
+        point = st.get_geometry("location")
         field_names = {f.name for f in point.fields}
         assert "discharge_daily" in field_names
         assert "water_level" in field_names
@@ -433,7 +433,7 @@ class TestHydrologyBuild:
         )
         # Should still have stations from parameter 1
         assert len(sc.stations()) >= 1
-        point = sc.stations()[0].geometry["location"]
+        point = sc.stations()[0].get_geometry("location")
         field_names = {f.name for f in point.fields}
         assert "discharge_daily" in field_names
         # Parameter 3 failed → no water_level field

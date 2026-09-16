@@ -6,7 +6,8 @@ from dataclasses import dataclass, field
 from collections import defaultdict
 from typing import Optional, Union
 from enum import Enum, auto
-import json, re
+import json
+import math
 
 from copy import copy, deepcopy
 
@@ -16,11 +17,13 @@ import dtcc_core
 from ..values import Raster
 
 from ..model import Model
+from .representation import GeometryRepresentation
 from ..geometry import (
     Geometry,
     Bounds,
     Surface,
     MultiSurface,
+    Solid,
     PointCloud,
     Mesh,
     VolumeMesh,
@@ -33,7 +36,6 @@ from ..geometry import (
 from collections import defaultdict
 from uuid import uuid4
 
-from .. import dtcc_pb2 as proto
 
 from ..logging import info, warning, error, debug
 
@@ -81,12 +83,13 @@ class GeometryType(Enum):
         ValueError
             If the string does not match any known geometry type.
         """
-        s = s.upper()
-        try:
-            t = GeometryType[s]
-        except KeyError:
-            raise ValueError(f"Unknown geometry type: {s}")
-        return t
+        if not isinstance(s, str):
+            raise TypeError("Geometry type name must be a string")
+        name = s.upper().replace("_", "")
+        for geometry_type in GeometryType:
+            if geometry_type.name.replace("_", "") == name:
+                return geometry_type
+        raise ValueError(f"Unknown geometry type: {s}")
 
     @staticmethod
     def from_class_name(s):
@@ -103,7 +106,7 @@ class GeometryType(Enum):
         GeometryType
             Corresponding geometry type enum.
         """
-        return GeometryType.from_str(re.sub(r"(?<!^)(?=[A-Z])", "_", s).upper())
+        return GeometryType.from_str(s)
 
     @staticmethod
     def from_class(s):
@@ -123,22 +126,81 @@ class GeometryType(Enum):
         return GeometryType.from_class_name(s.__name__)
 
 
-def _proto_type_to_object_class(_type):
-    """Get object class from protobuf type string."""
-    class_name = _type.title().replace("_", "")
-    _class = getattr(dtcc_core.model.object, class_name, None)
-    if _class is None:
-        error(f"Invalid object type: {_type}")
-    return _class
+def _normalize_geometry_type(geometry_type):
+    """Normalize built-in representations while preserving custom string roles."""
+    if isinstance(geometry_type, GeometryType):
+        return geometry_type
+    if not isinstance(geometry_type, str):
+        raise TypeError("Geometry key must be a GeometryType or a nonempty string")
+    if not geometry_type.strip():
+        raise ValueError("Geometry key must be a nonempty string")
+    if geometry_type.lower().startswith("geometrytype"):
+        prefix = "GeometryType."
+        if not geometry_type.lower().startswith(prefix.lower()):
+            raise ValueError(f"Malformed reserved geometry key: {geometry_type!r}")
+        return GeometryType.from_str(geometry_type[len(prefix):])
+    try:
+        return GeometryType.from_str(geometry_type)
+    except ValueError:
+        # Custom roles such as "location", "centerlines", and "grid" are
+        # intentional parts of the generic object model.
+        return geometry_type
 
 
-def _proto_type_to_geometry_class(_type):
-    """Get geometry class from protobuf type string."""
-    class_name = _type.title().replace("_", "")
-    _class = getattr(dtcc_core.model.geometry, class_name, None)
-    if _class is None:
-        error(f"Invalid geometry type: {_type}")
-    return _class
+def _legacy_slot(key):
+    """Translate an explicit old slot, never infer descriptors from a class."""
+    key = _normalize_geometry_type(key)
+    if isinstance(key, GeometryType):
+        if key.name in ('LOD0', 'LOD1', 'LOD2', 'LOD3'):
+            return str(key), key.name[-1], None
+        return str(key), None, key.name.lower()
+    return key, None, key
+
+
+def _validate_attributes(attributes, *, max_depth=None):
+    """Require JSON data without conversions that silently change its meaning."""
+    if not isinstance(attributes, dict):
+        raise TypeError("Object attributes must be a dictionary with string keys")
+
+    active_containers = set()
+
+    def validate(value, path, depth=0):
+        if max_depth is not None and depth > max_depth:
+            raise ValueError(f"{path} exceeds the supported attribute nesting depth")
+        if value is None or isinstance(value, (str, bool, int)):
+            return
+        if isinstance(value, float):
+            if not math.isfinite(value):
+                raise ValueError(f"{path} must be a finite JSON number")
+            return
+        if not isinstance(value, (dict, list)):
+            raise TypeError(
+                f"{path} contains unsupported {type(value).__name__}; use JSON "
+                "values (null, boolean, number, string, list, or dictionary)"
+            )
+        if id(value) in active_containers:
+            raise ValueError(f"{path} contains a circular reference")
+        active_containers.add(id(value))
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if not isinstance(key, str):
+                    raise TypeError(f"{path} has a non-string dictionary key: {key!r}")
+                validate(item, f"{path}[{key!r}]", depth + 1)
+        else:
+            for index, item in enumerate(value):
+                validate(item, f"{path}[{index}]", depth + 1)
+        active_containers.remove(id(value))
+
+    validate(attributes, "attributes")
+
+
+def _validate_geometry_value(geometry):
+    """Validate values also accepted by the existing in-memory geometry map."""
+    if not isinstance(geometry, (Geometry, Raster, Bounds)):
+        raise TypeError(
+            "Object geometry must be a Geometry, Raster, or Bounds instance; "
+            f"got {type(geometry).__name__}"
+        )
 
 
 @dataclass
@@ -159,19 +221,34 @@ class Object(Model):
     id : str
         Unique identifier of the object.
     attributes : dict
-        Dictionary of attributes.
+        Dictionary of attributes. Protobuf serialization requires string keys
+        and JSON values: null, booleans, finite numbers, strings, lists, and
+        nested dictionaries. Other Python values must be converted explicitly.
     children : dict of lists
         Dictionary of child objects (key is type).
     geometry : dict
         Dictionary of geometries.
+    semantic_type : str or None
+        Optional absolute semantic URI, independent of the Python class.
+    profile_id, profile_version : str or None
+        Optional profile URI and version, supplied together. No automatic profile
+        loading or domain validation is implied.
+    relations : dict[str, list[str]]
+        Named references to IDs in the same model; containment uses children.
+        DTCC Protobuf exchange validates and preserves these facts.
     """
 
     id: str = field(default_factory=lambda: str(uuid4()))
     attributes: dict = field(default_factory=dict)
     children: dict = field(default_factory=lambda: defaultdict(list))
-    geometry: dict = field(default_factory=dict)
+    geometry: dict[str, GeometryRepresentation] = field(default_factory=dict)
     transform: Transform = field(default_factory=Transform)
     _bounds: Bounds = None
+    # Optional intrinsic semantics, independent of Python class and containment.
+    semantic_type: Optional[str] = field(default=None, kw_only=True)
+    profile_id: Optional[str] = field(default=None, kw_only=True)
+    profile_version: Optional[str] = field(default=None, kw_only=True)
+    relations: dict[str, list[str]] = field(default_factory=dict, kw_only=True)
 
     @property
     def num_children(self):
@@ -180,52 +257,57 @@ class Object(Model):
 
     @property
     def lod0(self):
-        """Return LOD0 geometry."""
-        return self.geometry.get(GeometryType.LOD0, None)
+        """Return the unique exact LoD "0" geometry, or None; ambiguity raises."""
+        return self.get_geometry(lod="0")
 
     @property
     def lod1(self):
-        """Return LOD0 geometry."""
-        return self.geometry.get(GeometryType.LOD1, None)
+        """Return the unique exact LoD "1" geometry, or None; ambiguity raises."""
+        return self.get_geometry(lod="1")
 
     @property
     def lod2(self):
-        """Return LOD0 geometry."""
-        return self.geometry.get(GeometryType.LOD2, None)
+        """Return the unique exact LoD "2" geometry, or None; ambiguity raises."""
+        return self.get_geometry(lod="2")
 
     @property
     def lod3(self):
-        """Return LOD0 geometry."""
-        return self.geometry.get(GeometryType.LOD3, None)
+        """Return the unique exact LoD "3" geometry, or None; ambiguity raises."""
+        return self.get_geometry(lod="3")
 
     @property
     def mesh(self) -> Union[Mesh, None]:
-        """Return LOD0 geometry."""
-        return self.geometry.get(GeometryType.MESH, None)
+        """Return the unique geometry with role "mesh", or None."""
+        return self.get_geometry(role="mesh")
 
     @property
     def volume_mesh(self):
-        """Return LOD0 geometry."""
-        return self.geometry.get(GeometryType.VOLUME_MESH, None)
+        """Return the unique geometry with role "volume_mesh", or None."""
+        return self.get_geometry(role="volume_mesh")
 
     @property
     def point_cloud(self) -> Union[PointCloud, None]:
         """Return POINT_CLOUD geometry."""
-        return self.geometry.get(GeometryType.POINT_CLOUD, None)
+        return self.get_geometry(role="point_cloud")
 
     @property
     def pointcloud(self) -> Union[PointCloud, None]:
         """Return POINT_CLOUD geometry."""
-        return self.geometry.get(GeometryType.POINT_CLOUD, None)
+        return self.get_geometry(role="point_cloud")
 
     @property
     def raster(self) -> Union[Raster, None]:
         """Return RASTER geometry."""
-        return self.geometry.get(GeometryType.RASTER, None)
+        return self.get_geometry(role="raster")
 
     @property
     def bounds(self) -> Bounds:
-        """Return BOUNDS geometry."""
+        """Return the cached envelope of raw geometry/child coordinates.
+
+        Call ``calculate_bounds()`` after public array or descendant edits.
+        Transforms are not applied; mixed coordinate frames need an explicit
+        transformation workflow before this envelope has spatial meaning.
+        """
         if self._bounds is not None:
             return self._bounds
         bounds = self.calculate_bounds()
@@ -264,24 +346,55 @@ class Object(Model):
         for child in children:
             self.add_child(child)
 
-    def add_geometry(
-        self,
-        geometry: Geometry,
-        geometry_type: Optional[Union[GeometryType, str]] = None,
-    ):
-        """Add geometry to object."""
-        if isinstance(geometry_type, str) and geometry_type.startswith("GeometryType."):
-            geometry_type = GeometryType.from_str(geometry_type[13:])
-        elif isinstance(geometry_type, str):
-            try:
-                geometry_type = GeometryType.from_str(geometry_type)
-            except ValueError:
-                pass
-        elif geometry_type is None:
-            geometry_type = GeometryType.from_class(type(geometry))
-        if not isinstance(geometry_type, GeometryType):
-            warning(f"Invalid geometry type (but I'll allow it): {geometry_type}")
-        self.geometry[geometry_type] = geometry
+    def add_geometry(self, geometry, geometry_type=None, *, id=None, lod=None, role=None):
+        """Attach native geometry by explicit ID/LoD/role, or replace a legacy slot.
+
+        New IDs never overwrite an existing record. The positional GeometryType
+        form retains its established slot-replacement semantics.
+        """
+        if id is not None:
+            if geometry_type is not None:
+                raise ValueError('Use an explicit ID or a legacy geometry_type, not both')
+            if not isinstance(id, str) or not id.strip():
+                raise ValueError('Representation ID must be a nonempty string')
+            if id in self.geometry:
+                raise ValueError(f'Duplicate representation ID {id!r}')
+        else:
+            if lod is not None or role is not None:
+                raise ValueError('LoD/role attachments require an explicit representation ID')
+            if geometry_type is None:
+                try:
+                    geometry_type = GeometryType.from_class(type(geometry))
+                except ValueError as exc:
+                    raise ValueError('No default GeometryType; pass an explicit geometry_type string role or ID') from exc
+            id, lod, role = _legacy_slot(geometry_type)
+        self.geometry[id] = GeometryRepresentation(geometry, lod, role)
+        self._bounds = None
+
+    def _geometry_matches(self, geometry_type=None, *, id=None, lod=None, role=None):
+        if geometry_type is not None:
+            if any(x is not None for x in (id, lod, role)):
+                raise ValueError('Legacy selection cannot be combined with descriptor filters')
+            _, lod, role = _legacy_slot(geometry_type)
+        for name, value in (('id', id), ('lod', lod), ('role', role)):
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(f'{name} must be a nonempty string')
+        entries = self.geometry.items() if id is None else ((id, self.geometry[id]),) if id in self.geometry else ()
+        return [(key, record) for key, record in entries
+                if (lod is None or record.lod == lod) and (role is None or record.role == role)]
+
+    def get_geometry(self, geometry_type=None, *, id=None, lod=None, role=None):
+        """Return the unique native geometry, None if absent; reject ambiguity."""
+        if all(x is None for x in (geometry_type, id, lod, role)):
+            raise ValueError('get_geometry requires an ID, LoD or role selector')
+        matches = self._geometry_matches(geometry_type, id=id, lod=lod, role=role)
+        if len(matches) > 1:
+            raise ValueError(f'Ambiguous geometry selection; matching IDs: {[key for key, _ in matches]}')
+        return matches[0][1].geometry if matches else None
+
+    def get_geometries(self, geometry_type=None, *, id=None, lod=None, role=None):
+        """Return matching native geometries in attachment order (all by default)."""
+        return [record.geometry for _, record in self._geometry_matches(geometry_type, id=id, lod=lod, role=role)]
 
     def add_mesh(self, mesh: Mesh):
         """Add a Mesh geometry to the object."""
@@ -307,23 +420,22 @@ class Object(Model):
 
     def remove_geometry(self, geometry_type: Union[GeometryType, str]):
         """Remove geometry from object."""
-        if isinstance(geometry_type, str) and geometry_type.startswith("GeometryType."):
-            geometry_type = GeometryType.from_str(geometry_type[13:])
-        if not isinstance(geometry_type, GeometryType):
-            try:
-                geometry_type = GeometryType(geometry_type)
-            except ValueError:
-                warning(f"Invalid geometry type (but I'll allow it): {geometry_type}")
-        if geometry_type in self.geometry:
-            del self.geometry[geometry_type]
+        geometry_type = _normalize_geometry_type(geometry_type)
+        matches = self._geometry_matches(geometry_type)
+        if len(matches) > 1:
+            raise ValueError('Ambiguous geometry removal; delete an explicit representation ID')
+        if matches:
+            del self.geometry[matches[0][0]]
+        self._bounds = None
 
     def add_field(self, field, geometry_type):
         """Add a field to a geometry of the object."""
         if isinstance(geometry_type, type):
             geometry_type = GeometryType.from_class(geometry_type)
-        geometry = self.geometry.get(geometry_type, None)
+        geometry_type = _normalize_geometry_type(geometry_type)
+        geometry = self.get_geometry(geometry_type)
         if geometry is None:
-            error("No geometry of type {geometry_type} defined on object")
+            raise ValueError(f"No geometry of type {geometry_type} defined on object")
         geometry.add_field(field)
 
     def get_children(self, child_type):
@@ -405,7 +517,7 @@ class Object(Model):
         """Returns a single geometry of the specified type, merging all the geometries of the children."""
         if exclude is None:
             exclude = []
-        root_geom = self.geometry.get(geom_type, None)
+        root_geom = self.get_geometry(geom_type)
         if len(self.children) == 0:
             return root_geom
         if root_geom is None:
@@ -416,7 +528,7 @@ class Object(Model):
             if child_type in exclude:
                 continue
             for child in child_list:
-                child_geom = child.geometry.get(geom_type, None)
+                child_geom = child.get_geometry(geom_type)
                 if geom is None and child_geom is not None:
                     geom = child_geom.copy(geometry_only=True)
                 elif child_geom is not None:
@@ -424,39 +536,37 @@ class Object(Model):
         return geom
 
     def calculate_bounds(self, lod=None):
-        """Calculate the bounding box of the object."""
-        if lod is not None:
-            lods = [lod]
-        else:
-            lods = set(self.geometry.keys())
-            for child_list in self.children.values():
-                for child in child_list:
-                    lods.update(child.geometry.keys())
+        """Refresh descendant coordinate envelopes without applying transforms.
+
+        Explicit Grid/VolumeGrid domain bounds are intrinsic geometry, not
+        derived caches, and are preserved. Other geometry caches are refreshed.
+        """
         bounds = None
-        for lod in lods:
-            geom = self.geometry.get(lod, None)
-            if geom is not None:
-                lod_bounds = geom.bounds
-                if bounds is None:
-                    bounds = lod_bounds
-                else:
-                    bounds = bounds.union(lod_bounds)
-            for child_type, child_list in self.children.items():
-                for child in child_list:
-                    child_geom = child.geometry.get(lod, None)
-                    if child_geom is not None:
-                        child_bounds = child_geom.bounds
-                        if bounds is None:
-                            bounds = child_bounds
-                        else:
-                            bounds = bounds.union(child_bounds)
+        geometries = self.get_geometries() if lod is None else [self.get_geometry(lod)]
+        for geometry in geometries:
+            if geometry is None:
+                continue
+            if isinstance(geometry, Surface) and not geometry.vertices.size:
+                continue
+            if isinstance(geometry, (MultiSurface, Solid)) and not any(s.vertices.size for s in geometry.surfaces):
+                continue
+            recalculate = getattr(geometry, "calculate_bounds", None)
+            if callable(recalculate):
+                recalculate()
+            geometry_bounds = geometry.bounds
+            if geometry_bounds is not None:
+                bounds = geometry_bounds.copy() if bounds is None else bounds.union(geometry_bounds)
+        for children in self.children.values():
+            for child in children:
+                child_bounds = child.calculate_bounds(lod=lod)
+                if child_bounds is not None:
+                    bounds = child_bounds.copy() if bounds is None else bounds.union(child_bounds)
         self._bounds = bounds
         return bounds
 
     def defined_geometries(self):
-        """Return a list of the types of geometries
-        defined on this object."""
-        return sorted(list(self.geometry.keys()))
+        """Return the sorted local representation IDs defined on this object."""
+        return sorted(self.geometry, key=str)
 
     def defined_attributes(self):
         """Return a list of the attributes defined on this object."""
@@ -477,76 +587,11 @@ class Object(Model):
                 print(f"{indent}    {key}: {value}")
         if num_geometries > 0:
             print(f"{indent}  Geometries:")
-            for geometry_type, geometry in self.geometry.items():
+            for geometry_type, record in self.geometry.items():
+                geometry = record.geometry
                 geometry.tree(geometry_type=geometry_type, indent=(indent + "    "))
         if num_children > 0:
             print(f"{indent}  Children:")
             for _, _children in self.children.items():
                 for child in _children:
                     child.tree(indent=(indent + "    "))
-
-    def to_proto(self) -> proto.Object:
-        """Return a protobuf representation of the Object.
-
-        Returns
-        -------
-        proto.Object
-            A protobuf representation of the Object.
-        """
-
-        # Handle basic fields
-        pb = proto.Object()
-        if self.id is None:
-            pb.id = ""
-        else:
-            pb.id = self.id
-        pb.attributes = json.dumps(self.attributes)
-        bounds = self.bounds
-        if bounds is not None:
-            pb.bounds.CopyFrom(bounds.to_proto())
-
-        # Handle children
-        children = [c for cs in self.children.values() for c in cs]
-        pb.children.extend([c.to_proto() for c in children])
-
-        # Handle geometry
-        for key, geometry in self.geometry.items():
-            _key = str(key)
-            pb.geometry[_key].CopyFrom(geometry.to_proto())
-
-        return pb
-
-    def from_proto(self, pb: Union[proto.Object, bytes]):
-        """Initialize Object from a protobuf representation.
-
-        Parameters
-        ----------
-        pb: Union[proto.Object, bytes]
-            The protobuf message or its serialized bytes representation.
-        """
-
-        # Handle byte representation
-        if isinstance(pb, bytes):
-            pb = proto.Object.FromString(pb)
-
-        # Handle basic fields
-        self.id = pb.id
-        self.attributes = json.loads(pb.attributes) if pb.attributes else {}
-        if pb.HasField("bounds"):
-            self._bounds = Bounds()
-            self._bounds.from_proto(pb.bounds)
-
-        # Handle children
-        for child in pb.children:
-            _type = child.WhichOneof("type")
-            _child = Object() if _type is None else _proto_type_to_object_class(_type)()
-            _child.from_proto(child)
-            self.add_child(_child)
-
-        # Handle geometry
-        for key, geometry in pb.geometry.items():
-            _type = geometry.WhichOneof("type")
-            _class = _proto_type_to_geometry_class(_type)
-            _geometry = _class()
-            _geometry.from_proto(geometry)
-            self.add_geometry(_geometry, key)

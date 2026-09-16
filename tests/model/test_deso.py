@@ -59,8 +59,8 @@ def test_deso_from_geodataframe():
     assert isinstance(area, Object)
     assert area.id == "1480C1970"
     assert area.attributes["kommunkod"] == "1480"
-    assert GeometryType.LOD0 in area.geometry
-    assert len(area.geometry[GeometryType.LOD0].surfaces) == 1
+    assert area.get_geometry(GeometryType.LOD0) is not None
+    assert len(area.get_geometry(GeometryType.LOD0).surfaces) == 1
 
 
 def test_deso_info_arrays_dataframe_and_plot():

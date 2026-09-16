@@ -12,10 +12,9 @@ dependencies = [
     "meshio >= 5.0.0, < 6.0.0",
     "numpy >= 1.20.0, < 3.0.0",
     "pillow >= 9.0.0, < 12.0.0",
-    "protobuf >= 5.0.0, < 6.0.0",
+    "protobuf >= 5.29.0, < 6.0.0",
     "psutil",
     "pyassimp",
-    "pybind11",
     "pygltflib",
     "pypoints2grid >= 0.1.9",
     "pyproj >= 3.1.0, < 4.0.0",
@@ -33,6 +32,8 @@ dependencies = [
     "h5py == 3.16.0",
     "polyforge == 0.1.0a9",
     "pydantic>=2.12.5",
+    "linkml==1.11.1",
+    "linkml-runtime==1.11.1",
     "rich>=13.0.0",
     "dtcc-mesher @ git+https://github.com/dtcc-platform/dtcc-mesher.git@7ada8a89c98dbbedc34213387ee598bd92826f10",
 ]
@@ -57,12 +58,30 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest", "pytest-cov", "httpx>=0.27"]
+test = ["pytest>=9.0.2", "pytest-cov", "httpx>=0.27"]
 remote = ["httpx>=0.27"]
-
+volume = ["dtcc-tetgen-wrapper @ git+https://github.com/dtcc-platform/dtcc-tetgen-wrapper.git@22ab9ff2ee1dd03f82ce24dd0f378f00da7e487c"]
 
 [tool.scikit-build]
 wheel.expand-macos-universal-tags = true
+# Wheels carry the extension and notices; source archives retain the native tree.
+wheel.exclude = ["dtcc_core/cpp/**", "dtcc_core/CMakeLists.txt"]
+wheel.license-files = ["LICENSE", "licenses/*"]
+sdist.exclude = ["**/.DS_Store", "git-loc-history-*.png"]
+# Keep CMake build trees between builds so `uv sync` recompiles incrementally.
+build-dir = "build/{wheel_tag}"
+
+[tool.uv]
+# `uv sync` installs dtcc-core in editable mode, which only picks up Python
+# changes. Reinstall (and recompile) when the native build inputs change.
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "CMakeLists.txt" },
+    { file = "dtcc_core/CMakeLists.txt" },
+    { file = "dtcc_core/cpp/dtcc_builder.cpp" },
+    { file = "dtcc_core/cpp/include/**/*" },
+    { file = "dtcc_core/cpp/external/**/*" },
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -71,7 +90,9 @@ python_functions = ["test_*"]
 python_classes = ["Test*"]
 
 [dependency-groups]
+# Installed by default with `uv sync`.
 dev = [
     "pytest>=9.0.2",
     "pytest-cov",
+    "httpx>=0.27",
 ]

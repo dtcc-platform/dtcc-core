@@ -40,7 +40,7 @@ def test_roadnetwork_to_arrays():
     line.vertices = np.array([(0, 0), (1, 0), (1, 1)])
     multilinestring = MultiLineString()
     multilinestring.linestrings.append(line)
-    rn.geometry[GeometryType.MULTILINESTRING] = multilinestring
+    rn.add_geometry(multilinestring, GeometryType.MULTILINESTRING)
 
     arrays = rn.to_arrays(include_geometry=True)
 

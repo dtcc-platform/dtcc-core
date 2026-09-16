@@ -1,11 +1,7 @@
-import scipy.ndimage
 import numpy as np
-import rasterio
 from ..register import register_model_method
 from ...model import Raster
 from logging import info, warning, error
-
-import skimage as ski
 
 
 @register_model_method
@@ -23,10 +19,16 @@ def fill_holes(raster: Raster) -> Raster:
     Raster
         Copy of the raster with nodata pixels filled.
     """
+    # Imported here rather than at module scope to keep scipy off the
+    # `import dtcc_core` path. See issue #87.
+    import scipy.ndimage
+
     filled_raster = raster.copy()
     data = filled_raster.data
     nodata = filled_raster.nodata
-    mask = data == nodata
+    mask = np.isnan(data) if np.isnan(nodata) else data == nodata
+    if np.all(mask):
+        raise ValueError("Cannot fill a raster without any valid values")
     if np.any(mask):
         info(f"filling {mask.sum()} holes in raster")
         ind = scipy.ndimage.distance_transform_edt(
@@ -68,6 +70,10 @@ def fill_small_holes(raster: Raster, hole_size=1, nodata=None) -> Raster:
         nodata = raster.nodata
     if nodata is None:
         raise ValueError("No nodata value provided and raster has no nodata value.")
+    # Imported here rather than at module scope to keep skimage off the
+    # `import dtcc_core` path. See issue #87.
+    import skimage as ski
+
     mask_data = raster.data != nodata
 
     # convert hole_size from area to pixel count
@@ -122,6 +128,10 @@ def resample(raster: Raster, cell_size=None, scale=None, method="bilinear"):
         raise ValueError(
             f"Invalid resampling method, use one of {list(sample_methods.keys())}"
         )
+    # Imported here rather than at module scope to keep scipy off the
+    # `import dtcc_core` path. See issue #87.
+    import scipy.ndimage
+
     _raster = raster.copy()
     if cell_size is not None:
         scale = cell_size / _raster.cell_size[0]

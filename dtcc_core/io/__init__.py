@@ -1,5 +1,7 @@
 from . import pointcloud
 from . import meshes
+from .model import load_model, save_model
+from .three_d_bag import load_3dbag
 
 # from . import landuse
 # from . import roadnetwork
@@ -67,6 +69,9 @@ VolumeMesh.add_methods(save_mesh, "save")
 RoadNetwork.add_methods(roadnetwork.to_dataframe, "to_df")
 
 __all__ = [
+    "load_3dbag",
+    "load_model",
+    "save_model",
     "load_mesh",
     "save_mesh",
     "load_volume_mesh",

@@ -1,7 +1,7 @@
 # Copyright(C) 2023 Dag Wästberg
 # Licensed under the MIT License
 
-from abc import ABC, abstractmethod
+from abc import ABC
 import builtins
 import importlib
 from dataclasses import dataclass, field
@@ -15,29 +15,66 @@ from ..common import warning
 class Model(ABC):
     """Base class for all DTCC Model classes."""
 
-    @abstractmethod
-    def to_proto(self):
-        """
-        Convert the model to its protobuf representation.
+    def plot(self, ax=None, *, lod=None, representation=None, field=None,
+             max_elements=20000, theme="dark", show=True):
+        """Quick 3D Matplotlib preview; return the axes for further customization.
 
-        Returns
-        -------
-        google.protobuf.message.Message
-            Protobuf message encoding the model.
-        """
-        pass
+        Objects select one representation each and traverse their children.
+        Use ``representation`` (attachment ID), exact ``lod`` or a ``field`` name
+        to inspect a particular part of the model. Fields appear as coloured
+        samples; vector fields use magnitude. Large inputs are sampled within
+        ``max_elements``. This is a preview, not a full scene renderer.
 
-    @abstractmethod
-    def from_proto(self, pb):
+        See docs/model-preview.md for selection, geometry and coordinate limits.
         """
-        Populate the model from a protobuf message.
+        from ..plotting.model import _plot_model
+        return _plot_model(self, ax=ax, lod=lod, representation=representation,
+                           field=field, max_elements=max_elements, theme=theme, show=show)
 
-        Parameters
-        ----------
-        pb : google.protobuf.message.Message or bytes
-            Serialized or in-memory protobuf message representing the model.
+    @property
+    def schema_id(self):
+        """Root semantic schema ID; None selects the bundled default.
+
+        This is root I/O metadata, independent of Object domain-profile labels.
+        It is consulted at canonical and strict CityJSON I/O boundaries.
+        Only the canonical format persists the declaration.
         """
-        pass
+        return getattr(self, '_schema_id', None)
+
+    @schema_id.setter
+    def schema_id(self, value):
+        self._schema_id = value
+
+    @property
+    def schema_version(self):
+        """Root semantic schema version, paired with schema_id."""
+        return getattr(self, '_schema_version', None)
+
+    @schema_version.setter
+    def schema_version(self, value):
+        self._schema_version = value
+
+    def to_proto(self, *, validate_schema=True):
+        """Return the ModelFile message defined by dtcc.proto.
+
+        Uses the same admission and default schema validation as .dtcc files.
+        """
+        from .exchange import _encode_model
+        return _encode_model(self, validate_schema=validate_schema)
+
+    def from_proto(self, pb, *, validate_schema=True):
+        """Replace this model from a ModelFile message or its binary bytes.
+
+        Invalid data or a different concrete root type leaves this model intact.
+        """
+        from .exchange import _decode_model, SUPPORTED_ROOTS
+        if type(self) not in SUPPORTED_ROOTS:
+            raise NotImplementedError(f'Protobuf model {type(self).__name__} is unsupported')
+        restored, _ = _decode_model(pb, validate_schema=validate_schema)
+        if type(restored) is not type(self):
+            raise ValueError(f'Expected {type(self).__name__}, received {type(restored).__name__}')
+        self.__dict__.clear()
+        self.__dict__.update(restored.__dict__)
 
     def to_json(self) -> str:
         """Return a JSON representation of the object.
@@ -47,7 +84,7 @@ class Model(ABC):
             str
                 A JSON string representing the object.
         """
-        return MessageToJson(self.to_proto(), including_default_value_fields=True)
+        return MessageToJson(self.to_proto(), always_print_fields_with_no_presence=True)
 
     def copy(self, **kwargs):
         """Return a copy of the object.
@@ -99,9 +136,11 @@ class Model(ABC):
         return context.manifest()
 
     def export(self, *args, **kwargs):
-        """Export a Dataset v2 object package.
+        """Export an object package with its attached ``DatasetContext``.
 
-        Requires this object to carry ``DatasetContext`` from a dataset call.
+        Pass ``canonical=True`` for a canonical v3 package of the supported model
+        subset. ``format`` then selects an optional supplemental artifact. The
+        default remains legacy v2 while producers and consumers migrate.
         """
         from dtcc_core.datasets.package import export_model_package
 
@@ -116,8 +155,9 @@ class Model(ABC):
         upload_url: str | None = None,
         token: str | None = None,
         idempotency_key: str | None = None,
+        canonical: bool = False,
     ):
-        """Publish a Dataset v2 object package.
+        """Publish an object package; ``canonical=True`` preserves the native model.
 
         Requires this object to carry ``DatasetContext`` from a dataset call.
         """
@@ -136,7 +176,10 @@ class Model(ABC):
             token=token,
         )
         with tempfile.TemporaryDirectory() as tmpdir:
-            package = self.export(Path(tmpdir) / "dataset_package", format=format)
+            package = self.export(
+                Path(tmpdir) / "dataset_package", format=format,
+                canonical=canonical,
+            )
             return package.publish(
                 dataset_key=dataset_key,
                 uploader=resolved_uploader,
@@ -167,6 +210,35 @@ class Model(ABC):
     def print_info(self, file=None) -> None:
         """Print the human-readable model summary returned by ``info()``."""
         builtins.print(self.info(print=False), file=file)
+
+    def save(self, *args, **kwargs):
+        """Save the model to disk.
+
+        IO methods are imported lazily so dtcc-core does not require them
+        at import time. Importing ``dtcc_core.io`` registers object-specific
+        ``save`` methods on DTCC model classes; this method then delegates
+        to the registered implementation.
+        """
+        save_method = getattr(type(self), "save", None)
+        if save_method is not None and save_method is not Model.save:
+            return save_method(self, *args, **kwargs)
+
+        try:
+            importlib.import_module("dtcc_core.io")
+        except Exception as exc:
+            raise AttributeError(
+                f"Cannot save object: {self.__class__.__name__}. "
+                f"Failed to load dtcc_core.io module ({exc})."
+            ) from exc
+
+        save_method = getattr(type(self), "save", None)
+        if save_method is not None and save_method is not Model.save:
+            return save_method(self, *args, **kwargs)
+
+        raise AttributeError(
+            f"Cannot save object: {self.__class__.__name__}. "
+            "No IO save method is registered for this model type."
+        )
 
     def view(self, *args, **kwargs):
         """View the model using dtcc-viewer when available.

@@ -5,6 +5,7 @@
 #define DTCC_GRID_H
 
 #include <cassert>
+#include <algorithm>
 
 #include "BoundingBox.h"
 #include "Geometry.h"
@@ -33,6 +34,10 @@ public:
 
   /// Resolution (grid size) along Y-axis
   double ystep{};
+
+  /// Raster grids have samples at cell centers within the bounding box.
+  /// Ordinary vertex grids retain samples on the bounding box itself.
+  bool cell_centered = false;
 
   /// Create empty grid
   Grid() = default;
@@ -77,7 +82,9 @@ public:
   {
     const size_t ix = i % xsize;
     const size_t iy = i / xsize;
-    return {bounding_box.P.x + ix * xstep, bounding_box.P.y + iy * ystep};
+    const double offset = cell_centered ? 0.5 : 0.0;
+    return {bounding_box.P.x + (ix + offset) * xstep,
+            bounding_box.P.y + (iy + offset) * ystep};
   }
 
   /// Map vertex index to (at most) 4 neighoring vertex indices.
@@ -168,8 +175,9 @@ public:
   /// @param p Point
   void point_to_index(long int &ix, long int &iy, const Vector2D &p) const
   {
-    const double _x = p.x - bounding_box.P.x;
-    const double _y = p.y - bounding_box.P.y;
+    const double offset = cell_centered ? 0.5 : 0.0;
+    const double _x = p.x - bounding_box.P.x - offset * xstep;
+    const double _y = p.y - bounding_box.P.y - offset * ystep;
     ix = Utils::crop(std::lround(_x / xstep), xsize);
     iy = Utils::crop(std::lround(_y / ystep), ysize);
   }
@@ -198,17 +206,19 @@ public:
       error("Point p = " + str(p) +
             " is outside of domain = " + str(bounding_box));
 
-    // Compute grid cell containing point (lower left corner)
-    const double _x = p.x - bounding_box.P.x;
-    const double _y = p.y - bounding_box.P.y;
-    const size_t ix = Utils::crop(std::lround( (_x / xstep) - 0.5), xsize, 0);
-
-    const size_t iy = Utils::crop(std::lround( (_y / ystep) - 0.5), ysize, 0);
+    // Clamp the outer half-pixel margins to the nearest raster sample.
+    const double offset = cell_centered ? 0.5 : 0.0;
+    const double gx = std::clamp((p.x - bounding_box.P.x) / xstep - offset,
+                                 0.0, static_cast<double>(xsize - 1));
+    const double gy = std::clamp((p.y - bounding_box.P.y) / ystep - offset,
+                                 0.0, static_cast<double>(ysize - 1));
+    const size_t ix = static_cast<size_t>(std::floor(gx));
+    const size_t iy = static_cast<size_t>(std::floor(gy));
     i = iy * xsize + ix;
 
     // Map coordinates to [0, 1] x [0, 1] within grid cell
-    x = (_x - ix * xstep) / xstep;
-    y = (_y - iy * ystep) / ystep;
+    x = gx - ix;
+    y = gy - iy;
 
     assert(x >= 0.0 - Constants::epsilon);
     assert(x <= 1.0 + Constants::epsilon);

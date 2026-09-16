@@ -147,7 +147,7 @@ class MeshProcessingMixin:
         """
         from dtcc_core.builder.model_conversion import mesh_to_builder_mesh
 
-        return mesh_to_builder_mesh(self.vertices, self.faces, self.markers)
+        return mesh_to_builder_mesh(self)
 
 
 class VolumeMeshProcessingMixin:
@@ -178,6 +178,4 @@ class VolumeMeshProcessingMixin:
             volume_mesh_to_builder_volume_mesh,
         )
 
-        return volume_mesh_to_builder_volume_mesh(
-            self.vertices, self.cells, self.markers
-        )
+        return volume_mesh_to_builder_volume_mesh(self)

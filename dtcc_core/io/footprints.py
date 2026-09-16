@@ -246,12 +246,8 @@ def load(
     )
 
 
-def _load_proto_footprints(filename) -> City:
-    pass
 
 
-def _save_proto_footprints(city: City, filename):
-    pass
 
 
 def _save_json_city(city: City, filename):
@@ -380,8 +376,6 @@ def print_io():
 
 _load_formats = {
     City: {
-        ".pb": _load_proto_footprints,
-        ".pb2": _load_proto_footprints,
         ".json": _load_fiona,
         ".shp": _load_fiona,
         ".geojson": _load_fiona,
@@ -391,8 +385,6 @@ _load_formats = {
 
 _save_formats = {
     City: {
-        ".pb": _save_proto_footprints,
-        ".pb2": _save_proto_footprints,
         ".json": _save_json_city,
         ".shp": _save_fiona,
         ".shp.zip": _save_fiona,

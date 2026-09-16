@@ -191,7 +191,7 @@ def test_air_quality_station_attributes_and_string_summary():
     result = _build_dataset()
 
     station = result.stations()[0]
-    point = station.geometry["location"]
+    point = station.get_geometry("location")
 
     assert station.attributes["station_id"] == "station1"
     assert station.attributes["station_name"] == "Test Station 1"
@@ -231,7 +231,7 @@ def test_air_quality_dataset_reprojects_and_filters_in_output_crs():
     assert len(stations) == 1
 
     station = stations[0]
-    point = station.geometry["location"]
+    point = station.get_geometry("location")
     assert station.attributes["station_id"] == "station1"
     assert 670300 <= point.x <= 671300
     assert 6576800 <= point.y <= 6577800
@@ -347,7 +347,7 @@ def test_air_quality_drop_missing_false_keeps_nan_station_without_value():
 
     assert len(result.stations()) == 1
     station = result.stations()[0]
-    point = station.geometry["location"]
+    point = station.get_geometry("location")
     assert np.isnan(station.attributes["value"])
     assert station.attributes["unit"] == "µg/m³"
     assert station.attributes["value_source"] == "missing"
@@ -494,7 +494,7 @@ def test_air_quality_fallback_getdata_success():
     )
 
     station = result.stations()[0]
-    point = station.geometry["location"]
+    point = station.get_geometry("location")
     assert station.attributes["value"] == pytest.approx(31.0)
     assert station.attributes["timestamp"] == "2025-02-03T00:00:00Z"
     assert station.attributes["unit"] == "µg/m³"

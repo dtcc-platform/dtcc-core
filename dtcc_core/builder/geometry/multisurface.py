@@ -47,6 +47,12 @@ def mesh(
     -------
     Mesh
         Triangular mesh representation of the MultiSurface.
+
+    Notes
+    -----
+    Semantic regions are retained with triangle indices and copied metadata.
+    For region-bearing inputs, cleaning, welding/snapping, nested transforms
+    and field interpolation require mappings that are not yet supported.
     """
 
     return mesh_multisurface(ms, triangle_size, weld, snap, clean, mesher=mesher)

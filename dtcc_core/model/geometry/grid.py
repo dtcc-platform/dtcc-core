@@ -1,13 +1,29 @@
 # Copyright(C) 2023 Anders Logg
 # Licensed under the MIT License
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Union
 import numpy as np
 
 
 from .geometry import Geometry, Bounds
-from .. import proto
+
+
+def _validate_dimensions(**dimensions):
+    for name, value in dimensions.items():
+        if isinstance(value, (bool, np.bool_)) or not isinstance(
+            value, (int, np.integer)
+        ):
+            raise ValueError(f"Grid {name} must be a nonnegative integer.")
+        if value < 0:
+            raise ValueError(f"Grid {name} must be a nonnegative integer.")
+
+
+def _step(extent: float, count: int, dimension: str) -> float:
+    _validate_dimensions(**{dimension: count})
+    if count == 0:
+        raise ValueError(f"Grid {dimension} must be positive to calculate its step.")
+    return extent / count
 
 
 @dataclass
@@ -22,8 +38,14 @@ class Grid(Geometry):
         Number of cells in the y-direction (vertical).
     """
 
+    # The domain is intrinsic state; None alone means it has not been initialized.
+    _bounds: Bounds | None = field(default=None)
     width: int = 0
     height: int = 0
+
+    def __post_init__(self):
+        # Zero dimensions intentionally represent an empty grid.
+        _validate_dimensions(width=self.width, height=self.height)
 
     def __str__(self):
         return (
@@ -32,39 +54,40 @@ class Grid(Geometry):
 
     def calculate_bounds(self):
         """
-        Compute the grid bounds based on width and height.
+        Return the intrinsic domain, initializing it from cell counts if absent.
 
-        Returns
-        -------
-        Bounds
-            Bounding box from (0,0) to (width, height).
+        Changing the resolution does not redefine an existing physical domain.
+        Assign ``bounds`` explicitly to change the domain, including zero-area
+        domains. On first initialization the default is (0,0) to (width,height).
         """
-        self._bounds = Bounds(xmin=0, ymin=0, xmax=self.width, ymax=self.height)
+        _validate_dimensions(width=self.width, height=self.height)
+        if self._bounds is None:
+            self._bounds = Bounds(xmin=0, ymin=0, xmax=self.width, ymax=self.height)
         return self._bounds
 
     @property
-    def xstep(self) -> int:
+    def xstep(self) -> float:
         """Return the distance between adjacent grid points in the x-direction.
 
         Returns
         -------
-        int
+        float
             The distance between adjacent grid points in the x-direction.
 
         """
-        return self.bounds.width / self.width
+        return _step(self.bounds.width, self.width, "width")
 
     @property
-    def ystep(self) -> int:
+    def ystep(self) -> float:
         """Return the distance between adjacent grid points in the y-direction.
 
         Returns
         -------
-        int
+        float
             The distance between adjacent grid points in the y-direction.
 
         """
-        return self.bounds.height / self.height
+        return _step(self.bounds.height, self.height, "height")
 
     @property
     def num_vertices(self) -> int:
@@ -99,51 +122,11 @@ class Grid(Geometry):
             An array of shape (num_vertices, 2) containing the coordinates of the grid points.
 
         """
+        _validate_dimensions(width=self.width, height=self.height)
         x = np.linspace(self.bounds.xmin, self.bounds.xmax, self.width + 1)
         y = np.linspace(self.bounds.ymin, self.bounds.ymax, self.height + 1)
         X, Y = np.meshgrid(x, y)
         return np.vstack([X.ravel(), Y.ravel()]).T
-
-    def to_proto(self) -> proto.Geometry:
-        """Return a protobuf representation of the Grid.
-
-        Returns
-        -------
-        proto.Geometry
-            A protobuf representation of the Grid as a Geometry.
-        """
-
-        # Handle Geometry fields
-        pb = Geometry.to_proto(self)
-
-        # Handle specific fields
-        _pb = proto.Grid()
-        _pb.width = self.width
-        _pb.height = self.height
-        pb.grid.CopyFrom(_pb)
-
-        return pb
-
-    def from_proto(self, pb: Union[proto.Geometry, bytes]):
-        """Initialize Grid from a protobuf representation.
-
-        Parameters
-        ----------
-        pb: Union[proto.Geometry, bytes]
-            The protobuf message or its serialized bytes representation.
-        """
-
-        # Handle byte representation
-        if isinstance(pb, bytes):
-            pb = proto.Geometry.FromString(pb)
-
-        # Handle Geometry fields
-        Geometry.from_proto(self, pb)
-
-        # Handle specific fields
-        _pb = pb.grid
-        self.width = _pb.width
-        self.height = _pb.height
 
 
 @dataclass
@@ -160,62 +143,69 @@ class VolumeGrid(Geometry):
         Number of cells in the z-direction.
     """
 
+    # The domain is intrinsic state; None alone means it has not been initialized.
+    _bounds: Bounds | None = field(default=None)
     width: int = 0
     height: int = 0
     depth: int = 0
+
+    def __post_init__(self):
+        # Zero dimensions intentionally represent an empty grid.
+        _validate_dimensions(width=self.width, height=self.height, depth=self.depth)
 
     def __str__(self):
         return f"DTCC VolumeGrid on {self.bounds.bndstr} with {self.width} x {self.height} x {self.depth} cells"
 
     def calculate_bounds(self):
         """
-        Compute the volume grid bounds based on dimensions.
+        Return the intrinsic domain, initializing it from cell counts if absent.
 
-        Returns
-        -------
-        Bounds
-            Bounding box from (0,0,0) to (width, height, depth).
+        Changing the resolution does not redefine an existing physical domain.
+        Assign ``bounds`` explicitly to change it. The initial default is (0,0,0)
+        to (width,height,depth), including when a dimension is zero.
         """
-        self._bounds = Bounds(
-            xmin=0, ymin=0, zmin=0, xmax=self.width, ymax=self.height, zmax=self.depth
-        )
+        _validate_dimensions(width=self.width, height=self.height, depth=self.depth)
+        if self._bounds is None:
+            self._bounds = Bounds(
+                xmin=0, ymin=0, zmin=0, xmax=self.width, ymax=self.height, zmax=self.depth
+            )
         return self._bounds
 
     @property
-    def xstep(self) -> int:
+    def xstep(self) -> float:
         """Return the distance between adjacent grid points in the x-direction.
 
         Returns
         -------
-        int
+        float
             The distance between adjacent grid points in the x-direction.
 
         """
-        return self.bounds.width / self.width
+        return _step(self.bounds.width, self.width, "width")
 
     @property
-    def ystep(self) -> int:
+    def ystep(self) -> float:
         """Return the distance between adjacent grid points in the y-direction.
 
         Returns
         -------
-        int
+        float
             The distance between adjacent grid points in the y-direction.
 
         """
-        return self.bounds.height / self.height
+        return _step(self.bounds.height, self.height, "height")
 
     @property
-    def zstep(self) -> int:
+    def zstep(self) -> float:
         """Return the distance between adjacent grid points in the z-direction.
 
         Returns
         -------
-        int
+        float
             The distance between adjacent grid points in the z-direction.
 
         """
-        return self.bounds.depth / self.depth
+        return _step(self.bounds.depth, self.depth, "depth")
 
     @property
     def num_vertices(self) -> int:
@@ -250,51 +240,9 @@ class VolumeGrid(Geometry):
             An array of shape (num_vertices, 3) containing the coordinates of the grid points.
 
         """
+        _validate_dimensions(width=self.width, height=self.height, depth=self.depth)
         x = np.linspace(self.bounds.xmin, self.bounds.xmax, self.width + 1)
         y = np.linspace(self.bounds.ymin, self.bounds.ymax, self.height + 1)
         z = np.linspace(self.bounds.zmin, self.bounds.zmax, self.depth + 1)
         X, Y, Z = np.meshgrid(x, y, z)
         return np.vstack([X.ravel(), Y.ravel(), Z.ravel()]).T
-
-    def to_proto(self) -> proto.Geometry:
-        """Return a protobuf representation of the VolumeGrid.
-
-        Returns
-        -------
-        proto.Geometry
-            A protobuf representation of the VolumeGrid as a Geometry.
-        """
-
-        # Handle Geometry fields
-        pb = Geometry.to_proto(self)
-
-        # Handle specific fields
-        _pb = proto.VolumeGrid()
-        _pb.width = self.width
-        _pb.height = self.height
-        _pb.depth = self.depth
-        pb.volume_grid.CopyFrom(_pb)
-
-        return pb
-
-    def from_proto(self, pb: Union[proto.Geometry, bytes]):
-        """Initialize VolumeGrid from a protobuf representation.
-
-        Parameters
-        ----------
-        pb: Union[proto.Geometry, bytes]
-            The protobuf message or its serialized bytes representation.
-        """
-
-        # Handle byte representation
-        if isinstance(pb, bytes):
-            pb = proto.Geometry.FromString(pb)
-
-        # Handle Geometry fields
-        Geometry.from_proto(self, pb)
-
-        # Handle specific fields
-        _pb = pb.volume_grid
-        self.width = _pb.width
-        self.height = _pb.height
-        self.depth = _pb.depth

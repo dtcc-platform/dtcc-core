@@ -2,11 +2,12 @@
 # Licensed under the MIT License
 
 from dataclasses import dataclass, field
+import math
 import numpy as np
 from typing import Union
+from numbers import Real
 
 from .object import Object
-from .. import dtcc_pb2 as proto
 
 
 @dataclass
@@ -27,25 +28,3 @@ class Tree(Object):
     position: np.ndarray = field(default_factory=lambda: np.empty((0, 3)))
     height: float = 0.0
     crown_radius: float = 0.0
-
-    def to_proto(self) -> proto.Object:
-        """
-        Convert the tree to a protobuf Object message.
-
-        Returns
-        -------
-        proto.Object
-            Serialized tree representation.
-        """
-        pass
-
-    def from_proto(self, pb: Union[proto.Object, bytes]):
-        """
-        Populate the tree from a protobuf Object message.
-
-        Parameters
-        ----------
-        pb : proto.Object or bytes
-            Protobuf message or serialized bytes containing a tree.
-        """
-        pass

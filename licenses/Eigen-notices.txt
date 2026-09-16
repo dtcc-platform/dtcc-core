@@ -1,0 +1,2946 @@
+dtcc_core/cpp/external/Eigen/Cholesky
+dtcc_core/cpp/external/Eigen/CholmodSupport
+dtcc_core/cpp/external/Eigen/Eigenvalues
+dtcc_core/cpp/external/Eigen/Geometry
+dtcc_core/cpp/external/Eigen/Householder
+dtcc_core/cpp/external/Eigen/IterativeLinearSolvers
+dtcc_core/cpp/external/Eigen/Jacobi
+dtcc_core/cpp/external/Eigen/KLUSupport
+dtcc_core/cpp/external/Eigen/LU
+dtcc_core/cpp/external/Eigen/MetisSupport
+dtcc_core/cpp/external/Eigen/OrderingMethods
+dtcc_core/cpp/external/Eigen/PaStiXSupport
+dtcc_core/cpp/external/Eigen/PardisoSupport
+dtcc_core/cpp/external/Eigen/QR
+dtcc_core/cpp/external/Eigen/QtAlignedMalloc
+dtcc_core/cpp/external/Eigen/SPQRSupport
+dtcc_core/cpp/external/Eigen/SVD
+dtcc_core/cpp/external/Eigen/Sparse
+dtcc_core/cpp/external/Eigen/SparseCore
+dtcc_core/cpp/external/Eigen/SparseQR
+dtcc_core/cpp/external/Eigen/SuperLUSupport
+dtcc_core/cpp/external/Eigen/UmfPackSupport
+dtcc_core/cpp/external/Eigen/src/Core/arch/NEON/MathFunctions.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/Core
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2008 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2007-2011 Benoit Jacob <jacob.benoit.1@gmail.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/SparseCholesky
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2008-2013 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/SparseLU
+dtcc_core/cpp/external/Eigen/src/SparseLU/SparseLU_SupernodalMatrix.h
+dtcc_core/cpp/external/Eigen/src/SparseLU/SparseLU_column_bmod.h
+dtcc_core/cpp/external/Eigen/src/SparseLU/SparseLU_kernel_bmod.h
+dtcc_core/cpp/external/Eigen/src/SparseLU/SparseLU_panel_bmod.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2012 Désiré Nuentsa-Wakam <desire.nuentsa_wakam@inria.fr>
+// Copyright (C) 2012 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/StdDeque
+dtcc_core/cpp/external/Eigen/StdVector
+dtcc_core/cpp/external/Eigen/src/StlSupport/StdDeque.h
+dtcc_core/cpp/external/Eigen/src/StlSupport/StdVector.h
+dtcc_core/cpp/external/Eigen/src/StlSupport/details.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2009 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2009 Hauke Heibel <hauke.heibel@googlemail.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/StdList
+dtcc_core/cpp/external/Eigen/src/StlSupport/StdList.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2009 Hauke Heibel <hauke.heibel@googlemail.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Cholesky/LDLT.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2008-2011 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2009 Keir Mierle <mierle@gmail.com>
+// Copyright (C) 2009 Benoit Jacob <jacob.benoit.1@gmail.com>
+// Copyright (C) 2011 Timothy E. Holy <tim.holy@gmail.com >
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Cholesky/LLT.h
+dtcc_core/cpp/external/Eigen/src/Core/BooleanRedux.h
+dtcc_core/cpp/external/Eigen/src/Core/Random.h
+dtcc_core/cpp/external/Eigen/src/Core/Visitor.h
+dtcc_core/cpp/external/Eigen/src/Geometry/AlignedBox.h
+dtcc_core/cpp/external/Eigen/src/Geometry/AngleAxis.h
+dtcc_core/cpp/external/Eigen/src/Geometry/EulerAngles.h
+dtcc_core/cpp/external/Eigen/src/Geometry/Rotation2D.h
+dtcc_core/cpp/external/Eigen/src/Geometry/RotationBase.h
+dtcc_core/cpp/external/Eigen/src/Geometry/Scaling.h
+dtcc_core/cpp/external/Eigen/src/Geometry/Translation.h
+dtcc_core/cpp/external/Eigen/src/SparseCore/AmbiVector.h
+dtcc_core/cpp/external/Eigen/src/SparseCore/SparseDot.h
+dtcc_core/cpp/external/Eigen/src/SparseCore/TriangularSolver.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2008 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Cholesky/LLT_LAPACKE.h
+
+/*
+ Copyright (c) 2011, Intel Corporation. All rights reserved.
+
+ Redistribution and use in source and binary forms, with or without modification,
+ are permitted provided that the following conditions are met:
+
+ * Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+ * Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+ * Neither the name of Intel Corporation nor the names of its contributors may
+   be used to endorse or promote products derived from this software without
+   specific prior written permission.
+
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+ ********************************************************************************
+ *   Content : Eigen bindings to LAPACKe
+ *     LLt decomposition based on LAPACKE_?potrf function.
+ ********************************************************************************
+*/
+
+dtcc_core/cpp/external/Eigen/src/CholmodSupport/CholmodSupport.h
+dtcc_core/cpp/external/Eigen/src/Core/CwiseNullaryOp.h
+dtcc_core/cpp/external/Eigen/src/Core/Select.h
+dtcc_core/cpp/external/Eigen/src/Core/functors/AssignmentFunctors.h
+dtcc_core/cpp/external/Eigen/src/Core/functors/BinaryFunctors.h
+dtcc_core/cpp/external/Eigen/src/Core/functors/StlFunctors.h
+dtcc_core/cpp/external/Eigen/src/Core/products/TriangularSolverVector.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2008-2010 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/ArithmeticSequence.h
+dtcc_core/cpp/external/Eigen/src/Core/IndexedView.h
+dtcc_core/cpp/external/Eigen/src/Core/arch/Default/ConjHelper.h
+dtcc_core/cpp/external/Eigen/src/Core/util/IndexedViewHelper.h
+dtcc_core/cpp/external/Eigen/src/Core/util/IntegralConstant.h
+dtcc_core/cpp/external/Eigen/src/Core/util/ReshapedHelper.h
+dtcc_core/cpp/external/Eigen/src/Core/util/SymbolicIndex.h
+dtcc_core/cpp/external/Eigen/src/plugins/IndexedViewMethods.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2017 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/Array.h
+dtcc_core/cpp/external/Eigen/src/Core/ArrayBase.h
+dtcc_core/cpp/external/Eigen/src/Core/BandMatrix.h
+dtcc_core/cpp/external/Eigen/src/Core/NoAlias.h
+dtcc_core/cpp/external/Eigen/src/Core/SelfAdjointView.h
+dtcc_core/cpp/external/Eigen/src/Core/StableNorm.h
+dtcc_core/cpp/external/Eigen/src/Core/products/SelfadjointMatrixMatrix.h
+dtcc_core/cpp/external/Eigen/src/Core/products/SelfadjointProduct.h
+dtcc_core/cpp/external/Eigen/src/Core/products/SelfadjointRank2Update.h
+dtcc_core/cpp/external/Eigen/src/Core/products/TriangularMatrixMatrix.h
+dtcc_core/cpp/external/Eigen/src/Core/products/TriangularMatrixVector.h
+dtcc_core/cpp/external/Eigen/src/Core/products/TriangularSolverMatrix.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2009 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/ArrayWrapper.h
+dtcc_core/cpp/external/Eigen/src/Core/CwiseUnaryView.h
+dtcc_core/cpp/external/Eigen/src/Core/ForceAlignedAccess.h
+dtcc_core/cpp/external/Eigen/src/Core/Replicate.h
+dtcc_core/cpp/external/Eigen/src/Core/SelfCwiseBinaryOp.h
+dtcc_core/cpp/external/Eigen/src/Core/products/GeneralMatrixMatrixTriangular.h
+dtcc_core/cpp/external/Eigen/src/Core/util/BlasUtil.h
+dtcc_core/cpp/external/Eigen/src/Geometry/Homogeneous.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2009-2010 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/Assign.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2007 Michael Olbrich <michael.olbrich@gmx.net>
+// Copyright (C) 2006-2010 Benoit Jacob <jacob.benoit.1@gmail.com>
+// Copyright (C) 2008 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/AssignEvaluator.h
+dtcc_core/cpp/external/Eigen/src/Core/CoreEvaluators.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2011 Benoit Jacob <jacob.benoit.1@gmail.com>
+// Copyright (C) 2011-2014 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2011-2012 Jitse Niesen <jitse@maths.leeds.ac.uk>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/Assign_MKL.h
+
+/*
+ Copyright (c) 2011, Intel Corporation. All rights reserved.
+ Copyright (C) 2015 Gael Guennebaud <gael.guennebaud@inria.fr>
+ 
+ Redistribution and use in source and binary forms, with or without modification,
+ are permitted provided that the following conditions are met:
+
+ * Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+ * Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+ * Neither the name of Intel Corporation nor the names of its contributors may
+   be used to endorse or promote products derived from this software without
+   specific prior written permission.
+
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+ ********************************************************************************
+ *   Content : Eigen bindings to Intel(R) MKL
+ *   MKL VML support for coefficient-wise unary Eigen expressions like a=b.sin()
+ ********************************************************************************
+*/
+
+dtcc_core/cpp/external/Eigen/src/Core/Block.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2008 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2006-2010 Benoit Jacob <jacob.benoit.1@gmail.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/CommaInitializer.h
+dtcc_core/cpp/external/Eigen/src/Core/GenericPacketMath.h
+dtcc_core/cpp/external/Eigen/src/Core/NestByValue.h
+dtcc_core/cpp/external/Eigen/src/Core/Redux.h
+dtcc_core/cpp/external/Eigen/src/Core/util/XprHelper.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2008 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2006-2008 Benoit Jacob <jacob.benoit.1@gmail.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/ConditionEstimator.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2016 Rasmus Munk Larsen (rmlarsen@google.com)
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/CoreIterators.h
+dtcc_core/cpp/external/Eigen/src/SparseCore/CompressedStorage.h
+dtcc_core/cpp/external/Eigen/src/SparseCore/MappedSparseMatrix.h
+dtcc_core/cpp/external/Eigen/src/SparseCore/SparseAssign.h
+dtcc_core/cpp/external/Eigen/src/SparseCore/SparseBlock.h
+dtcc_core/cpp/external/Eigen/src/SparseCore/SparseCwiseBinaryOp.h
+dtcc_core/cpp/external/Eigen/src/SparseCore/SparseFuzzy.h
+dtcc_core/cpp/external/Eigen/src/SparseCore/SparseMatrix.h
+dtcc_core/cpp/external/Eigen/src/SparseCore/SparseMatrixBase.h
+dtcc_core/cpp/external/Eigen/src/SparseCore/SparseRedux.h
+dtcc_core/cpp/external/Eigen/src/SparseCore/SparseSparseProductWithPruning.h
+dtcc_core/cpp/external/Eigen/src/SparseCore/SparseUtil.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2008-2014 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/CwiseBinaryOp.h
+dtcc_core/cpp/external/Eigen/src/Core/CwiseUnaryOp.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2008-2014 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2006-2008 Benoit Jacob <jacob.benoit.1@gmail.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/CwiseTernaryOp.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2008-2014 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2006-2008 Benoit Jacob <jacob.benoit.1@gmail.com>
+// Copyright (C) 2016 Eugene Brevdo <ebrevdo@gmail.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/DenseBase.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2007-2010 Benoit Jacob <jacob.benoit.1@gmail.com>
+// Copyright (C) 2008-2010 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/DenseCoeffsBase.h
+dtcc_core/cpp/external/Eigen/src/Core/NumTraits.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2006-2010 Benoit Jacob <jacob.benoit.1@gmail.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/DenseStorage.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2008 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2006-2009 Benoit Jacob <jacob.benoit.1@gmail.com>
+// Copyright (C) 2010-2013 Hauke Heibel <hauke.heibel@gmail.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/Diagonal.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2007-2009 Benoit Jacob <jacob.benoit.1@gmail.com>
+// Copyright (C) 2009-2010 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/DiagonalMatrix.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2009 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2007-2009 Benoit Jacob <jacob.benoit.1@gmail.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/DiagonalProduct.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2008 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2007-2009 Benoit Jacob <jacob.benoit.1@gmail.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/Dot.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2006-2008, 2010 Benoit Jacob <jacob.benoit.1@gmail.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/EigenBase.h
+dtcc_core/cpp/external/Eigen/src/Jacobi/Jacobi.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2009 Benoit Jacob <jacob.benoit.1@gmail.com>
+// Copyright (C) 2009 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/Fuzzy.h
+dtcc_core/cpp/external/Eigen/src/Core/IO.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2006-2008 Benoit Jacob <jacob.benoit.1@gmail.com>
+// Copyright (C) 2008 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/GeneralProduct.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2006-2008 Benoit Jacob <jacob.benoit.1@gmail.com>
+// Copyright (C) 2008-2011 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/GlobalFunctions.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2010-2016 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2010 Benoit Jacob <jacob.benoit.1@gmail.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/Inverse.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2014-2019 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/Map.h
+dtcc_core/cpp/external/Eigen/src/Core/MapBase.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2007-2010 Benoit Jacob <jacob.benoit.1@gmail.com>
+// Copyright (C) 2008 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/MathFunctions.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2006-2010 Benoit Jacob <jacob.benoit.1@gmail.com>
+// Copyright (c) 2021, NVIDIA CORPORATION. All rights reserved.
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/MathFunctionsImpl.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2014 Pedro Gonnet (pedro.gonnet@gmail.com)
+// Copyright (C) 2016 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/Matrix.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2006-2010 Benoit Jacob <jacob.benoit.1@gmail.com>
+// Copyright (C) 2008-2009 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/MatrixBase.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2006-2009 Benoit Jacob <jacob.benoit.1@gmail.com>
+// Copyright (C) 2008 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/PartialReduxEvaluator.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2011-2018 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/PermutationMatrix.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2009 Benoit Jacob <jacob.benoit.1@gmail.com>
+// Copyright (C) 2009-2015 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/PlainObjectBase.h
+dtcc_core/cpp/external/Eigen/src/Geometry/OrthoMethods.h
+dtcc_core/cpp/external/Eigen/src/plugins/CommonCwiseUnaryOps.h
+dtcc_core/cpp/external/Eigen/src/plugins/MatrixCwiseBinaryOps.h
+dtcc_core/cpp/external/Eigen/src/plugins/MatrixCwiseUnaryOps.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2008-2009 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2006-2008 Benoit Jacob <jacob.benoit.1@gmail.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/Product.h
+dtcc_core/cpp/external/Eigen/src/UmfPackSupport/UmfPackSupport.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2008-2011 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/ProductEvaluators.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2006-2008 Benoit Jacob <jacob.benoit.1@gmail.com>
+// Copyright (C) 2008-2010 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2011 Jitse Niesen <jitse@maths.leeds.ac.uk>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/Ref.h
+dtcc_core/cpp/external/Eigen/src/SparseCore/SparsePermutation.h
+dtcc_core/cpp/external/Eigen/src/SparseLU/SparseLU_gemm_kernel.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2012 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/Reshaped.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2008-2017 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2014 yoco <peter.xiau@gmail.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/ReturnByValue.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2009-2010 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2009-2010 Benoit Jacob <jacob.benoit.1@gmail.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/Reverse.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2006-2008 Benoit Jacob <jacob.benoit.1@gmail.com>
+// Copyright (C) 2009 Ricard Marxer <email@ricardmarxer.com>
+// Copyright (C) 2009-2010 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/Solve.h
+dtcc_core/cpp/external/Eigen/src/IterativeLinearSolvers/SolveWithGuess.h
+dtcc_core/cpp/external/Eigen/src/SparseCore/SparseSolverBase.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2014 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/SolveTriangular.h
+dtcc_core/cpp/external/Eigen/src/Core/arch/SSE/PacketMath.h
+dtcc_core/cpp/external/Eigen/src/Core/products/GeneralBlockPanelKernel.h
+dtcc_core/cpp/external/Eigen/src/Core/products/GeneralMatrixMatrix.h
+dtcc_core/cpp/external/Eigen/src/Core/products/SelfadjointMatrixVector.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2008-2009 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/SolverBase.h
+dtcc_core/cpp/external/Eigen/src/IterativeLinearSolvers/LeastSquareConjugateGradient.h
+dtcc_core/cpp/external/Eigen/src/SparseCore/SparseCompressedBase.h
+dtcc_core/cpp/external/Eigen/src/SparseCore/SparseMap.h
+dtcc_core/cpp/external/Eigen/src/SparseCore/SparseRef.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2015 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/StlIterators.h
+dtcc_core/cpp/external/Eigen/src/Core/arch/AVX512/Complex.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2018 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/Stride.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2010 Benoit Jacob <jacob.benoit.1@gmail.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/Swap.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2006-2008 Benoit Jacob <jacob.benoit.1@gmail.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/Transpose.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2006-2008 Benoit Jacob <jacob.benoit.1@gmail.com>
+// Copyright (C) 2009-2014 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/Transpositions.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2010-2011 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/TriangularMatrix.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2008 Benoit Jacob <jacob.benoit.1@gmail.com>
+// Copyright (C) 2008-2009 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/VectorBlock.h
+dtcc_core/cpp/external/Eigen/src/Core/arch/Default/Settings.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2008-2010 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2006-2008 Benoit Jacob <jacob.benoit.1@gmail.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/VectorwiseOp.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2008-2019 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2006-2008 Benoit Jacob <jacob.benoit.1@gmail.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/arch/AVX/Complex.h
+dtcc_core/cpp/external/Eigen/src/Core/arch/AVX/PacketMath.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2014 Benoit Steiner (benoit.steiner.goog@gmail.com)
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/arch/AVX/MathFunctions.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2014 Pedro Gonnet (pedro.gonnet@gmail.com)
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/arch/AVX/TypeCasting.h
+dtcc_core/cpp/external/Eigen/src/Core/arch/SSE/TypeCasting.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2015 Benoit Steiner <benoit.steiner.goog@gmail.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/arch/AVX512/MathFunctions.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2016 Pedro Gonnet (pedro.gonnet@gmail.com)
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/arch/AVX512/PacketMath.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2016 Benoit Steiner (benoit.steiner.goog@gmail.com)
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/arch/AVX512/TypeCasting.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2019 Rasmus Munk Larsen <rmlarsen@google.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/arch/AltiVec/Complex.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2010 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2010-2016 Konstantinos Margaritis <markos@freevec.org>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/arch/AltiVec/MathFunctions.h
+dtcc_core/cpp/external/Eigen/src/Core/arch/ZVector/MathFunctions.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2007 Julien Pommier
+// Copyright (C) 2009 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2016 Konstantinos Margaritis <markos@freevec.org>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/arch/AltiVec/MatrixProduct.h
+dtcc_core/cpp/external/Eigen/src/Core/arch/AltiVec/MatrixProductMMA.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2020 Everton Constantino (everton.constantino@ibm.com)
+// Copyright (C) 2021 Chip Kerchner (chip.kerchner@ibm.com)
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/arch/AltiVec/PacketMath.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2008-2016 Konstantinos Margaritis <markos@freevec.org>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/arch/CUDA/Complex.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2014 Benoit Steiner <benoit.steiner.goog@gmail.com>
+// Copyright (C) 2021 C. Antonio Sanchez <cantonios@google.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/arch/Default/BFloat16.h
+
+/* Copyright 2017 The TensorFlow Authors. All Rights Reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+==============================================================================*/
+
+dtcc_core/cpp/external/Eigen/src/Core/arch/Default/GenericPacketMathFunctions.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2007 Julien Pommier
+// Copyright (C) 2014 Pedro Gonnet (pedro.gonnet@gmail.com)
+// Copyright (C) 2009-2019 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/arch/Default/GenericPacketMathFunctionsFwd.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2019 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/arch/Default/Half.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+//
+// The conversion routines are Copyright (c) Fabian Giesen, 2016.
+// The original license follows:
+//
+// Copyright (c) Fabian Giesen, 2016
+// All rights reserved.
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted.
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+// HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+dtcc_core/cpp/external/Eigen/src/Core/arch/Default/TypeCasting.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2016 Benoit Steiner <benoit.steiner.goog@gmail.com>
+// Copyright (C) 2019 Rasmus Munk Larsen <rmlarsen@google.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/arch/GPU/MathFunctions.h
+dtcc_core/cpp/external/Eigen/src/Core/arch/GPU/PacketMath.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2014 Benoit Steiner <benoit.steiner.goog@gmail.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/arch/GPU/TypeCasting.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2016 Benoit Steiner <benoit.steiner.goog@gmail.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/arch/MSA/Complex.h
+dtcc_core/cpp/external/Eigen/src/Core/arch/MSA/PacketMath.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2018 Wave Computing, Inc.
+// Written by:
+//   Chris Larsen
+//   Alexey Frunze (afrunze@wavecomp.com)
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/arch/MSA/MathFunctions.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2007 Julien Pommier
+// Copyright (C) 2014 Pedro Gonnet (pedro.gonnet@gmail.com)
+// Copyright (C) 2016 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// Copyright (C) 2018 Wave Computing, Inc.
+// Written by:
+//   Chris Larsen
+//   Alexey Frunze (afrunze@wavecomp.com)
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/arch/NEON/Complex.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2010 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2010 Konstantinos Margaritis <markos@freevec.org>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/arch/NEON/PacketMath.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2008-2009 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2010 Konstantinos Margaritis <markos@freevec.org>
+// Heavily based on Gael's SSE version.
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/arch/NEON/TypeCasting.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2018 Rasmus Munk Larsen <rmlarsen@google.com>
+// Copyright (C) 2020 Antonio Sanchez <cantonios@google.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/arch/SSE/Complex.h
+dtcc_core/cpp/external/Eigen/src/Core/products/Parallelizer.h
+dtcc_core/cpp/external/Eigen/src/OrderingMethods/Amd.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2010 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/arch/SSE/MathFunctions.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2007 Julien Pommier
+// Copyright (C) 2009 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/arch/SVE/MathFunctions.h
+dtcc_core/cpp/external/Eigen/src/Core/arch/SVE/PacketMath.h
+dtcc_core/cpp/external/Eigen/src/Core/arch/SVE/TypeCasting.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2020, Arm Limited and Contributors
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/arch/SYCL/InteropHeaders.h
+dtcc_core/cpp/external/Eigen/src/Core/arch/SYCL/MathFunctions.h
+dtcc_core/cpp/external/Eigen/src/Core/arch/SYCL/PacketMath.h
+dtcc_core/cpp/external/Eigen/src/Core/arch/SYCL/TypeCasting.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Mehdi Goli    Codeplay Software Ltd.
+// Ralph Potter  Codeplay Software Ltd.
+// Luke Iwanski  Codeplay Software Ltd.
+// Contact: <eigen@codeplay.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/arch/SYCL/SyclMemoryModel.h
+
+/***************************************************************************
+ *  Copyright (C) 2017 Codeplay Software Limited
+ *  This Source Code Form is subject to the terms of the Mozilla
+ *  Public License v. 2.0. If a copy of the MPL was not distributed
+ *  with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ *
+ *
+ *  SyclMemoryModel.h
+ *
+ *  Description:
+ *    Interface for SYCL buffers to behave as a non-dereferenceable pointer
+ *    Interface for Placeholder accessor to behave as a pointer on both host
+ *    and device
+ *
+ * Authors:
+ *
+ *    Ruyman Reyes   Codeplay Software Ltd.
+ *    Mehdi Goli     Codeplay Software Ltd.
+ *    Vanya Yaneva   Codeplay Software Ltd.
+ *
+ **************************************************************************/
+
+dtcc_core/cpp/external/Eigen/src/Core/arch/ZVector/Complex.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2010 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2016 Konstantinos Margaritis <markos@freevec.org>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/arch/ZVector/PacketMath.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2016 Konstantinos Margaritis <markos@freevec.org>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/functors/NullaryFunctors.h
+dtcc_core/cpp/external/Eigen/src/Core/functors/UnaryFunctors.h
+dtcc_core/cpp/external/Eigen/src/Core/products/GeneralMatrixVector.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2008-2016 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/functors/TernaryFunctors.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2016 Eugene Brevdo <ebrevdo@gmail.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/products/GeneralMatrixMatrixTriangular_BLAS.h
+
+/*
+ Copyright (c) 2011, Intel Corporation. All rights reserved.
+
+ Redistribution and use in source and binary forms, with or without modification,
+ are permitted provided that the following conditions are met:
+
+ * Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+ * Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+ * Neither the name of Intel Corporation nor the names of its contributors may
+   be used to endorse or promote products derived from this software without
+   specific prior written permission.
+
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+ ********************************************************************************
+ *   Content : Eigen bindings to BLAS F77
+ *   Level 3 BLAS SYRK/HERK implementation.
+ ********************************************************************************
+*/
+
+dtcc_core/cpp/external/Eigen/src/Core/products/GeneralMatrixMatrix_BLAS.h
+
+/*
+ Copyright (c) 2011, Intel Corporation. All rights reserved.
+
+ Redistribution and use in source and binary forms, with or without modification,
+ are permitted provided that the following conditions are met:
+
+ * Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+ * Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+ * Neither the name of Intel Corporation nor the names of its contributors may
+   be used to endorse or promote products derived from this software without
+   specific prior written permission.
+
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+ ********************************************************************************
+ *   Content : Eigen bindings to BLAS F77
+ *   General matrix-matrix product functionality based on ?GEMM.
+ ********************************************************************************
+*/
+
+dtcc_core/cpp/external/Eigen/src/Core/products/GeneralMatrixVector_BLAS.h
+
+/*
+ Copyright (c) 2011, Intel Corporation. All rights reserved.
+
+ Redistribution and use in source and binary forms, with or without modification,
+ are permitted provided that the following conditions are met:
+
+ * Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+ * Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+ * Neither the name of Intel Corporation nor the names of its contributors may
+   be used to endorse or promote products derived from this software without
+   specific prior written permission.
+
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+ ********************************************************************************
+ *   Content : Eigen bindings to BLAS F77
+ *   General matrix-vector product functionality based on ?GEMV.
+ ********************************************************************************
+*/
+
+dtcc_core/cpp/external/Eigen/src/Core/products/SelfadjointMatrixMatrix_BLAS.h
+
+/*
+ Copyright (c) 2011, Intel Corporation. All rights reserved.
+
+ Redistribution and use in source and binary forms, with or without modification,
+ are permitted provided that the following conditions are met:
+
+ * Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+ * Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+ * Neither the name of Intel Corporation nor the names of its contributors may
+   be used to endorse or promote products derived from this software without
+   specific prior written permission.
+
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+//
+ ********************************************************************************
+ *   Content : Eigen bindings to BLAS F77
+ *   Self adjoint matrix * matrix product functionality based on ?SYMM/?HEMM.
+ ********************************************************************************
+*/
+
+dtcc_core/cpp/external/Eigen/src/Core/products/SelfadjointMatrixVector_BLAS.h
+
+/*
+ Copyright (c) 2011, Intel Corporation. All rights reserved.
+
+ Redistribution and use in source and binary forms, with or without modification,
+ are permitted provided that the following conditions are met:
+
+ * Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+ * Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+ * Neither the name of Intel Corporation nor the names of its contributors may
+   be used to endorse or promote products derived from this software without
+   specific prior written permission.
+
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+ ********************************************************************************
+ *   Content : Eigen bindings to BLAS F77
+ *   Selfadjoint matrix-vector product functionality based on ?SYMV/HEMV.
+ ********************************************************************************
+*/
+
+dtcc_core/cpp/external/Eigen/src/Core/products/TriangularMatrixMatrix_BLAS.h
+dtcc_core/cpp/external/Eigen/src/Core/products/TriangularSolverMatrix_BLAS.h
+
+/*
+ Copyright (c) 2011, Intel Corporation. All rights reserved.
+
+ Redistribution and use in source and binary forms, with or without modification,
+ are permitted provided that the following conditions are met:
+
+ * Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+ * Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+ * Neither the name of Intel Corporation nor the names of its contributors may
+   be used to endorse or promote products derived from this software without
+   specific prior written permission.
+
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+ ********************************************************************************
+ *   Content : Eigen bindings to BLAS F77
+ *   Triangular matrix * matrix product functionality based on ?TRMM.
+ ********************************************************************************
+*/
+
+dtcc_core/cpp/external/Eigen/src/Core/products/TriangularMatrixVector_BLAS.h
+
+/*
+ Copyright (c) 2011, Intel Corporation. All rights reserved.
+
+ Redistribution and use in source and binary forms, with or without modification,
+ are permitted provided that the following conditions are met:
+
+ * Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+ * Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+ * Neither the name of Intel Corporation nor the names of its contributors may
+   be used to endorse or promote products derived from this software without
+   specific prior written permission.
+
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+ ********************************************************************************
+ *   Content : Eigen bindings to BLAS F77
+ *   Triangular matrix-vector product functionality based on ?TRMV.
+ ********************************************************************************
+*/
+
+dtcc_core/cpp/external/Eigen/src/Core/util/ConfigureVectorization.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2008-2018 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2020, Arm Limited and Contributors
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/util/Constants.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2008-2015 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2007-2009 Benoit Jacob <jacob.benoit.1@gmail.com>
+// Copyright (C) 2020, Arm Limited and Contributors
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/util/ForwardDeclarations.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2007-2010 Benoit Jacob <jacob.benoit.1@gmail.com>
+// Copyright (C) 2008-2009 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/util/MKL_support.h
+
+/*
+ Copyright (c) 2011, Intel Corporation. All rights reserved.
+
+ Redistribution and use in source and binary forms, with or without modification,
+ are permitted provided that the following conditions are met:
+
+ * Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+ * Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+ * Neither the name of Intel Corporation nor the names of its contributors may
+   be used to endorse or promote products derived from this software without
+   specific prior written permission.
+
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+ ********************************************************************************
+ *   Content : Eigen bindings to Intel(R) MKL
+ *   Include file with common MKL declarations
+ ********************************************************************************
+*/
+
+dtcc_core/cpp/external/Eigen/src/Core/util/Macros.h
+dtcc_core/cpp/external/Eigen/src/Core/util/Meta.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2008-2015 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2006-2008 Benoit Jacob <jacob.benoit.1@gmail.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/util/Memory.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2008-2015 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2008-2009 Benoit Jacob <jacob.benoit.1@gmail.com>
+// Copyright (C) 2009 Kenneth Riddile <kfriddile@yahoo.com>
+// Copyright (C) 2010 Hauke Heibel <hauke.heibel@gmail.com>
+// Copyright (C) 2010 Thomas Capricelli <orzel@freehackers.org>
+// Copyright (C) 2013 Pavel Holoborodko <pavel@holoborodko.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Core/util/StaticAssert.h
+dtcc_core/cpp/external/Eigen/src/Geometry/Hyperplane.h
+dtcc_core/cpp/external/Eigen/src/Geometry/ParametrizedLine.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2008 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2008 Benoit Jacob <jacob.benoit.1@gmail.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Eigenvalues/ComplexEigenSolver.h
+dtcc_core/cpp/external/Eigen/src/Eigenvalues/ComplexSchur.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2009 Claire Maurice
+// Copyright (C) 2009 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2010,2012 Jitse Niesen <jitse@maths.leeds.ac.uk>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Eigenvalues/ComplexSchur_LAPACKE.h
+
+/*
+ Copyright (c) 2011, Intel Corporation. All rights reserved.
+
+ Redistribution and use in source and binary forms, with or without modification,
+ are permitted provided that the following conditions are met:
+
+ * Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+ * Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+ * Neither the name of Intel Corporation nor the names of its contributors may
+   be used to endorse or promote products derived from this software without
+   specific prior written permission.
+
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+ ********************************************************************************
+ *   Content : Eigen bindings to LAPACKe
+ *    Complex Schur needed to complex unsymmetrical eigenvalues/eigenvectors.
+ ********************************************************************************
+*/
+
+dtcc_core/cpp/external/Eigen/src/Eigenvalues/EigenSolver.h
+dtcc_core/cpp/external/Eigen/src/Eigenvalues/RealSchur.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2008 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2010,2012 Jitse Niesen <jitse@maths.leeds.ac.uk>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Eigenvalues/GeneralizedEigenSolver.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2012-2016 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2010,2012 Jitse Niesen <jitse@maths.leeds.ac.uk>
+// Copyright (C) 2016 Tobias Wood <tobias@spinicist.org.uk>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Eigenvalues/GeneralizedSelfAdjointEigenSolver.h
+dtcc_core/cpp/external/Eigen/src/Eigenvalues/SelfAdjointEigenSolver.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2008-2010 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2010 Jitse Niesen <jitse@maths.leeds.ac.uk>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Eigenvalues/HessenbergDecomposition.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2008-2009 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2010 Jitse Niesen <jitse@maths.leeds.ac.uk>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Eigenvalues/MatrixBaseEigenvalues.h
+dtcc_core/cpp/external/Eigen/src/Eigenvalues/Tridiagonalization.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2008 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2010 Jitse Niesen <jitse@maths.leeds.ac.uk>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Eigenvalues/RealQZ.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2012 Alexey Korepanov <kaikaikai@yandex.ru>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Eigenvalues/RealSchur_LAPACKE.h
+
+/*
+ Copyright (c) 2011, Intel Corporation. All rights reserved.
+
+ Redistribution and use in source and binary forms, with or without modification,
+ are permitted provided that the following conditions are met:
+
+ * Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+ * Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+ * Neither the name of Intel Corporation nor the names of its contributors may
+   be used to endorse or promote products derived from this software without
+   specific prior written permission.
+
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+ ********************************************************************************
+ *   Content : Eigen bindings to LAPACKe
+ *    Real Schur needed to real unsymmetrical eigenvalues/eigenvectors.
+ ********************************************************************************
+*/
+
+dtcc_core/cpp/external/Eigen/src/Eigenvalues/SelfAdjointEigenSolver_LAPACKE.h
+
+/*
+ Copyright (c) 2011, Intel Corporation. All rights reserved.
+
+ Redistribution and use in source and binary forms, with or without modification,
+ are permitted provided that the following conditions are met:
+
+ * Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+ * Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+ * Neither the name of Intel Corporation nor the names of its contributors may
+   be used to endorse or promote products derived from this software without
+   specific prior written permission.
+
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+ ********************************************************************************
+ *   Content : Eigen bindings to LAPACKe
+ *    Self-adjoint eigenvalues/eigenvectors.
+ ********************************************************************************
+*/
+
+dtcc_core/cpp/external/Eigen/src/Geometry/AlignedBox.h
+
+// Function void Eigen::AlignedBox::transform(const Transform& transform)
+// is provided under the following license agreement:
+//
+// Software License Agreement (BSD License)
+//
+// Copyright (c) 2011-2014, Willow Garage, Inc.
+// Copyright (c) 2014-2015, Open Source Robotics Foundation
+// All rights reserved.
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions
+// are met:
+//
+//  * Redistributions of source code must retain the above copyright
+//    notice, this list of conditions and the following disclaimer.
+//  * Redistributions in binary form must reproduce the above
+//    copyright notice, this list of conditions and the following
+//    disclaimer in the documentation and/or other materials provided
+//    with the distribution.
+//  * Neither the name of Open Source Robotics Foundation nor the names of its
+//    contributors may be used to endorse or promote products derived
+//    from this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+// FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+// COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+// INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+// BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+// LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+// CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+// LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
+// ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+
+dtcc_core/cpp/external/Eigen/src/Geometry/AlignedBox.h
+
+/**
+   * Transforms this box by \a transform and recomputes it to
+   * still be an axis-aligned box.
+   *
+   * \note This method is provided under BSD license (see the top of this file).
+   */
+
+dtcc_core/cpp/external/Eigen/src/Geometry/Quaternion.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2008-2010 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2009 Mathieu Gautier <mathieu.gautier@cea.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Geometry/Transform.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2008 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2009 Benoit Jacob <jacob.benoit.1@gmail.com>
+// Copyright (C) 2010 Hauke Heibel <hauke.heibel@gmail.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Geometry/Umeyama.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2009 Hauke Heibel <hauke.heibel@gmail.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Geometry/arch/Geometry_SIMD.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2009 Rohit Garg <rpg.314@gmail.com>
+// Copyright (C) 2009-2010 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Householder/BlockHouseholder.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2010 Vincent Lejeune
+// Copyright (C) 2010 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Householder/Householder.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2010 Benoit Jacob <jacob.benoit.1@gmail.com>
+// Copyright (C) 2009 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/Householder/HouseholderSequence.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2009 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2010 Benoit Jacob <jacob.benoit.1@gmail.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/IterativeLinearSolvers/BasicPreconditioners.h
+dtcc_core/cpp/external/Eigen/src/IterativeLinearSolvers/ConjugateGradient.h
+dtcc_core/cpp/external/Eigen/src/IterativeLinearSolvers/IterativeSolverBase.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2011-2014 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/IterativeLinearSolvers/BiCGSTAB.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2011-2014 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2012 Désiré Nuentsa-Wakam <desire.nuentsa_wakam@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/IterativeLinearSolvers/IncompleteCholesky.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2012 Désiré Nuentsa-Wakam <desire.nuentsa_wakam@inria.fr>
+// Copyright (C) 2015 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/IterativeLinearSolvers/IncompleteLUT.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2012 Désiré Nuentsa-Wakam <desire.nuentsa_wakam@inria.fr>
+// Copyright (C) 2014 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/IterativeLinearSolvers/IncompleteLUT.h
+
+/** \ingroup IterativeLinearSolvers_Module
+  * \class IncompleteLUT
+  * \brief Incomplete LU factorization with dual-threshold strategy
+  *
+  * \implsparsesolverconcept
+  *
+  * During the numerical factorization, two dropping rules are used :
+  *  1) any element whose magnitude is less than some tolerance is dropped.
+  *    This tolerance is obtained by multiplying the input tolerance @p droptol
+  *    by the average magnitude of all the original elements in the current row.
+  *  2) After the elimination of the row, only the @p fill largest elements in
+  *    the L part and the @p fill largest elements in the U part are kept
+  *    (in addition to the diagonal element ). Note that @p fill is computed from
+  *    the input parameter @p fillfactor which is used the ratio to control the fill_in
+  *    relatively to the initial number of nonzero elements.
+  *
+  * The two extreme cases are when @p droptol=0 (to keep all the @p fill*2 largest elements)
+  * and when @p fill=n/2 with @p droptol being different to zero.
+  *
+  * References : Yousef Saad, ILUT: A dual threshold incomplete LU factorization,
+  *              Numerical Linear Algebra with Applications, 1(4), pp 387-402, 1994.
+  *
+  * NOTE : The following implementation is derived from the ILUT implementation
+  * in the SPARSKIT package, Copyright (C) 2005, the Regents of the University of Minnesota
+  *  released under the terms of the GNU LGPL:
+  *    http://www-users.cs.umn.edu/~saad/software/SPARSKIT/README
+  * However, Yousef Saad gave us permission to relicense his ILUT code to MPL2.
+  * See the Eigen mailing list archive, thread: ILUT, date: July 8, 2012:
+  *   http://listengine.tuxfamily.org/lists.tuxfamily.org/eigen/2012/07/msg00064.html
+  * alternatively, on GMANE:
+  *   http://comments.gmane.org/gmane.comp.lib.eigen/3302
+  */
+
+dtcc_core/cpp/external/Eigen/src/KLUSupport/KLUSupport.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2017 Kyle Macfarlan <kyle.macfarlan@gmail.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/LU/Determinant.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2008 Benoit Jacob <jacob.benoit.1@gmail.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/LU/FullPivLU.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2006-2009 Benoit Jacob <jacob.benoit.1@gmail.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/LU/InverseImpl.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2008-2010 Benoit Jacob <jacob.benoit.1@gmail.com>
+// Copyright (C) 2014 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/LU/PartialPivLU.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2006-2009 Benoit Jacob <jacob.benoit.1@gmail.com>
+// Copyright (C) 2009 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/LU/PartialPivLU_LAPACKE.h
+
+/*
+ Copyright (c) 2011, Intel Corporation. All rights reserved.
+
+ Redistribution and use in source and binary forms, with or without modification,
+ are permitted provided that the following conditions are met:
+
+ * Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+ * Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+ * Neither the name of Intel Corporation nor the names of its contributors may
+   be used to endorse or promote products derived from this software without
+   specific prior written permission.
+
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+ ********************************************************************************
+ *   Content : Eigen bindings to LAPACKe
+ *     LU decomposition with partial pivoting based on LAPACKE_?getrf function.
+ ********************************************************************************
+*/
+
+dtcc_core/cpp/external/Eigen/src/LU/arch/InverseSize4.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2001 Intel Corporation
+// Copyright (C) 2010 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2009 Benoit Jacob <jacob.benoit.1@gmail.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+//
+// The algorithm below is a reimplementation of former \src\LU\Inverse_SSE.h using PacketMath.
+// inv(M) = M#/|M|, where inv(M), M# and |M| denote the inverse of M,
+// adjugate of M and determinant of M respectively. M# is computed block-wise
+// using specific formulae. For proof, see:
+// https://lxjk.github.io/2017/09/03/Fast-4x4-Matrix-Inverse-with-SSE-SIMD-Explained.html
+// Variable names are adopted from \src\LU\Inverse_SSE.h.
+//
+// The SSE code for the 4x4 float and double matrix inverse in former (deprecated) \src\LU\Inverse_SSE.h
+// comes from the following Intel's library:
+// http://software.intel.com/en-us/articles/optimized-matrix-library-for-use-with-the-intel-pentiumr-4-processors-sse2-instructions/
+//
+// Here is the respective copyright and license statement:
+//
+//   Copyright (c) 2001 Intel Corporation.
+//
+// Permition is granted to use, copy, distribute and prepare derivative works
+// of this library for any purpose and without fee, provided, that the above
+// copyright notice and this statement appear in all copies.
+// Intel makes no representations about the suitability of this software for
+// any purpose, and specifically disclaims all warranties.
+// See LEGAL.TXT for all the legal information.
+//
+// TODO: Unify implementations of different data types (i.e. float and double).
+
+dtcc_core/cpp/external/Eigen/src/MetisSupport/MetisSupport.h
+dtcc_core/cpp/external/Eigen/src/PaStiXSupport/PaStiXSupport.h
+dtcc_core/cpp/external/Eigen/src/SparseCore/SparseColEtree.h
+dtcc_core/cpp/external/Eigen/src/SparseLU/SparseLUImpl.h
+dtcc_core/cpp/external/Eigen/src/SparseLU/SparseLU_Memory.h
+dtcc_core/cpp/external/Eigen/src/SparseLU/SparseLU_Structs.h
+dtcc_core/cpp/external/Eigen/src/SparseLU/SparseLU_Utils.h
+dtcc_core/cpp/external/Eigen/src/SparseLU/SparseLU_column_dfs.h
+dtcc_core/cpp/external/Eigen/src/SparseLU/SparseLU_copy_to_ucol.h
+dtcc_core/cpp/external/Eigen/src/SparseLU/SparseLU_heap_relax_snode.h
+dtcc_core/cpp/external/Eigen/src/SparseLU/SparseLU_panel_dfs.h
+dtcc_core/cpp/external/Eigen/src/SparseLU/SparseLU_pivotL.h
+dtcc_core/cpp/external/Eigen/src/SparseLU/SparseLU_pruneL.h
+dtcc_core/cpp/external/Eigen/src/SparseLU/SparseLU_relax_snode.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2012 Désiré Nuentsa-Wakam <desire.nuentsa_wakam@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/OrderingMethods/Amd.h
+
+/*
+NOTE: this routine has been adapted from the CSparse library:
+
+Copyright (c) 2006, Timothy A. Davis.
+http://www.suitesparse.com
+
+The author of CSparse, Timothy A. Davis., has executed a license with Google LLC
+to permit distribution of this code and derivative works as part of Eigen under
+the Mozilla Public License v. 2.0, as stated at the top of this file.
+*/
+
+dtcc_core/cpp/external/Eigen/src/OrderingMethods/Eigen_Colamd.h
+
+// // This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2012 Desire Nuentsa Wakam <desire.nuentsa_wakam@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/OrderingMethods/Eigen_Colamd.h
+
+// This file is modified from the colamd/symamd library. The copyright is below
+
+dtcc_core/cpp/external/Eigen/src/OrderingMethods/Eigen_Colamd.h
+
+//   The authors of the code itself are Stefan I. Larimore and Timothy A.
+//   Davis (davis@cise.ufl.edu), University of Florida.  The algorithm was
+//   developed in collaboration with John Gilbert, Xerox PARC, and Esmond
+//   Ng, Oak Ridge National Laboratory.
+//
+//     Date:
+//
+//   September 8, 2003.  Version 2.3.
+//
+//     Acknowledgements:
+//
+//   This work was supported by the National Science Foundation, under
+//   grants DMS-9504974 and DMS-9803599.
+//
+//     Notice:
+//
+//   Copyright (c) 1998-2003 by the University of Florida.
+//   All Rights Reserved.
+//
+//   THIS MATERIAL IS PROVIDED AS IS, WITH ABSOLUTELY NO WARRANTY
+//   EXPRESSED OR IMPLIED.  ANY USE IS AT YOUR OWN RISK.
+//
+//   Permission is hereby granted to use, copy, modify, and/or distribute
+//   this program, provided that the Copyright, this License, and the
+//   Availability of the original version is retained on all copies and made
+//   accessible to the end-user of any code or package that includes COLAMD
+//   or any modified version of COLAMD.
+//
+//     Availability:
+//
+//   The colamd/symamd library is available at
+//
+//       http://www.suitesparse.com
+
+dtcc_core/cpp/external/Eigen/src/OrderingMethods/Ordering.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2012  Désiré Nuentsa-Wakam <desire.nuentsa_wakam@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/PardisoSupport/PardisoSupport.h
+
+/*
+ Copyright (c) 2011, Intel Corporation. All rights reserved.
+
+ Redistribution and use in source and binary forms, with or without modification,
+ are permitted provided that the following conditions are met:
+
+ * Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+ * Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+ * Neither the name of Intel Corporation nor the names of its contributors may
+   be used to endorse or promote products derived from this software without
+   specific prior written permission.
+
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+ ********************************************************************************
+ *   Content : Eigen bindings to Intel(R) MKL PARDISO
+ ********************************************************************************
+*/
+
+dtcc_core/cpp/external/Eigen/src/QR/ColPivHouseholderQR.h
+dtcc_core/cpp/external/Eigen/src/QR/FullPivHouseholderQR.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2008-2009 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2009 Benoit Jacob <jacob.benoit.1@gmail.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/QR/ColPivHouseholderQR_LAPACKE.h
+
+/*
+ Copyright (c) 2011, Intel Corporation. All rights reserved.
+
+ Redistribution and use in source and binary forms, with or without modification,
+ are permitted provided that the following conditions are met:
+
+ * Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+ * Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+ * Neither the name of Intel Corporation nor the names of its contributors may
+   be used to endorse or promote products derived from this software without
+   specific prior written permission.
+
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+ ********************************************************************************
+ *   Content : Eigen bindings to LAPACKe
+ *    Householder QR decomposition of a matrix with column pivoting based on
+ *    LAPACKE_?geqp3 function.
+ ********************************************************************************
+*/
+
+dtcc_core/cpp/external/Eigen/src/QR/CompleteOrthogonalDecomposition.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2016 Rasmus Munk Larsen <rmlarsen@google.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/QR/HouseholderQR.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2008-2010 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2009 Benoit Jacob <jacob.benoit.1@gmail.com>
+// Copyright (C) 2010 Vincent Lejeune
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/QR/HouseholderQR_LAPACKE.h
+
+/*
+ Copyright (c) 2011, Intel Corporation. All rights reserved.
+
+ Redistribution and use in source and binary forms, with or without modification,
+ are permitted provided that the following conditions are met:
+
+ * Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+ * Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+ * Neither the name of Intel Corporation nor the names of its contributors may
+   be used to endorse or promote products derived from this software without
+   specific prior written permission.
+
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+ ********************************************************************************
+ *   Content : Eigen bindings to LAPACKe
+ *    Householder QR decomposition of a matrix w/o pivoting based on
+ *    LAPACKE_?geqrf function.
+ ********************************************************************************
+*/
+
+dtcc_core/cpp/external/Eigen/src/SPQRSupport/SuiteSparseQRSupport.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2012 Desire Nuentsa <desire.nuentsa_wakam@inria.fr>
+// Copyright (C) 2014 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/SVD/BDCSVD.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+// 
+// We used the "A Divide-And-Conquer Algorithm for the Bidiagonal SVD"
+// research report written by Ming Gu and Stanley C.Eisenstat
+// The code variable names correspond to the names they used in their 
+// report
+//
+// Copyright (C) 2013 Gauthier Brun <brun.gauthier@gmail.com>
+// Copyright (C) 2013 Nicolas Carre <nicolas.carre@ensimag.fr>
+// Copyright (C) 2013 Jean Ceccato <jean.ceccato@ensimag.fr>
+// Copyright (C) 2013 Pierre Zoppitelli <pierre.zoppitelli@ensimag.fr>
+// Copyright (C) 2013 Jitse Niesen <jitse@maths.leeds.ac.uk>
+// Copyright (C) 2014-2017 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/SVD/JacobiSVD.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2009-2010 Benoit Jacob <jacob.benoit.1@gmail.com>
+// Copyright (C) 2013-2014 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/SVD/JacobiSVD_LAPACKE.h
+
+/*
+ Copyright (c) 2011, Intel Corporation. All rights reserved.
+
+ Redistribution and use in source and binary forms, with or without modification,
+ are permitted provided that the following conditions are met:
+
+ * Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+ * Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+ * Neither the name of Intel Corporation nor the names of its contributors may
+   be used to endorse or promote products derived from this software without
+   specific prior written permission.
+
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+ ********************************************************************************
+ *   Content : Eigen bindings to LAPACKe
+ *    Singular Value Decomposition - SVD.
+ ********************************************************************************
+*/
+
+dtcc_core/cpp/external/Eigen/src/SVD/SVDBase.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2009-2010 Benoit Jacob <jacob.benoit.1@gmail.com>
+// Copyright (C) 2014 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// Copyright (C) 2013 Gauthier Brun <brun.gauthier@gmail.com>
+// Copyright (C) 2013 Nicolas Carre <nicolas.carre@ensimag.fr>
+// Copyright (C) 2013 Jean Ceccato <jean.ceccato@ensimag.fr>
+// Copyright (C) 2013 Pierre Zoppitelli <pierre.zoppitelli@ensimag.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/SVD/UpperBidiagonalization.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2010 Benoit Jacob <jacob.benoit.1@gmail.com>
+// Copyright (C) 2013-2014 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/SparseCholesky/SimplicialCholesky.h
+dtcc_core/cpp/external/Eigen/src/SparseCholesky/SimplicialCholesky_impl.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2008-2012 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/SparseCholesky/SimplicialCholesky_impl.h
+
+/*
+NOTE: these functions have been adapted from the LDL library:
+
+LDL Copyright (c) 2005 by Timothy A. Davis.  All Rights Reserved.
+
+The author of LDL, Timothy A. Davis., has executed a license with Google LLC
+to permit distribution of this code and derivative works as part of Eigen under
+the Mozilla Public License v. 2.0, as stated at the top of this file.
+ */
+
+dtcc_core/cpp/external/Eigen/src/SparseCore/ConservativeSparseSparseProduct.h
+dtcc_core/cpp/external/Eigen/src/SparseCore/SparseCwiseUnaryOp.h
+dtcc_core/cpp/external/Eigen/src/SparseCore/SparseDenseProduct.h
+dtcc_core/cpp/external/Eigen/src/SparseCore/SparseProduct.h
+dtcc_core/cpp/external/Eigen/src/SparseCore/SparseTranspose.h
+dtcc_core/cpp/external/Eigen/src/SparseCore/SparseVector.h
+dtcc_core/cpp/external/Eigen/src/SuperLUSupport/SuperLUSupport.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2008-2015 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/SparseCore/SparseColEtree.h
+
+/* 
+ 
+ * NOTE: This file is the modified version of sp_coletree.c file in SuperLU 
+ 
+ * -- SuperLU routine (version 3.1) --
+ * Univ. of California Berkeley, Xerox Palo Alto Research Center,
+ * and Lawrence Berkeley National Lab.
+ * August 1, 2008
+ *
+ * Copyright (c) 1994 by Xerox Corporation.  All rights reserved.
+ *
+ * THIS MATERIAL IS PROVIDED AS IS, WITH ABSOLUTELY NO WARRANTY
+ * EXPRESSED OR IMPLIED.  ANY USE IS AT YOUR OWN RISK.
+ *
+ * Permission is hereby granted to use or copy this program for any
+ * purpose, provided the above notices are retained on all copies.
+ * Permission to modify the code and to distribute modified code is
+ * granted, provided the above notices are retained, and a notice that
+ * the code was modified is included with the above copyright notice.
+ */
+
+dtcc_core/cpp/external/Eigen/src/SparseCore/SparseDiagonalProduct.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2009-2015 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/SparseCore/SparseSelfAdjointView.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2009-2014 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/SparseCore/SparseTriangularView.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2009-2015 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2012 Désiré Nuentsa-Wakam <desire.nuentsa_wakam@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/SparseCore/SparseView.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2011-2014 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2010 Daniel Lowengrub <lowdanie@gmail.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/SparseLU/SparseLU.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2012 Désiré Nuentsa-Wakam <desire.nuentsa_wakam@inria.fr>
+// Copyright (C) 2012-2014 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/SparseLU/SparseLU_Memory.h
+
+/* 
+ 
+ * NOTE: This file is the modified version of [s,d,c,z]memory.c files in SuperLU 
+ 
+ * -- SuperLU routine (version 3.1) --
+ * Univ. of California Berkeley, Xerox Palo Alto Research Center,
+ * and Lawrence Berkeley National Lab.
+ * August 1, 2008
+ *
+ * Copyright (c) 1994 by Xerox Corporation.  All rights reserved.
+ *
+ * THIS MATERIAL IS PROVIDED AS IS, WITH ABSOLUTELY NO WARRANTY
+ * EXPRESSED OR IMPLIED.  ANY USE IS AT YOUR OWN RISK.
+ *
+ * Permission is hereby granted to use or copy this program for any
+ * purpose, provided the above notices are retained on all copies.
+ * Permission to modify the code and to distribute modified code is
+ * granted, provided the above notices are retained, and a notice that
+ * the code was modified is included with the above copyright notice.
+ */
+
+dtcc_core/cpp/external/Eigen/src/SparseLU/SparseLU_column_bmod.h
+
+/* 
+ 
+ * NOTE: This file is the modified version of xcolumn_bmod.c file in SuperLU 
+ 
+ * -- SuperLU routine (version 3.0) --
+ * Univ. of California Berkeley, Xerox Palo Alto Research Center,
+ * and Lawrence Berkeley National Lab.
+ * October 15, 2003
+ *
+ * Copyright (c) 1994 by Xerox Corporation.  All rights reserved.
+ *
+ * THIS MATERIAL IS PROVIDED AS IS, WITH ABSOLUTELY NO WARRANTY
+ * EXPRESSED OR IMPLIED.  ANY USE IS AT YOUR OWN RISK.
+ *
+ * Permission is hereby granted to use or copy this program for any
+ * purpose, provided the above notices are retained on all copies.
+ * Permission to modify the code and to distribute modified code is
+ * granted, provided the above notices are retained, and a notice that
+ * the code was modified is included with the above copyright notice.
+ */
+
+dtcc_core/cpp/external/Eigen/src/SparseLU/SparseLU_column_dfs.h
+
+/* 
+ 
+ * NOTE: This file is the modified version of [s,d,c,z]column_dfs.c file in SuperLU 
+ 
+ * -- SuperLU routine (version 2.0) --
+ * Univ. of California Berkeley, Xerox Palo Alto Research Center,
+ * and Lawrence Berkeley National Lab.
+ * November 15, 1997
+ *
+ * Copyright (c) 1994 by Xerox Corporation.  All rights reserved.
+ *
+ * THIS MATERIAL IS PROVIDED AS IS, WITH ABSOLUTELY NO WARRANTY
+ * EXPRESSED OR IMPLIED.  ANY USE IS AT YOUR OWN RISK.
+ *
+ * Permission is hereby granted to use or copy this program for any
+ * purpose, provided the above notices are retained on all copies.
+ * Permission to modify the code and to distribute modified code is
+ * granted, provided the above notices are retained, and a notice that
+ * the code was modified is included with the above copyright notice.
+ */
+
+dtcc_core/cpp/external/Eigen/src/SparseLU/SparseLU_copy_to_ucol.h
+
+/* 
+ 
+ * NOTE: This file is the modified version of [s,d,c,z]copy_to_ucol.c file in SuperLU 
+ 
+ * -- SuperLU routine (version 2.0) --
+ * Univ. of California Berkeley, Xerox Palo Alto Research Center,
+ * and Lawrence Berkeley National Lab.
+ * November 15, 1997
+ *
+ * Copyright (c) 1994 by Xerox Corporation.  All rights reserved.
+ *
+ * THIS MATERIAL IS PROVIDED AS IS, WITH ABSOLUTELY NO WARRANTY
+ * EXPRESSED OR IMPLIED.  ANY USE IS AT YOUR OWN RISK.
+ *
+ * Permission is hereby granted to use or copy this program for any
+ * purpose, provided the above notices are retained on all copies.
+ * Permission to modify the code and to distribute modified code is
+ * granted, provided the above notices are retained, and a notice that
+ * the code was modified is included with the above copyright notice.
+ */
+
+dtcc_core/cpp/external/Eigen/src/SparseLU/SparseLU_heap_relax_snode.h
+dtcc_core/cpp/external/Eigen/src/SparseLU/SparseLU_relax_snode.h
+
+/* This file is a modified version of heap_relax_snode.c file in SuperLU
+ * -- SuperLU routine (version 3.0) --
+ * Univ. of California Berkeley, Xerox Palo Alto Research Center,
+ * and Lawrence Berkeley National Lab.
+ * October 15, 2003
+ *
+ * Copyright (c) 1994 by Xerox Corporation.  All rights reserved.
+ *
+ * THIS MATERIAL IS PROVIDED AS IS, WITH ABSOLUTELY NO WARRANTY
+ * EXPRESSED OR IMPLIED.  ANY USE IS AT YOUR OWN RISK.
+ *
+ * Permission is hereby granted to use or copy this program for any
+ * purpose, provided the above notices are retained on all copies.
+ * Permission to modify the code and to distribute modified code is
+ * granted, provided the above notices are retained, and a notice that
+ * the code was modified is included with the above copyright notice.
+ */
+
+dtcc_core/cpp/external/Eigen/src/SparseLU/SparseLU_panel_bmod.h
+
+/* 
+ 
+ * NOTE: This file is the modified version of [s,d,c,z]panel_bmod.c file in SuperLU 
+ 
+ * -- SuperLU routine (version 3.0) --
+ * Univ. of California Berkeley, Xerox Palo Alto Research Center,
+ * and Lawrence Berkeley National Lab.
+ * October 15, 2003
+ *
+ * Copyright (c) 1994 by Xerox Corporation.  All rights reserved.
+ *
+ * THIS MATERIAL IS PROVIDED AS IS, WITH ABSOLUTELY NO WARRANTY
+ * EXPRESSED OR IMPLIED.  ANY USE IS AT YOUR OWN RISK.
+ *
+ * Permission is hereby granted to use or copy this program for any
+ * purpose, provided the above notices are retained on all copies.
+ * Permission to modify the code and to distribute modified code is
+ * granted, provided the above notices are retained, and a notice that
+ * the code was modified is included with the above copyright notice.
+ */
+
+dtcc_core/cpp/external/Eigen/src/SparseLU/SparseLU_panel_dfs.h
+
+/* 
+ 
+ * NOTE: This file is the modified version of [s,d,c,z]panel_dfs.c file in SuperLU 
+ 
+ * -- SuperLU routine (version 2.0) --
+ * Univ. of California Berkeley, Xerox Palo Alto Research Center,
+ * and Lawrence Berkeley National Lab.
+ * November 15, 1997
+ *
+ * Copyright (c) 1994 by Xerox Corporation.  All rights reserved.
+ *
+ * THIS MATERIAL IS PROVIDED AS IS, WITH ABSOLUTELY NO WARRANTY
+ * EXPRESSED OR IMPLIED.  ANY USE IS AT YOUR OWN RISK.
+ *
+ * Permission is hereby granted to use or copy this program for any
+ * purpose, provided the above notices are retained on all copies.
+ * Permission to modify the code and to distribute modified code is
+ * granted, provided the above notices are retained, and a notice that
+ * the code was modified is included with the above copyright notice.
+ */
+
+dtcc_core/cpp/external/Eigen/src/SparseLU/SparseLU_pivotL.h
+
+/* 
+ 
+ * NOTE: This file is the modified version of xpivotL.c file in SuperLU 
+ 
+ * -- SuperLU routine (version 3.0) --
+ * Univ. of California Berkeley, Xerox Palo Alto Research Center,
+ * and Lawrence Berkeley National Lab.
+ * October 15, 2003
+ *
+ * Copyright (c) 1994 by Xerox Corporation.  All rights reserved.
+ *
+ * THIS MATERIAL IS PROVIDED AS IS, WITH ABSOLUTELY NO WARRANTY
+ * EXPRESSED OR IMPLIED.  ANY USE IS AT YOUR OWN RISK.
+ *
+ * Permission is hereby granted to use or copy this program for any
+ * purpose, provided the above notices are retained on all copies.
+ * Permission to modify the code and to distribute modified code is
+ * granted, provided the above notices are retained, and a notice that
+ * the code was modified is included with the above copyright notice.
+ */
+
+dtcc_core/cpp/external/Eigen/src/SparseLU/SparseLU_pruneL.h
+
+/* 
+ 
+ * NOTE: This file is the modified version of [s,d,c,z]pruneL.c file in SuperLU 
+ 
+ * -- SuperLU routine (version 2.0) --
+ * Univ. of California Berkeley, Xerox Palo Alto Research Center,
+ * and Lawrence Berkeley National Lab.
+ * November 15, 1997
+ *
+ * Copyright (c) 1994 by Xerox Corporation.  All rights reserved.
+ *
+ * THIS MATERIAL IS PROVIDED AS IS, WITH ABSOLUTELY NO WARRANTY
+ * EXPRESSED OR IMPLIED.  ANY USE IS AT YOUR OWN RISK.
+ *
+ * Permission is hereby granted to use or copy this program for any
+ * purpose, provided the above notices are retained on all copies.
+ * Permission to modify the code and to distribute modified code is
+ * granted, provided the above notices are retained, and a notice that
+ * the code was modified is included with the above copyright notice.
+ */
+
+dtcc_core/cpp/external/Eigen/src/SparseQR/SparseQR.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2012-2013 Desire Nuentsa <desire.nuentsa_wakam@inria.fr>
+// Copyright (C) 2012-2014 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/SuperLUSupport/SuperLUSupport.h
+
+// the code of this extractData() function has been adapted from the SuperLU's Matlab support code,
+//
+//  Copyright (c) 1994 by Xerox Corporation.  All rights reserved.
+//
+//  THIS MATERIAL IS PROVIDED AS IS, WITH ABSOLUTELY NO WARRANTY
+//  EXPRESSED OR IMPLIED.  ANY USE IS AT YOUR OWN RISK.
+//
+
+dtcc_core/cpp/external/Eigen/src/misc/Image.h
+dtcc_core/cpp/external/Eigen/src/misc/Kernel.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2009 Benoit Jacob <jacob.benoit.1@gmail.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/misc/RealSvd2x2.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2009-2010 Benoit Jacob <jacob.benoit.1@gmail.com>
+// Copyright (C) 2013-2016 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/misc/lapacke.h
+
+/*****************************************************************************
+  Copyright (c) 2010, Intel Corp.
+  All rights reserved.
+
+  Redistribution and use in source and binary forms, with or without
+  modification, are permitted provided that the following conditions are met:
+
+    * Redistributions of source code must retain the above copyright notice,
+      this list of conditions and the following disclaimer.
+    * Redistributions in binary form must reproduce the above copyright
+      notice, this list of conditions and the following disclaimer in the
+      documentation and/or other materials provided with the distribution.
+    * Neither the name of Intel Corporation nor the names of its contributors
+      may be used to endorse or promote products derived from this software
+      without specific prior written permission.
+
+  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+  ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+  LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+  CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+  SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+  INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+  CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+  THE POSSIBILITY OF SUCH DAMAGE.
+******************************************************************************
+* Contents: Native C interface to LAPACK
+* Author: Intel Corporation
+* Generated November, 2011
+*****************************************************************************/
+
+dtcc_core/cpp/external/Eigen/src/plugins/BlockMethods.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2008-2010 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2006-2010 Benoit Jacob <jacob.benoit.1@gmail.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+dtcc_core/cpp/external/Eigen/src/plugins/CommonCwiseBinaryOps.h
+
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2008-2016 Gael Guennebaud <gael.guennebaud@inria.fr>
+// Copyright (C) 2006-2008 Benoit Jacob <jacob.benoit.1@gmail.com>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.

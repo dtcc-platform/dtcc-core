@@ -7,7 +7,6 @@ from typing import Union
 from dataclasses import dataclass, field
 
 from ..model import Model
-from .. import dtcc_pb2 as proto
 
 
 @dataclass
@@ -34,6 +33,12 @@ class Field(Model):
         and d is the dimension of the field.
     dim: int
         The dimension of the field.
+    association: str or None
+        Explicit location: vertex, edge, face, cell, sample, or geometry.
+        Geometry denotes one value for the entire owning geometry, such as
+        an area statistic. Other associations must match the owner's element
+        count. Standalone fields have no owner count check. None is allowed
+        while editing, but serialization requires an explicit association.
     """
 
     name: str = ""
@@ -41,38 +46,20 @@ class Field(Model):
     description: str = ""
     values: np.ndarray = field(default_factory=lambda: np.empty(0))
     dim: int = 1
+    association: str | None = field(default=None, kw_only=True)
 
-    def to_proto(self) -> proto.Field:
-        """Return a protobuf representation of the Field.
-
-        Returns
-        -------
-        proto.Field
-            A protobuf representation of the Field.
-        """
-
-        pb = proto.Field()
-        pb.name = self.name
-        pb.unit = self.unit
-        pb.description = self.description
-        pb.values.extend(self.values.flatten())
-        pb.dim = self.dim
-
-        return pb
-
-    def from_proto(self, pb: Union[proto.Field, bytes]):
-        """Initialize Field from a protobuf representation.
-
-        Parameters
-        ----------
-        pb: Union[proto.Field, bytes]
-            The protobuf message or its serialized bytes representation.
-        """
-
-        if isinstance(pb, bytes):
-            pb = proto.Field.FromString(pb)
-        self.name = pb.name
-        self.unit = pb.unit
-        self.description = pb.description
-        self.values = np.array(pb.values).reshape((-1, pb.dim))
-        self.dim = pb.dim
+    def _validate_values(self):
+        if isinstance(self.dim, (bool, np.bool_)) or not isinstance(
+            self.dim, (int, np.integer)
+        ) or self.dim < 1:
+            raise ValueError("Field.dim must be a positive integer.")
+        if not isinstance(self.values, np.ndarray) or self.values.dtype.kind not in "biuf":
+            raise ValueError("Field.values must be a real numeric NumPy array.")
+        if not (
+            (self.values.ndim == 1 and self.dim == 1)
+            or (self.values.ndim == 2 and self.values.shape[1] == self.dim)
+        ):
+            raise ValueError(
+                "Field.values must have shape (N, dim), or (N,) for dim=1; "
+                f"got shape {self.values.shape} with dim={self.dim}."
+            )

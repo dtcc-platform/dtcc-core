@@ -217,14 +217,15 @@ class CitySaveMixin:
             raise ValueError("City has no pointcloud to save")
         io.pointcloud.save(pc, path)
 
-    def save_cityjson(self: "City", path: Union[str, Path]):
-        """
-        Save city buildings as CityJSON.
-        """
+    def save_cityjson(self: "City", path: Union[str, Path], *, strict=False,
+                     validate_schema=None):
+        """Save CityJSON; strict=True applies the standard schema by default.
 
+        validate_schema=False bypasses semantics only in strict mode.
+        """
         import dtcc_core.io as io
 
-        io.city.save(self, path)
+        io.city.save(self, path, strict=strict, validate_schema=validate_schema)
 
     def save_trees(self: "City", path: Union[str, Path], save_as_circles: bool = False):
         """

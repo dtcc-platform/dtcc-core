@@ -170,7 +170,7 @@ def test_prepare_city_from_bounds_flat_ground_rebuilds_city_on_flat_raster(
     mock_set_building_heights_from_attribute.assert_called_once_with(
         heighted_buildings,
         flat_raster,
-        height_attribute="height",
+        height_attribute="estimated_height",
         default_ground_height=17.5,
         always_use_default_ground=True,
     )

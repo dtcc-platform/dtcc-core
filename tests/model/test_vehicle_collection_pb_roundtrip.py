@@ -17,13 +17,13 @@ def _vehicle(vehicle_id="bus-1", x=10.0, y=20.0, mode="bus"):
         "speed": 8.5,
     }
     point = Point(x=x, y=y, z=0.0)
-    field = Field()
+    field = Field(association="sample")
     field.name = "speed"
     field.unit = "m/s"
     field.dim = 1
     field.values = np.array([8.5], dtype=np.float32)
     point.fields = [field]
-    vehicle.geometry["location"] = point
+    vehicle.add_geometry(point, "location")
     return vehicle
 
 
@@ -69,6 +69,6 @@ def test_vehicle_collection_protobuf_roundtrip():
     for vehicle in second.vehicles():
         assert vehicle.attributes["mode"] == "bus"
         assert "location" in vehicle.geometry
-        point = vehicle.geometry["location"]
+        point = vehicle.get_geometry("location")
         assert len(point.fields) == 1
         assert point.fields[0].name == "speed"
