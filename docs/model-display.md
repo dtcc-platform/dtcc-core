@@ -53,9 +53,25 @@ or certify compatible coordinate frames.
 Dataset-produced models append metadata, presentation and provenance tables by
 default. All reports are plain text without ANSI codes, treat values as literal
 text rather than Rich markup, and remain visible regardless of logging level.
-`.tree()` remains the explicit recursive hierarchy inspection method. File
-inspection functions returning metadata dictionaries and logging's `info()` keep
-their separate purposes.
+File inspection functions returning metadata dictionaries and logging's `info()`
+keep their separate purposes.
+
+## Hierarchy inspection
+
+```python
+city.tree()                        # Short: objects and geometry attachments
+city.tree(verbose=True)            # Long: also attributes, LoD/role and fields
+city.tree(max_depth=1)             # Root and immediate attachments/children
+city.tree(verbose=True, max_depth=2)
+```
+
+Branches use `├──`, `└──` and `│`, like the filesystem `tree` command. Each model
+uses its compact representation as a label. The default omits attribute values
+and field descriptions; it still traverses the complete object hierarchy.
+For a large city, use `max_depth` to get a shallow overview. The root is depth
+zero; `...` on a label marks descendants hidden by the depth limit. Raster and
+Bounds attachments are leaves. Both modes print plain text and return `None`.
+Long mode includes all object attributes, so it can produce substantial output.
 
 ## Dataset definitions and catalogue
 

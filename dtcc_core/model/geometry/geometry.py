@@ -126,14 +126,3 @@ class Geometry(Model):
     def regions_of(self, semantic_type: str) -> list[SemanticRegion]:
         """Return regions with this exact semantic URI, retaining native arrays."""
         return [region for region in self.regions if region.semantic_type == semantic_type]
-
-    def tree(self, indent="", geometry_type=None):
-        """Print a summary of the geometry including its fields."""
-        if geometry_type is None:
-            print(f"{indent}{self}")
-        else:
-            print(f"{indent}{geometry_type}: {self}")
-        if len(self.fields) > 0:
-            print(f"{indent}  Fields:")
-            for field in self.fields:
-                print(f"{indent}    {field.name} ({field.unit}), {field.description}")
