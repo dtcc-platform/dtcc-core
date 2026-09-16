@@ -7,5 +7,9 @@ footprints = dtcc.datasets.building_footprints(
     bounds=bounds,
     source="LM",
 )
+
+polygons = footprints.to_shapely()
+arrays = footprints.to_arrays()
+
 footprints.info()
 footprints.plot()
