@@ -2,6 +2,8 @@ from ..model import Surface, MultiSurface, Mesh, PointCloud, Raster, Mesh, Volum
 
 from typing import Union
 import numpy as np
+from affine import Affine
+from numbers import Real
 
 from . import _dtcc_builder
 
@@ -90,12 +92,40 @@ def raster_to_builder_gridfield(raster: Raster):
     _dtcc_builder.GridField
         A `DTCC_BUILDER` GridField object.
 
+    Notes
+    -----
+    Accepts a nonempty, single-band, axis-aligned raster with finite real values.
+    Samples lie at pixel centers; native interpolation clamps to the nearest
+    sample at the outer half-pixel margins. Row/column direction is normalized
+    without resampling. Rotation/skew and missing values must be resolved before
+    conversion. Coordinates stay in the raster CRS; the native field has no CRS
+    metadata and performs no reprojection.
+
     """
-    # rasters start in top left corner, gridfields in bottom left
-    # flip the data to match
-    data = np.flipud(raster.data).flatten()
+    if np.ma.isMaskedArray(raster.data) and np.ma.getmaskarray(raster.data).any():
+        raise ValueError("Raster contains masked values; fill missing data before meshing")
+    data = np.asarray(raster.data)
+    if data.ndim != 2 or not all(data.shape):
+        raise ValueError("Native grid conversion requires a nonempty 2D single-band raster")
+    georef = raster.georef
+    if not isinstance(georef, Affine) or not np.isfinite(tuple(georef)).all():
+        raise ValueError("Raster georeference must be a finite affine transform")
+    if georef.b != 0 or georef.d != 0:
+        raise NotImplementedError("Native grid conversion does not support rotated or skewed rasters; reproject first")
+    if georef.a == 0 or georef.e == 0:
+        raise ValueError("Raster pixel spacing must be nonzero")
+    if raster.nodata is not None:
+        if not isinstance(raster.nodata, Real):
+            raise ValueError("Raster nodata must be a real scalar or None")
+        if np.any(data == raster.nodata):
+            raise ValueError("Raster contains nodata values; fill missing data before meshing")
+    # Native samples are ordered from the lower left, independent of storage order.
+    if georef.e < 0:
+        data = data[::-1, :]
+    if georef.a < 0:
+        data = data[:, ::-1]
     return _dtcc_builder.create_gridfield(
-        data,
+        data.ravel(),
         raster.bounds.tuple,
         raster.width,
         raster.height,

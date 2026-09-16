@@ -93,8 +93,12 @@ def _terrain_mesh_regions(
 def adaptive_terrain_mesh(
     data: Union[PointCloud, Raster], max_error: float, raster_size=1, smoothing=0
 ) -> Mesh:
-    """builds an adaptive terrain mesh from a point cloud or raster data. The mesh generates the minimum number of
-    triangles necessary to represent the terrain within a specified error margin, using the Zemlya algorithm."""
+    """Build an adaptive terrain mesh using the Zemlya algorithm.
+
+    Raster inputs must be nonempty 2D arrays with finite values, no missing data,
+    and an axis-aligned georeference with square pixels. Vertices use raster
+    pixel-center coordinates. Reproject rotated rasters and fill nodata first.
+    """
 
     if isinstance(data, PointCloud):
         dem = build_terrain_raster(data, cell_size=raster_size)
@@ -136,6 +140,10 @@ def build_terrain_surface_mesh(
     ----------
     data : Union[PointCloud, Raster]
         Input terrain data to mesh.
+        Rasters must be nonempty 2D arrays with finite values, no missing data,
+        and an axis-aligned georeference. Values are interpolated between pixel
+        centers and clamped to the nearest sample at the outer half-pixel margins.
+        Reproject rotated rasters and fill nodata before meshing.
     subdomains : list[Surface], optional
         List of surface subdomains for varying mesh resolution.
     holes : list[Surface], optional
