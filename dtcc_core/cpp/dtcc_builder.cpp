@@ -10,6 +10,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <cstring>
+#include <type_traits>
 #include <limits>
 #include <set>
 #include <string>
@@ -711,85 +714,196 @@ Polygon create_polygon(py::list vertices, py::list holes)
   return poly;
 }
 
-Mesh create_mesh(py::array_t<double> vertices, py::array_t<size_t> faces, py::array_t<int> markers)
+namespace
+{
+
+py::ssize_t mesh_array_rows(const py::array &array, py::ssize_t width, const char *name)
+{
+  if (array.ndim() == 1 && array.shape(0) == 0)
+    return 0;
+  if (array.ndim() != 2 || array.shape(1) != width)
+    throw py::value_error(std::string(name) + " must have shape (N, " +
+                          std::to_string(width) + ") or (0,)");
+  return array.shape(0);
+}
+
+// NumPy can expose unaligned buffers. memcpy keeps scalar reads safe even when
+// a contiguous typed conversion can reuse the original buffer.
+template <typename T>
+T mesh_array_value(const T *data, py::ssize_t index)
+{
+  T value;
+  std::memcpy(&value, data + index, sizeof(T));
+  return value;
+}
+
+template <typename Copy>
+void copy_integer_mesh_array(const py::array &array, const char *name, Copy copy)
+{
+  const char kind = array.dtype().kind();
+  // Model defaults use empty floating arrays for cells and markers.
+  if (array.size() == 0 && kind == 'f')
+    return;
+  if ((kind != 'i' && kind != 'u') || array.itemsize() > sizeof(std::uint64_t))
+    throw py::value_error(std::string(name) + " must contain integer values");
+  if (array.size() == 0)
+    return;
+  // Widen before checking so neither unsigned overflow nor negative wrapping
+  // can hide invalid input. Typed conversion handles byte order and strides.
+  if (kind == 'i')
+    copy(py::array_t<std::int64_t, py::array::c_style | py::array::forcecast>(array));
+  else
+    copy(py::array_t<std::uint64_t, py::array::c_style | py::array::forcecast>(array));
+}
+
+std::vector<Vector3D> copy_mesh_vertices(const py::array &vertices)
+{
+  const auto count = mesh_array_rows(vertices, 3, "vertices");
+  const char kind = vertices.dtype().kind();
+  if (kind != 'f' && kind != 'i' && kind != 'u')
+    throw py::value_error("vertices must contain finite real coordinates");
+  py::array_t<double, py::array::c_style | py::array::forcecast> values(vertices);
+  std::vector<Vector3D> result;
+  result.reserve(count);
+  for (py::ssize_t i = 0; i < count; ++i)
+  {
+    const double x = mesh_array_value(values.data(), 3 * i);
+    const double y = mesh_array_value(values.data(), 3 * i + 1);
+    const double z = mesh_array_value(values.data(), 3 * i + 2);
+    if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z))
+      throw py::value_error("vertices must contain finite real coordinates");
+    result.emplace_back(x, y, z);
+  }
+  return result;
+}
+
+template <std::size_t Width, typename Simplex>
+std::vector<Simplex> copy_mesh_connectivity(const py::array &array,
+                                           std::size_t num_vertices, const char *name)
+{
+  const auto count = mesh_array_rows(array, Width, name);
+  std::vector<Simplex> result;
+  result.reserve(count);
+  copy_integer_mesh_array(array, name, [&](const auto &values)
+  {
+    for (py::ssize_t i = 0; i < count; ++i)
+    {
+      std::size_t indices[Width];
+      for (std::size_t j = 0; j < Width; ++j)
+      {
+        const auto value = mesh_array_value(values.data(), Width * i + j);
+        if constexpr (std::is_signed_v<decltype(value)>)
+        {
+          if (value < 0)
+            throw py::value_error(std::string(name) + " contains an out-of-range vertex index");
+        }
+        if (static_cast<std::uint64_t>(value) >= num_vertices)
+          throw py::value_error(std::string(name) + " contains an out-of-range vertex index");
+        indices[j] = static_cast<std::size_t>(value);
+      }
+      if constexpr (Width == 3)
+        result.emplace_back(indices[0], indices[1], indices[2]);
+      else
+        result.emplace_back(indices[0], indices[1], indices[2], indices[3]);
+    }
+  });
+  return result;
+}
+
+std::vector<int> copy_mesh_markers(const py::array &markers, std::size_t num_elements)
+{
+  if (markers.ndim() != 1 || (markers.size() != 0 &&
+                              static_cast<std::size_t>(markers.size()) != num_elements))
+    throw py::value_error("markers must be empty or a vector with one integer per face/cell");
+  std::vector<int> result;
+  result.reserve(markers.size());
+  copy_integer_mesh_array(markers, "markers", [&](const auto &values)
+  {
+    for (py::ssize_t i = 0; i < values.size(); ++i)
+    {
+      const auto value = mesh_array_value(values.data(), i);
+      if constexpr (std::is_signed_v<decltype(value)>)
+      {
+        if (value < std::numeric_limits<int>::min())
+          throw py::value_error("markers must fit in a native int");
+      }
+      if (value > std::numeric_limits<int>::max())
+        throw py::value_error("markers must fit in a native int");
+      result.push_back(static_cast<int>(value));
+    }
+  });
+  return result;
+}
+
+} // namespace
+
+Mesh create_mesh(py::array vertices, py::array faces, py::array markers)
 {
   Mesh mesh;
-  auto verts_r = vertices.unchecked<2>();
-  auto faces_r = faces.unchecked<2>();
-  auto markers_r = markers.unchecked<1>();
-  size_t num_vertices = verts_r.shape(0);
-  size_t num_faces = faces_r.shape(0);
-  size_t num_markers = markers_r.size();
-
-  for (size_t i = 0; i < num_vertices; i++)
-  {
-    mesh.vertices.push_back(Vector3D(verts_r(i, 0), verts_r(i, 1), verts_r(i, 2)));
-  }
-
-  for (size_t i = 0; i < num_faces; i++)
-  {
-    mesh.faces.push_back(Simplex2D(faces_r(i, 0), faces_r(i, 1), faces_r(i, 2)));
-  }
-
-  for (size_t i = 0; i < num_markers; i++)
-  {
-    mesh.markers.push_back(markers_r(i));
-  }
-
+  mesh.vertices = copy_mesh_vertices(vertices);
+  mesh.faces = copy_mesh_connectivity<3, Simplex2D>(faces, mesh.vertices.size(), "faces");
+  mesh.markers = copy_mesh_markers(markers, mesh.faces.size());
   return mesh;
 }
 
-VolumeMesh create_volume_mesh(py::array_t<double> vertices, py::array_t<size_t> cells,
-                              py::array_t<int> markers)
+VolumeMesh create_volume_mesh(py::array vertices, py::array cells, py::array markers)
 {
   VolumeMesh mesh;
-  auto verts_r = vertices.unchecked<2>();
-  auto cells_r = cells.unchecked<2>();
-  auto markers_r = markers.unchecked<1>();
-  size_t num_vertices = verts_r.shape(0);
-  size_t num_cells = cells_r.shape(0);
-  size_t num_markers = markers_r.size();
-
-  for (size_t i = 0; i < num_vertices; i++)
-  {
-    mesh.vertices.push_back(Vector3D(verts_r(i, 0), verts_r(i, 1), verts_r(i, 2)));
-  }
-
-  for (size_t i = 0; i < num_cells; i++)
-  {
-    mesh.cells.push_back(Simplex3D(cells_r(i, 0), cells_r(i, 1), cells_r(i, 2), cells_r(i, 3)));
-  }
-
-  for (size_t i = 0; i < num_markers; i++)
-  {
-    mesh.markers.push_back(markers_r(i));
-  }
-
+  mesh.vertices = copy_mesh_vertices(vertices);
+  mesh.cells = copy_mesh_connectivity<4, Simplex3D>(cells, mesh.vertices.size(), "cells");
+  mesh.markers = copy_mesh_markers(markers, mesh.cells.size());
   return mesh;
 }
 
 py::tuple mesh_as_arrays(const Mesh &mesh)
 {
-  py::array_t<double> py_vertices(mesh.vertices.size() * 3);
-  py::array_t<size_t> py_faces(mesh.faces.size() * 3);
-  py::array_t<int> py_markers(mesh.markers.size());
-  for (size_t i = 0; i < mesh.vertices.size(); i++)
+  py::array_t<double> vertices(mesh.vertices.size() * 3);
+  py::array_t<size_t> faces(mesh.faces.size() * 3);
+  py::array_t<int> markers(mesh.markers.size());
+  auto *v = vertices.mutable_data();
+  auto *f = faces.mutable_data();
+  auto *m = markers.mutable_data();
+  for (size_t i = 0; i < mesh.vertices.size(); ++i)
   {
-    py_vertices.mutable_at(i * 3) = mesh.vertices[i].x;
-    py_vertices.mutable_at(i * 3 + 1) = mesh.vertices[i].y;
-    py_vertices.mutable_at(i * 3 + 2) = mesh.vertices[i].z;
+    v[3 * i] = mesh.vertices[i].x;
+    v[3 * i + 1] = mesh.vertices[i].y;
+    v[3 * i + 2] = mesh.vertices[i].z;
   }
-  for (size_t i = 0; i < mesh.faces.size(); i++)
+  for (size_t i = 0; i < mesh.faces.size(); ++i)
   {
-    py_faces.mutable_at(i * 3) = mesh.faces[i].v0;
-    py_faces.mutable_at(i * 3 + 1) = mesh.faces[i].v1;
-    py_faces.mutable_at(i * 3 + 2) = mesh.faces[i].v2;
+    f[3 * i] = mesh.faces[i].v0;
+    f[3 * i + 1] = mesh.faces[i].v1;
+    f[3 * i + 2] = mesh.faces[i].v2;
   }
-  for (size_t i = 0; i < mesh.markers.size(); i++)
+  for (size_t i = 0; i < mesh.markers.size(); ++i)
+    m[i] = mesh.markers[i];
+  return py::make_tuple(vertices, faces, markers);
+}
+
+py::tuple volume_mesh_as_arrays(const VolumeMesh &mesh)
+{
+  py::array_t<double> vertices(mesh.vertices.size() * 3);
+  py::array_t<size_t> cells(mesh.cells.size() * 4);
+  py::array_t<int> markers(mesh.markers.size());
+  auto *v = vertices.mutable_data();
+  auto *c = cells.mutable_data();
+  auto *m = markers.mutable_data();
+  for (size_t i = 0; i < mesh.vertices.size(); ++i)
   {
-    py_markers.mutable_at(i) = mesh.markers[i];
+    v[3 * i] = mesh.vertices[i].x;
+    v[3 * i + 1] = mesh.vertices[i].y;
+    v[3 * i + 2] = mesh.vertices[i].z;
   }
-  return py::make_tuple(py_vertices, py_faces, py_markers);
+  for (size_t i = 0; i < mesh.cells.size(); ++i)
+  {
+    c[4 * i] = mesh.cells[i].v0;
+    c[4 * i + 1] = mesh.cells[i].v1;
+    c[4 * i + 2] = mesh.cells[i].v2;
+    c[4 * i + 3] = mesh.cells[i].v3;
+  }
+  for (size_t i = 0; i < mesh.markers.size(); ++i)
+    m[i] = mesh.markers[i];
+  return py::make_tuple(vertices, cells, markers);
 }
 
 Surface create_surface(py::array_t<double> vertices, py::list holes)
@@ -1142,6 +1256,8 @@ PYBIND11_MODULE(_dtcc_builder, m)
   m.def("create_volume_mesh", &DTCC_BUILDER::create_volume_mesh, "Create C++ volume mesh");
 
   m.def("mesh_as_arrays", &DTCC_BUILDER::mesh_as_arrays, "Create C++ mesh");
+  m.def("volume_mesh_as_arrays", &DTCC_BUILDER::volume_mesh_as_arrays,
+        "Return volume mesh as owning arrays");
 
   m.def("create_gridfield", &DTCC_BUILDER::create_gridfield, "Create C++ grid field");
 
