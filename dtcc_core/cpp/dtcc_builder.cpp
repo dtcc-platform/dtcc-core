@@ -100,8 +100,8 @@ double cross(const BoundaryPoint &a, const BoundaryPoint &b, const BoundaryPoint
   return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
 }
 
-double point_to_segment_distance(const BoundaryPoint &point, const BoundaryPoint &start,
-                                 const BoundaryPoint &end)
+double point_to_line_distance(const BoundaryPoint &point, const BoundaryPoint &start,
+                             const BoundaryPoint &end)
 {
   const double dx = end.x - start.x;
   const double dy = end.y - start.y;
@@ -109,6 +109,21 @@ double point_to_segment_distance(const BoundaryPoint &point, const BoundaryPoint
   if (base <= 1e-12)
     return std::hypot(point.x - start.x, point.y - start.y);
   return std::abs((point.x - start.x) * dy - (point.y - start.y) * dx) / base;
+}
+
+double point_to_segment_distance(const BoundaryPoint &point, const BoundaryPoint &start,
+                                const BoundaryPoint &end)
+{
+  const double dx = end.x - start.x;
+  const double dy = end.y - start.y;
+  const double px = point.x - start.x;
+  const double py = point.y - start.y;
+  const double length_squared = dx * dx + dy * dy;
+  if (length_squared <= 1e-24)
+    return std::hypot(px, py);
+  // Clamp the projection so collinear points beyond an endpoint retain their gap.
+  const double t = std::clamp((px * dx + py * dy) / length_squared, 0.0, 1.0);
+  return std::hypot(px - t * dx, py - t * dy);
 }
 
 bool bbox_is_valid(const BoundaryBBox &bbox)
@@ -352,7 +367,7 @@ int find_short_collinear_vertex(const std::vector<BoundaryPoint> &points, double
     const double next_length = segment_length(point, next_point);
     if (std::min(prev_length, next_length) + 1e-12 >= target_scale)
       continue;
-    const double offset = point_to_segment_distance(point, prev_point, next_point);
+    const double offset = point_to_line_distance(point, prev_point, next_point);
     if (offset <= line_tolerance)
       return static_cast<int>(index);
   }
@@ -397,8 +412,8 @@ std::pair<int, int> find_short_step_pair(const std::vector<BoundaryPoint> &point
     if (ad_bc_cross > parallel_tolerance)
       continue;
 
-    const double step_width = std::max(point_to_segment_distance(b, a, d),
-                                       point_to_segment_distance(c, a, d));
+    const double step_width = std::max(point_to_line_distance(b, a, d),
+                                       point_to_line_distance(c, a, d));
     if (step_width > step_width_tolerance)
       continue;
     return {static_cast<int>(index), static_cast<int>((index + 1) % count)};
