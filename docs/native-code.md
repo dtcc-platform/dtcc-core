@@ -58,3 +58,6 @@ removed. Direct consumers of these private native names must update their code.
 When removing more native code, check both Python callers and internal C++ use,
 then rebuild and exercise the affected public workflows. Python line coverage
 alone does not establish native coverage or prove a binding is unused.
+
+The [issue #38 closeout review](design/cpp-cleanup-issue-38-closeout.md) records
+verification and the remaining unreachable methods inside otherwise active headers.
