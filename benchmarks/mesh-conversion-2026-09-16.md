@@ -50,3 +50,21 @@ The benchmark is a manual diagnostic, not a timing threshold in CI.
 - Full local suite against the final native build: **1,979 passed, 6 skipped,
   66 opt-in live tests deselected**. No live dataset or cross-platform checks ran.
 - Independent code review found no blocking issue; whitespace checks passed.
+
+## Follow-up: coordinate frames and face normals
+
+Native Mesh conversion now copies optional face normals in both directions.
+Direct Mesh/VolumeMesh conversion rejects nonidentity transforms, SRS, fields,
+semantic regions, Dataset Context and schema declarations that native numerical
+objects cannot carry. Python merge/snap operations retain a copy of the frame;
+merging requires identical affine transforms and SRS. Distances remain in local
+units. Merge preserves supplied face normals and computes missing ones when
+needed; snapping recomputes supplied normals and rejects degenerate faces.
+
+The same 100,000-element benchmark after this follow-up measured Mesh input/output
+at 0.786/0.138 ms and VolumeMesh input/output at 0.806/0.158 ms. These cases have
+no normals; they check that metadata admission does not materially regress the
+existing numerical path. Normal transfer adds a linear copy when normals exist.
+
+The rebuilt extension passed 46 focused conversion/metadata tests and the full
+local suite: **1,996 passed, 6 skipped, 66 opt-in live tests deselected**.
