@@ -942,24 +942,18 @@ Surface create_surface(py::array_t<double> vertices, py::list holes)
   return surface;
 }
 
-py::list points_in_polygons(const py::array_t<double> &pts, const std::vector<Polygon> &polygons)
+py::list points_in_polygons(const py::array &pts, const std::vector<Polygon> &polygons)
 {
-  py::list in_polygons;
-  auto pts_r = pts.unchecked<2>();
-  size_t pt_count = pts_r.shape(0);
-  std::vector<Vector3D> pc;
-  for (size_t i = 0; i < pt_count; i++)
-  {
-    pc.push_back(Vector3D(pts_r(i, 0), pts_r(i, 1), pts_r(i, 2)));
-  }
+  auto pc = copy_mesh_vectors(pts, "points");
   auto pips = PointCloudProcessor::points_in_polygons(pc, polygons);
   py::list in_polygons_list;
   for (auto const &pip : pips)
   {
     py::array_t<size_t> indices(pip.size());
+    auto *data = indices.mutable_data();
     for (size_t i = 0; i < pip.size(); i++)
     {
-      indices.mutable_at(i) = pip[i];
+      data[i] = pip[i];
     }
     in_polygons_list.append(indices);
   }

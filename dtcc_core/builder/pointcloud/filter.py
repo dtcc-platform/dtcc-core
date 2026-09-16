@@ -359,6 +359,17 @@ def crop(pc: PointCloud, bounds: Bounds, xy_only=True) -> PointCloud:
     return new_pc
 
 
+def _point_indices_in_polygons(pc: PointCloud, polygons: List[Surface], flatten=True):
+    """Look up source rows once, preserving distinct records at equal coordinates."""
+    builder_polygons = [
+        create_builder_polygon(p.to_polygon()) for p in polygons if p is not None
+    ]
+    groups = _dtcc_builder.points_in_polygons(pc.points, builder_polygons)
+    if flatten:
+        return np.unique(np.concatenate(groups)) if groups else np.empty(0, dtype=np.intp)
+    return groups
+
+
 def points_in_polygons(
     pc: PointCloud, polygons: List[Surface], flatten=True
 ) -> Union[np.ndarray, List[np.ndarray]]:
@@ -372,7 +383,7 @@ def points_in_polygons(
     polygons : List[Surface]
         The polygons to check points against. Checks only the XY coordinates.
     flatten : bool, optional
-        If True, returns a single array of points for all polygons; if False,
+        If True, returns unique coordinates for all polygons; if False,
         returns a list of arrays for each polygon. Default is True.
 
     Returns
@@ -380,20 +391,12 @@ def points_in_polygons(
     numpy.ndarray or List[numpy.ndarray]
         Array of points within the polygons (Nx3), or list of arrays if flatten=False.
     """
-    builder_polygons = [
-        create_builder_polygon(p.to_polygon()) for p in polygons if p is not None
-    ]
-    points = pc.points
-    pip = _dtcc_builder.extract_building_points(
-        builder_polygons,
-        points,
-        False,  # statistical_outlier_remover - disabled for simple point-in-polygon
-        5,      # roof_outlier_neighbors - default value (unused when outlier removal is False)
-        1.0,    # roof_outlier_margin - default value (unused when outlier removal is False)
-    )
+    indices = _point_indices_in_polygons(pc, polygons, flatten=False)
+    points = np.asarray(pc.points, dtype=np.float64).reshape((-1, 3))
+    pip = [points[group] for group in indices]
 
     if flatten:
-        pip = np.unique(np.concatenate(pip), axis=0)
+        return np.unique(np.concatenate(pip), axis=0) if pip else np.empty((0, 3))
 
     return pip
 
@@ -401,6 +404,9 @@ def points_in_polygons(
 def find_points_in_polygons(pc: PointCloud, polygons: List[Surface]) -> PointCloud:
     """
     Filter a point cloud to keep only points within specified polygons.
+
+    Uses XY coordinates. Retains source order, duplicate records and their
+    built-in point attributes. Does not modify the input cloud.
 
     Parameters
     ----------
@@ -414,8 +420,8 @@ def find_points_in_polygons(pc: PointCloud, polygons: List[Surface]) -> PointClo
     PointCloud
         Filtered point cloud.
     """
+    indices = _point_indices_in_polygons(pc, polygons)
     new_pc = pc.copy()
-    indices = points_in_polygons(new_pc, polygons, flatten=True)
     new_pc.keep_points(indices)
     return new_pc
 
@@ -423,6 +429,9 @@ def find_points_in_polygons(pc: PointCloud, polygons: List[Surface]) -> PointClo
 def remove_points_in_polygons(pc: PointCloud, polygons: List[Surface]) -> PointCloud:
     """
     Remove points from a point cloud that are within specified polygons.
+
+    Uses XY coordinates. Retains source order and built-in point attributes
+    for the remaining records. Does not modify the input cloud.
 
     Parameters
     ----------
@@ -436,7 +445,7 @@ def remove_points_in_polygons(pc: PointCloud, polygons: List[Surface]) -> PointC
     PointCloud
         Filtered point cloud with points inside the polygons removed.
     """
+    indices = _point_indices_in_polygons(pc, polygons)
     new_pc = pc.copy()
-    indices = points_in_polygons(new_pc, polygons, flatten=True)
     new_pc.remove_points(indices)
     return new_pc

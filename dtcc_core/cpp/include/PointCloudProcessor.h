@@ -183,10 +183,9 @@ public:
 
   static std::vector<std::vector<size_t>> points_in_polygons(const std::vector<Vector3D> &points, const std::vector<Polygon> &polygons)
   {
-    if (points.empty())
+    if (points.empty() || polygons.empty())
     {
-      warning("empty point cloud");
-      return std::vector<std::vector<size_t>>();
+      return std::vector<std::vector<size_t>>(polygons.size());
     }
 
     typedef KDTreeVectorOfVectorsAdaptor<std::vector<Vector3D>, double,
