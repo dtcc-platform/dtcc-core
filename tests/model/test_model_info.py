@@ -10,7 +10,7 @@ import pytest
 from dtcc_core import model
 from dtcc_core.model import (
     Bounds, Building, City, DatasetCollection, Field, GeometryRepresentation, Mesh, Object,
-    Point, PointCloud, SemanticRegion, SensorCollection, VehicleCollection,
+    Point, PointCloud, Raster, SemanticRegion, SensorCollection, VehicleCollection,
 )
 from dtcc_core.model.model import Model
 
@@ -134,3 +134,51 @@ def test_records_do_not_expand_geometry_or_region_indices():
     assert 'geometry_type=\'Mesh\'' in repr(record)
     assert 'num_elements=10000' in repr(region)
     assert len(repr(record)) < 150 and len(repr(region)) < 150
+
+
+def test_tree_short_and_long_modes_cover_mixed_attachments(capsys):
+    root = Object(id='root', attributes={'note': 'first\nsecond'})
+    child = Object(id='child')
+    dem = Raster(data=np.zeros((2, 3)))
+    extent = Bounds(xmax=3, ymax=2)
+    sample = Point(fields=[Field(name='temperature', unit='°C', description='Air temperature')])
+    child.add_geometry(dem, id='dem', role='elevation')
+    child.add_geometry(extent, id='extent')
+    child.add_geometry(sample, id='sample')
+    root.add_child(child)
+    last = Object(id='last')
+    root.add_child(last)
+
+    assert root.tree() is None
+    assert capsys.readouterr().out.splitlines() == [
+        repr(root),
+        f'├── {child!r}',
+        f"│   ├── 'dem': {dem!r}",
+        f"│   ├── 'extent': {extent!r}",
+        f"│   └── 'sample': {sample!r}",
+        f'└── {last!r}',
+    ]
+
+    assert root.tree(verbose=True) is None
+    text = capsys.readouterr().out
+    assert "├── attribute 'note': 'first\\nsecond'" in text
+    assert "│   ├── 'dem' (role='elevation'): <Raster(" in text
+    assert "│       └── field 'temperature' (°C): Air temperature" in text
+    assert text.endswith(f'└── {last!r}\n')
+
+    root.tree(max_depth=1)
+    assert capsys.readouterr().out.splitlines() == [
+        repr(root), f'├── {child!r} ...', f'└── {last!r}',
+    ]
+    root.tree(max_depth=0)
+    assert capsys.readouterr().out == repr(root) + ' ...\n'
+    dem.tree()
+    assert capsys.readouterr().out == repr(dem) + '\n'
+
+
+def test_tree_rejects_invalid_depth_without_printing(capsys):
+    with pytest.raises(ValueError, match='nonnegative'):
+        Object().tree(max_depth=-1)
+    with pytest.raises(TypeError, match='integer'):
+        Object().tree(max_depth=True)
+    assert capsys.readouterr().out == ''

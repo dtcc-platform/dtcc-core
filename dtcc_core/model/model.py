@@ -31,6 +31,28 @@ class Model(ABC):
     def __str__(self):
         return repr(self)
 
+    def tree(self, indent="", geometry_type=None, *, verbose=False, max_depth=None):
+        """Print the model hierarchy using tree-style branches.
+
+        The default shows objects and geometry attachments. ``verbose=True``
+        adds attributes, attachment metadata and field descriptions.
+        ``max_depth`` limits nesting (root is zero); ``...`` marks omitted
+        descendants. Raster and Bounds attachments are leaves.
+        """
+        from ._display import print_tree
+
+        if not isinstance(verbose, bool):
+            raise TypeError("verbose must be a bool")
+        if max_depth is not None:
+            if isinstance(max_depth, bool) or not isinstance(max_depth, int):
+                raise TypeError("max_depth must be a nonnegative integer or None")
+            if max_depth < 0:
+                raise ValueError("max_depth must be nonnegative")
+        label = repr(self)
+        if geometry_type is not None:
+            label = f"{geometry_type}: {label}"
+        print_tree(self, label, indent=indent, verbose=verbose, max_depth=max_depth)
+
     def _info_sections(self):
         """Detailed report content, formatted and emitted by Model.info."""
         from ..common._display import label, value_text

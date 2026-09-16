@@ -82,6 +82,28 @@ calls. Inspect actual reports and `git diff --check` before committing.
   Existing environment/dependency warnings remain; live provider tests were not
   run. The unrelated history PNG is excluded from the commit.
 
+### Follow-up: flagship tree inspection
+
+The real flagship exposed a pre-existing tree traversal gap: Raster and Bounds
+are valid Object attachments but lacked `tree()`. The shared Model entry point
+now supports both. The user's subsequent request for short and long views is
+implemented by one traversal with filesystem-style branches, replacing the
+separate Object/Geometry printers.
+`tree()` shows structure without attributes or field details;
+`tree(verbose=True)` adds those details and attachment LoD/role metadata.
+`max_depth` optionally limits nesting, with explicit omission markers. Preserve
+Raster/Bounds support, ordinary print/None behavior and existing indent/attachment
+label arguments. No new dependencies or changes to model data.
+
+Status: completed; delivered as a follow-up commit to the original display change.
+All **10 focused tests passed**, covering exact branch layout, the two modes,
+mixed attachments, invalid depth, and the existing synthetic flagship round
+trip. Loading the actual `data/flagship/flagship.dtcc` and exercising all modes
+succeeded: **472 short lines**, **3,524 long lines**, and **92 lines at depth 1**,
+compared with 3,866 lines from the previous printer. The complete short view
+includes the DEM; the long view includes its velocity field descriptions.
+Documentation and the runnable offline example show the new API.
+
 ## Independent-agent handoff
 
 Implement `.agent/plans/2026-09-16-model-display.md` through its checkpoints.
