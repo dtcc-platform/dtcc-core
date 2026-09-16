@@ -1,10 +1,11 @@
 # C++ cleanup — issue #38 closeout review
 
-Reviewed 16 September 2026 at `08f49da` on `develop`.
+Reviewed 16 September 2026 on `develop`, including the final removal pass after
+`b7e01ce`.
 
-**Status: coverage gaps closed; one final dead-code removal pass remains before
-issue #38 is ready to close.** No GitHub issue status or remote branch was changed
-by this review.
+**Status: the reviewed cleanup and local verification are complete; issue #38
+is ready to close within the acceptance boundary below.** No GitHub issue status
+or remote branch was changed by this review.
 
 ## Acceptance boundary
 
@@ -32,69 +33,58 @@ The [native code map](../native-code.md) identifies all 26 retained function
 exports and their Python callers. That map establishes binding use; it does not
 prove every method inside included headers is reachable.
 
-## Findings that prevent closeout
+## Final removal pass
 
-### 1. Remove the unreferenced native mesh-quality header
+The three closeout findings are resolved:
 
-[`MeshQualityMetrics.h`](../../dtcc_core/cpp/include/MeshQualityMetrics.h) is an
-845-line standalone implementation with no include, native binding, or external
-caller in this repository. Neither the default nor Triangle/OpenMP build's
-compiler dependency records contain it. The similarly named tests in
-`tests/model/test_mesh_quality.py` exercise the Python implementation under
-`model/mixins/mesh/quality.py`, not these C++ classes.
+- Deleted the unreferenced `MeshQualityMetrics.h`. It had no include, binding,
+  repository caller or compiler dependency in either build configuration.
+  The public mesh-quality API remains implemented and tested in Python.
+- Deleted `_smooth_mesh` and the `VolumeMesh` smoothing overload from
+  [`VertexSmoother.h`](../../dtcc_core/cpp/include/VertexSmoother.h). Both active
+  `Mesh` overloads remain for MeshBuilder and Zemlya terrain meshing.
+- Trimmed [`PointCloudProcessor.h`](../../dtcc_core/cpp/include/PointCloudProcessor.h)
+  to the four active routines: polygon point selection, statistical outlier
+  finding/removal, and their nearest-neighbor helper. Removed the uncalled
+  global-outlier, duplicate nearest-neighbor, RANSAC, scan-flag, vegetation and
+  normal-estimation code with its exclusive includes and sign helper.
 
-Remove the header; retain the Python quality API and its tests.
-
-### 2. Remove the remaining obsolete smoothing methods
-
-[`VertexSmoother.h`](../../dtcc_core/cpp/include/VertexSmoother.h) still contains
-the unused `_smooth_mesh` implementation and `smooth_mesh(VolumeMesh&, size_t)`
-overload. All retained call sites in MeshBuilder and Zemlya select the surface
-Mesh overloads. Neither obsolete method has a binding or standalone test caller.
-
-Remove these two methods while preserving both active Mesh overloads.
-
-### 3. Trim dead point-cloud routines and finish internal-helper classification
-
-[`PointCloudProcessor.h`](../../dtcc_core/cpp/include/PointCloudProcessor.h) is
-included and active, but contains unreachable global-outlier removal, RANSAC,
-scan-flag, vegetation and normal-estimation routines. The duplicate
-`knn_nearest_neighbours_dist` is uncalled; `knn_nearest_neighbours_idx` serves
-only the unused normal estimator. Matching Python feature names do not call
-these native implementations.
-
-Keep the active closure: `points_in_polygons`, `statistical_outlier_finder`,
-`statistical_outlier_remover`, and `knn_nearest_neighbours`. Remove the dead
-closure and its exclusive includes/helpers. Eigen itself remains needed for
-surface transforms. A lexical scan also found unused candidates in Geometry,
-Utils and model headers; classify their actual callers before deletion rather
-than relying on symbol counts alone.
-
-After this bounded pass, rebuild the extension, exercise point filtering,
-statistical outliers, surface/terrain smoothing and quality workflows, and rerun
-the default suite and strict API checker. Recheck the optional Triangle/OpenMP
-build and source-archive contents because native files will have changed.
+The helper review also removed unreachable distance overloads, convex-hull,
+intersection and tetrahedron-quality calculations from Geometry; unused string,
+filename and random utilities from Utils; and the unbound `Polygon::set_origin`
+and `Vector3D::rotate` methods. Caller and overload inspection preceded deletion.
+Retained algorithm bodies and all 26 native function exports are unchanged.
+Eigen, spatial-search dependencies and both surface triangulators remain needed.
+This pass does not claim that every generic model operator is exercised.
 
 ## Verification evidence
 
-At `08f49da`, macOS ARM64 / Python 3.11.14, using the isolated uv environment
-`/tmp/dtcc-core-volume-env`:
+Final native source, macOS ARM64 / Python 3.11.14, using the isolated uv
+environment `/tmp/dtcc-core-volume-env`:
 
-- Full suite with coverage: **2,041 passed, 6 skipped, 66 deselected** in 66.98 s.
+- Default editable extension rebuilt successfully with the locked `volume` extra.
+- Full suite with coverage: **2,041 passed, 6 skipped, 66 deselected** in 62.68 s.
+  This includes point filtering, statistical outliers, mesh conversion,
+  terrain/surface workflows and the Python mesh-quality tests.
 - Strict API check: **197 modules, 115 functions covered, 0 missed**, exit 0.
-- New tests exercise geometry changes and input preservation, canopy extraction
-  and ground/world coordinates, settings/logging, provider routing, GeoPackage
-  download/cache conversion and failure preservation, cache deletion boundaries,
-  and the live plot polling loop. External HTTP and UI timing use fixtures;
-  caches are temporary. No production implementation changes were needed.
-- Earlier native checks against the current native source passed default and
-  Triangle/OpenMP builds, refinement, batch meshing and invalid-backend rejection.
-- Packaging checks in the preceding build slice passed wheel-from-sdist and a
-  clean installed-wheel workflow without runtime pybind11. They predate the last
-  private-binding/header deletion; do not treat them as a final closeout wheel.
+- Fresh Triangle/OpenMP wheel build passed. Runtime checks passed explicit
+  Triangle refinement, a 32-mesh batch with four OpenMP threads, and rejection of
+  an invalid backend.
+- A fresh source archive built a wheel successfully. All **372 retained tracked
+  native files** match the checkout byte-for-byte, excluding macOS metadata;
+  the deleted quality header is absent. The wheel contains one native extension,
+  no C++ source tree, no runtime pybind11 requirement, and the dependency notices.
+- Installed that wheel in `/tmp/dtcc-cleanup-wheel-env` and ran outside the
+  checkout without pybind11 installed. Mesh/volume conversion and quality,
+  polygon filtering, statistical outliers, terrain meshing with two smoothing
+  iterations, invalid-topology rejection and TetGen availability checks passed.
 
-Local logs from this run: `/tmp/dtcc-api-gaps-tests.log`,
-`/tmp/dtcc-api-gaps-coverage.json`, `/tmp/dtcc-api-gaps-check.log`.
+Local evidence: `/tmp/dtcc-final-cleanup-tests.log`,
+`/tmp/dtcc-final-cleanup-coverage.json`, `/tmp/dtcc-final-cleanup-api.log`,
+`/tmp/dtcc-final-cleanup-build.log`, `/tmp/dtcc-final-cleanup-optional.log`, and
+`/tmp/dtcc-final-cleanup-dist.log`. Local artifacts are under
+`/tmp/dtcc-final-cleanup-dist`; these are verification builds, not releases.
+
 The reference audit is the user's September 15 handoff; its separate detailed
 review/evidence archive was not supplied. Conclusions here are based on the
 current source, repository-wide references, build dependency records and tests.
