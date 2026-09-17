@@ -75,6 +75,9 @@ Every dataset is a `DatasetDescriptor` with:
 The shared API is:
 
 - `dataset(**kwargs)`: validate parameters and return the dataset result.
+- `repr(dataset)` / `str(dataset)`: return the same compact descriptor summary.
+- `dataset.info()`: print description and parameter tables; use `print=False`
+  to return the report as plain text. This replaces parameter help in `str(dataset)`.
 - `dataset.show_options()`: return the Pydantic JSON schema for parameters.
 - `dataset.describe()`: return JSON-safe metadata for Atlas, services, and
   documentation tooling.

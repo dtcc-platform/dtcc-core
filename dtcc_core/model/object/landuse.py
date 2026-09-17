@@ -44,7 +44,7 @@ class LanduseClasses(Enum):
     UNKNOWN = 9999
 
 
-@dataclass
+@dataclass(repr=False)
 class Landuse(Object):
     """
     Represents a land use object with associated land use classifications and geometric surfaces.
@@ -56,6 +56,18 @@ class Landuse(Object):
         landuses (List[LanduseClasses]): A list of land use classes describing how the land is used.
     """
     landuses: List[LanduseClasses] = field(default_factory=list)
+
+    def _summary_items(self):
+        return super()._summary_items() + [("num_landuses", len(self.landuses))]
+
+    def _info_sections(self):
+        from collections import Counter
+
+        sections = super()._info_sections()
+        if self.landuses:
+            counts = Counter(value.name for value in self.landuses)
+            sections.append(("Land use classes", ("Class", "Count"), list(counts.items())))
+        return sections
 
     @property
     def surfaces(self) -> List[Surface]:

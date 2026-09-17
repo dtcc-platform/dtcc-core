@@ -27,6 +27,7 @@ def plot_footprint_cleaning_comparison(
     show: bool = True,
     block: bool = True,
     theme: str = "dark",
+    show_changes: bool = False,
 ):
     """Plot raw and conditioned footprint coverages side by side.
 
@@ -46,6 +47,9 @@ def plot_footprint_cleaning_comparison(
         Whether to call ``matplotlib.pyplot.show()`` before returning.
     block : bool, optional
         Passed through to ``plt.show(block=...)`` when ``show=True``.
+    show_changes : bool, optional
+        Add a third panel showing added and removed coverage. Invalid input
+        polygons use ``make_valid`` only for this difference calculation.
 
     Returns
     -------
@@ -55,7 +59,15 @@ def plot_footprint_cleaning_comparison(
 
     plt = require_matplotlib("footprint cleaning plots")
     theme_values = get_theme(theme)
-    fig, axes = plt.subplots(1, 2, figsize=(12, 6), constrained_layout=True)
+    columns = 3 if show_changes else 2
+    fig, axes = plt.subplots(
+        1,
+        columns,
+        figsize=(6 * columns, 6),
+        constrained_layout=True,
+        sharex=True,
+        sharey=True,
+    )
     for ax in axes:
         apply_dtcc_style(
             ax,
@@ -81,6 +93,41 @@ def plot_footprint_cleaning_comparison(
 
     axes[0].set_title(raw_title)
     axes[1].set_title(cleaned_title)
+    if show_changes:
+        from matplotlib.patches import Patch
+        from shapely import make_valid
+        from shapely.ops import unary_union
+
+        raw_union = unary_union([make_valid(p) for p in raw_polygons])
+        cleaned_union = unary_union(cleaned_polygons)
+        added = cleaned_union.difference(raw_union)
+        removed = raw_union.difference(cleaned_union)
+        plot_polygon_geometries(
+            axes[2],
+            [raw_union.union(cleaned_union)],
+            facecolors=["#7d8590"],
+            edgecolor="#7d8590",
+            alpha=0.25,
+            linewidth=0.3,
+        )
+        legend = []
+        for label, geometry, color in (
+            ("Added", added, "#2ecc71"),
+            ("Removed", removed, "#ff6b6b"),
+        ):
+            plot_polygon_geometries(
+                axes[2],
+                [geometry],
+                facecolors=[color],
+                edgecolor=color,
+                linewidth=0.5,
+                alpha=1.0,
+            )
+            legend.append(
+                Patch(facecolor=color, label=f"{label}: {geometry.area:,.2f} m²")
+            )
+        axes[2].set_title("Coverage changes")
+        axes[2].legend(handles=legend, loc="lower left")
     for ax in axes:
         ax.title.set_color(theme_values["text"])
         ax.title.set_fontweight(600)

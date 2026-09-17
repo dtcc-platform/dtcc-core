@@ -10,7 +10,7 @@ from numbers import Real
 from .object import Object
 
 
-@dataclass
+@dataclass(repr=False)
 class Tree(Object):
     """
     Represents a single tree with minimal geometric attributes.
@@ -25,6 +25,13 @@ class Tree(Object):
     crown_radius : float
         Plan-view radius of the tree crown, in meters.
     """
+
     position: np.ndarray = field(default_factory=lambda: np.empty((0, 3)))
     height: float = 0.0
     crown_radius: float = 0.0
+
+    def _info_sections(self):
+        sections = super()._info_sections()
+        sections[0][2].extend([("Position", str(self.position)),
+                               ("Height", self.height), ("Crown radius", self.crown_radius)])
+        return sections

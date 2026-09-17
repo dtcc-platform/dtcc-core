@@ -81,12 +81,16 @@ All existing `load_*` functions are available directly: `load_model`, `load_city
 `dtcc.model`; other I/O operations remain under `dtcc.io`.
 
 ```python
+print(city)                                 # compact representation
+city.info()                                 # detailed tables and dataset context
 city.plot()                                  # quick 3D Matplotlib inspection
 ax = city.plot(field="velocity", show=False)  # vector magnitudes at their samples
 ```
 
 See [native model previews](docs/model-preview.md) for representation selection,
 supported geometry and preview limitations. Full visualization belongs in DTCC Twin.
+See [model display and inspection](docs/model-display.md) for `repr`, `str`,
+`.info()` and dataset parameter help.
 
 ## Documentation
 

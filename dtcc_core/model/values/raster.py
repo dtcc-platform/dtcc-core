@@ -17,7 +17,7 @@ from ..model import Model
 # FIXME: Make Raster own a Grid that holds Transform and Bounds
 
 
-@dataclass
+@dataclass(repr=False)
 class Raster(Model):
     """
     A georeferenced n-dimensional raster of values.
@@ -44,17 +44,15 @@ class Raster(Model):
     nodata: float = np.nan
     crs: str = ""
 
-    def __str__(self):
-        """
-        Return a string representation of the Raster.
+    def _info_sections(self):
+        sections = super()._info_sections()
+        sections[0][2].extend([("No data", self.nodata), ("Georeference", str(self.georef))])
+        if self.data.ndim >= 2:
+            sections[0][2].append(("Bounds", self.bounds.bndstr))
+        return sections
 
-        Returns
-        -------
-        str
-            A string representation of the Raster.
-
-        """
-        return f"DTCC Raster with {self.data.shape} values"
+    def _summary_items(self):
+        return [("shape", self.data.shape), ("dtype", str(self.data.dtype)), ("crs", self.crs)]
 
     @property
     def shape(self):
