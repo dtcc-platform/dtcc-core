@@ -50,3 +50,31 @@ def test_live_vehicle_plot_prunes_stale_trails():
     assert plotter.trails == {}
     assert plotter.trail_lines == {}
     plt.close(plotter.fig)
+
+
+def test_animate_vehicle_collection_polls_and_returns_updated_plot(monkeypatch):
+    from dtcc_core.plotting.live import animate_vehicle_collection
+
+    fetched = []
+    pauses = []
+
+    def fetch():
+        fetched.append(True)
+        return _vehicles(("bus-1", 1.0, 2.0))
+
+    def pause(interval):
+        pauses.append(interval)
+        plt.close(plt.gcf())
+
+    monkeypatch.setattr(plt, "pause", pause)
+    plotter = animate_vehicle_collection(
+        fetch, interval_s=0.125, bounds=(0, 0, 10, 10), trail_length=3
+    )
+    try:
+        assert fetched == [True]
+        assert pauses == [0.125]
+        assert list(plotter.trails["bus-1"]) == [(1.0, 2.0)]
+        assert plotter.current.get_offsets().tolist() == [[1.0, 2.0]]
+        assert not plt.fignum_exists(plotter.fig.number)
+    finally:
+        plt.close(plotter.fig)

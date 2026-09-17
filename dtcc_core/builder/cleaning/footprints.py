@@ -996,12 +996,12 @@ def _clean_ring_coords(
         if closing_length > closure_tolerance:
             break
 
-        drop_first_cost = _point_to_segment_distance(
+        drop_first_cost = _point_to_line_distance(
             unique[0],
             unique[-1],
             unique[1],
         )
-        drop_last_cost = _point_to_segment_distance(
+        drop_last_cost = _point_to_line_distance(
             unique[-1],
             unique[-2],
             unique[0],
@@ -1056,11 +1056,12 @@ def _clean_polygon_vertices(poly: Polygon, grid: float) -> Polygon | None:
     return cleaned_polygon
 
 
-def _point_to_segment_distance(
+def _point_to_line_distance(
     point: tuple[float, float],
     start: tuple[float, float],
     end: tuple[float, float],
 ) -> float:
+    """Perpendicular offset from the supporting line, used by ring simplification."""
     dx = float(end[0] - start[0])
     dy = float(end[1] - start[1])
     base = float(np.hypot(dx, dy))
@@ -1092,7 +1093,7 @@ def _find_short_collinear_vertex(
         )
         if min(prev_length, next_length) + 1e-12 >= target_scale:
             continue
-        offset = _point_to_segment_distance(point, prev_point, next_point)
+        offset = _point_to_line_distance(point, prev_point, next_point)
         if offset <= line_tolerance:
             return index
     return None
@@ -1139,8 +1140,8 @@ def _find_short_step_pair(
             continue
 
         step_width = max(
-            _point_to_segment_distance(b, a, d),
-            _point_to_segment_distance(c, a, d),
+            _point_to_line_distance(b, a, d),
+            _point_to_line_distance(c, a, d),
         )
         if step_width > step_width_tolerance:
             continue

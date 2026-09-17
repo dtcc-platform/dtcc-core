@@ -12,7 +12,7 @@ from .transform import Transform
 from .semantic_region import SemanticRegion
 
 
-@dataclass
+@dataclass(repr=False)
 class Geometry(Model):
     """Base class for all geometry classes.
 
@@ -40,6 +40,35 @@ class Geometry(Model):
     transform: Transform = field(default_factory=Transform)
     fields: list[Field] = field(default_factory=list)
     regions: list[SemanticRegion] = field(default_factory=list, kw_only=True)
+
+    def _summary_items(self):
+        items = [("num_fields", len(self.fields))]
+        if self.regions:
+            items.append(("num_regions", len(self.regions)))
+        return items
+
+    def _info_sections(self):
+        from dataclasses import fields
+        import numpy as np
+        from .._display import field_section
+
+        sections = super()._info_sections()
+        sections[0][2].extend([("Bounds (local)", self.bounds.bndstr),
+                               ("CRS", self.transform.srs or "Not specified"),
+                               ("Transform", "Identity" if np.array_equal(self.transform.affine, np.eye(4))
+                                else str(self.transform.affine))])
+        arrays = [(f.name, value.shape, value.dtype) for f in fields(self)
+                  if not f.name.startswith("_")
+                  and isinstance(value := getattr(self, f.name), np.ndarray)]
+        if arrays:
+            sections.append(("Arrays", ("Name", "Shape", "Type"), arrays))
+        if self.fields:
+            sections.append(field_section(self.fields))
+        if self.regions:
+            sections.append(("Semantic regions", ("Type", "ID", "Elements", "Parent"),
+                             [(r.semantic_type, r.id, len(r.indices), r.parent)
+                              for r in self.regions]))
+        return sections
 
     @abstractmethod
     def calculate_bounds(self):
@@ -97,14 +126,3 @@ class Geometry(Model):
     def regions_of(self, semantic_type: str) -> list[SemanticRegion]:
         """Return regions with this exact semantic URI, retaining native arrays."""
         return [region for region in self.regions if region.semantic_type == semantic_type]
-
-    def tree(self, indent="", geometry_type=None):
-        """Print a summary of the geometry including its fields."""
-        if geometry_type is None:
-            print(f"{indent}{self}")
-        else:
-            print(f"{indent}{geometry_type}: {self}")
-        if len(self.fields) > 0:
-            print(f"{indent}  Fields:")
-            for field in self.fields:
-                print(f"{indent}    {field.name} ({field.unit}), {field.description}")

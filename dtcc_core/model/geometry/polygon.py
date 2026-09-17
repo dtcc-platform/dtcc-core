@@ -5,7 +5,7 @@ from shapely.geometry import Polygon as ShapelyPolygon
 import numpy as np
 
 
-@dataclass
+@dataclass(repr=False)
 class Polygon(Geometry):
     geom: ShapelyPolygon = field(default_factory=ShapelyPolygon)
 

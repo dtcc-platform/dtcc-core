@@ -12,8 +12,6 @@ import numpy as np
 import dtcc_core as dtcc
 
 from benchmarks.benchmark_catalog import DATASET_NAMES
-from dtcc_core.datasets.city_footprints import CityFootprintsDataset
-
 
 BLOCKED_PARAMETER_NAMES = {"bounds", "strict_live", "mesher"}
 
@@ -42,9 +40,7 @@ WARNING_FAILURE_CLASSES = {
     "stage_contract_warning",
 }
 
-TERRAIN_ONLY_CONDITIONED_FOOTPRINTS_WARNING = (
-    "No conditioned building footprints remain; downstream meshing will run terrain-only."
-)
+TERRAIN_ONLY_CONDITIONED_FOOTPRINTS_WARNING = "No conditioned building footprints remain; downstream meshing will run terrain-only."
 CONDITIONED_FOOTPRINT_WARNING_STAGES = {"contract", "conditioned_footprints"}
 MESH_QUALITY_WARNING_STAGES = {
     "ground_mesh",
@@ -57,16 +53,6 @@ WARNING_CLASS_PRIORITY = (
     "conditioned_footprint_warning",
     "stage_contract_warning",
 )
-
-_INTERNAL_DATASETS = {
-    "city_footprints": CityFootprintsDataset(),
-}
-
-
-def _dataset_descriptor(dataset_name: str):
-    if dataset_name in _INTERNAL_DATASETS:
-        return _INTERNAL_DATASETS[dataset_name]
-    return getattr(dtcc.datasets, dataset_name)
 
 
 def json_ready(value: Any) -> Any:
@@ -82,7 +68,7 @@ def json_ready(value: Any) -> Any:
 
 
 def dataset_parameters(dataset_name: str, parameters: dict[str, Any]) -> dict[str, Any]:
-    dataset_fn = _dataset_descriptor(dataset_name)
+    dataset_fn = getattr(dtcc.datasets, dataset_name)
     fields = set(dataset_fn.ArgsModel.model_fields)
     aliases = DATASET_PARAMETER_ALIASES.get(dataset_name, {})
     kwargs: dict[str, Any] = {}
@@ -99,7 +85,10 @@ def _marker_histogram(markers: Any) -> dict[str, int]:
     array = np.asarray(markers)
     if array.size == 0:
         return {}
-    return {str(key): int(value) for key, value in Counter(array.astype(int).tolist()).items()}
+    return {
+        str(key): int(value)
+        for key, value in Counter(array.astype(int).tolist()).items()
+    }
 
 
 def _building_face_count(markers: Any) -> int | None:
@@ -113,9 +102,15 @@ def _building_face_count(markers: Any) -> int | None:
 
 def _mesh_metrics(mesh: Any) -> dict[str, Any]:
     metrics: dict[str, Any] = {
-        "num_vertices": int(getattr(mesh, "num_vertices", 0) or len(getattr(mesh, "vertices", []))),
-        "num_faces": int(getattr(mesh, "num_faces", 0) or len(getattr(mesh, "faces", []))),
-        "num_cells": int(getattr(mesh, "num_cells", 0) or len(getattr(mesh, "cells", []))),
+        "num_vertices": int(
+            getattr(mesh, "num_vertices", 0) or len(getattr(mesh, "vertices", []))
+        ),
+        "num_faces": int(
+            getattr(mesh, "num_faces", 0) or len(getattr(mesh, "faces", []))
+        ),
+        "num_cells": int(
+            getattr(mesh, "num_cells", 0) or len(getattr(mesh, "cells", []))
+        ),
     }
     markers = getattr(mesh, "markers", None)
     boundary_markers = getattr(mesh, "boundary_markers", None)
@@ -123,13 +118,23 @@ def _mesh_metrics(mesh: Any) -> dict[str, Any]:
     metrics["boundary_marker_histogram"] = _marker_histogram(boundary_markers)
     metrics["building_faces"] = _building_face_count(markers)
     if hasattr(mesh, "quality"):
-        try:
-            metrics["quality"] = json_ready(mesh.quality())
-        except Exception as exc:
-            metrics["quality_error"] = {
-                "type": type(exc).__name__,
-                "message": str(exc),
-            }
+        metrics["quality"] = json_ready(mesh.quality())
+    from dtcc_core.model.mixins.mesh.quality import (
+        tri_element_quality,
+        tet_element_quality,
+    )
+
+    if metrics["num_cells"]:
+        qualities = tet_element_quality(mesh.vertices, mesh.cells)
+    else:
+        qualities = tri_element_quality(mesh.vertices, mesh.faces)
+    if not len(qualities) or not np.isfinite(qualities).all():
+        raise ValueError("Mesh quality requires nonempty, finite element qualities")
+    metrics["degenerate_cell_count"] = int(np.count_nonzero(qualities <= 0))
+    metrics["element_quality_p01"] = float(np.percentile(qualities, 1))
+    metrics["element_quality_below_0_02_count"] = int(
+        np.count_nonzero(qualities < 0.02)
+    )
     stage_audit = getattr(mesh, "stage_audit", None)
     if stage_audit is not None:
         metrics["stage_audit"] = json_ready(stage_audit)
@@ -180,9 +185,8 @@ def _metric_contract_warnings(metrics: dict[str, Any]) -> list[dict[str, Any]]:
         return warnings
 
     selected_attempt_index = stage_audit.get("selected_attempt_index")
-    if (
-        isinstance(selected_attempt_index, int)
-        and 0 <= selected_attempt_index < len(attempts)
+    if isinstance(selected_attempt_index, int) and 0 <= selected_attempt_index < len(
+        attempts
     ):
         attempts_to_check = [attempts[selected_attempt_index]]
     else:
@@ -276,61 +280,12 @@ def _warning_error_payload(
     }
 
 
-def _footprint_metrics(footprints: Any) -> dict[str, Any]:
-    source_map = getattr(footprints, "source_map", []) or []
-    source_sizes = [len(indices) for indices in source_map]
-    return {
-        "footprint_count": int(len(getattr(footprints, "footprints", []) or [])),
-        "polygon_count": int(len(getattr(footprints, "polygons", []) or [])),
-        "source_map_count": int(len(source_map)),
-        "source_map_max_size": int(max(source_sizes) if source_sizes else 0),
-        "diagnostics": json_ready(getattr(footprints, "diagnostics", {}) or {}),
-        "contract": json_ready(getattr(footprints, "contract", {}) or {}),
-    }
-
-
-def _write_footprint_geojson(footprints: Any, path: Path) -> None:
-    from shapely.geometry import mapping
-
-    source_map = getattr(footprints, "source_map", []) or []
-    subdomain_resolution = getattr(footprints, "subdomain_resolution", []) or []
-    features = []
-    for index, polygon in enumerate(getattr(footprints, "polygons", []) or []):
-        source_indices = source_map[index] if index < len(source_map) else []
-        feature = {
-            "type": "Feature",
-            "geometry": mapping(polygon),
-            "properties": {
-                "id": index,
-                "source_indices": list(source_indices),
-                "source_count": len(source_indices),
-            },
-        }
-        if index < len(subdomain_resolution):
-            feature["properties"]["subdomain_resolution"] = subdomain_resolution[index]
-        features.append(feature)
-
-    payload = {
-        "type": "FeatureCollection",
-        "features": features,
-        "metadata": {
-            "diagnostics": json_ready(getattr(footprints, "diagnostics", {}) or {}),
-            "contract": json_ready(getattr(footprints, "contract", {}) or {}),
-        },
-    }
-    path.write_text(json.dumps(json_ready(payload), indent=2, sort_keys=True) + "\n", encoding="utf-8")
-
-
-def _save_result_artifacts(dataset_name: str, result: Any, artifact_dir: Path) -> dict[str, dict[str, str]]:
+def _save_result_artifacts(
+    dataset_name: str, result: Any, artifact_dir: Path
+) -> dict[str, dict[str, str]]:
     artifact_dir.mkdir(parents=True, exist_ok=True)
     artifact_format = ARTIFACT_FORMATS[dataset_name]
     artifacts: dict[str, dict[str, str]] = {}
-
-    if dataset_name == "city_footprints":
-        path = artifact_dir / f"footprints.{artifact_format}"
-        _write_footprint_geojson(result, path)
-        artifacts["footprints"] = {"format": artifact_format, "path": str(path)}
-        return artifacts
 
     stem = "volume_mesh" if dataset_name == "city_volume_mesh" else "mesh"
     path = artifact_dir / f"{stem}.{artifact_format}"
@@ -363,6 +318,8 @@ def classify_failure(exc_type: str, message: str) -> str:
         or "failed to download footprint tile" in text
     ):
         return "footprint_download"
+    if "las classification" in text:
+        return "lidar_input"
     if "lidar" in text and (
         "404" in text
         or "not found" in text
@@ -370,14 +327,11 @@ def classify_failure(exc_type: str, message: str) -> str:
         or "no lidar tiles intersect" in text
     ):
         return "lidar_coverage"
-    if (
-        "lidar" in text
-        and (
-            "connectionerror" in text
-            or "max retries exceeded" in text
-            or "failed to establish" in text
-            or "get_lidar" in text
-        )
+    if "lidar" in text and (
+        "connectionerror" in text
+        or "max retries exceeded" in text
+        or "failed to establish" in text
+        or "get_lidar" in text
     ):
         return "lidar_download"
     if (
@@ -405,78 +359,116 @@ def result_status_for_failure(failure_class: str) -> str:
 
 
 def run_dataset(task: dict[str, Any]) -> dict[str, Any]:
+    from benchmarks.benchmark_phases import execute_phases, write_json
+
     dataset_name = task["dataset"]
     if dataset_name not in DATASET_NAMES:
         raise ValueError(f"unknown benchmark dataset: {dataset_name}")
-
-    bounds = task["case"]["bounds"]
-    parameters = dict(task.get("parameters", {}))
-    kwargs = dataset_parameters(dataset_name, parameters)
-
+    parameters = dict(task["parameters"])
+    metrics, artifacts = {}, {}
+    result_record = {
+        "task_id": task["id"],
+        "dataset": dataset_name,
+        "case": task["case"],
+        "scenario": task["scenario"],
+        "bounds": task["case"]["bounds"],
+        "parameters": parameters,
+        "metrics": metrics,
+        "artifacts": artifacts,
+        "phase": task.get("phase", "both"),
+    }
     started = time.perf_counter()
     try:
-        dataset_fn = _dataset_descriptor(dataset_name)
-        result = dataset_fn(bounds=bounds, **kwargs)
-        elapsed = time.perf_counter() - started
-
-        if dataset_name == "city_footprints":
-            metrics = _footprint_metrics(result)
+        if dataset_name == "terrain_surface_mesh":
+            metrics["active_phase"] = "terrain_dataset"
+            result = getattr(dtcc.datasets, dataset_name)(
+                bounds=task["case"]["bounds"],
+                **dataset_parameters(dataset_name, parameters),
+            )
+            metrics.update(_mesh_metrics(result))
+            metrics["meshing"] = {
+                "status": "success",
+                "seconds": time.perf_counter() - started,
+                "includes_input_preparation": True,
+                **metrics.copy(),
+            }
         else:
-            metrics = _mesh_metrics(result)
-        contract_warnings = _metric_contract_warnings(metrics)
-        status_warnings, informational_warnings = _split_contract_warnings(
-            contract_warnings
+            result = execute_phases(task, metrics, artifacts)
+        if "cleaning" in metrics and "contract" in metrics["cleaning"]:
+            metrics["contract"] = metrics["cleaning"]["contract"]
+        status_warnings, informational = _split_contract_warnings(
+            _metric_contract_warnings(metrics)
         )
-        if status_warnings or informational_warnings:
-            metrics = dict(metrics)
+        if metrics.get("degenerate_cell_count", 0):
+            status_warnings.append(
+                {
+                    "stage": "ground_mesh",
+                    "status": "warning",
+                    "message": f"Final mesh contains {metrics['degenerate_cell_count']} degenerate cells",
+                }
+            )
         if status_warnings:
+            for warning in status_warnings:
+                phase = (
+                    "cleaning"
+                    if warning["stage"] in CONDITIONED_FOOTPRINT_WARNING_STAGES
+                    else "meshing"
+                )
+                if metrics.get(phase, {}).get("status") == "success":
+                    metrics[phase]["status"] = "warning"
             metrics["stage_contract_warnings"] = status_warnings
-        if informational_warnings:
-            metrics["informational_stage_warnings"] = informational_warnings
+        if informational:
+            metrics["informational_stage_warnings"] = informational
         warning_error = _warning_error_payload(status_warnings)
-        artifacts = {}
-        artifact_dir = task.get("artifact_dir")
-        if artifact_dir:
-            artifacts = _save_result_artifacts(dataset_name, result, Path(artifact_dir))
-
-        return {
-            "task_id": task["id"],
-            "dataset": dataset_name,
-            "case": task["case"],
-            "scenario": task["scenario"],
-            "status": "warning" if warning_error is not None else "success",
-            "elapsed_seconds": round(elapsed, 3),
-            "bounds": bounds,
-            "parameters": kwargs,
-            "metrics": json_ready(metrics),
-            "artifacts": artifacts,
-            "error": warning_error,
-        }
+        result_record.update(
+            status="warning" if warning_error else "success", error=warning_error
+        )
+        metrics.pop("active_phase", None)
+        # Optional presentation/export cannot erase completed phase results.
+        if task.get("artifact_dir") and result is not None:
+            try:
+                artifacts.update(
+                    _save_result_artifacts(
+                        dataset_name, result, Path(task["artifact_dir"])
+                    )
+                )
+            except Exception as exc:
+                result_record.update(
+                    status="warning",
+                    error={
+                        "type": type(exc).__name__,
+                        "message": str(exc),
+                        "failure_class": "artifact_export",
+                        "severity": "warning",
+                    },
+                )
     except Exception as exc:
-        elapsed = time.perf_counter() - started
-        exc_type = type(exc).__name__
-        message = str(exc)
-        failure_class = classify_failure(exc_type, message)
-        status = result_status_for_failure(failure_class)
-        return {
-            "task_id": task["id"],
-            "dataset": dataset_name,
-            "case": task["case"],
-            "scenario": task["scenario"],
-            "status": status,
-            "elapsed_seconds": round(elapsed, 3),
-            "bounds": bounds,
-            "parameters": kwargs,
-            "metrics": {},
-            "artifacts": {},
-            "error": {
-                "type": exc_type,
-                "message": message,
+        failure_phase = metrics.pop("active_phase", "input")
+        failure_class = classify_failure(type(exc).__name__, str(exc))
+        metrics.setdefault(failure_phase, {}).update(status="failed", error=str(exc))
+        result_record.update(
+            status=result_status_for_failure(failure_class),
+            error={
+                "type": type(exc).__name__,
+                "message": str(exc),
+                "phase": failure_phase,
                 "failure_class": failure_class,
-                "severity": "warning" if status == "warning" else "error",
+                "severity": (
+                    "warning"
+                    if result_status_for_failure(failure_class) == "warning"
+                    else "error"
+                ),
                 "traceback": traceback.format_exc(),
             },
-        }
+        )
+    result_record["elapsed_seconds"] = round(time.perf_counter() - started, 3)
+    for phase in ("cleaning", "meshing"):
+        if phase in metrics:
+            write_json(
+                Path(task["task_dir"]) / phase / "metrics.json",
+                json_ready(metrics[phase]),
+            )
+    return json_ready(result_record)
 
 
 def result_to_line(result: dict[str, Any]) -> str:

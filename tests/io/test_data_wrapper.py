@@ -138,3 +138,20 @@ def test_load_cached_footprints_accepts_empty_result_when_adjacent_tiles_cover_b
         [str(left_tile), str(right_tile)],
         bounds=bounds,
     )
+
+
+@pytest.mark.parametrize("name,provider,data_type,expected_provider", [
+    ("download_pointcloud", "DTCC", "lidar", "dtcc"),
+    ("download_footprints", "dtcc", "footprints", "dtcc"),
+    ("download_footprints", "osm", "footprints", "OSM"),
+])
+def test_public_download_helpers_forward_bounds_crs_and_provider(
+    name, provider, data_type, expected_provider
+):
+    bounds = Bounds(100, 200, 110, 220)
+    downloaded = object()
+    with patch.object(wrapper, "download_data", return_value=downloaded) as download:
+        assert getattr(wrapper, name)(bounds, provider, epsg="3021") is downloaded
+    download.assert_called_once_with(data_type, expected_provider, bounds, epsg="3021")
+    with pytest.raises(RuntimeError, match="valid provider"):
+        getattr(wrapper, name)(bounds, provider="unsupported")

@@ -148,7 +148,7 @@ def make_building(
 
 def _fake_tetgen_switch_defaults() -> dict:
     # Stand-in for dtcc_tetgen_wrapper.switches.tetgen_defaults() so tests that
-    # mock is_tetgen_available() also run where TetGen is not installed (CI).
+    # mock _require_tetgen() also run where TetGen is not installed (CI).
     return {
         "plc": True,
         "preserve_surface": False,
@@ -2739,7 +2739,7 @@ def test_build_city_volume_mesh_uses_shared_surface_pipeline(monkeypatch):
         "_build_city_surface_mesh_from_ground_mesh",
         fake_build_surface_from_ground,
     )
-    monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
+    monkeypatch.setattr(meshes_module, "_require_tetgen", lambda: None)
     monkeypatch.setattr(
         meshes_module, "get_default_tetgen_switches", _fake_tetgen_switch_defaults
     )
@@ -2909,7 +2909,7 @@ def test_build_city_volume_mesh_stage_audit_records_stage_contracts(monkeypatch)
         "build_tetgen_plc",
         lambda mesh, *args, **kwargs: _fake_prebuilt_tetgen_plc(mesh),
     )
-    monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
+    monkeypatch.setattr(meshes_module, "_require_tetgen", lambda: None)
     monkeypatch.setattr(
         meshes_module, "get_default_tetgen_switches", _fake_tetgen_switch_defaults
     )
@@ -3399,7 +3399,7 @@ def test_build_city_volume_mesh_keeps_requested_tetgen_switches(monkeypatch):
         "build_tetgen_plc",
         lambda mesh, *args, **kwargs: _fake_prebuilt_tetgen_plc(mesh),
     )
-    monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
+    monkeypatch.setattr(meshes_module, "_require_tetgen", lambda: None)
     monkeypatch.setattr(
         meshes_module, "get_default_tetgen_switches", _fake_tetgen_switch_defaults
     )
@@ -3552,7 +3552,7 @@ def test_build_city_volume_mesh_uses_split_surface_default_without_flat_special_
         "build_tetgen_plc",
         lambda mesh, *args, **kwargs: _fake_prebuilt_tetgen_plc(mesh),
     )
-    monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
+    monkeypatch.setattr(meshes_module, "_require_tetgen", lambda: None)
     monkeypatch.setattr(
         meshes_module, "get_default_tetgen_switches", _fake_tetgen_switch_defaults
     )
@@ -3708,7 +3708,7 @@ def test_build_city_volume_mesh_allows_empty_conditioned_footprints(monkeypatch)
         "build_tetgen_plc",
         lambda mesh, *args, **kwargs: _fake_prebuilt_tetgen_plc(mesh),
     )
-    monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
+    monkeypatch.setattr(meshes_module, "_require_tetgen", lambda: None)
     monkeypatch.setattr(
         meshes_module, "get_default_tetgen_switches", _fake_tetgen_switch_defaults
     )
@@ -3845,7 +3845,7 @@ def test_build_city_volume_mesh_respects_explicit_tetgen_switches_for_dtcc_meshe
         "build_tetgen_plc",
         lambda mesh, *args, **kwargs: _fake_prebuilt_tetgen_plc(mesh),
     )
-    monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
+    monkeypatch.setattr(meshes_module, "_require_tetgen", lambda: None)
     monkeypatch.setattr(
         meshes_module, "get_default_tetgen_switches", _fake_tetgen_switch_defaults
     )
@@ -3994,7 +3994,7 @@ def test_build_city_volume_mesh_saves_tetgen_debug_meshes(monkeypatch, tmp_path)
         lambda mesh, *args, **kwargs: _fake_prebuilt_tetgen_plc(mesh),
     )
     monkeypatch.setattr(meshes_module, "_save_tetgen_debug_meshes", fake_save_debug_meshes)
-    monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
+    monkeypatch.setattr(meshes_module, "_require_tetgen", lambda: None)
     monkeypatch.setattr(
         meshes_module, "get_default_tetgen_switches", _fake_tetgen_switch_defaults
     )
@@ -4348,7 +4348,7 @@ def test_build_city_volume_mesh_captures_quality_failure_artifacts(monkeypatch, 
         "build_tetgen_plc",
         lambda mesh, *args, **kwargs: _fake_prebuilt_tetgen_plc(mesh),
     )
-    monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
+    monkeypatch.setattr(meshes_module, "_require_tetgen", lambda: None)
     monkeypatch.setattr(
         meshes_module, "get_default_tetgen_switches", _fake_tetgen_switch_defaults
     )
@@ -4506,7 +4506,7 @@ def test_build_city_volume_mesh_ignores_quality_failure_capture_errors(
         "build_tetgen_plc",
         lambda mesh, *args, **kwargs: _fake_prebuilt_tetgen_plc(mesh),
     )
-    monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
+    monkeypatch.setattr(meshes_module, "_require_tetgen", lambda: None)
     monkeypatch.setattr(
         meshes_module, "get_default_tetgen_switches", _fake_tetgen_switch_defaults
     )
@@ -4714,7 +4714,7 @@ def test_build_city_volume_mesh_uses_refined_shell_without_retry(
         "build_tetgen_plc",
         lambda mesh, *args, **kwargs: _fake_prebuilt_tetgen_plc(mesh),
     )
-    monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
+    monkeypatch.setattr(meshes_module, "_require_tetgen", lambda: None)
     monkeypatch.setattr(
         meshes_module, "get_default_tetgen_switches", _fake_tetgen_switch_defaults
     )
@@ -4897,7 +4897,7 @@ def test_build_city_volume_mesh_keeps_shell_refinement_enabled_when_preserving_s
         "build_tetgen_plc",
         lambda mesh, *args, **kwargs: _fake_prebuilt_tetgen_plc(mesh),
     )
-    monkeypatch.setattr(meshes_module, "is_tetgen_available", lambda: True)
+    monkeypatch.setattr(meshes_module, "_require_tetgen", lambda: None)
     monkeypatch.setattr(
         meshes_module, "get_default_tetgen_switches", _fake_tetgen_switch_defaults
     )
@@ -5209,8 +5209,33 @@ def test_legacy_building_wrappers_still_return_buildings():
     assert simplified and simplified_map
 
 
+def test_volume_mesh_requires_tetgen_before_preparation(monkeypatch):
+    from dtcc_core.builder.meshing import tetgen
+    from dtcc_core.datasets.city_volume_mesh import CityVolumeMeshDataset
+
+    cause = ImportError("native TetGen library could not load")
+    monkeypatch.setattr(tetgen, "HAS_TETGEN", False)
+    monkeypatch.setattr(tetgen, "_tetgen_import_error", cause)
+
+    def unexpected_preparation(*args, **kwargs):
+        pytest.fail("Geometry preparation ran without TetGen")
+
+    monkeypatch.setattr(meshes_module, "_prepare_city_meshing_inputs", unexpected_preparation)
+    city = City()
+    for invoke in (
+        lambda: build_city_volume_mesh(city),
+        lambda: city.build_volume_mesh(),
+        lambda: CityVolumeMeshDataset().build_from_city(city, bounds=(0, 0, 1, 1)),
+        lambda: tetgen.build_volume_mesh(Mesh()),
+    ):
+        with pytest.raises(ImportError, match="uv sync --extra volume") as exc:
+            invoke()
+        assert exc.value.__cause__ is cause
+
+
 @pytest.mark.skipif(not is_tetgen_available(), reason="TetGen is not available")
-def test_build_city_volume_mesh_smoke():
+@pytest.mark.parametrize("entry_point", ["builder", "dataset"])
+def test_build_city_volume_mesh_smoke(entry_point):
     city = make_flat_city(
         [
             make_building(box(10, 10, 18, 18), roof_z=10.0),
@@ -5218,8 +5243,7 @@ def test_build_city_volume_mesh_smoke():
         ]
     )
 
-    volume_mesh = build_city_volume_mesh(
-        city,
+    kwargs = dict(
         lod=GeometryType.LOD0,
         domain_height=40.0,
         max_mesh_size=8.0,
@@ -5227,14 +5251,32 @@ def test_build_city_volume_mesh_smoke():
         merge_buildings=True,
         min_building_detail=0.0,
         min_building_area=1.0,
-        merge_tolerance=0.0,
         smoothing=0,
-        boundary_face_markers=False,
+        boundary_face_markers=True,
         report_mesh_quality=False,
     )
 
+    if entry_point == "builder":
+        volume_mesh = build_city_volume_mesh(city, **kwargs)
+    else:
+        from dtcc_core.datasets.city_volume_mesh import CityVolumeMeshDataset
+
+        volume_mesh = CityVolumeMeshDataset().build_from_city(
+            city, bounds=(0, 0, 80, 80), **kwargs
+        )
+
     assert volume_mesh.vertices.shape[0] > 0
+    assert np.isfinite(volume_mesh.vertices).all()
     assert volume_mesh.cells.shape[0] > 0
+    assert volume_mesh.cells.shape[1] == 4
+    assert volume_mesh.cells.min() >= 0
+    assert volume_mesh.cells.max() < len(volume_mesh.vertices)
+    tetrahedra = volume_mesh.vertices[volume_mesh.cells]
+    volumes = np.abs(np.linalg.det(tetrahedra[:, 1:] - tetrahedra[:, :1])) / 6
+    assert (volumes > 0).all()
+    assert volume_mesh.boundary_faces.shape[1] == 3
+    assert len(volume_mesh.boundary_faces) == len(volume_mesh.boundary_markers)
+    assert set(range(-6, 0)).issubset(set(volume_mesh.boundary_markers))
 
 
 @pytest.mark.skipif(not is_tetgen_available(), reason="TetGen is not available")
@@ -5262,3 +5304,27 @@ def test_build_city_volume_mesh_smoke_auto_lod_resolution():
 
     assert volume_mesh.vertices.shape[0] > 0
     assert volume_mesh.cells.shape[0] > 0
+
+
+@pytest.mark.skipif(not is_tetgen_available(), reason="TetGen is not available")
+def test_city_volume_mesh_propagates_tetgen_failure(monkeypatch):
+    city = make_flat_city([make_building(box(10, 10, 18, 18), roof_z=10.0)])
+    failure = RuntimeError("TetGen meshing failed")
+    calls = []
+    stage_audit = {}
+
+    def fail_tetgen(**kwargs):
+        calls.append(kwargs)
+        raise failure
+
+    monkeypatch.setattr(meshes_module, "tetgen_build_volume_mesh", fail_tetgen)
+    with pytest.raises(RuntimeError, match="TetGen meshing failed") as exc:
+        build_city_volume_mesh(
+            city, lod=GeometryType.LOD0, max_mesh_size=8.0, domain_height=40.0,
+            min_building_detail=0.0, min_building_area=1.0,
+            report_mesh_quality=False, stage_audit=stage_audit,
+        )
+    assert exc.value is failure
+    assert len(calls) == 1
+    assert len(stage_audit["attempts"]) == 1
+    assert stage_audit["attempts"][0]["result"]["status"] == "failed"

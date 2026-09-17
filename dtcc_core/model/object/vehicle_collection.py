@@ -21,7 +21,7 @@ from ...plotting.style import (
 )
 
 
-@dataclass
+@dataclass(repr=False)
 class VehicleCollection(Object):
     """Represents a live snapshot of public transport vehicles.
 
@@ -29,6 +29,34 @@ class VehicleCollection(Object):
     the latest known location and metadata such as route, line, mode, provider,
     speed, bearing, and timestamp stored in attributes.
     """
+
+    def _info_sections(self):
+        sections = super()._info_sections()
+        vehicles = self.vehicles()
+        errors = self.attributes.get("upstream_errors") or []
+        if errors:
+            sections.append(("Upstream errors", ("Failure", "Message"),
+                             [(error.get("failure_class", "upstream"), error.get("message", ""))
+                              for error in errors]))
+        help_lines = self.attributes.get("configuration_help") or []
+        if help_lines:
+            sections.append(("Configuration help", None, "\n".join(help_lines)))
+        if not vehicles and not self.attributes.get("partial_result", False):
+            sections.append(("", None, "No vehicles matched the selected bounds and modes."))
+        rows = []
+        for vehicle in vehicles[:3]:
+            attrs = vehicle.attributes
+            point = self._point_geometry(vehicle)
+            rows.append((attrs.get("line") or attrs.get("route_id") or attrs.get("vehicle_id") or vehicle.id,
+                         attrs.get("mode", "unknown"),
+                         "N/A" if point is None else f"({point.x:.2f}, {point.y:.2f})",
+                         attrs.get("timestamp", "N/A")))
+        if rows:
+            sections.append(("Sample vehicles (first 3)", ("Vehicle", "Mode", "Location", "Timestamp"), rows))
+        return sections
+
+    def _summary_items(self):
+        return [("num_vehicles", sum(len(group) for group in self.children.values()))]
 
     def add_vehicle(self, vehicle: Object) -> None:
         """Add a vehicle as a child object."""
@@ -303,74 +331,6 @@ class VehicleCollection(Object):
         if isinstance(metadata, dict):
             plot_metadata.update(metadata)
         return plot_metadata
-
-    def __str__(self):
-        lines = []
-        vehicles = self.vehicles()
-        lines.append("=" * 70)
-        lines.append("DTCC VehicleCollection")
-        lines.append("=" * 70)
-        lines.append(f"Number of vehicles: {len(vehicles)}")
-        if self.bounds:
-            lines.append(f"Bounds: {self.bounds}")
-
-        if self.attributes:
-            lines.append("")
-            lines.append("Dataset Information:")
-            for key in ("source", "provider", "crs", "retrieval_time"):
-                if key in self.attributes:
-                    lines.append(f"  {key}: {self.attributes[key]}")
-
-            if "partial_result" in self.attributes:
-                lines.append("")
-                lines.append("Live Data Status:")
-                lines.append(f"  partial_result: {self.attributes['partial_result']}")
-                lines.append(
-                    f"  upstream_error_count: "
-                    f"{self.attributes.get('upstream_error_count', 0)}"
-                )
-                errors = self.attributes.get("upstream_errors") or []
-                for i, error in enumerate(errors[:2]):
-                    failure = error.get("failure_class", "upstream")
-                    message = error.get("message", "")
-                    lines.append(f"  error {i + 1} ({failure}): {message}")
-                if len(errors) > 2:
-                    lines.append(f"  ... and {len(errors) - 2} more upstream errors")
-
-            help_lines = self.attributes.get("configuration_help") or []
-            if help_lines:
-                lines.append("")
-                lines.append("Configuration Help:")
-                for item in help_lines:
-                    lines.append(f"  - {item}")
-
-            if not vehicles and not self.attributes.get("partial_result", False):
-                lines.append("")
-                lines.append("No vehicles matched the selected bounds and modes.")
-
-        if vehicles:
-            lines.append("")
-            lines.append("Sample Vehicles:")
-            for i, vehicle in enumerate(vehicles[:3]):
-                attrs = vehicle.attributes
-                point = self._point_geometry(vehicle)
-                loc = "N/A"
-                if point is not None:
-                    loc = f"({point.x:.2f}, {point.y:.2f})"
-                label = attrs.get("line") or attrs.get("route_id") or attrs.get("vehicle_id")
-                lines.append(f"  {i + 1}. {label or 'Vehicle'}")
-                lines.append(f"     Mode: {attrs.get('mode', 'unknown')}")
-                lines.append(f"     Location: {loc}")
-                if attrs.get("timestamp"):
-                    lines.append(f"     Timestamp: {attrs['timestamp']}")
-            if len(vehicles) > 3:
-                lines.append(f"  ... and {len(vehicles) - 3} more vehicles")
-
-        lines.append("=" * 70)
-        return "\n".join(lines)
-
-    def __repr__(self):
-        return self.__str__()
 
 
 def _is_number(value) -> bool:

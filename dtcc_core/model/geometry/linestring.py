@@ -12,7 +12,7 @@ from shapely.geometry import (
 )
 
 
-@dataclass
+@dataclass(repr=False)
 class LineString(Geometry):
     """
     Represents a geometric line composed of an ordered set of vertices.
@@ -25,7 +25,11 @@ class LineString(Geometry):
             coordinates of the line string's vertices. Each row corresponds to a point
             in 2D (x, y) or 3D (x, y, z) space.
     """
+
     vertices: np.ndarray = field(default_factory=lambda: np.empty((0, 3)))
+
+    def _summary_items(self):
+        return [("num_vertices", len(self.vertices))] + super()._summary_items()
 
     def calculate_bounds(self):
         """Calculate the bounding box of the line string."""
@@ -68,7 +72,7 @@ class LineString(Geometry):
         return self
 
 
-@dataclass
+@dataclass(repr=False)
 class MultiLineString(Geometry):
     """
     Represents a geometry composed of multiple LineString objects.
@@ -78,7 +82,11 @@ class MultiLineString(Geometry):
     linestrings : list[LineString]
         A list of LineString instances that make up the MultiLineString geometry.
     """
+
     linestrings: list[LineString] = field(default_factory=lambda: [])
+
+    def _summary_items(self):
+        return [("num_linestrings", len(self.linestrings))] + super()._summary_items()
 
     def calculate_bounds(self):
         """Calculate the bounding box of the multi line string."""

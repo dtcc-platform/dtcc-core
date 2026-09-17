@@ -8,7 +8,6 @@
 #include <functional>
 
 #include "Logging.h"
-// #include "Point.h"
 
 namespace DTCC_BUILDER
 {
@@ -276,36 +275,6 @@ namespace DTCC_BUILDER
 
     double squared_magnitude() const { return x * x + y * y + z * z; }
 
-    Vector3D rotate(const Vector3D &axis, double angle) const
-    {
-      double c = cos(angle);
-      double s = sin(angle);
-      double t = 1 - c;
-      double x = this->x;
-      double y = this->y;
-      double z = this->z;
-      double ax = axis.x;
-      double ay = axis.y;
-      double az = axis.z;
-
-      // Compute the rotation matrix
-      double m11 = c + ax * ax * t;
-      double m12 = ax * ay * t - az * s;
-      double m13 = ax * az * t + ay * s;
-      double m21 = ay * ax * t + az * s;
-      double m22 = c + ay * ay * t;
-      double m23 = ay * az * t - ax * s;
-      double m31 = az * ax * t - ay * s;
-      double m32 = az * ay * t + ax * s;
-      double m33 = c + az * az * t;
-
-      // Apply the rotation matrix to the vector
-      double n_x = m11 * x + m12 * y + m13 * z;
-      double n_y = m21 * x + m22 * y + m23 * z;
-      double n_z = m31 * x + m32 * y + m33 * z;
-
-      return Vector3D(n_x, n_y, n_z);
-    }
     /// Pretty-print
     std::string __str__() const override
     {

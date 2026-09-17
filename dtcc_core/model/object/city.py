@@ -25,7 +25,7 @@ from ..mixins.city import (
 )
 
 
-@dataclass
+@dataclass(repr=False)
 class City(
     CityLoaderMixin,
     CitySaveMixin,
@@ -192,6 +192,6 @@ class City(
         self.add_children(trees)
 
 
-@dataclass
+@dataclass(repr=False)
 class CityObject(Object):
     """Represents a generic object in a city."""
