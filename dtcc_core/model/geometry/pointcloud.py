@@ -97,7 +97,8 @@ class PointCloud(PointCloudBuilderMixin, PointcloudFilterMixin, Geometry):
 
         Returns
         -------
-        None
+        PointCloud
+            This point cloud, with the points removed.
 
         """
         indices = np.array(indices).astype(int)
@@ -136,7 +137,8 @@ class PointCloud(PointCloudBuilderMixin, PointcloudFilterMixin, Geometry):
 
         Returns
         -------
-        None
+        PointCloud
+            This point cloud, with ``other`` merged in.
 
         """
 

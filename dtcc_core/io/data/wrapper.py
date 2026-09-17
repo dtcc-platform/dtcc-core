@@ -216,16 +216,24 @@ def download_pointcloud(bounds: Bounds, provider = 'dtcc', epsg = '3006'):
     """
     Download a point cloud from the specified provider within the given bounds.
 
-    Args:
-        bounds (Bounds): The geographic bounds to download the point cloud data for.
-        provider (str, optional): The data provider, defaults to 'OSM'.
-        epsg (str, optional): The EPSG code for the coordinate reference system, defaults to '3006'.
+    Parameters
+    ----------
+    bounds : Bounds
+        The geographic bounds to download the point cloud data for.
+    provider : str, optional
+        The data provider. Only ``"dtcc"`` is supported. Default is "dtcc".
+    epsg : str, optional
+        EPSG code of the coordinate reference system. Default is "3006".
 
-    Returns:
-        Result of the download_data function call for 'lidar' data type if provider is 'dtcc'.
+    Returns
+    -------
+    PointCloud
+        Point cloud covering the bounds.
 
-    Raises:
-        Error if an invalid provider is specified.
+    Raises
+    ------
+    RuntimeError
+        If an unsupported provider is given.
     """
 
     if not provider or provider.lower() == 'dtcc':

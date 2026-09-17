@@ -383,12 +383,16 @@ def clean_building_footprints(
         List of buildings to clean.
     clearance : float, default 0.5
         Minimum clearance distance in meters.
-    remove_overlaps : bool, default True
-        Whether to remove overlapping footprints.
     smallest_hole_area : float, default 1.0
         Minimum area of holes to keep.
-    Returns : List[Building]
-        List of cleaned buildings.
+    return_index_map : bool, optional
+        When True, also return, for each cleaned building, the indices of the
+        input buildings it came from.
+
+    Returns
+    -------
+    Union[List[Building], Tuple[List[Building], List[List[int]]]]
+        Cleaned buildings, optionally paired with the index map.
     """
 
     return _condition_buildings_with_shared_cleaner(
