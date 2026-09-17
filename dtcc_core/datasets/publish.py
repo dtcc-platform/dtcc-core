@@ -41,6 +41,25 @@ WINDOWS_RESERVED_BASENAMES = {
 
 @dataclass(frozen=True)
 class PublishedFile:
+    """A file in a published dataset version, as reported by the upload service.
+
+    Attributes
+    ----------
+    path : str
+        Path of the file within the published dataset.
+    original_filename : str or None
+        File name as uploaded, when the service reports it.
+    size : int
+        File size in bytes.
+    sha256 : str
+        SHA-256 checksum of the file contents.
+    media_type : str
+        Media type declared for the file.
+    sniffed_media_type : str
+        Media type the service detected from the file contents.
+    raw : Mapping[str, Any]
+        Service response the file was read from.
+    """
     path: str
     original_filename: str | None
     size: int
@@ -70,6 +89,33 @@ class PublishedFile:
 
 @dataclass(frozen=True)
 class DatasetPublication:
+    """A dataset version created by an upload, as reported by the service.
+
+    Attributes
+    ----------
+    dataset_key : str
+        Key of the dataset the version belongs to.
+    version_id : str
+        Identifier of the version.
+    version_number : int
+        Version number within the dataset.
+    status : str
+        Publication status reported by the service.
+    owner : str
+        Owner of the dataset version.
+    manifest_sha256 : str
+        SHA-256 checksum of the uploaded manifest.
+    file_set_sha256 : str
+        SHA-256 checksum over the uploaded files.
+    files : tuple[PublishedFile, ...]
+        Files in the version.
+    upload_url : str or None
+        URL the package was uploaded to, when known.
+    manifest_url : str or None
+        URL of the published manifest, when the service returns one.
+    raw : Mapping[str, Any]
+        Service response the publication was read from.
+    """
     dataset_key: str
     version_id: str
     version_number: int
@@ -103,6 +149,23 @@ class DatasetPublication:
 
 
 class DatasetPublishError(Exception):
+    """Base class for errors while packaging or uploading a dataset.
+
+    ``is_transient`` is True for failures worth retrying: connection problems,
+    timeouts, server errors and rate limiting.
+
+    Attributes
+    ----------
+    status_code : int or None
+        HTTP status code of the failed response, when there was one.
+    detail : Any
+        Error detail from the service or the underlying exception.
+    failure_class : str or None
+        Short failure category, for example ``"timeout"``, ``"http_4xx"`` or
+        ``"invalid_package"``.
+    retry_after : float or None
+        Seconds to wait before retrying, when the service says so.
+    """
     def __init__(
         self,
         message: str,
@@ -129,27 +192,40 @@ class DatasetPublishError(Exception):
 
 
 class DatasetPublishConfigurationError(DatasetPublishError):
-    pass
+    """Raised when the upload client is not configured.
+
+    For example, the upload URL or token is missing.
+    """
 
 
 class DatasetPackageError(DatasetPublishError):
-    pass
+    """Raised when a dataset package fails local validation before upload."""
 
 
 class DatasetUploadError(DatasetPublishError):
-    pass
+    """Raised when uploading a dataset package fails.
+
+    For example on a timeout, a lost connection or an error response from the
+    service.
+    """
 
 
 class DatasetUploadConflictError(DatasetUploadError):
-    pass
+    """Raised when the service rejects an upload with HTTP 409 Conflict."""
 
 
 class DatasetUploadInProgressError(DatasetUploadConflictError):
-    pass
+    """Raised when an upload with the same idempotency key is in progress.
+
+    The service reports this as HTTP 409 Conflict.
+    """
 
 
 class DatasetUploadRateLimitError(DatasetUploadError):
-    pass
+    """Raised when the upload service rate-limits an upload with HTTP 429.
+
+    ``retry_after`` gives the suggested wait in seconds, when available.
+    """
 
 
 @dataclass(frozen=True)
@@ -169,6 +245,24 @@ class _ValidatedUploadPackage:
 
 
 class DatasetUploadClient:
+    """Client for uploading dataset packages to the dataset upload service.
+
+    Create one directly or with ``from_config``, which falls back to the
+    ``DTCC_UPLOAD_URL`` and ``DTCC_UPLOAD_TOKEN`` environment variables.
+    ``upload_package`` validates a manifest and its files locally, uploads them
+    and returns the resulting ``DatasetPublication``.
+
+    Parameters
+    ----------
+    base_url : str
+        Base URL of the dataset upload service.
+    token : str
+        Bearer token used to authorise uploads.
+    timeout : float, optional
+        Request timeout in seconds. ``None`` waits indefinitely.
+    session : requests.Session, optional
+        HTTP session to use. A new session is created when omitted.
+    """
     def __init__(
         self,
         base_url: str,

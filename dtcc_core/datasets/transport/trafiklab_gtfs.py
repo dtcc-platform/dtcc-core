@@ -36,6 +36,20 @@ SWEDEN_STATIC_URL = "https://opendata.samtrafiken.se/gtfs-sweden/sweden.zip"
 
 @dataclass(frozen=True)
 class TrafiklabOperator:
+    """A Trafiklab GTFS operator that publishes live vehicle positions.
+
+    Attributes
+    ----------
+    code : str
+        Operator code used in the Trafiklab feed URLs.
+    name : str
+        Display name of the operator.
+    bbox : tuple[float, float, float, float]
+        Coarse service area in WGS84, ordered as
+        ``(min_lon, min_lat, max_lon, max_lat)``.
+        It selects which operators to query for the requested bounds; it does
+        not filter vehicles.
+    """
     code: str
     name: str
     bbox: tuple[float, float, float, float]

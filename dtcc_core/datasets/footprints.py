@@ -15,6 +15,7 @@ _SOURCE_TO_PROVIDER = {
 
 
 class FootprintsArgs(DatasetBaseArgs):
+    """Arguments for the building footprints dataset."""
     source: Literal["OSM", "LM"] = Field(
         "LM",
         description=(
@@ -41,6 +42,14 @@ class FootprintsArgs(DatasetBaseArgs):
 
 
 class FootprintsDataset(DatasetDescriptor):
+    """Building Footprints dataset, registered as ``building_footprints``.
+
+    Building footprint polygons for the requested bounds, sourced from the
+    selected live/cache provider and returned as table-alignment context
+    geometry.
+
+    Call it with keyword arguments defined by ``FootprintsArgs``.
+    """
     name = "building_footprints"
     title = "Building Footprints"
     description = (

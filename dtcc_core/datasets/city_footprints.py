@@ -15,6 +15,7 @@ from .dataset import DatasetBaseArgs, DatasetDescriptor
 
 
 class CityFootprintsArgs(DatasetBaseArgs):
+    """Arguments for the meshing-ready city footprints dataset."""
     max_mesh_size: Optional[float] = Field(
         10.0,
         description=(
@@ -53,6 +54,12 @@ class CityFootprintsArgs(DatasetBaseArgs):
 
 
 class CityFootprintsDataset(DatasetDescriptor, register=False):
+    """City footprints dataset, registered as ``city_footprints``.
+
+    Meshing-ready conditioned building footprints prepared from a city tile.
+
+    Call it with keyword arguments defined by ``CityFootprintsArgs``.
+    """
     name = "city_footprints"
     description = (
         "Meshing-ready conditioned building footprints prepared from a city tile."

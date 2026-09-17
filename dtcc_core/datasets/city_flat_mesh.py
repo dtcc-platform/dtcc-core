@@ -10,6 +10,7 @@ from dtcc_core.common.progress import ProgressTracker
 
 
 class CityFlatMeshArgs(DatasetBaseArgs):
+    """Arguments for the city flat mesh dataset."""
     max_mesh_size: Optional[float] = Field(
         10.0, description="Maximum triangle size in meters"
     )
@@ -65,6 +66,13 @@ class CityFlatMeshArgs(DatasetBaseArgs):
 
 
 class CityFlatMeshDataset(DatasetDescriptor):
+    """City Flat Mesh dataset, registered as ``city_flat_mesh``.
+
+    Flat 2D triangular mesh at z=0 with conditioned building footprints marked
+    as subdomains for analysis or preprocessing.
+
+    Call it with keyword arguments defined by ``CityFlatMeshArgs``.
+    """
     name = "city_flat_mesh"
     title = "City Flat Mesh"
     description = (

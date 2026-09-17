@@ -364,6 +364,14 @@ class TransitVehiclesDataset(DatasetDescriptor):
 
 
 class BusesDataset(TransitVehiclesDataset):
+    """Buses dataset, registered as ``buses``.
+
+    Mode-preset shortcut for transit_vehicles(..., modes=('bus',)). Uses the
+    same Trafiklab/Västtrafik provider logic, credentials, metadata, warnings,
+    and limitations as transit_vehicles.
+
+    Call it with keyword arguments defined by ``TransitVehiclesArgs``.
+    """
     name = "buses"
     title = "Buses"
     description = (
@@ -379,6 +387,13 @@ class BusesDataset(TransitVehiclesDataset):
 
 
 class TramsDataset(TransitVehiclesDataset):
+    """Trams dataset, registered as ``trams``.
+
+    Mode-preset shortcut for transit_vehicles(..., modes=('tram',)). Uses the
+    same provider logic and credential handling as transit_vehicles.
+
+    Call it with keyword arguments defined by ``TransitVehiclesArgs``.
+    """
     name = "trams"
     title = "Trams"
     description = (
@@ -393,6 +408,13 @@ class TramsDataset(TransitVehiclesDataset):
 
 
 class TrainsDataset(TransitVehiclesDataset):
+    """Trains dataset, registered as ``trains``.
+
+    Mode-preset shortcut for transit_vehicles(..., modes=('train',)). Uses the
+    same provider logic and credential handling as transit_vehicles.
+
+    Call it with keyword arguments defined by ``TransitVehiclesArgs``.
+    """
     name = "trains"
     title = "Trains"
     description = (
@@ -407,6 +429,13 @@ class TrainsDataset(TransitVehiclesDataset):
 
 
 class MetrosDataset(TransitVehiclesDataset):
+    """Metros dataset, registered as ``metros``.
+
+    Mode-preset shortcut for transit_vehicles(..., modes=('metro',)). Uses the
+    same provider logic and credential handling as transit_vehicles.
+
+    Call it with keyword arguments defined by ``TransitVehiclesArgs``.
+    """
     name = "metros"
     title = "Metros"
     description = (
@@ -421,6 +450,13 @@ class MetrosDataset(TransitVehiclesDataset):
 
 
 class FerriesDataset(TransitVehiclesDataset):
+    """Ferries dataset, registered as ``ferries``.
+
+    Mode-preset shortcut for transit_vehicles(..., modes=('ferry',)). Uses the
+    same provider logic and credential handling as transit_vehicles.
+
+    Call it with keyword arguments defined by ``TransitVehiclesArgs``.
+    """
     name = "ferries"
     title = "Ferries"
     description = (

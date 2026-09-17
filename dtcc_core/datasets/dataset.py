@@ -83,6 +83,7 @@ _FORMAT_EXTENSION_MAP = {
 
 
 class DatasetBaseArgs(BaseModel):
+    """Arguments shared by all datasets: bounds and live-fetch strictness."""
     model_config = ConfigDict(extra="forbid")
 
     bounds: Sequence[float] = Field(

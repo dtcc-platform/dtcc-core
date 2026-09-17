@@ -9,6 +9,7 @@ from dtcc_core.common.progress import ProgressTracker
 
 
 class CityArgs(DatasetBaseArgs):
+    """Arguments for the city model dataset with terrain and LoD1 buildings."""
     source: Literal["OSM", "LM"] = Field(
         "LM",
         description=(
@@ -25,6 +26,13 @@ class CityArgs(DatasetBaseArgs):
 
 
 class CityDataset(DatasetDescriptor):
+    """City dataset, registered as ``city``.
+
+    DTCC city model with terrain and LoD1 buildings derived from point cloud
+    data and selected building footprints for the requested bounds.
+
+    Call it with keyword arguments defined by ``CityArgs``.
+    """
     name = "city"
     title = "City"
     description = (
