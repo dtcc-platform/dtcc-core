@@ -39,13 +39,19 @@ def ray_intersection(
     """
     Compute the intersection points of a ray with a surface.
 
-    Args:
-        s (Surface): The surface.
-        origin (np.ndarray): The origin of the ray.
-        direction (np.ndarray): The direction of the ray.
+    Parameters
+    ----------
+    s : Surface
+        The surface.
+    origin : np.ndarray
+        The origin of the ray.
+    direction : np.ndarray
+        The direction of the ray.
 
-    Returns:
-        np.ndarray: The intersection points.
+    Returns
+    -------
+    np.ndarray
+        The intersection points.
     """
     builder_surface = create_builder_surface(s)
     origin = np.array(origin, dtype=np.float64)

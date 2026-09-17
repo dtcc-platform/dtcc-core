@@ -50,12 +50,16 @@ def create_retry_session(
     """
     Create a requests session with automatic retry and exponential backoff.
 
-    Args:
-        retries: Number of retry attempts for transient HTTP status responses.
-            Connect and read failures are not retried here; endpoint failover
-            handles those so DNS/connect issues do not block for minutes.
-        backoff_factor: Multiplier for exponential backoff (1.0 = 1s, 2s, 4s, 8s, 16s)
-        status_forcelist: HTTP status codes that trigger a retry
+    Parameters
+    ----------
+    retries
+        Number of retry attempts for transient HTTP status responses. Connect
+        and read failures are not retried here; endpoint failover handles those
+        so DNS/connect issues do not block for minutes.
+    backoff_factor
+        Multiplier for exponential backoff (1.0 = 1s, 2s, 4s, 8s, 16s)
+    status_forcelist
+        HTTP status codes that trigger a retry
     """
     session = requests.Session()
     session.headers.update(
@@ -91,18 +95,27 @@ def query_overpass_with_failover(
     Query Overpass API with automatic failover between endpoints.
     Tries each endpoint with retries before moving to the next.
 
-    Args:
-        query: The Overpass QL query string
-        timeout: Backward-compatible read timeout override in seconds. Prefer
-            connect_timeout/read_timeout for new code.
-        connect_timeout: Timeout for DNS/TCP/TLS connection setup in seconds.
-        read_timeout: Timeout while waiting for the Overpass response in seconds.
+    Parameters
+    ----------
+    query
+        The Overpass QL query string
+    timeout
+        Backward-compatible read timeout override in seconds. Prefer
+        connect_timeout/read_timeout for new code.
+    connect_timeout
+        Timeout for DNS/TCP/TLS connection setup in seconds.
+    read_timeout
+        Timeout while waiting for the Overpass response in seconds.
 
-    Returns:
+    Returns
+    -------
+    dict
         Parsed JSON response from the API
 
-    Raises:
-        RuntimeError: If all endpoints fail
+    Raises
+    ------
+    RuntimeError
+        If all endpoints fail
     """
     if timeout is not None:
         read_timeout = timeout

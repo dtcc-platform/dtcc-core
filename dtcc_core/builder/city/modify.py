@@ -32,12 +32,17 @@ def simplify_buildings(city: City, tolerance=0.1) -> City:
     """
     Simplify the footprint of buildings in a `City` object.
 
-    Args:
-        city (City): The `City` object to simplify the buildings of.
-        tolerance (float): The tolerance for simplification (default 0.1).
+    Parameters
+    ----------
+    city : City
+        The `City` object to simplify the buildings of.
+    tolerance : float
+        The tolerance for simplification (default 0.1).
 
-    Returns:
-        City: A new `City` object with the simplified buildings.
+    Returns
+    -------
+    City
+        A new `City` object with the simplified buildings.
     """
     simplified_city = deepcopy(city)
     simplified_city.buildings = []
@@ -53,12 +58,18 @@ def remove_small_buildings(city: City, min_area=10) -> City:
     """
     Remove small buildings from a `City` object.
 
-    Args:
-        city (City): The `City` object to remove small buildings from.
-        min_area (float): The minimum area in square meters for a building to be kept (default 10).
+    Parameters
+    ----------
+    city : City
+        The `City` object to remove small buildings from.
+    min_area : float
+        The minimum area in square meters for a building to be kept (default
+        10).
 
-    Returns:
-        City: A new `City` object with the small buildings removed.
+    Returns
+    -------
+    City
+        A new `City` object with the small buildings removed.
     """
     filtered_city = deepcopy(city)
     filtered_city.buildings = []

@@ -23,13 +23,19 @@ class CityLoaderMixin:
         """
         Load building footprints from a shapefile or geopackage into a City object.
 
-        Args:
-            self (City): The City object to load the footprints into.
-            path (str): The path to the shapefile containing the building footprints.
-            user_city_bounds (bool, optional): only load footprints within the set bounds
+        Parameters
+        ----------
+        self : City
+            The City object to load the footprints into.
+        path : str
+            The path to the shapefile containing the building footprints.
+        user_city_bounds : bool, optional
+            only load footprints within the set bounds
 
-        Returns:
-            City: The updated City object with the loaded footprints.
+        Returns
+        -------
+        City
+            The updated City object with the loaded footprints.
         """
 
         # non-model imports must go here to avoid circular imports
@@ -136,15 +142,20 @@ class CityDownloadMixin:
         """
         Download building footprints from a URL and load them into a City object.
 
-        Args:
-            self (City): The City object to load the footprints into.
-            bounds (Bounds, optional): Bounds to intersect with existing city
-                bounds before downloading.
-            provider (str): Footprint provider. Use ``"dtcc"`` for the DTCC
-                footprint backend/cache and ``"OSM"`` for OpenStreetMap.
+        Parameters
+        ----------
+        self : City
+            The City object to load the footprints into.
+        bounds : Bounds, optional
+            Bounds to intersect with existing city bounds before downloading.
+        provider : str
+            Footprint provider. Use ``"dtcc"`` for the DTCC footprint
+            backend/cache and ``"OSM"`` for OpenStreetMap.
 
-        Returns:
-            City: The updated City object with the loaded footprints.
+        Returns
+        -------
+        City
+            The updated City object with the loaded footprints.
         """
 
         # non-model imports must go here to avoid circular imports
@@ -168,13 +179,21 @@ class CityDownloadMixin:
         """
         Download pointcloud from a URL and load it into a City object.
 
-        Args:
-            self (City): The City object to load the pointcloud into.
-            bounds (Bounds, optional): The bounds to filter the pointcloud.
-            filter_on_z_bounds (bool, optional): If True, use the z bounds of the city to filter the pointcloud.
-            remove_global_outliers (float, optional):  if greater than 0, remove global outliers from the pointcloud
-        Returns:
-            City: The updated City object with the loaded pointcloud.
+        Parameters
+        ----------
+        self : City
+            The City object to load the pointcloud into.
+        bounds : Bounds, optional
+            The bounds to filter the pointcloud.
+        filter_on_z_bounds : bool, optional
+            If True, use the z bounds of the city to filter the pointcloud.
+        remove_global_outliers : float, optional
+            if greater than 0, remove global outliers from the pointcloud
+
+        Returns
+        -------
+        City
+            The updated City object with the loaded pointcloud.
         """
 
         # non-model imports must go here to avoid circular imports

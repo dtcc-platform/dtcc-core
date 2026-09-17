@@ -18,9 +18,12 @@ def _register_dataset_class(name: str, cls: type):
     """
     Internal function called by __init_subclass__ hook to register dataset classes.
 
-    Args:
-        name: Name to register the dataset under
-        cls: Dataset class to register
+    Parameters
+    ----------
+    name
+        Name to register the dataset under
+    cls
+        Dataset class to register
     """
     if name in _dataset_classes:
         warning(
@@ -45,16 +48,22 @@ def register(name: str, instance):
     """
     Explicitly register a dataset instance.
 
-    Args:
-        name: Name to register the dataset under
-        instance: Instance of DatasetDescriptor to register
+    Parameters
+    ----------
+    name
+        Name to register the dataset under
+    instance
+        Instance of DatasetDescriptor to register
 
-    Raises:
-        TypeError: If instance is not a DatasetDescriptor
+    Raises
+    ------
+    TypeError
+        If instance is not a DatasetDescriptor
 
-    Example:
-        >>> my_dataset = MyDataset()
-        >>> register("my_dataset", my_dataset)
+    Examples
+    --------
+    >>> my_dataset = MyDataset()
+    >>> register("my_dataset", my_dataset)
     """
     from .dataset import DatasetDescriptor
 
@@ -78,16 +87,23 @@ def register_class(name: str, cls: type, **init_kwargs):
     """
     Register a dataset class (instantiates it).
 
-    Args:
-        name: Name to register the dataset under
-        cls: Subclass of DatasetDescriptor to register
-        **init_kwargs: Keyword arguments to pass to class constructor
+    Parameters
+    ----------
+    name
+        Name to register the dataset under
+    cls
+        Subclass of DatasetDescriptor to register
+    **init_kwargs
+        Keyword arguments to pass to class constructor
 
-    Raises:
-        TypeError: If cls is not a DatasetDescriptor subclass
+    Raises
+    ------
+    TypeError
+        If cls is not a DatasetDescriptor subclass
 
-    Example:
-        >>> register_class("my_dataset", MyDataset, some_param="value")
+    Examples
+    --------
+    >>> register_class("my_dataset", MyDataset, some_param="value")
     """
     from .dataset import DatasetDescriptor
 
@@ -102,11 +118,14 @@ def unregister(name: str):
     """
     Remove a dataset from the registry.
 
-    Args:
-        name: Name of the dataset to unregister
+    Parameters
+    ----------
+    name
+        Name of the dataset to unregister
 
-    Example:
-        >>> unregister("my_dataset")
+    Examples
+    --------
+    >>> unregister("my_dataset")
     """
     if name in _datasets_by_name:
         instance = _datasets_by_name.pop(name)
@@ -121,13 +140,16 @@ def list_datasets():
     """
     Return all registered datasets.
 
-    Returns:
-        dict: Dictionary mapping dataset names to dataset instances
+    Returns
+    -------
+    dict
+        Dictionary mapping dataset names to dataset instances
 
-    Example:
-        >>> available_datasets = list_datasets()
-        >>> print(available_datasets.keys())
-        dict_keys(['pointcloud', 'buildings', 'terrain'])
+    Examples
+    --------
+    >>> available_datasets = list_datasets()
+    >>> print(available_datasets.keys())
+    dict_keys(['pointcloud', 'buildings', 'terrain'])
     """
     return {name: dataset for name, dataset in _datasets_by_name.items()}
 
@@ -136,18 +158,25 @@ def get_dataset(name: str):
     """
     Get a dataset by name.
 
-    Args:
-        name: Name of the dataset
+    Parameters
+    ----------
+    name : str
+        Name of the dataset.
 
-    Returns:
-        Dataset instance if found
+    Returns
+    -------
+    DatasetDescriptor
+        The registered dataset instance.
 
-    Raises:
-        KeyError: If dataset name is not registered
+    Raises
+    ------
+    KeyError
+        If dataset name is not registered
 
-    Example:
-        >>> dataset = get_dataset('pointcloud')
-        >>> result = dataset(bounds=[...])
+    Examples
+    --------
+    >>> dataset = get_dataset('pointcloud')
+    >>> result = dataset(bounds=[...])
     """
     if name not in _datasets_by_name:
         raise KeyError(f"Dataset '{name}' not found in registry")

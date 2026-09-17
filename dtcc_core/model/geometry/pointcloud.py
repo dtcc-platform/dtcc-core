@@ -119,8 +119,16 @@ class PointCloud(PointCloudBuilderMixin, PointcloudFilterMixin, Geometry):
     def keep_points(self, indices: np.ndarray) -> "PointCloud":
         """
         Keep only the points specified by the given indices.
-        :param indices: indices of points to keep
-        :return: PointCloud
+
+        Parameters
+        ----------
+        indices : np.ndarray
+            Indices of the points to keep.
+
+        Returns
+        -------
+        PointCloud
+            This point cloud, with all other points removed.
         """
 
         removed_indices = np.setdiff1d(np.arange(len(self.points)), indices)

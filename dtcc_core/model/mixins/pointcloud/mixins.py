@@ -73,11 +73,15 @@ class PointcloudFilterMixin:
         Remove outliers from the point cloud based on Z-value deviations. This method is non-mutating
         (does not modify data in-place).
 
-        Args:
-            margin (float): The margin in standard deviations to consider a point an outlier.
+        Parameters
+        ----------
+        margin : float
+            The margin in standard deviations to consider a point an outlier.
 
-        Returns:
-            T_Pointcloud: A new pointcloud with the outliers removed.
+        Returns
+        -------
+        T_Pointcloud
+            A new pointcloud with the outliers removed.
         """
         from dtcc_core.builder.pointcloud.filter import (
             find_global_outliers,
@@ -93,12 +97,17 @@ class PointcloudFilterMixin:
         Remove statistical outliers from the point cloud. This method is non-mutating
         (does not modify data in-place).
 
-        Args:
-            neighbours (int): The number of neighbours to consider for the outlier detection.
-            outlier_margin (float): The margin in standard deviations to consider a point an outlier.
+        Parameters
+        ----------
+        neighbours : int
+            The number of neighbours to consider for the outlier detection.
+        outlier_margin : float
+            The margin in standard deviations to consider a point an outlier.
 
-        Returns:
-            T_Pointcloud: A new point cloud with the outliers removed.
+        Returns
+        -------
+        T_Pointcloud
+            A new point cloud with the outliers removed.
         """
         from dtcc_core.builder.pointcloud.filter import (
             find_statistical_outliers,
@@ -114,12 +123,19 @@ class PointcloudFilterMixin:
         Filter the point cloud based on classification. This method is non-mutating
         (does not modify data in-place).
 
-        Args:
-            classes (Union[int, List[int]]): The classification(s) to filter by.
-            keep (bool): If True, keep points with the specified classification(s); otherwise, remove them.
+        Parameters
+        ----------
+        classes : Union[int, List[int]]
+            The classification(s) to filter by.
+        keep : bool
+            If True, keep points with the specified classification(s);
+            otherwise, remove them.
 
-        Returns:
-            T_Pointcloud: A new point cloud with the specified classification(s) filtered out or kept.
+        Returns
+        -------
+        T_Pointcloud
+            A new point cloud with the specified classification(s) filtered out
+            or kept.
         """
         from dtcc_core.builder.pointcloud.filter import (
             find_classification,
@@ -133,11 +149,15 @@ class PointcloudFilterMixin:
         Crop the point cloud to the specified bounds. This method is non-mutating
         (does not modify data in-place).
 
-        Args:
-            bounds (Bounds): The bounds to crop the point cloud to.
+        Parameters
+        ----------
+        bounds : Bounds
+            The bounds to crop the point cloud to.
 
-        Returns:
-            T_Pointcloud: A new point cloud cropped to the specified bounds.
+        Returns
+        -------
+        T_Pointcloud
+            A new point cloud cropped to the specified bounds.
         """
         from dtcc_core.builder.pointcloud.filter import pts_in_bounds, crop
 
@@ -148,12 +168,18 @@ class PointcloudFilterMixin:
         Filter the point cloud based on Z-values. This method is non-mutating
         (does not modify data in-place).
 
-        Args:
-            zmin (float): The minimum Z-value to keep.
-            zmax (float): The maximum Z-value to keep.
+        Parameters
+        ----------
+        zmin : float
+            The minimum Z-value to keep.
+        zmax : float
+            The maximum Z-value to keep.
 
-        Returns:
-            Pointcloud: A new point cloud with points outside the specified Z-range removed.
+        Returns
+        -------
+        Pointcloud
+            A new point cloud with points outside the specified Z-range
+            removed.
         """
         from dtcc_core.builder.pointcloud.filter import z_range_filter
 
@@ -164,8 +190,10 @@ class PointcloudFilterMixin:
         Remove vegetation points from a point cloud. This method is non-mutating
         (does not modify data in-place).
 
-        Returns:
-            T_Pointcloud: A new point cloud with vegetation points removed.
+        Returns
+        -------
+        T_Pointcloud
+            A new point cloud with vegetation points removed.
         """
         from dtcc_core.builder.pointcloud.filter import remove_vegetation
 
@@ -176,8 +204,10 @@ class PointcloudFilterMixin:
         Get the vegetation points from the point cloud and return as a new pointcloud. This method is non-mutating
         (does not modify data in-place).
 
-        Returns:
-            T_Pointcloud: A new point cloud containing only the vegetation points.
+        Returns
+        -------
+        T_Pointcloud
+            A new point cloud containing only the vegetation points.
         """
         from dtcc_core.builder.pointcloud.filter import get_vegetation
 
