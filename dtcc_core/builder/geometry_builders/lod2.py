@@ -2499,6 +2499,41 @@ def build_lod2_buildings(
     build_lod1_fallback: bool = True,
     log_rejections: bool = False,
 ) -> list[Building]:
+    """Build LOD2 geometry with reconstructed roofs for buildings.
+
+    For each building, roof planes are fitted with RANSAC to the roof points
+    stored on ``building.point_cloud`` (see ``extract_roof_points``) and
+    combined with the LOD0 footprint into a closed shell with sloped or
+    stepped roofs. A building gets no LOD2 geometry when its footprint is
+    missing, invalid or has holes, when it has fewer than 24 roof points, or
+    when its roof shape cannot be reconstructed. Such buildings can fall back
+    to an LOD1 block instead.
+
+    Parameters
+    ----------
+    buildings : list[Building]
+        Buildings with LOD0 footprints and roof points. Modified in place.
+    default_ground_height : float, optional
+        Ground height used when a building has no ``ground_height``
+        attribute. Default is 0.0.
+    always_use_default_ground : bool, optional
+        Use ``default_ground_height`` for every building, ignoring any
+        ``ground_height`` attribute. Default is False.
+    rebuild : bool, optional
+        Remove and rebuild existing LOD2 geometry. When False, buildings that
+        already have LOD2 geometry are skipped. Default is True.
+    build_lod1_fallback : bool, optional
+        Build an LOD1 block for buildings whose roof could not be
+        reconstructed and that have no LOD1 geometry yet. Default is True.
+    log_rejections : bool, optional
+        Log how many buildings got LOD2 geometry and why the others were
+        rejected. Default is False.
+
+    Returns
+    -------
+    list[Building]
+        The same buildings, with LOD2 or fallback LOD1 geometry added.
+    """
     rejections = Counter()
     plane_counts = Counter()
     max_plane_coplanar_pair_counts = Counter()
