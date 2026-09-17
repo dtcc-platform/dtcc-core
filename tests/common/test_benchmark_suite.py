@@ -1,8 +1,13 @@
 """Acceptance checks for the benchmark commands and cleaning/meshing boundary."""
 
+import argparse
+import io
 import json
+import os
 import subprocess
 import sys
+from importlib.machinery import SourceFileLoader
+from importlib.util import module_from_spec, spec_from_loader
 from pathlib import Path
 
 import numpy as np
@@ -18,13 +23,25 @@ ROOT = Path(__file__).resolve().parents[2]
 BENCH = ROOT / "benchmarks" / "bench"
 
 
-def cli(*args):
+def cli(*args, encoding=None):
+    # PYTHONIOENCODING emulates the locale encoding of Windows pipes (e.g. cp1252).
+    env = None if encoding is None else {**os.environ, "PYTHONIOENCODING": encoding}
     return subprocess.run(
         [sys.executable, str(BENCH), *map(str, args)],
         cwd=ROOT,
         capture_output=True,
         text=True,
+        encoding=encoding,
+        env=env,
     )
+
+
+@pytest.fixture(scope="module")
+def bench():
+    loader = SourceFileLoader("benchmark_cli", str(BENCH))
+    module = module_from_spec(spec_from_loader(loader.name, loader))
+    loader.exec_module(module)
+    return module
 
 
 @pytest.fixture
@@ -197,10 +214,8 @@ def test_meshing_replays_cleaned_geometry_without_cleaner(
     )
 
 
-def test_cli_saved_run_replay_report_compare_and_no_overwrite(cleaning_run):
-    directory, task, result = cleaning_run
-    output = directory / "replay"
-    args = (
+def _replay_args(directory, output):
+    return (
         "quick",
         "--city",
         "lund",
@@ -213,22 +228,145 @@ def test_cli_saved_run_replay_report_compare_and_no_overwrite(cleaning_run):
         "--output",
         output,
     )
-    completed = cli(*args)
+
+
+@pytest.mark.parametrize("encoding", [None, "cp1252"])
+def test_cli_saved_run_replay_report_compare_and_no_overwrite(cleaning_run, encoding):
+    directory, task, result = cleaning_run
+    output = directory / "replay"
+    args = _replay_args(directory, output)
+    completed = cli(*args, encoding=encoding)
     assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert "Logging error" not in completed.stderr
+    if encoding == "cp1252":
+        assert "[OK] success" in completed.stdout
     payload = json.loads((output / "results.json").read_text())
     assert payload["results"][0]["metrics"]["cleaning"]["status"] == "reused"
     assert payload["manifest"]["elapsed_seconds"] > 0
-    assert (output / "summary.md").exists()
-    assert cli(*args).returncode == 2
-    assert "meshing=success" in cli("report", output).stdout
-    comparison = cli("compare", output, output)
-    assert comparison.returncode == 0
+    assert "✓ Success" in (output / "summary.md").read_text(encoding="utf-8")
+    assert cli(*args, encoding=encoding).returncode == 2
+    report = cli("report", output, encoding=encoding)
+    assert report.returncode == 0, report.stderr
+    assert "meshing=success" in report.stdout
+    comparison = cli("compare", output, output, encoding=encoding)
+    assert comparison.returncode == 0, comparison.stderr
     assert "meshing.quality.element_quality.min" in comparison.stdout
     rerun = cli(
-        "rerun", output, "--task", payload["results"][0]["task_id"], "--dry-run"
+        "rerun",
+        output,
+        "--task",
+        payload["results"][0]["task_id"],
+        "--dry-run",
+        encoding=encoding,
     )
     assert rerun.returncode == 0, rerun.stderr
     assert json.loads(rerun.stdout)["task_count"] == 1
+
+
+def test_cli_restricted_encoding_reports_failures_nonzero(cleaning_run):
+    directory, task, result = cleaning_run
+    path = Path(result["artifacts"]["cleaning_input"]["path"])
+    payload = json.loads(path.read_text())
+    payload["metadata"]["crs"] = "EPSG:4326"
+    path.write_text(json.dumps(payload))
+    completed = cli(*_replay_args(directory, directory / "replay"), encoding="cp1252")
+    assert completed.returncode == 1, completed.stdout + completed.stderr
+    assert "[X] failed" in completed.stdout
+    assert "Logging error" not in completed.stderr
+
+
+def _synthetic_results():
+    def result(status, failure_class=None):
+        value = {
+            "task_id": f"lund:{status}",
+            "dataset": "city_flat_mesh",
+            "case": {"id": f"city_grid:lund_{status}", "label": "Lund"},
+            "scenario": {"id": "baseline"},
+            "status": status,
+            "elapsed_seconds": 0.1,
+            "metrics": {
+                "cleaning": {
+                    "status": "success",
+                    "seconds": 0.1,
+                    "input_count": 2,
+                    "output_count": 1,
+                    "removed_area": 1.5,
+                },
+                "meshing": {
+                    "status": "success",
+                    "seconds": 0.2,
+                    "num_faces": 10,
+                    "quality": {"element_quality": {"min": 0.5}},
+                },
+            },
+            "artifacts": {},
+        }
+        if failure_class:
+            value["error"] = {
+                "type": "Error",
+                "message": "benchmark failure",
+                "failure_class": failure_class,
+            }
+        return value
+
+    return [
+        result("success"),
+        result("warning", "mesh_quality_warning"),
+        result("failed", "pipeline"),
+    ]
+
+
+@pytest.mark.parametrize("encoding", ["utf-8", "cp1252", "ascii"])
+def test_console_output_is_encodable(bench, monkeypatch, tmp_path, encoding):
+    results = _synthetic_results()
+    (tmp_path / "results.json").write_text(
+        json.dumps({"manifest": {"suite": "quick"}, "results": results})
+    )
+    marker = "✓" if encoding == "utf-8" else "[OK]"
+    failed_marker = "✗" if encoding == "utf-8" else "[X]"
+
+    def capture(action, *, rich_tables=True):
+        stdout = io.TextIOWrapper(io.BytesIO(), encoding=encoding)
+        stderr = io.TextIOWrapper(io.BytesIO(), encoding=encoding)
+        monkeypatch.setattr(sys, "stdout", stdout)
+        monkeypatch.setattr(sys, "stderr", stderr)
+        if not rich_tables:
+            monkeypatch.setattr(bench, "BENCHMARK_TABLE_IMPORT_ATTEMPTED", True)
+            monkeypatch.setattr(bench, "BENCHMARK_INFO", None)
+        try:
+            action()
+        finally:
+            stdout.flush()
+            stderr.flush()
+            monkeypatch.undo()
+        return (
+            stdout.buffer.getvalue().decode(encoding),
+            stderr.buffer.getvalue().decode(encoding),
+        )
+
+    for status in ("success", "warning", "failed", "timeout"):
+        out, _ = capture(lambda: print(bench._terminal_status_label(status)))
+        assert status in out
+    out, _ = capture(lambda: print(bench._terminal_status_label("success")))
+    assert marker in out
+
+    _, err = capture(lambda: bench._print_run_tables(results))
+    assert "Logging error" not in err
+    assert f"{failed_marker} failed" in err
+
+    out, _ = capture(lambda: bench._print_run_tables(results), rich_tables=False)
+    assert f"{marker} Success" in out
+    assert f"{failed_marker} failed" in out
+
+    out, _ = capture(lambda: bench.command_report(argparse.Namespace(run_dir=tmp_path)))
+    assert f"{marker} success" in out
+
+    out, _ = capture(
+        lambda: bench.command_compare(argparse.Namespace(base=tmp_path, head=tmp_path))
+    )
+    assert "Delta (head" in out
+
+    assert "✓ Success" in bench._summary_markdown(results, {"suite": "quick"})
 
 
 def test_cli_plots_saved_cleaning_and_rejects_empty_selection(cleaning_run):
