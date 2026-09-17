@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Iterable
 
-
 DATASET_NAMES = (
     "city_footprints",
     "terrain_surface_mesh",
@@ -108,7 +107,9 @@ CITIES: dict[str, BenchmarkCity] = {
 DEFAULT_CITY = next(iter(CITIES))
 
 
-def centered_bounds(x: float, y: float, size_m: float) -> tuple[float, float, float, float]:
+def centered_bounds(
+    x: float, y: float, size_m: float
+) -> tuple[float, float, float, float]:
     half = float(size_m) / 2.0
     return (float(x - half), float(y - half), float(x + half), float(y + half))
 
@@ -121,7 +122,9 @@ def city_center_case(city: str, bbox_size_m: float = 500.0) -> BenchmarkCase:
         kind="city_center",
         city=city,
         label=f"{benchmark_city.label} center {size_label}",
-        bounds=centered_bounds(benchmark_city.center_x, benchmark_city.center_y, bbox_size_m),
+        bounds=centered_bounds(
+            benchmark_city.center_x, benchmark_city.center_y, bbox_size_m
+        ),
         tags=("city_center", city),
     )
 
@@ -169,7 +172,9 @@ def _number_label(value: float) -> str:
     return f"{float(value):g}"
 
 
-def _parameter_scenarios(parameter: str, values: Iterable[float]) -> list[ParameterScenario]:
+def _parameter_scenarios(
+    parameter: str, values: Iterable[float]
+) -> list[ParameterScenario]:
     return [
         ParameterScenario(
             id=f"{parameter}_{_number_label(value)}",
@@ -188,85 +193,27 @@ _SCENARIO_LIST = [
     *_parameter_scenarios("bbox_size_m", (50.0, 100.0, 200.0, 350.0, 500.0)),
     *_parameter_scenarios("max_mesh_size", (1.0, 2.0, 5.0, 20.0)),
 ]
-SCENARIOS: dict[str, ParameterScenario] = {scenario.id: scenario for scenario in _SCENARIO_LIST}
-
-
-SWEEP_SCENARIOS = tuple(
-    scenario_id for scenario_id in SCENARIOS if scenario_id != "baseline"
-)
-
-SURVEY_DATASETS = ("city_flat_mesh", "city_surface_mesh")
-SURVEY_CENTER_GRID_SCENARIOS = tuple(
-    scenario_id
-    for scenario_id, scenario in SCENARIOS.items()
-    if scenario_id != "baseline"
-    and "bbox_size_m" not in scenario.parameters
-)
-SURVEY_BBOX_SCENARIOS = tuple(
-    scenario_id
-    for scenario_id, scenario in SCENARIOS.items()
-    if "bbox_size_m" in scenario.parameters
-)
-
-TRIAGE_CONDITIONED_FOOTPRINT_CASES = (
-    grid_case("malmo", 17),
-    grid_case("linkoping", 47),
-)
-TRIAGE_SURFACE_DOMAIN_CASES = (
-    grid_case("helsingborg", 79),
-)
-TRIAGE_SURFACE_BBOX_CASES = (
-    city_center_case("uppsala"),
-)
-
-
-SUITE_DESCRIPTIONS: dict[str, str] = {
-    "smoke": "Small live sanity check across all datasets.",
-    "regression": "Center grid tile across all cities and datasets.",
-    "sweep": "One-axis city-center parameter sweeps, focused on city_surface_mesh.",
-    "grid": "Full 10x10 grid survey for one city.",
-    "stress": "Fine-raster and dataset-specific fine-mesh center grid tiles across all cities.",
-    "survey": "Multi-hour flat/surface robustness and parameter-envelope survey.",
-    "triage": "Focused live rerun of known survey failure cases.",
+SCENARIOS: dict[str, ParameterScenario] = {
+    scenario.id: scenario for scenario in _SCENARIO_LIST
 }
 
-STRESS_SCENARIOS_BY_DATASET: dict[str, tuple[str, ...]] = {
-    "city_surface_mesh": ("raster_cell_size_0.5", "max_mesh_size_1", "max_mesh_size_2"),
-    "city_volume_mesh": ("raster_cell_size_0.5", "max_mesh_size_5"),
+
+DEFAULT_DATASETS = ("city_flat_mesh", "city_surface_mesh")
+CLEANING_PARAMETERS = (
+    "min_building_detail",
+    "min_building_area",
+    "merge_buildings",
+    "merge_tolerance",
+)
+SUITE_DESCRIPTIONS = {
+    "quick": "One central tile per city at default parameters.",
+    "survey": "Full 10x10 city grids at default parameters.",
+    "sweep": "One central tile per city, varying one parameter at a time.",
 }
 
 
 def representative_cases() -> list[BenchmarkCase]:
-    cases: list[BenchmarkCase] = []
-    cases.extend(all_city_center_cases())
-    cases.extend(CENTER_GRID_CASES)
-    unique: dict[str, BenchmarkCase] = {}
-    for case in cases:
-        unique.setdefault(case.id, case)
-    return list(unique.values())
-
-
-def _with_scenario_bounds(case: BenchmarkCase, scenario: ParameterScenario) -> BenchmarkCase:
-    bbox_size = scenario.parameters.get("bbox_size_m")
-    if bbox_size is None or case.kind != "city_center":
-        return case
-    return city_center_case(case.city, float(bbox_size))
-
-
-def _filter_datasets(
-    datasets: Iterable[str],
-    selected: Iterable[str] | None,
-    *,
-    allow_empty: bool = False,
-) -> list[str]:
-    selected_set = set(selected or ())
-    resolved = [dataset for dataset in datasets if not selected_set or dataset in selected_set]
-    invalid = sorted(selected_set.difference(DATASET_NAMES))
-    if invalid:
-        raise ValueError(f"unknown dataset(s): {', '.join(invalid)}")
-    if not resolved and not allow_empty:
-        raise ValueError("dataset selection produced no tasks")
-    return resolved
+    return list(CENTER_GRID_CASES)
 
 
 def build_tasks(
@@ -274,158 +221,74 @@ def build_tasks(
     *,
     city: str | None = None,
     datasets: Iterable[str] | None = None,
+    phase: str = "both",
 ) -> list[BenchmarkTask]:
     if suite not in SUITE_DESCRIPTIONS:
         raise ValueError(f"unknown suite: {suite}")
     if city is not None and city not in CITIES:
         raise ValueError(f"unknown city: {city}")
-
-    tasks: list[BenchmarkTask] = []
-    task_specs: list[
-        tuple[
-            list[BenchmarkCase],
-            list[str],
-            tuple[str, ...],
-            int,
-        ]
-    ] = []
-
-    def add_optional_task_spec(
-        cases: Iterable[BenchmarkCase],
-        allowed_datasets: Iterable[str],
-        scenario_ids: tuple[str, ...],
-        timeout: int,
-    ) -> None:
-        selected_cases = [case for case in cases if city is None or case.city == city]
-        suite_datasets = _filter_datasets(
-            allowed_datasets,
-            datasets,
-            allow_empty=True,
+    if phase not in {"both", "cleaning", "meshing"}:
+        raise ValueError(f"unknown phase: {phase}")
+    selected = list(
+        dict.fromkeys(
+            datasets
+            or (("city_footprints",) if phase == "cleaning" else DEFAULT_DATASETS)
         )
-        if selected_cases and suite_datasets:
-            task_specs.append((selected_cases, suite_datasets, scenario_ids, timeout))
-
-    if suite == "smoke":
-        target_city = city or DEFAULT_CITY
-        cases = [city_center_case(target_city)]
-        suite_datasets = _filter_datasets(DATASET_NAMES, datasets)
-        scenario_ids = ("baseline",)
-        timeout = 300
-        task_specs.append((cases, suite_datasets, scenario_ids, timeout))
-    elif suite == "regression":
-        cases = list(CENTER_GRID_CASES)
-        if city is not None:
-            cases = [case for case in cases if case.city == city]
-        suite_datasets = _filter_datasets(DATASET_NAMES, datasets)
-        scenario_ids = ("baseline",)
-        timeout = 420
-        task_specs.append((cases, suite_datasets, scenario_ids, timeout))
-    elif suite == "sweep":
-        cases = [city_center_case(city)] if city else all_city_center_cases()
-        suite_datasets = _filter_datasets(("city_surface_mesh",), datasets)
-        scenario_ids = SWEEP_SCENARIOS
-        timeout = 300
-        task_specs.append((cases, suite_datasets, scenario_ids, timeout))
-    elif suite == "grid":
-        if city is None:
-            raise ValueError("grid suite requires --city")
-        cases = all_grid_cases(city)
-        suite_datasets = _filter_datasets(DATASET_NAMES, datasets)
-        scenario_ids = ("baseline",)
-        timeout = 420
-        task_specs.append((cases, suite_datasets, scenario_ids, timeout))
-    elif suite == "stress":
-        cases = list(CENTER_GRID_CASES)
-        if city is not None:
-            cases = [case for case in cases if case.city == city]
-        suite_datasets = _filter_datasets(STRESS_SCENARIOS_BY_DATASET, datasets)
-        scenario_ids = ()
-        timeout = 900
-        task_specs.append((cases, suite_datasets, scenario_ids, timeout))
-    elif suite == "survey":
-        target_cities = [city] if city is not None else list(CITIES)
-        suite_datasets = _filter_datasets(SURVEY_DATASETS, datasets)
-        grid_cases = [
-            case
-            for target_city in target_cities
-            for case in all_grid_cases(target_city)
-        ]
-        center_grid_cases = [
-            grid_case(target_city, CITIES[target_city].center_tile)
-            for target_city in target_cities
-        ]
-        city_center_cases = [
-            city_center_case(target_city) for target_city in target_cities
-        ]
-        task_specs.extend(
-            [
-                (grid_cases, suite_datasets, ("baseline",), 420),
-                (
-                    center_grid_cases,
-                    suite_datasets,
-                    SURVEY_CENTER_GRID_SCENARIOS,
-                    900,
-                ),
-                (
-                    city_center_cases,
-                    suite_datasets,
-                    SURVEY_BBOX_SCENARIOS,
-                    420,
-                ),
-            ]
+    )
+    if set(selected) - set(DATASET_NAMES):
+        raise ValueError("unknown dataset selection")
+    if phase == "cleaning" and selected != ["city_footprints"]:
+        raise ValueError("--phase cleaning uses city_footprints; omit --dataset")
+    if phase == "meshing" and any(
+        d in {"city_footprints", "terrain_surface_mesh"} for d in selected
+    ):
+        raise ValueError("--phase meshing requires a city mesh dataset")
+    tasks = []
+    for city_name in ([city] if city else CITIES):
+        cases = (
+            all_grid_cases(city_name)
+            if suite == "survey"
+            else [grid_case(city_name, 56)]
         )
-    elif suite == "triage":
-        add_optional_task_spec(
-            TRIAGE_CONDITIONED_FOOTPRINT_CASES,
-            ("city_flat_mesh", "city_surface_mesh"),
-            ("baseline",),
-            420,
-        )
-        add_optional_task_spec(
-            TRIAGE_SURFACE_DOMAIN_CASES,
-            ("city_surface_mesh",),
-            ("baseline",),
-            420,
-        )
-        add_optional_task_spec(
-            TRIAGE_SURFACE_BBOX_CASES,
-            ("city_surface_mesh",),
-            ("bbox_size_m_350",),
-            420,
-        )
-    else:
-        raise AssertionError(f"unhandled benchmark suite: {suite}")
-
-    for cases, suite_datasets, scenario_ids, timeout in task_specs:
         for case in cases:
-            for dataset in suite_datasets:
-                dataset_scenario_ids = (
-                    STRESS_SCENARIOS_BY_DATASET[dataset]
-                    if suite == "stress"
-                    else scenario_ids
-                )
-                for scenario_id in dataset_scenario_ids:
-                    scenario = SCENARIOS[scenario_id]
-                    resolved_case = _with_scenario_bounds(case, scenario)
-                    parameters = dict(DEFAULT_PARAMETERS)
-                    parameters.update(scenario.parameters)
+            for dataset in selected:
+                for scenario in SCENARIOS.values():
+                    if suite != "sweep" and scenario.id != "baseline":
+                        continue
+                    keys = set(scenario.parameters)
+                    if dataset == "city_footprints" and keys - set(
+                        CLEANING_PARAMETERS
+                    ) - {"bbox_size_m"}:
+                        continue
+                    if dataset == "terrain_surface_mesh" and keys & set(
+                        CLEANING_PARAMETERS
+                    ):
+                        continue
+                    if dataset == "city_flat_mesh" and keys & {"raster_cell_size"}:
+                        continue
+                    if (
+                        dataset == "city_volume_mesh"
+                        and scenario.parameters.get("max_mesh_size", 10) < 5
+                    ):
+                        continue
+                    resolved_case = (
+                        city_center_case(city_name, scenario.parameters["bbox_size_m"])
+                        if "bbox_size_m" in scenario.parameters
+                        else case
+                    )
+                    parameters = {**DEFAULT_PARAMETERS, **scenario.parameters}
                     parameters.pop("bbox_size_m", None)
-                    task_id = f"{suite}:{dataset}:{resolved_case.id}:{scenario.id}"
                     tasks.append(
                         BenchmarkTask(
-                            id=task_id,
+                            id=f"{suite}:{dataset}:{resolved_case.id}:{scenario.id}",
                             suite=suite,
                             dataset=dataset,
                             case=resolved_case,
                             scenario=scenario,
                             parameters=parameters,
-                            timeout_seconds=timeout,
+                            timeout_seconds=900 if suite == "sweep" else 420,
                         )
                     )
-
-    if not tasks:
-        raise ValueError("selection produced no tasks")
-
     return tasks
 
 

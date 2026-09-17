@@ -1,111 +1,158 @@
-## Benchmarks
+# City cleaning and meshing benchmarks
 
-Long-running benchmark tools live in the top-level `benchmarks/` directory and
-are not part of normal CI. The active benchmark suite is the manifest-driven
-runner:
+Use one runner from the dtcc-core checkout:
 
-- `cd benchmarks`
-- `./bench list`
-- `./bench list suites`
-- `./bench list datasets`
-- `./bench list cities`
-- `./bench run smoke --dry-run`
-- `./bench run smoke`
-- `./bench run smoke --show-output`
-- `./bench run smoke --save-artifacts`
-- `./bench run grid --city stockholm`
-- `./bench run grid --city stockholm --dataset city_surface_mesh`
-- `./bench run sweep --city lund`
-- `./bench run triage --dry-run`
-- `./bench run triage`
-- `./bench run survey --dry-run`
-- `./bench run survey`
-- `./bench report runs/<run-id>`
+```sh
+.venv/bin/python benchmarks/bench quick
+.venv/bin/python benchmarks/bench survey
+.venv/bin/python benchmarks/bench sweep
+```
 
-The runner uses dataset names:
+| Mode | What it tests | Default scope |
+| --- | --- | --- |
+| `quick` | Basic operation across different cities | One central 500 m tile in each of 10 cities |
+| `survey` | Geographic robustness at fixed default parameters | 100 tiles per city, 1,000 tiles total |
+| `sweep` | Quality and cost when one parameter changes | Central tiles, baseline plus parameter variations |
 
-- `city_footprints`
-- `terrain_surface_mesh`
-- `city_flat_mesh`
-- `city_surface_mesh`
-- `city_volume_mesh`
+Defaults are **flat and surface city meshes**: quick has 20 tasks, survey has
+2,000. Survey does not contain parameter sweeps. These are development tools,
+not normal CI tests. Start with `--city lund` for a bounded first run.
 
-The benchmark suites are:
+## Two phases
 
-- `smoke`: small live sanity check across all datasets
-- `regression`: center grid tile across all cities and datasets
-- `sweep`: one-axis parameter sweeps for `city_surface_mesh`
-- `grid`: full 10x10 grid survey for one explicit city
-- `stress`: fine-raster and dataset-specific fine-mesh center grid tiles across
-  all cities
-- `survey`: multi-hour flat/surface robustness and parameter-envelope survey
-- `triage`: focused live rerun of known survey failure cases
+By default each task prepares raw footprints, cleans them, then meshes the
+cleaned result. Each phase has its own quality measurements, timing and report.
+The high-level dataset APIs still clean automatically.
 
-A benchmark task is one spatial case run through one dataset and one
-scenario. For example, `./bench run grid --city stockholm` is `100` spatial
-cases times `5` datasets times `1` scenario, for `500` tasks.
+```sh
+# Footprints only: no LiDAR, terrain or height estimation.
+.venv/bin/python benchmarks/bench quick --city lund --phase cleaning --output /tmp/lund-clean
 
-The city catalog is the only location catalog. Every city has a center point,
-and every 10x10, 500 m grid is computed from that center. Tile `056` is the
-standard center tile for city-grid cases.
+# Mesh exactly those saved cleaned outlines; do not run cleaning again.
+.venv/bin/python benchmarks/bench quick --city lund --phase meshing --input /tmp/lund-clean --output /tmp/lund-mesh
 
-Benchmark scenarios use normalized parameter names, such as
-`raster_cell_size_0.5`, `max_mesh_size_1`, and `bbox_size_m_500`. The runner
-maps those normalized names to dataset-specific arguments where needed.
-`./bench list scenarios` shows the default parameter set and marks `baseline`
-as the default scenario.
+# Full cleaning + flat meshing over one city grid.
+.venv/bin/python benchmarks/bench survey --city stockholm --dataset city_flat_mesh
+```
 
-The stress suite intentionally uses dataset-specific mesh-size limits. Surface
-mesh stress includes `max_mesh_size_1` and `max_mesh_size_2`. Volume mesh
-stress uses `max_mesh_size_5` as its smallest mesh-size scenario; larger 3D
-volume meshes below that size are treated as a separate capacity/performance
-challenge rather than part of the routine benchmark gate.
+`--phase cleaning` selects `city_footprints` and produces one task per spatial
+case/scenario. Omit `--dataset` for this phase. Meshing-only requires `--input`;
+there is no implicit fallback to downloading new footprints or cleaning again.
+The selected tasks must have matching bounds and cleaning parameters in the
+saved run. Missing or ambiguous inputs fail clearly before execution.
 
-The survey suite is the default "big but bounded" status benchmark for this
-pipeline. It runs:
+Flat meshing needs only the requested domain bounds and cleaned footprints.
+Surface/volume meshing also needs terrain and building heights. These are
+prepared separately from the **saved source buildings**, preserving source
+indices, and saved as a city artifact. A later meshing run reuses that artifact
+when the dataset and preparation parameters match. Otherwise it acquires the
+additional LiDAR inputs and records that fact. Input preparation has its own
+status and time; its failure does not erase completed cleaning results.
 
-- full 10x10 grid baseline for `city_flat_mesh` and `city_surface_mesh` across
-  all benchmark cities;
-- center-grid flat/surface sweeps for `max_mesh_size`, `raster_cell_size`,
-  `min_building_detail`, and `min_building_area`;
-- city-center bbox-size sweeps for flat/surface.
+The cleaning handoff is the final mesher-ready footprint stage, including its
+existing normalization, not an earlier intermediate. Mesh builders validate
+and consume it without footprint repair. Height attachment, domain clipping,
+ground-region construction and meshing remain downstream operations. Existing
+mesh datasets compose the same builder stages automatically.
 
-By default this is 2400 tasks. Use `--city <name>` to reduce it to 240 tasks
-for one city, or `--dataset city_surface_mesh` / `--dataset city_flat_mesh` to
-run only one of the two mesh families.
+Each dataset task currently owns its own input and cleaning result. A combined
+flat/surface run therefore cleans separately for those tasks. To compare mesh
+outputs from exactly one shared cleaning result, run cleaning first and use
+`--phase meshing --input` as above.
 
-The triage suite is a small follow-up target for failures seen in the latest
-survey. It currently tracks conditioned-footprint contract failures in Malmo
-tile `017` and Linkoping tile `047`, plus surface-domain failures in
-Helsingborg tile `079` and Uppsala center `350m`. Use it after robustness fixes
-to confirm the known failure set is shrinking before running another full
-survey.
+## Selection and inspection
 
-The active suite no longer compares Spade or Triangle as benchmark dimensions.
-It uses the default DTCC meshing path exposed through the dataset APIs.
+```sh
+.venv/bin/python benchmarks/bench list
+.venv/bin/python benchmarks/bench list cities
+.venv/bin/python benchmarks/bench list scenarios
+.venv/bin/python benchmarks/bench survey --city lund --dry-run
+.venv/bin/python benchmarks/bench sweep --city lund --dataset city_surface_mesh --scenario max_mesh_size_2
+```
 
-Run outputs are written under:
+- `--city NAME`: restrict to one city; default is all 10.
+- `--dataset NAME`: select an output; repeat to select several. Available:
+  `city_footprints`, `city_flat_mesh`, `city_surface_mesh`, `city_volume_mesh`,
+  `terrain_surface_mesh`. The latter is a separate terrain-only dataset check;
+  its timing includes input preparation and it has no footprint-cleaning phase.
+- `--scenario NAME`: select settings within `sweep`; repeat if needed. Cleaning
+  sweeps omit mesh/raster parameters; flat sweeps omit raster parameters; routine
+  volume sweeps omit mesh sizes below 5 m.
+- `--dry-run`: print exact bounds, parameters and task counts without execution.
+- `--show-output`: stream worker logs; logs are always saved.
+- `--save-artifacts`: also save meshes. Raw/cleaned inputs, metrics and prepared
+  terrain/height inputs are always saved so meshing can be replayed.
+- `--output PATH`: choose a **new** run directory. Default:
+  `benchmarks/runs/<timestamp>_<mode>`. Existing directories are never overwritten.
 
-- `runs/<run-id>/manifest.json`
-- `runs/<run-id>/environment.json`
-- `runs/<run-id>/results.json`
-- `runs/<run-id>/summary.md`
+Cities: Lund, Stockholm, Gothenburg, Malmo, Uppsala, Linkoping, Orebro, Vasteras,
+Helsingborg and Norrkoping. The central case is tile 056. The city catalog is the
+single source for all grids, bounds and parameters.
 
-Worker stdout and stderr are saved under `runs/<run-id>/tasks/<task-id>/`.
-Use `--show-output` to also echo worker output in the terminal while the run is
-active.
-Use `--save-artifacts` to write successful dataset outputs under
-`runs/<run-id>/tasks/<task-id>/artifacts/`; the artifact paths are recorded in
-`results.json` and `summary.md`.
+## Results and quality
 
-Every completed run prints a status summary and a full per-task result table.
-The same summary is saved to `runs/<run-id>/summary.md`. Completed runs also
-record `started_at`, `finished_at`, and `elapsed_seconds` in `manifest.json`
-and show total wall-clock time near the top of `summary.md`.
+Each run contains `manifest.json`, `environment.json`, `results.json`,
+`summary.md`, and a directory under `tasks/` for each case/dataset/scenario:
 
-Some data availability or local data-read misses are reported as warnings
-instead of hard failures. For example, `lidar_coverage` means the requested
-bounds are outside available lidar coverage, and `lidar_cache` means the runner
-could not read a lidar cache/tile payload. These tasks remain visible in
-`results.json` and the summary table, but they do not count as conditioning or
-meshing failures and do not make the benchmark command fail by themselves.
+```text
+task.json
+stdout.log
+stderr.log
+cleaning/
+    raw.dtcc              # Original source buildings and IDs
+    footprints.geojson    # Cleaned polygons and many-to-many source mapping
+    metrics.json
+meshing/
+    city.dtcc             # Source buildings with prepared terrain/heights
+    metrics.json
+artifacts/                # Optional exported mesh
+```
+
+The footprint artifact explicitly records **EPSG:3006, metre coordinates** in
+its metadata; do not interpret it as WGS84 GeoJSON. Loading checks its version,
+CRS, bounds, cleaning parameters, polygon geometry and source indices. Mesher
+input validation remains active. Results from before phase separation do not
+contain this handoff and cannot be used for meshing-only runs.
+
+| Phase | Measurements |
+| --- | --- |
+| Cleaning | Input/output/vertex/hole counts, invalid input/output counts, unrepresented sources, added/removed area, maximum boundary displacement, overlap, minimum clearance, short edges, stage contract, cleaning time |
+| Meshing | Vertex/element/region counts; min/mean/max element quality, aspect ratio, radius ratio, edge ratio and skewness; 1st-percentile element quality; counts below quality 0.02 and of degenerate cells; stage contracts; meshing time |
+
+Area and displacement compare coverage unions, so overlapping raw polygons do
+not inflate area. Invalid raw polygons use GEOS `make_valid` for these
+measurements; the original raw geometry and invalid-input count are retained.
+Unrepresented sources and changes in holes/area are observations, not automatic
+failures: declared scale rules intentionally remove some geometry.
+
+Replayed cleaning is marked `reused`, without a new cleaning time or claimed
+new cleaning measurements. Consult its source run for those measurements.
+Meshing input preparation records `bounds`, `saved`, or `provider/cache`.
+
+Geometry/pipeline failures and quality-evaluation failures fail the task.
+Stage quality warnings and degenerate final cells are explicit warnings; data
+coverage/cache misses retain their existing warning classification. Warnings
+remain nonfatal to the command. **This is a measurement campaign, not yet a
+new numerical quality acceptance policy.** Review quality changes as well as
+success counts; a zero exit code does not mean every mesh is acceptable.
+
+## Review, compare and rerun
+
+```sh
+.venv/bin/python benchmarks/bench report /tmp/lund-mesh
+.venv/bin/python benchmarks/bench compare /tmp/before /tmp/after
+.venv/bin/python benchmarks/bench rerun /tmp/lund-mesh --failed
+.venv/bin/python benchmarks/bench rerun /tmp/lund-mesh --task 'quick:city_flat_mesh:city_grid:lund:056:baseline'
+```
+
+`compare` reports phase timing and quality deltas, not just overall runtime.
+Use matching input geometry and settings for meaningful before/after comparison.
+`rerun` selects failed/incomplete tasks by default; `--task` selects an exact ID,
+including a warning or successful case. Every rerun writes a new run directory.
+A meshing-only rerun uses the saved handoff; a full/cleaning rerun reacquires raw
+footprints from the provider/cache as the original command did.
+
+The old `run` verb and `smoke`, `regression`, `grid`, `stress`, `triage` suites
+have been removed. Use `quick`, `survey --city ...`, `sweep`, and `rerun`.
+Historical reports in this directory document the old commands and results;
+they are not today's acceptance baseline.
