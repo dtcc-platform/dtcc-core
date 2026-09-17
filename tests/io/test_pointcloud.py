@@ -2,7 +2,8 @@ import pytest
 from pathlib import Path
 import json
 import tempfile
-from dtcc_core import io
+import numpy as np
+from dtcc_core import builder, io
 from dtcc_core.model import Bounds, PointCloud
 
 
@@ -86,28 +87,25 @@ def test_save_pointcloud(point_cloud):
         outpath.unlink()
 
 
-def test_load_pointcloud_list(las_file):
-    pc = io.load_pointcloud([las_file, las_file])
-    assert len(pc.points) == 8148 * 2
-    assert len(pc.classification) == 8148 * 2
+@pytest.mark.parametrize("file_count", [1, 2])
+def test_load_pointcloud_list_preserves_attributes_for_terrain(las_file, file_count):
+    original = io.load_pointcloud(las_file)
+    pc = io.load_pointcloud([las_file] * file_count)
+    assert len(pc.points) == len(original.points) * file_count
+    for name in ("classification", "intensity", "return_number", "num_returns"):
+        expected = getattr(original, name)
+        actual = getattr(pc, name)
+        assert actual.dtype == expected.dtype
+        np.testing.assert_array_equal(actual, np.tile(expected, file_count))
 
-
-def test_load_pointcloud_list_keeps_integer_classification(las_file):
-    """Downloads merge tiles this way; classes must stay LAS integers."""
-    pc = io.load_pointcloud([las_file, las_file])
-    assert pc.classification.dtype.kind in "iu"
-
-
-def test_terrain_raster_from_merged_tiles_uses_ground_points(las_file):
-    """The terrain demos failed here once merged classes became floats."""
-    from dtcc_core.builder import build_terrain_raster
-
-    pc = io.load_pointcloud([las_file, las_file])
-    assert 2 in pc.used_classifications()
-
-    raster = build_terrain_raster(pc, cell_size=2.0, ground_only=True)
-
+    raster = builder.build_terrain_raster(
+        pc.remove_global_outliers(3.0),
+        cell_size=2.0,
+        ground_only=True,
+        _report_progress=False,
+    )
     assert raster.data.size > 0
+    assert np.isfinite(raster.data).all()
 
 
 if __name__ == "__main__":

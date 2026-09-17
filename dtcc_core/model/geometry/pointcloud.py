@@ -12,18 +12,6 @@ from .bounds import Bounds
 from ..mixins.pointcloud.mixins import PointCloudBuilderMixin, PointcloudFilterMixin
 
 
-def _append(existing: np.ndarray, incoming: np.ndarray) -> np.ndarray:
-    """Append per-point values, keeping their type when nothing came before.
-
-    Point attributes default to an empty float array. Concatenating integer
-    values onto it would silently turn LAS classifications into floats, which
-    the terrain builders and the model exchange contract reject.
-    """
-    if len(existing) == 0:
-        return incoming
-    return np.concatenate((existing, incoming))
-
-
 @dataclass(repr=False)
 class PointCloud(PointCloudBuilderMixin, PointcloudFilterMixin, Geometry):
     """Represents a set of points in 3D.
@@ -160,14 +148,18 @@ class PointCloud(PointCloudBuilderMixin, PointcloudFilterMixin, Geometry):
         else:
             self.points = np.concatenate((self.points, other.points))
 
-        if len(other.classification) == len(other.points):
-            self.classification = _append(self.classification, other.classification)
-        if len(other.intensity) == len(other.points):
-            self.intensity = _append(self.intensity, other.intensity)
-        if len(other.return_number) == len(other.points):
-            self.return_number = _append(self.return_number, other.return_number)
-        if len(other.num_returns) == len(other.points):
-            self.num_returns = _append(self.num_returns, other.num_returns)
+        for name in ("classification", "intensity", "return_number", "num_returns"):
+            incoming = getattr(other, name)
+            if len(incoming) == len(other.points):
+                current = getattr(self, name)
+                # Empty defaults are float arrays; do not promote LAS integer
+                # attributes when the first populated array is merged.
+                merged = (
+                    incoming.copy()
+                    if len(current) == 0
+                    else np.concatenate((current, incoming))
+                )
+                setattr(self, name, merged)
         self.calculate_bounds()
         return self
 
