@@ -20,10 +20,12 @@ class LineString(Geometry):
     This class models a LineString geometry, typically used in vector-based spatial data,
     where a sequence of points forms a continuous line in 2D or 3D space.
 
-    Attributes:
-        vertices (np.ndarray): A NumPy array of shape (N, 2) or (N, 3) representing the
-            coordinates of the line string's vertices. Each row corresponds to a point
-            in 2D (x, y) or 3D (x, y, z) space.
+    Attributes
+    ----------
+    vertices : np.ndarray
+        A NumPy array of shape (N, 2) or (N, 3) representing the coordinates of
+        the line string's vertices. Each row corresponds to a point in 2D (x,
+        y) or 3D (x, y, z) space.
     """
 
     vertices: np.ndarray = field(default_factory=lambda: np.empty((0, 3)))

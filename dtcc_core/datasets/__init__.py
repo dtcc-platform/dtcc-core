@@ -137,14 +137,20 @@ def __getattr__(name):
 
     This enables access like `datasets.pointcloud`.
 
-    Args:
-        name (str): The attribute name being accessed.
+    Parameters
+    ----------
+    name : str
+        The attribute name being accessed.
 
-    Returns:
-        The registered dataset instance, if found.
+    Returns
+    -------
+    DatasetDescriptor
+        The registered dataset instance.
 
-    Raises:
-        AttributeError: If the attribute is not a registered dataset.
+    Raises
+    ------
+    AttributeError
+        If the attribute is not a registered dataset.
     """
     try:
         return get_dataset(name)

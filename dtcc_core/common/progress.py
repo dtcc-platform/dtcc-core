@@ -124,17 +124,24 @@ def report_progress(
     Report progress from anywhere in the call stack.
     Safe to call even if no tracker is active (becomes a no-op).
 
-    Args:
-        percent: Progress within current phase (0-100)
-        message: Status message to display
-        increment: Increment progress by this percentage
-        current: Current item number (alternative to percent)
-        total: Total items (used with current)
+    Parameters
+    ----------
+    percent
+        Progress within current phase (0-100)
+    message
+        Status message to display
+    increment
+        Increment progress by this percentage
+    current
+        Current item number (alternative to percent)
+    total
+        Total items (used with current)
 
-    Examples:
-        report_progress(percent=50, message="Halfway done")
-        report_progress(current=5, total=10)  # 50%
-        report_progress(increment=10)  # Add 10%
+    Examples
+    --------
+    report_progress(percent=50, message="Halfway done")
+    report_progress(current=5, total=10)  # 50%
+    report_progress(increment=10)  # Add 10%
     """
     tracker = _current_progress.get()
     if tracker is None:
@@ -209,25 +216,32 @@ class ProgressTracker:
     """
     Thread-safe progress tracker with phase support and context propagation.
 
-    Args:
-        phases: Dict mapping phase names to their weights (should sum to 1.0)
-        mode: Output mode (auto-detected if not specified)
-        output: Output stream (default: stderr)
-        callback: Custom callback function for CALLBACK mode
-        min_update_interval: Minimum seconds between renders (prevents flickering)
+    Parameters
+    ----------
+    phases
+        Dict mapping phase names to their weights (should sum to 1.0)
+    mode
+        Output mode (auto-detected if not specified)
+    output
+        Output stream (default: stderr)
+    callback
+        Custom callback function for CALLBACK mode
+    min_update_interval
+        Minimum seconds between renders (prevents flickering)
 
-    Examples:
-        # Phased progress
-        with ProgressTracker(phases={"load": 0.2, "process": 0.8}) as p:
-            with p.phase("load"):
-                load_data()
-            with p.phase("process"):
-                process_data()
+    Examples
+    --------
+    # Phased progress
+    with ProgressTracker(phases={"load": 0.2, "process": 0.8}) as p:
+        with p.phase("load"):
+            load_data()
+        with p.phase("process"):
+            process_data()
 
-        # Simple progress
-        with ProgressTracker(total=100) as p:
-            for i in range(100):
-                p.update(current=i)
+    # Simple progress
+    with ProgressTracker(total=100) as p:
+        for i in range(100):
+            p.update(current=i)
     """
 
     def __init__(
@@ -340,9 +354,12 @@ class ProgressTracker:
         """
         Context manager for entering a progress phase.
 
-        Args:
-            name: Phase name (must match a key in phases dict)
-            message: Optional status message
+        Parameters
+        ----------
+        name
+            Phase name (must match a key in phases dict)
+        message
+            Optional status message
         """
         if name not in self.state.phases:
             # Allow ad-hoc phases (equal weight)
@@ -453,10 +470,14 @@ class ProgressTracker:
         """
         Wrap an iterable to track progress automatically.
 
-        Args:
-            iterable: Any iterable
-            total: Total count (inferred from len() if not provided)
-            message: Status message template (can include {current}, {total})
+        Parameters
+        ----------
+        iterable
+            Any iterable
+        total
+            Total count (inferred from len() if not provided)
+        message
+            Status message template (can include {current}, {total})
         """
         if total is None:
             try:
@@ -480,10 +501,14 @@ class ProgressTracker:
         """
         Create a callback function to pass to C++ code.
 
-        Args:
-            phase_name: If provided, updates are scoped to this phase
+        Parameters
+        ----------
+        phase_name
+            If provided, updates are scoped to this phase
 
-        Returns:
+        Returns
+        -------
+        Callable[[int, int, str], None]
             Callable with signature (current, total, message) -> None
         """
         def callback(current: int, total: int, message: str = ""):
@@ -593,10 +618,14 @@ def with_progress(
 
     If a parent tracker exists, creates a sub-phase instead of new tracker.
 
-    Args:
-        phases: Phase weights for this function
-        total: Total items for simple progress
-        message: Default status message
+    Parameters
+    ----------
+    phases
+        Phase weights for this function
+    total
+        Total items for simple progress
+    message
+        Default status message
     """
     def decorator(func):
         @functools.wraps(func)

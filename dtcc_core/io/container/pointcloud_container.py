@@ -34,12 +34,17 @@ class PointCloudDirectory:
         """
         Initialize a PointCloudDirectory object.
 
-        Args:
-            files (List[Path]): A list of file paths to point cloud files.
-            bounds (List[Bounds]): A list of bounds corresponding to the point cloud files.
+        Parameters
+        ----------
+        files : List[Path]
+            A list of file paths to point cloud files.
+        bounds : List[Bounds]
+            A list of bounds corresponding to the point cloud files.
 
-        Raises:
-            ValueError: If the length of files and bounds lists are not the same.
+        Raises
+        ------
+        ValueError
+            If the length of files and bounds lists are not the same.
         """
         self.container_type = PointCloudContainerType.FILESYSTEM
         self.file_list = files
@@ -74,15 +79,20 @@ class PointCloudDirectory:
         """
         Retrieve a point cloud within the specified bounds.
 
-        Args:
-            bounds : Bounds
-              The bounds within which to retrieve the point cloud.
-            points_only :bool  (optional)
-              If True, only retrieve point coordinates. Defaults to False.
-            points_classification_only : bool (optional)
-              If True, only retrieve point classifications. Defaults to False.
+        Parameters
+        ----------
+        bounds
+            Bounds The bounds within which to retrieve the point cloud.
+        points_only
+            bool (optional) If True, only retrieve point coordinates. Defaults
+            to False.
+        points_classification_only
+            bool (optional) If True, only retrieve point classifications.
+            Defaults to False.
 
-        Returns:
+        Returns
+        -------
+        PointCloud
             Pointcloud
         """
         needed_files = self._rtree.query(

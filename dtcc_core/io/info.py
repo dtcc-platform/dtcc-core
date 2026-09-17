@@ -12,11 +12,15 @@ def las_file_bounds(las_file):
     """
     Calculate the bounding box of a LAS file without loading it.
 
-    Args:
-        las_file (str): The path to the LAS file.
+    Parameters
+    ----------
+    las_file : str
+        The path to the LAS file.
 
-    Returns:
-        Bounds: A `Bounds` object representing the bounding box of the LAS file.
+    Returns
+    -------
+    Bounds
+        A `Bounds` object representing the bounding box of the LAS file.
     """
     src = laspy.read(las_file)
     bounds = Bounds(
@@ -54,10 +58,14 @@ def _csv_pointcloud_info(path: [str | Path]) -> dict:
 def info_pointcloud(path: [str | Path]) -> dict:
     """
     Print information about a LAS file.
-    Args:
-        path: the path to the LAS file.
+    Parameters
+    ----------
+    path
+        the path to the LAS file.
 
-    Returns:
+    Returns
+    -------
+    dict
         a dictionary containing information about the LAS file.
     """
 
@@ -82,10 +90,14 @@ def info_pointcloud(path: [str | Path]) -> dict:
 def info_vector(path: [str | Path]) -> dict:
     """
     Print information about a vector file.
-    Args:
-        path: the path to the vector file.
+    Parameters
+    ----------
+    path
+        the path to the vector file.
 
-    Returns:
+    Returns
+    -------
+    dict
         a dictionary containing information about the vector file.
     """
 
@@ -116,10 +128,14 @@ def info_vector(path: [str | Path]) -> dict:
 def info_raster(path: [str | Path]) -> dict:
     """
     Print information about a raster file.
-    Args:
-        path: the path to the raster file.
+    Parameters
+    ----------
+    path
+        the path to the raster file.
 
-    Returns:
+    Returns
+    -------
+    dict
         a dictionary containing information about the raster file.
     """
 
@@ -155,10 +171,14 @@ def info_raster(path: [str | Path]) -> dict:
 def info_mesh(path: [str | Path]) -> dict:
     """
     Print information about a mesh file.
-    Args:
-        path: the path to the mesh file.
+    Parameters
+    ----------
+    path
+        the path to the mesh file.
 
-    Returns:
+    Returns
+    -------
+    dict
         a dictionary containing information about the mesh file.
     """
     path = Path(path)

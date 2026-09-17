@@ -21,11 +21,16 @@ class MeshProcessingMixin:
         Merge this mesh with another mesh. This method is non-mutating
         (does not modify data in-place).
 
-        Args:
-            other (Mesh): The other mesh to merge with.
+        Parameters
+        ----------
+        other : Mesh
+            The other mesh to merge with.
 
-        Returns:
-            Mesh: The a new mesh object that is the result of merging this mesh with the other mesh.
+        Returns
+        -------
+        Mesh
+            The a new mesh object that is the result of merging this mesh with
+            the other mesh.
         """
         from dtcc_core.builder.meshing import merge
 
@@ -38,11 +43,15 @@ class MeshProcessingMixin:
         Snap the vertices of the mesh to a grid defined by the snap distance. This method is non-mutating
         (does not modify data in-place).
 
-        Args:
-            snap_distance (float): The distance to snap the vertices to.
+        Parameters
+        ----------
+        snap_distance : float
+            The distance to snap the vertices to.
 
-        Returns:
-            Mesh: A new mesh object with snapped vertices.
+        Returns
+        -------
+        Mesh
+            A new mesh object with snapped vertices.
         """
         from dtcc_core.builder.meshing import snap_vertices
 
@@ -58,12 +67,16 @@ class MeshProcessingMixin:
         """
         Tile a surface mesh into smaller meshes of a specified size.
 
-        Args:
-            tile_size (float|list): The size of each tile (in the same units as the mesh coordinates). if a single float
-            is provided, it will be used for both width and height.
+        Parameters
+        ----------
+        tile_size : float or list
+            The size of each tile, in the units of the mesh coordinates. A
+            single float is used for both width and height.
 
-        Returns:
-            list[Mesh]: A list of tiled mesh objects.
+        Returns
+        -------
+        list[Mesh]
+            A list of tiled mesh objects.
         """
         from dtcc_core.builder.meshing import tile_surface_mesh
 
@@ -83,12 +96,18 @@ class MeshProcessingMixin:
         2. Extruding the boundary downwards to create side walls
         3. Creating a bottom cap at the specified depth
 
-        Args:
-            extrusion_depth (float, optional): How far down to extrude. If None, uses 10% of mesh height.
-            base_z (float, optional): Z-coordinate for the bottom. If None, uses min_z - extrusion_depth.
+        Parameters
+        ----------
+        extrusion_depth : float, optional
+            How far down to extrude. If None, uses 10% of mesh height.
+        base_z : float, optional
+            Z-coordinate for the bottom. If None, uses min_z - extrusion_depth.
 
-        Returns:
-            Mesh: A new solid mesh with extruded sides and bottom cap, suitable for 3D printing.
+        Returns
+        -------
+        Mesh
+            A new solid mesh with extruded sides and bottom cap, suitable for
+            3D printing.
         """
         from dtcc_core.builder.meshing import extrude_surface_to_solid
 
@@ -106,13 +125,19 @@ class MeshProcessingMixin:
         Create a solid mesh suitable for 3D printing with additional validation and fixes.
         This method is non-mutating (does not modify data in-place).
 
-        Args:
-            extrusion_depth (float, optional): Depth of extrusion
-            base_z (float, optional): Base Z coordinate
-            minimum_thickness (float): Minimum wall thickness for 3D printing
+        Parameters
+        ----------
+        extrusion_depth : float, optional
+            Depth of extrusion
+        base_z : float, optional
+            Base Z coordinate
+        minimum_thickness : float
+            Minimum wall thickness for 3D printing
 
-        Returns:
-            Mesh: A new solid mesh optimized for 3D printing
+        Returns
+        -------
+        Mesh
+            A new solid mesh optimized for 3D printing
         """
         from dtcc_core.builder.meshing import create_printable_surface_mesh
 

@@ -23,21 +23,23 @@ class CityModifyingMixin:
         """
         Calculate estimated_height from point cloud, preserving measured_height.
 
-        Args:
-            self (City): The city object to modify.
-            statistical_outlier_removal : bool, default True
+        Parameters
+        ----------
+        statistical_outlier_removal : bool, default True
             Whether to apply statistical outlier removal to roof points.
         roof_outlier_neighbors : int, default 5
             Number of neighbors for outlier detection.
         roof_outlier_margin : float, default 1.5
             Margin for statistical outlier removal.
-        overwrite : bool, default False
+        overwrite : bool, default True
             Whether to overwrite existing height values.
         keep_roof_points : bool, default False
             Whether to keep extracted roof points as building geometry.
 
-        Returns:
-            City: The modified city object with building heights set as an attribute.
+        Returns
+        -------
+        City
+            The modified city object with building heights set as an attribute.
         """
         from dtcc_core.builder import (
             building_heights_from_pointcloud as _building_heights_from_pointcloud,

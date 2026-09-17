@@ -16,19 +16,33 @@ class LanduseClasses(Enum):
     remote sensing, simulation, or 3D urban environments. Each class represents a general 
     type of surface usage, ranging from natural to heavily developed areas.
 
-    Attributes:
-        WATER: Bodies of water such as lakes, rivers, and oceans.
-        GRASS: Grass-covered areas including parks, fields, and lawns.
-        FOREST: Forested or densely vegetated regions.
-        FARMLAND: Agricultural land used for crops or pasture.
-        LIGHT_URBAN: Low-density urban development, such as suburbs or residential zones.
-        URBAN: Medium-density urban areas with mixed land use.
-        HEAVY_URBAN: High-density urban cores, often with large buildings or infrastructure.
-        INDUSTRIAL: Zones designated for industrial activity, including factories and warehouses.
-        MILITARY: Areas reserved for military use or restricted access.
-        ROAD: Land primarily used for roads and transportation corridors.
-        RAIL: Railway infrastructure and corridors.
-        UNKNOWN: Land use is unknown or unclassified (explicitly set to 9999).
+    Attributes
+    ----------
+    WATER
+        Bodies of water such as lakes, rivers, and oceans.
+    GRASS
+        Grass-covered areas including parks, fields, and lawns.
+    FOREST
+        Forested or densely vegetated regions.
+    FARMLAND
+        Agricultural land used for crops or pasture.
+    LIGHT_URBAN
+        Low-density urban development, such as suburbs or residential zones.
+    URBAN
+        Medium-density urban areas with mixed land use.
+    HEAVY_URBAN
+        High-density urban cores, often with large buildings or infrastructure.
+    INDUSTRIAL
+        Zones designated for industrial activity, including factories and
+        warehouses.
+    MILITARY
+        Areas reserved for military use or restricted access.
+    ROAD
+        Land primarily used for roads and transportation corridors.
+    RAIL
+        Railway infrastructure and corridors.
+    UNKNOWN
+        Land use is unknown or unclassified (explicitly set to 9999).
     """
     WATER = auto()
     GRASS = auto()
@@ -52,8 +66,10 @@ class Landuse(Object):
     This class models areas of land with specified types of usage (e.g., forest, urban, water),
     along with their associated geometric representation as multi-surfaces.
 
-    Attributes:
-        landuses (List[LanduseClasses]): A list of land use classes describing how the land is used.
+    Attributes
+    ----------
+    landuses : List[LanduseClasses]
+        A list of land use classes describing how the land is used.
     """
     landuses: List[LanduseClasses] = field(default_factory=list)
 
