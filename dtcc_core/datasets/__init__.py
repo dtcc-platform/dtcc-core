@@ -25,7 +25,6 @@ from .schema import (
     DatasetProvenance,
     DatasetRequest,
 )
-from dtcc_core.common import info as log_info, log_table
 
 # Import dataset classes to trigger auto-registration
 from .pointcloud import PointCloudDataset
@@ -110,41 +109,26 @@ calibration_grid = get_dataset("calibration_grid")
 _CATEGORY_ORDER = ("raw", "derived", "synthetic", "simulation", "remote", "unknown")
 
 
-def info():
-    """
-    Print information about all available datasets.
+def info(print: bool = True) -> str | None:
+    """Print the dataset catalogue, or return plain text with ``print=False``.
 
-    This function iterates over all registered datasets and prints
-    a nicely formatted summary of each one.
-
-    Example:
-        >>> import dtcc_core.datasets as datasets
-        >>> datasets.info()
+    Use ``datasets.<name>.info()`` for an individual dataset's parameter help.
+    Explicit inspection is independent of the logging level.
     """
+    import builtins
+    from dtcc_core.common._display import format_info
+
     datasets_dict = list()
-
-    if not datasets_dict:
-        log_info("DTCC Datasets: no datasets are currently registered.")
-        return
-
-    grouped = _group_dataset_summary_rows(datasets_dict)
-    log_info(f"DTCC Datasets ({len(datasets_dict)} available)")
-    log_info("Use datasets.<name>() to access a dataset.")
-    log_info("Use print(datasets.<name>) to see dataset parameters.")
-
-    columns = [
-        ("Dataset", "left"),
-        ("Product", "left"),
-        ("Formats", "left"),
-        ("Source", "left"),
-    ]
-    for category, rows in grouped.items():
-        log_table(
-            log_info,
-            f"{_format_category_title(category)} ({len(rows)})",
-            columns,
-            rows,
-        )
+    sections = [("", None, "Use datasets.<name>() to access a dataset.\n"
+                 "Use datasets.<name>.info() to see dataset parameters.")]
+    for category, rows in _group_dataset_summary_rows(datasets_dict).items():
+        sections.append((f"{_format_category_title(category)} ({len(rows)})",
+                         ("Dataset", "Product", "Formats", "Source"), rows))
+    summary = format_info(f"DTCC Datasets ({len(datasets_dict)} available)", sections)
+    if print:
+        builtins.print(summary)
+        return None
+    return summary
 
 
 def __getattr__(name):

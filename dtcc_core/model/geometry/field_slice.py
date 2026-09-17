@@ -14,7 +14,7 @@ from .bounds import Bounds
 from .pointcloud import PointCloud
 
 
-@dataclass
+@dataclass(repr=False)
 class FieldSlice(PointCloud):
     """Planar point samples with simulation fields attached to the points."""
 
@@ -30,6 +30,13 @@ class FieldSlice(PointCloud):
     domain_bounds: Bounds | None = None
     metadata_payload: dict[str, Any] = dataclass_field(default_factory=dict)
     default_artifact_format: str = "png"
+
+    def _summary_items(self):
+        return super()._summary_items() + [
+            ("slice_axis", self.slice_axis),
+            ("slice_position", self.slice_position),
+            ("time", self.time),
+        ]
 
     def field(self, name: str) -> Field | None:
         """Return a field by name."""

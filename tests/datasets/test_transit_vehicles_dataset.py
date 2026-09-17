@@ -281,7 +281,7 @@ def test_missing_trafiklab_key_degrades(monkeypatch):
     assert len(vehicles.vehicles()) == 0
     assert vehicles.attributes["partial_result"] is True
     assert vehicles.attributes["upstream_error_count"] == 1
-    assert "TRAFIKLAB_API_KEY" in str(vehicles)
+    assert "TRAFIKLAB_API_KEY" in vehicles.info(print=False)
 
 
 def test_missing_vasttrafik_credentials_degrades(monkeypatch):
@@ -297,7 +297,7 @@ def test_missing_vasttrafik_credentials_degrades(monkeypatch):
     assert len(vehicles.vehicles()) == 0
     assert vehicles.attributes["partial_result"] is True
     assert vehicles.attributes["upstream_error_count"] == 1
-    assert "VASTTRAFIK_AUTHENTICATION_KEY" in str(vehicles)
+    assert "VASTTRAFIK_AUTHENTICATION_KEY" in vehicles.info(print=False)
 
 
 def test_missing_vasttrafik_credentials_strict_raises(monkeypatch):

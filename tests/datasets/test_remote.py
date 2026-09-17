@@ -93,6 +93,12 @@ class TestRemoteDatasetDescriptor:
             source_service="test",
         )
         assert desc.show_options() == schema
+        # Inspection uses the discovered schema, not the local passthrough model.
+        text = desc.info(print=False)
+        assert "bounds" in text
+        assert "No parameters defined" not in text
+        schema["properties"].update({f"option_{i}": {"type": "number"} for i in range(25)})
+        assert "option_24" in desc.info(print=False)
 
     def test_validate_passes_through_dict(self):
         desc = RemoteDatasetDescriptor(

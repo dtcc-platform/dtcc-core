@@ -1,3 +1,4 @@
+import re
 import pytest
 import numpy as np
 import dtcc_core
@@ -66,21 +67,21 @@ def test_roadnetwork_str_and_info(capsys):
     summary = str(rn)
     details = rn.info(print=False)
 
-    assert "DTCC RoadNetwork with 3 vertices, 2 edge(s)" in summary
-    assert "DTCC RoadNetwork" in details
-    assert "Vertices: 3" in details
-    assert "Edges: 2" in details
-    assert "CRS: EPSG:3006" in details
-    assert "Total: 3.00" in details
-    assert "residential: 1" in details
-    assert "primary: 1" in details
-    assert "One-way segments: 1" in details
+    assert summary == "<RoadNetwork(num_vertices=3, num_edges=2, num_segments=2)>"
+    assert "RoadNetwork" in details
+    assert re.search(r"│Vertices\s*│3\s*│", details)
+    assert re.search(r"│Edges\s*│2\s*│", details)
+    assert re.search(r"│CRS\s*│EPSG:3006\s*│", details)
+    assert re.search(r"│Total\s*│3.00\s*│", details)
+    assert re.search(r"│residential\s*│1\s*│", details)
+    assert re.search(r"│primary\s*│1\s*│", details)
+    assert re.search(r"│One-way segments\s*│1\s*│", details)
 
     result = rn.info()
     captured = capsys.readouterr()
     assert result is None
-    assert "DTCC RoadNetwork" in captured.out
-    assert "Vertices: 3" in captured.out
+    assert "RoadNetwork" in captured.out
+    assert captured.out == details + "\n"
 
 
 def test_roadnetwork_to_matrix_without_self_loops():

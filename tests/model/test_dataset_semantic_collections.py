@@ -76,7 +76,8 @@ def test_footprint_collection_info_is_concise_with_dataset_tables():
 
     text = collection.info(print=False)
 
-    assert text.startswith("DTCC FootprintCollection with 1 footprint(s)")
+    assert text.startswith("FootprintCollection\n")
+    assert "Footprints" in text
     assert "Surface(_bounds=" not in text
     assert "Presentation" in text
     assert "Provenance" in text

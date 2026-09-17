@@ -10,7 +10,7 @@ from dtcc_core import io
 from dtcc_core.model import Bounds, City, exchange
 
 
-def test_flagship_numerics_openings_and_reference_integrity(tmp_path):
+def test_flagship_numerics_openings_and_reference_integrity(tmp_path, capsys):
     path = Path(__file__).resolve().parents[2] / 'scripts/generate_flagship_model.py'
     spec = importlib.util.spec_from_file_location('flagship_example', path)
     example = importlib.util.module_from_spec(spec)
@@ -21,6 +21,10 @@ def test_flagship_numerics_openings_and_reference_integrity(tmp_path):
     target = tmp_path / 'flagship.dtcc'
     city.save(target)
     restored = io.load_model(target)
+    restored.tree(verbose=True)
+    tree_text = capsys.readouterr().out
+    assert "'dem'" in tree_text and '<Raster(' in tree_text
+    assert "field 'velocity' (m/s)" in tree_text
     payload = target.read_bytes()
     assert exchange.dumps(restored) == payload
     features = {o.id: o for o in example.objects(restored)}

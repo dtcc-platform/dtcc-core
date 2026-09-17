@@ -197,40 +197,38 @@ def test_dataset_info_groups_rows_by_category():
     assert grouped["synthetic"][0][0] == "smoke"
 
 
-def test_dataset_info_prints_one_table_per_category(monkeypatch):
-    """datasets.info() should delegate grouped output to the common table logger."""
-    messages = []
-    tables = []
+def test_dataset_info_prints_tables_independent_of_logging(capsys):
+    from dtcc_core.common.dtcc_logging import set_log_level, get_python_logger
 
-    monkeypatch.setattr(datasets, "log_info", messages.append)
-
-    def capture_table(log_fn, message, columns, rows, **kwargs):
-        tables.append((message, columns, rows, kwargs))
-
-    monkeypatch.setattr(datasets, "log_table", capture_table)
-
-    datasets.info()
-
-    table_titles = [table[0] for table in tables]
-    assert "Raw Datasets" in table_titles[0]
-    assert any(title.startswith("Derived Datasets") for title in table_titles)
-    assert any(title.startswith("Synthetic Datasets") for title in table_titles)
-    assert all(len(table[2]) > 0 for table in tables)
-    assert any("DTCC Datasets" in message for message in messages)
+    previous = get_python_logger().level
+    try:
+        set_log_level("WARNING")
+        text = datasets.info(print=False)
+        assert capsys.readouterr().out == ""
+        assert "Raw Datasets" in text
+        assert "Derived Datasets" in text
+        assert "Synthetic Datasets" in text
+        assert "datasets.<name>.info()" in text
+        assert datasets.info() is None
+        assert capsys.readouterr().out == text + "\n"
+    finally:
+        set_log_level(previous)
 
 
-def test_dataset_descriptor_string_uses_parameter_table():
-    """print(datasets.foo) should show one-dataset help as a table."""
-    output = str(datasets.smoke)
-
+def test_dataset_descriptor_info_uses_parameter_table(capsys):
+    summary = repr(datasets.smoke)
+    assert summary == str(datasets.smoke)
+    assert summary.startswith("<SmokeDataset(")
+    assert "name='smoke'" in summary
+    output = datasets.smoke.info(print=False)
+    assert capsys.readouterr().out == ""
     assert "Dataset: smoke" in output
-    assert "Available Parameters:" in output
-    assert "Parameter" in output
-    assert "Default" in output
-    assert "Description" in output
-    assert "bounds" in output
-    assert "resolution" in output
+    assert "Available parameters" in output
+    assert "Parameter" in output and "Default" in output and "Description" in output
+    assert "bounds" in output and "resolution" in output
     assert "* = required parameter" in output
+    assert datasets.smoke.info() is None
+    assert capsys.readouterr().out == output + "\n"
 
 
 # Explicit API Tests
