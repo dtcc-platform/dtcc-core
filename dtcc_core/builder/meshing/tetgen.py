@@ -5,9 +5,10 @@ import numpy as np
 from ...model import Mesh, VolumeMesh
 from . import tetgen_utils
 
-from ..logging import debug, info, warning
+from ..logging import debug, warning
 
 HAS_TETGEN = False
+_tetgen_import_error: ImportError | None = None
 _tetgen_switch_module = None
 BOUNDARY_FACET_MARKERS: Dict[str, int] = {
     "top": -2,
@@ -21,10 +22,8 @@ try:
 
     _tetgen_switch_module = tetwrap.switches
     HAS_TETGEN = True
-    info("TetGen is available for volume meshing.")
-except ImportError:
-    _tetgen_switch_module = None
-    warning("TetGen not available. Volume meshing fallback to dtcc base method.")
+except ImportError as exc:
+    _tetgen_import_error = exc
 
 
 def is_tetgen_available() -> bool:
@@ -40,12 +39,23 @@ def is_tetgen_available() -> bool:
     return HAS_TETGEN
 
 
+def _require_tetgen() -> None:
+    """Fail before volume preparation when the optional native backend is absent."""
+    if not HAS_TETGEN:
+        raise ImportError(
+            "Volume meshing requires dtcc-tetgen-wrapper. "
+            "In a dtcc-core checkout, run `uv sync --extra volume`. "
+            "In another uv project, run "
+            '`uv add "dtcc-core[volume] @ '
+            'git+https://github.com/dtcc-platform/dtcc-core.git@develop"`.'
+        ) from _tetgen_import_error
+
+
 def get_default_tetgen_switches() -> Dict[str, Any]:
     """
     Return a fresh copy of TetGen switch defaults if TetGen is available.
     """
-    if not HAS_TETGEN or _tetgen_switch_module is None:
-        raise RuntimeError("TetGen switch defaults requested but TetGen is not available.")
+    _require_tetgen()
     return _tetgen_switch_module.tetgen_defaults()
 
 
@@ -110,11 +120,14 @@ def build_volume_mesh(
 
     Raises
     ------
+    ImportError
+        If the TetGen wrapper is unavailable.
     TypeError
         If ``mesh`` is not a ``Mesh`` instance.
     ValueError
         If the input mesh lacks faces, face markers, or required boundary facets.
     """
+    _require_tetgen()
     if not isinstance(mesh, Mesh):
         raise TypeError("Input must be a dtcc.Mesh instance.")
 

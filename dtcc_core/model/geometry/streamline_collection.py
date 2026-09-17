@@ -25,7 +25,7 @@ from .field_slice import (
 from .linestring import LineString
 
 
-@dataclass
+@dataclass(repr=False)
 class StreamlineCollection(Model):
     """Streamlines represented as line geometry with fields on each vertex."""
 
@@ -45,12 +45,23 @@ class StreamlineCollection(Model):
     metadata_payload: dict[str, Any] = dataclass_field(default_factory=dict)
     default_artifact_format: str = "png"
 
+    def _info_sections(self):
+        from .._display import sample_section
+
+        sections = super()._info_sections()
+        sections[0][2].extend([("Bounds", self.bounds.bndstr),
+                               ("Fields", ", ".join(self.field_names) or "None"),
+                               ("Seed axis", self.seed_axis), ("Seed position", self.seed_position),
+                               ("Steps", self.streamline_steps), ("Step size", self.streamline_step_size)])
+        if self.lines:
+            sections.append(sample_section("Streamlines", self.lines))
+        return sections
+
+    def _summary_items(self):
+        return [("num_lines", len(self.lines)), ("time", self.time), ("crs", self.crs)]
+
     def __len__(self) -> int:
         return len(self.lines)
-
-    def __str__(self) -> str:
-        fields = ", ".join(self.field_names) or "no fields"
-        return f"DTCC StreamlineCollection with {len(self)} streamline(s), {fields}"
 
     def __iter__(self) -> Iterator[LineString]:
         return iter(self.lines)
@@ -247,7 +258,6 @@ class StreamlineCollection(Model):
             "StreamlineCollection object-first export does not support "
             f"format {fmt!r}."
         )
-
 
     def _metadata(self, line_count: int, *, include_z: bool) -> dict[str, Any]:
         return {

@@ -7,7 +7,7 @@ from ..model_conversion import (
     create_builder_multisurface,
     create_builder_surface,
     builder_mesh_to_mesh,
-    mesh_to_builder_mesh,
+    _check_mesh_metadata,
 )
 
 from dtcc_core.builder.polygons.surface import clean_surface, clean_multisurface
@@ -303,11 +303,40 @@ def merge_meshes(meshes: [Mesh], weld=False, snap=0) -> Mesh:
     -------
     Mesh
         Merged mesh containing all input meshes.
+
+    Notes
+    -----
+    Inputs must share the exact same transform and SRS; neither reprojection nor
+    coordinate-frame conversion is implicit. The output retains a copy of that
+    frame. Face normals are retained, or recomputed when snapping changes faces.
+    Fields, semantic regions, Dataset Context and schema declarations require
+    explicit transfer and are rejected. Snap distance uses local units.
     """
-    builder_meshes = [mesh_to_builder_mesh(mesh) for mesh in meshes]
+    meshes = list(meshes)
+    for mesh in meshes:
+        _check_mesh_metadata(mesh, allow_transform=True)
+    frame = meshes[0].transform if meshes else None
+    if any(mesh.transform.srs != frame.srs or
+           not np.array_equal(mesh.transform.affine, frame.affine) for mesh in meshes[1:]):
+        raise ValueError("Merging meshes requires the same transform and coordinate system")
+    builder_meshes = [
+        _dtcc_builder.create_mesh(mesh.vertices, mesh.faces, mesh.markers, mesh.normals)
+        for mesh in meshes
+    ]
     merged_mesh = _dtcc_builder.merge_meshes(builder_meshes, weld, snap)
-    mesh = builder_mesh_to_mesh(merged_mesh)
-    return mesh
+    result = builder_mesh_to_mesh(merged_mesh)
+    if frame is not None:
+        result.transform = deepcopy(frame)
+    if any(mesh.normals.size for mesh in meshes):
+        if snap > 0:
+            result.normals = _face_normals(result)
+        else:
+            # Welding only identifies equal coordinates and retains face order.
+            result.normals = np.concatenate([
+                mesh.normals if mesh.normals.size else _face_normals(mesh)
+                for mesh in meshes
+            ])
+    return result
 
 
 def merge(mesh: Mesh, other: Mesh, weld=False, snap=0) -> Mesh:
@@ -329,12 +358,16 @@ def merge(mesh: Mesh, other: Mesh, weld=False, snap=0) -> Mesh:
     -------
     Mesh
         Merged mesh containing both input meshes.
+
+    Notes
+    -----
+    Inputs must share the exact same transform and SRS; neither reprojection nor
+    coordinate-frame conversion is implicit. The output retains a copy of that
+    frame. Face normals are retained, or recomputed when snapping changes faces.
+    Fields, semantic regions, Dataset Context and schema declarations require
+    explicit transfer and are rejected. Snap distance uses local units.
     """
-    builder_mesh = mesh_to_builder_mesh(mesh)
-    builder_other = mesh_to_builder_mesh(other)
-    merged_mesh = _dtcc_builder.merge_meshes([builder_mesh, builder_other], weld, snap)
-    mesh = builder_mesh_to_mesh(merged_mesh)
-    return mesh
+    return merge_meshes([mesh, other], weld=weld, snap=snap)
 
 
 def snap_vertices(mesh: Mesh, snap_distance: float) -> Mesh:
@@ -352,11 +385,35 @@ def snap_vertices(mesh: Mesh, snap_distance: float) -> Mesh:
     -------
     Mesh
         Mesh with snapped vertices.
+
+    Notes
+    -----
+    Preserves a copy of the transform/SRS; distance is measured in local units.
+    Existing face normals are recomputed after snapping. Degenerate faces cannot
+    receive a normal and raise ValueError. Fields, semantic regions, Dataset
+    Context and schema declarations require explicit transfer and are rejected.
     """
-    builder_mesh = mesh_to_builder_mesh(mesh)
-    snapped_mesh = _dtcc_builder.snap_mesh_vertices(builder_mesh, snap_distance)
-    snapped_mesh = builder_mesh_to_mesh(snapped_mesh)
-    return snapped_mesh
+    _check_mesh_metadata(mesh, allow_transform=True)
+    builder_mesh = _dtcc_builder.create_mesh(
+        mesh.vertices, mesh.faces, mesh.markers, mesh.normals
+    )
+    result = builder_mesh_to_mesh(_dtcc_builder.snap_mesh_vertices(builder_mesh, snap_distance))
+    result.transform = deepcopy(mesh.transform)
+    if mesh.normals.size:
+        result.normals = _face_normals(result)
+    return result
+
+
+def _face_normals(mesh: Mesh) -> np.ndarray:
+    """Compute local face normals after geometry changes or for missing inputs."""
+    if not len(mesh.faces):
+        return np.empty((0, 3))
+    triangles = np.asarray(mesh.vertices, dtype=np.float64)[mesh.faces]
+    normals = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
+    lengths = np.linalg.norm(normals, axis=1)
+    if not np.isfinite(lengths).all() or np.any(lengths == 0):
+        raise ValueError("Cannot compute normals for degenerate or nonfinite mesh faces")
+    return normals / lengths[:, None]
 
 
 def disjoint_meshes(mesh: Mesh) -> List[Mesh]:

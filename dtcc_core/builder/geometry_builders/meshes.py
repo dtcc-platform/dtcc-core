@@ -55,7 +55,7 @@ from ..meshing.flat_mesh_backends import build_city_flat_mesh_from_coverage
 from ..meshing.tetgen import (
     build_volume_mesh as tetgen_build_volume_mesh,
     get_default_tetgen_switches,
-    is_tetgen_available,
+    _require_tetgen,
 )
 from ..meshing import tetgen_utils
 
@@ -1950,8 +1950,18 @@ def _condition_city_meshing_footprints(
     show_footprints: bool = False,
     footprint_cleaning_plot_block: bool = True,
     pipeline_mode: MeshingPipelineMode = "strict",
+    conditioned_footprints: ConditionedFootprints | None = None,
 ) -> ConditionedFootprints:
     buildings = city.buildings
+    if conditioned_footprints is not None:
+        return _reuse_conditioned_footprints(
+            buildings,
+            conditioned_footprints,
+            lod=lod,
+            min_building_detail=min_building_detail,
+            max_mesh_size=max_mesh_size,
+            pipeline_mode=pipeline_mode,
+        )
     if not buildings:
         warning("City has no buildings.")
 
@@ -2023,6 +2033,7 @@ def _prepare_city_meshing_inputs(
     show_footprints: bool = False,
     footprint_cleaning_plot_block: bool = True,
     pipeline_mode: MeshingPipelineMode = "strict",
+    conditioned_footprints: ConditionedFootprints | None = None,
 ) -> tuple[object, object, ConditionedFootprints]:
     terrain, terrain_raster = _require_city_terrain_raster(
         city,
@@ -2041,6 +2052,7 @@ def _prepare_city_meshing_inputs(
         show_footprints=show_footprints,
         footprint_cleaning_plot_block=footprint_cleaning_plot_block,
         pipeline_mode=pipeline_mode,
+        conditioned_footprints=conditioned_footprints,
     )
 
     return (
@@ -4513,46 +4525,148 @@ def _condition_meshing_footprints(
             options=options,
         )
 
-    if show_footprints:
-        plot_footprint_cleaning_comparison(
-            extracted_polygons,
-            result.polygons,
-            title="Footprint cleaning",
-            show=True,
-            block=footprint_cleaning_plot_block,
-        )
-
-    normalized_mesh_size = _normalize_max_mesh_size(max_mesh_size)
     mesher_scale = _conditioned_footprint_declared_scale(
         min_building_detail=min_building_detail,
         diagnostics=result.diagnostics,
     )
-    conservative_roof_count = 0
-    conservative_roof_max_span = 0.0
-
     result.diagnostics["mesher_ready_coverage_revalidation_enabled"] = True
     mesher_ready_polygons, mesher_ready_source_map = _normalize_mesher_ready_coverage(
         list(result.polygons),
         [list(indices) for indices in result.source_map],
         declared_scale=mesher_scale,
         min_hole_area=max(mesher_scale**2, 1.0e-12),
-        contract_grid_tolerance=float(result.diagnostics.get("output_grid", 0.0) or 0.0),
+        contract_grid_tolerance=float(
+            result.diagnostics.get("output_grid", 0.0) or 0.0
+        ),
         diagnostics=result.diagnostics,
         cleaning_diagnostics=cleaning_diagnostics,
     )
 
+    if show_footprints:
+        plot_footprint_cleaning_comparison(
+            extracted_polygons,
+            mesher_ready_polygons,
+            title="Footprint cleaning",
+            show=True,
+            block=footprint_cleaning_plot_block,
+        )
+
+    conditioned = _assemble_conditioned_footprints(
+        mesher_ready_polygons,
+        mesher_ready_source_map,
+        result.diagnostics,
+        source_areas=source_areas,
+        source_heights=source_heights,
+        source_roof_z=source_roof_z,
+        min_building_detail=min_building_detail,
+        max_mesh_size=max_mesh_size,
+        pipeline_mode=pipeline_mode,
+    )
+    if cleaning_diagnostics:
+        info(
+            "Footprint conditioning complete: "
+            f"{len(buildings)} -> {len(conditioned.surfaces)} footprints | "
+            f"groups={conditioned.diagnostics.get('merged_group_count', 0)} | "
+            f"grid={conditioned.diagnostics.get('output_grid')} m"
+        )
+    return conditioned
+
+
+def _reuse_conditioned_footprints(
+    buildings,
+    conditioned,
+    *,
+    lod,
+    min_building_detail,
+    max_mesh_size,
+    pipeline_mode,
+) -> ConditionedFootprints:
+    """Validate a supplied stage and attach current heights, never re-clean XY."""
+    if not isinstance(conditioned, ConditionedFootprints):
+        raise TypeError("conditioned_footprints must be a ConditionedFootprints result")
+    if len(conditioned.surfaces) != len(conditioned.source_map):
+        raise ValueError("Conditioned footprint geometry/source-map length mismatch")
+    expected_scale = _conditioned_footprint_declared_scale(
+        min_building_detail=min_building_detail,
+        diagnostics=conditioned.diagnostics,
+    )
+    if (
+        not np.isfinite(conditioned.declared_scale)
+        or conditioned.declared_scale != expected_scale
+    ):
+        raise ValueError(
+            "Conditioned footprints do not match the requested cleaning scale"
+        )
+    polygons = []
+    for surface, indices in zip(conditioned.surfaces, conditioned.source_map):
+        polygon = surface.to_polygon(simplify=0.0)
+        if (
+            polygon is None
+            or polygon.is_empty
+            or not polygon.is_valid
+            or not np.isfinite(polygon.bounds).all()
+        ):
+            raise ValueError(
+                "Conditioned footprints must contain valid finite polygons"
+            )
+        if (
+            not indices
+            or any(type(i) is not int or i < 0 or i >= len(buildings) for i in indices)
+            or indices != sorted(set(indices))
+        ):
+            raise ValueError("Conditioned footprint source indices are invalid")
+        polygons.append(polygon)
+    metadata = [
+        _extract_meshing_polygon(building, target_lod)
+        for building, target_lod in zip(
+            buildings, _normalize_lod_values(buildings, lod)
+        )
+    ]
+    result = _assemble_conditioned_footprints(
+        polygons,
+        conditioned.source_map,
+        conditioned.diagnostics,
+        source_areas=[item[1] for item in metadata],
+        source_heights=[item[2] for item in metadata],
+        source_roof_z=[item[3] for item in metadata],
+        min_building_detail=min_building_detail,
+        max_mesh_size=max_mesh_size,
+        pipeline_mode=pipeline_mode,
+    )
+    _raise_stage_contract_errors("Conditioned footprints", result.contract)
+    return result
+
+
+def _assemble_conditioned_footprints(
+    polygons,
+    source_map,
+    diagnostics,
+    *,
+    source_areas,
+    source_heights,
+    source_roof_z,
+    min_building_detail,
+    max_mesh_size,
+    pipeline_mode,
+) -> ConditionedFootprints:
+    """Attach roof metadata without changing the cleaned XY geometry."""
+    normalized_mesh_size = _normalize_max_mesh_size(max_mesh_size)
+    conservative_roof_count = 0
+    conservative_roof_max_span = 0.0
     conditioned_surfaces: list[Surface] = []
     conditioned_source_map: list[list[int]] = []
     subdomain_resolution: list[float] = []
 
-    for polygon, source_indices in zip(mesher_ready_polygons, mesher_ready_source_map):
+    for polygon, source_indices in zip(polygons, source_map):
         height_default = normalized_mesh_size or float(min_building_detail)
-        roof_z, height, conservative_roof, roof_z_span = _resolve_merged_group_roof_metadata(
-            source_indices,
-            source_areas=source_areas,
-            source_roof_z=source_roof_z,
-            source_heights=source_heights,
-            default_height=height_default,
+        roof_z, height, conservative_roof, roof_z_span = (
+            _resolve_merged_group_roof_metadata(
+                source_indices,
+                source_areas=source_areas,
+                source_roof_z=source_roof_z,
+                source_heights=source_heights,
+                default_height=height_default,
+            )
         )
         if conservative_roof:
             conservative_roof_count += 1
@@ -4567,7 +4681,7 @@ def _condition_meshing_footprints(
         else:
             subdomain_resolution.append(min(height, normalized_mesh_size))
 
-    diagnostics = dict(result.diagnostics)
+    diagnostics = dict(diagnostics)
     diagnostics["pipeline_mode"] = pipeline_mode
     diagnostics["conservative_merged_roof_count"] = conservative_roof_count
     diagnostics["conservative_merged_roof_max_span"] = conservative_roof_max_span
@@ -4581,13 +4695,6 @@ def _condition_meshing_footprints(
         diagnostics=diagnostics,
     )
 
-    if cleaning_diagnostics:
-        info(
-            "Footprint conditioning complete: "
-            f"{len(buildings)} -> {len(conditioned_surfaces)} footprints | "
-            f"groups={diagnostics.get('merged_group_count', 0)} | "
-            f"grid={diagnostics.get('output_grid')} m"
-        )
     return ConditionedFootprints(
         surfaces=conditioned_surfaces,
         source_map=conditioned_source_map,
@@ -4619,9 +4726,15 @@ def build_city_surface_mesh(
     mesher: str | None = None,
     pipeline_mode: str = "strict",
     stage_audit: dict[str, Any] | None = None,
+    conditioned_footprints: ConditionedFootprints | None = None,
 ) -> Mesh | list[Mesh]:
     """
     Build a surface mesh from the surfaces of the buildings in the city.
+
+    ``conditioned_footprints`` optionally supplies an existing cleaning-stage
+    result. Its XY geometry is validated and reused without cleaning; roof
+    heights and region sizes are attached from this city's source buildings.
+    Source indices must refer to those buildings in their original order.
 
     Parameters
     ----------
@@ -4696,6 +4809,7 @@ def build_city_surface_mesh(
             show_footprints=show_footprints,
             footprint_cleaning_plot_block=footprint_cleaning_plot_block,
             pipeline_mode=pipeline_mode,
+            conditioned_footprints=conditioned_footprints,
         )
         building_footprints = conditioned_footprints.surfaces
         source_map = conditioned_footprints.source_map
@@ -4837,6 +4951,7 @@ def build_city_flat_mesh(
     mesher: str | None = None,
     pipeline_mode: str = "strict",
     stage_audit: dict[str, Any] | None = None,
+    conditioned_footprints: ConditionedFootprints | None = None,
 ) -> Mesh:
     """Build a flat 2D triangular mesh of the city with building footprints marked.
 
@@ -4847,6 +4962,11 @@ def build_city_flat_mesh(
     * ``-1`` — halo (triangles that touch a building but are not inside one)
     * ``0, 1, 2, …`` — index of the building whose footprint contains the
       triangle
+
+    ``conditioned_footprints`` optionally supplies an existing cleaning-stage
+    result. Its XY geometry is validated and reused without cleaning; roof
+    heights and region sizes are attached from this city's source buildings.
+    Source indices must refer to those buildings in their original order.
 
     Parameters
     ----------
@@ -4927,6 +5047,7 @@ def build_city_flat_mesh(
             show_footprints=show_footprints,
             footprint_cleaning_plot_block=footprint_cleaning_plot_block,
             pipeline_mode=pipeline_mode,
+            conditioned_footprints=conditioned_footprints,
         )
         building_footprints = conditioned_footprints.surfaces
         conditioned_source_map = conditioned_footprints.source_map
@@ -5042,11 +5163,7 @@ def build_city_volume_mesh(
     boundary_face_markers: bool = True,
     tetgen_switches: Optional[Dict[str, Any]] = None,
     tetgen_switch_overrides: Optional[Dict[str, Any]] = None,
-    # Fallback DTCC volume mesher parameters
-    smoother_max_iterations: int = 5000,
-    smoothing_relative_tolerance: float = 0.005,
-    aspect_ratio_threshold: float = 10.0,
-    debug_step: int = 7,
+    *,
     report_mesh_quality: bool = True,
     cleaning_diagnostics: bool = True,
     show_footprints: bool = False,
@@ -5060,6 +5177,7 @@ def build_city_volume_mesh(
     pipeline_mode: str = "strict",
     top_cap_max_mesh_size: float | None = None,
     max_volume: float | None = None,
+    conditioned_footprints: ConditionedFootprints | None = None,
 ) -> VolumeMesh:
     """
     Build a 3D tetrahedral volume mesh for a city terrain with embedded building volumes.
@@ -5067,6 +5185,11 @@ def build_city_volume_mesh(
     This function generates a ground mesh from the city terrain and extrudes building
     footprints to produce a full volume mesh, optionally merging adjacent buildings
     and marking boundary faces.
+
+    ``conditioned_footprints`` optionally supplies an existing cleaning-stage
+    result. Its XY geometry is validated and reused without cleaning; roof
+    heights and region sizes are attached from this city's source buildings.
+    Source indices must refer to those buildings in their original order.
 
     Parameters
     ----------
@@ -5129,21 +5252,6 @@ def build_city_volume_mesh(
         Optional low-level overrides for custom text-based switch assembly via
         ``build_tetgen_switches``. Use this when direct control of TetGen's
         command-string switches is required.
-    smoother_max_iterations : int, optional
-        Legacy DTCC-only compatibility parameter. It is only used when TetGen
-        is unavailable and the internal fallback volume mesher is selected.
-        Defaults to 5000.
-    smoothing_relative_tolerance : float, optional
-        Legacy DTCC-only compatibility parameter. It is ignored in the normal
-        TetGen path and only used by the internal fallback volume mesher.
-        Defaults to 0.005.
-    aspect_ratio_threshold : float, optional
-        Legacy DTCC-only compatibility parameter. It is ignored in the normal
-        TetGen path and only used by the internal fallback volume mesher.
-        Defaults to 10.0.
-    debug_step : int, optional
-        Legacy DTCC-only compatibility parameter for the internal fallback
-        volume mesher. Ignored in the TetGen path. Defaults to 7.
     mesher : {"auto", "dtcc_mesher", "triangle"}, optional
         Select the 2D meshing backend used for the intermediate flat/surface
         mesh stages. In the strict volume path, ``None`` and ``"auto"`` both
@@ -5185,6 +5293,8 @@ def build_city_volume_mesh(
 
     Raises
     ------
+    ImportError
+        If the TetGen wrapper is unavailable. Install with ``uv sync --extra volume``.
     ValueError
         If the city has no terrain data (neither raster nor mesh).
     ValueError
@@ -5212,8 +5322,7 @@ def build_city_volume_mesh(
       and `max_mesh_size`.
     - Ground mesh is built via the internal DTCC builder, and building surfaces
       are extruded into the volume domain of height `domain_height`.
-    - TetGen is preferred when available. If not available, falls back to the
-      internal DTCC volume mesh builder.
+    - TetGen is required. Install it with ``uv sync --extra volume``.
 
     Examples
     --------
@@ -5224,6 +5333,7 @@ def build_city_volume_mesh(
     ...                               merge_buildings=False,
     ...                               boundary_face_markers=True)
     """
+    _require_tetgen()
     pipeline_mode = _normalize_meshing_pipeline_mode(pipeline_mode)
     max_mesh_size = _normalize_max_mesh_size(max_mesh_size)
     top_cap_max_mesh_size = _normalize_max_mesh_size(top_cap_max_mesh_size)
@@ -5235,7 +5345,7 @@ def build_city_volume_mesh(
         stage_audit,
         label=None,
         retry_reason=None,
-        backend="tetgen" if is_tetgen_available() else "fallback_dtcc",
+        backend="tetgen",
         merge_buildings=merge_buildings,
         requested_mesher=mesher,
         max_mesh_size=max_mesh_size,
@@ -5244,19 +5354,16 @@ def build_city_volume_mesh(
         tetgen_switches=tetgen_switches,
         tetgen_switch_overrides=tetgen_switch_overrides,
     )
-    preserve_surface_requested = False
-    requested_tetgen_switches: dict[str, Any] = {}
-    if is_tetgen_available():
-        (
-            requested_tetgen_switches,
-            preserve_surface_requested,
-            _,
-        ) = _resolve_city_volume_tetgen_switch_request(
-            min_mesh_angle=min_mesh_angle,
-            tetgen_switches=tetgen_switches,
-            tetgen_switch_overrides=tetgen_switch_overrides,
-            max_volume=max_volume,
-        )
+    (
+        requested_tetgen_switches,
+        preserve_surface_requested,
+        _,
+    ) = _resolve_city_volume_tetgen_switch_request(
+        min_mesh_angle=min_mesh_angle,
+        tetgen_switches=tetgen_switches,
+        tetgen_switch_overrides=tetgen_switch_overrides,
+        max_volume=max_volume,
+    )
     if attempt is not None:
         attempt["config"]["smoothing"] = int(smoothing)
         attempt["config"]["pipeline_mode"] = pipeline_mode
@@ -5280,17 +5387,15 @@ def build_city_volume_mesh(
         show_footprints=show_footprints,
         footprint_cleaning_plot_block=footprint_cleaning_plot_block,
         pipeline_mode=pipeline_mode,
+        conditioned_footprints=conditioned_footprints,
     )
     building_footprints = conditioned_footprints.surfaces
     source_map = conditioned_footprints.source_map
     subdomain_resolution = conditioned_footprints.subdomain_resolution
     diagnostics = conditioned_footprints.diagnostics
     terrain_effectively_flat = _is_effectively_flat_raster(terrain_raster)
-    effective_stage4_shell_refinement = bool(is_tetgen_available())
     if attempt is not None:
-        attempt["config"]["tetgen_shell_refinement_enabled"] = bool(
-            effective_stage4_shell_refinement
-        )
+        attempt["config"]["tetgen_shell_refinement_enabled"] = True
         attempt["config"]["preserve_surface_requested"] = bool(
             preserve_surface_requested
         )
@@ -5324,233 +5429,14 @@ def build_city_volume_mesh(
     shell_target_lods = _promote_volume_shell_target_lods(target_lods)
     volume_mesh_bounds = _terrain_bounds_tuple(terrain)
 
-    # 4. BUILD VOLUME MESH - TETGEN PATH
-
-    if is_tetgen_available():
-        info("Building volume mesh with TetGen...")
-        try:
-            debug_paths: dict[str, str] | None = None
-            report_progress(percent=30, message="Building volume shell surface...")
-            surface_regions = _prepare_surface_ground_regions(
-                conditioned_surfaces=building_footprints,
-                conditioned_resolution=subdomain_resolution,
-                target_lods=shell_target_lods,
-                bounds=volume_mesh_bounds,
-                max_mesh_size=max_mesh_size,
-                min_building_detail=min_building_detail,
-                footprint_diagnostics=diagnostics,
-                cleaning_diagnostics=cleaning_diagnostics,
-                treat_lod0_as_holes=False,
-                pipeline_mode=pipeline_mode,
-            )
-            if attempt is not None:
-                _record_stage_audit_stage(
-                    attempt,
-                    "surface_regions",
-                    _surface_region_audit(surface_regions),
-                )
-            built_surface_ground = _build_ground_mesh_stage(
-                region_polygons=surface_regions.region_polygons,
-                region_markers=surface_regions.region_markers,
-                region_points=surface_regions.region_points,
-                bounds=volume_mesh_bounds,
-                max_mesh_size=max_mesh_size,
-                min_mesh_angle=min_mesh_angle,
-                mesher=mesher,
-                sort_triangles=False,
-                region_triangle_sizes=surface_regions.region_triangle_sizes,
-                add_halo_markers=False,
-                reference_length=conditioned_scale,
-                require_markers=True,
-                stage_label="Ground mesh",
-            )
-            if attempt is not None:
-                attempt["config"]["effective_mesher"] = built_surface_ground.mesher
-            surface_ground_mesh, surface_buildings, surface_directives = (
-                _split_ground_mesh_building_components(
-                    ground_mesh=built_surface_ground.mesh,
-                    building_surfaces=surface_regions.building_surfaces,
-                    meshing_directives=surface_regions.meshing_directives,
-                )
-            )
-            if attempt is not None:
-                _record_stage_audit_stage(
-                    attempt,
-                    "ground_mesh",
-                    built_surface_ground.audit,
-                )
-            _raise_stage_contract_errors(
-                "Ground mesh",
-                built_surface_ground.contract,
-            )
-            built_surface_shell = _build_tetgen_surface_shell_stage(
-                ground_mesh=surface_ground_mesh,
-                terrain_raster=terrain_raster,
-                building_surfaces=surface_buildings,
-                meshing_directives=surface_directives,
-                smoothing=smoothing,
-                mesher=built_surface_ground.mesher,
-                reference_length=conditioned_scale,
-                preserve_surface_requested=preserve_surface_requested,
-                max_mesh_size=max_mesh_size,
-                refine_for_tetgen=effective_stage4_shell_refinement,
-            )
-            surface_mesh = built_surface_shell.mesh
-
-            if attempt is not None:
-                _record_stage_audit_stage(
-                    attempt,
-                    "surface_shell",
-                    built_surface_shell.audit,
-                )
-            _raise_stage_contract_errors(
-                "Surface shell",
-                built_surface_shell.contract,
-            )
-            report_progress(
-                percent=55, message="Surface mesh built, preparing volume mesh..."
-            )
-
-            if surface_mesh.faces is None or len(surface_mesh.faces) == 0:
-                raise ValueError("Surface mesh has no faces. Cannot build volume mesh.")
-            if surface_mesh.markers is None or len(surface_mesh.markers) == 0:
-                raise ValueError(
-                    "Surface mesh has no face markers. Cannot build volume mesh."
-                )
-
-            if tetgen_debug_output_dir is not None:
-                debug_stem = tetgen_debug_output_stem or "tetgen_input"
-                try:
-                    debug_paths = _save_tetgen_debug_meshes(
-                        output_dir=tetgen_debug_output_dir,
-                        stem=debug_stem,
-                        ground_mesh=surface_ground_mesh,
-                        surface_mesh=surface_mesh,
-                        domain_height=domain_height,
-                        top_cap_backend=built_surface_ground.mesher,
-                        top_cap_max_mesh_size=top_cap_max_mesh_size,
-                        top_cap_min_mesh_angle=min_mesh_angle,
-                    )
-                    debug(
-                        "Saved TetGen debug meshes: ground=%s shell=%s plc=%s",
-                        debug_paths["ground"],
-                        debug_paths["shell"],
-                        debug_paths["plc"],
-                    )
-                except Exception as exc:
-                    warning("Failed to save TetGen debug meshes: %s", exc)
-
-            switches_params = dict(requested_tetgen_switches)
-            if attempt is not None:
-                attempt["config"]["effective_tetgen_switches"] = _audit_json_ready(
-                    switches_params
-                )
-            built_tetgen_plc = _build_tetgen_plc_stage(
-                surface_mesh=surface_mesh,
-                ground_mesh=surface_ground_mesh,
-                top_height=domain_height,
-                top_cap_backend=built_surface_ground.mesher,
-                top_cap_max_mesh_size=top_cap_max_mesh_size,
-                top_cap_min_mesh_angle=min_mesh_angle,
-                reference_length=conditioned_scale,
-            )
-            if attempt is not None:
-                _record_stage_audit_stage(
-                    attempt,
-                    "plc",
-                    built_tetgen_plc.audit,
-                )
-            _raise_stage_contract_errors("TetGen PLC", built_tetgen_plc.contract)
-
-            report_progress(percent=60, message="Running TetGen volume mesher...")
-            volume_mesh = tetgen_build_volume_mesh(
-                mesh=surface_mesh,
-                build_top_sidewalls=True,
-                top_height=domain_height,
-                closure_mesh=surface_ground_mesh,
-                top_cap_backend=built_surface_ground.mesher,
-                top_cap_max_mesh_size=top_cap_max_mesh_size,
-                top_cap_min_mesh_angle=min_mesh_angle,
-                switches_params=switches_params,
-                switches_overrides=tetgen_switch_overrides,
-                return_boundary_faces=boundary_face_markers,
-                prebuilt_plc=built_tetgen_plc.plc,
-            )
-
-            if attempt is not None:
-                _record_stage_audit_stage(
-                    attempt,
-                    "volume_mesh",
-                    _volume_mesh_audit(volume_mesh),
-                )
-            final_quality_snapshot = _tetgen_volume_mesh_quality_snapshot(volume_mesh)
-            quality_failure_output_dir = (
-                tetgen_quality_failure_output_dir or tetgen_debug_output_dir
-            )
-            quality_failure_output_stem = (
-                tetgen_quality_failure_output_stem
-                or tetgen_debug_output_stem
-                or "tetgen_input"
-            )
-            if (
-                quality_failure_output_dir is not None
-                and _should_capture_tetgen_quality_failure(final_quality_snapshot)
-            ):
-                try:
-                    capture_info = _capture_tetgen_quality_failure_artifacts(
-                        output_dir=quality_failure_output_dir,
-                        stem=quality_failure_output_stem,
-                        ground_mesh=surface_ground_mesh,
-                        surface_mesh=surface_mesh,
-                        volume_mesh=volume_mesh,
-                        quality_snapshot=final_quality_snapshot,
-                        domain_height=domain_height,
-                        top_cap_backend=built_surface_ground.mesher,
-                        top_cap_max_mesh_size=top_cap_max_mesh_size,
-                        top_cap_min_mesh_angle=min_mesh_angle,
-                        debug_paths=debug_paths,
-                    )
-                except Exception as exc:
-                    warning(
-                        "Failed to capture TetGen quality-failure artifacts: %s",
-                        exc,
-                    )
-                else:
-                    warning(
-                        "Captured TetGen quality-failure artifacts: report=%s",
-                        capture_info["report"],
-                    )
-                    if attempt is not None:
-                        attempt.setdefault("result", {})["quality_failure_capture"] = (
-                            _audit_json_ready(capture_info)
-                        )
-            report_progress(percent=95, message="Volume mesh complete")
-
-            if report_mesh_quality:
-                from dtcc_core.model.mixins.mesh.quality import (
-                    tetrahedron_mesh_quality,
-                    report_quality,
-                )
-
-                q = tetrahedron_mesh_quality(volume_mesh.vertices, volume_mesh.cells)
-                report_quality(q, log_fn=info)
-
-            _mark_stage_audit_success(stage_audit, attempt)
-            if stage_audit is not None:
-                volume_mesh.stage_audit = stage_audit
-            return volume_mesh
-        except Exception as exc:
-            _mark_stage_audit_failure(attempt, exc)
-            raise
-
-    # 5. BUILD VOLUME MESH - FALLBACK DTCC PATH
-    info("Building volume mesh with fallback DTCC volume mesher...")
+    info("Building volume mesh with TetGen...")
     try:
-        report_progress(percent=40, message="Building volume mesh (fallback mesher)...")
-        fallback_regions = _prepare_surface_ground_regions(
+        debug_paths: dict[str, str] | None = None
+        report_progress(percent=30, message="Building volume shell surface...")
+        surface_regions = _prepare_surface_ground_regions(
             conditioned_surfaces=building_footprints,
             conditioned_resolution=subdomain_resolution,
-            target_lods=target_lods,
+            target_lods=shell_target_lods,
             bounds=volume_mesh_bounds,
             max_mesh_size=max_mesh_size,
             min_building_detail=min_building_detail,
@@ -5563,70 +5449,184 @@ def build_city_volume_mesh(
             _record_stage_audit_stage(
                 attempt,
                 "surface_regions",
-                _surface_region_audit(fallback_regions),
+                _surface_region_audit(surface_regions),
             )
-        built_fallback_ground = _build_ground_mesh_stage(
-            region_polygons=fallback_regions.region_polygons,
-            region_markers=fallback_regions.region_markers,
-            region_points=fallback_regions.region_points,
+        built_surface_ground = _build_ground_mesh_stage(
+            region_polygons=surface_regions.region_polygons,
+            region_markers=surface_regions.region_markers,
+            region_points=surface_regions.region_points,
             bounds=volume_mesh_bounds,
             max_mesh_size=max_mesh_size,
             min_mesh_angle=min_mesh_angle,
             mesher=mesher,
-            sort_triangles=True,
-            region_triangle_sizes=fallback_regions.region_triangle_sizes,
+            sort_triangles=False,
+            region_triangle_sizes=surface_regions.region_triangle_sizes,
             add_halo_markers=False,
             reference_length=conditioned_scale,
             require_markers=True,
             stage_label="Ground mesh",
         )
         if attempt is not None:
-            attempt["config"]["effective_mesher"] = built_fallback_ground.mesher
-        ground_mesh, active_surfaces, _meshing_directives = (
+            attempt["config"]["effective_mesher"] = built_surface_ground.mesher
+        surface_ground_mesh, surface_buildings, surface_directives = (
             _split_ground_mesh_building_components(
-                ground_mesh=built_fallback_ground.mesh,
-                building_surfaces=fallback_regions.building_surfaces,
-                meshing_directives=fallback_regions.meshing_directives,
+                ground_mesh=built_surface_ground.mesh,
+                building_surfaces=surface_regions.building_surfaces,
+                meshing_directives=surface_regions.meshing_directives,
             )
         )
         if attempt is not None:
             _record_stage_audit_stage(
                 attempt,
                 "ground_mesh",
-                built_fallback_ground.audit,
+                built_surface_ground.audit,
             )
         _raise_stage_contract_errors(
             "Ground mesh",
-            built_fallback_ground.contract,
+            built_surface_ground.contract,
         )
-        _ground_mesh = mesh_to_builder_mesh(ground_mesh)
-        _surfaces = [create_builder_surface(surface) for surface in active_surfaces]
-        _dem = raster_to_builder_gridfield(terrain_raster)
+        built_surface_shell = _build_tetgen_surface_shell_stage(
+            ground_mesh=surface_ground_mesh,
+            terrain_raster=terrain_raster,
+            building_surfaces=surface_buildings,
+            meshing_directives=surface_directives,
+            smoothing=smoothing,
+            mesher=built_surface_ground.mesher,
+            reference_length=conditioned_scale,
+            preserve_surface_requested=preserve_surface_requested,
+            max_mesh_size=max_mesh_size,
+            refine_for_tetgen=True,
+        )
+        surface_mesh = built_surface_shell.mesh
 
-        volume_mesh_builder = _dtcc_builder.VolumeMeshBuilder(
-            _surfaces, _dem, _ground_mesh, domain_height
+        if attempt is not None:
+            _record_stage_audit_stage(
+                attempt,
+                "surface_shell",
+                built_surface_shell.audit,
+            )
+        _raise_stage_contract_errors(
+            "Surface shell",
+            built_surface_shell.contract,
+        )
+        report_progress(
+            percent=55, message="Surface mesh built, preparing volume mesh..."
         )
 
-        _volume_mesh = volume_mesh_builder.build(
-            smoother_max_iterations,
-            smoothing_relative_tolerance,
-            0.0,
-            aspect_ratio_threshold,
-            debug_step,
+        if surface_mesh.faces is None or len(surface_mesh.faces) == 0:
+            raise ValueError("Surface mesh has no faces. Cannot build volume mesh.")
+        if surface_mesh.markers is None or len(surface_mesh.markers) == 0:
+            raise ValueError(
+                "Surface mesh has no face markers. Cannot build volume mesh."
+            )
+
+        if tetgen_debug_output_dir is not None:
+            debug_stem = tetgen_debug_output_stem or "tetgen_input"
+            try:
+                debug_paths = _save_tetgen_debug_meshes(
+                    output_dir=tetgen_debug_output_dir,
+                    stem=debug_stem,
+                    ground_mesh=surface_ground_mesh,
+                    surface_mesh=surface_mesh,
+                    domain_height=domain_height,
+                    top_cap_backend=built_surface_ground.mesher,
+                    top_cap_max_mesh_size=top_cap_max_mesh_size,
+                    top_cap_min_mesh_angle=min_mesh_angle,
+                )
+                debug(
+                    "Saved TetGen debug meshes: ground=%s shell=%s plc=%s",
+                    debug_paths["ground"],
+                    debug_paths["shell"],
+                    debug_paths["plc"],
+                )
+            except Exception as exc:
+                warning("Failed to save TetGen debug meshes: %s", exc)
+
+        switches_params = dict(requested_tetgen_switches)
+        if attempt is not None:
+            attempt["config"]["effective_tetgen_switches"] = _audit_json_ready(
+                switches_params
+            )
+        built_tetgen_plc = _build_tetgen_plc_stage(
+            surface_mesh=surface_mesh,
+            ground_mesh=surface_ground_mesh,
+            top_height=domain_height,
+            top_cap_backend=built_surface_ground.mesher,
+            top_cap_max_mesh_size=top_cap_max_mesh_size,
+            top_cap_min_mesh_angle=min_mesh_angle,
+            reference_length=conditioned_scale,
         )
-        volume_mesh = _volume_mesh.from_cpp()
+        if attempt is not None:
+            _record_stage_audit_stage(
+                attempt,
+                "plc",
+                built_tetgen_plc.audit,
+            )
+        _raise_stage_contract_errors("TetGen PLC", built_tetgen_plc.contract)
+
+        report_progress(percent=60, message="Running TetGen volume mesher...")
+        volume_mesh = tetgen_build_volume_mesh(
+            mesh=surface_mesh,
+            build_top_sidewalls=True,
+            top_height=domain_height,
+            closure_mesh=surface_ground_mesh,
+            top_cap_backend=built_surface_ground.mesher,
+            top_cap_max_mesh_size=top_cap_max_mesh_size,
+            top_cap_min_mesh_angle=min_mesh_angle,
+            switches_params=switches_params,
+            switches_overrides=tetgen_switch_overrides,
+            return_boundary_faces=boundary_face_markers,
+            prebuilt_plc=built_tetgen_plc.plc,
+        )
+
         if attempt is not None:
             _record_stage_audit_stage(
                 attempt,
                 "volume_mesh",
                 _volume_mesh_audit(volume_mesh),
             )
-        report_progress(percent=90, message="Volume mesh built, finalizing...")
-
-        if boundary_face_markers:
-            computed_markers = _dtcc_builder.compute_boundary_face_markers(_volume_mesh)
-            if computed_markers is not None:
-                volume_mesh.boundary_markers = computed_markers
+        final_quality_snapshot = _tetgen_volume_mesh_quality_snapshot(volume_mesh)
+        quality_failure_output_dir = (
+            tetgen_quality_failure_output_dir or tetgen_debug_output_dir
+        )
+        quality_failure_output_stem = (
+            tetgen_quality_failure_output_stem
+            or tetgen_debug_output_stem
+            or "tetgen_input"
+        )
+        if (
+            quality_failure_output_dir is not None
+            and _should_capture_tetgen_quality_failure(final_quality_snapshot)
+        ):
+            try:
+                capture_info = _capture_tetgen_quality_failure_artifacts(
+                    output_dir=quality_failure_output_dir,
+                    stem=quality_failure_output_stem,
+                    ground_mesh=surface_ground_mesh,
+                    surface_mesh=surface_mesh,
+                    volume_mesh=volume_mesh,
+                    quality_snapshot=final_quality_snapshot,
+                    domain_height=domain_height,
+                    top_cap_backend=built_surface_ground.mesher,
+                    top_cap_max_mesh_size=top_cap_max_mesh_size,
+                    top_cap_min_mesh_angle=min_mesh_angle,
+                    debug_paths=debug_paths,
+                )
+            except Exception as exc:
+                warning(
+                    "Failed to capture TetGen quality-failure artifacts: %s",
+                    exc,
+                )
+            else:
+                warning(
+                    "Captured TetGen quality-failure artifacts: report=%s",
+                    capture_info["report"],
+                )
+                if attempt is not None:
+                    attempt.setdefault("result", {})["quality_failure_capture"] = (
+                        _audit_json_ready(capture_info)
+                    )
+        report_progress(percent=95, message="Volume mesh complete")
 
         if report_mesh_quality:
             from dtcc_core.model.mixins.mesh.quality import (

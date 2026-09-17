@@ -10,6 +10,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <cstring>
+#include <type_traits>
 #include <limits>
 #include <set>
 #include <string>
@@ -21,9 +24,7 @@
 #include "Intersection.h"
 #include "MeshBuilder.h"
 #include "MeshProcessor.h"
-#include "Smoother.h"
 #include "VertexSmoother.h"
-#include "VolumeMeshBuilder.h"
 #include "model/GridField.h"
 #include "model/Mesh.h"
 #include "model/Polygon.h"
@@ -63,9 +64,7 @@ struct BoundaryPolygonData
 
 struct BoundaryStatsData
 {
-  size_t edge_count = 0;
   size_t short_edge_count = 0;
-  size_t vertex_count = 0;
   double min_edge_length = std::numeric_limits<double>::infinity();
 };
 
@@ -99,8 +98,8 @@ double cross(const BoundaryPoint &a, const BoundaryPoint &b, const BoundaryPoint
   return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
 }
 
-double point_to_segment_distance(const BoundaryPoint &point, const BoundaryPoint &start,
-                                 const BoundaryPoint &end)
+double point_to_line_distance(const BoundaryPoint &point, const BoundaryPoint &start,
+                             const BoundaryPoint &end)
 {
   const double dx = end.x - start.x;
   const double dy = end.y - start.y;
@@ -108,6 +107,21 @@ double point_to_segment_distance(const BoundaryPoint &point, const BoundaryPoint
   if (base <= 1e-12)
     return std::hypot(point.x - start.x, point.y - start.y);
   return std::abs((point.x - start.x) * dy - (point.y - start.y) * dx) / base;
+}
+
+double point_to_segment_distance(const BoundaryPoint &point, const BoundaryPoint &start,
+                                const BoundaryPoint &end)
+{
+  const double dx = end.x - start.x;
+  const double dy = end.y - start.y;
+  const double px = point.x - start.x;
+  const double py = point.y - start.y;
+  const double length_squared = dx * dx + dy * dy;
+  if (length_squared <= 1e-24)
+    return std::hypot(px, py);
+  // Clamp the projection so collinear points beyond an endpoint retain their gap.
+  const double t = std::clamp((px * dx + py * dy) / length_squared, 0.0, 1.0);
+  return std::hypot(px - t * dx, py - t * dy);
 }
 
 bool bbox_is_valid(const BoundaryBBox &bbox)
@@ -188,13 +202,11 @@ void accumulate_ring_stats(const std::vector<BoundaryPoint> &ring, double short_
   if (ring.size() < 3)
     return;
 
-  stats.vertex_count += ring.size();
   for (size_t i = 0; i < ring.size(); ++i)
   {
     const BoundaryPoint &a = ring[i];
     const BoundaryPoint &b = ring[(i + 1) % ring.size()];
     const double length = segment_length(a, b);
-    stats.edge_count += 1;
     stats.min_edge_length = std::min(stats.min_edge_length, length);
     if (short_edge_threshold > 0.0 && length + 1e-12 < short_edge_threshold)
       stats.short_edge_count += 1;
@@ -208,11 +220,6 @@ BoundaryStatsData compute_boundary_stats(const BoundaryPolygonData &polygon, dou
   for (const auto &hole : polygon.holes)
     accumulate_ring_stats(hole, threshold, stats);
   return stats;
-}
-
-double dot(const BoundaryPoint &a, const BoundaryPoint &b, const BoundaryPoint &c)
-{
-  return (b.x - a.x) * (c.x - a.x) + (b.y - a.y) * (c.y - a.y);
 }
 
 bool on_segment(const BoundaryPoint &a, const BoundaryPoint &b, const BoundaryPoint &c,
@@ -351,7 +358,7 @@ int find_short_collinear_vertex(const std::vector<BoundaryPoint> &points, double
     const double next_length = segment_length(point, next_point);
     if (std::min(prev_length, next_length) + 1e-12 >= target_scale)
       continue;
-    const double offset = point_to_segment_distance(point, prev_point, next_point);
+    const double offset = point_to_line_distance(point, prev_point, next_point);
     if (offset <= line_tolerance)
       return static_cast<int>(index);
   }
@@ -396,8 +403,8 @@ std::pair<int, int> find_short_step_pair(const std::vector<BoundaryPoint> &point
     if (ad_bc_cross > parallel_tolerance)
       continue;
 
-    const double step_width = std::max(point_to_segment_distance(b, a, d),
-                                       point_to_segment_distance(c, a, d));
+    const double step_width = std::max(point_to_line_distance(b, a, d),
+                                       point_to_line_distance(c, a, d));
     if (step_width > step_width_tolerance)
       continue;
     return {static_cast<int>(index), static_cast<int>((index + 1) % count)};
@@ -451,31 +458,6 @@ std::pair<std::vector<BoundaryPoint>, int> clean_ring_short_edge_chains(
   if (unique.size() < 3)
     return {{}, removed_count};
   return {unique, removed_count};
-}
-
-py::list boundary_stats(py::list polygons_xy, double short_edge_threshold)
-{
-  const auto polygons = parse_boundary_polygons(polygons_xy);
-  py::list stats_list;
-  for (const auto &polygon : polygons)
-  {
-    const auto stats = compute_boundary_stats(polygon, short_edge_threshold);
-    py::dict item;
-    item["edge_count"] = py::int_(stats.edge_count);
-    item["short_edge_count"] = py::int_(stats.short_edge_count);
-    item["vertex_count"] = py::int_(stats.vertex_count);
-    if (std::isfinite(stats.min_edge_length))
-      item["min_edge_length"] = py::float_(stats.min_edge_length);
-    else
-      item["min_edge_length"] = py::none();
-    if (bbox_is_valid(polygon.bbox))
-      item["bbox"] =
-          py::make_tuple(polygon.bbox.min_x, polygon.bbox.min_y, polygon.bbox.max_x, polygon.bbox.max_y);
-    else
-      item["bbox"] = py::none();
-    stats_list.append(item);
-  }
-  return stats_list;
 }
 
 py::list boundary_defect_clusters(py::list polygons_xy, double target_scale, double pair_tolerance)
@@ -713,85 +695,208 @@ Polygon create_polygon(py::list vertices, py::list holes)
   return poly;
 }
 
-Mesh create_mesh(py::array_t<double> vertices, py::array_t<size_t> faces, py::array_t<int> markers)
+namespace
+{
+
+py::ssize_t mesh_array_rows(const py::array &array, py::ssize_t width, const char *name)
+{
+  if (array.ndim() == 1 && array.shape(0) == 0)
+    return 0;
+  if (array.ndim() != 2 || array.shape(1) != width)
+    throw py::value_error(std::string(name) + " must have shape (N, " +
+                          std::to_string(width) + ") or (0,)");
+  return array.shape(0);
+}
+
+// NumPy can expose unaligned buffers. memcpy keeps scalar reads safe even when
+// a contiguous typed conversion can reuse the original buffer.
+template <typename T>
+T mesh_array_value(const T *data, py::ssize_t index)
+{
+  T value;
+  std::memcpy(&value, data + index, sizeof(T));
+  return value;
+}
+
+template <typename Copy>
+void copy_integer_mesh_array(const py::array &array, const char *name, Copy copy)
+{
+  const char kind = array.dtype().kind();
+  // Model defaults use empty floating arrays for cells and markers.
+  if (array.size() == 0 && kind == 'f')
+    return;
+  if ((kind != 'i' && kind != 'u') || array.itemsize() > sizeof(std::uint64_t))
+    throw py::value_error(std::string(name) + " must contain integer values");
+  if (array.size() == 0)
+    return;
+  // Widen before checking so neither unsigned overflow nor negative wrapping
+  // can hide invalid input. Typed conversion handles byte order and strides.
+  if (kind == 'i')
+    copy(py::array_t<std::int64_t, py::array::c_style | py::array::forcecast>(array));
+  else
+    copy(py::array_t<std::uint64_t, py::array::c_style | py::array::forcecast>(array));
+}
+
+std::vector<Vector3D> copy_mesh_vectors(const py::array &array, const char *name,
+                                       py::ssize_t expected_count = -1)
+{
+  const auto count = mesh_array_rows(array, 3, name);
+  if (count != 0 && expected_count >= 0 && count != expected_count)
+    throw py::value_error(std::string(name) + " must be empty or contain one vector per face");
+  const char kind = array.dtype().kind();
+  if (kind != 'f' && kind != 'i' && kind != 'u')
+    throw py::value_error(std::string(name) + " must contain finite real values");
+  py::array_t<double, py::array::c_style | py::array::forcecast> values(array);
+  std::vector<Vector3D> result;
+  result.reserve(count);
+  for (py::ssize_t i = 0; i < count; ++i)
+  {
+    const double x = mesh_array_value(values.data(), 3 * i);
+    const double y = mesh_array_value(values.data(), 3 * i + 1);
+    const double z = mesh_array_value(values.data(), 3 * i + 2);
+    if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z))
+      throw py::value_error(std::string(name) + " must contain finite real values");
+    result.emplace_back(x, y, z);
+  }
+  return result;
+}
+
+template <std::size_t Width, typename Simplex>
+std::vector<Simplex> copy_mesh_connectivity(const py::array &array,
+                                           std::size_t num_vertices, const char *name)
+{
+  const auto count = mesh_array_rows(array, Width, name);
+  std::vector<Simplex> result;
+  result.reserve(count);
+  copy_integer_mesh_array(array, name, [&](const auto &values)
+  {
+    for (py::ssize_t i = 0; i < count; ++i)
+    {
+      std::size_t indices[Width];
+      for (std::size_t j = 0; j < Width; ++j)
+      {
+        const auto value = mesh_array_value(values.data(), Width * i + j);
+        if constexpr (std::is_signed_v<decltype(value)>)
+        {
+          if (value < 0)
+            throw py::value_error(std::string(name) + " contains an out-of-range vertex index");
+        }
+        if (static_cast<std::uint64_t>(value) >= num_vertices)
+          throw py::value_error(std::string(name) + " contains an out-of-range vertex index");
+        indices[j] = static_cast<std::size_t>(value);
+      }
+      if constexpr (Width == 3)
+        result.emplace_back(indices[0], indices[1], indices[2]);
+      else
+        result.emplace_back(indices[0], indices[1], indices[2], indices[3]);
+    }
+  });
+  return result;
+}
+
+std::vector<int> copy_mesh_markers(const py::array &markers, std::size_t num_elements)
+{
+  if (markers.ndim() != 1 || (markers.size() != 0 &&
+                              static_cast<std::size_t>(markers.size()) != num_elements))
+    throw py::value_error("markers must be empty or a vector with one integer per face/cell");
+  std::vector<int> result;
+  result.reserve(markers.size());
+  copy_integer_mesh_array(markers, "markers", [&](const auto &values)
+  {
+    for (py::ssize_t i = 0; i < values.size(); ++i)
+    {
+      const auto value = mesh_array_value(values.data(), i);
+      if constexpr (std::is_signed_v<decltype(value)>)
+      {
+        if (value < std::numeric_limits<int>::min())
+          throw py::value_error("markers must fit in a native int");
+      }
+      if (value > std::numeric_limits<int>::max())
+        throw py::value_error("markers must fit in a native int");
+      result.push_back(static_cast<int>(value));
+    }
+  });
+  return result;
+}
+
+} // namespace
+
+Mesh create_mesh(py::array vertices, py::array faces, py::array markers, py::array normals)
 {
   Mesh mesh;
-  auto verts_r = vertices.unchecked<2>();
-  auto faces_r = faces.unchecked<2>();
-  auto markers_r = markers.unchecked<1>();
-  size_t num_vertices = verts_r.shape(0);
-  size_t num_faces = faces_r.shape(0);
-  size_t num_markers = markers_r.size();
-
-  for (size_t i = 0; i < num_vertices; i++)
-  {
-    mesh.vertices.push_back(Vector3D(verts_r(i, 0), verts_r(i, 1), verts_r(i, 2)));
-  }
-
-  for (size_t i = 0; i < num_faces; i++)
-  {
-    mesh.faces.push_back(Simplex2D(faces_r(i, 0), faces_r(i, 1), faces_r(i, 2)));
-  }
-
-  for (size_t i = 0; i < num_markers; i++)
-  {
-    mesh.markers.push_back(markers_r(i));
-  }
-
+  mesh.vertices = copy_mesh_vectors(vertices, "vertices");
+  mesh.faces = copy_mesh_connectivity<3, Simplex2D>(faces, mesh.vertices.size(), "faces");
+  mesh.markers = copy_mesh_markers(markers, mesh.faces.size());
+  mesh.normals = copy_mesh_vectors(normals, "normals", mesh.faces.size());
   return mesh;
 }
 
-VolumeMesh create_volume_mesh(py::array_t<double> vertices, py::array_t<size_t> cells,
-                              py::array_t<int> markers)
+VolumeMesh create_volume_mesh(py::array vertices, py::array cells, py::array markers)
 {
   VolumeMesh mesh;
-  auto verts_r = vertices.unchecked<2>();
-  auto cells_r = cells.unchecked<2>();
-  auto markers_r = markers.unchecked<1>();
-  size_t num_vertices = verts_r.shape(0);
-  size_t num_cells = cells_r.shape(0);
-  size_t num_markers = markers_r.size();
-
-  for (size_t i = 0; i < num_vertices; i++)
-  {
-    mesh.vertices.push_back(Vector3D(verts_r(i, 0), verts_r(i, 1), verts_r(i, 2)));
-  }
-
-  for (size_t i = 0; i < num_cells; i++)
-  {
-    mesh.cells.push_back(Simplex3D(cells_r(i, 0), cells_r(i, 1), cells_r(i, 2), cells_r(i, 3)));
-  }
-
-  for (size_t i = 0; i < num_markers; i++)
-  {
-    mesh.markers.push_back(markers_r(i));
-  }
-
+  mesh.vertices = copy_mesh_vectors(vertices, "vertices");
+  mesh.cells = copy_mesh_connectivity<4, Simplex3D>(cells, mesh.vertices.size(), "cells");
+  mesh.markers = copy_mesh_markers(markers, mesh.cells.size());
   return mesh;
 }
 
 py::tuple mesh_as_arrays(const Mesh &mesh)
 {
-  py::array_t<double> py_vertices(mesh.vertices.size() * 3);
-  py::array_t<size_t> py_faces(mesh.faces.size() * 3);
-  py::array_t<int> py_markers(mesh.markers.size());
-  for (size_t i = 0; i < mesh.vertices.size(); i++)
+  py::array_t<double> vertices(mesh.vertices.size() * 3);
+  py::array_t<size_t> faces(mesh.faces.size() * 3);
+  py::array_t<int> markers(mesh.markers.size());
+  py::array_t<double> normals(mesh.normals.size() * 3);
+  auto *n = normals.mutable_data();
+  auto *v = vertices.mutable_data();
+  auto *f = faces.mutable_data();
+  auto *m = markers.mutable_data();
+  for (size_t i = 0; i < mesh.vertices.size(); ++i)
   {
-    py_vertices.mutable_at(i * 3) = mesh.vertices[i].x;
-    py_vertices.mutable_at(i * 3 + 1) = mesh.vertices[i].y;
-    py_vertices.mutable_at(i * 3 + 2) = mesh.vertices[i].z;
+    v[3 * i] = mesh.vertices[i].x;
+    v[3 * i + 1] = mesh.vertices[i].y;
+    v[3 * i + 2] = mesh.vertices[i].z;
   }
-  for (size_t i = 0; i < mesh.faces.size(); i++)
+  for (size_t i = 0; i < mesh.faces.size(); ++i)
   {
-    py_faces.mutable_at(i * 3) = mesh.faces[i].v0;
-    py_faces.mutable_at(i * 3 + 1) = mesh.faces[i].v1;
-    py_faces.mutable_at(i * 3 + 2) = mesh.faces[i].v2;
+    f[3 * i] = mesh.faces[i].v0;
+    f[3 * i + 1] = mesh.faces[i].v1;
+    f[3 * i + 2] = mesh.faces[i].v2;
   }
-  for (size_t i = 0; i < mesh.markers.size(); i++)
+  for (size_t i = 0; i < mesh.markers.size(); ++i)
+    m[i] = mesh.markers[i];
+  for (size_t i = 0; i < mesh.normals.size(); ++i)
   {
-    py_markers.mutable_at(i) = mesh.markers[i];
+    n[3 * i] = mesh.normals[i].x;
+    n[3 * i + 1] = mesh.normals[i].y;
+    n[3 * i + 2] = mesh.normals[i].z;
   }
-  return py::make_tuple(py_vertices, py_faces, py_markers);
+  return py::make_tuple(vertices, faces, markers, normals);
+}
+
+py::tuple volume_mesh_as_arrays(const VolumeMesh &mesh)
+{
+  py::array_t<double> vertices(mesh.vertices.size() * 3);
+  py::array_t<size_t> cells(mesh.cells.size() * 4);
+  py::array_t<int> markers(mesh.markers.size());
+  auto *v = vertices.mutable_data();
+  auto *c = cells.mutable_data();
+  auto *m = markers.mutable_data();
+  for (size_t i = 0; i < mesh.vertices.size(); ++i)
+  {
+    v[3 * i] = mesh.vertices[i].x;
+    v[3 * i + 1] = mesh.vertices[i].y;
+    v[3 * i + 2] = mesh.vertices[i].z;
+  }
+  for (size_t i = 0; i < mesh.cells.size(); ++i)
+  {
+    c[4 * i] = mesh.cells[i].v0;
+    c[4 * i + 1] = mesh.cells[i].v1;
+    c[4 * i + 2] = mesh.cells[i].v2;
+    c[4 * i + 3] = mesh.cells[i].v3;
+  }
+  for (size_t i = 0; i < mesh.markers.size(); ++i)
+    m[i] = mesh.markers[i];
+  return py::make_tuple(vertices, cells, markers);
 }
 
 Surface create_surface(py::array_t<double> vertices, py::list holes)
@@ -818,24 +923,18 @@ Surface create_surface(py::array_t<double> vertices, py::list holes)
   return surface;
 }
 
-py::list points_in_polygons(const py::array_t<double> &pts, const std::vector<Polygon> &polygons)
+py::list points_in_polygons(const py::array &pts, const std::vector<Polygon> &polygons)
 {
-  py::list in_polygons;
-  auto pts_r = pts.unchecked<2>();
-  size_t pt_count = pts_r.shape(0);
-  std::vector<Vector3D> pc;
-  for (size_t i = 0; i < pt_count; i++)
-  {
-    pc.push_back(Vector3D(pts_r(i, 0), pts_r(i, 1), pts_r(i, 2)));
-  }
+  auto pc = copy_mesh_vectors(pts, "points");
   auto pips = PointCloudProcessor::points_in_polygons(pc, polygons);
   py::list in_polygons_list;
   for (auto const &pip : pips)
   {
     py::array_t<size_t> indices(pip.size());
+    auto *data = indices.mutable_data();
     for (size_t i = 0; i < pip.size(); i++)
     {
-      indices.mutable_at(i) = pip[i];
+      data[i] = pip[i];
     }
     in_polygons_list.append(indices);
   }
@@ -890,28 +989,46 @@ MultiSurface create_multisurface(py::list surfaces)
   return multi_surface;
 }
 
-GridField create_gridfield(py::array_t<double> data, py::tuple bounds, size_t xsize, size_t ysize)
+GridField create_gridfield(py::array data, py::tuple bounds, py::ssize_t xsize, py::ssize_t ysize)
 {
+  if (xsize <= 0 || ysize <= 0)
+    throw py::value_error("Grid dimensions must be positive");
+  if (data.ndim() != 1 || data.size() / xsize != ysize || data.size() % xsize != 0)
+    throw py::value_error("Grid data must be a flat array matching the grid dimensions");
+  const char kind = data.dtype().kind();
+  if (kind != 'f' && kind != 'i' && kind != 'u')
+    throw py::value_error("Grid data must contain finite real values; fill missing data before meshing");
+  if (bounds.size() != 4)
+    throw py::value_error("Grid bounds must contain xmin, ymin, xmax, ymax");
   GridField grid_field;
   double px = bounds[0].cast<double>();
   double py = bounds[1].cast<double>();
   double qx = bounds[2].cast<double>();
   double qy = bounds[3].cast<double>();
+  if (!std::isfinite(px) || !std::isfinite(py) || !std::isfinite(qx) || !std::isfinite(qy) ||
+      qx <= px || qy <= py)
+    throw py::value_error("Grid bounds must be finite with positive width and height");
   auto bbox = BoundingBox2D(Vector2D(px, py), Vector2D(qx, qy));
 
   grid_field.grid.bounding_box = bbox;
   grid_field.grid.xstep = (qx - px) / xsize;
   grid_field.grid.ystep = (qy - py) / ysize;
+  if (!std::isfinite(grid_field.grid.xstep) || !std::isfinite(grid_field.grid.ystep) ||
+      grid_field.grid.xstep <= 0 || grid_field.grid.ystep <= 0)
+    throw py::value_error("Grid pixel spacing must be finite and positive");
+  grid_field.grid.cell_centered = true;
 
   grid_field.grid.xsize = xsize;
   grid_field.grid.ysize = ysize;
 
-  auto data_r = data.unchecked<1>();
-  size_t data_count = data_r.size();
-
-  for (size_t i = 0; i < data_count; i++)
+  py::array_t<double, py::array::c_style | py::array::forcecast> values(data);
+  grid_field.values.reserve(values.size());
+  for (py::ssize_t i = 0; i < values.size(); i++)
   {
-    grid_field.values.push_back(data_r(i));
+    const double value = mesh_array_value(values.data(), i);
+    if (!std::isfinite(value))
+      throw py::value_error("Grid data must contain finite real values; fill missing data before meshing");
+    grid_field.values.push_back(value);
   }
 
   return grid_field;
@@ -940,8 +1057,9 @@ terrain_mesher::core::RasterDouble gridfield_to_raster(const GridField &grid_fie
 
   terrain_mesher::core::RasterDouble raster(grid_field.grid.xsize, grid_field.grid.ysize);
   raster.set_cell_size(xstep);
-  raster.set_pos_x(grid_field.grid.bounding_box.P.x - 0.5 * xstep);
-  raster.set_pos_y(grid_field.grid.bounding_box.P.y - 0.5 * ystep);
+  const auto first_sample = grid_field.grid.index_to_point(0);
+  raster.set_pos_x(first_sample.x - 0.5 * xstep);
+  raster.set_pos_y(first_sample.y - 0.5 * ystep);
 
   for (size_t row = 0; row < grid_field.grid.ysize; row++)
   {
@@ -1000,25 +1118,6 @@ py::array_t<size_t> statistical_outlier_finder(py::array_t<double> &points, size
 
   auto outliers = PointCloudProcessor::statistical_outlier_finder(pc, neighbors, outlier_margin);
   return py::array_t<size_t>(outliers.size(), outliers.data());
-}
-
-py::dict compute_boundary_face_markers(const VolumeMesh &mesh)
-{
-  auto data = MeshProcessor::compute_boundary_facet_markers(mesh);
-  py::dict out;
-  // out.reserve(data.size());
-  for (auto const &kv : data)
-  {
-    const Simplex2D &f = kv.first;
-    int marker = kv.second.first;
-    // auto  &n     = kv.second.second;
-
-    py::tuple key = py::make_tuple(f.v0, f.v1, f.v2);
-    // py::tuple normal = py::make_tuple(n.x, n.y, n.z);
-    // py::tuple val    = py::make_tuple(marker, normal);
-    out[key] = marker;
-  }
-  return out;
 }
 
 } // namespace DTCC_BUILDER
@@ -1131,7 +1230,6 @@ PYBIND11_MODULE(_dtcc_builder, m)
 
   py::class_<DTCC_BUILDER::VolumeMesh>(m, "VolumeMesh")
       .def(py::init<>())
-      .def_readonly("num_layers", &DTCC_BUILDER::VolumeMesh::num_layers)
       .def_readonly("vertices", &DTCC_BUILDER::VolumeMesh::vertices)
       .def_readonly("cells", &DTCC_BUILDER::VolumeMesh::cells)
       .def_readonly("markers", &DTCC_BUILDER::VolumeMesh::markers)
@@ -1158,11 +1256,15 @@ PYBIND11_MODULE(_dtcc_builder, m)
 
   m.def("create_polygon", &DTCC_BUILDER::create_polygon, "Create C++ polygon");
 
-  m.def("create_mesh", &DTCC_BUILDER::create_mesh, "Create C++ mesh");
+  m.def("create_mesh", &DTCC_BUILDER::create_mesh, "Create C++ mesh",
+        py::arg("vertices"), py::arg("faces"), py::arg("markers"),
+        py::arg("normals") = py::array_t<double>(py::ssize_t{0}));
 
   m.def("create_volume_mesh", &DTCC_BUILDER::create_volume_mesh, "Create C++ volume mesh");
 
   m.def("mesh_as_arrays", &DTCC_BUILDER::mesh_as_arrays, "Create C++ mesh");
+  m.def("volume_mesh_as_arrays", &DTCC_BUILDER::volume_mesh_as_arrays,
+        "Return volume mesh as owning arrays");
 
   m.def("create_gridfield", &DTCC_BUILDER::create_gridfield, "Create C++ grid field");
 
@@ -1174,19 +1276,11 @@ PYBIND11_MODULE(_dtcc_builder, m)
 
   m.def("points_in_polygons", &DTCC_BUILDER::points_in_polygons, "Find points inside polygons");
 
-  m.def("boundary_stats", &DTCC_BUILDER::boundary_stats,
-        "Compute lightweight polygon boundary statistics for cleaner runtime shortcuts");
-
   m.def("boundary_defect_clusters", &DTCC_BUILDER::boundary_defect_clusters,
         "Detect short-edge and pair-defect clusters for the cleaner");
 
   m.def("rewrite_defect_cluster", &DTCC_BUILDER::rewrite_defect_cluster,
         "Apply deterministic short-edge boundary rewrites for simple cleaner clusters");
-
-  m.def("smooth_field", &DTCC_BUILDER::VertexSmoother::smooth_field, "Smooth grid field");
-
-  // m.def("build_mesh", &DTCC_BUILDER::MeshBuilder::build_mesh,
-  //       "build mesh for city, returning a list of meshes");
 
   m.def("build_city_flat_mesh", &DTCC_BUILDER::MeshBuilder::build_city_flat_mesh,
         "build city flat mesh");
@@ -1197,33 +1291,9 @@ PYBIND11_MODULE(_dtcc_builder, m)
         &DTCC_BUILDER::MeshBuilder::build_terrain_surface_mesh_from_ground_mesh,
         "build terrain surface mesh from a prebuilt ground mesh");
 
-  m.def("build_city_surface_mesh", &DTCC_BUILDER::MeshBuilder::build_city_surface_mesh,
-        "build city surface mesh");
   m.def("build_city_surface_mesh_from_terrain_mesh",
         &DTCC_BUILDER::MeshBuilder::build_city_surface_mesh_from_terrain_mesh,
         "build city surface mesh from a prebuilt terrain mesh");
-
-  m.def("layer_ground_mesh", &DTCC_BUILDER::MeshBuilder::layer_ground_mesh, "Layer ground mesh");
-
-  m.def("smooth_volume_mesh", &DTCC_BUILDER::Smoother::smooth_volume_mesh, "Smooth volume mesh");
-
-  m.def("trim_volume_mesh", &DTCC_BUILDER::MeshBuilder::trim_volume_mesh,
-        "Trim volume mesh by removing cells inside buildings");
-
-  // m.def("extrude_footprint", &DTCC_BUILDER::MeshBuilder::extrude_footprint,
-  //       "Extrude footprint to a mesh");
-
-  m.def("compute_boundary_mesh", &DTCC_BUILDER::MeshProcessor::compute_boundary_mesh,
-        "Compute boundary mesh from volume mesh");
-
-  m.def("compute_boundary_face_markers", &DTCC_BUILDER::compute_boundary_face_markers,
-        "Compute markers and outward normals for volume mesh boundary faces");
-
-  m.def("compute_boundary_mesh", &DTCC_BUILDER::MeshProcessor::compute_boundary_mesh,
-        "Compute boundary mesh from volume mesh");
-
-  m.def("compute_open_mesh", &DTCC_BUILDER::MeshProcessor::compute_open_mesh,
-        "Compute open mesh from boundary, excluding top and sides");
 
   m.def("merge_meshes", &DTCC_BUILDER::MeshProcessor::merge_meshes,
         "Merge meshes into a single mesh");
@@ -1250,20 +1320,4 @@ PYBIND11_MODULE(_dtcc_builder, m)
 
   m.def("statistical_outlier_finder", &DTCC_BUILDER::statistical_outlier_finder,
         "Find statistical outliers in point cloud");
-
-  py::class_<DTCC_BUILDER::VolumeMeshBuilder>(m, "VolumeMeshBuilder")
-      .def(py::init<const std::vector<DTCC_BUILDER::Surface> &, const DTCC_BUILDER::GridField &,
-                    DTCC_BUILDER::Mesh &, double>(),
-           py::arg("buildings"), py::arg("dem"), py::arg("ground_mesh"), py::arg("domain_height"),
-           "Constructor for VolumeMeshBuilder taking city, dem, ground_mesh, "
-           "and domain_height as arguments")
-      .def("build", &DTCC_BUILDER::VolumeMeshBuilder::build,
-           "Layers the ground mesh and returns a VolumeMesh")
-      // Expose public variables directly
-      .def_readwrite("domain_height", &DTCC_BUILDER::VolumeMeshBuilder::domain_height)
-      .def_readwrite("top_height", &DTCC_BUILDER::VolumeMeshBuilder::top_height)
-      // If you need to expose std::vectors or similar, pybind11/stl.h header
-      // takes care of this. For custom types like City, GridField, Mesh, ensure
-      // you've also provided bindings for them.
-      ;
 }

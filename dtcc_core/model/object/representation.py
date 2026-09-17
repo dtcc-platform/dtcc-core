@@ -12,6 +12,12 @@ class GeometryRepresentation:
     lod: str | None = None
     role: str | None = None
 
+    def __repr__(self):
+        from ...common._display import format_repr
+
+        return format_repr(type(self).__name__, [("geometry_type", type(self.geometry).__name__),
+                           ("lod", self.lod), ("role", self.role)])
+
     def __post_init__(self):
         self.validate()
 

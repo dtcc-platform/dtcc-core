@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from ..model import Model
 
 
-@dataclass
+@dataclass(repr=False)
 class Field(Model):
     """Represents a field (scalar or vector) defined on a geometry.
 
@@ -17,7 +17,6 @@ class Field(Model):
     physical properties such as a temperature or a velocity vector field. The
     field takes a value on each element of a geometry and the value may be
     either scalar or vector-valued.
-
 
     Attributes
     ----------
@@ -47,6 +46,20 @@ class Field(Model):
     values: np.ndarray = field(default_factory=lambda: np.empty(0))
     dim: int = 1
     association: str | None = field(default=None, kw_only=True)
+
+    def _info_sections(self):
+        sections = super()._info_sections()
+        sections[0][2].extend([("Dimension", self.dim), ("Description", self.description)])
+        return sections
+
+    def _summary_items(self):
+        return [
+            ("name", self.name),
+            ("unit", self.unit),
+            ("shape", self.values.shape),
+            ("dtype", str(self.values.dtype)),
+            ("association", self.association),
+        ]
 
     def _validate_values(self):
         if isinstance(self.dim, (bool, np.bool_)) or not isinstance(

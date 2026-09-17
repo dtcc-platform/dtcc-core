@@ -51,6 +51,23 @@ jobs:
             --package dtcc_core \
             --coverage-file tests/coverage.json
 
+      # Base-install tests above remain separate from the optional native backend.
+      - name: Install volume-meshing dependencies
+        run: uv sync --locked --extra volume
+
+      - name: Require TetGen
+        run: uv run --locked --extra volume python -c "from dtcc_core.builder.meshing.tetgen import is_tetgen_available; assert is_tetgen_available(), 'TetGen must be installed for volume-meshing tests'"
+
+      - name: Test volume meshing
+        run: |
+          cd tests
+          uv run --locked --extra volume pytest builder/test_meshing.py \
+            builder/test_cleaning_meshing_integration.py::test_build_city_volume_mesh_smoke \
+            builder/test_cleaning_meshing_integration.py::test_build_city_volume_mesh_smoke_auto_lod_resolution \
+            builder/test_cleaning_meshing_integration.py::test_city_volume_mesh_propagates_tetgen_failure \
+            datasets/test_city_volume_mesh_dataset.py
+        shell: bash
+
   python-compatibility:
     strategy:
       fail-fast: false

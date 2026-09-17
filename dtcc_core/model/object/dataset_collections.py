@@ -24,13 +24,25 @@ from ...plotting.style import (
 )
 
 
-@dataclass
+@dataclass(repr=False)
 class FootprintCollection(Model):
     """Collection of building footprint surfaces."""
 
     footprints: list[Surface] = field(default_factory=list)
     source_ids: list[str | None] = field(default_factory=list)
     source_indices: list[int] = field(default_factory=list)
+
+    def _info_sections(self):
+        from .._display import sample_section
+
+        sections = super()._info_sections()
+        sections[0][2].append(("Bounds", self.bounds.bndstr))
+        if self.footprints:
+            sections.append(sample_section("Footprints", self.footprints))
+        return sections
+
+    def _summary_items(self):
+        return [("num_footprints", len(self.footprints))]
 
     @classmethod
     def from_buildings(
@@ -63,9 +75,6 @@ class FootprintCollection(Model):
 
     def __len__(self) -> int:
         return len(self.footprints)
-
-    def __str__(self) -> str:
-        return f"DTCC FootprintCollection with {len(self)} footprint(s)"
 
     def __iter__(self) -> Iterator[Surface]:
         return iter(self.footprints)
@@ -117,7 +126,6 @@ class FootprintCollection(Model):
                 "properties": {"name": crs},
             }
         return payload
-
 
     def plot(
         self,
@@ -193,17 +201,26 @@ class FootprintCollection(Model):
         return properties
 
 
-@dataclass
+@dataclass(repr=False)
 class BuildingCollection(Model):
     """Collection of DTCC buildings."""
 
     buildings: list[Building] = field(default_factory=list)
 
+    def _info_sections(self):
+        from .._display import sample_section
+
+        sections = super()._info_sections()
+        sections[0][2].append(("Bounds", self.bounds.bndstr))
+        if self.buildings:
+            sections.append(sample_section("Buildings", self.buildings))
+        return sections
+
+    def _summary_items(self):
+        return [("num_buildings", len(self.buildings))]
+
     def __len__(self) -> int:
         return len(self.buildings)
-
-    def __str__(self) -> str:
-        return f"DTCC BuildingCollection with {len(self)} building(s)"
 
     def __iter__(self) -> Iterator[Building]:
         return iter(self.buildings)
@@ -235,17 +252,26 @@ class BuildingCollection(Model):
         return FootprintCollection.from_buildings(self.buildings, geom_type, z=z)
 
 
-@dataclass
+@dataclass(repr=False)
 class TreeCollection(Model):
     """Collection of DTCC tree objects."""
 
     trees: list[Tree] = field(default_factory=list)
 
+    def _info_sections(self):
+        from .._display import sample_section
+
+        sections = super()._info_sections()
+        sections[0][2].append(("Bounds", self.bounds.bndstr))
+        if self.trees:
+            sections.append(sample_section("Trees", self.trees))
+        return sections
+
+    def _summary_items(self):
+        return [("num_trees", len(self.trees))]
+
     def __len__(self) -> int:
         return len(self.trees)
-
-    def __str__(self) -> str:
-        return f"DTCC TreeCollection with {len(self)} tree(s)"
 
     def __iter__(self) -> Iterator[Tree]:
         return iter(self.trees)
@@ -273,7 +299,6 @@ class TreeCollection(Model):
     def bounds(self) -> Bounds:
         """Return bounds spanning all tree positions."""
         return _bounds_for_points(self.to_arrays())
-
 
     def plot(
         self,
@@ -378,7 +403,7 @@ class TreeCollection(Model):
         )
 
 
-@dataclass
+@dataclass(repr=False)
 class CalibrationGrid(Model):
     """Semantic model for a synthetic calibration grid."""
 
@@ -388,6 +413,18 @@ class CalibrationGrid(Model):
     features: list[dict[str, Any]] = field(default_factory=list)
     name: str = "calibration_grid"
     metadata_payload: dict[str, Any] = field(default_factory=dict)
+
+    def _info_sections(self):
+        sections = super()._info_sections()
+        sections[0][2].extend([("Name", self.name), ("Bounds", self.bounds.bndstr)])
+        return sections
+
+    def _summary_items(self):
+        return [
+            ("num_features", len(self.features)),
+            ("divisions", self.divisions),
+            ("crs", self.crs),
+        ]
 
     @classmethod
     def from_geojson(cls, geojson: dict[str, Any]) -> "CalibrationGrid":
@@ -418,12 +455,6 @@ class CalibrationGrid(Model):
 
     def __len__(self) -> int:
         return len(self.features)
-
-    def __str__(self) -> str:
-        return (
-            f"DTCC CalibrationGrid with {len(self.features)} line feature(s), "
-            f"{self.divisions} division(s), {self.crs or 'unknown CRS'}"
-        )
 
     def __iter__(self) -> Iterator[dict[str, Any]]:
         return iter(self.features)
@@ -499,7 +530,6 @@ class CalibrationGrid(Model):
         if self.crs is not None:
             metadata["crs"] = self.crs
         return metadata
-
 
     def plot(
         self,
