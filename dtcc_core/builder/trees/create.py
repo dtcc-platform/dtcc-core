@@ -204,6 +204,41 @@ def trees_from_pointcloud(
     smallest_cluster: float = 4,
     fill_hole_size: float = 2,
 ) -> list[Tree]:
+    """Detect individual trees in a point cloud.
+
+    Builds a canopy height raster (vegetation height above the terrain),
+    finds tree tops as local height maxima and estimates a crown radius for
+    each tree.
+
+    Parameters
+    ----------
+    pc : PointCloud
+        Classified point cloud covering the area.
+    terrain_raster : Raster, optional
+        Ground elevation raster. When omitted, one is built from the ground
+        points of ``pc``.
+    buildings : list[Building], optional
+        Buildings whose footprints are excluded from tree detection.
+    tree_type : {"urban", "mixed", "dense", "arid"}, optional
+        Detection preset setting the minimum tree height, smoothing and
+        minimum crown radius. Default is "urban".
+    cell_size : float, optional
+        Cell size of the terrain raster built when ``terrain_raster`` is
+        omitted, in coordinate units. The canopy raster uses the terrain
+        raster's cell size. Default is 0.5.
+    smallest_cluster : float, optional
+        Smallest canopy patch to keep, as an area in square coordinate units.
+        Default is 4.
+    fill_hole_size : float, optional
+        Largest gap in the canopy to fill, as an area in square coordinate
+        units. Default is 2.
+
+    Returns
+    -------
+    list[Tree]
+        Trees positioned on the terrain, with height above ground and crown
+        radius.
+    """
     if terrain_raster is None:
         terrain_raster = builder.build_terrain_raster(
             pc, cell_size=cell_size, ground_only=True
