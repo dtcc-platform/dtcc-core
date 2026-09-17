@@ -278,6 +278,14 @@ class SmokeArgs(DatasetBaseArgs):
 
 
 class SmokeDataset(DatasetDescriptor):
+    """Smoke dataset, registered as ``smoke``.
+
+    Synthetic analytical smoke-flow fixture for testing DTCC city digital twin
+    dataset discovery, serialization, visualization, catalog, and presentation
+    workflows.
+
+    Call it with keyword arguments defined by ``SmokeArgs``.
+    """
     name = "smoke"
     description = (
         "Synthetic analytical smoke-flow fixture for testing DTCC city digital "

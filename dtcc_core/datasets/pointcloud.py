@@ -16,6 +16,7 @@ CLASSIFICATION_PRESETS = {
 
 
 class PointCloudArgs(DatasetBaseArgs):
+    """Arguments for the Lantmäteriet point cloud dataset."""
     classifications: Union[
         int, list[int], Literal["all", "terrain", "buildings", "vegetation"]
     ] = Field(
@@ -70,6 +71,14 @@ class PointCloudArgs(DatasetBaseArgs):
 
 
 class PointCloudDataset(DatasetDescriptor):
+    """Point Cloud dataset, registered as ``point_cloud``.
+
+    Lantmäteriet point cloud tiles for the requested bounds, accessed through
+    the DTCC backend/cache with optional classification filtering and global
+    outlier removal.
+
+    Call it with keyword arguments defined by ``PointCloudArgs``.
+    """
     name = "point_cloud"
     title = "Point Cloud"
     description = (

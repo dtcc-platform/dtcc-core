@@ -10,6 +10,7 @@ from dtcc_core.common.progress import ProgressTracker
 
 
 class CitySurfaceMeshArgs(DatasetBaseArgs):
+    """Arguments for the city surface mesh dataset."""
     max_mesh_size: float = Field(10.0, description="Maximum triangle size in meters")
     min_mesh_angle: float = Field(25.0, description="Minimum triangle angle in degrees")
     raster_cell_size: float = Field(
@@ -75,6 +76,13 @@ class CitySurfaceMeshArgs(DatasetBaseArgs):
 
 
 class CitySurfaceMeshDataset(DatasetDescriptor):
+    """City Surface Mesh dataset, registered as ``city_surface_mesh``.
+
+    Triangular surface mesh of terrain and extruded building surfaces, prepared
+    from point cloud data and default DTCC footprint sources.
+
+    Call it with keyword arguments defined by ``CitySurfaceMeshArgs``.
+    """
     name = "city_surface_mesh"
     title = "City Surface Mesh"
     description = (

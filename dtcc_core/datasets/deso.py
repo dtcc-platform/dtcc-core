@@ -11,6 +11,7 @@ from .providers import provider_entry
 
 
 class DeSOArgs(DatasetBaseArgs):
+    """Arguments for the DeSO statistical area boundaries dataset."""
     source: Literal["SCB"] = Field("SCB", description="Data source")
     year: Literal[2018, 2025] = Field(2025, description="DeSO geometry vintage")
     statistics: Optional[
@@ -33,6 +34,13 @@ class DeSOArgs(DatasetBaseArgs):
 
 
 class DeSODataset(DatasetDescriptor):
+    """DeSO dataset, registered as ``deso``.
+
+    Swedish DeSO statistical area boundaries for the requested bounds, with
+    optional SCB area-aligned statistics fields.
+
+    Call it with keyword arguments defined by ``DeSOArgs``.
+    """
     name = "deso"
     title = "DeSO"
     description = (
