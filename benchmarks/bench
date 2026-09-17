@@ -29,7 +29,6 @@ from benchmarks.benchmark_catalog import (
     task_to_json,
 )
 
-
 RUN_ROOT = Path(__file__).resolve().parent / "runs"
 BENCHMARK_INFO: Any | None = None
 BENCHMARK_LOG_TABLE: Any | None = None
@@ -51,7 +50,10 @@ def json_ready(value: Any) -> Any:
 
 def _write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(json_ready(payload), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    path.write_text(
+        json.dumps(json_ready(payload), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
 
 
 def _write_text(path: Path, text: str) -> None:
@@ -130,7 +132,9 @@ def command_list(args: argparse.Namespace) -> int:
             if name == "baseline":
                 print(f"  {name:24s} default")
             else:
-                print(f"  {name:24s} overrides: {_format_parameters(scenario.parameters)}")
+                print(
+                    f"  {name:24s} overrides: {_format_parameters(scenario.parameters)}"
+                )
     if topic in {"all", "cases"}:
         print("Representative cases:")
         for case in representative_cases():
@@ -204,11 +208,17 @@ def _run_task_subprocess(
     stdout_path = task_dir / "stdout.log"
     stderr_path = task_dir / "stderr.log"
     worker_task = dict(task)
+    worker_task["task_dir"] = str(task_dir.resolve())
     if save_artifacts:
         worker_task["artifact_dir"] = str(task_dir / "artifacts")
     _write_json(spec_path, worker_task)
 
-    command = [sys.executable, str(Path(__file__).resolve()), "_run-case", str(spec_path)]
+    command = [
+        sys.executable,
+        str(Path(__file__).resolve()),
+        "_run-case",
+        str(spec_path),
+    ]
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
     started = time.perf_counter()
@@ -276,7 +286,9 @@ def _run_task_subprocess(
         parsed["signal_used"] = signal_used
         parsed["stdout_log"] = str(stdout_path.relative_to(run_dir))
         parsed["stderr_log"] = str(stderr_path.relative_to(run_dir))
-        parsed["artifacts"] = _relativize_artifacts(parsed.get("artifacts", {}), run_dir)
+        parsed["artifacts"] = _relativize_artifacts(
+            parsed.get("artifacts", {}), run_dir
+        )
         return parsed
 
     status = "hang" if signal_used in {"SIGTERM", "SIGKILL"} else "timeout"
@@ -379,7 +391,9 @@ def _format_duration(value: Any) -> str:
 
 
 def _timestamp_utc() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    return (
+        datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    )
 
 
 def _status_label(status: str, *, rich: bool) -> str:
@@ -437,7 +451,9 @@ def _case_status_counts(results: list[dict[str, Any]]) -> tuple[int, int, int]:
     return succeeded, warned, failed
 
 
-def _status_summary_rows(results: list[dict[str, Any]], *, rich: bool) -> list[list[str]]:
+def _status_summary_rows(
+    results: list[dict[str, Any]], *, rich: bool
+) -> list[list[str]]:
     case_worked, case_warned, case_failed = _case_status_counts(results)
     task_worked = sum(1 for result in results if result["status"] == "success")
     task_warned = sum(1 for result in results if result["status"] == "warning")
@@ -508,8 +524,8 @@ def _result_output_summary(result: dict[str, Any]) -> str:
     metrics = result.get("metrics", {})
     if result["dataset"] == "city_footprints":
         return (
-            f"footprints={_format_number(metrics.get('footprint_count'))}, "
-            f"polygons={_format_number(metrics.get('polygon_count'))}"
+            f"footprints={_format_number(metrics.get('cleaning', {}).get('output_count'))}, "
+            f"polygons={_format_number(metrics.get('cleaning', {}).get('output_count'))}"
         )
 
     parts = [
@@ -525,30 +541,26 @@ def _result_output_summary(result: dict[str, Any]) -> str:
 
 def _result_quality_summary(result: dict[str, Any]) -> str:
     metrics = result.get("metrics", {})
-    if result["dataset"] == "city_footprints":
-        contract = metrics.get("contract", {})
-        contract_metrics = contract.get("metrics", {})
-        parts = []
-        if contract:
-            parts.append(f"contract={contract.get('status', '-')}")
-        for key in (
-            "min_clearance",
-            "pair_issue_count",
-            "short_edge_count",
-            "ring_contact_count",
-        ):
-            if key in contract_metrics:
-                parts.append(f"{key}={_format_number(contract_metrics[key])}")
-        source_map_max = metrics.get("source_map_max_size")
-        if source_map_max is not None:
-            parts.append(f"source_map_max={_format_number(source_map_max)}")
-        return ", ".join(parts) if parts else "-"
-
-    quality_error = metrics.get("quality_error")
-    if quality_error:
-        return f"{quality_error.get('type', 'QualityError')}: {quality_error.get('message', '')}"
-
     parts = []
+    cleaning = metrics.get("cleaning", {})
+    if cleaning:
+        parts.append(f"cleaning={cleaning.get('status', '-')}")
+        for key in (
+            "seconds",
+            "removed_area",
+            "added_area",
+            "short_edge_count",
+            "min_clearance",
+        ):
+            if cleaning.get(key) is not None:
+                parts.append(f"clean_{key}={_format_number(cleaning[key])}")
+    meshing = metrics.get("meshing", {})
+    if meshing:
+        parts.append(f"meshing={meshing.get('status', '-')}")
+        if "seconds" in meshing:
+            parts.append(f"mesh_seconds={_format_number(meshing['seconds'])}")
+    if metrics.get("element_quality_p01") is not None:
+        parts.append(f"q_p01={_format_number(metrics['element_quality_p01'])}")
     for label, value in (
         ("q_min", _quality_stat(metrics, "element_quality", "min")),
         ("q_mean", _quality_stat(metrics, "element_quality", "mean")),
@@ -557,7 +569,7 @@ def _result_quality_summary(result: dict[str, Any]) -> str:
     ):
         if value is not None:
             parts.append(f"{label}={_format_number(value)}")
-    return ", ".join(parts) if parts else "-"
+    return ", ".join(parts) or "-"
 
 
 def _result_error_summary(result: dict[str, Any]) -> str:
@@ -570,9 +582,7 @@ def _result_error_summary(result: dict[str, Any]) -> str:
     if len(message) > 120:
         message = message[:117] + "..."
     logs = ", ".join(
-        str(result.get(key))
-        for key in ("stdout_log", "stderr_log")
-        if result.get(key)
+        str(result.get(key)) for key in ("stdout_log", "stderr_log") if result.get(key)
     )
     prefix = f"{failure_class} / {error_type}" if failure_class else error_type
     summary = f"{prefix}: {message}" if message else prefix
@@ -632,7 +642,9 @@ def _console_table(columns: list[str], rows: list[list[str]]) -> str:
         "  ".join("-" * width for width in widths),
     ]
     for row in rows:
-        lines.append("  ".join(str(cell).ljust(widths[index]) for index, cell in enumerate(row)))
+        lines.append(
+            "  ".join(str(cell).ljust(widths[index]) for index, cell in enumerate(row))
+        )
     return "\n".join(lines)
 
 
@@ -665,32 +677,85 @@ def _emit_table(
 ) -> None:
     helpers = _load_table_helpers()
     if helpers is None:
-        plain_columns = [column[0] if isinstance(column, tuple) else column for column in columns]
+        plain_columns = [
+            column[0] if isinstance(column, tuple) else column for column in columns
+        ]
         print(message, flush=True)
-        print(_console_table([str(column) for column in plain_columns], plain_rows), flush=True)
+        print(
+            _console_table([str(column) for column in plain_columns], plain_rows),
+            flush=True,
+        )
         return
 
     benchmark_info, log_table = helpers
     log_table(benchmark_info, message, columns, rich_rows, indent=0, overflow="fold")
 
 
+def _phase_tables(results):
+    cleaning, meshing = [], []
+    for result in results:
+        label = (
+            result["case"]["id"].removeprefix("city_grid:").removeprefix("city_center:")
+        )
+        if result["scenario"]["id"] != "baseline":
+            label += "/" + result["scenario"]["id"]
+        metrics = result.get("metrics", {})
+        c = metrics.get("cleaning")
+        if c:
+            cleaning.append(
+                [
+                    label,
+                    c.get("status", "-"),
+                    _format_seconds(c.get("seconds")),
+                    f"{c.get('input_count', '-')} → {c.get('output_count', '-')}",
+                    _format_number(c.get("removed_area")),
+                    _format_number(c.get("added_area")),
+                    _format_number(c.get("short_edge_count")),
+                ]
+            )
+        m = metrics.get("meshing")
+        if m:
+            quality = m.get("quality", {})
+            meshing.append(
+                [
+                    label,
+                    result["dataset"].removeprefix("city_"),
+                    m.get("status", "-"),
+                    _format_seconds(m.get("seconds")),
+                    _format_number(m.get("num_cells") or m.get("num_faces")),
+                    _format_number(quality.get("element_quality", {}).get("min")),
+                    _format_number(m.get("element_quality_p01")),
+                ]
+            )
+    return [
+        (
+            "Cleaning",
+            [
+                "Case",
+                "Status",
+                "Time",
+                "In → out",
+                "Removed m²",
+                "Added m²",
+                "Short edges",
+            ],
+            cleaning,
+        ),
+        (
+            "Meshing",
+            ["Case", "Mesh", "Status", "Time", "Elements", "Q min", "Q p01"],
+            meshing,
+        ),
+    ]
+
+
 def _print_run_tables(results: list[dict[str, Any]]) -> None:
-    _emit_table(
-        "Benchmark result details",
-        [
-            "Status",
-            "Case",
-            "Dataset",
-            "Scenario",
-            ("Time", "right"),
-            "Output",
-            "Quality",
-            "Artifacts",
-            "Error / Logs",
-        ],
-        _result_table_rows(results, rich=True),
-        _result_table_rows(results, rich=False),
-    )
+    for title, columns, rows in _phase_tables(results):
+        if rows:
+            _emit_table(title, columns, rows, rows)
+    for result in results:
+        if result.get("error"):
+            print(f"{result['task_id']}: {_result_error_summary(result)}")
     _emit_table(
         "Benchmark status summary",
         [
@@ -731,6 +796,10 @@ def _summary_markdown(results: list[dict[str, Any]], manifest: dict[str, Any]) -
         lines.append(f"Finished: {manifest['finished_at']}")
     if manifest.get("elapsed_seconds") is not None:
         lines.append(f"Total time: {_format_duration(manifest.get('elapsed_seconds'))}")
+    for title, columns, rows in _phase_tables(results):
+        if rows:
+            lines.extend(["", f"## {title}", ""])
+            lines.extend(_markdown_table(columns, rows))
     lines.extend(["", "## Results", ""])
     lines.extend(
         _markdown_table(
@@ -768,7 +837,21 @@ def _summary_markdown(results: list[dict[str, Any]], manifest: dict[str, Any]) -
 
 
 def command_run(args: argparse.Namespace) -> int:
-    tasks = [task_to_json(task) for task in build_tasks(args.suite, city=args.city, datasets=args.dataset)]
+    if args.phase == "meshing" and args.input is None:
+        raise ValueError("--phase meshing requires --input <saved-run>")
+    if args.input is not None and args.phase != "meshing":
+        raise ValueError("--input is only used with --phase meshing")
+    tasks = [
+        task_to_json(task)
+        for task in build_tasks(
+            args.suite,
+            city=args.city,
+            datasets=args.dataset,
+            phase=args.phase,
+        )
+    ]
+    for task in tasks:
+        task["phase"] = args.phase
     if args.scenario:
         selected_scenarios = set(args.scenario)
         tasks = [task for task in tasks if task["scenario"]["id"] in selected_scenarios]
@@ -777,14 +860,21 @@ def command_run(args: argparse.Namespace) -> int:
                 "no benchmark tasks match selected scenario(s): "
                 + ", ".join(args.scenario)
             )
+    if args.input is not None:
+        _attach_saved_inputs(tasks, args.input)
+    return _execute_tasks(tasks, args)
+
+
+def _execute_tasks(tasks, args):
     breakdown = _task_breakdown(tasks)
-    run_id = args.run_id or time.strftime("%Y-%m-%d_%H%M%S") + f"_{args.suite}"
-    run_dir = (args.output_dir or RUN_ROOT) / run_id
+    run_id = time.strftime("%Y-%m-%d_%H%M%S") + f"_{args.suite}"
+    run_dir = (args.output or RUN_ROOT / run_id).resolve()
     manifest = {
         "suite": args.suite,
-        "city": args.city,
-        "datasets": args.dataset,
-        "scenarios": args.scenario,
+        "city": getattr(args, "city", None),
+        "datasets": getattr(args, "dataset", None),
+        "scenarios": getattr(args, "scenario", None),
+        "phase": args.phase,
         "dry_run": args.dry_run,
         "show_output": args.show_output,
         "save_artifacts": args.save_artifacts,
@@ -801,7 +891,7 @@ def command_run(args: argparse.Namespace) -> int:
         return 0
 
     _load_table_helpers()
-    run_dir.mkdir(parents=True, exist_ok=True)
+    run_dir.mkdir(parents=True, exist_ok=False)
     run_started = time.perf_counter()
     manifest["started_at"] = _timestamp_utc()
     _write_json(run_dir / "manifest.json", manifest)
@@ -811,7 +901,9 @@ def command_run(args: argparse.Namespace) -> int:
     events_path = run_dir / "events.jsonl"
     print(f"Plan: {manifest['plan']}", flush=True)
     for index, task in enumerate(tasks, start=1):
-        _append_event(events_path, {"event": "task_started", "index": index, "task": task})
+        _append_event(
+            events_path, {"event": "task_started", "index": index, "task": task}
+        )
         print(f"[task {index}/{len(tasks)}] {task['id']}", flush=True)
         result = _run_task_subprocess(
             task,
@@ -820,9 +912,13 @@ def command_run(args: argparse.Namespace) -> int:
             save_artifacts=args.save_artifacts,
         )
         results.append(result)
-        _append_event(events_path, {"event": "task_finished", "index": index, "result": result})
+        _append_event(
+            events_path, {"event": "task_finished", "index": index, "result": result}
+        )
         manifest["elapsed_seconds"] = round(time.perf_counter() - run_started, 3)
-        _write_json(run_dir / "results.json", {"manifest": manifest, "results": results})
+        _write_json(
+            run_dir / "results.json", {"manifest": manifest, "results": results}
+        )
         print(
             f"  {_terminal_status_label(result['status'])} "
             f"in {result.get('elapsed_seconds', 0):.3f}s",
@@ -852,25 +948,122 @@ def command_report(args: argparse.Namespace) -> int:
 
 
 def command_compare(args: argparse.Namespace) -> int:
-    base = json.loads((args.base / "results.json").read_text(encoding="utf-8"))
-    head = json.loads((args.head / "results.json").read_text(encoding="utf-8"))
-    base_by_id = {result["task_id"]: result for result in base.get("results", [])}
-    head_by_id = {result["task_id"]: result for result in head.get("results", [])}
-    all_ids = sorted(set(base_by_id) | set(head_by_id))
+    def read(path):
+        results = json.loads((path / "results.json").read_text())["results"]
+        return {
+            (r["dataset"], r["case"]["id"], r["scenario"]["id"]): r for r in results
+        }
 
-    print("| Task | Base | Head | Delta elapsed |")
-    print("| --- | --- | --- | ---: |")
-    for task_id in all_ids:
-        b = base_by_id.get(task_id)
-        h = head_by_id.get(task_id)
-        b_status = "-" if b is None else b["status"]
-        h_status = "-" if h is None else h["status"]
-        if b is None or h is None:
-            delta = "-"
-        else:
-            delta = f"{float(h.get('elapsed_seconds') or 0.0) - float(b.get('elapsed_seconds') or 0.0):.3f}s"
-        print(f"| `{task_id}` | {b_status} | {h_status} | {delta} |")
+    base, head = read(args.base), read(args.head)
+    print("| Case / dataset / scenario | Base | Head | Metric | Delta (head − base) |")
+    print("| --- | --- | --- | --- | ---: |")
+    paths = [
+        ("cleaning", "seconds"),
+        ("cleaning", "removed_area"),
+        ("cleaning", "added_area"),
+        ("cleaning", "boundary_displacement_max"),
+        ("cleaning", "short_edge_count"),
+        ("meshing", "seconds"),
+        ("meshing", "element_quality_p01"),
+        ("meshing", "num_faces"),
+        ("meshing", "num_cells"),
+        ("meshing", "quality", "element_quality", "min"),
+        ("meshing", "quality", "element_quality", "mean"),
+        ("meshing", "quality", "aspect_ratio", "max"),
+    ]
+
+    def metric(result, path):
+        value = result.get("metrics", {})
+        for key in path:
+            value = value.get(key) if isinstance(value, dict) else None
+        return value
+
+    for key in sorted(base.keys() | head.keys()):
+        b, h = base.get(key, {}), head.get(key, {})
+        label = " / ".join(key)
+        print(
+            f"| {label} | {b.get('status', 'missing')} | {h.get('status', 'missing')} | | |"
+        )
+        for path in paths:
+            bv, hv = metric(b, path), metric(h, path)
+            if isinstance(bv, (int, float)) and isinstance(hv, (int, float)):
+                print(f"| | | | {'.'.join(path)} | {hv - bv:+.6g} |")
     return 0
+
+
+def _saved_artifact(run_dir, result, name):
+    value = result.get("artifacts", {}).get(name, {}).get("path")
+    if not value:
+        return None
+    path = (run_dir / value).resolve()
+    if not path.is_relative_to(run_dir.resolve()) or not path.is_file():
+        raise ValueError(f"Missing or unsafe saved {name}: {value}")
+    return path
+
+
+def _attach_saved_inputs(tasks, run_dir):
+    from benchmarks.benchmark_catalog import CLEANING_PARAMETERS
+    from benchmarks.benchmark_phases import PREPARATION_PARAMETERS
+
+    results = json.loads((run_dir / "results.json").read_text())["results"]
+    by_input = {}
+
+    def input_key(record):
+        return (
+            tuple(record["case"]["bounds"]),
+            tuple(record["parameters"].get(k) for k in CLEANING_PARAMETERS),
+        )
+
+    for result in results:
+        if result.get("artifacts", {}).get("cleaning_input"):
+            by_input.setdefault(input_key(result), []).append(result)
+    for task in tasks:
+        candidates = by_input.get(input_key(task), [])
+        for predicate in [
+            lambda r: r["dataset"] == task["dataset"],
+            lambda r: r["scenario"]["id"] == task["scenario"]["id"],
+            lambda r: r["dataset"] == "city_footprints",
+        ]:
+            preferred = [r for r in candidates if predicate(r)]
+            if preferred:
+                candidates = preferred
+        if len(candidates) != 1:
+            raise ValueError(
+                f"Expected one saved cleaning input for {task['id']}; found {len(candidates)}. Select matching city/scenario/dataset."
+            )
+        result = candidates[0]
+        task["cleaning_input"] = str(_saved_artifact(run_dir, result, "cleaning_input"))
+        prepared = _saved_artifact(run_dir, result, "prepared_city")
+        if (
+            prepared
+            and result["dataset"] == task["dataset"]
+            and all(
+                result["parameters"].get(k) == task["parameters"][k]
+                for k in PREPARATION_PARAMETERS
+            )
+        ):
+            task["prepared_city"] = str(prepared)
+
+
+def command_rerun(args):
+    payload = json.loads((args.run_dir / "results.json").read_text())
+    results = {r["task_id"]: r for r in payload["results"]}
+    tasks = [
+        task
+        for task in payload["manifest"]["tasks"]
+        if (
+            task["id"] == args.task
+            if args.task
+            else _is_hard_failure(results.get(task["id"], {}).get("status", "failed"))
+        )
+    ]
+    if not tasks:
+        raise ValueError("No matching tasks to rerun")
+    if payload["manifest"].get("phase") == "meshing":
+        _attach_saved_inputs(tasks, args.run_dir)
+    args.suite = "rerun"
+    args.phase = payload["manifest"].get("phase", "both")
+    return _execute_tasks(tasks, args)
 
 
 def command_worker(args: argparse.Namespace) -> int:
@@ -883,60 +1076,115 @@ def command_worker(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Manifest-driven DTCC benchmark runner.")
+    parser = argparse.ArgumentParser(
+        description="Real-city cleaning and meshing benchmarks."
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
-
-    list_parser = subparsers.add_parser("list", help="List suites, datasets, cases, and scenarios.")
-    list_parser.add_argument(
+    listing = subparsers.add_parser(
+        "list", help="Show cities, datasets and sweep scenarios."
+    )
+    listing.add_argument(
         "topic",
         nargs="?",
         default="all",
         choices=("all", "suites", "datasets", "cities", "cases", "scenarios"),
     )
-    list_parser.set_defaults(func=command_list)
+    listing.set_defaults(func=command_list)
 
-    run_parser = subparsers.add_parser("run", help="Run a benchmark suite.")
-    run_parser.add_argument("suite", choices=tuple(SUITE_DESCRIPTIONS))
-    run_parser.add_argument("--city", choices=tuple(CITIES), default=None)
-    run_parser.add_argument("--dataset", action="append", choices=DATASET_NAMES, default=None)
-    run_parser.add_argument("--scenario", action="append", choices=tuple(SCENARIOS), default=None)
-    run_parser.add_argument("--dry-run", action="store_true")
-    run_parser.add_argument(
-        "--show-output",
-        action="store_true",
-        help="Echo each worker's stdout and stderr while keeping per-task log files.",
+    def output_options(command):
+        command.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="Show selected tasks without running them.",
+        )
+        command.add_argument(
+            "--show-output",
+            action="store_true",
+            help="Also stream worker logs to the terminal.",
+        )
+        command.add_argument(
+            "--save-artifacts",
+            action="store_true",
+            help="Save meshes too; cleaning inputs and metrics are always saved.",
+        )
+        command.add_argument(
+            "--output",
+            type=Path,
+            help="New run directory (default: timestamp under benchmarks/runs).",
+        )
+
+    for suite, description in SUITE_DESCRIPTIONS.items():
+        command = subparsers.add_parser(
+            suite, help=description, description=description
+        )
+        command.set_defaults(func=command_run, suite=suite)
+        command.add_argument(
+            "--city",
+            choices=tuple(CITIES),
+            help="Only this city (default: all cities).",
+        )
+        command.add_argument(
+            "--dataset",
+            action="append",
+            choices=DATASET_NAMES,
+            help="Output to test; repeat to select several (default: flat and surface).",
+        )
+        command.add_argument(
+            "--phase",
+            choices=("both", "cleaning", "meshing"),
+            default="both",
+            help="Cleaning alone, meshing saved input, or both (default).",
+        )
+        command.add_argument(
+            "--input",
+            type=Path,
+            help="Saved run supplying cleaned footprints for --phase meshing.",
+        )
+        if suite == "sweep":
+            command.add_argument(
+                "--scenario",
+                action="append",
+                choices=tuple(SCENARIOS),
+                help="Select sweep settings; repeat to select several.",
+            )
+        else:
+            command.set_defaults(scenario=None)
+        output_options(command)
+
+    rerun = subparsers.add_parser(
+        "rerun", help="Repeat failed tasks or one task from a saved run."
     )
-    run_parser.add_argument(
-        "--save-artifacts",
+    rerun.add_argument("run_dir", type=Path)
+    selection = rerun.add_mutually_exclusive_group()
+    selection.add_argument(
+        "--failed",
         action="store_true",
-        help="Save each successful dataset result under the task artifacts directory.",
+        help="Repeat failed/incomplete tasks (default).",
     )
-    run_parser.add_argument("--run-id", default=None)
-    run_parser.add_argument("--output-dir", type=Path, default=None)
-    run_parser.set_defaults(func=command_run)
-
-    report_parser = subparsers.add_parser("report", help="Print a markdown summary for a run directory.")
-    report_parser.add_argument("run_dir", type=Path)
-    report_parser.set_defaults(func=command_report)
-
-    compare_parser = subparsers.add_parser("compare", help="Compare two run directories.")
-    compare_parser.add_argument("base", type=Path)
-    compare_parser.add_argument("head", type=Path)
-    compare_parser.set_defaults(func=command_compare)
-
-    worker_parser = subparsers.add_parser("_run-case", help=argparse.SUPPRESS)
-    worker_parser.add_argument("spec", type=Path)
-    worker_parser.set_defaults(func=command_worker)
-
+    selection.add_argument("--task", help="Exact task ID from the saved report.")
+    output_options(rerun)
+    rerun.set_defaults(func=command_rerun)
+    report = subparsers.add_parser("report", help="Show a saved report.")
+    report.add_argument("run_dir", type=Path)
+    report.set_defaults(func=command_report)
+    compare = subparsers.add_parser(
+        "compare", help="Compare phase quality and timing in two runs."
+    )
+    compare.add_argument("base", type=Path)
+    compare.add_argument("head", type=Path)
+    compare.set_defaults(func=command_compare)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if len(argv) == 2 and argv[0] == "_run-case":
+        return command_worker(argparse.Namespace(spec=Path(argv[1])))
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
         return int(args.func(args))
-    except ValueError as exc:
+    except (ValueError, OSError, KeyError) as exc:
         parser.error(str(exc))
         return 2
 

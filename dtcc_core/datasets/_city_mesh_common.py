@@ -45,13 +45,17 @@ def prepare_city_from_bounds(
     flat_ground: bool = False,
     ground_level: float | None = None,
     progress: Any | None = None,
+    buildings: Sequence | None = None,
 ) -> City:
     """Prepare a meshing-ready city model from live data sources.
 
     This helper centralizes the public mesh-dataset preparation path so the
     end-user datasets and the benchmark scripts can share the same
-    bounds-to-City implementation.
+    bounds-to-City implementation. Supplied buildings bypass footprint download
+    and retain their order for a previously cleaned stage.
     """
+
+    supplied_buildings = buildings is not None
 
     def phase(name: str, message: str):
         if progress is None:
@@ -61,8 +65,9 @@ def prepare_city_from_bounds(
     with phase("download_pointcloud", "Downloading point cloud data..."):
         pointcloud = dtcc_core.io.data.download_pointcloud(bounds=bounds)
 
-    with phase("download_footprints", "Downloading building footprints..."):
-        buildings = dtcc_core.io.data.download_footprints(bounds=bounds)
+    if buildings is None:
+        with phase("download_footprints", "Downloading building footprints..."):
+            buildings = dtcc_core.io.data.download_footprints(bounds=bounds)
 
     with phase(
         "remove_outliers",
@@ -116,7 +121,8 @@ def prepare_city_from_bounds(
 
         city = City()
         city.add_terrain(raster)
-        city.add_buildings(buildings, remove_outside_terrain=True)
+        # A supplied cleaning stage indexes these buildings; retain their order.
+        city.add_buildings(buildings, remove_outside_terrain=not supplied_buildings)
 
     return city
 
