@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 class PointCloudBuilderMixin:
 
+    """Methods for building rasters from a ``PointCloud``."""
     def rasterize(
         self: "T_Pointcloud",
         cell_size: float,

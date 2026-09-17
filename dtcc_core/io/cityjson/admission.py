@@ -66,6 +66,33 @@ def _keys(value, allowed, where):
 
 
 def load_city(cj, *, extent_policy='validate'):
+    """Import a strict CityJSON 2.0 document as a City.
+
+    Only content that maps to DTCC without loss is accepted; anything else
+    raises instead of being dropped.
+
+    Parameters
+    ----------
+    cj : dict
+        Parsed CityJSON document.
+    extent_policy : {"validate", "recompute"}, optional
+        How to handle ``geographicalExtent`` values that do not match the
+        geometry. ``"validate"`` raises. ``"recompute"`` keeps the geometry
+        unchanged and records the mismatches in the city's dataset context.
+        Default is "validate".
+
+    Returns
+    -------
+    City
+        The imported city.
+
+    Raises
+    ------
+    ValueError
+        If the document is malformed or inconsistent.
+    NotImplementedError
+        If it uses CityJSON content without a strict DTCC mapping.
+    """
     if extent_policy not in ('validate', 'recompute'):
         raise ValueError('extent_policy must be validate or recompute')
     _keys(cj, {'type', 'version', 'transform', 'vertices', 'CityObjects', 'metadata'}, 'CityJSON')
@@ -218,6 +245,21 @@ def _check_extent(extent, value, scale):
 
 
 def validate_export(city):
+    """Check that a City can be written as strict CityJSON without losing data.
+
+    Parameters
+    ----------
+    city : City
+        City to check.
+
+    Raises
+    ------
+    ValueError
+        If the city or its geometry is invalid for CityJSON.
+    NotImplementedError
+        If the city uses content that has no CityJSON mapping, such as named
+        relations or geometry outside the global coordinate frame.
+    """
     exchange.validate(city)
     if type(city) is not City:
         raise ValueError('CityJSON export requires City')

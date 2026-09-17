@@ -17,6 +17,24 @@ from dataclasses import dataclass
 
 @dataclass
 class TreeType:
+    """Tree detection preset used by :func:`trees_from_pointcloud`.
+
+    Presets are looked up by name in ``tree_types``: ``"urban"``, ``"mixed"``,
+    ``"dense"`` and ``"arid"``.
+
+    Attributes
+    ----------
+    min_height : float
+        Minimum height above ground for tree canopy, in metres.
+    smoothing_sigma : float
+        Standard deviation, in raster cells, of the Gaussian filter that
+        smooths the canopy height raster. Zero disables smoothing.
+    peak_footprint : int
+        Neighbourhood size, in raster cells, for finding tree tops.
+    min_radius : float
+        Intended minimum crown radius in metres. ``find_tree_tops`` currently
+        ignores it and uses 0.6.
+    """
     min_height: float
     smoothing_sigma: float
     peak_footprint: int

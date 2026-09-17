@@ -17,6 +17,10 @@ from shapely.strtree import STRtree
 
 
 class PointCloudContainerType(Enum):
+    """Storage used by a point cloud container.
+
+    ``FILESYSTEM``, a directory of point cloud files, is the only kind.
+    """
     FILESYSTEM = auto()
 
 

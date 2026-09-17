@@ -66,6 +66,29 @@ def available_2d_meshers() -> list[str]:
 
 
 def resolve_2d_mesher(mesher: str | None = None) -> str:
+    """Resolve a mesher request to a concrete, available 2D mesher.
+
+    Parameters
+    ----------
+    mesher : {"auto", "dtcc_mesher", "triangle"}, optional
+        Requested mesher, case-insensitive. ``None`` uses the default set with
+        ``set_default_2d_mesher``, otherwise the ``DTCC_2D_MESHER`` environment
+        variable, otherwise ``"auto"``. ``"auto"`` picks ``"dtcc_mesher"``
+        when available, then ``"triangle"``.
+
+    Returns
+    -------
+    str
+        ``"dtcc_mesher"`` or ``"triangle"``.
+
+    Raises
+    ------
+    ValueError
+        If the name is not a supported mesher.
+    RuntimeError
+        If the requested mesher is not available, or no mesher is available
+        for ``"auto"``.
+    """
     requested = mesher
     if requested is None:
         requested = _default_2d_mesher_override or os.getenv(

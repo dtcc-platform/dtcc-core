@@ -123,6 +123,18 @@ def fetch_vasttrafik_vehicles(
 
 
 def bounds_overlap_vasttrafik(bounds_wgs84: tuple[float, float, float, float]) -> bool:
+    """Check whether bounds overlap the Vasttrafik service area.
+
+    Parameters
+    ----------
+    bounds_wgs84 : tuple[float, float, float, float]
+        Bounds in WGS84 as ``(min_lon, min_lat, max_lon, max_lat)``.
+
+    Returns
+    -------
+    bool
+        True if the bounds overlap the coarse Vasttrafik service area.
+    """
     return not (
         bounds_wgs84[2] < VASTTRAFIK_BBOX[0]
         or VASTTRAFIK_BBOX[2] < bounds_wgs84[0]

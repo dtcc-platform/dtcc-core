@@ -324,6 +324,26 @@ def orient_closed_triangle_plc(
     shell_faces: np.ndarray,
     boundary_facets: Sequence[Sequence[int]],
 ) -> tuple[np.ndarray, list[list[int]]]:
+    """Orient a closed triangle PLC so its faces point outwards.
+
+    Boundary facets are first wound consistently with the shell faces. If the
+    combined surface then encloses a negative signed volume, every face is
+    flipped.
+
+    Parameters
+    ----------
+    vertices : np.ndarray
+        PLC vertex coordinates.
+    shell_faces : np.ndarray
+        Triangle faces of the terrain and building shell.
+    boundary_facets : sequence of sequence of int
+        Triangle facets closing the domain.
+
+    Returns
+    -------
+    tuple[np.ndarray, list[list[int]]]
+        Oriented shell faces and boundary facets.
+    """
     shell_faces = np.asarray(shell_faces, dtype=np.int64)
     oriented_boundary_facets = _orient_boundary_triangle_facets_to_shell(
         shell_faces,
@@ -347,6 +367,32 @@ def orient_closed_triangle_plc(
 
 @dataclass
 class TetgenPLCDiagnostics:
+    """Checks of a TetGen piecewise linear complex (PLC) before meshing.
+
+    Produced by :func:`inspect_tetgen_plc`. ``ok`` is True when there are no
+    errors.
+
+    Attributes
+    ----------
+    num_vertices, num_faces, num_boundary_facets : int
+        Size of the PLC.
+    min_edge_length, median_edge_length : float
+        Edge length statistics.
+    min_face_area, median_face_area : float
+        Face area statistics.
+    min_triangle_quality, max_triangle_aspect_ratio : float
+        Worst triangle shape measures.
+    degenerate_face_count, duplicate_face_count : int
+        Degenerate faces and faces that repeat another face.
+    nonmanifold_edge_count, open_edge_count : int
+        Edges shared by more than two faces, and edges used by only one face.
+    boundary_facets : dict[str, dict[str, float | int | bool | str]]
+        Per-facet summaries of the boundary facets.
+    errors : list[str]
+        Problems that stop the PLC from being meshed.
+    warnings : list[str]
+        Problems that do not stop meshing.
+    """
     num_vertices: int
     num_faces: int
     num_boundary_facets: int
@@ -371,6 +417,25 @@ class TetgenPLCDiagnostics:
 
 @dataclass
 class TetgenPLC:
+    """A TetGen piecewise linear complex (PLC) with its diagnostics.
+
+    Attributes
+    ----------
+    vertices : np.ndarray
+        Vertex coordinates.
+    shell_faces : np.ndarray
+        Outward-oriented triangles of the terrain and building shell.
+    boundary_facets : list[list[int]]
+        Outward-oriented triangles closing the domain: top cap and side walls.
+    boundary_facet_markers : list[int]
+        Marker for each boundary facet: ``-2`` top, ``-3`` west, ``-4`` east,
+        ``-5`` south, ``-6`` north.
+    audit_boundary_triangles : np.ndarray
+        Boundary facets as a triangle array, for auditing and orientation
+        checks.
+    diagnostics : TetgenPLCDiagnostics
+        Checks run on the PLC.
+    """
     vertices: np.ndarray
     shell_faces: np.ndarray
     boundary_facets: list[list[int]]
@@ -655,6 +720,19 @@ def inspect_tetgen_plc(
 
 
 def format_tetgen_plc_diagnostics(diagnostics: TetgenPLCDiagnostics) -> str:
+    """Format PLC diagnostics as a one-line summary for logging.
+
+    Parameters
+    ----------
+    diagnostics : TetgenPLCDiagnostics
+        Diagnostics to summarise.
+
+    Returns
+    -------
+    str
+        Vertex and face counts, edge, area and triangle quality statistics, and
+        non-manifold and open edge counts.
+    """
     return (
         "TetGen PLC precheck: "
         f"{diagnostics.num_vertices} vertices, "
@@ -1274,6 +1352,35 @@ def compute_oriented_boundary_triangle_plc(
     top_cap_max_mesh_size: float | None = None,
     top_cap_min_mesh_angle: float = 25.0,
 ) -> tuple[np.ndarray, np.ndarray, list[list[int]]]:
+    """Build an outward-oriented, fully triangulated PLC closure for TetGen.
+
+    Like :func:`compute_boundary_triangle_facets`, but also orients the shell
+    faces and boundary facets outwards with :func:`orient_closed_triangle_plc`.
+
+    Parameters
+    ----------
+    mesh : Mesh
+        Terrain and building surface mesh forming the shell.
+    closure_mesh : Mesh
+        Closure mesh passed on to :func:`compute_boundary_triangle_facets`.
+    top_height : float, optional
+        Height of the domain top above the lowest mesh vertex. When it is not
+        taller than the mesh, 1.5 times the mesh height is used. Default is
+        100.0.
+    tol : float, optional
+        Geometric tolerance. Default is 1e-3.
+    top_cap_backend : str, optional
+        2D mesher for the top cap. Default is "auto".
+    top_cap_max_mesh_size : float, optional
+        Maximum triangle size of the top cap. ``None`` leaves it unconstrained.
+    top_cap_min_mesh_angle : float, optional
+        Minimum triangle angle of the top cap in degrees. Default is 25.0.
+
+    Returns
+    -------
+    tuple[np.ndarray, np.ndarray, list[list[int]]]
+        Vertices, oriented shell faces and oriented boundary facets.
+    """
     vertices_out, boundary_facets, _boundary_facet_markers = (
         _compute_boundary_triangle_facets_with_markers(
             mesh,
@@ -1352,6 +1459,35 @@ def build_tetgen_plc(
     top_cap_max_mesh_size: float | None = None,
     top_cap_min_mesh_angle: float = 25.0,
 ) -> TetgenPLC:
+    """Build the PLC that TetGen meshes, with quality checks.
+
+    Combines :func:`compute_oriented_boundary_plc` with
+    :func:`inspect_tetgen_plc`.
+
+    Parameters
+    ----------
+    mesh : Mesh
+        Terrain and building surface mesh forming the shell.
+    closure_mesh : Mesh
+        Closure mesh passed on to :func:`compute_boundary_triangle_facets`.
+    top_height : float, optional
+        Height of the domain top above the lowest mesh vertex. When it is not
+        taller than the mesh, 1.5 times the mesh height is used. Default is
+        100.0.
+    tol : float, optional
+        Geometric tolerance. Default is 1e-3.
+    top_cap_backend : str, optional
+        2D mesher for the top cap. Default is "auto".
+    top_cap_max_mesh_size : float, optional
+        Maximum triangle size of the top cap. ``None`` leaves it unconstrained.
+    top_cap_min_mesh_angle : float, optional
+        Minimum triangle angle of the top cap in degrees. Default is 25.0.
+
+    Returns
+    -------
+    TetgenPLC
+        Oriented PLC with boundary facet markers and diagnostics.
+    """
     (
         vertices_out,
         shell_faces,

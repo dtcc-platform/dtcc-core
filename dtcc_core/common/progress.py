@@ -81,6 +81,19 @@ def get_progress_callback() -> Optional[Callable[[dict], None]]:
 
 
 class ProgressMode(Enum):
+    """How a progress tracker reports progress.
+
+    Attributes
+    ----------
+    TERMINAL
+        Human-readable terminal output.
+    JSON
+        Machine-readable JSON lines.
+    SILENT
+        No output, for nested trackers.
+    CALLBACK
+        Progress passed to a custom callback function.
+    """
     TERMINAL = auto()  # Human-readable terminal output
     JSON = auto()       # Machine-readable JSON lines
     SILENT = auto()     # No output (for nested trackers)
