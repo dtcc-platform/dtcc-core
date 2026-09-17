@@ -80,18 +80,20 @@ def tree_raster_from_pointcloud(
     buildings : list[Building], optional
         If a list of buildings is provided, points within building footprints will be excluded
         from the tree rasterization.
+    tree_type : {"urban", "mixed", "dense", "arid"}, optional
+        Detection preset. It sets the minimum tree height and the standard
+        deviation of the Gaussian filter that smooths the raster. Default is
+        "urban".
     cell_size : float, optional
-        The size of each raster cell in the output raster. Default is 0.5.
-    shortest_tree : float, optional
-        The minimum tree height to include in the raster. Values below this will be set
-        to 0. Default is 2.0.
+        Cell size of the terrain raster built when ``terrain_raster`` is
+        omitted. The tree raster uses the terrain raster's cell size.
+        Default is 0.5.
     smallest_cluster : float, optional
-        The minimum size of tree clusters to retain (in pixels). Smaller clusters will be removed.
+        Smallest tree cluster to keep, as an area in square coordinate units.
+        Smaller clusters are removed. Default is 4.
     fill_hole_size : float, optional
-        The maximum size of holes to fill in the raster (in pixels). Default is 100.
-    sigma : float, optional
-        The standard deviation for the Gaussian filter applied to smooth the raster.
-        Default is 1.0.
+        Largest hole to fill, as an area in square coordinate units.
+        Default is 2.
 
     Returns
     -------

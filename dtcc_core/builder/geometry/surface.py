@@ -14,12 +14,19 @@ def mesh(s: Surface, triangle_size=None, clean=False, mesher: str | None = None)
     """
     Mesh a `Surface` object into a `Mesh` object.
 
-    Args:
-        triangle_size (float): The maximum size of the triangles in the mesh (default None, no max size).
-        weld (bool): Whether to weld the vertices of the mesh (default False).
+    Parameters
+    ----------
+    triangle_size : float, optional
+        Maximum triangle size. ``None`` leaves it unconstrained.
+    clean : bool, optional
+        Clean the surface before meshing. Default is False.
+    mesher : {"auto", "dtcc_mesher", "triangle"}, optional
+        2D meshing backend. ``None`` uses the default mesher.
 
-    Returns:
-        Mesh: A `Mesh` object representing the meshed `Surface`.
+    Returns
+    -------
+    Mesh
+        A `Mesh` object representing the meshed `Surface`.
     """
 
     return mesh_surface(s, triangle_size, clean, mesher=mesher)

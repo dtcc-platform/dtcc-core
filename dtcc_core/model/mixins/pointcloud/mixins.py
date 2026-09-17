@@ -27,14 +27,26 @@ class PointCloudBuilderMixin:
         """
         Rasterize the point cloud into a raster.
 
-        Args:
-            bounds (Bounds): The bounds to rasterize within.
-            cell_size (float): The size of the cells in the raster.
-            raster_type (str): The type of raster to create (e.g., 'elevation').
-            smoothing (int): The number of smoothing iterations to apply.
+        Parameters
+        ----------
+        cell_size : float
+            Size of the raster cells in coordinate units.
+        bounds : Bounds, optional
+            Bounds of the raster area. Defaults to the point cloud bounds.
+        window_size : int, optional
+            Interpolation window size. Default is 3.
+        radius : float, optional
+            Search radius for interpolation. Default is 0.
+        ground_only : bool, optional
+            Use only ground and water points (classes 2 and 9) when the point
+            cloud has ground points. Default is True.
+        fill_holes : bool, optional
+            Fill holes in the resulting raster. Default is True.
 
-        Returns:
-            Raster: The resulting raster object.
+        Returns
+        -------
+        Raster
+            Rasterized representation of the point cloud.
         """
         from dtcc_core.builder.pointcloud.convert import rasterize
 

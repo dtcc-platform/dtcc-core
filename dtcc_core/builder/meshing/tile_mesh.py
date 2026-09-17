@@ -12,14 +12,20 @@ def tile_surface_mesh(
     """
     Tile a surface mesh into smaller meshes of a specified size.
 
-    Args:
-        mesh (Mesh): The input surface mesh to be tiled.
-        tile_size (float|tuple): The size of each tile (in the same units as the mesh coordinates). if a single float
-        is provided, it will be used for both width and height.
-        bounds (Bounds): Optional bounds to limit the tiling area.
+    Parameters
+    ----------
+    mesh : Mesh
+        The input surface mesh to be tiled.
+    tile_size : float or tuple[float, float], optional
+        Size of each tile, in the units of the mesh coordinates. A single
+        float is used for both width and height. Default is 100.0.
+    progress : bool, optional
+        Show a progress bar. Default is False.
 
-    Returns:
-        list[Mesh]: A list of tiled mesh objects.
+    Returns
+    -------
+    list[Mesh]
+        A list of tiled mesh objects.
     """
     from dtcc_core.builder.meshing import SurfaceMeshClipper
 

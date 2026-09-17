@@ -120,11 +120,15 @@ class SurfaceMeshClipper:
         """
         Clip the mesh to a single bounding box.
 
-        Args:
-            bbox: Tuple of (xmin, ymin, xmax, ymax)
+        Parameters
+        ----------
+        bounds : Bounds
+            Bounds to clip the mesh to.
 
-        Returns:
-            New Mesh clipped to bbox
+        Returns
+        -------
+        Mesh
+            New mesh clipped to the bounds.
         """
 
         bbox = bounds.tuple
