@@ -19,6 +19,7 @@ from dtcc_core.builder.logging import warning, info
 
 from .backends import resolve_2d_mesher
 from .dtcc_mesher_backend import mesh_surface_with_dtcc_mesher
+from .orientation import orient_faces_consistently
 
 
 def _mesh_surface_with_builder(
@@ -99,7 +100,9 @@ def mesh_multisurface(
         meshes = [mesh for mesh in meshes if len(mesh.faces) > 0]
         if not meshes:
             return Mesh()
-        return merge_meshes(meshes, weld=weld, snap=snap)
+        # Surfaces are meshed one by one, so the assembled solid needs a
+        # single consistent winding before it reaches an exporter.
+        return orient_faces_consistently(merge_meshes(meshes, weld=weld, snap=snap))
 
     builder_ms = create_builder_multisurface(ms)
     min_mesh_angle = 20.7
@@ -109,7 +112,7 @@ def mesh_multisurface(
         builder_ms, triangle_size, min_mesh_angle, weld, snap, active_mesher
     )
     mesh = builder_mesh_to_mesh(builder_mesh)
-    return mesh
+    return orient_faces_consistently(mesh)
 
 
 def _mesh_surface_collection(ms, triangle_size, weld, snap, clean, mesher):
