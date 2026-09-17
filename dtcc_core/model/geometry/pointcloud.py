@@ -148,18 +148,18 @@ class PointCloud(PointCloudBuilderMixin, PointcloudFilterMixin, Geometry):
         else:
             self.points = np.concatenate((self.points, other.points))
 
-        if len(other.classification) == len(other.points):
-            self.classification = np.concatenate(
-                (self.classification, other.classification)
-            )
-        if len(other.intensity) == len(other.points):
-            self.intensity = np.concatenate((self.intensity, other.intensity))
-        if len(other.return_number) == len(other.points):
-            self.return_number = np.concatenate(
-                (self.return_number, other.return_number)
-            )
-        if len(other.num_returns) == len(other.points):
-            self.num_returns = np.concatenate((self.num_returns, other.num_returns))
+        for name in ("classification", "intensity", "return_number", "num_returns"):
+            incoming = getattr(other, name)
+            if len(incoming) == len(other.points):
+                current = getattr(self, name)
+                # Empty defaults are float arrays; do not promote LAS integer
+                # attributes when the first populated array is merged.
+                merged = (
+                    incoming.copy()
+                    if len(current) == 0
+                    else np.concatenate((current, incoming))
+                )
+                setattr(self, name, merged)
         self.calculate_bounds()
         return self
 

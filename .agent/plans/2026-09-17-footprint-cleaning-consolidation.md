@@ -43,6 +43,9 @@ Save prepared city inputs when acquired so reruns can use the same data.
 
 ## Later checkpoints
 
+- [ ] Complete the geometric definitions in
+      `docs/design/footprint-cleaning-contract.md` before changing cleaning
+      algorithms: admissibility at a declared scale and bounded alteration.
 - [x] Audit implementation, public workflow, spring history, active and obsolete
       test/benchmark drivers. Record in `docs/design/footprint-cleaning-review.md`.
 - [ ] Establish a compact fixed-input baseline using existing regression
@@ -164,6 +167,25 @@ Benchmark milestone (17 September 2026):
 - Each combined dataset task still cleans independently. Use cleaning-only
   then meshing-only to compare meshes against exactly one cleaned input. Old
   runs without saved handoffs cannot serve as meshing-only inputs.
+
+Follow-up classification fix (17 September 2026): the ten surface failures in
+`benchmarks/runs/2026-09-17_100049_quick` came from `PointCloud.merge()` promoting
+LAS integer attributes to float when concatenating with empty default arrays.
+The pre-refactor benchmark worker and preparation helper reproduced the error
+on cached Lund input. Merge now copies the first populated attribute array,
+preserving its dtype; terrain validation remains unchanged. The loading-to-terrain
+regression failed before the fix, and all 27 focused point-cloud/terrain tests
+passed afterward. Replaying all ten surface cases from saved cleaned footprints
+passed with zero benchmark warnings/failures. Evidence:
+`/private/tmp/dtcc-surface-classification-fix-20260917/summary.md`.
+
+Saved-result plotting (17 September 2026): `bench plot` writes raw/cleaned/change
+panels and optionally opens linked interactive views with `--show`. The Lund
+surface task from the user's quick run was rendered and visually checked.
+Benchmark and focused plotting checks passed: 23 tests, 170 deselected.
+The contract discussion now has a dedicated working draft in
+`docs/design/footprint-cleaning-contract.md`; its unresolved definitions must be
+settled before it introduces new acceptance thresholds.
 
 ## Independent-agent handoff
 
