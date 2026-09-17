@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import json
 import os
 import platform
+import shlex
 import signal
 import subprocess
 import sys
@@ -933,6 +934,11 @@ def _execute_tasks(tasks, args):
     _print_run_tables(results)
     print(f"Total time: {_format_duration(manifest['elapsed_seconds'])}")
     print(f"Run directory: {run_dir}")
+    if any(result.get("artifacts", {}).get("cleaning_input") for result in results):
+        plot_command = shlex.join(
+            [sys.executable, str(Path(__file__).resolve()), "plot", str(run_dir)]
+        )
+        print(f"Generate footprint comparison plots with:\n  {plot_command}")
     return 0 if all(not _is_hard_failure(result["status"]) for result in results) else 1
 
 
@@ -944,6 +950,68 @@ def command_report(args: argparse.Namespace) -> int:
     results = payload.get("results", [])
     manifest = payload.get("manifest", {})
     print(_summary_markdown(results, manifest))
+    return 0
+
+
+def command_plot(args: argparse.Namespace) -> int:
+    from benchmarks.benchmark_phases import load_cleaning
+    from dtcc_core.builder.cleaning.plotting import plot_footprint_cleaning_comparison
+    from dtcc_core.model import GeometryType
+    import matplotlib
+
+    if not args.show:
+        matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    payload = json.loads((args.run_dir / "results.json").read_text())
+    selected = [
+        result
+        for result in payload["results"]
+        if (args.city is None or result["case"]["city"] == args.city)
+        and (args.dataset is None or result["dataset"] == args.dataset)
+        and (args.task is None or result["task_id"] == args.task)
+    ]
+    if not selected:
+        raise ValueError("No saved tasks match the plot selection")
+    output = args.output or args.run_dir / "plots"
+    count = 0
+    for result in selected:
+        path = _saved_artifact(args.run_dir, result, "cleaning_input")
+        if path is None:
+            print(f"Skipping {result['task_id']}: no saved cleaning result")
+            continue
+        city, conditioned = load_cleaning(path, result)
+        raw = [
+            polygon
+            for building in city.buildings
+            if (geometry := building.flatten_geometry(GeometryType.LOD0)) is not None
+            if (polygon := geometry.to_polygon(simplify=0.0)) is not None
+            and not polygon.is_empty
+        ]
+        cleaned = [surface.to_polygon(simplify=0.0) for surface in conditioned.surfaces]
+        fig, _ = plot_footprint_cleaning_comparison(
+            raw,
+            cleaned,
+            title=(
+                f"{result['case']['label']} · {result['dataset']} · "
+                f"{result['scenario']['id']} · EPSG:3006"
+            ),
+            cleaned_title="Cleaned footprints",
+            show=False,
+            show_changes=True,
+        )
+        try:
+            output.mkdir(parents=True, exist_ok=True)
+            destination = output / (_safe_task_id(result["task_id"]) + ".png")
+            fig.savefig(destination, dpi=180)
+            print(destination.resolve())
+            count += 1
+            if args.show:
+                plt.show()
+        finally:
+            plt.close(fig)
+    if not count:
+        raise ValueError("Selected tasks have no saved cleaning results to plot")
     return 0
 
 
@@ -1167,6 +1235,22 @@ def build_parser() -> argparse.ArgumentParser:
     report = subparsers.add_parser("report", help="Show a saved report.")
     report.add_argument("run_dir", type=Path)
     report.set_defaults(func=command_report)
+    plot = subparsers.add_parser(
+        "plot", help="Plot saved raw/cleaned footprints and coverage changes."
+    )
+    plot.add_argument("run_dir", type=Path)
+    plot.add_argument("--city", choices=tuple(CITIES), help="Only this city.")
+    plot.add_argument("--dataset", choices=DATASET_NAMES, help="Only this dataset.")
+    plot.add_argument("--task", help="Exact task ID for one plot.")
+    plot.add_argument(
+        "--output", type=Path, help="Image directory (default: <run>/plots)."
+    )
+    plot.add_argument(
+        "--show",
+        action="store_true",
+        help="Also open interactive plots, one at a time.",
+    )
+    plot.set_defaults(func=command_plot)
     compare = subparsers.add_parser(
         "compare", help="Compare phase quality and timing in two runs."
     )

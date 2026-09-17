@@ -231,6 +231,26 @@ def test_cli_saved_run_replay_report_compare_and_no_overwrite(cleaning_run):
     assert json.loads(rerun.stdout)["task_count"] == 1
 
 
+def test_cli_plots_saved_cleaning_and_rejects_empty_selection(cleaning_run):
+    pytest.importorskip("matplotlib")
+    directory, task, result = cleaning_run
+    path = Path(result["artifacts"]["cleaning_input"]["path"])
+    original = path.read_bytes()
+    completed = cli("plot", directory, "--city", "lund")
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    images = list((directory / "plots").glob("*.png"))
+    assert len(images) == 1
+    import matplotlib.image as mpimg
+
+    image = mpimg.imread(images[0])
+    assert image.shape[1] > image.shape[0] * 2
+    assert image.std() > 0.01
+    assert path.read_bytes() == original
+    missing = cli("plot", directory, "--city", "stockholm")
+    assert missing.returncode == 2
+    assert "No saved tasks match" in missing.stderr
+
+
 @pytest.mark.parametrize("corruption", ["crs", "sources", "bounds"])
 def test_corrupt_cleaning_artifact_fails_clearly(cleaning_run, corruption):
     _, task, result = cleaning_run

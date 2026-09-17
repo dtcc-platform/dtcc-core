@@ -138,6 +138,24 @@ success counts; a zero exit code does not mean every mesh is acceptable.
 
 ## Review, compare and rerun
 
+Plot saved footprints without downloading data or rerunning either phase:
+
+```sh
+.venv/bin/python benchmarks/bench plot /tmp/lund-clean --city lund
+.venv/bin/python benchmarks/bench plot /tmp/lund-mesh --city lund --dataset city_surface_mesh --show
+```
+
+Each selected task produces a PNG under `<run>/plots/`: raw footprints, cleaned
+footprints, and an overlay showing added coverage in green and removed coverage
+in red. All panels have matching extents. The difference panel uses the same
+`make_valid` interpretation of invalid raw polygons as the area measurements.
+`--show` also opens each figure interactively with linked pan/zoom; close it to
+advance. By default the command only saves images, including on headless systems.
+Use `--task <exact-id>` to inspect one survey tile/scenario, or `--output <dir>`
+to choose the image directory. Repeating the command replaces those generated
+PNGs. Tasks with no saved cleaning result are skipped; an empty selection fails
+clearly. A combined flat/surface run has one image per dataset task.
+
 ```sh
 .venv/bin/python benchmarks/bench report /tmp/lund-mesh
 .venv/bin/python benchmarks/bench compare /tmp/before /tmp/after
