@@ -151,6 +151,7 @@ class MeshProcessingMixin:
 
 
 class VolumeMeshProcessingMixin:
+    """Quality metrics and C++ conversion methods for ``VolumeMesh``."""
     def quality(self: "T_VolumeMesh") -> dict:
         """Compute mesh quality metrics.
 

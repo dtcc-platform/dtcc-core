@@ -427,6 +427,33 @@ def build_publish_idempotency_key(
     files: Sequence[str | Path],
     manifest: Mapping[str, Any],
 ) -> str:
+    """Build the idempotency key used when uploading a dataset package.
+
+    The package is validated first. The key combines the dataset key with
+    SHA-256 checksums of the manifest and the file set, so uploading the same
+    package again gives the same key.
+
+    Parameters
+    ----------
+    dataset_key : str
+        Key of the dataset to publish to.
+    manifest_path : str or Path
+        Path of the package manifest.
+    files : sequence of str or Path
+        Files in the package.
+    manifest : Mapping[str, Any]
+        Parsed manifest.
+
+    Returns
+    -------
+    str
+        Idempotency key, prefixed with the package format version.
+
+    Raises
+    ------
+    DatasetPackageError
+        If the package fails validation.
+    """
     package = _validate_upload_package(
         manifest_path,
         files,

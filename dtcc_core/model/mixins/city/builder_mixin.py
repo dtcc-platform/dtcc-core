@@ -20,6 +20,11 @@ if TYPE_CHECKING:
 
 
 class CityBuilderMixin:
+    """Methods for building city geometry, mixed into ``City``.
+
+    Covers terrain, LOD1 and LOD2 buildings, flat, surface and volume meshes,
+    and trees from the point cloud.
+    """
     def build_terrain(
         self: "T_City",
         pc: PointCloud = None,

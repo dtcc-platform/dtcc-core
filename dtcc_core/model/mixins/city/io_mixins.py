@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 
 
 class CityLoaderMixin:
+    """Methods for loading footprints, point clouds and terrain into a City."""
     def load_footprints(
         self: "City", path: Union[str, Path], user_city_bounds=False
     ) -> "City":
@@ -126,6 +127,7 @@ def _get_download_bounds(city_bounds, user_bounds):
 
 
 class CityDownloadMixin:
+    """Methods for downloading footprints and point clouds into a City."""
     def download_footprints(
         self: "City",
         bounds: Union[Bounds, None] = None,
@@ -196,6 +198,7 @@ class CityDownloadMixin:
 
 
 class CitySaveMixin:
+    """Methods for saving a City, its footprints, point cloud and trees."""
     def save_building_footprints(self: "City", path: Union[str, Path]):
         """
         Save city buildings as 2D footprints to a shapefile, geojson or geopackage.

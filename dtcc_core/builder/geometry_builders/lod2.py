@@ -221,6 +221,17 @@ REJECTION_REASONS = (
 
 
 class RoofPlane:
+    """A roof plane ``z = a * x + b * y + c`` fitted to roof points.
+
+    Parameters
+    ----------
+    a, b : float
+        Slopes of the plane in the x and y directions.
+    c : float
+        Height of the plane at ``x = y = 0``.
+    inliers : np.ndarray
+        Indices of the roof points that lie on the plane.
+    """
     def __init__(self, a: float, b: float, c: float, inliers: np.ndarray):
         self.a = float(a)
         self.b = float(b)
@@ -242,6 +253,19 @@ class RoofPlane:
 
 @dataclass(frozen=True)
 class FootprintDecomposition:
+    """An irregular building footprint split into simpler pieces.
+
+    Attributes
+    ----------
+    pieces : list[Polygon]
+        Footprint pieces.
+    slice_lines : list[LineString]
+        Lines along which the footprint was cut.
+    family_reason : str
+        Code for the footprint shape family that selected the decomposition.
+    concave_vertex_count : int
+        Number of concave corners in the original footprint.
+    """
     pieces: list[Polygon]
     slice_lines: list[LineString]
     family_reason: str
@@ -250,12 +274,30 @@ class FootprintDecomposition:
 
 @dataclass(frozen=True)
 class SteppedFlatLevel:
+    """One flat level of a stepped flat roof.
+
+    Attributes
+    ----------
+    plane : RoofPlane
+        Plane fitted to the level.
+    point_indices : np.ndarray
+        Indices of the roof points assigned to the level.
+    """
     plane: RoofPlane
     point_indices: np.ndarray
 
 
 @dataclass(frozen=True)
 class AssignedSteppedFlatRegion:
+    """Part of a footprint assigned to one level of a stepped flat roof.
+
+    Attributes
+    ----------
+    polygon : Polygon
+        Footprint region.
+    level_index : int
+        Index of the ``SteppedFlatLevel`` the region belongs to.
+    """
     polygon: Polygon
     level_index: int
 
@@ -2617,6 +2659,25 @@ def _edge_counts(multisurface: MultiSurface, tolerance: float = EDGE_TOLERANCE) 
 
 
 def is_watertight(multisurface: MultiSurface, tolerance: float = EDGE_TOLERANCE) -> bool:
+    """Check whether a multisurface forms a closed shell.
+
+    A shell is closed when every edge is shared by exactly two surfaces. Vertex
+    coordinates are rounded to multiples of ``tolerance`` before edges are
+    compared.
+
+    Parameters
+    ----------
+    multisurface : MultiSurface
+        Surfaces to check.
+    tolerance : float, optional
+        Distance used to match vertices. Default is 1e-3.
+
+    Returns
+    -------
+    bool
+        True if the surfaces form a closed shell. False for anything that is
+        not a non-empty MultiSurface.
+    """
     if not isinstance(multisurface, MultiSurface) or len(multisurface.surfaces) == 0:
         return False
     counts = _edge_counts(multisurface, tolerance)

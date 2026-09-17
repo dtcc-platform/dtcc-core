@@ -37,6 +37,28 @@ def validate_region_owner(regions, feature_type):
 
 
 def read_regions(semantics, count):
+    """Read CityJSON surface semantics as DTCC semantic regions.
+
+    Parameters
+    ----------
+    semantics : dict
+        CityJSON ``semantics`` object with ``surfaces`` and ``values``.
+    count : int
+        Number of surfaces in the geometry. ``values`` must have one entry per
+        surface.
+
+    Returns
+    -------
+    list
+        One semantic region per CityJSON semantic surface, listing the indices
+        of the geometry surfaces it applies to.
+
+    Raises
+    ------
+    ValueError
+        If the semantics are malformed, an index is out of range, or parent and
+        child links conflict.
+    """
     if not isinstance(semantics, dict) or set(semantics) != {'surfaces', 'values'}:
         raise ValueError("CityJSON semantics requires surfaces and values")
     entities, assignments = semantics['surfaces'], semantics['values']

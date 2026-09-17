@@ -221,12 +221,34 @@ def _parse_maxspeed_kmh(value):
 # 3) Metadata I/O
 # ------------------------------------------------------------------------
 def load_cache_metadata(meta_path=CACHE_METADATA_FILE):
+    """Load the Overpass download cache index.
+
+    Parameters
+    ----------
+    meta_path : str, optional
+        Path of the JSON index file. Defaults to the cache's metadata file.
+
+    Returns
+    -------
+    list[dict]
+        Cache records, with keys such as ``type``, ``bbox``, ``filepath`` and
+        ``layer``. Empty when the file does not exist.
+    """
     if not os.path.exists(meta_path):
         return []
     with open(meta_path, "r", encoding="utf-8") as f:
         return json.load(f)
 
 def save_cache_metadata(records, meta_path=CACHE_METADATA_FILE):
+    """Write the Overpass download cache index.
+
+    Parameters
+    ----------
+    records : list[dict]
+        Cache records to store, as returned by :func:`load_cache_metadata`.
+    meta_path : str, optional
+        Path of the JSON index file. Defaults to the cache's metadata file.
+    """
     with open(meta_path, "w", encoding="utf-8") as f:
         json.dump(records, f, indent=2)
 
