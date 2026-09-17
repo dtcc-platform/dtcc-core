@@ -57,3 +57,57 @@ def test_from_proto(pc):
 
 if __name__ == "__main__":
     pytest.main()
+
+
+def _tile(offset, classes):
+    count = len(classes)
+    tile = PointCloud()
+    tile.points = np.column_stack(
+        [np.arange(count, dtype=float) + offset, np.zeros(count), np.zeros(count)]
+    )
+    tile.classification = np.asarray(classes, dtype=np.uint8)
+    tile.intensity = np.full(count, 100, dtype=np.uint16)
+    tile.return_number = np.ones(count, dtype=np.uint8)
+    tile.num_returns = np.ones(count, dtype=np.uint8)
+    return tile
+
+
+@pytest.mark.parametrize(
+    "name", ["classification", "intensity", "return_number", "num_returns"]
+)
+def test_merge_into_empty_point_cloud_keeps_integer_attributes(name):
+    tile = _tile(0.0, [1, 2, 9])
+    merged = PointCloud()
+
+    merged.merge(tile)
+
+    values = getattr(merged, name)
+    assert values.dtype == getattr(tile, name).dtype
+    assert values.tolist() == getattr(tile, name).tolist()
+
+
+
+@pytest.mark.parametrize(
+    "name", ["classification", "intensity", "return_number", "num_returns"]
+)
+@pytest.mark.parametrize("mutate_source", [True, False])
+def test_merge_keeps_attributes_independent(name, mutate_source):
+    """Merging into an empty cloud copies attributes instead of sharing them."""
+    tile = _tile(0.0, [1, 2, 9])
+    merged = PointCloud().merge(tile)
+
+    changed, unchanged = (tile, merged) if mutate_source else (merged, tile)
+    expected = getattr(unchanged, name).copy()
+
+    getattr(changed, name)[0] = 99
+
+    np.testing.assert_array_equal(getattr(unchanged, name), expected)
+
+def test_merging_tiles_keeps_classification_integer():
+    merged = PointCloud()
+    merged.merge(_tile(0.0, [1, 2, 9]))
+    merged.merge(_tile(10.0, [2, 2, 7]))
+
+    assert merged.classification.dtype.kind == "u"
+    assert merged.classification.tolist() == [1, 2, 9, 2, 2, 7]
+    assert len(merged.classification) == len(merged.points)
