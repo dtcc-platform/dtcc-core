@@ -92,5 +92,23 @@ def test_load_pointcloud_list(las_file):
     assert len(pc.classification) == 8148 * 2
 
 
+def test_load_pointcloud_list_keeps_integer_classification(las_file):
+    """Downloads merge tiles this way; classes must stay LAS integers."""
+    pc = io.load_pointcloud([las_file, las_file])
+    assert pc.classification.dtype.kind in "iu"
+
+
+def test_terrain_raster_from_merged_tiles_uses_ground_points(las_file):
+    """The terrain demos failed here once merged classes became floats."""
+    from dtcc_core.builder import build_terrain_raster
+
+    pc = io.load_pointcloud([las_file, las_file])
+    assert 2 in pc.used_classifications()
+
+    raster = build_terrain_raster(pc, cell_size=2.0, ground_only=True)
+
+    assert raster.data.size > 0
+
+
 if __name__ == "__main__":
     pytest.main()
