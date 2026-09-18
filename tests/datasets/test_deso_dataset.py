@@ -56,7 +56,7 @@ def test_deso_info_uses_dataset_tables(monkeypatch):
     deso = datasets.deso(bounds=(0.0, 0.0, 2.0, 1.0))
     text = deso.info(print=False)
 
-    assert "DTCC DeSO" in text
+    assert text.startswith("DeSO\n")
     assert "Presentation" in text
     assert "Provenance" in text
 

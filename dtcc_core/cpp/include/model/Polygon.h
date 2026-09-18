@@ -30,16 +30,6 @@ public:
 
   virtual ~Polygon() {} // make the destructor virtual
 
-  /// Set new origin (subtract offset)
-  void set_origin(const Vector2D &origin)
-  {
-    for (auto &p : vertices)
-    {
-      p.x -= origin.x;
-      p.y -= origin.y;
-    }
-  }
-
   /// Pretty-print
   std::string __str__() const override
   {

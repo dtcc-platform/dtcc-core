@@ -2,15 +2,10 @@
 
 from __future__ import annotations
 
-from io import StringIO
 import json
 import textwrap
 from typing import Any
 
-from rich.console import Console
-from rich.markup import escape
-
-from dtcc_core.common.dtcc_logging import make_table
 from dtcc_core.plotting.style import DTCC_COLORS
 
 
@@ -27,45 +22,13 @@ PREVIEW_COLOR_RAMP_AXES_BOUNDS = (0.085, 0.105, 0.31, 0.028)
 
 def format_dataset_context(context, obj: Any | None = None) -> str:
     """Return a readable metadata and presentation summary for a Dataset v2 object."""
-    console = Console(
-        file=StringIO(),
-        record=True,
-        width=120,
-        color_system=None,
-        force_terminal=False,
-        soft_wrap=False,
-    )
+    from dtcc_core.common._display import format_info
 
-    console.print("Metadata", style="bold")
-    console.print(
-        make_table(
-            [("Field", "left"), ("Value", "left")],
-            _metadata_rows(context, obj),
-            overflow="fold",
-        )
-    )
-
-    console.print()
-    console.print("Presentation", style="bold")
-    console.print(
-        make_table(
-            [("Field", "left"), ("Value", "left")],
-            _presentation_rows(context),
-            overflow="fold",
-        )
-    )
-
-    console.print()
-    console.print("Provenance", style="bold")
-    console.print(
-        make_table(
-            [("Field", "left"), ("Value", "left")],
-            _provenance_rows(context),
-            overflow="fold",
-        )
-    )
-
-    return console.export_text(styles=False).rstrip()
+    return format_info("", [
+        ("Metadata", ("Field", "Value"), _metadata_rows(context, obj)),
+        ("Presentation", ("Field", "Value"), _presentation_rows(context)),
+        ("Provenance", ("Field", "Value"), _provenance_rows(context)),
+    ]).lstrip()
 
 
 def plot_product_with_presentation(
@@ -901,7 +864,7 @@ def _metadata_rows(context, obj: Any | None) -> list[tuple[str, str]]:
             _value(_resource_links(metadata.source, provenance.sources)),
         ),
     ]
-    return [(escape(label), escape(value)) for label, value in rows]
+    return rows
 
 
 def _presentation_rows(context) -> list[tuple[str, str]]:
@@ -917,7 +880,7 @@ def _presentation_rows(context) -> list[tuple[str, str]]:
         ("Warnings", _value(presentation.warnings)),
         ("Limitations", _value(presentation.limitations)),
     ]
-    return [(escape(label), escape(value)) for label, value in rows]
+    return rows
 
 
 def _provenance_rows(context) -> list[tuple[str, str]]:
@@ -929,7 +892,7 @@ def _provenance_rows(context) -> list[tuple[str, str]]:
         ("Generated at", _value(provenance.generated_at)),
         ("Derived from", _value(provenance.derived_from)),
     ]
-    return [(escape(label), escape(value)) for label, value in rows]
+    return rows
 
 
 def _field_names(obj: Any | None) -> list[str]:

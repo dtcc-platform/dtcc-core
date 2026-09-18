@@ -1,18 +1,14 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, version
-from io import StringIO
 import json
 from pathlib import Path
 import tempfile
 from typing import Any, Optional, Sequence, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from rich.console import Console
-from rich.markup import escape
 
 import dtcc_core
-from dtcc_core.common.dtcc_logging import make_table
 from dtcc_core.model import Bounds
 from dtcc_core.model import Object as DTCCObject
 from dtcc_core.model import Geometry as DTCCGeometry
@@ -849,64 +845,38 @@ class DatasetDescriptor(ABC):
                 idempotency_key=idempotency_key,
             )
 
+    def __repr__(self):
+        from dtcc_core.common._display import format_repr
+
+        return format_repr(type(self).__name__, [("name", self.name),
+                           ("result_kind", self.result_kind),
+                           ("return_type", self.python_return_type)])
+
     def __str__(self):
-        """Return a nicely formatted summary of the dataset."""
-        console = Console(
-            file=StringIO(),
-            record=True,
-            width=120,
-            color_system=None,
-            force_terminal=False,
-            soft_wrap=False,
-        )
-        console.print(f"Dataset: {self.name}", style="bold")
+        return repr(self)
 
+    def info(self, print: bool = True) -> str | None:
+        """Print dataset description and parameter help; return text with print=False."""
+        import builtins
+        from dtcc_core.common._display import format_info
+
+        schema = self.show_options()
+        required = schema.get("required", [])
+        rows = [("*" if name in required else "", name,
+                 self._schema_type_label(param), self._schema_default_label(param, name in required),
+                 param.get("description", ""))
+                for name, param in schema.get("properties", {}).items()]
+        sections = []
         if self.description:
-            console.print()
-            console.print("Description:", style="bold")
-            console.print(self.description, markup=False)
-
-        # Get schema information from ArgsModel
-        schema = self.ArgsModel.model_json_schema()
-        properties = schema.get("properties", {})
-        required_fields = schema.get("required", [])
-
-        rows = []
-        if properties:
-            for param_name, param_info in properties.items():
-                param_type = self._schema_type_label(param_info)
-                param_desc = param_info.get("description", "")
-                is_required = param_name in required_fields
-                rows.append(
-                    (
-                        "*" if is_required else "",
-                        escape(param_name),
-                        escape(param_type),
-                        escape(self._schema_default_label(param_info, is_required)),
-                        escape(param_desc),
-                    )
-                )
-        else:
-            rows.append(("", "No parameters defined", "", "", ""))
-
-        console.print()
-        console.print("Available Parameters:", style="bold")
-        console.print(
-            make_table(
-                [
-                    ("", "center"),
-                    ("Parameter", "left"),
-                    ("Type", "left"),
-                    ("Default", "left"),
-                    ("Description", "left"),
-                ],
-                rows,
-                overflow="fold",
-            )
-        )
-        console.print("* = required parameter")
-
-        return console.export_text(styles=False).rstrip()
+            sections.append(("Description", None, self.description))
+        sections.append(("Available parameters", ("", "Parameter", "Type", "Default", "Description"),
+                         rows or [("", "No parameters defined", "", "", "")]))
+        sections.append(("", None, "* = required parameter"))
+        summary = format_info(f"Dataset: {self.name}", sections)
+        if print:
+            builtins.print(summary)
+            return None
+        return summary
 
     @staticmethod
     def _schema_type_label(param_info: dict[str, Any]) -> str:

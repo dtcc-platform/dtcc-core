@@ -13,7 +13,7 @@ from .surface import Surface, MultiSurface
 from ..mixins.mesh.mixins import MeshProcessingMixin, VolumeMeshProcessingMixin
 
 
-@dataclass
+@dataclass(repr=False)
 class Mesh(MeshProcessingMixin, Geometry):
     """Represents an unstructured triangular mesh in 3D.
 
@@ -36,16 +36,11 @@ class Mesh(MeshProcessingMixin, Geometry):
     markers: np.ndarray = field(default_factory=lambda: np.empty(0))
     normals: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.float64))
 
-    def __str__(self):
-        """Return a string representation of the DTCC Mesh
-
-        Returns
-        -------
-        str
-            A string describing the Mesh object.
-
-        """
-        return f"DTCC Mesh with {len(self.vertices)} vertices and {len(self.faces)} face(s)"
+    def _summary_items(self):
+        return [
+            ("num_vertices", len(self.vertices)),
+            ("num_faces", len(self.faces)),
+        ] + super()._summary_items()
 
     @property
     def num_vertices(self) -> int:
@@ -144,7 +139,7 @@ class Mesh(MeshProcessingMixin, Geometry):
         return multisurface
 
 
-@dataclass
+@dataclass(repr=False)
 class VolumeMesh(VolumeMeshProcessingMixin, Geometry):
     """Represents an unstructured tetrahedral mesh in 3D.
 
@@ -166,17 +161,11 @@ class VolumeMesh(VolumeMeshProcessingMixin, Geometry):
     cells: np.ndarray = field(default_factory=lambda: np.empty(0))
     markers: np.ndarray = field(default_factory=lambda: np.empty(0))
 
-    def __str__(self):
-        """Return a string representation of the DTCC VolumeMesh, containing the number of
-        vertices and cells.
-
-        Returns
-        -------
-        str
-            A string describing the VolumeMesh object.
-
-        """
-        return f"DTCC VolumeMesh with {len(self.vertices)} vertices and {len(self.cells)} cell(s)"
+    def _summary_items(self):
+        return [
+            ("num_vertices", len(self.vertices)),
+            ("num_cells", len(self.cells)),
+        ] + super()._summary_items()
 
     def calculate_bounds(self) -> Bounds:
         """Calculate the bounding box of the mesh."""

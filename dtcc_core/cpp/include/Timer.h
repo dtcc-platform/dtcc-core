@@ -6,6 +6,7 @@
 
 #include <chrono>
 #include <map>
+#include <mutex>
 #include <utility>
 
 // #include "JSON.h"
@@ -58,17 +59,11 @@ public:
     t1 = std::chrono::high_resolution_clock::now();
     running = false;
 
-    // Register timing
-    auto it = timings.find(name);
-    if (it == timings.end())
-    {
-      timings[name] = std::make_pair(time(), 1);
-    }
-    else
-    {
-      it->second.first += time();
-      it->second.second += 1;
-    }
+    // Timer instances are local to each worker; only the registry is shared.
+    std::lock_guard<std::mutex> lock(timings_mutex);
+    auto &entry = timings[name];
+    entry.first += time();
+    entry.second += 1;
   }
 
   // Return elapsed time
@@ -88,10 +83,17 @@ public:
   static void report(const std::string &title,
                      const std::string &file_name = "Timings.json")
   {
+    // Keep formatting and logging outside the registry lock.
+    decltype(timings) snapshot;
+    {
+      std::lock_guard<std::mutex> lock(timings_mutex);
+      snapshot = timings;
+    }
+
     // build table
     Table table(title);
     table.rows.push_back({"Task", "CPU mean", "CPU total", "Count"});
-    for (const auto &it : timings)
+    for (const auto &it : snapshot)
     {
       const std::string task = it.first;
       const double total = it.second.first;
@@ -109,7 +111,7 @@ public:
     info(table);
 
     // Write JSON
-    // JSON::Write(timings, file_name, 4);
+    // JSON::Write(snapshot, file_name, 4);
   }
 
 private:
@@ -126,11 +128,9 @@ private:
   std::chrono::high_resolution_clock::time_point t1{};
 
   // Array of registered timings: name --> (Total time, Count)
-  static std::map<std::string, std::pair<double, size_t>> timings;
+  inline static std::map<std::string, std::pair<double, size_t>> timings;
+  inline static std::mutex timings_mutex;
 };
-
-// Initialize static member
-std::map<std::string, std::pair<double, size_t>> Timer::timings;
 
 } // namespace DTCC_BUILDER
 
