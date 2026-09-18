@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING, TypeVar
 
 if TYPE_CHECKING:
+    from ....builder import _dtcc_builder
     from ....model.geometry import Mesh, VolumeMesh
 
     T_Mesh = TypeVar("T_Mesh", bound=Mesh)
