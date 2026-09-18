@@ -59,7 +59,12 @@ def documented_parameters(docstring):
             continue
         if set(lines[index + 1].strip()) != {"-"}:
             continue
-        base = len(line) - len(line.lstrip())
+        entries = [entry for entry in lines[index + 2:] if entry.strip()]
+        if not entries:
+            continue
+        # Take the indentation from the entries: a misindented header must not
+        # hide a parameter list from this check.
+        base = len(entries[0]) - len(entries[0].lstrip())
         for entry in lines[index + 2:]:
             if not entry.strip():
                 continue
@@ -193,6 +198,26 @@ def test_checks_detect_problems_in_sample_source():
     assert unknown_documented_parameters(sample) == [(2, "documented", ["b"])]
     assert [name for _, name in non_numpy_docstrings(sample)] == ["GoogleStyle"]
 
+
+
+def test_check_reads_parameters_under_a_misindented_header():
+    """A header indented differently from its entries must still be checked."""
+    sample = textwrap.dedent(
+        '''
+        def misindented(a):
+            """Do something.
+
+             Parameters
+            ----------
+            a : int
+                A real parameter.
+            ghost : int
+                Not a parameter.
+            """
+        '''
+    )
+
+    assert unknown_documented_parameters(sample) == [(2, "misindented", ["ghost"])]
 
 def test_private_modules_are_exempt_from_the_docstring_requirement():
     assert _is_private_module(PACKAGE / "model" / "_display.py")
