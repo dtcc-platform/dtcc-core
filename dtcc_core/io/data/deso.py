@@ -1,8 +1,9 @@
 import hashlib
 import json
 import os
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 import numpy as np
 import requests
@@ -18,6 +19,7 @@ from dtcc_core.model import (
     Object,
     Surface,
 )
+
 from .cache import cache_dir
 from .logging import info, warning
 

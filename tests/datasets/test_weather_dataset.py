@@ -1,20 +1,20 @@
 """Tests for the weather dataset (SMHI metobs latest-hour)."""
 
-from pathlib import Path
-import pytest
 import math
+from pathlib import Path
+from unittest.mock import Mock, patch
+
 import numpy as np
-from unittest.mock import patch, Mock
+import pytest
 
 from dtcc_core.datasets.dataset import DatasetUpstreamError
 from dtcc_core.datasets.weather import (
+    PARAMETER_NAMES,
     WeatherDataset,
     WeatherDatasetArgs,
     _parse_latest_hour_csv,
     _resolve_parameter,
-    PARAMETER_NAMES,
 )
-
 
 # ── Fixtures ─────────────────────────────────────────────────────────────
 

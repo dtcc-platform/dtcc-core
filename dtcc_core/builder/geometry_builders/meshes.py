@@ -1,8 +1,10 @@
 import json
-from pathlib import Path
 from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, List, Literal, Sequence
+from pathlib import Path
+from typing import Any, Dict, List, Literal, Optional
+
 import numpy as np
 from shapely import BufferJoinStyle
 from shapely.errors import GEOSException
@@ -18,12 +20,12 @@ from shapely.geometry.polygon import orient
 from shapely.ops import polygonize, unary_union
 
 from ...model import (
-    Mesh,
-    VolumeMesh,
     Building,
     City,
-    Surface,
     GeometryType,
+    Mesh,
+    Surface,
+    VolumeMesh,
 )
 
 _LOD_PRIORITY: dict[GeometryType, int] = {
@@ -39,15 +41,9 @@ _AUTO_MESHING_LOD_ORDER: tuple[GeometryType, ...] = (
     GeometryType.LOD0,
 )
 
-from ..model_conversion import (
-    create_builder_polygon,
-    create_builder_surface,
-    mesh_to_builder_mesh,
-    raster_to_builder_gridfield,
-)
+from dtcc_core.common.progress import report_progress
 
 from .. import _dtcc_builder
-
 from ..cleaning import (
     ConditioningOptions,
     condition_building_footprints,
@@ -55,18 +51,23 @@ from ..cleaning import (
     plot_footprint_cleaning_comparison,
 )
 from ..cleaning import footprints as cleaning_footprints
-
-from ..logging import debug, info, warning, error
+from ..logging import debug, error, info, warning
+from ..meshing import tetgen_utils
 from ..meshing.backends import resolve_2d_mesher
 from ..meshing.flat_mesh_backends import build_city_flat_mesh_from_coverage
 from ..meshing.tetgen import (
-    build_volume_mesh as tetgen_build_volume_mesh,
-    get_default_tetgen_switches,
     _require_tetgen,
+    get_default_tetgen_switches,
 )
-from ..meshing import tetgen_utils
-
-from dtcc_core.common.progress import report_progress
+from ..meshing.tetgen import (
+    build_volume_mesh as tetgen_build_volume_mesh,
+)
+from ..model_conversion import (
+    create_builder_polygon,
+    create_builder_surface,
+    mesh_to_builder_mesh,
+    raster_to_builder_gridfield,
+)
 
 try:
     import dtcc_mesher
@@ -4955,8 +4956,8 @@ def build_city_surface_mesh(
 
         if report_mesh_quality:
             from dtcc_core.model.mixins.mesh.quality import (
-                triangle_mesh_quality,
                 report_quality,
+                triangle_mesh_quality,
             )
 
             if merge_meshes:
@@ -5177,8 +5178,8 @@ def build_city_flat_mesh(
 
         if report_mesh_quality:
             from dtcc_core.model.mixins.mesh.quality import (
-                triangle_mesh_quality,
                 report_quality,
+                triangle_mesh_quality,
             )
 
             q = triangle_mesh_quality(flat_mesh.vertices, flat_mesh.faces)
@@ -5206,8 +5207,8 @@ def build_city_volume_mesh(
     merge_tolerance: float = 0.5,
     smoothing: int = 0,
     boundary_face_markers: bool = True,
-    tetgen_switches: Optional[Dict[str, Any]] = None,
-    tetgen_switch_overrides: Optional[Dict[str, Any]] = None,
+    tetgen_switches: dict[str, Any] | None = None,
+    tetgen_switch_overrides: dict[str, Any] | None = None,
     *,
     report_mesh_quality: bool = True,
     cleaning_diagnostics: bool = True,
@@ -5671,8 +5672,8 @@ def build_city_volume_mesh(
 
         if report_mesh_quality:
             from dtcc_core.model.mixins.mesh.quality import (
-                tetrahedron_mesh_quality,
                 report_quality,
+                tetrahedron_mesh_quality,
             )
 
             q = tetrahedron_mesh_quality(volume_mesh.vertices, volume_mesh.cells)

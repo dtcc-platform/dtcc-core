@@ -8,7 +8,6 @@ from typing import Any, Literal
 
 from ..dataset import DatasetUpstreamError
 
-
 TransitMode = Literal["bus", "tram", "train", "metro", "ferry"]
 SUPPORTED_TRANSIT_MODES: tuple[str, ...] = ("bus", "tram", "train", "metro", "ferry")
 

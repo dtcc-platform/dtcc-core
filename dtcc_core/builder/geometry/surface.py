@@ -1,12 +1,10 @@
-from ...model import Surface, Mesh
-
-from ..register import register_model_method
-
-from ..meshing.meshing import mesh_surface
 import numpy as np
-from ..model_conversion import create_builder_surface
 
+from ...model import Mesh, Surface
 from .. import _dtcc_builder
+from ..meshing.meshing import mesh_surface
+from ..model_conversion import create_builder_surface
+from ..register import register_model_method
 
 
 @register_model_method

@@ -3,17 +3,18 @@
 
 from dataclasses import dataclass
 from typing import Any, List
+
 import numpy as np
 
-from .object import Object
-from ..geometry import Point
-from ..values import Field
 from ...plotting.style import (
     add_plot_context,
     apply_dtcc_style,
     resolve_colormap,
     style_colorbar,
 )
+from ..geometry import Point
+from ..values import Field
+from .object import Object
 
 
 @dataclass(repr=False)
@@ -116,7 +117,7 @@ class SensorCollection(Object):
             raise TypeError("Station must be an Object instance")
         self.add_child(station)
 
-    def stations(self) -> List[Object]:
+    def stations(self) -> list[Object]:
         """Get all sensor stations (child objects).
 
         Returns

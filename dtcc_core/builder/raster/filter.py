@@ -1,7 +1,7 @@
-from ...model import Raster, PointCloud
-from ..register import register_model_method
-
 import numpy as np
+
+from ...model import PointCloud, Raster
+from ..register import register_model_method
 
 
 @register_model_method

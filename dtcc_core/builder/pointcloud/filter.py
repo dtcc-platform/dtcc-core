@@ -1,12 +1,12 @@
-import numpy as np
 from typing import List, Union
 
-from ...model import PointCloud, Bounds, Surface
-from ..logging import info, warning, error
-from ..register import register_model_method
-from ..model_conversion import create_builder_polygon
+import numpy as np
 
+from ...model import Bounds, PointCloud, Surface
 from .. import _dtcc_builder
+from ..logging import error, info, warning
+from ..model_conversion import create_builder_polygon
+from ..register import register_model_method
 
 
 def find_global_outliers(pc: PointCloud, margin: float) -> np.ndarray:
@@ -107,7 +107,7 @@ def statistical_outlier_filter(pc: PointCloud, neighbours, outlier_margin):
     return new_pc.remove_points(outliers)
 
 
-def find_classification(pc: PointCloud, classes: Union[int, List[int]]) -> np.ndarray:
+def find_classification(pc: PointCloud, classes: int | list[int]) -> np.ndarray:
     """
     Find point indices that match given classification codes.
 
@@ -134,9 +134,7 @@ def find_classification(pc: PointCloud, classes: Union[int, List[int]]) -> np.nd
     return cls_indices
 
 
-def classification_filter(
-    pc: PointCloud, classes: Union[int, List[int]], keep: bool = False
-):
+def classification_filter(pc: PointCloud, classes: int | list[int], keep: bool = False):
     """
     Filter a point cloud by classification.
 
@@ -359,7 +357,7 @@ def crop(pc: PointCloud, bounds: Bounds, xy_only=True) -> PointCloud:
     return new_pc
 
 
-def _point_indices_in_polygons(pc: PointCloud, polygons: List[Surface], flatten=True):
+def _point_indices_in_polygons(pc: PointCloud, polygons: list[Surface], flatten=True):
     """Look up source rows once, preserving distinct records at equal coordinates."""
     builder_polygons = [
         create_builder_polygon(p.to_polygon()) for p in polygons if p is not None
@@ -373,8 +371,8 @@ def _point_indices_in_polygons(pc: PointCloud, polygons: List[Surface], flatten=
 
 
 def points_in_polygons(
-    pc: PointCloud, polygons: List[Surface], flatten=True
-) -> Union[np.ndarray, List[np.ndarray]]:
+    pc: PointCloud, polygons: list[Surface], flatten=True
+) -> np.ndarray | list[np.ndarray]:
     """
     Extract points within specified polygons.
 
@@ -403,7 +401,7 @@ def points_in_polygons(
     return pip
 
 
-def find_points_in_polygons(pc: PointCloud, polygons: List[Surface]) -> PointCloud:
+def find_points_in_polygons(pc: PointCloud, polygons: list[Surface]) -> PointCloud:
     """
     Filter a point cloud to keep only points within specified polygons.
 
@@ -428,7 +426,7 @@ def find_points_in_polygons(pc: PointCloud, polygons: List[Surface]) -> PointClo
     return new_pc
 
 
-def remove_points_in_polygons(pc: PointCloud, polygons: List[Surface]) -> PointCloud:
+def remove_points_in_polygons(pc: PointCloud, polygons: list[Surface]) -> PointCloud:
     """
     Remove points from a point cloud that are within specified polygons.
 

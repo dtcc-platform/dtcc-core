@@ -1,8 +1,8 @@
 """Public compact-display and explicit-inspection contracts."""
 
 import inspect
-from io import StringIO
 import re
+from io import StringIO
 
 import numpy as np
 import pytest

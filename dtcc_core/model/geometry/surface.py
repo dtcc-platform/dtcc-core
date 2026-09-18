@@ -1,19 +1,18 @@
 # Copyright(C) 2023 Dag Wästberg
 # Licensed under the MIT License
 
-import numpy as np
-from typing import Union
+from copy import deepcopy
 from dataclasses import dataclass, field
 from inspect import getmembers, isfunction, ismethod
+from typing import Union
 
+import numpy as np
 from shapely.geometry import Polygon
-from shapely.validation import make_valid
 from shapely.ops import unary_union
+from shapely.validation import make_valid
 
-from .geometry import Geometry, Bounds
-
-from ..logging import info, warning, error, debug
-from copy import deepcopy
+from ..logging import debug, error, info, warning
+from .geometry import Bounds, Geometry
 
 
 @dataclass(repr=False)

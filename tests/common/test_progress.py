@@ -1,7 +1,7 @@
 """Tests for progress tracking monotonic guarantee."""
 
-import sys
 import os
+import sys
 
 # Import directly from the source tree to pick up local changes,
 # bypassing the dtcc_core __init__.py which loads native extensions.

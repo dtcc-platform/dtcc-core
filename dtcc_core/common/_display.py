@@ -1,10 +1,10 @@
 """Shared plain-text inspection formatting, independent of log configuration."""
 
+import math
+import reprlib
 from io import StringIO
 from itertools import islice
-import math
 from numbers import Number
-import reprlib
 
 from rich.console import Console
 from rich.markup import escape

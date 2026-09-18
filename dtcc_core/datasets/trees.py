@@ -1,12 +1,13 @@
+from typing import Literal, Optional
+
+from pydantic import Field
+
 import dtcc_core
 from dtcc_core.builder import tree_raster_from_pointcloud
-from dtcc_core.model import PointCloud, City, TreeCollection
-from dtcc_core.io.trees import save_trees
-from pydantic import Field
-from typing import Optional, Literal
-
-from dtcc_core.datasets import DatasetDescriptor, DatasetBaseArgs
+from dtcc_core.datasets import DatasetBaseArgs, DatasetDescriptor
 from dtcc_core.datasets.providers import provider_entry
+from dtcc_core.io.trees import save_trees
+from dtcc_core.model import City, PointCloud, TreeCollection
 
 
 class TreeArgs(DatasetBaseArgs):
@@ -22,7 +23,7 @@ class TreeArgs(DatasetBaseArgs):
         description="Save trees as points or circles when exporting to vector format",
     )
 
-    format: Optional[Literal["tif", "gpkg", "geojson"]] = Field(
+    format: Literal["tif", "gpkg", "geojson"] | None = Field(
         None, description="Output file format"
     )
 

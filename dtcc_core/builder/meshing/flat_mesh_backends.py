@@ -3,10 +3,10 @@ from __future__ import annotations
 import numpy as np
 from shapely.geometry import Polygon
 
-from .. import _dtcc_builder
 from ...model import Mesh
-from .dtcc_mesher_backend import build_city_flat_mesh_with_dtcc_mesher
+from .. import _dtcc_builder
 from ..model_conversion import create_builder_polygon
+from .dtcc_mesher_backend import build_city_flat_mesh_with_dtcc_mesher
 
 
 def _coverage_regions_for_builder(

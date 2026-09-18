@@ -1,74 +1,75 @@
 import json
 import math
-import numpy as np
 import zipfile
 from pathlib import Path
 from typing import Dict, List
 
+import numpy as np
+
 from dtcc_core.model import (
-    City,
-    Surface,
-    MultiSurface,
-    Mesh,
     Building,
     BuildingPart,
-    Terrain,
+    City,
     GeometryType,
+    Mesh,
+    MultiSurface,
+    Surface,
+    Terrain,
 )
 
 from .converters import (
+    CityJSONConfig,
+    VertexIndexer,
+    convert_mesh,
+    convert_multisurface,
+    convert_surface,
+    convert_terrain_mesh,
+    geometry_type_to_lod,
     get_converter,
     get_terrain_converter,
-    geometry_type_to_lod,
-    CityJSONConfig,
-    convert_surface,
-    convert_multisurface,
-    convert_mesh,
-    convert_terrain_mesh,
-    VertexIndexer,
 )
 
 
 def to_cityjson_surface(
     surface: Surface,
-    vertices: List,
+    vertices: list,
     scale: float,
     config: CityJSONConfig = None,
     indexer=None,
-) -> Dict:
+) -> dict:
     """Convert a DTCC Surface to CityJSON geometry format."""
     return convert_surface(surface, vertices, scale, config, indexer=indexer)
 
 
 def to_cityjson_multisurface(
     multisurface: MultiSurface,
-    vertices: List,
+    vertices: list,
     scale: float,
     config: CityJSONConfig = None,
     indexer=None,
-) -> Dict:
+) -> dict:
     """Convert a DTCC MultiSurface to CityJSON geometry format."""
     return convert_multisurface(multisurface, vertices, scale, config, indexer=indexer)
 
 
 def to_cityjson_mesh(
     mesh: Mesh,
-    vertices: List,
+    vertices: list,
     scale: float,
     config: CityJSONConfig = None,
     indexer=None,
-) -> Dict:
+) -> dict:
     """Convert a DTCC Mesh to CityJSON geometry format."""
     return convert_mesh(mesh, vertices, scale, config, indexer=indexer)
 
 
 def to_cityjson_terrain_mesh(
     mesh: Mesh,
-    vertices: List,
+    vertices: list,
     scale: float,
     config: CityJSONConfig = None,
     indexer=None,
-) -> Dict:
+) -> dict:
     """Convert a DTCC terrain Mesh to CityJSON CompositeSurface format.
 
     According to CityJSON specification, TINRelief objects should use
@@ -84,7 +85,7 @@ def to_cityjson(
     *,
     strict=False,
     validate_schema=None,
-) -> Dict:
+) -> dict:
     """Convert a DTCC City to CityJSON format.
 
     Strict mode evaluates the root's selected standard schema by default.
@@ -110,9 +111,9 @@ def to_cityjson(
     validate_schema = schema_validation(strict, validate_schema)
     config = config or CityJSONConfig()
     if strict:
-        from .admission import validate_export
-        from ...model.exchange import _schema_for_model
         from ...model._standard_schema import validate_admitted
+        from ...model.exchange import _schema_for_model
+        from .admission import validate_export
 
         validate_export(city)
         schema_id, schema_version = _schema_for_model(city)
@@ -186,8 +187,8 @@ def to_cityjson(
         if parts:
             data["children"] = [part.id for part in parts]
         if strict:
-            from .converters import convert_multisurface, convert_mesh
-            from ...model import Solid, Point, Mesh, MultiLineString
+            from ...model import Mesh, MultiLineString, Point, Solid
+            from .converters import convert_mesh, convert_multisurface
 
             for record in feature.geometry.values():
                 geometry = record.geometry
@@ -323,8 +324,8 @@ def to_cityjson(
 
 def _add_object_geometries(
     obj,
-    obj_data: Dict,
-    vertices: List,
+    obj_data: dict,
+    vertices: list,
     scale_factor: float,
     config: CityJSONConfig = None,
     indexer=None,

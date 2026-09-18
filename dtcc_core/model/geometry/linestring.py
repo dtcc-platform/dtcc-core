@@ -3,13 +3,16 @@
 
 from dataclasses import dataclass, field
 from typing import Union
-from .geometry import Geometry, Bounds
-import numpy as np
 
+import numpy as np
 from shapely.geometry import (
     LineString as ShapelyLineString,
+)
+from shapely.geometry import (
     MultiLineString as ShapelyMultiLineString,
 )
+
+from .geometry import Bounds, Geometry
 
 
 @dataclass(repr=False)

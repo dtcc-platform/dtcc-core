@@ -3,14 +3,13 @@ from typing import Any, Dict, Optional, Tuple, Union
 import numpy as np
 
 from ...model import Mesh, VolumeMesh
-from . import tetgen_utils
-
 from ..logging import debug, warning
+from . import tetgen_utils
 
 HAS_TETGEN = False
 _tetgen_import_error: ImportError | None = None
 _tetgen_switch_module = None
-BOUNDARY_FACET_MARKERS: Dict[str, int] = {
+BOUNDARY_FACET_MARKERS: dict[str, int] = {
     "top": -2,
     "west": -3,
     "east": -4,
@@ -51,7 +50,7 @@ def _require_tetgen() -> None:
         ) from _tetgen_import_error
 
 
-def get_default_tetgen_switches() -> Dict[str, Any]:
+def get_default_tetgen_switches() -> dict[str, Any]:
     """
     Return a fresh copy of TetGen switch defaults if TetGen is available.
     """
@@ -64,14 +63,14 @@ def build_volume_mesh(
     build_top_sidewalls: bool = True,
     top_height: float = 100.0,
     return_boundary_faces: bool = True,
-    closure_mesh: Optional[Mesh] = None,
+    closure_mesh: Mesh | None = None,
     top_cap_backend: str = "auto",
-    top_cap_max_mesh_size: Optional[float] = None,
+    top_cap_max_mesh_size: float | None = None,
     top_cap_min_mesh_angle: float = 25.0,
-    switches_params: Optional[Dict[str, Any]] = None,
-    switches_overrides: Optional[Dict[str, Any]] = None,
-    prebuilt_plc: Optional[tetgen_utils.TetgenPLC] = None,
-) -> Union[VolumeMesh, Tuple[VolumeMesh, Optional[np.ndarray]]]:
+    switches_params: dict[str, Any] | None = None,
+    switches_overrides: dict[str, Any] | None = None,
+    prebuilt_plc: tetgen_utils.TetgenPLC | None = None,
+) -> VolumeMesh | tuple[VolumeMesh, np.ndarray | None]:
     """
     Build a tetrahedral volume mesh from a surface mesh using TetGen.
 
@@ -201,7 +200,7 @@ def build_volume_mesh(
         )
 
     # Prepare TetGen switches
-    base_switches: Dict[str, Any] = {}
+    base_switches: dict[str, Any] = {}
     if _tetgen_switch_module is not None:
         base_switches = get_default_tetgen_switches()
     if switches_params:

@@ -23,8 +23,8 @@ from typing import TYPE_CHECKING, List, Optional, Tuple
 
 import numpy as np
 
-from dtcc_core.model.geometry.mesh import Mesh
 from dtcc_core.builder.logging import info, warning
+from dtcc_core.model.geometry.mesh import Mesh
 
 if TYPE_CHECKING:
     from scipy import sparse
@@ -32,9 +32,9 @@ if TYPE_CHECKING:
 
 def conform_boundary(
     new_mesh: Mesh,
-    old_meshes: List[Mesh],
+    old_meshes: list[Mesh],
     smoothing_iterations: int = 10,
-    tolerance: Optional[float] = None,
+    tolerance: float | None = None,
 ) -> Mesh:
     """Conform the boundary of *new_mesh* to match adjacent *old_meshes*.
 
@@ -200,7 +200,7 @@ def _find_shared_boundary_edge(
     new_vertices: np.ndarray,
     old_mesh: Mesh,
     tolerance: float,
-) -> Tuple[Optional[str], Optional[float]]:
+) -> tuple[str | None, float | None]:
     """Find which bounding box edge of new mesh is shared with old mesh.
 
     Parameters
@@ -294,9 +294,9 @@ def _detect_contact_vertices(
     new_vertices: np.ndarray,
     new_boundary_mask: np.ndarray,
     is_building: np.ndarray,
-    old_meshes: List[Mesh],
+    old_meshes: list[Mesh],
     tolerance: float,
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray]:
     """Detect which boundary vertices are in contact with old meshes.
 
     For axis-aligned rectangular tiles, identifies the shared boundary edge
@@ -388,7 +388,7 @@ def _detect_contact_vertices(
 def _sample_old_mesh_heights(
     query_points_xy: np.ndarray,
     old_mesh: Mesh,
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray]:
     """Sample z-values from *old_mesh* at the given XY positions.
 
     Uses barycentric interpolation within the containing triangle.  Falls

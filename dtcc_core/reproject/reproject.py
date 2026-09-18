@@ -9,17 +9,17 @@ import numpy as np
 from pyproj import CRS, Transformer
 
 from dtcc_core.model import (
-    PointCloud,
-    Object,
-    Surface,
-    Mesh,
-    MultiSurface,
-    City,
-    CityObject,
     Building,
     BuildingPart,
-    Terrain,
+    City,
+    CityObject,
     Landuse,
+    Mesh,
+    MultiSurface,
+    Object,
+    PointCloud,
+    Surface,
+    Terrain,
 )
 
 

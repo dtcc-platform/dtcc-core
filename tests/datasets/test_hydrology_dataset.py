@@ -1,23 +1,23 @@
 """Tests for the hydrology dataset (SMHI HydroObs latest-day)."""
 
-import pytest
-import math
 import json
-import numpy as np
+import math
 from pathlib import Path
-from unittest.mock import patch, Mock, MagicMock
+from unittest.mock import MagicMock, Mock, patch
+
+import numpy as np
+import pytest
 
 from dtcc_core.datasets.dataset import DatasetUpstreamError
 from dtcc_core.datasets.hydrology import (
+    _NAME_TO_ID,
+    PARAMETER_NAMES,
     HydrologyDataset,
     HydrologyDatasetArgs,
-    _resolve_parameter,
-    _fetch_station_list,
     _fetch_latest_day,
-    PARAMETER_NAMES,
-    _NAME_TO_ID,
+    _fetch_station_list,
+    _resolve_parameter,
 )
-
 
 # ── Fixtures ─────────────────────────────────────────────────────────────
 

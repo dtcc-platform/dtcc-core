@@ -1,7 +1,9 @@
-import pytest
 from pathlib import Path
+
+import pytest
+
 from dtcc_core import builder, io
-from dtcc_core.model import RoadNetwork, GeometryType, Surface
+from dtcc_core.model import GeometryType, RoadNetwork, Surface
 
 
 @pytest.fixture

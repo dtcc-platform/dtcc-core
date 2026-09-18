@@ -1,7 +1,8 @@
-import pytest
 import numpy as np
-from dtcc_core.reproject.reproject import reproject_surface
+import pytest
+
 from dtcc_core.model import Surface
+from dtcc_core.reproject.reproject import reproject_surface
 
 
 @pytest.fixture

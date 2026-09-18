@@ -3,18 +3,19 @@
 
 """Tests for vector I/O utilities."""
 
-import pytest
-from pathlib import Path
 import tempfile
+from pathlib import Path
+
+import pytest
 import shapely.geometry
 
 from dtcc_core.io.vector_utils import (
-    validate_vector_file,
-    get_vector_driver,
+    VECTOR_DRIVERS,
     create_bounds_filter,
     determine_io_crs,
+    get_vector_driver,
     safe_reproject_geometry,
-    VECTOR_DRIVERS,
+    validate_vector_file,
 )
 from dtcc_core.model import Bounds
 

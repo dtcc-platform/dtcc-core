@@ -22,7 +22,6 @@ from dtcc_core.datasets.air_quality import (
 )
 from dtcc_core.datasets.dataset import DatasetUpstreamError
 
-
 BASE_URL = "http://test-api.example.com"
 DEFAULT_BOUNDS = (17.9, 59.2, 18.2, 59.5)
 DEFAULT_CRSS = "EPSG:4326"

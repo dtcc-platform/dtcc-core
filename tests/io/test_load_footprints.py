@@ -1,9 +1,11 @@
-import pytest
-import tempfile
 import json
+import tempfile
 from pathlib import Path
+
+import pytest
+
 from dtcc_core import io
-from dtcc_core.model import Building, Bounds, GeometryType
+from dtcc_core.model import Bounds, Building, GeometryType
 
 
 @pytest.fixture

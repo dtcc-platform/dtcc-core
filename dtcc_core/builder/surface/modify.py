@@ -1,6 +1,7 @@
-from ...model import Mesh, Surface, MultiSurface
 import numpy as np
-from ..logging import info, warning, error
+
+from ...model import Mesh, MultiSurface, Surface
+from ..logging import error, info, warning
 
 
 def clean_surface(s: Surface, tol: float = 1e-6) -> Surface:

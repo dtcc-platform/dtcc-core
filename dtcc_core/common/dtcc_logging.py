@@ -2,12 +2,13 @@
 # Licensed under the MIT License
 
 import logging as _logging
-from typing import Any, Dict, Iterable, Sequence, Tuple, Callable
+from collections.abc import Callable, Iterable, Sequence
+from typing import Any, Dict, Tuple
 
+from rich import box
 from rich.console import Console
 from rich.padding import Padding
 from rich.table import Table
-from rich import box
 
 from .handler import LoggingHandler
 
@@ -22,10 +23,10 @@ except ImportError:
     _console = Console(stderr=True, soft_wrap=False)
 
 # Global logger dictionary (name -> function tuple)
-loggers: Dict[str, Tuple[Callable, Callable, Callable, Callable, Callable]] = {}
+loggers: dict[str, tuple[Callable, Callable, Callable, Callable, Callable]] = {}
 
 # Global logger objects (name -> logging.Logger)
-_logger_objects: Dict[str, _logging.Logger] = {}
+_logger_objects: dict[str, _logging.Logger] = {}
 
 # Global logger object
 _logger: _logging.Logger = None

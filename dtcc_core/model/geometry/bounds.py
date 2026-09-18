@@ -1,8 +1,10 @@
 # Copyright(C) 2023 Anders Logg
 # Licensed under the MIT License
 
+import builtins
 from dataclasses import dataclass
-from typing import Union, Tuple
+from typing import Tuple, Union
+
 import numpy as np
 
 from ..model import Model
@@ -146,7 +148,7 @@ class Bounds(Model):
         return self.xmin
 
     @property
-    def tuple(self) -> Tuple[float, float, float, float]:
+    def tuple(self) -> tuple[float, float, float, float]:
         """Returns the bounds as a tuple.
 
         Returns
@@ -191,7 +193,7 @@ class Bounds(Model):
     # FIXME: How to handle z-axis?
 
     @property
-    def center(self) -> Tuple[float, float]:
+    def center(self) -> builtins.tuple[float, float]:
         """Returns the center point of the bounds.
 
         Returns
@@ -319,7 +321,7 @@ class Bounds(Model):
             )
 
     def tiles(
-        self, tile_size: Union[float, Tuple[float, float]], expand_bounds=False
+        self, tile_size: float | builtins.tuple[float, float], expand_bounds=False
     ) -> list["Bounds"]:
         """Divide the bounds into smaller tiles of a specified size.
 

@@ -1,13 +1,15 @@
 # Copyright(C) 2023 Dag Wästberg
 # Licensed under the MIT License
 
-from abc import ABC
 import builtins
 import importlib
+from abc import ABC
+from copy import deepcopy
 from dataclasses import dataclass, field
 from inspect import getmembers, isfunction, ismethod, ismodule
+
 from google.protobuf.json_format import MessageToJson
-from copy import deepcopy
+
 from ..common import warning
 
 
@@ -138,7 +140,7 @@ class Model(ABC):
 
         Invalid data or a different concrete root type leaves this model intact.
         """
-        from .exchange import _decode_model, SUPPORTED_ROOTS
+        from .exchange import SUPPORTED_ROOTS, _decode_model
 
         if type(self) not in SUPPORTED_ROOTS:
             raise NotImplementedError(
@@ -237,8 +239,8 @@ class Model(ABC):
 
         Requires this object to carry ``DatasetContext`` from a dataset call.
         """
-        from pathlib import Path
         import tempfile
+        from pathlib import Path
 
         from dtcc_core.datasets.publish import DatasetUploadClient
 

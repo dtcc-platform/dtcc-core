@@ -8,8 +8,6 @@ from typing import Any, List
 
 import numpy as np
 
-from .object import Object
-from ..geometry import Point
 from ...plotting.style import (
     DTCC_CATEGORY_PALETTE,
     DTCC_COLORS,
@@ -19,6 +17,8 @@ from ...plotting.style import (
     resolve_colormap,
     style_colorbar,
 )
+from ..geometry import Point
+from .object import Object
 
 
 @dataclass(repr=False)
@@ -89,7 +89,7 @@ class VehicleCollection(Object):
             raise TypeError("Vehicle must be an Object instance")
         self.add_child(vehicle)
 
-    def vehicles(self) -> List[Object]:
+    def vehicles(self) -> list[Object]:
         """Return all vehicles in the collection."""
         result = []
         for child_list in self.children.values():

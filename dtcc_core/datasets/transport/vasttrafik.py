@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from typing import Any
 
 from ..dataset import DatasetDescriptor, DatasetUpstreamError
@@ -14,7 +14,6 @@ from .base import (
     make_config_error,
     normalize_mode,
 )
-
 
 VASTTRAFIK_BBOX = (10.7, 57.0, 14.9, 59.5)
 TOKEN_URL = "https://ext-api.vasttrafik.se/token"
@@ -242,7 +241,7 @@ def _parse_positions(data: Any) -> list[VehicleRecord]:
         )
         timestamp = item.get("timestamp") or item.get("time") or item.get("created")
         if timestamp is None:
-            timestamp = datetime.now(timezone.utc).isoformat()
+            timestamp = datetime.now(UTC).isoformat()
 
         details_reference = item.get("detailsReference")
         vehicle_id = (

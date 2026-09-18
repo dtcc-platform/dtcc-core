@@ -1,16 +1,15 @@
-from ..model import City, GeometryType
-from pathlib import Path
-from functools import partial
-from .model import load_model, save_model
-from .cityjson import cityjson
-from .logging import info, warning, error
-from .meshes import load_mesh_as_city
-from . import generic
 from collections import defaultdict
-
-from .cityjson import write_cityjson
+from functools import partial
+from pathlib import Path
 
 from shapely.geometry import Polygon
+
+from ..model import City, GeometryType
+from . import generic
+from .cityjson import cityjson, write_cityjson
+from .logging import error, info, warning
+from .meshes import load_mesh_as_city
+from .model import load_model, save_model
 
 HAS_GEOPANDAS = False
 try:

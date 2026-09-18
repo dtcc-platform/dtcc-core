@@ -8,7 +8,7 @@ import pytest
 
 import dtcc_core.datasets as datasets
 from dtcc_core.datasets import get_dataset
-from dtcc_core.datasets.pointcloud import PointCloudDataset, PointCloudArgs
+from dtcc_core.datasets.pointcloud import PointCloudArgs, PointCloudDataset
 
 
 def test_point_cloud_registered_name():

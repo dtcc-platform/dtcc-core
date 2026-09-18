@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
-from dataclasses import dataclass, field as dataclass_field
+from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from pathlib import Path
 from typing import Any
 
@@ -15,8 +16,8 @@ from ..values import Field
 from .bounds import Bounds
 from .field_slice import (
     _axis_names,
-    _interactive_plot_overrides,
     _bounds_values,
+    _interactive_plot_overrides,
     _normalize_format,
     _plot_smoke_object_with_dataset_modes,
     _raster_options_from_context,

@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
-import requests
 import os
-from pathlib import Path
 import re
-from .overpass import get_roads_for_bbox, get_buildings_for_bbox
-from .geopkg import CACHE_DIR as GPKG_CACHE_DIR, download_tiles
-from .lidar import download_lidar
+from pathlib import Path
+
+import requests
+
 from dtcc_core import io
 from dtcc_core.model import Bounds
-from .logging import info, warning, debug, error
+
+from .geopkg import CACHE_DIR as GPKG_CACHE_DIR
+from .geopkg import download_tiles
+from .lidar import download_lidar
+from .logging import debug, error, info, warning
+from .overpass import get_buildings_for_bbox, get_roads_for_bbox
 
 # We'll allow "lidar" or "roads" or "footprints" for data_type, and "dtcc" or "OSM" for provider.
 valid_types = ["lidar", "roads", "footprints"]

@@ -16,8 +16,8 @@ from dtcc_core.model import (
     SemanticRegion,
     Surface,
 )
-from dtcc_core.model.profiles import SemanticProfile
 from dtcc_core.model._standard_schema import DEFAULT_VERSION
+from dtcc_core.model.profiles import SemanticProfile
 
 ROOT = Path(__file__).resolve().parents[2]
 NS = "https://github.com/dtcc-platform/dtcc-core/schemas/model#"

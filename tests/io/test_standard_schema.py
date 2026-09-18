@@ -16,17 +16,17 @@ from dtcc_core.datasets.schema import (
     DatasetRequest,
 )
 from dtcc_core.model import (
-    City,
     Building,
-    Object,
-    Mesh,
-    Point,
+    City,
     Field,
+    Mesh,
+    Object,
+    Point,
     SemanticRegion,
     exchange,
 )
 from dtcc_core.model import dtcc_pb2 as wire
-from dtcc_core.model._standard_schema import SCHEMA_ID, DEFAULT_VERSION
+from dtcc_core.model._standard_schema import DEFAULT_VERSION, SCHEMA_ID
 from dtcc_core.model.profiles import SemanticProfile
 
 ROOT = Path(__file__).resolve().parents[2]

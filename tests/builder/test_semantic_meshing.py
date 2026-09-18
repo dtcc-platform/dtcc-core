@@ -8,7 +8,7 @@ import pytest
 from dtcc_core import io
 from dtcc_core.builder.meshing import mesh_multisurfaces
 from dtcc_core.builder.meshing.backends import available_2d_meshers
-from dtcc_core.model import Field, Solid, Surface, SemanticRegion, exchange
+from dtcc_core.model import Field, SemanticRegion, Solid, Surface, exchange
 
 
 @pytest.fixture

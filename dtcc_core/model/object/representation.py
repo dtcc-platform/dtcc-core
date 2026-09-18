@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from ..geometry import Geometry, Bounds
+from ..geometry import Bounds, Geometry
 from ..values import Raster
 
 

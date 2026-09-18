@@ -1,10 +1,11 @@
-import numpy as np
 from collections import defaultdict
+
+import numpy as np
 from tqdm import tqdm
 
-from ...model import Mesh, MultiSurface, Surface, Solid, Building, City
-from ...model.object.city import CityObject
+from ...model import Building, City, Mesh, MultiSurface, Solid, Surface
 from ...model.object.building import BuildingPart
+from ...model.object.city import CityObject
 from ...model.object.object import GeometryType
 
 

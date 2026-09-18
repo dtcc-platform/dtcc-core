@@ -13,7 +13,6 @@ from tests.demos.demo_inventory import (
     WORKFLOW_DEMOS,
 )
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEMO_DIR = REPO_ROOT / "demos"
 

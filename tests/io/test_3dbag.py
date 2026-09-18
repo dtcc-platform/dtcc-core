@@ -1,15 +1,15 @@
 """A source mapping must preserve evidence and never invent height or dates."""
 
-from copy import deepcopy
 import json
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
 
 from dtcc_core import io
 from dtcc_core.datasets import load_model_package
-from dtcc_core.model import exchange
 from dtcc_core.io.three_d_bag import NAP_CRS
+from dtcc_core.model import exchange
 
 
 def source():

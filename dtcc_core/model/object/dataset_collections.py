@@ -8,11 +8,6 @@ from typing import Any, Literal
 
 import numpy as np
 
-from ..geometry import Bounds, Surface
-from ..model import Model
-from .building import Building
-from .object import GeometryType
-from .tree import Tree
 from ...plotting.style import (
     add_categorical_legend,
     add_plot_context,
@@ -22,6 +17,11 @@ from ...plotting.style import (
     resolve_colormap,
     style_colorbar,
 )
+from ..geometry import Bounds, Surface
+from ..model import Model
+from .building import Building
+from .object import GeometryType
+from .tree import Tree
 
 
 @dataclass(repr=False)
@@ -51,7 +51,7 @@ class FootprintCollection(Model):
         geom_type: GeometryType | None = None,
         *,
         z: Literal["geometry", "ground"] | float = "geometry",
-    ) -> "FootprintCollection":
+    ) -> FootprintCollection:
         """Build a footprint collection from buildings with available geometry.
 
         By default, this extracts canonical LOD0 building footprints only.
@@ -431,7 +431,7 @@ class CalibrationGrid(Model):
         ]
 
     @classmethod
-    def from_geojson(cls, geojson: dict[str, Any]) -> "CalibrationGrid":
+    def from_geojson(cls, geojson: dict[str, Any]) -> CalibrationGrid:
         """Build a calibration grid model from its GeoJSON representation."""
         metadata = dict(geojson.get("metadata") or {})
         bounds_values = metadata.get("bounds") or [0.0, 0.0, 0.0, 0.0]

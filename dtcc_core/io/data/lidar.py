@@ -1,16 +1,19 @@
 # Copyright (C) 2024 Vasilis Naserentin
 # Licensed under the MIT License
 
+import asyncio
 import os
 import time
-import requests
+
+import aiohttp
 import folium
 import pyproj
-import asyncio
-import aiohttp
+import requests
 from platformdirs import user_cache_dir
-from .logging import info, debug, warning, error
+
 from dtcc_core.common.progress import report_progress
+
+from .logging import debug, error, info, warning
 
 try:
     import nest_asyncio
@@ -277,12 +280,7 @@ async def download_laz_file(session, base_url, filename, output_dir, semaphore):
                 os.replace(tmp_path, out_path)
                 info(f"Saved {filename} to {out_path}")
                 return
-            except (
-                aiohttp.ClientError,
-                asyncio.TimeoutError,
-                OSError,
-                RuntimeError,
-            ) as exc:
+            except (TimeoutError, aiohttp.ClientError, OSError, RuntimeError) as exc:
                 try:
                     os.remove(tmp_path)
                 except OSError:

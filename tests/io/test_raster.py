@@ -1,8 +1,10 @@
-import pytest
-import numpy as np
 import os
 import tempfile
 from pathlib import Path
+
+import numpy as np
+import pytest
+
 from dtcc_core import io
 
 

@@ -4,11 +4,12 @@ Simplified geometry converters for CityJSON format.
 A simpler alternative to the ABC-based design - just functions and utilities.
 """
 
-import numpy as np
-from typing import Dict, List
 from dataclasses import dataclass
+from typing import Dict, List
 
-from ...model import Surface, MultiSurface, Mesh
+import numpy as np
+
+from ...model import Mesh, MultiSurface, Surface
 from ...model.object.object import GeometryType
 
 
@@ -16,8 +17,8 @@ from ...model.object.object import GeometryType
 class CityJSONConfig:
     """Configuration for CityJSON conversion."""
 
-    semantic_types: Dict[str, str] = None
-    lod_mapping: Dict[GeometryType, float] = None
+    semantic_types: dict[str, str] = None
+    lod_mapping: dict[GeometryType, float] = None
     # Rounding mode for quantization: "round" (default), "floor", or "ceil"
     rounding_mode: str = "round"
 
@@ -61,7 +62,7 @@ class CityJSONConfig:
 def scale_vertices(
     vertices: np.ndarray,
     scale: float,
-    vertices_list: List,
+    vertices_list: list,
     rounding_mode: str = "round",
 ) -> int:
     """Scale vertices and add to global vertices list. Returns offset.
@@ -104,7 +105,7 @@ def scale_vertices(
     return vert_offset
 
 
-def create_boundary(indices: np.ndarray, offset: int) -> List:
+def create_boundary(indices: np.ndarray, offset: int) -> list:
     """Create boundary from indices with offset applied."""
     if not isinstance(indices, np.ndarray) or indices.size == 0:
         raise ValueError("Invalid indices: must be non-empty numpy array")
@@ -128,7 +129,7 @@ class VertexIndexer:
 
     def __init__(self):
         """Initialize empty vertex storage and lookup index."""
-        self.vertices: List[List[int]] = []
+        self.vertices: list[list[int]] = []
         self._index = {}
 
     def _quantize(
@@ -151,7 +152,7 @@ class VertexIndexer:
 
     def add_points(
         self, points: np.ndarray, factor: float, rounding_mode: str = "round"
-    ) -> List[int]:
+    ) -> list[int]:
         """
         Quantize and add points to the global vertex list.
 
@@ -175,7 +176,7 @@ class VertexIndexer:
             If ``rounding_mode`` is invalid.
         """
         q = self._quantize(points, factor, rounding_mode)
-        indices: List[int] = []
+        indices: list[int] = []
         for x, y, z in q.tolist():
             key = (int(x), int(y), int(z))
             idx = self._index.get(key)
@@ -190,11 +191,11 @@ class VertexIndexer:
 # Converter functions (one per geometry type)
 def convert_surface(
     surface: Surface,
-    vertices: List,
+    vertices: list,
     scale: float,
     config: CityJSONConfig = None,
     indexer=None,
-) -> Dict:
+) -> dict:
     """Convert Surface to CityJSON format.
 
     Parameters
@@ -240,11 +241,11 @@ def convert_surface(
 
 def convert_multisurface(
     multisurface: MultiSurface,
-    vertices: List,
+    vertices: list,
     scale: float,
     config: CityJSONConfig = None,
     indexer=None,
-) -> Dict:
+) -> dict:
     """Convert MultiSurface to CityJSON format."""
     config = config or CityJSONConfig()
     boundaries = []
@@ -291,11 +292,11 @@ def convert_multisurface(
 
 def convert_mesh(
     mesh: Mesh,
-    vertices: List,
+    vertices: list,
     scale: float,
     config: CityJSONConfig = None,
     indexer=None,
-) -> Dict:
+) -> dict:
     """Convert Mesh to CityJSON format."""
     config = config or CityJSONConfig()
 
@@ -333,11 +334,11 @@ def convert_mesh(
 
 def convert_terrain_mesh(
     mesh: Mesh,
-    vertices: List,
+    vertices: list,
     scale: float,
     config: CityJSONConfig = None,
     indexer=None,
-) -> Dict:
+) -> dict:
     """Convert terrain Mesh to CityJSON format."""
     config = config or CityJSONConfig()
 

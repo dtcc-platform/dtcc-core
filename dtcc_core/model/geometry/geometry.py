@@ -1,15 +1,15 @@
 # Copyright(C) 2023 Anders Logg
 # Licensed under the MIT License
 
+from abc import abstractmethod
 from dataclasses import dataclass, field
 from typing import Union
-from abc import abstractmethod
 
 from ..model import Model
 from ..values import Field
 from .bounds import Bounds
-from .transform import Transform
 from .semantic_region import SemanticRegion
+from .transform import Transform
 
 
 @dataclass(repr=False)
@@ -49,7 +49,9 @@ class Geometry(Model):
 
     def _info_sections(self):
         from dataclasses import fields
+
         import numpy as np
+
         from .._display import field_section
 
         sections = super()._info_sections()

@@ -1,6 +1,5 @@
 import dtcc_core as dtcc
 
-
 bounds = dtcc.Bounds(297470, 6375410, 342470, 6420410)
 
 air_quality = dtcc.datasets.air_quality(

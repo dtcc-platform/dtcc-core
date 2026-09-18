@@ -1,10 +1,12 @@
-import laspy
-import fiona
-import meshio
-import rasterio
-import numpy as np
 from pathlib import Path
 from types import UnionType
+
+import fiona
+import laspy
+import meshio
+import numpy as np
+import rasterio
+
 from ..model import Bounds
 
 

@@ -1,14 +1,17 @@
-from dtcc_core.model import Tree
+from pathlib import Path
+
 import fiona
 import shapely
-from pathlib import Path
+
+from dtcc_core.model import Tree
+
+from .logging import error, info
 from .vector_utils import (
-    get_vector_driver,
     determine_io_crs,
-    safe_reproject_geometry,
     get_geometry_crs,
+    get_vector_driver,
+    safe_reproject_geometry,
 )
-from .logging import info, error
 
 
 def save_trees(

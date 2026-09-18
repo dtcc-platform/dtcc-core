@@ -1,7 +1,10 @@
-from dataclasses import dataclass, field
 from collections import Counter
-from typing import Any, Union, List, Tuple
+from dataclasses import dataclass, field
 from enum import Enum, auto
+from typing import Any, List, Tuple, Union
+
+import numpy as np
+
 from ...common import warning
 from ...plotting.style import (
     DTCC_COLORS,
@@ -10,11 +13,8 @@ from ...plotting.style import (
     apply_dtcc_style,
     plot_line_segments,
 )
-from .object import Object, GeometryType
-from ..geometry import LineString, MultiLineString
-from ..geometry import Bounds
-
-import numpy as np
+from ..geometry import Bounds, LineString, MultiLineString
+from .object import GeometryType, Object
 
 
 class RoadType(Enum):
@@ -67,7 +67,7 @@ class RoadNetwork(Object):
         ]
 
     @property
-    def linestrings(self) -> List[LineString]:
+    def linestrings(self) -> list[LineString]:
         """
         Access individual LineString geometries if present.
 

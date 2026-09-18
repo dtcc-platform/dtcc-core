@@ -1,5 +1,5 @@
-from dataclasses import dataclass
 from collections import Counter
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -9,9 +9,9 @@ from ...plotting.style import (
     apply_dtcc_style,
     plot_geodataframe,
 )
-from .object import Object, GeometryType
 from ..geometry import MultiSurface
 from ..values import Field
+from .object import GeometryType, Object
 
 
 @dataclass(repr=False)

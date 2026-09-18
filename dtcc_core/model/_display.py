@@ -30,8 +30,8 @@ def sample_section(title, models):
 
 def print_tree(model, label, *, indent="", verbose=False, max_depth=None):
     """Stream a hierarchy without building a second in-memory model tree."""
-    from .object.object import Object
     from .geometry.geometry import Geometry
+    from .object.object import Object
 
     def entries(node):
         if isinstance(node, Object):

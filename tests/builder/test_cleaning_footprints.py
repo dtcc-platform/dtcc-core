@@ -7,10 +7,10 @@ import numpy as np
 import pytest
 from shapely.geometry import GeometryCollection, MultiPolygon, Polygon, box
 
-from dtcc_core.model import Building, GeometryType, Surface
-from dtcc_core.plotting.style import DTCC_THEMES
 import dtcc_core.builder.cleaning as cleaning
 import dtcc_core.builder.cleaning.footprints as cleaning_footprints
+from dtcc_core.model import Building, GeometryType, Surface
+from dtcc_core.plotting.style import DTCC_THEMES
 
 GBG_ACUTE_HOLE_WEDGE_WKT = (
     "POLYGON ((319877.28125 6399049.59375, 319877.21875 6399051.0625, "

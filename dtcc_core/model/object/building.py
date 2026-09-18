@@ -4,12 +4,13 @@
 from dataclasses import dataclass, field
 from numbers import Real
 from typing import Literal, Union
+
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
-from .object import Object, GeometryType
 from ..geometry import Bounds, Surface
 from ..logging import warning
+from .object import GeometryType, Object
 
 
 @dataclass(repr=False)

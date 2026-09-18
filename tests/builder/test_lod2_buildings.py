@@ -6,6 +6,16 @@ import pytest
 from shapely.geometry import LineString, Point, Polygon
 
 import dtcc_core.builder.geometry_builders.lod2 as lod2_module
+from dtcc_core.builder.geometry_builders.lod2 import (
+    _concave_vertex_indices,
+    _decompose_footprint,
+    _decomposition_shape_reason,
+    _fit_plane,
+    _ransac_planes,
+    _roof_surfaces_cover_footprint,
+    build_lod2_buildings,
+    is_watertight,
+)
 from dtcc_core.model import (
     Building,
     City,
@@ -14,13 +24,6 @@ from dtcc_core.model import (
     PointCloud,
     Surface,
 )
-from dtcc_core.builder.geometry_builders.lod2 import is_watertight
-from dtcc_core.builder.geometry_builders.lod2 import _concave_vertex_indices
-from dtcc_core.builder.geometry_builders.lod2 import _decompose_footprint
-from dtcc_core.builder.geometry_builders.lod2 import _decomposition_shape_reason
-from dtcc_core.builder.geometry_builders.lod2 import _fit_plane, _ransac_planes
-from dtcc_core.builder.geometry_builders.lod2 import _roof_surfaces_cover_footprint
-from dtcc_core.builder.geometry_builders.lod2 import build_lod2_buildings
 
 
 def _surface(coords):

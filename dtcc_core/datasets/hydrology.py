@@ -22,20 +22,21 @@ Unlike the metobs API used by the weather dataset, HydroObs has no bulk
 4. Merges results and builds a ``SensorCollection``.
 """
 
-from typing import Optional, Literal, Tuple, List, Dict, Any, Sequence
-from pydantic import Field
-import numpy as np
-from datetime import datetime, timezone
+from collections.abc import Sequence
+from datetime import UTC, datetime, timezone
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
+import numpy as np
+from pydantic import Field
+
+from ..common import info
+from ..model.geometry import Point
+from ..model.object import Object, SensorCollection
+from ..model.values import Field as DtccField
+from ..reproject.reproject import reproject_array
 from .dataset import DatasetBaseArgs, DatasetDescriptor, DatasetUpstreamError
 from .geospatial import bounds_to_wgs84, is_wgs84_crs
 from .providers import provider_entry
-from ..model.object import Object, SensorCollection
-from ..model.geometry import Point
-from ..model.values import Field as DtccField
-from ..common import info
-from ..reproject.reproject import reproject_array
-
 
 # ── Parameter name mapping ───────────────────────────────────────────────
 
@@ -53,7 +54,7 @@ from ..reproject.reproject import reproject_array
 #   9  Vatteninnehåll             – water equivalent [mm]
 #  10  Vattenföring (Månad)       – monthly discharge [m³/s]
 
-PARAMETER_NAMES: Dict[int, str] = {
+PARAMETER_NAMES: dict[int, str] = {
     1: "discharge_daily",
     2: "discharge_15min",
     3: "water_level",
@@ -69,7 +70,7 @@ PARAMETER_NAMES: Dict[int, str] = {
 # Reverse lookup: name → parameter ID.  Accepts the canonical DTCC name
 # as well as common short aliases so users can write e.g.
 # parameters=["discharge", "water_level"] instead of [1, 3].
-_NAME_TO_ID: Dict[str, int] = {}
+_NAME_TO_ID: dict[str, int] = {}
 for _id, _name in PARAMETER_NAMES.items():
     _NAME_TO_ID[_name] = _id
 
@@ -121,9 +122,7 @@ def _timestamp_ms_to_iso(value: Any) -> str:
     if value in (None, ""):
         return ""
     try:
-        return datetime.fromtimestamp(
-            float(value) / 1000.0, tz=timezone.utc
-        ).isoformat()
+        return datetime.fromtimestamp(float(value) / 1000.0, tz=UTC).isoformat()
     except (TypeError, ValueError, OSError):
         return ""
 
@@ -174,7 +173,7 @@ def _get_json(url: str, timeout_s: float = 10.0) -> dict:
 
 def _fetch_station_list(
     base_url: str, version: str, param_id: int, timeout_s: float
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Fetch the station list for a given parameter.
 
     Returns
@@ -191,7 +190,7 @@ def _fetch_station_list(
 
 def _fetch_latest_day(
     base_url: str, version: str, param_id: int, station_key: str, timeout_s: float
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Fetch latest-day data for a single station and parameter.
 
     Returns
@@ -243,7 +242,7 @@ class HydrologyDatasetArgs(DatasetBaseArgs):
     """
 
     crs: str = Field("EPSG:3006", description="Coordinate reference system")
-    format: Optional[Literal["pb"]] = Field(
+    format: Literal["pb"] | None = Field(
         None, description='Output format ("pb" for protobuf)'
     )
     timeout_s: float = Field(10.0, description="HTTP timeout in seconds", gt=0)
@@ -261,7 +260,7 @@ class HydrologyDatasetArgs(DatasetBaseArgs):
         description="SMHI HydroObs API base URL",
     )
     version: str = Field("latest", description="API version path element")
-    parameters: List = Field(
+    parameters: list = Field(
         default=[1, 3],
         description=(
             "Hydrology parameters to fetch.  Each element can be an integer "
@@ -453,8 +452,8 @@ class HydrologyDataset(DatasetDescriptor):
         #                   "catchment_name", "catchment_number",
         #                   "catchment_size",
         #                   "fields": { field_name: (value, unit, quality) } }
-        station_map: Dict[str, Dict[str, Any]] = {}
-        param_meta: Dict[int, Dict[str, Any]] = {}
+        station_map: dict[str, dict[str, Any]] = {}
+        param_meta: dict[int, dict[str, Any]] = {}
         upstream_errors: list[DatasetUpstreamError] = []
         stations_skipped_upstream = 0
 
@@ -617,7 +616,7 @@ class HydrologyDataset(DatasetDescriptor):
                 f"({bounds_tuple[0]}, {bounds_tuple[1]}, "
                 f"{bounds_tuple[2]}, {bounds_tuple[3]})"
             ),
-            "retrieval_time": datetime.now(timezone.utc).isoformat(),
+            "retrieval_time": datetime.now(UTC).isoformat(),
             "parameters": param_ids,
         }
         self.apply_result_health_metadata(
@@ -629,7 +628,7 @@ class HydrologyDataset(DatasetDescriptor):
         )
 
         # Collect field→unit mapping for collection-level metadata
-        parameter_fields: Dict[str, str] = {}
+        parameter_fields: dict[str, str] = {}
         parameter_metadata: list[dict[str, Any]] = []
         first_field_name = None
         first_field_unit = ""

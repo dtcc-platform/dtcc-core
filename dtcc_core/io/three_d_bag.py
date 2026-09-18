@@ -6,10 +6,9 @@ docs/design/3dbag-attribute-mapping.md for meanings and unsupported conventions.
 
 import math
 
-from .cityjson.cityjson import load as load_cityjson
 from ..model import Building, BuildingPart
 from ..model._standard_schema import validate_admitted
-
+from .cityjson.cityjson import load as load_cityjson
 
 MAPPING_ID = "https://github.com/dtcc-platform/dtcc-core/mappings/3dbag/b3_h_dak/1"
 NAP_CRS = "https://www.opengis.net/def/crs/EPSG/0/5709"
@@ -36,12 +35,13 @@ def load_3dbag(path, *, extent_policy="validate", validate_schema=True):
     source admission or this mapping's required source interpretation checks.
     """
     from pyproj import CRS
+
     from ..datasets.schema import (
         DatasetContext,
         DatasetIdentity,
         DatasetMetadata,
-        DatasetProvenance,
         DatasetPresentation,
+        DatasetProvenance,
         DatasetRequest,
     )
 

@@ -269,6 +269,7 @@ def test_download_deso_filters_converts_and_reuses_cached_geopackage(
 ):
     from types import SimpleNamespace
     from unittest.mock import Mock
+
     import requests
 
     gdf = gpd.GeoDataFrame(

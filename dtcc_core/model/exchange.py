@@ -10,46 +10,45 @@ import re
 from numbers import Integral, Real
 
 import numpy as np
+from affine import Affine
 from google.protobuf.message import DecodeError
 from google.protobuf.unknown_fields import UnknownFieldSet
 
 from . import dtcc_pb2 as wire
 from .geometry import (
-    Mesh,
-    Point,
-    Surface,
-    MultiSurface,
-    SemanticRegion,
-    Transform,
-    Solid,
     Bounds,
-    VolumeMesh,
-    PointCloud,
-    LineString,
-    MultiLineString,
     Grid,
+    LineString,
+    Mesh,
+    MultiLineString,
+    MultiSurface,
+    Point,
+    PointCloud,
+    SemanticRegion,
+    Solid,
+    Surface,
+    Transform,
     VolumeGrid,
+    VolumeMesh,
 )
 from .object import (
-    Object,
-    City,
     Building,
     BuildingPart,
-    GeometryRepresentation,
-    Tree,
-    Landuse,
+    City,
     CityObject,
-    Terrain,
+    DeSO,
+    GeometryRepresentation,
+    Landuse,
+    Object,
     RoadNetwork,
     SensorCollection,
+    Terrain,
+    Tree,
     VehicleCollection,
-    DeSO,
 )
 from .object.landuse import LanduseClasses
 from .object.object import _validate_attributes
 from .values import Field, Raster
-from affine import Affine
-
 
 FORMAT = "dtcc-model"
 VERSION = 6
@@ -1036,7 +1035,7 @@ def _schema_identity(schema_id, version):
 
 def _schema_for_model(model):
     """Select root schema metadata for canonical and external-format boundaries."""
-    from ._standard_schema import SCHEMA_ID, DEFAULT_VERSION
+    from ._standard_schema import DEFAULT_VERSION, SCHEMA_ID
 
     schema_id, schema_version = model.schema_id, model.schema_version
     if schema_id is None and schema_version is None:

@@ -3,10 +3,11 @@
 
 from dataclasses import dataclass
 from typing import Union
+
 import numpy as np
 
-from .geometry import Geometry
 from .bounds import Bounds
+from .geometry import Geometry
 
 
 @dataclass(repr=False)

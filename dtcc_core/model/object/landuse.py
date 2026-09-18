@@ -1,11 +1,11 @@
 from dataclasses import dataclass, field
-from typing import Union, List, Tuple
 from enum import Enum, auto
-from .object import Object, GeometryType
-from ..geometry import Surface, MultiSurface
-from ..geometry import Bounds
+from typing import List, Tuple, Union
 
 import numpy as np
+
+from ..geometry import Bounds, MultiSurface, Surface
+from .object import GeometryType, Object
 
 
 class LanduseClasses(Enum):
@@ -57,7 +57,7 @@ class Landuse(Object):
         landuses (List[LanduseClasses]): A list of land use classes describing how the land is used.
     """
 
-    landuses: List[LanduseClasses] = field(default_factory=list)
+    landuses: list[LanduseClasses] = field(default_factory=list)
 
     def _summary_items(self):
         return super()._summary_items() + [("num_landuses", len(self.landuses))]
@@ -74,7 +74,7 @@ class Landuse(Object):
         return sections
 
     @property
-    def surfaces(self) -> List[Surface]:
+    def surfaces(self) -> list[Surface]:
         """
         Access the list of surfaces representing land use polygons.
 

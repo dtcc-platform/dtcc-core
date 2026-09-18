@@ -1,13 +1,12 @@
 """Exercise the checker CLI against real coverage from a small public API."""
 
 import os
-from pathlib import Path
 import subprocess
 import sys
 import textwrap
+from pathlib import Path
 
 import pytest
-
 
 CHECKER = Path(__file__).resolve().parents[1] / "scripts/check_public_api_calls.py"
 

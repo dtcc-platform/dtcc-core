@@ -1,8 +1,8 @@
-import pytest
 import numpy as np
+import pytest
 from shapely.geometry import Polygon
 
-from dtcc_core.model import City, Building, Surface
+from dtcc_core.model import Building, City, Surface
 from dtcc_core.model.object import GeometryType
 
 

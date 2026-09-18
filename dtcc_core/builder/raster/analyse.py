@@ -1,4 +1,5 @@
 import numpy as np
+
 from ...model import Raster
 from ..register import register_model_method
 

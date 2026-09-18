@@ -1,10 +1,10 @@
-from ...model import RoadNetwork, GeometryType
+from typing import TYPE_CHECKING, Any, List, Tuple, Union
 
 import numpy as np
-from ..register import register_model_method
-from ...model.geometry import Surface
 
-from typing import TYPE_CHECKING, Any, Union, List, Tuple
+from ...model import GeometryType, RoadNetwork
+from ...model.geometry import Surface
+from ..register import register_model_method
 
 if TYPE_CHECKING:
     from scipy.sparse import csr_matrix
@@ -56,7 +56,7 @@ def to_matrix(roadnetwork: RoadNetwork, bidirectional=True) -> "csr_matrix":
 def to_surfaces(
     roadnetwork: RoadNetwork,
     width_attribute="",
-    widths: Union[float, List[float]] = 4,
+    widths: float | list[float] = 4,
     cap_style="round",
     as_shapely=False,
 ):

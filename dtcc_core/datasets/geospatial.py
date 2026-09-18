@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import math
-from typing import Sequence
+from collections.abc import Sequence
 
 import numpy as np
 
 from ..reproject.reproject import reproject_array
-
 
 WGS84_CRS_ALIASES = {"CRS84", "EPSG:4326", "WGS84"}
 

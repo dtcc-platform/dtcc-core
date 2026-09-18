@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from dtcc_core.model import Object, Surface, MultiSurface, Solid, SemanticRegion
+from dtcc_core.model import MultiSurface, Object, SemanticRegion, Solid, Surface
 from dtcc_core.reproject.reproject import reproject_object
 
 

@@ -26,28 +26,29 @@ Usage in nested functions (no changes needed to function signatures):
 
 """
 
+import contextvars
+import functools
+import json
 import os
 import sys
-import time
-import json
 import threading
-import functools
-import contextvars
-from typing import Optional, Dict, Iterator, Callable, Any, List
-from dataclasses import dataclass, field
+import time
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 from enum import Enum, auto
+from typing import Any, Dict, List, Optional
 
+from rich.console import Console
 from rich.progress import (
+    BarColumn,
     Progress,
     SpinnerColumn,
-    TextColumn,
-    BarColumn,
-    TaskProgressColumn,
-    TimeRemainingColumn,
     TaskID,
+    TaskProgressColumn,
+    TextColumn,
+    TimeRemainingColumn,
 )
-from rich.console import Console
 
 # Shared console for progress and logging integration
 # Using stderr to keep stdout clean for actual program output
@@ -75,7 +76,7 @@ def set_progress_callback(callback: Callable[[dict], None] = None):
     _thread_local.callback = callback
 
 
-def get_progress_callback() -> Optional[Callable[[dict], None]]:
+def get_progress_callback() -> Callable[[dict], None] | None:
     """Get the progress callback for the current thread."""
     return getattr(_thread_local, "callback", None)
 
@@ -158,8 +159,8 @@ class PhaseInfo:
 class ProgressState:
     """Complete state of progress tracking."""
 
-    phases: Dict[str, PhaseInfo] = field(default_factory=dict)
-    current_phase: Optional[str] = None
+    phases: dict[str, PhaseInfo] = field(default_factory=dict)
+    current_phase: str | None = None
     start_time: float = field(default_factory=time.time)
     message: str = ""
 
@@ -185,7 +186,7 @@ class ProgressState:
         return total
 
     @property
-    def eta_seconds(self) -> Optional[float]:
+    def eta_seconds(self) -> float | None:
         """Estimate time remaining."""
         elapsed = time.time() - self.start_time
         pct = self.overall_percent
@@ -226,7 +227,7 @@ class ProgressTracker:
 
     def __init__(
         self,
-        phases: Dict[str, float] = None,
+        phases: dict[str, float] = None,
         total: float = 0.0,
         mode: str = "auto",
         output=None,
@@ -245,18 +246,18 @@ class ProgressTracker:
             # Try thread-local callback first (works across threading boundaries)
             callback = get_progress_callback()
             if callback:
-                print(f"[ProgressTracker] Using thread-local callback")
+                print("[ProgressTracker] Using thread-local callback")
             else:
                 # Fall back to parent context var (works within same async context)
                 parent = _current_progress.get()
                 if parent is not None and parent.callback is not None:
                     callback = parent.callback
-                    print(f"[ProgressTracker] Inherited callback from parent tracker")
+                    print("[ProgressTracker] Inherited callback from parent tracker")
         self.callback = callback
 
         # Rich progress components
-        self._rich_progress: Optional[Progress] = None
-        self._rich_task_id: Optional[TaskID] = None  # Single unified task
+        self._rich_progress: Progress | None = None
+        self._rich_task_id: TaskID | None = None  # Single unified task
         self._console = _console
 
         # Set up phases
@@ -569,7 +570,7 @@ class ProgressTracker:
             print(f"##PROGRESS##{json.dumps(data)}##", file=self.output, flush=True)
 
     @staticmethod
-    def _format_eta(seconds: Optional[float]) -> str:
+    def _format_eta(seconds: float | None) -> str:
         """Format ETA as human-readable string."""
         if seconds is None:
             return "calculating..."
@@ -596,7 +597,7 @@ class ProgressTracker:
 
 
 def with_progress(
-    phases: Dict[str, float] = None,
+    phases: dict[str, float] = None,
     total: int = None,
     message: str = None,
 ):

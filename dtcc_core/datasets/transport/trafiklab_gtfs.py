@@ -8,7 +8,7 @@ import io
 import os
 import zipfile
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +21,6 @@ from .base import (
     make_config_error,
     normalize_gtfs_route_type,
 )
-
 
 REGIONAL_RT_URL = (
     "https://opendata.samtrafiken.se/gtfs-rt/{operator}/VehiclePositions.pb"
@@ -360,7 +359,7 @@ def _parse_vehicle_positions(
 
 
 def _cached_routes_path(operator: str, feed: str) -> Path:
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+    stamp = datetime.now(UTC).strftime("%Y%m%d")
     return (
         Path(user_cache_dir("dtcc-core", "dtcc"))
         / "transport"
@@ -441,6 +440,6 @@ def _posix_to_iso(value) -> str | None:
     if value in (None, "", 0):
         return None
     try:
-        return datetime.fromtimestamp(float(value), tz=timezone.utc).isoformat()
+        return datetime.fromtimestamp(float(value), tz=UTC).isoformat()
     except (TypeError, ValueError, OSError):
         return None

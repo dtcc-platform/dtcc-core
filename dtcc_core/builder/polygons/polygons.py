@@ -1,27 +1,26 @@
-from shapely.geometry import Polygon
-from typing import List, Tuple
-
-from ...model import Building, City
-import shapely
-from shapely.geometry import (
-    Point,
-    Polygon,
-    MultiPolygon,
-    LineString,
-    MultiLineString,
-    JOIN_STYLE,
-    CAP_STYLE,
-)
+import copy
 import math
-import shapely.ops
-import shapely.affinity
-from shapely.validation import make_valid
-import numpy as np
 from collections import defaultdict
 from itertools import combinations, groupby
-import copy
+from typing import List, Tuple
 
-from ..logging import debug, info, warning, error, critical
+import numpy as np
+import shapely
+import shapely.affinity
+import shapely.ops
+from shapely.geometry import (
+    CAP_STYLE,
+    JOIN_STYLE,
+    LineString,
+    MultiLineString,
+    MultiPolygon,
+    Point,
+    Polygon,
+)
+from shapely.validation import make_valid
+
+from ...model import Building, City
+from ..logging import critical, debug, error, info, warning
 
 
 def merge_polygons_convexhull(p1, p2):
@@ -315,7 +314,7 @@ def merge_multipolygon(multipolygon, tol=0.1):
     return m
 
 
-def find_merge_candidates(polygons: List[Polygon], tol: float) -> List[List[int]]:
+def find_merge_candidates(polygons: list[Polygon], tol: float) -> list[list[int]]:
     """
     Group polygons that lie within a given tolerance of each other.
 
@@ -357,11 +356,11 @@ def find_merge_candidates(polygons: List[Polygon], tol: float) -> List[List[int]
 
 
 def clean_merge_candidates(
-    polygons: List[Polygon],
-    merge_candidates: List[List[int]],
+    polygons: list[Polygon],
+    merge_candidates: list[list[int]],
     tol: float,
     min_area: float,
-) -> List[List[int]]:
+) -> list[list[int]]:
     """
     Refine merge groups after removing small isolated polygons.
 
@@ -409,7 +408,7 @@ def clean_merge_candidates(
     return merge_candidates
 
 
-def merge_list_of_polygons(mcp: List[Polygon], tolerance=1e-2) -> Polygon:
+def merge_list_of_polygons(mcp: list[Polygon], tolerance=1e-2) -> Polygon:
     """
     Merge a list of polygons into a single polygon.
 
@@ -457,8 +456,8 @@ def merge_list_of_polygons(mcp: List[Polygon], tolerance=1e-2) -> Polygon:
 
 
 def polygon_merger(
-    polygons: List[Polygon], tolerance: float = 1e-2, min_area: float = 0
-) -> Tuple[List[Polygon], List[List[int]]]:
+    polygons: list[Polygon], tolerance: float = 1e-2, min_area: float = 0
+) -> tuple[list[Polygon], list[list[int]]]:
     """
     Merge polygons that are within a given tolerance of each other.
 
