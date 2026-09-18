@@ -1,41 +1,43 @@
 import fiona
-
-from ..model.object import RoadNetwork, GeometryType
-from ..model.geometry import LineString, MultiLineString
-from . import generic
-
+import numpy as np
+import shapely.affinity
 import shapely.geometry
 import shapely.ops
-import shapely.affinity
 
-from pathlib import Path
-
-import numpy as np
-
-from .logging import info, warning, error
+from ..model.geometry import LineString, MultiLineString
+from ..model.object import GeometryType, RoadNetwork
+from . import generic
+from .logging import warning
+from .utils import get_epsg
 from .vector_utils import (
-    validate_vector_file,
     create_bounds_filter,
     determine_io_crs,
     safe_reproject_geometry,
     set_geometry_crs,
+    validate_vector_file,
 )
-from .utils import get_epsg
 
 HAS_GEOPANDAS = False
 try:
     import geopandas as gpd
-    import pandas as pd
+    import pandas as pd  # noqa: F401  (availability probe)
 
     HAS_GEOPANDAS = True
 except ImportError:
     warning("Geopandas not found, some functionality may be disabled")
 
 
-def _load_fiona(filename, id_field="id", round_coordinates=2, load_geometry=True, bounds=None, target_crs=None):
+def _load_fiona(
+    filename,
+    id_field="id",
+    round_coordinates=2,
+    load_geometry=True,
+    bounds=None,
+    target_crs=None,
+):
     road_network = RoadNetwork()
     filename = validate_vector_file(filename)
-    bounds_filter = create_bounds_filter(bounds, strategy='intersects')
+    bounds_filter = create_bounds_filter(bounds, strategy="intersects")
 
     with fiona.open(filename) as src:
         # Read source CRS
@@ -43,7 +45,14 @@ def _load_fiona(filename, id_field="id", round_coordinates=2, load_geometry=True
         target_crs = determine_io_crs(source_crs, target_crs, context="road network")
 
         attr_keys = src.schema["properties"].keys()
-        features = [f for f in src if not bounds_filter or bounds_filter['strategy'](bounds_filter['geometry'], shapely.geometry.shape(f["geometry"]))]
+        features = [
+            f
+            for f in src
+            if not bounds_filter
+            or bounds_filter["strategy"](
+                bounds_filter["geometry"], shapely.geometry.shape(f["geometry"])
+            )
+        ]
         attrs = [dict(f["properties"]) for f in features]
 
         shapely_geom = [shapely.geometry.shape(f["geometry"]) for f in features]
@@ -53,7 +62,6 @@ def _load_fiona(filename, id_field="id", round_coordinates=2, load_geometry=True
 
         coords = [(r.coords[0], r.coords[-1]) for r in shapely_geom]
         lengths = [r.length for r in shapely_geom]
-
 
     if round_coordinates is not None:
         rounded_coords = [
@@ -102,7 +110,12 @@ def _load_fiona(filename, id_field="id", round_coordinates=2, load_geometry=True
 
 
 def load(
-    filename, id_field="id", round_coordinates=2, load_geometry=True, bounds=None, target_crs=None
+    filename,
+    id_field="id",
+    round_coordinates=2,
+    load_geometry=True,
+    bounds=None,
+    target_crs=None,
 ) -> RoadNetwork:
     """
     Load a road network from a supported vector file.
@@ -170,7 +183,9 @@ def to_dataframe(road_network: RoadNetwork, crs=None):
     df = gpd.GeoDataFrame.from_dict(road_network.attributes)
     road_geometry = [
         linestring.to_shapely()
-        for linestring in road_network.get_geometry(GeometryType.MULTILINESTRING).linestrings
+        for linestring in road_network.get_geometry(
+            GeometryType.MULTILINESTRING
+        ).linestrings
     ]
     df.set_geometry(road_geometry, inplace=True, crs=crs)
     return df

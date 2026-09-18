@@ -1,12 +1,13 @@
-import pytest
 import numpy as np
-from dtcc_core.model import Surface, MultiSurface
+import pytest
+
+from dtcc_core.model import MultiSurface, Surface
 
 
 @pytest.fixture
 def surface_pair():
-    s1 = Surface(vertices=np.array([[0., 0., 0.], [1., 0., 0.], [1., 1., 0.]]))
-    s2 = Surface(vertices=np.array([[0., 0., 1.], [1., 0., 1.], [1., 1., 2.]]))
+    s1 = Surface(vertices=np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0]]))
+    s2 = Surface(vertices=np.array([[0.0, 0.0, 1.0], [1.0, 0.0, 1.0], [1.0, 1.0, 2.0]]))
     return s1, s2
 
 

@@ -1,10 +1,11 @@
-from pathlib import Path
 import tempfile
-from typing import Literal, Optional
+from pathlib import Path
+from typing import Literal
+
+from pydantic import Field
 
 import dtcc_core
 from dtcc_core.model import DeSO
-from pydantic import Field
 
 from .dataset import DatasetBaseArgs, DatasetDescriptor
 from .providers import provider_entry
@@ -13,20 +14,20 @@ from .providers import provider_entry
 class DeSOArgs(DatasetBaseArgs):
     source: Literal["SCB"] = Field("SCB", description="Data source")
     year: Literal[2018, 2025] = Field(2025, description="DeSO geometry vintage")
-    statistics: Optional[
-        list[Literal["population", "households", "cars", "employment"]]
-    ] = Field(
+    statistics: (
+        list[Literal["population", "households", "cars", "employment"]] | None
+    ) = Field(
         None,
         description=(
             "Optional SCB DeSO statistics to attach as area-aligned fields "
             "(population, households, cars, employment)."
         ),
     )
-    statistics_year: Optional[int] = Field(
+    statistics_year: int | None = Field(
         None,
         description="Reference year for attached statistics; defaults to latest supported.",
     )
-    format: Optional[Literal["pb", "geojson", "gpkg"]] = Field(
+    format: Literal["pb", "geojson", "gpkg"] | None = Field(
         None,
         description="Output format (pb for protobuf bytes, geojson/gpkg for vector bytes)",
     )
@@ -131,10 +132,22 @@ class DeSODataset(DatasetDescriptor):
         "title": "DeSO areas",
         "entries": [
             {"label": "Polygon", "meaning": "SCB DeSO statistical area"},
-            {"label": "population_total", "meaning": "persons by DeSO area when requested"},
-            {"label": "households_total", "meaning": "households by DeSO area when requested"},
-            {"label": "cars_total/cars_in_traffic", "meaning": "passenger-car counts when requested"},
-            {"label": "employed_residents_total", "meaning": "employed residents when requested"},
+            {
+                "label": "population_total",
+                "meaning": "persons by DeSO area when requested",
+            },
+            {
+                "label": "households_total",
+                "meaning": "households by DeSO area when requested",
+            },
+            {
+                "label": "cars_total/cars_in_traffic",
+                "meaning": "passenger-car counts when requested",
+            },
+            {
+                "label": "employed_residents_total",
+                "meaning": "employed residents when requested",
+            },
         ],
     }
     view_hints = {

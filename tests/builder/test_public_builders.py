@@ -20,7 +20,7 @@ def building(polygon, identifier="building"):
 def test_split_footprint_walls_preserves_shape_height_and_source():
     original = building(box(0, 0, 12, 6))
     vertices = original.lod0.vertices.copy()
-    result, = builder.split_footprint_walls([original], max_wall_length=3)
+    (result,) = builder.split_footprint_walls([original], max_wall_length=3)
     assert result.lod0.to_polygon().equals(original.lod0.to_polygon())
     edges = np.roll(result.lod0.vertices, -1, axis=0) - result.lod0.vertices
     assert np.linalg.norm(edges, axis=1).max() <= 3 + 1e-9
@@ -72,7 +72,9 @@ def test_flat_terrain_uses_requested_height_and_extent():
 
 def test_default_mesher_override_reset_and_invalid_selection(monkeypatch):
     monkeypatch.setattr(backends, "_default_2d_mesher_override", None)
-    monkeypatch.setattr(backends, "available_2d_meshers", lambda: ["dtcc_mesher", "triangle"])
+    monkeypatch.setattr(
+        backends, "available_2d_meshers", lambda: ["dtcc_mesher", "triangle"]
+    )
     monkeypatch.setenv("DTCC_2D_MESHER", "dtcc_mesher")
     assert builder.get_default_2d_mesher() == "dtcc_mesher"
     assert builder.set_default_2d_mesher(" TRIANGLE ") == "triangle"

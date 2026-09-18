@@ -1,7 +1,10 @@
-from dataclasses import dataclass, field
 from collections import Counter
-from typing import Any, Union, List, Tuple
+from dataclasses import dataclass, field
 from enum import Enum, auto
+from typing import Any
+
+import numpy as np
+
 from ...common import warning
 from ...plotting.style import (
     DTCC_COLORS,
@@ -10,11 +13,8 @@ from ...plotting.style import (
     apply_dtcc_style,
     plot_line_segments,
 )
-from .object import Object, GeometryType
-from ..geometry import LineString, MultiLineString
-from ..geometry import Bounds
-
-import numpy as np
+from ..geometry import Bounds, LineString, MultiLineString
+from .object import GeometryType, Object
 
 
 class RoadType(Enum):
@@ -43,13 +43,13 @@ class RoadNetwork(Object):
     ----------
     vertices : np.ndarray
         An array of vertex coordinates in the road network (shape: [n_vertices, dim]).
-    
+
     edges : np.ndarray
-        An array of edge indices representing connections between vertices 
+        An array of edge indices representing connections between vertices
         (shape: [n_edges, 2], each row is [start_idx, end_idx]).
-    
+
     length : np.ndarray
-        An array of lengths corresponding to each edge in the network 
+        An array of lengths corresponding to each edge in the network
         (shape: [n_edges]).
     """
 
@@ -67,7 +67,7 @@ class RoadNetwork(Object):
         ]
 
     @property
-    def linestrings(self) -> List[LineString]:
+    def linestrings(self) -> list[LineString]:
         """
         Access individual LineString geometries if present.
 
@@ -151,9 +151,7 @@ class RoadNetwork(Object):
             line_vertices = []
             line_offsets = [0]
             dim = (
-                self.vertices.shape[1]
-                if getattr(self.vertices, "ndim", 0) == 2
-                else 2
+                self.vertices.shape[1] if getattr(self.vertices, "ndim", 0) == 2 else 2
             )
             for line in self.linestrings:
                 vertices = np.asarray(line.vertices)
@@ -174,21 +172,37 @@ class RoadNetwork(Object):
         sections[0][2].append(("Line geometries", len(self.linestrings)))
         geometry = self.get_geometry(GeometryType.MULTILINESTRING)
         if not self.transform.srs and geometry is not None:
-            sections[0][2].append(("Geometry CRS", geometry.transform.srs or "Not specified"))
+            sections[0][2].append(
+                ("Geometry CRS", geometry.transform.srs or "Not specified")
+            )
         if len(self.length):
             lengths = np.asarray(self.length, dtype=float)
-            sections.append(("Length statistics", ("Statistic", "Value"), [
-                ("Count", len(lengths)), ("Total", f"{lengths.sum():.2f}"),
-                ("Min", f"{lengths.min():.2f}"), ("Max", f"{lengths.max():.2f}"),
-                ("Mean", f"{lengths.mean():.2f}"),
-            ]))
+            sections.append(
+                (
+                    "Length statistics",
+                    ("Statistic", "Value"),
+                    [
+                        ("Count", len(lengths)),
+                        ("Total", f"{lengths.sum():.2f}"),
+                        ("Min", f"{lengths.min():.2f}"),
+                        ("Max", f"{lengths.max():.2f}"),
+                        ("Mean", f"{lengths.mean():.2f}"),
+                    ],
+                )
+            )
         if "highway" in self.attributes:
-            counts = Counter(value for value in self.attributes["highway"] if value not in (None, ""))
+            counts = Counter(
+                value for value in self.attributes["highway"] if value not in (None, "")
+            )
             if counts:
-                sections.append(("Highway classes", ("Class", "Count"), counts.most_common()))
+                sections.append(
+                    ("Highway classes", ("Class", "Count"), counts.most_common())
+                )
         if "oneway" in self.attributes:
-            count = sum(value is True or str(value).strip().lower() in {"true", "yes", "1"}
-                        for value in self.attributes["oneway"])
+            count = sum(
+                value is True or str(value).strip().lower() in {"true", "yes", "1"}
+                for value in self.attributes["oneway"]
+            )
             sections[0][2].append(("One-way segments", count))
         return sections
 

@@ -55,7 +55,9 @@ def test_city_json_export_returns_bytes(mock_city_cls):
     mock_city_cls.return_value = city
 
     dataset = CityDataset()
-    with patch.object(dataset, "export_to_bytes", return_value=b"city-json") as mock_export:
+    with patch.object(
+        dataset, "export_to_bytes", return_value=b"city-json"
+    ) as mock_export:
         result = dataset.build(
             CityArgs(
                 bounds=(0.0, 0.0, 1.0, 1.0),
@@ -75,7 +77,9 @@ def test_city_cityjson_export_currently_uses_json_export_path(mock_city_cls):
     mock_city_cls.return_value = city
 
     dataset = CityDataset()
-    with patch.object(dataset, "export_to_bytes", return_value=b"city-cityjson") as mock_export:
+    with patch.object(
+        dataset, "export_to_bytes", return_value=b"city-cityjson"
+    ) as mock_export:
         result = dataset.build(
             CityArgs(
                 bounds=(0.0, 0.0, 1.0, 1.0),
@@ -117,9 +121,7 @@ def test_city_filters_small_footprints_before_lod1_build(mock_city_cls):
     mock_city_cls.return_value = city
 
     dataset = CityDataset()
-    dataset.build(
-        CityArgs(bounds=(0.0, 0.0, 1.0, 1.0), smallest_building_size=50.0)
-    )
+    dataset.build(CityArgs(bounds=(0.0, 0.0, 1.0, 1.0), smallest_building_size=50.0))
 
     city.download_footprints.assert_called_once_with(provider="dtcc")
     city.replace_buildings.assert_called_once()
@@ -161,7 +163,9 @@ def test_city_context_documents_terrain_lod1_lineage_and_limitations():
     assert manifest.presentation.headline == "Terrain and LoD1 City Model"
     assert manifest.presentation.legend["title"] == "City model layers"
     assert manifest.presentation.view_hints["building_lod"] == "LoD1"
-    assert any("LoD1 block geometry" in warning for warning in manifest.presentation.warnings)
+    assert any(
+        "LoD1 block geometry" in warning for warning in manifest.presentation.warnings
+    )
     assert manifest.presentation.limitations
     assert manifest.request.parameters["source"] == "LM"
     assert manifest.request.parameters["format"] == "cityjson"

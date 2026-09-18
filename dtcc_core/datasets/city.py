@@ -1,11 +1,13 @@
-from dtcc_core.model import City
-from typing import Literal, Optional
+from typing import Literal
+
 from pydantic import Field
 
-from .dataset import DatasetDescriptor, DatasetBaseArgs
+from dtcc_core.common.progress import ProgressTracker
+from dtcc_core.model import City
+
+from .dataset import DatasetBaseArgs, DatasetDescriptor
 from .footprints import _filter_small_buildings, _provider_for_source
 from .providers import provider_entry
-from dtcc_core.common.progress import ProgressTracker
 
 
 class CityArgs(DatasetBaseArgs):
@@ -19,7 +21,7 @@ class CityArgs(DatasetBaseArgs):
     smallest_building_size: float = Field(
         15.0, description="Smallest building size to include (in square meters)"
     )
-    format: Optional[Literal["cityjson", "json"]] = Field(
+    format: Literal["cityjson", "json"] | None = Field(
         None, description="Output file format"
     )
 
@@ -128,8 +130,14 @@ class CityDataset(DatasetDescriptor):
         "title": "City model layers",
         "entries": [
             {"label": "Terrain", "meaning": "point-cloud-derived terrain raster/mesh"},
-            {"label": "LoD1 building", "meaning": "extruded footprint with estimated height"},
-            {"label": "City JSON", "meaning": "serialized city-model package when requested"},
+            {
+                "label": "LoD1 building",
+                "meaning": "extruded footprint with estimated height",
+            },
+            {
+                "label": "City JSON",
+                "meaning": "serialized city-model package when requested",
+            },
         ],
     }
     view_hints = {

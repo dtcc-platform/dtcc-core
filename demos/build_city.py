@@ -11,7 +11,6 @@ from pathlib import Path
 import dtcc_core as dtcc
 from dtcc_core.model import City
 
-
 BOUNDS = dtcc.Bounds(319720, 6397660, 320220, 6398160)
 
 CELL_SIZE = 2.0

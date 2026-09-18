@@ -7,11 +7,11 @@ from datetime import datetime
 from logging import LogRecord
 
 from rich.console import Console
+from rich.highlighter import NullHighlighter
 from rich.logging import RichHandler
 from rich.padding import Padding
 from rich.text import Text
 from rich.traceback import Traceback
-from rich.highlighter import NullHighlighter
 
 # Maps log level -> (level_style, message_style)
 LEVEL_STYLES = {
@@ -53,9 +53,7 @@ class LoggingHandler(RichHandler):
         """Emit a log record with DTCC formatting."""
         try:
             # Get styles for this level
-            level_style, msg_style = LEVEL_STYLES.get(
-                record.levelname, ("", "")
-            )
+            level_style, msg_style = LEVEL_STYLES.get(record.levelname, ("", ""))
 
             # Format timestamp
             time_str = datetime.fromtimestamp(record.created).strftime("%H:%M:%S")

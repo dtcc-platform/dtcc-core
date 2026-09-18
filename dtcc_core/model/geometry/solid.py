@@ -1,11 +1,12 @@
 """Polygonal solid with explicit exterior/interior shell membership."""
 
 from dataclasses import dataclass, field
+
 import numpy as np
 
+from .bounds import Bounds
 from .geometry import Geometry
 from .surface import Surface
-from .bounds import Bounds
 
 
 @dataclass(repr=False)

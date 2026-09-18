@@ -3,16 +3,16 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict, dataclass
 import fnmatch
 import json
-from pathlib import Path
 import sys
-from typing import Any, Iterable, Literal, Sequence
+from collections.abc import Iterable, Sequence
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any, Literal
 
 from .dataset import DatasetDescriptor
 from .registry import list_datasets
-
 
 FieldStatus = Literal[
     "present",
@@ -586,8 +586,7 @@ def _format_markdown_report(report: DatasetQAReport) -> str:
         "|---|---:|",
     ]
     lines.extend(
-        f"| `{status}` | {count} |"
-        for status, count in report.status_counts().items()
+        f"| `{status}` | {count} |" for status, count in report.status_counts().items()
     )
     lines.extend(
         [

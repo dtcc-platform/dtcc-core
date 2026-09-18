@@ -1,15 +1,15 @@
 # Copyright(C) 2023 Dag Wästberg
 # Licensed under the MIT License
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from numbers import Real
-from typing import Literal, Union
-from shapely.geometry import Polygon
+from typing import Literal
+
 from shapely.ops import unary_union
 
-from .object import Object, GeometryType
-from ..geometry import Bounds, Surface
+from ..geometry import Surface
 from ..logging import warning
+from .object import GeometryType, Object
 
 
 @dataclass(repr=False)
@@ -110,10 +110,11 @@ class Building(Object):
 
 class BuildingPart(Object):
     """Represents a building part object with protobuf serialization support.
-    
-        A specialized Object subclass that provides conversion methods for 
-        protobuf serialization and deserialization of building part data.
+
+    A specialized Object subclass that provides conversion methods for
+    protobuf serialization and deserialization of building part data.
     """
+
     building_parts = Building.building_parts
     measured_height = Building.measured_height
     height = Building.height

@@ -76,8 +76,7 @@ class VideoRenderOptions(RasterRenderOptions):
     @property
     def frame_times(self) -> tuple[float, ...]:
         return tuple(
-            self.start_time + frame / self.fps
-            for frame in range(self.frame_count)
+            self.start_time + frame / self.fps for frame in range(self.frame_count)
         )
 
     def manifest_dict(self) -> dict[str, object]:

@@ -1,30 +1,21 @@
-from ..polygons.polygons import (
-    polygon_merger,
-    simplify_polygon,
-    remove_slivers,
-    fix_clearance,
-)
+import dataclasses
+from copy import deepcopy
+
+import numpy as np
+
+from dtcc_core.model import City, GeometryType, Raster, Terrain
 
 from ..building.modify import (
     _condition_buildings_with_shared_cleaner,
     clean_building_geometry,
     fix_building_footprint_clearance,
-    merge_building_footprints,
-    simplify_building_footprints,
 )
 from ..cleaning import ConditioningOptions
-
-import numpy as np
-
+from ..logging import warning
+from ..polygons.polygons import (
+    simplify_polygon,
+)
 from ..register import register_model_method
-from dtcc_core.model import City, Bounds, Terrain, Building, GeometryType, Raster
-from statistics import mean
-import shapely
-import dataclasses
-from copy import deepcopy
-from collections import defaultdict
-from shapely.geometry import MultiPolygon, Polygon, JOIN_STYLE, CAP_STYLE
-from ..logging import info, warning, error
 
 
 @register_model_method

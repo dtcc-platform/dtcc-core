@@ -8,7 +8,7 @@ import io
 import os
 import zipfile
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +21,6 @@ from .base import (
     make_config_error,
     normalize_gtfs_route_type,
 )
-
 
 REGIONAL_RT_URL = (
     "https://opendata.samtrafiken.se/gtfs-rt/{operator}/VehiclePositions.pb"
@@ -175,7 +174,7 @@ def fetch_trafiklab_gtfs_vehicles(
 
 
 def select_trafiklab_operators(
-    bounds_wgs84: tuple[float, float, float, float]
+    bounds_wgs84: tuple[float, float, float, float],
 ) -> list[str]:
     """Select Trafiklab operators whose coarse service box overlaps bounds."""
     return [
@@ -360,7 +359,7 @@ def _parse_vehicle_positions(
 
 
 def _cached_routes_path(operator: str, feed: str) -> Path:
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+    stamp = datetime.now(UTC).strftime("%Y%m%d")
     return (
         Path(user_cache_dir("dtcc-core", "dtcc"))
         / "transport"
@@ -429,7 +428,9 @@ def _enum_name(message, field_name: str) -> str | None:
         return None
     try:
         descriptor = message.DESCRIPTOR.fields_by_name[field_name]
-        return descriptor.enum_type.values_by_number[int(getattr(message, field_name))].name
+        return descriptor.enum_type.values_by_number[
+            int(getattr(message, field_name))
+        ].name
     except Exception:
         value = _message_value(message, field_name)
         return None if value is None else str(value)
@@ -439,6 +440,6 @@ def _posix_to_iso(value) -> str | None:
     if value in (None, "", 0):
         return None
     try:
-        return datetime.fromtimestamp(float(value), tz=timezone.utc).isoformat()
+        return datetime.fromtimestamp(float(value), tz=UTC).isoformat()
     except (TypeError, ValueError, OSError):
         return None

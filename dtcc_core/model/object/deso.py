@@ -1,5 +1,5 @@
-from dataclasses import dataclass
 from collections import Counter
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -9,9 +9,9 @@ from ...plotting.style import (
     apply_dtcc_style,
     plot_geodataframe,
 )
-from .object import Object, GeometryType
 from ..geometry import MultiSurface
 from ..values import Field
+from .object import GeometryType, Object
 
 
 @dataclass(repr=False)
@@ -82,9 +82,13 @@ class DeSO(Object):
         fields = self.fields
         if fields:
             sections.append(field_section(fields.values()))
-        area_types = Counter(code[4] for code in self.codes if isinstance(code, str) and len(code) > 4)
+        area_types = Counter(
+            code[4] for code in self.codes if isinstance(code, str) and len(code) > 4
+        )
         if area_types:
-            sections.append(("Area types", ("Type", "Count"), sorted(area_types.items())))
+            sections.append(
+                ("Area types", ("Type", "Count"), sorted(area_types.items()))
+            )
         keys = sorted({key for area in self.areas for key in area.attributes})
         if keys:
             sections.append(("Area attributes", ("Name",), [(key,) for key in keys]))
@@ -166,8 +170,7 @@ class DeSO(Object):
         fields = self.fields
         if fields:
             arrays["fields"] = {
-                name: field.values.copy()
-                for name, field in fields.items()
+                name: field.values.copy() for name, field in fields.items()
             }
 
         return arrays
@@ -247,9 +250,7 @@ class DeSO(Object):
         if presentation_enabled and len(gdf) == 0:
             draw_empty_preview_state(ax, context)
         show_legend = (
-            column is not None and column != "desokod"
-            if legend is None
-            else legend
+            column is not None and column != "desokod" if legend is None else legend
         )
         plot_geodataframe(
             ax,
@@ -331,9 +332,7 @@ class DeSO(Object):
                 return None
             return scalar.item() if hasattr(scalar, "item") else scalar
         return [
-            None
-            if np.isnan(item)
-            else (item.item() if hasattr(item, "item") else item)
+            None if np.isnan(item) else (item.item() if hasattr(item, "item") else item)
             for item in value.reshape(-1)
         ]
 

@@ -6,23 +6,22 @@
 import numpy as np
 import pytest
 
-from dtcc_core.model.geometry.mesh import Mesh
 from dtcc_core.builder.meshing.boundary_conformance import (
-    conform_boundary,
-    _classify_vertices,
-    _find_boundary_vertices,
-    _detect_contact_vertices,
-    _find_shared_boundary_edge,
-    _sample_old_mesh_heights,
     _build_adjacency,
-    _laplacian_smooth_z,
+    _classify_vertices,
     _compute_mean_edge_length,
+    _find_boundary_vertices,
+    _find_shared_boundary_edge,
+    _laplacian_smooth_z,
+    _sample_old_mesh_heights,
+    conform_boundary,
 )
-
+from dtcc_core.model.geometry.mesh import Mesh
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_grid_mesh(nx, ny, x0, y0, dx, dy, z=0.0, marker=-2):
     """Create a regular grid mesh.
@@ -53,6 +52,7 @@ def _make_grid_mesh(nx, ny, x0, y0, dx, dy, z=0.0, marker=-2):
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def grid_mesh_a():
@@ -100,9 +100,7 @@ def tetrahedron_surface():
     mesh.vertices = np.array(
         [[0, 0, 0], [1, 0, 0], [0.5, 1, 0], [0.5, 0.5, 1]], dtype=np.float64
     )
-    mesh.faces = np.array(
-        [[0, 1, 2], [0, 1, 3], [1, 2, 3], [0, 2, 3]], dtype=np.int64
-    )
+    mesh.faces = np.array([[0, 1, 2], [0, 1, 3], [1, 2, 3], [0, 2, 3]], dtype=np.int64)
     mesh.markers = np.array([-2, -2, -2, -2], dtype=np.int64)
     return mesh
 
@@ -110,6 +108,7 @@ def tetrahedron_surface():
 # ---------------------------------------------------------------------------
 # TestClassifyVertices
 # ---------------------------------------------------------------------------
+
 
 class TestClassifyVertices:
     def test_all_terrain(self, grid_mesh_a):
@@ -146,13 +145,14 @@ class TestClassifyVertices:
 # TestFindSharedBoundaryEdge
 # ---------------------------------------------------------------------------
 
+
 class TestFindSharedBoundaryEdge:
     def test_x_max_shared(self, grid_mesh_a, grid_mesh_b):
         """Detect x_max edge of mesh_a shared with x_min of mesh_b."""
         edge_type, edge_value = _find_shared_boundary_edge(
             grid_mesh_a.vertices, grid_mesh_b, tolerance=0.1
         )
-        assert edge_type == 'x_max'
+        assert edge_type == "x_max"
         np.testing.assert_allclose(edge_value, 4.0, atol=1e-6)
 
     def test_y_max_shared(self):
@@ -163,7 +163,7 @@ class TestFindSharedBoundaryEdge:
         edge_type, edge_value = _find_shared_boundary_edge(
             new_mesh.vertices, old_mesh, tolerance=0.1
         )
-        assert edge_type == 'y_min'
+        assert edge_type == "y_min"
         np.testing.assert_allclose(edge_value, 4.0, atol=1e-6)
 
     def test_no_shared_edge(self):
@@ -180,6 +180,7 @@ class TestFindSharedBoundaryEdge:
 # ---------------------------------------------------------------------------
 # TestFindBoundaryVertices
 # ---------------------------------------------------------------------------
+
 
 class TestFindBoundaryVertices:
     def test_open_grid(self, grid_mesh_a):
@@ -207,6 +208,7 @@ class TestFindBoundaryVertices:
 # TestBuildAdjacency
 # ---------------------------------------------------------------------------
 
+
 class TestBuildAdjacency:
     def test_single_triangle(self, single_triangle):
         adj = _build_adjacency(single_triangle.faces, single_triangle.num_vertices)
@@ -229,12 +231,11 @@ class TestBuildAdjacency:
 # TestSampleOldMeshHeights
 # ---------------------------------------------------------------------------
 
+
 class TestSampleOldMeshHeights:
     def test_point_inside_triangle(self):
         mesh = Mesh()
-        mesh.vertices = np.array(
-            [[0, 0, 0], [2, 0, 1], [1, 2, 2]], dtype=np.float64
-        )
+        mesh.vertices = np.array([[0, 0, 0], [2, 0, 1], [1, 2, 2]], dtype=np.float64)
         mesh.faces = np.array([[0, 1, 2]], dtype=np.int64)
         mesh.markers = np.array([-2], dtype=np.int64)
         # Centroid is at (1, 2/3)
@@ -246,9 +247,7 @@ class TestSampleOldMeshHeights:
 
     def test_point_on_edge(self):
         mesh = Mesh()
-        mesh.vertices = np.array(
-            [[0, 0, 0], [2, 0, 4], [1, 2, 2]], dtype=np.float64
-        )
+        mesh.vertices = np.array([[0, 0, 0], [2, 0, 4], [1, 2, 2]], dtype=np.float64)
         mesh.faces = np.array([[0, 1, 2]], dtype=np.int64)
         mesh.markers = np.array([-2], dtype=np.int64)
         # Midpoint of edge v0-v1 = (1, 0)
@@ -258,9 +257,7 @@ class TestSampleOldMeshHeights:
 
     def test_point_outside_fallback(self):
         mesh = Mesh()
-        mesh.vertices = np.array(
-            [[0, 0, 5], [2, 0, 5], [1, 2, 5]], dtype=np.float64
-        )
+        mesh.vertices = np.array([[0, 0, 5], [2, 0, 5], [1, 2, 5]], dtype=np.float64)
         mesh.faces = np.array([[0, 1, 2]], dtype=np.int64)
         mesh.markers = np.array([-2], dtype=np.int64)
         # Point far outside
@@ -274,6 +271,7 @@ class TestSampleOldMeshHeights:
 # ---------------------------------------------------------------------------
 # TestLaplacianSmoothZ
 # ---------------------------------------------------------------------------
+
 
 class TestLaplacianSmoothZ:
     def test_frozen_unchanged(self, grid_mesh_a):
@@ -322,6 +320,7 @@ class TestLaplacianSmoothZ:
 # TestComputeMeanEdgeLength
 # ---------------------------------------------------------------------------
 
+
 class TestComputeMeanEdgeLength:
     def test_unit_square(self):
         mesh = _make_grid_mesh(2, 2, 0, 0, 1, 1, z=0.0)
@@ -331,7 +330,7 @@ class TestComputeMeanEdgeLength:
         assert mel < 2.0
 
     def test_equilateral(self):
-        verts = np.array([[0, 0, 0], [1, 0, 0], [0.5, np.sqrt(3)/2, 0]])
+        verts = np.array([[0, 0, 0], [1, 0, 0], [0.5, np.sqrt(3) / 2, 0]])
         faces = np.array([[0, 1, 2]])
         mel = _compute_mean_edge_length(faces, verts)
         np.testing.assert_allclose(mel, 1.0, atol=1e-10)
@@ -341,6 +340,7 @@ class TestComputeMeanEdgeLength:
 # TestConformBoundary (integration)
 # ---------------------------------------------------------------------------
 
+
 class TestConformBoundary:
     def test_basic_conformance(self, grid_mesh_b, grid_mesh_a):
         """Boundary z matches old mesh after conformance."""
@@ -348,9 +348,7 @@ class TestConformBoundary:
         # Vertices at x=4 in result should have z close to 0 (from grid_mesh_a)
         at_boundary = np.isclose(result.vertices[:, 0], 4.0)
         if at_boundary.any():
-            np.testing.assert_allclose(
-                result.vertices[at_boundary, 2], 0.0, atol=0.1
-            )
+            np.testing.assert_allclose(result.vertices[at_boundary, 2], 0.0, atol=0.1)
 
     def test_building_vertices_preserved(self, building_mesh, grid_mesh_b):
         """Building vertex z unchanged."""
@@ -428,8 +426,10 @@ class TestConformBoundary:
 
         # All boundary vertices should conform to old mesh height (z≈0)
         np.testing.assert_allclose(
-            result.vertices[at_boundary, 2], 0.0, atol=0.15,
-            err_msg="All boundary vertices should conform to old mesh height"
+            result.vertices[at_boundary, 2],
+            0.0,
+            atol=0.15,
+            err_msg="All boundary vertices should conform to old mesh height",
         )
 
     def test_edge_projection_accuracy(self):
@@ -442,8 +442,12 @@ class TestConformBoundary:
         # Add noise to boundary vertices at x≈4
         at_boundary = np.isclose(new_mesh.vertices[:, 0], 4.0)
         np.random.seed(42)
-        new_mesh.vertices[at_boundary, 0] += np.random.uniform(-0.05, 0.05, at_boundary.sum())
-        new_mesh.vertices[at_boundary, 1] += np.random.uniform(-0.05, 0.05, at_boundary.sum())
+        new_mesh.vertices[at_boundary, 0] += np.random.uniform(
+            -0.05, 0.05, at_boundary.sum()
+        )
+        new_mesh.vertices[at_boundary, 1] += np.random.uniform(
+            -0.05, 0.05, at_boundary.sum()
+        )
 
         result = conform_boundary(new_mesh, [old_mesh], tolerance=0.2)
 
@@ -451,7 +455,9 @@ class TestConformBoundary:
         # (this happens internally during z-sampling, then Laplacian smoothing preserves it)
         at_result_boundary = np.abs(result.vertices[:, 0] - 4.0) < 0.001
         # Z-values should be pinned (smoothing iterations=0 to test pure projection)
-        result_no_smooth = conform_boundary(new_mesh, [old_mesh], tolerance=0.2, smoothing_iterations=0)
+        result_no_smooth = conform_boundary(
+            new_mesh, [old_mesh], tolerance=0.2, smoothing_iterations=0
+        )
         at_boundary_after = np.abs(result_no_smooth.vertices[:, 0] - 4.0) < 0.1
         if at_boundary_after.sum() > 0:
             np.testing.assert_allclose(
@@ -472,8 +478,10 @@ class TestConformBoundary:
         at_boundary = np.isclose(result.vertices[:, 1], 4.0)
         if at_boundary.sum() > 0:
             np.testing.assert_allclose(
-                result.vertices[at_boundary, 2], 0.0, atol=0.15,
-                err_msg="Y-axis boundary should conform correctly"
+                result.vertices[at_boundary, 2],
+                0.0,
+                atol=0.15,
+                err_msg="Y-axis boundary should conform correctly",
             )
 
     def test_large_mesh_performance(self):
@@ -485,6 +493,7 @@ class TestConformBoundary:
         new_mesh = _make_grid_mesh(5, 5, 99, 0, 1, 1, z=1.0, marker=-2)
 
         import time
+
         start = time.time()
         result = conform_boundary(new_mesh, [old_mesh], tolerance=2.0)
         elapsed = time.time() - start
@@ -496,6 +505,4 @@ class TestConformBoundary:
         # Verify correctness
         at_boundary = np.isclose(result.vertices[:, 0], 99.0)
         if at_boundary.sum() > 0:
-            np.testing.assert_allclose(
-                result.vertices[at_boundary, 2], 0.0, atol=0.15
-            )
+            np.testing.assert_allclose(result.vertices[at_boundary, 2], 0.0, atol=0.15)

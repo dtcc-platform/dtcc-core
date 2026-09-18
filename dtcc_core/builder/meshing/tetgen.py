@@ -1,16 +1,15 @@
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any
 
 import numpy as np
 
 from ...model import Mesh, VolumeMesh
-from . import tetgen_utils
-
 from ..logging import debug, warning
+from . import tetgen_utils
 
 HAS_TETGEN = False
 _tetgen_import_error: ImportError | None = None
 _tetgen_switch_module = None
-BOUNDARY_FACET_MARKERS: Dict[str, int] = {
+BOUNDARY_FACET_MARKERS: dict[str, int] = {
     "top": -2,
     "west": -3,
     "east": -4,
@@ -51,7 +50,7 @@ def _require_tetgen() -> None:
         ) from _tetgen_import_error
 
 
-def get_default_tetgen_switches() -> Dict[str, Any]:
+def get_default_tetgen_switches() -> dict[str, Any]:
     """
     Return a fresh copy of TetGen switch defaults if TetGen is available.
     """
@@ -64,14 +63,14 @@ def build_volume_mesh(
     build_top_sidewalls: bool = True,
     top_height: float = 100.0,
     return_boundary_faces: bool = True,
-    closure_mesh: Optional[Mesh] = None,
+    closure_mesh: Mesh | None = None,
     top_cap_backend: str = "auto",
-    top_cap_max_mesh_size: Optional[float] = None,
+    top_cap_max_mesh_size: float | None = None,
     top_cap_min_mesh_angle: float = 25.0,
-    switches_params: Optional[Dict[str, Any]] = None,
-    switches_overrides: Optional[Dict[str, Any]] = None,
-    prebuilt_plc: Optional[tetgen_utils.TetgenPLC] = None,
-) -> Union[VolumeMesh, Tuple[VolumeMesh, Optional[np.ndarray]]]:
+    switches_params: dict[str, Any] | None = None,
+    switches_overrides: dict[str, Any] | None = None,
+    prebuilt_plc: tetgen_utils.TetgenPLC | None = None,
+) -> VolumeMesh | tuple[VolumeMesh, np.ndarray | None]:
     """
     Build a tetrahedral volume mesh from a surface mesh using TetGen.
 
@@ -149,7 +148,9 @@ def build_volume_mesh(
             for facet in prebuilt_plc.boundary_facets
         ]
         diagnostic_boundary_facets = b_facets
-        boundary_facet_markers = [int(marker) for marker in prebuilt_plc.boundary_facet_markers]
+        boundary_facet_markers = [
+            int(marker) for marker in prebuilt_plc.boundary_facet_markers
+        ]
         mesh = Mesh(
             vertices=np.asarray(prebuilt_plc.vertices, dtype=float),
             faces=np.asarray(prebuilt_plc.shell_faces, dtype=np.int64),
@@ -171,7 +172,9 @@ def build_volume_mesh(
                 top_cap_max_mesh_size=top_cap_max_mesh_size,
                 top_cap_min_mesh_angle=top_cap_min_mesh_angle,
             )
-            mesh = Mesh(vertices=new_vertices, faces=oriented_faces, markers=mesh.markers)
+            mesh = Mesh(
+                vertices=new_vertices, faces=oriented_faces, markers=mesh.markers
+            )
         else:
             new_vertices, boundary_facets = tetgen_utils.compute_boundary_facets(
                 mesh, top_height=top_height
@@ -197,7 +200,7 @@ def build_volume_mesh(
         )
 
     # Prepare TetGen switches
-    base_switches: Dict[str, Any] = {}
+    base_switches: dict[str, Any] = {}
     if _tetgen_switch_module is not None:
         base_switches = get_default_tetgen_switches()
     if switches_params:
@@ -212,7 +215,9 @@ def build_volume_mesh(
         plc_diagnostics = tetgen_utils.inspect_tetgen_plc(
             mesh.vertices,
             mesh.faces,
-            diagnostic_boundary_facets if diagnostic_boundary_facets is not None else b_facets,
+            diagnostic_boundary_facets
+            if diagnostic_boundary_facets is not None
+            else b_facets,
         )
     debug(tetgen_utils.format_tetgen_plc_diagnostics(plc_diagnostics))
     if plc_diagnostics.errors:
@@ -239,7 +244,9 @@ def build_volume_mesh(
         vertices=mesh.vertices,
         faces=mesh.faces,
         face_markers=mesh.markers,
-        boundary_facets=named_boundary_facets if named_boundary_facets is not None else b_facets,
+        boundary_facets=named_boundary_facets
+        if named_boundary_facets is not None
+        else b_facets,
         boundary_facet_markers=boundary_facet_markers,
         switches_params=base_switches,
         switches_overrides=switches_overrides,

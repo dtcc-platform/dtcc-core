@@ -1,6 +1,7 @@
-import pytest
 import numpy as np
-from dtcc_core.model import PointCloud, Bounds
+import pytest
+
+from dtcc_core.model import PointCloud
 
 
 @pytest.fixture
@@ -86,7 +87,6 @@ def test_merge_into_empty_point_cloud_keeps_integer_attributes(name):
     assert values.tolist() == getattr(tile, name).tolist()
 
 
-
 @pytest.mark.parametrize(
     "name", ["classification", "intensity", "return_number", "num_returns"]
 )
@@ -102,6 +102,7 @@ def test_merge_keeps_attributes_independent(name, mutate_source):
     getattr(changed, name)[0] = 99
 
     np.testing.assert_array_equal(getattr(unchanged, name), expected)
+
 
 def test_merging_tiles_keeps_classification_integer():
     merged = PointCloud()

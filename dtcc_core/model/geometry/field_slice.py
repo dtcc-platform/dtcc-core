@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field as dataclass_field, replace
+from dataclasses import dataclass, replace
+from dataclasses import field as dataclass_field
 from pathlib import Path
 from typing import Any
 
@@ -231,7 +232,6 @@ class FieldSlice(PointCloud):
         raise ValueError(
             f"FieldSlice object-first export does not support format {fmt!r}."
         )
-
 
     def _metadata(self, sample_count: int, *, include_z: bool) -> dict[str, Any]:
         metadata = {

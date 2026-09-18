@@ -3,9 +3,9 @@ import numpy as np
 import pytest
 from shapely.geometry import Polygon
 
-from dtcc_core.plotting.style import DTCC_THEMES
 from dtcc_core.io.data.deso import deso_from_geodataframe
 from dtcc_core.model import Bounds, DeSO, Field, GeometryType, Object
+from dtcc_core.plotting.style import DTCC_THEMES
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -97,7 +97,9 @@ def test_deso_info_arrays_dataframe_and_plot():
 
     legend_ax = deso.plot(column="population_total", show=False)
     assert len(legend_ax.figure.axes) == 2
-    assert legend_ax.figure.axes[1].yaxis.label.get_color() == DTCC_THEMES["dark"]["text"]
+    assert (
+        legend_ax.figure.axes[1].yaxis.label.get_color() == DTCC_THEMES["dark"]["text"]
+    )
     plt.close(legend_ax.figure)
 
 

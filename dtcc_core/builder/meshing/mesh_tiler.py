@@ -1,12 +1,11 @@
-import numpy as np
-from typing import Tuple, Dict, List, Optional, Set
-from shapely.geometry import Polygon, LineString, Point, box
-from shapely.ops import triangulate as shapely_triangulate
-from shapely.strtree import STRtree
 from dataclasses import dataclass
 
+import numpy as np
+from shapely.geometry import LineString, Point, Polygon, box
+from shapely.ops import triangulate as shapely_triangulate
+from shapely.strtree import STRtree
 
-from dtcc_core.model import Mesh, Bounds
+from dtcc_core.model import Bounds, Mesh
 
 
 @dataclass
@@ -15,10 +14,10 @@ class TriangleInfo:
 
     index: int
     vertices: np.ndarray
-    polygon_2d: Optional[Polygon]
+    polygon_2d: Polygon | None
     is_vertical: bool
     normal_up: bool
-    bbox: Tuple[float, float, float, float]
+    bbox: tuple[float, float, float, float]
 
 
 class SurfaceMeshClipper:
@@ -43,7 +42,7 @@ class SurfaceMeshClipper:
         # Build spatial index
         self._build_spatial_index()
 
-    def _preprocess_triangles(self) -> List[TriangleInfo]:
+    def _preprocess_triangles(self) -> list[TriangleInfo]:
         """Preprocess all triangles to avoid repeated calculations."""
         infos = []
         vertices = self.mesh.vertices
@@ -147,7 +146,7 @@ class SurfaceMeshClipper:
 
         return clipper.get_result()
 
-    def _query_triangles(self, clip_box: Polygon) -> List[TriangleInfo]:
+    def _query_triangles(self, clip_box: Polygon) -> list[TriangleInfo]:
         """Query spatial index for triangles that might intersect the clip box."""
         # Query the spatial index
         potential_geoms = self.spatial_index.query(clip_box)
@@ -163,7 +162,7 @@ class SurfaceMeshClipper:
 class SingleBBoxClipper:
     """Handles clipping for a single bounding box."""
 
-    def __init__(self, bbox: Tuple[float, float, float, float]):
+    def __init__(self, bbox: tuple[float, float, float, float]):
         """
         Prepare a clipper for one bounding box.
 
@@ -364,7 +363,7 @@ class SingleBBoxClipper:
         return vertices[closest_idx, 2]
 
     def _create_vertical_quad(
-        self, p0_2d: Tuple, p1_2d: Tuple, z_min: float, z_max: float, original_up: bool
+        self, p0_2d: tuple, p1_2d: tuple, z_min: float, z_max: float, original_up: bool
     ):
         """Create vertical quad for vertical triangle.
 
@@ -453,7 +452,7 @@ class SingleBBoxClipper:
 
         return z_values
 
-    def _interpolate_z_on_line(self, point_2d: Tuple, tri: np.ndarray) -> float:
+    def _interpolate_z_on_line(self, point_2d: tuple, tri: np.ndarray) -> float:
         """Interpolate Z using edge projection."""
         point = Point(point_2d)
         best_z = tri[0, 2]

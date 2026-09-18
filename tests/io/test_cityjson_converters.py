@@ -9,25 +9,25 @@ Tests the refactored converter architecture including:
 - Error handling and edge cases
 """
 
-import pytest
-import numpy as np
 from unittest.mock import Mock
 
-from dtcc_core.model import Surface, MultiSurface, Mesh
-from dtcc_core.model.object.object import GeometryType
+import numpy as np
+import pytest
 
 from dtcc_core.io.cityjson.converters import (
-    convert_surface,
-    convert_multisurface,
+    CityJSONConfig,
     convert_mesh,
+    convert_multisurface,
+    convert_surface,
     convert_terrain_mesh,
+    create_boundary,
+    geometry_type_to_lod,
     get_converter,
     get_terrain_converter,
-    CityJSONConfig,
-    geometry_type_to_lod,
     scale_vertices,
-    create_boundary,
 )
+from dtcc_core.model import Mesh, MultiSurface, Surface
+from dtcc_core.model.object.object import GeometryType
 
 
 # CityJSONConfig tests
@@ -35,9 +35,9 @@ def test_default_config():
     """Test default configuration values."""
     config = CityJSONConfig()
 
-    assert config.semantic_types['surface'] == 'WallSurface'
-    assert config.semantic_types['terrain'] == 'GroundSurface'
-    assert config.semantic_types['building'] == 'WallSurface'
+    assert config.semantic_types["surface"] == "WallSurface"
+    assert config.semantic_types["terrain"] == "GroundSurface"
+    assert config.semantic_types["building"] == "WallSurface"
 
     assert config.lod_mapping[GeometryType.LOD0] == 0.0
     assert config.lod_mapping[GeometryType.LOD1] == 1.0
@@ -49,19 +49,18 @@ def test_default_config():
 def test_custom_config():
     """Test custom configuration values."""
     custom_semantics = {
-        'surface': 'CustomWall',
-        'terrain': 'CustomGround',
-        'building': 'CustomBuilding'
+        "surface": "CustomWall",
+        "terrain": "CustomGround",
+        "building": "CustomBuilding",
     }
     custom_lod_mapping = {GeometryType.LOD0: 0.5, GeometryType.LOD1: 1.5}
 
     config = CityJSONConfig(
-        semantic_types=custom_semantics,
-        lod_mapping=custom_lod_mapping
+        semantic_types=custom_semantics, lod_mapping=custom_lod_mapping
     )
 
-    assert config.semantic_types['surface'] == 'CustomWall'
-    assert config.semantic_types['terrain'] == 'CustomGround'
+    assert config.semantic_types["surface"] == "CustomWall"
+    assert config.semantic_types["terrain"] == "CustomGround"
     assert config.lod_mapping[GeometryType.LOD0] == 0.5
     assert config.lod_mapping[GeometryType.LOD1] == 1.5
     # Non-customized values should remain default
@@ -71,11 +70,7 @@ def test_custom_config():
 # Utility function tests
 def test_scale_vertices():
     """Test vertex scaling and addition to global list."""
-    test_vertices = np.array([
-        [1.5, 2.3, 3.7],
-        [4.1, 5.9, 6.2],
-        [7.8, 9.4, 10.1]
-    ])
+    test_vertices = np.array([[1.5, 2.3, 3.7], [4.1, 5.9, 6.2], [7.8, 9.4, 10.1]])
     global_vertices = []
 
     offset = scale_vertices(test_vertices, scale=2.0, vertices_list=global_vertices)
@@ -120,28 +115,25 @@ def test_convert_surface_simple():
 
     # Create mock surface
     mock_surface = Mock()
-    mock_surface.vertices = np.array([
-        [0.0, 0.0, 0.0],
-        [1.0, 0.0, 0.0],
-        [1.0, 1.0, 0.0],
-        [0.0, 1.0, 0.0]
-    ])
+    mock_surface.vertices = np.array(
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0]]
+    )
     mock_surface.holes = []
 
     vertices = []
     result = convert_surface(mock_surface, vertices, scale=1000.0, config=config)
 
-    assert result['type'] == 'MultiSurface'
-    assert 'boundaries' in result
-    assert 'semantics' in result
-    assert len(result['boundaries']) == 1
-    assert len(result['boundaries'][0]) == 1  # One exterior ring
-    assert result['boundaries'][0][0] == [0, 1, 2, 3]  # Vertex indices
+    assert result["type"] == "MultiSurface"
+    assert "boundaries" in result
+    assert "semantics" in result
+    assert len(result["boundaries"]) == 1
+    assert len(result["boundaries"][0]) == 1  # One exterior ring
+    assert result["boundaries"][0][0] == [0, 1, 2, 3]  # Vertex indices
     assert len(vertices) == 4
 
     # Check semantics
-    assert result['semantics']['surfaces'][0]['type'] == 'WallSurface'
-    assert result['semantics']['values'] == [[0]]
+    assert result["semantics"]["surfaces"][0]["type"] == "WallSurface"
+    assert result["semantics"]["values"] == [[0]]
 
 
 def test_convert_surface_with_holes():
@@ -150,27 +142,31 @@ def test_convert_surface_with_holes():
 
     # Create mock surface with hole
     mock_surface = Mock()
-    mock_surface.vertices = np.array([
-        [0.0, 0.0, 0.0],   # Exterior
-        [2.0, 0.0, 0.0],
-        [2.0, 2.0, 0.0],
-        [0.0, 2.0, 0.0]
-    ])
+    mock_surface.vertices = np.array(
+        [
+            [0.0, 0.0, 0.0],  # Exterior
+            [2.0, 0.0, 0.0],
+            [2.0, 2.0, 0.0],
+            [0.0, 2.0, 0.0],
+        ]
+    )
     mock_surface.holes = [
-        np.array([
-            [0.5, 0.5, 0.0],   # Hole
-            [1.5, 0.5, 0.0],
-            [1.5, 1.5, 0.0],
-            [0.5, 1.5, 0.0]
-        ])
+        np.array(
+            [
+                [0.5, 0.5, 0.0],  # Hole
+                [1.5, 0.5, 0.0],
+                [1.5, 1.5, 0.0],
+                [0.5, 1.5, 0.0],
+            ]
+        )
     ]
 
     vertices = []
     result = convert_surface(mock_surface, vertices, scale=1000.0, config=config)
 
-    assert len(result['boundaries'][0]) == 2  # Exterior + hole
-    assert result['boundaries'][0][0] == [0, 1, 2, 3]  # Exterior boundary
-    assert result['boundaries'][0][1] == [4, 5, 6, 7]  # Hole boundary
+    assert len(result["boundaries"][0]) == 2  # Exterior + hole
+    assert result["boundaries"][0][0] == [0, 1, 2, 3]  # Exterior boundary
+    assert result["boundaries"][0][1] == [4, 5, 6, 7]  # Hole boundary
     assert len(vertices) == 8  # 4 exterior + 4 hole vertices
 
 
@@ -193,15 +189,17 @@ def test_convert_multisurface():
     mock_multisurface.regions = []
 
     vertices = []
-    result = convert_multisurface(mock_multisurface, vertices, scale=1000.0, config=config)
+    result = convert_multisurface(
+        mock_multisurface, vertices, scale=1000.0, config=config
+    )
 
-    assert result['type'] == 'MultiSurface'
-    assert len(result['boundaries']) == 2
+    assert result["type"] == "MultiSurface"
+    assert len(result["boundaries"]) == 2
     assert len(vertices) == 6  # 3 + 3 vertices
 
     # Check semantics
-    assert len(result['semantics']['surfaces']) == 2
-    assert result['semantics']['values'] == [0, 1]
+    assert len(result["semantics"]["surfaces"]) == 2
+    assert result["semantics"]["values"] == [0, 1]
 
 
 # Mesh converter tests
@@ -212,31 +210,30 @@ def test_convert_mesh():
     # Create mock mesh
     mock_mesh = Mock()
     mock_mesh.regions = []
-    mock_mesh.vertices = np.array([
-        [0.0, 0.0, 0.0],
-        [1.0, 0.0, 0.0],
-        [0.5, 1.0, 0.0],
-        [0.5, 0.5, 1.0]
-    ])
-    mock_mesh.faces = np.array([
-        [0, 1, 2],  # Face 1
-        [0, 1, 3],  # Face 2
-    ])
+    mock_mesh.vertices = np.array(
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.5, 1.0, 0.0], [0.5, 0.5, 1.0]]
+    )
+    mock_mesh.faces = np.array(
+        [
+            [0, 1, 2],  # Face 1
+            [0, 1, 3],  # Face 2
+        ]
+    )
 
     vertices = []
     result = convert_mesh(mock_mesh, vertices, scale=1000.0, config=config)
 
-    assert result['type'] == 'MultiSurface'
-    assert len(result['boundaries']) == 2  # 2 faces
+    assert result["type"] == "MultiSurface"
+    assert len(result["boundaries"]) == 2  # 2 faces
     assert len(vertices) == 4  # 4 vertices
 
     # Check face boundaries
-    assert result['boundaries'][0] == [[0, 1, 2]]
-    assert result['boundaries'][1] == [[0, 1, 3]]
+    assert result["boundaries"][0] == [[0, 1, 2]]
+    assert result["boundaries"][1] == [[0, 1, 3]]
 
     # Check semantics
-    assert len(result['semantics']['surfaces']) == 2
-    assert result['semantics']['values'] == [0, 1]
+    assert len(result["semantics"]["surfaces"]) == 2
+    assert result["semantics"]["values"] == [0, 1]
 
 
 # Terrain mesh converter tests
@@ -247,22 +244,18 @@ def test_convert_terrain_mesh():
     # Create mock terrain mesh
     mock_mesh = Mock()
     mock_mesh.regions = []
-    mock_mesh.vertices = np.array([
-        [0.0, 0.0, 0.0],
-        [1.0, 0.0, 0.0],
-        [0.5, 1.0, 0.0]
-    ])
+    mock_mesh.vertices = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.5, 1.0, 0.0]])
     mock_mesh.faces = np.array([[0, 1, 2]])
 
     vertices = []
     result = convert_terrain_mesh(mock_mesh, vertices, scale=1000.0, config=config)
 
-    assert result['type'] == 'CompositeSurface'
-    assert len(result['boundaries']) == 1
+    assert result["type"] == "CompositeSurface"
+    assert len(result["boundaries"]) == 1
     assert len(vertices) == 3
 
     # Check terrain semantics
-    assert result['semantics']['surfaces'][0]['type'] == 'GroundSurface'
+    assert result["semantics"]["surfaces"][0]["type"] == "GroundSurface"
 
 
 # Factory/registry tests
@@ -300,7 +293,7 @@ def test_get_converter_error_handling():
 
 def test_get_converter_uses_config():
     """Test that factory passes config to converter functions."""
-    custom_config = CityJSONConfig(semantic_types={'surface': 'CustomType'})
+    custom_config = CityJSONConfig(semantic_types={"surface": "CustomType"})
 
     converter = get_converter(Surface, custom_config)
 
@@ -313,7 +306,7 @@ def test_get_converter_uses_config():
     result = converter(mock_surface, vertices, scale=1.0)
 
     # Check that custom semantic type is used
-    assert result['semantics']['surfaces'][0]['type'] == 'CustomType'
+    assert result["semantics"]["surfaces"][0]["type"] == "CustomType"
 
 
 # GeometryTypeToLod tests
@@ -345,12 +338,11 @@ def test_custom_lod_mapping():
 def test_full_conversion_workflow():
     """Test a complete conversion workflow."""
     # Create a surface
-    surface = Surface(vertices=np.array([
-        [0.0, 0.0, 0.0],
-        [1.0, 0.0, 0.0],
-        [1.0, 1.0, 0.0],
-        [0.0, 1.0, 0.0]
-    ]))
+    surface = Surface(
+        vertices=np.array(
+            [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0]]
+        )
+    )
 
     # Get converter and convert
     config = CityJSONConfig()
@@ -359,15 +351,15 @@ def test_full_conversion_workflow():
     result = converter(surface, vertices, scale=1000.0)
 
     # Verify the result
-    assert result['type'] == 'MultiSurface'
-    assert len(result['boundaries']) == 1
+    assert result["type"] == "MultiSurface"
+    assert len(result["boundaries"]) == 1
     assert len(vertices) == 4
     assert all(isinstance(v, int) for v in vertices[0])  # Vertices should be integers
 
 
 def test_config_persistence():
     """Test that configuration is properly maintained across conversions."""
-    custom_config = CityJSONConfig(semantic_types={'surface': 'CustomWall'})
+    custom_config = CityJSONConfig(semantic_types={"surface": "CustomWall"})
 
     converter = get_converter(Surface, custom_config)
 
@@ -380,4 +372,4 @@ def test_config_persistence():
     result = converter(mock_surface, vertices, scale=1.0)
 
     # Check that custom semantic type is used
-    assert result['semantics']['surfaces'][0]['type'] == 'CustomWall'
+    assert result["semantics"]["surfaces"][0]["type"] == "CustomWall"

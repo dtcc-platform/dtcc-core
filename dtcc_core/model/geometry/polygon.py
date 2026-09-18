@@ -1,14 +1,14 @@
 from dataclasses import dataclass, field
-from .bounds import Bounds
-from .geometry import Geometry
-from shapely.geometry import Polygon as ShapelyPolygon
+
 import numpy as np
+from shapely.geometry import Polygon as ShapelyPolygon
+
+from .geometry import Geometry
 
 
 @dataclass(repr=False)
 class Polygon(Geometry):
     geom: ShapelyPolygon = field(default_factory=ShapelyPolygon)
-
 
     @property
     def shapely(self):

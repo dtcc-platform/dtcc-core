@@ -5,13 +5,13 @@ Enables transparent access to datasets hosted on remote DTCC services
 (e.g., dtcc-sim running in Docker) via the Remote Dataset Protocol.
 """
 
-import os
 import json
-import time
 import logging
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+import os
+import time
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, ValidationError as PydanticValidationError
+from pydantic import BaseModel, ConfigDict
 
 from .dataset import DatasetDescriptor
 from .registry import register
@@ -26,6 +26,7 @@ class SSEStreamError(ConnectionError):
     distinct from RuntimeError which indicates a definitive job outcome
     (failed/cancelled) and should propagate immediately.
     """
+
     pass
 
 
@@ -40,6 +41,7 @@ class RemoteValidationError(ValueError):
         self.detail = detail
         self.status_code = status_code
         super().__init__(f"Remote validation error: {detail}")
+
 
 # Shared results directory for reading large results from shared volume
 SHARED_RESULTS_DIR = os.environ.get("SHARED_RESULTS_DIR", "./data/shared-results")
@@ -58,13 +60,13 @@ class RemoteDatasetDescriptor(DatasetDescriptor, register=False):
         self,
         name: str,
         description: str,
-        args_schema: Dict[str, Any],
+        args_schema: dict[str, Any],
         base_url: str,
         result_kind: str,
-        supported_formats: List[str],
+        supported_formats: list[str],
         source_service: str,
-        timeout_hint: Optional[int] = None,
-        data_category: Optional[str] = None,
+        timeout_hint: int | None = None,
+        data_category: str | None = None,
     ):
         self.name = name
         self.description = description
@@ -123,8 +125,7 @@ class RemoteDatasetDescriptor(DatasetDescriptor, register=False):
                 {
                     "remote_task_id": task_id,
                     "cancel_url": (
-                        f"{self.base_url}/api/v1/datasets/{self.name}"
-                        f"/cancel/{task_id}"
+                        f"{self.base_url}/api/v1/datasets/{self.name}/cancel/{task_id}"
                     ),
                 }
             )
@@ -160,9 +161,7 @@ class RemoteDatasetDescriptor(DatasetDescriptor, register=False):
             extension = "tar.gz"
             content_type = "application/gzip"
         else:
-            extension = (
-                result_file.rsplit(".", 1)[-1] if "." in result_file else "bin"
-            )
+            extension = result_file.rsplit(".", 1)[-1] if "." in result_file else "bin"
             content_type = "application/octet-stream"
 
         return data, extension, content_type
@@ -171,9 +170,7 @@ class RemoteDatasetDescriptor(DatasetDescriptor, register=False):
         """Connect to SSE status stream, return result_file on completion."""
         import httpx
 
-        status_url = (
-            f"{self.base_url}/api/v1/datasets/{self.name}/status/{task_id}"
-        )
+        status_url = f"{self.base_url}/api/v1/datasets/{self.name}/status/{task_id}"
 
         try:
             return self._stream_sse(status_url, progress_callback)
@@ -251,10 +248,10 @@ class RemoteDatasetDescriptor(DatasetDescriptor, register=False):
 
 
 # Module-level cache of discovery responses for worker bootstrap
-_cached_service_discoveries: Dict[str, Dict] = {}
+_cached_service_discoveries: dict[str, dict] = {}
 
 
-def register_remote_service(base_url: str, timeout: int = 5) -> List[str]:
+def register_remote_service(base_url: str, timeout: int = 5) -> list[str]:
     """Query a remote service's discovery endpoint and register its datasets.
 
     Returns list of registered dataset names, or empty list on failure.
@@ -292,7 +289,7 @@ def register_remote_service(base_url: str, timeout: int = 5) -> List[str]:
         return []
 
 
-def register_remote_descriptors_from_cache(cached_discoveries: Dict[str, Dict]):
+def register_remote_descriptors_from_cache(cached_discoveries: dict[str, dict]):
     """Register remote datasets from pre-fetched discovery data.
 
     Called by worker processes to avoid HTTP calls in child processes.
@@ -313,13 +310,13 @@ def register_remote_descriptors_from_cache(cached_discoveries: Dict[str, Dict]):
             register(name, descriptor)
 
 
-def get_cached_discoveries() -> Dict[str, Dict]:
+def get_cached_discoveries() -> dict[str, dict]:
     """Return cached discovery data for passing to worker processes."""
     return dict(_cached_service_discoveries)
 
 
 def _remote_data_category(
-    data_category: Optional[str],
+    data_category: str | None,
     source_service: str,
 ) -> str:
     if data_category:

@@ -1,9 +1,6 @@
-from dtcc_core.logging import info, warning, error
-
-from typing import TypeVar, TYPE_CHECKING, Union, List
+from typing import TYPE_CHECKING, TypeVar
 
 from ....model.geometry import Bounds
-
 
 if TYPE_CHECKING:
     from ....model.geometry import PointCloud
@@ -13,7 +10,6 @@ if TYPE_CHECKING:
 
 
 class PointCloudBuilderMixin:
-
     def rasterize(
         self: "T_Pointcloud",
         cell_size: float,
@@ -67,7 +63,6 @@ class PointcloudFilterMixin:
             T_Pointcloud: A new pointcloud with the outliers removed.
         """
         from dtcc_core.builder.pointcloud.filter import (
-            find_global_outliers,
             remove_global_outliers,
         )
 
@@ -88,14 +83,13 @@ class PointcloudFilterMixin:
             T_Pointcloud: A new point cloud with the outliers removed.
         """
         from dtcc_core.builder.pointcloud.filter import (
-            find_statistical_outliers,
             statistical_outlier_filter,
         )
 
         return statistical_outlier_filter(self, neighbours, outlier_margin)
 
     def classification_filter(
-        self: "T_Pointcloud", classes: Union[int, List[int]], keep: bool = False
+        self: "T_Pointcloud", classes: int | list[int], keep: bool = False
     ) -> "T_Pointcloud":
         """
         Filter the point cloud based on classification. This method is non-mutating
@@ -109,7 +103,6 @@ class PointcloudFilterMixin:
             T_Pointcloud: A new point cloud with the specified classification(s) filtered out or kept.
         """
         from dtcc_core.builder.pointcloud.filter import (
-            find_classification,
             classification_filter,
         )
 
@@ -126,7 +119,7 @@ class PointcloudFilterMixin:
         Returns:
             T_Pointcloud: A new point cloud cropped to the specified bounds.
         """
-        from dtcc_core.builder.pointcloud.filter import pts_in_bounds, crop
+        from dtcc_core.builder.pointcloud.filter import crop
 
         return crop(self, bounds)
 

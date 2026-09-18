@@ -1,19 +1,16 @@
 # Copyright(C) 2023 Dag Wästberg
 # Licensed under the MIT License
 
-import numpy as np
-from typing import Union
-from dataclasses import dataclass, field
-from inspect import getmembers, isfunction, ismethod
-
-from shapely.geometry import Polygon
-from shapely.validation import make_valid
-from shapely.ops import unary_union
-
-from .geometry import Geometry, Bounds
-
-from ..logging import info, warning, error, debug
 from copy import deepcopy
+from dataclasses import dataclass, field
+
+import numpy as np
+from shapely.geometry import Polygon
+from shapely.ops import unary_union
+from shapely.validation import make_valid
+
+from ..logging import warning
+from .geometry import Bounds, Geometry
 
 
 @dataclass(repr=False)
@@ -224,7 +221,11 @@ class MultiSurface(Geometry):
         if not isinstance(other, MultiSurface):
             raise ValueError("Can only merge with another MultiSurface.")
         existing_ids = {region.id for region in self.regions if region.id is not None}
-        if any(region.id in existing_ids for region in other.regions if region.id is not None):
+        if any(
+            region.id in existing_ids
+            for region in other.regions
+            if region.id is not None
+        ):
             raise ValueError("Merging geometries would duplicate a semantic region ID")
         offset = len(self.surfaces)
         region_offset = len(self.regions)
@@ -245,7 +246,11 @@ class MultiSurface(Geometry):
             if not surface.vertices.size:
                 continue
             surface.calculate_bounds()
-            bounds = surface.bounds.copy() if bounds is None else bounds.union(surface.bounds)
+            bounds = (
+                surface.bounds.copy()
+                if bounds is None
+                else bounds.union(surface.bounds)
+            )
         self._bounds = bounds if bounds is not None else Bounds()
         return self._bounds
 

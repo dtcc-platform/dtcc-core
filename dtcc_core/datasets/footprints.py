@@ -1,12 +1,13 @@
-import dtcc_core
-from dtcc_core.model import Building, City, FootprintCollection
-from typing import List, Literal, Optional
+from typing import Literal
+
 from pydantic import Field
 
-from .dataset import DatasetDescriptor, DatasetBaseArgs
-from .providers import provider_entry
+import dtcc_core
 from dtcc_core.common.progress import ProgressTracker
+from dtcc_core.model import Building, City, FootprintCollection
 
+from .dataset import DatasetBaseArgs, DatasetDescriptor
+from .providers import provider_entry
 
 _SOURCE_TO_PROVIDER = {
     "LM": "dtcc",
@@ -28,10 +29,10 @@ class FootprintsArgs(DatasetBaseArgs):
     calculate_heights: bool = Field(
         False, description="Whether to calculate building heights from point cloud"
     )
-    format: Optional[Literal["geojson", "gpkg", "shp.zip"]] = Field(
+    format: Literal["geojson", "gpkg", "shp.zip"] | None = Field(
         None, description="Output file format"
     )
-    crs: Optional[str] = Field(
+    crs: str | None = Field(
         None,
         description=(
             "Output CRS for serialized formats (e.g. 'EPSG:3006'). If None, "
@@ -229,11 +230,11 @@ def _provider_for_source(source: str) -> str:
 
 
 def _filter_small_buildings(
-    buildings: List[Building],
+    buildings: list[Building],
     *,
     min_area: float,
-) -> List[Building]:
-    filtered: List[Building] = []
+) -> list[Building]:
+    filtered: list[Building] = []
     for building in buildings:
         footprint = building.footprint()
         if footprint is None:

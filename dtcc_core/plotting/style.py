@@ -6,7 +6,6 @@ from typing import Any
 
 import numpy as np
 
-
 DTCC_COLORS = {
     "background": "#FAFAFA",
     "surface": "#FFFFFF",
@@ -199,8 +198,10 @@ def format_bounds(bounds: Any, *, precision: int = 2) -> list[str]:
         f"x {_format_number(xmin, precision)} -> {_format_number(xmax, precision)}",
         f"y {_format_number(ymin, precision)} -> {_format_number(ymax, precision)}",
     ]
-    if zmin is not None and zmax is not None and (
-        float(zmin) != 0.0 or float(zmax) != 0.0
+    if (
+        zmin is not None
+        and zmax is not None
+        and (float(zmin) != 0.0 or float(zmax) != 0.0)
     ):
         lines.append(
             f"z {_format_number(zmin, precision)} -> {_format_number(zmax, precision)}"
@@ -599,7 +600,9 @@ def set_axes_extent(
             ax.set_yticks([])
 
 
-def geometry_bounds(geometries: Sequence[Any]) -> tuple[float, float, float, float] | None:
+def geometry_bounds(
+    geometries: Sequence[Any],
+) -> tuple[float, float, float, float] | None:
     """Return the 2D bounds of Shapely polygonal geometries."""
     polygons: list[Any] = []
     for geometry in geometries:
@@ -666,7 +669,9 @@ def _format_number(value: Any, precision: int) -> str:
     return f"{number:.{precision}f}"
 
 
-def _ring_path(path_cls: type[Any], coords) -> tuple[list[tuple[float, float]], list[int]]:
+def _ring_path(
+    path_cls: type[Any], coords
+) -> tuple[list[tuple[float, float]], list[int]]:
     points = np.asarray(coords, dtype=float)
     if points.ndim != 2 or points.shape[0] < 3:
         return [], []

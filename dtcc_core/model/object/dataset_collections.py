@@ -8,11 +8,6 @@ from typing import Any, Literal
 
 import numpy as np
 
-from ..geometry import Bounds, Surface
-from ..model import Model
-from .building import Building
-from .object import GeometryType
-from .tree import Tree
 from ...plotting.style import (
     add_categorical_legend,
     add_plot_context,
@@ -22,6 +17,11 @@ from ...plotting.style import (
     resolve_colormap,
     style_colorbar,
 )
+from ..geometry import Bounds, Surface
+from ..model import Model
+from .building import Building
+from .object import GeometryType
+from .tree import Tree
 
 
 @dataclass(repr=False)
@@ -51,7 +51,7 @@ class FootprintCollection(Model):
         geom_type: GeometryType | None = None,
         *,
         z: Literal["geometry", "ground"] | float = "geometry",
-    ) -> "FootprintCollection":
+    ) -> FootprintCollection:
         """Build a footprint collection from buildings with available geometry.
 
         By default, this extracts canonical LOD0 building footprints only.
@@ -343,7 +343,9 @@ class TreeCollection(Model):
             add_plot_context(
                 ax,
                 title=None if presentation_enabled else title or "DTCC Trees",
-                metadata=None if presentation_enabled else {"Trees": 0, "Column": column},
+                metadata=None
+                if presentation_enabled
+                else {"Trees": 0, "Column": column},
                 bounds=None if presentation_enabled else self.bounds,
                 theme=theme,
             )
@@ -387,7 +389,9 @@ class TreeCollection(Model):
         add_plot_context(
             ax,
             title=None if presentation_enabled else title or "DTCC Trees",
-            metadata=None if presentation_enabled else {"Trees": len(self), "Column": column},
+            metadata=None
+            if presentation_enabled
+            else {"Trees": len(self), "Column": column},
             bounds=None if presentation_enabled else self.bounds,
             theme=theme,
         )
@@ -427,7 +431,7 @@ class CalibrationGrid(Model):
         ]
 
     @classmethod
-    def from_geojson(cls, geojson: dict[str, Any]) -> "CalibrationGrid":
+    def from_geojson(cls, geojson: dict[str, Any]) -> CalibrationGrid:
         """Build a calibration grid model from its GeoJSON representation."""
         metadata = dict(geojson.get("metadata") or {})
         bounds_values = metadata.get("bounds") or [0.0, 0.0, 0.0, 0.0]
@@ -439,11 +443,7 @@ class CalibrationGrid(Model):
         )
         crs = metadata.get("crs")
         if crs is None:
-            crs = (
-                geojson.get("crs", {})
-                .get("properties", {})
-                .get("name")
-            )
+            crs = geojson.get("crs", {}).get("properties", {}).get("name")
         return cls(
             bounds=bounds,
             divisions=int(metadata.get("divisions") or 0),

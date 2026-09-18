@@ -13,28 +13,28 @@ Each station has:
 - Metadata attributes (ID, name, timestamp, etc.)
 """
 
-from typing import Optional, Literal, Tuple, List, Dict, Any
-from pydantic import Field
-import numpy as np
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any, Literal
 
+import numpy as np
+from pydantic import Field
+
+from ..common import info
+from ..common.progress import ProgressTracker, report_progress
+from ..model.geometry import Point
+from ..model.object import Object, SensorCollection
+from ..model.values import Field as DtccField
+from ..reproject.reproject import reproject_array
 from .dataset import DatasetBaseArgs, DatasetDescriptor, DatasetUpstreamError
 from .geospatial import bounds_to_wgs84, is_wgs84_crs
 from .providers import provider_entry
-from ..model.object import Object, SensorCollection
-from ..model.geometry import Point
-from ..model.values import Field as DtccField
-from ..common import info
-from ..common.progress import ProgressTracker, report_progress
-from ..reproject.reproject import reproject_array
-
 
 STALE_VALUE_DAYS = 7
 
 # Fixture-verified phenomenon aliases. Other labels are resolved through the
 # provider's /phenomena endpoint so stale hard-coded IDs do not silently win.
-_FIXTURE_VERIFIED_PHENOMENA: Dict[str, Dict[str, str]] = {
+_FIXTURE_VERIFIED_PHENOMENA: dict[str, dict[str, str]] = {
     "NO2": {"id": "8", "label": "NO2"},
     "PM10": {"id": "5", "label": "PM10"},
     "O3": {"id": "7", "label": "O3"},
@@ -45,8 +45,8 @@ _FIXTURE_VERIFIED_PHENOMENA: Dict[str, Dict[str, str]] = {
 
 
 def _get_json(
-    url: str, params: Dict[str, Any] = None, timeout_s: float = 10.0
-) -> Dict[str, Any]:
+    url: str, params: dict[str, Any] = None, timeout_s: float = 10.0
+) -> dict[str, Any]:
     """Fetch JSON from URL with error handling.
 
     Parameters
@@ -99,8 +99,8 @@ def _resolve_phenomenon(
     phenomenon_str: str,
     timeout_s: float,
     strict_live: bool = False,
-    upstream_errors: Optional[List[DatasetUpstreamError]] = None,
-) -> Tuple[str, Dict[str, Any]]:
+    upstream_errors: list[DatasetUpstreamError] | None = None,
+) -> tuple[str, dict[str, Any]]:
     """Resolve phenomenon name/ID to phenomenon ID.
 
     The API uses numeric phenomenon IDs. This function accepts either numeric
@@ -125,7 +125,7 @@ def _resolve_phenomenon(
     if not requested:
         raise ValueError("Air quality phenomenon must be a non-empty string or ID.")
 
-    metadata: Dict[str, Any] = {
+    metadata: dict[str, Any] = {
         "requested": requested,
         "phenomenon_id": "",
         "label": requested,
@@ -220,7 +220,7 @@ def _resolve_phenomenon_id(
     phenomenon_str: str,
     timeout_s: float,
     strict_live: bool = False,
-    upstream_errors: Optional[List[DatasetUpstreamError]] = None,
+    upstream_errors: list[DatasetUpstreamError] | None = None,
 ) -> str:
     """Resolve phenomenon name/ID to phenomenon ID."""
     phenomenon_id, _metadata = _resolve_phenomenon(
@@ -233,7 +233,7 @@ def _resolve_phenomenon_id(
     return phenomenon_id
 
 
-def _parse_measurement_datetime(timestamp: str) -> Optional[datetime]:
+def _parse_measurement_datetime(timestamp: str) -> datetime | None:
     """Parse a provider measurement timestamp as UTC when possible."""
     if not timestamp:
         return None
@@ -242,8 +242,8 @@ def _parse_measurement_datetime(timestamp: str) -> Optional[datetime]:
     except ValueError:
         return None
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def _measurement_staleness(
@@ -251,24 +251,24 @@ def _measurement_staleness(
     reference_time: datetime,
     *,
     stale_after_days: int = STALE_VALUE_DAYS,
-) -> Tuple[bool, Optional[float]]:
+) -> tuple[bool, float | None]:
     """Return whether a timestamp is stale and its age in days."""
     parsed = _parse_measurement_datetime(timestamp)
     if parsed is None:
         return False, None
-    age = reference_time.astimezone(timezone.utc) - parsed
+    age = reference_time.astimezone(UTC) - parsed
     age_days = age.total_seconds() / 86400.0
     return age_days > stale_after_days, age_days
 
 
 def _fetch_stations(
     base_url: str,
-    bounds: Tuple[float, float, float, float],
+    bounds: tuple[float, float, float, float],
     crs: str,
     timeout_s: float,
     strict_live: bool = False,
-    upstream_errors: Optional[List[DatasetUpstreamError]] = None,
-) -> List[Dict[str, Any]]:
+    upstream_errors: list[DatasetUpstreamError] | None = None,
+) -> list[dict[str, Any]]:
     """Fetch stations within bounding box.
 
     Parameters
@@ -288,7 +288,7 @@ def _fetch_stations(
         List of station dictionaries
     """
     url = f"{base_url}/stations"
-    info(f"Querying air quality API for stations...")
+    info("Querying air quality API for stations...")
 
     # Transform bounds to WGS84 if necessary
     wgs84_bounds = bounds_to_wgs84(bounds, crs)
@@ -321,8 +321,8 @@ def _fetch_timeseries_for_station(
     phenomenon_id: str,
     timeout_s: float,
     strict_live: bool = False,
-    upstream_errors: Optional[List[DatasetUpstreamError]] = None,
-) -> List[Dict[str, Any]]:
+    upstream_errors: list[DatasetUpstreamError] | None = None,
+) -> list[dict[str, Any]]:
     """Fetch timeseries metadata for a station and phenomenon.
 
     The API structure is:
@@ -383,8 +383,8 @@ def _fetch_timeseries_for_station(
 
 
 def _extract_latest_value(
-    timeseries_dict: Dict[str, Any],
-) -> Optional[Tuple[float, str, str]]:
+    timeseries_dict: dict[str, Any],
+) -> tuple[float, str, str] | None:
     """Extract latest value from timeseries metadata.
 
     The API returns lastValue as a dict with 'timestamp' (milliseconds since epoch)
@@ -410,7 +410,7 @@ def _extract_latest_value(
             # Convert timestamp from milliseconds to UTC ISO format.
             timestamp_iso = ""
             if timestamp_ms is not None:
-                dt = datetime.fromtimestamp(float(timestamp_ms) / 1000.0, timezone.utc)
+                dt = datetime.fromtimestamp(float(timestamp_ms) / 1000.0, UTC)
                 timestamp_iso = dt.isoformat()
                 info(
                     f"Extracted value {value} with timestamp {timestamp_iso} "
@@ -430,8 +430,8 @@ def _fallback_get_latest_from_getData(
     timeseries_id: str,
     timeout_s: float,
     strict_live: bool = False,
-    upstream_errors: Optional[List[DatasetUpstreamError]] = None,
-) -> Optional[Tuple[float, str, str]]:
+    upstream_errors: list[DatasetUpstreamError] | None = None,
+) -> tuple[float, str, str] | None:
     """Fallback: fetch latest value using getData endpoint.
 
     Parameters
@@ -470,7 +470,7 @@ def _fallback_get_latest_from_getData(
             info(f"Fallback: Got value {value} with timestamp {timestamp} from getData")
             return (value, timestamp, unit)
         else:
-            info(f"Fallback: No values returned from getData endpoint")
+            info("Fallback: No values returned from getData endpoint")
     except DatasetUpstreamError as e:
         if upstream_errors is not None:
             upstream_errors.append(e)
@@ -508,7 +508,7 @@ class AirQualityDatasetArgs(DatasetBaseArgs):
         "NO2", description="Phenomenon name or ID (NO2, PM10, PM2.5, etc.)"
     )
     crs: str = Field("EPSG:3006", description="Coordinate reference system")
-    format: Optional[Literal["pb"]] = Field(
+    format: Literal["pb"] | None = Field(
         None, description="Output format (pb for protobuf)"
     )
     timeout_s: float = Field(10.0, description="HTTP timeout in seconds", gt=0)
@@ -581,8 +581,7 @@ class AirQualityDataset(DatasetDescriptor):
         }
     ]
     license = (
-        "Requires review: verify SMHI datavardluft source terms before "
-        "redistribution."
+        "Requires review: verify SMHI datavardluft source terms before redistribution."
     )
     collection_period = (
         "Latest available station snapshot. The provider /timeseries metadata "
@@ -758,7 +757,7 @@ class AirQualityDataset(DatasetDescriptor):
         with ProgressTracker(total=1.0, phases=progress_phases) as progress:
             bounds = self.parse_bounds(args.bounds)
             bounds_tuple = (bounds.xmin, bounds.ymin, bounds.xmax, bounds.ymax)
-            upstream_errors: List[DatasetUpstreamError] = []
+            upstream_errors: list[DatasetUpstreamError] = []
 
             with progress.phase(
                 "resolve_api", f"Resolving phenomenon '{args.phenomenon}'..."
@@ -772,7 +771,7 @@ class AirQualityDataset(DatasetDescriptor):
                 )
                 info(f"Resolved phenomenon {args.phenomenon} to ID {phenomenon_id}")
 
-            retrieval_time = datetime.now(timezone.utc)
+            retrieval_time = datetime.now(UTC)
             with progress.phase("fetch_stations", "Fetching stations within bounds..."):
                 stations_data = _fetch_stations(
                     args.base_url,

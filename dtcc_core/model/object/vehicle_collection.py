@@ -4,12 +4,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, List
+from typing import Any
 
 import numpy as np
 
-from .object import Object
-from ..geometry import Point
 from ...plotting.style import (
     DTCC_CATEGORY_PALETTE,
     DTCC_COLORS,
@@ -19,6 +17,8 @@ from ...plotting.style import (
     resolve_colormap,
     style_colorbar,
 )
+from ..geometry import Point
+from .object import Object
 
 
 @dataclass(repr=False)
@@ -35,24 +35,49 @@ class VehicleCollection(Object):
         vehicles = self.vehicles()
         errors = self.attributes.get("upstream_errors") or []
         if errors:
-            sections.append(("Upstream errors", ("Failure", "Message"),
-                             [(error.get("failure_class", "upstream"), error.get("message", ""))
-                              for error in errors]))
+            sections.append(
+                (
+                    "Upstream errors",
+                    ("Failure", "Message"),
+                    [
+                        (
+                            error.get("failure_class", "upstream"),
+                            error.get("message", ""),
+                        )
+                        for error in errors
+                    ],
+                )
+            )
         help_lines = self.attributes.get("configuration_help") or []
         if help_lines:
             sections.append(("Configuration help", None, "\n".join(help_lines)))
         if not vehicles and not self.attributes.get("partial_result", False):
-            sections.append(("", None, "No vehicles matched the selected bounds and modes."))
+            sections.append(
+                ("", None, "No vehicles matched the selected bounds and modes.")
+            )
         rows = []
         for vehicle in vehicles[:3]:
             attrs = vehicle.attributes
             point = self._point_geometry(vehicle)
-            rows.append((attrs.get("line") or attrs.get("route_id") or attrs.get("vehicle_id") or vehicle.id,
-                         attrs.get("mode", "unknown"),
-                         "N/A" if point is None else f"({point.x:.2f}, {point.y:.2f})",
-                         attrs.get("timestamp", "N/A")))
+            rows.append(
+                (
+                    attrs.get("line")
+                    or attrs.get("route_id")
+                    or attrs.get("vehicle_id")
+                    or vehicle.id,
+                    attrs.get("mode", "unknown"),
+                    "N/A" if point is None else f"({point.x:.2f}, {point.y:.2f})",
+                    attrs.get("timestamp", "N/A"),
+                )
+            )
         if rows:
-            sections.append(("Sample vehicles (first 3)", ("Vehicle", "Mode", "Location", "Timestamp"), rows))
+            sections.append(
+                (
+                    "Sample vehicles (first 3)",
+                    ("Vehicle", "Mode", "Location", "Timestamp"),
+                    rows,
+                )
+            )
         return sections
 
     def _summary_items(self):
@@ -64,7 +89,7 @@ class VehicleCollection(Object):
             raise TypeError("Vehicle must be an Object instance")
         self.add_child(vehicle)
 
-    def vehicles(self) -> List[Object]:
+    def vehicles(self) -> list[Object]:
         """Return all vehicles in the collection."""
         result = []
         for child_list in self.children.values():
@@ -160,7 +185,9 @@ class VehicleCollection(Object):
             )
             add_plot_context(
                 ax,
-                title=None if presentation_enabled else title or "DTCC Transit Vehicles",
+                title=None
+                if presentation_enabled
+                else title or "DTCC Transit Vehicles",
                 metadata=(
                     None
                     if presentation_enabled
@@ -197,7 +224,9 @@ class VehicleCollection(Object):
                 cbar.set_label(column)
                 style_colorbar(cbar, theme=theme)
         else:
-            categories = [str(value) if value is not None else "unknown" for value in values]
+            categories = [
+                str(value) if value is not None else "unknown" for value in values
+            ]
             colors = _categorical_colors(categories)
             ax.scatter(points[:, 0], points[:, 1], s=size, c=colors, **kwargs)
             if legend and not presentation_enabled:

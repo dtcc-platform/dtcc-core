@@ -1,7 +1,8 @@
 """Tests for RemoteDatasetDescriptor and remote service registration."""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 
 from dtcc_core.datasets.remote import RemoteDatasetDescriptor
 
@@ -97,7 +98,9 @@ class TestRemoteDatasetDescriptor:
         text = desc.info(print=False)
         assert "bounds" in text
         assert "No parameters defined" not in text
-        schema["properties"].update({f"option_{i}": {"type": "number"} for i in range(25)})
+        schema["properties"].update(
+            {f"option_{i}": {"type": "number"} for i in range(25)}
+        )
         assert "option_24" in desc.info(print=False)
 
     def test_validate_passes_through_dict(self):
@@ -208,8 +211,9 @@ def _mock_discovery_response():
 
 class TestRegisterRemoteService:
     def test_success(self):
+        from dtcc_core.datasets import list as list_datasets
+        from dtcc_core.datasets import unregister
         from dtcc_core.datasets.remote import register_remote_service
-        from dtcc_core.datasets import list as list_datasets, unregister
 
         mock_resp = MagicMock()
         mock_resp.json.return_value = _mock_discovery_response()
@@ -229,8 +233,9 @@ class TestRegisterRemoteService:
         unregister("mock_sim_dataset")
 
     def test_unreachable_returns_empty(self):
-        from dtcc_core.datasets.remote import register_remote_service
         import httpx
+
+        from dtcc_core.datasets.remote import register_remote_service
 
         with patch("httpx.get", side_effect=httpx.ConnectError("refused")):
             registered = register_remote_service("http://unreachable:9999", timeout=1)
@@ -246,13 +251,14 @@ class TestRegisterRemoteService:
         assert registered == []
 
     def test_cached_discoveries_roundtrip(self):
+        from dtcc_core.datasets import list as list_datasets
+        from dtcc_core.datasets import unregister
         from dtcc_core.datasets.remote import (
-            register_remote_service,
-            register_remote_descriptors_from_cache,
-            get_cached_discoveries,
             _cached_service_discoveries,
+            get_cached_discoveries,
+            register_remote_descriptors_from_cache,
+            register_remote_service,
         )
-        from dtcc_core.datasets import list as list_datasets, unregister
 
         # Clear cache from prior test runs
         _cached_service_discoveries.clear()
@@ -512,7 +518,9 @@ class TestSSEAndPolling:
 
         with patch("httpx.get", side_effect=mock_get):
             with patch("time.sleep"):  # don't actually sleep
-                result = desc._poll_status("http://localhost:8001/status/abc", progress_cb)
+                result = desc._poll_status(
+                    "http://localhost:8001/status/abc", progress_cb
+                )
 
         assert result == "abc.xdmf"
         assert len(progress_calls) == 2
@@ -537,8 +545,12 @@ class TestStreamStatusFallback:
 
         desc = self._make_desc()
 
-        with patch.object(desc, "_stream_sse", side_effect=SSEStreamError("stream dropped")):
-            with patch.object(desc, "_poll_status", return_value="abc.xdmf") as mock_poll:
+        with patch.object(
+            desc, "_stream_sse", side_effect=SSEStreamError("stream dropped")
+        ):
+            with patch.object(
+                desc, "_poll_status", return_value="abc.xdmf"
+            ) as mock_poll:
                 result = desc._stream_status("task-123", None)
 
         assert result == "abc.xdmf"
@@ -550,8 +562,12 @@ class TestStreamStatusFallback:
 
         desc = self._make_desc()
 
-        with patch.object(desc, "_stream_sse", side_effect=httpx.ReadError("connection reset")):
-            with patch.object(desc, "_poll_status", return_value="abc.xdmf") as mock_poll:
+        with patch.object(
+            desc, "_stream_sse", side_effect=httpx.ReadError("connection reset")
+        ):
+            with patch.object(
+                desc, "_poll_status", return_value="abc.xdmf"
+            ) as mock_poll:
                 result = desc._stream_status("task-123", None)
 
         assert result == "abc.xdmf"
@@ -563,8 +579,12 @@ class TestStreamStatusFallback:
 
         desc = self._make_desc()
 
-        with patch.object(desc, "_stream_sse", side_effect=httpx.RemoteProtocolError("peer closed")):
-            with patch.object(desc, "_poll_status", return_value="abc.xdmf") as mock_poll:
+        with patch.object(
+            desc, "_stream_sse", side_effect=httpx.RemoteProtocolError("peer closed")
+        ):
+            with patch.object(
+                desc, "_poll_status", return_value="abc.xdmf"
+            ) as mock_poll:
                 result = desc._stream_status("task-123", None)
 
         assert result == "abc.xdmf"
@@ -574,7 +594,9 @@ class TestStreamStatusFallback:
         """RuntimeError from failed/cancelled jobs should NOT fall back to polling."""
         desc = self._make_desc()
 
-        with patch.object(desc, "_stream_sse", side_effect=RuntimeError("Remote job failed: OOM")):
+        with patch.object(
+            desc, "_stream_sse", side_effect=RuntimeError("Remote job failed: OOM")
+        ):
             with patch.object(desc, "_poll_status") as mock_poll:
                 with pytest.raises(RuntimeError, match="OOM"):
                     desc._stream_status("task-123", None)
@@ -585,7 +607,9 @@ class TestStreamStatusFallback:
         """RuntimeError from cancellation should NOT fall back to polling."""
         desc = self._make_desc()
 
-        with patch.object(desc, "_stream_sse", side_effect=RuntimeError("Remote job was cancelled")):
+        with patch.object(
+            desc, "_stream_sse", side_effect=RuntimeError("Remote job was cancelled")
+        ):
             with patch.object(desc, "_poll_status") as mock_poll:
                 with pytest.raises(RuntimeError, match="cancelled"):
                     desc._stream_status("task-123", None)

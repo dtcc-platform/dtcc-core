@@ -1,25 +1,23 @@
 """Tests for mesh quality metrics (Mesh.quality() and VolumeMesh.quality())."""
 
-import pytest
 import numpy as np
+import pytest
+
 from dtcc_core.model import Mesh, VolumeMesh
 from dtcc_core.model.mixins.mesh.quality import (
-    triangle_mesh_quality,
-    tetrahedron_mesh_quality,
-    tri_element_quality,
-    tri_aspect_ratio,
-    tri_radius_ratio,
-    tri_edge_ratio,
-    tri_skewness,
-    tet_element_quality,
-    tet_aspect_ratio,
-    tet_radius_ratio,
-    tet_edge_ratio,
-    tet_skewness,
     format_quality,
     report_quality,
+    tet_aspect_ratio,
+    tet_edge_ratio,
+    tet_element_quality,
+    tet_radius_ratio,
+    tet_skewness,
+    tri_aspect_ratio,
+    tri_edge_ratio,
+    tri_element_quality,
+    tri_radius_ratio,
+    tri_skewness,
 )
-
 
 # -----------------------------------------------------------------------
 # Fixtures
@@ -106,9 +104,7 @@ class TestTriangleMeshQuality:
 
     def test_equilateral_radius_ratio(self, equilateral_tri_mesh):
         """Equilateral triangle should have radius ratio ≈ 1.0."""
-        rr = tri_radius_ratio(
-            equilateral_tri_mesh.vertices, equilateral_tri_mesh.faces
-        )
+        rr = tri_radius_ratio(equilateral_tri_mesh.vertices, equilateral_tri_mesh.faces)
         assert pytest.approx(rr[0], abs=1e-10) == 1.0
 
     def test_equilateral_skewness(self, equilateral_tri_mesh):

@@ -3,8 +3,8 @@
 import numpy as np
 import pytest
 
-from dtcc_core.model.object import Object, VehicleCollection
 from dtcc_core.model.geometry import Point
+from dtcc_core.model.object import Object, VehicleCollection
 from dtcc_core.model.values import Field
 
 

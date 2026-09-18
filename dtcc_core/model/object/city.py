@@ -1,28 +1,25 @@
 # Copyright(C) 2023 Dag Wästberg
 # Licensed under the MIT License
 
-from dataclasses import dataclass, field
-from typing import Literal, Union
 from collections import defaultdict
+from dataclasses import dataclass
+from typing import Literal
 
-from .tree import Tree
-from .object import Object, GeometryType
+from .. import geometry
+from ..logging import info, warning
+from ..mixins.city import (
+    CityBuilderMixin,
+    CityDownloadMixin,
+    CityLoaderMixin,
+    CityModifyingMixin,
+    CitySaveMixin,
+)
+from ..values.raster import Raster
 from .building import Building
 from .dataset_collections import BuildingCollection, FootprintCollection
+from .object import GeometryType, Object
 from .terrain import Terrain
-from ..values.raster import Raster
-from .. import geometry
-from ..geometry import Bounds
-
-from ..logging import info, warning, error, debug
-
-from ..mixins.city import (
-    CityLoaderMixin,
-    CityDownloadMixin,
-    CitySaveMixin,
-    CityBuilderMixin,
-    CityModifyingMixin,
-)
+from .tree import Tree
 
 
 @dataclass(repr=False)

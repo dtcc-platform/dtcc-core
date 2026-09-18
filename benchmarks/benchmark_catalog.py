@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any
 
 DATASET_NAMES = (
     "city_footprints",
@@ -244,7 +245,7 @@ def build_tasks(
     ):
         raise ValueError("--phase meshing requires a city mesh dataset")
     tasks = []
-    for city_name in ([city] if city else CITIES):
+    for city_name in [city] if city else CITIES:
         cases = (
             all_grid_cases(city_name)
             if suite == "survey"

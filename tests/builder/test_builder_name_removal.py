@@ -6,8 +6,6 @@ symbols are gone from the public API.  Any re-introduction of those names
 will cause these tests to fail.
 """
 
-import importlib
-
 import pytest
 
 import dtcc_core.builder

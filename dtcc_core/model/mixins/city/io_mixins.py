@@ -1,13 +1,10 @@
-from dtcc_core.logging import info, warning, error
-
-
 from pathlib import Path
-from typing import Union
-from typing import TypeVar, TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeVar
 
+from dtcc_core.logging import error, info, warning
+
+from ....model.geometry import Bounds
 from ....model.object import GeometryType
-from ....model.geometry import PointCloud, Bounds
-from ....model.values import Raster
 
 if TYPE_CHECKING:
     from ....model.object import City
@@ -17,7 +14,7 @@ if TYPE_CHECKING:
 
 class CityLoaderMixin:
     def load_footprints(
-        self: "City", path: Union[str, Path], user_city_bounds=False
+        self: "City", path: str | Path, user_city_bounds=False
     ) -> "City":
         """
         Load building footprints from a shapefile or geopackage into a City object.
@@ -52,7 +49,7 @@ class CityLoaderMixin:
 
     def load_pointcloud(
         self: "City",
-        path: Union[Path, str],
+        path: Path | str,
         remove_global_outliers: float = 3.0,
         user_city_bounds=False,
     ) -> "City":
@@ -82,7 +79,7 @@ class CityLoaderMixin:
 
         return self
 
-    def load_terrain_raster(self: "City", path: Union[Path, str]) -> "City":
+    def load_terrain_raster(self: "City", path: Path | str) -> "City":
         """
         Load a raster file and attach it as terrain geometry.
 
@@ -128,7 +125,7 @@ def _get_download_bounds(city_bounds, user_bounds):
 class CityDownloadMixin:
     def download_footprints(
         self: "City",
-        bounds: Union[Bounds, None] = None,
+        bounds: Bounds | None = None,
         provider: str = "dtcc",
     ) -> "City":
         """
@@ -159,7 +156,7 @@ class CityDownloadMixin:
 
     def download_pointcloud(
         self: "City",
-        bounds: Union[Bounds, None] = None,
+        bounds: Bounds | None = None,
         filter_on_z_bounds: bool = False,
         remove_global_outliers: float = 3.0,
     ) -> "City":
@@ -196,7 +193,7 @@ class CityDownloadMixin:
 
 
 class CitySaveMixin:
-    def save_building_footprints(self: "City", path: Union[str, Path]):
+    def save_building_footprints(self: "City", path: str | Path):
         """
         Save city buildings as 2D footprints to a shapefile, geojson or geopackage.
         """
@@ -205,7 +202,7 @@ class CitySaveMixin:
 
         io.footprints.save(self, path)
 
-    def save_pointcloud(self: "City", path: Union[str, Path]):
+    def save_pointcloud(self: "City", path: str | Path):
         """
         Save city pointcloud to a las or csv file.
         """
@@ -217,8 +214,9 @@ class CitySaveMixin:
             raise ValueError("City has no pointcloud to save")
         io.pointcloud.save(pc, path)
 
-    def save_cityjson(self: "City", path: Union[str, Path], *, strict=False,
-                     validate_schema=None):
+    def save_cityjson(
+        self: "City", path: str | Path, *, strict=False, validate_schema=None
+    ):
         """Save CityJSON; strict=True applies the standard schema by default.
 
         validate_schema=False bypasses semantics only in strict mode.
@@ -227,7 +225,7 @@ class CitySaveMixin:
 
         io.city.save(self, path, strict=strict, validate_schema=validate_schema)
 
-    def save_trees(self: "City", path: Union[str, Path], save_as_circles: bool = False):
+    def save_trees(self: "City", path: str | Path, save_as_circles: bool = False):
         """
         Save city trees to a file.
         """
@@ -239,7 +237,7 @@ class CitySaveMixin:
             raise ValueError("City has no trees to save")
         io.trees.save_trees(trees, path, as_circles=save_as_circles)
 
-    def save(self: "City", path: Union[str, Path]):
+    def save(self: "City", path: str | Path):
         """
         Save city to file based on file extension.
         """

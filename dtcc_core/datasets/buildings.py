@@ -1,12 +1,14 @@
-import dtcc_core
-from dtcc_core.model import BuildingCollection, City
-from typing import Literal, Optional
+from typing import Literal
+
 from pydantic import Field
 
-from .dataset import DatasetDescriptor, DatasetBaseArgs
+import dtcc_core
+from dtcc_core.common.progress import ProgressTracker, report_progress
+from dtcc_core.model import BuildingCollection, City
+
+from .dataset import DatasetBaseArgs, DatasetDescriptor
 from .footprints import _filter_small_buildings, _provider_for_source
 from .providers import provider_entry
-from dtcc_core.common.progress import ProgressTracker, report_progress
 
 
 class BuildingArgs(DatasetBaseArgs):
@@ -23,9 +25,7 @@ class BuildingArgs(DatasetBaseArgs):
     place_on_zero: bool = Field(
         False, description="Whether to place buildings on Z=0 plane"
     )
-    format: Optional[Literal["obj", "stl"]] = Field(
-        None, description="Output file format"
-    )
+    format: Literal["obj", "stl"] | None = Field(None, description="Output file format")
 
 
 class BuildingDataset(DatasetDescriptor):
@@ -136,7 +136,10 @@ class BuildingDataset(DatasetDescriptor):
         "entries": [
             {"label": "Footprint", "meaning": "source building outline"},
             {"label": "Height", "meaning": "point-cloud-derived LoD1 extrusion height"},
-            {"label": "Merged mesh", "meaning": "OBJ/STL export artifact when requested"},
+            {
+                "label": "Merged mesh",
+                "meaning": "OBJ/STL export artifact when requested",
+            },
         ],
     }
     view_hints = {

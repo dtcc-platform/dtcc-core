@@ -1,26 +1,29 @@
 #!/usr/bin/env python3
 
-import os
 import json
+import os
 import re
-import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
-import pyproj
+
 import geopandas as gpd
-from shapely.geometry import box, Polygon, LineString
+import pyproj
+import requests
 from platformdirs import user_cache_dir
-from .logging import info, warning, debug, error
+from requests.adapters import HTTPAdapter
+from shapely.geometry import LineString, Polygon, box
+from urllib3.util.retry import Retry
+
+# ``warning`` is re-exported for tests that assert nothing warns here.
+from .logging import debug, error, info, warning  # noqa: F401
 
 # ------------------------------------------------------------------------
 # 1) Global constants/paths
 # ------------------------------------------------------------------------
 BASE_CACHE_DIR = user_cache_dir(appname="dtcc-data")
-os.makedirs(BASE_CACHE_DIR,exist_ok=True)
-CACHE_DIR = os.path.join(BASE_CACHE_DIR,"downloaded_osm")
-os.makedirs(CACHE_DIR,exist_ok=True)
+os.makedirs(BASE_CACHE_DIR, exist_ok=True)
+CACHE_DIR = os.path.join(BASE_CACHE_DIR, "downloaded_osm")
+os.makedirs(CACHE_DIR, exist_ok=True)
 # Where we store local cache metadata
-CACHE_METADATA_FILE = os.path.join(BASE_CACHE_DIR,"cache_metadata.json")
+CACHE_METADATA_FILE = os.path.join(BASE_CACHE_DIR, "cache_metadata.json")
 
 OVERPASS_ENDPOINTS = [
     "https://overpass-api.de/api/interpreter",
@@ -33,9 +36,13 @@ OVERPASS_SOURCE_ENDPOINT_COLUMN = "source_endpoint"
 OVERPASS_CONNECT_TIMEOUT_SECONDS = float(
     os.environ.get("DTCC_OVERPASS_CONNECT_TIMEOUT", "8")
 )
-OVERPASS_READ_TIMEOUT_SECONDS = float(os.environ.get("DTCC_OVERPASS_READ_TIMEOUT", "30"))
+OVERPASS_READ_TIMEOUT_SECONDS = float(
+    os.environ.get("DTCC_OVERPASS_READ_TIMEOUT", "30")
+)
 OVERPASS_RETRIES = int(os.environ.get("DTCC_OVERPASS_RETRIES", "1"))
-OVERPASS_SERVER_TIMEOUT_SECONDS = int(os.environ.get("DTCC_OVERPASS_SERVER_TIMEOUT", "25"))
+OVERPASS_SERVER_TIMEOUT_SECONDS = int(
+    os.environ.get("DTCC_OVERPASS_SERVER_TIMEOUT", "25")
+)
 OVERPASS_USER_AGENT = os.environ.get(
     "DTCC_OVERPASS_USER_AGENT",
     "dtcc-core/0.9.8 (https://github.com/dtcc-platform/dtcc-core)",
@@ -167,12 +174,8 @@ def is_superset_bbox(bbox_sup, bbox_sub):
     """
     xminS, yminS, xmaxS, ymaxS = bbox_sup
     xminT, yminT, xmaxT, ymaxT = bbox_sub
-    return (
-        xminS <= xminT and
-        yminS <= yminT and
-        xmaxS >= xmaxT and
-        ymaxS >= ymaxT
-    )
+    return xminS <= xminT and yminS <= yminT and xmaxS >= xmaxT and ymaxS >= ymaxT
+
 
 def filter_gdf_to_bbox(gdf, bbox_3006):
     """
@@ -217,24 +220,28 @@ def _parse_maxspeed_kmh(value):
         speed *= 1.609344
     return speed
 
+
 # ------------------------------------------------------------------------
 # 3) Metadata I/O
 # ------------------------------------------------------------------------
 def load_cache_metadata(meta_path=CACHE_METADATA_FILE):
     if not os.path.exists(meta_path):
         return []
-    with open(meta_path, "r", encoding="utf-8") as f:
+    with open(meta_path, encoding="utf-8") as f:
         return json.load(f)
+
 
 def save_cache_metadata(records, meta_path=CACHE_METADATA_FILE):
     with open(meta_path, "w", encoding="utf-8") as f:
         json.dump(records, f, indent=2)
+
 
 def to_relative_path(filepath):
     """Convert absolute path to relative path from BASE_CACHE_DIR."""
     if os.path.isabs(filepath) and filepath.startswith(BASE_CACHE_DIR):
         return os.path.relpath(filepath, BASE_CACHE_DIR)
     return filepath
+
 
 def to_absolute_path(filepath):
     """Convert relative path to absolute path using BASE_CACHE_DIR.
@@ -243,6 +250,7 @@ def to_absolute_path(filepath):
     if os.path.isabs(filepath):
         return filepath  # Already absolute (legacy format)
     return os.path.join(BASE_CACHE_DIR, filepath)
+
 
 def find_superset_record(bbox_3006, records):
     """
@@ -254,6 +262,7 @@ def find_superset_record(bbox_3006, records):
         if is_superset_bbox(rbox, bbox_3006):
             return rec
     return None
+
 
 # ------------------------------------------------------------------------
 # 4) Overpass logic
@@ -303,14 +312,13 @@ def download_overpass_buildings(bbox_3006):
         polygons_4326.append(Polygon(ring_lonlat))
 
     gdf_4326 = gpd.GeoDataFrame(
-        {"osm_id": range(len(polygons_4326))},
-        geometry=polygons_4326,
-        crs="EPSG:4326"
+        {"osm_id": range(len(polygons_4326))}, geometry=polygons_4326, crs="EPSG:4326"
     )
     _set_overpass_source_endpoint(gdf_4326, source_endpoint)
     gdf_3006 = gdf_4326.to_crs("EPSG:3006")
     _set_overpass_source_endpoint(gdf_3006, source_endpoint)
     return gdf_3006
+
 
 def download_overpass_roads(bbox_3006):
     """
@@ -361,7 +369,9 @@ def download_overpass_roads(bbox_3006):
             zip(coords[:-1], coords[1:])
         ):
             start_node = refs[segment_index] if segment_index < len(refs) else None
-            end_node = refs[segment_index + 1] if segment_index + 1 < len(refs) else None
+            end_node = (
+                refs[segment_index + 1] if segment_index + 1 < len(refs) else None
+            )
             road_geometries.append(
                 LineString([(start_lon, start_lat), (end_lon, end_lat)])
             )
@@ -401,10 +411,7 @@ def download_overpass_roads(bbox_3006):
         "junction",
     ]
     gdf_4326 = gpd.GeoDataFrame(
-        road_rows,
-        columns=road_columns,
-        geometry=road_geometries,
-        crs="EPSG:4326"
+        road_rows, columns=road_columns, geometry=road_geometries, crs="EPSG:4326"
     )
     _set_overpass_source_endpoint(gdf_4326, source_endpoint)
     gdf_3006 = gdf_4326.to_crs("EPSG:3006")
@@ -436,6 +443,7 @@ def _way_node_ids_and_coordinates_latlon(elem, nodes):
 
     return refs, coords
 
+
 # ------------------------------------------------------------------------
 # 5) Superset-based caching logic for Buildings
 # ------------------------------------------------------------------------
@@ -447,29 +455,38 @@ def get_buildings_for_bbox(bbox_3006):
     4) return GDF in EPSG:3006
     """
     records = load_cache_metadata()
-    sup_rec = find_superset_record(bbox_3006, [r for r in records if r["type"] == "buildings"])
+    sup_rec = find_superset_record(
+        bbox_3006, [r for r in records if r["type"] == "buildings"]
+    )
     if sup_rec:
         debug("Found superset bounding box for buildings:", sup_rec["bbox"])
-        gdf_all = gpd.read_file(to_absolute_path(sup_rec["filepath"]), layer=sup_rec["layer"])
+        gdf_all = gpd.read_file(
+            to_absolute_path(sup_rec["filepath"]), layer=sup_rec["layer"]
+        )
         _set_overpass_source_endpoint(gdf_all, sup_rec.get("source_endpoint"))
         subset_gdf = filter_gdf_to_bbox(gdf_all, bbox_3006)
         _set_overpass_source_endpoint(subset_gdf, sup_rec.get("source_endpoint"))
-        saved_filename = to_absolute_path(sup_rec['filepath'])
-        info(f"Subset size: {len(subset_gdf)} features for buildings in bbox={bbox_3006}")
+        saved_filename = to_absolute_path(sup_rec["filepath"])
+        info(
+            f"Subset size: {len(subset_gdf)} features for buildings in bbox={bbox_3006}"
+        )
         return subset_gdf, saved_filename
     else:
         # Overpass
         new_gdf = download_overpass_buildings(bbox_3006)
         info(f"Downloaded {len(new_gdf)} building footprints from Overpass.")
         # store
-        out_filename = os.path.join(CACHE_DIR,f"buildings_{bbox_3006[0]}_{bbox_3006[1]}_{bbox_3006[2]}_{bbox_3006[3]}.gpkg")
+        out_filename = os.path.join(
+            CACHE_DIR,
+            f"buildings_{bbox_3006[0]}_{bbox_3006[1]}_{bbox_3006[2]}_{bbox_3006[3]}.gpkg",
+        )
         new_gdf.to_file(out_filename, layer="buildings", driver="GPKG")
         # update metadata
         record = {
             "type": "buildings",
             "bbox": list(bbox_3006),
             "filepath": to_relative_path(out_filename),
-            "layer": "buildings"
+            "layer": "buildings",
         }
         source_endpoint = _gdf_source_endpoint(new_gdf)
         if source_endpoint:
@@ -477,6 +494,7 @@ def get_buildings_for_bbox(bbox_3006):
         records.append(record)
         save_cache_metadata(records)
         return new_gdf, out_filename
+
 
 # ------------------------------------------------------------------------
 # 6) Superset-based caching logic for Roads
@@ -497,9 +515,11 @@ def get_roads_for_bbox(bbox_3006):
     sup_rec = find_superset_record(bbox_3006, road_records)
     if sup_rec:
         debug("Found superset bounding box for roads:", sup_rec["bbox"])
-        gdf_all = gpd.read_file(to_absolute_path(sup_rec["filepath"]), layer=sup_rec["layer"])
+        gdf_all = gpd.read_file(
+            to_absolute_path(sup_rec["filepath"]), layer=sup_rec["layer"]
+        )
         _set_overpass_source_endpoint(gdf_all, sup_rec.get("source_endpoint"))
-        saved_filename = to_absolute_path(sup_rec['filepath'])
+        saved_filename = to_absolute_path(sup_rec["filepath"])
         subset_gdf = filter_gdf_to_bbox(gdf_all, bbox_3006)
         _set_overpass_source_endpoint(subset_gdf, sup_rec.get("source_endpoint"))
         info(f"Subset size: {len(subset_gdf)} features for roads in bbox={bbox_3006}")
@@ -509,7 +529,10 @@ def get_roads_for_bbox(bbox_3006):
         new_gdf = download_overpass_roads(bbox_3006)
         info(f"Downloaded {len(new_gdf)} road features from Overpass.")
         # store
-        out_filename = os.path.join(CACHE_DIR, f"roads_{bbox_3006[0]}_{bbox_3006[1]}_{bbox_3006[2]}_{bbox_3006[3]}.gpkg")
+        out_filename = os.path.join(
+            CACHE_DIR,
+            f"roads_{bbox_3006[0]}_{bbox_3006[1]}_{bbox_3006[2]}_{bbox_3006[3]}.gpkg",
+        )
         new_gdf.to_file(out_filename, layer="roads", driver="GPKG")
         # update metadata
         record = {
@@ -517,7 +540,7 @@ def get_roads_for_bbox(bbox_3006):
             "version": ROAD_CACHE_VERSION,
             "bbox": list(bbox_3006),
             "filepath": to_relative_path(out_filename),
-            "layer": "roads"
+            "layer": "roads",
         }
         source_endpoint = _gdf_source_endpoint(new_gdf)
         if source_endpoint:
@@ -530,7 +553,7 @@ def get_roads_for_bbox(bbox_3006):
 # ------------------------------------------------------------------------
 # Example usage
 # ------------------------------------------------------------------------
-'''
+"""
 if __name__ == "__main__":
     # bigger bounding box in EPSG:3006
     bboxA = (267000, 6519000, 270000, 6521000)
@@ -552,4 +575,4 @@ if __name__ == "__main__":
     print("=== Roads: BBox B (subset) ===")
     roadsB = get_roads_for_bbox(bboxB)
     print("Roads B size:", len(roadsB))
-'''
+"""

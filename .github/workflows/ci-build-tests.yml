@@ -10,6 +10,26 @@ permissions:
   contents: read
 
 jobs:
+  # Ruff runs standalone: style and lint checks do not need the compiled
+  # extension, so this job gives feedback in seconds.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.1.0
+        with:
+          python-version: "3.11"
+          enable-cache: true
+
+      - name: Check lint rules
+        run: uvx ruff@0.16.8 check .
+
+      - name: Check formatting
+        run: uvx ruff@0.16.8 format --check .
+
   build-and-test:
     strategy:
       matrix:

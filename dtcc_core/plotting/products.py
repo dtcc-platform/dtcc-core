@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, Mapping
+from typing import Any
 
 import numpy as np
 
 from dtcc_core.model import Bounds
-
 
 AXIS_NAMES = ("x", "y", "z")
 
@@ -46,9 +46,11 @@ class SliceProduct:
 
     @property
     def image(self) -> np.ndarray:
-        return np.asarray(self.values, dtype=float).reshape(
-            (self.resolution, self.resolution)
-        ).T
+        return (
+            np.asarray(self.values, dtype=float)
+            .reshape((self.resolution, self.resolution))
+            .T
+        )
 
     @property
     def fields(self) -> list[str]:

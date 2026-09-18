@@ -1,19 +1,15 @@
-from dtcc_core.logging import info, warning, error
-import numpy as np
+from typing import TYPE_CHECKING, TypeVar
 
-from pathlib import Path
-from typing import Union
-from typing import TypeVar, TYPE_CHECKING
+from dtcc_core.logging import info, warning
 
-from ....model.geometry import PointCloud, Mesh, VolumeMesh
+from ....model.geometry import Mesh, PointCloud, VolumeMesh
 from ....model.object import GeometryType
-from ....model.values import Raster
 
 if TYPE_CHECKING:
+    from shapely.geometry import Polygon
+
     from ....model.object import City
     from ....model.object.tree import Tree
-
-    from shapely.geometry import Polygon
 
     T_City = TypeVar("T_City", bound=City)
     T_Tree = TypeVar("T_Tree", bound=Tree)
@@ -41,6 +37,7 @@ class CityBuilderMixin:
             City: The city object with the terrain added.
         """
         from dtcc_core.builder import build_terrain_raster, build_terrain_surface_mesh
+
         from ....model.object import Terrain
 
         if pc is not None and not isinstance(pc, PointCloud):
@@ -101,8 +98,8 @@ class CityBuilderMixin:
             City: The city object with LOD1 buildings added.
         """
         from dtcc_core.builder import (
-            building_heights_from_pointcloud,
             build_lod1_buildings,
+            building_heights_from_pointcloud,
             set_building_heights_from_attribute,
         )
 
@@ -167,8 +164,8 @@ class CityBuilderMixin:
         LOD1 fallback geometry.
         """
         from dtcc_core.builder import (
-            building_heights_from_pointcloud,
             build_lod2_buildings,
+            building_heights_from_pointcloud,
         )
 
         if len(self.buildings) == 0:

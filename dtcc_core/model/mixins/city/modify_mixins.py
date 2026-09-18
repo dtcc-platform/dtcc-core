@@ -1,7 +1,6 @@
-from dtcc_core.logging import info, warning, error
+from typing import TYPE_CHECKING, TypeVar
 
-from typing import TypeVar, TYPE_CHECKING
-
+from dtcc_core.logging import info
 
 if TYPE_CHECKING:
     from ....model.object import City
@@ -10,7 +9,6 @@ if TYPE_CHECKING:
 
 
 class CityModifyingMixin:
-
     def building_heights_from_pointcloud(
         self: "T_City",
         statistical_outlier_removal: bool = True,

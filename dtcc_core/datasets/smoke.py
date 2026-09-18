@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import math
 import textwrap
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 import numpy as np
 from pydantic import Field as PydanticField
@@ -48,7 +48,6 @@ from .presentation import (
     draw_preview_fact_rows,
 )
 
-
 SmokeProduct = Literal["field", "slice", "streamlines"]
 SmokeFormat = Literal["pb", "vtu", "geojson", "png", "mp4"]
 SmokePlotMode = Literal["artifact", "preview", "plot"]
@@ -88,7 +87,7 @@ class SmokeArgs(DatasetBaseArgs):
         "field",
         description="Dataset product to return: full volume field, cut plane, or streamlines.",
     )
-    format: Optional[SmokeFormat] = PydanticField(
+    format: SmokeFormat | None = PydanticField(
         None,
         description=(
             "Serialized output format. If omitted, product='field' returns a "
@@ -96,7 +95,7 @@ class SmokeArgs(DatasetBaseArgs):
             "product='streamlines' returns a StreamlineCollection."
         ),
     )
-    crs: Optional[str] = PydanticField(
+    crs: str | None = PydanticField(
         "EPSG:3006",
         description=(
             "Coordinate reference system declared in GeoJSON outputs for GIS "
@@ -141,8 +140,7 @@ class SmokeArgs(DatasetBaseArgs):
     time: float = PydanticField(
         0.0,
         description=(
-            "Snapshot time in seconds. Video exports use this as the first "
-            "frame time."
+            "Snapshot time in seconds. Video exports use this as the first frame time."
         ),
     )
     period: float = PydanticField(
@@ -166,7 +164,7 @@ class SmokeArgs(DatasetBaseArgs):
         "h264",
         description="FFmpeg video codec for MP4 artifacts.",
     )
-    bitrate: Optional[int] = PydanticField(
+    bitrate: int | None = PydanticField(
         None,
         gt=0,
         description="Optional MP4 video bitrate in kbit/s.",
@@ -208,7 +206,7 @@ class SmokeArgs(DatasetBaseArgs):
         "dtcc",
         description="Matplotlib colormap name, or 'dtcc' for the DTCC numeric palette.",
     )
-    background: Optional[str] = PydanticField(
+    background: str | None = PydanticField(
         None,
         description="Optional render background color. Defaults to the selected theme.",
     )
@@ -220,7 +218,7 @@ class SmokeArgs(DatasetBaseArgs):
         False,
         description="Whether rendered artifacts include a colorbar legend.",
     )
-    title: Optional[str] = PydanticField(
+    title: str | None = PydanticField(
         None,
         description="Optional title used by the non-table visualization profile.",
     )
@@ -231,11 +229,11 @@ class SmokeArgs(DatasetBaseArgs):
             "filling the canvas."
         ),
     )
-    vmin: Optional[float] = PydanticField(
+    vmin: float | None = PydanticField(
         None,
         description="Optional lower scalar color limit for rendered artifacts.",
     )
-    vmax: Optional[float] = PydanticField(
+    vmax: float | None = PydanticField(
         None,
         description="Optional upper scalar color limit for rendered artifacts.",
     )
@@ -557,7 +555,9 @@ class SmokeDataset(DatasetDescriptor):
 
         bounds = _physical_bounds(args)
         product = _visual_product(bounds, args)
-        options = _video_options(args) if args.format == "mp4" else _render_options(args)
+        options = (
+            _video_options(args) if args.format == "mp4" else _render_options(args)
+        )
         visualization = options.manifest_dict()
         visualization.update(product.manifest_dict())
         visualization["origin"] = "lower"
@@ -1080,7 +1080,7 @@ def _smoke_preview_facts(args: SmokeArgs, *, overview: bool) -> list[tuple[str, 
     elif args.product == "slice":
         records = f"{args.resolution * args.resolution:,} samples"
     else:
-        records = f"{args.resolution ** 3:,} samples"
+        records = f"{args.resolution**3:,} samples"
     facts.append(("Records", records))
     facts.append(("CRS", args.crs or "not declared"))
     facts.append(("Formats", "png, mp4" if args.loop else "png"))
@@ -1232,7 +1232,11 @@ def _validate_smoke_presentation(presentation: dict[str, Any]) -> None:
             raise ValueError(f"Smoke presentation metadata requires non-empty {key!r}.")
 
     for item in presentation["narrative"]:
-        if not isinstance(item, dict) or not item.get("heading") or not item.get("body"):
+        if (
+            not isinstance(item, dict)
+            or not item.get("heading")
+            or not item.get("body")
+        ):
             raise ValueError(
                 "Smoke presentation narrative items require heading and body."
             )
@@ -1464,7 +1468,9 @@ def _video_options(args: SmokeArgs) -> VideoRenderOptions:
     )
 
 
-def _visual_product(bounds: Bounds, args: SmokeArgs) -> SliceProduct | StreamlineProduct:
+def _visual_product(
+    bounds: Bounds, args: SmokeArgs
+) -> SliceProduct | StreamlineProduct:
     if args.product == "slice":
         return _slice_product(bounds, args)
     if args.product == "streamlines":
@@ -1743,9 +1749,7 @@ def _streamline_direction(point: np.ndarray, time: float, period: float) -> np.n
 
 
 def _inside_normalized_domain(point: np.ndarray) -> bool:
-    return bool(
-        np.all(point >= _NORMALIZED_MIN) and np.all(point <= _NORMALIZED_MAX)
-    )
+    return bool(np.all(point >= _NORMALIZED_MIN) and np.all(point <= _NORMALIZED_MAX))
 
 
 def _point_feature(

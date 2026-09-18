@@ -6,14 +6,24 @@ import pytest
 from shapely.geometry import LineString, Point, Polygon
 
 import dtcc_core.builder.geometry_builders.lod2 as lod2_module
-from dtcc_core.model import Building, City, GeometryType, MultiSurface, PointCloud, Surface
-from dtcc_core.builder.geometry_builders.lod2 import is_watertight
-from dtcc_core.builder.geometry_builders.lod2 import _concave_vertex_indices
-from dtcc_core.builder.geometry_builders.lod2 import _decompose_footprint
-from dtcc_core.builder.geometry_builders.lod2 import _decomposition_shape_reason
-from dtcc_core.builder.geometry_builders.lod2 import _fit_plane, _ransac_planes
-from dtcc_core.builder.geometry_builders.lod2 import _roof_surfaces_cover_footprint
-from dtcc_core.builder.geometry_builders.lod2 import build_lod2_buildings
+from dtcc_core.builder.geometry_builders.lod2 import (
+    _concave_vertex_indices,
+    _decompose_footprint,
+    _decomposition_shape_reason,
+    _fit_plane,
+    _ransac_planes,
+    _roof_surfaces_cover_footprint,
+    build_lod2_buildings,
+    is_watertight,
+)
+from dtcc_core.model import (
+    Building,
+    City,
+    GeometryType,
+    MultiSurface,
+    PointCloud,
+    Surface,
+)
 
 
 def _surface(coords):
@@ -89,14 +99,20 @@ def test_fit_plane_predicts_roof_z_values():
 
 
 def test_ransac_planes_is_deterministic_for_two_planes():
-    left = np.array([[x, y, 10 + 0.3 * x] for x in range(6) for y in range(6)], dtype=float)
-    right = np.array([[x + 20, y, 30 - 0.3 * x] for x in range(6) for y in range(6)], dtype=float)
+    left = np.array(
+        [[x, y, 10 + 0.3 * x] for x in range(6) for y in range(6)], dtype=float
+    )
+    right = np.array(
+        [[x + 20, y, 30 - 0.3 * x] for x in range(6) for y in range(6)], dtype=float
+    )
     points = np.vstack([left, right])
 
     first = _ransac_planes(points, seed=7)
     second = _ransac_planes(points, seed=7)
 
-    assert [len(plane.inliers) for plane in first] == [len(plane.inliers) for plane in second]
+    assert [len(plane.inliers) for plane in first] == [
+        len(plane.inliers) for plane in second
+    ]
     assert np.allclose(
         [(plane.a, plane.b, plane.c) for plane in first],
         [(plane.a, plane.b, plane.c) for plane in second],
@@ -132,14 +148,9 @@ def test_stepped_flat_height_levels_ignores_minor_sloped_artifacts():
     flat_levels = []
     for x0, z in [(1, 10.0), (11, 13.0), (21, 11.0)]:
         flat_levels.extend(
-            [x, y, z]
-            for x in np.linspace(x0, x0 + 8, 8)
-            for y in np.linspace(1, 9, 10)
+            [x, y, z] for x in np.linspace(x0, x0 + 8, 8) for y in np.linspace(1, 9, 10)
         )
-    sloped_artifact = [
-        [100.0 + index, 0.0, 20.0 + 0.3 * index]
-        for index in range(20)
-    ]
+    sloped_artifact = [[100.0 + index, 0.0, 20.0 + 0.3 * index] for index in range(20)]
     points = np.asarray([*flat_levels, *sloped_artifact], dtype=float)
     planes = [
         lod2_module.RoofPlane(0.0, 0.0, 10.0, np.arange(0, 80)),
@@ -159,9 +170,7 @@ def test_stepped_flat_height_levels_ignore_unassigned_roof_noise():
     flat_levels = []
     for x0, z in [(1, 10.0), (11, 13.0), (21, 11.0)]:
         flat_levels.extend(
-            [x, y, z]
-            for x in np.linspace(x0, x0 + 8, 8)
-            for y in np.linspace(1, 9, 10)
+            [x, y, z] for x in np.linspace(x0, x0 + 8, 8) for y in np.linspace(1, 9, 10)
         )
     unassigned_noise = [
         [60.0 + index % 14, 60.0 + index // 14, 20.0 + 0.25 * index]
@@ -285,7 +294,9 @@ def test_stepped_flat_region_patches_cover_corner_levels():
     assert reason is None
     assert patches is not None
     assert len(patches) == 2
-    assert all(patch.is_valid and patch.area > lod2_module.MIN_PATCH_AREA for patch in patches)
+    assert all(
+        patch.is_valid and patch.area > lod2_module.MIN_PATCH_AREA for patch in patches
+    )
     assert lod2_module._patches_cover_footprint(footprint, patches)
     assert patches[0].covers(Point(3.5, 2.5))
     assert patches[1].covers(Point(4.0, 9.0))
@@ -293,7 +304,9 @@ def test_stepped_flat_region_patches_cover_corner_levels():
 
 
 def test_stepped_flat_region_patches_reject_scattered_blob_level():
-    points, footprint, low_indices, high_indices = _scattered_blob_stepped_flat_roof_fixture()
+    points, footprint, low_indices, high_indices = (
+        _scattered_blob_stepped_flat_roof_fixture()
+    )
     levels = [
         lod2_module.SteppedFlatLevel(
             lod2_module.RoofPlane(0.0, 0.0, 10.0, low_indices),
@@ -314,14 +327,10 @@ def test_stepped_flat_region_patches_reject_scattered_blob_level():
 def test_stepped_flat_region_assignment_rejects_overlapping_patches():
     footprint = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
     low_points = [
-        [x, y, 10.0]
-        for x in np.linspace(1, 2, 5)
-        for y in np.linspace(1, 9, 5)
+        [x, y, 10.0] for x in np.linspace(1, 2, 5) for y in np.linspace(1, 9, 5)
     ]
     high_points = [
-        [x, y, 13.0]
-        for x in np.linspace(8, 9, 5)
-        for y in np.linspace(1, 9, 5)
+        [x, y, 13.0] for x in np.linspace(8, 9, 5) for y in np.linspace(1, 9, 5)
     ]
     points = np.asarray([*low_points, *high_points], dtype=float)
     levels = [
@@ -350,14 +359,10 @@ def test_stepped_flat_region_assignment_rejects_overlapping_patches():
 def test_stepped_flat_patches_reject_unsupported_strip_fill_extent():
     footprint = Polygon([(0, 0), (20, 0), (20, 10), (0, 10)])
     low_points = [
-        [x, y, 10.0]
-        for x in np.linspace(1, 2, 3)
-        for y in np.linspace(1, 2, 3)
+        [x, y, 10.0] for x in np.linspace(1, 2, 3) for y in np.linspace(1, 2, 3)
     ]
     high_points = [
-        [x, y, 13.0]
-        for x in np.linspace(11, 19, 5)
-        for y in np.linspace(1, 9, 5)
+        [x, y, 13.0] for x in np.linspace(11, 19, 5) for y in np.linspace(1, 9, 5)
     ]
     points = np.asarray([*low_points, *high_points], dtype=float)
     low_indices = np.arange(0, len(low_points))
@@ -421,19 +426,13 @@ def test_stepped_flat_patches_reject_unstriped_levels():
 def test_stepped_flat_patches_reject_partly_mixed_strip_support():
     footprint = Polygon([(0, 0), (20, 0), (20, 10), (0, 10)])
     low_points = [
-        [x, y, 10.0]
-        for x in np.linspace(1, 9, 5)
-        for y in np.linspace(1, 9, 5)
+        [x, y, 10.0] for x in np.linspace(1, 9, 5) for y in np.linspace(1, 9, 5)
     ]
     high_points = [
-        [x, y, 13.0]
-        for x in np.linspace(11, 19, 5)
-        for y in np.linspace(1, 9, 5)
+        [x, y, 13.0] for x in np.linspace(11, 19, 5) for y in np.linspace(1, 9, 5)
     ]
     mixed_high_points = [
-        [x, y, 13.0]
-        for x in np.linspace(2, 6, 5)
-        for y in np.linspace(2, 8, 2)
+        [x, y, 13.0] for x in np.linspace(2, 6, 5) for y in np.linspace(2, 8, 2)
     ]
     points = np.asarray([*low_points, *high_points, *mixed_high_points], dtype=float)
     levels = [
@@ -462,7 +461,9 @@ def test_build_stepped_flat_shell_from_patches_is_watertight():
     )
     patches, reason = lod2_module._stepped_flat_level_patches(points, footprint, levels)
 
-    shell, reason = lod2_module._build_stepped_flat_shell(footprint, patches, levels, 0.0)
+    shell, reason = lod2_module._build_stepped_flat_shell(
+        footprint, patches, levels, 0.0
+    )
 
     assert reason == lod2_module.STEPPED_FLAT_SUCCESS
     assert shell is not None
@@ -491,7 +492,9 @@ def test_build_stepped_flat_shell_nodes_partial_shared_boundaries():
         ),
     ]
 
-    shell, reason = lod2_module._build_stepped_flat_shell(footprint, patches, levels, 0.0)
+    shell, reason = lod2_module._build_stepped_flat_shell(
+        footprint, patches, levels, 0.0
+    )
 
     assert reason == lod2_module.STEPPED_FLAT_SUCCESS
     assert shell is not None
@@ -520,7 +523,9 @@ def test_build_stepped_flat_shell_rejects_three_height_t_junction():
         ),
     ]
 
-    shell, reason = lod2_module._build_stepped_flat_shell(footprint, patches, levels, 0.0)
+    shell, reason = lod2_module._build_stepped_flat_shell(
+        footprint, patches, levels, 0.0
+    )
 
     assert shell is None
     assert reason == lod2_module.STEPPED_FLAT_STEP_WALL_FAILED
@@ -550,7 +555,9 @@ def test_build_stepped_flat_shell_rejects_non_simple_surfaces(monkeypatch):
     )
     monkeypatch.setattr(lod2_module, "is_watertight", lambda shell: True)
 
-    shell, reason = lod2_module._build_stepped_flat_shell(footprint, patches, levels, 0.0)
+    shell, reason = lod2_module._build_stepped_flat_shell(
+        footprint, patches, levels, 0.0
+    )
 
     assert shell is None
     assert reason == lod2_module.STEPPED_FLAT_WATERTIGHT_FAILED
@@ -561,7 +568,9 @@ def _building_with_footprint(points, *, ground_height=0.0):
     footprint = Surface()
     footprint.from_polygon(Polygon([(0, 0), (10, 0), (10, 10), (0, 10)]), 10.0)
     building.add_geometry(footprint, GeometryType.LOD0)
-    building.add_geometry(PointCloud(points=np.array(points, dtype=float)), GeometryType.POINT_CLOUD)
+    building.add_geometry(
+        PointCloud(points=np.array(points, dtype=float)), GeometryType.POINT_CLOUD
+    )
     building.attributes["ground_height"] = ground_height
     building.attributes["estimated_height"] = 10.0 - ground_height
     return building
@@ -572,7 +581,9 @@ def _building_with_polygon(points, polygon, *, ground_height=0.0):
     footprint = Surface()
     footprint.from_polygon(polygon, 10.0)
     building.add_geometry(footprint, GeometryType.LOD0)
-    building.add_geometry(PointCloud(points=np.array(points, dtype=float)), GeometryType.POINT_CLOUD)
+    building.add_geometry(
+        PointCloud(points=np.array(points, dtype=float)), GeometryType.POINT_CLOUD
+    )
     building.attributes["ground_height"] = ground_height
     building.attributes["estimated_height"] = 10.0 - ground_height
     return building
@@ -584,7 +595,10 @@ def _flat_roof_points(z=10.0):
 
 def _region_points(count):
     return np.asarray(
-        [[1.0 + 0.01 * (index % 10), 1.0 + 0.01 * (index // 10), 10.0] for index in range(count)],
+        [
+            [1.0 + 0.01 * (index % 10), 1.0 + 0.01 * (index // 10), 10.0]
+            for index in range(count)
+        ],
         dtype=float,
     )
 
@@ -593,13 +607,21 @@ def _planes_with_inlier_counts(*counts):
     start = 0
     planes = []
     for index, count in enumerate(counts):
-        planes.append(lod2_module.RoofPlane(0.1 * index, 0.0, 10.0 + index, np.arange(start, start + count)))
+        planes.append(
+            lod2_module.RoofPlane(
+                0.1 * index, 0.0, 10.0 + index, np.arange(start, start + count)
+            )
+        )
         start += count
     return planes
 
 
 def _decomposition_summary_values(messages):
-    summary = next(message for message in messages if message.startswith("LOD2 decomposition summary:"))
+    summary = next(
+        message
+        for message in messages
+        if message.startswith("LOD2 decomposition summary:")
+    )
     return {
         part.split("=")[0]: int(part.split("=")[1])
         for part in summary.removeprefix("LOD2 decomposition summary: ").split()
@@ -632,9 +654,15 @@ def test_build_lod2_buildings_does_not_log_rejection_summary_by_default(monkeypa
     build_lod2_buildings([building])
 
     assert not any(message.startswith("LOD2 build summary:") for message in messages)
-    assert not any(message.startswith("LOD2 rejection summary:") for message in messages)
-    assert not any(message.startswith("LOD2 template gate summary:") for message in messages)
-    assert not any(message.startswith("LOD2 decomposition summary:") for message in messages)
+    assert not any(
+        message.startswith("LOD2 rejection summary:") for message in messages
+    )
+    assert not any(
+        message.startswith("LOD2 template gate summary:") for message in messages
+    )
+    assert not any(
+        message.startswith("LOD2 decomposition summary:") for message in messages
+    )
 
 
 def test_projected_roof_surfaces_must_cover_footprint():
@@ -649,8 +677,25 @@ def test_projected_roof_surfaces_must_cover_footprint():
 def test_concave_vertex_indices_classifies_basic_footprints():
     rectangle = Polygon([(0, 0), (10, 0), (10, 4), (0, 4)])
     l_shape = Polygon([(0, 0), (10, 0), (10, 4), (4, 4), (4, 10), (0, 10)])
-    u_shape = Polygon([(0, 0), (10, 0), (10, 10), (7, 10), (7, 3), (3, 3), (3, 10), (0, 10)])
-    plus_like = Polygon([(3, 0), (7, 0), (7, 3), (10, 3), (10, 7), (7, 7), (7, 10), (3, 10), (3, 7), (0, 7), (0, 3), (3, 3)])
+    u_shape = Polygon(
+        [(0, 0), (10, 0), (10, 10), (7, 10), (7, 3), (3, 3), (3, 10), (0, 10)]
+    )
+    plus_like = Polygon(
+        [
+            (3, 0),
+            (7, 0),
+            (7, 3),
+            (10, 3),
+            (10, 7),
+            (7, 7),
+            (7, 10),
+            (3, 10),
+            (3, 7),
+            (0, 7),
+            (0, 3),
+            (3, 3),
+        ]
+    )
 
     assert len(_concave_vertex_indices(rectangle)) == 0
     assert len(_concave_vertex_indices(l_shape)) == 1
@@ -659,8 +704,12 @@ def test_concave_vertex_indices_classifies_basic_footprints():
 
 
 def test_decomposition_shape_reason_uses_simplified_footprint():
-    l_shape = Polygon([(0, 0), (10, 0), (10, 4), (4, 4), (4.1, 5), (4, 6), (4, 10), (0, 10)])
-    u_shape = Polygon([(0, 0), (10, 0), (10, 10), (7, 10), (7, 3), (3, 3), (3, 10), (0, 10)])
+    l_shape = Polygon(
+        [(0, 0), (10, 0), (10, 4), (4, 4), (4.1, 5), (4, 6), (4, 10), (0, 10)]
+    )
+    u_shape = Polygon(
+        [(0, 0), (10, 0), (10, 10), (7, 10), (7, 3), (3, 3), (3, 10), (0, 10)]
+    )
 
     assert _decomposition_shape_reason(l_shape) == lod2_module.DECOMPOSITION_L_LIKE
     assert _decomposition_shape_reason(u_shape) == lod2_module.DECOMPOSITION_T_OR_U_LIKE
@@ -679,7 +728,9 @@ def test_decompose_footprint_splits_l_shape_into_two_regions():
 
 
 def test_decompose_footprint_splits_u_shape_into_three_regions():
-    u_shape = Polygon([(0, 0), (10, 0), (10, 10), (7, 10), (7, 3), (3, 3), (3, 10), (0, 10)])
+    u_shape = Polygon(
+        [(0, 0), (10, 0), (10, 10), (7, 10), (7, 3), (3, 3), (3, 10), (0, 10)]
+    )
 
     decomposition = _decompose_footprint(u_shape)
 
@@ -691,7 +742,22 @@ def test_decompose_footprint_splits_u_shape_into_three_regions():
 
 
 def test_decompose_footprint_rejects_complex_shape():
-    plus_like = Polygon([(3, 0), (7, 0), (7, 3), (10, 3), (10, 7), (7, 7), (7, 10), (3, 10), (3, 7), (0, 7), (0, 3), (3, 3)])
+    plus_like = Polygon(
+        [
+            (3, 0),
+            (7, 0),
+            (7, 3),
+            (10, 3),
+            (10, 7),
+            (7, 7),
+            (7, 10),
+            (3, 10),
+            (3, 7),
+            (0, 7),
+            (0, 3),
+            (3, 3),
+        ]
+    )
 
     assert _decompose_footprint(plus_like) is None
 
@@ -703,15 +769,21 @@ def test_decompose_footprint_rejects_axis_misaligned_concavity():
 
 
 def test_decompose_footprint_tiebreaking_is_deterministic():
-    u_shape = Polygon([(0, 0), (12, 0), (12, 10), (8, 10), (8, 4), (4, 4), (4, 10), (0, 10)])
+    u_shape = Polygon(
+        [(0, 0), (12, 0), (12, 10), (8, 10), (8, 4), (4, 4), (4, 10), (0, 10)]
+    )
 
     first = _decompose_footprint(u_shape)
     second = _decompose_footprint(u_shape)
 
     assert first is not None
     assert second is not None
-    assert [round(piece.area, 6) for piece in first.pieces] == [round(piece.area, 6) for piece in second.pieces]
-    assert [tuple(np.round(line.bounds, 6)) for line in first.slice_lines] == [tuple(np.round(line.bounds, 6)) for line in second.slice_lines]
+    assert [round(piece.area, 6) for piece in first.pieces] == [
+        round(piece.area, 6) for piece in second.pieces
+    ]
+    assert [tuple(np.round(line.bounds, 6)) for line in first.slice_lines] == [
+        tuple(np.round(line.bounds, 6)) for line in second.slice_lines
+    ]
 
 
 def test_decomposition_region_roof_surfaces_use_local_ransac():
@@ -740,7 +812,9 @@ def test_region_roof_surfaces_caps_oversegmented_planes(monkeypatch, counts):
         captured.append(kept_planes)
         return [_surface([[0, 0, 10], [4, 0, 10], [4, 4, 10], [0, 4, 10]])], None
 
-    monkeypatch.setattr(lod2_module, "_roof_surfaces_for_planes", roof_surfaces_for_planes)
+    monkeypatch.setattr(
+        lod2_module, "_roof_surfaces_for_planes", roof_surfaces_for_planes
+    )
 
     roof_surfaces, reason = lod2_module._region_roof_surfaces(points, region)
 
@@ -785,23 +859,21 @@ def _l_shape_flat_points():
 
 
 def _u_shape_flat_points():
-    left = [[x, y, 10.0] for x in np.linspace(1, 2.5, 5) for y in np.linspace(3.5, 9, 5)]
-    bottom = [[x, y, 12.0] for x in np.linspace(4, 6, 5) for y in np.linspace(1, 2.5, 5)]
-    right = [[x, y, 14.0] for x in np.linspace(7.5, 9, 5) for y in np.linspace(3.5, 9, 5)]
+    left = [
+        [x, y, 10.0] for x in np.linspace(1, 2.5, 5) for y in np.linspace(3.5, 9, 5)
+    ]
+    bottom = [
+        [x, y, 12.0] for x in np.linspace(4, 6, 5) for y in np.linspace(1, 2.5, 5)
+    ]
+    right = [
+        [x, y, 14.0] for x in np.linspace(7.5, 9, 5) for y in np.linspace(3.5, 9, 5)
+    ]
     return [*left, *bottom, *right]
 
 
 def _l_limb_stepped_flat_points():
-    low = [
-        [x, y, 10.0]
-        for x in np.linspace(1, 3, 4)
-        for y in np.linspace(1, 9, 9)
-    ]
-    high = [
-        [x, y, 13.0]
-        for x in np.linspace(4.5, 9, 7)
-        for y in np.linspace(1, 3, 4)
-    ]
+    low = [[x, y, 10.0] for x in np.linspace(1, 3, 4) for y in np.linspace(1, 9, 9)]
+    high = [[x, y, 13.0] for x in np.linspace(4.5, 9, 7) for y in np.linspace(1, 3, 4)]
     return [*low, *high]
 
 
@@ -825,19 +897,13 @@ def _stepped_flat_noisy_roof_points():
 def _corner_stepped_flat_roof_fixture():
     footprint = Polygon([(0, 0), (20, 0), (20, 12), (0, 12)])
     low_points = [
-        [x, y, 10.0]
-        for x in np.linspace(1, 6, 5)
-        for y in np.linspace(1, 4, 5)
+        [x, y, 10.0] for x in np.linspace(1, 6, 5) for y in np.linspace(1, 4, 5)
     ]
     high_upper = [
-        [x, y, 13.0]
-        for x in np.linspace(1, 19, 7)
-        for y in np.linspace(6, 11, 4)
+        [x, y, 13.0] for x in np.linspace(1, 19, 7) for y in np.linspace(6, 11, 4)
     ]
     high_right = [
-        [x, y, 13.0]
-        for x in np.linspace(9, 19, 5)
-        for y in np.linspace(1, 4, 4)
+        [x, y, 13.0] for x in np.linspace(9, 19, 5) for y in np.linspace(1, 4, 4)
     ]
     points = np.asarray([*low_points, *high_upper, *high_right], dtype=float)
     low_indices = np.arange(0, len(low_points))
@@ -848,9 +914,7 @@ def _corner_stepped_flat_roof_fixture():
 def _scattered_blob_stepped_flat_roof_fixture():
     footprint = Polygon([(0, 0), (20, 0), (20, 12), (0, 12)])
     high_points = [
-        [x, y, 13.0]
-        for x in np.linspace(1, 19, 7)
-        for y in np.linspace(1, 11, 6)
+        [x, y, 13.0] for x in np.linspace(1, 19, 7) for y in np.linspace(1, 11, 6)
     ]
     low_points = [
         [cx + dx, cy + dy, 10.0]
@@ -865,15 +929,9 @@ def _scattered_blob_stepped_flat_roof_fixture():
 
 
 def _dominant_flat_with_minor_noise_points():
-    flat = [
-        [x, y, 10.0]
-        for x in np.linspace(1, 29, 10)
-        for y in np.linspace(1, 9, 10)
-    ]
+    flat = [[x, y, 10.0] for x in np.linspace(1, 29, 10) for y in np.linspace(1, 9, 10)]
     lower_edge = [
-        [x, y, 8.5]
-        for x in np.linspace(1, 29, 4)
-        for y in np.linspace(10.5, 11.5, 2)
+        [x, y, 8.5] for x in np.linspace(1, 29, 4) for y in np.linspace(10.5, 11.5, 2)
     ]
     return [*flat, *lower_edge]
 
@@ -891,7 +949,11 @@ def _edge_keys_for_surface(surface, tolerance=1e-3):
     keys = []
     for index, vertex in enumerate(surface.vertices):
         start = tuple(np.round(vertex / tolerance).astype(int))
-        end = tuple(np.round(surface.vertices[(index + 1) % len(surface.vertices)] / tolerance).astype(int))
+        end = tuple(
+            np.round(
+                surface.vertices[(index + 1) % len(surface.vertices)] / tolerance
+            ).astype(int)
+        )
         keys.append(tuple(sorted((start, end))))
     return keys
 
@@ -903,7 +965,9 @@ def test_build_lod2_buildings_creates_watertight_gable_with_shared_ridge():
 
     assert result[0].lod2 is not None
     roof_surfaces = result[0].lod2.surfaces[:2]
-    shared_edges = set(_edge_keys_for_surface(roof_surfaces[0])).intersection(_edge_keys_for_surface(roof_surfaces[1]))
+    shared_edges = set(_edge_keys_for_surface(roof_surfaces[0])).intersection(
+        _edge_keys_for_surface(roof_surfaces[1])
+    )
     assert is_watertight(result[0].lod2)
     assert len(roof_surfaces) == 2
     assert len(shared_edges) == 1
@@ -984,7 +1048,9 @@ def test_build_lod2_buildings_creates_corner_region_stepped_flat_roof(monkeypatc
 
 
 def test_build_lod2_buildings_rejects_scattered_region_stepped_flat_roof(monkeypatch):
-    points, footprint, low_indices, high_indices = _scattered_blob_stepped_flat_roof_fixture()
+    points, footprint, low_indices, high_indices = (
+        _scattered_blob_stepped_flat_roof_fixture()
+    )
     planes = [
         lod2_module.RoofPlane(0.0, 0.0, 10.0, low_indices),
         lod2_module.RoofPlane(0.0, 0.0, 13.0, high_indices),
@@ -1076,11 +1142,15 @@ def test_build_lod2_buildings_decomposes_l_shape_flat_regions(monkeypatch):
     monkeypatch.setattr(
         lod2_module,
         "_ransac_planes",
-        lambda points: [
-            lod2_module.RoofPlane(0.0, 0.0, 10.0, np.arange(24)),
-            lod2_module.RoofPlane(0.0, 0.0, 12.0, np.arange(24, len(points))),
-            lod2_module.RoofPlane(0.2, 0.0, 11.0, np.arange(20)),
-        ] if len(points) > 30 else [lod2_module._fit_plane(points)],
+        lambda points: (
+            [
+                lod2_module.RoofPlane(0.0, 0.0, 10.0, np.arange(24)),
+                lod2_module.RoofPlane(0.0, 0.0, 12.0, np.arange(24, len(points))),
+                lod2_module.RoofPlane(0.2, 0.0, 11.0, np.arange(20)),
+            ]
+            if len(points) > 30
+            else [lod2_module._fit_plane(points)]
+        ),
     )
 
     result = build_lod2_buildings([building], build_lod1_fallback=False)
@@ -1090,16 +1160,22 @@ def test_build_lod2_buildings_decomposes_l_shape_flat_regions(monkeypatch):
 
 
 def test_build_lod2_buildings_decomposes_u_shape_flat_regions(monkeypatch):
-    u_shape = Polygon([(0, 0), (10, 0), (10, 10), (7, 10), (7, 3), (3, 3), (3, 10), (0, 10)])
+    u_shape = Polygon(
+        [(0, 0), (10, 0), (10, 10), (7, 10), (7, 3), (3, 3), (3, 10), (0, 10)]
+    )
     building = _building_with_polygon(_u_shape_flat_points(), u_shape)
     monkeypatch.setattr(
         lod2_module,
         "_ransac_planes",
-        lambda points: [
-            lod2_module.RoofPlane(0.0, 0.0, 10.0, np.arange(25)),
-            lod2_module.RoofPlane(0.0, 0.0, 12.0, np.arange(25, 50)),
-            lod2_module.RoofPlane(0.0, 0.0, 14.0, np.arange(50, len(points))),
-        ] if len(points) > 50 else [lod2_module._fit_plane(points)],
+        lambda points: (
+            [
+                lod2_module.RoofPlane(0.0, 0.0, 10.0, np.arange(25)),
+                lod2_module.RoofPlane(0.0, 0.0, 12.0, np.arange(25, 50)),
+                lod2_module.RoofPlane(0.0, 0.0, 14.0, np.arange(50, len(points))),
+            ]
+            if len(points) > 50
+            else [lod2_module._fit_plane(points)]
+        ),
     )
 
     result = build_lod2_buildings([building], build_lod1_fallback=False)
@@ -1120,7 +1196,9 @@ def test_split_failed_irregular_footprint_attempts_decomposition(monkeypatch):
     monkeypatch.setattr(
         lod2_module,
         "_ransac_planes",
-        lambda points: two_planes if len(points) > 30 else [lod2_module._fit_plane(points)],
+        lambda points: (
+            two_planes if len(points) > 30 else [lod2_module._fit_plane(points)]
+        ),
     )
 
     build_lod2_buildings([building], build_lod1_fallback=False, log_rejections=True)
@@ -1147,10 +1225,22 @@ def test_irregular_flat_levels_use_decomposition_not_stepped_flat(monkeypatch):
 def test_decomposition_counter_invariant(monkeypatch):
     messages = []
     monkeypatch.setattr(lod2_module, "info", messages.append, raising=False)
-    unsupported_shape = Polygon([
-        (3, 0), (7, 0), (7, 3), (10, 3), (10, 7), (7, 7),
-        (7, 10), (3, 10), (3, 7), (0, 7), (0, 3), (3, 3),
-    ])
+    unsupported_shape = Polygon(
+        [
+            (3, 0),
+            (7, 0),
+            (7, 3),
+            (10, 3),
+            (10, 7),
+            (7, 7),
+            (7, 10),
+            (3, 10),
+            (3, 7),
+            (0, 7),
+            (0, 3),
+            (3, 3),
+        ]
+    )
     planes = [
         lod2_module.RoofPlane(0.0, 0.0, 10.0, np.arange(50)),
         lod2_module.RoofPlane(0.2, 0.0, 11.0, np.arange(50, 80)),
@@ -1164,13 +1254,22 @@ def test_decomposition_counter_invariant(monkeypatch):
         log_rejections=True,
     )
 
-    summary = next(message for message in messages if message.startswith("LOD2 decomposition summary:"))
+    summary = next(
+        message
+        for message in messages
+        if message.startswith("LOD2 decomposition summary:")
+    )
     values = {
         part.split("=")[0]: int(part.split("=")[1])
         for part in summary.removeprefix("LOD2 decomposition summary: ").split()
     }
-    failures = sum(values.get(reason, 0) for reason in lod2_module.DECOMPOSITION_FAILURE_REASONS)
-    assert values["decomposition_candidate"] == values.get("decomposition_success", 0) + failures
+    failures = sum(
+        values.get(reason, 0) for reason in lod2_module.DECOMPOSITION_FAILURE_REASONS
+    )
+    assert (
+        values["decomposition_candidate"]
+        == values.get("decomposition_success", 0) + failures
+    )
 
 
 def test_decomposition_region_rejections_are_counted(monkeypatch):
@@ -1187,7 +1286,11 @@ def test_decomposition_region_rejections_are_counted(monkeypatch):
 
     build_lod2_buildings([building], build_lod1_fallback=False, log_rejections=True)
 
-    summary = next(message for message in messages if message.startswith("LOD2 decomposition summary:"))
+    summary = next(
+        message
+        for message in messages
+        if message.startswith("LOD2 decomposition summary:")
+    )
     assert "decomposition_candidate=1" in summary
     assert "decomposition_region_roof_failed=1" in summary
 
@@ -1213,8 +1316,7 @@ def test_decomposition_no_valid_slices_logs_axis_misaligned_subcounter(monkeypat
     assert values["decomposition_no_valid_slices"] == 1
     assert values["no_valid_slices_axis_misaligned"] == 1
     assert values["decomposition_no_valid_slices"] == sum(
-        values.get(reason, 0)
-        for reason in lod2_module.NO_VALID_SLICE_REASONS
+        values.get(reason, 0) for reason in lod2_module.NO_VALID_SLICE_REASONS
     )
 
 
@@ -1244,8 +1346,7 @@ def test_decomposition_axis_misalignment_logs_angle_histogram(monkeypatch):
     assert values["axis_misaligned_angle_15_20"] == 1
     assert values["axis_misaligned_angle_25_30"] == 1
     assert values["no_valid_slices_axis_misaligned"] == sum(
-        values.get(reason, 0)
-        for reason in lod2_module.AXIS_MISALIGNED_ANGLE_REASONS
+        values.get(reason, 0) for reason in lod2_module.AXIS_MISALIGNED_ANGLE_REASONS
     )
 
 
@@ -1267,8 +1368,7 @@ def test_decomposition_region_roof_failure_logs_subcounter(monkeypatch):
     assert values["decomposition_region_roof_failed"] == 1
     assert values["region_roof_split_failed"] == 1
     assert values["decomposition_region_roof_failed"] == sum(
-        values.get(reason, 0)
-        for reason in lod2_module.REGION_ROOF_REASONS
+        values.get(reason, 0) for reason in lod2_module.REGION_ROOF_REASONS
     )
 
 
@@ -1289,8 +1389,7 @@ def test_decomposition_region_dropped_too_many_preserves_counter_invariant(monke
     assert values["decomposition_region_roof_failed"] == 1
     assert values["region_roof_dropped_too_many"] == 1
     assert values["decomposition_region_roof_failed"] == sum(
-        values.get(reason, 0)
-        for reason in lod2_module.REGION_ROOF_REASONS
+        values.get(reason, 0) for reason in lod2_module.REGION_ROOF_REASONS
     )
 
 
@@ -1335,10 +1434,18 @@ def test_edge_count_mismatch_reason_classifies_failed_edges():
     footprint = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
     slice_lines = [LineString([(5, 0), (5, 10)])]
 
-    slice_shell = MultiSurface(surfaces=[_surface([[5, 2, 0], [5, 8, 0], [6, 8, 0], [6, 2, 0]])])
-    exterior_shell = MultiSurface(surfaces=[_surface([[2, 0, 0], [4, 0, 0], [4, 1, 0], [2, 1, 0]])])
-    interior_shell = MultiSurface(surfaces=[_surface([[2, 2, 0], [4, 2, 0], [4, 4, 0], [2, 4, 0]])])
-    outside_shell = MultiSurface(surfaces=[_surface([[12, 2, 0], [14, 2, 0], [14, 4, 0], [12, 4, 0]])])
+    slice_shell = MultiSurface(
+        surfaces=[_surface([[5, 2, 0], [5, 8, 0], [6, 8, 0], [6, 2, 0]])]
+    )
+    exterior_shell = MultiSurface(
+        surfaces=[_surface([[2, 0, 0], [4, 0, 0], [4, 1, 0], [2, 1, 0]])]
+    )
+    interior_shell = MultiSurface(
+        surfaces=[_surface([[2, 2, 0], [4, 2, 0], [4, 4, 0], [2, 4, 0]])]
+    )
+    outside_shell = MultiSurface(
+        surfaces=[_surface([[12, 2, 0], [14, 2, 0], [14, 4, 0], [12, 4, 0]])]
+    )
     excess_shell = _closed_box()
     excess_shell.surfaces.append(excess_shell.surfaces[0].copy(geometry_only=True))
 
@@ -1414,7 +1521,9 @@ def test_decomposition_watertight_failure_preserves_counter_invariant(monkeypatc
     l_shape = Polygon([(0, 0), (10, 0), (10, 4), (4, 4), (4, 10), (0, 10)])
     planes = _planes_with_inlier_counts(50, 40, 30)
 
-    def build_failed_shell(footprint, roof_points, ground_height, decomposition_counts=None):
+    def build_failed_shell(
+        footprint, roof_points, ground_height, decomposition_counts=None
+    ):
         decomposition_counts[lod2_module.WATERTIGHT_EDGE_COUNT_MISMATCH] += 1
         return None, lod2_module.DECOMPOSITION_WATERTIGHT_FAILED
 
@@ -1431,8 +1540,7 @@ def test_decomposition_watertight_failure_preserves_counter_invariant(monkeypatc
     assert values["decomposition_watertight_failed"] == 1
     assert values["watertight_edge_count_mismatch"] == 1
     assert values["decomposition_watertight_failed"] == sum(
-        values.get(reason, 0)
-        for reason in lod2_module.WATERTIGHT_FAILURE_REASONS
+        values.get(reason, 0) for reason in lod2_module.WATERTIGHT_FAILURE_REASONS
     )
 
 
@@ -1446,9 +1554,7 @@ def test_decomposed_shell_reconciles_unpaired_ridge_on_slice(monkeypatch):
         family_reason=lod2_module.DECOMPOSITION_L_LIKE,
         concave_vertex_count=1,
     )
-    left_roof = _surface(
-        [[0, 0, 10], [5, 0, 10], [5, 5, 14], [5, 10, 10], [0, 10, 10]]
-    )
+    left_roof = _surface([[0, 0, 10], [5, 0, 10], [5, 5, 14], [5, 10, 10], [0, 10, 10]])
     right_roof = _surface([[5, 0, 8], [10, 0, 8], [10, 10, 8], [5, 10, 8]])
     region_surfaces = iter([([left_roof], None), ([right_roof], None)])
 
@@ -1463,14 +1569,18 @@ def test_decomposed_shell_reconciles_unpaired_ridge_on_slice(monkeypatch):
         lambda points, region, decomposition_counts=None: next(region_surfaces),
     )
 
-    shell, reason = lod2_module._build_decomposed_shell(footprint, np.empty((0, 3)), 0.0)
+    shell, reason = lod2_module._build_decomposed_shell(
+        footprint, np.empty((0, 3)), 0.0
+    )
 
     assert reason == lod2_module.DECOMPOSITION_SUCCESS
     assert shell is not None
     assert is_watertight(shell)
 
 
-def test_decomposed_shell_reconciles_slice_vertex_when_height_order_changes(monkeypatch):
+def test_decomposed_shell_reconciles_slice_vertex_when_height_order_changes(
+    monkeypatch,
+):
     footprint = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
     left_region = Polygon([(0, 0), (5, 0), (5, 10), (0, 10)])
     right_region = Polygon([(5, 0), (10, 0), (10, 10), (5, 10)])
@@ -1480,9 +1590,7 @@ def test_decomposed_shell_reconciles_slice_vertex_when_height_order_changes(monk
         family_reason=lod2_module.DECOMPOSITION_L_LIKE,
         concave_vertex_count=1,
     )
-    left_roof = _surface(
-        [[0, 0, 10], [5, 0, 10], [5, 5, 14], [5, 10, 10], [0, 10, 10]]
-    )
+    left_roof = _surface([[0, 0, 10], [5, 0, 10], [5, 5, 14], [5, 10, 10], [0, 10, 10]])
     right_roof = _surface([[5, 0, 12], [10, 0, 12], [10, 10, 12], [5, 10, 12]])
     region_surfaces = iter([([left_roof], None), ([right_roof], None)])
 
@@ -1497,7 +1605,9 @@ def test_decomposed_shell_reconciles_slice_vertex_when_height_order_changes(monk
         lambda points, region, decomposition_counts=None: next(region_surfaces),
     )
 
-    shell, reason = lod2_module._build_decomposed_shell(footprint, np.empty((0, 3)), 0.0)
+    shell, reason = lod2_module._build_decomposed_shell(
+        footprint, np.empty((0, 3)), 0.0
+    )
 
     assert reason == lod2_module.DECOMPOSITION_SUCCESS
     assert shell is not None
@@ -1512,7 +1622,9 @@ def _surface_is_simple(surface):
     return Polygon(projected).is_valid
 
 
-def test_decomposed_shell_splits_crossing_junction_walls_into_simple_triangles(monkeypatch):
+def test_decomposed_shell_splits_crossing_junction_walls_into_simple_triangles(
+    monkeypatch,
+):
     footprint = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
     left_region = Polygon([(0, 0), (5, 0), (5, 10), (0, 10)])
     right_region = Polygon([(5, 0), (10, 0), (10, 10), (5, 10)])
@@ -1522,9 +1634,7 @@ def test_decomposed_shell_splits_crossing_junction_walls_into_simple_triangles(m
         family_reason=lod2_module.DECOMPOSITION_L_LIKE,
         concave_vertex_count=1,
     )
-    left_roof = _surface(
-        [[0, 0, 10], [5, 0, 10], [5, 5, 14], [5, 10, 10], [0, 10, 10]]
-    )
+    left_roof = _surface([[0, 0, 10], [5, 0, 10], [5, 5, 14], [5, 10, 10], [0, 10, 10]])
     right_roof = _surface([[5, 0, 12], [10, 0, 12], [10, 10, 12], [5, 10, 12]])
     region_surfaces = iter([([left_roof], None), ([right_roof], None)])
 
@@ -1539,7 +1649,9 @@ def test_decomposed_shell_splits_crossing_junction_walls_into_simple_triangles(m
         lambda points, region, decomposition_counts=None: next(region_surfaces),
     )
 
-    shell, reason = lod2_module._build_decomposed_shell(footprint, np.empty((0, 3)), 0.0)
+    shell, reason = lod2_module._build_decomposed_shell(
+        footprint, np.empty((0, 3)), 0.0
+    )
 
     assert reason == lod2_module.DECOMPOSITION_SUCCESS
     assert shell is not None
@@ -1562,9 +1674,7 @@ def test_decomposed_shell_handles_near_coplanar_crossing_regions(monkeypatch):
     )
     # Nearly coincident planes whose centimetre-scale height gap changes sign
     # along the slice line (the Kungsbacka regression).
-    left_roof = _surface(
-        [[0, 0, 10.0], [5, 0, 10.0], [5, 10, 10.08], [0, 10, 10.08]]
-    )
+    left_roof = _surface([[0, 0, 10.0], [5, 0, 10.0], [5, 10, 10.08], [0, 10, 10.08]])
     right_roof = _surface(
         [[5, 0, 10.03], [10, 0, 10.03], [10, 10, 10.0], [5, 10, 10.0]]
     )
@@ -1581,7 +1691,9 @@ def test_decomposed_shell_handles_near_coplanar_crossing_regions(monkeypatch):
         lambda points, region, decomposition_counts=None: next(region_surfaces),
     )
 
-    shell, reason = lod2_module._build_decomposed_shell(footprint, np.empty((0, 3)), 0.0)
+    shell, reason = lod2_module._build_decomposed_shell(
+        footprint, np.empty((0, 3)), 0.0
+    )
 
     assert reason == lod2_module.DECOMPOSITION_SUCCESS
     assert shell is not None
@@ -1617,7 +1729,9 @@ def test_decomposed_shell_welds_near_equal_boundary_endpoint_heights(monkeypatch
         lambda points, region, decomposition_counts=None: next(region_surfaces),
     )
 
-    shell, reason = lod2_module._build_decomposed_shell(footprint, np.empty((0, 3)), 0.0)
+    shell, reason = lod2_module._build_decomposed_shell(
+        footprint, np.empty((0, 3)), 0.0
+    )
 
     assert reason == lod2_module.DECOMPOSITION_SUCCESS
     assert shell is not None
@@ -1670,7 +1784,9 @@ def test_decomposed_shell_rejects_crossing_too_close_to_region_corner(monkeypatc
         lambda points, region, decomposition_counts=None: next(region_surfaces),
     )
 
-    shell, reason = lod2_module._build_decomposed_shell(footprint, np.empty((0, 3)), 0.0)
+    shell, reason = lod2_module._build_decomposed_shell(
+        footprint, np.empty((0, 3)), 0.0
+    )
 
     assert shell is None
     assert reason == lod2_module.DECOMPOSITION_JUNCTION_FAILED
@@ -1717,7 +1833,10 @@ def test_hole_footprint_skips_lod2_and_builds_lod1_fallback():
         10.0,
     )
     building.add_geometry(footprint, GeometryType.LOD0)
-    building.add_geometry(PointCloud(points=np.array(_flat_roof_points(), dtype=float)), GeometryType.POINT_CLOUD)
+    building.add_geometry(
+        PointCloud(points=np.array(_flat_roof_points(), dtype=float)),
+        GeometryType.POINT_CLOUD,
+    )
     building.attributes["ground_height"] = 0.0
 
     build_lod2_buildings([building], build_lod1_fallback=True)
@@ -1783,7 +1902,10 @@ def test_build_lod2_buildings_logs_plane_count_summary_when_requested(monkeypatc
 
     build_lod2_buildings(buildings, build_lod1_fallback=False, log_rejections=True)
 
-    assert any(message == "LOD2 plane count summary: planes_1=1 planes_2=1" for message in messages)
+    assert any(
+        message == "LOD2 plane count summary: planes_1=1 planes_2=1"
+        for message in messages
+    )
 
 
 def test_build_lod2_buildings_logs_shell_rejection_sub_reason(monkeypatch):
@@ -1799,8 +1921,7 @@ def test_build_lod2_buildings_logs_shell_rejection_sub_reason(monkeypatch):
     build_lod2_buildings([building], build_lod1_fallback=False, log_rejections=True)
 
     assert any(
-        message == "LOD2 rejection summary: split_failed=1"
-        for message in messages
+        message == "LOD2 rejection summary: split_failed=1" for message in messages
     )
 
 
@@ -1816,7 +1937,8 @@ def test_stepped_flat_success_is_logged_when_rejections_enabled(monkeypatch):
 
     assert building.lod2 is not None
     assert any(
-        message == "LOD2 stepped-flat summary: stepped_flat_candidate=1 stepped_flat_success=1"
+        message
+        == "LOD2 stepped-flat summary: stepped_flat_candidate=1 stepped_flat_success=1"
         for message in messages
     )
 
@@ -1898,7 +2020,8 @@ def test_build_lod2_buildings_logs_template_gate_summary(monkeypatch):
     build_lod2_buildings(buildings, build_lod1_fallback=False, log_rejections=True)
 
     summary_lines = [
-        message for message in messages
+        message
+        for message in messages
         if message.startswith("LOD2 template gate summary:")
     ]
     assert len(summary_lines) == 1
@@ -1924,7 +2047,8 @@ def test_build_lod2_buildings_logs_decomposition_summary_when_requested(monkeypa
     build_lod2_buildings([building], build_lod1_fallback=False, log_rejections=True)
 
     summary_lines = [
-        message for message in messages
+        message
+        for message in messages
         if message.startswith("LOD2 decomposition summary:")
     ]
     assert len(summary_lines) == 1
@@ -1938,7 +2062,9 @@ def minimal_case_dir():
     return Path(__file__).parent / ".." / "data" / "MinimalCase"
 
 
-def test_city_build_lod2_buildings_calculates_heights_and_keeps_roof_points(minimal_case_dir):
+def test_city_build_lod2_buildings_calculates_heights_and_keeps_roof_points(
+    minimal_case_dir,
+):
     city = City()
     city.load_footprints(str(minimal_case_dir / "PropertyMap.shp"))
     city.load_pointcloud(str(minimal_case_dir / "pointcloud.las"))

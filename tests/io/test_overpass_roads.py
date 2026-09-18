@@ -1,7 +1,6 @@
 import pytest
 
-from dtcc_core.io.data import overpass
-from dtcc_core.io.data import wrapper
+from dtcc_core.io.data import overpass, wrapper
 from dtcc_core.model import Bounds
 
 
@@ -96,7 +95,7 @@ def test_overpass_roads_are_segmented_with_traffic_attributes(monkeypatch):
                         "junction": "roundabout",
                     },
                 },
-            ]
+            ],
         }
 
     monkeypatch.setattr(overpass, "query_overpass_with_failover", fake_query)

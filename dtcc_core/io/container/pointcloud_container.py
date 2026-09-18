@@ -3,17 +3,15 @@
 
 from __future__ import annotations
 
-
-from pathlib import Path
-from typing import Union, List
-
-
-from dtcc_core.model.geometry import Bounds, PointCloud
-from ..pointcloud import load as load_pointcloud
-
 from enum import Enum, auto
+from pathlib import Path
+
 from shapely.geometry import box
 from shapely.strtree import STRtree
+
+from dtcc_core.model.geometry import Bounds, PointCloud
+
+from ..pointcloud import load as load_pointcloud
 
 
 class PointCloudContainerType(Enum):
@@ -26,7 +24,7 @@ class PointCloudDirectory:
     directory of files.
     """
 
-    def __init__(self, files: List[Path], bounds: List[Bounds]):
+    def __init__(self, files: list[Path], bounds: list[Bounds]):
         """
         Initialize a PointCloudDirectory object.
 

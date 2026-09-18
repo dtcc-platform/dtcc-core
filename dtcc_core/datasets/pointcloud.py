@@ -1,12 +1,13 @@
-import dtcc_core
-from dtcc_core.model import PointCloud
-from typing import Literal, Optional, List, Union
+from typing import Literal
+
 from pydantic import Field, field_validator
 
-from .dataset import DatasetDescriptor, DatasetBaseArgs
-from .providers import provider_display_name, provider_entry
+import dtcc_core
 from dtcc_core.common.progress import ProgressTracker, report_progress
+from dtcc_core.model import PointCloud
 
+from .dataset import DatasetBaseArgs, DatasetDescriptor
+from .providers import provider_display_name, provider_entry
 
 CLASSIFICATION_PRESETS = {
     "terrain": [2, 8],
@@ -16,9 +17,9 @@ CLASSIFICATION_PRESETS = {
 
 
 class PointCloudArgs(DatasetBaseArgs):
-    classifications: Union[
-        int, list[int], Literal["all", "terrain", "buildings", "vegetation"]
-    ] = Field(
+    classifications: (
+        int | list[int] | Literal["all", "terrain", "buildings", "vegetation"]
+    ) = Field(
         "all",
         description="Which classifications to include (e.g., [2, 9] for ground and water, or 'vegetation' for all vegetation classes). 'all' includes all points.",
     )
@@ -28,7 +29,7 @@ class PointCloudArgs(DatasetBaseArgs):
             "Data source. LM uses the DTCC/Lantmäteriet point cloud backend/cache."
         ),
     )
-    format: Optional[Literal["copc", "las", "laz"]] = Field(
+    format: Literal["copc", "las", "laz"] | None = Field(
         None, description="Output file format"
     )
     remove_outliers: bool = Field(
@@ -38,7 +39,7 @@ class PointCloudArgs(DatasetBaseArgs):
         3.0, description="Threshold for outlier removal"
     )
 
-    crs: Optional[str] = Field(
+    crs: str | None = Field(
         None,
         description=(
             "Coordinate reference system for context/export. Point cloud "
@@ -185,7 +186,7 @@ class PointCloudDataset(DatasetDescriptor):
     ]
 
     @staticmethod
-    def _resolve_classifications(classifications) -> List[int]:
+    def _resolve_classifications(classifications) -> list[int]:
         """Resolve classification parameter to a list of class IDs."""
         if isinstance(classifications, int):
             return [classifications]

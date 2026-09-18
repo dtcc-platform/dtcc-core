@@ -1,17 +1,12 @@
-from ...model import Building, GeometryType, MultiSurface, Surface
-from ..polygons.polygons import split_polygon_sides
-from ..cleaning import ConditioningOptions, condition_building_footprints
-
-from ..polygons.surface import clean_multisurface, clean_surface
-
-from ..register import register_model_method
-import shapely
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
-from shapely.validation import make_valid
-from ..logging import debug, info, warning, error
 
-from typing import List, Tuple, Union
+from ...model import Building, GeometryType, MultiSurface, Surface
+from ..cleaning import ConditioningOptions, condition_building_footprints
+from ..logging import error, info, warning
+from ..polygons.polygons import split_polygon_sides
+from ..polygons.surface import clean_multisurface, clean_surface
+from ..register import register_model_method
 
 
 @register_model_method
@@ -86,7 +81,9 @@ def _extract_polygon_parts(geom) -> list[Polygon]:
             continue
         if hasattr(current, "geoms"):
             stack.extend(reversed(list(current.geoms)))
-    return [polygon for polygon in polygons if not polygon.is_empty and polygon.area > 0]
+    return [
+        polygon for polygon in polygons if not polygon.is_empty and polygon.area > 0
+    ]
 
 
 def _extract_building_metadata(
@@ -146,12 +143,12 @@ def _area_weighted_value(
 
 
 def _build_conditioned_buildings(
-    source_buildings: List[Building],
+    source_buildings: list[Building],
     polygons: list[Polygon],
     source_map: list[list[int]],
     *,
     lod: GeometryType,
-) -> List[Building]:
+) -> list[Building]:
     source_areas = [0.0] * len(source_buildings)
     source_roof_z: list[float | None] = [None] * len(source_buildings)
     source_height: list[float | None] = [None] * len(source_buildings)
@@ -168,7 +165,7 @@ def _build_conditioned_buildings(
         source_height[index] = height
         source_ground[index] = ground
 
-    conditioned_buildings: List[Building] = []
+    conditioned_buildings: list[Building] = []
     for polygon, indices in zip(polygons, source_map):
         originals = [
             source_buildings[index]
@@ -215,13 +212,13 @@ def _build_conditioned_buildings(
 
 
 def _condition_buildings_with_shared_cleaner(
-    buildings: List[Building],
+    buildings: list[Building],
     *,
     lod: GeometryType,
     options: ConditioningOptions,
     operation_name: str,
     return_index_map: bool = False,
-) -> Union[List[Building], Tuple[List[Building], List[List[int]]]]:
+) -> list[Building] | tuple[list[Building], list[list[int]]]:
     info(
         f"{operation_name}: running shared footprint conditioner on {len(buildings)} buildings."
     )
@@ -245,12 +242,12 @@ def _condition_buildings_with_shared_cleaner(
 
 
 def merge_building_footprints(
-    buildings: List[Building],
+    buildings: list[Building],
     lod: GeometryType = GeometryType.LOD0,
     max_distance: float = 0.5,
     min_area: float = 10.0,
     return_index_map: bool = False,
-) -> List[Building] | Tuple[List[Building], List[List[int]]]:
+) -> list[Building] | tuple[list[Building], list[list[int]]]:
     """
     Merge nearby building footprints into single buildings.
 
@@ -288,7 +285,7 @@ def merge_building_footprints(
     )
 
 
-def merge_building_attributes(buildings: List[Building]) -> dict:
+def merge_building_attributes(buildings: list[Building]) -> dict:
     """
     Merge attributes from multiple buildings into a single dictionary.
 
@@ -311,12 +308,12 @@ def merge_building_attributes(buildings: List[Building]) -> dict:
 
 
 def simplify_building_footprints(
-    buildings: List[Building],
+    buildings: list[Building],
     tolerance: float = 0.5,
     method: str = "vwp",
     lod: GeometryType = GeometryType.LOD0,
     return_index_map: bool = False,
-) -> Union[List[Building], Tuple[List[Building], List[List[int]]]]:
+) -> list[Building] | tuple[list[Building], list[list[int]]]:
     """
     Simplify the building footprints by reducing the number of vertices while maintaining the overall shape.
 
@@ -369,11 +366,11 @@ def simplify_building_footprints(
 
 
 def clean_building_footprints(
-    buildings: List[Building],
+    buildings: list[Building],
     clearance: float = 0.5,
     smallest_hole_area: float = 1.0,
     return_index_map: bool = False,
-) -> Union[List[Building], Tuple[List[Building], List[List[int]]]]:
+) -> list[Building] | tuple[list[Building], list[list[int]]]:
     """
     Clean building footprints by removing overlaps, small holes, and ensuring clearance.
 
@@ -407,11 +404,11 @@ def clean_building_footprints(
 
 
 def fix_building_footprint_clearance(
-    buildings: List[Building],
+    buildings: list[Building],
     clearance: float = 0.5,
     lod: GeometryType = GeometryType.LOD0,
     return_index_map: bool = False,
-) -> Union[List[Building], Tuple[List[Building], List[List[int]]]]:
+) -> list[Building] | tuple[list[Building], list[list[int]]]:
     """
     Fix clearance issues in building footprints.
 
@@ -448,8 +445,8 @@ def fix_building_footprint_clearance(
 
 
 def split_footprint_walls(
-    buildings: List[Building], max_wall_length: Union[float, List[float]] = 10.0
-) -> List[Building]:
+    buildings: list[Building], max_wall_length: float | list[float] = 10.0
+) -> list[Building]:
     """
     Split long walls in building footprints into shorter segments.
 

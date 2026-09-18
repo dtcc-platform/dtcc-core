@@ -1,19 +1,16 @@
 from dataclasses import dataclass, field
-from typing import Union, List, Tuple
 from enum import Enum, auto
-from .object import Object, GeometryType
-from ..geometry import Surface, MultiSurface
-from ..geometry import Bounds
 
-import numpy as np
+from ..geometry import Surface
+from .object import GeometryType, Object
 
 
 class LanduseClasses(Enum):
     """
     Enumeration of land use classification types for geographic or urban modeling applications.
 
-    This enum defines various categories of land cover or land utilization, useful in GIS, 
-    remote sensing, simulation, or 3D urban environments. Each class represents a general 
+    This enum defines various categories of land cover or land utilization, useful in GIS,
+    remote sensing, simulation, or 3D urban environments. Each class represents a general
     type of surface usage, ranging from natural to heavily developed areas.
 
     Attributes:
@@ -30,6 +27,7 @@ class LanduseClasses(Enum):
         RAIL: Railway infrastructure and corridors.
         UNKNOWN: Land use is unknown or unclassified (explicitly set to 9999).
     """
+
     WATER = auto()
     GRASS = auto()
     FOREST = auto()
@@ -55,7 +53,8 @@ class Landuse(Object):
     Attributes:
         landuses (List[LanduseClasses]): A list of land use classes describing how the land is used.
     """
-    landuses: List[LanduseClasses] = field(default_factory=list)
+
+    landuses: list[LanduseClasses] = field(default_factory=list)
 
     def _summary_items(self):
         return super()._summary_items() + [("num_landuses", len(self.landuses))]
@@ -66,11 +65,13 @@ class Landuse(Object):
         sections = super()._info_sections()
         if self.landuses:
             counts = Counter(value.name for value in self.landuses)
-            sections.append(("Land use classes", ("Class", "Count"), list(counts.items())))
+            sections.append(
+                ("Land use classes", ("Class", "Count"), list(counts.items()))
+            )
         return sections
 
     @property
-    def surfaces(self) -> List[Surface]:
+    def surfaces(self) -> list[Surface]:
         """
         Access the list of surfaces representing land use polygons.
 

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from contextlib import nullcontext
 from dataclasses import dataclass
-from typing import Any, Sequence
+from typing import Any
 
 import numpy as np
 
@@ -71,11 +72,7 @@ def prepare_city_from_bounds(
 
     with phase(
         "remove_outliers",
-        (
-            "Removing outliers..."
-            if remove_outliers
-            else "Skipping outlier removal..."
-        ),
+        ("Removing outliers..." if remove_outliers else "Skipping outlier removal..."),
     ):
         if remove_outliers:
             pointcloud = pointcloud.remove_global_outliers(outlier_threshold)

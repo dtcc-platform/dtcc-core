@@ -12,6 +12,8 @@ from dtcc_core.datasets.qa import (
     audit_registered_datasets,
     audited_datasets,
     format_report,
+)
+from dtcc_core.datasets.qa import (
     main as qa_main,
 )
 
@@ -63,9 +65,7 @@ def test_audit_registered_datasets_is_offline_and_has_no_contract_failures():
 
     assert report.dataset_count == len(audited_datasets())
     assert report.failures() == ()
-    assert {finding.status for finding in report.findings} <= set(
-        VALID_FIELD_STATUSES
-    )
+    assert {finding.status for finding in report.findings} <= set(VALID_FIELD_STATUSES)
     assert any(finding.status == "requires_review" for finding in report.findings)
     assert any(finding.status == "not_applicable" for finding in report.findings)
 
@@ -118,10 +118,7 @@ def test_cli_returns_nonzero_only_for_strict_requires_review(capsys):
     assert data["summary"]["failures"] == 0
     assert data["summary"]["status"]["requires_review"] > 0
 
-    assert (
-        qa_main(["--format", "json", "--include", "point_cloud", "--strict"])
-        == 1
-    )
+    assert qa_main(["--format", "json", "--include", "point_cloud", "--strict"]) == 1
 
 
 def test_qa_matrix_lists_each_builtin_dataset_once():

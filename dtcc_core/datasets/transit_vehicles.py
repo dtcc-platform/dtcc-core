@@ -15,12 +15,18 @@ variable.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Any, Literal, Optional, Tuple
+from datetime import UTC, datetime
+from typing import Any, Literal
 
 import numpy as np
 from pydantic import Field, field_validator
 
+from ..common import info, warning
+from ..common.progress import ProgressTracker, report_progress
+from ..model.geometry import Point
+from ..model.object import Object, VehicleCollection
+from ..model.values import Field as DtccField
+from ..reproject.reproject import reproject_array
 from .dataset import DatasetBaseArgs, DatasetDescriptor, DatasetUpstreamError
 from .geospatial import bounds_to_wgs84, is_wgs84_crs
 from .providers import provider_entry
@@ -33,13 +39,6 @@ from .transport.vasttrafik import (
     bounds_overlap_vasttrafik,
     fetch_vasttrafik_vehicles,
 )
-from ..common import info, warning
-from ..common.progress import ProgressTracker, report_progress
-from ..model.geometry import Point
-from ..model.object import Object, VehicleCollection
-from ..model.values import Field as DtccField
-from ..reproject.reproject import reproject_array
-
 
 ProviderName = Literal["auto", "trafiklab", "vasttrafik"]
 GTFSFeed = Literal["regional", "sweden"]
@@ -48,7 +47,7 @@ GTFSFeed = Literal["regional", "sweden"]
 class TransitVehiclesArgs(DatasetBaseArgs):
     """Arguments for the live public transport vehicle dataset."""
 
-    modes: Optional[Tuple[TransitMode, ...]] = Field(
+    modes: tuple[TransitMode, ...] | None = Field(
         None,
         description=(
             "Vehicle modes to include. If omitted, all modes from the selected "
@@ -59,7 +58,7 @@ class TransitVehiclesArgs(DatasetBaseArgs):
         "auto",
         description='Provider to use: "auto", "trafiklab", or "vasttrafik".',
     )
-    operators: Optional[Tuple[str, ...]] = Field(
+    operators: tuple[str, ...] | None = Field(
         None,
         description=(
             "Provider-specific operators to query. Trafiklab examples: sl, skane, "
@@ -74,14 +73,14 @@ class TransitVehiclesArgs(DatasetBaseArgs):
         "regional",
         description='Trafiklab GTFS feed family: "regional" or "sweden".',
     )
-    api_key: Optional[str] = Field(
+    api_key: str | None = Field(
         None,
         description=(
             "Trafiklab API key. If omitted, TRAFIKLAB_API_KEY or "
             "SAMTRAFIKEN_API_KEY is used."
         ),
     )
-    vasttrafik_authentication_key: Optional[str] = Field(
+    vasttrafik_authentication_key: str | None = Field(
         None,
         description=(
             "Västtrafik Autentiseringsnyckel / Authentication key. Create an "
@@ -96,7 +95,7 @@ class TransitVehiclesArgs(DatasetBaseArgs):
         gt=0,
         description="Request timeout per upstream call in seconds.",
     )
-    max_vehicles: Optional[int] = Field(
+    max_vehicles: int | None = Field(
         None,
         gt=0,
         description="Maximum number of vehicles returned after filtering.",
@@ -114,7 +113,7 @@ class TransitVehiclesArgs(DatasetBaseArgs):
             "cannot be resolved."
         ),
     )
-    format: Optional[Literal["pb"]] = Field(
+    format: Literal["pb"] | None = Field(
         None,
         description='Output format ("pb" for protobuf).',
     )
@@ -542,7 +541,7 @@ def _build_transit_vehicles(
                 "modes": (
                     list(modes) if modes is not None else list(SUPPORTED_TRANSIT_MODES)
                 ),
-                "retrieval_time": datetime.now(timezone.utc).isoformat(),
+                "retrieval_time": datetime.now(UTC).isoformat(),
                 "total_vehicles_found": len(records),
             }
             seen = set()

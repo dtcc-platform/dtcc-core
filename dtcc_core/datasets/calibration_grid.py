@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 import numpy as np
 from pydantic import Field
@@ -27,14 +27,14 @@ class CalibrationGridArgs(DatasetBaseArgs):
             "used with the 500 m table bounds."
         ),
     )
-    crs: Optional[str] = Field(
+    crs: str | None = Field(
         "EPSG:3006",
         description=(
             "Coordinate reference system declared in GeoJSON outputs for GIS "
             "readers. Set to None to omit the legacy GeoJSON CRS member."
         ),
     )
-    format: Optional[Literal["geojson"]] = Field(
+    format: Literal["geojson"] | None = Field(
         None,
         description=(
             "Serialized output format. If omitted, the dataset returns a "

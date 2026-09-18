@@ -2,13 +2,13 @@ import hashlib
 import json
 import os
 import re
+from collections.abc import Mapping, Sequence
 from contextlib import ExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 import requests
-
 
 MANIFEST_V2_SCHEMA_VERSION = "dtcc-dataset-manifest-v2"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -312,7 +312,7 @@ class DatasetUploadClient:
 
         try:
             payload = response.json()
-        except ValueError as error:
+        except ValueError:
             detail = _response_detail(response, token=self.token)
             raise _malformed_success_error(response, detail=detail) from None
         if not isinstance(payload, Mapping):
@@ -339,7 +339,9 @@ def build_publish_idempotency_key(
         manifest=manifest,
     )
     return _validated_publish_idempotency_key(
-        dataset_key=dataset_key, manifest_path=manifest_path, package=package,
+        dataset_key=dataset_key,
+        manifest_path=manifest_path,
+        package=package,
     )
 
 
@@ -412,6 +414,7 @@ def _validate_upload_package(
 
     schema_version = manifest_payload.get("schema_version")
     from .package import CANONICAL_MANIFEST_VERSION, load_model_package
+
     if schema_version == CANONICAL_MANIFEST_VERSION:
         # Reuse the canonical persistence boundary, including model admission,
         # provenance and artifact integrity, before sending a stored package.
@@ -505,12 +508,16 @@ def _validate_v2_package(
 ) -> _ValidatedUploadPackage:
     artifacts = manifest.get("artifacts")
     if not isinstance(artifacts, list) or not artifacts:
-        raise _package_error("Dataset Manifest v2 must contain a non-empty artifacts list.")
+        raise _package_error(
+            "Dataset Manifest v2 must contain a non-empty artifacts list."
+        )
 
     expected_artifacts: dict[str, Mapping[str, Any]] = {}
     for index, artifact in enumerate(artifacts):
         if not isinstance(artifact, Mapping):
-            raise _package_error(f"Manifest artifact at index {index} must be an object.")
+            raise _package_error(
+                f"Manifest artifact at index {index} must be an object."
+            )
         artifact_path = _required_artifact_string(artifact, "path", index)
         logical_path = _validate_package_path(artifact_path)
         for field_name in ("role", "format", "media_type", "data_kind"):
@@ -645,9 +652,7 @@ def _file_set_sha256(files: Sequence[_PackageUploadFile]) -> str:
         ),
         key=lambda record: record["path"],
     )
-    payload = json.dumps(records, separators=(",", ":"), sort_keys=True).encode(
-        "utf-8"
-    )
+    payload = json.dumps(records, separators=(",", ":"), sort_keys=True).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
 
 

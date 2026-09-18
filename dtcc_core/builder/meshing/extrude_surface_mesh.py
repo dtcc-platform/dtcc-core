@@ -3,9 +3,9 @@ Mesh extrusion functionality for creating solid meshes from surface meshes.
 """
 
 import numpy as np
-from typing import Set, Tuple, List, Dict
+
+from dtcc_core.logging import error, warning
 from dtcc_core.model import Mesh
-from dtcc_core.logging import warning, error
 
 
 def extrude_surface_to_solid(
@@ -109,7 +109,7 @@ def extrude_surface_to_solid(
     return Mesh(vertices=vertices_array, faces=faces_array)
 
 
-def _find_boundary_edges(mesh: Mesh) -> Set[Tuple[int, int]]:
+def _find_boundary_edges(mesh: Mesh) -> set[tuple[int, int]]:
     """
     Find boundary edges of a mesh (edges that belong to only one face).
 
@@ -139,8 +139,8 @@ def _find_boundary_edges(mesh: Mesh) -> Set[Tuple[int, int]]:
 
 
 def _create_bottom_cap(
-    surface_mesh: Mesh, boundary_vertex_map: Dict[int, int], base_z: float
-) -> Tuple[List[np.ndarray], List[List[int]]]:
+    surface_mesh: Mesh, boundary_vertex_map: dict[int, int], base_z: float
+) -> tuple[list[np.ndarray], list[list[int]]]:
     """
     Create a bottom cap for the extruded mesh.
 

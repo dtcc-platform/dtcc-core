@@ -1,13 +1,13 @@
+import numpy as np
 import pytest
+
 from dtcc_core.model import (
     Building,
     BuildingPart,
-    Surface,
-    MultiSurface,
-    Mesh,
     GeometryType,
+    MultiSurface,
+    Surface,
 )
-import numpy as np
 
 
 @pytest.fixture

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Literal, Optional
+from typing import Literal
 
 from pydantic import Field, model_validator
+
 from dtcc_core.builder.roadnetwork.space_syntax import (
     DEFAULT_SPACE_SYNTAX_MEASURES,
     SpaceSyntaxCost,
@@ -14,7 +15,6 @@ from dtcc_core.builder.roadnetwork.space_syntax import (
 
 from .dataset import DatasetBaseArgs, DatasetDescriptor
 from .providers import provider_entry
-
 
 _RADIUS_UNITS = {
     "topological": "steps",
@@ -34,7 +34,7 @@ class SpaceSyntaxArgs(DatasetBaseArgs):
             "distance, or angular deflection in degrees."
         ),
     )
-    radius: Optional[float] = Field(
+    radius: float | None = Field(
         None,
         ge=0.0,
         description=(
@@ -42,7 +42,7 @@ class SpaceSyntaxArgs(DatasetBaseArgs):
             "selected cost model if radius_unit is omitted."
         ),
     )
-    radius_unit: Optional[Literal["steps", "meters", "degrees"]] = Field(
+    radius_unit: Literal["steps", "meters", "degrees"] | None = Field(
         None,
         description=(
             "Optional radius unit. Must match cost: steps for topological, "
@@ -69,7 +69,7 @@ class SpaceSyntaxArgs(DatasetBaseArgs):
             "Normalize integration and choice to approximately unitless values."
         ),
     )
-    format: Optional[Literal["pb"]] = Field(
+    format: Literal["pb"] | None = Field(
         None,
         description="Output format (pb for protobuf bytes)",
     )

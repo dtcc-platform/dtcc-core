@@ -2,42 +2,26 @@
 # Licensed under the MIT License
 
 
-from dataclasses import dataclass, field
-from collections import defaultdict
-from typing import Optional, Union
-from enum import Enum, auto
-import json
 import math
-
-from copy import copy, deepcopy
-
-import dtcc_core
-
-
-from ..values import Raster
-
-from ..model import Model
-from .representation import GeometryRepresentation
-from ..geometry import (
-    Geometry,
-    Bounds,
-    Surface,
-    MultiSurface,
-    Solid,
-    PointCloud,
-    Mesh,
-    VolumeMesh,
-    Grid,
-    VolumeGrid,
-    Grid,
-    VolumeGrid,
-    Transform,
-)
 from collections import defaultdict
+from dataclasses import dataclass, field
+from enum import Enum, auto
 from uuid import uuid4
 
-
-from ..logging import info, warning, error, debug
+from ..geometry import (
+    Bounds,
+    Geometry,
+    Grid,
+    Mesh,
+    MultiSurface,
+    PointCloud,
+    Solid,
+    Surface,
+    Transform,
+)
+from ..model import Model
+from ..values import Raster
+from .representation import GeometryRepresentation
 
 
 class GeometryType(Enum):
@@ -138,7 +122,7 @@ def _normalize_geometry_type(geometry_type):
         prefix = "GeometryType."
         if not geometry_type.lower().startswith(prefix.lower()):
             raise ValueError(f"Malformed reserved geometry key: {geometry_type!r}")
-        return GeometryType.from_str(geometry_type[len(prefix):])
+        return GeometryType.from_str(geometry_type[len(prefix) :])
     try:
         return GeometryType.from_str(geometry_type)
     except ValueError:
@@ -151,7 +135,7 @@ def _legacy_slot(key):
     """Translate an explicit old slot, never infer descriptors from a class."""
     key = _normalize_geometry_type(key)
     if isinstance(key, GeometryType):
-        if key.name in ('LOD0', 'LOD1', 'LOD2', 'LOD3'):
+        if key.name in ("LOD0", "LOD1", "LOD2", "LOD3"):
             return str(key), key.name[-1], None
         return str(key), None, key.name.lower()
     return key, None, key
@@ -245,26 +229,37 @@ class Object(Model):
     transform: Transform = field(default_factory=Transform)
     _bounds: Bounds = None
     # Optional intrinsic semantics, independent of Python class and containment.
-    semantic_type: Optional[str] = field(default=None, kw_only=True)
-    profile_id: Optional[str] = field(default=None, kw_only=True)
-    profile_version: Optional[str] = field(default=None, kw_only=True)
+    semantic_type: str | None = field(default=None, kw_only=True)
+    profile_id: str | None = field(default=None, kw_only=True)
+    profile_version: str | None = field(default=None, kw_only=True)
     relations: dict[str, list[str]] = field(default_factory=dict, kw_only=True)
 
     def _summary_items(self):
-        return [("id", self.id),
-                ("num_children", sum(len(group) for group in self.children.values())),
-                ("num_geometries", len(self.geometry)),
-                ("num_attributes", len(self.attributes))]
+        return [
+            ("id", self.id),
+            ("num_children", sum(len(group) for group in self.children.values())),
+            ("num_geometries", len(self.geometry)),
+            ("num_attributes", len(self.attributes)),
+        ]
 
     def _info_sections(self):
         import numpy as np
+
         from ...common._display import value_text
 
         sections = super()._info_sections()
         rows = sections[0][2]
-        rows.extend([("CRS", self.transform.srs or "Not specified"),
-                     ("Transform", "Identity" if np.array_equal(self.transform.affine, np.eye(4))
-                      else str(self.transform.affine))])
+        rows.extend(
+            [
+                ("CRS", self.transform.srs or "Not specified"),
+                (
+                    "Transform",
+                    "Identity"
+                    if np.array_equal(self.transform.affine, np.eye(4))
+                    else str(self.transform.affine),
+                ),
+            ]
+        )
         bounds = self.bounds
         if bounds is not None:
             rows.append(("Bounds", bounds.bndstr))
@@ -273,19 +268,52 @@ class Object(Model):
             if value is not None:
                 rows.append((key, value))
         if self.attributes:
-            sections.append(("Attributes", ("Name", "Value"),
-                             [(key, value_text(value)) for key, value in self.attributes.items()]))
+            sections.append(
+                (
+                    "Attributes",
+                    ("Name", "Value"),
+                    [
+                        (key, value_text(value))
+                        for key, value in self.attributes.items()
+                    ],
+                )
+            )
         if self.geometry:
-            sections.append(("Geometries", ("ID", "Type", "LOD", "Role", "Summary"),
-                             [(key, type(record.geometry).__name__, record.lod,
-                               record.role, repr(record.geometry))
-                              for key, record in self.geometry.items()]))
+            sections.append(
+                (
+                    "Geometries",
+                    ("ID", "Type", "LOD", "Role", "Summary"),
+                    [
+                        (
+                            key,
+                            type(record.geometry).__name__,
+                            record.lod,
+                            record.role,
+                            repr(record.geometry),
+                        )
+                        for key, record in self.geometry.items()
+                    ],
+                )
+            )
         if self.children:
-            sections.append(("Children", ("Type", "Count"),
-                             [(kind.__name__, len(group)) for kind, group in self.children.items()]))
+            sections.append(
+                (
+                    "Children",
+                    ("Type", "Count"),
+                    [
+                        (kind.__name__, len(group))
+                        for kind, group in self.children.items()
+                    ],
+                )
+            )
         if self.relations:
-            sections.append(("Relations", ("Name", "References"),
-                             [(key, len(value)) for key, value in self.relations.items()]))
+            sections.append(
+                (
+                    "Relations",
+                    ("Name", "References"),
+                    [(key, len(value)) for key, value in self.relations.items()],
+                )
+            )
         return sections
 
     @property
@@ -314,7 +342,7 @@ class Object(Model):
         return self.get_geometry(lod="3")
 
     @property
-    def mesh(self) -> Union[Mesh, None]:
+    def mesh(self) -> Mesh | None:
         """Return the unique geometry with role "mesh", or None."""
         return self.get_geometry(role="mesh")
 
@@ -324,17 +352,17 @@ class Object(Model):
         return self.get_geometry(role="volume_mesh")
 
     @property
-    def point_cloud(self) -> Union[PointCloud, None]:
+    def point_cloud(self) -> PointCloud | None:
         """Return POINT_CLOUD geometry."""
         return self.get_geometry(role="point_cloud")
 
     @property
-    def pointcloud(self) -> Union[PointCloud, None]:
+    def pointcloud(self) -> PointCloud | None:
         """Return POINT_CLOUD geometry."""
         return self.get_geometry(role="point_cloud")
 
     @property
-    def raster(self) -> Union[Raster, None]:
+    def raster(self) -> Raster | None:
         """Return RASTER geometry."""
         return self.get_geometry(role="raster")
 
@@ -384,7 +412,9 @@ class Object(Model):
         for child in children:
             self.add_child(child)
 
-    def add_geometry(self, geometry, geometry_type=None, *, id=None, lod=None, role=None):
+    def add_geometry(
+        self, geometry, geometry_type=None, *, id=None, lod=None, role=None
+    ):
         """Attach native geometry by explicit ID/LoD/role, or replace a legacy slot.
 
         New IDs never overwrite an existing record. The positional GeometryType
@@ -392,19 +422,25 @@ class Object(Model):
         """
         if id is not None:
             if geometry_type is not None:
-                raise ValueError('Use an explicit ID or a legacy geometry_type, not both')
+                raise ValueError(
+                    "Use an explicit ID or a legacy geometry_type, not both"
+                )
             if not isinstance(id, str) or not id.strip():
-                raise ValueError('Representation ID must be a nonempty string')
+                raise ValueError("Representation ID must be a nonempty string")
             if id in self.geometry:
-                raise ValueError(f'Duplicate representation ID {id!r}')
+                raise ValueError(f"Duplicate representation ID {id!r}")
         else:
             if lod is not None or role is not None:
-                raise ValueError('LoD/role attachments require an explicit representation ID')
+                raise ValueError(
+                    "LoD/role attachments require an explicit representation ID"
+                )
             if geometry_type is None:
                 try:
                     geometry_type = GeometryType.from_class(type(geometry))
                 except ValueError as exc:
-                    raise ValueError('No default GeometryType; pass an explicit geometry_type string role or ID') from exc
+                    raise ValueError(
+                        "No default GeometryType; pass an explicit geometry_type string role or ID"
+                    ) from exc
             id, lod, role = _legacy_slot(geometry_type)
         self.geometry[id] = GeometryRepresentation(geometry, lod, role)
         self._bounds = None
@@ -412,27 +448,46 @@ class Object(Model):
     def _geometry_matches(self, geometry_type=None, *, id=None, lod=None, role=None):
         if geometry_type is not None:
             if any(x is not None for x in (id, lod, role)):
-                raise ValueError('Legacy selection cannot be combined with descriptor filters')
+                raise ValueError(
+                    "Legacy selection cannot be combined with descriptor filters"
+                )
             _, lod, role = _legacy_slot(geometry_type)
-        for name, value in (('id', id), ('lod', lod), ('role', role)):
+        for name, value in (("id", id), ("lod", lod), ("role", role)):
             if value is not None and (not isinstance(value, str) or not value.strip()):
-                raise ValueError(f'{name} must be a nonempty string')
-        entries = self.geometry.items() if id is None else ((id, self.geometry[id]),) if id in self.geometry else ()
-        return [(key, record) for key, record in entries
-                if (lod is None or record.lod == lod) and (role is None or record.role == role)]
+                raise ValueError(f"{name} must be a nonempty string")
+        entries = (
+            self.geometry.items()
+            if id is None
+            else ((id, self.geometry[id]),)
+            if id in self.geometry
+            else ()
+        )
+        return [
+            (key, record)
+            for key, record in entries
+            if (lod is None or record.lod == lod)
+            and (role is None or record.role == role)
+        ]
 
     def get_geometry(self, geometry_type=None, *, id=None, lod=None, role=None):
         """Return the unique native geometry, None if absent; reject ambiguity."""
         if all(x is None for x in (geometry_type, id, lod, role)):
-            raise ValueError('get_geometry requires an ID, LoD or role selector')
+            raise ValueError("get_geometry requires an ID, LoD or role selector")
         matches = self._geometry_matches(geometry_type, id=id, lod=lod, role=role)
         if len(matches) > 1:
-            raise ValueError(f'Ambiguous geometry selection; matching IDs: {[key for key, _ in matches]}')
+            raise ValueError(
+                f"Ambiguous geometry selection; matching IDs: {[key for key, _ in matches]}"
+            )
         return matches[0][1].geometry if matches else None
 
     def get_geometries(self, geometry_type=None, *, id=None, lod=None, role=None):
         """Return matching native geometries in attachment order (all by default)."""
-        return [record.geometry for _, record in self._geometry_matches(geometry_type, id=id, lod=lod, role=role)]
+        return [
+            record.geometry
+            for _, record in self._geometry_matches(
+                geometry_type, id=id, lod=lod, role=role
+            )
+        ]
 
     def add_mesh(self, mesh: Mesh):
         """Add a Mesh geometry to the object."""
@@ -456,12 +511,14 @@ class Object(Model):
             raise TypeError(f"Expected a Raster or Grid instance, got {type(raster)}")
         self.add_geometry(raster, GeometryType.RASTER)
 
-    def remove_geometry(self, geometry_type: Union[GeometryType, str]):
+    def remove_geometry(self, geometry_type: GeometryType | str):
         """Remove geometry from object."""
         geometry_type = _normalize_geometry_type(geometry_type)
         matches = self._geometry_matches(geometry_type)
         if len(matches) > 1:
-            raise ValueError('Ambiguous geometry removal; delete an explicit representation ID')
+            raise ValueError(
+                "Ambiguous geometry removal; delete an explicit representation ID"
+            )
         if matches:
             del self.geometry[matches[0][0]]
         self._bounds = None
@@ -586,19 +643,29 @@ class Object(Model):
                 continue
             if isinstance(geometry, Surface) and not geometry.vertices.size:
                 continue
-            if isinstance(geometry, (MultiSurface, Solid)) and not any(s.vertices.size for s in geometry.surfaces):
+            if isinstance(geometry, (MultiSurface, Solid)) and not any(
+                s.vertices.size for s in geometry.surfaces
+            ):
                 continue
             recalculate = getattr(geometry, "calculate_bounds", None)
             if callable(recalculate):
                 recalculate()
             geometry_bounds = geometry.bounds
             if geometry_bounds is not None:
-                bounds = geometry_bounds.copy() if bounds is None else bounds.union(geometry_bounds)
+                bounds = (
+                    geometry_bounds.copy()
+                    if bounds is None
+                    else bounds.union(geometry_bounds)
+                )
         for children in self.children.values():
             for child in children:
                 child_bounds = child.calculate_bounds(lod=lod)
                 if child_bounds is not None:
-                    bounds = child_bounds.copy() if bounds is None else bounds.union(child_bounds)
+                    bounds = (
+                        child_bounds.copy()
+                        if bounds is None
+                        else bounds.union(child_bounds)
+                    )
         self._bounds = bounds
         return bounds
 

@@ -1,24 +1,18 @@
 from functools import partial
-from .model import load_model, save_model
+from pathlib import Path
+
+import numpy as np
 import rasterio
 import rasterio.merge
-from rasterio.transform import from_origin
-import os
-
-from typing import Union, List
-import numpy as np
-from pathlib import Path
 from PIL import Image
 
-from . import generic
-
 from ..model import Raster
-from .logging import info, error, warning
+from . import generic
+from .logging import error, warning
+from .model import load_model, save_model
 
 
-
-
-def _load_rasterio(path: Union[Path, List], **kwargs):
+def _load_rasterio(path: Path | list, **kwargs):
     raster = Raster()
     if not isinstance(path, list):
         path = Path(path)
@@ -72,16 +66,11 @@ def load(path, delimiter=",", *, validate_schema=True) -> Raster:
         Raster: A `Raster` object representing the raster file loaded.
     """
 
-
-
-
-    if isinstance(path, (str, Path)) and Path(path).suffix.lower() == '.dtcc':
+    if isinstance(path, (str, Path)) and Path(path).suffix.lower() == ".dtcc":
         return load_model(path, expected_type=Raster, validate_schema=validate_schema)
     if validate_schema is not True:
-        raise ValueError('validate_schema applies to .dtcc input')
+        raise ValueError("validate_schema applies to .dtcc input")
     return generic.load(path, "raster", Raster, _load_formats, delimiter=delimiter)
-
-
 
 
 def _save_json_raster(raster, path):

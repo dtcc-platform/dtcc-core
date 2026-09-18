@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from ..dataset import DatasetDescriptor, DatasetUpstreamError
@@ -14,7 +14,6 @@ from .base import (
     make_config_error,
     normalize_mode,
 )
-
 
 VASTTRAFIK_BBOX = (10.7, 57.0, 14.9, 59.5)
 TOKEN_URL = "https://ext-api.vasttrafik.se/token"
@@ -242,7 +241,7 @@ def _parse_positions(data: Any) -> list[VehicleRecord]:
         )
         timestamp = item.get("timestamp") or item.get("time") or item.get("created")
         if timestamp is None:
-            timestamp = datetime.now(timezone.utc).isoformat()
+            timestamp = datetime.now(UTC).isoformat()
 
         details_reference = item.get("detailsReference")
         vehicle_id = (
@@ -289,7 +288,9 @@ def _parse_positions(data: Any) -> list[VehicleRecord]:
                 trip_id=item.get("trip_id") or item.get("tripId"),
                 line=None if line is None else str(line),
                 destination=item.get("destination") or direction,
-                bearing=_float_or_none(item.get("bearing") or item.get("directionAngle")),
+                bearing=_float_or_none(
+                    item.get("bearing") or item.get("directionAngle")
+                ),
                 speed=_float_or_none(item.get("speed")),
                 attributes={
                     "provider": "vasttrafik",
@@ -302,7 +303,9 @@ def _parse_positions(data: Any) -> list[VehicleRecord]:
     return records
 
 
-def _vasttrafik_position_modes(requested_modes: tuple[str, ...] | None) -> tuple[str, ...]:
+def _vasttrafik_position_modes(
+    requested_modes: tuple[str, ...] | None,
+) -> tuple[str, ...]:
     if requested_modes is None:
         return VASTTRAFIK_POSITION_MODES
     return tuple(mode for mode in requested_modes if mode in VASTTRAFIK_POSITION_MODES)

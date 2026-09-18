@@ -1,17 +1,17 @@
+import json
+import tempfile
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, version
-import json
 from pathlib import Path
-import tempfile
-from typing import Any, Optional, Sequence, Union
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-import dtcc_core
 from dtcc_core.model import Bounds
-from dtcc_core.model import Object as DTCCObject
 from dtcc_core.model import Geometry as DTCCGeometry
+from dtcc_core.model import Object as DTCCObject
 
 from .context import attach_dataset_context
 from .schema import (
@@ -22,7 +22,6 @@ from .schema import (
     DatasetProvenance,
     DatasetRequest,
 )
-
 
 _FORMAT_KIND_MAP = {
     "tif": "raster",
@@ -129,7 +128,7 @@ class DatasetUpstreamError(RuntimeError):
         operation: str,
         target: str,
         failure_class: str,
-        status_code: Optional[int] = None,
+        status_code: int | None = None,
         message: str,
     ):
         super().__init__(message)
@@ -151,8 +150,8 @@ class DatasetExportResult:
     """Result returned by :meth:`DatasetDescriptor.export`."""
 
     path: Path
-    manifest_path: Optional[Path]
-    manifest: Optional[dict[str, Any]]
+    manifest_path: Path | None
+    manifest: dict[str, Any] | None
     files: tuple[Path, ...] = ()
     format: str = ""
 
@@ -188,9 +187,9 @@ class DatasetExportResult:
         *,
         dataset_key: str,
         uploader=None,
-        upload_url: Optional[str] = None,
-        token: Optional[str] = None,
-        idempotency_key: Optional[str] = None,
+        upload_url: str | None = None,
+        token: str | None = None,
+        idempotency_key: str | None = None,
     ):
         from dtcc_core.datasets.publish import DatasetPackageError, DatasetUploadClient
 
@@ -216,13 +215,13 @@ class DatasetDescriptor(ABC):
     """Callable, self-describing dataset."""
 
     name: str
-    title: Optional[str] = None
+    title: str | None = None
     description: str = ""
     ArgsModel: BaseModel
     data_category: str = "unknown"
     result_kind: str = "unknown"
     python_return_type: str = "object"
-    timeout_hint: Optional[int] = None
+    timeout_hint: int | None = None
     multi_file_formats: Sequence[str] = ()
 
     def __init_subclass__(cls, register=True, **kwargs):
@@ -292,7 +291,9 @@ class DatasetDescriptor(ABC):
         processing_steps = self._context_list_attr("processing_steps")
         if default_processing_step not in processing_steps:
             processing_steps.append(default_processing_step)
-        lod = self._context_optional_string(parameters.get("lod")) or self._context_attr(
+        lod = self._context_optional_string(
+            parameters.get("lod")
+        ) or self._context_attr(
             "lod",
             "level_of_detail",
         )
@@ -477,7 +478,9 @@ class DatasetDescriptor(ABC):
     def extract_supported_formats_from_schema(cls, schema: dict[str, Any]) -> list[str]:
         """Extract supported ``format`` values from a Pydantic JSON schema."""
         properties = schema.get("properties", {}) if isinstance(schema, dict) else {}
-        format_prop = properties.get("format", {}) if isinstance(properties, dict) else {}
+        format_prop = (
+            properties.get("format", {}) if isinstance(properties, dict) else {}
+        )
         if not isinstance(format_prop, dict):
             return []
 
@@ -610,9 +613,9 @@ class DatasetDescriptor(ABC):
         args,
         path: Path,
         *,
-        manifest_id: Optional[str] = None,
-        title: Optional[str] = None,
-        description: Optional[str] = None,
+        manifest_id: str | None = None,
+        title: str | None = None,
+        description: str | None = None,
     ) -> dict[str, Any]:
         """Build a manifest for a concrete exported dataset request."""
         manifest = self.describe()
@@ -651,8 +654,7 @@ class DatasetDescriptor(ABC):
     def _sanitize_publish_filename(value: str) -> str:
         filename = str(value).strip().replace(" ", "_").replace("-", "_").lower()
         sanitized = "".join(
-            char if char.isalnum() or char in {"_", "."} else "_"
-            for char in filename
+            char if char.isalnum() or char in {"_", "."} else "_" for char in filename
         )
         while "__" in sanitized:
             sanitized = sanitized.replace("__", "_")
@@ -678,7 +680,7 @@ class DatasetDescriptor(ABC):
         return filename
 
     @staticmethod
-    def _validate_publish_filename(value: Union[str, Path]) -> Path:
+    def _validate_publish_filename(value: str | Path) -> Path:
         filename = str(value)
         path = Path(filename)
         if (
@@ -708,14 +710,14 @@ class DatasetDescriptor(ABC):
 
     def export(
         self,
-        path: Union[str, Path],
+        path: str | Path,
         *,
-        format: Optional[str] = None,
+        format: str | None = None,
         manifest: bool = True,
-        manifest_path: Optional[Union[str, Path]] = None,
-        manifest_id: Optional[str] = None,
-        title: Optional[str] = None,
-        description: Optional[str] = None,
+        manifest_path: str | Path | None = None,
+        manifest_id: str | None = None,
+        title: str | None = None,
+        description: str | None = None,
         **kwargs,
     ) -> DatasetExportResult:
         """Export a serialized dataset artifact and optional manifest to disk.
@@ -786,16 +788,16 @@ class DatasetDescriptor(ABC):
         self,
         *,
         dataset_key: str,
-        format: Optional[str] = None,
-        filename: Optional[Union[str, Path]] = None,
-        output_dir: Optional[Union[str, Path]] = None,
+        format: str | None = None,
+        filename: str | Path | None = None,
+        output_dir: str | Path | None = None,
         keep_export: bool = False,
-        manifest_id: Optional[str] = None,
-        title: Optional[str] = None,
-        description: Optional[str] = None,
-        upload_url: Optional[str] = None,
-        token: Optional[str] = None,
-        idempotency_key: Optional[str] = None,
+        manifest_id: str | None = None,
+        title: str | None = None,
+        description: str | None = None,
+        upload_url: str | None = None,
+        token: str | None = None,
+        idempotency_key: str | None = None,
         uploader=None,
         **kwargs,
     ):
@@ -848,9 +850,14 @@ class DatasetDescriptor(ABC):
     def __repr__(self):
         from dtcc_core.common._display import format_repr
 
-        return format_repr(type(self).__name__, [("name", self.name),
-                           ("result_kind", self.result_kind),
-                           ("return_type", self.python_return_type)])
+        return format_repr(
+            type(self).__name__,
+            [
+                ("name", self.name),
+                ("result_kind", self.result_kind),
+                ("return_type", self.python_return_type),
+            ],
+        )
 
     def __str__(self):
         return repr(self)
@@ -858,19 +865,31 @@ class DatasetDescriptor(ABC):
     def info(self, print: bool = True) -> str | None:
         """Print dataset description and parameter help; return text with print=False."""
         import builtins
+
         from dtcc_core.common._display import format_info
 
         schema = self.show_options()
         required = schema.get("required", [])
-        rows = [("*" if name in required else "", name,
-                 self._schema_type_label(param), self._schema_default_label(param, name in required),
-                 param.get("description", ""))
-                for name, param in schema.get("properties", {}).items()]
+        rows = [
+            (
+                "*" if name in required else "",
+                name,
+                self._schema_type_label(param),
+                self._schema_default_label(param, name in required),
+                param.get("description", ""),
+            )
+            for name, param in schema.get("properties", {}).items()
+        ]
         sections = []
         if self.description:
             sections.append(("Description", None, self.description))
-        sections.append(("Available parameters", ("", "Parameter", "Type", "Default", "Description"),
-                         rows or [("", "No parameters defined", "", "", "")]))
+        sections.append(
+            (
+                "Available parameters",
+                ("", "Parameter", "Type", "Default", "Description"),
+                rows or [("", "No parameters defined", "", "", "")],
+            )
+        )
         sections.append(("", None, "* = required parameter"))
         summary = format_info(f"Dataset: {self.name}", sections)
         if print:
@@ -1002,11 +1021,13 @@ class DatasetDescriptor(ABC):
         *,
         upstream_errors: Sequence[DatasetUpstreamError],
         stations_skipped_upstream: int = 0,
-        requested_parameters: Optional[Sequence[Any]] = None,
-        fetched_parameters: Optional[Sequence[Any]] = None,
+        requested_parameters: Sequence[Any] | None = None,
+        fetched_parameters: Sequence[Any] | None = None,
     ) -> None:
         """Attach a uniform graceful-degradation contract to result metadata."""
-        serialized_errors = [cls.serialize_upstream_error(exc) for exc in upstream_errors]
+        serialized_errors = [
+            cls.serialize_upstream_error(exc) for exc in upstream_errors
+        ]
         attributes["partial_result"] = bool(serialized_errors)
         attributes["upstream_error_count"] = len(serialized_errors)
         attributes["upstream_errors"] = serialized_errors
@@ -1019,7 +1040,7 @@ class DatasetDescriptor(ABC):
 
     @staticmethod
     def export_to_bytes(
-        obj: Union[DTCCObject, DTCCGeometry, list[DTCCObject], list[DTCCGeometry]],
+        obj: DTCCObject | DTCCGeometry | list[DTCCObject] | list[DTCCGeometry],
         format: str,
         save_callable=None,
         **save_kwargs,

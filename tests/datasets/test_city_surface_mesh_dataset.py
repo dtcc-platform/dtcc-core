@@ -121,7 +121,9 @@ def test_city_surface_mesh_parameter_plumbing(
         pipeline_mode="strict",
         stage_audit=ANY,
     )
-    assert isinstance(mock_build_city_surface_mesh.call_args.kwargs["stage_audit"], dict)
+    assert isinstance(
+        mock_build_city_surface_mesh.call_args.kwargs["stage_audit"], dict
+    )
 
 
 @patch("dtcc_core.datasets.city_surface_mesh.dtcc_core.builder.build_city_surface_mesh")
@@ -151,7 +153,9 @@ def test_city_surface_mesh_export_returns_bytes(
     mock_build_city_surface_mesh.return_value = surface_mesh
 
     dataset = CitySurfaceMeshDataset()
-    with patch.object(dataset, "export_to_bytes", return_value=b"surface-mesh") as mock_export:
+    with patch.object(
+        dataset, "export_to_bytes", return_value=b"surface-mesh"
+    ) as mock_export:
         result = dataset.build(
             CitySurfaceMeshArgs(
                 bounds=(0.0, 0.0, 1.0, 1.0),
@@ -193,12 +197,19 @@ def test_city_surface_mesh_context_documents_meshing_lineage_and_limits():
         "point_cloud",
         "building_footprints",
     }
-    assert any("flat_ground=True" in step for step in manifest.provenance.processing_steps)
+    assert any(
+        "flat_ground=True" in step for step in manifest.provenance.processing_steps
+    )
     assert any("mesh-quality" in step for step in manifest.provenance.processing_steps)
     assert manifest.presentation.headline == "Terrain and Building Surface Mesh"
     assert manifest.presentation.legend["title"] == "Surface mesh layers"
-    assert manifest.presentation.view_hints["mesh_role"] == "visualization_or_surface_preprocessing"
-    assert any("watertightness" in warning for warning in manifest.presentation.warnings)
+    assert (
+        manifest.presentation.view_hints["mesh_role"]
+        == "visualization_or_surface_preprocessing"
+    )
+    assert any(
+        "watertightness" in warning for warning in manifest.presentation.warnings
+    )
     assert manifest.presentation.limitations
     assert manifest.request.parameters["flat_ground"] is True
     assert manifest.request.parameters["stage_audit_enabled"] is True
