@@ -39,6 +39,22 @@ ANSI_YELLOW = "\033[33m"
 ANSI_RED = "\033[31m"
 ANSI_RESET = "\033[0m"
 NON_FATAL_STATUSES = {"success", "warning"}
+UNICODE_SYMBOLS = {
+    "success": "✓",
+    "warning": "⚠",
+    "failed": "✗",
+    "arrow": "→",
+    "minus": "−",
+    "squared": "²",
+}
+ASCII_SYMBOLS = {
+    "success": "[OK]",
+    "warning": "[!]",
+    "failed": "[X]",
+    "arrow": "->",
+    "minus": "-",
+    "squared": "2",
+}
 
 
 def json_ready(value: Any) -> Any:
@@ -167,7 +183,11 @@ def _copy_worker_output(
                     handle.close()
                     handle = None
             if echo_to is not None and not line.startswith("BENCHMARK_RESULT "):
-                echo_to.write(line)
+                try:
+                    echo_to.write(line)
+                except UnicodeEncodeError:
+                    encoding = echo_to.encoding or "ascii"
+                    echo_to.write(line.encode(encoding, "replace").decode(encoding))
                 echo_to.flush()
     finally:
         if handle is not None:
@@ -230,6 +250,7 @@ def _run_task_subprocess(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        errors="replace",
     )
     assert process.stdout is not None
     assert process.stderr is not None
@@ -397,15 +418,38 @@ def _timestamp_utc() -> str:
     )
 
 
-def _status_label(status: str, *, rich: bool) -> str:
+def _console_symbols() -> dict[str, str]:
+    # print() writes to stdout; the rich log_table console writes to stderr.
+    sample = "".join(UNICODE_SYMBOLS.values())
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            sample.encode(getattr(stream, "encoding", None) or "ascii")
+        except (LookupError, UnicodeEncodeError):
+            return ASCII_SYMBOLS
+    return UNICODE_SYMBOLS
+
+
+def _status_label(
+    status: str, *, rich: bool, symbols: dict[str, str] = UNICODE_SYMBOLS
+) -> str:
     if status == "success":
-        label = "✓ success"
+        label = f"{symbols['success']} success"
         return f"[green]{label}[/green]" if rich else label
     if status == "warning":
-        label = "⚠ warning"
+        label = f"{symbols['warning']} warning"
         return f"[yellow]{label}[/yellow]" if rich else label
-    label = f"✗ {status}"
+    label = f"{symbols['failed']} {status}"
     return f"[red]{label}[/red]" if rich else label
+
+
+def _status_summary_columns(symbols: dict[str, str]) -> list[str]:
+    return [
+        "Scope",
+        f"{symbols['success']} Success",
+        f"{symbols['warning']} Warning",
+        f"{symbols['failed']} Fail",
+        "Total",
+    ]
 
 
 def _is_hard_failure(status: str) -> bool:
@@ -413,7 +457,7 @@ def _is_hard_failure(status: str) -> bool:
 
 
 def _terminal_status_label(status: str) -> str:
-    label = _status_label(status, rich=False)
+    label = _status_label(status, rich=False, symbols=_console_symbols())
     if not sys.stdout.isatty() or os.environ.get("NO_COLOR"):
         return label
     if status == "success":
@@ -481,6 +525,7 @@ def _failure_class_summary_rows(
     results: list[dict[str, Any]],
     *,
     rich: bool,
+    symbols: dict[str, str] = UNICODE_SYMBOLS,
 ) -> list[list[str]]:
     counts: dict[tuple[str, str], int] = {}
     for result in results:
@@ -500,7 +545,7 @@ def _failure_class_summary_rows(
     }
     return [
         [
-            _status_label(status, rich=rich),
+            _status_label(status, rich=rich, symbols=symbols),
             failure_class,
             str(count),
         ]
@@ -603,10 +648,15 @@ def _result_artifact_summary(result: dict[str, Any]) -> str:
     return ", ".join(parts)
 
 
-def _result_table_rows(results: list[dict[str, Any]], *, rich: bool) -> list[list[str]]:
+def _result_table_rows(
+    results: list[dict[str, Any]],
+    *,
+    rich: bool,
+    symbols: dict[str, str] = UNICODE_SYMBOLS,
+) -> list[list[str]]:
     return [
         [
-            _status_label(result["status"], rich=rich),
+            _status_label(result["status"], rich=rich, symbols=symbols),
             result["case"]["id"],
             result["dataset"],
             result["scenario"]["id"],
@@ -692,7 +742,7 @@ def _emit_table(
     log_table(benchmark_info, message, columns, rich_rows, indent=0, overflow="fold")
 
 
-def _phase_tables(results):
+def _phase_tables(results, symbols=UNICODE_SYMBOLS):
     cleaning, meshing = [], []
     for result in results:
         label = (
@@ -708,7 +758,8 @@ def _phase_tables(results):
                     label,
                     c.get("status", "-"),
                     _format_seconds(c.get("seconds")),
-                    f"{c.get('input_count', '-')} → {c.get('output_count', '-')}",
+                    f"{c.get('input_count', '-')} {symbols['arrow']} "
+                    f"{c.get('output_count', '-')}",
                     _format_number(c.get("removed_area")),
                     _format_number(c.get("added_area")),
                     _format_number(c.get("short_edge_count")),
@@ -735,9 +786,9 @@ def _phase_tables(results):
                 "Case",
                 "Status",
                 "Time",
-                "In → out",
-                "Removed m²",
-                "Added m²",
+                f"In {symbols['arrow']} out",
+                f"Removed m{symbols['squared']}",
+                f"Added m{symbols['squared']}",
                 "Short edges",
             ],
             cleaning,
@@ -751,25 +802,21 @@ def _phase_tables(results):
 
 
 def _print_run_tables(results: list[dict[str, Any]]) -> None:
-    for title, columns, rows in _phase_tables(results):
+    symbols = _console_symbols()
+    for title, columns, rows in _phase_tables(results, symbols):
         if rows:
             _emit_table(title, columns, rows, rows)
     for result in results:
         if result.get("error"):
             print(f"{result['task_id']}: {_result_error_summary(result)}")
+    scope, *counts = _status_summary_columns(symbols)
     _emit_table(
         "Benchmark status summary",
-        [
-            "Scope",
-            ("✓ Success", "right"),
-            ("⚠ Warning", "right"),
-            ("✗ Fail", "right"),
-            ("Total", "right"),
-        ],
+        [scope, *((column, "right") for column in counts)],
         _status_summary_rows(results, rich=True),
         _status_summary_rows(results, rich=False),
     )
-    failure_rows = _failure_class_summary_rows(results, rich=True)
+    failure_rows = _failure_class_summary_rows(results, rich=True, symbols=symbols)
     if failure_rows:
         _emit_table(
             "Benchmark failure/warning classification",
@@ -779,11 +826,15 @@ def _print_run_tables(results: list[dict[str, Any]]) -> None:
                 ("Count", "right"),
             ],
             failure_rows,
-            _failure_class_summary_rows(results, rich=False),
+            _failure_class_summary_rows(results, rich=False, symbols=symbols),
         )
 
 
-def _summary_markdown(results: list[dict[str, Any]], manifest: dict[str, Any]) -> str:
+def _summary_markdown(
+    results: list[dict[str, Any]],
+    manifest: dict[str, Any],
+    symbols: dict[str, str] = UNICODE_SYMBOLS,
+) -> str:
     lines = [
         "# Benchmark Run Summary",
         "",
@@ -797,7 +848,7 @@ def _summary_markdown(results: list[dict[str, Any]], manifest: dict[str, Any]) -
         lines.append(f"Finished: {manifest['finished_at']}")
     if manifest.get("elapsed_seconds") is not None:
         lines.append(f"Total time: {_format_duration(manifest.get('elapsed_seconds'))}")
-    for title, columns, rows in _phase_tables(results):
+    for title, columns, rows in _phase_tables(results, symbols):
         if rows:
             lines.extend(["", f"## {title}", ""])
             lines.extend(_markdown_table(columns, rows))
@@ -815,17 +866,17 @@ def _summary_markdown(results: list[dict[str, Any]], manifest: dict[str, Any]) -
                 "Artifacts",
                 "Error / Logs",
             ],
-            _result_table_rows(results, rich=False),
+            _result_table_rows(results, rich=False, symbols=symbols),
         )
     )
     lines.extend(["", "## Status Summary", ""])
     lines.extend(
         _markdown_table(
-            ["Scope", "✓ Success", "⚠ Warning", "✗ Fail", "Total"],
+            _status_summary_columns(symbols),
             _status_summary_rows(results, rich=False),
         )
     )
-    failure_rows = _failure_class_summary_rows(results, rich=False)
+    failure_rows = _failure_class_summary_rows(results, rich=False, symbols=symbols)
     if failure_rows:
         lines.extend(["", "## Failure Classes", ""])
         lines.extend(
@@ -949,7 +1000,7 @@ def command_report(args: argparse.Namespace) -> int:
     payload = json.loads(results_path.read_text(encoding="utf-8"))
     results = payload.get("results", [])
     manifest = payload.get("manifest", {})
-    print(_summary_markdown(results, manifest))
+    print(_summary_markdown(results, manifest, _console_symbols()))
     return 0
 
 
@@ -1023,7 +1074,10 @@ def command_compare(args: argparse.Namespace) -> int:
         }
 
     base, head = read(args.base), read(args.head)
-    print("| Case / dataset / scenario | Base | Head | Metric | Delta (head − base) |")
+    minus = _console_symbols()["minus"]
+    print(
+        f"| Case / dataset / scenario | Base | Head | Metric | Delta (head {minus} base) |"
+    )
     print("| --- | --- | --- | --- | ---: |")
     paths = [
         ("cleaning", "seconds"),
@@ -1261,6 +1315,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Status symbols fall back to ASCII, but data such as paths and error messages
+    # may still be unencodable; escape it like stderr does instead of failing.
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if reconfigure is not None:
+        reconfigure(errors="backslashreplace")
     argv = sys.argv[1:] if argv is None else argv
     if len(argv) == 2 and argv[0] == "_run-case":
         return command_worker(argparse.Namespace(spec=Path(argv[1])))
