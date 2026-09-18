@@ -1,8 +1,4 @@
-from typing import TYPE_CHECKING, List, TypeVar, Union
-
-from dtcc_core.logging import error, info, warning
-
-from ....model.geometry import Bounds
+from typing import TYPE_CHECKING, TypeVar
 
 if TYPE_CHECKING:
     from ....model.geometry import Mesh, VolumeMesh

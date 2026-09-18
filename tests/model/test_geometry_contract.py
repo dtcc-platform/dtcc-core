@@ -12,7 +12,6 @@ from dtcc_core.model import (
     Transform,
     VolumeGrid,
     VolumeMesh,
-    proto,
 )
 
 

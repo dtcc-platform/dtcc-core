@@ -1,9 +1,7 @@
 from copy import deepcopy
-from logging import debug, error, info, warning
 
 import numpy as np
 
-from ...model import Building, GeometryType
 from ...model.geometry import MultiSurface, Surface
 
 

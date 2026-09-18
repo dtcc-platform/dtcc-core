@@ -1,5 +1,3 @@
-from typing import List, Union
-
 import numpy as np
 import shapely
 import shapely.affinity
@@ -9,7 +7,7 @@ from shapely.ops import unary_union
 from shapely.validation import make_valid
 
 from ...model.geometry import MultiSurface, PointCloud, Surface
-from ..logging import debug, error, info, warning
+from ..logging import error
 from ..polygons.polygons import remove_slivers
 
 

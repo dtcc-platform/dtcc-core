@@ -5,7 +5,6 @@ from dtcc_core.model import (
     Building,
     BuildingPart,
     GeometryType,
-    Mesh,
     MultiSurface,
     Surface,
 )

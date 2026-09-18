@@ -1,9 +1,8 @@
 from copy import deepcopy
-from typing import List, Tuple
 
 import numpy as np
 
-from dtcc_core.builder.logging import info, warning
+from dtcc_core.builder.logging import warning
 from dtcc_core.builder.polygons.surface import clean_multisurface, clean_surface
 
 from ...model import Mesh, MultiSurface, Surface
@@ -14,7 +13,6 @@ from ..model_conversion import (
     create_builder_multisurface,
     create_builder_surface,
 )
-from ..register import register_model_method
 from .backends import resolve_2d_mesher
 from .dtcc_mesher_backend import mesh_surface_with_dtcc_mesher
 from .orientation import orient_faces_consistently

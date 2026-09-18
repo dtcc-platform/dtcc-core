@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from dtcc_core.model import Bounds, PointCloud
+from dtcc_core.model import PointCloud
 
 
 @pytest.fixture

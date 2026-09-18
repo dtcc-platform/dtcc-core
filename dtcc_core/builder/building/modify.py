@@ -1,13 +1,9 @@
-from typing import List, Tuple, Union
-
-import shapely
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
-from shapely.validation import make_valid
 
 from ...model import Building, GeometryType, MultiSurface, Surface
 from ..cleaning import ConditioningOptions, condition_building_footprints
-from ..logging import debug, error, info, warning
+from ..logging import error, info, warning
 from ..polygons.polygons import split_polygon_sides
 from ..polygons.surface import clean_multisurface, clean_surface
 from ..register import register_model_method

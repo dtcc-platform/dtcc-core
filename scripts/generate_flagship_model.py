@@ -23,7 +23,6 @@ from dtcc_core.datasets.schema import DatasetContext
 from dtcc_core.model import (
     Bounds,
     Building,
-    City,
     Field,
     Grid,
     Landuse,

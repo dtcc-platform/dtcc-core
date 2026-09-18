@@ -3,7 +3,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-import dtcc_core
 from dtcc_core import io
 from dtcc_core.builder.pointcloud.filter import (
     crop,

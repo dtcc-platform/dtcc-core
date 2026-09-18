@@ -1,11 +1,8 @@
-from pathlib import Path
-
 import fiona
 import shapely
 
 from dtcc_core.model import Tree
 
-from .logging import error, info
 from .vector_utils import (
     determine_io_crs,
     get_geometry_crs,

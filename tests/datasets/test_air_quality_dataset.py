@@ -9,7 +9,6 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 import pytest
-import requests
 
 import dtcc_core.datasets as datasets
 from dtcc_core.datasets import get_dataset

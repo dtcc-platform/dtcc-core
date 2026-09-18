@@ -2,7 +2,6 @@ import copy
 import math
 from collections import defaultdict
 from itertools import combinations, groupby
-from typing import List, Tuple
 
 import numpy as np
 import shapely
@@ -19,8 +18,7 @@ from shapely.geometry import (
 )
 from shapely.validation import make_valid
 
-from ...model import Building, City
-from ..logging import critical, debug, error, info, warning
+from ..logging import info, warning
 
 
 def merge_polygons_convexhull(p1, p2):

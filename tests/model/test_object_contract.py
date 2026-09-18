@@ -13,7 +13,6 @@ from dtcc_core.model import (
     Field,
     GeometryType,
     Grid,
-    Landuse,
     LineString,
     MultiLineString,
     MultiSurface,
@@ -21,7 +20,6 @@ from dtcc_core.model import (
     Point,
     Raster,
     SensorCollection,
-    Terrain,
     Tree,
     VehicleCollection,
 )

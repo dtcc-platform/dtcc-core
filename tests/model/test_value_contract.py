@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from affine import Affine
 
-from dtcc_core.model import Field, Raster, proto
+from dtcc_core.model import Field, Raster
 
 
 @pytest.mark.parametrize(

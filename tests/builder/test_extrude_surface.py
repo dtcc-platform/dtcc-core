@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from dtcc_core.builder.geometry_builders.surface import extrude_surface
-from dtcc_core.model import Building, MultiSurface, Surface
+from dtcc_core.model import Surface
 
 
 @pytest.fixture

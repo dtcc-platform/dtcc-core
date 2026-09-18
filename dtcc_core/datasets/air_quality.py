@@ -14,8 +14,8 @@ Each station has:
 """
 
 import json
-from datetime import UTC, datetime, timezone
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from datetime import UTC, datetime
+from typing import Any, Literal
 
 import numpy as np
 from pydantic import Field

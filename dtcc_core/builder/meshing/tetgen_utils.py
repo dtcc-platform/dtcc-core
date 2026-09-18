@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections import defaultdict, deque
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Dict
 
 import numpy as np
 from shapely.geometry import Polygon
@@ -11,7 +10,6 @@ from shapely.validation import explain_validity
 
 from ...model import Mesh
 from ...model.mixins.mesh.quality import tri_aspect_ratio, tri_element_quality
-from ..logging import warning
 
 _MIN_EDGE_RATIO_WARNING = 1.0e-3
 _MIN_AREA_RATIO_WARNING = 1.0e-6

@@ -10,7 +10,6 @@ from dtcc_core.builder.meshing.boundary_conformance import (
     _build_adjacency,
     _classify_vertices,
     _compute_mean_edge_length,
-    _detect_contact_vertices,
     _find_boundary_vertices,
     _find_shared_boundary_edge,
     _laplacian_smooth_z,

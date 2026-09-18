@@ -19,7 +19,6 @@ where ``l_max`` is the longest edge and ``r`` is the inradius.
 from __future__ import annotations
 
 import logging
-from typing import Dict, Union
 
 import numpy as np
 

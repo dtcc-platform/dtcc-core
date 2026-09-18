@@ -2,8 +2,6 @@
 Mesh extrusion functionality for creating solid meshes from surface meshes.
 """
 
-from typing import Dict, List, Set, Tuple
-
 import numpy as np
 
 from dtcc_core.logging import error, warning

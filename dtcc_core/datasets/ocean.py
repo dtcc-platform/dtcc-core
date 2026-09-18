@@ -19,9 +19,8 @@ then filtered to the requested bounding box on the client side.
 """
 
 import re
-from collections.abc import Sequence
-from datetime import UTC, datetime, timezone
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from datetime import UTC, datetime
+from typing import Any, Literal
 
 import numpy as np
 from pydantic import Field

@@ -1,6 +1,3 @@
-from typing import List, Union
-
-from affine import Affine
 from shapely.geometry import Polygon
 
 from ...model import Raster

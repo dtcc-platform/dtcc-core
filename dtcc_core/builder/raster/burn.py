@@ -1,5 +1,3 @@
-from shapely.geometry import Polygon
-
 from ...model import Raster
 from ..register import register_model_method
 

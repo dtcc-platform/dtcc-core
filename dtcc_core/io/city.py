@@ -1,4 +1,3 @@
-from collections import defaultdict
 from functools import partial
 from pathlib import Path
 
@@ -7,7 +6,7 @@ from shapely.geometry import Polygon
 from ..model import City, GeometryType
 from . import generic
 from .cityjson import cityjson, write_cityjson
-from .logging import error, info, warning
+from .logging import warning
 from .meshes import load_mesh_as_city
 from .model import load_model, save_model
 
@@ -110,7 +109,7 @@ def buildings_to_df(city: City, include_geometry=True, crs=None):
         return None
     if include_geometry:
         try:
-            import dtcc_core.builder
+            import dtcc_core.builder  # noqa: F401  (availability probe)
         except ImportError:
             warning("builder not found, cannot convert building geometry to dataframe")
             return None

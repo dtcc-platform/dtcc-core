@@ -16,7 +16,7 @@ from ..builder.geometry.multisurface import merge_coplanar
 from ..builder.meshing import disjoint_meshes, merge_meshes
 from ..model import Building, City, Field, GeometryType, Mesh, VolumeMesh
 from . import generic
-from .logging import error, info, warning
+from .logging import error, warning
 from .model import load_model, save_model
 from .xdmf import XDMF_SURFACE_TEMPLATE, XDMF_VOLUME_TEMPLATE
 

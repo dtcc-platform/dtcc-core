@@ -3,7 +3,7 @@
 
 import logging as _logging
 from collections.abc import Callable, Iterable, Sequence
-from typing import Any, Dict, Tuple
+from typing import Any
 
 from rich import box
 from rich.console import Console

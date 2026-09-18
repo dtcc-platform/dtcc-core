@@ -12,7 +12,8 @@ from requests.adapters import HTTPAdapter
 from shapely.geometry import LineString, Polygon, box
 from urllib3.util.retry import Retry
 
-from .logging import debug, error, info, warning
+# ``warning`` is re-exported for tests that assert nothing warns here.
+from .logging import debug, error, info, warning  # noqa: F401
 
 # ------------------------------------------------------------------------
 # 1) Global constants/paths

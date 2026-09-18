@@ -2,7 +2,6 @@ import json
 import math
 import zipfile
 from pathlib import Path
-from typing import Dict, List
 
 import numpy as np
 
@@ -25,8 +24,6 @@ from .converters import (
     convert_surface,
     convert_terrain_mesh,
     geometry_type_to_lod,
-    get_converter,
-    get_terrain_converter,
 )
 
 

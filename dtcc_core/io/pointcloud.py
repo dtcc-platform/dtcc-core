@@ -1,6 +1,5 @@
 from functools import partial
 from pathlib import Path
-from typing import List, Union
 
 import laspy
 import numpy as np

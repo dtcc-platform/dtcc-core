@@ -3,11 +3,9 @@ from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
 
 import numpy as np
-from shapely import BufferJoinStyle
-from shapely.errors import GEOSException
 from shapely.geometry import (
     GeometryCollection,
     LineString,
@@ -51,7 +49,7 @@ from ..cleaning import (
     plot_footprint_cleaning_comparison,
 )
 from ..cleaning import footprints as cleaning_footprints
-from ..logging import debug, error, info, warning
+from ..logging import debug, info, warning
 from ..meshing import tetgen_utils
 from ..meshing.backends import resolve_2d_mesher
 from ..meshing.flat_mesh_backends import build_city_flat_mesh_from_coverage
@@ -63,7 +61,6 @@ from ..meshing.tetgen import (
     build_volume_mesh as tetgen_build_volume_mesh,
 )
 from ..model_conversion import (
-    create_builder_polygon,
     create_builder_surface,
     mesh_to_builder_mesh,
     raster_to_builder_gridfield,

@@ -1,8 +1,8 @@
-from typing import TYPE_CHECKING, Any, List, Tuple, Union
+from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ...model import GeometryType, RoadNetwork
+from ...model import RoadNetwork
 from ...model.geometry import Surface
 from ..register import register_model_method
 

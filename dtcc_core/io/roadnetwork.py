@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import fiona
 import numpy as np
 import shapely.affinity
@@ -9,7 +7,7 @@ import shapely.ops
 from ..model.geometry import LineString, MultiLineString
 from ..model.object import GeometryType, RoadNetwork
 from . import generic
-from .logging import error, info, warning
+from .logging import warning
 from .utils import get_epsg
 from .vector_utils import (
     create_bounds_filter,
@@ -22,7 +20,7 @@ from .vector_utils import (
 HAS_GEOPANDAS = False
 try:
     import geopandas as gpd
-    import pandas as pd
+    import pandas as pd  # noqa: F401  (availability probe)
 
     HAS_GEOPANDAS = True
 except ImportError:

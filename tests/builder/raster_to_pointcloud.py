@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from dtcc_core import io
-from dtcc_core.model import PointCloud, Raster
+from dtcc_core.model import PointCloud
 
 
 @pytest.fixture

@@ -2,16 +2,11 @@
 # Licensed under the MIT License
 
 
-import json
 import math
 from collections import defaultdict
-from copy import copy, deepcopy
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Optional, Union
 from uuid import uuid4
-
-import dtcc_core
 
 from ..geometry import (
     Bounds,
@@ -23,10 +18,7 @@ from ..geometry import (
     Solid,
     Surface,
     Transform,
-    VolumeGrid,
-    VolumeMesh,
 )
-from ..logging import debug, error, info, warning
 from ..model import Model
 from ..values import Raster
 from .representation import GeometryRepresentation

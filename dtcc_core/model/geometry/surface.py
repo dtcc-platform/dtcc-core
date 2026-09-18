@@ -3,15 +3,13 @@
 
 from copy import deepcopy
 from dataclasses import dataclass, field
-from inspect import getmembers, isfunction, ismethod
-from typing import Union
 
 import numpy as np
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 from shapely.validation import make_valid
 
-from ..logging import debug, error, info, warning
+from ..logging import warning
 from .geometry import Bounds, Geometry
 
 

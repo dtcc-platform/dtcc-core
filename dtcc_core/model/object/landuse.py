@@ -1,10 +1,7 @@
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import List, Tuple, Union
 
-import numpy as np
-
-from ..geometry import Bounds, MultiSurface, Surface
+from ..geometry import Surface
 from .object import GeometryType, Object
 
 
