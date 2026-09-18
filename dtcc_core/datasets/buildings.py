@@ -7,6 +7,12 @@ from .dataset import DatasetDescriptor, DatasetBaseArgs
 from .footprints import _filter_small_buildings, _provider_for_source
 from .providers import provider_entry
 from dtcc_core.common.progress import ProgressTracker, report_progress
+from .centering import (
+    CENTER_ON_ORIGIN_DESCRIPTION,
+    CENTER_ON_ORIGIN_PROCESSING_STEP,
+    center_result_if_requested,
+    warn_if_far_from_origin,
+)
 
 
 class BuildingArgs(DatasetBaseArgs):
@@ -23,6 +29,7 @@ class BuildingArgs(DatasetBaseArgs):
     place_on_zero: bool = Field(
         False, description="Whether to place buildings on Z=0 plane"
     )
+    center_on_origin: bool = Field(False, description=CENTER_ON_ORIGIN_DESCRIPTION)
     format: Optional[Literal["obj", "stl"]] = Field(
         None, description="Output file format"
     )
@@ -80,6 +87,7 @@ class BuildingDataset(DatasetDescriptor):
         "Estimate building heights from roof points and terrain",
         "Extrude footprint geometry into LoD1 block buildings",
         "Return a BuildingCollection or serialize merged LoD1 meshes",
+        CENTER_ON_ORIGIN_PROCESSING_STEP,
     ]
     derived_from = [
         {
@@ -235,6 +243,8 @@ class BuildingDataset(DatasetDescriptor):
                     merged_mesh = dtcc_core.builder.meshing.merge_meshes(
                         building_meshes
                     )
+                    merged_mesh = center_result_if_requested(merged_mesh, args)
+                    warn_if_far_from_origin(merged_mesh, args.format)
                     report_progress(percent=80, message=f"Writing {args.format}...")
                     return self.export_to_bytes(merged_mesh, args.format)
 
