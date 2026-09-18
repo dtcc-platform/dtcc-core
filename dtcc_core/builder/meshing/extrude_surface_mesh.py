@@ -27,14 +27,24 @@ def extrude_surface_to_solid(
     surface_mesh
         Input surface mesh to extrude
     extrusion_depth
-        How far down to extrude (if None, uses mesh bounds)
+        Depth of the bottom cap below the lowest vertex. When given, it
+        overrides ``base_z``. Default is None.
     base_z
-        Z-coordinate for the bottom (if None, uses min_z - extrusion_depth)
+        Z-coordinate of the bottom cap, used when ``extrusion_depth`` is None.
+        Default is 0.
+    minimum_thickness
+        Smallest allowed distance between the lowest vertex and the bottom
+        cap; a higher cap is lowered to this distance. Default is 0.01.
 
     Returns
     -------
     Mesh
         Solid mesh with extruded sides and bottom cap
+
+    Raises
+    ------
+    RuntimeError
+        If both ``extrusion_depth`` and ``base_z`` are None.
     """
     if len(surface_mesh.vertices) == 0 or len(surface_mesh.faces) == 0:
         return Mesh(vertices=np.array([]), faces=np.array([], dtype=np.int32))

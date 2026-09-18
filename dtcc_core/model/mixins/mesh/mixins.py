@@ -99,15 +99,22 @@ class MeshProcessingMixin:
         Parameters
         ----------
         extrusion_depth : float, optional
-            How far down to extrude. If None, uses 10% of mesh height.
+            Depth of the bottom cap below the lowest vertex. When given, it
+            overrides ``base_z``.
         base_z : float, optional
-            Z-coordinate for the bottom. If None, uses min_z - extrusion_depth.
+            Z-coordinate of the bottom cap, used when ``extrusion_depth`` is
+            None.
 
         Returns
         -------
         Mesh
             A new solid mesh with extruded sides and bottom cap, suitable for
             3D printing.
+
+        Raises
+        ------
+        RuntimeError
+            If both ``extrusion_depth`` and ``base_z`` are None.
         """
         from dtcc_core.builder.meshing import extrude_surface_to_solid
 

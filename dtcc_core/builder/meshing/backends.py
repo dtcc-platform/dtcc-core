@@ -159,8 +159,9 @@ def set_default_2d_mesher(mesher: str | None = None) -> str:
     ValueError
         If ``mesher`` is not a supported name.
     RuntimeError
-        If ``mesher`` is not available in this installation. The previous
-        default is then kept.
+        If ``mesher`` is not available in this installation. For a specific
+        backend name the previous default is kept; with ``None`` or
+        ``"auto"`` the setting has already changed when the error is raised.
     """
     global _default_2d_mesher_override
 

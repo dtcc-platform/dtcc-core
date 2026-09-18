@@ -54,7 +54,7 @@ class CityFootprintsArgs(DatasetBaseArgs):
 
 
 class CityFootprintsDataset(DatasetDescriptor, register=False):
-    """City footprints dataset, registered as ``city_footprints``.
+    """Internal city footprints dataset; not registered publicly.
 
     Meshing-ready conditioned building footprints prepared from a city tile.
 

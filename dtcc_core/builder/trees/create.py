@@ -240,8 +240,8 @@ def trees_from_pointcloud(
     buildings : list[Building], optional
         Buildings whose footprints are excluded from tree detection.
     tree_type : {"urban", "mixed", "dense", "arid"}, optional
-        Detection preset setting the minimum tree height, smoothing and
-        minimum crown radius. Default is "urban".
+        Detection preset setting the minimum tree height and smoothing.
+        Default is "urban".
     cell_size : float, optional
         Cell size of the terrain raster built when ``terrain_raster`` is
         omitted, in coordinate units. The canopy raster uses the terrain

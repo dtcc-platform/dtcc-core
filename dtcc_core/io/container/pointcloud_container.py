@@ -81,19 +81,17 @@ class PointCloudDirectory:
 
         Parameters
         ----------
-        bounds
-            Bounds The bounds within which to retrieve the point cloud.
-        points_only
-            bool (optional) If True, only retrieve point coordinates. Defaults
-            to False.
-        points_classification_only
-            bool (optional) If True, only retrieve point classifications.
-            Defaults to False.
+        bounds : Bounds
+            Bounds within which to retrieve the point cloud.
+        points_only : bool, optional
+            If True, only retrieve point coordinates. Default is False.
+        points_classification_only : bool, optional
+            If True, only retrieve point classifications. Default is False.
 
         Returns
         -------
         PointCloud
-            Pointcloud
+            Point cloud within ``bounds``.
         """
         needed_files = self._rtree.query(
             box(bounds.xmin, bounds.ymin, bounds.xmax, bounds.ymax)
