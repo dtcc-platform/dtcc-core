@@ -7,6 +7,12 @@ from .dataset import DatasetDescriptor, DatasetBaseArgs
 from ._city_mesh_common import prepare_city_from_bounds
 from .providers import provider_entry
 from dtcc_core.common.progress import ProgressTracker
+from .centering import (
+    CENTER_ON_ORIGIN_DESCRIPTION,
+    CENTER_ON_ORIGIN_PROCESSING_STEP,
+    center_result_if_requested,
+    warn_if_far_from_origin,
+)
 
 
 class CitySurfaceMeshArgs(DatasetBaseArgs):
@@ -69,6 +75,7 @@ class CitySurfaceMeshArgs(DatasetBaseArgs):
         "strict",
         description="Meshing pipeline mode",
     )
+    center_on_origin: bool = Field(False, description=CENTER_ON_ORIGIN_DESCRIPTION)
     format: Optional[Literal["obj", "stl", "vtu"]] = Field(
         None, description="Output file format"
     )
@@ -123,6 +130,7 @@ class CitySurfaceMeshDataset(DatasetDescriptor):
         "Condition footprints using min_building_detail, min_building_area, merge_buildings, merge_tolerance, and pipeline_mode",
         "Generate a terrain plus extruded-building surface mesh using max_mesh_size, min_mesh_angle, smoothing, mesher, and mesh-quality reporting settings",
         "Return the native Mesh object or serialize the requested mesh format",
+        CENTER_ON_ORIGIN_PROCESSING_STEP,
     ]
     derived_from = [
         {
@@ -218,6 +226,8 @@ class CitySurfaceMeshDataset(DatasetDescriptor):
     def build_from_city(self, city: City, **kwargs):
         args = self.validate(kwargs)
         surface_mesh = self._build_mesh_from_city(city, args)
+        surface_mesh = center_result_if_requested(surface_mesh, args)
+        warn_if_far_from_origin(surface_mesh, args.format)
         if args.format is not None:
             return self.export_to_bytes(surface_mesh, args.format)
         return surface_mesh
@@ -258,6 +268,8 @@ class CitySurfaceMeshDataset(DatasetDescriptor):
                     else "Preparing surface mesh..."
                 ),
             ):
+                surface_mesh = center_result_if_requested(surface_mesh, args)
+                warn_if_far_from_origin(surface_mesh, args.format)
                 if args.format is not None:
                     return self.export_to_bytes(surface_mesh, args.format)
                 return surface_mesh

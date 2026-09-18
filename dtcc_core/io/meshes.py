@@ -7,12 +7,13 @@ import numpy as np
 import h5py
 import re
 from pathlib import Path
+from copy import copy as _shallow_copy
 from functools import partial
 from .model import load_model, save_model
 from os.path import splitext, basename
 from xml.sax.saxutils import quoteattr
 
-from ..model import Mesh, VolumeMesh, City, Building, Field
+from ..model import Bounds, Mesh, VolumeMesh, City, Building, Field, Transform
 from ..model import GeometryType
 from ..builder.meshing import disjoint_meshes, merge_meshes
 
@@ -770,7 +771,75 @@ def load_mesh_as_city(
     )
 
 
-def save(mesh, path, **kwargs):
+def bounds_center_offset(bounds) -> tuple[float, float, float]:
+    """Return the offset that moves the x/y centre of ``bounds`` to the origin.
+
+    ``bounds`` is a Bounds or 4 floats ``(xmin, ymin, xmax, ymax)`` or 6 floats
+    ``(xmin, ymin, zmin, xmax, ymax, zmax)``. Heights are never shifted.
+    """
+    if isinstance(bounds, Bounds):
+        xmin, ymin, xmax, ymax = bounds.xmin, bounds.ymin, bounds.xmax, bounds.ymax
+    else:
+        values = [float(value) for value in bounds]
+        if len(values) == 4:
+            xmin, ymin, xmax, ymax = values
+        elif len(values) == 6:
+            xmin, ymin, _zmin, xmax, ymax, _zmax = values
+        else:
+            raise ValueError("Bounds must be 4 or 6 floats")
+    return (
+        -(float(xmin) + float(xmax)) / 2.0,
+        -(float(ymin) + float(ymax)) / 2.0,
+        0.0,
+    )
+
+
+def centered_copy(mesh, center_on_origin=True):
+    """Return a copy of ``mesh`` moved so an x/y centre sits at the origin.
+
+    Coordinates in national grids are millions of metres from the origin,
+    which 32-bit formats such as STL cannot store precisely and CAD tools
+    handle poorly. ``mesh`` itself is not modified: the copy gets a new vertex
+    array and shares every other array with the original. The copy also gets
+    its own ``Transform`` undoing the shift, so it still maps to the same
+    global position as the original.
+
+    Parameters
+    ----------
+    mesh : Mesh or VolumeMesh
+        The mesh to copy.
+    center_on_origin : bool, Bounds or sequence of float
+        ``True`` centres on the mesh's own x/y extent. Bounds centre on that
+        area instead, so meshes saved separately for the same area stay
+        aligned. Heights are unchanged either way.
+    """
+    vertices = np.asarray(mesh.vertices, dtype=np.float64)
+    if center_on_origin is not True:
+        offset = bounds_center_offset(center_on_origin)
+    elif len(vertices) == 0:
+        offset = (0.0, 0.0, 0.0)
+    else:
+        low = vertices[:, :2].min(axis=0)
+        high = vertices[:, :2].max(axis=0)
+        offset = bounds_center_offset((low[0], low[1], high[0], high[1]))
+
+    shifted = _shallow_copy(mesh)
+    # An empty mesh has no vertex rows to shift.
+    shifted.vertices = vertices + np.asarray(offset) if len(vertices) else vertices.copy()
+    shifted._bounds = None
+    # The copy maps its local coordinates back to the original frame: undo the
+    # shift, then apply whatever transform the original had. A new Transform
+    # also keeps the copy from sharing the original's.
+    undo = np.eye(4)
+    undo[:3, 3] = -np.asarray(offset, dtype=np.float64)
+    shifted.transform = Transform(
+        srs=mesh.transform.srs,
+        affine=np.asarray(mesh.transform.affine, dtype=np.float64) @ undo,
+    )
+    return shifted
+
+
+def save(mesh, path, center_on_origin=False, **kwargs):
     """
     Save a mesh to a file
 
@@ -782,7 +851,14 @@ def save(mesh, path, **kwargs):
         The mesh to save
     path : str or Path
         The path to save the mesh to
+    center_on_origin : bool, Bounds or sequence of float, optional
+        Write the mesh moved so an x/y centre sits at the origin, leaving the
+        mesh object unchanged. ``True`` centres on the mesh's own extent;
+        bounds centre on that area so separately saved meshes stay aligned.
+        Heights are unchanged. Off by default.
     """
+    if center_on_origin is not False and center_on_origin is not None:
+        mesh = centered_copy(mesh, center_on_origin)
     generic.save(mesh, path, "mesh", _save_formats, **kwargs)
 
 
