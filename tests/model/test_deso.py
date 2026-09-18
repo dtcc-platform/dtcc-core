@@ -97,7 +97,9 @@ def test_deso_info_arrays_dataframe_and_plot():
 
     legend_ax = deso.plot(column="population_total", show=False)
     assert len(legend_ax.figure.axes) == 2
-    assert legend_ax.figure.axes[1].yaxis.label.get_color() == DTCC_THEMES["dark"]["text"]
+    assert (
+        legend_ax.figure.axes[1].yaxis.label.get_color() == DTCC_THEMES["dark"]["text"]
+    )
     plt.close(legend_ax.figure)
 
 

@@ -106,9 +106,7 @@ class TestTriangleMeshQuality:
 
     def test_equilateral_radius_ratio(self, equilateral_tri_mesh):
         """Equilateral triangle should have radius ratio ≈ 1.0."""
-        rr = tri_radius_ratio(
-            equilateral_tri_mesh.vertices, equilateral_tri_mesh.faces
-        )
+        rr = tri_radius_ratio(equilateral_tri_mesh.vertices, equilateral_tri_mesh.faces)
         assert pytest.approx(rr[0], abs=1e-10) == 1.0
 
     def test_equilateral_skewness(self, equilateral_tri_mesh):

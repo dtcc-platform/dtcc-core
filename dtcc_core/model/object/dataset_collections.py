@@ -343,7 +343,9 @@ class TreeCollection(Model):
             add_plot_context(
                 ax,
                 title=None if presentation_enabled else title or "DTCC Trees",
-                metadata=None if presentation_enabled else {"Trees": 0, "Column": column},
+                metadata=None
+                if presentation_enabled
+                else {"Trees": 0, "Column": column},
                 bounds=None if presentation_enabled else self.bounds,
                 theme=theme,
             )
@@ -387,7 +389,9 @@ class TreeCollection(Model):
         add_plot_context(
             ax,
             title=None if presentation_enabled else title or "DTCC Trees",
-            metadata=None if presentation_enabled else {"Trees": len(self), "Column": column},
+            metadata=None
+            if presentation_enabled
+            else {"Trees": len(self), "Column": column},
             bounds=None if presentation_enabled else self.bounds,
             theme=theme,
         )
@@ -439,11 +443,7 @@ class CalibrationGrid(Model):
         )
         crs = metadata.get("crs")
         if crs is None:
-            crs = (
-                geojson.get("crs", {})
-                .get("properties", {})
-                .get("name")
-            )
+            crs = geojson.get("crs", {}).get("properties", {}).get("name")
         return cls(
             bounds=bounds,
             divisions=int(metadata.get("divisions") or 0),

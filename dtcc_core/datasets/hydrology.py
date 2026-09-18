@@ -121,7 +121,9 @@ def _timestamp_ms_to_iso(value: Any) -> str:
     if value in (None, ""):
         return ""
     try:
-        return datetime.fromtimestamp(float(value) / 1000.0, tz=timezone.utc).isoformat()
+        return datetime.fromtimestamp(
+            float(value) / 1000.0, tz=timezone.utc
+        ).isoformat()
     except (TypeError, ValueError, OSError):
         return ""
 
@@ -324,7 +326,12 @@ class HydrologyDataset(DatasetDescriptor):
         "and station data payloads include millisecond timestamps per value."
     )
     default_crs = "EPSG:3006"
-    data_types = ["sensor_collection", "hydrology_observations", "points", "time_series_snapshot"]
+    data_types = [
+        "sensor_collection",
+        "hydrology_observations",
+        "points",
+        "time_series_snapshot",
+    ]
     geographic_coverage = "Sweden, constrained by station coverage and requested bounds"
     update_frequency = "latest-day observation snapshot"
     processing_steps = [
@@ -377,12 +384,21 @@ class HydrologyDataset(DatasetDescriptor):
     presentation_legend = {
         "title": "Hydrology station fields",
         "entries": [
-            {"label": "discharge_daily", "meaning": "SMHI parameter 1, daily discharge"},
+            {
+                "label": "discharge_daily",
+                "meaning": "SMHI parameter 1, daily discharge",
+            },
             {"label": "water_level", "meaning": "SMHI parameter 3, water level"},
-            {"label": "water_temperature", "meaning": "SMHI parameter 4, water temperature"},
+            {
+                "label": "water_temperature",
+                "meaning": "SMHI parameter 4, water temperature",
+            },
             {"label": "ice_thickness", "meaning": "SMHI parameter 7, ice thickness"},
             {"label": "snow_density", "meaning": "SMHI parameter 8, snow density"},
-            {"label": "water_equivalent", "meaning": "SMHI parameter 9, snow water equivalent"},
+            {
+                "label": "water_equivalent",
+                "meaning": "SMHI parameter 9, snow water equivalent",
+            },
         ],
     }
     view_hints = {
@@ -561,9 +577,7 @@ class HydrologyDataset(DatasetDescriptor):
             station_map = {
                 skey: data
                 for skey, data in station_map.items()
-                if any(
-                    not np.isnan(v) for v, _u, _q, _ts in data["fields"].values()
-                )
+                if any(not np.isnan(v) for v, _u, _q, _ts in data["fields"].values())
             }
             info(f"  {len(station_map)} station(s) after dropping all-missing")
 

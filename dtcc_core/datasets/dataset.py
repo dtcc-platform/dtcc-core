@@ -292,7 +292,9 @@ class DatasetDescriptor(ABC):
         processing_steps = self._context_list_attr("processing_steps")
         if default_processing_step not in processing_steps:
             processing_steps.append(default_processing_step)
-        lod = self._context_optional_string(parameters.get("lod")) or self._context_attr(
+        lod = self._context_optional_string(
+            parameters.get("lod")
+        ) or self._context_attr(
             "lod",
             "level_of_detail",
         )
@@ -477,7 +479,9 @@ class DatasetDescriptor(ABC):
     def extract_supported_formats_from_schema(cls, schema: dict[str, Any]) -> list[str]:
         """Extract supported ``format`` values from a Pydantic JSON schema."""
         properties = schema.get("properties", {}) if isinstance(schema, dict) else {}
-        format_prop = properties.get("format", {}) if isinstance(properties, dict) else {}
+        format_prop = (
+            properties.get("format", {}) if isinstance(properties, dict) else {}
+        )
         if not isinstance(format_prop, dict):
             return []
 
@@ -651,8 +655,7 @@ class DatasetDescriptor(ABC):
     def _sanitize_publish_filename(value: str) -> str:
         filename = str(value).strip().replace(" ", "_").replace("-", "_").lower()
         sanitized = "".join(
-            char if char.isalnum() or char in {"_", "."} else "_"
-            for char in filename
+            char if char.isalnum() or char in {"_", "."} else "_" for char in filename
         )
         while "__" in sanitized:
             sanitized = sanitized.replace("__", "_")
@@ -848,9 +851,14 @@ class DatasetDescriptor(ABC):
     def __repr__(self):
         from dtcc_core.common._display import format_repr
 
-        return format_repr(type(self).__name__, [("name", self.name),
-                           ("result_kind", self.result_kind),
-                           ("return_type", self.python_return_type)])
+        return format_repr(
+            type(self).__name__,
+            [
+                ("name", self.name),
+                ("result_kind", self.result_kind),
+                ("return_type", self.python_return_type),
+            ],
+        )
 
     def __str__(self):
         return repr(self)
@@ -862,15 +870,26 @@ class DatasetDescriptor(ABC):
 
         schema = self.show_options()
         required = schema.get("required", [])
-        rows = [("*" if name in required else "", name,
-                 self._schema_type_label(param), self._schema_default_label(param, name in required),
-                 param.get("description", ""))
-                for name, param in schema.get("properties", {}).items()]
+        rows = [
+            (
+                "*" if name in required else "",
+                name,
+                self._schema_type_label(param),
+                self._schema_default_label(param, name in required),
+                param.get("description", ""),
+            )
+            for name, param in schema.get("properties", {}).items()
+        ]
         sections = []
         if self.description:
             sections.append(("Description", None, self.description))
-        sections.append(("Available parameters", ("", "Parameter", "Type", "Default", "Description"),
-                         rows or [("", "No parameters defined", "", "", "")]))
+        sections.append(
+            (
+                "Available parameters",
+                ("", "Parameter", "Type", "Default", "Description"),
+                rows or [("", "No parameters defined", "", "", "")],
+            )
+        )
         sections.append(("", None, "* = required parameter"))
         summary = format_info(f"Dataset: {self.name}", sections)
         if print:
@@ -1006,7 +1025,9 @@ class DatasetDescriptor(ABC):
         fetched_parameters: Optional[Sequence[Any]] = None,
     ) -> None:
         """Attach a uniform graceful-degradation contract to result metadata."""
-        serialized_errors = [cls.serialize_upstream_error(exc) for exc in upstream_errors]
+        serialized_errors = [
+            cls.serialize_upstream_error(exc) for exc in upstream_errors
+        ]
         attributes["partial_result"] = bool(serialized_errors)
         attributes["upstream_error_count"] = len(serialized_errors)
         attributes["upstream_errors"] = serialized_errors

@@ -49,7 +49,9 @@ class Field(Model):
 
     def _info_sections(self):
         sections = super()._info_sections()
-        sections[0][2].extend([("Dimension", self.dim), ("Description", self.description)])
+        sections[0][2].extend(
+            [("Dimension", self.dim), ("Description", self.description)]
+        )
         return sections
 
     def _summary_items(self):
@@ -62,11 +64,16 @@ class Field(Model):
         ]
 
     def _validate_values(self):
-        if isinstance(self.dim, (bool, np.bool_)) or not isinstance(
-            self.dim, (int, np.integer)
-        ) or self.dim < 1:
+        if (
+            isinstance(self.dim, (bool, np.bool_))
+            or not isinstance(self.dim, (int, np.integer))
+            or self.dim < 1
+        ):
             raise ValueError("Field.dim must be a positive integer.")
-        if not isinstance(self.values, np.ndarray) or self.values.dtype.kind not in "biuf":
+        if (
+            not isinstance(self.values, np.ndarray)
+            or self.values.dtype.kind not in "biuf"
+        ):
             raise ValueError("Field.values must be a real numeric NumPy array.")
         if not (
             (self.values.ndim == 1 and self.dim == 1)

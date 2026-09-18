@@ -121,7 +121,9 @@ def normalize_gtfs_route_type(route_type: Any) -> str | None:
     return None
 
 
-def make_config_error(dataset: str, provider: str, message: str) -> DatasetUpstreamError:
+def make_config_error(
+    dataset: str, provider: str, message: str
+) -> DatasetUpstreamError:
     """Create a dataset error for missing provider configuration."""
     return DatasetUpstreamError(
         dataset=dataset,

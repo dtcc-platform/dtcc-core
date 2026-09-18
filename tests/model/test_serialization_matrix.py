@@ -16,17 +16,41 @@ from dtcc_core.model.model import Model
 
 
 OBJECTS = (
-    "Object", "Building", "BuildingPart", "City", "CityObject", "Terrain",
-    "Tree", "RoadNetwork", "Landuse", "SensorCollection", "VehicleCollection", "DeSO",
+    "Object",
+    "Building",
+    "BuildingPart",
+    "City",
+    "CityObject",
+    "Terrain",
+    "Tree",
+    "RoadNetwork",
+    "Landuse",
+    "SensorCollection",
+    "VehicleCollection",
+    "DeSO",
 )
 GEOMETRIES = (
-    "Grid", "VolumeGrid", "Mesh", "VolumeMesh", "MultiSurface", "Surface",
-    "Point", "PointCloud", "LineString", "MultiLineString", "Solid",
+    "Grid",
+    "VolumeGrid",
+    "Mesh",
+    "VolumeMesh",
+    "MultiSurface",
+    "Surface",
+    "Point",
+    "PointCloud",
+    "LineString",
+    "MultiLineString",
+    "Solid",
 )
 VALUES = ("Bounds", "Transform", "Field", "Raster")
 UNSUPPORTED = (
-    "BuildingCollection", "CalibrationGrid", "FootprintCollection",
-    "TreeCollection", "FieldSlice", "StreamlineCollection", "DatasetCollection",
+    "BuildingCollection",
+    "CalibrationGrid",
+    "FootprintCollection",
+    "TreeCollection",
+    "FieldSlice",
+    "StreamlineCollection",
+    "DatasetCollection",
     "DatasetValue",
 )
 SUPPORTED = OBJECTS + GEOMETRIES + VALUES
@@ -34,7 +58,8 @@ SUPPORTED = OBJECTS + GEOMETRIES + VALUES
 
 def test_every_public_model_has_a_serialization_classification():
     public_models = {
-        name for name in model.__all__
+        name
+        for name in model.__all__
         if inspect.isclass(getattr(model, name))
         and issubclass(getattr(model, name), Model)
     }
@@ -45,9 +70,19 @@ def test_every_public_model_has_a_serialization_classification():
 @pytest.mark.parametrize("name", SUPPORTED)
 def test_minimal_model_round_trips_bytes_and_protobuf_json(name):
     source = getattr(model, name)()
-    if name == 'Field': source.association = 'sample'
-    if name == 'Solid':
-        source = model.Solid(surfaces=[model.Surface(vertices=np.array([[0.,0.,0.],[1.,0.,0.],[0.,1.,0.]]))], shells=[np.array([0])])
+    if name == "Field":
+        source.association = "sample"
+    if name == "Solid":
+        source = model.Solid(
+            surfaces=[
+                model.Surface(
+                    vertices=np.array(
+                        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]
+                    )
+                )
+            ],
+            shells=[np.array([0])],
+        )
     message = source.to_proto()
     restored = type(source)()
     restored.from_proto(message.SerializeToString())
@@ -91,27 +126,42 @@ def test_nested_objects_preserve_type_attributes_and_children(name):
     assert result.children[model.Object][0].get_geometry("location").z == 4
 
 
-
-
 def _representative_geometry(name):
-    vertices = np.array([[0., 0., 0.], [2., 0., 0.], [0., 2., 0.], [0., 0., 2.]])
+    vertices = np.array(
+        [[0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [0.0, 2.0, 0.0], [0.0, 0.0, 2.0]]
+    )
     constructors = {
         "Grid": lambda: model.Grid(width=2, height=3),
         "VolumeGrid": lambda: model.VolumeGrid(width=2, height=3, depth=4),
         "Mesh": lambda: model.Mesh(vertices=vertices[:3], faces=np.array([[0, 1, 2]])),
-        "VolumeMesh": lambda: model.VolumeMesh(vertices=vertices, cells=np.array([[0, 1, 2, 3]])),
+        "VolumeMesh": lambda: model.VolumeMesh(
+            vertices=vertices, cells=np.array([[0, 1, 2, 3]])
+        ),
         "Surface": lambda: model.Surface(vertices=vertices[:3]),
-        "MultiSurface": lambda: model.MultiSurface(surfaces=[model.Surface(vertices=vertices[:3])]),
+        "MultiSurface": lambda: model.MultiSurface(
+            surfaces=[model.Surface(vertices=vertices[:3])]
+        ),
         "LineString": lambda: model.LineString(vertices=vertices[:2]),
-        "MultiLineString": lambda: model.MultiLineString(linestrings=[model.LineString(vertices=vertices[:2])]),
+        "MultiLineString": lambda: model.MultiLineString(
+            linestrings=[model.LineString(vertices=vertices[:2])]
+        ),
         "PointCloud": lambda: model.PointCloud(points=vertices),
         "Point": lambda: model.Point(x=2, y=3, z=4),
-        "Solid": lambda: model.Solid(surfaces=[model.Surface(vertices=vertices[:3])], shells=[np.array([0])]),
+        "Solid": lambda: model.Solid(
+            surfaces=[model.Surface(vertices=vertices[:3])], shells=[np.array([0])]
+        ),
     }
     geometry = constructors[name]()
     geometry.transform.srs = "EPSG:3006"
     geometry.transform.set_translation(10, 20, 30)
-    geometry.add_field(model.Field(name="temperature", unit="K", values=np.array([273.5]), association="geometry"))
+    geometry.add_field(
+        model.Field(
+            name="temperature",
+            unit="K",
+            values=np.array([273.5]),
+            association="geometry",
+        )
+    )
     return geometry
 
 

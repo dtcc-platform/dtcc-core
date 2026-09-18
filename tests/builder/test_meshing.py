@@ -263,7 +263,9 @@ def test_inspect_tetgen_plc_accepts_simple_shell():
         faces=np.array([[0, 1, 2], [0, 2, 3]], dtype=int),
         markers=np.array([0, 0], dtype=int),
     )
-    vertices, boundary_facets = tetgen_utils.compute_boundary_facets(mesh, top_height=20.0)
+    vertices, boundary_facets = tetgen_utils.compute_boundary_facets(
+        mesh, top_height=20.0
+    )
 
     diagnostics = tetgen_utils.inspect_tetgen_plc(
         vertices,
@@ -273,6 +275,8 @@ def test_inspect_tetgen_plc_accepts_simple_shell():
 
     assert diagnostics.errors == []
     assert diagnostics.warnings == []
+
+
 def test_inspect_tetgen_plc_flags_duplicate_faces():
     mesh = Mesh(
         vertices=np.array(
@@ -285,7 +289,9 @@ def test_inspect_tetgen_plc_flags_duplicate_faces():
         faces=np.array([[0, 1, 2], [0, 1, 2]], dtype=int),
         markers=np.array([0, 0], dtype=int),
     )
-    vertices, boundary_facets = tetgen_utils.compute_boundary_facets(mesh, top_height=20.0)
+    vertices, boundary_facets = tetgen_utils.compute_boundary_facets(
+        mesh, top_height=20.0
+    )
 
     diagnostics = tetgen_utils.inspect_tetgen_plc(
         vertices,
@@ -338,7 +344,9 @@ def test_inspect_tetgen_plc_warns_on_tiny_shell_features():
         ),
         markers=np.array([0, 0, 0, 0], dtype=int),
     )
-    vertices, boundary_facets = tetgen_utils.compute_boundary_facets(mesh, top_height=20.0)
+    vertices, boundary_facets = tetgen_utils.compute_boundary_facets(
+        mesh, top_height=20.0
+    )
 
     diagnostics = tetgen_utils.inspect_tetgen_plc(
         vertices,
@@ -347,8 +355,13 @@ def test_inspect_tetgen_plc_warns_on_tiny_shell_features():
     )
 
     assert diagnostics.errors == []
-    assert any("minimum triangle quality" in message for message in diagnostics.warnings)
-    assert any("smaller than the median edge length" in message for message in diagnostics.warnings)
+    assert any(
+        "minimum triangle quality" in message for message in diagnostics.warnings
+    )
+    assert any(
+        "smaller than the median edge length" in message
+        for message in diagnostics.warnings
+    )
 
 
 def test_compute_boundary_facets_preserves_intermediate_wall_vertices():
@@ -390,7 +403,9 @@ def test_compute_boundary_facets_preserves_intermediate_wall_vertices():
     assert list(boundary_facets["west"][:3]) == [6, 7, 0]
 
 
-def test_compute_boundary_triangle_facets_subdivides_tall_sidewalls_into_stacked_triangles(monkeypatch):
+def test_compute_boundary_triangle_facets_subdivides_tall_sidewalls_into_stacked_triangles(
+    monkeypatch,
+):
     shell = Mesh(
         vertices=np.array(
             [
@@ -432,7 +447,9 @@ def test_compute_boundary_triangle_facets_subdivides_tall_sidewalls_into_stacked
         top_cap_backend="triangle",
     )
 
-    diagnostics = tetgen_utils.inspect_tetgen_plc(vertices, shell.faces, boundary_facets)
+    diagnostics = tetgen_utils.inspect_tetgen_plc(
+        vertices, shell.faces, boundary_facets
+    )
     assert diagnostics.errors == []
 
     vertices = np.asarray(vertices, dtype=float)
@@ -457,7 +474,9 @@ def test_compute_boundary_triangle_facets_subdivides_tall_sidewalls_into_stacked
     assert set(np.round(vertical_edge_lengths, 8)) == {50.0}
 
 
-def test_compute_oriented_boundary_triangle_facets_matches_shell_shared_edge_winding(monkeypatch):
+def test_compute_oriented_boundary_triangle_facets_matches_shell_shared_edge_winding(
+    monkeypatch,
+):
     shell = Mesh(
         vertices=np.array(
             [
@@ -504,11 +523,13 @@ def test_compute_oriented_boundary_triangle_facets_matches_shell_shared_edge_win
     )
     assert raw_stats["shell_boundary_same_direction_edge_count"] > 0
 
-    vertices, oriented_shell_faces, oriented_boundary_facets = tetgen_utils.compute_oriented_boundary_triangle_plc(
-        shell,
-        closure,
-        top_height=20.0,
-        top_cap_backend="triangle",
+    vertices, oriented_shell_faces, oriented_boundary_facets = (
+        tetgen_utils.compute_oriented_boundary_triangle_plc(
+            shell,
+            closure,
+            top_height=20.0,
+            top_cap_backend="triangle",
+        )
     )
     oriented_stats = tetgen_utils._triangle_edge_orientation_stats(
         oriented_shell_faces,
@@ -577,13 +598,11 @@ def test_compute_oriented_boundary_plc_remeshes_top_cap_from_shell_boundary(
         boundary_facets,
         boundary_facet_markers,
         audit_boundary_triangles,
-    ) = (
-        tetgen_utils.compute_oriented_boundary_plc(
-            shell,
-            closure,
-            top_height=20.0,
-            top_cap_backend="triangle",
-        )
+    ) = tetgen_utils.compute_oriented_boundary_plc(
+        shell,
+        closure,
+        top_height=20.0,
+        top_cap_backend="triangle",
     )
 
     assert boundary_facets
@@ -717,13 +736,11 @@ def test_compute_oriented_boundary_plc_triangles_sidewalls_for_unstable_shell(
         boundary_facets,
         boundary_facet_markers,
         audit_boundary_triangles,
-    ) = (
-        tetgen_utils.compute_oriented_boundary_plc(
-            shell,
-            closure,
-            top_height=20.0,
-            top_cap_backend="triangle",
-        )
+    ) = tetgen_utils.compute_oriented_boundary_plc(
+        shell,
+        closure,
+        top_height=20.0,
+        top_cap_backend="triangle",
     )
 
     assert len(boundary_facets) > 5
@@ -744,7 +761,9 @@ def test_compute_oriented_boundary_plc_triangles_sidewalls_for_unstable_shell(
     )
 
 
-def test_compute_boundary_triangle_facets_keeps_corner_sidewall_strips_consistent(monkeypatch):
+def test_compute_boundary_triangle_facets_keeps_corner_sidewall_strips_consistent(
+    monkeypatch,
+):
     shell = Mesh(
         vertices=np.array(
             [
@@ -788,7 +807,9 @@ def test_compute_boundary_triangle_facets_keeps_corner_sidewall_strips_consisten
         top_cap_backend="triangle",
     )
 
-    diagnostics = tetgen_utils.inspect_tetgen_plc(vertices, shell.faces, boundary_facets)
+    diagnostics = tetgen_utils.inspect_tetgen_plc(
+        vertices, shell.faces, boundary_facets
+    )
     assert diagnostics.errors == []
 
     vertices = np.asarray(vertices, dtype=float)
@@ -809,7 +830,9 @@ def test_compute_boundary_triangle_facets_keeps_corner_sidewall_strips_consisten
     assert set(np.round(vertical_edge_lengths, 8)) == {25.0}
 
 
-def test_compute_boundary_triangle_facets_avoids_horizontal_sidewall_strip_edges_on_sloped_boundary(monkeypatch):
+def test_compute_boundary_triangle_facets_avoids_horizontal_sidewall_strip_edges_on_sloped_boundary(
+    monkeypatch,
+):
     surface_mesh = Mesh(
         vertices=np.array(
             [
@@ -880,7 +903,9 @@ def test_compute_boundary_triangle_facets_avoids_horizontal_sidewall_strip_edges
             )
 
 
-def test_compute_boundary_triangle_facets_uses_authoritative_closure_topology(monkeypatch):
+def test_compute_boundary_triangle_facets_uses_authoritative_closure_topology(
+    monkeypatch,
+):
     surface_mesh = Mesh(
         vertices=np.array(
             [
@@ -958,7 +983,9 @@ def test_compute_boundary_triangle_facets_uses_authoritative_closure_topology(mo
         assert np.cross(points[1] - points[0], points[2] - points[0])[2] > 0.0
 
 
-def test_compute_boundary_triangle_facets_rejects_top_cap_backend_that_changes_boundary_loop(monkeypatch):
+def test_compute_boundary_triangle_facets_rejects_top_cap_backend_that_changes_boundary_loop(
+    monkeypatch,
+):
     surface_mesh = Mesh(
         vertices=np.array(
             [
@@ -1022,7 +1049,9 @@ def test_compute_boundary_triangle_facets_rejects_top_cap_backend_that_changes_b
         )
 
 
-def test_compute_boundary_triangle_facets_ignores_closure_boundary_loop_mismatch(monkeypatch):
+def test_compute_boundary_triangle_facets_ignores_closure_boundary_loop_mismatch(
+    monkeypatch,
+):
     surface_mesh = Mesh(
         vertices=np.array(
             [
@@ -1073,11 +1102,15 @@ def test_compute_boundary_triangle_facets_ignores_closure_boundary_loop_mismatch
     )
 
     assert vertices.shape == (8, 3)
-    diagnostics = tetgen_utils.inspect_tetgen_plc(vertices, surface_mesh.faces, boundary_facets)
+    diagnostics = tetgen_utils.inspect_tetgen_plc(
+        vertices, surface_mesh.faces, boundary_facets
+    )
     assert diagnostics.errors == []
 
 
-def test_compute_boundary_triangle_facets_rejects_explicit_top_cap_backend_that_changes_boundary_loop(monkeypatch):
+def test_compute_boundary_triangle_facets_rejects_explicit_top_cap_backend_that_changes_boundary_loop(
+    monkeypatch,
+):
     surface_mesh = Mesh(
         vertices=np.array(
             [
@@ -1141,6 +1174,7 @@ def test_compute_boundary_triangle_facets_rejects_explicit_top_cap_backend_that_
             top_cap_backend="triangle",
         )
 
+
 @pytest.mark.skipif(not is_tetgen_available(), reason="TetGen is not available")
 def test_build_volume_mesh_rejects_invalid_shell_before_tetgen(monkeypatch):
     mesh = Mesh(
@@ -1195,7 +1229,9 @@ def test_build_volume_mesh_rejects_empty_tetgen_output(monkeypatch):
         lambda **kwargs: EmptyTetResult(),
     )
 
-    with pytest.raises(RuntimeError, match="TetGen returned no linear tetrahedral cells"):
+    with pytest.raises(
+        RuntimeError, match="TetGen returned no linear tetrahedral cells"
+    ):
         tetgen_module.build_volume_mesh(mesh, top_height=20.0)
 
 
@@ -1339,7 +1375,9 @@ def test_build_volume_mesh_uses_closure_top_cap_when_max_mesh_size_is_set(
 
 
 @pytest.mark.skipif(not is_tetgen_available(), reason="TetGen is not available")
-def test_build_volume_mesh_forwards_named_boundary_markers_without_closure_mesh(monkeypatch):
+def test_build_volume_mesh_forwards_named_boundary_markers_without_closure_mesh(
+    monkeypatch,
+):
     mesh = Mesh(
         vertices=np.array(
             [
@@ -1377,7 +1415,13 @@ def test_build_volume_mesh_forwards_named_boundary_markers_without_closure_mesh(
 
     tetgen_module.build_volume_mesh(mesh, top_height=20.0, closure_mesh=None)
 
-    assert list(captured["boundary_facets"].keys()) == ["south", "east", "north", "west", "top"]
+    assert list(captured["boundary_facets"].keys()) == [
+        "south",
+        "east",
+        "north",
+        "west",
+        "top",
+    ]
     assert captured["boundary_facet_markers"] == {
         "south": -5,
         "east": -4,

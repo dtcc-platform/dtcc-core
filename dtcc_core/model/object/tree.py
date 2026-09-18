@@ -32,6 +32,11 @@ class Tree(Object):
 
     def _info_sections(self):
         sections = super()._info_sections()
-        sections[0][2].extend([("Position", str(self.position)),
-                               ("Height", self.height), ("Crown radius", self.crown_radius)])
+        sections[0][2].extend(
+            [
+                ("Position", str(self.position)),
+                ("Height", self.height),
+                ("Crown radius", self.crown_radius),
+            ]
+        )
         return sections

@@ -548,13 +548,14 @@ class TestOceanRegistration:
         assert "Latest-hour snapshot" in manifest.metadata.collection_period
         assert "ocean_observations" in manifest.metadata.data_types
         assert any(
-            "period comments" in step
-            for step in manifest.provenance.processing_steps
+            "period comments" in step for step in manifest.provenance.processing_steps
         )
         assert manifest.presentation.headline == "Latest-Hour SMHI Ocean Stations"
         assert manifest.presentation.legend["title"] == "Ocean station fields"
         assert manifest.presentation.view_hints["quality_attribute_prefix"] == "q_"
-        assert any("partial results" in warning for warning in manifest.presentation.warnings)
+        assert any(
+            "partial results" in warning for warning in manifest.presentation.warnings
+        )
         assert manifest.presentation.limitations
         assert manifest.request.parameters["field_name_style"] == "smhi"
 

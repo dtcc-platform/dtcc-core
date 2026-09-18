@@ -26,6 +26,7 @@ class SSEStreamError(ConnectionError):
     distinct from RuntimeError which indicates a definitive job outcome
     (failed/cancelled) and should propagate immediately.
     """
+
     pass
 
 
@@ -40,6 +41,7 @@ class RemoteValidationError(ValueError):
         self.detail = detail
         self.status_code = status_code
         super().__init__(f"Remote validation error: {detail}")
+
 
 # Shared results directory for reading large results from shared volume
 SHARED_RESULTS_DIR = os.environ.get("SHARED_RESULTS_DIR", "./data/shared-results")
@@ -123,8 +125,7 @@ class RemoteDatasetDescriptor(DatasetDescriptor, register=False):
                 {
                     "remote_task_id": task_id,
                     "cancel_url": (
-                        f"{self.base_url}/api/v1/datasets/{self.name}"
-                        f"/cancel/{task_id}"
+                        f"{self.base_url}/api/v1/datasets/{self.name}/cancel/{task_id}"
                     ),
                 }
             )
@@ -160,9 +161,7 @@ class RemoteDatasetDescriptor(DatasetDescriptor, register=False):
             extension = "tar.gz"
             content_type = "application/gzip"
         else:
-            extension = (
-                result_file.rsplit(".", 1)[-1] if "." in result_file else "bin"
-            )
+            extension = result_file.rsplit(".", 1)[-1] if "." in result_file else "bin"
             content_type = "application/octet-stream"
 
         return data, extension, content_type
@@ -171,9 +170,7 @@ class RemoteDatasetDescriptor(DatasetDescriptor, register=False):
         """Connect to SSE status stream, return result_file on completion."""
         import httpx
 
-        status_url = (
-            f"{self.base_url}/api/v1/datasets/{self.name}/status/{task_id}"
-        )
+        status_url = f"{self.base_url}/api/v1/datasets/{self.name}/status/{task_id}"
 
         try:
             return self._stream_sse(status_url, progress_callback)

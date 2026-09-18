@@ -22,33 +22,39 @@ except ImportError:
     warning("Geopandas not found, some functionality may be disabled")
 
 
-def _load_json(path, *, strict=False, extent_policy='validate', validate_schema=None):
+def _load_json(path, *, strict=False, extent_policy="validate", validate_schema=None):
     """Use the same CityJSON admission for public JSON and ZIP loading."""
-    return cityjson.load(path, strict=strict, extent_policy=extent_policy,
-                         validate_schema=validate_schema)
+    return cityjson.load(
+        path,
+        strict=strict,
+        extent_policy=extent_policy,
+        validate_schema=validate_schema,
+    )
 
 
-def _load_mesh_city(filename, lod=GeometryType.LOD1, merge_coplanar_surfaces=True) -> City:
-    return load_mesh_as_city(filename, lod=lod, merge_coplanar_surfaces=merge_coplanar_surfaces)
-
-
+def _load_mesh_city(
+    filename, lod=GeometryType.LOD1, merge_coplanar_surfaces=True
+) -> City:
+    return load_mesh_as_city(
+        filename, lod=lod, merge_coplanar_surfaces=merge_coplanar_surfaces
+    )
 
 
 def load(path, **kwargs):
     """
     Load a City object from a file.
-    
+
     Supports various formats including protobuf, CityJSON, and mesh formats.
     The format is automatically detected based on the file extension.
     Canonical .dtcc and strict=True CityJSON input validate the standard schema
     by default; validate_schema=False bypasses only semantic evaluation.
     Explicit True on CityJSON requires strict=True.
-    
+
     Parameters
     ----------
     path : str or Path
         Path to the file to load.
-    
+
     Returns
     -------
     City
@@ -60,13 +66,13 @@ def load(path, **kwargs):
 def save(city, path, **kwargs):
     """
     Save a City object to a file.
-    
+
     Supports DTCC Protobuf (.dtcc) serialization.
     The format is automatically determined from the file extension.
     Canonical .dtcc and strict=True CityJSON output validate the standard schema
     by default; validate_schema=False bypasses only semantic evaluation.
     Explicit True on CityJSON requires strict=True.
-    
+
     Parameters
     ----------
     city : City
@@ -80,10 +86,10 @@ def save(city, path, **kwargs):
 def buildings_to_df(city: City, include_geometry=True, crs=None):
     """
     Convert city buildings to a pandas DataFrame or GeoDataFrame.
-    
+
     Creates a tabular representation of building data with optional geometry
     information. Requires geopandas for geometric operations.
-    
+
     Parameters
     ----------
     city : City
@@ -93,7 +99,7 @@ def buildings_to_df(city: City, include_geometry=True, crs=None):
         Results in a GeoDataFrame if geopandas is available.
     crs : str or CRS object, optional
         Coordinate reference system for the geometry. Not currently used.
-    
+
     Returns
     -------
     pandas.DataFrame or geopandas.GeoDataFrame or None
@@ -107,9 +113,7 @@ def buildings_to_df(city: City, include_geometry=True, crs=None):
         try:
             import dtcc_core.builder
         except ImportError:
-            warning(
-                "builder not found, cannot convert building geometry to dataframe"
-            )
+            warning("builder not found, cannot convert building geometry to dataframe")
             return None
     city_buildings = city.buildings
 
@@ -129,11 +133,20 @@ def buildings_to_df(city: City, include_geometry=True, crs=None):
     df = gpd.GeoDataFrame(building_attributes, geometry=building_footprints)
     return df
 
-def _save_cityjson(city: City, filename: str, scale: float = 0.001, *, strict=False,
-                   validate_schema=None):
+
+def _save_cityjson(
+    city: City,
+    filename: str,
+    scale: float = 0.001,
+    *,
+    strict=False,
+    validate_schema=None,
+):
     filename = Path(filename)
-    write_cityjson.save(city, filename, scale=scale, strict=strict,
-                       validate_schema=validate_schema)
+    write_cityjson.save(
+        city, filename, scale=scale, strict=strict, validate_schema=validate_schema
+    )
+
 
 _load_formats = {
     City: {

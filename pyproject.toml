@@ -101,8 +101,8 @@ dev = [
 [tool.ruff]
 line-length = 88
 target-version = "py311"
-# Scratch code, agent plans and prose are not part of the package.
-extend-exclude = ["sandbox", ".agent", "docs", "*.md"]
+# Scratch code, agent plans, prose and generated bindings are not ours to format.
+extend-exclude = ["sandbox", ".agent", "docs", "*.md", "*_pb2.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "C90", "PLR0915"]

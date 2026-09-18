@@ -110,10 +110,11 @@ class Building(Object):
 
 class BuildingPart(Object):
     """Represents a building part object with protobuf serialization support.
-    
-        A specialized Object subclass that provides conversion methods for 
-        protobuf serialization and deserialization of building part data.
+
+    A specialized Object subclass that provides conversion methods for
+    protobuf serialization and deserialization of building part data.
     """
+
     building_parts = Building.building_parts
     measured_height = Building.measured_height
     height = Building.height

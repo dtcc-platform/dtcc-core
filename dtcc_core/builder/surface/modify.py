@@ -6,17 +6,17 @@ from ..logging import info, warning, error
 def clean_surface(s: Surface, tol: float = 1e-6) -> Surface:
     """
     Clean a surface by removing duplicate vertices and degenerate triangles.
-    
+
     This function processes a surface to remove numerical artifacts and ensure
     geometric validity by eliminating duplicate vertices within tolerance.
-    
+
     Parameters
     ----------
     s : Surface
         The input surface to clean.
     tol : float, default=1e-6
         Tolerance for considering vertices as duplicates.
-    
+
     Returns
     -------
     Surface
@@ -33,7 +33,7 @@ def merge_coplanar(ms: MultiSurface, angle: float = 0.1, tol=1e-6) -> MultiSurfa
     ----------
         ms : MultiSurface
           The input MultiSurface object.
-        angle : float 
+        angle : float
           The angle in radians to consider two surfaces coplanar (default 0.1).
         tol :float
           The tolerance to consider two vertices equal (default 1e-6

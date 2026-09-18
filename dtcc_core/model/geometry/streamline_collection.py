@@ -49,10 +49,16 @@ class StreamlineCollection(Model):
         from .._display import sample_section
 
         sections = super()._info_sections()
-        sections[0][2].extend([("Bounds", self.bounds.bndstr),
-                               ("Fields", ", ".join(self.field_names) or "None"),
-                               ("Seed axis", self.seed_axis), ("Seed position", self.seed_position),
-                               ("Steps", self.streamline_steps), ("Step size", self.streamline_step_size)])
+        sections[0][2].extend(
+            [
+                ("Bounds", self.bounds.bndstr),
+                ("Fields", ", ".join(self.field_names) or "None"),
+                ("Seed axis", self.seed_axis),
+                ("Seed position", self.seed_position),
+                ("Steps", self.streamline_steps),
+                ("Step size", self.streamline_step_size),
+            ]
+        )
         if self.lines:
             sections.append(sample_section("Streamlines", self.lines))
         return sections
@@ -72,7 +78,9 @@ class StreamlineCollection(Model):
     @property
     def bounds(self) -> Bounds:
         """Return bounds spanning all line geometry."""
-        non_empty = [line.calculate_bounds() for line in self.lines if len(line.vertices)]
+        non_empty = [
+            line.calculate_bounds() for line in self.lines if len(line.vertices)
+        ]
         if not non_empty:
             return Bounds()
         return Bounds(
@@ -243,7 +251,9 @@ class StreamlineCollection(Model):
             return
         if fmt == "geojson":
             path.write_text(
-                json.dumps(self.to_geojson(include_z=self.include_z), indent=2, sort_keys=True)
+                json.dumps(
+                    self.to_geojson(include_z=self.include_z), indent=2, sort_keys=True
+                )
                 + "\n",
                 encoding="utf-8",
             )
@@ -255,8 +265,7 @@ class StreamlineCollection(Model):
                 "for the existing dataset-level MP4 path."
             )
         raise ValueError(
-            "StreamlineCollection object-first export does not support "
-            f"format {fmt!r}."
+            f"StreamlineCollection object-first export does not support format {fmt!r}."
         )
 
     def _metadata(self, line_count: int, *, include_z: bool) -> dict[str, Any]:

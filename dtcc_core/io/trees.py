@@ -11,7 +11,9 @@ from .vector_utils import (
 from .logging import info, error
 
 
-def save_trees(trees: list[Tree], filepath: str, as_circles: bool = False, output_crs=None):
+def save_trees(
+    trees: list[Tree], filepath: str, as_circles: bool = False, output_crs=None
+):
     """
     Save a list of Tree objects to a vector file.
 
@@ -34,11 +36,11 @@ def save_trees(trees: list[Tree], filepath: str, as_circles: bool = False, outpu
     driver = get_vector_driver(filepath)
 
     # Get source CRS from trees
-    source_crs = get_geometry_crs(trees[0], fallback="EPSG:3006") if trees else "EPSG:3006"
+    source_crs = (
+        get_geometry_crs(trees[0], fallback="EPSG:3006") if trees else "EPSG:3006"
+    )
     output_crs = determine_io_crs(
-        source_crs, output_crs,
-        output_filepath=filepath,
-        context="trees"
+        source_crs, output_crs, output_filepath=filepath, context="trees"
     )
 
     schema = {
@@ -59,8 +61,7 @@ def save_trees(trees: list[Tree], filepath: str, as_circles: bool = False, outpu
                 tree.position[0], tree.position[1], tree.position[2]
             )
             point = safe_reproject_geometry(
-                point, source_crs, output_crs,
-                error_context=f"tree {tree.id}"
+                point, source_crs, output_crs, error_context=f"tree {tree.id}"
             )
 
             radius = tree.crown_radius

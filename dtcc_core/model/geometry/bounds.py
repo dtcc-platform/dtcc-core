@@ -37,15 +37,21 @@ class Bounds(Model):
     zmax: float = 0.0
 
     def _summary_items(self):
-        return [(name, getattr(self, name)) for name in
-                ("xmin", "ymin", "xmax", "ymax", "zmin", "zmax")]
+        return [
+            (name, getattr(self, name))
+            for name in ("xmin", "ymin", "xmax", "ymax", "zmin", "zmax")
+        ]
 
     def _repr_is_complete(self):
         from ...common._display import is_literal_number
 
-        return (type(self) is Bounds and self.dataset_context is None
-                and self.schema_id is None and self.schema_version is None
-                and all(is_literal_number(value) for _, value in self._summary_items()))
+        return (
+            type(self) is Bounds
+            and self.dataset_context is None
+            and self.schema_id is None
+            and self.schema_version is None
+            and all(is_literal_number(value) for _, value in self._summary_items())
+        )
 
     def calculate_bounds(self):
         """Calculate the bounds of the object."""

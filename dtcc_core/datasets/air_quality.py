@@ -581,8 +581,7 @@ class AirQualityDataset(DatasetDescriptor):
         }
     ]
     license = (
-        "Requires review: verify SMHI datavardluft source terms before "
-        "redistribution."
+        "Requires review: verify SMHI datavardluft source terms before redistribution."
     )
     collection_period = (
         "Latest available station snapshot. The provider /timeseries metadata "

@@ -46,13 +46,19 @@ class Raster(Model):
 
     def _info_sections(self):
         sections = super()._info_sections()
-        sections[0][2].extend([("No data", self.nodata), ("Georeference", str(self.georef))])
+        sections[0][2].extend(
+            [("No data", self.nodata), ("Georeference", str(self.georef))]
+        )
         if self.data.ndim >= 2:
             sections[0][2].append(("Bounds", self.bounds.bndstr))
         return sections
 
     def _summary_items(self):
-        return [("shape", self.data.shape), ("dtype", str(self.data.dtype)), ("crs", self.crs)]
+        return [
+            ("shape", self.data.shape),
+            ("dtype", str(self.data.dtype)),
+            ("crs", self.crs),
+        ]
 
     @property
     def shape(self):
@@ -129,7 +135,12 @@ class Raster(Model):
 
         corners = [
             self.georef * (x, y)
-            for x, y in ((0, 0), (self.width, 0), (0, self.height), (self.width, self.height))
+            for x, y in (
+                (0, 0),
+                (self.width, 0),
+                (0, self.height),
+                (self.width, self.height),
+            )
         ]
         x, y = zip(*corners)
         return Bounds(min(x), min(y), max(x), max(y), 0, 0)

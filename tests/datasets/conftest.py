@@ -17,10 +17,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "--run-live",
         action="store_true",
         default=False,
-        help=(
-            "Run tests marked as live. Also requires "
-            f"{LIVE_DATASET_TESTS_ENV}=1."
-        ),
+        help=(f"Run tests marked as live. Also requires {LIVE_DATASET_TESTS_ENV}=1."),
     )
 
 
@@ -53,9 +50,7 @@ def pytest_collection_modifyitems(
         if os.environ.get(LIVE_DATASET_TESTS_ENV) == "1":
             return
         skip_live = pytest.mark.skip(
-            reason=(
-                f"Set {LIVE_DATASET_TESTS_ENV}=1 to run live provider tests."
-            )
+            reason=(f"Set {LIVE_DATASET_TESTS_ENV}=1 to run live provider tests.")
         )
         for item in live_items:
             item.add_marker(skip_live)

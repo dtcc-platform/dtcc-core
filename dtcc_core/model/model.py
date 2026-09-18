@@ -25,8 +25,11 @@ class Model(ABC):
     def __repr__(self):
         from ..common._display import format_repr
 
-        return format_repr(type(self).__name__, self._summary_items(),
-                           complete=self._repr_is_complete())
+        return format_repr(
+            type(self).__name__,
+            self._summary_items(),
+            complete=self._repr_is_complete(),
+        )
 
     def __str__(self):
         return repr(self)
@@ -64,8 +67,17 @@ class Model(ABC):
             rows.append(("Schema version", self.schema_version))
         return [("", ("Property", "Value"), rows)]
 
-    def plot(self, ax=None, *, lod=None, representation=None, field=None,
-             max_elements=20000, theme="dark", show=True):
+    def plot(
+        self,
+        ax=None,
+        *,
+        lod=None,
+        representation=None,
+        field=None,
+        max_elements=20000,
+        theme="dark",
+        show=True,
+    ):
         """Quick 3D Matplotlib preview; return the axes for further customization.
 
         Objects select one representation each and traverse their children.
@@ -77,8 +89,17 @@ class Model(ABC):
         See docs/model-preview.md for selection, geometry and coordinate limits.
         """
         from ..plotting.model import _plot_model
-        return _plot_model(self, ax=ax, lod=lod, representation=representation,
-                           field=field, max_elements=max_elements, theme=theme, show=show)
+
+        return _plot_model(
+            self,
+            ax=ax,
+            lod=lod,
+            representation=representation,
+            field=field,
+            max_elements=max_elements,
+            theme=theme,
+            show=show,
+        )
 
     @property
     def schema_id(self):
@@ -88,7 +109,7 @@ class Model(ABC):
         It is consulted at canonical and strict CityJSON I/O boundaries.
         Only the canonical format persists the declaration.
         """
-        return getattr(self, '_schema_id', None)
+        return getattr(self, "_schema_id", None)
 
     @schema_id.setter
     def schema_id(self, value):
@@ -97,7 +118,7 @@ class Model(ABC):
     @property
     def schema_version(self):
         """Root semantic schema version, paired with schema_id."""
-        return getattr(self, '_schema_version', None)
+        return getattr(self, "_schema_version", None)
 
     @schema_version.setter
     def schema_version(self, value):
@@ -109,6 +130,7 @@ class Model(ABC):
         Uses the same admission and default schema validation as .dtcc files.
         """
         from .exchange import _encode_model
+
         return _encode_model(self, validate_schema=validate_schema)
 
     def from_proto(self, pb, *, validate_schema=True):
@@ -117,11 +139,16 @@ class Model(ABC):
         Invalid data or a different concrete root type leaves this model intact.
         """
         from .exchange import _decode_model, SUPPORTED_ROOTS
+
         if type(self) not in SUPPORTED_ROOTS:
-            raise NotImplementedError(f'Protobuf model {type(self).__name__} is unsupported')
+            raise NotImplementedError(
+                f"Protobuf model {type(self).__name__} is unsupported"
+            )
         restored, _ = _decode_model(pb, validate_schema=validate_schema)
         if type(restored) is not type(self):
-            raise ValueError(f'Expected {type(self).__name__}, received {type(restored).__name__}')
+            raise ValueError(
+                f"Expected {type(self).__name__}, received {type(restored).__name__}"
+            )
         self.__dict__.clear()
         self.__dict__.update(restored.__dict__)
 
@@ -226,7 +253,8 @@ class Model(ABC):
         )
         with tempfile.TemporaryDirectory() as tmpdir:
             package = self.export(
-                Path(tmpdir) / "dataset_package", format=format,
+                Path(tmpdir) / "dataset_package",
+                format=format,
                 canonical=canonical,
             )
             return package.publish(
@@ -250,8 +278,7 @@ class Model(ABC):
             from dtcc_core.datasets.presentation import format_dataset_context
 
             summary = (
-                f"{summary}\n\n"
-                f"{format_dataset_context(self.dataset_context, obj=self)}"
+                f"{summary}\n\n{format_dataset_context(self.dataset_context, obj=self)}"
             )
         if print:
             builtins.print(summary)
@@ -385,9 +412,7 @@ def _add_method(cls, function, name=None):
         name = function.__name__
     for idx, (function_name, _, _) in enumerate(cls._methods):
         if function_name == name:
-            warning(
-                f"{function} Method {function_name} already exists, replacing it."
-            )
+            warning(f"{function} Method {function_name} already exists, replacing it.")
             cls._methods.pop(idx)
             break
     cls._methods.append((name, function.__module__, function.__doc__))

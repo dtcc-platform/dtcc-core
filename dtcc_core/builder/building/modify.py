@@ -86,7 +86,9 @@ def _extract_polygon_parts(geom) -> list[Polygon]:
             continue
         if hasattr(current, "geoms"):
             stack.extend(reversed(list(current.geoms)))
-    return [polygon for polygon in polygons if not polygon.is_empty and polygon.area > 0]
+    return [
+        polygon for polygon in polygons if not polygon.is_empty and polygon.area > 0
+    ]
 
 
 def _extract_building_metadata(

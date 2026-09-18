@@ -250,9 +250,18 @@ class CityVolumeMeshDataset(DatasetDescriptor):
         "entries": [
             {"label": "-1 ground", "meaning": "terrain boundary face marker"},
             {"label": "-2 top", "meaning": "top cap boundary face marker"},
-            {"label": "-3 west / -4 east", "meaning": "xmin/xmax side boundary markers"},
-            {"label": "-5 south / -6 north", "meaning": "ymin/ymax side boundary markers"},
-            {"label": "Tetrahedron", "meaning": "interior computational volume element"},
+            {
+                "label": "-3 west / -4 east",
+                "meaning": "xmin/xmax side boundary markers",
+            },
+            {
+                "label": "-5 south / -6 north",
+                "meaning": "ymin/ymax side boundary markers",
+            },
+            {
+                "label": "Tetrahedron",
+                "meaning": "interior computational volume element",
+            },
         ],
     }
     view_hints = {

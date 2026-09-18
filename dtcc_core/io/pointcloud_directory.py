@@ -10,7 +10,6 @@ from typing import List, Union
 from .pointcloud import las_file_bounds
 
 
-
 def load(las_directory: Union[str, Path]) -> PointCloudDirectory:
     """
     create a PointCloudContainer object from a directory of las files
@@ -23,7 +22,9 @@ def load(las_directory: Union[str, Path]) -> PointCloudDirectory:
 
     las_files = sorted(las_directory.glob("*.la[sz]"))
     if len(las_files) == 0:
-        warning(f"No valid LAS files found in {las_directory}, returning empty PointCloudContainer")
+        warning(
+            f"No valid LAS files found in {las_directory}, returning empty PointCloudContainer"
+        )
         return PointCloudDirectory()
     info(f"Found {len(las_files)} LAS files in {las_directory}")
     files = []
@@ -35,4 +36,3 @@ def load(las_directory: Union[str, Path]) -> PointCloudDirectory:
         except Exception as e:
             error(f"Failed to load {lf}: {e}")
     return PointCloudDirectory(files, bounds)
-

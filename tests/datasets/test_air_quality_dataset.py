@@ -317,9 +317,7 @@ def test_air_quality_drop_missing_true_skips_station_without_value():
         payloads={
             f"{BASE_URL}/stations": [copy.deepcopy(MOCK_STATIONS_LIST[0])],
             f"{BASE_URL}/timeseries/ts1": copy.deepcopy(MOCK_TS1_NO_CURRENT_DATA),
-            f"{BASE_URL}/timeseries/ts1/getData": copy.deepcopy(
-                MOCK_GETDATA_TS1_EMPTY
-            ),
+            f"{BASE_URL}/timeseries/ts1/getData": copy.deepcopy(MOCK_GETDATA_TS1_EMPTY),
         },
         calls=calls,
     )
@@ -338,9 +336,7 @@ def test_air_quality_drop_missing_false_keeps_nan_station_without_value():
         payloads={
             f"{BASE_URL}/stations": [copy.deepcopy(MOCK_STATIONS_LIST[0])],
             f"{BASE_URL}/timeseries/ts1": copy.deepcopy(MOCK_TS1_NO_CURRENT_DATA),
-            f"{BASE_URL}/timeseries/ts1/getData": copy.deepcopy(
-                MOCK_GETDATA_TS1_EMPTY
-            ),
+            f"{BASE_URL}/timeseries/ts1/getData": copy.deepcopy(MOCK_GETDATA_TS1_EMPTY),
         },
         drop_missing=False,
     )
@@ -386,9 +382,7 @@ def test_air_quality_non_strict_timeseries_failures_are_recorded():
     """Timeseries-fetch failures should also become partial results in default mode."""
     result = _build_dataset(
         errors={
-            f"{BASE_URL}/timeseries/ts2": _upstream_error(
-                f"{BASE_URL}/timeseries/ts2"
-            )
+            f"{BASE_URL}/timeseries/ts2": _upstream_error(f"{BASE_URL}/timeseries/ts2")
         }
     )
 
@@ -545,9 +539,7 @@ def test_air_quality_stale_last_value_is_retained_when_getdata_has_no_values():
         payloads={
             f"{BASE_URL}/stations": [copy.deepcopy(MOCK_STATIONS_LIST[0])],
             f"{BASE_URL}/timeseries/ts1": copy.deepcopy(MOCK_TS1_STALE_DATA),
-            f"{BASE_URL}/timeseries/ts1/getData": copy.deepcopy(
-                MOCK_GETDATA_TS1_EMPTY
-            ),
+            f"{BASE_URL}/timeseries/ts1/getData": copy.deepcopy(MOCK_GETDATA_TS1_EMPTY),
         }
     )
 
@@ -589,9 +581,7 @@ def test_air_quality_fallback_getdata_upstream_failure_raises_in_strict_mode():
         _build_dataset(
             payloads={
                 f"{BASE_URL}/stations": [copy.deepcopy(MOCK_STATIONS_LIST[0])],
-                f"{BASE_URL}/timeseries/ts1": copy.deepcopy(
-                    MOCK_TS1_NO_CURRENT_DATA
-                ),
+                f"{BASE_URL}/timeseries/ts1": copy.deepcopy(MOCK_TS1_NO_CURRENT_DATA),
             },
             errors={
                 f"{BASE_URL}/timeseries/ts1/getData": _upstream_error(

@@ -342,7 +342,8 @@ def test_plot_footprint_cleaning_comparison_returns_figure(show_changes):
     assert "Bounds:" in axes[0].texts[0].get_text()
     if show_changes:
         assert [t.get_text() for t in axes[2].get_legend().get_texts()] == [
-            "Added: 0.00 m²", "Removed: 3.75 m²"
+            "Added: 0.00 m²",
+            "Removed: 3.75 m²",
         ]
         assert axes[2].get_xlim() == axes[0].get_xlim()
         assert axes[2].get_shared_x_axes().joined(axes[0], axes[2])
@@ -384,7 +385,12 @@ def test_plot_footprint_cleaning_comparison_uses_distinct_building_colors():
             1,
         ),
         (
-            [Polygon(shell=[(0, 0), (6, 0), (6, 6), (0, 6)], holes=[[(4, 2), (2, 2), (2, 4), (4, 4), (4, 2)]])],
+            [
+                Polygon(
+                    shell=[(0, 0), (6, 0), (6, 6), (0, 6)],
+                    holes=[[(4, 2), (2, 2), (2, 4), (4, 4), (4, 2)]],
+                )
+            ],
             cleaning.ConditioningOptions(
                 min_feature_size=0.0,
                 merge_distance=0.0,
@@ -464,7 +470,24 @@ def test_plot_footprint_cleaning_comparison_uses_distinct_building_colors():
             1,
         ),
         (
-            [Polygon([(0, 0), (2, 0), (2, 1.0), (4, 1.0), (4, 0), (6, 0), (6, 2), (4, 2), (4, 1.1), (2, 1.1), (2, 2), (0, 2)])],
+            [
+                Polygon(
+                    [
+                        (0, 0),
+                        (2, 0),
+                        (2, 1.0),
+                        (4, 1.0),
+                        (4, 0),
+                        (6, 0),
+                        (6, 2),
+                        (4, 2),
+                        (4, 1.1),
+                        (2, 1.1),
+                        (2, 2),
+                        (0, 2),
+                    ]
+                )
+            ],
             cleaning.ConditioningOptions(
                 min_feature_size=0.4,
                 merge_distance=0.0,
@@ -474,7 +497,11 @@ def test_plot_footprint_cleaning_comparison_uses_distinct_building_colors():
             2,
         ),
         (
-            [Polygon([(0, 0), (4, 0), (4, 4), (0, 4), (0, 2.2), (-0.3, 2.05), (0, 1.9)])],
+            [
+                Polygon(
+                    [(0, 0), (4, 0), (4, 4), (0, 4), (0, 2.2), (-0.3, 2.05), (0, 1.9)]
+                )
+            ],
             cleaning.ConditioningOptions(
                 min_feature_size=0.4,
                 merge_distance=0.0,
@@ -484,7 +511,14 @@ def test_plot_footprint_cleaning_comparison_uses_distinct_building_colors():
             1,
         ),
         (
-            [Polygon(shell=[(0, 0), (10, 0), (10, 10), (0, 10)], holes=[[(4.9, 4.9), (5.1, 4.9), (5.1, 5.1), (4.9, 5.1), (4.9, 4.9)]])],
+            [
+                Polygon(
+                    shell=[(0, 0), (10, 0), (10, 10), (0, 10)],
+                    holes=[
+                        [(4.9, 4.9), (5.1, 4.9), (5.1, 5.1), (4.9, 5.1), (4.9, 4.9)]
+                    ],
+                )
+            ],
             cleaning.ConditioningOptions(
                 min_feature_size=0.0,
                 merge_distance=0.0,
@@ -494,7 +528,12 @@ def test_plot_footprint_cleaning_comparison_uses_distinct_building_colors():
             1,
         ),
         (
-            [Polygon(shell=[(0, 0), (10, 0), (10, 10), (0, 10)], holes=[[(3, 3), (7, 3), (7, 7), (3, 7), (3, 3)]])],
+            [
+                Polygon(
+                    shell=[(0, 0), (10, 0), (10, 10), (0, 10)],
+                    holes=[[(3, 3), (7, 3), (7, 7), (3, 7), (3, 3)]],
+                )
+            ],
             cleaning.ConditioningOptions(
                 min_feature_size=0.0,
                 merge_distance=0.0,
@@ -771,9 +810,7 @@ def test_regularize_coverage_contacts_merges_courtyard_close_pair():
         shell=[(0, 0), (8, 0), (8, 8), (0, 8), (0, 0)],
         holes=[[(2, 2), (6, 2), (6, 6), (2, 6), (2, 2)]],
     )
-    inner = Polygon(
-        [(2.05, 3.0), (2.55, 3.0), (2.55, 3.5), (2.05, 3.5), (2.05, 3.0)]
-    )
+    inner = Polygon([(2.05, 3.0), (2.55, 3.0), (2.55, 3.5), (2.05, 3.5), (2.05, 3.0)])
     diagnostics = cleaning_footprints._empty_diagnostics(2)
     diagnostics["collect_stage_metrics"] = False
 
@@ -909,7 +946,12 @@ def test_regularize_coverage_contacts_keeps_low_drift_rescue_variant(
         cleaning_footprints,
         "_direct_pair_issue_cluster_candidates",
         lambda *args, **kwargs: [
-            ((0, 1), "coverage_pair_issue_bridge_0.500", direct_candidate, original_sources)
+            (
+                (0, 1),
+                "coverage_pair_issue_bridge_0.500",
+                direct_candidate,
+                original_sources,
+            )
         ],
     )
     monkeypatch.setattr(
@@ -928,7 +970,9 @@ def test_regularize_coverage_contacts_keeps_low_drift_rescue_variant(
             postprocessed_rescue_candidate
             if cleaning_footprints._polygon_sequence_key(polygons) == rescue_key
             else polygons,
-            rescue_sources if cleaning_footprints._polygon_sequence_key(polygons) == rescue_key else source_map,
+            rescue_sources
+            if cleaning_footprints._polygon_sequence_key(polygons) == rescue_key
+            else source_map,
         ),
     )
     monkeypatch.setattr(
@@ -1060,7 +1104,12 @@ def test_regularize_coverage_contacts_prefers_small_shrink_candidate(
         "_direct_pair_issue_cluster_candidates",
         lambda *args, **kwargs: [
             ((0, 1), "coverage_pair_issue_bridge_0.500", bridge_candidate, [[0, 1]]),
-            ((0, 1), "coverage_pair_issue_shrink_0.250", shrink_candidate, original_sources),
+            (
+                (0, 1),
+                "coverage_pair_issue_shrink_0.250",
+                shrink_candidate,
+                original_sources,
+            ),
         ],
     )
     monkeypatch.setattr(
@@ -1198,7 +1247,12 @@ def test_regularize_coverage_contacts_rejects_large_shrink_candidate(
         "_direct_pair_issue_cluster_candidates",
         lambda *args, **kwargs: [
             ((0, 1), "coverage_pair_issue_bridge_0.500", bridge_candidate, [[0, 1]]),
-            ((0, 1), "coverage_pair_issue_shrink_0.250", shrink_candidate, original_sources),
+            (
+                (0, 1),
+                "coverage_pair_issue_shrink_0.250",
+                shrink_candidate,
+                original_sources,
+            ),
         ],
     )
     monkeypatch.setattr(
@@ -1437,15 +1491,11 @@ def test_regularize_coverage_contacts_defers_wide_shrink_when_primary_repairs(
         "coverage_pair_issue_shrink_0.250": 1
     }
     assert (
-        diagnostics[
-            "coverage_contact_regularization_deferred_shrink_fallback_count"
-        ]
+        diagnostics["coverage_contact_regularization_deferred_shrink_fallback_count"]
         == 0
     )
     assert (
-        diagnostics[
-            "coverage_contact_regularization_deferred_bridge_fallback_count"
-        ]
+        diagnostics["coverage_contact_regularization_deferred_bridge_fallback_count"]
         == 0
     )
 
@@ -1549,15 +1599,11 @@ def test_regularize_coverage_contacts_uses_wide_shrink_fallback_when_needed(
         "coverage_pair_issue_shrink_0.750": 1
     }
     assert (
-        diagnostics[
-            "coverage_contact_regularization_deferred_shrink_fallback_count"
-        ]
+        diagnostics["coverage_contact_regularization_deferred_shrink_fallback_count"]
         == 1
     )
     assert (
-        diagnostics[
-            "coverage_contact_regularization_deferred_bridge_fallback_count"
-        ]
+        diagnostics["coverage_contact_regularization_deferred_bridge_fallback_count"]
         == 1
     )
 
@@ -1609,7 +1655,12 @@ def test_regularize_coverage_contacts_uses_shrink_edit_zone_for_direct_shrink_ca
         cleaning_footprints,
         "_direct_pair_issue_cluster_candidates",
         lambda *args, **kwargs: [
-            ((0, 1), "coverage_pair_issue_shrink_0.250", shrink_candidate, original_sources),
+            (
+                (0, 1),
+                "coverage_pair_issue_shrink_0.250",
+                shrink_candidate,
+                original_sources,
+            ),
         ],
     )
     monkeypatch.setattr(
@@ -1880,8 +1931,14 @@ def test_condition_polygon_coverage_exposes_contact_regularization_diagnostics(
     )
 
     assert result.diagnostics["coverage_contact_regularization_applied"] is True
-    assert result.diagnostics["coverage_contact_regularization_pair_issue_count_before"] == 2
-    assert result.diagnostics["coverage_contact_regularization_pair_issue_count_after"] == 0
+    assert (
+        result.diagnostics["coverage_contact_regularization_pair_issue_count_before"]
+        == 2
+    )
+    assert (
+        result.diagnostics["coverage_contact_regularization_pair_issue_count_after"]
+        == 0
+    )
     assert result.diagnostics["coverage_contact_regularization_operator_applied"] == {
         "coverage_pair_issue_point_0.125": 1
     }
@@ -2234,9 +2291,9 @@ def test_source_coordinate_recovery_reverts_full_contract_regression(monkeypatch
     assert diagnostics["source_coordinate_recovery_short_edge_count_after"] == 0
     assert diagnostics["source_coordinate_recovery_pair_issue_count_after"] == 0
     assert diagnostics["source_coordinate_recovery_ring_contact_count_after"] == 0
-    assert diagnostics["source_coordinate_recovery_min_clearance_after"] == pytest.approx(
-        0.75
-    )
+    assert diagnostics[
+        "source_coordinate_recovery_min_clearance_after"
+    ] == pytest.approx(0.75)
 
 
 def test_recover_polygon_source_coordinates_skips_vertex_restore_for_single_source_close_match(
@@ -2271,12 +2328,14 @@ def test_recover_polygon_source_coordinates_skips_vertex_restore_for_single_sour
         ),
     )
 
-    candidate, operator, metrics = cleaning_footprints._recover_polygon_source_coordinates(
-        polygon,
-        support=support,
-        support_source_count=1,
-        min_segment_length=0.5,
-        grid=0.125,
+    candidate, operator, metrics = (
+        cleaning_footprints._recover_polygon_source_coordinates(
+            polygon,
+            support=support,
+            support_source_count=1,
+            min_segment_length=0.5,
+            grid=0.125,
+        )
     )
 
     assert candidate is None
@@ -2317,9 +2376,7 @@ def test_condition_polygon_coverage_removes_meshing_hostile_short_edges():
     )
     result = cleaning.condition_polygon_coverage([staircase], options=options)
     assert_conditioning_invariants(result, options)
-    assert (
-        result.diagnostics["stage_metrics"]["final_output"]["short_edge_count"] == 0
-    )
+    assert result.diagnostics["stage_metrics"]["final_output"]["short_edge_count"] == 0
 
     min_edge = min(
         ((bx - ax) ** 2 + (by - ay) ** 2) ** 0.5
@@ -2373,8 +2430,12 @@ def test_residual_scale_polygon_simplifier_enforces_contract():
 
 def test_condition_polygon_coverage_logs_stage_progress(monkeypatch):
     messages: list[str] = []
-    monkeypatch.setattr(cleaning_footprints, "info", lambda message: messages.append(message))
-    monkeypatch.setattr(cleaning_footprints, "debug", lambda message: messages.append(message))
+    monkeypatch.setattr(
+        cleaning_footprints, "info", lambda message: messages.append(message)
+    )
+    monkeypatch.setattr(
+        cleaning_footprints, "debug", lambda message: messages.append(message)
+    )
 
     cleaning.condition_polygon_coverage(
         [box(0, 0, 4, 4), box(4.1, 0, 8.1, 4)],
@@ -2434,19 +2495,22 @@ def test_condition_polygon_coverage_skips_global_reconstruction_for_disjoint_cov
         result.diagnostics["global_reconstruction_reason"]
         == "coverage_already_disjoint"
     )
-    assert (
-        result.diagnostics["stage_metrics"]["regularized_groups"]["union_area"]
-        == pytest.approx(
-            result.diagnostics["stage_metrics"]["reconstructed"]["union_area"],
-            abs=1e-9,
-        )
+    assert result.diagnostics["stage_metrics"]["regularized_groups"][
+        "union_area"
+    ] == pytest.approx(
+        result.diagnostics["stage_metrics"]["reconstructed"]["union_area"],
+        abs=1e-9,
     )
 
 
 def test_condition_polygon_coverage_can_disable_stage_metrics(monkeypatch):
     messages: list[str] = []
-    monkeypatch.setattr(cleaning_footprints, "info", lambda message: messages.append(message))
-    monkeypatch.setattr(cleaning_footprints, "debug", lambda message: messages.append(message))
+    monkeypatch.setattr(
+        cleaning_footprints, "info", lambda message: messages.append(message)
+    )
+    monkeypatch.setattr(
+        cleaning_footprints, "debug", lambda message: messages.append(message)
+    )
 
     result = cleaning.condition_polygon_coverage(
         [box(0, 0, 4, 4), box(4.1, 0, 8.1, 4)],
@@ -2471,7 +2535,9 @@ def test_condition_polygon_coverage_can_disable_stage_metrics(monkeypatch):
 
 def test_condition_polygon_coverage_can_disable_logging(monkeypatch):
     messages: list[str] = []
-    monkeypatch.setattr(cleaning_footprints, "info", lambda message: messages.append(message))
+    monkeypatch.setattr(
+        cleaning_footprints, "info", lambda message: messages.append(message)
+    )
 
     result = cleaning.condition_polygon_coverage(
         [box(0, 0, 4, 4), box(4.1, 0, 8.1, 4)],
@@ -2664,16 +2730,14 @@ def test_polygon_simplify_only_touches_polygons_with_short_edges():
         diagnostics=diagnostics,
     )
 
-    keyed = {
-        tuple(indices): polygon
-        for polygon, indices in zip(polygons, source_map)
-    }
+    keyed = {tuple(indices): polygon for polygon, indices in zip(polygons, source_map)}
     assert keyed[(2,)].equals_exact(clean, tolerance=0.0)
     assert diagnostics["polygon_simplify_candidate_count"] == 1
     assert diagnostics["polygon_simplify_applied_count"] == 1
-    assert diagnostics["polygon_simplify_short_edge_count_after"] < diagnostics[
-        "polygon_simplify_short_edge_count_before"
-    ]
+    assert (
+        diagnostics["polygon_simplify_short_edge_count_after"]
+        < diagnostics["polygon_simplify_short_edge_count_before"]
+    )
 
 
 def test_dense_polygon_short_edge_angle_open_guard_skips_high_cost_search():
@@ -2699,9 +2763,7 @@ def test_dense_polygon_short_edge_angle_open_guard_skips_high_cost_search():
     )
 
     assert cleaning_footprints._should_attempt_polygon_short_edge_angle_open(sparse)
-    assert not cleaning_footprints._should_attempt_polygon_short_edge_angle_open(
-        dense
-    )
+    assert not cleaning_footprints._should_attempt_polygon_short_edge_angle_open(dense)
 
 
 def test_dense_coverage_guard_skips_expensive_local_candidate_search():
@@ -2742,7 +2804,15 @@ def test_coverage_simplify_applies_local_shared_boundary_patches():
         (5.0, 6.0),
     ]
     left = Polygon([(0.0, 0.0), *shared_boundary, (0.0, 6.0)])
-    right = Polygon([shared_boundary[0], (10.0, 0.0), (10.0, 6.0), shared_boundary[-1], *reversed(shared_boundary[1:-1])])
+    right = Polygon(
+        [
+            shared_boundary[0],
+            (10.0, 0.0),
+            (10.0, 6.0),
+            shared_boundary[-1],
+            *reversed(shared_boundary[1:-1]),
+        ]
+    )
     distant = box(20.0, 0.0, 24.0, 4.0)
 
     diagnostics = cleaning_footprints._empty_diagnostics(3)
@@ -2760,9 +2830,10 @@ def test_coverage_simplify_applies_local_shared_boundary_patches():
     assert source_map == [[0], [1], [2]]
     assert diagnostics["coverage_simplify_patch_count"] >= 1
     assert diagnostics["coverage_simplify_patch_applied_count"] >= 1
-    assert diagnostics["coverage_simplify_short_edge_count_after"] < diagnostics[
-        "coverage_simplify_short_edge_count_before"
-    ]
+    assert (
+        diagnostics["coverage_simplify_short_edge_count_after"]
+        < diagnostics["coverage_simplify_short_edge_count_before"]
+    )
     assert any(bounds[0] > 19.9 for bounds in (polygon.bounds for polygon in polygons))
 
 
@@ -3801,8 +3872,7 @@ def test_direct_pair_issue_cluster_candidates_include_shrink_candidate_for_point
     assert shrink_candidates
     assert any(
         tuple(affected_indices) == (0, 1)
-        and
-        cleaning_footprints._coverage_defect_signature(
+        and cleaning_footprints._coverage_defect_signature(
             polygons,
             target_scale=0.5,
         ).pair_issue_count
@@ -4618,7 +4688,10 @@ def test_regularize_coverage_for_meshing_skips_local_search_when_global_is_suffi
     )
 
     assert local_called["value"] is False
-    assert diagnostics["coverage_meshing_regularization_local_candidate_attempted"] is False
+    assert (
+        diagnostics["coverage_meshing_regularization_local_candidate_attempted"]
+        is False
+    )
     assert len(polygons) == 1
     assert source_map == [[0]]
 
@@ -4701,7 +4774,10 @@ def test_regularize_coverage_for_meshing_uses_graphical_fast_path_when_sufficien
     )
 
     assert diagnostics["coverage_meshing_regularization_selected_branch"] == "local"
-    assert diagnostics["coverage_meshing_regularization_local_candidate_attempted"] is False
+    assert (
+        diagnostics["coverage_meshing_regularization_local_candidate_attempted"]
+        is False
+    )
     assert diagnostics["coverage_meshing_regularization_operator_applied"] == {
         "coverage_graph_short_edges": 1
     }
@@ -4750,14 +4826,16 @@ def test_regularize_coverage_for_meshing_returns_early_when_no_candidate_exists(
         ),
     )
 
-    result_polygons, result_sources = cleaning_footprints._regularize_coverage_for_meshing(
-        polygons,
-        [[0], [1]],
-        min_segment_length=0.5,
-        grid=0.03125,
-        min_area=0.0,
-        min_hole_area=0.0,
-        diagnostics=diagnostics,
+    result_polygons, result_sources = (
+        cleaning_footprints._regularize_coverage_for_meshing(
+            polygons,
+            [[0], [1]],
+            min_segment_length=0.5,
+            grid=0.03125,
+            min_area=0.0,
+            min_hole_area=0.0,
+            diagnostics=diagnostics,
+        )
     )
 
     assert result_polygons == polygons
@@ -4819,14 +4897,16 @@ def test_regularize_coverage_for_meshing_applies_residual_pair_issue_rescue(
         lambda *args, **kwargs: None,
     )
 
-    result_polygons, result_sources = cleaning_footprints._regularize_coverage_for_meshing(
-        polygons,
-        [[0], [1]],
-        min_segment_length=0.5,
-        grid=0.03125,
-        min_area=0.0,
-        min_hole_area=0.0,
-        diagnostics=diagnostics,
+    result_polygons, result_sources = (
+        cleaning_footprints._regularize_coverage_for_meshing(
+            polygons,
+            [[0], [1]],
+            min_segment_length=0.5,
+            grid=0.03125,
+            min_area=0.0,
+            min_hole_area=0.0,
+            diagnostics=diagnostics,
+        )
     )
 
     signature = cleaning_footprints._coverage_defect_signature(
@@ -4842,9 +4922,7 @@ def test_regularize_coverage_for_meshing_applies_residual_pair_issue_rescue(
         "residual_pair_issue_rescue"
     )
     operator_applied = diagnostics["coverage_meshing_regularization_operator_applied"]
-    assert any(
-        key.startswith("coverage_pair_issue_") for key in operator_applied
-    )
+    assert any(key.startswith("coverage_pair_issue_") for key in operator_applied)
 
 
 def test_regularize_coverage_for_meshing_applies_residual_point_bridge_rescue(
@@ -4900,14 +4978,16 @@ def test_regularize_coverage_for_meshing_applies_residual_point_bridge_rescue(
         lambda *args, **kwargs: None,
     )
 
-    result_polygons, result_sources = cleaning_footprints._regularize_coverage_for_meshing(
-        polygons,
-        [[0], [1]],
-        min_segment_length=1.0,
-        grid=0.03125,
-        min_area=0.0,
-        min_hole_area=0.0,
-        diagnostics=diagnostics,
+    result_polygons, result_sources = (
+        cleaning_footprints._regularize_coverage_for_meshing(
+            polygons,
+            [[0], [1]],
+            min_segment_length=1.0,
+            grid=0.03125,
+            min_area=0.0,
+            min_hole_area=0.0,
+            diagnostics=diagnostics,
+        )
     )
 
     signature = cleaning_footprints._coverage_defect_signature(
@@ -4921,10 +5001,7 @@ def test_regularize_coverage_for_meshing_applies_residual_point_bridge_rescue(
     assert diagnostics["coverage_meshing_regularization_selected_branch"] == (
         "residual_pair_issue_rescue"
     )
-    assert any(
-        key.startswith("coverage_pair_issue_point_")
-        for key in operator_applied
-    )
+    assert any(key.startswith("coverage_pair_issue_point_") for key in operator_applied)
 
 
 def test_regularize_coverage_for_meshing_prefers_pair_rescue_with_better_scale_contract(
@@ -5021,7 +5098,10 @@ def test_regularize_coverage_for_meshing_prefers_pair_rescue_with_better_scale_c
                     (10.0, 10.75),
                 ]
             )
-        return [pair_polygons[0], adjusted_right], [list(pair_sources[0]), list(pair_sources[1])]
+        return [pair_polygons[0], adjusted_right], [
+            list(pair_sources[0]),
+            list(pair_sources[1]),
+        ]
 
     monkeypatch.setattr(
         cleaning_footprints,
@@ -5029,14 +5109,16 @@ def test_regularize_coverage_for_meshing_prefers_pair_rescue_with_better_scale_c
         fake_point_bridge_operator,
     )
 
-    result_polygons, result_sources = cleaning_footprints._regularize_coverage_for_meshing(
-        polygons,
-        [[0], [1]],
-        min_segment_length=0.5,
-        grid=0.03125,
-        min_area=0.0,
-        min_hole_area=0.0,
-        diagnostics=diagnostics,
+    result_polygons, result_sources = (
+        cleaning_footprints._regularize_coverage_for_meshing(
+            polygons,
+            [[0], [1]],
+            min_segment_length=0.5,
+            grid=0.03125,
+            min_area=0.0,
+            min_hole_area=0.0,
+            diagnostics=diagnostics,
+        )
     )
 
     signature = cleaning_footprints._coverage_defect_signature(
@@ -5171,7 +5253,9 @@ def test_regularize_coverage_for_meshing_runs_direct_pair_rescue_on_current_best
         diagnostics=diagnostics,
     )
 
-    assert captured_calls[0][0] == cleaning_footprints._polygon_sequence_key(best_polygons)
+    assert captured_calls[0][0] == cleaning_footprints._polygon_sequence_key(
+        best_polygons
+    )
     assert captured_calls[0][1] == [[0], [1]]
 
 
@@ -5191,7 +5275,10 @@ def test_regularize_coverage_for_meshing_can_use_original_direct_pair_rescue_can
             ]
         ),
     ]
-    original_rescue_polygons = [box(0.0, 0.0, 10.0, 10.0), box(10.75, 10.75, 20.0, 20.0)]
+    original_rescue_polygons = [
+        box(0.0, 0.0, 10.0, 10.0),
+        box(10.75, 10.75, 20.0, 20.0),
+    ]
     diagnostics = cleaning_footprints._empty_diagnostics(2)
     diagnostics["collect_stage_metrics"] = False
     diagnostics["enable_logging"] = False
@@ -5270,15 +5357,13 @@ def test_regularize_coverage_for_meshing_can_use_original_direct_pair_rescue_can
         subset_sources,
         **kwargs,
     ):
-        if (
-            cleaning_footprints._polygon_sequence_key(subset_polygons)
-            == cleaning_footprints._polygon_sequence_key(best_polygons)
-        ):
+        if cleaning_footprints._polygon_sequence_key(
+            subset_polygons
+        ) == cleaning_footprints._polygon_sequence_key(best_polygons):
             return []
-        if (
-            cleaning_footprints._polygon_sequence_key(subset_polygons)
-            == cleaning_footprints._polygon_sequence_key(original_polygons)
-        ):
+        if cleaning_footprints._polygon_sequence_key(
+            subset_polygons
+        ) == cleaning_footprints._polygon_sequence_key(original_polygons):
             return [
                 (
                     (0, 1),
@@ -5295,14 +5380,16 @@ def test_regularize_coverage_for_meshing_can_use_original_direct_pair_rescue_can
         fake_direct_pair_issue_cluster_candidates,
     )
 
-    result_polygons, result_sources = cleaning_footprints._regularize_coverage_for_meshing(
-        original_polygons,
-        [[0], [1]],
-        min_segment_length=0.5,
-        grid=0.03125,
-        min_area=0.0,
-        min_hole_area=0.0,
-        diagnostics=diagnostics,
+    result_polygons, result_sources = (
+        cleaning_footprints._regularize_coverage_for_meshing(
+            original_polygons,
+            [[0], [1]],
+            min_segment_length=0.5,
+            grid=0.03125,
+            min_area=0.0,
+            min_hole_area=0.0,
+            diagnostics=diagnostics,
+        )
     )
 
     assert cleaning_footprints._polygon_sequence_key(
@@ -5408,15 +5495,13 @@ def test_regularize_coverage_for_meshing_rejects_original_direct_pair_rescue_wit
         subset_sources,
         **kwargs,
     ):
-        if (
-            cleaning_footprints._polygon_sequence_key(subset_polygons)
-            == cleaning_footprints._polygon_sequence_key(best_polygons)
-        ):
+        if cleaning_footprints._polygon_sequence_key(
+            subset_polygons
+        ) == cleaning_footprints._polygon_sequence_key(best_polygons):
             return []
-        if (
-            cleaning_footprints._polygon_sequence_key(subset_polygons)
-            == cleaning_footprints._polygon_sequence_key(original_polygons)
-        ):
+        if cleaning_footprints._polygon_sequence_key(
+            subset_polygons
+        ) == cleaning_footprints._polygon_sequence_key(original_polygons):
             return [
                 (
                     (0, 1),
@@ -5433,14 +5518,16 @@ def test_regularize_coverage_for_meshing_rejects_original_direct_pair_rescue_wit
         fake_direct_pair_issue_cluster_candidates,
     )
 
-    result_polygons, result_sources = cleaning_footprints._regularize_coverage_for_meshing(
-        original_polygons,
-        [[0], [1]],
-        min_segment_length=0.5,
-        grid=0.03125,
-        min_area=0.0,
-        min_hole_area=0.0,
-        diagnostics=diagnostics,
+    result_polygons, result_sources = (
+        cleaning_footprints._regularize_coverage_for_meshing(
+            original_polygons,
+            [[0], [1]],
+            min_segment_length=0.5,
+            grid=0.03125,
+            min_area=0.0,
+            min_hole_area=0.0,
+            diagnostics=diagnostics,
+        )
     )
 
     assert cleaning_footprints._polygon_sequence_key(
@@ -5507,7 +5594,10 @@ def test_regularize_coverage_for_meshing_keeps_raw_rescue_when_postprocess_regre
     monkeypatch.setattr(
         cleaning_footprints,
         "_simplify_polygons_for_meshing",
-        lambda polygons, sources, **kwargs: ([box(0.0, 0.0, 10.0, 10.0), box(10.0, 10.0, 20.0, 20.0)], [[0], [1]]),
+        lambda polygons, sources, **kwargs: (
+            [box(0.0, 0.0, 10.0, 10.0), box(10.0, 10.0, 20.0, 20.0)],
+            [[0], [1]],
+        ),
     )
     monkeypatch.setattr(
         cleaning_footprints,
@@ -5515,14 +5605,16 @@ def test_regularize_coverage_for_meshing_keeps_raw_rescue_when_postprocess_regre
         lambda polygons, sources, **kwargs: (polygons, sources),
     )
 
-    result_polygons, result_sources = cleaning_footprints._regularize_coverage_for_meshing(
-        polygons,
-        [[0], [1]],
-        min_segment_length=0.5,
-        grid=0.03125,
-        min_area=0.0,
-        min_hole_area=0.0,
-        diagnostics=diagnostics,
+    result_polygons, result_sources = (
+        cleaning_footprints._regularize_coverage_for_meshing(
+            polygons,
+            [[0], [1]],
+            min_segment_length=0.5,
+            grid=0.03125,
+            min_area=0.0,
+            min_hole_area=0.0,
+            diagnostics=diagnostics,
+        )
     )
 
     signature = cleaning_footprints._coverage_defect_signature(
@@ -5569,14 +5661,16 @@ def test_regularize_coverage_for_meshing_runs_pair_rescue_even_without_primary_c
         lambda *args, **kwargs: None,
     )
 
-    result_polygons, result_sources = cleaning_footprints._regularize_coverage_for_meshing(
-        polygons,
-        [[0], [1]],
-        min_segment_length=0.5,
-        grid=0.03125,
-        min_area=0.0,
-        min_hole_area=0.0,
-        diagnostics=diagnostics,
+    result_polygons, result_sources = (
+        cleaning_footprints._regularize_coverage_for_meshing(
+            polygons,
+            [[0], [1]],
+            min_segment_length=0.5,
+            grid=0.03125,
+            min_area=0.0,
+            min_hole_area=0.0,
+            diagnostics=diagnostics,
+        )
     )
 
     signature = cleaning_footprints._coverage_defect_signature(
@@ -5734,19 +5828,21 @@ def test_regularize_coverage_for_meshing_retries_ring_contacts_after_pair_rescue
     monkeypatch.setattr(
         cleaning_footprints,
         "_regularize_ring_contact_polygon",
-        lambda polygon, **kwargs: [fixed_polygons[1]]
-        if polygon is rescue_polygons[1]
-        else [polygon],
+        lambda polygon, **kwargs: (
+            [fixed_polygons[1]] if polygon is rescue_polygons[1] else [polygon]
+        ),
     )
 
-    result_polygons, result_sources = cleaning_footprints._regularize_coverage_for_meshing(
-        original_polygons,
-        [[0], [1]],
-        min_segment_length=0.5,
-        grid=0.03125,
-        min_area=0.0,
-        min_hole_area=0.0,
-        diagnostics=diagnostics,
+    result_polygons, result_sources = (
+        cleaning_footprints._regularize_coverage_for_meshing(
+            original_polygons,
+            [[0], [1]],
+            min_segment_length=0.5,
+            grid=0.03125,
+            min_area=0.0,
+            min_hole_area=0.0,
+            diagnostics=diagnostics,
+        )
     )
 
     assert len(result_polygons) == len(fixed_polygons)
@@ -5766,23 +5862,30 @@ def test_regularize_coverage_for_meshing_retries_ring_contacts_after_pair_rescue
         (box(0, 0, 2, 2), box(2.5, 0, 4.5, 2), "close_pair"),
         (box(0, 0, 2, 2), box(2, 2, 4, 4), "point_touch_pair"),
         # Bounding boxes overlap, but the actual boundaries are sqrt(2) apart.
-        (Polygon([(0, 0), (4, 0), (0, 4)]),
-         Polygon([(4, 4), (4, 2), (2, 4)]), None),
+        (Polygon([(0, 0), (4, 0), (0, 4)]), Polygon([(4, 4), (4, 2), (2, 4)]), None),
     ],
     ids=["aligned-gap", "corner-touch", "overlapping-bounds-separated-edges"],
 )
-def test_native_boundary_clusters_use_finite_segment_distance(left, right, expected_kind):
+def test_native_boundary_clusters_use_finite_segment_distance(
+    left, right, expected_kind
+):
     for polygons in ([left, right], [right, left]):
         clusters = cleaning_footprints._builder_boundary_defect_clusters(
-            polygons, target_scale=1.0, pair_tolerance=1.0,
+            polygons,
+            target_scale=1.0,
+            pair_tolerance=1.0,
         )
         if expected_kind is None:
             assert clusters == []
         else:
-            assert clusters == [{
-                "indices": [0, 1], "kind": expected_kind,
-                "short_edge_count": 0, "pair_issue_count": 1,
-            }]
+            assert clusters == [
+                {
+                    "indices": [0, 1],
+                    "kind": expected_kind,
+                    "short_edge_count": 0,
+                    "pair_issue_count": 1,
+                }
+            ]
 
 
 def test_builder_boundary_defect_clusters_sorts_native_clusters(monkeypatch):
@@ -5950,7 +6053,9 @@ def test_polygon_simplify_rejects_area_imbalanced_changes(monkeypatch):
     assert polygons[0].equals_exact(polygon, tolerance=0.0)
     assert diagnostics["polygon_simplify_applied"] is False
     assert diagnostics["polygon_simplify_rejected_area_imbalance_count"] >= 1
-    assert diagnostics["polygon_simplify_reference_minus_candidate_area"] == pytest.approx(
+    assert diagnostics[
+        "polygon_simplify_reference_minus_candidate_area"
+    ] == pytest.approx(
         0.0,
         abs=1e-12,
     )
@@ -6386,7 +6491,9 @@ def test_self_clearance_connector_cuts_stockholm_cross_ring_slit():
 
 
 def test_normalize_mesher_ready_polygon_repairs_lund_style_self_clearance_slit():
-    polygon = cleaning_footprints.shapely.from_wkt(LUND_RESIDUAL_SELF_CLEARANCE_SLIT_WKT)
+    polygon = cleaning_footprints.shapely.from_wkt(
+        LUND_RESIDUAL_SELF_CLEARANCE_SLIT_WKT
+    )
     before_signature = cleaning_footprints._polygon_defect_signature(
         polygon,
         target_scale=0.5,
@@ -7410,12 +7517,18 @@ def test_regularize_final_polygon_shapes_fills_case54_contact_cluster_wedges():
     assert signature_after.clearance + 1.0e-9 >= signature_before.clearance
     assert signature_after.min_edge_length > signature_before.min_edge_length
     assert diagnostics["final_shape_regularization_applied"] is True
-    assert diagnostics["final_shape_regularization_operator_applied"].get(
-        "final_shape_micro_detour_chain", 0
-    ) >= 1
-    assert diagnostics["final_shape_regularization_operator_applied"].get(
-        "final_shape_same_turn_short_walk", 0
-    ) >= 1
+    assert (
+        diagnostics["final_shape_regularization_operator_applied"].get(
+            "final_shape_micro_detour_chain", 0
+        )
+        >= 1
+    )
+    assert (
+        diagnostics["final_shape_regularization_operator_applied"].get(
+            "final_shape_same_turn_short_walk", 0
+        )
+        >= 1
+    )
 
 
 def test_regularize_final_polygon_shapes_closes_case54_residual_same_turn_wedges():
@@ -7481,15 +7594,24 @@ def test_regularize_final_polygon_shapes_closes_case54_residual_same_turn_wedges
     assert signature_after.clearance_deficit == pytest.approx(0.0)
     assert signature_after.min_edge_length + 1.0e-9 >= signature_before.min_edge_length
     assert signature_after.vertex_count < signature_before.vertex_count
-    assert diagnostics["final_shape_regularization_operator_applied"].get(
-        "final_shape_same_turn_short_walk", 0
-    ) >= 2
-    assert diagnostics["final_shape_regularization_operator_applied"].get(
-        "final_shape_fill_chain_collapse", 0
-    ) >= 1
-    assert diagnostics["final_shape_regularization_operator_applied"].get(
-        "final_shape_bevel_corner_collapse", 0
-    ) >= 1
+    assert (
+        diagnostics["final_shape_regularization_operator_applied"].get(
+            "final_shape_same_turn_short_walk", 0
+        )
+        >= 2
+    )
+    assert (
+        diagnostics["final_shape_regularization_operator_applied"].get(
+            "final_shape_fill_chain_collapse", 0
+        )
+        >= 1
+    )
+    assert (
+        diagnostics["final_shape_regularization_operator_applied"].get(
+            "final_shape_bevel_corner_collapse", 0
+        )
+        >= 1
+    )
 
 
 def test_regularize_coverage_for_meshing_repairs_case54_residual_self_clearance():
@@ -7887,9 +8009,9 @@ def test_regularize_low_clearance_polygons_prefers_lower_spike_growth_until_cont
     monkeypatch.setattr(
         cleaning_footprints,
         "_canonicalize",
-        lambda geometry, grid, diagnostics: [geometry]
-        if isinstance(geometry, Polygon)
-        else [],
+        lambda geometry, grid, diagnostics: (
+            [geometry] if isinstance(geometry, Polygon) else []
+        ),
     )
     monkeypatch.setattr(
         cleaning_footprints,
@@ -8560,7 +8682,9 @@ def test_cleaning_public_api_exports_are_callable():
         min_area=0.0,
         min_hole_area=0.0,
     )
-    polygon_result = cleaning.condition_polygon_coverage([box(0, 0, 2, 2)], options=options)
+    polygon_result = cleaning.condition_polygon_coverage(
+        [box(0, 0, 2, 2)], options=options
+    )
     assert isinstance(polygon_result, cleaning.ConditioningResult)
 
     buildings = [

@@ -12,8 +12,8 @@ class LanduseClasses(Enum):
     """
     Enumeration of land use classification types for geographic or urban modeling applications.
 
-    This enum defines various categories of land cover or land utilization, useful in GIS, 
-    remote sensing, simulation, or 3D urban environments. Each class represents a general 
+    This enum defines various categories of land cover or land utilization, useful in GIS,
+    remote sensing, simulation, or 3D urban environments. Each class represents a general
     type of surface usage, ranging from natural to heavily developed areas.
 
     Attributes:
@@ -30,6 +30,7 @@ class LanduseClasses(Enum):
         RAIL: Railway infrastructure and corridors.
         UNKNOWN: Land use is unknown or unclassified (explicitly set to 9999).
     """
+
     WATER = auto()
     GRASS = auto()
     FOREST = auto()
@@ -55,6 +56,7 @@ class Landuse(Object):
     Attributes:
         landuses (List[LanduseClasses]): A list of land use classes describing how the land is used.
     """
+
     landuses: List[LanduseClasses] = field(default_factory=list)
 
     def _summary_items(self):
@@ -66,7 +68,9 @@ class Landuse(Object):
         sections = super()._info_sections()
         if self.landuses:
             counts = Counter(value.name for value in self.landuses)
-            sections.append(("Land use classes", ("Class", "Count"), list(counts.items())))
+            sections.append(
+                ("Land use classes", ("Class", "Count"), list(counts.items()))
+            )
         return sections
 
     @property

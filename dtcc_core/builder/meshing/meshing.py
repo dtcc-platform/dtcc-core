@@ -82,7 +82,9 @@ def mesh_multisurface(
     welding/snapping and attached field interpolation are not supported.
     """
     if ms is not None and any(surface.regions for surface in ms.surfaces):
-        raise NotImplementedError("Semantic regions must belong to the MultiSurface, not its individual surfaces")
+        raise NotImplementedError(
+            "Semantic regions must belong to the MultiSurface, not its individual surfaces"
+        )
     if ms is not None and ms.regions:
         return _mesh_surface_collection(ms, triangle_size, weld, snap, clean, mesher)
     if clean:
@@ -123,41 +125,69 @@ def _mesh_surface_collection(ms, triangle_size, weld, snap, clean, mesher):
     # admission for this supported subset rather than duplicating region rules.
     exchange.validate(ms)
     if any(surface.regions for surface in ms.surfaces):
-        raise NotImplementedError("Semantic regions must belong to the enclosing geometry, not its individual surfaces")
+        raise NotImplementedError(
+            "Semantic regions must belong to the enclosing geometry, not its individual surfaces"
+        )
     if clean or weld or snap != 0:
-        raise NotImplementedError("Meshing semantic regions with cleaning, welding or snapping needs a face mapping")
+        raise NotImplementedError(
+            "Meshing semantic regions with cleaning, welding or snapping needs a face mapping"
+        )
     if ms.fields or ms.dataset_context is not None:
-        raise NotImplementedError("Meshing semantic regions cannot transfer fields or Dataset Context")
+        raise NotImplementedError(
+            "Meshing semantic regions cannot transfer fields or Dataset Context"
+        )
     for surface in ms.surfaces:
         if surface.fields:
-            raise NotImplementedError("Meshing semantic regions cannot interpolate surface fields")
-        if (not np.array_equal(surface.transform.affine, np.eye(4))
-                or surface.transform.srs not in ('', ms.transform.srs)):
-            raise NotImplementedError("Meshing semantic regions requires surfaces in their enclosing geometry frame")
-        for ring in ([surface.vertices] + surface.holes) if surface.vertices.size else []:
+            raise NotImplementedError(
+                "Meshing semantic regions cannot interpolate surface fields"
+            )
+        if not np.array_equal(
+            surface.transform.affine, np.eye(4)
+        ) or surface.transform.srs not in ("", ms.transform.srs):
+            raise NotImplementedError(
+                "Meshing semantic regions requires surfaces in their enclosing geometry frame"
+            )
+        for ring in (
+            ([surface.vertices] + surface.holes) if surface.vertices.size else []
+        ):
             local = ring - ring[0]
             area_vector = np.cross(local, np.roll(local, -1, axis=0)).sum(axis=0)
             if not np.any(area_vector):
-                raise ValueError("Meshing semantic regions requires nonzero-area polygon rings")
+                raise ValueError(
+                    "Meshing semantic regions requires nonzero-area polygon rings"
+                )
     active_mesher = resolve_2d_mesher(mesher)
     meshes, offsets = [], [0]
     for surface_index, surface in enumerate(ms.surfaces):
         # Backends may calculate/store normals. Keep the source model untouched.
         try:
-            mesh = mesh_surface(surface.copy(), triangle_size=triangle_size, mesher=active_mesher)
+            mesh = mesh_surface(
+                surface.copy(), triangle_size=triangle_size, mesher=active_mesher
+            )
         except RuntimeError as exc:
-            raise RuntimeError(f"Meshing surface {surface_index} failed: {exc}") from exc
+            raise RuntimeError(
+                f"Meshing surface {surface_index} failed: {exc}"
+            ) from exc
         if surface.vertices.size and not len(mesh.faces):
-            raise ValueError("Meshing produced no triangles for a nonempty semantic surface")
+            raise ValueError(
+                "Meshing produced no triangles for a nonempty semantic surface"
+            )
         meshes.append(mesh)
         offsets.append(offsets[-1] + len(mesh.faces))
     # Unwelded merge concatenates triangles in input order. Regions are attached
     # afterwards, so no semantic facts cross the geometry-only C++ adapter.
-    result = merge_meshes([mesh for mesh in meshes if len(mesh.faces)]) if offsets[-1] else Mesh()
+    result = (
+        merge_meshes([mesh for mesh in meshes if len(mesh.faces)])
+        if offsets[-1]
+        else Mesh()
+    )
     result.transform = deepcopy(ms.transform)
     result.regions = deepcopy(ms.regions)
     for region in result.regions:
-        spans = [np.arange(offsets[i], offsets[i + 1], dtype=np.int64) for i in region.indices]
+        spans = [
+            np.arange(offsets[i], offsets[i + 1], dtype=np.int64)
+            for i in region.indices
+        ]
         region.indices = np.concatenate(spans) if spans else np.empty(0, dtype=np.int64)
     return result
 
@@ -191,7 +221,9 @@ def mesh_surface(
         Triangular mesh representation of the Surface.
     """
     if s.regions:
-        raise NotImplementedError("Semantic regions must belong to a MultiSurface for triangulation")
+        raise NotImplementedError(
+            "Semantic regions must belong to a MultiSurface for triangulation"
+        )
     if clean:
         s = clean_surface(s)
         if s is None:
@@ -249,9 +281,19 @@ def mesh_multisurfaces(
 
     if any(ms.regions or any(s.regions for s in ms.surfaces) for ms in multisurfaces):
         if min_mesh_angle != 20.7:
-            raise NotImplementedError("Batch meshing semantic regions currently requires the default minimum mesh angle")
-        return [mesh_multisurface(ms, triangle_size=max_mesh_edge_size, weld=weld,
-                                 clean=clean, mesher=mesher) for ms in multisurfaces]
+            raise NotImplementedError(
+                "Batch meshing semantic regions currently requires the default minimum mesh angle"
+            )
+        return [
+            mesh_multisurface(
+                ms,
+                triangle_size=max_mesh_edge_size,
+                weld=weld,
+                clean=clean,
+                mesher=mesher,
+            )
+            for ms in multisurfaces
+        ]
     if clean:
         multisurfaces = [clean_multisurface(ms) for ms in multisurfaces]
         multisurfaces = [ms for ms in multisurfaces if ms is not None]
@@ -319,9 +361,14 @@ def merge_meshes(meshes: [Mesh], weld=False, snap=0) -> Mesh:
     for mesh in meshes:
         _check_mesh_metadata(mesh, allow_transform=True)
     frame = meshes[0].transform if meshes else None
-    if any(mesh.transform.srs != frame.srs or
-           not np.array_equal(mesh.transform.affine, frame.affine) for mesh in meshes[1:]):
-        raise ValueError("Merging meshes requires the same transform and coordinate system")
+    if any(
+        mesh.transform.srs != frame.srs
+        or not np.array_equal(mesh.transform.affine, frame.affine)
+        for mesh in meshes[1:]
+    ):
+        raise ValueError(
+            "Merging meshes requires the same transform and coordinate system"
+        )
     builder_meshes = [
         _dtcc_builder.create_mesh(mesh.vertices, mesh.faces, mesh.markers, mesh.normals)
         for mesh in meshes
@@ -335,10 +382,12 @@ def merge_meshes(meshes: [Mesh], weld=False, snap=0) -> Mesh:
             result.normals = _face_normals(result)
         else:
             # Welding only identifies equal coordinates and retains face order.
-            result.normals = np.concatenate([
-                mesh.normals if mesh.normals.size else _face_normals(mesh)
-                for mesh in meshes
-            ])
+            result.normals = np.concatenate(
+                [
+                    mesh.normals if mesh.normals.size else _face_normals(mesh)
+                    for mesh in meshes
+                ]
+            )
     return result
 
 
@@ -400,7 +449,9 @@ def snap_vertices(mesh: Mesh, snap_distance: float) -> Mesh:
     builder_mesh = _dtcc_builder.create_mesh(
         mesh.vertices, mesh.faces, mesh.markers, mesh.normals
     )
-    result = builder_mesh_to_mesh(_dtcc_builder.snap_mesh_vertices(builder_mesh, snap_distance))
+    result = builder_mesh_to_mesh(
+        _dtcc_builder.snap_mesh_vertices(builder_mesh, snap_distance)
+    )
     result.transform = deepcopy(mesh.transform)
     if mesh.normals.size:
         result.normals = _face_normals(result)
@@ -412,10 +463,14 @@ def _face_normals(mesh: Mesh) -> np.ndarray:
     if not len(mesh.faces):
         return np.empty((0, 3))
     triangles = np.asarray(mesh.vertices, dtype=np.float64)[mesh.faces]
-    normals = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
+    normals = np.cross(
+        triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0]
+    )
     lengths = np.linalg.norm(normals, axis=1)
     if not np.isfinite(lengths).all() or np.any(lengths == 0):
-        raise ValueError("Cannot compute normals for degenerate or nonfinite mesh faces")
+        raise ValueError(
+            "Cannot compute normals for degenerate or nonfinite mesh faces"
+        )
     return normals / lengths[:, None]
 
 

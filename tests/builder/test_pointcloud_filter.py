@@ -7,7 +7,10 @@ from dtcc_core import io
 from dtcc_core.model import Bounds, PointCloud, Surface
 
 from dtcc_core.builder.pointcloud.filter import (
-    crop, find_points_in_polygons, remove_points_in_polygons, points_in_polygons,
+    crop,
+    find_points_in_polygons,
+    remove_points_in_polygons,
+    points_in_polygons,
 )
 
 
@@ -57,10 +60,17 @@ def test_crop_copy(point_cloud):
 @pytest.fixture
 def polygon_selection():
     pc = PointCloud(
-        points=np.array([
-            [20, 20, 0], [13, 11, 5], [13, 11, 5],
-            [12, 12, 100], [15, 12, -100], [11, 11, 0],
-        ], dtype=float),
+        points=np.array(
+            [
+                [20, 20, 0],
+                [13, 11, 5],
+                [13, 11, 5],
+                [12, 12, 100],
+                [15, 12, -100],
+                [11, 11, 0],
+            ],
+            dtype=float,
+        ),
         classification=np.arange(6, dtype=np.uint8),
         intensity=np.arange(10, 16, dtype=np.uint16),
         return_number=np.array([1, 2, 1, 2, 1, 2], dtype=np.uint8),
@@ -68,12 +78,22 @@ def polygon_selection():
     )
     first = Surface(
         vertices=np.array([[10, 10, 0], [14, 10, 0], [14, 14, 0], [10, 14, 0]]),
-        holes=[np.array([[10.5, 10.5, 0], [11.5, 10.5, 0],
-                         [11.5, 11.5, 0], [10.5, 11.5, 0]])],
+        holes=[
+            np.array(
+                [[10.5, 10.5, 0], [11.5, 10.5, 0], [11.5, 11.5, 0], [10.5, 11.5, 0]]
+            )
+        ],
     )
-    second = Surface(vertices=np.array([
-        [12.5, 10, 0], [16, 10, 0], [16, 14, 0], [12.5, 14, 0],
-    ]))
+    second = Surface(
+        vertices=np.array(
+            [
+                [12.5, 10, 0],
+                [16, 10, 0],
+                [16, 14, 0],
+                [12.5, 14, 0],
+            ]
+        )
+    )
     return pc, [first, None, second]
 
 
@@ -85,7 +105,13 @@ def test_polygon_filters_preserve_records_attributes_and_input(polygon_selection
         (remove_points_in_polygons, [0, 5]),
     ):
         result = operation(pc, polygons)
-        for attribute in ("points", "classification", "intensity", "return_number", "num_returns"):
+        for attribute in (
+            "points",
+            "classification",
+            "intensity",
+            "return_number",
+            "num_returns",
+        ):
             original = getattr(before, attribute)
             selected = getattr(result, attribute)
             np.testing.assert_array_equal(selected, original[expected])

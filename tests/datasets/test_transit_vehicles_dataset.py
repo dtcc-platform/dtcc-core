@@ -57,8 +57,9 @@ def test_transit_vehicles_context_metadata_and_presentation():
     assert manifest.metadata.source[0]["service"] == "gtfs-rt"
     assert manifest.metadata.source[1]["service"] == "planera-resa-v4"
     assert "TRAFIKLAB_API_KEY" in manifest.metadata.source[0]["credential_env"]
-    assert "VASTTRAFIK_AUTHENTICATION_KEY" in (
-        manifest.metadata.source[1]["credential_env"]
+    assert (
+        "VASTTRAFIK_AUTHENTICATION_KEY"
+        in (manifest.metadata.source[1]["credential_env"])
     )
     assert manifest.metadata.collection_period.startswith("Live snapshot")
     assert "vehicle_collection" in manifest.metadata.data_types

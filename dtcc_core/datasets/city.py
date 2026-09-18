@@ -128,8 +128,14 @@ class CityDataset(DatasetDescriptor):
         "title": "City model layers",
         "entries": [
             {"label": "Terrain", "meaning": "point-cloud-derived terrain raster/mesh"},
-            {"label": "LoD1 building", "meaning": "extruded footprint with estimated height"},
-            {"label": "City JSON", "meaning": "serialized city-model package when requested"},
+            {
+                "label": "LoD1 building",
+                "meaning": "extruded footprint with estimated height",
+            },
+            {
+                "label": "City JSON",
+                "meaning": "serialized city-model package when requested",
+            },
         ],
     }
     view_hints = {

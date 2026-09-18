@@ -155,7 +155,9 @@ def _triangle_edge_orientation_stats(
             "boundary_boundary_opposite_direction_edge_count": 0,
         }
 
-    edge_entries: defaultdict[tuple[int, int], list[tuple[str, int, int, int]]] = defaultdict(list)
+    edge_entries: defaultdict[tuple[int, int], list[tuple[str, int, int, int]]] = (
+        defaultdict(list)
+    )
     for source, faces in (
         ("shell", shell_faces),
         ("boundary", np.vstack(boundary_triangles)),
@@ -236,7 +238,9 @@ def _orient_boundary_triangle_facets_to_shell(
             for facet in boundary_facets
         ]
 
-    shell_edge_entries: defaultdict[tuple[int, int], list[tuple[int, int]]] = defaultdict(list)
+    shell_edge_entries: defaultdict[tuple[int, int], list[tuple[int, int]]] = (
+        defaultdict(list)
+    )
     for face in shell_faces:
         for u, v in ((face[0], face[1]), (face[1], face[2]), (face[2], face[0])):
             shell_edge_entries[tuple(sorted((int(u), int(v))))].append((int(u), int(v)))
@@ -247,7 +251,9 @@ def _orient_boundary_triangle_facets_to_shell(
         if len(entries) == 1
     }
 
-    boundary_edges: defaultdict[tuple[int, int], list[tuple[int, tuple[int, int]]]] = defaultdict(list)
+    boundary_edges: defaultdict[tuple[int, int], list[tuple[int, tuple[int, int]]]] = (
+        defaultdict(list)
+    )
     for facet_index, facet in enumerate(boundary_triangles):
         for u, v in ((facet[0], facet[1]), (facet[1], facet[2]), (facet[2], facet[0])):
             boundary_edges[tuple(sorted((int(u), int(v))))].append(
@@ -297,7 +303,9 @@ def _orient_boundary_triangle_facets_to_shell(
                 neighbor_flip = current_flip ^ bool(stored_same_direction)
                 if not visited[neighbor]:
                     constraint = facet_constraints[neighbor]
-                    if constraint is not None and bool(constraint) != bool(neighbor_flip):
+                    if constraint is not None and bool(constraint) != bool(
+                        neighbor_flip
+                    ):
                         raise ValueError(
                             "Boundary triangle closure cannot be oriented consistently with the shell."
                         )
@@ -571,9 +579,7 @@ def inspect_tetgen_plc(
     for name, indices in named_facets.items():
         indices = np.asarray(indices, dtype=np.int64).reshape(-1)
         if len(indices) < 3:
-            errors.append(
-                f"Boundary facet '{name}' has fewer than three vertices."
-            )
+            errors.append(f"Boundary facet '{name}' has fewer than three vertices.")
             continue
         if ((indices < 0) | (indices >= len(V))).any():
             errors.append(
@@ -613,7 +619,8 @@ def inspect_tetgen_plc(
         min_nonadjacent_distance = _minimum_nonadjacent_vertex_distance(projected)
         if (
             np.isfinite(min_nonadjacent_distance)
-            and min_nonadjacent_distance < reference_edge * _BOUNDARY_PINCH_RATIO_WARNING
+            and min_nonadjacent_distance
+            < reference_edge * _BOUNDARY_PINCH_RATIO_WARNING
         ):
             warnings.append(
                 f"Boundary facet '{name}' contains very close nonadjacent projected vertices."
@@ -708,7 +715,7 @@ def get_east_boundary_vertices(vertices, xmax=None, tol=1e-3):
         if V.shape[1] >= 3:
             order = np.lexsort((V[idx, 2], V[idx, 1]))  # by y, then z
         else:
-            order = np.argsort(V[idx, 1])               # by y
+            order = np.argsort(V[idx, 1])  # by y
         idx = idx[order]
     return idx
 
@@ -793,7 +800,7 @@ def get_south_boundary_vertices(vertices, ymin=None, tol=1e-3):
         if V.shape[1] >= 3:
             order = np.lexsort((V[idx, 2], V[idx, 0]))  # by x, then z
         else:
-            order = np.argsort(V[idx, 0])               # by x
+            order = np.argsort(V[idx, 0])  # by x
         idx = idx[order]
     return idx
 
@@ -839,6 +846,8 @@ def get_north_boundary_vertices(vertices, ymax=None, tol=1e-3):
             order = np.argsort(-V[idx, 0])  # x descending
         idx = idx[order]
     return idx
+
+
 def _remove_duplicate_consecutive_indices(
     indices: Sequence[int],
     vertices: np.ndarray,
@@ -854,7 +863,10 @@ def _remove_duplicate_consecutive_indices(
             continue
         deduped.append(current)
 
-    if len(deduped) > 1 and np.linalg.norm(vertices[deduped[0]] - vertices[deduped[-1]]) <= tol:
+    if (
+        len(deduped) > 1
+        and np.linalg.norm(vertices[deduped[0]] - vertices[deduped[-1]]) <= tol
+    ):
         deduped.pop()
     return deduped
 
@@ -904,7 +916,9 @@ def _boundary_loops(vertices: np.ndarray, tol: float) -> dict[str, np.ndarray]:
     }
 
 
-def _outer_boundary_ring_indices(boundary_loops: Mapping[str, np.ndarray]) -> np.ndarray:
+def _outer_boundary_ring_indices(
+    boundary_loops: Mapping[str, np.ndarray],
+) -> np.ndarray:
     south = np.asarray(boundary_loops["south"], dtype=np.int64)
     east = np.asarray(boundary_loops["east"], dtype=np.int64)
     north = np.asarray(boundary_loops["north"], dtype=np.int64)
@@ -943,7 +957,10 @@ def _build_lifted_top_boundary_vertices(
     top_vertices = np.asarray(boundary_vertices[ring_indices], dtype=float).copy()
     top_vertices[:, 2] = float(z_top)
 
-    source_to_local = {int(source_index): local_index for local_index, source_index in enumerate(ring_indices)}
+    source_to_local = {
+        int(source_index): local_index
+        for local_index, source_index in enumerate(ring_indices)
+    }
     top_loops: dict[str, np.ndarray] = {}
     for name in ("south", "east", "north", "west"):
         source_loop = np.asarray(boundary_loops[name], dtype=np.int64)
@@ -1122,8 +1139,10 @@ def _remesh_top_cap_from_outer_boundary(
     )
 
     face_normals_z = np.cross(
-        top_vertices[reordered_faces[:, 1], :3] - top_vertices[reordered_faces[:, 0], :3],
-        top_vertices[reordered_faces[:, 2], :3] - top_vertices[reordered_faces[:, 0], :3],
+        top_vertices[reordered_faces[:, 1], :3]
+        - top_vertices[reordered_faces[:, 0], :3],
+        top_vertices[reordered_faces[:, 2], :3]
+        - top_vertices[reordered_faces[:, 0], :3],
     )[:, 2]
     flip = face_normals_z < 0.0
     if np.any(flip):
@@ -1423,18 +1442,21 @@ def compute_boundary_facets(mesh: Mesh, top_height=100.0, tol=1e-3):
     zmin, z_top = _compute_top_plane(V, top_height)
 
     # 2) Grab boundary indices (sorted for correct ground-edge order)
-    east_idx  = get_east_boundary_vertices (V, xmax=xmax, tol=tol)   # south->north
-    west_idx  = get_west_boundary_vertices (V, xmin=xmin, tol=tol)   # north->south
-    south_idx = get_south_boundary_vertices(V, ymin=ymin, tol=tol)   # west->east
-    north_idx = get_north_boundary_vertices(V, ymax=ymax, tol=tol)   # east->west
+    east_idx = get_east_boundary_vertices(V, xmax=xmax, tol=tol)  # south->north
+    west_idx = get_west_boundary_vertices(V, xmin=xmin, tol=tol)  # north->south
+    south_idx = get_south_boundary_vertices(V, ymin=ymin, tol=tol)  # west->east
+    north_idx = get_north_boundary_vertices(V, ymax=ymax, tol=tol)  # east->west
 
     # 3) Create 4 top-corner points (appended to the vertex array)
-    top_points = np.array([
-        [xmin, ymin, z_top],  # t_sw: south-west  (index = N + 0)
-        [xmin, ymax, z_top],  # t_nw: north-west  (index = N + 1)
-        [xmax, ymin, z_top],  # t_se: south-east  (index = N + 2)
-        [xmax, ymax, z_top],  # t_ne: north-east  (index = N + 3)
-    ], dtype=float)
+    top_points = np.array(
+        [
+            [xmin, ymin, z_top],  # t_sw: south-west  (index = N + 0)
+            [xmin, ymax, z_top],  # t_nw: north-west  (index = N + 1)
+            [xmax, ymin, z_top],  # t_se: south-east  (index = N + 2)
+            [xmax, ymax, z_top],  # t_ne: north-east  (index = N + 3)
+        ],
+        dtype=float,
+    )
 
     N0 = V.shape[0]
     t_sw, t_nw, t_se, t_ne = N0 + 0, N0 + 1, N0 + 2, N0 + 3
@@ -1448,7 +1470,7 @@ def compute_boundary_facets(mesh: Mesh, top_height=100.0, tol=1e-3):
 
     # EAST wall (x = xmax, outward +x): CCW seen from +x
     #   ground: south->north then top: north->south (reverse)
-    east_poly  = list(east_idx)  + [t_ne, t_se]
+    east_poly = list(east_idx) + [t_ne, t_se]
 
     # NORTH wall (y = ymax, outward +y): CCW seen from +y
     #   ground: east->west then top: west->east
@@ -1456,11 +1478,11 @@ def compute_boundary_facets(mesh: Mesh, top_height=100.0, tol=1e-3):
 
     # WEST wall (x = xmin, outward -x): CCW seen from -x
     #   ground: north->south then top: south->north
-    west_poly  = list(west_idx)  + [t_sw, t_nw]
+    west_poly = list(west_idx) + [t_sw, t_nw]
 
     # TOP cap (z = z_top, outward +z): CCW in XY as seen from above (+z)
     #   CCW rectangle: (xmin,ymin)->(xmax,ymin)->(xmax,ymax)->(xmin,ymax)
-    top_poly   = [t_sw, t_se, t_ne, t_nw]
+    top_poly = [t_sw, t_se, t_ne, t_nw]
 
     facets = {
         "south": _simplify_boundary_loop("south", south_poly, V_out, tol),

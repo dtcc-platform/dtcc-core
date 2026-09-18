@@ -46,9 +46,11 @@ class SliceProduct:
 
     @property
     def image(self) -> np.ndarray:
-        return np.asarray(self.values, dtype=float).reshape(
-            (self.resolution, self.resolution)
-        ).T
+        return (
+            np.asarray(self.values, dtype=float)
+            .reshape((self.resolution, self.resolution))
+            .T
+        )
 
     @property
     def fields(self) -> list[str]:

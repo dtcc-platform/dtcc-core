@@ -84,13 +84,10 @@ def main():
 
     if missing_docstrings:
         with open(root_dir / "MISSING_DOCSTRINGS.md", "w", encoding="utf-8") as f:
-
             print(
                 f"Found {len(missing_docstrings)} functions/methods missing docstrings:\n"
             )
-            f.write(
-                f"# Missing Docstrings\n\n"
-            )
+            f.write(f"# Missing Docstrings\n\n")
             f.write(
                 f"Found {len(missing_docstrings)} functions/methods missing docstrings.\n\n"
             )

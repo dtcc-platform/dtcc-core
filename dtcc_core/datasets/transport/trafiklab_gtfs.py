@@ -175,7 +175,7 @@ def fetch_trafiklab_gtfs_vehicles(
 
 
 def select_trafiklab_operators(
-    bounds_wgs84: tuple[float, float, float, float]
+    bounds_wgs84: tuple[float, float, float, float],
 ) -> list[str]:
     """Select Trafiklab operators whose coarse service box overlaps bounds."""
     return [
@@ -429,7 +429,9 @@ def _enum_name(message, field_name: str) -> str | None:
         return None
     try:
         descriptor = message.DESCRIPTOR.fields_by_name[field_name]
-        return descriptor.enum_type.values_by_number[int(getattr(message, field_name))].name
+        return descriptor.enum_type.values_by_number[
+            int(getattr(message, field_name))
+        ].name
     except Exception:
         value = _message_value(message, field_name)
         return None if value is None else str(value)

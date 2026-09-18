@@ -5,7 +5,9 @@ import os
 
 # Import directly from the source tree to pick up local changes,
 # bypassing the dtcc_core __init__.py which loads native extensions.
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "dtcc_core", "common"))
+sys.path.insert(
+    0, os.path.join(os.path.dirname(__file__), "..", "..", "dtcc_core", "common")
+)
 from progress import ProgressTracker, report_progress
 
 
@@ -13,9 +15,7 @@ class TestMonotonicProgress:
     """Progress within a phase must never decrease."""
 
     def test_lower_percent_does_not_decrease_progress(self):
-        with ProgressTracker(
-            phases={"work": 1.0}, mode="silent"
-        ) as tracker:
+        with ProgressTracker(phases={"work": 1.0}, mode="silent") as tracker:
             with tracker.phase("work"):
                 report_progress(percent=80)
                 phase = tracker.state.phases["work"]
@@ -29,9 +29,7 @@ class TestMonotonicProgress:
 
     def test_nested_call_pattern_no_regression(self):
         """Simulate: parent reports 10%, child reports 0%->100%, parent reports 30%."""
-        with ProgressTracker(
-            phases={"build": 1.0}, mode="silent"
-        ) as tracker:
+        with ProgressTracker(phases={"build": 1.0}, mode="silent") as tracker:
             with tracker.phase("build"):
                 # Parent starts
                 report_progress(percent=10)
@@ -51,9 +49,7 @@ class TestMonotonicProgress:
                 assert phase.progress == 1.0
 
     def test_overall_percent_monotonic_across_phases(self):
-        with ProgressTracker(
-            phases={"a": 0.5, "b": 0.5}, mode="silent"
-        ) as tracker:
+        with ProgressTracker(phases={"a": 0.5, "b": 0.5}, mode="silent") as tracker:
             prev = 0.0
             with tracker.phase("a"):
                 for pct in [0, 25, 50, 75, 100]:

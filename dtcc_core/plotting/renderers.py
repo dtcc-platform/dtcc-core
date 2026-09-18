@@ -68,9 +68,7 @@ def render_product_mp4(
     from matplotlib.figure import Figure
 
     if not FFMpegWriter.isAvailable():
-        raise RuntimeError(
-            "MP4 video export requires ffmpeg to be available on PATH."
-        )
+        raise RuntimeError("MP4 video export requires ffmpeg to be available on PATH.")
 
     theme = get_theme(options.theme)
     background = _background_color(options, theme)
@@ -243,7 +241,9 @@ def _draw_streamlines(ax, product: StreamlineProduct, options: RasterRenderOptio
         )
         ax.add_collection(glow)
 
-    if options.streamline_color_by == product.value_name and len(values) == len(segments):
+    if options.streamline_color_by == product.value_name and len(values) == len(
+        segments
+    ):
         collection = LineCollection(
             segments,
             linewidths=options.line_width,

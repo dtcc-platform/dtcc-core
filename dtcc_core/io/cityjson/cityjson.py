@@ -10,14 +10,15 @@ import zipfile
 from .attributes import _AttributeNameError
 
 
-
 def _read_json(stream, strict):
     if not strict:
         return json.load(stream)
     from ...model.exchange import MAX_BYTES
+
     data = stream.read(MAX_BYTES + 1)
     if len(data) > MAX_BYTES:
         raise ValueError("CityJSON input exceeds 256 MiB limit")
+
     def unique_pairs(pairs):
         result = {}
         for key, value in pairs:
@@ -25,6 +26,7 @@ def _read_json(stream, strict):
                 raise ValueError(f"Duplicate CityJSON key {key!r}")
             result[key] = value
         return result
+
     return json.loads(data, object_pairs_hook=unique_pairs)
 
 
@@ -80,8 +82,13 @@ def setup_city(cj_obj: dict):
     return city, verts
 
 
-def load(cityjson_path: str | dict, *, strict=False, extent_policy='validate',
-         validate_schema=None) -> City:
+def load(
+    cityjson_path: str | dict,
+    *,
+    strict=False,
+    extent_policy="validate",
+    validate_schema=None,
+) -> City:
     """Load CityJSON; strict mode evaluates the default standard schema.
 
     validate_schema=False bypasses semantics only. Omission follows strict mode;
@@ -89,9 +96,10 @@ def load(cityjson_path: str | dict, *, strict=False, extent_policy='validate',
     on the City; the source CityJSON does not declare a DTCC schema version.
     """
     from .admission import schema_validation
+
     validate_schema = schema_validation(strict, validate_schema)
-    if not strict and extent_policy != 'validate':
-        raise ValueError('extent_policy requires strict CityJSON import')
+    if not strict and extent_policy != "validate":
+        raise ValueError("extent_policy requires strict CityJSON import")
     try:
         if isinstance(cityjson_path, dict):
             cj = cityjson_path
@@ -104,7 +112,9 @@ def load(cityjson_path: str | dict, *, strict=False, extent_policy='validate',
                 with zipfile.ZipFile(cityjson_path, "r") as z:
                     files = z.namelist()
                     if len(files) != 1 or not files[0].endswith(".json"):
-                        raise ValueError("Invalid CityJSON zip file: must contain exactly one .json file")
+                        raise ValueError(
+                            "Invalid CityJSON zip file: must contain exactly one .json file"
+                        )
                     with z.open(files[0]) as f:
                         cj = _read_json(f, strict)
             else:
@@ -115,6 +125,7 @@ def load(cityjson_path: str | dict, *, strict=False, extent_policy='validate',
             from .admission import load_city
             from ...model.exchange import _schema_for_model
             from ...model._standard_schema import validate_admitted
+
             city = load_city(cj, extent_policy=extent_policy)
             schema_id, schema_version = _schema_for_model(city)
             if validate_schema:
@@ -126,7 +137,9 @@ def load(cityjson_path: str | dict, *, strict=False, extent_policy='validate',
         if not isinstance(cj, dict):
             raise ValueError("Invalid CityJSON: root must be a dictionary")
         if cj.get("type") != "CityJSON":
-            raise ValueError("Not a valid CityJSON file: missing or incorrect 'type' field")
+            raise ValueError(
+                "Not a valid CityJSON file: missing or incorrect 'type' field"
+            )
         if "CityObjects" not in cj:
             raise ValueError("Invalid CityJSON: missing 'CityObjects' field")
         if "vertices" not in cj:
@@ -161,7 +174,9 @@ def load(cityjson_path: str | dict, *, strict=False, extent_policy='validate',
         supported_types = {"Building", "TINRelief"}
         for obj_type, objects in root_objects.items():
             if obj_type not in supported_types:
-                print(f"Warning: Object type '{obj_type}' not yet supported ({len(objects)} objects)")
+                print(
+                    f"Warning: Object type '{obj_type}' not yet supported ({len(objects)} objects)"
+                )
 
         return city
 

@@ -88,17 +88,13 @@ def test_tree_rejects_invalid_values(kwargs, field):
 
 def test_tree_rejects_invalid_payload_without_replacing_state():
     tree = Tree(id="original")
-    malformed = Tree(id='replacement', position=np.array([1., 2., 3.])).to_proto()
+    malformed = Tree(id="replacement", position=np.array([1.0, 2.0, 3.0])).to_proto()
     malformed.object.tree.position.shape[:] = [1, 3]
     with pytest.raises(ValueError, match="Tree.position"):
         tree.from_proto(malformed)
     assert tree.id == "original"
     with pytest.raises(ValueError, match="Expected Tree"):
         tree.from_proto(Object().to_proto())
-
-
-
-
 
 
 @pytest.mark.parametrize("collection_type", [SensorCollection, VehicleCollection, DeSO])
@@ -123,10 +119,6 @@ def test_nested_inherited_concrete_serializer_cannot_erase_subclass(base_type):
         match="CustomObject",
     ):
         parent.to_proto()
-
-
-
-
 
 
 @pytest.mark.parametrize("as_bytes", [False, True])
@@ -232,7 +224,6 @@ def test_raster_and_bounds_representations_roundtrip(geometry):
         assert result == geometry
 
 
-
 @pytest.mark.parametrize("payload", [None, proto.Point(), proto.Geometry()])
 def test_geometry_serialization_requires_concrete_geometry_message(payload):
     class InvalidGeometry(Point):
@@ -258,7 +249,9 @@ def test_add_remove_and_field_use_same_geometry_key_normalization(key):
     assert obj.geometry == {}
 
 
-@pytest.mark.parametrize("key", [1, None, (), "", "  ", "GeometryType.missing", "GeometryTypeMesh"])
+@pytest.mark.parametrize(
+    "key", [1, None, (), "", "  ", "GeometryType.missing", "GeometryTypeMesh"]
+)
 def test_invalid_geometry_keys_fail(key):
     obj = Object()
     # Direct dictionary mutation also receives validation at the wire boundary.
@@ -277,14 +270,11 @@ def test_defined_geometries_handles_enums_and_custom_roles():
     assert obj.defined_geometries() == sorted(map(str, keys))
 
 
-
-
 def test_missing_geometry_discriminator_has_actionable_error():
     payload = Object().to_proto()
-    payload.object.representations.add(id='location').geometry.SetInParent()
-    with pytest.raises(NotImplementedError, match='geometry kind'):
+    payload.object.representations.add(id="location").geometry.SetInParent()
+    with pytest.raises(NotImplementedError, match="geometry kind"):
         Object().from_proto(payload)
-
 
 
 def test_json_attributes_roundtrip():
@@ -303,7 +293,9 @@ def test_json_attributes_roundtrip():
 )
 def test_invalid_attribute_value_reports_its_path(value):
     obj = Object(attributes={"survey": [{"value": value}]})
-    with pytest.raises((TypeError, ValueError), match=r"attributes\['survey'\]\[0\]\['value'\]"):
+    with pytest.raises(
+        (TypeError, ValueError), match=r"attributes\['survey'\]\[0\]\['value'\]"
+    ):
         obj.to_proto()
 
 
@@ -314,8 +306,6 @@ def test_attribute_keys_and_cycles_fail_explicitly():
     attributes["self"] = attributes
     with pytest.raises(ValueError, match="circular reference"):
         Object(attributes=attributes).to_proto()
-
-
 
 
 def test_city_collects_all_building_attributes_with_aligned_missing_values():

@@ -23,9 +23,10 @@ def test_download_data_propagates_lidar_request_error():
 def test_download_data_rejects_empty_lidar_download_result():
     bounds = Bounds(xmin=0, ymin=0, xmax=10, ymax=10)
 
-    with patch.object(wrapper, "download_lidar", return_value=None), patch.object(
-        wrapper.io, "load_pointcloud"
-    ) as load_pointcloud:
+    with (
+        patch.object(wrapper, "download_lidar", return_value=None),
+        patch.object(wrapper.io, "load_pointcloud") as load_pointcloud,
+    ):
         with pytest.raises(
             RuntimeError,
             match="No lidar data available for the requested bounding box.",
@@ -39,11 +40,14 @@ def test_download_data_uses_cached_footprints_before_network():
     bounds = Bounds(xmin=0, ymin=0, xmax=10, ymax=10)
     cached_buildings = ["cached-building"]
 
-    with patch.object(
-        wrapper,
-        "_load_cached_footprints",
-        return_value=cached_buildings,
-    ), patch.object(wrapper, "download_tiles") as download_tiles:
+    with (
+        patch.object(
+            wrapper,
+            "_load_cached_footprints",
+            return_value=cached_buildings,
+        ),
+        patch.object(wrapper, "download_tiles") as download_tiles,
+    ):
         result = wrapper.download_data("footprints", "dtcc", bounds)
 
     assert result == cached_buildings
@@ -53,19 +57,23 @@ def test_download_data_uses_cached_footprints_before_network():
 def test_download_data_falls_back_to_download_when_cache_misses():
     bounds = Bounds(xmin=0, ymin=0, xmax=10, ymax=10)
 
-    with patch.object(
-        wrapper,
-        "_load_cached_footprints",
-        return_value=None,
-    ), patch.object(
-        wrapper,
-        "download_tiles",
-        return_value=["/tmp/tile_0_0.gpkg"],
-    ) as download_tiles, patch.object(
-        wrapper.io,
-        "load_footprints",
-        return_value=["downloaded-building"],
-    ) as load_footprints:
+    with (
+        patch.object(
+            wrapper,
+            "_load_cached_footprints",
+            return_value=None,
+        ),
+        patch.object(
+            wrapper,
+            "download_tiles",
+            return_value=["/tmp/tile_0_0.gpkg"],
+        ) as download_tiles,
+        patch.object(
+            wrapper.io,
+            "load_footprints",
+            return_value=["downloaded-building"],
+        ) as load_footprints,
+    ):
         result = wrapper.download_data("footprints", "dtcc", bounds)
 
     assert result == ["downloaded-building"]
@@ -84,11 +92,14 @@ def test_load_cached_footprints_accepts_empty_result_when_tile_covers_bounds(tmp
     cached_tile.touch()
     bounds = Bounds(xmin=100, ymin=100, xmax=200, ymax=200)
 
-    with patch.object(wrapper, "GPKG_CACHE_DIR", str(tmp_path)), patch.object(
-        wrapper.io,
-        "load_footprints",
-        return_value=[],
-    ) as load_footprints:
+    with (
+        patch.object(wrapper, "GPKG_CACHE_DIR", str(tmp_path)),
+        patch.object(
+            wrapper.io,
+            "load_footprints",
+            return_value=[],
+        ) as load_footprints,
+    ):
         result = wrapper._load_cached_footprints(bounds)
 
     assert result == []
@@ -104,11 +115,14 @@ def test_load_cached_footprints_falls_back_when_empty_cache_does_not_cover_bound
     cached_tile.touch()
     bounds = Bounds(xmin=9900, ymin=9900, xmax=10100, ymax=10100)
 
-    with patch.object(wrapper, "GPKG_CACHE_DIR", str(tmp_path)), patch.object(
-        wrapper.io,
-        "load_footprints",
-        return_value=[],
-    ) as load_footprints:
+    with (
+        patch.object(wrapper, "GPKG_CACHE_DIR", str(tmp_path)),
+        patch.object(
+            wrapper.io,
+            "load_footprints",
+            return_value=[],
+        ) as load_footprints,
+    ):
         result = wrapper._load_cached_footprints(bounds)
 
     assert result is None
@@ -126,11 +140,14 @@ def test_load_cached_footprints_accepts_empty_result_when_adjacent_tiles_cover_b
     right_tile.touch()
     bounds = Bounds(xmin=9900, ymin=100, xmax=10100, ymax=200)
 
-    with patch.object(wrapper, "GPKG_CACHE_DIR", str(tmp_path)), patch.object(
-        wrapper.io,
-        "load_footprints",
-        return_value=[],
-    ) as load_footprints:
+    with (
+        patch.object(wrapper, "GPKG_CACHE_DIR", str(tmp_path)),
+        patch.object(
+            wrapper.io,
+            "load_footprints",
+            return_value=[],
+        ) as load_footprints,
+    ):
         result = wrapper._load_cached_footprints(bounds)
 
     assert result == []
@@ -140,11 +157,14 @@ def test_load_cached_footprints_accepts_empty_result_when_adjacent_tiles_cover_b
     )
 
 
-@pytest.mark.parametrize("name,provider,data_type,expected_provider", [
-    ("download_pointcloud", "DTCC", "lidar", "dtcc"),
-    ("download_footprints", "dtcc", "footprints", "dtcc"),
-    ("download_footprints", "osm", "footprints", "OSM"),
-])
+@pytest.mark.parametrize(
+    "name,provider,data_type,expected_provider",
+    [
+        ("download_pointcloud", "DTCC", "lidar", "dtcc"),
+        ("download_footprints", "dtcc", "footprints", "dtcc"),
+        ("download_footprints", "osm", "footprints", "OSM"),
+    ],
+)
 def test_public_download_helpers_forward_bounds_crs_and_provider(
     name, provider, data_type, expected_provider
 ):

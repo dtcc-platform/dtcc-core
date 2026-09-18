@@ -97,7 +97,9 @@ def test_buildings_default_build_returns_lod1_buildings(
         ground_only=True,
         _report_progress=False,
     )
-    mock_extract_roof_points.assert_called_once_with(initial_buildings, filtered_pointcloud)
+    mock_extract_roof_points.assert_called_once_with(
+        initial_buildings, filtered_pointcloud
+    )
     mock_compute_building_heights.assert_called_once_with(
         roof_buildings,
         terrain_raster,
@@ -149,7 +151,9 @@ def test_buildings_obj_export_returns_bytes(
     mock_city_cls.return_value = city
 
     dataset = BuildingDataset()
-    with patch.object(dataset, "export_to_bytes", return_value=b"obj-bytes") as mock_export:
+    with patch.object(
+        dataset, "export_to_bytes", return_value=b"obj-bytes"
+    ) as mock_export:
         result = dataset.build(
             BuildingArgs(
                 bounds=(0.0, 0.0, 1.0, 1.0),
@@ -329,12 +333,18 @@ def test_buildings_context_documents_lod1_lineage_and_limitations():
         "point_cloud",
         "building_footprints",
     }
-    assert any("smallest_building_size" in step for step in manifest.provenance.processing_steps)
+    assert any(
+        "smallest_building_size" in step
+        for step in manifest.provenance.processing_steps
+    )
     assert any("roof points" in step for step in manifest.provenance.processing_steps)
     assert manifest.presentation.headline == "LoD1 Building Blocks"
     assert manifest.presentation.legend["title"] == "LoD1 buildings"
     assert manifest.presentation.view_hints["level_of_detail"] == "LoD1"
-    assert any("not contain roof geometry" in warning for warning in manifest.presentation.warnings)
+    assert any(
+        "not contain roof geometry" in warning
+        for warning in manifest.presentation.warnings
+    )
     assert manifest.presentation.limitations
     assert manifest.request.parameters["source"] == "OSM"
     assert manifest.request.parameters["place_on_zero"] is True

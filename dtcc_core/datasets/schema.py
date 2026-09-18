@@ -92,8 +92,12 @@ class DatasetArtifact(DatasetSchemaModel):
     size: int | None = None
     sha256: str | None = None
     model_type: str | None = Field(default=None, exclude_if=lambda value: value is None)
-    model_schema_version: int | None = Field(default=None, exclude_if=lambda value: value is None)
-    derived_from: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    model_schema_version: int | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    derived_from: str | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 class DatasetManifest(DatasetSchemaModel):
@@ -107,8 +111,12 @@ class DatasetManifest(DatasetSchemaModel):
     request: DatasetRequest
     artifacts: list[DatasetArtifact] = Field(default_factory=list)
     # Canonical package v3 carries Context health; legacy v2 emission is unchanged.
-    health: JsonObject | None = Field(default=None, exclude_if=lambda value: value is None)
-    warnings: list[str] | None = Field(default=None, exclude_if=lambda value: value is None)
+    health: JsonObject | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    warnings: list[str] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 class DatasetContext(DatasetSchemaModel):

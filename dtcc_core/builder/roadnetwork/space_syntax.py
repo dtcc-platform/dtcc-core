@@ -338,9 +338,7 @@ def _shortest_path_statistics(
                 for predecessor in predecessors[node]:
                     if sigma[node] > 0.0:
                         dependency[predecessor] += (
-                            sigma[predecessor]
-                            / sigma[node]
-                            * (1.0 + dependency[node])
+                            sigma[predecessor] / sigma[node] * (1.0 + dependency[node])
                         )
                 if node != source:
                     choice[node] += dependency[node]

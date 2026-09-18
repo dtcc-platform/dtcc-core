@@ -166,8 +166,14 @@ class CityFlatMeshDataset(DatasetDescriptor):
         "title": "Flat mesh layers",
         "entries": [
             {"label": "Ground triangle", "meaning": "2D mesh element at z=0"},
-            {"label": "Building subdomain", "meaning": "conditioned LOD0 footprint area"},
-            {"label": "Subdomain boundary", "meaning": "building or coverage edge used by the mesher"},
+            {
+                "label": "Building subdomain",
+                "meaning": "conditioned LOD0 footprint area",
+            },
+            {
+                "label": "Subdomain boundary",
+                "meaning": "building or coverage edge used by the mesher",
+            },
         ],
     }
     view_hints = {

@@ -15,11 +15,11 @@ from .handler import LoggingHandler
 # This ensures log messages appear above the progress bar
 try:
     from .progress import get_console
+
     _console = get_console()
 except ImportError:
     # Fallback if progress module not available
-    _console = Console(stderr=True,
-                       soft_wrap=False)
+    _console = Console(stderr=True, soft_wrap=False)
 
 # Global logger dictionary (name -> function tuple)
 loggers: Dict[str, Tuple[Callable, Callable, Callable, Callable, Callable]] = {}
@@ -76,6 +76,7 @@ def _ensure_logger(name: str) -> _logging.Logger:
 
 def _callbacks_for(logger: _logging.Logger):
     """Build helper callbacks with legacy DTCC API."""
+
     def error(message):
         logger.error(message)
         raise RuntimeError(message)

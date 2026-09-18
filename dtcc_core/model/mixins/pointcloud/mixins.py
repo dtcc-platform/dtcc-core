@@ -13,7 +13,6 @@ if TYPE_CHECKING:
 
 
 class PointCloudBuilderMixin:
-
     def rasterize(
         self: "T_Pointcloud",
         cell_size: float,

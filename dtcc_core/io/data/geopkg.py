@@ -10,9 +10,9 @@ from platformdirs import user_cache_dir
 from .logging import info, warning, debug, error
 
 CACHE_DIR = user_cache_dir(appname="dtcc-data")
-os.makedirs(CACHE_DIR,exist_ok=True)
+os.makedirs(CACHE_DIR, exist_ok=True)
 # Where we store local cache metadata
-CACHE_FILE = os.path.join(CACHE_DIR,"tile_cache_superset.json")
+CACHE_FILE = os.path.join(CACHE_DIR, "tile_cache_superset.json")
 
 # The FastAPI endpoint
 DEFAULT_SERVER_URL = "http://127.0.0.1:8000/tiles"
@@ -22,6 +22,7 @@ _REQUEST_RETRY_BACKOFF_SECONDS = 2.0
 
 try:
     import nest_asyncio
+
     nest_asyncio.apply()
 except ImportError:
     pass
@@ -52,10 +53,12 @@ def load_cache():
     with open(CACHE_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
 
+
 def save_cache(cache_data):
     """Save the cache metadata to tile_cache_superset.json."""
     with open(CACHE_FILE, "w", encoding="utf-8") as f:
         json.dump(cache_data, f, indent=2)
+
 
 def is_superset_bbox(bbox_sup, bbox_sub):
     """
@@ -64,12 +67,8 @@ def is_superset_bbox(bbox_sup, bbox_sub):
     """
     minxS, minyS, maxxS, maxyS = bbox_sup
     minxT, minyT, maxxT, maxyT = bbox_sub
-    return (
-        minxS <= minxT and
-        minyS <= minyT and
-        maxxS >= maxxT and
-        maxyS >= maxyT
-    )
+    return minxS <= minxT and minyS <= minyT and maxxS >= maxxT and maxyS >= maxyT
+
 
 def find_superset_in_cache(bbox, cache_data):
     """
@@ -82,6 +81,7 @@ def find_superset_in_cache(bbox, cache_data):
         if is_superset_bbox(cached_bbox, bbox):
             return rec
     return None
+
 
 def post_gpkg_request(url, session, xmin, ymin, xmax, ymax, buffer_value=0):
     """
@@ -136,6 +136,7 @@ def post_gpkg_request(url, session, xmin, ymin, xmax, ymax, buffer_value=0):
 
     raise RuntimeError(f"Footprint tile lookup failed: {last_error}")
 
+
 async def download_gpkg_file(session, base_url, filename, output_dir):
     """
     Download a single .laz file asynchronously with aiohttp if not already cached.
@@ -174,18 +175,20 @@ async def download_gpkg_file(session, base_url, filename, output_dir):
             f"Failed to download footprint tile {filename}: {type(exc).__name__}: {exc}"
         ) from exc
 
+
 async def download_all_gpkg_files(base_url, filenames, output_dir="downloaded_gpkg"):
     """
     Given a list of filenames, downloads them all asynchronously from
     base_url/get/lidar/<filename> using aiohttp, skipping any local cache hits.
     """
-        
+
     async with aiohttp.ClientSession() as session:
         tasks = []
         for fname in filenames:
             tasks.append(download_gpkg_file(session, base_url, fname, output_dir))
         # Run all downloads concurrently
         await asyncio.gather(*tasks)
+
 
 def run_download_files(base_url, filenames, output_dir="downloaded_gpkg"):
     """
@@ -218,6 +221,7 @@ def run_download_files(base_url, filenames, output_dir="downloaded_gpkg"):
     asyncio.run(download_all_gpkg_files(base_url, missing_files, output_dir))
     debug("All downloads finished.")
 
+
 def download_tiles(user_bbox, session, server_url=DEFAULT_SERVER_URL):
     """
     1) Check if any cached bounding box is a superset of 'bbox'. If so, skip request.
@@ -234,7 +238,7 @@ def download_tiles(user_bbox, session, server_url=DEFAULT_SERVER_URL):
             ymin=user_bbox[1],
             xmax=user_bbox[2],
             ymax=user_bbox[3],
-            buffer_value=2000
+            buffer_value=2000,
         )
     except NoFootprintTilesError:
         raise
@@ -243,11 +247,13 @@ def download_tiles(user_bbox, session, server_url=DEFAULT_SERVER_URL):
             f"Footprint tile lookup failed for bounds {user_bbox}: {e}"
         ) from e
     returned_tiles = sorted(response_data["tiles"])
-    output_dir = os.path.join(CACHE_DIR,'downloaded-gpkg')
+    output_dir = os.path.join(CACHE_DIR, "downloaded-gpkg")
     # D) Download files in parallel (with local cache)
     # filenames_to_download = [tile["filename"] for tile in returned_tiles]
     run_download_files(server_url, returned_tiles, output_dir=output_dir)
-    downloaded_files = [os.path.join(output_dir, filename) for filename in returned_tiles]
+    downloaded_files = [
+        os.path.join(output_dir, filename) for filename in returned_tiles
+    ]
     missing_files = [path for path in downloaded_files if not os.path.exists(path)]
     if missing_files:
         raise FootprintDownloadError(

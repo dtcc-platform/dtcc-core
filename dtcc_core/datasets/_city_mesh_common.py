@@ -71,11 +71,7 @@ def prepare_city_from_bounds(
 
     with phase(
         "remove_outliers",
-        (
-            "Removing outliers..."
-            if remove_outliers
-            else "Skipping outlier removal..."
-        ),
+        ("Removing outliers..." if remove_outliers else "Skipping outlier removal..."),
     ):
         if remove_outliers:
             pointcloud = pointcloud.remove_global_outliers(outlier_threshold)

@@ -136,7 +136,10 @@ class BuildingDataset(DatasetDescriptor):
         "entries": [
             {"label": "Footprint", "meaning": "source building outline"},
             {"label": "Height", "meaning": "point-cloud-derived LoD1 extrusion height"},
-            {"label": "Merged mesh", "meaning": "OBJ/STL export artifact when requested"},
+            {
+                "label": "Merged mesh",
+                "meaning": "OBJ/STL export artifact when requested",
+            },
         ],
     }
     view_hints = {

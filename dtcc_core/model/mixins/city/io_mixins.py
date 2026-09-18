@@ -217,8 +217,9 @@ class CitySaveMixin:
             raise ValueError("City has no pointcloud to save")
         io.pointcloud.save(pc, path)
 
-    def save_cityjson(self: "City", path: Union[str, Path], *, strict=False,
-                     validate_schema=None):
+    def save_cityjson(
+        self: "City", path: Union[str, Path], *, strict=False, validate_schema=None
+    ):
         """Save CityJSON; strict=True applies the standard schema by default.
 
         validate_schema=False bypasses semantics only in strict mode.

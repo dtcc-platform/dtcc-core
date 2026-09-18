@@ -53,9 +53,7 @@ class LoggingHandler(RichHandler):
         """Emit a log record with DTCC formatting."""
         try:
             # Get styles for this level
-            level_style, msg_style = LEVEL_STYLES.get(
-                record.levelname, ("", "")
-            )
+            level_style, msg_style = LEVEL_STYLES.get(record.levelname, ("", ""))
 
             # Format timestamp
             time_str = datetime.fromtimestamp(record.created).strftime("%H:%M:%S")

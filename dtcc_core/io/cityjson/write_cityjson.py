@@ -78,8 +78,12 @@ def to_cityjson_terrain_mesh(
 
 
 def to_cityjson(
-    city: City, scale: float = 0.001, config: CityJSONConfig = None, *, strict=False,
-    validate_schema=None
+    city: City,
+    scale: float = 0.001,
+    config: CityJSONConfig = None,
+    *,
+    strict=False,
+    validate_schema=None,
 ) -> Dict:
     """Convert a DTCC City to CityJSON format.
 
@@ -102,12 +106,14 @@ def to_cityjson(
         CityJSON formatted dictionary
     """
     from .admission import schema_validation
+
     validate_schema = schema_validation(strict, validate_schema)
     config = config or CityJSONConfig()
     if strict:
         from .admission import validate_export
         from ...model.exchange import _schema_for_model
         from ...model._standard_schema import validate_admitted
+
         validate_export(city)
         schema_id, schema_version = _schema_for_model(city)
         if validate_schema:
@@ -152,7 +158,7 @@ def to_cityjson(
             cityjson["metadata"]["referenceSystem"] = crs
 
     if strict and city.transform.srs:
-        cityjson.setdefault('metadata', {})['referenceSystem'] = city.transform.srs
+        cityjson.setdefault("metadata", {})["referenceSystem"] = city.transform.srs
 
     # Quantization factor for integer vertices
     quantize_factor = 1.0 / scale
@@ -163,11 +169,17 @@ def to_cityjson(
     def add_feature(feature, parent=None):
         if strict:
             from .admission import feature_type
+
             name = feature_type(feature)
         else:
             name = type(feature).__name__
         from .attributes import write_attributes
-        data = {"type": name, "attributes": write_attributes(feature.attributes, name), "geometry": []}
+
+        data = {
+            "type": name,
+            "attributes": write_attributes(feature.attributes, name),
+            "geometry": [],
+        }
         if parent is not None:
             data["parents"] = [parent.id]
         parts = sorted(feature.children.get(BuildingPart, []), key=lambda p: p.id)
@@ -176,61 +188,107 @@ def to_cityjson(
         if strict:
             from .converters import convert_multisurface, convert_mesh
             from ...model import Solid, Point, Mesh, MultiLineString
+
             for record in feature.geometry.values():
                 geometry = record.geometry
                 if type(geometry) is Point:
-                    indices = indexer.add_points(np.array([[geometry.x, geometry.y, geometry.z]]),
-                                                 quantize_factor, config.rounding_mode)
-                    data['geometry'].append({'type': 'MultiPoint', 'lod': record.lod, 'boundaries': indices})
+                    indices = indexer.add_points(
+                        np.array([[geometry.x, geometry.y, geometry.z]]),
+                        quantize_factor,
+                        config.rounding_mode,
+                    )
+                    data["geometry"].append(
+                        {"type": "MultiPoint", "lod": record.lod, "boundaries": indices}
+                    )
                     continue
                 if type(geometry) is MultiLineString:
                     boundaries = []
                     for line in geometry.linestrings:
-                        indices = indexer.add_points(line.vertices, quantize_factor, config.rounding_mode)
-                        if len(set(indices)) < 2 and len(np.unique(line.vertices, axis=0)) >= 2:
-                            raise ValueError('Requested CityJSON quantization collapses a line')
+                        indices = indexer.add_points(
+                            line.vertices, quantize_factor, config.rounding_mode
+                        )
+                        if (
+                            len(set(indices)) < 2
+                            and len(np.unique(line.vertices, axis=0)) >= 2
+                        ):
+                            raise ValueError(
+                                "Requested CityJSON quantization collapses a line"
+                            )
                         boundaries.append(indices)
-                    data['geometry'].append({'type': 'MultiLineString', 'lod': record.lod,
-                                             'boundaries': boundaries})
+                    data["geometry"].append(
+                        {
+                            "type": "MultiLineString",
+                            "lod": record.lod,
+                            "boundaries": boundaries,
+                        }
+                    )
                     continue
                 if type(geometry) is Mesh:
-                    encoded = convert_mesh(geometry, vertices, quantize_factor, config, indexer=indexer)
-                    encoded['type'] = 'CompositeSurface'
-                    encoded['lod'] = record.lod
+                    encoded = convert_mesh(
+                        geometry, vertices, quantize_factor, config, indexer=indexer
+                    )
+                    encoded["type"] = "CompositeSurface"
+                    encoded["lod"] = record.lod
                     # No relief surface vocabulary is asserted in this subset.
-                    del encoded['semantics']
-                    if any(len(set(polygon[0])) != 3 for polygon in encoded['boundaries']):
-                        raise ValueError('Requested CityJSON quantization collapses a TINRelief triangle')
-                    data['geometry'].append(encoded)
+                    del encoded["semantics"]
+                    if any(
+                        len(set(polygon[0])) != 3 for polygon in encoded["boundaries"]
+                    ):
+                        raise ValueError(
+                            "Requested CityJSON quantization collapses a TINRelief triangle"
+                        )
+                    data["geometry"].append(encoded)
                     continue
                 # The converter uses the shared polygon/region representation;
                 # Solid shells are restored explicitly below.
-                encoded = convert_multisurface(geometry, vertices, quantize_factor, config, indexer=indexer)
-                encoded['lod'] = record.lod
+                encoded = convert_multisurface(
+                    geometry, vertices, quantize_factor, config, indexer=indexer
+                )
+                encoded["lod"] = record.lod
                 from .admission import COMPOSITE_SURFACE_ROLE
+
                 if record.role == COMPOSITE_SURFACE_ROLE:
-                    encoded['type'] = 'CompositeSurface'
-                for surface, polygon in zip(geometry.surfaces, encoded['boundaries']):
-                    for source_ring, ring in zip([surface.vertices, *surface.holes], polygon):
-                        if len(set(ring)) < 3 and len(np.unique(source_ring, axis=0)) >= 3:
-                            raise ValueError('Requested CityJSON quantization collapses a polygon ring')
+                    encoded["type"] = "CompositeSurface"
+                for surface, polygon in zip(geometry.surfaces, encoded["boundaries"]):
+                    for source_ring, ring in zip(
+                        [surface.vertices, *surface.holes], polygon
+                    ):
+                        if (
+                            len(set(ring)) < 3
+                            and len(np.unique(source_ring, axis=0)) >= 3
+                        ):
+                            raise ValueError(
+                                "Requested CityJSON quantization collapses a polygon ring"
+                            )
                 if not geometry.regions:
-                    encoded['semantics'] = {'surfaces': [], 'values': [None] * len(geometry.surfaces)}
+                    encoded["semantics"] = {
+                        "surfaces": [],
+                        "values": [None] * len(geometry.surfaces),
+                    }
                 if type(geometry) is Solid:
-                    encoded['type'] = 'Solid'
-                    flat = encoded['boundaries']
-                    encoded['boundaries'] = [[flat[i] for i in shell] for shell in geometry.shells]
-                    values = encoded['semantics']['values']
-                    encoded['semantics']['values'] = [[values[i] for i in shell] for shell in geometry.shells]
-                data['geometry'].append(encoded)
+                    encoded["type"] = "Solid"
+                    flat = encoded["boundaries"]
+                    encoded["boundaries"] = [
+                        [flat[i] for i in shell] for shell in geometry.shells
+                    ]
+                    values = encoded["semantics"]["values"]
+                    encoded["semantics"]["values"] = [
+                        [values[i] for i in shell] for shell in geometry.shells
+                    ]
+                data["geometry"].append(encoded)
         else:
-            _add_object_geometries(feature, data, vertices, quantize_factor, config, indexer=indexer)
+            _add_object_geometries(
+                feature, data, vertices, quantize_factor, config, indexer=indexer
+            )
         cityjson["CityObjects"][feature.id] = data
         for part in parts:
             add_feature(part, feature)
 
-    roots = ([child for group in city.children.values() for child in group]
-             if strict else city.children.get(Building, []))
+    roots = (
+        [child for group in city.children.values() for child in group]
+        if strict
+        else city.children.get(Building, [])
+    )
     for feature in sorted(roots, key=lambda b: b.id):
         add_feature(feature)
 
@@ -247,7 +305,12 @@ def to_cityjson(
 
             # Add terrain geometries
             _add_object_geometries(
-                terrain, terrain_data, vertices, quantize_factor, config, indexer=indexer
+                terrain,
+                terrain_data,
+                vertices,
+                quantize_factor,
+                config,
+                indexer=indexer,
             )
 
             cityjson["CityObjects"][terrain.id] = terrain_data
@@ -272,14 +335,20 @@ def _add_object_geometries(
     # Iterate deterministically by geometry type
     for key, record in sorted(obj.geometry.items()):
         geometry = record.geometry
-        geom_type = GeometryType.from_str('lod' + record.lod) if record.lod in ('0', '1', '2', '3') else record.role
-        if record.lod is not None and record.lod not in ('0', '1', '2', '3'):
-            raise NotImplementedError('Fractional LoD requires strict CityJSON export')
+        geom_type = (
+            GeometryType.from_str("lod" + record.lod)
+            if record.lod in ("0", "1", "2", "3")
+            else record.role
+        )
+        if record.lod is not None and record.lod not in ("0", "1", "2", "3"):
+            raise NotImplementedError("Fractional LoD requires strict CityJSON export")
         if record.role is not None:
             try:
                 geom_type = GeometryType.from_str(record.role)
             except ValueError:
-                raise NotImplementedError(f'No legacy CityJSON mapping for role {record.role!r}')
+                raise NotImplementedError(
+                    f"No legacy CityJSON mapping for role {record.role!r}"
+                )
         if geometry is None:
             continue
 
@@ -358,8 +427,9 @@ def save(
     ValueError
         If the file format is not supported
     """
-    cj = to_cityjson(city, scale=scale, config=config, strict=strict,
-                     validate_schema=validate_schema)
+    cj = to_cityjson(
+        city, scale=scale, config=config, strict=strict, validate_schema=validate_schema
+    )
     path = Path(path)
 
     suffix = path.suffix.lower()
@@ -377,7 +447,9 @@ def save(
         else:
             inner_name = path.with_suffix("").name + ".json"
 
-        json_bytes = json.dumps(cj, indent=indent, ensure_ascii=ensure_ascii).encode("utf-8")
+        json_bytes = json.dumps(cj, indent=indent, ensure_ascii=ensure_ascii).encode(
+            "utf-8"
+        )
         with zipfile.ZipFile(path, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
             zf.writestr(inner_name, json_bytes)
     else:

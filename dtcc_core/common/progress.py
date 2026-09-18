@@ -77,25 +77,26 @@ def set_progress_callback(callback: Callable[[dict], None] = None):
 
 def get_progress_callback() -> Optional[Callable[[dict], None]]:
     """Get the progress callback for the current thread."""
-    return getattr(_thread_local, 'callback', None)
+    return getattr(_thread_local, "callback", None)
 
 
 class ProgressMode(Enum):
     TERMINAL = auto()  # Human-readable terminal output
-    JSON = auto()       # Machine-readable JSON lines
-    SILENT = auto()     # No output (for nested trackers)
-    CALLBACK = auto()   # Custom callback function
+    JSON = auto()  # Machine-readable JSON lines
+    SILENT = auto()  # No output (for nested trackers)
+    CALLBACK = auto()  # Custom callback function
 
 
 # ============================================================
 # Context Variable for Propagation
 # ============================================================
 
-_current_progress: contextvars.ContextVar[Optional['ProgressTracker']] = \
-    contextvars.ContextVar('dtcc_progress', default=None)
+_current_progress: contextvars.ContextVar[Optional["ProgressTracker"]] = (
+    contextvars.ContextVar("dtcc_progress", default=None)
+)
 
 
-def get_progress() -> Optional['ProgressTracker']:
+def get_progress() -> Optional["ProgressTracker"]:
     """Get the current progress tracker from context."""
     return _current_progress.get()
 
@@ -131,16 +132,20 @@ def report_progress(
     if current is not None and total is not None and total > 0:
         percent = (current / total) * 100
 
-    tracker._update_phase_progress(percent=percent, increment=increment, message=message)
+    tracker._update_phase_progress(
+        percent=percent, increment=increment, message=message
+    )
 
 
 # ============================================================
 # Progress State
 # ============================================================
 
+
 @dataclass
 class PhaseInfo:
     """Information about a single phase."""
+
     name: str
     weight: float
     progress: float = 0.0  # 0-1 within this phase
@@ -152,6 +157,7 @@ class PhaseInfo:
 @dataclass
 class ProgressState:
     """Complete state of progress tracking."""
+
     phases: Dict[str, PhaseInfo] = field(default_factory=dict)
     current_phase: Optional[str] = None
     start_time: float = field(default_factory=time.time)
@@ -192,6 +198,7 @@ class ProgressState:
 # Main Progress Tracker
 # ============================================================
 
+
 class ProgressTracker:
     """
     Thread-safe progress tracker with phase support and context propagation.
@@ -222,7 +229,7 @@ class ProgressTracker:
         phases: Dict[str, float] = None,
         total: float = 0.0,
         mode: str = "auto",
-        output = None,
+        output=None,
         callback: Callable[[dict], None] = None,
         min_update_interval: float = 0.05,
     ):
@@ -257,7 +264,7 @@ class ProgressTracker:
             # Normalize weights to sum to 1.0
             total_weight = sum(phases.values())
             self.state.phases = {
-                name: PhaseInfo(name=name, weight=w/total_weight)
+                name: PhaseInfo(name=name, weight=w / total_weight)
                 for name, w in phases.items()
             }
 
@@ -285,7 +292,11 @@ class ProgressTracker:
             else:
                 # Auto-detect from TTY
                 try:
-                    self._mode = ProgressMode.TERMINAL if self.output.isatty() else ProgressMode.JSON
+                    self._mode = (
+                        ProgressMode.TERMINAL
+                        if self.output.isatty()
+                        else ProgressMode.JSON
+                    )
                 except AttributeError:
                     self._mode = ProgressMode.JSON
 
@@ -369,14 +380,14 @@ class ProgressTracker:
             self._render()
 
     def _update_phase_progress(
-        self,
-        percent: float = None,
-        increment: float = None,
-        message: str = None
+        self, percent: float = None, increment: float = None, message: str = None
     ):
         """Update progress within current phase."""
         with self._lock:
-            if self.state.current_phase and self.state.current_phase in self.state.phases:
+            if (
+                self.state.current_phase
+                and self.state.current_phase in self.state.phases
+            ):
                 phase = self.state.phases[self.state.current_phase]
 
                 if increment is not None:
@@ -390,7 +401,10 @@ class ProgressTracker:
 
                 # Update the single progress bar with overall progress
                 if self._rich_progress and self._rich_task_id is not None:
-                    update_kwargs = {"completed": self.state.overall_percent, "refresh": True}
+                    update_kwargs = {
+                        "completed": self.state.overall_percent,
+                        "refresh": True,
+                    }
                     if message:
                         update_kwargs["description"] = message
                     self._rich_progress.update(self._rich_task_id, **update_kwargs)
@@ -407,7 +421,7 @@ class ProgressTracker:
         current: int = None,
         total: int = None,
         increment: int = None,
-        message: str = None
+        message: str = None,
     ):
         """Update simple progress (non-phased mode)."""
         with self._lock:
@@ -422,7 +436,10 @@ class ProgressTracker:
 
             # Update rich progress for simple mode
             if self._rich_progress and self._rich_task_id is not None:
-                update_kwargs = {"completed": self.state.overall_percent, "refresh": True}
+                update_kwargs = {
+                    "completed": self.state.overall_percent,
+                    "refresh": True,
+                }
                 if message:
                     update_kwargs["description"] = message
                 self._rich_progress.update(self._rich_task_id, **update_kwargs)
@@ -455,7 +472,11 @@ class ProgressTracker:
         self.state.total = total
 
         for i, item in enumerate(iterable):
-            msg = message.format(current=i+1, total=total) if message and '{' in message else message
+            msg = (
+                message.format(current=i + 1, total=total)
+                if message and "{" in message
+                else message
+            )
             self.update(current=i, message=msg)
             yield item
 
@@ -473,6 +494,7 @@ class ProgressTracker:
         Returns:
             Callable with signature (current, total, message) -> None
         """
+
         def callback(current: int, total: int, message: str = ""):
             if phase_name and phase_name in self.state.phases:
                 percent = (current / total * 100) if total > 0 else 0
@@ -514,7 +536,9 @@ class ProgressTracker:
         return {
             "type": "progress",
             "percent": round(self.state.overall_percent, 2),
-            "eta_seconds": round(self.state.eta_seconds) if self.state.eta_seconds else None,
+            "eta_seconds": round(self.state.eta_seconds)
+            if self.state.eta_seconds
+            else None,
             "eta_formatted": self._format_eta(self.state.eta_seconds),
             "message": self.state.message,
             "phase": self.state.current_phase,
@@ -570,6 +594,7 @@ class ProgressTracker:
 # Decorator for Functions
 # ============================================================
 
+
 def with_progress(
     phases: Dict[str, float] = None,
     total: int = None,
@@ -585,6 +610,7 @@ def with_progress(
         total: Total items for simple progress
         message: Default status message
     """
+
     def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
@@ -601,4 +627,5 @@ def with_progress(
                 return func(*args, **kwargs)
 
         return wrapper
+
     return decorator

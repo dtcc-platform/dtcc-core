@@ -120,8 +120,14 @@ class TreesDataset(DatasetDescriptor):
         "title": "Tree extraction",
         "entries": [
             {"label": "Tree point", "meaning": "estimated tree top/base position"},
-            {"label": "Circle", "meaning": "estimated crown radius when vector_geometry='circle'"},
-            {"label": "Raster value", "meaning": "estimated canopy height above terrain"},
+            {
+                "label": "Circle",
+                "meaning": "estimated crown radius when vector_geometry='circle'",
+            },
+            {
+                "label": "Raster value",
+                "meaning": "estimated canopy height above terrain",
+            },
         ],
     }
     view_hints = {

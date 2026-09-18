@@ -24,11 +24,14 @@ def format_dataset_context(context, obj: Any | None = None) -> str:
     """Return a readable metadata and presentation summary for a Dataset v2 object."""
     from dtcc_core.common._display import format_info
 
-    return format_info("", [
-        ("Metadata", ("Field", "Value"), _metadata_rows(context, obj)),
-        ("Presentation", ("Field", "Value"), _presentation_rows(context)),
-        ("Provenance", ("Field", "Value"), _provenance_rows(context)),
-    ]).lstrip()
+    return format_info(
+        "",
+        [
+            ("Metadata", ("Field", "Value"), _metadata_rows(context, obj)),
+            ("Presentation", ("Field", "Value"), _presentation_rows(context)),
+            ("Provenance", ("Field", "Value"), _provenance_rows(context)),
+        ],
+    ).lstrip()
 
 
 def plot_product_with_presentation(
@@ -531,7 +534,9 @@ def _draw_narrative_card(
 def _preview_chips(context) -> list[str]:
     metadata = context.metadata
     presentation = context.presentation
-    view_hints = presentation.view_hints if isinstance(presentation.view_hints, dict) else {}
+    view_hints = (
+        presentation.view_hints if isinstance(presentation.view_hints, dict) else {}
+    )
     values = [
         view_hints.get("table_role") or view_hints.get("preferred_geometry"),
         _plain_value(metadata.crs),
@@ -661,7 +666,11 @@ def _object_label(context, *, plural: bool) -> str:
         return "stations" if plural else "station"
     if "vehicle" in result_kind or "transit" in dataset_name:
         return "vehicles" if plural else "vehicle"
-    if "road" in result_kind or "road" in dataset_name or "space syntax" in dataset_name:
+    if (
+        "road" in result_kind
+        or "road" in dataset_name
+        or "space syntax" in dataset_name
+    ):
         return "segments" if plural else "segment"
     if "tree" in result_kind or "tree" in dataset_name:
         return "trees" if plural else "tree"
@@ -825,7 +834,9 @@ def _preview_subtitle(context, product) -> str:
 def _dataset_preview_subtitle(context) -> str:
     metadata = context.metadata
     presentation = context.presentation
-    view_hints = presentation.view_hints if isinstance(presentation.view_hints, dict) else {}
+    view_hints = (
+        presentation.view_hints if isinstance(presentation.view_hints, dict) else {}
+    )
     role = (
         view_hints.get("table_role")
         or view_hints.get("preferred_geometry")
