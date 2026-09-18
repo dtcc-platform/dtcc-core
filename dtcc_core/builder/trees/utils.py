@@ -6,7 +6,6 @@ from scipy.spatial import cKDTree
 from shapely.geometry import Polygon, shape
 from shapely.validation import make_valid
 from skimage import morphology, segmentation
-from skimage.measure import perimeter
 
 
 def crown_radius_from_height(

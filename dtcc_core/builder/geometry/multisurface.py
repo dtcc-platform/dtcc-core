@@ -1,13 +1,12 @@
 from collections import defaultdict
 
 import numpy as np
-from shapely.geometry import MultiPolygon, Polygon
+from shapely.geometry import Polygon
 from shapely.validation import make_valid
 
 from ...model import Mesh, MultiSurface
 from .. import _dtcc_builder
 from ..geometry.surface import are_coplanar
-from ..logging import error, info, warning
 from ..meshing.meshing import mesh_multisurface
 from ..model_conversion import create_builder_multisurface
 from ..polygons.polygons import merge_list_of_polygons

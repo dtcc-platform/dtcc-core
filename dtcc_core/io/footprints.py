@@ -1,13 +1,10 @@
 # Copyright (C) 2022 Dag Wästberg
 # Licensed under the MIT License
 
-import json
 from pathlib import Path
-from typing import List, Union
 
 import fiona
 import numpy as np
-import pyproj
 import shapely.affinity
 import shapely.geometry
 import shapely.ops
@@ -20,7 +17,6 @@ from .utils import get_epsg
 from .vector_utils import (
     create_bounds_filter,
     determine_io_crs,
-    get_format_required_crs,
     get_geometry_crs,
     get_vector_driver,
     safe_reproject_geometry,

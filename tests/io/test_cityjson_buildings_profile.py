@@ -12,7 +12,6 @@ from dtcc_core.io.cityjson import cityjson
 from dtcc_core.io.cityjson.semantics import SEMANTIC_NAMESPACE
 from dtcc_core.model import (
     Field,
-    GeometryType,
     Mesh,
     MultiSurface,
     SemanticRegion,

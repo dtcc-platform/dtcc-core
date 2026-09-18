@@ -2,8 +2,6 @@ from pathlib import Path
 
 import pytest
 
-from dtcc_core import builder, io
-
 
 @pytest.fixture
 def data_dir():

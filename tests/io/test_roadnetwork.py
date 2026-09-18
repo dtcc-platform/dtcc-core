@@ -5,7 +5,7 @@ import pytest
 
 from dtcc_core.io import roadnetwork
 from dtcc_core.model import Bounds
-from dtcc_core.model.object import GeometryType, RoadNetwork, RoadType
+from dtcc_core.model.object import GeometryType, RoadNetwork
 
 # Try importing geopandas
 try:

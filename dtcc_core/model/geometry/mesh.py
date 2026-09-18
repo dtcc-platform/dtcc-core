@@ -3,7 +3,6 @@
 from collections.abc import Iterable
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Union
 
 import numpy as np
 

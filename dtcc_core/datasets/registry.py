@@ -6,7 +6,7 @@ It's separate from __init__.py to avoid circular import issues during
 module initialization.
 """
 
-from ..common import debug, info, warning
+from ..common import debug, warning
 
 # Registry storage
 _dataset_classes = {}  # Maps name -> class (for class-level access)

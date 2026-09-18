@@ -3,7 +3,6 @@
 
 
 from dataclasses import dataclass, field
-from typing import Union
 
 import numpy as np
 

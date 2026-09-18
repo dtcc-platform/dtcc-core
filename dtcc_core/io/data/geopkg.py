@@ -9,7 +9,7 @@ import aiohttp
 import requests
 from platformdirs import user_cache_dir
 
-from .logging import debug, error, info, warning
+from .logging import debug, info, warning
 
 CACHE_DIR = user_cache_dir(appname="dtcc-data")
 os.makedirs(CACHE_DIR, exist_ok=True)

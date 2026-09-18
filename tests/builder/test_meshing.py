@@ -1,5 +1,3 @@
-from collections import defaultdict
-
 import numpy as np
 import pytest
 
@@ -10,7 +8,6 @@ from dtcc_core.builder.meshing import (
     disjoint_meshes,
     merge_meshes,
     mesh_multisurface,
-    mesh_multisurfaces,
     mesh_surface,
     tetgen_utils,
 )

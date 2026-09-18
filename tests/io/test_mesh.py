@@ -1,4 +1,3 @@
-import json
 import os
 import pathlib
 import tempfile
@@ -8,7 +7,7 @@ import numpy as np
 import pytest
 
 from dtcc_core import io
-from dtcc_core.model import City, Field, Mesh, VolumeMesh
+from dtcc_core.model import City, Field, VolumeMesh
 
 
 @pytest.fixture

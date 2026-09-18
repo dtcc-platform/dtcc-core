@@ -1,12 +1,9 @@
 """Test Point geometry protobuf roundtrip."""
 
-import tempfile
-
 import pytest
 
 # Import from dtcc_core package
 from dtcc_core.model.geometry import Point
-from dtcc_core.model.geometry.bounds import Bounds
 
 
 def test_point_creation():

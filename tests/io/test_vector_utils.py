@@ -3,7 +3,6 @@
 
 """Tests for vector I/O utilities."""
 
-import tempfile
 from pathlib import Path
 
 import pytest

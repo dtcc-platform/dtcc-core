@@ -2,7 +2,6 @@ from pathlib import Path
 
 import pytest
 
-from dtcc_core import io
 from dtcc_core.model import City
 
 

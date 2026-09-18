@@ -5,7 +5,6 @@ from tqdm import tqdm
 
 from ...model import Building, City, Mesh, MultiSurface, Solid, Surface
 from ...model.object.building import BuildingPart
-from ...model.object.city import CityObject
 from ...model.object.object import GeometryType
 
 

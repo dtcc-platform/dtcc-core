@@ -22,9 +22,8 @@ Unlike the metobs API used by the weather dataset, HydroObs has no bulk
 4. Merges results and builds a ``SensorCollection``.
 """
 
-from collections.abc import Sequence
-from datetime import UTC, datetime, timezone
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from datetime import UTC, datetime
+from typing import Any, Literal
 
 import numpy as np
 from pydantic import Field

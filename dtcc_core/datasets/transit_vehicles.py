@@ -15,8 +15,8 @@ variable.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timezone
-from typing import Any, Literal, Optional, Tuple
+from datetime import UTC, datetime
+from typing import Any, Literal
 
 import numpy as np
 from pydantic import Field, field_validator

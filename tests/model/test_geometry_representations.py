@@ -1,7 +1,5 @@
 """Exact attachment selection, explicit Solid topology and reader migration."""
 
-from pathlib import Path
-
 import numpy as np
 import pytest
 
@@ -11,16 +9,13 @@ from dtcc_core.model import (
     Building,
     City,
     Field,
-    GeometryRepresentation,
     GeometryType,
     Object,
     Point,
-    SemanticRegion,
     Solid,
     Surface,
     exchange,
 )
-from dtcc_core.model import dtcc_pb2 as wire
 
 
 def solid_document():

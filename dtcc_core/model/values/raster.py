@@ -2,14 +2,12 @@
 # Licensed under the MIT License
 from copy import deepcopy
 from dataclasses import dataclass, field
-from email.headerregistry import Address
-from typing import Union
 
 import numpy as np
 from affine import Affine
 
 from ..geometry.bounds import Bounds
-from ..logging import error, info, warning
+from ..logging import error
 from ..model import Model
 
 # FIXME: Make Raster fit the UML diagram

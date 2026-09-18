@@ -1,14 +1,13 @@
 # Copyright(C) 2023 Dag Wästberg
 # Licensed under the MIT License
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from numbers import Real
-from typing import Literal, Union
+from typing import Literal
 
-from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
-from ..geometry import Bounds, Surface
+from ..geometry import Surface
 from ..logging import warning
 from .object import GeometryType, Object
 

@@ -2,7 +2,7 @@
 # Licensed under the MIT License
 
 from dataclasses import dataclass
-from typing import Any, List
+from typing import Any
 
 import numpy as np
 
@@ -13,7 +13,6 @@ from ...plotting.style import (
     style_colorbar,
 )
 from ..geometry import Point
-from ..values import Field
 from .object import Object
 
 

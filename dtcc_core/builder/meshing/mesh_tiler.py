@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Set, Tuple
 
 import numpy as np
 from shapely.geometry import LineString, Point, Polygon, box

@@ -2,12 +2,11 @@
 # Licensed under the MIT License
 
 from collections import defaultdict
-from dataclasses import dataclass, field
-from typing import Literal, Union
+from dataclasses import dataclass
+from typing import Literal
 
 from .. import geometry
-from ..geometry import Bounds
-from ..logging import debug, error, info, warning
+from ..logging import info, warning
 from ..mixins.city import (
     CityBuilderMixin,
     CityDownloadMixin,

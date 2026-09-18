@@ -5,9 +5,7 @@ Script to find all functions and methods missing docstrings in dtcc_core directo
 
 import ast
 import os
-import re
 from pathlib import Path
-from typing import Dict, List, Tuple
 
 
 def has_docstring(node):

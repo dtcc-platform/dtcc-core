@@ -1,12 +1,9 @@
-from typing import List, Union
-
 import numpy as np
 
 from ...model import Bounds, PointCloud, Surface
 from .. import _dtcc_builder
-from ..logging import error, info, warning
+from ..logging import error, warning
 from ..model_conversion import create_builder_polygon
-from ..register import register_model_method
 
 
 def find_global_outliers(pc: PointCloud, margin: float) -> np.ndarray:

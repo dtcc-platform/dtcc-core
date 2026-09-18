@@ -2,8 +2,6 @@
 Unit tests for mesh_tiler module - SurfaceMeshClipper and SingleBBoxClipper classes.
 """
 
-from typing import List
-
 import numpy as np
 import pytest
 from shapely.geometry import Polygon

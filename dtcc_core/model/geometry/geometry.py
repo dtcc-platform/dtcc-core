@@ -3,7 +3,6 @@
 
 from abc import abstractmethod
 from dataclasses import dataclass, field
-from typing import Union
 
 from ..model import Model
 from ..values import Field

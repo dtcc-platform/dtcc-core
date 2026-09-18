@@ -29,7 +29,6 @@ import sys
 import textwrap
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Set, Tuple
 
 
 @dataclass

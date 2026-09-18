@@ -2,8 +2,7 @@ from pathlib import Path
 
 import pytest
 
-import dtcc_core
-from dtcc_core.model import Bounds, City, PointCloud
+from dtcc_core.model import City
 
 
 @pytest.fixture

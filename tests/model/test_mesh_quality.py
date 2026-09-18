@@ -12,13 +12,11 @@ from dtcc_core.model.mixins.mesh.quality import (
     tet_element_quality,
     tet_radius_ratio,
     tet_skewness,
-    tetrahedron_mesh_quality,
     tri_aspect_ratio,
     tri_edge_ratio,
     tri_element_quality,
     tri_radius_ratio,
     tri_skewness,
-    triangle_mesh_quality,
 )
 
 # -----------------------------------------------------------------------

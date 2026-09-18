@@ -3,7 +3,7 @@
 
 import pathlib
 
-from .logging import debug, error, info, warning
+from .logging import debug, error, info
 
 
 def save(object, path, name, formats, format: str = None, *args, **kwargs):

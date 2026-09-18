@@ -2,7 +2,6 @@
 # Licensed under the MIT License
 
 from pathlib import Path
-from typing import List, Optional, Union
 
 import pyproj
 import shapely.geometry

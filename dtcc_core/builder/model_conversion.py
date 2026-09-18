@@ -1,11 +1,10 @@
 from numbers import Real
-from typing import Union
 
 import numpy as np
 from affine import Affine
 from shapely.geometry import Polygon
 
-from ..model import Mesh, MultiSurface, PointCloud, Raster, Surface, VolumeMesh
+from ..model import Mesh, MultiSurface, Raster, Surface, VolumeMesh
 from . import _dtcc_builder
 
 

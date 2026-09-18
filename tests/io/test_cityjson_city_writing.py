@@ -17,7 +17,7 @@ from dtcc_core.io.cityjson.write_cityjson import (
     save,
     to_cityjson,
 )
-from dtcc_core.model import Building, BuildingPart, City, Mesh, MultiSurface, Surface
+from dtcc_core.model import Building, BuildingPart, City, Mesh, Surface
 from dtcc_core.model.geometry import Bounds
 from dtcc_core.model.object.object import GeometryType
 from dtcc_core.model.object.terrain import Terrain

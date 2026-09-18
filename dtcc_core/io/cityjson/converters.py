@@ -5,7 +5,6 @@ A simpler alternative to the ABC-based design - just functions and utilities.
 """
 
 from dataclasses import dataclass
-from typing import Dict, List
 
 import numpy as np
 

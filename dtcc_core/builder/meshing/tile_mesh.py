@@ -1,8 +1,6 @@
-from typing import List, Tuple, Union
-
 from tqdm import tqdm
 
-from dtcc_core.model import Bounds, Mesh
+from dtcc_core.model import Mesh
 
 
 def tile_surface_mesh(

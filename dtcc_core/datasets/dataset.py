@@ -5,11 +5,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-import dtcc_core
 from dtcc_core.model import Bounds
 from dtcc_core.model import Geometry as DTCCGeometry
 from dtcc_core.model import Object as DTCCObject

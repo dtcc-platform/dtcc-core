@@ -13,7 +13,7 @@ from platformdirs import user_cache_dir
 
 from dtcc_core.common.progress import report_progress
 
-from .logging import debug, error, info, warning
+from .logging import debug, info, warning
 
 try:
     import nest_asyncio

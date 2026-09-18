@@ -79,9 +79,6 @@ def create_sphere(center, radius, resolution=20, scale=(1.0, 1.0, 1.0)):
     return mesh
 
 
-import numpy as np
-
-
 def create_cylinder(center, radius, height, resolution=20, axis=2, cap=True):
     """
     Create a triangulated cylinder mesh.
@@ -182,9 +179,6 @@ def create_cylinder(center, radius, height, resolution=20, axis=2, cap=True):
     mesh = Mesh(vertices=np.array(vertices), faces=np.array(faces))
 
     return mesh
-
-
-import numpy as np
 
 
 def create_cone_mesh(center, radius, height, resolution=20, axis=2, cap=True):

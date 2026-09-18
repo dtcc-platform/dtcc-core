@@ -6,11 +6,8 @@ matplotlib.use("Agg", force=True)
 import matplotlib.pyplot as plt
 
 from dtcc_core.model import (
-    Bounds,
     City,
     Field,
-    Grid,
-    Mesh,
     Object,
     Point,
     PointCloud,

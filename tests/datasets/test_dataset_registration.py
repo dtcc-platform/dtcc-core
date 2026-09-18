@@ -1,9 +1,7 @@
-import logging
-
 import pytest
 
 try:
-    from pydantic import BaseModel, Field, ValidationError
+    from pydantic import BaseModel, Field, ValidationError  # noqa: F401
 except ImportError:
     # Pydantic should be installed as dtcc_core dependency
     pytest.skip("pydantic not available", allow_module_level=True)

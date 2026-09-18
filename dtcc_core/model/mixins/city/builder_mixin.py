@@ -1,13 +1,9 @@
-from pathlib import Path
-from typing import TYPE_CHECKING, TypeVar, Union
+from typing import TYPE_CHECKING, TypeVar
 
-import numpy as np
-
-from dtcc_core.logging import error, info, warning
+from dtcc_core.logging import info, warning
 
 from ....model.geometry import Mesh, PointCloud, VolumeMesh
 from ....model.object import GeometryType
-from ....model.values import Raster
 
 if TYPE_CHECKING:
     from shapely.geometry import Polygon

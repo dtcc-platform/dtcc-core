@@ -1,17 +1,14 @@
-import os
 from functools import partial
 from pathlib import Path
-from typing import List, Union
 
 import numpy as np
 import rasterio
 import rasterio.merge
 from PIL import Image
-from rasterio.transform import from_origin
 
 from ..model import Raster
 from . import generic
-from .logging import error, info, warning
+from .logging import error, warning
 from .model import load_model, save_model
 
 

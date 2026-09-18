@@ -2,7 +2,6 @@
 
 import json
 import zipfile
-from pathlib import Path
 
 import numpy as np
 import pytest
@@ -25,8 +24,6 @@ from dtcc_core.model import (
     Mesh,
     Object,
     Point,
-    PointCloud,
-    Surface,
     exchange,
 )
 from dtcc_core.model import dtcc_pb2 as wire

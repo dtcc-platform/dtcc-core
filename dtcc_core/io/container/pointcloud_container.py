@@ -5,7 +5,6 @@ from __future__ import annotations
 
 from enum import Enum, auto
 from pathlib import Path
-from typing import List, Union
 
 from shapely.geometry import box
 from shapely.strtree import STRtree

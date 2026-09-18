@@ -1,12 +1,10 @@
-from pathlib import Path
-
 import fiona
 import shapely.geometry
 
 from ..model import GeometryType, Landuse, LanduseClasses
 from ..model.geometry import MultiSurface, Surface
 from . import generic
-from .logging import error, info, warning
+from .logging import warning
 from .utils import get_epsg
 from .vector_utils import (
     determine_io_crs,

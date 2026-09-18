@@ -1,5 +1,4 @@
 from pathlib import Path
-from types import UnionType
 
 import fiona
 import laspy
