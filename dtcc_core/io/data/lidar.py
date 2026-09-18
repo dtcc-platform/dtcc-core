@@ -58,6 +58,17 @@ _DOWNLOAD_MAX_CONCURRENCY = _env_int("DTCC_LIDAR_DOWNLOAD_MAX_CONCURRENCY", 3, m
 
 
 class LidarDownloadError(RuntimeError):
+    """Raised when a lidar tile download gets a non-200 HTTP response.
+
+    Attributes
+    ----------
+    filename : str
+        Name of the tile that failed.
+    status : int
+        HTTP status code.
+    retry_after : str or None
+        Value of the ``Retry-After`` header, when present.
+    """
     def __init__(self, filename, status, retry_after=None):
         self.filename = filename
         self.status = status

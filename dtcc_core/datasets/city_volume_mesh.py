@@ -16,6 +16,7 @@ def _regular_tet_volume(edge_length: float) -> float:
 
 
 class CityVolumeMeshArgs(DatasetBaseArgs):
+    """Arguments for the city volume mesh dataset."""
     max_mesh_size: float = Field(
         25.0,
         description="Maximum target edge size for the 2D ground and shell meshing stages in meters",
@@ -135,6 +136,13 @@ class CityVolumeMeshArgs(DatasetBaseArgs):
 
 
 class CityVolumeMeshDataset(DatasetDescriptor):
+    """City Volume Mesh dataset, registered as ``city_volume_mesh``.
+
+    Tetrahedral volume mesh for FEM/CFD preprocessing, derived from point cloud
+    terrain and default DTCC footprint sources.
+
+    Call it with keyword arguments defined by ``CityVolumeMeshArgs``.
+    """
     name = "city_volume_mesh"
     title = "City Volume Mesh"
     description = (

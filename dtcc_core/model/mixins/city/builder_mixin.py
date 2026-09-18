@@ -20,6 +20,11 @@ if TYPE_CHECKING:
 
 
 class CityBuilderMixin:
+    """Methods for building city geometry, mixed into ``City``.
+
+    Covers terrain, LOD1 and LOD2 buildings, flat, surface and volume meshes,
+    and trees from the point cloud.
+    """
     def build_terrain(
         self: "T_City",
         pc: PointCloud = None,
@@ -32,13 +37,19 @@ class CityBuilderMixin:
         """
         Build terrain for a city using a point cloud.
 
-        Args:
-            self (City): The city object to build terrain for.
-            pc (PointCloud): The point cloud to use for building the terrain.
-            cell_size (float): The size of the cells in the raster (default is 2).
+        Parameters
+        ----------
+        self : City
+            The city object to build terrain for.
+        pc : PointCloud
+            The point cloud to use for building the terrain.
+        cell_size : float
+            The size of the cells in the raster (default is 2).
 
-        Returns:
-            City: The city object with the terrain added.
+        Returns
+        -------
+        City
+            The city object with the terrain added.
         """
         from dtcc_core.builder import build_terrain_raster, build_terrain_surface_mesh
         from ....model.object import Terrain
@@ -88,17 +99,28 @@ class CityBuilderMixin:
         as estimated_height; measured_height is preserved. With attribute input,
         missing or smaller heights use min_building_height for geometry.
 
-        Args:
-            self (City): The city object to build LOD1 buildings for.
-            default_ground_height (float): The default ground height to use if no terrain is available.
-            always_use_default (bool): Whether to always use the default ground height or use the ground_height from
-            the terrain if available.
-            rebuild (bool): Whether to rebuild the LOD1 buildings if they already exist.
-            calculate_heights (bool): Whether to calculate building heights from the point cloud or get it from an attribute.
-            building_height_attribute (str): The attribute to use for building heights if calculate_heights is False.
+        Parameters
+        ----------
+        self : City
+            The city object to build LOD1 buildings for.
+        default_ground_height : float
+            The default ground height to use if no terrain is available.
+        always_use_default : bool
+            Whether to always use the default ground height or use the
+            ground_height from the terrain if available.
+        rebuild : bool
+            Whether to rebuild the LOD1 buildings if they already exist.
+        calculate_heights : bool
+            Whether to calculate building heights from the point cloud or get
+            it from an attribute.
+        building_height_attribute : str
+            The attribute to use for building heights if calculate_heights is
+            False.
 
-        Returns:
-            City: The city object with LOD1 buildings added.
+        Returns
+        -------
+        City
+            The city object with LOD1 buildings added.
         """
         from dtcc_core.builder import (
             building_heights_from_pointcloud,
@@ -230,25 +252,24 @@ class CityBuilderMixin:
         pipeline_mode: str = "strict",
     ) -> Mesh:
         """
-            Build a city surface mesh from the buildings and terrain.
+        Build a city surface mesh from the buildings and terrain.
 
-             Parameters
+        Parameters
         ----------
         `min_building_detail` : float, optional
-            The minimum detail of the buildin to resolve, by default 0.5.
+            The minimum detail of the building to resolve, by default 0.5.
         `min_building_area` : float, optional
             The smallest building to include, by default 15.0.
         `merge_buildings` : bool, optional
             merge building footprints, by default True.
         `max_mesh_size` : float, optional
-            The maximum size of the mesh, by default 1.0.
+            The maximum size of the mesh, by default 10.0.
         `min_mesh_angle` : float, optional
-            The minimum angle of the mesh, by default 30.0.
+            The minimum angle of the mesh, by default 25.0.
         `merge_meshes` : bool, optional
             Whether to merge the meshes to a single mesh, by default True.
-
-        `smoothing` : float, optional
-            The smoothing of the mesh, by default 0.0.
+        `smoothing` : int, optional
+            The smoothing of the mesh, by default 0.
         `mesher` : {"auto", "dtcc_mesher", "triangle"}, optional
             Select the 2D meshing backend used to triangulate the ground and
             surface shell.
@@ -258,7 +279,8 @@ class CityBuilderMixin:
 
         Returns
         -------
-        `Mesh` : The city surface mesh.
+        Mesh
+            The city surface mesh.
         """
         from dtcc_core.builder import build_city_surface_mesh
 

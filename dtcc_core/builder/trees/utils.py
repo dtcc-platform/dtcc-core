@@ -16,6 +16,25 @@ def crown_radius_from_height(
     min_radius: float = 0.8,
     max_radius: float = 6.0,
 ) -> float:
+    """Estimate a tree's crown radius from its height.
+
+    Uses the relation ``radius = a * height ** b``, clipped to
+    ``[min_radius, max_radius]``.
+
+    Parameters
+    ----------
+    height : float
+        Tree height in metres.
+    a, b : float, optional
+        Coefficients of the relation. Defaults are 0.22 and 0.87.
+    min_radius, max_radius : float, optional
+        Limits of the estimate in metres. Defaults are 0.8 and 6.0.
+
+    Returns
+    -------
+    float
+        Crown radius in metres.
+    """
     r = a * pow(height, b)
     return float(np.clip(r, min_radius, max_radius))
 
@@ -168,6 +187,26 @@ def estimate_radius_from_segment(
     coords: np.ndarray,
     cell_size: float,
 ) -> np.ndarray:
+    """Estimate crown radii from segmented crown areas.
+
+    Crowns are segmented from the tree tops with a watershed on the canopy
+    height model. Each radius is ``sqrt(area / 2)``, the radius of a circle
+    whose area is pi/2 times the crown area.
+
+    Parameters
+    ----------
+    chm : np.ndarray
+        Canopy height model.
+    coords : np.ndarray
+        Row and column of each tree top.
+    cell_size : float
+        Raster cell size in coordinate units.
+
+    Returns
+    -------
+    np.ndarray
+        Crown radius for each tree top.
+    """
     labels = segment_tree_crowns(chm, coords, 0.001)
     max_label = int(labels.max())
     cell_area = cell_size**2

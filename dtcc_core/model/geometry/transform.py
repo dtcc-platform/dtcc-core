@@ -103,7 +103,11 @@ class Transform(Model):
     def set_rotation(self, rotation_matrix):
         """
         Sets the rotation part of the affine transform.
-        :param rotation_matrix: a 3x3 numpy array representing the rotation.
+
+        Parameters
+        ----------
+        rotation_matrix : np.ndarray
+            A 3x3 array representing the rotation.
         """
         assert rotation_matrix.shape == (
             3,

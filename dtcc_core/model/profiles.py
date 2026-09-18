@@ -20,6 +20,17 @@ __all__ = ['SemanticProfile', 'ValidationIssue', 'ValidationReport']
 
 @dataclass(frozen=True)
 class ValidationIssue:
+    """A single problem found when validating data against a profile.
+
+    Attributes
+    ----------
+    path : str
+        Location of the problem in the validated data.
+    rule : str
+        Identifier of the rule that failed.
+    message : str
+        Human-readable description.
+    """
     path: str
     rule: str
     message: str
@@ -27,6 +38,19 @@ class ValidationIssue:
 
 @dataclass(frozen=True)
 class ValidationReport:
+    """Result of validating data against a semantic profile.
+
+    ``valid`` is True when there are no issues.
+
+    Attributes
+    ----------
+    profile_id : str
+        Identifier of the profile used.
+    profile_version : str
+        Version of the profile used.
+    issues : tuple[ValidationIssue, ...]
+        Problems found.
+    """
     profile_id: str
     profile_version: str
     issues: tuple[ValidationIssue, ...]

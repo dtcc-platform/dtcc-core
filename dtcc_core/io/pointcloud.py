@@ -16,11 +16,15 @@ def las_file_bounds(las_file):
     """
     Calculate the bounding box of a LAS file without loading it.
 
-    Args:
-        las_file (str): The path to the LAS file.
+    Parameters
+    ----------
+    las_file : str
+        The path to the LAS file.
 
-    Returns:
-        Bounds: A `Bounds` object representing the bounding box of the LAS file.
+    Returns
+    -------
+    Bounds
+        A `Bounds` object representing the bounding box of the LAS file.
     """
     src = laspy.read(las_file)
     bounds = Bounds(
@@ -33,11 +37,15 @@ def calc_las_bounds(las_path):
     """
     Calculate the bounding box of one or more LAS files.
 
-    Args:
-        las_path (str): The path to a LAS file or a directory containing LAS files.
+    Parameters
+    ----------
+    las_path : str
+        The path to a LAS file or a directory containing LAS files.
 
-    Returns:
-        Bounds: A `Bounds` object representing the bounding box of the LAS file(s).
+    Returns
+    -------
+    Bounds
+        A `Bounds` object representing the bounding box of the LAS file(s).
     """
     if isinstance(las_path, list):
         las_path = [Path(p) for p in las_path if Path(p).exists()]
@@ -97,15 +105,23 @@ def load(
     """
     Load a LAS/LAZ/CSV file or a directory containing LAS/LAZ/CSV files as a `PointCloud` object.
 
-    Args:
-        path (str): The path to the LAS/LAZ/CSV file or directory.
-        points_only (bool): Whether to load only the point data (default False).
-        points_classification_only (bool): Whether to load only the point classification data (default False).
-        delimiter (str): The delimiter used in the CSV file (default ",").
-        bounds (Bounds): The bounding box to filter the points (default None).
+    Parameters
+    ----------
+    path : str
+        The path to the LAS/LAZ/CSV file or directory.
+    points_only : bool
+        Whether to load only the point data (default False).
+    points_classification_only : bool
+        Whether to load only the point classification data (default False).
+    delimiter : str
+        The delimiter used in the CSV file (default ",").
+    bounds : Bounds
+        The bounding box to filter the points (default None).
 
-    Returns:
-        PointCloud: A `PointCloud` object representing the file(s) loaded.
+    Returns
+    -------
+    PointCloud
+        A `PointCloud` object representing the file(s) loaded.
     """
     if isinstance(path, (str, Path)) and Path(path).suffix.lower() == '.dtcc':
         if points_only or points_classification_only or bounds is not None:

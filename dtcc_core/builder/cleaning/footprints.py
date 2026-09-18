@@ -72,6 +72,29 @@ from ...common import log_table
 
 @dataclass(slots=True)
 class ConditioningOptions:
+    """Scale settings for :func:`condition_polygon_coverage`.
+
+    Distances are in coordinate units (metres) and areas in square units.
+
+    Attributes
+    ----------
+    precision_grid : float or None
+        Grid that coordinates are snapped to after each constructive step.
+        ``None`` uses a sixteenth of the smaller positive value of
+        ``min_feature_size`` and ``merge_distance``, or 0.01.
+    min_feature_size : float
+        Narrower parts of a polygon are removed by a morphological opening.
+    merge_distance : float
+        Narrower gaps between polygons are closed.
+    min_area : float
+        Smallest polygon area to keep.
+    min_hole_area : float
+        Smallest hole area to keep.
+    collect_stage_metrics : bool
+        Record per-stage metrics in the result diagnostics.
+    enable_logging : bool
+        Log conditioning summary tables.
+    """
     precision_grid: float | None = None
     min_feature_size: float = 0.5
     merge_distance: float = 0.5
@@ -83,6 +106,19 @@ class ConditioningOptions:
 
 @dataclass(slots=True)
 class ConditioningResult:
+    """Output of :func:`condition_polygon_coverage`.
+
+    Attributes
+    ----------
+    polygons : list[Polygon]
+        Conditioned polygons: valid, pairwise interior-disjoint and in a
+        deterministic order.
+    source_map : list[list[int]]
+        For each output polygon, the sorted indices of the input polygons it
+        was built from.
+    diagnostics : dict[str, Any]
+        Stage metrics and data-induced failures recorded during conditioning.
+    """
     polygons: list[Polygon]
     source_map: list[list[int]]
     diagnostics: dict[str, Any]

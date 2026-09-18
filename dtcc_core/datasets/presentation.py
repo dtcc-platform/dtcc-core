@@ -312,6 +312,22 @@ def add_preview_panel(
     edgecolor: str,
     shadow: bool,
 ) -> None:
+    """Add a rounded background panel to a preview figure.
+
+    Parameters
+    ----------
+    fig : matplotlib.figure.Figure
+        Figure to add the panel to.
+    bounds : tuple[float, float, float, float]
+        Panel position and size as ``(x, y, width, height)`` in figure
+        coordinates.
+    facecolor : str
+        Fill colour.
+    edgecolor : str
+        Outline colour.
+    shadow : bool
+        Draw a soft drop shadow behind the panel.
+    """
     from matplotlib.patches import FancyBboxPatch
 
     x, y, width, height = bounds
@@ -345,6 +361,25 @@ def add_preview_panel(
 
 
 def draw_preview_chips(ax, chips: list[str], *, y: float) -> float:
+    """Draw short labels as highlighted chips in a preview panel.
+
+    Up to three chips are placed in fixed columns; more chips wrap onto new
+    rows.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        Axes to draw on, in axes coordinates.
+    chips : list[str]
+        Chip labels.
+    y : float
+        Vertical position of the first row.
+
+    Returns
+    -------
+    float
+        Vertical position just below the last row.
+    """
     if len(chips) <= 3:
         x_positions = (0.0, 0.37, 0.72)
         for x, chip in zip(x_positions, chips):
@@ -396,6 +431,26 @@ def draw_preview_chips(ax, chips: list[str], *, y: float) -> float:
 
 
 def draw_preview_fact_strip(ax, facts: list[str], *, y: float) -> float:
+    """Draw short facts as outlined boxes in a preview panel.
+
+    Up to three facts are placed in fixed columns; with more, the first four
+    wrap across rows.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        Axes to draw on, in axes coordinates.
+    facts : list[str]
+        Fact texts.
+    y : float
+        Vertical position of the first row.
+
+    Returns
+    -------
+    float
+        Vertical position just below the last row, or ``y`` when there are no
+        facts.
+    """
     if not facts:
         return y
     if len(facts) <= 3:
@@ -452,6 +507,24 @@ def draw_preview_fact_rows(
     *,
     y: float,
 ) -> float:
+    """Draw label and value pairs in two columns in a preview panel.
+
+    Only the first four pairs are drawn. Long values wrap onto two lines.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        Axes to draw on, in axes coordinates.
+    facts : list[tuple[str, str]]
+        ``(label, value)`` pairs.
+    y : float
+        Vertical position of the first row.
+
+    Returns
+    -------
+    float
+        Vertical position just below the last row.
+    """
     row_y = y
     for index, (label, value) in enumerate(facts[:4]):
         column = index % 2

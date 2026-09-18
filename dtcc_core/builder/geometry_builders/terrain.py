@@ -471,12 +471,17 @@ def flat_terrain(height, bounds: Bounds) -> Terrain:
     """
     Create a flat terrain.
 
-    Args:
-        height (float): The height of the terrain.
-        bounds (Bounds): The bounds of the terrain.
+    Parameters
+    ----------
+    height : float
+        The height of the terrain.
+    bounds : Bounds
+        The bounds of the terrain.
 
-    Returns:
-        Terrain: A `Terrain` object representing the flat terrain.
+    Returns
+    -------
+    Terrain
+        A `Terrain` object representing the flat terrain.
     """
     terrain = Terrain()
     raster = Raster()

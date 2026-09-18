@@ -102,8 +102,10 @@ class RemoteDatasetDescriptor(DatasetDescriptor, register=False):
     def build(self, validated_args, progress_callback=None, remote_info_callback=None):
         """Submit job to remote service, stream progress, return result.
 
-        Returns:
-            Tuple of (data_bytes, extension, content_type)
+        Returns
+        -------
+        tuple[bytes, str, str]
+            Result data, file extension and content type.
         """
         import httpx
 

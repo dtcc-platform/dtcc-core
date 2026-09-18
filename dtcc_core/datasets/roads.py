@@ -8,6 +8,7 @@ from .providers import provider_entry
 
 
 class RoadsArgs(DatasetBaseArgs):
+    """Arguments for the OpenStreetMap roads dataset."""
     source: Literal["OSM"] = Field(
         "OSM",
         description=(

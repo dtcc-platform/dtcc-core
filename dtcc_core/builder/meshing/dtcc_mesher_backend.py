@@ -118,6 +118,27 @@ def mesh_surface_with_dtcc_mesher(
     triangle_size: float | None,
     min_mesh_angle: float,
 ) -> Mesh:
+    """Triangulate a planar surface with dtcc_mesher.
+
+    The surface and its holes are projected onto the surface plane, meshed and
+    lifted back to 3D. Triangles are wound to match the surface normal.
+
+    Parameters
+    ----------
+    surface : Surface
+        Planar surface to mesh.
+    triangle_size : float or None
+        Maximum triangle edge length. ``None`` or a non-positive value leaves
+        it unconstrained.
+    min_mesh_angle : float
+        Minimum triangle angle in degrees.
+
+    Returns
+    -------
+    Mesh
+        Triangle mesh of the surface. Empty when the surface has fewer than
+        three vertices.
+    """
     if len(surface.vertices) < 3:
         return Mesh()
 
@@ -154,6 +175,38 @@ def build_city_flat_mesh_with_dtcc_mesher(
     max_mesh_size: float | None,
     min_mesh_angle: float,
 ) -> Mesh:
+    """Mesh a flat polygon coverage at z=0 with dtcc_mesher.
+
+    The regions are meshed with shared boundaries, and each triangle is marked
+    with the marker of the region it lies in.
+
+    Parameters
+    ----------
+    region_polygons : list[Polygon]
+        Region polygons forming the coverage. Empty or ``None`` polygons are
+        skipped.
+    region_markers : list[int]
+        Marker for each region polygon.
+    region_points : list[np.ndarray], optional
+        One point inside each region, used to assign the region markers.
+    max_mesh_size : float or None
+        Maximum triangle edge length. ``None`` or a non-positive value leaves
+        it unconstrained.
+    min_mesh_angle : float
+        Minimum triangle angle in degrees.
+
+    Returns
+    -------
+    Mesh
+        Flat triangle mesh with per-triangle markers. Empty when there are no
+        regions.
+
+    Raises
+    ------
+    ValueError
+        If ``region_markers`` or ``region_points`` does not match
+        ``region_polygons`` in length.
+    """
     dtcc_mesher = _load_dtcc_mesher()
     max_edge_length = (
         max_mesh_size if max_mesh_size is not None and max_mesh_size > 0 else None

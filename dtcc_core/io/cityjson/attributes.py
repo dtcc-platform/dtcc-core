@@ -33,8 +33,54 @@ def _rename(attributes, names):
 
 
 def read_attributes(attributes, feature_type):
+    """Rename CityJSON attribute names to DTCC names for a feature type.
+
+    For example, ``measuredHeight`` becomes ``measured_height`` on buildings.
+    Names without a mapping are kept.
+
+    Parameters
+    ----------
+    attributes : dict
+        CityJSON attributes.
+    feature_type : str
+        CityJSON feature type, such as ``"Building"``.
+
+    Returns
+    -------
+    dict
+        Attributes with DTCC names.
+
+    Raises
+    ------
+    ValueError
+        If ``attributes`` is not a dict, or already contains a DTCC name that a
+        CityJSON name would be renamed to.
+    """
     return _rename(attributes, _NAMES.get(feature_type, {}))
 
 
 def write_attributes(attributes, feature_type):
+    """Rename DTCC attribute names to CityJSON names for a feature type.
+
+    The inverse of :func:`read_attributes`: for example, ``measured_height``
+    becomes ``measuredHeight`` on buildings.
+
+    Parameters
+    ----------
+    attributes : dict
+        DTCC attributes.
+    feature_type : str
+        CityJSON feature type, such as ``"Building"``.
+
+    Returns
+    -------
+    dict
+        Attributes with CityJSON names.
+
+    Raises
+    ------
+    ValueError
+        If ``attributes`` is not a dict, or already contains a CityJSON name
+        that a DTCC name would be renamed to.
+    """
     return _rename(attributes, {target: source for source, target in _NAMES.get(feature_type, {}).items()})
