@@ -7,6 +7,7 @@ from .meshing import (
     snap_vertices,
     merge,
 )
+from .orientation import orient_faces_consistently
 from .backends import (
     available_2d_meshers,
     get_default_2d_mesher,
