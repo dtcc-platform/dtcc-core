@@ -1,17 +1,17 @@
-import pytest
-import numpy as np
 from pathlib import Path
+
+import numpy as np
+import pytest
 
 import dtcc_core
 from dtcc_core import io
-from dtcc_core.model import Bounds, PointCloud, Surface
-
 from dtcc_core.builder.pointcloud.filter import (
     crop,
     find_points_in_polygons,
-    remove_points_in_polygons,
     points_in_polygons,
+    remove_points_in_polygons,
 )
+from dtcc_core.model import Bounds, PointCloud, Surface
 
 
 @pytest.fixture

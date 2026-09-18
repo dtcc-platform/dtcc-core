@@ -1,15 +1,15 @@
 """Test SensorCollection protobuf roundtrip."""
 
-import pytest
 import numpy as np
+import pytest
 
 matplotlib = pytest.importorskip("matplotlib")
 matplotlib.use("Agg", force=True)
 
 import dtcc_core.datasets as datasets
 from dtcc_core.datasets import attach_dataset_context
-from dtcc_core.model.object import SensorCollection, Object
 from dtcc_core.model.geometry import Point
+from dtcc_core.model.object import Object, SensorCollection
 from dtcc_core.model.values import Field
 
 

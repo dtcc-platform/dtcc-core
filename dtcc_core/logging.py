@@ -1,1 +1,1 @@
-from dtcc_core.common import debug, info, warning, error, critical
+from dtcc_core.common import critical, debug, error, info, warning

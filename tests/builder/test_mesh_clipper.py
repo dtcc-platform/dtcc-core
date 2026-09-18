@@ -2,17 +2,18 @@
 Unit tests for mesh_tiler module - SurfaceMeshClipper and SingleBBoxClipper classes.
 """
 
-import pytest
-import numpy as np
 from typing import List
 
-from dtcc_core.model import Mesh, Bounds
+import numpy as np
+import pytest
+from shapely.geometry import Polygon
+
 from dtcc_core.builder.meshing.mesh_tiler import (
-    SurfaceMeshClipper,
     SingleBBoxClipper,
+    SurfaceMeshClipper,
     TriangleInfo,
 )
-from shapely.geometry import Polygon
+from dtcc_core.model import Bounds, Mesh
 
 
 class TestSurfaceMeshClipper:

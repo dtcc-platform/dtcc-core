@@ -1,21 +1,21 @@
 """Tests for the ocean dataset (SMHI OcObs latest-hour)."""
 
-from pathlib import Path
-import pytest
 import math
+from pathlib import Path
+from unittest.mock import Mock, patch
+
 import numpy as np
-from unittest.mock import patch, Mock
+import pytest
 
 from dtcc_core.datasets.dataset import DatasetUpstreamError
 from dtcc_core.datasets.ocean import (
+    _NAME_TO_ID,
+    PARAMETER_NAMES,
     OceanDataset,
     OceanDatasetArgs,
     _parse_latest_hour_csv,
     _resolve_parameter,
-    PARAMETER_NAMES,
-    _NAME_TO_ID,
 )
-
 
 # ── Fixtures ─────────────────────────────────────────────────────────────
 

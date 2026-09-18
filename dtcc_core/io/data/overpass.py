@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 
-import os
 import json
+import os
 import re
-import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
-import pyproj
+
 import geopandas as gpd
-from shapely.geometry import box, Polygon, LineString
+import pyproj
+import requests
 from platformdirs import user_cache_dir
-from .logging import info, warning, debug, error
+from requests.adapters import HTTPAdapter
+from shapely.geometry import LineString, Polygon, box
+from urllib3.util.retry import Retry
+
+from .logging import debug, error, info, warning
 
 # ------------------------------------------------------------------------
 # 1) Global constants/paths
@@ -224,7 +226,7 @@ def _parse_maxspeed_kmh(value):
 def load_cache_metadata(meta_path=CACHE_METADATA_FILE):
     if not os.path.exists(meta_path):
         return []
-    with open(meta_path, "r", encoding="utf-8") as f:
+    with open(meta_path, encoding="utf-8") as f:
         return json.load(f)
 
 

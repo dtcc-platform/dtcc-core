@@ -1,12 +1,14 @@
-from ...model import Raster
-from shapely.geometry import Polygon
-from typing import Union, List
+from typing import List, Union
+
 from affine import Affine
+from shapely.geometry import Polygon
+
+from ...model import Raster
 from ..register import register_model_method
 
 
 @register_model_method
-def stats(raster: Raster, polygons: Union[Polygon, List[Polygon]], stats=["mean"]):
+def stats(raster: Raster, polygons: Polygon | list[Polygon], stats=["mean"]):
     """
     Compute zonal statistics for a raster within one or more polygons.
 

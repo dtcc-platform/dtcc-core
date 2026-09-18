@@ -1,8 +1,10 @@
-from ...model import Building, GeometryType
-from ...model.geometry import Surface, MultiSurface
-from logging import debug, info, warning, error
-import numpy as np
 from copy import deepcopy
+from logging import debug, error, info, warning
+
+import numpy as np
+
+from ...model import Building, GeometryType
+from ...model.geometry import MultiSurface, Surface
 
 
 def _ring_normal(ring: np.ndarray) -> np.ndarray:

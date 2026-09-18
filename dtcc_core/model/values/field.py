@@ -2,9 +2,10 @@
 # Licensed under the MIT License
 
 
-import numpy as np
-from typing import Union
 from dataclasses import dataclass, field
+from typing import Union
+
+import numpy as np
 
 from ..model import Model
 

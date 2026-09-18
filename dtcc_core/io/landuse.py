@@ -1,19 +1,19 @@
-from ..model import Landuse, LanduseClasses, GeometryType
-from ..model.geometry import Surface, MultiSurface
-
 from pathlib import Path
+
 import fiona
 import shapely.geometry
-from .logging import info, warning, error
+
+from ..model import GeometryType, Landuse, LanduseClasses
+from ..model.geometry import MultiSurface, Surface
 from . import generic
+from .logging import error, info, warning
+from .utils import get_epsg
 from .vector_utils import (
-    validate_vector_file,
     determine_io_crs,
     safe_reproject_geometry,
     set_geometry_crs,
+    validate_vector_file,
 )
-from .utils import get_epsg
-
 
 LM_landuse_map = {
     "VATTEN": LanduseClasses.WATER,

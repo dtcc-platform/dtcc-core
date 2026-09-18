@@ -15,7 +15,7 @@ from .dataset import DatasetBaseArgs, DatasetDescriptor
 
 
 class CityFootprintsArgs(DatasetBaseArgs):
-    max_mesh_size: Optional[float] = Field(
+    max_mesh_size: float | None = Field(
         10.0,
         description=(
             "Maximum target edge length in meters used by the meshing-footprint "

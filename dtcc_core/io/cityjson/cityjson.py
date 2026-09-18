@@ -1,13 +1,15 @@
-from .utils import get_terrain_mesh, get_root_objects, set_buildings
+import json
+import zipfile
+from pathlib import Path
+
+import numpy as np
+
+from ...model.geometry import Bounds
 from ...model.object.city import City
 from ...model.object.object import GeometryType
 from ...model.object.terrain import Terrain
-from ...model.geometry import Bounds
-import numpy as np
-from pathlib import Path
-import json
-import zipfile
 from .attributes import _AttributeNameError
+from .utils import get_root_objects, get_terrain_mesh, set_buildings
 
 
 def _read_json(stream, strict):
@@ -122,9 +124,9 @@ def load(
                     cj = _read_json(f, strict)
 
         if strict:
-            from .admission import load_city
-            from ...model.exchange import _schema_for_model
             from ...model._standard_schema import validate_admitted
+            from ...model.exchange import _schema_for_model
+            from .admission import load_city
 
             city = load_city(cj, extent_policy=extent_policy)
             schema_id, schema_version = _schema_for_model(city)

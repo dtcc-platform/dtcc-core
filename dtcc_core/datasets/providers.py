@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import re
 import unicodedata
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)

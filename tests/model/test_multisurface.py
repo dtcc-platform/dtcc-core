@@ -1,6 +1,7 @@
-import pytest
 import numpy as np
-from dtcc_core.model import Surface, MultiSurface
+import pytest
+
+from dtcc_core.model import MultiSurface, Surface
 
 
 @pytest.fixture

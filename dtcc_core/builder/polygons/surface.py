@@ -1,17 +1,16 @@
-import shapely
-import shapely.affinity
-from shapely.geometry import Polygon, MultiPolygon
-from shapely.validation import make_valid
-
-import numpy as np
-from shapely.ops import unary_union
-from ...model.geometry import Surface, MultiSurface, PointCloud
-
-from shapely import minimum_rotated_rectangle
 from typing import List, Union
 
+import numpy as np
+import shapely
+import shapely.affinity
+from shapely import minimum_rotated_rectangle
+from shapely.geometry import MultiPolygon, Polygon
+from shapely.ops import unary_union
+from shapely.validation import make_valid
+
+from ...model.geometry import MultiSurface, PointCloud, Surface
+from ..logging import debug, error, info, warning
 from ..polygons.polygons import remove_slivers
-from ..logging import info, warning, error, debug
 
 
 def clean_multisurface(ms: MultiSurface, simplify=1e-2) -> MultiSurface:
@@ -165,7 +164,7 @@ def surface_sample_points(s: Surface, spacing=1.0) -> PointCloud:
     """
     trans, inv_trans = _transform_to_planar(s)
     if trans is None:
-        error(f"Failed to sample surface.")
+        error("Failed to sample surface.")
     surface_poly = _to_polygon(s, trans)
     mrr = minimum_rotated_rectangle(surface_poly)
     mrr_coords = np.array(mrr.exterior.coords)[:-1]
@@ -198,7 +197,7 @@ def surface_sample_points(s: Surface, spacing=1.0) -> PointCloud:
     return PointCloud(points=aligned_points)
 
 
-def union_surfaces(ms: MultiSurface | List[Surface]) -> Surface:
+def union_surfaces(ms: MultiSurface | list[Surface]) -> Surface:
     """
     Union a list of coplanar, connected surfaces into a single Surface.
 

@@ -1,7 +1,6 @@
 import pytest
 
-from dtcc_core.io.data import overpass
-from dtcc_core.io.data import wrapper
+from dtcc_core.io.data import overpass, wrapper
 from dtcc_core.model import Bounds
 
 

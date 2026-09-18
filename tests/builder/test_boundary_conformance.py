@@ -6,19 +6,18 @@
 import numpy as np
 import pytest
 
-from dtcc_core.model.geometry.mesh import Mesh
 from dtcc_core.builder.meshing.boundary_conformance import (
-    conform_boundary,
-    _classify_vertices,
-    _find_boundary_vertices,
-    _detect_contact_vertices,
-    _find_shared_boundary_edge,
-    _sample_old_mesh_heights,
     _build_adjacency,
-    _laplacian_smooth_z,
+    _classify_vertices,
     _compute_mean_edge_length,
+    _detect_contact_vertices,
+    _find_boundary_vertices,
+    _find_shared_boundary_edge,
+    _laplacian_smooth_z,
+    _sample_old_mesh_heights,
+    conform_boundary,
 )
-
+from dtcc_core.model.geometry.mesh import Mesh
 
 # ---------------------------------------------------------------------------
 # Helpers

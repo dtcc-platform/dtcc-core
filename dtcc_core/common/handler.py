@@ -7,11 +7,11 @@ from datetime import datetime
 from logging import LogRecord
 
 from rich.console import Console
+from rich.highlighter import NullHighlighter
 from rich.logging import RichHandler
 from rich.padding import Padding
 from rich.text import Text
 from rich.traceback import Traceback
-from rich.highlighter import NullHighlighter
 
 # Maps log level -> (level_style, message_style)
 LEVEL_STYLES = {

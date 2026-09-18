@@ -1,8 +1,10 @@
 from dataclasses import dataclass, field
+
+import numpy as np
+from shapely.geometry import Polygon as ShapelyPolygon
+
 from .bounds import Bounds
 from .geometry import Geometry
-from shapely.geometry import Polygon as ShapelyPolygon
-import numpy as np
 
 
 @dataclass(repr=False)

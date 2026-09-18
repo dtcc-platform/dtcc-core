@@ -1,13 +1,12 @@
-from ..model import Surface, MultiSurface, Mesh, PointCloud, Raster, Mesh, VolumeMesh
-
+from numbers import Real
 from typing import Union
+
 import numpy as np
 from affine import Affine
-from numbers import Real
-
-from . import _dtcc_builder
-
 from shapely.geometry import Polygon
+
+from ..model import Mesh, MultiSurface, PointCloud, Raster, Surface, VolumeMesh
+from . import _dtcc_builder
 
 
 def create_builder_polygon(polygon: Polygon) -> _dtcc_builder.Polygon:

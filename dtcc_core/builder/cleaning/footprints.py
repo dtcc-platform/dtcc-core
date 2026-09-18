@@ -45,10 +45,11 @@ possible; only malformed user arguments raise hard errors.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import math
 import time
-from typing import Any, Callable, Iterable, Literal, Sequence
+from collections.abc import Callable, Iterable, Sequence
+from dataclasses import dataclass, field
+from typing import Any, Literal
 
 import numpy as np
 import shapely
@@ -66,8 +67,8 @@ try:
 except Exception:  # pragma: no cover - import fallback for partial builds
     _dtcc_builder = None
 
-from ..logging import debug, info
 from ...common import log_table
+from ..logging import debug, info
 
 
 @dataclass(slots=True)

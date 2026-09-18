@@ -1,21 +1,18 @@
-from ...model import MultiSurface, Mesh
-from ..register import register_model_method
-from ..meshing.meshing import mesh_multisurface
-from ..polygons.polygons import merge_list_of_polygons
-from ..polygons.surface import union_surfaces
-from ..geometry.surface import are_coplanar
-
 from collections import defaultdict
 
-from shapely.geometry import Polygon, MultiPolygon
+import numpy as np
+from shapely.geometry import MultiPolygon, Polygon
 from shapely.validation import make_valid
 
-from ..model_conversion import create_builder_multisurface
-import numpy as np
-
-from ..logging import error, warning, info
-
+from ...model import Mesh, MultiSurface
 from .. import _dtcc_builder
+from ..geometry.surface import are_coplanar
+from ..logging import error, info, warning
+from ..meshing.meshing import mesh_multisurface
+from ..model_conversion import create_builder_multisurface
+from ..polygons.polygons import merge_list_of_polygons
+from ..polygons.surface import union_surfaces
+from ..register import register_model_method
 
 
 @register_model_method

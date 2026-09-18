@@ -10,7 +10,6 @@ import pytest
 import dtcc_core.datasets as datasets
 from dtcc_core.model import RoadNetwork
 
-
 GOTHENBURG_CORE_BBOX_EPSG3006 = (
     318_000.0,
     6_397_500.0,

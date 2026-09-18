@@ -7,7 +7,8 @@ from unittest.mock import ANY, Mock, patch
 import pytest
 
 import dtcc_core.datasets as datasets
-from dtcc_core.datasets import DatasetDescriptor, get_dataset, list as list_datasets
+from dtcc_core.datasets import DatasetDescriptor, get_dataset
+from dtcc_core.datasets import list as list_datasets
 from dtcc_core.datasets.city_footprints import CityFootprintsArgs, CityFootprintsDataset
 
 

@@ -1,22 +1,21 @@
+import os
 from functools import partial
-from .model import load_model, save_model
+from pathlib import Path
+from typing import List, Union
+
+import numpy as np
 import rasterio
 import rasterio.merge
-from rasterio.transform import from_origin
-import os
-
-from typing import Union, List
-import numpy as np
-from pathlib import Path
 from PIL import Image
-
-from . import generic
+from rasterio.transform import from_origin
 
 from ..model import Raster
-from .logging import info, error, warning
+from . import generic
+from .logging import error, info, warning
+from .model import load_model, save_model
 
 
-def _load_rasterio(path: Union[Path, List], **kwargs):
+def _load_rasterio(path: Path | list, **kwargs):
     raster = Raster()
     if not isinstance(path, list):
         path = Path(path)

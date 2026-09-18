@@ -1,17 +1,16 @@
 # Copyright(C) 2023 Dag Wästberg
 # Licensed under the MIT License
+from copy import deepcopy
+from dataclasses import dataclass, field
 from email.headerregistry import Address
+from typing import Union
 
 import numpy as np
-from typing import Union
-from dataclasses import dataclass, field
 from affine import Affine
-from copy import deepcopy
 
 from ..geometry.bounds import Bounds
-from ..logging import info, warning, error
+from ..logging import error, info, warning
 from ..model import Model
-
 
 # FIXME: Make Raster fit the UML diagram
 # FIXME: Make Raster own a Grid that holds Transform and Bounds

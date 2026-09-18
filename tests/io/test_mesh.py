@@ -1,12 +1,14 @@
-import pytest
 import json
 import os
-import tempfile
 import pathlib
-import numpy as np
+import tempfile
+
 import meshio
+import numpy as np
+import pytest
+
 from dtcc_core import io
-from dtcc_core.model import Mesh, VolumeMesh, City, Field
+from dtcc_core.model import City, Field, Mesh, VolumeMesh
 
 
 @pytest.fixture

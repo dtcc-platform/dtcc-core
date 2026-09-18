@@ -1,12 +1,14 @@
-import dtcc_core
-from dtcc_core.model import City
 from typing import Literal, Optional
+
 from pydantic import Field
 
-from .dataset import DatasetDescriptor, DatasetBaseArgs
-from ._city_mesh_common import prepare_city_from_bounds
-from .providers import provider_entry
+import dtcc_core
 from dtcc_core.common.progress import ProgressTracker
+from dtcc_core.model import City
+
+from ._city_mesh_common import prepare_city_from_bounds
+from .dataset import DatasetBaseArgs, DatasetDescriptor
+from .providers import provider_entry
 
 
 class CitySurfaceMeshArgs(DatasetBaseArgs):
@@ -49,11 +51,11 @@ class CitySurfaceMeshArgs(DatasetBaseArgs):
         False,
         description="Whether to replace topography with a flat terrain raster",
     )
-    ground_level: Optional[float] = Field(
+    ground_level: float | None = Field(
         None,
         description="Ground level for flat terrain (defaults to minimum terrain elevation)",
     )
-    mesher: Optional[Literal["auto", "dtcc_mesher", "triangle"]] = Field(
+    mesher: Literal["auto", "dtcc_mesher", "triangle"] | None = Field(
         None,
         description="2D meshing backend to use for the ground triangulation",
     )
@@ -69,7 +71,7 @@ class CitySurfaceMeshArgs(DatasetBaseArgs):
         "strict",
         description="Meshing pipeline mode",
     )
-    format: Optional[Literal["obj", "stl", "vtu"]] = Field(
+    format: Literal["obj", "stl", "vtu"] | None = Field(
         None, description="Output file format"
     )
 

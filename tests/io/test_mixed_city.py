@@ -10,11 +10,13 @@ from dtcc_core import io
 from dtcc_core.io.cityjson.cityjson import load
 from dtcc_core.model import (
     City,
-    Object,
-    Tree,
     Landuse,
+    Object,
     Point,
+    Tree,
     exchange,
+)
+from dtcc_core.model import (
     dtcc_pb2 as wire,
 )
 from dtcc_core.model.object.landuse import LanduseClasses

@@ -1,11 +1,13 @@
-import pytest
-import numpy as np
-from affine import Affine
 from pathlib import Path
+
+import numpy as np
+import pytest
+from affine import Affine
+
 from dtcc_core import io
-from dtcc_core.model import Raster
-from dtcc_core.builder.model_conversion import raster_to_builder_gridfield
 from dtcc_core.builder import _dtcc_builder
+from dtcc_core.builder.model_conversion import raster_to_builder_gridfield
+from dtcc_core.model import Raster
 
 
 @pytest.fixture

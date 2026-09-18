@@ -7,11 +7,9 @@ import numpy as np
 import pytest
 
 from dtcc_core import io
-from dtcc_core.model import MultiLineString, Object, SemanticRegion, exchange
 from dtcc_core.io.cityjson.admission import COMPOSITE_SURFACE_ROLE
 from dtcc_core.io.cityjson.semantics import SEMANTIC_NAMESPACE
-
-
+from dtcc_core.model import MultiLineString, Object, SemanticRegion, exchange
 from sandbox.model_profiles.exterior_city_example import exterior_source as source
 
 

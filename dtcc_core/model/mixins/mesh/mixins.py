@@ -1,6 +1,6 @@
-from dtcc_core.logging import info, warning, error
+from typing import TYPE_CHECKING, List, TypeVar, Union
 
-from typing import TypeVar, TYPE_CHECKING, Union, List
+from dtcc_core.logging import error, info, warning
 
 from ....model.geometry import Bounds
 
@@ -52,9 +52,9 @@ class MeshProcessingMixin:
 
     def tile(
         self: "T_Mesh",
-        tile_size: Union[float, List[float]] = 100.0,
+        tile_size: float | list[float] = 100.0,
         progress: bool = False,
-    ) -> List["T_Mesh"]:
+    ) -> list["T_Mesh"]:
         """
         Tile a surface mesh into smaller meshes of a specified size.
 

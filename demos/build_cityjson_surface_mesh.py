@@ -8,8 +8,8 @@ open the result in the 3D viewer.
 import sys
 from pathlib import Path
 
-import dtcc_core.io as io
 import dtcc_core.builder as builder
+import dtcc_core.io as io
 from dtcc_core.model import GeometryType
 
 DATA = Path(__file__).parent / "data" / "DenHaag_01.city.json.zip"

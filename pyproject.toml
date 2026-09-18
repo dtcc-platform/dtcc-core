@@ -114,6 +114,10 @@ ignore = ["E501"]
 max-complexity = 12
 
 [tool.ruff.lint.per-file-ignores]
+# Package inits re-export names and their import order is load-bearing: some
+# subpackages import back from their parent, so sorting creates import cycles.
+"**/__init__.py" = ["I001", "F401"]
+
 # Complexity hotspots that predate these checks, exempted so the checks can be
 # switched on without a large refactor first. Remove an entry once its file is
 # split up; see issue #104 for builder/cleaning/footprints.py.

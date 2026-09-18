@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-
 LIVE_DATASET_TESTS_ENV = "DTCC_LIVE_DATASET_TESTS"
 
 

@@ -6,7 +6,6 @@ from typing import Any
 
 import numpy as np
 
-
 DTCC_COLORS = {
     "background": "#FAFAFA",
     "surface": "#FFFFFF",

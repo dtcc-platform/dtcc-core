@@ -21,8 +21,8 @@ from dtcc_core.model import (
     Point,
     Raster,
     SensorCollection,
-    Tree,
     Terrain,
+    Tree,
     VehicleCollection,
 )
 from dtcc_core.model import dtcc_pb2 as proto

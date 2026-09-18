@@ -9,7 +9,6 @@ from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
 JsonObject = dict[str, Any]
 JsonListItem = str | JsonObject
 

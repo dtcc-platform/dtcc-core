@@ -1,7 +1,7 @@
 """Opening relationships survive native, external-format and meshing boundaries."""
 
-from copy import deepcopy
 import json
+from copy import deepcopy
 from pathlib import Path
 
 import numpy as np
@@ -18,7 +18,8 @@ from dtcc_core.datasets.schema import (
     DatasetRequest,
 )
 from dtcc_core.io.cityjson.cityjson import load
-from dtcc_core.model import MultiSurface, SemanticRegion, exchange, dtcc_pb2 as wire
+from dtcc_core.model import MultiSurface, SemanticRegion, exchange
+from dtcc_core.model import dtcc_pb2 as wire
 
 FIXTURE = (
     Path(__file__).resolve().parents[2]

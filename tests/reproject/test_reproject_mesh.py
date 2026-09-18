@@ -1,7 +1,8 @@
-import pytest
 import numpy as np
-from dtcc_core.reproject.reproject import reproject_mesh
+import pytest
+
 from dtcc_core.model import Mesh
+from dtcc_core.reproject.reproject import reproject_mesh
 
 
 @pytest.fixture

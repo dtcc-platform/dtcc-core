@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from collections import defaultdict, deque
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Dict, Mapping, Sequence
+from typing import Dict
 
 import numpy as np
 from shapely.geometry import Polygon
@@ -11,7 +12,6 @@ from shapely.validation import explain_validity
 from ...model import Mesh
 from ...model.mixins.mesh.quality import tri_aspect_ratio, tri_element_quality
 from ..logging import warning
-
 
 _MIN_EDGE_RATIO_WARNING = 1.0e-3
 _MIN_AREA_RATIO_WARNING = 1.0e-6
@@ -368,7 +368,7 @@ class TetgenPLCDiagnostics:
     duplicate_face_count: int
     nonmanifold_edge_count: int
     open_edge_count: int
-    boundary_facets: Dict[str, Dict[str, float | int | bool | str]]
+    boundary_facets: dict[str, dict[str, float | int | bool | str]]
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
@@ -451,7 +451,7 @@ def _project_boundary_facet(name: str, points: np.ndarray) -> tuple[np.ndarray, 
 
 def _normalize_boundary_facets(
     boundary_facets: Mapping[str, Sequence[int]] | Sequence[Sequence[int]],
-) -> Dict[str, np.ndarray]:
+) -> dict[str, np.ndarray]:
     if isinstance(boundary_facets, Mapping):
         return {
             str(name): np.asarray(indices, dtype=np.int64)
@@ -476,7 +476,7 @@ def inspect_tetgen_plc(
 
     errors: list[str] = []
     warnings: list[str] = []
-    facet_reports: Dict[str, Dict[str, float | int | bool | str]] = {}
+    facet_reports: dict[str, dict[str, float | int | bool | str]] = {}
 
     if V.ndim != 2 or V.shape[1] != 3:
         raise ValueError("vertices must have shape (N, 3)")

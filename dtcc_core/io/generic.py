@@ -2,7 +2,8 @@
 # Licensed under the MIT License
 
 import pathlib
-from .logging import debug, info, warning, error
+
+from .logging import debug, error, info, warning
 
 
 def save(object, path, name, formats, format: str = None, *args, **kwargs):
@@ -29,7 +30,7 @@ def save(object, path, name, formats, format: str = None, *args, **kwargs):
     SystemExit
         If the object type or file extension is unsupported (via ``error``).
     """
-    if not type(object) in formats:
+    if type(object) not in formats:
         error(f'Unable to save {name}; type "{type(object)}" not supported')
     if isinstance(path, str):
         path = pathlib.Path(path)
@@ -98,7 +99,7 @@ def load(path, name, type, formats, *args, **kwargs):
     SystemExit
         If the type or file extension is unsupported (via ``error``).
     """
-    if not type in formats:
+    if type not in formats:
         error(f'Unable to load {name}; type "{type.__name__}" not supported')
     if isinstance(path, (list, tuple)):
         path = [pathlib.Path(p) for p in path]

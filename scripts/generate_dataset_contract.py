@@ -15,12 +15,11 @@ from dtcc_core.datasets.schema import (
     DatasetContext,
     DatasetIdentity,
     DatasetMetadata,
-    DatasetRequest,
-    DatasetProvenance,
     DatasetPresentation,
+    DatasetProvenance,
+    DatasetRequest,
 )
 from dtcc_core.model import City, Raster
-
 
 CONTRACT_SCHEMA_VERSION = "dtcc-dataset-contract-v1"
 _FIXED_ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)

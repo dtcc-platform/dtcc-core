@@ -1,15 +1,14 @@
 from functools import partial
-from .model import load_model, save_model
 from pathlib import Path
-import numpy as np
-import laspy
-
-
-from ..model.geometry import PointCloud, Bounds
-from .logging import debug, warning, error
 from typing import List, Union
 
+import laspy
+import numpy as np
+
+from ..model.geometry import Bounds, PointCloud
 from . import generic
+from .logging import debug, error, warning
+from .model import load_model, save_model
 
 
 def las_file_bounds(las_file):
@@ -92,7 +91,7 @@ def bounds_filter_points(pts, bounds):
 
 
 def load(
-    path: Union[str, List[str], Path, List[Path]],
+    path: str | list[str] | Path | list[Path],
     points_only=False,
     points_classification_only=False,
     delimiter=",",
@@ -162,7 +161,7 @@ def load(
 
 
 def load_list(
-    path: List[Path],
+    path: list[Path],
     points_only=False,
     points_classification_only=False,
     delimiter=",",

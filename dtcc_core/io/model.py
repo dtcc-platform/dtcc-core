@@ -1,8 +1,8 @@
 """File I/O for DTCC Protobuf model artifacts (.dtcc)."""
 
 import os
-from pathlib import Path
 import tempfile
+from pathlib import Path
 
 from ..model import exchange
 

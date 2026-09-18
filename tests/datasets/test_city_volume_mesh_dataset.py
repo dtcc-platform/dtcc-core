@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from unittest.mock import ANY, Mock, patch
 
-import dtcc_core.datasets as datasets
 import pytest
+from pydantic import ValidationError
+
+import dtcc_core.datasets as datasets
 from dtcc_core.datasets import get_dataset
 from dtcc_core.datasets.city_volume_mesh import (
     CityVolumeMeshArgs,
@@ -13,7 +15,6 @@ from dtcc_core.datasets.city_volume_mesh import (
     _regular_tet_volume,
 )
 from dtcc_core.model import GeometryType
-from pydantic import ValidationError
 
 
 def test_city_volume_mesh_registered_name():

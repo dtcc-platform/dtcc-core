@@ -1,7 +1,6 @@
-from dtcc_core.model import Mesh
+import numpy as np
 
-import numpy as np
-import numpy as np
+from dtcc_core.model import Mesh
 
 
 def create_sphere(center, radius, resolution=20, scale=(1.0, 1.0, 1.0)):

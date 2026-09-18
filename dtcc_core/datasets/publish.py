@@ -2,13 +2,13 @@ import hashlib
 import json
 import os
 import re
+from collections.abc import Mapping, Sequence
 from contextlib import ExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 import requests
-
 
 MANIFEST_V2_SCHEMA_VERSION = "dtcc-dataset-manifest-v2"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -312,7 +312,7 @@ class DatasetUploadClient:
 
         try:
             payload = response.json()
-        except ValueError as error:
+        except ValueError:
             detail = _response_detail(response, token=self.token)
             raise _malformed_success_error(response, detail=detail) from None
         if not isinstance(payload, Mapping):

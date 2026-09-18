@@ -8,7 +8,7 @@ import pytest
 from dtcc_core import io
 from dtcc_core.datasets import load_model_package
 from dtcc_core.datasets.schema import DatasetContext
-from dtcc_core.model import Terrain, Mesh, Field, SemanticRegion, exchange
+from dtcc_core.model import Field, Mesh, SemanticRegion, Terrain, exchange
 from sandbox.model_profiles.tin_relief_example import source, verify
 
 

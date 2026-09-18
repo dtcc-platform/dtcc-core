@@ -1,6 +1,7 @@
-from pathlib import Path
-from platformdirs import user_cache_dir
 import shutil
+from pathlib import Path
+
+from platformdirs import user_cache_dir
 
 cache_dir = Path(user_cache_dir("dtcc-data"))  # Replace with your app name
 

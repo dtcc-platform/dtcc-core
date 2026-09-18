@@ -1,7 +1,7 @@
 """Schema-declared metadata stays attached to the intended local representation."""
 
-from pathlib import Path
 import json
+from pathlib import Path
 
 import numpy as np
 import pytest

@@ -12,6 +12,8 @@ from dtcc_core.datasets.qa import (
     audit_registered_datasets,
     audited_datasets,
     format_report,
+)
+from dtcc_core.datasets.qa import (
     main as qa_main,
 )
 

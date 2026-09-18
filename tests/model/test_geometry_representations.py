@@ -1,25 +1,26 @@
 """Exact attachment selection, explicit Solid topology and reader migration."""
 
 from pathlib import Path
+
 import numpy as np
 import pytest
 
 from dtcc_core import io
+from dtcc_core.io.cityjson.cityjson import load
 from dtcc_core.model import (
-    Object,
-    City,
     Building,
-    GeometryType,
-    GeometryRepresentation,
-    Point,
-    Surface,
-    Solid,
-    SemanticRegion,
+    City,
     Field,
+    GeometryRepresentation,
+    GeometryType,
+    Object,
+    Point,
+    SemanticRegion,
+    Solid,
+    Surface,
     exchange,
 )
 from dtcc_core.model import dtcc_pb2 as wire
-from dtcc_core.io.cityjson.cityjson import load
 
 
 def solid_document():

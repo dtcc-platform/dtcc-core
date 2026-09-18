@@ -5,26 +5,27 @@ complete CityJSON conformance validator. Geometry conversion stays in utils and
 converters. Unsupported content is rejected before it can be silently discarded.
 """
 
-import numpy as np
 import re
+
+import numpy as np
 
 from ...model import (
     Building,
     BuildingPart,
     City,
-    MultiSurface,
-    Solid,
-    Point,
-    Object,
     Landuse,
-    Terrain,
     Mesh,
     MultiLineString,
+    MultiSurface,
+    Object,
+    Point,
+    Solid,
+    Terrain,
+    exchange,
 )
-from ...model import exchange
+from .attributes import read_attributes
 from .semantics import SEMANTIC_NAMESPACE, validate_region_owner
 from .utils import build_geometry, build_tin
-from .attributes import read_attributes
 
 # CityJSON 2.0.2 JSON Schema allows integer 0–3 and decimal sublevels 0–3.
 LOD = re.compile(r"[0-3](?:\.[0-3])?\Z")
@@ -290,8 +291,8 @@ def load_city(cj, *, extent_policy="validate"):
             DatasetContext,
             DatasetIdentity,
             DatasetMetadata,
-            DatasetProvenance,
             DatasetPresentation,
+            DatasetProvenance,
             DatasetRequest,
         )
 

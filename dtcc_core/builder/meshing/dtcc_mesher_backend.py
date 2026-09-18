@@ -3,11 +3,9 @@ from __future__ import annotations
 import importlib
 
 import numpy as np
-
 from shapely.geometry import Polygon
 
 from ...model import Mesh, Surface
-
 
 _DTCC_MESHER_MODULE = None
 _FLAT_COVERAGE_MAX_PROTECTION_LEVELS = 1

@@ -16,14 +16,14 @@ from shapely import make_valid
 from shapely.geometry import mapping, shape
 from shapely.ops import unary_union
 
-from dtcc_core.model import Bounds, City, GeometryType, Raster, Surface
-from dtcc_core.io.model import load_model, save_model
+from benchmarks.benchmark_catalog import CLEANING_PARAMETERS
 from dtcc_core.builder.geometry_builders import meshes
 from dtcc_core.datasets._city_mesh_common import (
     prepare_city_from_bounds,
     prepare_footprint_city_from_bounds,
 )
-from benchmarks.benchmark_catalog import CLEANING_PARAMETERS
+from dtcc_core.io.model import load_model, save_model
+from dtcc_core.model import Bounds, City, GeometryType, Raster, Surface
 
 PREPARATION_PARAMETERS = (
     "raster_cell_size",

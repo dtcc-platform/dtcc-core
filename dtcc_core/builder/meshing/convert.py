@@ -1,6 +1,6 @@
-from ...model import Mesh, PointCloud, Raster
 import numpy as np
 
+from ...model import Mesh, PointCloud, Raster
 from ..pointcloud.convert import rasterize
 
 

@@ -17,28 +17,29 @@ The data is fetched as one bulk CSV per parameter (station-set/all mode) and
 then filtered to the requested bounding box on the client side.
 """
 
-from typing import Optional, Literal, Tuple, List, Dict, Any, Sequence
-from pydantic import Field
 import csv
 import io
 import re
-import numpy as np
-from datetime import datetime, timezone
+from collections.abc import Sequence
+from datetime import UTC, datetime, timezone
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
+import numpy as np
+from pydantic import Field
+
+from ..common import info
+from ..model.geometry import Point
+from ..model.object import Object, SensorCollection
+from ..model.values import Field as DtccField
+from ..reproject.reproject import reproject_array
 from .dataset import DatasetBaseArgs, DatasetDescriptor, DatasetUpstreamError
 from .geospatial import bounds_to_wgs84, is_wgs84_crs
 from .providers import provider_entry
-from ..model.object import Object, SensorCollection
-from ..model.geometry import Point
-from ..model.values import Field as DtccField
-from ..common import info
-from ..reproject.reproject import reproject_array
-
 
 # ── Parameter name mapping ───────────────────────────────────────────────
 
 # SMHI metobs parameter ID → stable DTCC-friendly English field name
-PARAMETER_NAMES: Dict[int, str] = {
+PARAMETER_NAMES: dict[int, str] = {
     1: "air_temperature",
     3: "wind_direction",
     4: "wind_speed",
@@ -50,7 +51,7 @@ PARAMETER_NAMES: Dict[int, str] = {
 # Reverse lookup: name → parameter ID.  Accepts the canonical DTCC name
 # as well as common short aliases so users can write e.g.
 # parameters=["temperature", "wind_speed"] instead of [1, 4].
-_NAME_TO_ID: Dict[str, int] = {}
+_NAME_TO_ID: dict[str, int] = {}
 for _id, _name in PARAMETER_NAMES.items():
     _NAME_TO_ID[_name] = _id
 # Short aliases
@@ -100,7 +101,7 @@ def _resolve_parameter(p) -> int:
 # ── HTTP helpers ─────────────────────────────────────────────────────────
 
 
-def _get_text(url: str, params: Dict[str, Any] = None, timeout_s: float = 10.0) -> str:
+def _get_text(url: str, params: dict[str, Any] = None, timeout_s: float = 10.0) -> str:
     """Fetch text content from *url* with error handling.
 
     Parameters
@@ -170,8 +171,8 @@ def _parse_latest_hour_csv(text: str):
         One dict per station with keys ``station_id`` (int), ``station_name``,
         ``lat``, ``lon``, ``height``, ``value`` (float or NaN), ``quality``.
     """
-    meta: Dict[str, Any] = {}
-    records: List[Dict[str, Any]] = []
+    meta: dict[str, Any] = {}
+    records: list[dict[str, Any]] = []
 
     lines = text.splitlines()
 
@@ -311,7 +312,7 @@ class WeatherDatasetArgs(DatasetBaseArgs):
     """
 
     crs: str = Field("EPSG:3006", description="Coordinate reference system")
-    format: Optional[Literal["pb"]] = Field(
+    format: Literal["pb"] | None = Field(
         None, description='Output format ("pb" for protobuf)'
     )
     timeout_s: float = Field(10.0, description="HTTP timeout in seconds", gt=0)
@@ -328,7 +329,7 @@ class WeatherDatasetArgs(DatasetBaseArgs):
     period: Literal["latest-hour"] = Field(
         "latest-hour", description="Observation period (only latest-hour in v1)"
     )
-    parameters: List = Field(
+    parameters: list = Field(
         default=[1, 3, 4, 6, 7, 9],
         description=(
             "Weather parameters to fetch.  Each element can be an integer "
@@ -517,8 +518,8 @@ class WeatherDataset(DatasetDescriptor):
         # ── Fetch CSV per parameter and merge ────────────────────────
         # station_id -> { "station_name", "lat", "lon", "height",
         #                  "fields": { field_name: (value, unit, quality) } }
-        station_map: Dict[int, Dict[str, Any]] = {}
-        param_meta: Dict[int, Dict[str, Any]] = {}
+        station_map: dict[int, dict[str, Any]] = {}
+        param_meta: dict[int, dict[str, Any]] = {}
         upstream_errors: list[DatasetUpstreamError] = []
 
         for pid in param_ids:
@@ -617,7 +618,7 @@ class WeatherDataset(DatasetDescriptor):
             "dataset": "weather",
             "crs": args.crs,
             "bounds": f"({bounds_tuple[0]}, {bounds_tuple[1]}, {bounds_tuple[2]}, {bounds_tuple[3]})",
-            "retrieval_time": datetime.now(timezone.utc).isoformat(),
+            "retrieval_time": datetime.now(UTC).isoformat(),
             "period": args.period,
             "parameters": param_ids,
         }
@@ -629,7 +630,7 @@ class WeatherDataset(DatasetDescriptor):
         )
 
         # Collect field→unit mapping for collection-level metadata
-        parameter_fields: Dict[str, str] = {}
+        parameter_fields: dict[str, str] = {}
         parameter_metadata: list[dict[str, Any]] = []
         first_field_name = None
         first_field_unit = ""

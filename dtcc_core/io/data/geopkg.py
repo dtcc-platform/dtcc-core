@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 
 import asyncio
-import os
 import json
+import os
 import time
+
 import aiohttp
 import requests
 from platformdirs import user_cache_dir
-from .logging import info, warning, debug, error
+
+from .logging import debug, error, info, warning
 
 CACHE_DIR = user_cache_dir(appname="dtcc-data")
 os.makedirs(CACHE_DIR, exist_ok=True)
@@ -50,7 +52,7 @@ def load_cache():
     """
     if not os.path.exists(CACHE_FILE):
         return []
-    with open(CACHE_FILE, "r", encoding="utf-8") as f:
+    with open(CACHE_FILE, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -166,7 +168,7 @@ async def download_gpkg_file(session, base_url, filename, output_dir):
                 f.write(content)
             os.replace(tmp_path, out_path)
             info(f"Saved {filename} to {out_path}")
-    except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as exc:
+    except (TimeoutError, aiohttp.ClientError, OSError) as exc:
         try:
             os.remove(tmp_path)
         except OSError:

@@ -11,7 +11,6 @@ from pathlib import Path
 
 from dtcc_core.datasets import DatasetManifest
 
-
 ROOT = Path(__file__).resolve().parents[2]
 GENERATOR = ROOT / "scripts" / "generate_dataset_contract.py"
 ARTIFACT_NAMES = (

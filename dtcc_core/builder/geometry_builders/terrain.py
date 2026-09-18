@@ -1,34 +1,35 @@
-from ...model import (
-    PointCloud,
-    Terrain,
-    Raster,
-    Mesh,
-    Surface,
-    GeometryType,
-    Bounds,
-)
-
-from ..model_conversion import (
-    raster_to_builder_gridfield,
-    builder_mesh_to_mesh,
-    create_builder_polygon,
-    mesh_to_builder_mesh,
-)
+from numbers import Real
+from typing import List, Optional, Union
 
 import numpy as np
-from pypoints2grid import points2grid
 from affine import Affine
-from .. import _dtcc_builder
-from typing import List, Optional, Union
-from numbers import Real
+from pypoints2grid import points2grid
 from shapely.geometry import Polygon, box
 from shapely.geometry.polygon import orient
 from shapely.ops import unary_union
+
 from dtcc_core.common.progress import report_progress
+
+from ...model import (
+    Bounds,
+    GeometryType,
+    Mesh,
+    PointCloud,
+    Raster,
+    Surface,
+    Terrain,
+)
+from .. import _dtcc_builder
 from ..logging import info
-from ..raster.interpolation import fill_holes as fill_raster_holes
 from ..meshing.backends import resolve_2d_mesher
 from ..meshing.flat_mesh_backends import build_city_flat_mesh_from_coverage
+from ..model_conversion import (
+    builder_mesh_to_mesh,
+    create_builder_polygon,
+    mesh_to_builder_mesh,
+    raster_to_builder_gridfield,
+)
+from ..raster.interpolation import fill_holes as fill_raster_holes
 
 
 def _iter_polygon_components(geometry) -> list[Polygon]:
@@ -93,7 +94,7 @@ def _terrain_mesh_regions(
 
 
 def adaptive_terrain_mesh(
-    data: Union[PointCloud, Raster], max_error: float, raster_size=1, smoothing=0
+    data: PointCloud | Raster, max_error: float, raster_size=1, smoothing=0
 ) -> Mesh:
     """Build an adaptive terrain mesh using the Zemlya algorithm.
 
@@ -121,10 +122,10 @@ def adaptive_terrain_mesh(
 
 
 def build_terrain_surface_mesh(
-    data: Union[PointCloud, Raster],
+    data: PointCloud | Raster,
     subdomains: list[Surface] = None,
     holes: list[Surface] = None,
-    subdomain_resolution: Union[float, List[float]] = None,
+    subdomain_resolution: float | list[float] = None,
     max_mesh_size=10,
     min_mesh_angle=20.7,
     smoothing=3,
@@ -273,8 +274,8 @@ def build_terrain_surface_mesh(
 
     if report_mesh_quality:
         from dtcc_core.model.mixins.mesh.quality import (
-            triangle_mesh_quality,
             report_quality,
+            triangle_mesh_quality,
         )
 
         q = triangle_mesh_quality(terrain_mesh.vertices, terrain_mesh.faces)
@@ -501,13 +502,13 @@ def build_terrain_dem(
     terrain.attributes["elevation_rasters"] = [interpretation]
     # Use the standard authority for semantic metadata, without serializing or
     # rebuilding the numerical buffers merely to validate the new object.
-    from ...model._standard_schema import SCHEMA_ID, DEFAULT_VERSION, validate_admitted
+    from ...model._standard_schema import DEFAULT_VERSION, SCHEMA_ID, validate_admitted
 
     validate_admitted(terrain, SCHEMA_ID, DEFAULT_VERSION)
     return terrain
 
 
-def flatten_terrain_raster(raster: Raster, height: Optional[float] = None) -> Raster:
+def flatten_terrain_raster(raster: Raster, height: float | None = None) -> Raster:
     """
     Create a flat raster while preserving the source raster grid and georeferencing.
 

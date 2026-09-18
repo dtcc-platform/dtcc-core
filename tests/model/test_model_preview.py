@@ -1,7 +1,6 @@
+import matplotlib
 import numpy as np
 import pytest
-
-import matplotlib
 
 matplotlib.use("Agg", force=True)
 import matplotlib.pyplot as plt
@@ -122,6 +121,7 @@ def test_preview_bounds_work_and_rejects_ambiguous_frames():
 
 def test_raster_nodata_and_explicit_elevation_meaning():
     from affine import Affine
+
     from dtcc_core.model import Terrain
 
     terrain = Terrain(id="dem")

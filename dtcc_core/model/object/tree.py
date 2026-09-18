@@ -1,11 +1,12 @@
 # Copyright(C) 2025 Dag Wästberg
 # Licensed under the MIT License
 
-from dataclasses import dataclass, field
 import math
-import numpy as np
-from typing import Union
+from dataclasses import dataclass, field
 from numbers import Real
+from typing import Union
+
+import numpy as np
 
 from .object import Object
 

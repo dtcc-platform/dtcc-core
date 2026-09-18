@@ -5,15 +5,15 @@ standard schema; stricter domain profiles can also be evaluated explicitly.
 See docs/design/standard-schema-io.md for the default contract and its scope.
 """
 
-from dataclasses import dataclass
 import json
+from dataclasses import dataclass
 from pathlib import Path
 
 from . import exchange
-from .object import Object, Tree, Landuse
-from .geometry import Geometry, Bounds, Transform
-from .values import Field, Raster
 from ._profile_backend import LinkMLProfile, issue
+from .geometry import Bounds, Geometry, Transform
+from .object import Landuse, Object, Tree
+from .values import Field, Raster
 
 __all__ = ["SemanticProfile", "ValidationIssue", "ValidationReport"]
 

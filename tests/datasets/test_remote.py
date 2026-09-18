@@ -1,7 +1,8 @@
 """Tests for RemoteDatasetDescriptor and remote service registration."""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 
 from dtcc_core.datasets.remote import RemoteDatasetDescriptor
 
@@ -210,8 +211,9 @@ def _mock_discovery_response():
 
 class TestRegisterRemoteService:
     def test_success(self):
+        from dtcc_core.datasets import list as list_datasets
+        from dtcc_core.datasets import unregister
         from dtcc_core.datasets.remote import register_remote_service
-        from dtcc_core.datasets import list as list_datasets, unregister
 
         mock_resp = MagicMock()
         mock_resp.json.return_value = _mock_discovery_response()
@@ -231,8 +233,9 @@ class TestRegisterRemoteService:
         unregister("mock_sim_dataset")
 
     def test_unreachable_returns_empty(self):
-        from dtcc_core.datasets.remote import register_remote_service
         import httpx
+
+        from dtcc_core.datasets.remote import register_remote_service
 
         with patch("httpx.get", side_effect=httpx.ConnectError("refused")):
             registered = register_remote_service("http://unreachable:9999", timeout=1)
@@ -248,13 +251,14 @@ class TestRegisterRemoteService:
         assert registered == []
 
     def test_cached_discoveries_roundtrip(self):
+        from dtcc_core.datasets import list as list_datasets
+        from dtcc_core.datasets import unregister
         from dtcc_core.datasets.remote import (
-            register_remote_service,
-            register_remote_descriptors_from_cache,
-            get_cached_discoveries,
             _cached_service_discoveries,
+            get_cached_discoveries,
+            register_remote_descriptors_from_cache,
+            register_remote_service,
         )
-        from dtcc_core.datasets import list as list_datasets, unregister
 
         # Clear cache from prior test runs
         _cached_service_discoveries.clear()

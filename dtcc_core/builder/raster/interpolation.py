@@ -1,7 +1,9 @@
+from logging import error, info, warning
+
 import numpy as np
-from ..register import register_model_method
+
 from ...model import Raster
-from logging import info, warning, error
+from ..register import register_model_method
 
 
 @register_model_method
@@ -124,7 +126,7 @@ def resample(raster: Raster, cell_size=None, scale=None, method="bilinear"):
     }
     if cell_size is None and scale is None:
         raise ValueError("Either cell_size or scale must be specified")
-    if not method in sample_methods:
+    if method not in sample_methods:
         raise ValueError(
             f"Invalid resampling method, use one of {list(sample_methods.keys())}"
         )

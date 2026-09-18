@@ -1,26 +1,23 @@
-import fiona
-
-from ..model.object import RoadNetwork, GeometryType
-from ..model.geometry import LineString, MultiLineString
-from . import generic
-
-import shapely.geometry
-import shapely.ops
-import shapely.affinity
-
 from pathlib import Path
 
+import fiona
 import numpy as np
+import shapely.affinity
+import shapely.geometry
+import shapely.ops
 
-from .logging import info, warning, error
+from ..model.geometry import LineString, MultiLineString
+from ..model.object import GeometryType, RoadNetwork
+from . import generic
+from .logging import error, info, warning
+from .utils import get_epsg
 from .vector_utils import (
-    validate_vector_file,
     create_bounds_filter,
     determine_io_crs,
     safe_reproject_geometry,
     set_geometry_crs,
+    validate_vector_file,
 )
-from .utils import get_epsg
 
 HAS_GEOPANDAS = False
 try:

@@ -14,7 +14,6 @@ from google.protobuf.json_format import Parse
 from dtcc_core import model
 from dtcc_core.model.model import Model
 
-
 OBJECTS = (
     "Object",
     "Building",

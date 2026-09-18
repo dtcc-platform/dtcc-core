@@ -3,10 +3,10 @@
 
 from dataclasses import dataclass, field
 from typing import Union
+
 import numpy as np
 
-
-from .geometry import Geometry, Bounds
+from .geometry import Bounds, Geometry
 
 
 def _validate_dimensions(**dimensions):

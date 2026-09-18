@@ -1,16 +1,17 @@
 from pathlib import Path
-import numpy as np
-
-from dtcc_core.model import PointCloud, Bounds
-from .container import PointCloudDirectory
-from . import generic
-from .logging import info, warning, error
 from typing import List, Union
 
+import numpy as np
+
+from dtcc_core.model import Bounds, PointCloud
+
+from . import generic
+from .container import PointCloudDirectory
+from .logging import error, info, warning
 from .pointcloud import las_file_bounds
 
 
-def load(las_directory: Union[str, Path]) -> PointCloudDirectory:
+def load(las_directory: str | Path) -> PointCloudDirectory:
     """
     create a PointCloudContainer object from a directory of las files
     """

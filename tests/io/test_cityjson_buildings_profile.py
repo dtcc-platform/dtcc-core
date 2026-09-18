@@ -1,14 +1,15 @@
 """Faithful buildings subset through ordinary CityJSON and canonical entry points."""
 
-from copy import deepcopy
 import json
+from copy import deepcopy
 from pathlib import Path
 
 import numpy as np
 import pytest
 
 from dtcc_core import io
-from dtcc_core.model import exchange, dtcc_pb2 as wire
+from dtcc_core.io.cityjson import cityjson
+from dtcc_core.io.cityjson.semantics import SEMANTIC_NAMESPACE
 from dtcc_core.model import (
     Field,
     GeometryType,
@@ -16,9 +17,9 @@ from dtcc_core.model import (
     MultiSurface,
     SemanticRegion,
     Surface,
+    exchange,
 )
-from dtcc_core.io.cityjson import cityjson
-from dtcc_core.io.cityjson.semantics import SEMANTIC_NAMESPACE
+from dtcc_core.model import dtcc_pb2 as wire
 
 FIXTURE = (
     Path(__file__).resolve().parents[2]

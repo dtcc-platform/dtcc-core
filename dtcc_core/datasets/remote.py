@@ -5,13 +5,15 @@ Enables transparent access to datasets hosted on remote DTCC services
 (e.g., dtcc-sim running in Docker) via the Remote Dataset Protocol.
 """
 
-import os
 import json
-import time
 import logging
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+import os
+import time
+from collections.abc import Sequence
+from typing import Any, Dict, List, Optional, Tuple
 
-from pydantic import BaseModel, ConfigDict, ValidationError as PydanticValidationError
+from pydantic import BaseModel, ConfigDict
+from pydantic import ValidationError as PydanticValidationError
 
 from .dataset import DatasetDescriptor
 from .registry import register
@@ -60,13 +62,13 @@ class RemoteDatasetDescriptor(DatasetDescriptor, register=False):
         self,
         name: str,
         description: str,
-        args_schema: Dict[str, Any],
+        args_schema: dict[str, Any],
         base_url: str,
         result_kind: str,
-        supported_formats: List[str],
+        supported_formats: list[str],
         source_service: str,
-        timeout_hint: Optional[int] = None,
-        data_category: Optional[str] = None,
+        timeout_hint: int | None = None,
+        data_category: str | None = None,
     ):
         self.name = name
         self.description = description
@@ -248,10 +250,10 @@ class RemoteDatasetDescriptor(DatasetDescriptor, register=False):
 
 
 # Module-level cache of discovery responses for worker bootstrap
-_cached_service_discoveries: Dict[str, Dict] = {}
+_cached_service_discoveries: dict[str, dict] = {}
 
 
-def register_remote_service(base_url: str, timeout: int = 5) -> List[str]:
+def register_remote_service(base_url: str, timeout: int = 5) -> list[str]:
     """Query a remote service's discovery endpoint and register its datasets.
 
     Returns list of registered dataset names, or empty list on failure.
@@ -289,7 +291,7 @@ def register_remote_service(base_url: str, timeout: int = 5) -> List[str]:
         return []
 
 
-def register_remote_descriptors_from_cache(cached_discoveries: Dict[str, Dict]):
+def register_remote_descriptors_from_cache(cached_discoveries: dict[str, dict]):
     """Register remote datasets from pre-fetched discovery data.
 
     Called by worker processes to avoid HTTP calls in child processes.
@@ -310,13 +312,13 @@ def register_remote_descriptors_from_cache(cached_discoveries: Dict[str, Dict]):
             register(name, descriptor)
 
 
-def get_cached_discoveries() -> Dict[str, Dict]:
+def get_cached_discoveries() -> dict[str, dict]:
     """Return cached discovery data for passing to worker processes."""
     return dict(_cached_service_discoveries)
 
 
 def _remote_data_category(
-    data_category: Optional[str],
+    data_category: str | None,
     source_service: str,
 ) -> str:
     if data_category:

@@ -4,9 +4,9 @@ import numpy as np
 import pytest
 
 from dtcc_core import builder, io
+from dtcc_core.builder.raster.interpolation import fill_holes
 from dtcc_core.datasets import load_model_package
 from dtcc_core.model import Bounds, Raster, exchange
-from dtcc_core.builder.raster.interpolation import fill_holes
 from sandbox.model_profiles.dem_example import make_dem, source
 
 

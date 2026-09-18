@@ -1,7 +1,7 @@
-from collections import Counter, defaultdict
 import subprocess
 import sys
 import textwrap
+from collections import Counter, defaultdict
 from types import SimpleNamespace
 
 import numpy as np
@@ -19,18 +19,18 @@ from dtcc_core.builder import (
 )
 from dtcc_core.builder.building.modify import clean_building_footprints
 from dtcc_core.builder.geometry_builders import meshes as meshes_module
+from dtcc_core.builder.meshing import dtcc_mesher_backend as dtcc_mesher_backend_module
+from dtcc_core.builder.meshing import flat_mesh_backends as flat_mesh_backends_module
+from dtcc_core.builder.meshing.tetgen import is_tetgen_available
 from dtcc_core.builder.model_conversion import (
     builder_mesh_to_mesh,
     create_builder_polygon,
     create_builder_surface,
     mesh_to_builder_mesh,
 )
-from dtcc_core.builder.meshing import dtcc_mesher_backend as dtcc_mesher_backend_module
-from dtcc_core.builder.meshing import flat_mesh_backends as flat_mesh_backends_module
-from dtcc_core.builder.meshing.tetgen import is_tetgen_available
 from dtcc_core.model import (
-    Building,
     Bounds,
+    Building,
     City,
     GeometryType,
     Mesh,

@@ -1,9 +1,11 @@
-import dtcc_core
-from dtcc_core.model import RoadNetwork
-from pydantic import Field
 from typing import Literal, Optional
 
-from .dataset import DatasetDescriptor, DatasetBaseArgs
+from pydantic import Field
+
+import dtcc_core
+from dtcc_core.model import RoadNetwork
+
+from .dataset import DatasetBaseArgs, DatasetDescriptor
 from .providers import provider_entry
 
 
@@ -15,7 +17,7 @@ class RoadsArgs(DatasetBaseArgs):
             "the Overpass/cache download path."
         ),
     )
-    format: Optional[Literal["pb"]] = Field(
+    format: Literal["pb"] | None = Field(
         None, description="Output format (pb for protobuf bytes)"
     )
 

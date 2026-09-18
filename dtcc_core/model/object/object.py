@@ -2,42 +2,34 @@
 # Licensed under the MIT License
 
 
-from dataclasses import dataclass, field
-from collections import defaultdict
-from typing import Optional, Union
-from enum import Enum, auto
 import json
 import math
-
+from collections import defaultdict
 from copy import copy, deepcopy
+from dataclasses import dataclass, field
+from enum import Enum, auto
+from typing import Optional, Union
+from uuid import uuid4
 
 import dtcc_core
 
-
-from ..values import Raster
-
-from ..model import Model
-from .representation import GeometryRepresentation
 from ..geometry import (
-    Geometry,
     Bounds,
-    Surface,
-    MultiSurface,
-    Solid,
-    PointCloud,
+    Geometry,
+    Grid,
     Mesh,
-    VolumeMesh,
-    Grid,
-    VolumeGrid,
-    Grid,
-    VolumeGrid,
+    MultiSurface,
+    PointCloud,
+    Solid,
+    Surface,
     Transform,
+    VolumeGrid,
+    VolumeMesh,
 )
-from collections import defaultdict
-from uuid import uuid4
-
-
-from ..logging import info, warning, error, debug
+from ..logging import debug, error, info, warning
+from ..model import Model
+from ..values import Raster
+from .representation import GeometryRepresentation
 
 
 class GeometryType(Enum):
@@ -245,9 +237,9 @@ class Object(Model):
     transform: Transform = field(default_factory=Transform)
     _bounds: Bounds = None
     # Optional intrinsic semantics, independent of Python class and containment.
-    semantic_type: Optional[str] = field(default=None, kw_only=True)
-    profile_id: Optional[str] = field(default=None, kw_only=True)
-    profile_version: Optional[str] = field(default=None, kw_only=True)
+    semantic_type: str | None = field(default=None, kw_only=True)
+    profile_id: str | None = field(default=None, kw_only=True)
+    profile_version: str | None = field(default=None, kw_only=True)
     relations: dict[str, list[str]] = field(default_factory=dict, kw_only=True)
 
     def _summary_items(self):
@@ -260,6 +252,7 @@ class Object(Model):
 
     def _info_sections(self):
         import numpy as np
+
         from ...common._display import value_text
 
         sections = super()._info_sections()
@@ -357,7 +350,7 @@ class Object(Model):
         return self.get_geometry(lod="3")
 
     @property
-    def mesh(self) -> Union[Mesh, None]:
+    def mesh(self) -> Mesh | None:
         """Return the unique geometry with role "mesh", or None."""
         return self.get_geometry(role="mesh")
 
@@ -367,17 +360,17 @@ class Object(Model):
         return self.get_geometry(role="volume_mesh")
 
     @property
-    def point_cloud(self) -> Union[PointCloud, None]:
+    def point_cloud(self) -> PointCloud | None:
         """Return POINT_CLOUD geometry."""
         return self.get_geometry(role="point_cloud")
 
     @property
-    def pointcloud(self) -> Union[PointCloud, None]:
+    def pointcloud(self) -> PointCloud | None:
         """Return POINT_CLOUD geometry."""
         return self.get_geometry(role="point_cloud")
 
     @property
-    def raster(self) -> Union[Raster, None]:
+    def raster(self) -> Raster | None:
         """Return RASTER geometry."""
         return self.get_geometry(role="raster")
 
@@ -526,7 +519,7 @@ class Object(Model):
             raise TypeError(f"Expected a Raster or Grid instance, got {type(raster)}")
         self.add_geometry(raster, GeometryType.RASTER)
 
-    def remove_geometry(self, geometry_type: Union[GeometryType, str]):
+    def remove_geometry(self, geometry_type: GeometryType | str):
         """Remove geometry from object."""
         geometry_type = _normalize_geometry_type(geometry_type)
         matches = self._geometry_matches(geometry_type)

@@ -48,7 +48,6 @@ from .presentation import (
     draw_preview_fact_rows,
 )
 
-
 SmokeProduct = Literal["field", "slice", "streamlines"]
 SmokeFormat = Literal["pb", "vtu", "geojson", "png", "mp4"]
 SmokePlotMode = Literal["artifact", "preview", "plot"]
@@ -88,7 +87,7 @@ class SmokeArgs(DatasetBaseArgs):
         "field",
         description="Dataset product to return: full volume field, cut plane, or streamlines.",
     )
-    format: Optional[SmokeFormat] = PydanticField(
+    format: SmokeFormat | None = PydanticField(
         None,
         description=(
             "Serialized output format. If omitted, product='field' returns a "
@@ -96,7 +95,7 @@ class SmokeArgs(DatasetBaseArgs):
             "product='streamlines' returns a StreamlineCollection."
         ),
     )
-    crs: Optional[str] = PydanticField(
+    crs: str | None = PydanticField(
         "EPSG:3006",
         description=(
             "Coordinate reference system declared in GeoJSON outputs for GIS "
@@ -165,7 +164,7 @@ class SmokeArgs(DatasetBaseArgs):
         "h264",
         description="FFmpeg video codec for MP4 artifacts.",
     )
-    bitrate: Optional[int] = PydanticField(
+    bitrate: int | None = PydanticField(
         None,
         gt=0,
         description="Optional MP4 video bitrate in kbit/s.",
@@ -207,7 +206,7 @@ class SmokeArgs(DatasetBaseArgs):
         "dtcc",
         description="Matplotlib colormap name, or 'dtcc' for the DTCC numeric palette.",
     )
-    background: Optional[str] = PydanticField(
+    background: str | None = PydanticField(
         None,
         description="Optional render background color. Defaults to the selected theme.",
     )
@@ -219,7 +218,7 @@ class SmokeArgs(DatasetBaseArgs):
         False,
         description="Whether rendered artifacts include a colorbar legend.",
     )
-    title: Optional[str] = PydanticField(
+    title: str | None = PydanticField(
         None,
         description="Optional title used by the non-table visualization profile.",
     )
@@ -230,11 +229,11 @@ class SmokeArgs(DatasetBaseArgs):
             "filling the canvas."
         ),
     )
-    vmin: Optional[float] = PydanticField(
+    vmin: float | None = PydanticField(
         None,
         description="Optional lower scalar color limit for rendered artifacts.",
     )
-    vmax: Optional[float] = PydanticField(
+    vmax: float | None = PydanticField(
         None,
         description="Optional upper scalar color limit for rendered artifacts.",
     )

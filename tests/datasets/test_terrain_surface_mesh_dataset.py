@@ -4,14 +4,15 @@ from __future__ import annotations
 
 from unittest.mock import Mock, patch
 
-import dtcc_core.datasets as datasets
 import pytest
+from pydantic import ValidationError
+
+import dtcc_core.datasets as datasets
 from dtcc_core.datasets import get_dataset
 from dtcc_core.datasets.terrain_surface_mesh import (
     TerrainSurfaceMeshArgs,
     TerrainSurfaceMeshDataset,
 )
-from pydantic import ValidationError
 
 
 def test_terrain_surface_mesh_registered_name():

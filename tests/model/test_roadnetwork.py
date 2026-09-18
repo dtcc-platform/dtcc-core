@@ -1,9 +1,11 @@
 import re
-import pytest
+
 import numpy as np
+import pytest
+
 import dtcc_core
-from dtcc_core.model.object import GeometryType, RoadNetwork, RoadType
 from dtcc_core.model.geometry import LineString, MultiLineString
+from dtcc_core.model.object import GeometryType, RoadNetwork, RoadType
 
 
 def test_create_roadnetwork():

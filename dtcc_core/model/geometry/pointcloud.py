@@ -3,13 +3,12 @@
 
 from dataclasses import dataclass, field
 from typing import Union
+
 import numpy as np
 
-
-from .geometry import Geometry
-from .bounds import Bounds
-
 from ..mixins.pointcloud.mixins import PointCloudBuilderMixin, PointcloudFilterMixin
+from .bounds import Bounds
+from .geometry import Geometry
 
 
 @dataclass(repr=False)
@@ -163,7 +162,7 @@ class PointCloud(PointCloudBuilderMixin, PointcloudFilterMixin, Geometry):
         self.calculate_bounds()
         return self
 
-    def offset(self, offset: Union[list, np.ndarray]) -> "PointCloud":
+    def offset(self, offset: list | np.ndarray) -> "PointCloud":
         """
         Offset the point cloud by the given offset.
 

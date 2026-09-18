@@ -1,7 +1,7 @@
 """DTCC property names and external spellings have one explicit boundary."""
 
-from copy import deepcopy
 import json
+from copy import deepcopy
 from pathlib import Path
 
 import pytest

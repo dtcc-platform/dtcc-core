@@ -1,7 +1,8 @@
 """Test Point geometry protobuf roundtrip."""
 
-import pytest
 import tempfile
+
+import pytest
 
 # Import from dtcc_core package
 from dtcc_core.model.geometry import Point

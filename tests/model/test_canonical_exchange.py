@@ -1,8 +1,8 @@
 """Focused v1 model and persistence boundaries through the public entry points."""
 
-from pathlib import Path
 import json
 import zipfile
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -25,10 +25,11 @@ from dtcc_core.model import (
     Mesh,
     Object,
     Point,
-    Surface,
     PointCloud,
+    Surface,
+    exchange,
 )
-from dtcc_core.model import exchange, dtcc_pb2 as wire
+from dtcc_core.model import dtcc_pb2 as wire
 
 
 @pytest.fixture

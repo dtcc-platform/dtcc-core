@@ -1,16 +1,15 @@
 # Copyright(C) 2023 Anders Logg
 # Licensed under the MIT License
+from collections.abc import Iterable
 from copy import deepcopy
+from dataclasses import dataclass, field
+from typing import Union
 
 import numpy as np
-from typing import Union, Iterable
-from dataclasses import dataclass, field
-from copy import deepcopy
-
-from .geometry import Geometry, Bounds
-from .surface import Surface, MultiSurface
 
 from ..mixins.mesh.mixins import MeshProcessingMixin, VolumeMeshProcessingMixin
+from .geometry import Bounds, Geometry
+from .surface import MultiSurface, Surface
 
 
 @dataclass(repr=False)

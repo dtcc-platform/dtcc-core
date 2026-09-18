@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from collections import deque
+from collections.abc import Callable
 from time import monotonic
-from typing import Callable
 
 import numpy as np
 

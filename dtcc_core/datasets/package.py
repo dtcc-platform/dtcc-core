@@ -3,18 +3,17 @@
 from __future__ import annotations
 
 import hashlib
-from inspect import signature
 import json
 import os
 import shutil
 import tempfile
 import zipfile
 from dataclasses import dataclass
+from inspect import signature
 from pathlib import Path
 
 from dtcc_core.datasets.dataset import DatasetDescriptor
-from dtcc_core.datasets.schema import DatasetArtifact, DatasetManifest, DatasetContext
-
+from dtcc_core.datasets.schema import DatasetArtifact, DatasetContext, DatasetManifest
 
 CANONICAL_MANIFEST_VERSION = "dtcc-dataset-manifest-v3"
 CANONICAL_ARTIFACT = "artifacts/model.dtcc"
@@ -537,6 +536,7 @@ def load_model_package(path, *, validate_schema=True):
     validate_schema=False bypasses semantic evaluation, not integrity/admission.
     """
     from contextlib import ExitStack
+
     from ..model import exchange
     from .publish import _validate_package_path
 

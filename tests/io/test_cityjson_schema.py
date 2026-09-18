@@ -1,16 +1,16 @@
 """Strict CityJSON evaluates the standard contract without weakening format admission."""
 
-from copy import deepcopy
 import json
-from pathlib import Path
 import zipfile
+from copy import deepcopy
+from pathlib import Path
 
 import pytest
 
 from dtcc_core import io
 from dtcc_core.io.cityjson.cityjson import load
 from dtcc_core.io.cityjson.write_cityjson import to_cityjson
-from dtcc_core.model._standard_schema import SCHEMA_ID, DEFAULT_VERSION
+from dtcc_core.model._standard_schema import DEFAULT_VERSION, SCHEMA_ID
 
 FIXTURES = Path(__file__).resolve().parents[2] / "sandbox/model_profiles/fixtures"
 

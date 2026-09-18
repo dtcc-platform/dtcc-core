@@ -5,22 +5,22 @@ Tests the high-level functionality of converting DTCC City objects
 to CityJSON format, including buildings, terrain, and file I/O.
 """
 
-import pytest
 import json
-import numpy as np
 import tempfile
 from pathlib import Path
 
-from dtcc_core.model import City, Surface, MultiSurface, Mesh, Building, BuildingPart
-from dtcc_core.model.object.object import GeometryType
-from dtcc_core.model.object.terrain import Terrain
-from dtcc_core.model.geometry import Bounds
+import numpy as np
+import pytest
 
 from dtcc_core.io.cityjson.write_cityjson import (
-    to_cityjson,
-    save,
     CityJSONConfig,
+    save,
+    to_cityjson,
 )
+from dtcc_core.model import Building, BuildingPart, City, Mesh, MultiSurface, Surface
+from dtcc_core.model.geometry import Bounds
+from dtcc_core.model.object.object import GeometryType
+from dtcc_core.model.object.terrain import Terrain
 
 
 class TestCityToCityJSON:
@@ -299,7 +299,7 @@ class TestFileOperations:
             # Verify file was created and contains valid JSON
             assert tmp_path.exists()
 
-            with open(tmp_path, "r") as f:
+            with open(tmp_path) as f:
                 loaded_data = json.load(f)
 
             assert loaded_data["type"] == "CityJSON"
@@ -339,7 +339,7 @@ class TestFileOperations:
         try:
             save(city, tmp_path, config=config)
 
-            with open(tmp_path, "r") as f:
+            with open(tmp_path) as f:
                 loaded_data = json.load(f)
 
             # Check that custom config was applied

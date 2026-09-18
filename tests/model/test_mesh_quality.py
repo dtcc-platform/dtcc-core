@@ -1,25 +1,25 @@
 """Tests for mesh quality metrics (Mesh.quality() and VolumeMesh.quality())."""
 
-import pytest
 import numpy as np
+import pytest
+
 from dtcc_core.model import Mesh, VolumeMesh
 from dtcc_core.model.mixins.mesh.quality import (
-    triangle_mesh_quality,
-    tetrahedron_mesh_quality,
-    tri_element_quality,
-    tri_aspect_ratio,
-    tri_radius_ratio,
-    tri_edge_ratio,
-    tri_skewness,
-    tet_element_quality,
-    tet_aspect_ratio,
-    tet_radius_ratio,
-    tet_edge_ratio,
-    tet_skewness,
     format_quality,
     report_quality,
+    tet_aspect_ratio,
+    tet_edge_ratio,
+    tet_element_quality,
+    tet_radius_ratio,
+    tet_skewness,
+    tetrahedron_mesh_quality,
+    tri_aspect_ratio,
+    tri_edge_ratio,
+    tri_element_quality,
+    tri_radius_ratio,
+    tri_skewness,
+    triangle_mesh_quality,
 )
-
 
 # -----------------------------------------------------------------------
 # Fixtures

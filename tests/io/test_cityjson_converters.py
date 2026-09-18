@@ -9,25 +9,25 @@ Tests the refactored converter architecture including:
 - Error handling and edge cases
 """
 
-import pytest
-import numpy as np
 from unittest.mock import Mock
 
-from dtcc_core.model import Surface, MultiSurface, Mesh
-from dtcc_core.model.object.object import GeometryType
+import numpy as np
+import pytest
 
 from dtcc_core.io.cityjson.converters import (
-    convert_surface,
-    convert_multisurface,
+    CityJSONConfig,
     convert_mesh,
+    convert_multisurface,
+    convert_surface,
     convert_terrain_mesh,
+    create_boundary,
+    geometry_type_to_lod,
     get_converter,
     get_terrain_converter,
-    CityJSONConfig,
-    geometry_type_to_lod,
     scale_vertices,
-    create_boundary,
 )
+from dtcc_core.model import Mesh, MultiSurface, Surface
+from dtcc_core.model.object.object import GeometryType
 
 
 # CityJSONConfig tests

@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
-from io import BytesIO
 import os
-from pathlib import Path
 import tempfile
-from typing import Any, Callable
+from collections.abc import Callable
+from io import BytesIO
+from pathlib import Path
+from typing import Any
 
 import numpy as np
 
+from .options import RasterRenderOptions, VideoRenderOptions
+from .products import SliceProduct, StreamlineProduct
 from .style import (
     apply_dtcc_style,
     get_theme,
@@ -19,9 +22,6 @@ from .style import (
     style_colorbar,
     style_plot_extras,
 )
-
-from .options import RasterRenderOptions, VideoRenderOptions
-from .products import SliceProduct, StreamlineProduct
 
 
 def render_product_png(product: Any, options: RasterRenderOptions) -> bytes:

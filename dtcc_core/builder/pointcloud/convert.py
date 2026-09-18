@@ -1,10 +1,12 @@
-from pypoints2grid import points2grid
 import numpy as np
-import dtcc_core.model as model
 import rasterio.transform
-from ...model import PointCloud, Bounds
-from ..register import register_model_method
+from pypoints2grid import points2grid
+
+import dtcc_core.model as model
+
+from ...model import Bounds, PointCloud
 from ..raster.interpolation import fill_holes as fill_raster_holes
+from ..register import register_model_method
 
 
 def rasterize(

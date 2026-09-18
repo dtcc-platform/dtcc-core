@@ -1,5 +1,6 @@
-import pytest
 import logging
+
+import pytest
 
 try:
     from pydantic import BaseModel, Field, ValidationError
@@ -9,14 +10,15 @@ except ImportError:
 
 import dtcc_core.datasets as datasets
 from dtcc_core.datasets import (
-    DatasetDescriptor,
     DatasetBaseArgs,
+    DatasetDescriptor,
     register,
     register_class,
     unregister,
+)
+from dtcc_core.datasets import (
     list as list_datasets,
 )
-
 
 # Test Fixtures - Custom Dataset Classes for Testing
 
@@ -198,7 +200,7 @@ def test_dataset_info_groups_rows_by_category():
 
 
 def test_dataset_info_prints_tables_independent_of_logging(capsys):
-    from dtcc_core.common.dtcc_logging import set_log_level, get_python_logger
+    from dtcc_core.common.dtcc_logging import get_python_logger, set_log_level
 
     previous = get_python_logger().level
     try:

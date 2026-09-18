@@ -1,18 +1,17 @@
+from dataclasses import dataclass
+
 import numpy as np
+from scipy import ndimage as ndi
+from shapely.geometry import Polygon
 
 from dtcc_core import builder
 from dtcc_core.builder.trees.utils import (
     detect_local_maxima,
-    suppress_peaks_height_aware,
     extract_crown_polygons_from_labels,
     segment_tree_crowns,
+    suppress_peaks_height_aware,
 )
-from dtcc_core.model import Raster, PointCloud, Building, Tree
-from scipy import ndimage as ndi
-
-from shapely.geometry import Polygon
-
-from dataclasses import dataclass
+from dtcc_core.model import Building, PointCloud, Raster, Tree
 
 
 @dataclass

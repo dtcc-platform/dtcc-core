@@ -8,7 +8,6 @@ from typing import Any
 
 from dtcc_core.plotting.style import DTCC_COLORS
 
-
 MISSING = "Not specified"
 PANEL_BACKGROUND = DTCC_COLORS["dark_surface"]
 PANEL_TEXT = DTCC_COLORS["surface"]
@@ -642,12 +641,12 @@ def _object_count(obj: Any | None) -> int | None:
                 pass
     if hasattr(obj, "length"):
         try:
-            return len(getattr(obj, "length"))
+            return len(obj.length)
         except TypeError:
             pass
     if hasattr(obj, "points"):
         try:
-            return len(getattr(obj, "points"))
+            return len(obj.points)
         except TypeError:
             pass
     try:

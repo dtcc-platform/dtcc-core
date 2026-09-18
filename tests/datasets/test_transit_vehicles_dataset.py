@@ -6,11 +6,11 @@ from pydantic import ValidationError
 import dtcc_core.datasets as datasets
 from dtcc_core.datasets import attach_dataset_context
 from dtcc_core.datasets.dataset import DatasetUpstreamError
-from dtcc_core.datasets.transport.base import TransportProviderResult, VehicleRecord
 from dtcc_core.datasets.transit_vehicles import (
     TransitVehiclesArgs,
     TransitVehiclesDataset,
 )
+from dtcc_core.datasets.transport.base import TransportProviderResult, VehicleRecord
 from dtcc_core.model.geometry import Point
 from dtcc_core.model.object import Object, VehicleCollection
 

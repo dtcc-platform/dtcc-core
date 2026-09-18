@@ -2,8 +2,8 @@ from types import ModuleType
 
 import pytest
 
-from dtcc_core.model import Point
 import dtcc_core.model.model as model_module
+from dtcc_core.model import Point
 
 
 def test_model_save_raises_when_io_unavailable(monkeypatch):

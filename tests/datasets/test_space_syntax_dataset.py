@@ -4,9 +4,9 @@ import numpy as np
 import pytest
 
 import dtcc_core.datasets as datasets
+from dtcc_core.builder.roadnetwork.space_syntax import analyze_space_syntax
 from dtcc_core.datasets import get_dataset
 from dtcc_core.datasets.space_syntax import SpaceSyntaxArgs, SpaceSyntaxDataset
-from dtcc_core.builder.roadnetwork.space_syntax import analyze_space_syntax
 from dtcc_core.model import RoadNetwork
 
 

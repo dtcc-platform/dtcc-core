@@ -1,8 +1,8 @@
 """The optional native validation workflow and its boundary diagnostics."""
 
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 

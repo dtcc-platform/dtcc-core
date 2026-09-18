@@ -1,20 +1,22 @@
 from collections import defaultdict
 
-import pytest
 import numpy as np
+import pytest
+
 from dtcc_core.builder.meshing import (
     backends as backends_module,
+)
+from dtcc_core.builder.meshing import (
+    disjoint_meshes,
     merge_meshes,
     mesh_multisurface,
-    mesh_surface,
     mesh_multisurfaces,
-    disjoint_meshes,
+    mesh_surface,
+    tetgen_utils,
 )
 from dtcc_core.builder.meshing import tetgen as tetgen_module
-from dtcc_core.builder.meshing import tetgen_utils
 from dtcc_core.builder.meshing.tetgen import is_tetgen_available
-
-from dtcc_core.model import Mesh, Surface, MultiSurface
+from dtcc_core.model import Mesh, MultiSurface, Surface
 
 
 @pytest.fixture

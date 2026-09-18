@@ -3,21 +3,22 @@
 
 """Tests for CRS handling in vector I/O."""
 
-import pytest
-import numpy as np
 import tempfile
-import fiona
-import shapely.geometry
 from pathlib import Path
 
+import fiona
+import numpy as np
+import pytest
+import shapely.geometry
+
 from dtcc_core.io.vector_utils import (
-    validate_crs,
     get_format_required_crs,
-    reproject_shapely_geometry,
     get_geometry_crs,
+    reproject_shapely_geometry,
     set_geometry_crs,
+    validate_crs,
 )
-from dtcc_core.model import Building, City, Tree, GeometryType
+from dtcc_core.model import Building, City, GeometryType, Tree
 from dtcc_core.model.geometry import Surface
 
 
