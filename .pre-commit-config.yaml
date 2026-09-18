@@ -1,0 +1,8 @@
+# Optional: run "uv run pre-commit install" to check changed files on commit.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.8
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format

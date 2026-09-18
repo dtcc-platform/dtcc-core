@@ -95,4 +95,66 @@ dev = [
     "pytest>=9.0.2",
     "pytest-cov",
     "httpx>=0.27",
+    "ruff>=0.16.8",
 ]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+# Scratch code, agent plans and prose are not part of the package.
+extend-exclude = ["sandbox", ".agent", "docs", "*.md"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "C90", "PLR0915"]
+# The formatter decides line breaks, so E501 would only report the lines it
+# cannot split, such as long strings and comments.
+ignore = ["E501"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 12
+
+[tool.ruff.lint.per-file-ignores]
+# Complexity hotspots that predate these checks, exempted so the checks can be
+# switched on without a large refactor first. Remove an entry once its file is
+# split up; see issue #104 for builder/cleaning/footprints.py.
+"benchmarks/benchmark_catalog.py" = ["C901", "PLR0915"]
+"benchmarks/benchmark_datasets.py" = ["C901", "PLR0915"]
+"benchmarks/benchmark_phases.py" = ["C901", "PLR0915"]
+"dtcc_core/builder/cleaning/footprints.py" = ["C901", "PLR0915"]
+"dtcc_core/builder/geometry_builders/buildings.py" = ["C901", "PLR0915"]
+"dtcc_core/builder/geometry_builders/lod2.py" = ["C901", "PLR0915"]
+"dtcc_core/builder/geometry_builders/meshes.py" = ["C901", "PLR0915"]
+"dtcc_core/builder/geometry_builders/terrain.py" = ["C901", "PLR0915"]
+"dtcc_core/builder/meshing/boundary_conformance.py" = ["C901", "PLR0915"]
+"dtcc_core/builder/meshing/meshing.py" = ["C901", "PLR0915"]
+"dtcc_core/builder/meshing/tetgen.py" = ["C901", "PLR0915"]
+"dtcc_core/builder/meshing/tetgen_utils.py" = ["C901", "PLR0915"]
+"dtcc_core/datasets/air_quality.py" = ["C901", "PLR0915"]
+"dtcc_core/datasets/hydrology.py" = ["C901", "PLR0915"]
+"dtcc_core/datasets/ocean.py" = ["C901", "PLR0915"]
+"dtcc_core/datasets/package.py" = ["C901", "PLR0915"]
+"dtcc_core/datasets/publish.py" = ["C901", "PLR0915"]
+"dtcc_core/datasets/smoke.py" = ["C901", "PLR0915"]
+"dtcc_core/datasets/transit_vehicles.py" = ["C901", "PLR0915"]
+"dtcc_core/datasets/transport/base.py" = ["C901", "PLR0915"]
+"dtcc_core/datasets/transport/trafiklab_gtfs.py" = ["C901", "PLR0915"]
+"dtcc_core/datasets/transport/vasttrafik.py" = ["C901", "PLR0915"]
+"dtcc_core/datasets/weather.py" = ["C901", "PLR0915"]
+"dtcc_core/io/cityjson/admission.py" = ["C901", "PLR0915"]
+"dtcc_core/io/cityjson/cityjson.py" = ["C901", "PLR0915"]
+"dtcc_core/io/cityjson/semantics.py" = ["C901", "PLR0915"]
+"dtcc_core/io/cityjson/utils.py" = ["C901", "PLR0915"]
+"dtcc_core/io/cityjson/write_cityjson.py" = ["C901", "PLR0915"]
+"dtcc_core/io/data/wrapper.py" = ["C901", "PLR0915"]
+"dtcc_core/io/footprints.py" = ["C901", "PLR0915"]
+"dtcc_core/io/three_d_bag.py" = ["C901", "PLR0915"]
+"dtcc_core/model/_display.py" = ["C901", "PLR0915"]
+"dtcc_core/model/_profile_backend.py" = ["C901", "PLR0915"]
+"dtcc_core/model/exchange.py" = ["C901", "PLR0915"]
+"dtcc_core/model/object/object.py" = ["C901", "PLR0915"]
+"dtcc_core/model/profiles.py" = ["C901", "PLR0915"]
+"dtcc_core/plotting/model.py" = ["C901", "PLR0915"]
+"scripts/check_public_api_calls.py" = ["C901", "PLR0915"]
+"scripts/generate_flagship_model.py" = ["C901", "PLR0915"]
+"tests/builder/test_cleaning_meshing_integration.py" = ["C901", "PLR0915"]
+"tests/datasets/test_dataset_context.py" = ["C901", "PLR0915"]
