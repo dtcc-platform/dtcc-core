@@ -13,7 +13,7 @@ from .model import load_model, save_model
 from os.path import splitext, basename
 from xml.sax.saxutils import quoteattr
 
-from ..model import Bounds, Mesh, VolumeMesh, City, Building, Field
+from ..model import Bounds, Mesh, VolumeMesh, City, Building, Field, Transform
 from ..model import GeometryType
 from ..builder.meshing import disjoint_meshes, merge_meshes
 
@@ -800,7 +800,9 @@ def centered_copy(mesh, center_on_origin=True):
     Coordinates in national grids are millions of metres from the origin,
     which 32-bit formats such as STL cannot store precisely and CAD tools
     handle poorly. ``mesh`` itself is not modified: the copy gets a new vertex
-    array and shares every other array with the original.
+    array and shares every other array with the original. The copy also gets
+    its own ``Transform`` undoing the shift, so it still maps to the same
+    global position as the original.
 
     Parameters
     ----------
@@ -825,6 +827,15 @@ def centered_copy(mesh, center_on_origin=True):
     # An empty mesh has no vertex rows to shift.
     shifted.vertices = vertices + np.asarray(offset) if len(vertices) else vertices.copy()
     shifted._bounds = None
+    # The copy maps its local coordinates back to the original frame: undo the
+    # shift, then apply whatever transform the original had. A new Transform
+    # also keeps the copy from sharing the original's.
+    undo = np.eye(4)
+    undo[:3, 3] = -np.asarray(offset, dtype=np.float64)
+    shifted.transform = Transform(
+        srs=mesh.transform.srs,
+        affine=np.asarray(mesh.transform.affine, dtype=np.float64) @ undo,
+    )
     return shifted
 
 

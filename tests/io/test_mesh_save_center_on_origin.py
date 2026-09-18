@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 from dtcc_core.io.meshes import bounds_center_offset, centered_copy
-from dtcc_core.model import Bounds, Mesh, VolumeMesh
+from dtcc_core.model import Bounds, Mesh, Transform, VolumeMesh
 
 # A small building in Gothenburg, in SWEREF99 TM.
 X0, Y0 = 319123.456, 6398765.432
@@ -139,3 +139,46 @@ def test_save_center_on_origin_works_for_volume_meshes(tmp_path):
 def test_bounds_center_offset_rejects_other_lengths():
     with pytest.raises(ValueError, match="4 or 6 floats"):
         bounds_center_offset((0.0, 1.0, 2.0))
+
+
+def test_centered_copy_maps_back_to_the_original_position():
+    """The copy's transform undoes the shift, so it stays georeferenced."""
+    mesh = _mesh()
+    mesh.transform = Transform(srs="EPSG:3006")
+
+    centred = centered_copy(mesh, AREA)
+
+    assert centred.transform.srs == "EPSG:3006"
+    assert np.allclose(centred.transform(centred.vertices), mesh.vertices)
+
+
+def test_centered_copy_maps_back_when_centred_on_its_own_extent():
+    mesh = _mesh()
+
+    centred = centered_copy(mesh, True)
+
+    assert np.allclose(centred.transform(centred.vertices), mesh.vertices)
+
+
+def test_centered_copy_leaves_the_original_transform_alone():
+    mesh = _mesh()
+    mesh.transform = Transform(srs="EPSG:3006")
+    affine_before = mesh.transform.affine.copy()
+
+    centred = centered_copy(mesh, AREA)
+
+    assert centred.transform is not mesh.transform
+    assert np.array_equal(mesh.transform.affine, affine_before)
+
+
+def test_centered_copy_composes_with_an_existing_transform():
+    """A mesh already offset from its global frame keeps that global position."""
+    affine = np.eye(4)
+    affine[:3, 3] = (1000.0, -2000.0, 5.0)
+    mesh = _mesh()
+    mesh.transform = Transform(srs="EPSG:3006", affine=affine)
+    global_before = mesh.transform(mesh.vertices)
+
+    centred = centered_copy(mesh, AREA)
+
+    assert np.allclose(centred.transform(centred.vertices), global_before)
