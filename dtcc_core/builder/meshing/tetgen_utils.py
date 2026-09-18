@@ -1362,7 +1362,8 @@ def compute_oriented_boundary_triangle_plc(
     mesh : Mesh
         Terrain and building surface mesh forming the shell.
     closure_mesh : Mesh
-        Closure mesh passed on to :func:`compute_boundary_triangle_facets`.
+        Closure mesh. Only its vertex array shape is checked; the top cap and
+        side walls are built from the outer boundary of ``mesh``.
     top_height : float, optional
         Height of the domain top above the lowest mesh vertex. When it is not
         taller than the mesh, 1.5 times the mesh height is used. Default is
@@ -1469,7 +1470,8 @@ def build_tetgen_plc(
     mesh : Mesh
         Terrain and building surface mesh forming the shell.
     closure_mesh : Mesh
-        Closure mesh passed on to :func:`compute_boundary_triangle_facets`.
+        Closure mesh. Only its vertex array shape is checked; the top cap and
+        side walls are built from the outer boundary of ``mesh``.
     top_height : float, optional
         Height of the domain top above the lowest mesh vertex. When it is not
         taller than the mesh, 1.5 times the mesh height is used. Default is
