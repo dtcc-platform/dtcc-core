@@ -405,7 +405,12 @@ class OceanDataset(DatasetDescriptor):
         "with the latest observation time."
     )
     default_crs = "EPSG:3006"
-    data_types = ["sensor_collection", "ocean_observations", "points", "time_series_snapshot"]
+    data_types = [
+        "sensor_collection",
+        "ocean_observations",
+        "points",
+        "time_series_snapshot",
+    ]
     geographic_coverage = "Sweden, constrained by station coverage and requested bounds"
     update_frequency = "latest-hour observation snapshot"
     processing_steps = [
@@ -456,12 +461,21 @@ class OceanDataset(DatasetDescriptor):
     presentation_legend = {
         "title": "Ocean station fields",
         "entries": [
-            {"label": "sea_temperature", "meaning": "SMHI parameter 5, water temperature"},
+            {
+                "label": "sea_temperature",
+                "meaning": "SMHI parameter 5, water temperature",
+            },
             {"label": "sea_level", "meaning": "SMHI parameter 6, sea water level"},
             {"label": "salinity", "meaning": "SMHI parameter 4, salinity"},
-            {"label": "wave_height_significant", "meaning": "SMHI parameter 1, significant wave height"},
+            {
+                "label": "wave_height_significant",
+                "meaning": "SMHI parameter 1, significant wave height",
+            },
             {"label": "current_speed", "meaning": "SMHI parameter 3, current speed"},
-            {"label": "dissolved_oxygen", "meaning": "SMHI parameter 15, oxygen concentration"},
+            {
+                "label": "dissolved_oxygen",
+                "meaning": "SMHI parameter 15, oxygen concentration",
+            },
         ],
     }
     view_hints = {
@@ -575,9 +589,7 @@ class OceanDataset(DatasetDescriptor):
             station_map = {
                 sid: data
                 for sid, data in station_map.items()
-                if any(
-                    not np.isnan(v) for v, _u, _q, _ts in data["fields"].values()
-                )
+                if any(not np.isnan(v) for v, _u, _q, _ts in data["fields"].values())
             }
             info(f"  {len(station_map)} station(s) after dropping all-missing")
 

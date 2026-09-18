@@ -141,8 +141,7 @@ class SmokeArgs(DatasetBaseArgs):
     time: float = PydanticField(
         0.0,
         description=(
-            "Snapshot time in seconds. Video exports use this as the first "
-            "frame time."
+            "Snapshot time in seconds. Video exports use this as the first frame time."
         ),
     )
     period: float = PydanticField(
@@ -557,7 +556,9 @@ class SmokeDataset(DatasetDescriptor):
 
         bounds = _physical_bounds(args)
         product = _visual_product(bounds, args)
-        options = _video_options(args) if args.format == "mp4" else _render_options(args)
+        options = (
+            _video_options(args) if args.format == "mp4" else _render_options(args)
+        )
         visualization = options.manifest_dict()
         visualization.update(product.manifest_dict())
         visualization["origin"] = "lower"
@@ -1080,7 +1081,7 @@ def _smoke_preview_facts(args: SmokeArgs, *, overview: bool) -> list[tuple[str, 
     elif args.product == "slice":
         records = f"{args.resolution * args.resolution:,} samples"
     else:
-        records = f"{args.resolution ** 3:,} samples"
+        records = f"{args.resolution**3:,} samples"
     facts.append(("Records", records))
     facts.append(("CRS", args.crs or "not declared"))
     facts.append(("Formats", "png, mp4" if args.loop else "png"))
@@ -1232,7 +1233,11 @@ def _validate_smoke_presentation(presentation: dict[str, Any]) -> None:
             raise ValueError(f"Smoke presentation metadata requires non-empty {key!r}.")
 
     for item in presentation["narrative"]:
-        if not isinstance(item, dict) or not item.get("heading") or not item.get("body"):
+        if (
+            not isinstance(item, dict)
+            or not item.get("heading")
+            or not item.get("body")
+        ):
             raise ValueError(
                 "Smoke presentation narrative items require heading and body."
             )
@@ -1464,7 +1469,9 @@ def _video_options(args: SmokeArgs) -> VideoRenderOptions:
     )
 
 
-def _visual_product(bounds: Bounds, args: SmokeArgs) -> SliceProduct | StreamlineProduct:
+def _visual_product(
+    bounds: Bounds, args: SmokeArgs
+) -> SliceProduct | StreamlineProduct:
     if args.product == "slice":
         return _slice_product(bounds, args)
     if args.product == "streamlines":
@@ -1743,9 +1750,7 @@ def _streamline_direction(point: np.ndarray, time: float, period: float) -> np.n
 
 
 def _inside_normalized_domain(point: np.ndarray) -> bool:
-    return bool(
-        np.all(point >= _NORMALIZED_MIN) and np.all(point <= _NORMALIZED_MAX)
-    )
+    return bool(np.all(point >= _NORMALIZED_MIN) and np.all(point <= _NORMALIZED_MAX))
 
 
 def _point_feature(

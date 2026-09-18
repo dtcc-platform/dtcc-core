@@ -72,9 +72,7 @@ def test_roads_info_uses_dataset_tables(monkeypatch):
 
 def test_roads_context_metadata_and_presentation():
     dataset = RoadsDataset()
-    context = dataset.create_context(
-        dataset.validate({"bounds": (0.0, 0.0, 2.0, 1.0)})
-    )
+    context = dataset.create_context(dataset.validate({"bounds": (0.0, 0.0, 2.0, 1.0)}))
     manifest = context.manifest()
 
     assert manifest.identity.title == "OpenStreetMap Roads"

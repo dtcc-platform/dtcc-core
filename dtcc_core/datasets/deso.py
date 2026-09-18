@@ -131,10 +131,22 @@ class DeSODataset(DatasetDescriptor):
         "title": "DeSO areas",
         "entries": [
             {"label": "Polygon", "meaning": "SCB DeSO statistical area"},
-            {"label": "population_total", "meaning": "persons by DeSO area when requested"},
-            {"label": "households_total", "meaning": "households by DeSO area when requested"},
-            {"label": "cars_total/cars_in_traffic", "meaning": "passenger-car counts when requested"},
-            {"label": "employed_residents_total", "meaning": "employed residents when requested"},
+            {
+                "label": "population_total",
+                "meaning": "persons by DeSO area when requested",
+            },
+            {
+                "label": "households_total",
+                "meaning": "households by DeSO area when requested",
+            },
+            {
+                "label": "cars_total/cars_in_traffic",
+                "meaning": "passenger-car counts when requested",
+            },
+            {
+                "label": "employed_residents_total",
+                "meaning": "employed residents when requested",
+            },
         ],
     }
     view_hints = {

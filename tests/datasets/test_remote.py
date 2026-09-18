@@ -97,7 +97,9 @@ class TestRemoteDatasetDescriptor:
         text = desc.info(print=False)
         assert "bounds" in text
         assert "No parameters defined" not in text
-        schema["properties"].update({f"option_{i}": {"type": "number"} for i in range(25)})
+        schema["properties"].update(
+            {f"option_{i}": {"type": "number"} for i in range(25)}
+        )
         assert "option_24" in desc.info(print=False)
 
     def test_validate_passes_through_dict(self):
@@ -512,7 +514,9 @@ class TestSSEAndPolling:
 
         with patch("httpx.get", side_effect=mock_get):
             with patch("time.sleep"):  # don't actually sleep
-                result = desc._poll_status("http://localhost:8001/status/abc", progress_cb)
+                result = desc._poll_status(
+                    "http://localhost:8001/status/abc", progress_cb
+                )
 
         assert result == "abc.xdmf"
         assert len(progress_calls) == 2
@@ -537,8 +541,12 @@ class TestStreamStatusFallback:
 
         desc = self._make_desc()
 
-        with patch.object(desc, "_stream_sse", side_effect=SSEStreamError("stream dropped")):
-            with patch.object(desc, "_poll_status", return_value="abc.xdmf") as mock_poll:
+        with patch.object(
+            desc, "_stream_sse", side_effect=SSEStreamError("stream dropped")
+        ):
+            with patch.object(
+                desc, "_poll_status", return_value="abc.xdmf"
+            ) as mock_poll:
                 result = desc._stream_status("task-123", None)
 
         assert result == "abc.xdmf"
@@ -550,8 +558,12 @@ class TestStreamStatusFallback:
 
         desc = self._make_desc()
 
-        with patch.object(desc, "_stream_sse", side_effect=httpx.ReadError("connection reset")):
-            with patch.object(desc, "_poll_status", return_value="abc.xdmf") as mock_poll:
+        with patch.object(
+            desc, "_stream_sse", side_effect=httpx.ReadError("connection reset")
+        ):
+            with patch.object(
+                desc, "_poll_status", return_value="abc.xdmf"
+            ) as mock_poll:
                 result = desc._stream_status("task-123", None)
 
         assert result == "abc.xdmf"
@@ -563,8 +575,12 @@ class TestStreamStatusFallback:
 
         desc = self._make_desc()
 
-        with patch.object(desc, "_stream_sse", side_effect=httpx.RemoteProtocolError("peer closed")):
-            with patch.object(desc, "_poll_status", return_value="abc.xdmf") as mock_poll:
+        with patch.object(
+            desc, "_stream_sse", side_effect=httpx.RemoteProtocolError("peer closed")
+        ):
+            with patch.object(
+                desc, "_poll_status", return_value="abc.xdmf"
+            ) as mock_poll:
                 result = desc._stream_status("task-123", None)
 
         assert result == "abc.xdmf"
@@ -574,7 +590,9 @@ class TestStreamStatusFallback:
         """RuntimeError from failed/cancelled jobs should NOT fall back to polling."""
         desc = self._make_desc()
 
-        with patch.object(desc, "_stream_sse", side_effect=RuntimeError("Remote job failed: OOM")):
+        with patch.object(
+            desc, "_stream_sse", side_effect=RuntimeError("Remote job failed: OOM")
+        ):
             with patch.object(desc, "_poll_status") as mock_poll:
                 with pytest.raises(RuntimeError, match="OOM"):
                     desc._stream_status("task-123", None)
@@ -585,7 +603,9 @@ class TestStreamStatusFallback:
         """RuntimeError from cancellation should NOT fall back to polling."""
         desc = self._make_desc()
 
-        with patch.object(desc, "_stream_sse", side_effect=RuntimeError("Remote job was cancelled")):
+        with patch.object(
+            desc, "_stream_sse", side_effect=RuntimeError("Remote job was cancelled")
+        ):
             with patch.object(desc, "_poll_status") as mock_poll:
                 with pytest.raises(RuntimeError, match="cancelled"):
                     desc._stream_status("task-123", None)

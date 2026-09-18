@@ -68,7 +68,9 @@ def validate_2d_bounds(bounds: Sequence[float]) -> tuple[float, float, float, fl
     if isinstance(bounds, (str, bytes)) or not isinstance(bounds, Sequence):
         raise ValueError("bounds must be a sequence of four numeric values.")
     if len(bounds) != 4:
-        raise ValueError("bounds must contain exactly four values: xmin, ymin, xmax, ymax.")
+        raise ValueError(
+            "bounds must contain exactly four values: xmin, ymin, xmax, ymax."
+        )
 
     try:
         xmin, ymin, xmax, ymax = (float(value) for value in bounds)

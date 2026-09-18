@@ -366,7 +366,9 @@ def _point_indices_in_polygons(pc: PointCloud, polygons: List[Surface], flatten=
     ]
     groups = _dtcc_builder.points_in_polygons(pc.points, builder_polygons)
     if flatten:
-        return np.unique(np.concatenate(groups)) if groups else np.empty(0, dtype=np.intp)
+        return (
+            np.unique(np.concatenate(groups)) if groups else np.empty(0, dtype=np.intp)
+        )
     return groups
 
 

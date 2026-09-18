@@ -9,7 +9,6 @@ import numpy as np
 class Polygon(Geometry):
     geom: ShapelyPolygon = field(default_factory=ShapelyPolygon)
 
-
     @property
     def shapely(self):
         """

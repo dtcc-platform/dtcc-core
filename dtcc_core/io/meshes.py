@@ -48,14 +48,6 @@ def has_assimp():
     return HAS_ASSIMP
 
 
-
-
-
-
-
-
-
-
 def _load_meshio_mesh(path):
     mesh = meshio.read(path)
     vertices = mesh.points[:, :3]
@@ -334,9 +326,7 @@ def _normalize_xdmf_field(field, index, vertex_count, cell_count, used_dataset_n
         )
 
     number_type, precision = _xdmf_number_type_and_precision(values.dtype)
-    dataset_name = _sanitize_hdf5_field_name(
-        field_name, index, used_dataset_names
-    )
+    dataset_name = _sanitize_hdf5_field_name(field_name, index, used_dataset_names)
 
     return {
         "name": str(field_name),

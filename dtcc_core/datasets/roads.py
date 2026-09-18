@@ -117,8 +117,7 @@ class RoadsDataset(DatasetDescriptor):
             {
                 "label": "highway",
                 "meaning": (
-                    "OpenStreetMap road-class tag, such as residential or "
-                    "primary"
+                    "OpenStreetMap road-class tag, such as residential or primary"
                 ),
             },
             {

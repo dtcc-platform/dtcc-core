@@ -112,7 +112,7 @@ def conform_boundary(
 
     info(
         f"Boundary conformance: {num_pinned}/{num_candidates} vertices pinned "
-        f"({100.0*num_pinned/num_candidates:.1f}% of boundary), "
+        f"({100.0 * num_pinned / num_candidates:.1f}% of boundary), "
         f"tolerance={tolerance:.3f}m, {smoothing_iterations} iterations"
     )
     return mesh
@@ -224,63 +224,63 @@ def _find_shared_boundary_edge(
 
     # Compute new mesh bounding box edges
     new_bbox = {
-        'x_min': new_vertices[:, 0].min(),
-        'x_max': new_vertices[:, 0].max(),
-        'y_min': new_vertices[:, 1].min(),
-        'y_max': new_vertices[:, 1].max(),
+        "x_min": new_vertices[:, 0].min(),
+        "x_max": new_vertices[:, 0].max(),
+        "y_min": new_vertices[:, 1].min(),
+        "y_max": new_vertices[:, 1].max(),
     }
 
     # Compute old mesh bounding box
     old_bbox = {
-        'x_min': old_mesh.vertices[:, 0].min(),
-        'x_max': old_mesh.vertices[:, 0].max(),
-        'y_min': old_mesh.vertices[:, 1].min(),
-        'y_max': old_mesh.vertices[:, 1].max(),
+        "x_min": old_mesh.vertices[:, 0].min(),
+        "x_max": old_mesh.vertices[:, 0].max(),
+        "y_min": old_mesh.vertices[:, 1].min(),
+        "y_max": old_mesh.vertices[:, 1].max(),
     }
 
     # Check each edge of new mesh against old mesh extent
     candidates = []
 
     # Check if new x_min edge is near old x_max edge (old mesh to the left)
-    if abs(new_bbox['x_min'] - old_bbox['x_max']) < tolerance:
+    if abs(new_bbox["x_min"] - old_bbox["x_max"]) < tolerance:
         # Verify y-ranges overlap
-        y_overlap = (
-            max(new_bbox['y_min'], old_bbox['y_min']) <=
-            min(new_bbox['y_max'], old_bbox['y_max'])
+        y_overlap = max(new_bbox["y_min"], old_bbox["y_min"]) <= min(
+            new_bbox["y_max"], old_bbox["y_max"]
         )
         if y_overlap:
-            candidates.append(('x_min', new_bbox['x_min'],
-                             abs(new_bbox['x_min'] - old_bbox['x_max'])))
+            candidates.append(
+                ("x_min", new_bbox["x_min"], abs(new_bbox["x_min"] - old_bbox["x_max"]))
+            )
 
     # Check if new x_max edge is near old x_min edge (old mesh to the right)
-    if abs(new_bbox['x_max'] - old_bbox['x_min']) < tolerance:
-        y_overlap = (
-            max(new_bbox['y_min'], old_bbox['y_min']) <=
-            min(new_bbox['y_max'], old_bbox['y_max'])
+    if abs(new_bbox["x_max"] - old_bbox["x_min"]) < tolerance:
+        y_overlap = max(new_bbox["y_min"], old_bbox["y_min"]) <= min(
+            new_bbox["y_max"], old_bbox["y_max"]
         )
         if y_overlap:
-            candidates.append(('x_max', new_bbox['x_max'],
-                             abs(new_bbox['x_max'] - old_bbox['x_min'])))
+            candidates.append(
+                ("x_max", new_bbox["x_max"], abs(new_bbox["x_max"] - old_bbox["x_min"]))
+            )
 
     # Check if new y_min edge is near old y_max edge (old mesh below)
-    if abs(new_bbox['y_min'] - old_bbox['y_max']) < tolerance:
-        x_overlap = (
-            max(new_bbox['x_min'], old_bbox['x_min']) <=
-            min(new_bbox['x_max'], old_bbox['x_max'])
+    if abs(new_bbox["y_min"] - old_bbox["y_max"]) < tolerance:
+        x_overlap = max(new_bbox["x_min"], old_bbox["x_min"]) <= min(
+            new_bbox["x_max"], old_bbox["x_max"]
         )
         if x_overlap:
-            candidates.append(('y_min', new_bbox['y_min'],
-                             abs(new_bbox['y_min'] - old_bbox['y_max'])))
+            candidates.append(
+                ("y_min", new_bbox["y_min"], abs(new_bbox["y_min"] - old_bbox["y_max"]))
+            )
 
     # Check if new y_max edge is near old y_min edge (old mesh above)
-    if abs(new_bbox['y_max'] - old_bbox['y_min']) < tolerance:
-        x_overlap = (
-            max(new_bbox['x_min'], old_bbox['x_min']) <=
-            min(new_bbox['x_max'], old_bbox['x_max'])
+    if abs(new_bbox["y_max"] - old_bbox["y_min"]) < tolerance:
+        x_overlap = max(new_bbox["x_min"], old_bbox["x_min"]) <= min(
+            new_bbox["x_max"], old_bbox["x_max"]
         )
         if x_overlap:
-            candidates.append(('y_max', new_bbox['y_max'],
-                             abs(new_bbox['y_max'] - old_bbox['y_min'])))
+            candidates.append(
+                ("y_max", new_bbox["y_max"], abs(new_bbox["y_max"] - old_bbox["y_min"]))
+            )
 
     if not candidates:
         return None, None
@@ -347,16 +347,16 @@ def _detect_contact_vertices(
 
         # Identify vertices on the shared edge
         edge_tol = tolerance  # tolerance for "on the edge" check
-        if edge_type == 'x_min':
+        if edge_type == "x_min":
             on_edge = np.abs(new_vertices[candidate_indices, 0] - edge_value) < edge_tol
             axis_idx = 0
-        elif edge_type == 'x_max':
+        elif edge_type == "x_max":
             on_edge = np.abs(new_vertices[candidate_indices, 0] - edge_value) < edge_tol
             axis_idx = 0
-        elif edge_type == 'y_min':
+        elif edge_type == "y_min":
             on_edge = np.abs(new_vertices[candidate_indices, 1] - edge_value) < edge_tol
             axis_idx = 1
-        elif edge_type == 'y_max':
+        elif edge_type == "y_max":
             on_edge = np.abs(new_vertices[candidate_indices, 1] - edge_value) < edge_tol
             axis_idx = 1
         else:

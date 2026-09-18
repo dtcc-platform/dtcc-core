@@ -3,7 +3,9 @@
 from dtcc_core.io.data import cache, empty_cache
 
 
-def test_empty_cache_clears_files_and_directories_but_preserves_external_target(tmp_path, monkeypatch):
+def test_empty_cache_clears_files_and_directories_but_preserves_external_target(
+    tmp_path, monkeypatch
+):
     root = tmp_path / "cache"
     nested = root / "nested"
     nested.mkdir(parents=True)

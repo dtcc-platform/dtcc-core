@@ -84,7 +84,9 @@ def report(rows, top: int) -> None:
 
     print(f"\nmost expensive single imports, cumulative (top {top}):")
     for self_us, cumulative_us, _, name in sorted(rows, key=lambda r: -r[1])[:top]:
-        print(f"  {cumulative_us / 1000:8.1f} ms cum  {self_us / 1000:7.1f} ms self  {name}")
+        print(
+            f"  {cumulative_us / 1000:8.1f} ms cum  {self_us / 1000:7.1f} ms self  {name}"
+        )
 
 
 def main() -> int:

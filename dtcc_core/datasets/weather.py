@@ -397,7 +397,12 @@ class WeatherDataset(DatasetDescriptor):
         "timestamp and may include time-period comments in the CSV."
     )
     default_crs = "EPSG:3006"
-    data_types = ["sensor_collection", "weather_observations", "points", "time_series_snapshot"]
+    data_types = [
+        "sensor_collection",
+        "weather_observations",
+        "points",
+        "time_series_snapshot",
+    ]
     geographic_coverage = "Sweden, constrained by station coverage and requested bounds"
     update_frequency = "latest-hour observation snapshot"
     processing_steps = [
@@ -453,8 +458,14 @@ class WeatherDataset(DatasetDescriptor):
             {"label": "wind_direction", "meaning": "SMHI parameter 3, degrees"},
             {"label": "wind_speed", "meaning": "SMHI parameter 4, m/s"},
             {"label": "relative_humidity", "meaning": "SMHI parameter 6, percent"},
-            {"label": "precipitation_1h", "meaning": "SMHI parameter 7, latest-hour precipitation"},
-            {"label": "sea_level_pressure", "meaning": "SMHI parameter 9, pressure reduced to sea level"},
+            {
+                "label": "precipitation_1h",
+                "meaning": "SMHI parameter 7, latest-hour precipitation",
+            },
+            {
+                "label": "sea_level_pressure",
+                "meaning": "SMHI parameter 9, pressure reduced to sea level",
+            },
         ],
     }
     view_hints = {
@@ -569,9 +580,7 @@ class WeatherDataset(DatasetDescriptor):
             station_map = {
                 sid: data
                 for sid, data in station_map.items()
-                if any(
-                    not np.isnan(v) for v, _u, _q, _ts in data["fields"].values()
-                )
+                if any(not np.isnan(v) for v, _u, _q, _ts in data["fields"].values())
             }
             info(f"  {len(station_map)} station(s) after dropping all-missing")
 

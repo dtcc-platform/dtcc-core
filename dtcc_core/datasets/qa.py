@@ -586,8 +586,7 @@ def _format_markdown_report(report: DatasetQAReport) -> str:
         "|---|---:|",
     ]
     lines.extend(
-        f"| `{status}` | {count} |"
-        for status, count in report.status_counts().items()
+        f"| `{status}` | {count} |" for status, count in report.status_counts().items()
     )
     lines.extend(
         [

@@ -174,7 +174,9 @@ def test_point_cloud_export_returns_bytes(mock_download):
     mock_download.return_value = downloaded_pc
 
     dataset = PointCloudDataset()
-    with patch.object(dataset, "export_to_bytes", return_value=b"pc-bytes") as mock_export:
+    with patch.object(
+        dataset, "export_to_bytes", return_value=b"pc-bytes"
+    ) as mock_export:
         result = dataset.build(
             PointCloudArgs(
                 bounds=(0.0, 0.0, 1.0, 1.0),
@@ -211,10 +213,18 @@ def test_point_cloud_context_documents_classification_presets_and_review_status(
     assert manifest.metadata.source[0]["source_terms_status"] == "requires_review"
     assert "Requires review" in manifest.metadata.license
     assert "Requires review" in manifest.metadata.collection_period
-    assert any("terrain=[2, 8]" in step for step in manifest.provenance.processing_steps)
-    assert any("remove_outlier_threshold" in step for step in manifest.provenance.processing_steps)
+    assert any(
+        "terrain=[2, 8]" in step for step in manifest.provenance.processing_steps
+    )
+    assert any(
+        "remove_outlier_threshold" in step
+        for step in manifest.provenance.processing_steps
+    )
     assert manifest.presentation.legend["title"] == "Classification presets"
-    assert any(entry["label"] == "buildings" for entry in manifest.presentation.legend["entries"])
+    assert any(
+        entry["label"] == "buildings"
+        for entry in manifest.presentation.legend["entries"]
+    )
     assert manifest.presentation.view_hints["recommended_filters"] == [
         "terrain",
         "buildings",

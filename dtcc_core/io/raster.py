@@ -16,8 +16,6 @@ from ..model import Raster
 from .logging import info, error, warning
 
 
-
-
 def _load_rasterio(path: Union[Path, List], **kwargs):
     raster = Raster()
     if not isinstance(path, list):
@@ -72,16 +70,11 @@ def load(path, delimiter=",", *, validate_schema=True) -> Raster:
         Raster: A `Raster` object representing the raster file loaded.
     """
 
-
-
-
-    if isinstance(path, (str, Path)) and Path(path).suffix.lower() == '.dtcc':
+    if isinstance(path, (str, Path)) and Path(path).suffix.lower() == ".dtcc":
         return load_model(path, expected_type=Raster, validate_schema=validate_schema)
     if validate_schema is not True:
-        raise ValueError('validate_schema applies to .dtcc input')
+        raise ValueError("validate_schema applies to .dtcc input")
     return generic.load(path, "raster", Raster, _load_formats, delimiter=delimiter)
-
-
 
 
 def _save_json_raster(raster, path):

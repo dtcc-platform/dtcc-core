@@ -5,8 +5,8 @@ from dtcc_core.model import Surface, MultiSurface
 
 @pytest.fixture
 def surface_pair():
-    s1 = Surface(vertices=np.array([[0., 0., 0.], [1., 0., 0.], [1., 1., 0.]]))
-    s2 = Surface(vertices=np.array([[0., 0., 1.], [1., 0., 1.], [1., 1., 2.]]))
+    s1 = Surface(vertices=np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0]]))
+    s2 = Surface(vertices=np.array([[0.0, 0.0, 1.0], [1.0, 0.0, 1.0], [1.0, 1.0, 2.0]]))
     return s1, s2
 
 

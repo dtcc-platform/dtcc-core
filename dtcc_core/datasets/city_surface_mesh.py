@@ -174,9 +174,18 @@ class CitySurfaceMeshDataset(DatasetDescriptor):
     presentation_legend = {
         "title": "Surface mesh layers",
         "entries": [
-            {"label": "Terrain triangle", "meaning": "point-cloud-derived ground surface facet"},
-            {"label": "Building surface", "meaning": "extruded and conditioned footprint boundary"},
-            {"label": "Conditioned footprint", "meaning": "merged or simplified source footprint used for meshing"},
+            {
+                "label": "Terrain triangle",
+                "meaning": "point-cloud-derived ground surface facet",
+            },
+            {
+                "label": "Building surface",
+                "meaning": "extruded and conditioned footprint boundary",
+            },
+            {
+                "label": "Conditioned footprint",
+                "meaning": "merged or simplified source footprint used for meshing",
+            },
         ],
     }
     view_hints = {

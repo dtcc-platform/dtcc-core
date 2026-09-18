@@ -177,7 +177,9 @@ def compute_building_heights(
     """
     total_buildings = len(buildings)
     info("Computing building heights...")
-    report_progress(percent=0, message=f"Computing heights for {total_buildings} buildings...")
+    report_progress(
+        percent=0, message=f"Computing heights for {total_buildings} buildings..."
+    )
     for i, building in enumerate(buildings):
         footprint = building.lod0
         if footprint is None:
@@ -244,7 +246,9 @@ def build_lod1_buildings(
     """
     total_buildings = len(buildings)
     info(f"Building LOD1 representations of {total_buildings} buildings...")
-    report_progress(percent=0, message=f"Building LOD1 for {total_buildings} buildings...")
+    report_progress(
+        percent=0, message=f"Building LOD1 for {total_buildings} buildings..."
+    )
 
     for i, building in enumerate(buildings):
         if building.lod1 is not None and not rebuild:
@@ -265,7 +269,7 @@ def build_lod1_buildings(
             report_progress(
                 current=i + 1,
                 total=total_buildings,
-                message=f"Building LOD1 ({i + 1}/{total_buildings})..."
+                message=f"Building LOD1 ({i + 1}/{total_buildings})...",
             )
 
     return buildings
@@ -390,7 +394,9 @@ def building_heights_from_pointcloud(
 
     if terrain_raster is None:
         info("No terrain raster provided, building terrain raster from point cloud.")
-        terrain_raster = build_terrain_raster(pointcloud, cell_size=2, ground_only=True, _report_progress=False)
+        terrain_raster = build_terrain_raster(
+            pointcloud, cell_size=2, ground_only=True, _report_progress=False
+        )
 
     buildings = extract_roof_points(
         buildings,

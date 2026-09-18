@@ -14,7 +14,9 @@ from dtcc_core.datasets._city_mesh_common import (
 from dtcc_core.model import Bounds
 
 
-@patch("dtcc_core.datasets._city_mesh_common.dtcc_core.builder.compute_building_heights")
+@patch(
+    "dtcc_core.datasets._city_mesh_common.dtcc_core.builder.compute_building_heights"
+)
 @patch("dtcc_core.datasets._city_mesh_common.dtcc_core.builder.extract_roof_points")
 @patch("dtcc_core.datasets._city_mesh_common.dtcc_core.builder.build_terrain_raster")
 @patch("dtcc_core.datasets._city_mesh_common.dtcc_core.io.data.download_footprints")
@@ -75,7 +77,9 @@ def test_prepare_city_from_bounds_default_path(
     )
 
 
-@patch("dtcc_core.datasets._city_mesh_common.dtcc_core.builder.compute_building_heights")
+@patch(
+    "dtcc_core.datasets._city_mesh_common.dtcc_core.builder.compute_building_heights"
+)
 @patch("dtcc_core.datasets._city_mesh_common.dtcc_core.builder.extract_roof_points")
 @patch("dtcc_core.datasets._city_mesh_common.dtcc_core.builder.build_terrain_raster")
 @patch("dtcc_core.datasets._city_mesh_common.dtcc_core.io.data.download_footprints")
@@ -114,9 +118,13 @@ def test_prepare_city_from_bounds_skips_outlier_removal_when_disabled(
     )
 
 
-@patch("dtcc_core.datasets._city_mesh_common.dtcc_core.builder.set_building_heights_from_attribute")
+@patch(
+    "dtcc_core.datasets._city_mesh_common.dtcc_core.builder.set_building_heights_from_attribute"
+)
 @patch("dtcc_core.datasets._city_mesh_common.dtcc_core.builder.flatten_terrain_raster")
-@patch("dtcc_core.datasets._city_mesh_common.dtcc_core.builder.compute_building_heights")
+@patch(
+    "dtcc_core.datasets._city_mesh_common.dtcc_core.builder.compute_building_heights"
+)
 @patch("dtcc_core.datasets._city_mesh_common.dtcc_core.builder.extract_roof_points")
 @patch("dtcc_core.datasets._city_mesh_common.dtcc_core.builder.build_terrain_raster")
 @patch("dtcc_core.datasets._city_mesh_common.dtcc_core.io.data.download_footprints")
@@ -199,7 +207,9 @@ def test_prepare_footprint_city_from_bounds_downloads_only_footprints(
     city.add_buildings.assert_called_once_with(buildings)
 
 
-@patch("dtcc_core.datasets._city_mesh_common.dtcc_core.builder.build_conditioned_footprints")
+@patch(
+    "dtcc_core.datasets._city_mesh_common.dtcc_core.builder.build_conditioned_footprints"
+)
 def test_condition_city_meshing_footprints_uses_shared_conditioning_stage(
     mock_build_conditioned_footprints,
 ):

@@ -53,21 +53,39 @@ class Geometry(Model):
         from .._display import field_section
 
         sections = super()._info_sections()
-        sections[0][2].extend([("Bounds (local)", self.bounds.bndstr),
-                               ("CRS", self.transform.srs or "Not specified"),
-                               ("Transform", "Identity" if np.array_equal(self.transform.affine, np.eye(4))
-                                else str(self.transform.affine))])
-        arrays = [(f.name, value.shape, value.dtype) for f in fields(self)
-                  if not f.name.startswith("_")
-                  and isinstance(value := getattr(self, f.name), np.ndarray)]
+        sections[0][2].extend(
+            [
+                ("Bounds (local)", self.bounds.bndstr),
+                ("CRS", self.transform.srs or "Not specified"),
+                (
+                    "Transform",
+                    "Identity"
+                    if np.array_equal(self.transform.affine, np.eye(4))
+                    else str(self.transform.affine),
+                ),
+            ]
+        )
+        arrays = [
+            (f.name, value.shape, value.dtype)
+            for f in fields(self)
+            if not f.name.startswith("_")
+            and isinstance(value := getattr(self, f.name), np.ndarray)
+        ]
         if arrays:
             sections.append(("Arrays", ("Name", "Shape", "Type"), arrays))
         if self.fields:
             sections.append(field_section(self.fields))
         if self.regions:
-            sections.append(("Semantic regions", ("Type", "ID", "Elements", "Parent"),
-                             [(r.semantic_type, r.id, len(r.indices), r.parent)
-                              for r in self.regions]))
+            sections.append(
+                (
+                    "Semantic regions",
+                    ("Type", "ID", "Elements", "Parent"),
+                    [
+                        (r.semantic_type, r.id, len(r.indices), r.parent)
+                        for r in self.regions
+                    ],
+                )
+            )
         return sections
 
     @abstractmethod
@@ -125,4 +143,6 @@ class Geometry(Model):
 
     def regions_of(self, semantic_type: str) -> list[SemanticRegion]:
         """Return regions with this exact semantic URI, retaining native arrays."""
-        return [region for region in self.regions if region.semantic_type == semantic_type]
+        return [
+            region for region in self.regions if region.semantic_type == semantic_type
+        ]

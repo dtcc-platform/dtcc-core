@@ -96,9 +96,9 @@ class LiveVehiclePlot:
         positions = vehicle_positions(vehicles)
 
         for vehicle_id, xy in positions.items():
-            self.trails.setdefault(
-                vehicle_id, deque(maxlen=self.trail_length)
-            ).append(xy)
+            self.trails.setdefault(vehicle_id, deque(maxlen=self.trail_length)).append(
+                xy
+            )
             self.last_seen[vehicle_id] = now
 
         self._prune_stale(now)

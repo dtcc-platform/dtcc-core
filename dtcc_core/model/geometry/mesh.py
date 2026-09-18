@@ -122,7 +122,6 @@ class Mesh(MeshProcessingMixin, Geometry):
         else:
             return deepcopy(self)
 
-
     def to_multisurface(self) -> MultiSurface:
         """Convert the mesh to a MultiSurface object.
 

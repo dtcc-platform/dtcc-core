@@ -48,18 +48,26 @@ def _sample_field(field, xs, ys):
     for row in range(len(ys) - 1):
         for col in range(len(xs) - 1):
             i = row * len(xs) + col
-            faces.extend([[i, i + 1, i + len(xs)],
-                          [i + 1, i + len(xs) + 1, i + len(xs)]])
-    ground = _dtcc_builder.create_mesh(vertices, np.array(faces), np.full(len(faces), -2))
+            faces.extend(
+                [[i, i + 1, i + len(xs)], [i + 1, i + len(xs) + 1, i + len(xs)]]
+            )
+    ground = _dtcc_builder.create_mesh(
+        vertices, np.array(faces), np.full(len(faces), -2)
+    )
     mesh = _dtcc_builder.build_terrain_surface_mesh_from_ground_mesh(ground, field, 0)
-    return _dtcc_builder.mesh_as_arrays(mesh)[0].reshape((-1, 3))[:, 2].reshape(xx.shape)
+    return (
+        _dtcc_builder.mesh_as_arrays(mesh)[0].reshape((-1, 3))[:, 2].reshape(xx.shape)
+    )
 
 
-@pytest.mark.parametrize("georef", [
-    Affine(2, 0, 10, 0, -3, 29),  # north-up
-    Affine(2, 0, 10, 0, 3, 20),   # south-up
-    Affine(-2, 0, 16, 0, -3, 29), # reversed columns
-])
+@pytest.mark.parametrize(
+    "georef",
+    [
+        Affine(2, 0, 10, 0, -3, 29),  # north-up
+        Affine(2, 0, 10, 0, 3, 20),  # south-up
+        Affine(-2, 0, 16, 0, -3, 29),  # reversed columns
+    ],
+)
 def test_gridfield_samples_pixel_centers_and_clamps_outer_margins(georef):
     cols, rows = np.meshgrid(np.arange(3) + 0.5, np.arange(3) + 0.5)
     x, y = georef * (cols, rows)
@@ -79,29 +87,45 @@ def test_single_pixel_gridfield_is_constant_over_its_footprint():
     np.testing.assert_array_equal(_sample_field(field, [0, 0.5, 1], [0, 0.5, 1]), 7)
 
 
-@pytest.mark.parametrize("raster, error, message", [
-    (Raster(data=np.empty((0, 2))), ValueError, "nonempty 2D"),
-    (Raster(data=np.zeros((2, 2, 3))), ValueError, "single-band"),
-    (Raster(data=np.ones((2, 2)), georef=Affine(1, 0.1, 0, 0, -1, 2)),
-     NotImplementedError, "rotated or skewed"),
-    (Raster(data=np.ones((2, 2)), georef=Affine(0, 0, 0, 0, -1, 2)),
-     ValueError, "spacing"),
-    (Raster(data=np.array([[1, -9999]]), nodata=-9999), ValueError, "nodata"),
-    (Raster(data=np.ma.array([[1, 2]], mask=[[False, True]])), ValueError, "masked"),
-    (Raster(data=np.array([[1, np.nan]])), ValueError, "finite real"),
-])
+@pytest.mark.parametrize(
+    "raster, error, message",
+    [
+        (Raster(data=np.empty((0, 2))), ValueError, "nonempty 2D"),
+        (Raster(data=np.zeros((2, 2, 3))), ValueError, "single-band"),
+        (
+            Raster(data=np.ones((2, 2)), georef=Affine(1, 0.1, 0, 0, -1, 2)),
+            NotImplementedError,
+            "rotated or skewed",
+        ),
+        (
+            Raster(data=np.ones((2, 2)), georef=Affine(0, 0, 0, 0, -1, 2)),
+            ValueError,
+            "spacing",
+        ),
+        (Raster(data=np.array([[1, -9999]]), nodata=-9999), ValueError, "nodata"),
+        (
+            Raster(data=np.ma.array([[1, 2]], mask=[[False, True]])),
+            ValueError,
+            "masked",
+        ),
+        (Raster(data=np.array([[1, np.nan]])), ValueError, "finite real"),
+    ],
+)
 def test_raster_conversion_rejects_unsupported_input(raster, error, message):
     with pytest.raises(error, match=message):
         raster_to_builder_gridfield(raster)
 
 
-@pytest.mark.parametrize("data, bounds, width, height, message", [
-    (np.ones(2), (0, 0, 2, 2), 2, 2, "matching"),
-    (np.ones(2), (0, 0, 2, 2), 0, 2, "positive"),
-    (np.ones(2), (0, 0, 0, 2), 1, 2, "bounds"),
-    (np.array([1, np.inf]), (0, 0, 1, 2), 1, 2, "finite real"),
-    (np.array([1 + 1j, 2]), (0, 0, 1, 2), 1, 2, "finite real"),
-])
+@pytest.mark.parametrize(
+    "data, bounds, width, height, message",
+    [
+        (np.ones(2), (0, 0, 2, 2), 2, 2, "matching"),
+        (np.ones(2), (0, 0, 2, 2), 0, 2, "positive"),
+        (np.ones(2), (0, 0, 0, 2), 1, 2, "bounds"),
+        (np.array([1, np.inf]), (0, 0, 1, 2), 1, 2, "finite real"),
+        (np.array([1 + 1j, 2]), (0, 0, 1, 2), 1, 2, "finite real"),
+    ],
+)
 def test_native_gridfield_validates_raw_inputs(data, bounds, width, height, message):
     with pytest.raises(ValueError, match=message):
         _dtcc_builder.create_gridfield(data, bounds, width, height)
@@ -109,12 +133,17 @@ def test_native_gridfield_validates_raw_inputs(data, bounds, width, height, mess
 
 def test_terrain_workflows_use_raster_pixel_locations():
     from dtcc_core.builder.geometry_builders.terrain import (
-        adaptive_terrain_mesh, build_terrain_surface_mesh,
+        adaptive_terrain_mesh,
+        build_terrain_surface_mesh,
     )
-    raster = Raster(data=np.array([[5., 6., 7.], [3., 4., 5.], [1., 2., 3.]]),
-                    georef=Affine(1, 0, 0, 0, -1, 3))
-    mesh = build_terrain_surface_mesh(raster, max_mesh_size=1, smoothing=0,
-                                      report_mesh_quality=False)
+
+    raster = Raster(
+        data=np.array([[5.0, 6.0, 7.0], [3.0, 4.0, 5.0], [1.0, 2.0, 3.0]]),
+        georef=Affine(1, 0, 0, 0, -1, 3),
+    )
+    mesh = build_terrain_surface_mesh(
+        raster, max_mesh_size=1, smoothing=0, report_mesh_quality=False
+    )
     x, y, z = mesh.vertices.T
     np.testing.assert_allclose(z, np.clip(x, 0.5, 2.5) + 2 * np.clip(y, 0.5, 2.5) - 0.5)
     adaptive = adaptive_terrain_mesh(raster, max_error=0.1, smoothing=0)

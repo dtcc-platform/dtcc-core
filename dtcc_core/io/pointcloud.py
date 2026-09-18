@@ -24,7 +24,12 @@ def las_file_bounds(las_file):
     """
     src = laspy.read(las_file)
     bounds = Bounds(
-        src.header.x_min, src.header.y_min, src.header.x_max, src.header.y_max, src.header.z_min, src.header.z_max
+        src.header.x_min,
+        src.header.y_min,
+        src.header.x_max,
+        src.header.y_max,
+        src.header.z_min,
+        src.header.z_max,
     )
     return bounds
 
@@ -92,7 +97,8 @@ def load(
     points_classification_only=False,
     delimiter=",",
     bounds: Bounds = None,
-    *, validate_schema=True,
+    *,
+    validate_schema=True,
 ) -> PointCloud:
     """
     Load a LAS/LAZ/CSV file or a directory containing LAS/LAZ/CSV files as a `PointCloud` object.
@@ -107,12 +113,16 @@ def load(
     Returns:
         PointCloud: A `PointCloud` object representing the file(s) loaded.
     """
-    if isinstance(path, (str, Path)) and Path(path).suffix.lower() == '.dtcc':
+    if isinstance(path, (str, Path)) and Path(path).suffix.lower() == ".dtcc":
         if points_only or points_classification_only or bounds is not None:
-            raise ValueError('DTCC model loading preserves the whole point cloud; filter it after loading')
-        return load_model(path, expected_type=PointCloud, validate_schema=validate_schema)
+            raise ValueError(
+                "DTCC model loading preserves the whole point cloud; filter it after loading"
+            )
+        return load_model(
+            path, expected_type=PointCloud, validate_schema=validate_schema
+        )
     if validate_schema is not True:
-        raise ValueError('validate_schema applies to .dtcc input')
+        raise ValueError("validate_schema applies to .dtcc input")
     if isinstance(path, str):
         path = Path(path)
     if isinstance(path, Path) and not path.exists():
@@ -269,8 +279,6 @@ def _load_las(
     return pc
 
 
-
-
 def save(pointcloud, outfile, format=None, **kwargs):
     """
     Save a point cloud to disk using a registered format.
@@ -282,7 +290,9 @@ def save(pointcloud, outfile, format=None, **kwargs):
     outfile : str or Path
         Output path with extension determining the format.
     """
-    generic.save(pointcloud, outfile, "pointcloud", _save_formats, format=format, **kwargs)
+    generic.save(
+        pointcloud, outfile, "pointcloud", _save_formats, format=format, **kwargs
+    )
 
 
 def _save_csv(pointcloud, outfile):
@@ -303,8 +313,6 @@ def _save_las(pointcloud, las_file):
     if len(pointcloud.classification) == len(pointcloud.points):
         outfile.classification = pointcloud.classification.astype(np.uint8)
     outfile.write(las_file)
-
-
 
 
 def _save_json_pointcloud(pointcloud, outfile):

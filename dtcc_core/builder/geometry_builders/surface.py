@@ -22,7 +22,9 @@ def _wind_ring(ring: np.ndarray, upwards: bool) -> np.ndarray:
 
 def _surface_like(source: Surface, vertices: np.ndarray, holes=None) -> Surface:
     """Build a surface from explicit rings, keeping the source frame."""
-    surface = Surface(vertices=np.asarray(vertices, dtype=np.float64), holes=list(holes or []))
+    surface = Surface(
+        vertices=np.asarray(vertices, dtype=np.float64), holes=list(holes or [])
+    )
     surface.transform = deepcopy(source.transform)
     return surface
 

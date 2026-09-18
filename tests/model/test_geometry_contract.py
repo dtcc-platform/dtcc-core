@@ -27,9 +27,7 @@ def test_default_transforms_are_independent():
 
 
 def test_transform_roundtrip_preserves_affine_and_srs():
-    affine = np.array(
-        [[2, 0, 0, 10], [0, 0, -1, 20], [0, 1, 0, 30], [0, 0, 0, 1]]
-    )
+    affine = np.array([[2, 0, 0, 10], [0, 0, -1, 20], [0, 1, 0, 30], [0, 0, 0, 1]])
     original = Transform(affine=affine, srs="EPSG:3006")
     restored = Transform()
     restored.from_proto(original.to_proto().SerializeToString())
@@ -76,7 +74,9 @@ def test_transform_rejects_malformed_protobuf_affine(count):
 )
 def test_geometry_deserialization_replaces_fields(geometry_type):
     source = geometry_type()
-    source.add_field(Field(name="temperature", values=np.array([12.5]), association="geometry"))
+    source.add_field(
+        Field(name="temperature", values=np.array([12.5]), association="geometry")
+    )
     payload = source.to_proto().SerializeToString()
     restored = geometry_type()
     restored.add_field(Field(name="old", values=np.array([0.0])))
@@ -187,8 +187,6 @@ def test_grid_rejects_invalid_dimensions(grid_type, width):
     grid.width = width
     with pytest.raises(ValueError, match="width must be a nonnegative integer"):
         grid.to_proto()
-
-
 
 
 def test_grid_roundtrip_preserves_spatial_extent_and_steps():

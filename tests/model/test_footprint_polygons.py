@@ -17,12 +17,14 @@ def make_building(polygon: Polygon, height: float = 10.0) -> Building:
 
 def make_square(x=0.0, y=0.0, size=10.0) -> Polygon:
     """Create a simple square polygon at (x, y) with given size."""
-    return Polygon([
-        (x, y),
-        (x + size, y),
-        (x + size, y + size),
-        (x, y + size),
-    ])
+    return Polygon(
+        [
+            (x, y),
+            (x + size, y),
+            (x + size, y + size),
+            (x, y + size),
+        ]
+    )
 
 
 def test_empty_city_returns_empty_list():

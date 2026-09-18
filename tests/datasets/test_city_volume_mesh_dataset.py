@@ -188,7 +188,9 @@ def test_city_volume_mesh_export_returns_bytes(
     mock_build_city_volume_mesh.return_value = volume_mesh
 
     dataset = CityVolumeMeshDataset()
-    with patch.object(dataset, "export_to_bytes", return_value=b"volume-mesh") as mock_export:
+    with patch.object(
+        dataset, "export_to_bytes", return_value=b"volume-mesh"
+    ) as mock_export:
         result = dataset.build(
             CityVolumeMeshArgs(
                 bounds=(0.0, 0.0, 1.0, 1.0),
@@ -211,9 +213,7 @@ def test_city_volume_mesh_requires_tetgen_before_preparing_city(
     monkeypatch.setattr(tetgen, "_tetgen_import_error", import_error)
 
     with pytest.raises(ImportError, match="uv sync --extra volume") as exc_info:
-        CityVolumeMeshDataset().build(
-            CityVolumeMeshArgs(bounds=(0.0, 0.0, 1.0, 1.0))
-        )
+        CityVolumeMeshDataset().build(CityVolumeMeshArgs(bounds=(0.0, 0.0, 1.0, 1.0)))
 
     assert exc_info.value.__cause__ is import_error
     mock_prepare_city_from_bounds.assert_not_called()
@@ -251,7 +251,9 @@ def test_city_volume_mesh_context_documents_tetgen_and_boundary_markers():
         "building_footprints",
     }
     assert any("Run TetGen" in step for step in manifest.provenance.processing_steps)
-    assert any("boundary face markers" in step for step in manifest.provenance.processing_steps)
+    assert any(
+        "boundary face markers" in step for step in manifest.provenance.processing_steps
+    )
     assert manifest.presentation.headline == "Tetrahedral City Volume Mesh"
     assert manifest.presentation.legend["title"] == "Volume mesh boundaries"
     labels = {entry["label"] for entry in manifest.presentation.legend["entries"]}
@@ -260,7 +262,9 @@ def test_city_volume_mesh_context_documents_tetgen_and_boundary_markers():
     assert marker_convention["ground"] == -1
     assert marker_convention["north_ymax"] == -6
     assert any("TetGen" in warning for warning in manifest.presentation.warnings)
-    assert any("Boundary markers" in warning for warning in manifest.presentation.warnings)
+    assert any(
+        "Boundary markers" in warning for warning in manifest.presentation.warnings
+    )
     assert manifest.presentation.limitations
     assert manifest.request.parameters["domain_height"] == 95.0
     assert manifest.request.parameters["tetgen_extra"] == "VV"

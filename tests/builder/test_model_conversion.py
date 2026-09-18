@@ -76,7 +76,9 @@ def test_mesh_conversion_accepts_strided_non_native_endian_arrays(mesh_type):
     cls, topology_name, width = mesh_type
     integer_dtype = np.dtype(np.int64 if cls is Mesh else np.uint64).newbyteorder("S")
     vertices = np.repeat(_vertices(), 2, axis=1)[:, ::2]
-    topology = np.repeat(np.arange(width), 2).astype(integer_dtype)[::2].reshape(1, width)
+    topology = (
+        np.repeat(np.arange(width), 2).astype(integer_dtype)[::2].reshape(1, width)
+    )
     markers = np.array([-3, 999], dtype=np.dtype(np.int32).newbyteorder("S"))[::2]
     model = cls(vertices=vertices, **{topology_name: topology}, markers=markers)
 
@@ -90,8 +92,10 @@ def test_volume_mesh_conversion_accepts_unaligned_arrays():
     def unaligned(values, dtype):
         source = np.asarray(values, dtype=dtype)
         result = np.ndarray(
-            source.shape, dtype=source.dtype,
-            buffer=bytearray(source.nbytes + 1), offset=1,
+            source.shape,
+            dtype=source.dtype,
+            buffer=bytearray(source.nbytes + 1),
+            offset=1,
         )
         result[:] = source
         assert not result.flags.aligned
@@ -122,13 +126,21 @@ def test_volume_mesh_conversion_accepts_unaligned_arrays():
         pytest.param("faces", np.array([[True, False, True]]), id="boolean-index"),
         pytest.param("faces", np.array([[-1, 1, 2]]), id="negative-index"),
         pytest.param("faces", np.array([[0, 1, 4]]), id="out-of-bounds-index"),
-        pytest.param("faces", np.array([[0, 1, 2**64 - 1]], dtype=np.uint64), id="huge-unsigned-index"),
+        pytest.param(
+            "faces",
+            np.array([[0, 1, 2**64 - 1]], dtype=np.uint64),
+            id="huge-unsigned-index",
+        ),
         pytest.param("faces", np.empty((0, 2), dtype=int), id="empty-face-width"),
         pytest.param("markers", np.array([[-1]]), id="marker-rank"),
         pytest.param("markers", np.array([-1, -2]), id="marker-count"),
         pytest.param("markers", np.array([1.5]), id="fractional-marker"),
-        pytest.param("markers", np.array([2**31], dtype=np.int64), id="marker-overflow"),
-        pytest.param("markers", np.array([-2**31 - 1], dtype=np.int64), id="marker-underflow"),
+        pytest.param(
+            "markers", np.array([2**31], dtype=np.int64), id="marker-overflow"
+        ),
+        pytest.param(
+            "markers", np.array([-(2**31) - 1], dtype=np.int64), id="marker-underflow"
+        ),
     ],
 )
 def test_native_mesh_rejects_invalid_arrays(field, value):
@@ -139,14 +151,21 @@ def test_native_mesh_rejects_invalid_arrays(field, value):
     }
     arrays[field] = value
     with pytest.raises(ValueError, match=field):
-        _dtcc_builder.create_mesh(arrays["vertices"], arrays["faces"], arrays["markers"])
+        _dtcc_builder.create_mesh(
+            arrays["vertices"], arrays["faces"], arrays["markers"]
+        )
 
 
 @pytest.mark.parametrize(
     "cells, markers, field",
     [
         pytest.param(np.array([[0, 1, 2]]), np.array([-1]), "cells", id="cell-width"),
-        pytest.param(np.array([[0, 1, 2, 3]]), np.array([-1, -2]), "markers", id="cell-marker-count"),
+        pytest.param(
+            np.array([[0, 1, 2, 3]]),
+            np.array([-1, -2]),
+            "markers",
+            id="cell-marker-count",
+        ),
     ],
 )
 def test_native_volume_mesh_rejects_invalid_arrays(cells, markers, field):

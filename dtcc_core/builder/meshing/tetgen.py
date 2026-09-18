@@ -149,7 +149,9 @@ def build_volume_mesh(
             for facet in prebuilt_plc.boundary_facets
         ]
         diagnostic_boundary_facets = b_facets
-        boundary_facet_markers = [int(marker) for marker in prebuilt_plc.boundary_facet_markers]
+        boundary_facet_markers = [
+            int(marker) for marker in prebuilt_plc.boundary_facet_markers
+        ]
         mesh = Mesh(
             vertices=np.asarray(prebuilt_plc.vertices, dtype=float),
             faces=np.asarray(prebuilt_plc.shell_faces, dtype=np.int64),
@@ -171,7 +173,9 @@ def build_volume_mesh(
                 top_cap_max_mesh_size=top_cap_max_mesh_size,
                 top_cap_min_mesh_angle=top_cap_min_mesh_angle,
             )
-            mesh = Mesh(vertices=new_vertices, faces=oriented_faces, markers=mesh.markers)
+            mesh = Mesh(
+                vertices=new_vertices, faces=oriented_faces, markers=mesh.markers
+            )
         else:
             new_vertices, boundary_facets = tetgen_utils.compute_boundary_facets(
                 mesh, top_height=top_height
@@ -212,7 +216,9 @@ def build_volume_mesh(
         plc_diagnostics = tetgen_utils.inspect_tetgen_plc(
             mesh.vertices,
             mesh.faces,
-            diagnostic_boundary_facets if diagnostic_boundary_facets is not None else b_facets,
+            diagnostic_boundary_facets
+            if diagnostic_boundary_facets is not None
+            else b_facets,
         )
     debug(tetgen_utils.format_tetgen_plc_diagnostics(plc_diagnostics))
     if plc_diagnostics.errors:
@@ -239,7 +245,9 @@ def build_volume_mesh(
         vertices=mesh.vertices,
         faces=mesh.faces,
         face_markers=mesh.markers,
-        boundary_facets=named_boundary_facets if named_boundary_facets is not None else b_facets,
+        boundary_facets=named_boundary_facets
+        if named_boundary_facets is not None
+        else b_facets,
         boundary_facet_markers=boundary_facet_markers,
         switches_params=base_switches,
         switches_overrides=switches_overrides,

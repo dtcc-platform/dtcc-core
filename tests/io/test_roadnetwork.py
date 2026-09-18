@@ -79,7 +79,9 @@ def test_roadnetwork_protobuf_conversion(basic_roadnetwork):
     )
     assert (
         rn2.get_geometry(GeometryType.MULTILINESTRING).transform.srs.lower()
-        == basic_roadnetwork.get_geometry(GeometryType.MULTILINESTRING).transform.srs.lower()
+        == basic_roadnetwork.get_geometry(
+            GeometryType.MULTILINESTRING
+        ).transform.srs.lower()
     )
     assert rn2.bounds.tuple == pytest.approx(basic_roadnetwork.bounds.tuple)
 

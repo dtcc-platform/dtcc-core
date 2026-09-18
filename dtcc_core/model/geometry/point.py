@@ -40,15 +40,20 @@ class Point(Geometry):
     def _repr_is_complete(self):
         from ...common._display import is_literal_number
 
-        return (type(self) is Point and not self.fields and not self.regions
-                and not self.transform.srs
-                and np.array_equal(self.transform.affine, np.eye(4))
-                and self.dataset_context is None
-                and self.schema_id is None and self.schema_version is None
-                and self.transform.dataset_context is None
-                and self.transform.schema_id is None
-                and self.transform.schema_version is None
-                and all(is_literal_number(value) for value in (self.x, self.y, self.z)))
+        return (
+            type(self) is Point
+            and not self.fields
+            and not self.regions
+            and not self.transform.srs
+            and np.array_equal(self.transform.affine, np.eye(4))
+            and self.dataset_context is None
+            and self.schema_id is None
+            and self.schema_version is None
+            and self.transform.dataset_context is None
+            and self.transform.schema_id is None
+            and self.transform.schema_version is None
+            and all(is_literal_number(value) for value in (self.x, self.y, self.z))
+        )
 
     def calculate_bounds(self):
         """Calculate the bounds of the point and update the bounds attribute.

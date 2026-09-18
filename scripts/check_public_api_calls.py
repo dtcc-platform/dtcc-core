@@ -64,9 +64,11 @@ def function_body_lines(lines: List[str], start: int) -> Set[int]:
         # For example, an exported lambda can share its line with an assignment.
         return set()
     body = node.body
-    if (isinstance(body[0], ast.Expr)
-            and isinstance(body[0].value, ast.Constant)
-            and isinstance(body[0].value.value, str)):
+    if (
+        isinstance(body[0], ast.Expr)
+        and isinstance(body[0].value, ast.Constant)
+        and isinstance(body[0].value.value, str)
+    ):
         body = body[1:]
     if not body:
         return set()
@@ -78,8 +80,11 @@ def function_body_lines(lines: List[str], start: int) -> Set[int]:
         definition_nodes.append(node.returns)
     definition_end = max(
         [node.lineno]
-        + [getattr(part, "end_lineno", None) or node.lineno
-           for expression in definition_nodes for part in ast.walk(expression)]
+        + [
+            getattr(part, "end_lineno", None) or node.lineno
+            for expression in definition_nodes
+            for part in ast.walk(expression)
+        ]
     )
     first = max(body[0].lineno, definition_end + 1)
     return set(range(start + first - 1, start + node.end_lineno))
@@ -168,9 +173,15 @@ def load_coverage_executed_lines(coverage_json_path: str) -> Dict[str, Set[int]]
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description="Check public API function calls using coverage")
-    parser.add_argument("--package", required=True, help="Root package to scan, e.g., dtcc_core")
-    parser.add_argument("--coverage-file", required=True, help="Path to coverage JSON file")
+    parser = argparse.ArgumentParser(
+        description="Check public API function calls using coverage"
+    )
+    parser.add_argument(
+        "--package", required=True, help="Root package to scan, e.g., dtcc_core"
+    )
+    parser.add_argument(
+        "--coverage-file", required=True, help="Path to coverage JSON file"
+    )
     parser.add_argument(
         "--strict",
         action="store_true",

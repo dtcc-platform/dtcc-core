@@ -7,11 +7,15 @@ from dtcc_core.reproject.reproject import reproject_object
 
 def test_reprojection_preserves_attachment_identity_and_descriptors():
     obj = Object()
-    surface = Surface(vertices=np.array([
-        [500000., 6500000., 100.],
-        [500100., 6500000., 100.],
-        [500000., 6500100., 100.],
-    ]))
+    surface = Surface(
+        vertices=np.array(
+            [
+                [500000.0, 6500000.0, 100.0],
+                [500100.0, 6500000.0, 100.0],
+                [500000.0, 6500100.0, 100.0],
+            ]
+        )
+    )
     obj.add_geometry(surface, id="survey", lod="2.2", role="footprint")
     result = reproject_object(obj, "EPSG:3006", "EPSG:4326")
     assert list(result.geometry) == ["survey"]
@@ -23,13 +27,25 @@ def test_reprojection_preserves_attachment_identity_and_descriptors():
 
 @pytest.mark.parametrize("shape", [MultiSurface, Solid])
 def test_reprojection_rejects_unsupported_semantic_shapes(shape):
-    geometry = shape(surfaces=[Surface(vertices=np.array([
-        [0., 0., 0.], [1., 0., 0.], [0., 1., 0.],
-    ]))])
-    geometry.regions = [SemanticRegion(
-        semantic_type="https://github.com/dtcc-platform/dtcc-core/schemas/model#RoofSurface",
-        indices=np.array([0]),
-    )]
+    geometry = shape(
+        surfaces=[
+            Surface(
+                vertices=np.array(
+                    [
+                        [0.0, 0.0, 0.0],
+                        [1.0, 0.0, 0.0],
+                        [0.0, 1.0, 0.0],
+                    ]
+                )
+            )
+        ]
+    )
+    geometry.regions = [
+        SemanticRegion(
+            semantic_type="https://github.com/dtcc-platform/dtcc-core/schemas/model#RoofSurface",
+            indices=np.array([0]),
+        )
+    ]
     if shape is Solid:
         geometry.shells = [np.array([0])]
     obj = Object()

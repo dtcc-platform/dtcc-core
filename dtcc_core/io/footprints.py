@@ -246,10 +246,6 @@ def load(
     )
 
 
-
-
-
-
 def _save_json_city(city: City, filename):
     with open(filename, "w") as dst:
         dst.write(city.to_json())

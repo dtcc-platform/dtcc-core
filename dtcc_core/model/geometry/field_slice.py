@@ -232,7 +232,6 @@ class FieldSlice(PointCloud):
             f"FieldSlice object-first export does not support format {fmt!r}."
         )
 
-
     def _metadata(self, sample_count: int, *, include_z: bool) -> dict[str, Any]:
         metadata = {
             "dataset": "smoke",

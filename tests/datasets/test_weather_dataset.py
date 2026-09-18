@@ -459,13 +459,14 @@ class TestWeatherDatasetRegistration:
         assert "Latest-hour snapshot" in manifest.metadata.collection_period
         assert "weather_observations" in manifest.metadata.data_types
         assert any(
-            "quality codes" in step
-            for step in manifest.provenance.processing_steps
+            "quality codes" in step for step in manifest.provenance.processing_steps
         )
         assert manifest.presentation.headline == "Latest-Hour SMHI Weather Stations"
         assert manifest.presentation.legend["title"] == "Weather station fields"
         assert manifest.presentation.view_hints["quality_attribute_prefix"] == "q_"
-        assert any("partial results" in warning for warning in manifest.presentation.warnings)
+        assert any(
+            "partial results" in warning for warning in manifest.presentation.warnings
+        )
         assert manifest.presentation.limitations
         assert manifest.request.parameters["field_name_style"] == "smhi"
 

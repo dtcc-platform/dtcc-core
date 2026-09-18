@@ -7,18 +7,31 @@ from affine import Affine
 from dtcc_core.model import Field, Raster, proto
 
 
-@pytest.mark.parametrize("values,dim", [
-    (np.array([1., 2.]), 1),
-    (np.array([[1.], [2.]]), 1),
-    (np.array([[1., 2., 3.]]), 3),
-    (np.empty((0, 3)), 3),
-])
+@pytest.mark.parametrize(
+    "values,dim",
+    [
+        (np.array([1.0, 2.0]), 1),
+        (np.array([[1.0], [2.0]]), 1),
+        (np.array([[1.0, 2.0, 3.0]]), 3),
+        (np.empty((0, 3)), 3),
+    ],
+)
 def test_field_canonical_value_shape(values, dim):
-    source = Field(name="velocity", unit="m/s", description="sample", values=values, dim=dim, association="sample")
+    source = Field(
+        name="velocity",
+        unit="m/s",
+        description="sample",
+        values=values,
+        dim=dim,
+        association="sample",
+    )
     restored = Field()
     restored.from_proto(source.to_proto().SerializeToString())
     assert (restored.name, restored.unit, restored.description, restored.dim) == (
-        source.name, source.unit, source.description, dim
+        source.name,
+        source.unit,
+        source.description,
+        dim,
     )
     np.testing.assert_array_equal(restored.values, values)
 
@@ -29,15 +42,20 @@ def test_field_rejects_invalid_dimension(dim):
         Field(dim=dim).to_proto()
 
 
-@pytest.mark.parametrize("values,dim", [
-    (np.ones(6), 3), (np.ones((2, 3)), 2), (np.ones((1, 2, 3)), 3),
-    (np.array(1.), 1), (np.array(["value"]), 1), (np.array([1j]), 1),
-])
+@pytest.mark.parametrize(
+    "values,dim",
+    [
+        (np.ones(6), 3),
+        (np.ones((2, 3)), 2),
+        (np.ones((1, 2, 3)), 3),
+        (np.array(1.0), 1),
+        (np.array(["value"]), 1),
+        (np.array([1j]), 1),
+    ],
+)
 def test_field_rejects_invalid_value_shape_or_dtype(values, dim):
     with pytest.raises(ValueError, match="Field.values"):
         Field(values=values, dim=dim).to_proto()
-
-
 
 
 def test_empty_raster_has_no_wire_pixels():
@@ -51,22 +69,21 @@ def test_empty_raster_has_no_wire_pixels():
     assert np.isnan(restored.data)
 
 
-
-
-
-
-
-
 def test_raster_bounds_include_rotated_and_sheared_corners():
     raster = Raster(data=np.ones((2, 3)), georef=Affine(1, 2, 10, 3, 4, 20))
     assert raster.bounds.tuple == (10, 20, 17, 37)
 
 
-
-
-
-
-@pytest.mark.parametrize("data", [np.array(42), np.ones(2), np.ones((1, 2, 3, 4)), np.ones((1, 2, 0)), np.array([["x"]])])
+@pytest.mark.parametrize(
+    "data",
+    [
+        np.array(42),
+        np.ones(2),
+        np.ones((1, 2, 3, 4)),
+        np.ones((1, 2, 0)),
+        np.array([["x"]]),
+    ],
+)
 def test_raster_rejects_invalid_data_shape_or_dtype(data):
     with pytest.raises(ValueError, match="Raster.data"):
         Raster(data=data).to_proto()

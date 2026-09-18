@@ -44,7 +44,9 @@ def _get_landuse_class(properties, key, lookup_map):
     return landuse_code
 
 
-def _load_fiona(filename, landuse_field="DETALJTYP", landuse_datasource="LM", target_crs=None):
+def _load_fiona(
+    filename, landuse_field="DETALJTYP", landuse_datasource="LM", target_crs=None
+):
     landuse = Landuse()
     landuse_surfaces = MultiSurface()
     landuse_map = landuse_mappings.get(landuse_datasource, {})
