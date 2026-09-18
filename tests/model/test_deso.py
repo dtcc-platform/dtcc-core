@@ -80,8 +80,8 @@ def test_deso_info_arrays_dataframe_and_plot():
     dataframe = deso.to_dataframe()
     ax = deso.plot(show=False)
 
-    assert "DTCC DeSO" in info
-    assert "Areas: 1" in info
+    assert info.startswith("DeSO\n")
+    assert "Areas" in info and "│1" in info
     assert "population_total" in info
     assert arrays["codes"].tolist() == ["1480C1970"]
     assert arrays["centroids"].shape == (1, 3)

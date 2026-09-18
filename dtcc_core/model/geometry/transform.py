@@ -8,7 +8,7 @@ import numpy as np
 from ..model import Model
 
 
-@dataclass
+@dataclass(repr=False)
 class Transform(Model):
     """Represents an affine transformation to a global coordinate system.
 
@@ -29,6 +29,14 @@ class Transform(Model):
 
     srs: str = ""
     affine: np.ndarray = field(default_factory=lambda: np.eye(4))
+
+    def _info_sections(self):
+        return [("", ("Property", "Value"), [("CRS", self.srs or "Not specified")]),
+                ("Affine matrix", ("", "X", "Y", "Z", "Offset"),
+                 [(i, *row) for i, row in enumerate(self.affine)])]
+
+    def _summary_items(self):
+        return [("srs", self.srs), ("shape", self.affine.shape)]
 
     def __post_init__(self):
         self.affine = self._validate_affine(self.affine).copy()

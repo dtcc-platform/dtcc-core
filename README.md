@@ -81,12 +81,16 @@ All existing `load_*` functions are available directly: `load_model`, `load_city
 `dtcc.model`; other I/O operations remain under `dtcc.io`.
 
 ```python
+print(city)                                 # compact representation
+city.info()                                 # detailed tables and dataset context
 city.plot()                                  # quick 3D Matplotlib inspection
 ax = city.plot(field="velocity", show=False)  # vector magnitudes at their samples
 ```
 
 See [native model previews](docs/model-preview.md) for representation selection,
 supported geometry and preview limitations. Full visualization belongs in DTCC Twin.
+See [model display and inspection](docs/model-display.md) for `repr`, `str`,
+`.info()` and dataset parameter help.
 
 ## Documentation
 
@@ -126,7 +130,9 @@ us through Issues, Pull Requests, and Discussions on our GitHub page.
 
 ## Local Function-Call Check
 
-CI enforces that every public API function (exported via `__all__`) in `dtcc_core` is executed at least once by the test suite. You can run the same check locally:
+CI checks that every public Python function exported via `__all__` has at least
+one executed body line in test coverage. Importing a function, evaluating its
+defaults, or applying its decorators does not count. You can run the same check locally:
 
 - Install the project and test tools:
   - `uv sync`
@@ -139,7 +145,12 @@ CI enforces that every public API function (exported via `__all__`) in `dtcc_cor
   - `cd ..`
   - `uv run python scripts/check_public_api_calls.py --package dtcc_core --coverage-file tests/coverage.json`
 
-Exit status `0` means all public functions were exercised by tests. A non‑zero exit prints the list of missed functions with their source locations so you can add or adjust tests.
+Exit status `0` means each discovered function has body-execution evidence. A
+non-zero exit prints missed functions and their source locations. Line coverage
+cannot distinguish imports from calls for a function written entirely on its
+`def` line; give it a separate body line to make it verifiable. Docstring-only
+functions and native functions without Python source also cannot be verified.
+This check does not measure native C++ coverage, all model methods, or call counts.
 
 ## Demos and Examples
 
@@ -176,11 +187,21 @@ python demos/build_city_flat_mesh.py --view
 
 ## Installation Notes
 
+* **Native build and package contents**:
+  `uv sync` builds the private C++ extension in an isolated build environment;
+  `pybind11` is required there only. Installed wheels contain the extension and
+  dependency notices, while source archives retain the C++ and vendor inputs.
+  Third-party notices are listed in [licenses/README.md](licenses/README.md).
+  The [native code map](docs/native-code.md) lists the retained kernels and their
+  Python callers.
+  On macOS, `cmake.define.DTCC_USE_HOMEBREW_LLVM=ON` selects Homebrew Clang before
+  CMake configures the compiler; use a fresh build directory when changing compilers.
+
 * **Surface meshing backends**:
   Earcut is the built-in fast triangulation used for the lightweight (no-refinement) meshing path. Quality-controlled meshing uses the external `dtcc_mesher` package when installed (preferred by the `auto` mesher). Support for the Triangle backend is optional and disabled by default to keep the standard installation minimal.
 
 * **Enabling Triangle**:
-  Triangle headers are bundled in `dtcc_core/cpp/external/triangle`, which is the default `DTCC_TRIANGLE_DIR`. To use a different Triangle installation, also pass `cmake.define.DTCC_TRIANGLE_DIR=/path/to/triangle/prefix`. Build settings are passed to the CMake build as config settings.
+  A Triangle implementation header is bundled in `dtcc_core/cpp/external/triangle`, which is the default `DTCC_TRIANGLE_DIR`. To supply a compatible implementation header, pass `cmake.define.DTCC_TRIANGLE_DIR=/path/to/triangle/prefix`; discovery checks that directory and its `include`, `include/triangle`, and `triangle` subdirectories. This backend compiles the implementation in `triangle.h`; a declarations-only header and a separate library are not supported. Build settings are passed to the CMake build as config settings.
 
   For the development environment:
 
@@ -189,7 +210,7 @@ python demos/build_city_flat_mesh.py --view
     --config-settings-package dtcc-core:cmake.define.DTCC_USE_TRIANGLE=ON
   ```
 
-  Build settings are not remembered: a later plain `uv sync` rebuilds without Triangle. Repeat the options on each `uv sync`, or use `uv run --no-sync` to keep the current build.
+  Repeat these settings when rebuilding. CMake options can persist in the incremental build directory; explicitly pass `cmake.define.DTCC_USE_TRIANGLE=OFF` when switching back to the default backend configuration.
 
   For a wheel:
 

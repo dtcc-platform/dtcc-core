@@ -175,8 +175,8 @@ def test_available_2d_meshers_reports_supported_python_backends(monkeypatch):
     assert backends_module.available_2d_meshers() == ["dtcc_mesher", "triangle"]
     assert backends_module.resolve_2d_mesher("triangle") == "triangle"
     assert backends_module.resolve_2d_mesher("auto") == "dtcc_mesher"
-    with pytest.raises(ValueError, match="Unsupported 2D mesher 'spade'"):
-        backends_module.resolve_2d_mesher("spade")
+    with pytest.raises(ValueError, match="Unsupported 2D mesher 'unknown'"):
+        backends_module.resolve_2d_mesher("unknown")
 
 
 def test_snap_mesh_vertices():

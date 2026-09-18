@@ -19,6 +19,13 @@ class SemanticRegion:
     the region list is reordered. Neither relationship requires an ``id``.
     """
 
+    def __repr__(self):
+        from ...common._display import format_repr
+
+        return format_repr(type(self).__name__, [("semantic_type", self.semantic_type),
+                           ("id", self.id), ("num_elements", len(self.indices)),
+                           ("num_attributes", len(self.attributes)), ("parent", self.parent)])
+
     semantic_type: str
     indices: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.int64))
     id: str | None = None

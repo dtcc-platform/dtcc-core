@@ -196,35 +196,6 @@ public:
   }
 
   static std::vector<Mesh>
-  build_city_surface_mesh(const std::vector<Surface> &buildings, const std::vector<Surface> &holes,
-                          const std::vector<int> meshing_directive,
-                          const std::vector<double> &subdomain_triangle_size, const GridField &dtm,
-                          double max_mesh_size, double min_mesh_angle, size_t smooth_ground = 0,
-                          bool merge_meshes = true, bool sort_triangles = false)
-  {
-    auto build_city_surface_t = Timer("build_city_surface_mesh");
-    auto terrain_time = Timer("build_city_surface_mesh: step 1 terrain");
-    std::vector<Polygon> subdomains;
-    subdomains.reserve(buildings.size());
-    for (const auto &b : buildings)
-    {
-      subdomains.push_back(b.to_polygon());
-    }
-    std::vector<Polygon> hole_domains;
-    hole_domains.reserve(holes.size());
-    for (const auto &h : holes)
-    {
-      hole_domains.push_back(h.to_polygon());
-    }
-    Mesh terrain_mesh =
-        build_terrain_surface_mesh(subdomains, hole_domains, subdomain_triangle_size, dtm,
-                                   max_mesh_size, min_mesh_angle, smooth_ground, sort_triangles);
-    terrain_time.stop();
-    return build_city_surface_mesh_from_terrain_mesh(
-        buildings, meshing_directive, terrain_mesh, smooth_ground, merge_meshes);
-  }
-
-  static std::vector<Mesh>
   build_city_surface_mesh_from_terrain_mesh(
       const std::vector<Surface> &buildings,
       const std::vector<int> meshing_directive,
@@ -678,85 +649,6 @@ private:
 
       mesh.markers.push_back(marker);
       mesh.markers.push_back(marker);
-    }
-  }
-
-  // Compute domain markers for subdomains
-  static void compute_domain_markers(Mesh &mesh, const std::vector<Polygon> &subdomains)
-  {
-    info("Computing domain markers...");
-    Timer timer("compute_domain_markers");
-
-    // build search tree for subdomains
-
-    auto search_tree = BoundingBoxTree2D();
-    std::vector<BoundingBox2D> bounding_boxes;
-    for (const auto &subdomain : subdomains)
-    {
-      bounding_boxes.push_back(BoundingBox2D(subdomain));
-    }
-    search_tree.build(bounding_boxes);
-
-    // Initialize domain markers and set all markers to -2 (ground)
-    mesh.markers.resize(mesh.faces.size());
-    std::fill(mesh.markers.begin(), mesh.markers.end(), -2);
-
-    // Initialize markers for vertices belonging to a building
-    std::vector<bool> is_building_vertex(mesh.vertices.size());
-    std::fill(is_building_vertex.begin(), is_building_vertex.end(), false);
-
-    // Iterate over cells to mark buildings
-    if (subdomains.size() > 0)
-    {
-      for (size_t i = 0; i < mesh.faces.size(); i++)
-      {
-        // find building containg midpoint of cell (if any)
-        const Vector3D c_3d = mesh.mid_point(i);
-        const Vector2D c_2d(c_3d.x, c_3d.y);
-        std::vector<size_t> indices = search_tree.find(Vector2D(c_2d));
-
-        if (indices.size() > 0)
-        {
-          for (const auto &index : indices)
-          {
-            if (Geometry::polygon_contains_2d(subdomains[index], c_2d))
-            {
-              mesh.markers[i] = index;
-              const Simplex2D &T = mesh.faces[i];
-              // Mark all cell vertices as belonging to a building
-              is_building_vertex[T.v0] = true;
-              is_building_vertex[T.v1] = true;
-              is_building_vertex[T.v2] = true;
-
-              // // Check if individual vertices are inside a building
-              // // (not only midpoint). Necessary for when building
-              // // visualization meshes that are not boundary-fitted.
-              // if (search_tree.find(mesh.vertices[T.v0]).size() == 0)
-              //   is_building_vertex[T.v0] = false;
-              // if (search_tree.find(mesh.vertices[T.v1]).size() == 0)
-              //   is_building_vertex[T.v1] = false;
-              // if (search_tree.find(mesh.vertices[T.v2]).size() == 0)
-              //   is_building_vertex[T.v2] = false;
-
-              break;
-            }
-          }
-        }
-      }
-
-      // Iterate over cells to mark building halos
-      for (size_t i = 0; i < mesh.faces.size(); i++)
-      {
-        // Check if any of the cell vertices belongs to a building
-        const Simplex2D &T = mesh.faces[i];
-        const bool touches_building =
-            (is_building_vertex[T.v0] || is_building_vertex[T.v1] || is_building_vertex[T.v2]);
-
-        // Mark as halo (-1) if the cell touches a building but is not
-        // itself inside footprint (not marked in the previous step)
-        if (touches_building && mesh.markers[i] == -2)
-          mesh.markers[i] = -1;
-      }
     }
   }
 

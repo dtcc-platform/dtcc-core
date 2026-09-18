@@ -27,8 +27,6 @@ public:
   /// Array of cell markers
   std::vector<int> markers{};
 
-  size_t num_layers{};
-
   VolumeMesh() = default;
   virtual ~VolumeMesh() {} // make the destructor virtual
 

@@ -319,7 +319,8 @@ def assert_conditioning_invariants(
         assert indices == sorted(set(indices))
 
 
-def test_plot_footprint_cleaning_comparison_returns_figure():
+@pytest.mark.parametrize("show_changes", [False, True])
+def test_plot_footprint_cleaning_comparison_returns_figure(show_changes):
     matplotlib = pytest.importorskip("matplotlib")
     matplotlib.use("Agg", force=True)
     to_rgba = pytest.importorskip("matplotlib.colors").to_rgba
@@ -329,15 +330,22 @@ def test_plot_footprint_cleaning_comparison_returns_figure():
         [box(0.0, 0.0, 4.0, 4.0)],
         [box(0.0, 0.0, 3.5, 3.5)],
         show=False,
+        show_changes=show_changes,
     )
 
     assert fig is not None
-    assert len(axes) == 2
+    assert len(axes) == (3 if show_changes else 2)
     assert axes[0].get_title() == "Input footprints"
     assert axes[1].get_title() == "Conditioned footprints"
     assert axes[0].get_facecolor() == to_rgba(DTCC_THEMES["dark"]["axes"])
     assert "Polygons: 1" in axes[0].texts[0].get_text()
     assert "Bounds:" in axes[0].texts[0].get_text()
+    if show_changes:
+        assert [t.get_text() for t in axes[2].get_legend().get_texts()] == [
+            "Added: 0.00 m²", "Removed: 3.75 m²"
+        ]
+        assert axes[2].get_xlim() == axes[0].get_xlim()
+        assert axes[2].get_shared_x_axes().joined(axes[0], axes[2])
     plt.close(fig)
 
 
@@ -5750,6 +5758,31 @@ def test_regularize_coverage_for_meshing_retries_ring_contacts_after_pair_rescue
     )
     assert diagnostics["coverage_meshing_regularization_pair_issue_count_after"] == 0
     assert diagnostics["coverage_meshing_regularization_ring_contact_count_after"] == 0
+
+
+@pytest.mark.parametrize(
+    "left, right, expected_kind",
+    [
+        (box(0, 0, 2, 2), box(2.5, 0, 4.5, 2), "close_pair"),
+        (box(0, 0, 2, 2), box(2, 2, 4, 4), "point_touch_pair"),
+        # Bounding boxes overlap, but the actual boundaries are sqrt(2) apart.
+        (Polygon([(0, 0), (4, 0), (0, 4)]),
+         Polygon([(4, 4), (4, 2), (2, 4)]), None),
+    ],
+    ids=["aligned-gap", "corner-touch", "overlapping-bounds-separated-edges"],
+)
+def test_native_boundary_clusters_use_finite_segment_distance(left, right, expected_kind):
+    for polygons in ([left, right], [right, left]):
+        clusters = cleaning_footprints._builder_boundary_defect_clusters(
+            polygons, target_scale=1.0, pair_tolerance=1.0,
+        )
+        if expected_kind is None:
+            assert clusters == []
+        else:
+            assert clusters == [{
+                "indices": [0, 1], "kind": expected_kind,
+                "short_edge_count": 0, "pair_issue_count": 1,
+            }]
 
 
 def test_builder_boundary_defect_clusters_sorts_native_clusters(monkeypatch):

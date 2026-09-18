@@ -8,7 +8,7 @@ from .surface import Surface
 from .bounds import Bounds
 
 
-@dataclass
+@dataclass(repr=False)
 class Solid(Geometry):
     """Shell zero is exterior; later shells bound interior cavities.
 
@@ -19,6 +19,12 @@ class Solid(Geometry):
 
     surfaces: list[Surface] = field(default_factory=list)
     shells: list[np.ndarray] = field(default_factory=list)
+
+    def _summary_items(self):
+        return [
+            ("num_surfaces", len(self.surfaces)),
+            ("num_shells", len(self.shells)),
+        ] + super()._summary_items()
 
     def calculate_bounds(self):
         bounds = None

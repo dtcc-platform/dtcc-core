@@ -11,9 +11,58 @@ from copy import deepcopy
 from ..common import warning
 
 
-@dataclass
+@dataclass(repr=False)
 class Model(ABC):
     """Base class for all DTCC Model classes."""
+
+    def _summary_items(self):
+        """Cheap scalar facts for compact display; subclasses may extend these."""
+        return []
+
+    def _repr_is_complete(self):
+        return False
+
+    def __repr__(self):
+        from ..common._display import format_repr
+
+        return format_repr(type(self).__name__, self._summary_items(),
+                           complete=self._repr_is_complete())
+
+    def __str__(self):
+        return repr(self)
+
+    def tree(self, indent="", geometry_type=None, *, verbose=False, max_depth=None):
+        """Print the model hierarchy using tree-style branches.
+
+        The default shows objects and geometry attachments. ``verbose=True``
+        adds attributes, attachment metadata and field descriptions.
+        ``max_depth`` limits nesting (root is zero); ``...`` marks omitted
+        descendants. Raster and Bounds attachments are leaves.
+        """
+        from ._display import print_tree
+
+        if not isinstance(verbose, bool):
+            raise TypeError("verbose must be a bool")
+        if max_depth is not None:
+            if isinstance(max_depth, bool) or not isinstance(max_depth, int):
+                raise TypeError("max_depth must be a nonnegative integer or None")
+            if max_depth < 0:
+                raise ValueError("max_depth must be nonnegative")
+        label = repr(self)
+        if geometry_type is not None:
+            label = f"{geometry_type}: {label}"
+        print_tree(self, label, indent=indent, verbose=verbose, max_depth=max_depth)
+
+    def _info_sections(self):
+        """Detailed report content, formatted and emitted by Model.info."""
+        from ..common._display import label, value_text
+
+        rows = [(label(key), value_text(value)) for key, value in self._summary_items()]
+        if self.schema_id is not None:
+            rows.append(("Schema ID", self.schema_id))
+        if self.schema_version is not None:
+            rows.append(("Schema version", self.schema_version))
+        return [("", ("Property", "Value"), rows)]
 
     def plot(self, ax=None, *, lod=None, representation=None, field=None,
              max_elements=20000, theme="dark", show=True):
@@ -189,12 +238,14 @@ class Model(ABC):
     def info(self, print: bool = True, presentation: bool = True) -> str | None:
         """Print or return a human-readable summary of the model.
 
-        Subclasses may override this for richer multi-line summaries. The base
-        implementation intentionally follows ``str(self)`` so every model has a
-        lightweight, uniform information API. Dataset-produced objects include
-        their Dataset v2 presentation and metadata by default.
+        Subclasses supply report sections; compact repr/str stay independent.
+        Dataset-produced objects include their metadata, presentation and
+        provenance unless ``presentation=False``. ``print=False`` returns plain
+        text without writing to stdout or depending on the logging level.
         """
-        summary = str(self)
+        from ..common._display import format_info
+
+        summary = format_info(type(self).__name__, self._info_sections(), max_rows=20)
         if presentation and self.dataset_context is not None:
             from dtcc_core.datasets.presentation import format_dataset_context
 
