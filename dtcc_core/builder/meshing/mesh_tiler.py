@@ -31,8 +31,10 @@ class SurfaceMeshClipper:
         """
         Initialize the clipper with a mesh and preprocess it.
 
-        Args:
-            mesh: Surface mesh to be clipped
+        Parameters
+        ----------
+        mesh
+            Surface mesh to be clipped
         """
         self.mesh = mesh
         self.chunk_size = chunk_size
@@ -120,11 +122,15 @@ class SurfaceMeshClipper:
         """
         Clip the mesh to a single bounding box.
 
-        Args:
-            bbox: Tuple of (xmin, ymin, xmax, ymax)
+        Parameters
+        ----------
+        bounds : Bounds
+            Bounds to clip the mesh to.
 
-        Returns:
-            New Mesh clipped to bbox
+        Returns
+        -------
+        Mesh
+            New mesh clipped to the bounds.
         """
 
         bbox = bounds.tuple
@@ -297,9 +303,12 @@ class SingleBBoxClipper:
     def _triangulate_clipped_vertical(self, info: TriangleInfo, clipped_coords):
         """Properly triangulate a clipped vertical triangle.
 
-        Args:
-            info: Original triangle information
-            clipped_coords: The clipped line coordinates in 2D
+        Parameters
+        ----------
+        info
+            Original triangle information
+        clipped_coords
+            The clipped line coordinates in 2D
         """
         # Get the Z values from the original triangle
         z_values = sorted(info.vertices[:, 2])  # Sort Z values
@@ -368,10 +377,14 @@ class SingleBBoxClipper:
     ):
         """Create vertical quad for vertical triangle.
 
-        Args:
-            p0_2d, p1_2d: The 2D endpoints of the clipped line
-            z_min, z_max: The Z range for the vertical surface
-            original_up: Whether the original triangle normal pointed up
+        Parameters
+        ----------
+        p0_2d, p1_2d
+            The 2D endpoints of the clipped line.
+        z_min, z_max
+            The Z range for the vertical surface.
+        original_up
+            Whether the original triangle normal pointed up
         """
         dx = p1_2d[0] - p0_2d[0]
         dy = p1_2d[1] - p0_2d[1]

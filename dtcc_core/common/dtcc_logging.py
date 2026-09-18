@@ -100,7 +100,19 @@ debug, info, warning, error, critical = _init_logging("dtcc-core")
 
 
 def init_logging(name="dtcc-core"):
-    "Initialize logging for given package."
+    """Initialise logging for a package and return its logging functions.
+
+    Parameters
+    ----------
+    name : str, optional
+        Logger name, usually the package name. Default is "dtcc-core".
+
+    Returns
+    -------
+    tuple of callable
+        ``(debug, info, warning, error, critical)``. ``error`` and
+        ``critical`` log the message and then raise ``RuntimeError``.
+    """
     callbacks = _init_logging(name)
     loggers[name] = callbacks
     return callbacks

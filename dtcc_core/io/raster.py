@@ -64,12 +64,17 @@ def load(path, delimiter=",", *, validate_schema=True) -> Raster:
     """
     Load a raster file as a `Raster` object.
 
-    Args:
-        path (str): The path to the raster file.
-        delimiter (str): The delimiter used in case of a CSV file (default ",").
+    Parameters
+    ----------
+    path : str
+        The path to the raster file.
+    delimiter : str
+        The delimiter used in case of a CSV file (default ",").
 
-    Returns:
-        Raster: A `Raster` object representing the raster file loaded.
+    Returns
+    -------
+    Raster
+        A `Raster` object representing the raster file loaded.
     """
 
 

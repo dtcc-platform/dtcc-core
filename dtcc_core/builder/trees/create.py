@@ -17,6 +17,24 @@ from dataclasses import dataclass
 
 @dataclass
 class TreeType:
+    """Tree detection preset used by :func:`trees_from_pointcloud`.
+
+    Presets are looked up by name in ``tree_types``: ``"urban"``, ``"mixed"``,
+    ``"dense"`` and ``"arid"``.
+
+    Attributes
+    ----------
+    min_height : float
+        Minimum height above ground for tree canopy, in metres.
+    smoothing_sigma : float
+        Standard deviation, in raster cells, of the Gaussian filter that
+        smooths the canopy height raster. Zero disables smoothing.
+    peak_footprint : int
+        Neighbourhood size, in raster cells, for finding tree tops.
+    min_radius : float
+        Intended minimum crown radius in metres. ``find_tree_tops`` currently
+        ignores it and uses 0.6.
+    """
     min_height: float
     smoothing_sigma: float
     peak_footprint: int
@@ -62,18 +80,20 @@ def tree_raster_from_pointcloud(
     buildings : list[Building], optional
         If a list of buildings is provided, points within building footprints will be excluded
         from the tree rasterization.
+    tree_type : {"urban", "mixed", "dense", "arid"}, optional
+        Detection preset. It sets the minimum tree height and the standard
+        deviation of the Gaussian filter that smooths the raster. Default is
+        "urban".
     cell_size : float, optional
-        The size of each raster cell in the output raster. Default is 0.5.
-    shortest_tree : float, optional
-        The minimum tree height to include in the raster. Values below this will be set
-        to 0. Default is 2.0.
+        Cell size of the terrain raster built when ``terrain_raster`` is
+        omitted. The tree raster uses the terrain raster's cell size.
+        Default is 0.5.
     smallest_cluster : float, optional
-        The minimum size of tree clusters to retain (in pixels). Smaller clusters will be removed.
+        Smallest tree cluster to keep, as an area in square coordinate units.
+        Smaller clusters are removed. Default is 4.
     fill_hole_size : float, optional
-        The maximum size of holes to fill in the raster (in pixels). Default is 100.
-    sigma : float, optional
-        The standard deviation for the Gaussian filter applied to smooth the raster.
-        Default is 1.0.
+        Largest hole to fill, as an area in square coordinate units.
+        Default is 2.
 
     Returns
     -------
@@ -204,6 +224,41 @@ def trees_from_pointcloud(
     smallest_cluster: float = 4,
     fill_hole_size: float = 2,
 ) -> list[Tree]:
+    """Detect individual trees in a point cloud.
+
+    Builds a canopy height raster (vegetation height above the terrain),
+    finds tree tops as local height maxima and estimates a crown radius for
+    each tree.
+
+    Parameters
+    ----------
+    pc : PointCloud
+        Classified point cloud covering the area.
+    terrain_raster : Raster, optional
+        Ground elevation raster. When omitted, one is built from the ground
+        points of ``pc``.
+    buildings : list[Building], optional
+        Buildings whose footprints are excluded from tree detection.
+    tree_type : {"urban", "mixed", "dense", "arid"}, optional
+        Detection preset setting the minimum tree height and smoothing.
+        Default is "urban".
+    cell_size : float, optional
+        Cell size of the terrain raster built when ``terrain_raster`` is
+        omitted, in coordinate units. The canopy raster uses the terrain
+        raster's cell size. Default is 0.5.
+    smallest_cluster : float, optional
+        Smallest canopy patch to keep, as an area in square coordinate units.
+        Default is 4.
+    fill_hole_size : float, optional
+        Largest gap in the canopy to fill, as an area in square coordinate
+        units. Default is 2.
+
+    Returns
+    -------
+    list[Tree]
+        Trees positioned on the terrain, with height above ground and crown
+        radius.
+    """
     if terrain_raster is None:
         terrain_raster = builder.build_terrain_raster(
             pc, cell_size=cell_size, ground_only=True

@@ -16,6 +16,7 @@ from .centering import (
 
 
 class BuildingArgs(DatasetBaseArgs):
+    """Arguments for the LoD1 buildings dataset."""
     source: Literal["OSM", "LM"] = Field(
         "LM",
         description=(
@@ -36,6 +37,13 @@ class BuildingArgs(DatasetBaseArgs):
 
 
 class BuildingDataset(DatasetDescriptor):
+    """LoD1 Buildings dataset, registered as ``buildings``.
+
+    LoD1 building solids derived from source building footprints and point
+    cloud height estimates for the requested bounds.
+
+    Call it with keyword arguments defined by ``BuildingArgs``.
+    """
     name = "buildings"
     title = "LoD1 Buildings"
     description = (

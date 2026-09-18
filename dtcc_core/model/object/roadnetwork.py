@@ -18,7 +18,11 @@ import numpy as np
 
 
 class RoadType(Enum):
-    """Enumeration representing different road types."""
+    """Road categories, named after OpenStreetMap highway types.
+
+    Members range from motorways and primary roads down to residential and
+    service streets, tracks, and paths for pedestrians, cyclists and riders.
+    """
 
     MOTORWAY = auto()
     PRIMARY = auto()

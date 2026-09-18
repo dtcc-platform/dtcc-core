@@ -53,14 +53,18 @@ def TRI(dem: Raster) -> Raster:
     """
     Compute the Terrain Roughness Index (TRI) of a DEM using optimized array operations.
 
+    TRI is the square root of the sum of squared elevation differences between
+    each cell and its eight neighbours.
+
     Parameters
     ----------
+    dem : Raster
+        A Raster object representing the DEM.
 
-    - dem : Raster
-      a Raster object representing the DEM.
-
-    Returns:
-    - A Raster object representing the TRI.
+    Returns
+    -------
+    Raster
+        A Raster object representing the TRI.
     """
 
     # Imported here rather than at module scope to keep scipy off the

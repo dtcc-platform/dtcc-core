@@ -22,13 +22,29 @@ def extrude_surface_to_solid(
     2. Extruding the boundary downwards to create side walls
     3. Creating a bottom cap at the specified depth
 
-    Args:
-        surface_mesh: Input surface mesh to extrude
-        extrusion_depth: How far down to extrude (if None, uses mesh bounds)
-        base_z: Z-coordinate for the bottom (if None, uses min_z - extrusion_depth)
+    Parameters
+    ----------
+    surface_mesh
+        Input surface mesh to extrude
+    extrusion_depth
+        Depth of the bottom cap below the lowest vertex. When given, it
+        overrides ``base_z``. Default is None.
+    base_z
+        Z-coordinate of the bottom cap, used when ``extrusion_depth`` is None.
+        Default is 0.
+    minimum_thickness
+        Smallest allowed distance between the lowest vertex and the bottom
+        cap; a higher cap is lowered to this distance. Default is 0.01.
 
-    Returns:
+    Returns
+    -------
+    Mesh
         Solid mesh with extruded sides and bottom cap
+
+    Raises
+    ------
+    RuntimeError
+        If both ``extrusion_depth`` and ``base_z`` are None.
     """
     if len(surface_mesh.vertices) == 0 or len(surface_mesh.faces) == 0:
         return Mesh(vertices=np.array([]), faces=np.array([], dtype=np.int32))
@@ -113,10 +129,14 @@ def _find_boundary_edges(mesh: Mesh) -> Set[Tuple[int, int]]:
     """
     Find boundary edges of a mesh (edges that belong to only one face).
 
-    Args:
-        mesh: Input mesh
+    Parameters
+    ----------
+    mesh
+        Input mesh
 
-    Returns:
+    Returns
+    -------
+    Set[Tuple[int, int]]
         Set of boundary edges as tuples (vertex1_idx, vertex2_idx)
     """
     edge_count = {}
@@ -147,12 +167,18 @@ def _create_bottom_cap(
     This creates a flat bottom surface by projecting all surface vertices onto the base_z plane
     and reversing the face winding order to ensure inward-facing normals.
 
-    Args:
-        surface_mesh: Original surface mesh
-        boundary_vertex_map: Mapping from original vertex indices to extruded vertex indices
-        base_z: Z-coordinate for the bottom plane
+    Parameters
+    ----------
+    surface_mesh
+        Original surface mesh
+    boundary_vertex_map
+        Mapping from original vertex indices to extruded vertex indices
+    base_z
+        Z-coordinate for the bottom plane
 
-    Returns:
+    Returns
+    -------
+    Tuple[List[np.ndarray], List[List[int]]]
         Tuple of (additional_vertices, bottom_faces)
     """
     additional_vertices = []
@@ -203,13 +229,20 @@ def create_printable_surface_mesh(
 
     This is a higher-level function that includes validation and fixes for 3D printing.
 
-    Args:
-        surface_mesh: Input surface mesh
-        extrusion_depth: Depth of extrusion
-        base_z: Base Z coordinate
-        minimum_thickness: Minimum wall thickness for 3D printing
+    Parameters
+    ----------
+    surface_mesh
+        Input surface mesh
+    extrusion_depth
+        Depth of extrusion
+    base_z
+        Base Z coordinate
+    minimum_thickness
+        Minimum wall thickness for 3D printing
 
-    Returns:
+    Returns
+    -------
+    Mesh
         Solid mesh suitable for 3D printing
     """
     # Basic extrusion

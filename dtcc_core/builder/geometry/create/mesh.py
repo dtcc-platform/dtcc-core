@@ -8,8 +8,8 @@ def create_sphere(center, radius, resolution=20, scale=(1.0, 1.0, 1.0)):
     """
     Create a triangulated sphere mesh with optional scaling along each axis.
 
-    Parameters:
-    -----------
+    Parameters
+    ----------
     center : list or numpy.ndarray
         The (x, y, z) coordinates of the sphere center.
     radius : float
@@ -21,8 +21,8 @@ def create_sphere(center, radius, resolution=20, scale=(1.0, 1.0, 1.0)):
         Use values < 1 to squash, values > 1 to stretch.
         Default is (1.0, 1.0, 1.0) for a perfect sphere.
 
-    Returns:
-    --------
+    Returns
+    -------
     vertices : numpy.ndarray
         An Nx3 array of vertex coordinates.
     faces : numpy.ndarray
@@ -87,8 +87,8 @@ def create_cylinder(center, radius, height, resolution=20, axis=2, cap=True):
     """
     Create a triangulated cylinder mesh.
 
-    Parameters:
-    -----------
+    Parameters
+    ----------
     center : list or numpy.ndarray
         The (x, y, z) coordinates of the cylinder center.
     radius : float
@@ -104,8 +104,8 @@ def create_cylinder(center, radius, height, resolution=20, axis=2, cap=True):
     cap : bool, optional
         Whether to include the end caps of the cylinder.
 
-    Returns:
-    --------
+    Returns
+    -------
     vertices : numpy.ndarray
         An Nx3 array of vertex coordinates.
     faces : numpy.ndarray
@@ -192,8 +192,8 @@ def create_cone_mesh(center, radius, height, resolution=20, axis=2, cap=True):
     """
     Create a triangulated cone mesh.
 
-    Parameters:
-    -----------
+    Parameters
+    ----------
     center : list or numpy.ndarray
         The (x, y, z) coordinates of the cone's base center.
     radius : float
@@ -209,8 +209,8 @@ def create_cone_mesh(center, radius, height, resolution=20, axis=2, cap=True):
     cap : bool, optional
         Whether to include the base cap of the cone.
 
-    Returns:
-    --------
+    Returns
+    -------
     vertices : numpy.ndarray
         An Nx3 array of vertex coordinates.
     faces : numpy.ndarray

@@ -26,7 +26,21 @@ from ...plotting.style import (
 
 @dataclass(repr=False)
 class FootprintCollection(Model):
-    """Collection of building footprint surfaces."""
+    """Collection of building footprint surfaces.
+
+    Created with ``FootprintCollection.from_buildings`` or
+    ``BuildingCollection.footprints``. It behaves like a sequence: ``len``,
+    iteration and indexing give the footprint surfaces.
+
+    Attributes
+    ----------
+    footprints : list[Surface]
+        Footprint surfaces.
+    source_ids : list[str or None]
+        Id of the building each footprint came from, when known.
+    source_indices : list[int]
+        Position of the building each footprint came from in the source list.
+    """
 
     footprints: list[Surface] = field(default_factory=list)
     source_ids: list[str | None] = field(default_factory=list)
@@ -203,7 +217,17 @@ class FootprintCollection(Model):
 
 @dataclass(repr=False)
 class BuildingCollection(Model):
-    """Collection of DTCC buildings."""
+    """Collection of DTCC buildings.
+
+    Behaves like a sequence of ``Building`` objects: ``len``, iteration and
+    indexing work on the buildings. ``footprints`` extracts their footprints
+    and ``bounds`` spans all of them.
+
+    Attributes
+    ----------
+    buildings : list[Building]
+        Buildings in the collection.
+    """
 
     buildings: list[Building] = field(default_factory=list)
 
@@ -254,7 +278,16 @@ class BuildingCollection(Model):
 
 @dataclass(repr=False)
 class TreeCollection(Model):
-    """Collection of DTCC tree objects."""
+    """Collection of DTCC tree objects.
+
+    Behaves like a sequence of ``Tree`` objects. ``to_arrays`` returns the
+    tree positions as an ``N x 3`` array and ``plot`` draws them.
+
+    Attributes
+    ----------
+    trees : list[Tree]
+        Trees in the collection.
+    """
 
     trees: list[Tree] = field(default_factory=list)
 

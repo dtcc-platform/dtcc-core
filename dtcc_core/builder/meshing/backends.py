@@ -45,6 +45,17 @@ def _builder_backend_available(name: str) -> bool:
 
 
 def available_2d_meshers() -> list[str]:
+    """Return the 2D mesher backends usable in this installation.
+
+    ``"dtcc_mesher"`` is listed when the ``dtcc_mesher`` package is
+    installed, and ``"triangle"`` when dtcc-core was built with Triangle
+    support.
+
+    Returns
+    -------
+    list[str]
+        Available mesher names, in order of preference.
+    """
     meshers: list[str] = []
     if importlib.util.find_spec("dtcc_mesher") is not None:
         meshers.append("dtcc_mesher")
@@ -55,6 +66,29 @@ def available_2d_meshers() -> list[str]:
 
 
 def resolve_2d_mesher(mesher: str | None = None) -> str:
+    """Resolve a mesher request to a concrete, available 2D mesher.
+
+    Parameters
+    ----------
+    mesher : {"auto", "dtcc_mesher", "triangle"}, optional
+        Requested mesher, case-insensitive. ``None`` uses the default set with
+        ``set_default_2d_mesher``, otherwise the ``DTCC_2D_MESHER`` environment
+        variable, otherwise ``"auto"``. ``"auto"`` picks ``"dtcc_mesher"``
+        when available, then ``"triangle"``.
+
+    Returns
+    -------
+    str
+        ``"dtcc_mesher"`` or ``"triangle"``.
+
+    Raises
+    ------
+    ValueError
+        If the name is not a supported mesher.
+    RuntimeError
+        If the requested mesher is not available, or no mesher is available
+        for ``"auto"``.
+    """
     requested = mesher
     if requested is None:
         requested = _default_2d_mesher_override or os.getenv(
@@ -81,10 +115,54 @@ def resolve_2d_mesher(mesher: str | None = None) -> str:
 
 
 def get_default_2d_mesher() -> str:
+    """Return the 2D mesher used when a meshing function gets ``mesher=None``.
+
+    The default is the mesher set with ``set_default_2d_mesher``, otherwise
+    the ``DTCC_2D_MESHER`` environment variable, otherwise ``"auto"``.
+    ``"auto"`` picks ``"dtcc_mesher"`` when available, then ``"triangle"``.
+
+    Returns
+    -------
+    str
+        The concrete mesher name, never ``"auto"``.
+
+    Raises
+    ------
+    ValueError
+        If the configured name is not a supported mesher.
+    RuntimeError
+        If the configured mesher is not available, or no mesher is available
+        for ``"auto"``.
+    """
     return resolve_2d_mesher()
 
 
 def set_default_2d_mesher(mesher: str | None = None) -> str:
+    """Set the 2D mesher used when a meshing function gets ``mesher=None``.
+
+    The setting lasts for the current Python process and takes precedence
+    over the ``DTCC_2D_MESHER`` environment variable.
+
+    Parameters
+    ----------
+    mesher : {"auto", "dtcc_mesher", "triangle"}, optional
+        Mesher to use by default. ``None`` clears the setting, so the
+        environment variable or ``"auto"`` applies again.
+
+    Returns
+    -------
+    str
+        The concrete mesher the new default resolves to.
+
+    Raises
+    ------
+    ValueError
+        If ``mesher`` is not a supported name.
+    RuntimeError
+        If ``mesher`` is not available in this installation. For a specific
+        backend name the previous default is kept; with ``None`` or
+        ``"auto"`` the setting has already changed when the error is raised.
+    """
     global _default_2d_mesher_override
 
     if mesher is None:
