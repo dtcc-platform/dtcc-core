@@ -11,6 +11,5 @@ mv classes.puml uml_diagram_geometry.puml
 rm -f packages.puml
 
 echo ""
-echo "UML diagram generation complete (classes_*.puml)."
-echo "External platform docs for this step are offline; see DESIGN.md and docs/."
+echo "UML diagram generation complete (uml_diagram_*.puml)."
 echo ""
