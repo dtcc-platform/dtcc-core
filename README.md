@@ -99,11 +99,12 @@ The DTCC data contract lives in [`dtcc_core/schemas/`](dtcc_core/schemas/):
 [`dtcc.proto`](dtcc_core/schemas/dtcc.proto) defines the Protobuf wire format.
 Their versions are independent; both specifications have stable file paths.
 
-This project is documented as part of the
-[DTCC Platform Documentation](https://platform.dtcc.chalmers.se/).
-
 The guiding architecture and design principles are described in
-[DESIGN.md](DESIGN.md).
+[DESIGN.md](DESIGN.md). Additional project notes live under [`docs/`](docs/).
+
+The former external DTCC Platform Documentation site
+(`https://platform.dtcc.chalmers.se/`) is no longer reachable; in-repo docs
+above are the current source of truth.
 
 ## Authors (in order of appearance)
 
