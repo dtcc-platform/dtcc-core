@@ -1,0 +1,1545 @@
+{
+ "scope": "Delta derived from a declared flat-mesh overhead budget, not from a failure threshold. Research only.",
+ "overhead_budget": 0.1,
+ "reference_delta": 0.5,
+ "coefficient_families": {
+  "near_walls": {
+   "resolved_reference_faces": 216,
+   "samples": 6,
+   "length_metres": 10.0,
+   "coefficient": 5.74
+  },
+  "thin_passage": {
+   "resolved_reference_faces": 68,
+   "samples": 11,
+   "length_metres": 10.0,
+   "coefficient": 0.006
+  },
+  "small_hole": {
+   "resolved_reference_faces": 96,
+   "samples": 11,
+   "length_metres": 10.0,
+   "coefficient": 0.166
+  },
+  "sharp_tip": {
+   "resolved_reference_faces": 536,
+   "samples": 4,
+   "length_metres": 10.0,
+   "coefficient": 22.76125
+  }
+ },
+ "coefficient_used": 5.74,
+ "derived_delta": 0.5,
+ "cities": [
+  {
+   "city": "lund",
+   "flat_mesh_faces": 18734,
+   "contact_edges": 3066,
+   "sub_reference_edges": 2543,
+   "sub_reference_gap_metres": 3471.7355843042405,
+   "derived_delta": 0.5,
+   "delta_by_budget": {
+    "0.05": 0.5,
+    "0.1": 0.5,
+    "0.25": 0.45,
+    "0.5": 0.425,
+    "1.0": 0.35,
+    "2.0": 0.25
+   },
+   "ladder": [
+    {
+     "delta": 1.0,
+     "implied_elements": 25046.375264521957,
+     "extra_elements": -21880.637180955287,
+     "allowed": 1873.4,
+     "within_budget": true
+    },
+    {
+     "delta": 0.75,
+     "implied_elements": 32892.10045206527,
+     "extra_elements": -14034.911993411974,
+     "allowed": 1873.4,
+     "within_budget": true
+    },
+    {
+     "delta": 0.5,
+     "implied_elements": 46927.012445477245,
+     "extra_elements": 0.0,
+     "allowed": 1873.4,
+     "within_budget": true
+    },
+    {
+     "delta": 0.475,
+     "implied_elements": 48996.484413084356,
+     "extra_elements": 2069.471967607111,
+     "allowed": 1873.4,
+     "within_budget": false
+    },
+    {
+     "delta": 0.45,
+     "implied_elements": 51272.68267636903,
+     "extra_elements": 4345.670230891788,
+     "allowed": 1873.4,
+     "within_budget": false
+    },
+    {
+     "delta": 0.425,
+     "implied_elements": 53774.19030972589,
+     "extra_elements": 6847.177864248646,
+     "allowed": 1873.4,
+     "within_budget": false
+    },
+    {
+     "delta": 0.4,
+     "implied_elements": 56536.84668885474,
+     "extra_elements": 9609.834243377496,
+     "allowed": 1873.4,
+     "within_budget": false
+    },
+    {
+     "delta": 0.35,
+     "implied_elements": 63076.98048835569,
+     "extra_elements": 16149.968042878449,
+     "allowed": 1873.4,
+     "within_budget": false
+    },
+    {
+     "delta": 0.3,
+     "implied_elements": 71482.74972440022,
+     "extra_elements": 24555.73727892297,
+     "allowed": 1873.4,
+     "within_budget": false
+    },
+    {
+     "delta": 0.25,
+     "implied_elements": 82542.90867804142,
+     "extra_elements": 35615.89623256418,
+     "allowed": 1873.4,
+     "within_budget": false
+    },
+    {
+     "delta": 0.2,
+     "implied_elements": 98054.88651050745,
+     "extra_elements": 51127.874065030206,
+     "allowed": 1873.4,
+     "within_budget": false
+    },
+    {
+     "delta": 0.15,
+     "implied_elements": 121077.01705846567,
+     "extra_elements": 74150.00461298843,
+     "allowed": 1873.4,
+     "within_budget": false
+    },
+    {
+     "delta": 0.125,
+     "implied_elements": 137164.07858127155,
+     "extra_elements": 90237.0661357943,
+     "allowed": 1873.4,
+     "within_budget": false
+    },
+    {
+     "delta": 0.1,
+     "implied_elements": 158907.2940563481,
+     "extra_elements": 111980.28161087085,
+     "allowed": 1873.4,
+     "within_budget": false
+    },
+    {
+     "delta": 0.075,
+     "implied_elements": 192567.87898101922,
+     "extra_elements": 145640.86653554198,
+     "allowed": 1873.4,
+     "within_budget": false
+    },
+    {
+     "delta": 0.05,
+     "implied_elements": 256710.51077173188,
+     "extra_elements": 209783.49832625463,
+     "allowed": 1873.4,
+     "within_budget": false
+    },
+    {
+     "delta": 0.025,
+     "implied_elements": 435846.7499899752,
+     "extra_elements": 388919.73754449794,
+     "allowed": 1873.4,
+     "within_budget": false
+    },
+    {
+     "delta": 0.01,
+     "implied_elements": 952671.8023763336,
+     "extra_elements": 905744.7899308563,
+     "allowed": 1873.4,
+     "within_budget": false
+    },
+    {
+     "delta": 0.005,
+     "implied_elements": 1781777.796307276,
+     "extra_elements": 1734850.7838617987,
+     "allowed": 1873.4,
+     "within_budget": false
+    }
+   ]
+  },
+  {
+   "city": "stockholm",
+   "flat_mesh_faces": 7501,
+   "contact_edges": 280,
+   "sub_reference_edges": 230,
+   "sub_reference_gap_metres": 648.4403138175385,
+   "derived_delta": 0.475,
+   "delta_by_budget": {
+    "0.05": 0.5,
+    "0.1": 0.475,
+    "0.25": 0.4,
+    "0.5": 0.35,
+    "1.0": 0.25,
+    "2.0": 0.2
+   },
+   "ladder": [
+    {
+     "delta": 1.0,
+     "implied_elements": 4719.556300095397,
+     "extra_elements": -4292.254604061267,
+     "allowed": 750.1,
+     "within_budget": true
+    },
+    {
+     "delta": 0.75,
+     "implied_elements": 6278.641918004243,
+     "extra_elements": -2733.168986152421,
+     "allowed": 750.1,
+     "within_budget": true
+    },
+    {
+     "delta": 0.5,
+     "implied_elements": 9011.810904156664,
+     "extra_elements": 0.0,
+     "allowed": 750.1,
+     "within_budget": true
+    },
+    {
+     "delta": 0.475,
+     "implied_elements": 9401.829545098744,
+     "extra_elements": 390.0186409420803,
+     "allowed": 750.1,
+     "within_budget": true
+    },
+    {
+     "delta": 0.45,
+     "implied_elements": 9834.159064804891,
+     "extra_elements": 822.3481606482273,
+     "allowed": 750.1,
+     "within_budget": false
+    },
+    {
+     "delta": 0.425,
+     "implied_elements": 10317.079492527122,
+     "extra_elements": 1305.268588370458,
+     "allowed": 750.1,
+     "within_budget": false
+    },
+    {
+     "delta": 0.4,
+     "implied_elements": 10853.494261915715,
+     "extra_elements": 1841.6833577590514,
+     "allowed": 750.1,
+     "within_budget": false
+    },
+    {
+     "delta": 0.35,
+     "implied_elements": 12099.479230529507,
+     "extra_elements": 3087.668326372843,
+     "allowed": 750.1,
+     "within_budget": false
+    },
+    {
+     "delta": 0.3,
+     "implied_elements": 13716.285642563464,
+     "extra_elements": 4704.4747384068,
+     "allowed": 750.1,
+     "within_budget": false
+    },
+    {
+     "delta": 0.25,
+     "implied_elements": 15947.082591654906,
+     "extra_elements": 6935.271687498242,
+     "allowed": 750.1,
+     "within_budget": false
+    },
+    {
+     "delta": 0.2,
+     "implied_elements": 19149.196058899834,
+     "extra_elements": 10137.38515474317,
+     "allowed": 750.1,
+     "within_budget": false
+    },
+    {
+     "delta": 0.15,
+     "implied_elements": 24041.36752339508,
+     "extra_elements": 15029.556619238418,
+     "allowed": 750.1,
+     "within_budget": false
+    },
+    {
+     "delta": 0.125,
+     "implied_elements": 27821.83250604683,
+     "extra_elements": 18810.021601890166,
+     "allowed": 750.1,
+     "within_budget": false
+    },
+    {
+     "delta": 0.1,
+     "implied_elements": 33421.89758921402,
+     "extra_elements": 24410.08668505736,
+     "allowed": 750.1,
+     "within_budget": false
+    },
+    {
+     "delta": 0.075,
+     "implied_elements": 42522.29564549226,
+     "extra_elements": 33510.4847413356,
+     "allowed": 750.1,
+     "within_budget": false
+    },
+    {
+     "delta": 0.05,
+     "implied_elements": 60535.794469418994,
+     "extra_elements": 51523.98356526233,
+     "allowed": 750.1,
+     "within_budget": false
+    },
+    {
+     "delta": 0.025,
+     "implied_elements": 111214.82878845223,
+     "extra_elements": 102203.01788429556,
+     "allowed": 750.1,
+     "within_budget": false
+    },
+    {
+     "delta": 0.01,
+     "implied_elements": 257937.27947125683,
+     "extra_elements": 248925.46856710018,
+     "allowed": 750.1,
+     "within_budget": false
+    },
+    {
+     "delta": 0.005,
+     "implied_elements": 488259.2771028144,
+     "extra_elements": 479247.46619865776,
+     "allowed": 750.1,
+     "within_budget": false
+    }
+   ]
+  },
+  {
+   "city": "gothenburg",
+   "flat_mesh_faces": 9655,
+   "contact_edges": 678,
+   "sub_reference_edges": 451,
+   "sub_reference_gap_metres": 866.9263169752958,
+   "derived_delta": 0.475,
+   "delta_by_budget": {
+    "0.05": 0.5,
+    "0.1": 0.475,
+    "0.25": 0.4,
+    "0.5": 0.35,
+    "1.0": 0.25,
+    "2.0": 0.125
+   },
+   "ladder": [
+    {
+     "delta": 1.0,
+     "implied_elements": 6307.761728599651,
+     "extra_elements": -5630.055718781738,
+     "allowed": 965.5,
+     "within_budget": true
+    },
+    {
+     "delta": 0.75,
+     "implied_elements": 8358.647816386992,
+     "extra_elements": -3579.1696309943964,
+     "allowed": 965.5,
+     "within_budget": true
+    },
+    {
+     "delta": 0.5,
+     "implied_elements": 11937.817447381389,
+     "extra_elements": 0.0,
+     "allowed": 965.5,
+     "within_budget": true
+    },
+    {
+     "delta": 0.475,
+     "implied_elements": 12459.47586391555,
+     "extra_elements": 521.658416534161,
+     "allowed": 965.5,
+     "within_budget": true
+    },
+    {
+     "delta": 0.45,
+     "implied_elements": 13017.068008974731,
+     "extra_elements": 1079.2505615933424,
+     "allowed": 965.5,
+     "within_budget": false
+    },
+    {
+     "delta": 0.425,
+     "implied_elements": 13617.087599365706,
+     "extra_elements": 1679.2701519843176,
+     "allowed": 965.5,
+     "within_budget": false
+    },
+    {
+     "delta": 0.4,
+     "implied_elements": 14261.075937483332,
+     "extra_elements": 2323.2584901019436,
+     "allowed": 965.5,
+     "within_budget": false
+    },
+    {
+     "delta": 0.35,
+     "implied_elements": 15709.103456345605,
+     "extra_elements": 3771.2860089642163,
+     "allowed": 965.5,
+     "within_budget": false
+    },
+    {
+     "delta": 0.3,
+     "implied_elements": 17462.085582924414,
+     "extra_elements": 5524.268135543025,
+     "allowed": 965.5,
+     "within_budget": false
+    },
+    {
+     "delta": 0.25,
+     "implied_elements": 19669.46621276568,
+     "extra_elements": 7731.648765384292,
+     "allowed": 965.5,
+     "within_budget": false
+    },
+    {
+     "delta": 0.2,
+     "implied_elements": 22625.488584514194,
+     "extra_elements": 10687.671137132806,
+     "allowed": 965.5,
+     "within_budget": false
+    },
+    {
+     "delta": 0.15,
+     "implied_elements": 26940.611615628193,
+     "extra_elements": 15002.794168246804,
+     "allowed": 965.5,
+     "within_budget": false
+    },
+    {
+     "delta": 0.125,
+     "implied_elements": 29830.052632815805,
+     "extra_elements": 17892.235185434416,
+     "allowed": 965.5,
+     "within_budget": false
+    },
+    {
+     "delta": 0.1,
+     "implied_elements": 33878.720247651625,
+     "extra_elements": 21940.902800270236,
+     "allowed": 965.5,
+     "within_budget": false
+    },
+    {
+     "delta": 0.075,
+     "implied_elements": 39195.127326880494,
+     "extra_elements": 27257.309879499106,
+     "allowed": 965.5,
+     "within_budget": false
+    },
+    {
+     "delta": 0.05,
+     "implied_elements": 49243.996044685206,
+     "extra_elements": 37306.17859730382,
+     "allowed": 965.5,
+     "within_budget": false
+    },
+    {
+     "delta": 0.025,
+     "implied_elements": 75706.94539989329,
+     "extra_elements": 63769.1279525119,
+     "allowed": 965.5,
+     "within_budget": false
+    },
+    {
+     "delta": 0.01,
+     "implied_elements": 153618.48738871043,
+     "extra_elements": 141680.66994132905,
+     "allowed": 965.5,
+     "within_budget": false
+    },
+    {
+     "delta": 0.005,
+     "implied_elements": 276383.2978328153,
+     "extra_elements": 264445.48038543394,
+     "allowed": 965.5,
+     "within_budget": false
+    }
+   ]
+  },
+  {
+   "city": "malmo",
+   "flat_mesh_faces": 9646,
+   "contact_edges": 334,
+   "sub_reference_edges": 281,
+   "sub_reference_gap_metres": 1393.0733555761576,
+   "derived_delta": 0.475,
+   "delta_by_budget": {
+    "0.05": 0.5,
+    "0.1": 0.475,
+    "0.25": 0.45,
+    "0.5": 0.4,
+    "1.0": 0.35,
+    "2.0": 0.25
+   },
+   "ladder": [
+    {
+     "delta": 1.0,
+     "implied_elements": 8890.132878612425,
+     "extra_elements": -8271.632598277294,
+     "allowed": 964.6,
+     "within_budget": true
+    },
+    {
+     "delta": 0.75,
+     "implied_elements": 11759.238134787063,
+     "extra_elements": -5402.527342102656,
+     "allowed": 964.6,
+     "within_budget": true
+    },
+    {
+     "delta": 0.5,
+     "implied_elements": 17161.76547688972,
+     "extra_elements": 0.0,
+     "allowed": 964.6,
+     "within_budget": true
+    },
+    {
+     "delta": 0.475,
+     "implied_elements": 17995.757985801127,
+     "extra_elements": 833.9925089114076,
+     "allowed": 964.6,
+     "within_budget": true
+    },
+    {
+     "delta": 0.45,
+     "implied_elements": 18918.701262588875,
+     "extra_elements": 1756.9357856991555,
+     "allowed": 964.6,
+     "within_budget": false
+    },
+    {
+     "delta": 0.425,
+     "implied_elements": 19940.528681482487,
+     "extra_elements": 2778.7632045927676,
+     "allowed": 964.6,
+     "within_budget": false
+    },
+    {
+     "delta": 0.4,
+     "implied_elements": 21088.515129235893,
+     "extra_elements": 3926.749652346174,
+     "allowed": 964.6,
+     "within_budget": false
+    },
+    {
+     "delta": 0.35,
+     "implied_elements": 23866.594695672844,
+     "extra_elements": 6704.829218783125,
+     "allowed": 964.6,
+     "within_budget": false
+    },
+    {
+     "delta": 0.3,
+     "implied_elements": 27526.512410210355,
+     "extra_elements": 10364.746933320635,
+     "allowed": 964.6,
+     "within_budget": false
+    },
+    {
+     "delta": 0.25,
+     "implied_elements": 32620.27510886445,
+     "extra_elements": 15458.509631974732,
+     "allowed": 964.6,
+     "within_budget": false
+    },
+    {
+     "delta": 0.2,
+     "implied_elements": 40212.49433515301,
+     "extra_elements": 23050.72885826329,
+     "allowed": 964.6,
+     "within_budget": false
+    },
+    {
+     "delta": 0.15,
+     "implied_elements": 52807.949507635465,
+     "extra_elements": 35646.184030745746,
+     "allowed": 964.6,
+     "within_budget": false
+    },
+    {
+     "delta": 0.125,
+     "implied_elements": 62862.17802613213,
+     "extra_elements": 45700.412549242414,
+     "allowed": 964.6,
+     "within_budget": false
+    },
+    {
+     "delta": 0.1,
+     "implied_elements": 77903.87509718961,
+     "extra_elements": 60742.10962029989,
+     "allowed": 964.6,
+     "within_budget": false
+    },
+    {
+     "delta": 0.075,
+     "implied_elements": 102815.26995063014,
+     "extra_elements": 85653.50447374042,
+     "allowed": 964.6,
+     "within_budget": false
+    },
+    {
+     "delta": 0.05,
+     "implied_elements": 151876.9320560495,
+     "extra_elements": 134715.1665791598,
+     "allowed": 964.6,
+     "within_budget": false
+    },
+    {
+     "delta": 0.025,
+     "implied_elements": 297087.0774586471,
+     "extra_elements": 279925.31198175735,
+     "allowed": 964.6,
+     "within_budget": false
+    },
+    {
+     "delta": 0.01,
+     "implied_elements": 731805.7708969882,
+     "extra_elements": 714644.0054200985,
+     "allowed": 964.6,
+     "within_budget": false
+    },
+    {
+     "delta": 0.005,
+     "implied_elements": 1420475.1153801486,
+     "extra_elements": 1403313.349903259,
+     "allowed": 964.6,
+     "within_budget": false
+    }
+   ]
+  },
+  {
+   "city": "uppsala",
+   "flat_mesh_faces": 11573,
+   "contact_edges": 2287,
+   "sub_reference_edges": 2134,
+   "sub_reference_gap_metres": 2943.0413475861205,
+   "derived_delta": 0.5,
+   "delta_by_budget": {
+    "0.05": 0.5,
+    "0.1": 0.5,
+    "0.25": 0.475,
+    "0.5": 0.425,
+    "1.0": 0.4,
+    "2.0": 0.3
+   },
+   "ladder": [
+    {
+     "delta": 1.0,
+     "implied_elements": 19654.834827884846,
+     "extra_elements": -17913.654339763085,
+     "allowed": 1157.3,
+     "within_budget": true
+    },
+    {
+     "delta": 0.75,
+     "implied_elements": 25976.70798717399,
+     "extra_elements": -11591.78118047394,
+     "allowed": 1157.3,
+     "within_budget": true
+    },
+    {
+     "delta": 0.5,
+     "implied_elements": 37568.48916764793,
+     "extra_elements": 0.0,
+     "allowed": 1157.3,
+     "within_budget": true
+    },
+    {
+     "delta": 0.475,
+     "implied_elements": 39327.750932766096,
+     "extra_elements": 1759.2617651181645,
+     "allowed": 1157.3,
+     "within_budget": false
+    },
+    {
+     "delta": 0.45,
+     "implied_elements": 41229.86420681073,
+     "extra_elements": 3661.375039162798,
+     "allowed": 1157.3,
+     "within_budget": false
+    },
+    {
+     "delta": 0.425,
+     "implied_elements": 43313.8304466918,
+     "extra_elements": 5745.341279043867,
+     "allowed": 1157.3,
+     "within_budget": false
+    },
+    {
+     "delta": 0.4,
+     "implied_elements": 45593.76518523881,
+     "extra_elements": 8025.276017590877,
+     "allowed": 1157.3,
+     "within_budget": false
+    },
+    {
+     "delta": 0.35,
+     "implied_elements": 50977.14600176243,
+     "extra_elements": 13408.656834114496,
+     "allowed": 1157.3,
+     "within_budget": false
+    },
+    {
+     "delta": 0.3,
+     "implied_elements": 57890.193859926316,
+     "extra_elements": 20321.704692278385,
+     "allowed": 1157.3,
+     "within_budget": false
+    },
+    {
+     "delta": 0.25,
+     "implied_elements": 66862.72070918878,
+     "extra_elements": 29294.231541540852,
+     "allowed": 1157.3,
+     "within_budget": false
+    },
+    {
+     "delta": 0.2,
+     "implied_elements": 79616.99101428411,
+     "extra_elements": 42048.50184663618,
+     "allowed": 1157.3,
+     "within_budget": false
+    },
+    {
+     "delta": 0.15,
+     "implied_elements": 99679.4134740223,
+     "extra_elements": 62110.92430637436,
+     "allowed": 1157.3,
+     "within_budget": false
+    },
+    {
+     "delta": 0.125,
+     "implied_elements": 114568.85661545854,
+     "extra_elements": 77000.36744781061,
+     "allowed": 1157.3,
+     "within_budget": false
+    },
+    {
+     "delta": 0.1,
+     "implied_elements": 136156.3044446245,
+     "extra_elements": 98587.81527697656,
+     "allowed": 1157.3,
+     "within_budget": false
+    },
+    {
+     "delta": 0.075,
+     "implied_elements": 169782.91794341558,
+     "extra_elements": 132214.42877576765,
+     "allowed": 1157.3,
+     "within_budget": false
+    },
+    {
+     "delta": 0.05,
+     "implied_elements": 235091.72180521447,
+     "extra_elements": 197523.23263756654,
+     "allowed": 1157.3,
+     "within_budget": false
+    },
+    {
+     "delta": 0.025,
+     "implied_elements": 424688.8211982963,
+     "extra_elements": 387120.33203064837,
+     "allowed": 1157.3,
+     "within_budget": false
+    },
+    {
+     "delta": 0.01,
+     "implied_elements": 944176.7267754396,
+     "extra_elements": 906608.2376077917,
+     "allowed": 1157.3,
+     "within_budget": false
+    },
+    {
+     "delta": 0.005,
+     "implied_elements": 1779592.1028881564,
+     "extra_elements": 1742023.6137205085,
+     "allowed": 1157.3,
+     "within_budget": false
+    }
+   ]
+  },
+  {
+   "city": "linkoping",
+   "flat_mesh_faces": 13371,
+   "contact_edges": 3411,
+   "sub_reference_edges": 3084,
+   "sub_reference_gap_metres": 2811.382486527703,
+   "derived_delta": 0.5,
+   "delta_by_budget": {
+    "0.05": 0.5,
+    "0.1": 0.5,
+    "0.25": 0.475,
+    "0.5": 0.425,
+    "1.0": 0.35,
+    "2.0": 0.3
+   },
+   "ladder": [
+    {
+     "delta": 1.0,
+     "implied_elements": 19887.700992143687,
+     "extra_elements": -17885.254021115023,
+     "allowed": 1337.1000000000001,
+     "within_budget": true
+    },
+    {
+     "delta": 0.75,
+     "implied_elements": 26153.45515901983,
+     "extra_elements": -11619.499854238878,
+     "allowed": 1337.1000000000001,
+     "within_budget": true
+    },
+    {
+     "delta": 0.5,
+     "implied_elements": 37772.95501325871,
+     "extra_elements": 0.0,
+     "allowed": 1337.1000000000001,
+     "within_budget": true
+    },
+    {
+     "delta": 0.475,
+     "implied_elements": 39461.89612936585,
+     "extra_elements": 1688.9411161071403,
+     "allowed": 1337.1000000000001,
+     "within_budget": false
+    },
+    {
+     "delta": 0.45,
+     "implied_elements": 41312.14006732272,
+     "extra_elements": 3539.185054064008,
+     "allowed": 1337.1000000000001,
+     "within_budget": false
+    },
+    {
+     "delta": 0.425,
+     "implied_elements": 43325.46582822486,
+     "extra_elements": 5552.510814966146,
+     "allowed": 1337.1000000000001,
+     "within_budget": false
+    },
+    {
+     "delta": 0.4,
+     "implied_elements": 45535.530158699155,
+     "extra_elements": 7762.575145440445,
+     "allowed": 1337.1000000000001,
+     "within_budget": false
+    },
+    {
+     "delta": 0.35,
+     "implied_elements": 50673.89600379152,
+     "extra_elements": 12900.940990532807,
+     "allowed": 1337.1000000000001,
+     "within_budget": false
+    },
+    {
+     "delta": 0.3,
+     "implied_elements": 57139.885627148324,
+     "extra_elements": 19366.930613889614,
+     "allowed": 1337.1000000000001,
+     "within_budget": false
+    },
+    {
+     "delta": 0.25,
+     "implied_elements": 65546.96811184497,
+     "extra_elements": 27774.013098586256,
+     "allowed": 1337.1000000000001,
+     "within_budget": false
+    },
+    {
+     "delta": 0.2,
+     "implied_elements": 76867.98227009099,
+     "extra_elements": 39095.027256832276,
+     "allowed": 1337.1000000000001,
+     "within_budget": false
+    },
+    {
+     "delta": 0.15,
+     "implied_elements": 92674.59899317658,
+     "extra_elements": 54901.64397991787,
+     "allowed": 1337.1000000000001,
+     "within_budget": false
+    },
+    {
+     "delta": 0.125,
+     "implied_elements": 103752.01119240694,
+     "extra_elements": 65979.05617914823,
+     "allowed": 1337.1000000000001,
+     "within_budget": false
+    },
+    {
+     "delta": 0.1,
+     "implied_elements": 118340.05969250275,
+     "extra_elements": 80567.10467924405,
+     "allowed": 1337.1000000000001,
+     "within_budget": false
+    },
+    {
+     "delta": 0.075,
+     "implied_elements": 139924.91858990755,
+     "extra_elements": 102151.96357664885,
+     "allowed": 1337.1000000000001,
+     "within_budget": false
+    },
+    {
+     "delta": 0.05,
+     "implied_elements": 175303.38858882344,
+     "extra_elements": 137530.43357556473,
+     "allowed": 1337.1000000000001,
+     "within_budget": false
+    },
+    {
+     "delta": 0.025,
+     "implied_elements": 260513.65000316067,
+     "extra_elements": 222740.69498990197,
+     "allowed": 1337.1000000000001,
+     "within_budget": false
+    },
+    {
+     "delta": 0.01,
+     "implied_elements": 466289.9169849262,
+     "extra_elements": 428516.9619716675,
+     "allowed": 1337.1000000000001,
+     "within_budget": false
+    },
+    {
+     "delta": 0.005,
+     "implied_elements": 786958.3797603492,
+     "extra_elements": 749185.4247470904,
+     "allowed": 1337.1000000000001,
+     "within_budget": false
+    }
+   ]
+  },
+  {
+   "city": "orebro",
+   "flat_mesh_faces": 11049,
+   "contact_edges": 944,
+   "sub_reference_edges": 677,
+   "sub_reference_gap_metres": 1745.7247048993866,
+   "derived_delta": 0.475,
+   "delta_by_budget": {
+    "0.05": 0.5,
+    "0.1": 0.475,
+    "0.25": 0.45,
+    "0.5": 0.4,
+    "1.0": 0.35,
+    "2.0": 0.25
+   },
+   "ladder": [
+    {
+     "delta": 1.0,
+     "implied_elements": 12883.94246047486,
+     "extra_elements": -11535.913250752295,
+     "allowed": 1104.9,
+     "within_budget": true
+    },
+    {
+     "delta": 0.75,
+     "implied_elements": 17068.09090707199,
+     "extra_elements": -7351.764804155166,
+     "allowed": 1104.9,
+     "within_budget": true
+    },
+    {
+     "delta": 0.5,
+     "implied_elements": 24419.855711227156,
+     "extra_elements": 0.0,
+     "allowed": 1104.9,
+     "within_budget": true
+    },
+    {
+     "delta": 0.475,
+     "implied_elements": 25462.040974754742,
+     "extra_elements": 1042.1852635275864,
+     "allowed": 1104.9,
+     "within_budget": true
+    },
+    {
+     "delta": 0.45,
+     "implied_elements": 26599.28113306224,
+     "extra_elements": 2179.4254218350834,
+     "allowed": 1104.9,
+     "within_budget": false
+    },
+    {
+     "delta": 0.425,
+     "implied_elements": 27855.186622035584,
+     "extra_elements": 3435.3309108084286,
+     "allowed": 1104.9,
+     "within_budget": false
+    },
+    {
+     "delta": 0.4,
+     "implied_elements": 29248.37073994974,
+     "extra_elements": 4828.515028722584,
+     "allowed": 1104.9,
+     "within_budget": false
+    },
+    {
+     "delta": 0.35,
+     "implied_elements": 32556.65510730817,
+     "extra_elements": 8136.799396081013,
+     "allowed": 1104.9,
+     "within_budget": false
+    },
+    {
+     "delta": 0.3,
+     "implied_elements": 36831.44984124722,
+     "extra_elements": 12411.594130020061,
+     "allowed": 1104.9,
+     "within_budget": false
+    },
+    {
+     "delta": 0.25,
+     "implied_elements": 42468.113135822736,
+     "extra_elements": 18048.25742459558,
+     "allowed": 1104.9,
+     "within_budget": false
+    },
+    {
+     "delta": 0.2,
+     "implied_elements": 50477.08160208233,
+     "extra_elements": 26057.225890855178,
+     "allowed": 1104.9,
+     "within_budget": false
+    },
+    {
+     "delta": 0.15,
+     "implied_elements": 62762.55046049829,
+     "extra_elements": 38342.69474927113,
+     "allowed": 1104.9,
+     "within_budget": false
+    },
+    {
+     "delta": 0.125,
+     "implied_elements": 71971.78295548561,
+     "extra_elements": 47551.92724425846,
+     "allowed": 1104.9,
+     "within_budget": false
+    },
+    {
+     "delta": 0.1,
+     "implied_elements": 85349.62760512465,
+     "extra_elements": 60929.7718938975,
+     "allowed": 1104.9,
+     "within_budget": false
+    },
+    {
+     "delta": 0.075,
+     "implied_elements": 106908.62604578245,
+     "extra_elements": 82488.7703345553,
+     "allowed": 1104.9,
+     "within_budget": false
+    },
+    {
+     "delta": 0.05,
+     "implied_elements": 149507.98325975004,
+     "extra_elements": 125088.12754852288,
+     "allowed": 1104.9,
+     "within_budget": false
+    },
+    {
+     "delta": 0.025,
+     "implied_elements": 272758.2601479231,
+     "extra_elements": 248338.4044366959,
+     "allowed": 1104.9,
+     "within_budget": false
+    },
+    {
+     "delta": 0.01,
+     "implied_elements": 634131.0440438823,
+     "extra_elements": 609711.1883326551,
+     "allowed": 1104.9,
+     "within_budget": false
+    },
+    {
+     "delta": 0.005,
+     "implied_elements": 1230284.561815327,
+     "extra_elements": 1205864.7061041,
+     "allowed": 1104.9,
+     "within_budget": false
+    }
+   ]
+  },
+  {
+   "city": "vasteras",
+   "flat_mesh_faces": 10220,
+   "contact_edges": 862,
+   "sub_reference_edges": 708,
+   "sub_reference_gap_metres": 1461.0659607139953,
+   "derived_delta": 0.475,
+   "delta_by_budget": {
+    "0.05": 0.5,
+    "0.1": 0.475,
+    "0.25": 0.45,
+    "0.5": 0.4,
+    "1.0": 0.3,
+    "2.0": 0.25
+   },
+   "ladder": [
+    {
+     "delta": 1.0,
+     "implied_elements": 10877.66195737684,
+     "extra_elements": -9710.202014006081,
+     "allowed": 1022.0,
+     "within_budget": true
+    },
+    {
+     "delta": 0.75,
+     "implied_elements": 14409.908342249044,
+     "extra_elements": -6177.955629133878,
+     "allowed": 1022.0,
+     "within_budget": true
+    },
+    {
+     "delta": 0.5,
+     "implied_elements": 20587.86397138292,
+     "extra_elements": 0.0,
+     "allowed": 1022.0,
+     "within_budget": true
+    },
+    {
+     "delta": 0.475,
+     "implied_elements": 21461.094117860353,
+     "extra_elements": 873.2301464774318,
+     "allowed": 1022.0,
+     "within_budget": true
+    },
+    {
+     "delta": 0.45,
+     "implied_elements": 22412.56809916174,
+     "extra_elements": 1824.7041277788194,
+     "allowed": 1022.0,
+     "within_budget": false
+    },
+    {
+     "delta": 0.425,
+     "implied_elements": 23457.32782086864,
+     "extra_elements": 2869.463849485717,
+     "allowed": 1022.0,
+     "within_budget": false
+    },
+    {
+     "delta": 0.4,
+     "implied_elements": 24604.086239293338,
+     "extra_elements": 4016.222267910416,
+     "allowed": 1022.0,
+     "within_budget": false
+    },
+    {
+     "delta": 0.35,
+     "implied_elements": 27246.33118555445,
+     "extra_elements": 6658.467214171527,
+     "allowed": 1022.0,
+     "within_budget": false
+    },
+    {
+     "delta": 0.3,
+     "implied_elements": 30591.58458504747,
+     "extra_elements": 10003.720613664547,
+     "allowed": 1022.0,
+     "within_budget": false
+    },
+    {
+     "delta": 0.25,
+     "implied_elements": 35160.1635655014,
+     "extra_elements": 14572.299594118482,
+     "allowed": 1022.0,
+     "within_budget": false
+    },
+    {
+     "delta": 0.2,
+     "implied_elements": 41857.21833048711,
+     "extra_elements": 21269.354359104185,
+     "allowed": 1022.0,
+     "within_budget": false
+    },
+    {
+     "delta": 0.15,
+     "implied_elements": 52433.5856361074,
+     "extra_elements": 31845.721664724475,
+     "allowed": 1022.0,
+     "within_budget": false
+    },
+    {
+     "delta": 0.125,
+     "implied_elements": 60225.096543078114,
+     "extra_elements": 39637.23257169519,
+     "allowed": 1022.0,
+     "within_budget": false
+    },
+    {
+     "delta": 0.1,
+     "implied_elements": 70990.19966252895,
+     "extra_elements": 50402.33569114603,
+     "allowed": 1022.0,
+     "within_budget": false
+    },
+    {
+     "delta": 0.075,
+     "implied_elements": 88432.5702877238,
+     "extra_elements": 67844.70631634089,
+     "allowed": 1022.0,
+     "within_budget": false
+    },
+    {
+     "delta": 0.05,
+     "implied_elements": 122238.85723135434,
+     "extra_elements": 101650.99325997142,
+     "allowed": 1022.0,
+     "within_budget": false
+    },
+    {
+     "delta": 0.025,
+     "implied_elements": 215731.85792725175,
+     "extra_elements": 195143.99395586882,
+     "allowed": 1022.0,
+     "within_budget": false
+    },
+    {
+     "delta": 0.01,
+     "implied_elements": 466907.6444564502,
+     "extra_elements": 446319.7804850673,
+     "allowed": 1022.0,
+     "within_budget": false
+    },
+    {
+     "delta": 0.005,
+     "implied_elements": 832247.0126312991,
+     "extra_elements": 811659.1486599161,
+     "allowed": 1022.0,
+     "within_budget": false
+    }
+   ]
+  },
+  {
+   "city": "helsingborg",
+   "flat_mesh_faces": 12466,
+   "contact_edges": 2001,
+   "sub_reference_edges": 1565,
+   "sub_reference_gap_metres": 2397.3700911927262,
+   "derived_delta": 0.5,
+   "delta_by_budget": {
+    "0.05": 0.5,
+    "0.1": 0.5,
+    "0.25": 0.45,
+    "0.5": 0.425,
+    "1.0": 0.35,
+    "2.0": 0.3
+   },
+   "ladder": [
+    {
+     "delta": 1.0,
+     "implied_elements": 16598.51308742933,
+     "extra_elements": -14789.796110830044,
+     "allowed": 1246.6000000000001,
+     "within_budget": true
+    },
+    {
+     "delta": 0.75,
+     "implied_elements": 21831.15817504345,
+     "extra_elements": -9557.151023215927,
+     "allowed": 1246.6000000000001,
+     "within_budget": true
+    },
+    {
+     "delta": 0.5,
+     "implied_elements": 31388.309198259376,
+     "extra_elements": 0.0,
+     "allowed": 1246.6000000000001,
+     "within_budget": true
+    },
+    {
+     "delta": 0.475,
+     "implied_elements": 32829.30128487985,
+     "extra_elements": 1440.9920866204775,
+     "allowed": 1246.6000000000001,
+     "within_budget": false
+    },
+    {
+     "delta": 0.45,
+     "implied_elements": 34410.403975213245,
+     "extra_elements": 3022.094776953869,
+     "allowed": 1246.6000000000001,
+     "within_budget": false
+    },
+    {
+     "delta": 0.425,
+     "implied_elements": 36152.25973636518,
+     "extra_elements": 4763.950538105804,
+     "allowed": 1246.6000000000001,
+     "within_budget": false
+    },
+    {
+     "delta": 0.4,
+     "implied_elements": 38079.82046743493,
+     "extra_elements": 6691.511269175557,
+     "allowed": 1246.6000000000001,
+     "within_budget": false
+    },
+    {
+     "delta": 0.35,
+     "implied_elements": 42687.73342722706,
+     "extra_elements": 11299.424228967684,
+     "allowed": 1246.6000000000001,
+     "within_budget": false
+    },
+    {
+     "delta": 0.3,
+     "implied_elements": 48674.84697841679,
+     "extra_elements": 17286.537780157414,
+     "allowed": 1246.6000000000001,
+     "within_budget": false
+    },
+    {
+     "delta": 0.25,
+     "implied_elements": 56675.2800673882,
+     "extra_elements": 25286.970869128825,
+     "allowed": 1246.6000000000001,
+     "within_budget": false
+    },
+    {
+     "delta": 0.2,
+     "implied_elements": 67961.8831260423,
+     "extra_elements": 36573.57392778293,
+     "allowed": 1246.6000000000001,
+     "within_budget": false
+    },
+    {
+     "delta": 0.15,
+     "implied_elements": 85483.21609557731,
+     "extra_elements": 54094.90689731794,
+     "allowed": 1246.6000000000001,
+     "within_budget": false
+    },
+    {
+     "delta": 0.125,
+     "implied_elements": 98593.49043231049,
+     "extra_elements": 67205.18123405111,
+     "allowed": 1246.6000000000001,
+     "within_budget": false
+    },
+    {
+     "delta": 0.1,
+     "implied_elements": 116788.5331013429,
+     "extra_elements": 85400.22390308352,
+     "allowed": 1246.6000000000001,
+     "within_budget": false
+    },
+    {
+     "delta": 0.075,
+     "implied_elements": 145467.7987523643,
+     "extra_elements": 114079.48955410492,
+     "allowed": 1246.6000000000001,
+     "within_budget": false
+    },
+    {
+     "delta": 0.05,
+     "implied_elements": 201687.17105495743,
+     "extra_elements": 170298.86185669806,
+     "allowed": 1246.6000000000001,
+     "within_budget": false
+    },
+    {
+     "delta": 0.025,
+     "implied_elements": 365204.38871753815,
+     "extra_elements": 333816.0795192788,
+     "allowed": 1246.6000000000001,
+     "within_budget": false
+    },
+    {
+     "delta": 0.01,
+     "implied_elements": 822269.5118839856,
+     "extra_elements": 790881.2026857262,
+     "allowed": 1246.6000000000001,
+     "within_budget": false
+    },
+    {
+     "delta": 0.005,
+     "implied_elements": 1571203.389663162,
+     "extra_elements": 1539815.0804649026,
+     "allowed": 1246.6000000000001,
+     "within_budget": false
+    }
+   ]
+  },
+  {
+   "city": "norrkoping",
+   "flat_mesh_faces": 10268,
+   "contact_edges": 637,
+   "sub_reference_edges": 522,
+   "sub_reference_gap_metres": 1451.6037532773425,
+   "derived_delta": 0.475,
+   "delta_by_budget": {
+    "0.05": 0.5,
+    "0.1": 0.475,
+    "0.25": 0.45,
+    "0.5": 0.4,
+    "1.0": 0.35,
+    "2.0": 0.25
+   },
+   "ladder": [
+    {
+     "delta": 1.0,
+     "implied_elements": 10995.040886819965,
+     "extra_elements": -9352.780765418242,
+     "allowed": 1026.8,
+     "within_budget": true
+    },
+    {
+     "delta": 0.75,
+     "implied_elements": 14392.23926612868,
+     "extra_elements": -5955.582386109527,
+     "allowed": 1026.8,
+     "within_budget": true
+    },
+    {
+     "delta": 0.5,
+     "implied_elements": 20347.821652238206,
+     "extra_elements": 0.0,
+     "allowed": 1026.8,
+     "within_budget": true
+    },
+    {
+     "delta": 0.475,
+     "implied_elements": 21224.490804785833,
+     "extra_elements": 876.6691525476272,
+     "allowed": 1026.8,
+     "within_budget": true
+    },
+    {
+     "delta": 0.45,
+     "implied_elements": 22198.549898690686,
+     "extra_elements": 1850.7282464524797,
+     "allowed": 1026.8,
+     "within_budget": false
+    },
+    {
+     "delta": 0.425,
+     "implied_elements": 23270.478164783053,
+     "extra_elements": 2922.656512544847,
+     "allowed": 1026.8,
+     "within_budget": false
+    },
+    {
+     "delta": 0.4,
+     "implied_elements": 24471.106573248933,
+     "extra_elements": 4123.284921010727,
+     "allowed": 1026.8,
+     "within_budget": false
+    },
+    {
+     "delta": 0.35,
+     "implied_elements": 27344.287724716425,
+     "extra_elements": 6996.466072478219,
+     "allowed": 1026.8,
+     "within_budget": false
+    },
+    {
+     "delta": 0.3,
+     "implied_elements": 31045.125654387633,
+     "extra_elements": 10697.304002149427,
+     "allowed": 1026.8,
+     "within_budget": false
+    },
+    {
+     "delta": 0.25,
+     "implied_elements": 36065.87270333466,
+     "extra_elements": 15718.051051096452,
+     "allowed": 1026.8,
+     "within_budget": false
+    },
+    {
+     "delta": 0.2,
+     "implied_elements": 43336.331517865314,
+     "extra_elements": 22988.509865627108,
+     "allowed": 1026.8,
+     "within_budget": false
+    },
+    {
+     "delta": 0.15,
+     "implied_elements": 54737.71719957079,
+     "extra_elements": 34389.895547332584,
+     "allowed": 1026.8,
+     "within_budget": false
+    },
+    {
+     "delta": 0.125,
+     "implied_elements": 62755.242473724895,
+     "extra_elements": 42407.42082148669,
+     "allowed": 1026.8,
+     "within_budget": false
+    },
+    {
+     "delta": 0.1,
+     "implied_elements": 73337.05618533383,
+     "extra_elements": 52989.23453309562,
+     "allowed": 1026.8,
+     "within_budget": false
+    },
+    {
+     "delta": 0.075,
+     "implied_elements": 89061.59937821701,
+     "extra_elements": 68713.77772597881,
+     "allowed": 1026.8,
+     "within_budget": false
+    },
+    {
+     "delta": 0.05,
+     "implied_elements": 118629.19660483378,
+     "extra_elements": 98281.37495259556,
+     "allowed": 1026.8,
+     "within_budget": false
+    },
+    {
+     "delta": 0.025,
+     "implied_elements": 196279.21219885966,
+     "extra_elements": 175931.39054662146,
+     "allowed": 1026.8,
+     "within_budget": false
+    },
+    {
+     "delta": 0.01,
+     "implied_elements": 401499.90359672694,
+     "extra_elements": 381152.08194448875,
+     "allowed": 1026.8,
+     "within_budget": false
+    },
+    {
+     "delta": 0.005,
+     "implied_elements": 708426.7054649395,
+     "extra_elements": 688078.8838127012,
+     "allowed": 1026.8,
+     "within_budget": false
+    }
+   ]
+  }
+ ]
+}

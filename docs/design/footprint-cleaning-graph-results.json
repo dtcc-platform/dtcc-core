@@ -1,0 +1,931 @@
+{
+  "core_base": "1a106fc6c30c5355d91b325afbd10a6ed3ee5ccc",
+  "prototype": "sandbox/cleaning_graph_prototype.py",
+  "prototype_sha256": "1e385849772a77eb93be8736039b16a3cf3833d1ef183dc3ab42eeaf09c2586b",
+  "source_run": "benchmarks/runs/2026-09-17_100049_quick",
+  "crs": "EPSG:3006",
+  "profile": "merge_buildings from each case; union existing occupancy before simplification; no closing, separated-component merging or area selection",
+  "delta": 0.5,
+  "epsilon": 0.25,
+  "work_limit_per_group": 2000,
+  "group_outcomes": {
+    "resolved": 345,
+    "requires_topology_change": 79,
+    "no_admissible_shortcut": 82,
+    "work_limit": 32
+  },
+  "initially_resolved_groups": 252,
+  "newly_resolved_groups": 93,
+  "accepted_shortcuts": 2193,
+  "note": "All city outputs remain unresolved and were not sent to the mesher. The small shared-wall smoke explicitly disables legacy cleaning and mesher-ready repair. Times are single samples of an unoptimized prototype.",
+  "rows": [
+    {
+      "city": "lund",
+      "case": {
+        "bounds": [
+          386075.0,
+          6174447.0,
+          386575.0,
+          6174947.0
+        ],
+        "city": "lund",
+        "id": "city_grid:lund:056",
+        "kind": "city_grid",
+        "label": "Lund grid tile 056",
+        "tags": [
+          "city_grid",
+          "lund",
+          "tile_056"
+        ]
+      },
+      "seconds": 20.179098249878734,
+      "initially_resolved_groups": 41,
+      "newly_resolved_groups": 15,
+      "group_outcomes": {
+        "resolved": 56,
+        "requires_topology_change": 13,
+        "no_admissible_shortcut": 12,
+        "work_limit": 4
+      },
+      "initial_vertices": 4829,
+      "final_vertices": 4539,
+      "report": {
+        "status": "fail",
+        "delta": 0.5,
+        "epsilon": 0.25,
+        "separation_tolerance": 5e-07,
+        "admissibility": {
+          "topology_ok": false,
+          "resolved": false,
+          "interior_overlap_pairs": 0,
+          "nonmanifold_boundary_vertices": 40,
+          "canonical_vertex_count": 4539,
+          "subscale_pairs": 10722,
+          "separation_capped_at_delta": 1.4404831416743934e-11,
+          "closest_pair": [
+            [
+              386321.10854525515,
+              6174689.6848607315
+            ],
+            [
+              386321.10854525515,
+              6174689.6848607315
+            ]
+          ]
+        },
+        "fidelity": {
+          "status": "pass",
+          "epsilon": 0.25,
+          "input_interpretation": {
+            "method": "GEOS make_valid; polygonal parts only",
+            "repaired_input_count": 0,
+            "nonarea_remnant_count": 0
+          },
+          "lost_protected_area": 1.7404186598846128e-11,
+          "added_outside_budget_area": 0.0,
+          "buffer_uncertainty": 7.541801032550911e-05
+        },
+        "outcome": "unresolved",
+        "merge_buildings": true,
+        "accepted_shortcuts": 290,
+        "candidate_checks": 12787,
+        "max_candidate_checks_per_group": 2000
+      }
+    },
+    {
+      "city": "stockholm",
+      "case": {
+        "bounds": [
+          674321.9,
+          6580493.0,
+          674821.9,
+          6580993.0
+        ],
+        "city": "stockholm",
+        "id": "city_grid:stockholm:056",
+        "kind": "city_grid",
+        "label": "Stockholm grid tile 056",
+        "tags": [
+          "city_grid",
+          "stockholm",
+          "tile_056"
+        ]
+      },
+      "seconds": 2.7473575838375837,
+      "initially_resolved_groups": 11,
+      "newly_resolved_groups": 2,
+      "group_outcomes": {
+        "no_admissible_shortcut": 4,
+        "resolved": 13,
+        "requires_topology_change": 6,
+        "work_limit": 1
+      },
+      "initial_vertices": 617,
+      "final_vertices": 540,
+      "report": {
+        "status": "fail",
+        "delta": 0.5,
+        "epsilon": 0.25,
+        "separation_tolerance": 5e-07,
+        "admissibility": {
+          "topology_ok": false,
+          "resolved": false,
+          "interior_overlap_pairs": 0,
+          "nonmanifold_boundary_vertices": 9,
+          "canonical_vertex_count": 540,
+          "subscale_pairs": 293,
+          "separation_capped_at_delta": 0.00012136512394219105,
+          "closest_pair": [
+            [
+              674431.708,
+              6580668.959
+            ],
+            [
+              674431.7079391403,
+              6580668.959105003
+            ]
+          ]
+        },
+        "fidelity": {
+          "status": "pass",
+          "epsilon": 0.25,
+          "input_interpretation": {
+            "method": "GEOS make_valid; polygonal parts only",
+            "repaired_input_count": 0,
+            "nonarea_remnant_count": 0
+          },
+          "lost_protected_area": 0.0,
+          "added_outside_budget_area": 0.0,
+          "buffer_uncertainty": 7.541801032550911e-05
+        },
+        "outcome": "unresolved",
+        "merge_buildings": true,
+        "accepted_shortcuts": 77,
+        "candidate_checks": 3481,
+        "max_candidate_checks_per_group": 2000
+      }
+    },
+    {
+      "city": "gothenburg",
+      "case": {
+        "bounds": [
+          319508.0,
+          6400076.0,
+          320008.0,
+          6400576.0
+        ],
+        "city": "gothenburg",
+        "id": "city_grid:gothenburg:056",
+        "kind": "city_grid",
+        "label": "Gothenburg grid tile 056",
+        "tags": [
+          "city_grid",
+          "gothenburg",
+          "tile_056"
+        ]
+      },
+      "seconds": 3.5709608329925686,
+      "initially_resolved_groups": 27,
+      "newly_resolved_groups": 11,
+      "group_outcomes": {
+        "no_admissible_shortcut": 8,
+        "resolved": 38,
+        "requires_topology_change": 2,
+        "work_limit": 1
+      },
+      "initial_vertices": 1087,
+      "final_vertices": 886,
+      "report": {
+        "status": "fail",
+        "delta": 0.5,
+        "epsilon": 0.25,
+        "separation_tolerance": 5e-07,
+        "admissibility": {
+          "topology_ok": false,
+          "resolved": false,
+          "interior_overlap_pairs": 0,
+          "nonmanifold_boundary_vertices": 2,
+          "canonical_vertex_count": 886,
+          "subscale_pairs": 276,
+          "separation_capped_at_delta": 1.5210869731241592e-05,
+          "closest_pair": [
+            [
+              319825.847,
+              6400109.5
+            ],
+            [
+              319825.84698707395,
+              6400109.499991982
+            ]
+          ]
+        },
+        "fidelity": {
+          "status": "pass",
+          "epsilon": 0.25,
+          "input_interpretation": {
+            "method": "GEOS make_valid; polygonal parts only",
+            "repaired_input_count": 0,
+            "nonarea_remnant_count": 0
+          },
+          "lost_protected_area": 0.0,
+          "added_outside_budget_area": 0.0,
+          "buffer_uncertainty": 7.541801032550911e-05
+        },
+        "outcome": "unresolved",
+        "merge_buildings": true,
+        "accepted_shortcuts": 201,
+        "candidate_checks": 6908,
+        "max_candidate_checks_per_group": 2000
+      }
+    },
+    {
+      "city": "malmo",
+      "case": {
+        "bounds": [
+          373993.8,
+          6163676.6,
+          374493.8,
+          6164176.6
+        ],
+        "city": "malmo",
+        "id": "city_grid:malmo:056",
+        "kind": "city_grid",
+        "label": "Malmo grid tile 056",
+        "tags": [
+          "city_grid",
+          "malmo",
+          "tile_056"
+        ]
+      },
+      "seconds": 0.5905200000852346,
+      "initially_resolved_groups": 18,
+      "newly_resolved_groups": 3,
+      "group_outcomes": {
+        "requires_topology_change": 9,
+        "resolved": 21,
+        "no_admissible_shortcut": 1
+      },
+      "initial_vertices": 1104,
+      "final_vertices": 1076,
+      "report": {
+        "status": "fail",
+        "delta": 0.5,
+        "epsilon": 0.25,
+        "separation_tolerance": 5e-07,
+        "admissibility": {
+          "topology_ok": false,
+          "resolved": false,
+          "interior_overlap_pairs": 0,
+          "nonmanifold_boundary_vertices": 26,
+          "canonical_vertex_count": 1076,
+          "subscale_pairs": 399,
+          "separation_capped_at_delta": 8.196064063164233e-12,
+          "closest_pair": [
+            [
+              374216.0750222715,
+              6164042.132860946
+            ],
+            [
+              374216.0750222715,
+              6164042.132860946
+            ]
+          ]
+        },
+        "fidelity": {
+          "status": "pass",
+          "epsilon": 0.25,
+          "input_interpretation": {
+            "method": "GEOS make_valid; polygonal parts only",
+            "repaired_input_count": 0,
+            "nonarea_remnant_count": 0
+          },
+          "lost_protected_area": 0.0,
+          "added_outside_budget_area": 0.0,
+          "buffer_uncertainty": 7.541801032550911e-05
+        },
+        "outcome": "unresolved",
+        "merge_buildings": true,
+        "accepted_shortcuts": 28,
+        "candidate_checks": 631,
+        "max_candidate_checks_per_group": 2000
+      }
+    },
+    {
+      "city": "uppsala",
+      "case": {
+        "bounds": [
+          647543.5,
+          6638358.1,
+          648043.5,
+          6638858.1
+        ],
+        "city": "uppsala",
+        "id": "city_grid:uppsala:056",
+        "kind": "city_grid",
+        "label": "Uppsala grid tile 056",
+        "tags": [
+          "city_grid",
+          "uppsala",
+          "tile_056"
+        ]
+      },
+      "seconds": 8.143207750050351,
+      "initially_resolved_groups": 12,
+      "newly_resolved_groups": 7,
+      "group_outcomes": {
+        "requires_topology_change": 18,
+        "resolved": 19,
+        "work_limit": 3,
+        "no_admissible_shortcut": 7
+      },
+      "initial_vertices": 3112,
+      "final_vertices": 2980,
+      "report": {
+        "status": "fail",
+        "delta": 0.5,
+        "epsilon": 0.25,
+        "separation_tolerance": 5e-07,
+        "admissibility": {
+          "topology_ok": false,
+          "resolved": false,
+          "interior_overlap_pairs": 0,
+          "nonmanifold_boundary_vertices": 40,
+          "canonical_vertex_count": 2980,
+          "subscale_pairs": 91603,
+          "separation_capped_at_delta": 8.284615581035894e-11,
+          "closest_pair": [
+            [
+              647672.6208183533,
+              6638454.448828955
+            ],
+            [
+              647672.6208183531,
+              6638454.448828955
+            ]
+          ]
+        },
+        "fidelity": {
+          "status": "pass",
+          "epsilon": 0.25,
+          "input_interpretation": {
+            "method": "GEOS make_valid; polygonal parts only",
+            "repaired_input_count": 0,
+            "nonarea_remnant_count": 0
+          },
+          "lost_protected_area": 0.0,
+          "added_outside_budget_area": 0.0,
+          "buffer_uncertainty": 7.541801032550911e-05
+        },
+        "outcome": "unresolved",
+        "merge_buildings": true,
+        "accepted_shortcuts": 132,
+        "candidate_checks": 6664,
+        "max_candidate_checks_per_group": 2000
+      }
+    },
+    {
+      "city": "linkoping",
+      "case": {
+        "bounds": [
+          536058.5,
+          6474365.0,
+          536558.5,
+          6474865.0
+        ],
+        "city": "linkoping",
+        "id": "city_grid:linkoping:056",
+        "kind": "city_grid",
+        "label": "Linkoping grid tile 056",
+        "tags": [
+          "city_grid",
+          "linkoping",
+          "tile_056"
+        ]
+      },
+      "seconds": 34.89459504117258,
+      "initially_resolved_groups": 38,
+      "newly_resolved_groups": 21,
+      "group_outcomes": {
+        "no_admissible_shortcut": 13,
+        "resolved": 59,
+        "work_limit": 12,
+        "requires_topology_change": 9
+      },
+      "initial_vertices": 4730,
+      "final_vertices": 4238,
+      "report": {
+        "status": "fail",
+        "delta": 0.5,
+        "epsilon": 0.25,
+        "separation_tolerance": 5e-07,
+        "admissibility": {
+          "topology_ok": false,
+          "resolved": false,
+          "interior_overlap_pairs": 0,
+          "nonmanifold_boundary_vertices": 13,
+          "canonical_vertex_count": 4238,
+          "subscale_pairs": 42085,
+          "separation_capped_at_delta": 6.255649382243356e-08,
+          "closest_pair": [
+            [
+              536297.1963271386,
+              6474503.185961267
+            ],
+            [
+              536297.1963271422,
+              6474503.185961205
+            ]
+          ]
+        },
+        "fidelity": {
+          "status": "pass",
+          "epsilon": 0.25,
+          "input_interpretation": {
+            "method": "GEOS make_valid; polygonal parts only",
+            "repaired_input_count": 0,
+            "nonarea_remnant_count": 0
+          },
+          "lost_protected_area": 0.0,
+          "added_outside_budget_area": 0.0,
+          "buffer_uncertainty": 7.541801032550911e-05
+        },
+        "outcome": "unresolved",
+        "merge_buildings": true,
+        "accepted_shortcuts": 492,
+        "candidate_checks": 30052,
+        "max_candidate_checks_per_group": 2000
+      }
+    },
+    {
+      "city": "orebro",
+      "case": {
+        "bounds": [
+          511912.3,
+          6570477.0,
+          512412.3,
+          6570977.0
+        ],
+        "city": "orebro",
+        "id": "city_grid:orebro:056",
+        "kind": "city_grid",
+        "label": "Orebro grid tile 056",
+        "tags": [
+          "city_grid",
+          "orebro",
+          "tile_056"
+        ]
+      },
+      "seconds": 2.4999326248653233,
+      "initially_resolved_groups": 15,
+      "newly_resolved_groups": 7,
+      "group_outcomes": {
+        "requires_topology_change": 9,
+        "resolved": 22,
+        "no_admissible_shortcut": 6
+      },
+      "initial_vertices": 1654,
+      "final_vertices": 1520,
+      "report": {
+        "status": "fail",
+        "delta": 0.5,
+        "epsilon": 0.25,
+        "separation_tolerance": 5e-07,
+        "admissibility": {
+          "topology_ok": false,
+          "resolved": false,
+          "interior_overlap_pairs": 0,
+          "nonmanifold_boundary_vertices": 23,
+          "canonical_vertex_count": 1520,
+          "subscale_pairs": 993,
+          "separation_capped_at_delta": 4.6055695337134025e-11,
+          "closest_pair": [
+            [
+              512097.5672019387,
+              6570828.034913014
+            ],
+            [
+              512097.5672019387,
+              6570828.034913014
+            ]
+          ]
+        },
+        "fidelity": {
+          "status": "pass",
+          "epsilon": 0.25,
+          "input_interpretation": {
+            "method": "GEOS make_valid; polygonal parts only",
+            "repaired_input_count": 0,
+            "nonarea_remnant_count": 0
+          },
+          "lost_protected_area": 0.0,
+          "added_outside_budget_area": 0.0,
+          "buffer_uncertainty": 7.541801032550911e-05
+        },
+        "outcome": "unresolved",
+        "merge_buildings": true,
+        "accepted_shortcuts": 134,
+        "candidate_checks": 3548,
+        "max_candidate_checks_per_group": 2000
+      }
+    },
+    {
+      "city": "vasteras",
+      "case": {
+        "bounds": [
+          586922.6,
+          6608731.7,
+          587422.6,
+          6609231.7
+        ],
+        "city": "vasteras",
+        "id": "city_grid:vasteras:056",
+        "kind": "city_grid",
+        "label": "Vasteras grid tile 056",
+        "tags": [
+          "city_grid",
+          "vasteras",
+          "tile_056"
+        ]
+      },
+      "seconds": 13.106042665895075,
+      "initially_resolved_groups": 22,
+      "newly_resolved_groups": 7,
+      "group_outcomes": {
+        "resolved": 29,
+        "no_admissible_shortcut": 12,
+        "requires_topology_change": 3,
+        "work_limit": 2
+      },
+      "initial_vertices": 1505,
+      "final_vertices": 1308,
+      "report": {
+        "status": "fail",
+        "delta": 0.5,
+        "epsilon": 0.25,
+        "separation_tolerance": 5e-07,
+        "admissibility": {
+          "topology_ok": false,
+          "resolved": false,
+          "interior_overlap_pairs": 0,
+          "nonmanifold_boundary_vertices": 6,
+          "canonical_vertex_count": 1308,
+          "subscale_pairs": 4522,
+          "separation_capped_at_delta": 0.00023145567759108127,
+          "closest_pair": [
+            [
+              587280.07,
+              6609074.786
+            ],
+            [
+              587280.0697869956,
+              6609074.785909441
+            ]
+          ]
+        },
+        "fidelity": {
+          "status": "pass",
+          "epsilon": 0.25,
+          "input_interpretation": {
+            "method": "GEOS make_valid; polygonal parts only",
+            "repaired_input_count": 0,
+            "nonarea_remnant_count": 0
+          },
+          "lost_protected_area": 0.0,
+          "added_outside_budget_area": 0.0,
+          "buffer_uncertainty": 7.541801032550911e-05
+        },
+        "outcome": "unresolved",
+        "merge_buildings": true,
+        "accepted_shortcuts": 197,
+        "candidate_checks": 9388,
+        "max_candidate_checks_per_group": 2000
+      }
+    },
+    {
+      "city": "helsingborg",
+      "case": {
+        "bounds": [
+          356148.3,
+          6213402.0,
+          356648.3,
+          6213902.0
+        ],
+        "city": "helsingborg",
+        "id": "city_grid:helsingborg:056",
+        "kind": "city_grid",
+        "label": "Helsingborg grid tile 056",
+        "tags": [
+          "city_grid",
+          "helsingborg",
+          "tile_056"
+        ]
+      },
+      "seconds": 23.26880395808257,
+      "initially_resolved_groups": 39,
+      "newly_resolved_groups": 8,
+      "group_outcomes": {
+        "resolved": 47,
+        "requires_topology_change": 6,
+        "work_limit": 8,
+        "no_admissible_shortcut": 14
+      },
+      "initial_vertices": 3174,
+      "final_vertices": 2743,
+      "report": {
+        "status": "fail",
+        "delta": 0.5,
+        "epsilon": 0.25,
+        "separation_tolerance": 5e-07,
+        "admissibility": {
+          "topology_ok": false,
+          "resolved": false,
+          "interior_overlap_pairs": 0,
+          "nonmanifold_boundary_vertices": 9,
+          "canonical_vertex_count": 2743,
+          "subscale_pairs": 4648,
+          "separation_capped_at_delta": 4.632873763305826e-11,
+          "closest_pair": [
+            [
+              356391.2720632259,
+              6213801.233916877
+            ],
+            [
+              356391.27206322586,
+              6213801.233916877
+            ]
+          ]
+        },
+        "fidelity": {
+          "status": "pass",
+          "epsilon": 0.25,
+          "input_interpretation": {
+            "method": "GEOS make_valid; polygonal parts only",
+            "repaired_input_count": 0,
+            "nonarea_remnant_count": 0
+          },
+          "lost_protected_area": 7.773447261317373e-11,
+          "added_outside_budget_area": 0.0,
+          "buffer_uncertainty": 7.541801032550911e-05
+        },
+        "outcome": "unresolved",
+        "merge_buildings": true,
+        "accepted_shortcuts": 431,
+        "candidate_checks": 22729,
+        "max_candidate_checks_per_group": 2000
+      }
+    },
+    {
+      "city": "norrkoping",
+      "case": {
+        "bounds": [
+          569071.0,
+          6494509.3,
+          569571.0,
+          6495009.3
+        ],
+        "city": "norrkoping",
+        "id": "city_grid:norrkoping:056",
+        "kind": "city_grid",
+        "label": "Norrkoping grid tile 056",
+        "tags": [
+          "city_grid",
+          "norrkoping",
+          "tile_056"
+        ]
+      },
+      "seconds": 6.772374874912202,
+      "initially_resolved_groups": 29,
+      "newly_resolved_groups": 12,
+      "group_outcomes": {
+        "resolved": 41,
+        "no_admissible_shortcut": 5,
+        "requires_topology_change": 4,
+        "work_limit": 1
+      },
+      "initial_vertices": 1253,
+      "final_vertices": 1042,
+      "report": {
+        "status": "fail",
+        "delta": 0.5,
+        "epsilon": 0.25,
+        "separation_tolerance": 5e-07,
+        "admissibility": {
+          "topology_ok": false,
+          "resolved": false,
+          "interior_overlap_pairs": 0,
+          "nonmanifold_boundary_vertices": 5,
+          "canonical_vertex_count": 1042,
+          "subscale_pairs": 743,
+          "separation_capped_at_delta": 7.11987245586713e-08,
+          "closest_pair": [
+            [
+              569386.5879999173,
+              6494842.478004586
+            ],
+            [
+              569386.5879999858,
+              6494842.4780046055
+            ]
+          ]
+        },
+        "fidelity": {
+          "status": "pass",
+          "epsilon": 0.25,
+          "input_interpretation": {
+            "method": "GEOS make_valid; polygonal parts only",
+            "repaired_input_count": 0,
+            "nonarea_remnant_count": 0
+          },
+          "lost_protected_area": 0.0,
+          "added_outside_budget_area": 0.0,
+          "buffer_uncertainty": 7.541801032550911e-05
+        },
+        "outcome": "unresolved",
+        "merge_buildings": true,
+        "accepted_shortcuts": 211,
+        "candidate_checks": 7858,
+        "max_candidate_checks_per_group": 2000
+      }
+    }
+  ],
+  "fixtures": {
+    "helsingborg_courtyard": {
+      "seconds": 3.5645902089308947,
+      "report": {
+        "status": "fail",
+        "delta": 0.5,
+        "epsilon": 0.25,
+        "separation_tolerance": 5e-07,
+        "admissibility": {
+          "topology_ok": true,
+          "resolved": false,
+          "interior_overlap_pairs": 0,
+          "nonmanifold_boundary_vertices": 0,
+          "canonical_vertex_count": 148,
+          "subscale_pairs": 25,
+          "separation_capped_at_delta": 0.0002743328929457818,
+          "closest_pair": [
+            [
+              356233.227317041,
+              6213632.11173329
+            ],
+            [
+              356233.22731037636,
+              6213632.1120075425
+            ]
+          ]
+        },
+        "fidelity": {
+          "status": "pass",
+          "epsilon": 0.25,
+          "input_interpretation": {
+            "method": "GEOS make_valid; polygonal parts only",
+            "repaired_input_count": 0,
+            "nonarea_remnant_count": 0
+          },
+          "lost_protected_area": 0.0,
+          "added_outside_budget_area": 0.0,
+          "buffer_uncertainty": 7.541801032550911e-05
+        },
+        "outcome": "unresolved",
+        "merge_buildings": true,
+        "accepted_shortcuts": 31,
+        "candidate_checks": 2000,
+        "max_candidate_checks_per_group": 2000
+      }
+    },
+    "lund_raw_subset": {
+      "seconds_including_isolated_run": 0.2572262501344085,
+      "report": {
+        "status": "fail",
+        "delta": 0.5,
+        "epsilon": 0.25,
+        "separation_tolerance": 5e-07,
+        "admissibility": {
+          "topology_ok": false,
+          "resolved": false,
+          "interior_overlap_pairs": 0,
+          "nonmanifold_boundary_vertices": 8,
+          "canonical_vertex_count": 884,
+          "subscale_pairs": 2150,
+          "separation_capped_at_delta": 5.4992063149468284e-11,
+          "closest_pair": [
+            [
+              386155.0058142116,
+              6174752.167535508
+            ],
+            [
+              386155.0058142117,
+              6174752.167535508
+            ]
+          ]
+        },
+        "fidelity": {
+          "status": "pass",
+          "epsilon": 0.25,
+          "input_interpretation": {
+            "method": "GEOS make_valid; polygonal parts only",
+            "repaired_input_count": 0,
+            "nonarea_remnant_count": 0
+          },
+          "lost_protected_area": 0.0,
+          "added_outside_budget_area": 0.0,
+          "buffer_uncertainty": 7.541801032550911e-05
+        },
+        "outcome": "unresolved",
+        "merge_buildings": true,
+        "accepted_shortcuts": 0,
+        "candidate_checks": 0,
+        "max_candidate_checks_per_group": 2000
+      },
+      "distant_geometry_unchanged_by_trigger": true,
+      "isolated_report": {
+        "status": "fail",
+        "delta": 0.5,
+        "epsilon": 0.25,
+        "separation_tolerance": 5e-07,
+        "admissibility": {
+          "topology_ok": false,
+          "resolved": false,
+          "interior_overlap_pairs": 0,
+          "nonmanifold_boundary_vertices": 7,
+          "canonical_vertex_count": 450,
+          "subscale_pairs": 822,
+          "separation_capped_at_delta": 4.22037172677412e-07,
+          "closest_pair": [
+            [
+              386301.6480000741,
+              6174656.560003095
+            ],
+            [
+              386301.6480004907,
+              6174656.560003028
+            ]
+          ]
+        },
+        "fidelity": {
+          "status": "pass",
+          "epsilon": 0.25,
+          "input_interpretation": {
+            "method": "GEOS make_valid; polygonal parts only",
+            "repaired_input_count": 0,
+            "nonarea_remnant_count": 0
+          },
+          "lost_protected_area": 0.0,
+          "added_outside_budget_area": 0.0,
+          "buffer_uncertainty": 7.541801032550911e-05
+        },
+        "outcome": "unresolved",
+        "merge_buildings": true,
+        "accepted_shortcuts": 0,
+        "candidate_checks": 0,
+        "max_candidate_checks_per_group": 2000
+      }
+    }
+  },
+  "mesh_smoke": {
+    "num_vertices": 92,
+    "num_faces": 145,
+    "num_cells": 0,
+    "marker_histogram": {
+      "-2": 114,
+      "-1": 23,
+      "0": 4,
+      "1": 4
+    },
+    "boundary_marker_histogram": {},
+    "building_faces": 8,
+    "quality": {
+      "num_cells": 145,
+      "element_quality": {
+        "min": 0.6734732263370129,
+        "max": 1.0,
+        "mean": 0.9119868857383412
+      },
+      "aspect_ratio": {
+        "min": 1.0000000000000002,
+        "max": 1.8269229185103584,
+        "mean": 1.2273575468144553
+      },
+      "radius_ratio": {
+        "min": 0.9999999999999998,
+        "max": 1.6820159442391331,
+        "mean": 1.130721698284766
+      },
+      "edge_ratio": {
+        "min": 1.0000000000000002,
+        "max": 2.2360679774997894,
+        "mean": 1.3519389295767728
+      },
+      "skewness": {
+        "min": -4.440892098500626e-16,
+        "max": 0.5217337152821023,
+        "mean": 0.12718066529515337
+      }
+    },
+    "degenerate_cell_count": 0,
+    "element_quality_p01": 0.6842148006894573,
+    "element_quality_below_0_02_count": 0
+  },
+  "mesher_commit": "7ada8a89c98dbbedc34213387ee598bd92826f10"
+}

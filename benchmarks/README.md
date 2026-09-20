@@ -125,6 +125,28 @@ measurements; the original raw geometry and invalid-input count are retained.
 Unrepresented sources and changes in holes/area are observations, not automatic
 failures: declared scale rules intentionally remove some geometry.
 
+New cleaning metrics include independent
+[contract checks](../dtcc_core/builder/cleaning/contract.py). `Resolved` and
+`Fidelity` describe the final cleaned geometry **before area selection**:
+topology/feature separation and the occupied/open-core budget epsilon = scale / 2.
+`Selected out` counts regions excluded afterward by `min_building_area`.
+
+JSON separates `before_selection_contract`, `selection`, and the selected
+handoff's `geometric_contract`. The usual counts and added/removed areas still
+compare raw inputs with that selected handoff. Selection reports excluded area
+and source maps explicitly; it never changes the cleaning reference. Direct
+cleaner callers use `select_footprints(cleaned, min_area=...)` separately;
+`ConditioningOptions` no longer has a `min_area` parameter. Dataset and benchmark
+`min_building_area` parameters still apply after cleaning.
+
+A `borderline` fidelity result is inconclusive, not a pass. By default, residual
+separation defects alone produce a prominent warning and allow meshing to be
+attempted; topology, fidelity, source attribution and mesher-input safety remain
+mandatory. `Resolved` remains false and the geometric contract remains `fail`;
+the pipeline reports `warning`, not geometric conformance. Smaller elements and
+greater mesh cost are possible. Warnings survive selection and saved-stage
+replay. Older reports are not relabeled and show `-` for missing observations.
+
 Replayed cleaning is marked `reused`, without a new cleaning time or claimed
 new cleaning measurements. Consult its source run for those measurements.
 Meshing input preparation records `bounds`, `saved`, or `provider/cache`.

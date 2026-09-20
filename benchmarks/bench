@@ -546,6 +546,14 @@ def _result_quality_summary(result: dict[str, Any]) -> str:
     cleaning = metrics.get("cleaning", {})
     if cleaning:
         parts.append(f"cleaning={cleaning.get('status', '-')}")
+        geometric = cleaning.get("before_selection_contract") or cleaning.get(
+            "geometric_contract", {}
+        )
+        if geometric:
+            parts.append(f"cleaning_contract={geometric.get('status', '-')}")
+        selection = cleaning.get("selection")
+        if selection:
+            parts.append(f"selected_out={selection['removed_count']}")
         for key in (
             "seconds",
             "removed_area",
@@ -703,6 +711,10 @@ def _phase_tables(results):
         metrics = result.get("metrics", {})
         c = metrics.get("cleaning")
         if c:
+            geometric = c.get("before_selection_contract") or c.get(
+                "geometric_contract", {}
+            )
+            resolved = geometric.get("admissibility", {}).get("resolved")
             cleaning.append(
                 [
                     label,
@@ -712,6 +724,9 @@ def _phase_tables(results):
                     _format_number(c.get("removed_area")),
                     _format_number(c.get("added_area")),
                     _format_number(c.get("short_edge_count")),
+                    "-" if resolved is None else "yes" if resolved else "no",
+                    geometric.get("fidelity", {}).get("status", "-"),
+                    (c.get("selection") or {}).get("removed_count", "-"),
                 ]
             )
         m = metrics.get("meshing")
@@ -739,6 +754,9 @@ def _phase_tables(results):
                 "Removed m²",
                 "Added m²",
                 "Short edges",
+                "Resolved",
+                "Fidelity",
+                "Selected out",
             ],
             cleaning,
         ),
@@ -935,10 +953,8 @@ def _execute_tasks(tasks, args):
     print(f"Total time: {_format_duration(manifest['elapsed_seconds'])}")
     print(f"Run directory: {run_dir}")
     if any(result.get("artifacts", {}).get("cleaning_input") for result in results):
-        plot_command = shlex.join(
-            [sys.executable, str(Path(__file__).resolve()), "plot", str(run_dir)]
-        )
-        print(f"Generate footprint comparison plots with:\n  {plot_command}")
+        plot_command = shlex.join(["bench", "plot", str(run_dir)])
+        print(f"\nTo generate plots, run the command\n\n    {plot_command}\n")
     return 0 if all(not _is_hard_failure(result["status"]) for result in results) else 1
 
 

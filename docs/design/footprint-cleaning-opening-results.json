@@ -1,0 +1,1802 @@
+{
+  "core_base": "1a106fc",
+  "before": "selection/fixed-reference working-tree step in footprint-cleaning-selection-results.json",
+  "after": "protected-input disappearance guard, working tree 17 September 2026",
+  "source_run": "benchmarks/runs/2026-09-17_100049_quick",
+  "surface_inputs": "/private/tmp/dtcc-surface-classification-fix-20260917",
+  "mesher_commit": "7ada8a89c98dbbedc34213387ee598bd92826f10",
+  "crs": "EPSG:3006",
+  "delta": 0.5,
+  "epsilon": 0.25,
+  "parameters": {
+    "domain_height": 100.0,
+    "max_mesh_size": 10.0,
+    "merge_buildings": true,
+    "merge_tolerance": 0.5,
+    "min_building_area": 15.0,
+    "min_building_detail": 0.5,
+    "min_mesh_angle": 25.0,
+    "outlier_threshold": 3.0,
+    "pipeline_mode": "strict",
+    "raster_cell_size": 2.0,
+    "raster_radius": 3.0,
+    "remove_outliers": true,
+    "stage_audit_enabled": true
+  },
+  "trace_method": "Instrument existing _record_stage_metrics locally; measure each stage with one FidelityBudget of the original raw city. Repeated atomic_input marks adapter revalidation; reference remains raw. Lost/added areas are in m2. No production tracing API added.",
+  "shared_wall_regression": {
+    "raw_wkt": [
+      "POLYGON ((0 0, 0.3 0, 0.3 10, 0 10, 0 0))",
+      "POLYGON ((0.3 0, 0.6 0, 0.6 10, 0.3 10, 0.3 0))"
+    ],
+    "before_output_count": 0,
+    "before_lost_protected_area": 0.95,
+    "after_contract": "pass",
+    "after_source_map": [
+      [
+        0,
+        1
+      ]
+    ]
+  },
+  "discarded_experiments": {
+    "whole_coverage": {
+      "retained": false,
+      "lund_cleaning": {
+        "status": "fail",
+        "delta": 0.5,
+        "epsilon": 0.25,
+        "separation_tolerance": 5e-07,
+        "admissibility": {
+          "topology_ok": true,
+          "resolved": false,
+          "interior_overlap_pairs": 0,
+          "nonmanifold_boundary_vertices": 0,
+          "canonical_vertex_count": 2342,
+          "subscale_pairs": 6,
+          "separation_capped_at_delta": 0.48513045925812576,
+          "closest_pair": [
+            [
+              386276.21875,
+              6174515.25
+            ],
+            [
+              386276.34375,
+              6174515.71875
+            ]
+          ]
+        },
+        "fidelity": {
+          "status": "fail",
+          "epsilon": 0.25,
+          "input_interpretation": {
+            "method": "GEOS make_valid; polygonal parts only",
+            "repaired_input_count": 0,
+            "nonarea_remnant_count": 0
+          },
+          "lost_protected_area": 167.57356440629127,
+          "added_outside_budget_area": 97.50777937590304,
+          "buffer_uncertainty": 7.541801032550911e-05
+        }
+      },
+      "lund_surface": {
+        "minimum": 0.06710302233488744,
+        "p01": 0.21247821849746168,
+        "degenerate_count": 0,
+        "faces": 114634
+      }
+    },
+    "individual_input": {
+      "retained": false,
+      "lund_cleaning": {
+        "status": "fail",
+        "delta": 0.5,
+        "epsilon": 0.25,
+        "separation_tolerance": 5e-07,
+        "admissibility": {
+          "topology_ok": true,
+          "resolved": false,
+          "interior_overlap_pairs": 0,
+          "nonmanifold_boundary_vertices": 0,
+          "canonical_vertex_count": 2335,
+          "subscale_pairs": 6,
+          "separation_capped_at_delta": 0.48513045925812576,
+          "closest_pair": [
+            [
+              386276.21875,
+              6174515.25
+            ],
+            [
+              386276.34375,
+              6174515.71875
+            ]
+          ]
+        },
+        "fidelity": {
+          "status": "fail",
+          "epsilon": 0.25,
+          "input_interpretation": {
+            "method": "GEOS make_valid; polygonal parts only",
+            "repaired_input_count": 0,
+            "nonarea_remnant_count": 0
+          },
+          "lost_protected_area": 166.47734650020092,
+          "added_outside_budget_area": 99.84338883808786,
+          "buffer_uncertainty": 7.541801032550911e-05
+        }
+      },
+      "lund_surface": {
+        "minimum": 0.06710302233488744,
+        "p01": 0.3096128122854715,
+        "degenerate_count": 0,
+        "faces": 104747
+      }
+    },
+    "connected_group": {
+      "retained": false,
+      "lund_cleaning": {
+        "status": "fail",
+        "delta": 0.5,
+        "epsilon": 0.25,
+        "separation_tolerance": 5e-07,
+        "admissibility": {
+          "topology_ok": true,
+          "resolved": false,
+          "interior_overlap_pairs": 0,
+          "nonmanifold_boundary_vertices": 0,
+          "canonical_vertex_count": 2328,
+          "subscale_pairs": 6,
+          "separation_capped_at_delta": 0.48513045925812576,
+          "closest_pair": [
+            [
+              386276.21875,
+              6174515.25
+            ],
+            [
+              386276.34375,
+              6174515.71875
+            ]
+          ]
+        },
+        "fidelity": {
+          "status": "fail",
+          "epsilon": 0.25,
+          "input_interpretation": {
+            "method": "GEOS make_valid; polygonal parts only",
+            "repaired_input_count": 0,
+            "nonarea_remnant_count": 0
+          },
+          "lost_protected_area": 170.82584382259475,
+          "added_outside_budget_area": 101.0800107142488,
+          "buffer_uncertainty": 7.541801032550911e-05
+        }
+      },
+      "lund_surface": {
+        "minimum": 0.06710302233488744,
+        "p01": 0.21247821849746168,
+        "degenerate_count": 0,
+        "faces": 113959
+      }
+    }
+  },
+  "rows": [
+    {
+      "city": "lund",
+      "bounds": [
+        386075.0,
+        6174447.0,
+        386575.0,
+        6174947.0
+      ],
+      "opening_preserved_input_count": 0,
+      "saved_geometry_and_source_maps_unchanged": true,
+      "cleaning_seconds_before": 13.19496125006117,
+      "cleaning_seconds_after": 13.736659083981067,
+      "cleaning": {
+        "status": "fail",
+        "delta": 0.5,
+        "epsilon": 0.25,
+        "separation_tolerance": 5e-07,
+        "admissibility": {
+          "topology_ok": true,
+          "resolved": true,
+          "interior_overlap_pairs": 0,
+          "nonmanifold_boundary_vertices": 0,
+          "canonical_vertex_count": 2352,
+          "subscale_pairs": 0,
+          "separation_capped_at_delta": 0.5,
+          "closest_pair": null
+        },
+        "fidelity": {
+          "status": "fail",
+          "epsilon": 0.25,
+          "input_interpretation": {
+            "method": "GEOS make_valid; polygonal parts only",
+            "repaired_input_count": 0,
+            "nonarea_remnant_count": 0
+          },
+          "lost_protected_area": 108.28233459727724,
+          "added_outside_budget_area": 108.45683861796319,
+          "buffer_uncertainty": 7.541801032550911e-05
+        }
+      },
+      "flat": {
+        "minimum": 0.06710302233488744,
+        "p01": 0.6174604088856688,
+        "degenerate_count": 0,
+        "faces": 21534
+      },
+      "surface": {
+        "minimum": 0.06710302233488744,
+        "p01": 0.3096128122854715,
+        "degenerate_count": 0,
+        "faces": 104638
+      },
+      "stage_trace_before": [
+        {
+          "stage": "atomic_input",
+          "status": "pass",
+          "lost": 0.0,
+          "added": 0.0
+        },
+        {
+          "stage": "opened",
+          "status": "fail",
+          "lost": 1.5931337164081283,
+          "added": 3.100349945593639
+        },
+        {
+          "stage": "regularized_groups",
+          "status": "fail",
+          "lost": 6.038953058973482,
+          "added": 3.0765344958728
+        },
+        {
+          "stage": "reconstructed",
+          "status": "fail",
+          "lost": 6.038953058973482,
+          "added": 3.0765344958728
+        },
+        {
+          "stage": "presimplify",
+          "status": "fail",
+          "lost": 6.038953058973482,
+          "added": 3.0765344958728
+        },
+        {
+          "stage": "local_defect_repaired",
+          "status": "fail",
+          "lost": 6.071122495631422,
+          "added": 3.108850456582344
+        },
+        {
+          "stage": "coverage_simplified",
+          "status": "fail",
+          "lost": 6.071122495631422,
+          "added": 3.108850456582344
+        },
+        {
+          "stage": "source_reclaimed",
+          "status": "fail",
+          "lost": 6.071122495631422,
+          "added": 3.108850456582344
+        },
+        {
+          "stage": "boundary_regularized",
+          "status": "fail",
+          "lost": 8.567809651558216,
+          "added": 5.790809430706943
+        },
+        {
+          "stage": "clearance_regularized",
+          "status": "fail",
+          "lost": 8.567809651558216,
+          "added": 5.790809430706943
+        },
+        {
+          "stage": "source_coordinate_recovered",
+          "status": "fail",
+          "lost": 8.508105262549229,
+          "added": 5.9867590216589734
+        },
+        {
+          "stage": "post_recovery_regularized",
+          "status": "fail",
+          "lost": 8.508105262549229,
+          "added": 6.333084440353851
+        },
+        {
+          "stage": "coverage_contact_regularized",
+          "status": "fail",
+          "lost": 51.845893001978226,
+          "added": 74.03892053301448
+        },
+        {
+          "stage": "coverage_meshing_regularized",
+          "status": "fail",
+          "lost": 108.28233459727724,
+          "added": 108.45683861796319
+        },
+        {
+          "stage": "final_output",
+          "status": "fail",
+          "lost": 108.28233459727724,
+          "added": 108.45683861796319
+        },
+        {
+          "stage": "mesher_ready_before_selection",
+          "status": "fail",
+          "lost": 108.28233459727724,
+          "added": 108.45683861796319
+        }
+      ]
+    },
+    {
+      "city": "stockholm",
+      "bounds": [
+        674321.9,
+        6580493.0,
+        674821.9,
+        6580993.0
+      ],
+      "opening_preserved_input_count": 0,
+      "saved_geometry_and_source_maps_unchanged": true,
+      "cleaning_seconds_before": 0.47454041591845453,
+      "cleaning_seconds_after": 0.5025723751168698,
+      "cleaning": {
+        "status": "fail",
+        "delta": 0.5,
+        "epsilon": 0.25,
+        "separation_tolerance": 5e-07,
+        "admissibility": {
+          "topology_ok": true,
+          "resolved": true,
+          "interior_overlap_pairs": 0,
+          "nonmanifold_boundary_vertices": 0,
+          "canonical_vertex_count": 356,
+          "subscale_pairs": 0,
+          "separation_capped_at_delta": 0.5,
+          "closest_pair": null
+        },
+        "fidelity": {
+          "status": "fail",
+          "epsilon": 0.25,
+          "input_interpretation": {
+            "method": "GEOS make_valid; polygonal parts only",
+            "repaired_input_count": 0,
+            "nonarea_remnant_count": 0
+          },
+          "lost_protected_area": 3.4988318690637166,
+          "added_outside_budget_area": 2.16138612159137,
+          "buffer_uncertainty": 7.541801032550911e-05
+        }
+      },
+      "flat": {
+        "minimum": 0.5161230449822091,
+        "p01": 0.640986624713491,
+        "degenerate_count": 0,
+        "faces": 7737
+      },
+      "surface": {
+        "minimum": 0.24647661215176003,
+        "p01": 0.364860632268091,
+        "degenerate_count": 0,
+        "faces": 18353
+      },
+      "stage_trace_before": [
+        {
+          "stage": "atomic_input",
+          "status": "pass",
+          "lost": 0.0,
+          "added": 0.0
+        },
+        {
+          "stage": "opened",
+          "status": "fail",
+          "lost": 0.22694617160500263,
+          "added": 0.0
+        },
+        {
+          "stage": "regularized_groups",
+          "status": "pass",
+          "lost": 0.0,
+          "added": 0.0
+        },
+        {
+          "stage": "reconstructed",
+          "status": "pass",
+          "lost": 0.0,
+          "added": 0.0
+        },
+        {
+          "stage": "presimplify",
+          "status": "pass",
+          "lost": 0.0,
+          "added": 0.0
+        },
+        {
+          "stage": "local_defect_repaired",
+          "status": "fail",
+          "lost": 0.0,
+          "added": 0.008749226454864633
+        },
+        {
+          "stage": "coverage_simplified",
+          "status": "fail",
+          "lost": 3.7426644199690893,
+          "added": 1.5296084086874484
+        },
+        {
+          "stage": "source_reclaimed",
+          "status": "fail",
+          "lost": 3.1065990408806288,
+          "added": 1.5296084086874484
+        },
+        {
+          "stage": "boundary_regularized",
+          "status": "fail",
+          "lost": 3.4988318690637166,
+          "added": 1.5296084086874484
+        },
+        {
+          "stage": "clearance_regularized",
+          "status": "fail",
+          "lost": 3.4988318690637166,
+          "added": 2.1587149212602355
+        },
+        {
+          "stage": "source_coordinate_recovered",
+          "status": "fail",
+          "lost": 3.4988318690637166,
+          "added": 2.16138612159137
+        },
+        {
+          "stage": "post_recovery_regularized",
+          "status": "fail",
+          "lost": 3.4988318690637166,
+          "added": 2.16138612159137
+        },
+        {
+          "stage": "coverage_contact_regularized",
+          "status": "fail",
+          "lost": 3.4988318690637166,
+          "added": 2.16138612159137
+        },
+        {
+          "stage": "coverage_meshing_regularized",
+          "status": "fail",
+          "lost": 3.4988318690637166,
+          "added": 2.16138612159137
+        },
+        {
+          "stage": "final_output",
+          "status": "fail",
+          "lost": 3.4988318690637166,
+          "added": 2.16138612159137
+        },
+        {
+          "stage": "mesher_ready_before_selection",
+          "status": "fail",
+          "lost": 3.4988318690637166,
+          "added": 2.16138612159137
+        }
+      ]
+    },
+    {
+      "city": "gothenburg",
+      "bounds": [
+        319508.0,
+        6400076.0,
+        320008.0,
+        6400576.0
+      ],
+      "opening_preserved_input_count": 0,
+      "saved_geometry_and_source_maps_unchanged": true,
+      "cleaning_seconds_before": 4.315290750004351,
+      "cleaning_seconds_after": 4.308960541849956,
+      "cleaning": {
+        "status": "fail",
+        "delta": 0.5,
+        "epsilon": 0.25,
+        "separation_tolerance": 5e-07,
+        "admissibility": {
+          "topology_ok": true,
+          "resolved": true,
+          "interior_overlap_pairs": 0,
+          "nonmanifold_boundary_vertices": 0,
+          "canonical_vertex_count": 694,
+          "subscale_pairs": 0,
+          "separation_capped_at_delta": 0.5,
+          "closest_pair": null
+        },
+        "fidelity": {
+          "status": "fail",
+          "epsilon": 0.25,
+          "input_interpretation": {
+            "method": "GEOS make_valid; polygonal parts only",
+            "repaired_input_count": 0,
+            "nonarea_remnant_count": 0
+          },
+          "lost_protected_area": 3.30282084941433,
+          "added_outside_budget_area": 0.4595860948206382,
+          "buffer_uncertainty": 7.541801032550911e-05
+        }
+      },
+      "flat": {
+        "minimum": 0.12417134620020455,
+        "p01": 0.6282784753355352,
+        "degenerate_count": 0,
+        "faces": 10282
+      },
+      "surface": {
+        "minimum": 0.12417134620020455,
+        "p01": 0.35533703716466225,
+        "degenerate_count": 0,
+        "faces": 22484
+      },
+      "stage_trace_before": [
+        {
+          "stage": "atomic_input",
+          "status": "pass",
+          "lost": 0.0,
+          "added": 0.0
+        },
+        {
+          "stage": "opened",
+          "status": "fail",
+          "lost": 0.08848852607170837,
+          "added": 0.0
+        },
+        {
+          "stage": "regularized_groups",
+          "status": "pass",
+          "lost": 0.0,
+          "added": 0.0
+        },
+        {
+          "stage": "reconstructed",
+          "status": "pass",
+          "lost": 0.0,
+          "added": 0.0
+        },
+        {
+          "stage": "presimplify",
+          "status": "pass",
+          "lost": 0.0,
+          "added": 0.0
+        },
+        {
+          "stage": "local_defect_repaired",
+          "status": "fail",
+          "lost": 0.0,
+          "added": 0.02869366669880784
+        },
+        {
+          "stage": "coverage_simplified",
+          "status": "fail",
+          "lost": 3.2433401398004515,
+          "added": 0.3272020954076626
+        },
+        {
+          "stage": "source_reclaimed",
+          "status": "fail",
+          "lost": 3.2433401398004515,
+          "added": 0.3272020954076626
+        },
+        {
+          "stage": "boundary_regularized",
+          "status": "fail",
+          "lost": 3.2433401398004515,
+          "added": 0.3275908616157896
+        },
+        {
+          "stage": "clearance_regularized",
+          "status": "fail",
+          "lost": 3.2433401398004515,
+          "added": 0.3275908616157896
+        },
+        {
+          "stage": "source_coordinate_recovered",
+          "status": "fail",
+          "lost": 3.213700866299013,
+          "added": 0.325988852410414
+        },
+        {
+          "stage": "post_recovery_regularized",
+          "status": "fail",
+          "lost": 3.213700866299013,
+          "added": 0.325988852410414
+        },
+        {
+          "stage": "coverage_contact_regularized",
+          "status": "fail",
+          "lost": 3.213700866299013,
+          "added": 0.325988852410414
+        },
+        {
+          "stage": "coverage_meshing_regularized",
+          "status": "fail",
+          "lost": 3.30282084941433,
+          "added": 0.4595860948206382
+        },
+        {
+          "stage": "final_output",
+          "status": "fail",
+          "lost": 3.30282084941433,
+          "added": 0.4595860948206382
+        },
+        {
+          "stage": "mesher_ready_before_selection",
+          "status": "fail",
+          "lost": 3.30282084941433,
+          "added": 0.4595860948206382
+        }
+      ]
+    },
+    {
+      "city": "malmo",
+      "bounds": [
+        373993.8,
+        6163676.6,
+        374493.8,
+        6164176.6
+      ],
+      "opening_preserved_input_count": 0,
+      "saved_geometry_and_source_maps_unchanged": true,
+      "cleaning_seconds_before": 0.8300620838999748,
+      "cleaning_seconds_after": 0.8285524169914424,
+      "cleaning": {
+        "status": "fail",
+        "delta": 0.5,
+        "epsilon": 0.25,
+        "separation_tolerance": 5e-07,
+        "admissibility": {
+          "topology_ok": true,
+          "resolved": false,
+          "interior_overlap_pairs": 0,
+          "nonmanifold_boundary_vertices": 0,
+          "canonical_vertex_count": 802,
+          "subscale_pairs": 6,
+          "separation_capped_at_delta": 0.48730579617833886,
+          "closest_pair": [
+            [
+              374264.88199960254,
+              6163987.195989514
+            ],
+            [
+              374264.3954390545,
+              6163987.222929672
+            ]
+          ]
+        },
+        "fidelity": {
+          "status": "fail",
+          "epsilon": 0.25,
+          "input_interpretation": {
+            "method": "GEOS make_valid; polygonal parts only",
+            "repaired_input_count": 0,
+            "nonarea_remnant_count": 0
+          },
+          "lost_protected_area": 24.897140513934033,
+          "added_outside_budget_area": 0.8884010142598128,
+          "buffer_uncertainty": 7.541801032550911e-05
+        }
+      },
+      "flat": {
+        "minimum": 0.5175938495849209,
+        "p01": 0.6234326490918383,
+        "degenerate_count": 0,
+        "faces": 9878
+      },
+      "surface": {
+        "minimum": 0.2639429418228831,
+        "p01": 0.40509732117806013,
+        "degenerate_count": 0,
+        "faces": 33894
+      },
+      "stage_trace_before": [
+        {
+          "stage": "atomic_input",
+          "status": "pass",
+          "lost": 0.0,
+          "added": 0.0
+        },
+        {
+          "stage": "opened",
+          "status": "fail",
+          "lost": 0.4292070860893046,
+          "added": 0.0
+        },
+        {
+          "stage": "regularized_groups",
+          "status": "pass",
+          "lost": 0.0,
+          "added": 0.0
+        },
+        {
+          "stage": "reconstructed",
+          "status": "pass",
+          "lost": 0.0,
+          "added": 0.0
+        },
+        {
+          "stage": "presimplify",
+          "status": "pass",
+          "lost": 0.0,
+          "added": 0.0
+        },
+        {
+          "stage": "local_defect_repaired",
+          "status": "fail",
+          "lost": 165.3444564275873,
+          "added": 0.0
+        },
+        {
+          "stage": "coverage_simplified",
+          "status": "fail",
+          "lost": 167.18624172577552,
+          "added": 0.905200626221341
+        },
+        {
+          "stage": "source_reclaimed",
+          "status": "fail",
+          "lost": 24.846858055510037,
+          "added": 0.905200626221341
+        },
+        {
+          "stage": "boundary_regularized",
+          "status": "fail",
+          "lost": 24.846858055510037,
+          "added": 0.905200626221341
+        },
+        {
+          "stage": "clearance_regularized",
+          "status": "fail",
+          "lost": 24.846858055510037,
+          "added": 0.905200626221341
+        },
+        {
+          "stage": "source_coordinate_recovered",
+          "status": "fail",
+          "lost": 24.897140513934033,
+          "added": 0.8884010142598128
+        },
+        {
+          "stage": "post_recovery_regularized",
+          "status": "fail",
+          "lost": 24.897140513934033,
+          "added": 0.8884010142598128
+        },
+        {
+          "stage": "coverage_contact_regularized",
+          "status": "fail",
+          "lost": 24.897140513934033,
+          "added": 0.8884010142598128
+        },
+        {
+          "stage": "coverage_meshing_regularized",
+          "status": "fail",
+          "lost": 24.897140513934033,
+          "added": 0.8884010142598128
+        },
+        {
+          "stage": "final_output",
+          "status": "fail",
+          "lost": 24.897140513934033,
+          "added": 0.8884010142598128
+        },
+        {
+          "stage": "mesher_ready_before_selection",
+          "status": "fail",
+          "lost": 24.897140513934033,
+          "added": 0.8884010142598128
+        }
+      ]
+    },
+    {
+      "city": "uppsala",
+      "bounds": [
+        647543.5,
+        6638358.1,
+        648043.5,
+        6638858.1
+      ],
+      "opening_preserved_input_count": 0,
+      "saved_geometry_and_source_maps_unchanged": true,
+      "cleaning_seconds_before": 3.5633339160121977,
+      "cleaning_seconds_after": 3.4277068749070168,
+      "cleaning": {
+        "status": "fail",
+        "delta": 0.5,
+        "epsilon": 0.25,
+        "separation_tolerance": 5e-07,
+        "admissibility": {
+          "topology_ok": true,
+          "resolved": true,
+          "interior_overlap_pairs": 0,
+          "nonmanifold_boundary_vertices": 0,
+          "canonical_vertex_count": 994,
+          "subscale_pairs": 0,
+          "separation_capped_at_delta": 0.5,
+          "closest_pair": null
+        },
+        "fidelity": {
+          "status": "fail",
+          "epsilon": 0.25,
+          "input_interpretation": {
+            "method": "GEOS make_valid; polygonal parts only",
+            "repaired_input_count": 0,
+            "nonarea_remnant_count": 0
+          },
+          "lost_protected_area": 14.177458647192564,
+          "added_outside_budget_area": 10.327831824733236,
+          "buffer_uncertainty": 7.541801032550911e-05
+        }
+      },
+      "flat": {
+        "minimum": 0.04553932456138019,
+        "p01": 0.617597831563628,
+        "degenerate_count": 0,
+        "faces": 12764
+      },
+      "surface": {
+        "minimum": 0.04553932456138019,
+        "p01": 0.08762067806286854,
+        "degenerate_count": 0,
+        "faces": 69539
+      },
+      "stage_trace_before": [
+        {
+          "stage": "atomic_input",
+          "status": "pass",
+          "lost": 0.0,
+          "added": 0.0
+        },
+        {
+          "stage": "opened",
+          "status": "fail",
+          "lost": 6.300008113880351,
+          "added": 10.455292114306697
+        },
+        {
+          "stage": "regularized_groups",
+          "status": "fail",
+          "lost": 5.4230967496782085,
+          "added": 10.921353169668269
+        },
+        {
+          "stage": "reconstructed",
+          "status": "fail",
+          "lost": 5.4230967496782085,
+          "added": 10.921353169668269
+        },
+        {
+          "stage": "presimplify",
+          "status": "fail",
+          "lost": 5.4230967496782085,
+          "added": 10.921353169668269
+        },
+        {
+          "stage": "local_defect_repaired",
+          "status": "fail",
+          "lost": 5.438747000265485,
+          "added": 11.570103665488443
+        },
+        {
+          "stage": "coverage_simplified",
+          "status": "fail",
+          "lost": 11.086664135125016,
+          "added": 16.057895916035786
+        },
+        {
+          "stage": "source_reclaimed",
+          "status": "fail",
+          "lost": 10.67545830227977,
+          "added": 16.057895916035786
+        },
+        {
+          "stage": "boundary_regularized",
+          "status": "fail",
+          "lost": 10.67545830227977,
+          "added": 16.068293546142115
+        },
+        {
+          "stage": "clearance_regularized",
+          "status": "fail",
+          "lost": 10.67545830227977,
+          "added": 16.068293546142115
+        },
+        {
+          "stage": "source_coordinate_recovered",
+          "status": "fail",
+          "lost": 10.795462777233219,
+          "added": 16.007475683461593
+        },
+        {
+          "stage": "post_recovery_regularized",
+          "status": "fail",
+          "lost": 10.795462777233219,
+          "added": 16.007475683461593
+        },
+        {
+          "stage": "coverage_contact_regularized",
+          "status": "fail",
+          "lost": 12.127136829919177,
+          "added": 18.371057568380717
+        },
+        {
+          "stage": "coverage_meshing_regularized",
+          "status": "fail",
+          "lost": 14.177458647192564,
+          "added": 10.327831824733236
+        },
+        {
+          "stage": "final_output",
+          "status": "fail",
+          "lost": 14.177458647192564,
+          "added": 10.327831824733236
+        },
+        {
+          "stage": "mesher_ready_before_selection",
+          "status": "fail",
+          "lost": 14.177458647192564,
+          "added": 10.327831824733236
+        }
+      ]
+    },
+    {
+      "city": "linkoping",
+      "bounds": [
+        536058.5,
+        6474365.0,
+        536558.5,
+        6474865.0
+      ],
+      "opening_preserved_input_count": 0,
+      "saved_geometry_and_source_maps_unchanged": true,
+      "cleaning_seconds_before": 3.9958226250018924,
+      "cleaning_seconds_after": 4.348114457912743,
+      "cleaning": {
+        "status": "fail",
+        "delta": 0.5,
+        "epsilon": 0.25,
+        "separation_tolerance": 5e-07,
+        "admissibility": {
+          "topology_ok": true,
+          "resolved": true,
+          "interior_overlap_pairs": 0,
+          "nonmanifold_boundary_vertices": 0,
+          "canonical_vertex_count": 1383,
+          "subscale_pairs": 0,
+          "separation_capped_at_delta": 0.5,
+          "closest_pair": null
+        },
+        "fidelity": {
+          "status": "fail",
+          "epsilon": 0.25,
+          "input_interpretation": {
+            "method": "GEOS make_valid; polygonal parts only",
+            "repaired_input_count": 0,
+            "nonarea_remnant_count": 0
+          },
+          "lost_protected_area": 15.407965101449394,
+          "added_outside_budget_area": 6.9595788447709515,
+          "buffer_uncertainty": 7.541801032550911e-05
+        }
+      },
+      "flat": {
+        "minimum": 0.511198786865333,
+        "p01": 0.6248447475421158,
+        "degenerate_count": 0,
+        "faces": 15035
+      },
+      "surface": {
+        "minimum": 0.18095502747250022,
+        "p01": 0.3678795434185694,
+        "degenerate_count": 0,
+        "faces": 47741
+      },
+      "stage_trace_before": [
+        {
+          "stage": "atomic_input",
+          "status": "pass",
+          "lost": 0.0,
+          "added": 0.0
+        },
+        {
+          "stage": "opened",
+          "status": "fail",
+          "lost": 0.6858414216038565,
+          "added": 0.4190461518380866
+        },
+        {
+          "stage": "regularized_groups",
+          "status": "fail",
+          "lost": 0.08320606422436919,
+          "added": 0.41914874071676966
+        },
+        {
+          "stage": "reconstructed",
+          "status": "fail",
+          "lost": 0.08320606422436919,
+          "added": 0.41914874071676966
+        },
+        {
+          "stage": "presimplify",
+          "status": "fail",
+          "lost": 0.08320606422436919,
+          "added": 0.41914874071676966
+        },
+        {
+          "stage": "local_defect_repaired",
+          "status": "fail",
+          "lost": 0.08320606422436919,
+          "added": 0.4187291010624593
+        },
+        {
+          "stage": "coverage_simplified",
+          "status": "fail",
+          "lost": 15.468818853282114,
+          "added": 5.413828100104367
+        },
+        {
+          "stage": "source_reclaimed",
+          "status": "fail",
+          "lost": 14.890133340683663,
+          "added": 5.413828100104367
+        },
+        {
+          "stage": "boundary_regularized",
+          "status": "fail",
+          "lost": 14.889809557362744,
+          "added": 5.41629875590672
+        },
+        {
+          "stage": "clearance_regularized",
+          "status": "fail",
+          "lost": 14.889809557362744,
+          "added": 5.41629875590672
+        },
+        {
+          "stage": "source_coordinate_recovered",
+          "status": "fail",
+          "lost": 14.923207712449743,
+          "added": 5.1882171052112005
+        },
+        {
+          "stage": "post_recovery_regularized",
+          "status": "fail",
+          "lost": 14.923207712449743,
+          "added": 5.231388901951858
+        },
+        {
+          "stage": "coverage_contact_regularized",
+          "status": "fail",
+          "lost": 15.380474848557148,
+          "added": 5.897027391498945
+        },
+        {
+          "stage": "coverage_meshing_regularized",
+          "status": "fail",
+          "lost": 15.407965101449394,
+          "added": 6.9595788447709515
+        },
+        {
+          "stage": "final_output",
+          "status": "fail",
+          "lost": 15.407965101449394,
+          "added": 6.9595788447709515
+        },
+        {
+          "stage": "mesher_ready_before_selection",
+          "status": "fail",
+          "lost": 15.407965101449394,
+          "added": 6.9595788447709515
+        }
+      ]
+    },
+    {
+      "city": "orebro",
+      "bounds": [
+        511912.3,
+        6570477.0,
+        512412.3,
+        6570977.0
+      ],
+      "opening_preserved_input_count": 0,
+      "saved_geometry_and_source_maps_unchanged": true,
+      "cleaning_seconds_before": 1.9501497079618275,
+      "cleaning_seconds_after": 1.9119658330455422,
+      "cleaning": {
+        "status": "fail",
+        "delta": 0.5,
+        "epsilon": 0.25,
+        "separation_tolerance": 5e-07,
+        "admissibility": {
+          "topology_ok": true,
+          "resolved": true,
+          "interior_overlap_pairs": 0,
+          "nonmanifold_boundary_vertices": 0,
+          "canonical_vertex_count": 885,
+          "subscale_pairs": 0,
+          "separation_capped_at_delta": 0.5,
+          "closest_pair": null
+        },
+        "fidelity": {
+          "status": "fail",
+          "epsilon": 0.25,
+          "input_interpretation": {
+            "method": "GEOS make_valid; polygonal parts only",
+            "repaired_input_count": 0,
+            "nonarea_remnant_count": 0
+          },
+          "lost_protected_area": 15.922994953328383,
+          "added_outside_budget_area": 15.102263239957951,
+          "buffer_uncertainty": 7.541801032550911e-05
+        }
+      },
+      "flat": {
+        "minimum": 0.4098635273977299,
+        "p01": 0.6190945599529152,
+        "degenerate_count": 0,
+        "faces": 11545
+      },
+      "surface": {
+        "minimum": 0.23354594242546864,
+        "p01": 0.38693813650115916,
+        "degenerate_count": 0,
+        "faces": 37239
+      },
+      "stage_trace_before": [
+        {
+          "stage": "atomic_input",
+          "status": "pass",
+          "lost": 0.0,
+          "added": 0.0
+        },
+        {
+          "stage": "opened",
+          "status": "fail",
+          "lost": 1.3351003745181467,
+          "added": 0.0
+        },
+        {
+          "stage": "regularized_groups",
+          "status": "fail",
+          "lost": 0.010995423929876154,
+          "added": 0.0
+        },
+        {
+          "stage": "reconstructed",
+          "status": "fail",
+          "lost": 0.010995423929876154,
+          "added": 0.0
+        },
+        {
+          "stage": "presimplify",
+          "status": "fail",
+          "lost": 0.010995423929876154,
+          "added": 0.0
+        },
+        {
+          "stage": "local_defect_repaired",
+          "status": "fail",
+          "lost": 0.010995423929876154,
+          "added": 0.4955830248035021
+        },
+        {
+          "stage": "coverage_simplified",
+          "status": "fail",
+          "lost": 15.772504774016813,
+          "added": 15.048090850115674
+        },
+        {
+          "stage": "source_reclaimed",
+          "status": "fail",
+          "lost": 15.772504774016813,
+          "added": 15.048090850115674
+        },
+        {
+          "stage": "boundary_regularized",
+          "status": "fail",
+          "lost": 15.749498874389086,
+          "added": 15.048090850115674
+        },
+        {
+          "stage": "clearance_regularized",
+          "status": "fail",
+          "lost": 15.903422487778805,
+          "added": 15.052683516183826
+        },
+        {
+          "stage": "source_coordinate_recovered",
+          "status": "fail",
+          "lost": 15.922994953328383,
+          "added": 15.102263239957951
+        },
+        {
+          "stage": "post_recovery_regularized",
+          "status": "fail",
+          "lost": 15.922994953328383,
+          "added": 15.102263239957951
+        },
+        {
+          "stage": "coverage_contact_regularized",
+          "status": "fail",
+          "lost": 15.922994953328383,
+          "added": 15.102263239957951
+        },
+        {
+          "stage": "coverage_meshing_regularized",
+          "status": "fail",
+          "lost": 15.922994953328383,
+          "added": 15.102263239957951
+        },
+        {
+          "stage": "final_output",
+          "status": "fail",
+          "lost": 15.922994953328383,
+          "added": 15.102263239957951
+        },
+        {
+          "stage": "mesher_ready_before_selection",
+          "status": "fail",
+          "lost": 15.922994953328383,
+          "added": 15.102263239957951
+        }
+      ]
+    },
+    {
+      "city": "vasteras",
+      "bounds": [
+        586922.6,
+        6608731.7,
+        587422.6,
+        6609231.7
+      ],
+      "opening_preserved_input_count": 0,
+      "saved_geometry_and_source_maps_unchanged": true,
+      "cleaning_seconds_before": 1.6776479170657694,
+      "cleaning_seconds_after": 1.6379894581623375,
+      "cleaning": {
+        "status": "fail",
+        "delta": 0.5,
+        "epsilon": 0.25,
+        "separation_tolerance": 5e-07,
+        "admissibility": {
+          "topology_ok": true,
+          "resolved": true,
+          "interior_overlap_pairs": 0,
+          "nonmanifold_boundary_vertices": 0,
+          "canonical_vertex_count": 740,
+          "subscale_pairs": 0,
+          "separation_capped_at_delta": 0.5,
+          "closest_pair": null
+        },
+        "fidelity": {
+          "status": "fail",
+          "epsilon": 0.25,
+          "input_interpretation": {
+            "method": "GEOS make_valid; polygonal parts only",
+            "repaired_input_count": 0,
+            "nonarea_remnant_count": 0
+          },
+          "lost_protected_area": 25.945323936850922,
+          "added_outside_budget_area": 16.35292157829449,
+          "buffer_uncertainty": 7.541801032550911e-05
+        }
+      },
+      "flat": {
+        "minimum": 0.3060956246803368,
+        "p01": 0.6322070557431767,
+        "degenerate_count": 0,
+        "faces": 10516
+      },
+      "surface": {
+        "minimum": 0.3055168697130675,
+        "p01": 0.37853641948522354,
+        "degenerate_count": 0,
+        "faces": 27060
+      },
+      "stage_trace_before": [
+        {
+          "stage": "atomic_input",
+          "status": "pass",
+          "lost": 0.0,
+          "added": 0.0
+        },
+        {
+          "stage": "opened",
+          "status": "fail",
+          "lost": 0.7031927679131833,
+          "added": 0.0
+        },
+        {
+          "stage": "regularized_groups",
+          "status": "pass",
+          "lost": 0.0,
+          "added": 0.0
+        },
+        {
+          "stage": "reconstructed",
+          "status": "pass",
+          "lost": 0.0,
+          "added": 0.0
+        },
+        {
+          "stage": "presimplify",
+          "status": "pass",
+          "lost": 0.0,
+          "added": 0.0
+        },
+        {
+          "stage": "local_defect_repaired",
+          "status": "fail",
+          "lost": 0.015216757496583608,
+          "added": 0.018792689368803652
+        },
+        {
+          "stage": "coverage_simplified",
+          "status": "fail",
+          "lost": 28.422529462190912,
+          "added": 16.302187220360608
+        },
+        {
+          "stage": "source_reclaimed",
+          "status": "fail",
+          "lost": 25.9655043557021,
+          "added": 16.302187220360608
+        },
+        {
+          "stage": "boundary_regularized",
+          "status": "fail",
+          "lost": 25.96557483465481,
+          "added": 16.302187220360608
+        },
+        {
+          "stage": "clearance_regularized",
+          "status": "fail",
+          "lost": 25.96557483465481,
+          "added": 16.302187220360608
+        },
+        {
+          "stage": "source_coordinate_recovered",
+          "status": "fail",
+          "lost": 25.945323936850922,
+          "added": 16.35292157829449
+        },
+        {
+          "stage": "post_recovery_regularized",
+          "status": "fail",
+          "lost": 25.945323936850922,
+          "added": 16.35292157829449
+        },
+        {
+          "stage": "coverage_contact_regularized",
+          "status": "fail",
+          "lost": 25.945323936850922,
+          "added": 16.35292157829449
+        },
+        {
+          "stage": "coverage_meshing_regularized",
+          "status": "fail",
+          "lost": 25.945323936850922,
+          "added": 16.35292157829449
+        },
+        {
+          "stage": "final_output",
+          "status": "fail",
+          "lost": 25.945323936850922,
+          "added": 16.35292157829449
+        },
+        {
+          "stage": "mesher_ready_before_selection",
+          "status": "fail",
+          "lost": 25.945323936850922,
+          "added": 16.35292157829449
+        }
+      ]
+    },
+    {
+      "city": "helsingborg",
+      "bounds": [
+        356148.3,
+        6213402.0,
+        356648.3,
+        6213902.0
+      ],
+      "opening_preserved_input_count": 0,
+      "saved_geometry_and_source_maps_unchanged": true,
+      "cleaning_seconds_before": 14.086475708056241,
+      "cleaning_seconds_after": 13.596990125020966,
+      "cleaning": {
+        "status": "fail",
+        "delta": 0.5,
+        "epsilon": 0.25,
+        "separation_tolerance": 5e-07,
+        "admissibility": {
+          "topology_ok": true,
+          "resolved": true,
+          "interior_overlap_pairs": 0,
+          "nonmanifold_boundary_vertices": 0,
+          "canonical_vertex_count": 1546,
+          "subscale_pairs": 0,
+          "separation_capped_at_delta": 0.5,
+          "closest_pair": null
+        },
+        "fidelity": {
+          "status": "fail",
+          "epsilon": 0.25,
+          "input_interpretation": {
+            "method": "GEOS make_valid; polygonal parts only",
+            "repaired_input_count": 0,
+            "nonarea_remnant_count": 0
+          },
+          "lost_protected_area": 28.21027989539477,
+          "added_outside_budget_area": 45.13714852595414,
+          "buffer_uncertainty": 7.541801032550911e-05
+        }
+      },
+      "flat": {
+        "minimum": 0.5080817437029876,
+        "p01": 0.6171418881511376,
+        "degenerate_count": 0,
+        "faces": 15354
+      },
+      "surface": {
+        "minimum": 0.03960349649234936,
+        "p01": 0.36053744152131534,
+        "degenerate_count": 0,
+        "faces": 52382
+      },
+      "stage_trace_before": [
+        {
+          "stage": "atomic_input",
+          "status": "pass",
+          "lost": 0.0,
+          "added": 0.0
+        },
+        {
+          "stage": "opened",
+          "status": "fail",
+          "lost": 1.1881976716864648,
+          "added": 19.283659183676125
+        },
+        {
+          "stage": "regularized_groups",
+          "status": "fail",
+          "lost": 0.12016767399100803,
+          "added": 19.011476977425023
+        },
+        {
+          "stage": "reconstructed",
+          "status": "fail",
+          "lost": 0.12016767399100803,
+          "added": 19.011476977425023
+        },
+        {
+          "stage": "presimplify",
+          "status": "fail",
+          "lost": 0.12016767399100803,
+          "added": 19.011476977425023
+        },
+        {
+          "stage": "local_defect_repaired",
+          "status": "fail",
+          "lost": 0.13503724399113767,
+          "added": 19.126170707692904
+        },
+        {
+          "stage": "coverage_simplified",
+          "status": "fail",
+          "lost": 0.13503724399113767,
+          "added": 19.126170707692904
+        },
+        {
+          "stage": "source_reclaimed",
+          "status": "fail",
+          "lost": 0.13503724399113767,
+          "added": 19.126170707692904
+        },
+        {
+          "stage": "boundary_regularized",
+          "status": "fail",
+          "lost": 0.9892603044225614,
+          "added": 19.126170707692904
+        },
+        {
+          "stage": "clearance_regularized",
+          "status": "fail",
+          "lost": 24.49619385949304,
+          "added": 60.63511322554356
+        },
+        {
+          "stage": "source_coordinate_recovered",
+          "status": "fail",
+          "lost": 24.401526950981363,
+          "added": 60.29715982018954
+        },
+        {
+          "stage": "post_recovery_regularized",
+          "status": "fail",
+          "lost": 24.401526950981363,
+          "added": 60.9692910022381
+        },
+        {
+          "stage": "coverage_contact_regularized",
+          "status": "fail",
+          "lost": 24.401526950981363,
+          "added": 60.9692910022381
+        },
+        {
+          "stage": "coverage_meshing_regularized",
+          "status": "fail",
+          "lost": 28.21027989539477,
+          "added": 62.7439631130429
+        },
+        {
+          "stage": "final_output",
+          "status": "fail",
+          "lost": 28.21027989539477,
+          "added": 62.7439631130429
+        },
+        {
+          "stage": "atomic_input",
+          "status": "fail",
+          "lost": 28.21027989539477,
+          "added": 62.7439631130429
+        },
+        {
+          "stage": "opened",
+          "status": "fail",
+          "lost": 28.27767996006063,
+          "added": 45.25811239788521
+        },
+        {
+          "stage": "regularized_groups",
+          "status": "fail",
+          "lost": 28.27767996006063,
+          "added": 45.258112397885206
+        },
+        {
+          "stage": "reconstructed",
+          "status": "fail",
+          "lost": 28.27767996006063,
+          "added": 45.258112397885206
+        },
+        {
+          "stage": "presimplify",
+          "status": "fail",
+          "lost": 28.27767996006063,
+          "added": 45.258112397885206
+        },
+        {
+          "stage": "local_defect_repaired",
+          "status": "fail",
+          "lost": 28.27767996006063,
+          "added": 45.258112397885206
+        },
+        {
+          "stage": "coverage_simplified",
+          "status": "fail",
+          "lost": 28.27767996006063,
+          "added": 45.47941350637271
+        },
+        {
+          "stage": "source_reclaimed",
+          "status": "fail",
+          "lost": 28.27767996006063,
+          "added": 45.47941350637271
+        },
+        {
+          "stage": "boundary_regularized",
+          "status": "fail",
+          "lost": 28.27767996006063,
+          "added": 45.47941350637271
+        },
+        {
+          "stage": "clearance_regularized",
+          "status": "fail",
+          "lost": 28.27767996006063,
+          "added": 45.47941350637271
+        },
+        {
+          "stage": "source_coordinate_recovered",
+          "status": "fail",
+          "lost": 28.21027989539477,
+          "added": 45.13714852595414
+        },
+        {
+          "stage": "post_recovery_regularized",
+          "status": "fail",
+          "lost": 28.21027989539477,
+          "added": 45.13714852595414
+        },
+        {
+          "stage": "coverage_contact_regularized",
+          "status": "fail",
+          "lost": 28.21027989539477,
+          "added": 45.13714852595414
+        },
+        {
+          "stage": "coverage_meshing_regularized",
+          "status": "fail",
+          "lost": 28.21027989539477,
+          "added": 45.13714852595414
+        },
+        {
+          "stage": "final_output",
+          "status": "fail",
+          "lost": 28.21027989539477,
+          "added": 45.13714852595414
+        },
+        {
+          "stage": "mesher_ready_before_selection",
+          "status": "fail",
+          "lost": 28.21027989539477,
+          "added": 45.13714852595414
+        }
+      ]
+    },
+    {
+      "city": "norrkoping",
+      "bounds": [
+        569071.0,
+        6494509.3,
+        569571.0,
+        6495009.3
+      ],
+      "opening_preserved_input_count": 0,
+      "saved_geometry_and_source_maps_unchanged": true,
+      "cleaning_seconds_before": 1.1316408331040293,
+      "cleaning_seconds_after": 1.110940458951518,
+      "cleaning": {
+        "status": "fail",
+        "delta": 0.5,
+        "epsilon": 0.25,
+        "separation_tolerance": 5e-07,
+        "admissibility": {
+          "topology_ok": true,
+          "resolved": false,
+          "interior_overlap_pairs": 0,
+          "nonmanifold_boundary_vertices": 0,
+          "canonical_vertex_count": 717,
+          "subscale_pairs": 10,
+          "separation_capped_at_delta": 0.49029033784546006,
+          "closest_pair": [
+            [
+              569242.5625,
+              6494778.09375
+            ],
+            [
+              569242.4663461539,
+              6494778.574519231
+            ]
+          ]
+        },
+        "fidelity": {
+          "status": "fail",
+          "epsilon": 0.25,
+          "input_interpretation": {
+            "method": "GEOS make_valid; polygonal parts only",
+            "repaired_input_count": 0,
+            "nonarea_remnant_count": 0
+          },
+          "lost_protected_area": 2.7434225997616206,
+          "added_outside_budget_area": 6.496082492554172,
+          "buffer_uncertainty": 7.541801032550911e-05
+        }
+      },
+      "flat": {
+        "minimum": 0.08229211233374417,
+        "p01": 0.618923674081705,
+        "degenerate_count": 0,
+        "faces": 11290
+      },
+      "surface": {
+        "minimum": 0.08229211233374417,
+        "p01": 0.14822198654036384,
+        "degenerate_count": 0,
+        "faces": 38334
+      },
+      "stage_trace_before": [
+        {
+          "stage": "atomic_input",
+          "status": "pass",
+          "lost": 0.0,
+          "added": 0.0
+        },
+        {
+          "stage": "opened",
+          "status": "fail",
+          "lost": 0.6411873257340888,
+          "added": 4.699437312344758
+        },
+        {
+          "stage": "regularized_groups",
+          "status": "fail",
+          "lost": 0.03131167278574777,
+          "added": 4.699437312344758
+        },
+        {
+          "stage": "reconstructed",
+          "status": "fail",
+          "lost": 0.03131167278574777,
+          "added": 4.699437312344758
+        },
+        {
+          "stage": "presimplify",
+          "status": "fail",
+          "lost": 0.03131167278574777,
+          "added": 4.699437312344757
+        },
+        {
+          "stage": "local_defect_repaired",
+          "status": "fail",
+          "lost": 0.03131167278574777,
+          "added": 4.699437312344757
+        },
+        {
+          "stage": "coverage_simplified",
+          "status": "fail",
+          "lost": 2.6175274230564396,
+          "added": 6.472161329186466
+        },
+        {
+          "stage": "source_reclaimed",
+          "status": "fail",
+          "lost": 2.6175274230564396,
+          "added": 6.472161329186466
+        },
+        {
+          "stage": "boundary_regularized",
+          "status": "fail",
+          "lost": 2.6500111574316563,
+          "added": 6.479095919692698
+        },
+        {
+          "stage": "clearance_regularized",
+          "status": "fail",
+          "lost": 2.6500111574316563,
+          "added": 6.479095919692698
+        },
+        {
+          "stage": "source_coordinate_recovered",
+          "status": "fail",
+          "lost": 2.7434225997616206,
+          "added": 6.496082492554172
+        },
+        {
+          "stage": "post_recovery_regularized",
+          "status": "fail",
+          "lost": 2.7434225997616206,
+          "added": 6.496082492554172
+        },
+        {
+          "stage": "coverage_contact_regularized",
+          "status": "fail",
+          "lost": 2.7434225997616206,
+          "added": 6.496082492554172
+        },
+        {
+          "stage": "coverage_meshing_regularized",
+          "status": "fail",
+          "lost": 2.7434225997616206,
+          "added": 6.496082492554172
+        },
+        {
+          "stage": "final_output",
+          "status": "fail",
+          "lost": 2.7434225997616206,
+          "added": 6.496082492554172
+        },
+        {
+          "stage": "mesher_ready_before_selection",
+          "status": "fail",
+          "lost": 2.7434225997616206,
+          "added": 6.496082492554172
+        }
+      ]
+    }
+  ]
+}

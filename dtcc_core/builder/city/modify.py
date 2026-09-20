@@ -106,17 +106,22 @@ def merge_buildings(
         "legacy property and height merge strategies are no longer applied separately."
     )
     merged_city = deepcopy(city)
+    declared_scale = (
+        float(np.nextafter(max_distance, np.inf)) if max_distance > 0 else 0.0
+    )
     merged = _condition_buildings_with_shared_cleaner(
         city.buildings,
         lod=GeometryType.LOD0,
         options=ConditioningOptions(
             precision_grid=None,
-            min_feature_size=max(max_distance / 2.0, 1e-3) if simplify else 0.0,
+            min_feature_size=declared_scale,
             merge_distance=max_distance,
-            min_area=min_area,
             min_hole_area=0.0,
+            fidelity_tolerance=max_distance / 2.0 if max_distance > 0 else 0.0,
+            allow_source_merging=True,
         ),
         operation_name="merge_buildings",
+        min_area=min_area,
         return_index_map=False,
     )
     merged_city.replace_buildings(merged)

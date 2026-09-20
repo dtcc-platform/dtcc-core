@@ -1,10 +1,15 @@
 from ...model import Building, GeometryType, MultiSurface, Surface
 from ..polygons.polygons import split_polygon_sides
-from ..cleaning import ConditioningOptions, condition_building_footprints
+from ..cleaning import (
+    ConditioningOptions,
+    condition_building_footprints,
+    select_footprints,
+)
 
 from ..polygons.surface import clean_multisurface, clean_surface
 
 from ..register import register_model_method
+import numpy as np
 import shapely
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
@@ -220,6 +225,7 @@ def _condition_buildings_with_shared_cleaner(
     lod: GeometryType,
     options: ConditioningOptions,
     operation_name: str,
+    min_area: float = 0.0,
     return_index_map: bool = False,
 ) -> Union[List[Building], Tuple[List[Building], List[List[int]]]]:
     info(
@@ -230,6 +236,7 @@ def _condition_buildings_with_shared_cleaner(
         lod=lod,
         options=options,
     )
+    result = select_footprints(result, min_area=min_area)
     conditioned_buildings = _build_conditioned_buildings(
         buildings,
         result.polygons,
@@ -273,17 +280,22 @@ def merge_building_footprints(
     Union[List[Building], Tuple[List[Building], List[List[int]]]]
         Merged buildings, optionally paired with the index map.
     """
+    declared_scale = (
+        float(np.nextafter(max_distance, np.inf)) if max_distance > 0 else 0.0
+    )
     return _condition_buildings_with_shared_cleaner(
         buildings,
         lod=lod,
         options=ConditioningOptions(
             precision_grid=None,
-            min_feature_size=0.0,
+            min_feature_size=declared_scale,
             merge_distance=max_distance,
-            min_area=min_area,
             min_hole_area=0.0,
+            fidelity_tolerance=max_distance / 2.0 if max_distance > 0 else 0.0,
+            allow_source_merging=True,
         ),
         operation_name="merge_building_footprints",
+        min_area=min_area,
         return_index_map=return_index_map,
     )
 
@@ -360,7 +372,6 @@ def simplify_building_footprints(
             precision_grid=None,
             min_feature_size=tolerance,
             merge_distance=0.0,
-            min_area=0.0,
             min_hole_area=0.0,
         ),
         operation_name="simplify_building_footprints",
@@ -398,7 +409,6 @@ def clean_building_footprints(
             precision_grid=None,
             min_feature_size=clearance,
             merge_distance=0.0,
-            min_area=0.0,
             min_hole_area=smallest_hole_area,
         ),
         operation_name="clean_building_footprints",
@@ -439,7 +449,6 @@ def fix_building_footprint_clearance(
             precision_grid=None,
             min_feature_size=clearance,
             merge_distance=0.0,
-            min_area=0.0,
             min_hole_area=0.0,
         ),
         operation_name="fix_building_footprint_clearance",

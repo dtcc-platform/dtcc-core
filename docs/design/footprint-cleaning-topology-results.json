@@ -1,0 +1,187 @@
+{
+  "core_base": "1a106fc6c30c5355d91b325afbd10a6ed3ee5ccc",
+  "probe": "sandbox/cleaning_pipeline_probe.py",
+  "probe_sha256": "fd382790efe902ade7ec376e30760cc08d30a8cce126afe0251db17cef87f0fc",
+  "scope": "Finite occupancy search on explicitly supplied analytic partitions; no automatic carrier, source-wall preservation, city survey or production integration.",
+  "delta": 0.5,
+  "epsilon": 0.25,
+  "max_free_cells": 12,
+  "verification": {
+    "focused_tests_passed": 28,
+    "ordinary_cli": "passed",
+    "missing_output_cli_exit": 2
+  },
+  "examples": {
+    "point_contact": {
+      "outcome": "conforming",
+      "cells": 6,
+      "checked": 4,
+      "required": 2,
+      "forbidden": 2,
+      "free": 2,
+      "conflicting": 0,
+      "assignments": 4,
+      "reason": "contract_pass",
+      "contract": {
+        "status": "pass",
+        "delta": 0.5,
+        "epsilon": 0.25,
+        "separation_tolerance": 5e-07,
+        "admissibility": {
+          "topology_ok": true,
+          "resolved": true,
+          "interior_overlap_pairs": 0,
+          "nonmanifold_boundary_vertices": 0,
+          "canonical_vertex_count": 10,
+          "subscale_pairs": 0,
+          "separation_capped_at_delta": 0.5,
+          "closest_pair": null
+        },
+        "fidelity": {
+          "status": "pass",
+          "epsilon": 0.25,
+          "input_interpretation": {
+            "method": "GEOS make_valid; polygonal parts only",
+            "repaired_input_count": 0,
+            "nonarea_remnant_count": 0
+          },
+          "lost_protected_area": 0.0,
+          "added_outside_budget_area": 0.0,
+          "buffer_uncertainty": 7.541801032550911e-05
+        }
+      },
+      "changed_area": 0.15999999999999992
+    },
+    "near_buildings": {
+      "outcome": "conforming",
+      "cells": 3,
+      "checked": 2,
+      "required": 2,
+      "forbidden": 0,
+      "free": 1,
+      "conflicting": 0,
+      "assignments": 2,
+      "reason": "contract_pass",
+      "contract": {
+        "status": "pass",
+        "delta": 0.5,
+        "epsilon": 0.25,
+        "separation_tolerance": 5e-07,
+        "admissibility": {
+          "topology_ok": true,
+          "resolved": true,
+          "interior_overlap_pairs": 0,
+          "nonmanifold_boundary_vertices": 0,
+          "canonical_vertex_count": 4,
+          "subscale_pairs": 0,
+          "separation_capped_at_delta": 0.5,
+          "closest_pair": null
+        },
+        "fidelity": {
+          "status": "pass",
+          "epsilon": 0.25,
+          "input_interpretation": {
+            "method": "GEOS make_valid; polygonal parts only",
+            "repaired_input_count": 0,
+            "nonarea_remnant_count": 0
+          },
+          "lost_protected_area": 0.0,
+          "added_outside_budget_area": 0.0,
+          "buffer_uncertainty": 7.541801032550911e-05
+        }
+      },
+      "changed_area": 1.1999999999999957
+    },
+    "courtyard_passage": {
+      "outcome": "conforming",
+      "cells": 3,
+      "checked": 2,
+      "required": 1,
+      "forbidden": 1,
+      "free": 1,
+      "conflicting": 0,
+      "assignments": 2,
+      "reason": "contract_pass",
+      "contract": {
+        "status": "pass",
+        "delta": 0.5,
+        "epsilon": 0.25,
+        "separation_tolerance": 5e-07,
+        "admissibility": {
+          "topology_ok": true,
+          "resolved": true,
+          "interior_overlap_pairs": 0,
+          "nonmanifold_boundary_vertices": 0,
+          "canonical_vertex_count": 8,
+          "subscale_pairs": 0,
+          "separation_capped_at_delta": 0.5,
+          "closest_pair": null
+        },
+        "fidelity": {
+          "status": "pass",
+          "epsilon": 0.25,
+          "input_interpretation": {
+            "method": "GEOS make_valid; polygonal parts only",
+            "repaired_input_count": 0,
+            "nonarea_remnant_count": 0
+          },
+          "lost_protected_area": 0.0,
+          "added_outside_budget_area": 0.0,
+          "buffer_uncertainty": 7.541801032550911e-05
+        }
+      },
+      "changed_area": 0.5999999999999979
+    },
+    "tiny_hole": {
+      "outcome": "conforming",
+      "cells": 2,
+      "checked": 2,
+      "required": 1,
+      "forbidden": 0,
+      "free": 1,
+      "conflicting": 0,
+      "assignments": 2,
+      "reason": "contract_pass",
+      "contract": {
+        "status": "pass",
+        "delta": 0.5,
+        "epsilon": 0.25,
+        "separation_tolerance": 5e-07,
+        "admissibility": {
+          "topology_ok": true,
+          "resolved": true,
+          "interior_overlap_pairs": 0,
+          "nonmanifold_boundary_vertices": 0,
+          "canonical_vertex_count": 4,
+          "subscale_pairs": 0,
+          "separation_capped_at_delta": 0.5,
+          "closest_pair": null
+        },
+        "fidelity": {
+          "status": "pass",
+          "epsilon": 0.25,
+          "input_interpretation": {
+            "method": "GEOS make_valid; polygonal parts only",
+            "repaired_input_count": 0,
+            "nonarea_remnant_count": 0
+          },
+          "lost_protected_area": 0.0,
+          "added_outside_budget_area": 0.0,
+          "buffer_uncertainty": 7.541801032550911e-05
+        }
+      },
+      "changed_area": 0.039999999999999716
+    },
+    "point_contact_without_candidate_cuts": {
+      "outcome": "unresolved",
+      "cells": 4,
+      "checked": 1,
+      "required": 2,
+      "forbidden": 2,
+      "free": 0,
+      "conflicting": 0,
+      "assignments": 1,
+      "reason": "carrier_search_exhausted"
+    }
+  }
+}

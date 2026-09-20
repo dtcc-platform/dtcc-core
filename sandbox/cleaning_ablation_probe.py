@@ -88,7 +88,6 @@ VARIANTS: tuple[Variant, ...] = (
         description="Skip all post-coverage refinement stages after branch selection.",
         patches=(
             ("_reclaim_source_supported_area", _identity_stage),
-            ("_absorb_small_supported_components", _identity_stage),
             ("_simplify_polygons_for_meshing", _identity_stage),
             ("_regularize_low_clearance_polygons", _identity_stage),
             ("_recover_source_supported_coordinates", _identity_stage),
@@ -205,13 +204,16 @@ def main() -> int:
                         precision_grid=None,
                         min_feature_size=args.min_building_detail,
                         merge_distance=args.merge_tolerance,
-                        min_area=args.min_building_area,
                         min_hole_area=args.min_building_detail**2,
                         collect_stage_metrics=False,
                         enable_logging=False,
                     ),
                 )
                 conditioning_seconds = time.perf_counter() - t0
+                conditioning_result = cleaning.select_footprints(
+                    conditioning_result,
+                    min_area=args.min_building_area,
+                )
 
                 t0 = time.perf_counter()
                 mesh = build_mesh_from_conditioned_footprints(

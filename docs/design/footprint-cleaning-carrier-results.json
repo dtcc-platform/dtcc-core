@@ -1,0 +1,284 @@
+{
+  "core_base": "1a106fc6c30c5355d91b325afbd10a6ed3ee5ccc",
+  "probe": "sandbox/cleaning_pipeline_probe.py",
+  "probe_sha256": "1b25d27ec2a3bcf1679091e0d193988ccadff2bd5a89098f0be936425c851254",
+  "source_run": "benchmarks/runs/2026-09-17_100049_quick",
+  "crs": "EPSG:3006",
+  "delta": 0.5,
+  "epsilon": 0.25,
+  "construction": "Original interaction group; local boundary samples spaced epsilon/2; all chords within 2*epsilon+delta covered by strict original free band; node and polygonize with original and convex-hull boundaries.",
+  "scope": "Occupancy only with merging permission. Analytic witnesses test representation, not automatic solution. No city search, cleaned-city output, mesh comparison or production change.",
+  "caps": {
+    "sites": 2000,
+    "chords": 2000,
+    "cells": 20000,
+    "oracle_free_cells": 12
+  },
+  "group_outcomes": {
+    "input_partition": 252,
+    "site_limit": 29,
+    "chord_limit": 204,
+    "invalid_carrier": 37,
+    "cell_limit": 16
+  },
+  "total_groups": 538,
+  "construction_classification_seconds": 44.98819117387757,
+  "timing_scope": "Sum of per-group measurements; excludes saved-input loading and grouping. Single run, not cleaner comparison.",
+  "automatic_examples": {
+    "point_contact": {
+      "sites": 127,
+      "chords": 290,
+      "cells": 2414,
+      "free_cells": 2410,
+      "original_reconstruction_difference_area": 0.0,
+      "witness_reconstruction_difference_area": 0.0,
+      "witness_contract_status": "pass",
+      "lost_protected_area": 0.0,
+      "added_outside_budget_area": 0.0
+    },
+    "near_buildings": {
+      "sites": 136,
+      "chords": 568,
+      "cells": 10969,
+      "free_cells": 10967,
+      "original_reconstruction_difference_area": 0.0,
+      "witness_reconstruction_difference_area": 0.0,
+      "witness_contract_status": "pass",
+      "lost_protected_area": 0.0,
+      "added_outside_budget_area": 0.0
+    },
+    "courtyard_passage": {
+      "sites": 204,
+      "chords": 692,
+      "cells": 12165,
+      "free_cells": 12163,
+      "original_reconstruction_difference_area": 0.0,
+      "witness_reconstruction_difference_area": 0.0,
+      "witness_contract_status": "pass",
+      "lost_protected_area": 0.0,
+      "added_outside_budget_area": 0.0
+    },
+    "tiny_hole": {
+      "sites": 80,
+      "chords": 158,
+      "cells": 1337,
+      "free_cells": 1336,
+      "original_reconstruction_difference_area": 0.0,
+      "witness_reconstruction_difference_area": 0.0,
+      "witness_contract_status": "pass",
+      "lost_protected_area": 0.0,
+      "added_outside_budget_area": 0.0
+    }
+  },
+  "invalid_partition_example": {
+    "city": "lund",
+    "group_index": 23,
+    "construction": {
+      "initially_resolved": false,
+      "sites": 235,
+      "chords": 1830,
+      "reason": "constructed",
+      "cells": 8002
+    },
+    "invalid_cells": 26,
+    "examples": [
+      {
+        "reason": "Self-intersection[386195.820008236 6174688.07260276]",
+        "area": 2.6350043566374104e-12,
+        "geometry": "POLYGON ((386195.7991287303 6174687.966450354, 386195.8232531974 6174688.089100304, 386195.81119096384 6174688.027775329, 386195.7991287303 6174687.966450354), (386195.81997489254 6174688.072433244, 386195.7991287303 6174687.966450354, 386195.8208651926 6174688.076959573, 386195.81997489254 6174688.072433244))"
+      },
+      {
+        "reason": "Self-intersection[386201.902144671 6174680.47198935]",
+        "area": 6.660462058185462e-12,
+        "geometry": "POLYGON ((386201.8769184705 6174680.477809444, 386201.90245698026 6174680.471917295, 386201.90510138846 6174680.471307186, 386201.8769184705 6174680.477809444), (386201.903333591 6174680.471715046, 386201.90245698026 6174680.471917295, 386201.9021100958 6174680.471997326, 386201.903333591 6174680.471715046))"
+      }
+    ]
+  },
+  "cities": [
+    {
+      "city": "lund",
+      "case_id": "city_grid:lund:056",
+      "bounds": [
+        386075.0,
+        6174447.0,
+        386575.0,
+        6174947.0
+      ],
+      "groups": 85,
+      "outcomes": {
+        "input_partition": 41,
+        "site_limit": 10,
+        "chord_limit": 25,
+        "invalid_carrier": 7,
+        "cell_limit": 2
+      },
+      "seconds": 5.675623461836949
+    },
+    {
+      "city": "stockholm",
+      "case_id": "city_grid:stockholm:056",
+      "bounds": [
+        674321.9,
+        6580493.0,
+        674821.9,
+        6580993.0
+      ],
+      "groups": 24,
+      "outcomes": {
+        "invalid_carrier": 1,
+        "input_partition": 11,
+        "chord_limit": 12
+      },
+      "seconds": 1.2663406673818827
+    },
+    {
+      "city": "gothenburg",
+      "case_id": "city_grid:gothenburg:056",
+      "bounds": [
+        319508.0,
+        6400076.0,
+        320008.0,
+        6400576.0
+      ],
+      "groups": 49,
+      "outcomes": {
+        "chord_limit": 16,
+        "input_partition": 27,
+        "site_limit": 1,
+        "invalid_carrier": 3,
+        "cell_limit": 2
+      },
+      "seconds": 3.412826588843018
+    },
+    {
+      "city": "malmo",
+      "case_id": "city_grid:malmo:056",
+      "bounds": [
+        373993.8,
+        6163676.6,
+        374493.8,
+        6164176.6
+      ],
+      "groups": 31,
+      "outcomes": {
+        "site_limit": 2,
+        "input_partition": 18,
+        "chord_limit": 10,
+        "cell_limit": 1
+      },
+      "seconds": 1.8436158339027315
+    },
+    {
+      "city": "uppsala",
+      "case_id": "city_grid:uppsala:056",
+      "bounds": [
+        647543.5,
+        6638358.1,
+        648043.5,
+        6638858.1
+      ],
+      "groups": 47,
+      "outcomes": {
+        "chord_limit": 25,
+        "site_limit": 3,
+        "input_partition": 12,
+        "invalid_carrier": 4,
+        "cell_limit": 3
+      },
+      "seconds": 6.155846833018586
+    },
+    {
+      "city": "linkoping",
+      "case_id": "city_grid:linkoping:056",
+      "bounds": [
+        536058.5,
+        6474365.0,
+        536558.5,
+        6474865.0
+      ],
+      "groups": 93,
+      "outcomes": {
+        "chord_limit": 38,
+        "input_partition": 38,
+        "site_limit": 4,
+        "cell_limit": 2,
+        "invalid_carrier": 11
+      },
+      "seconds": 9.336260245880112
+    },
+    {
+      "city": "orebro",
+      "case_id": "city_grid:orebro:056",
+      "bounds": [
+        511912.3,
+        6570477.0,
+        512412.3,
+        6570977.0
+      ],
+      "groups": 37,
+      "outcomes": {
+        "site_limit": 3,
+        "input_partition": 15,
+        "chord_limit": 12,
+        "cell_limit": 5,
+        "invalid_carrier": 2
+      },
+      "seconds": 6.995769580360502
+    },
+    {
+      "city": "vasteras",
+      "case_id": "city_grid:vasteras:056",
+      "bounds": [
+        586922.6,
+        6608731.7,
+        587422.6,
+        6609231.7
+      ],
+      "groups": 46,
+      "outcomes": {
+        "input_partition": 22,
+        "chord_limit": 20,
+        "invalid_carrier": 4
+      },
+      "seconds": 3.6975857485085726
+    },
+    {
+      "city": "helsingborg",
+      "case_id": "city_grid:helsingborg:056",
+      "bounds": [
+        356148.3,
+        6213402.0,
+        356648.3,
+        6213902.0
+      ],
+      "groups": 75,
+      "outcomes": {
+        "input_partition": 39,
+        "site_limit": 5,
+        "chord_limit": 27,
+        "invalid_carrier": 3,
+        "cell_limit": 1
+      },
+      "seconds": 4.567740667844191
+    },
+    {
+      "city": "norrkoping",
+      "case_id": "city_grid:norrkoping:056",
+      "bounds": [
+        569071.0,
+        6494509.3,
+        569571.0,
+        6495009.3
+      ],
+      "groups": 51,
+      "outcomes": {
+        "chord_limit": 19,
+        "site_limit": 1,
+        "input_partition": 29,
+        "invalid_carrier": 2
+      },
+      "seconds": 2.036581546301022
+    }
+  ],
+  "decision": "Reject eager all-chord arrangements for production. Keep route alternatives separate and test joint boundary selection before forming regions; do not raise caps or add invalid-cell repair."
+}

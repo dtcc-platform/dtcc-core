@@ -1,0 +1,2169 @@
+{
+  "scope": "Independent review of staged prototype; original implementation and result files left unchanged. Temporary instrumentation captures outputs for mesh checks and measures local/global score differences.",
+  "date": "2026-09-19",
+  "platform": "macOS-26.6.2-arm64-arm-64bit",
+  "reviewed_commit": "3fc14c2",
+  "source_hashes": {
+    "sandbox/cleaning_staged_probe.py": "1819ecdf045c76447bac7ab4efbb2205e3b8f4a1c6ed2b6f29b113049ac4dc94",
+    "dtcc_core/builder/cleaning/contract.py": "98a40b0a511c577e6d439f2394c8192190a0abd6706f2a55d3f68c8ec7bdef8a",
+    "sandbox/cleaning_graph_prototype.py": "1e385849772a77eb93be8736039b16a3cf3833d1ef183dc3ab42eeaf09c2586b",
+    "sandbox/cleaning_pipeline_probe.py": "e4dfbbf97fbed0a17241aa041dcff530a687af296248f8619696604b117d44e8"
+  },
+  "recorded_source_hashes_match": true,
+  "replay": {
+    "groups": 538,
+    "passing": 536,
+    "group_seconds": 93.86876399999994,
+    "recorded_group_seconds": 92.596765,
+    "all_non_timing_fields_match": true,
+    "city_contracts": [
+      {
+        "city": "lund",
+        "status": "pass"
+      },
+      {
+        "city": "stockholm",
+        "status": "pass"
+      },
+      {
+        "city": "uppsala",
+        "status": "pass"
+      },
+      {
+        "city": "linkoping",
+        "status": "pass"
+      },
+      {
+        "city": "orebro",
+        "status": "pass"
+      },
+      {
+        "city": "vasteras",
+        "status": "pass"
+      },
+      {
+        "city": "helsingborg",
+        "status": "pass"
+      },
+      {
+        "city": "norrkoping",
+        "status": "pass"
+      }
+    ]
+  },
+  "meshing": {
+    "scope": "Pinned dtcc-mesher direct flat coverage including 10 m surrounding ground; min_angle=20, max_edge_length=10. Not production surface/terrain/source-attribution integration.",
+    "native_hashes": {
+      "_core.cpython-311-darwin.so": "c57e89fa4466fb4caf7d1d876fb1cf930337066993eaaec3d923d13a7aa60548"
+    },
+    "cities": [
+      {
+        "case": "helsingborg",
+        "seconds": 0.8805937089491636,
+        "domain_bounds": [
+          356141.275,
+          6213400.857773228,
+          356644.6803815101,
+          6213907.461
+        ],
+        "output_sha256": "760d9b7a8c17bda901f82fe48d6283eba4b18591bdeb0d7879fa2e51115e99a0",
+        "mesher_summary": {
+          "point_count": 7367,
+          "input_point_count": 4715,
+          "steiner_point_count": 2652,
+          "segment_split_point_count": 636,
+          "triangle_split_point_count": 2016,
+          "protected_corner_count": 5,
+          "exempt_triangle_count": 10,
+          "triangle_count": 14476,
+          "area_min": 0.10258000320139457,
+          "area_mean": 17.617214054134955,
+          "area_max": 77.85519740145958,
+          "min_angle_deg_min": 20.006301432828828,
+          "min_angle_deg_mean": 40.402243551011594,
+          "min_angle_deg_max": 59.99999999945784,
+          "edge_ratio_min": 1.0000000000081948,
+          "edge_ratio_mean": 1.608892928460248,
+          "edge_ratio_max": 2.9206731420697,
+          "radius_edge_ratio_min": 0.57735026919278,
+          "radius_edge_ratio_mean": 0.8422312082006903,
+          "radius_edge_ratio_max": 1.4614605999147006,
+          "count_min_angle_lt_20": 0,
+          "count_min_angle_lt_30": 3361
+        },
+        "metrics": {
+          "num_vertices": 7367,
+          "num_faces": 14476,
+          "num_cells": 0,
+          "marker_histogram": {
+            "-1": 8642,
+            "1": 347,
+            "2": 106,
+            "9": 176,
+            "10": 140,
+            "11": 107,
+            "15": 25,
+            "16": 92,
+            "17": 263,
+            "24": 213,
+            "25": 367,
+            "28": 95,
+            "29": 650,
+            "31": 104,
+            "37": 142,
+            "39": 154,
+            "44": 280,
+            "45": 189,
+            "47": 65,
+            "48": 48,
+            "50": 67,
+            "51": 101,
+            "53": 55,
+            "54": 81,
+            "55": 41,
+            "56": 263,
+            "57": 391,
+            "58": 125,
+            "64": 44,
+            "67": 82,
+            "68": 25,
+            "69": 21,
+            "71": 46,
+            "72": 121,
+            "76": 248,
+            "77": 124,
+            "18": 2,
+            "35": 2,
+            "52": 5,
+            "70": 24,
+            "38": 2,
+            "66": 6,
+            "23": 27,
+            "8": 2,
+            "75": 68,
+            "0": 4,
+            "32": 2,
+            "6": 2,
+            "74": 65,
+            "36": 2,
+            "4": 2,
+            "63": 6,
+            "3": 3,
+            "34": 4,
+            "65": 8,
+            "7": 8,
+            "12": 2,
+            "22": 2,
+            "73": 55,
+            "30": 2,
+            "43": 27,
+            "41": 4,
+            "33": 5,
+            "46": 12,
+            "49": 4,
+            "20": 5,
+            "27": 8,
+            "13": 5,
+            "14": 13,
+            "40": 2,
+            "21": 4,
+            "19": 4,
+            "60": 8,
+            "42": 4,
+            "26": 2,
+            "5": 4,
+            "62": 6,
+            "61": 6,
+            "59": 8
+          },
+          "boundary_marker_histogram": {},
+          "building_faces": 5834,
+          "quality": {
+            "num_cells": 14476,
+            "element_quality": {
+              "min": 0.41628142216236774,
+              "max": 1.0,
+              "mean": 0.838223540276554
+            },
+            "aspect_ratio": {
+              "min": 1.0000000000027316,
+              "max": 3.1627241243314628,
+              "mean": 1.4060751404411886
+            },
+            "radius_ratio": {
+              "min": 1.0,
+              "max": 4.1425049230440685,
+              "mean": 1.2809493955179776
+            },
+            "edge_ratio": {
+              "min": 1.0000000000081948,
+              "max": 2.9206731420696994,
+              "mean": 1.6088929284602438
+            },
+            "skewness": {
+              "min": 1.1102230246251565e-16,
+              "max": 0.8728938116446374,
+              "mean": 0.22867146784141895
+            }
+          },
+          "degenerate_cell_count": 0,
+          "element_quality_p01": 0.5356586423419902,
+          "element_quality_below_0_02_count": 0
+        }
+      },
+      {
+        "case": "linkoping",
+        "seconds": 1.0473130829632282,
+        "domain_bounds": [
+          536055.584,
+          6474362.817,
+          536560.8404999999,
+          6474872.054
+        ],
+        "output_sha256": "e2e0a8c5099b2e25cb0187f29e3df976c278624c1f74d4b026ed96a8735839e4",
+        "mesher_summary": {
+          "point_count": 7756,
+          "input_point_count": 4695,
+          "steiner_point_count": 3061,
+          "segment_split_point_count": 966,
+          "triangle_split_point_count": 2095,
+          "protected_corner_count": 8,
+          "exempt_triangle_count": 16,
+          "triangle_count": 15254,
+          "area_min": 0.039093668246688563,
+          "area_mean": 16.867398996349532,
+          "area_max": 82.02653291457561,
+          "min_angle_deg_min": 20.000164413758338,
+          "min_angle_deg_mean": 39.12592005907539,
+          "min_angle_deg_max": 59.99999999945784,
+          "edge_ratio_min": 1.0000000000081948,
+          "edge_ratio_mean": 1.6496743427173883,
+          "edge_ratio_max": 2.9229658455167247,
+          "radius_edge_ratio_min": 0.57735026919278,
+          "radius_edge_ratio_mean": 0.85954473301322,
+          "radius_edge_ratio_max": 1.4618906744607876,
+          "count_min_angle_lt_20": 0,
+          "count_min_angle_lt_30": 3807
+        },
+        "metrics": {
+          "num_vertices": 7756,
+          "num_faces": 15254,
+          "num_cells": 0,
+          "marker_histogram": {
+            "-1": 8694,
+            "0": 42,
+            "17": 107,
+            "21": 83,
+            "22": 99,
+            "24": 100,
+            "27": 321,
+            "28": 392,
+            "29": 45,
+            "30": 380,
+            "32": 153,
+            "33": 53,
+            "35": 292,
+            "36": 163,
+            "39": 20,
+            "40": 215,
+            "42": 12,
+            "44": 124,
+            "47": 242,
+            "54": 276,
+            "55": 147,
+            "60": 275,
+            "61": 47,
+            "66": 74,
+            "67": 124,
+            "68": 80,
+            "70": 40,
+            "71": 74,
+            "72": 51,
+            "73": 22,
+            "74": 64,
+            "75": 25,
+            "76": 110,
+            "77": 150,
+            "78": 207,
+            "79": 33,
+            "81": 50,
+            "82": 138,
+            "83": 61,
+            "85": 49,
+            "88": 53,
+            "89": 53,
+            "91": 107,
+            "92": 71,
+            "93": 177,
+            "94": 64,
+            "95": 98,
+            "96": 117,
+            "97": 77,
+            "98": 35,
+            "10": 2,
+            "16": 2,
+            "26": 2,
+            "9": 2,
+            "2": 2,
+            "56": 16,
+            "20": 4,
+            "62": 8,
+            "80": 43,
+            "5": 39,
+            "15": 2,
+            "8": 10,
+            "6": 6,
+            "48": 13,
+            "7": 4,
+            "23": 2,
+            "53": 10,
+            "45": 13,
+            "51": 7,
+            "59": 11,
+            "84": 71,
+            "31": 2,
+            "69": 16,
+            "12": 10,
+            "49": 8,
+            "57": 5,
+            "13": 10,
+            "52": 5,
+            "18": 3,
+            "3": 2,
+            "46": 13,
+            "64": 15,
+            "14": 3,
+            "65": 13,
+            "90": 77,
+            "4": 2,
+            "63": 18,
+            "25": 76,
+            "11": 2,
+            "50": 23,
+            "41": 4,
+            "43": 18,
+            "58": 24,
+            "19": 2,
+            "38": 7,
+            "34": 5,
+            "1": 5,
+            "87": 68,
+            "86": 54,
+            "37": 9
+          },
+          "boundary_marker_histogram": {},
+          "building_faces": 6560,
+          "quality": {
+            "num_cells": 15254,
+            "element_quality": {
+              "min": 0.4025061495350308,
+              "max": 1.0,
+              "mean": 0.8276776545848904
+            },
+            "aspect_ratio": {
+              "min": 1.0000000000027316,
+              "max": 3.2742886134531792,
+              "mean": 1.4312432132402182
+            },
+            "radius_ratio": {
+              "min": 1.0,
+              "max": 4.411406942560905,
+              "mean": 1.297204738210122
+            },
+            "edge_ratio": {
+              "min": 1.0000000000081948,
+              "max": 2.9229658455167247,
+              "mean": 1.6496743427173886
+            },
+            "skewness": {
+              "min": 1.1102230246251565e-16,
+              "max": 0.8842319309781026,
+              "mean": 0.24361164767348517
+            }
+          },
+          "degenerate_cell_count": 0,
+          "element_quality_p01": 0.5410679796469752,
+          "element_quality_below_0_02_count": 0
+        }
+      },
+      {
+        "case": "lund",
+        "seconds": 2.1220166659913957,
+        "domain_bounds": [
+          386067.984,
+          6174439.244,
+          386579.468,
+          6174954.076
+        ],
+        "output_sha256": "c7a4d409795daf040e8d0cd3ba45d85b0e0ec85b7c1f5c7e4e94db157a4573fc",
+        "mesher_summary": {
+          "point_count": 10282,
+          "input_point_count": 5569,
+          "steiner_point_count": 4713,
+          "segment_split_point_count": 1527,
+          "triangle_split_point_count": 3186,
+          "protected_corner_count": 32,
+          "exempt_triangle_count": 95,
+          "triangle_count": 20306,
+          "area_min": 0.0009881525703506716,
+          "area_mean": 12.96800604196813,
+          "area_max": 78.99482971222109,
+          "min_angle_deg_min": 2.2020201327326667,
+          "min_angle_deg_mean": 38.44343623629168,
+          "min_angle_deg_max": 59.99999999945784,
+          "edge_ratio_min": 1.0000000000081948,
+          "edge_ratio_mean": 1.6817256778250753,
+          "edge_ratio_max": 26.02123099378647,
+          "radius_edge_ratio_min": 0.57735026919278,
+          "radius_edge_ratio_mean": 0.8747908215042742,
+          "radius_edge_ratio_max": 13.013025164748703,
+          "count_min_angle_lt_20": 21,
+          "count_min_angle_lt_30": 5257
+        },
+        "metrics": {
+          "num_vertices": 10282,
+          "num_faces": 20306,
+          "num_cells": 0,
+          "marker_histogram": {
+            "-1": 11265,
+            "46": 429,
+            "1": 834,
+            "6": 821,
+            "10": 345,
+            "11": 208,
+            "17": 62,
+            "19": 966,
+            "22": 765,
+            "24": 596,
+            "30": 601,
+            "36": 38,
+            "38": 147,
+            "40": 455,
+            "43": 384,
+            "48": 42,
+            "62": 222,
+            "64": 108,
+            "74": 48,
+            "85": 91,
+            "89": 89,
+            "90": 127,
+            "91": 297,
+            "52": 2,
+            "33": 42,
+            "59": 4,
+            "55": 4,
+            "49": 2,
+            "68": 5,
+            "56": 2,
+            "9": 58,
+            "71": 42,
+            "26": 2,
+            "31": 2,
+            "5": 25,
+            "54": 4,
+            "70": 15,
+            "2": 2,
+            "45": 2,
+            "41": 2,
+            "35": 2,
+            "88": 27,
+            "80": 38,
+            "29": 14,
+            "61": 48,
+            "42": 22,
+            "78": 34,
+            "66": 32,
+            "34": 83,
+            "47": 2,
+            "39": 2,
+            "16": 27,
+            "60": 2,
+            "58": 6,
+            "12": 2,
+            "15": 2,
+            "72": 43,
+            "76": 18,
+            "25": 2,
+            "81": 49,
+            "67": 7,
+            "73": 2,
+            "77": 71,
+            "79": 38,
+            "13": 2,
+            "84": 25,
+            "20": 10,
+            "83": 25,
+            "27": 3,
+            "65": 13,
+            "69": 8,
+            "50": 2,
+            "3": 2,
+            "37": 2,
+            "14": 8,
+            "28": 2,
+            "18": 7,
+            "57": 5,
+            "86": 60,
+            "0": 2,
+            "21": 8,
+            "7": 86,
+            "8": 179,
+            "75": 22,
+            "87": 32,
+            "32": 2,
+            "53": 2,
+            "82": 42,
+            "44": 4,
+            "63": 7,
+            "4": 3,
+            "51": 2,
+            "23": 13
+          },
+          "boundary_marker_histogram": {},
+          "building_faces": 9041,
+          "quality": {
+            "num_cells": 20306,
+            "element_quality": {
+              "min": 0.06650140664291032,
+              "max": 1.0,
+              "mean": 0.8217134930425135
+            },
+            "aspect_ratio": {
+              "min": 1.0000000000027316,
+              "max": 15.326423651606214,
+              "mean": 1.4496640718015577
+            },
+            "radius_ratio": {
+              "min": 1.0,
+              "max": 13.275530508351238,
+              "mean": 1.3117025550207622
+            },
+            "edge_ratio": {
+              "min": 1.0000000000081948,
+              "max": 26.02123099378647,
+              "mean": 1.6817256778250722
+            },
+            "skewness": {
+              "min": 1.1102230246251565e-16,
+              "max": 0.9409531632645576,
+              "mean": 0.25073677582744375
+            }
+          },
+          "degenerate_cell_count": 0,
+          "element_quality_p01": 0.5339944478178199,
+          "element_quality_below_0_02_count": 0
+        }
+      },
+      {
+        "case": "norrkoping",
+        "seconds": 0.36808470799587667,
+        "domain_bounds": [
+          569068.0459999181,
+          6494502.58,
+          569570.338,
+          6495016.261
+        ],
+        "output_sha256": "ea6210f129daeb1e33362540923cff869a1de923b01559b7f219119175ff2626",
+        "mesher_summary": {
+          "point_count": 5190,
+          "input_point_count": 3882,
+          "steiner_point_count": 1308,
+          "segment_split_point_count": 427,
+          "triangle_split_point_count": 881,
+          "protected_corner_count": 5,
+          "exempt_triangle_count": 10,
+          "triangle_count": 10122,
+          "area_min": 0.03897480547593728,
+          "area_mean": 25.4907979543549,
+          "area_max": 83.67647452617577,
+          "min_angle_deg_min": 20.001767315023624,
+          "min_angle_deg_mean": 43.20935132387059,
+          "min_angle_deg_max": 59.99999999945784,
+          "edge_ratio_min": 1.0000000000081948,
+          "edge_ratio_mean": 1.515651487966215,
+          "edge_ratio_max": 2.919187654615953,
+          "radius_edge_ratio_min": 0.57735026919278,
+          "radius_edge_ratio_mean": 0.798048378699173,
+          "radius_edge_ratio_max": 1.4617783191258886,
+          "count_min_angle_lt_20": 0,
+          "count_min_angle_lt_30": 1853
+        },
+        "metrics": {
+          "num_vertices": 5190,
+          "num_faces": 10122,
+          "num_cells": 0,
+          "marker_histogram": {
+            "-1": 6162,
+            "0": 83,
+            "1": 65,
+            "2": 84,
+            "3": 609,
+            "8": 292,
+            "9": 191,
+            "11": 152,
+            "25": 12,
+            "28": 131,
+            "30": 86,
+            "32": 53,
+            "37": 122,
+            "38": 161,
+            "40": 40,
+            "41": 161,
+            "42": 42,
+            "43": 178,
+            "44": 174,
+            "45": 67,
+            "46": 250,
+            "47": 310,
+            "48": 30,
+            "49": 136,
+            "50": 83,
+            "51": 349,
+            "5": 4,
+            "33": 14,
+            "29": 2,
+            "20": 4,
+            "34": 4,
+            "7": 4,
+            "31": 3,
+            "13": 2,
+            "39": 7,
+            "23": 2,
+            "17": 2,
+            "12": 4,
+            "22": 2,
+            "26": 2,
+            "16": 2,
+            "18": 4,
+            "35": 10,
+            "6": 4,
+            "15": 2,
+            "10": 2,
+            "14": 2,
+            "21": 2,
+            "19": 2,
+            "24": 5,
+            "36": 4,
+            "4": 2,
+            "27": 2
+          },
+          "boundary_marker_histogram": {},
+          "building_faces": 3960,
+          "quality": {
+            "num_cells": 10122,
+            "element_quality": {
+              "min": 0.407296296718501,
+              "max": 1.0,
+              "mean": 0.8649674014058091
+            },
+            "aspect_ratio": {
+              "min": 1.0000000000027316,
+              "max": 3.2347461676097495,
+              "mean": 1.340846802488452
+            },
+            "radius_ratio": {
+              "min": 1.0,
+              "max": 4.315284562073504,
+              "mean": 1.2287236488076159
+            },
+            "edge_ratio": {
+              "min": 1.0000000000081948,
+              "max": 2.919187654615953,
+              "mean": 1.5156514879662006
+            },
+            "skewness": {
+              "min": 1.1102230246251565e-16,
+              "max": 0.8803836925746156,
+              "mean": 0.19208609084324865
+            }
+          },
+          "degenerate_cell_count": 0,
+          "element_quality_p01": 0.5551969155580413,
+          "element_quality_below_0_02_count": 0
+        }
+      },
+      {
+        "case": "orebro",
+        "seconds": 0.506410667207092,
+        "domain_bounds": [
+          511918.201,
+          6570473.691,
+          512411.407,
+          6570984.652
+        ],
+        "output_sha256": "93cd823a6e0e98ab7b7e65244a28ccfb4611b1d9986a8e1b501e5779afd435af",
+        "mesher_summary": {
+          "point_count": 6015,
+          "input_point_count": 4069,
+          "steiner_point_count": 1946,
+          "segment_split_point_count": 493,
+          "triangle_split_point_count": 1453,
+          "protected_corner_count": 5,
+          "exempt_triangle_count": 10,
+          "triangle_count": 11772,
+          "area_min": 0.04535898045360057,
+          "area_mean": 21.407494985224712,
+          "area_max": 92.98589122843825,
+          "min_angle_deg_min": 20.002653051319484,
+          "min_angle_deg_mean": 42.53315877221744,
+          "min_angle_deg_max": 59.99999999945784,
+          "edge_ratio_min": 1.0000000000081948,
+          "edge_ratio_mean": 1.5391407145901097,
+          "edge_ratio_max": 2.9112106172845165,
+          "radius_edge_ratio_min": 0.57735026919278,
+          "radius_edge_ratio_mean": 0.8117431056546612,
+          "radius_edge_ratio_max": 1.4617162413552285,
+          "count_min_angle_lt_20": 0,
+          "count_min_angle_lt_30": 2415
+        },
+        "metrics": {
+          "num_vertices": 6015,
+          "num_faces": 11772,
+          "num_cells": 0,
+          "marker_histogram": {
+            "-1": 7492,
+            "26": 27,
+            "1": 457,
+            "3": 205,
+            "4": 729,
+            "5": 387,
+            "11": 171,
+            "15": 14,
+            "17": 104,
+            "20": 388,
+            "21": 178,
+            "24": 31,
+            "29": 124,
+            "30": 244,
+            "31": 50,
+            "33": 31,
+            "34": 299,
+            "37": 200,
+            "38": 78,
+            "39": 140,
+            "40": 257,
+            "7": 2,
+            "18": 5,
+            "27": 6,
+            "25": 8,
+            "12": 4,
+            "8": 2,
+            "9": 10,
+            "28": 12,
+            "2": 2,
+            "36": 3,
+            "6": 2,
+            "23": 9,
+            "13": 25,
+            "14": 20,
+            "32": 11,
+            "22": 9,
+            "35": 25,
+            "19": 4,
+            "0": 3,
+            "10": 2,
+            "16": 2
+          },
+          "boundary_marker_histogram": {},
+          "building_faces": 4280,
+          "quality": {
+            "num_cells": 11772,
+            "element_quality": {
+              "min": 0.4177573490335795,
+              "max": 1.0,
+              "mean": 0.8567469333053983
+            },
+            "aspect_ratio": {
+              "min": 1.0000000000027316,
+              "max": 3.151491257649663,
+              "mean": 1.3598817410465527
+            },
+            "radius_ratio": {
+              "min": 1.0,
+              "max": 4.11682513891034,
+              "mean": 1.2487816225703656
+            },
+            "edge_ratio": {
+              "min": 1.0000000000081948,
+              "max": 2.911210617284516,
+              "mean": 1.539140714590107
+            },
+            "skewness": {
+              "min": 1.1102230246251565e-16,
+              "max": 0.8717297435955114,
+              "mean": 0.20306371979625046
+            }
+          },
+          "degenerate_cell_count": 0,
+          "element_quality_p01": 0.5415333491181404,
+          "element_quality_below_0_02_count": 0
+        }
+      },
+      {
+        "case": "stockholm",
+        "seconds": 0.17141108284704387,
+        "domain_bounds": [
+          674331.988,
+          6580487.617,
+          674796.995,
+          6580991.507
+        ],
+        "output_sha256": "e795b4550bda4e2597ff7af0b7387d74e746775f579e27fda38aeefa0ae00872",
+        "mesher_summary": {
+          "point_count": 3870,
+          "input_point_count": 3345,
+          "steiner_point_count": 525,
+          "segment_split_point_count": 148,
+          "triangle_split_point_count": 377,
+          "protected_corner_count": 0,
+          "exempt_triangle_count": 0,
+          "triangle_count": 7482,
+          "area_min": 0.1549223572278532,
+          "area_mean": 31.316810642912074,
+          "area_max": 86.76627897302852,
+          "min_angle_deg_min": 20.007830567764415,
+          "min_angle_deg_mean": 47.50303694747591,
+          "min_angle_deg_max": 59.99999999945784,
+          "edge_ratio_min": 1.0000000000081948,
+          "edge_ratio_mean": 1.3810704118628108,
+          "edge_ratio_max": 2.902491444836035,
+          "radius_edge_ratio_min": 0.57735026919278,
+          "radius_edge_ratio_mean": 0.7394127701543236,
+          "radius_edge_ratio_max": 1.4613534820559257,
+          "count_min_angle_lt_20": 0,
+          "count_min_angle_lt_30": 977
+        },
+        "metrics": {
+          "num_vertices": 3870,
+          "num_faces": 7482,
+          "num_cells": 0,
+          "marker_histogram": {
+            "-1": 5142,
+            "0": 91,
+            "1": 110,
+            "2": 303,
+            "3": 78,
+            "4": 121,
+            "5": 178,
+            "6": 86,
+            "11": 118,
+            "14": 156,
+            "16": 37,
+            "17": 116,
+            "18": 67,
+            "20": 66,
+            "22": 189,
+            "24": 528,
+            "13": 2,
+            "10": 2,
+            "9": 2,
+            "7": 2,
+            "23": 20,
+            "12": 2,
+            "19": 8,
+            "15": 27,
+            "21": 29,
+            "8": 2
+          },
+          "boundary_marker_histogram": {},
+          "building_faces": 2340,
+          "quality": {
+            "num_cells": 7482,
+            "element_quality": {
+              "min": 0.4506203360390861,
+              "max": 1.0,
+              "mean": 0.9007879064517305
+            },
+            "aspect_ratio": {
+              "min": 1.0000000000027316,
+              "max": 2.9135895523464193,
+              "mean": 1.2501269435533444
+            },
+            "radius_ratio": {
+              "min": 1.0,
+              "max": 3.576330749185715,
+              "mean": 1.165765737509894
+            },
+            "edge_ratio": {
+              "min": 1.0000000000081948,
+              "max": 2.902491444836035,
+              "mean": 1.381070411862816
+            },
+            "skewness": {
+              "min": 1.1102230246251565e-16,
+              "max": 0.8419205160800003,
+              "mean": 0.14115741870097315
+            }
+          },
+          "degenerate_cell_count": 0,
+          "element_quality_p01": 0.5701579121758908,
+          "element_quality_below_0_02_count": 0
+        }
+      },
+      {
+        "case": "uppsala",
+        "seconds": 0.691984917037189,
+        "domain_bounds": [
+          647545.276,
+          6638350.12,
+          648047.971,
+          6638864.744
+        ],
+        "output_sha256": "1ac0a36b0017c290b981126be5bed5780d1a4671f58dc0552bd190b71a1add74",
+        "mesher_summary": {
+          "point_count": 6508,
+          "input_point_count": 4258,
+          "steiner_point_count": 2250,
+          "segment_split_point_count": 774,
+          "triangle_split_point_count": 1476,
+          "protected_corner_count": 2,
+          "exempt_triangle_count": 40,
+          "triangle_count": 12758,
+          "area_min": 0.00012028845912613373,
+          "area_mean": 20.277387653233298,
+          "area_max": 84.60415670990015,
+          "min_angle_deg_min": 1.5217306311372305,
+          "min_angle_deg_mean": 40.711892111844136,
+          "min_angle_deg_max": 59.99999999945784,
+          "edge_ratio_min": 1.0000000000081948,
+          "edge_ratio_mean": 1.6278002418231956,
+          "edge_ratio_max": 37.652824576259746,
+          "radius_edge_ratio_min": 0.57735026919278,
+          "radius_edge_ratio_mean": 0.850623141987177,
+          "radius_edge_ratio_max": 18.828074722563613,
+          "count_min_angle_lt_20": 21,
+          "count_min_angle_lt_30": 2844
+        },
+        "metrics": {
+          "num_vertices": 6508,
+          "num_faces": 12758,
+          "num_cells": 0,
+          "marker_histogram": {
+            "-1": 6846,
+            "46": 9,
+            "0": 270,
+            "3": 150,
+            "5": 90,
+            "6": 215,
+            "9": 821,
+            "10": 198,
+            "12": 302,
+            "13": 36,
+            "14": 233,
+            "15": 260,
+            "17": 264,
+            "18": 290,
+            "19": 267,
+            "21": 36,
+            "28": 112,
+            "29": 64,
+            "30": 91,
+            "31": 16,
+            "32": 29,
+            "33": 205,
+            "35": 12,
+            "37": 26,
+            "38": 137,
+            "39": 81,
+            "40": 296,
+            "41": 313,
+            "42": 271,
+            "48": 29,
+            "50": 138,
+            "51": 141,
+            "52": 188,
+            "4": 56,
+            "27": 2,
+            "1": 32,
+            "2": 22,
+            "11": 2,
+            "43": 14,
+            "47": 9,
+            "16": 4,
+            "7": 56,
+            "8": 3,
+            "44": 10,
+            "36": 12,
+            "25": 2,
+            "26": 8,
+            "24": 4,
+            "20": 6,
+            "45": 13,
+            "49": 38,
+            "34": 18,
+            "23": 2,
+            "22": 9
+          },
+          "boundary_marker_histogram": {},
+          "building_faces": 5912,
+          "quality": {
+            "num_cells": 12758,
+            "element_quality": {
+              "min": 0.045980253821739925,
+              "max": 1.0,
+              "mean": 0.842276446173146
+            },
+            "aspect_ratio": {
+              "min": 1.0000000000027316,
+              "max": 22.03736801432774,
+              "mean": 1.41399650949238
+            },
+            "radius_ratio": {
+              "min": 1.0,
+              "max": 19.086605794520683,
+              "mean": 1.285736939689933
+            },
+            "edge_ratio": {
+              "min": 1.0000000000081948,
+              "max": 37.652824576259746,
+              "mean": 1.6278002418231934
+            },
+            "skewness": {
+              "min": 1.1102230246251565e-16,
+              "max": 0.9591502920803826,
+              "mean": 0.22347282480201802
+            }
+          },
+          "degenerate_cell_count": 0,
+          "element_quality_p01": 0.5424599506040712,
+          "element_quality_below_0_02_count": 0
+        }
+      },
+      {
+        "case": "vasteras",
+        "seconds": 0.47563258395530283,
+        "domain_bounds": [
+          586916.571,
+          6608729.036,
+          587421.853,
+          6609239.04
+        ],
+        "output_sha256": "2f79f89b9febfa0be6793b49701a29af0a1ed294ccb65d01a01ef825380b0ad5",
+        "mesher_summary": {
+          "point_count": 5467,
+          "input_point_count": 3951,
+          "steiner_point_count": 1516,
+          "segment_split_point_count": 542,
+          "triangle_split_point_count": 974,
+          "protected_corner_count": 3,
+          "exempt_triangle_count": 6,
+          "triangle_count": 10676,
+          "area_min": 0.05363886377397561,
+          "area_mean": 24.137864474322214,
+          "area_max": 82.67164240000811,
+          "min_angle_deg_min": 20.00020475871339,
+          "min_angle_deg_mean": 43.59538296181336,
+          "min_angle_deg_max": 59.99999999945784,
+          "edge_ratio_min": 1.0000000000081948,
+          "edge_ratio_mean": 1.507264742275664,
+          "edge_ratio_max": 2.920689437072146,
+          "radius_edge_ratio_min": 0.57735026919278,
+          "radius_edge_ratio_mean": 0.7964210752270672,
+          "radius_edge_ratio_max": 1.4618878462559712,
+          "count_min_angle_lt_20": 0,
+          "count_min_angle_lt_30": 1987
+        },
+        "metrics": {
+          "num_vertices": 5467,
+          "num_faces": 10676,
+          "num_cells": 0,
+          "marker_histogram": {
+            "-1": 6756,
+            "37": 27,
+            "2": 56,
+            "4": 105,
+            "7": 165,
+            "9": 160,
+            "17": 265,
+            "19": 109,
+            "21": 173,
+            "25": 32,
+            "27": 57,
+            "29": 51,
+            "31": 135,
+            "34": 19,
+            "35": 490,
+            "39": 237,
+            "40": 181,
+            "42": 219,
+            "43": 46,
+            "45": 554,
+            "48": 123,
+            "49": 240,
+            "38": 14,
+            "47": 53,
+            "33": 14,
+            "22": 4,
+            "30": 8,
+            "32": 14,
+            "8": 2,
+            "44": 36,
+            "3": 46,
+            "0": 11,
+            "6": 4,
+            "5": 2,
+            "20": 3,
+            "24": 8,
+            "15": 2,
+            "41": 38,
+            "28": 51,
+            "18": 13,
+            "36": 6,
+            "13": 20,
+            "10": 58,
+            "26": 9,
+            "11": 5,
+            "14": 2,
+            "12": 2,
+            "16": 2,
+            "46": 33,
+            "23": 14,
+            "1": 2
+          },
+          "boundary_marker_histogram": {},
+          "building_faces": 3920,
+          "quality": {
+            "num_cells": 10676,
+            "element_quality": {
+              "min": 0.42901115464730494,
+              "max": 1.0,
+              "mean": 0.8664905844766384
+            },
+            "aspect_ratio": {
+              "min": 1.0000000000027316,
+              "max": 3.0663595369697734,
+              "mean": 1.3359974139610218
+            },
+            "radius_ratio": {
+              "min": 1.0,
+              "max": 3.9193374661906506,
+              "mean": 1.2292138550837681
+            },
+            "edge_ratio": {
+              "min": 1.0000000000081948,
+              "max": 2.920689437072146,
+              "mean": 1.5072647422756627
+            },
+            "skewness": {
+              "min": 1.1102230246251565e-16,
+              "max": 0.8620307339719949,
+              "mean": 0.18925982498136412
+            }
+          },
+          "degenerate_cell_count": 0,
+          "element_quality_p01": 0.5484347540193233,
+          "element_quality_below_0_02_count": 0
+        }
+      }
+    ],
+    "triangles": 102846,
+    "degenerates": 0,
+    "quality_below_0_02": 0
+  },
+  "verification": {
+    "pytest_files": [
+      "tests/builder/test_cleaning_contract.py",
+      "tests/builder/test_cleaning_patch_construction.py",
+      "tests/common/test_benchmark_suite.py"
+    ],
+    "passed": 48,
+    "seconds": 19.99,
+    "scope": "Existing suites; they do not invoke the new staged construction. Direct witness probes below do."
+  },
+  "staged_witnesses": {
+    "coupled_rectangles": {
+      "interpretation": {
+        "method": "GEOS make_valid; polygonal parts only",
+        "repaired_input_count": 0,
+        "nonarea_remnant_count": 0
+      },
+      "stages": {
+        "dense_sampling": {
+          "tolerance": 0.05,
+          "state": [
+            0,
+            4,
+            12
+          ]
+        },
+        "topology": [
+          {
+            "rounds": [],
+            "state": [
+              0,
+              4,
+              12
+            ]
+          }
+        ],
+        "separation": [
+          {
+            "rounds": [
+              {
+                "sites": 4,
+                "repaired": 1
+              }
+            ],
+            "state": [
+              0,
+              0,
+              12
+            ]
+          }
+        ],
+        "combined": [
+          {
+            "rounds": [],
+            "state": [
+              0,
+              0,
+              12
+            ]
+          }
+        ]
+      },
+      "edits": 1,
+      "sites": 4,
+      "initial": [
+        0,
+        4,
+        12
+      ],
+      "passes": [
+        {
+          "measure": [
+            4,
+            12
+          ],
+          "state": [
+            0,
+            0,
+            12
+          ]
+        }
+      ],
+      "outcome": "conforming",
+      "reason": "contract_pass",
+      "final": [
+        0,
+        0,
+        12
+      ],
+      "seconds": 0.04337370814755559,
+      "evaluations": 35,
+      "admissions": 1,
+      "contract": {
+        "status": "pass",
+        "delta": 0.5,
+        "epsilon": 0.25,
+        "separation_tolerance": 5e-07,
+        "admissibility": {
+          "topology_ok": true,
+          "resolved": true,
+          "interior_overlap_pairs": 0,
+          "nonmanifold_boundary_vertices": 0,
+          "canonical_vertex_count": 12,
+          "subscale_pairs": 0,
+          "separation_capped_at_delta": 0.5,
+          "closest_pair": null
+        },
+        "fidelity": {
+          "status": "pass",
+          "epsilon": 0.25,
+          "input_interpretation": {
+            "method": "GEOS make_valid; polygonal parts only",
+            "repaired_input_count": 0,
+            "nonarea_remnant_count": 0
+          },
+          "lost_protected_area": 0.0,
+          "added_outside_budget_area": 0.0,
+          "buffer_uncertainty": 7.541801032550911e-05
+        }
+      },
+      "sampling_attempts": [
+        0.05
+      ]
+    },
+    "long_wall": {
+      "interpretation": {
+        "method": "GEOS make_valid; polygonal parts only",
+        "repaired_input_count": 0,
+        "nonarea_remnant_count": 0
+      },
+      "stages": {
+        "dense_sampling": {
+          "tolerance": 0.05,
+          "state": [
+            0,
+            0,
+            4
+          ]
+        },
+        "topology": [
+          {
+            "rounds": [],
+            "state": [
+              0,
+              0,
+              4
+            ]
+          }
+        ],
+        "separation": [
+          {
+            "rounds": [],
+            "state": [
+              0,
+              0,
+              4
+            ]
+          }
+        ],
+        "combined": [
+          {
+            "rounds": [],
+            "state": [
+              0,
+              0,
+              4
+            ]
+          }
+        ]
+      },
+      "edits": 0,
+      "sites": 0,
+      "initial": [
+        0,
+        3,
+        5
+      ],
+      "passes": [
+        {
+          "measure": [
+            0,
+            4
+          ],
+          "state": [
+            0,
+            0,
+            4
+          ]
+        }
+      ],
+      "outcome": "conforming",
+      "reason": "contract_pass",
+      "final": [
+        0,
+        0,
+        4
+      ],
+      "seconds": 0.0017555837985128164,
+      "evaluations": 0,
+      "admissions": 0,
+      "contract": {
+        "status": "pass",
+        "delta": 0.5,
+        "epsilon": 0.25,
+        "separation_tolerance": 5e-07,
+        "admissibility": {
+          "topology_ok": true,
+          "resolved": true,
+          "interior_overlap_pairs": 0,
+          "nonmanifold_boundary_vertices": 0,
+          "canonical_vertex_count": 4,
+          "subscale_pairs": 0,
+          "separation_capped_at_delta": 0.5,
+          "closest_pair": null
+        },
+        "fidelity": {
+          "status": "pass",
+          "epsilon": 0.25,
+          "input_interpretation": {
+            "method": "GEOS make_valid; polygonal parts only",
+            "repaired_input_count": 0,
+            "nonarea_remnant_count": 0
+          },
+          "lost_protected_area": 0.0,
+          "added_outside_budget_area": 0.0,
+          "buffer_uncertainty": 7.541801032550911e-05
+        }
+      },
+      "sampling_attempts": [
+        0.05
+      ]
+    },
+    "sampled_square": {
+      "interpretation": {
+        "method": "GEOS make_valid; polygonal parts only",
+        "repaired_input_count": 0,
+        "nonarea_remnant_count": 0
+      },
+      "stages": {
+        "dense_sampling": {
+          "tolerance": 0.05,
+          "state": [
+            0,
+            0,
+            4
+          ]
+        },
+        "topology": [
+          {
+            "rounds": [],
+            "state": [
+              0,
+              0,
+              4
+            ]
+          }
+        ],
+        "separation": [
+          {
+            "rounds": [],
+            "state": [
+              0,
+              0,
+              4
+            ]
+          }
+        ],
+        "combined": [
+          {
+            "rounds": [],
+            "state": [
+              0,
+              0,
+              4
+            ]
+          }
+        ]
+      },
+      "edits": 0,
+      "sites": 0,
+      "initial": [
+        0,
+        40572,
+        303
+      ],
+      "passes": [
+        {
+          "measure": [
+            0,
+            4
+          ],
+          "state": [
+            0,
+            0,
+            4
+          ]
+        }
+      ],
+      "outcome": "conforming",
+      "reason": "contract_pass",
+      "final": [
+        0,
+        0,
+        4
+      ],
+      "seconds": 0.10326662519946694,
+      "evaluations": 0,
+      "admissions": 0,
+      "contract": {
+        "status": "pass",
+        "delta": 0.5,
+        "epsilon": 0.25,
+        "separation_tolerance": 5e-07,
+        "admissibility": {
+          "topology_ok": true,
+          "resolved": true,
+          "interior_overlap_pairs": 0,
+          "nonmanifold_boundary_vertices": 0,
+          "canonical_vertex_count": 4,
+          "subscale_pairs": 0,
+          "separation_capped_at_delta": 0.5,
+          "closest_pair": null
+        },
+        "fidelity": {
+          "status": "pass",
+          "epsilon": 0.25,
+          "input_interpretation": {
+            "method": "GEOS make_valid; polygonal parts only",
+            "repaired_input_count": 0,
+            "nonarea_remnant_count": 0
+          },
+          "lost_protected_area": 0.0,
+          "added_outside_budget_area": 0.0,
+          "buffer_uncertainty": 7.541801032550911e-05
+        }
+      },
+      "sampling_attempts": [
+        0.05
+      ]
+    },
+    "neighbor_clearance": {
+      "interpretation": {
+        "method": "GEOS make_valid; polygonal parts only",
+        "repaired_input_count": 0,
+        "nonarea_remnant_count": 0
+      },
+      "stages": {
+        "dense_sampling": {
+          "tolerance": null,
+          "state": [
+            0,
+            1,
+            10
+          ]
+        },
+        "topology": [
+          {
+            "rounds": [],
+            "state": [
+              0,
+              1,
+              10
+            ]
+          }
+        ],
+        "separation": [
+          {
+            "rounds": [
+              {
+                "sites": 1,
+                "repaired": 0
+              }
+            ],
+            "state": [
+              0,
+              1,
+              10
+            ]
+          }
+        ],
+        "combined": [
+          {
+            "rounds": [
+              {
+                "sites": 1,
+                "repaired": 0
+              }
+            ],
+            "state": [
+              0,
+              1,
+              10
+            ]
+          }
+        ]
+      },
+      "edits": 0,
+      "sites": 2,
+      "initial": [
+        0,
+        1,
+        10
+      ],
+      "passes": [
+        {
+          "measure": [
+            1,
+            10
+          ],
+          "state": [
+            0,
+            1,
+            10
+          ]
+        }
+      ],
+      "outcome": "unresolved",
+      "reason": "residual_defects",
+      "final": [
+        0,
+        1,
+        10
+      ],
+      "seconds": 0.09756958391517401,
+      "evaluations": 38,
+      "admissions": 0,
+      "contract": {
+        "status": "fail",
+        "delta": 0.5,
+        "epsilon": 0.25,
+        "separation_tolerance": 5e-07,
+        "admissibility": {
+          "topology_ok": true,
+          "resolved": false,
+          "interior_overlap_pairs": 0,
+          "nonmanifold_boundary_vertices": 0,
+          "canonical_vertex_count": 10,
+          "subscale_pairs": 1,
+          "separation_capped_at_delta": 0.44,
+          "closest_pair": [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              -0.44,
+              0.0
+            ]
+          ]
+        },
+        "fidelity": {
+          "status": "pass",
+          "epsilon": 0.25,
+          "input_interpretation": {
+            "method": "GEOS make_valid; polygonal parts only",
+            "repaired_input_count": 0,
+            "nonarea_remnant_count": 0
+          },
+          "lost_protected_area": 0.0,
+          "added_outside_budget_area": 0.0,
+          "buffer_uncertainty": 7.541801032550911e-05
+        }
+      },
+      "sampling_attempts": [
+        0.05,
+        0.01,
+        null
+      ]
+    }
+  },
+  "opposing_displacement_correction": {
+    "temporary_only": true,
+    "replacement": "direction * (multiple * delta) -> direction * (multiple * delta - length), only in nudge_opposing",
+    "neighbor_witness_report": {
+      "interpretation": {
+        "method": "GEOS make_valid; polygonal parts only",
+        "repaired_input_count": 0,
+        "nonarea_remnant_count": 0
+      },
+      "stages": {
+        "dense_sampling": {
+          "tolerance": 0.05,
+          "state": [
+            0,
+            1,
+            10
+          ]
+        },
+        "topology": [
+          {
+            "rounds": [],
+            "state": [
+              0,
+              1,
+              10
+            ]
+          }
+        ],
+        "separation": [
+          {
+            "rounds": [
+              {
+                "sites": 1,
+                "repaired": 1
+              }
+            ],
+            "state": [
+              0,
+              0,
+              10
+            ]
+          }
+        ],
+        "combined": [
+          {
+            "rounds": [],
+            "state": [
+              0,
+              0,
+              10
+            ]
+          }
+        ]
+      },
+      "edits": 1,
+      "sites": 1,
+      "initial": [
+        0,
+        1,
+        10
+      ],
+      "passes": [
+        {
+          "measure": [
+            1,
+            10
+          ],
+          "state": [
+            0,
+            0,
+            10
+          ]
+        }
+      ],
+      "outcome": "conforming",
+      "reason": "contract_pass",
+      "final": [
+        0,
+        0,
+        10
+      ],
+      "seconds": 0.020165541907772422,
+      "evaluations": 21,
+      "admissions": 1,
+      "contract": {
+        "status": "pass",
+        "delta": 0.5,
+        "epsilon": 0.25,
+        "separation_tolerance": 5e-07,
+        "admissibility": {
+          "topology_ok": true,
+          "resolved": true,
+          "interior_overlap_pairs": 0,
+          "nonmanifold_boundary_vertices": 0,
+          "canonical_vertex_count": 10,
+          "subscale_pairs": 0,
+          "separation_capped_at_delta": 0.5,
+          "closest_pair": null
+        },
+        "fidelity": {
+          "status": "pass",
+          "epsilon": 0.25,
+          "input_interpretation": {
+            "method": "GEOS make_valid; polygonal parts only",
+            "repaired_input_count": 0,
+            "nonarea_remnant_count": 0
+          },
+          "lost_protected_area": 0.0,
+          "added_outside_budget_area": 0.0,
+          "buffer_uncertainty": 7.541801032550911e-05
+        }
+      },
+      "sampling_attempts": [
+        0.05
+      ]
+    },
+    "malmo1_report": {
+      "interpretation": {
+        "method": "GEOS make_valid; polygonal parts only",
+        "repaired_input_count": 0,
+        "nonarea_remnant_count": 0
+      },
+      "stages": {
+        "dense_sampling": {
+          "tolerance": null,
+          "state": [
+            5,
+            84,
+            173
+          ]
+        },
+        "topology": [
+          {
+            "rounds": [
+              {
+                "sites": 5,
+                "repaired": 5
+              }
+            ],
+            "state": [
+              0,
+              81,
+              169
+            ]
+          },
+          {
+            "rounds": [],
+            "state": [
+              0,
+              1,
+              139
+            ]
+          }
+        ],
+        "separation": [
+          {
+            "rounds": [
+              {
+                "sites": 18,
+                "repaired": 15
+              },
+              {
+                "sites": 2,
+                "repaired": 1
+              },
+              {
+                "sites": 1,
+                "repaired": 0
+              }
+            ],
+            "state": [
+              0,
+              1,
+              139
+            ]
+          },
+          {
+            "rounds": [
+              {
+                "sites": 1,
+                "repaired": 0
+              }
+            ],
+            "state": [
+              0,
+              1,
+              139
+            ]
+          }
+        ],
+        "combined": [
+          {
+            "rounds": [
+              {
+                "sites": 1,
+                "repaired": 0
+              }
+            ],
+            "state": [
+              0,
+              1,
+              139
+            ]
+          },
+          {
+            "rounds": [
+              {
+                "sites": 1,
+                "repaired": 0
+              }
+            ],
+            "state": [
+              0,
+              1,
+              139
+            ]
+          }
+        ]
+      },
+      "edits": 21,
+      "sites": 29,
+      "initial": [
+        5,
+        84,
+        173
+      ],
+      "passes": [
+        {
+          "measure": [
+            89,
+            173
+          ],
+          "state": [
+            0,
+            1,
+            139
+          ]
+        },
+        {
+          "measure": [
+            1,
+            139
+          ],
+          "state": [
+            0,
+            1,
+            139
+          ]
+        }
+      ],
+      "outcome": "unresolved",
+      "reason": "residual_defects",
+      "final": [
+        0,
+        1,
+        139
+      ],
+      "seconds": 2.6884462498128414,
+      "evaluations": 367,
+      "admissions": 23,
+      "contract": {
+        "status": "fail",
+        "delta": 0.5,
+        "epsilon": 0.25,
+        "separation_tolerance": 5e-07,
+        "admissibility": {
+          "topology_ok": true,
+          "resolved": false,
+          "interior_overlap_pairs": 0,
+          "nonmanifold_boundary_vertices": 0,
+          "canonical_vertex_count": 139,
+          "subscale_pairs": 1,
+          "separation_capped_at_delta": 0.02228403394459532,
+          "closest_pair": [
+            [
+              374400.092,
+              6163787.574
+            ],
+            [
+              374400.0701285205,
+              6163787.569731914
+            ]
+          ]
+        },
+        "fidelity": {
+          "status": "pass",
+          "epsilon": 0.25,
+          "input_interpretation": {
+            "method": "GEOS make_valid; polygonal parts only",
+            "repaired_input_count": 0,
+            "nonarea_remnant_count": 0
+          },
+          "lost_protected_area": 0.0,
+          "added_outside_budget_area": 0.0,
+          "buffer_uncertainty": 7.541801032550911e-05
+        }
+      },
+      "sampling_attempts": [
+        0.05,
+        0.01,
+        null
+      ]
+    }
+  },
+  "local_scoring": {
+    "ordinary_pipeline_example": {
+      "case": [
+        "lund",
+        1
+      ],
+      "operator": "remove_vertex",
+      "guard": "topology_guard",
+      "before": {
+        "topology_ok": false,
+        "resolved": false,
+        "interior_overlap_pairs": 0,
+        "nonmanifold_boundary_vertices": 9,
+        "canonical_vertex_count": 327,
+        "subscale_pairs": 408,
+        "separation_capped_at_delta": 1.3458898645691466e-05,
+        "closest_pair": [
+          [
+            386227.945,
+            6174606.182
+          ],
+          [
+            386227.94499543123,
+            6174606.181987341
+          ]
+        ]
+      },
+      "after": {
+        "topology_ok": false,
+        "resolved": false,
+        "interior_overlap_pairs": 0,
+        "nonmanifold_boundary_vertices": 8,
+        "canonical_vertex_count": 323,
+        "subscale_pairs": 384,
+        "separation_capped_at_delta": 1.3458898645691466e-05,
+        "closest_pair": [
+          [
+            386227.945,
+            6174606.182
+          ],
+          [
+            386227.94499543123,
+            6174606.181987341
+          ]
+        ]
+      },
+      "local_before": {
+        "topology_ok": false,
+        "resolved": false,
+        "interior_overlap_pairs": 0,
+        "nonmanifold_boundary_vertices": 1,
+        "canonical_vertex_count": 14,
+        "subscale_pairs": 54,
+        "separation_capped_at_delta": 4.1544268657526036e-05,
+        "closest_pair": [
+          [
+            386193.17289436475,
+            6174596.718
+          ],
+          [
+            386193.1728557134,
+            6174596.718015232
+          ]
+        ]
+      },
+      "local_after": {
+        "topology_ok": true,
+        "resolved": true,
+        "interior_overlap_pairs": 0,
+        "nonmanifold_boundary_vertices": 0,
+        "canonical_vertex_count": 5,
+        "subscale_pairs": 0,
+        "separation_capped_at_delta": 0.5,
+        "closest_pair": null
+      },
+      "coordinates": [
+        [
+          386193.961,
+          6174598.718
+        ]
+      ],
+      "occupied_wkt": "MULTIPOLYGON (((386260.36 6174570.974, 386267.749 6174568.509, 386267.097 6174566.740333333, 386267.751 6174568.509, 386269.651 6174567.865, 386277.597 6174589.857, 386278.123 6174591.082, 386287.84 6174588.82, 386290.717 6174587.909, 386292.007 6174592.196, 386304.848 6174588.33, 386304.987 6174588.794, 386308.135 6174587.812, 386308.009 6174587.303, 386308.133 6174587.265, 386307.047 6174582.891, 386304.0957573699 6174583.620398329, 386308.588 6174582.498, 386309.673 6174586.906, 386315.737 6174585.399, 386317.464 6174585.339, 386318.706 6174594.537, 386317.436 6174593.7, 386315.696 6174594.076, 386314.739 6174595.505, 386315.113 6174597.25, 386316.233 6174598.008, 386312.459 6174598.687, 386313.287 6174603.113, 386321.12143706466 6174601.683102744, 386321.83 6174606.24, 386320.519 6174607.147, 386314.775 6174607.78, 386314.674 6174606.857, 386314.118 6174606.415, 386312.361 6174606.618, 386311.92 6174607.18, 386312.043 6174608.08, 386305.172 6174608.89, 386305.054 6174607.882, 386304.782 6174607.662, 386302.724 6174607.895, 386302.505 6174608.171, 386302.621 6174609.179, 386298.17 6174609.692, 386298.1041145768 6174609.644866255, 386298.675 6174607.825, 386296.911 6174607.907, 386296.67955182533 6174608.625748924, 386296.617 6174608.581, 386295.868 6174603.67, 386291.038 6174604.325, 386293.26 6174619.994, 386330.796 6174615.374, 386332.11 6174613.607, 386328.462 6174586.231, 386327.404 6174578.904, 386323.683 6174551.459, 386322.089 6174539.166, 386320.153 6174537.675, 386291.31 6174540.73, 386253.811 6174554.36, 386260.36 6174570.974), (386278.78 6174558.71, 386278.991 6174558.111, 386278.961 6174557.601, 386290.283 6174553.486, 386290.808 6174552.543, 386293.906 6174551.35, 386311.382 6174549.596, 386311.989 6174553.697, 386314.368 6174552.902, 386304.128 6174556.328, 386305.468 6174560.264, 386305.749 6174560.631, 386306.033 6174560.832, 386306.704 6174560.989, 386312.061 6174559.467, 386312.47 6174559.282, 386312.851 6174558.872, 386313.02 6174558.338, 386312.77 6174556.183, 386314.765 6174555.941, 386316.546 6174569.404, 386315.553 6174569.725, 386315.809 6174572.264, 386315.134 6174573.634, 386315.257 6174574.731, 386316.371 6174575.408, 386315.692 6174576.422, 386313.668 6174575.264, 386307.496 6174576.593, 386307.121 6174577.492, 386304.187 6174576.162, 386304.666 6174575.152, 386301.094 6174557.343, 386290.191 6174560.992, 386293.954 6174579.375, 386295.274 6174580.348, 386294.31 6174582.068, 386293.795 6174581.379, 386288.635 6174583.286, 386287.519 6174582.509, 386285.83 6174583.045, 386283.403 6174576.543, 386284.04 6174576.065, 386284.364 6174575.514, 386284.479 6174574.885, 386284.371 6174574.255, 386284.052 6174573.701, 386283.563 6174573.289, 386282.803 6174573.051, 386282.167 6174573.11, 386279.1326986956 6174564.692100827, 386277.3530324336 6174559.381096791, 386277.862 6174559.36, 386278.438 6174559.089, 386278.78 6174558.71), (386266.6164677354 6174562.047467986, 386270.467 6174560.615, 386270.565 6174560.782, 386272.103 6174560.234, 386270.565 6174560.783, 386270.467 6174560.616, 386266.6164677354 6174562.047467986), (386265.1846104807 6174562.579773049, 386265.184 6174562.58, 386264.943 6174562.439, 386265.1846104807 6174562.579773049), (386264.749 6174565.49, 386265.362 6174565.266, 386265.634 6174565.199, 386264.749 6174565.49), (386265.821 6174565.193, 386266.00254564337 6174565.219514523, 386265.634 6174565.199, 386265.821 6174565.193), (386266.269 6174565.318, 386266.1157435906 6174565.252955128, 386266.184 6174565.277, 386266.269 6174565.318), (386266.35 6174565.364, 386266.427 6174565.418, 386266.269 6174565.318, 386266.35 6174565.364), (386266.565 6174565.543, 386266.681 6174565.691, 386266.427 6174565.418, 386266.565 6174565.543), (386266.728 6174565.771, 386266.76037500007 6174565.836520833, 386266.681 6174565.691, 386266.728 6174565.771), (386276.9150000275 6174559.254000013, 386276.856 6174559.227, 386276.775487506 6174559.178975004, 386276.856 6174559.226, 386276.9150000275 6174559.254000013), (386276.72699999355 6174559.148528297, 386276.636 6174559.085, 386276.538 6174559, 386276.637 6174559.084, 386276.72699999355 6174559.148528297), (386273.6406510486 6174559.68512456, 386273.584 6174559.543, 386273.641 6174559.685, 386273.6406510486 6174559.68512456)), ((386257.149 6174624.435, 386267.499 6174623.301, 386275.667 6174622.309, 386293.26 6174619.994, 386289.56 6174593.903, 386284.607 6174594.559, 386286.89074618195 6174610.4574610675, 386286.762 6174609.759, 386285.173 6174609.995, 386285.34684858867 6174611.261071243, 386280.022 6174611.971, 386277.65 6174595.335, 386277.91 6174595.298, 386277.865 6174595.041, 386271.95 6174595.876, 386271.455 6174592.787, 386268.393 6174593.634, 386251.99466034386 6174597.749095445, 386248.391 6174588.152, 386264.369 6174582.282, 386264.954 6174583.931, 386269.222 6174582.408, 386266.137 6174573.699, 386261.863 6174575.214, 386261.228 6174573.423, 386250.391 6174577.265, 386249.262 6174577.138, 386246.676 6174570.068, 386247.13 6174568.493, 386249.869 6174567.408, 386249.943 6174567.593, 386252.594 6174566.504, 386252.557 6174566.324, 386257.708 6174564.249, 386253.81 6174554.36, 386191.197 6174576.955, 386191.367 6174577.428, 386190.445 6174577.37, 386189.588 6174577.538, 386188.956 6174577.819, 386188.445 6174578.172, 386187.72 6174579.001, 386187.35 6174579.798, 386187.198 6174580.54, 386187.206 6174581.26, 386187.36 6174581.962, 386187.603 6174582.528, 386188.066 6174583.19, 386188.487 6174583.592, 386189.066 6174583.971, 386188.276 6174584.291, 386193.961 6174598.718, 386191.913 6174599.528, 386196.832 6174612.035, 386197.1680773775 6174611.893197237, 386197.219 6174612.023, 386194.566 6174613.061, 386200.102 6174627.212, 386204.55233118613 6174625.471261605, 386204.607 6174625.611, 386205.371 6174625.323, 386205.175 6174626.189, 386205.192 6174627.001, 386205.405 6174627.81, 386205.786 6174628.522, 386206.299 6174629.109, 386206.953 6174629.581, 386207.913 6174629.946, 386208.75 6174630.027, 386209.56 6174629.911, 386210.105 6174629.718, 386210.616 6174629.434, 386211.158 6174628.986, 386211.256 6174629.755, 386212.55 6174629.602, 386212.527 6174629.409, 386216.017 6174629.016, 386216.04 6174629.21, 386217.562 6174629.039, 386217.54 6174628.845, 386219.77 6174628.583, 386219.792 6174628.777, 386221.241 6174628.614, 386221.219 6174628.42, 386223.446 6174628.164, 386223.465 6174628.356, 386257.148 6174624.435, 386255.85566999554 6174616.309872158, 386257.149 6174624.435), (386194.11080021004 6174598.949690992, 386194.11 6174598.95, 386193.961 6174598.718, 386194.11080021004 6174598.949690992), (386228.47 6174585.314, 386225.214 6174576.07, 386231.152 6174573.981, 386231.218 6174574.17, 386234.049 6174573.175, 386233.949 6174572.892, 386235.929 6174572.197, 386237.265 6174572.68, 386240.014 6174580.192, 386238.032 6174580.89, 386242.702 6174592.923, 386241.514 6174593.376, 386242.256 6174595.296, 386243.47 6174594.897, 386245.305 6174599.628, 386242.851 6174600.315, 386244.151 6174604.508, 386243.621 6174604.755, 386243.13 6174605.292, 386242.91 6174605.988, 386242.962 6174606.569, 386243.21 6174607.098, 386243.624 6174607.51, 386244.154 6174607.757, 386244.737 6174607.808, 386243.481 6174610.601, 386232.976 6174611.834, 386233.244 6174614.22, 386232.329 6174613.997, 386231.393 6174614.105, 386230.551 6174614.526, 386230.044 6174615.02, 386231.288 6174627.403, 386229.845 6174613.043, 386224.385 6174613.699, 386225.368 6174607.112, 386224.727 6174611.411, 386233.19 6174609.483, 386233.80198160344 6174603.998164877, 386234.885 6174603.585, 386231.23711302504 6174593.211321415, 386238.818 6174590.567, 386236.059 6174582.665, 386228.47 6174585.314), (386230.4 6174605.296, 386227.945 6174606.182, 386225.368 6174607.112, 386230.4 6174605.296), (386215.84 6174583.583, 386216.046 6174582.969, 386215.794 6174582.217, 386217.422 6174581.595, 386216.961 6174580.359, 386219.459 6174579.537, 386219.732 6174579.661, 386219.072 6174581.119, 386220.437 6174581.738, 386221.097 6174580.282, 386221.335 6174580.391, 386224.852 6174590.115, 386229.632 6174588.614, 386230.127 6174590.03, 386226.143 6174591.353, 386227.427 6174594.592, 386230.05174331705 6174593.640866303, 386215.209 6174599.024, 386226.488 6174594.933, 386225.146 6174591.544, 386223.594 6174590.531, 386213.2471691967 6174594.48693531, 386208.4060321969 6174583.290989307, 386211.188 6174582.367, 386212.151 6174584.395, 386212.678 6174584.804, 386215.84 6174583.583), (386253.136 6174614.992, 386252.582 6174611.128, 386248.963 6174598.601, 386252.583 6174611.128, 386254.953 6174610.639, 386255.60180715914 6174614.7150216615, 386253.136 6174614.992)), ((386192.211 6174599.41, 386193.961 6174598.718, 386188.507 6174584.878, 386184.379 6174586.51, 386186.191 6174591.093, 386185.903 6174591.207, 386189.513 6174600.337, 386192.163 6174599.289, 386192.211 6174599.41)), ((386289.56 6174593.903, 386291.038 6174604.325, 386296.162 6174603.625, 386295.315 6174598.227, 386296.331 6174598.069, 386295.598 6174593.103, 386289.56 6174593.903)))",
+      "candidate_wkt": "MULTIPOLYGON (((386267.751 6174568.509, 386269.651 6174567.865, 386277.597 6174589.857, 386278.123 6174591.082, 386287.84 6174588.82, 386290.717 6174587.909, 386292.007 6174592.196, 386304.848 6174588.33, 386304.987 6174588.794, 386308.135 6174587.812, 386308.009 6174587.303, 386308.133 6174587.265, 386307.047 6174582.891, 386304.0957573699 6174583.620398329, 386308.588 6174582.498, 386309.673 6174586.906, 386315.737 6174585.399, 386317.464 6174585.339, 386318.706 6174594.537, 386317.436 6174593.7, 386315.696 6174594.076, 386314.739 6174595.505, 386315.113 6174597.25, 386316.233 6174598.008, 386312.459 6174598.687, 386313.287 6174603.113, 386321.12143706466 6174601.683102744, 386321.83 6174606.24, 386320.519 6174607.147, 386314.775 6174607.78, 386314.674 6174606.857, 386314.118 6174606.415, 386312.361 6174606.618, 386311.92 6174607.18, 386312.043 6174608.08, 386305.172 6174608.89, 386305.054 6174607.882, 386304.782 6174607.662, 386302.724 6174607.895, 386302.505 6174608.171, 386302.621 6174609.179, 386298.17 6174609.692, 386298.1041145768 6174609.644866255, 386298.675 6174607.825, 386296.911 6174607.907, 386296.67955182533 6174608.625748924, 386296.617 6174608.581, 386295.868 6174603.67, 386291.038 6174604.325, 386293.26 6174619.994, 386330.796 6174615.374, 386332.11 6174613.607, 386328.462 6174586.231, 386327.404 6174578.904, 386323.683 6174551.459, 386322.089 6174539.166, 386320.153 6174537.675, 386291.31 6174540.73, 386253.811 6174554.36, 386260.36 6174570.974, 386267.749 6174568.509, 386267.097 6174566.740333333, 386267.751 6174568.509), (386290.283 6174553.486, 386290.808 6174552.543, 386293.906 6174551.35, 386311.382 6174549.596, 386311.989 6174553.697, 386314.368 6174552.902, 386304.128 6174556.328, 386305.468 6174560.264, 386305.749 6174560.631, 386306.033 6174560.832, 386306.704 6174560.989, 386312.061 6174559.467, 386312.47 6174559.282, 386312.851 6174558.872, 386313.02 6174558.338, 386312.77 6174556.183, 386314.765 6174555.941, 386316.546 6174569.404, 386315.553 6174569.725, 386315.809 6174572.264, 386315.134 6174573.634, 386315.257 6174574.731, 386316.371 6174575.408, 386315.692 6174576.422, 386313.668 6174575.264, 386307.496 6174576.593, 386307.121 6174577.492, 386304.187 6174576.162, 386304.666 6174575.152, 386301.094 6174557.343, 386290.191 6174560.992, 386293.954 6174579.375, 386295.274 6174580.348, 386294.31 6174582.068, 386293.795 6174581.379, 386288.635 6174583.286, 386287.519 6174582.509, 386285.83 6174583.045, 386283.403 6174576.543, 386284.04 6174576.065, 386284.364 6174575.514, 386284.479 6174574.885, 386284.371 6174574.255, 386284.052 6174573.701, 386283.563 6174573.289, 386282.803 6174573.051, 386282.167 6174573.11, 386279.1326986956 6174564.692100827, 386277.3530324336 6174559.381096791, 386277.862 6174559.36, 386278.438 6174559.089, 386278.78 6174558.71, 386278.991 6174558.111, 386278.961 6174557.601, 386290.283 6174553.486), (386272.103 6174560.234, 386270.565 6174560.783, 386270.467 6174560.616, 386266.6164677354 6174562.047467986, 386270.467 6174560.615, 386270.565 6174560.782, 386272.103 6174560.234), (386265.1846104807 6174562.579773049, 386265.184 6174562.58, 386264.943 6174562.439, 386265.1846104807 6174562.579773049), (386264.749 6174565.49, 386265.362 6174565.266, 386265.634 6174565.199, 386264.749 6174565.49), (386265.821 6174565.193, 386266.00254564337 6174565.219514523, 386265.634 6174565.199, 386265.821 6174565.193), (386266.269 6174565.318, 386266.1157435906 6174565.252955128, 386266.184 6174565.277, 386266.269 6174565.318), (386266.35 6174565.364, 386266.427 6174565.418, 386266.269 6174565.318, 386266.35 6174565.364), (386266.565 6174565.543, 386266.681 6174565.691, 386266.427 6174565.418, 386266.565 6174565.543), (386266.728 6174565.771, 386266.76037500007 6174565.836520833, 386266.681 6174565.691, 386266.728 6174565.771), (386276.856 6174559.226, 386276.9150000275 6174559.254000013, 386276.856 6174559.227, 386276.775487506 6174559.178975004, 386276.856 6174559.226), (386276.637 6174559.084, 386276.72699999355 6174559.148528297, 386276.636 6174559.085, 386276.538 6174559, 386276.637 6174559.084), (386273.6406510486 6174559.68512456, 386273.584 6174559.543, 386273.641 6174559.685, 386273.6406510486 6174559.68512456)), ((386289.56 6174593.903, 386284.607 6174594.559, 386286.89074618195 6174610.4574610675, 386286.762 6174609.759, 386285.173 6174609.995, 386285.34684858867 6174611.261071243, 386280.022 6174611.971, 386277.65 6174595.335, 386277.91 6174595.298, 386277.865 6174595.041, 386271.95 6174595.876, 386271.455 6174592.787, 386268.393 6174593.634, 386251.99466034386 6174597.749095445, 386248.391 6174588.152, 386264.369 6174582.282, 386264.954 6174583.931, 386269.222 6174582.408, 386266.137 6174573.699, 386261.863 6174575.214, 386261.228 6174573.423, 386250.391 6174577.265, 386249.262 6174577.138, 386246.676 6174570.068, 386247.13 6174568.493, 386249.869 6174567.408, 386249.943 6174567.593, 386252.594 6174566.504, 386252.557 6174566.324, 386257.708 6174564.249, 386253.81 6174554.36, 386191.197 6174576.955, 386191.367 6174577.428, 386190.445 6174577.37, 386189.588 6174577.538, 386188.956 6174577.819, 386188.445 6174578.172, 386187.72 6174579.001, 386187.35 6174579.798, 386187.198 6174580.54, 386187.206 6174581.26, 386187.36 6174581.962, 386187.603 6174582.528, 386188.066 6174583.19, 386188.487 6174583.592, 386189.066 6174583.971, 386188.276 6174584.291, 386188.4239512648 6174584.91083322, 386184.379 6174586.51, 386186.191 6174591.093, 386185.903 6174591.207, 386189.513 6174600.337, 386191.8824362666 6174599.399955016, 386191.913 6174599.528, 386196.832 6174612.035, 386197.1680773775 6174611.893197237, 386197.219 6174612.023, 386194.566 6174613.061, 386200.102 6174627.212, 386204.55233118613 6174625.471261605, 386204.607 6174625.611, 386205.371 6174625.323, 386205.175 6174626.189, 386205.192 6174627.001, 386205.405 6174627.81, 386205.786 6174628.522, 386206.299 6174629.109, 386206.953 6174629.581, 386207.913 6174629.946, 386208.75 6174630.027, 386209.56 6174629.911, 386210.105 6174629.718, 386210.616 6174629.434, 386211.158 6174628.986, 386211.256 6174629.755, 386212.55 6174629.602, 386212.527 6174629.409, 386216.017 6174629.016, 386216.04 6174629.21, 386217.562 6174629.039, 386217.54 6174628.845, 386219.77 6174628.583, 386219.792 6174628.777, 386221.241 6174628.614, 386221.219 6174628.42, 386223.446 6174628.164, 386223.465 6174628.356, 386257.148 6174624.435, 386255.85566999554 6174616.309872158, 386257.149 6174624.435, 386267.499 6174623.301, 386275.667 6174622.309, 386293.26 6174619.994, 386289.56 6174593.903), (386234.049 6174573.175, 386233.949 6174572.892, 386235.929 6174572.197, 386237.265 6174572.68, 386240.014 6174580.192, 386238.032 6174580.89, 386242.702 6174592.923, 386241.514 6174593.376, 386242.256 6174595.296, 386243.47 6174594.897, 386245.305 6174599.628, 386242.851 6174600.315, 386244.151 6174604.508, 386243.621 6174604.755, 386243.13 6174605.292, 386242.91 6174605.988, 386242.962 6174606.569, 386243.21 6174607.098, 386243.624 6174607.51, 386244.154 6174607.757, 386244.737 6174607.808, 386243.481 6174610.601, 386232.976 6174611.834, 386233.244 6174614.22, 386232.329 6174613.997, 386231.393 6174614.105, 386230.551 6174614.526, 386230.044 6174615.02, 386231.288 6174627.403, 386229.845 6174613.043, 386224.385 6174613.699, 386225.368 6174607.112, 386224.727 6174611.411, 386233.19 6174609.483, 386233.80198160344 6174603.998164877, 386234.885 6174603.585, 386231.23711302504 6174593.211321415, 386238.818 6174590.567, 386236.059 6174582.665, 386228.47 6174585.314, 386225.214 6174576.07, 386231.152 6174573.981, 386231.218 6174574.17, 386234.049 6174573.175), (386230.4 6174605.296, 386227.945 6174606.182, 386225.368 6174607.112, 386230.4 6174605.296), (386216.961 6174580.359, 386219.459 6174579.537, 386219.732 6174579.661, 386219.072 6174581.119, 386220.437 6174581.738, 386221.097 6174580.282, 386221.335 6174580.391, 386224.852 6174590.115, 386229.632 6174588.614, 386230.127 6174590.03, 386226.143 6174591.353, 386227.427 6174594.592, 386230.05174331705 6174593.640866303, 386215.209 6174599.024, 386226.488 6174594.933, 386225.146 6174591.544, 386223.594 6174590.531, 386213.2471691967 6174594.48693531, 386208.4060321969 6174583.290989307, 386211.188 6174582.367, 386212.151 6174584.395, 386212.678 6174584.804, 386215.84 6174583.583, 386216.046 6174582.969, 386215.794 6174582.217, 386217.422 6174581.595, 386216.961 6174580.359), (386254.953 6174610.639, 386255.60180715914 6174614.7150216615, 386253.136 6174614.992, 386252.582 6174611.128, 386248.963 6174598.601, 386252.583 6174611.128, 386254.953 6174610.639)), ((386296.331 6174598.069, 386295.598 6174593.103, 386289.56 6174593.903, 386291.038 6174604.325, 386296.162 6174603.625, 386295.315 6174598.227, 386296.331 6174598.069)))",
+      "global_fidelity": true,
+      "changed_area_outside_clip": 0.03921916405167833
+    },
+    "mismatches_in_lund1": 4,
+    "synthetic_repair_site_counterexample": {
+      "before": {
+        "global": {
+          "topology_ok": true,
+          "resolved": false,
+          "interior_overlap_pairs": 0,
+          "nonmanifold_boundary_vertices": 0,
+          "canonical_vertex_count": 25,
+          "subscale_pairs": 3,
+          "separation_capped_at_delta": 0.1,
+          "closest_pair": [
+            [
+              0.1,
+              0.01
+            ],
+            [
+              0.0,
+              0.01
+            ]
+          ]
+        },
+        "local": {
+          "topology_ok": true,
+          "resolved": false,
+          "interior_overlap_pairs": 0,
+          "nonmanifold_boundary_vertices": 0,
+          "canonical_vertex_count": 5,
+          "subscale_pairs": 3,
+          "separation_capped_at_delta": 0.1,
+          "closest_pair": [
+            [
+              0.1,
+              0.01
+            ],
+            [
+              0.0,
+              0.010000000000000002
+            ]
+          ]
+        }
+      },
+      "after": {
+        "global": {
+          "topology_ok": true,
+          "resolved": false,
+          "interior_overlap_pairs": 0,
+          "nonmanifold_boundary_vertices": 0,
+          "canonical_vertex_count": 24,
+          "subscale_pairs": 5,
+          "separation_capped_at_delta": 0.49994500337473124,
+          "closest_pair": [
+            [
+              20.0,
+              -0.29997
+            ],
+            [
+              19.99500079992001,
+              0.1999500079992001
+            ]
+          ]
+        },
+        "local": {
+          "topology_ok": true,
+          "resolved": true,
+          "interior_overlap_pairs": 0,
+          "nonmanifold_boundary_vertices": 0,
+          "canonical_vertex_count": 4,
+          "subscale_pairs": 0,
+          "separation_capped_at_delta": 0.5,
+          "closest_pair": null
+        }
+      },
+      "accepted": true,
+      "reason": "remove_vertex",
+      "global_fidelity": true,
+      "spectrum": {
+        "plain": [],
+        "shallow_bend": [
+          [
+            50.0,
+            0.010000499987498636
+          ],
+          [
+            49.99000000010002,
+            0.010000499987498636
+          ]
+        ]
+      }
+    },
+    "synthetic_recipe": {
+      "main_polygon": [
+        [
+          0,
+          0
+        ],
+        [
+          0.1,
+          0.01
+        ],
+        [
+          100,
+          1
+        ],
+        [
+          100,
+          10
+        ],
+        [
+          0,
+          10
+        ]
+      ],
+      "other_polygons": "box(x, x*0.01-0.49997-2, x+2, x*0.01-0.49997) for x in [10,20,30,40,50]",
+      "remove": [
+        0.1,
+        0.01
+      ],
+      "site_coordinates": [
+        [
+          0,
+          0
+        ],
+        [
+          0.1,
+          0.01
+        ]
+      ],
+      "scope": "Direct repair_site call with supplied site, not a claim this synthetic site is selected by full conflict clustering."
+    }
+  },
+  "thin_passage_fixture": {
+    "nominal_0_1_actual": 1.1,
+    "nominal_0_001_actual": 1.001,
+    "formula": "width = (5.5+s/2) - (4.5-s/2) = 1+s"
+  },
+  "resume_probe": {
+    "command": "Reuse a copy of fresh groups-delta0.5.jsonl; run cleaning_staged_probe.py with --epsilon 0 --cities stockholm in that copied output directory.",
+    "manifest_epsilon": 0,
+    "persisted_group_epsilons": [
+      0.25
+    ],
+    "reported_passing_groups": 536,
+    "whole_city_stockholm_status": "fail",
+    "scope": "Separate copied output directory; fresh replay results were not modified."
+  }
+}

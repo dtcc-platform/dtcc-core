@@ -1,0 +1,4701 @@
+{
+  "core_base": "1a106fc6c30c5355d91b325afbd10a6ed3ee5ccc",
+  "source_run": "benchmarks/runs/2026-09-17_100049_quick",
+  "crs": "EPSG:3006",
+  "scripts": {
+    "sandbox/cleaning_route_probe.py": "65f4b46035dd9680cb088d93db2e3c80b802ef7adeaac77a9be932f97e096c4e",
+    "sandbox/cleaning_pipeline_probe.py": "edb045b04946656e8d3c2788efc0d936ea4445b6cc29070677892acdecf86ee1"
+  },
+  "versions": {
+    "scipy": "1.17.1",
+    "shapely": "2.1.2",
+    "dtcc_mesher": "7ada8a89c98dbbedc34213387ee598bd92826f10"
+  },
+  "delta": 0.5,
+  "epsilon": 0.25,
+  "scope": "Occupancy-only directed boundary-route selection. Required internal source walls and general source attribution are not implemented. No production integration or full-city mesh.",
+  "bounds": {
+    "sites": 2000,
+    "chords": 2000,
+    "constraints": 100000,
+    "rounds": 16,
+    "target_seconds_per_group": 5
+  },
+  "group_outcomes": {
+    "unchanged": 252,
+    "site_limit": 29,
+    "chord_limit": 204,
+    "constraint_limit": 23,
+    "contract_pass": 15,
+    "time_limit": 9,
+    "solver_unresolved": 6
+  },
+  "accepted_solver_status": {
+    "0": 5,
+    "1": 10
+  },
+  "total_groups": 538,
+  "complete_conforming_cities": 0,
+  "seconds": 194.67013622191735,
+  "timing_scope": "Sum of per-group elapsed times, excluding loading and grouping. Soft time target; solver shutdown and output checking may overrun. Single sample.",
+  "examples": {
+    "point_contact": {
+      "outcome": "conforming",
+      "reason": "contract_pass",
+      "rounds": 1,
+      "variables": 963,
+      "constraints": 13361,
+      "solver_status": 0,
+      "selected_segments": 118,
+      "seconds": 0.693529250100255,
+      "contract_status": "pass",
+      "canonical_vertices": 10,
+      "lost_protected_area": 0.0,
+      "added_outside_budget_area": 0.0
+    },
+    "near_buildings": {
+      "outcome": "conforming",
+      "reason": "contract_pass",
+      "rounds": 1,
+      "variables": 1544,
+      "constraints": 44806,
+      "solver_status": 1,
+      "selected_segments": 90,
+      "seconds": 5.251068250043318,
+      "contract_status": "pass",
+      "canonical_vertices": 5,
+      "lost_protected_area": 0.0,
+      "added_outside_budget_area": 0.0
+    },
+    "courtyard_passage": {
+      "outcome": "conforming",
+      "reason": "contract_pass",
+      "rounds": 1,
+      "variables": 1996,
+      "constraints": 50322,
+      "solver_status": 1,
+      "selected_segments": 140,
+      "seconds": 5.4311101250350475,
+      "contract_status": "pass",
+      "canonical_vertices": 12,
+      "lost_protected_area": 0.0,
+      "added_outside_budget_area": 0.0
+    },
+    "tiny_hole": {
+      "outcome": "conforming",
+      "reason": "contract_pass",
+      "rounds": 1,
+      "variables": 556,
+      "constraints": 6576,
+      "solver_status": 0,
+      "selected_segments": 68,
+      "seconds": 0.3399132080376148,
+      "contract_status": "pass",
+      "canonical_vertices": 4,
+      "lost_protected_area": 0.0,
+      "added_outside_budget_area": 0.0
+    }
+  },
+  "comparison_to_vertex_removal": [
+    {
+      "city": "lund",
+      "group_index": 50,
+      "vertex_removal_outcome": "resolved"
+    },
+    {
+      "city": "lund",
+      "group_index": 52,
+      "vertex_removal_outcome": "resolved"
+    },
+    {
+      "city": "gothenburg",
+      "group_index": 29,
+      "vertex_removal_outcome": "resolved"
+    },
+    {
+      "city": "gothenburg",
+      "group_index": 33,
+      "vertex_removal_outcome": "resolved"
+    },
+    {
+      "city": "uppsala",
+      "group_index": 15,
+      "vertex_removal_outcome": "no_admissible_shortcut"
+    },
+    {
+      "city": "uppsala",
+      "group_index": 29,
+      "vertex_removal_outcome": "resolved"
+    },
+    {
+      "city": "linkoping",
+      "group_index": 48,
+      "vertex_removal_outcome": "resolved"
+    },
+    {
+      "city": "linkoping",
+      "group_index": 53,
+      "vertex_removal_outcome": "resolved"
+    },
+    {
+      "city": "linkoping",
+      "group_index": 58,
+      "vertex_removal_outcome": "resolved"
+    },
+    {
+      "city": "linkoping",
+      "group_index": 60,
+      "vertex_removal_outcome": "resolved"
+    },
+    {
+      "city": "orebro",
+      "group_index": 23,
+      "vertex_removal_outcome": "resolved"
+    },
+    {
+      "city": "orebro",
+      "group_index": 28,
+      "vertex_removal_outcome": "no_admissible_shortcut"
+    },
+    {
+      "city": "orebro",
+      "group_index": 29,
+      "vertex_removal_outcome": "resolved"
+    },
+    {
+      "city": "helsingborg",
+      "group_index": 65,
+      "vertex_removal_outcome": "resolved"
+    },
+    {
+      "city": "norrkoping",
+      "group_index": 38,
+      "vertex_removal_outcome": "resolved"
+    }
+  ],
+  "cities": [
+    {
+      "city": "lund",
+      "case_id": "city_grid:lund:056",
+      "bounds": [
+        386075.0,
+        6174447.0,
+        386575.0,
+        6174947.0
+      ],
+      "groups": 85,
+      "outcomes": {
+        "unchanged": 41,
+        "site_limit": 10,
+        "chord_limit": 25,
+        "constraint_limit": 4,
+        "contract_pass": 2,
+        "time_limit": 3
+      },
+      "seconds": 26.44370841840282
+    },
+    {
+      "city": "stockholm",
+      "case_id": "city_grid:stockholm:056",
+      "bounds": [
+        674321.9,
+        6580493.0,
+        674821.9,
+        6580993.0
+      ],
+      "groups": 24,
+      "outcomes": {
+        "time_limit": 1,
+        "unchanged": 11,
+        "chord_limit": 12
+      },
+      "seconds": 7.273230915889144
+    },
+    {
+      "city": "gothenburg",
+      "case_id": "city_grid:gothenburg:056",
+      "bounds": [
+        319508.0,
+        6400076.0,
+        320008.0,
+        6400576.0
+      ],
+      "groups": 49,
+      "outcomes": {
+        "chord_limit": 16,
+        "unchanged": 27,
+        "site_limit": 1,
+        "solver_unresolved": 1,
+        "contract_pass": 2,
+        "constraint_limit": 2
+      },
+      "seconds": 18.224647625349462
+    },
+    {
+      "city": "malmo",
+      "case_id": "city_grid:malmo:056",
+      "bounds": [
+        373993.8,
+        6163676.6,
+        374493.8,
+        6164176.6
+      ],
+      "groups": 31,
+      "outcomes": {
+        "site_limit": 2,
+        "unchanged": 18,
+        "chord_limit": 10,
+        "constraint_limit": 1
+      },
+      "seconds": 1.438796543283388
+    },
+    {
+      "city": "uppsala",
+      "case_id": "city_grid:uppsala:056",
+      "bounds": [
+        647543.5,
+        6638358.1,
+        648043.5,
+        6638858.1
+      ],
+      "groups": 47,
+      "outcomes": {
+        "chord_limit": 25,
+        "site_limit": 3,
+        "unchanged": 12,
+        "contract_pass": 2,
+        "time_limit": 1,
+        "constraint_limit": 3,
+        "solver_unresolved": 1
+      },
+      "seconds": 26.52009162399918
+    },
+    {
+      "city": "linkoping",
+      "case_id": "city_grid:linkoping:056",
+      "bounds": [
+        536058.5,
+        6474365.0,
+        536558.5,
+        6474865.0
+      ],
+      "groups": 93,
+      "outcomes": {
+        "chord_limit": 38,
+        "unchanged": 38,
+        "site_limit": 4,
+        "constraint_limit": 4,
+        "solver_unresolved": 2,
+        "contract_pass": 4,
+        "time_limit": 3
+      },
+      "seconds": 57.17695434298366
+    },
+    {
+      "city": "orebro",
+      "case_id": "city_grid:orebro:056",
+      "bounds": [
+        511912.3,
+        6570477.0,
+        512412.3,
+        6570977.0
+      ],
+      "groups": 37,
+      "outcomes": {
+        "site_limit": 3,
+        "unchanged": 15,
+        "chord_limit": 12,
+        "constraint_limit": 4,
+        "contract_pass": 3
+      },
+      "seconds": 18.823064129799604
+    },
+    {
+      "city": "vasteras",
+      "case_id": "city_grid:vasteras:056",
+      "bounds": [
+        586922.6,
+        6608731.7,
+        587422.6,
+        6609231.7
+      ],
+      "groups": 46,
+      "outcomes": {
+        "unchanged": 22,
+        "chord_limit": 20,
+        "constraint_limit": 2,
+        "time_limit": 1,
+        "solver_unresolved": 1
+      },
+      "seconds": 18.587588579859585
+    },
+    {
+      "city": "helsingborg",
+      "case_id": "city_grid:helsingborg:056",
+      "bounds": [
+        356148.3,
+        6213402.0,
+        356648.3,
+        6213902.0
+      ],
+      "groups": 75,
+      "outcomes": {
+        "unchanged": 39,
+        "site_limit": 5,
+        "chord_limit": 27,
+        "constraint_limit": 3,
+        "contract_pass": 1
+      },
+      "seconds": 9.06812133290805
+    },
+    {
+      "city": "norrkoping",
+      "case_id": "city_grid:norrkoping:056",
+      "bounds": [
+        569071.0,
+        6494509.3,
+        569571.0,
+        6495009.3
+      ],
+      "groups": 51,
+      "outcomes": {
+        "chord_limit": 19,
+        "site_limit": 1,
+        "unchanged": 29,
+        "contract_pass": 1,
+        "solver_unresolved": 1
+      },
+      "seconds": 11.113932709442452
+    }
+  ],
+  "mesh_smoke": {
+    "num_faces": 389,
+    "degenerate_cell_count": 0,
+    "element_quality_p01": 0.6444344819159524
+  },
+  "mesh_smoke_scope": "Saved automatic gap output, known source map [[0,1]], flat builder, max_mesh_size=2, Bounds(-5,-5,26,12), legacy cleaning and mesher-ready repair patched to fail if called.",
+  "verification": "36 focused tests passed; ordinary and fixed-city CLI completed; generated figure inspected. Time-limited conforming outputs can include avoidable corner changes.",
+  "decision": "Keep as bounded correctness experiment. Derive a smaller candidate family before production integration; do not increase caps or add case-specific repairs.",
+  "solver_optimality": "Status 0 means reported optimal within solver tolerances; status 1 accepted results are conforming incumbents, not claimed optimal.",
+  "focused_experiment": {
+    "scripts": {
+      "sandbox/cleaning_route_probe.py": "0688c7c5721a59ee861078e65471c832030a0de900967023e9427e0f19169200",
+      "sandbox/cleaning_pipeline_probe.py": "60bff75bc398cc836c0dc5236463c9e6837f06f98da3191d6d9fba3b5dbe9e97"
+    },
+    "invocation": "MPLCONFIGDIR=/tmp/dtcc-matplotlib XDG_CACHE_HOME=/tmp/dtcc-cache .venv/bin/python sandbox/cleaning_route_probe.py --focused --output /tmp/dtcc-focused-route-probe/cities --run benchmarks/runs/2026-09-17_100049_quick",
+    "family": "Only canonical vertices participating in unresolved features seed sampling. New chord endpoints must share a seed disk. Original parents outside all seed disks are fixed. All scales and caps unchanged.",
+    "group_outcomes": {
+      "unchanged": 252,
+      "site_limit": 4,
+      "chord_limit": 149,
+      "contract_pass": 43,
+      "constraint_limit": 53,
+      "solver_unresolved": 35,
+      "model_infeasible": 1,
+      "time_limit": 1
+    },
+    "accepted_solver_status": {
+      "0": 31,
+      "1": 12
+    },
+    "total_groups": 538,
+    "complete_conforming_cities": 0,
+    "seconds": 405.8862370424904,
+    "timing_scope": "Single sample; sum of per-group times excluding loading/grouping. Soft five-second target. One 2.90-second representation check ran concurrently with part of the survey; no speedup claim.",
+    "examples": {
+      "point_contact": {
+        "outcome": "conforming",
+        "reason": "contract_pass",
+        "seed_vertices": 1,
+        "sites": 39,
+        "chords": 116,
+        "variables": 351,
+        "constraints": 6287,
+        "solver_status": 0,
+        "rounds": 1,
+        "seconds": 0.16004512482322752,
+        "represented_conforming_witness": true,
+        "contract_status": "pass"
+      },
+      "near_buildings": {
+        "outcome": "unresolved",
+        "reason": "solver_unresolved",
+        "seed_vertices": 4,
+        "sites": 72,
+        "chords": 450,
+        "variables": 1116,
+        "constraints": 40078,
+        "solver_status": 1,
+        "rounds": 1,
+        "seconds": 5.117800083011389,
+        "represented_conforming_witness": true,
+        "contract_status": null
+      },
+      "courtyard_passage": {
+        "outcome": "unresolved",
+        "reason": "solver_unresolved",
+        "seed_vertices": 4,
+        "sites": 76,
+        "chords": 450,
+        "variables": 1128,
+        "constraints": 40106,
+        "solver_status": 1,
+        "rounds": 1,
+        "seconds": 6.919951499905437,
+        "represented_conforming_witness": true,
+        "contract_status": null
+      },
+      "tiny_hole": {
+        "outcome": "conforming",
+        "reason": "contract_pass",
+        "seed_vertices": 4,
+        "sites": 16,
+        "chords": 42,
+        "variables": 132,
+        "constraints": 1936,
+        "solver_status": 0,
+        "rounds": 1,
+        "seconds": 0.1332760420627892,
+        "represented_conforming_witness": true,
+        "contract_status": "pass"
+      }
+    },
+    "comparison_to_reference": {
+      "retained": [
+        {
+          "city": "lund",
+          "group_index": 50,
+          "focused_reason": "contract_pass",
+          "reference_reason": "contract_pass"
+        },
+        {
+          "city": "lund",
+          "group_index": 52,
+          "focused_reason": "contract_pass",
+          "reference_reason": "contract_pass"
+        },
+        {
+          "city": "gothenburg",
+          "group_index": 33,
+          "focused_reason": "contract_pass",
+          "reference_reason": "contract_pass"
+        },
+        {
+          "city": "uppsala",
+          "group_index": 15,
+          "focused_reason": "contract_pass",
+          "reference_reason": "contract_pass"
+        },
+        {
+          "city": "uppsala",
+          "group_index": 29,
+          "focused_reason": "contract_pass",
+          "reference_reason": "contract_pass"
+        },
+        {
+          "city": "linkoping",
+          "group_index": 48,
+          "focused_reason": "contract_pass",
+          "reference_reason": "contract_pass"
+        },
+        {
+          "city": "linkoping",
+          "group_index": 53,
+          "focused_reason": "contract_pass",
+          "reference_reason": "contract_pass"
+        },
+        {
+          "city": "linkoping",
+          "group_index": 58,
+          "focused_reason": "contract_pass",
+          "reference_reason": "contract_pass"
+        },
+        {
+          "city": "orebro",
+          "group_index": 23,
+          "focused_reason": "contract_pass",
+          "reference_reason": "contract_pass"
+        },
+        {
+          "city": "orebro",
+          "group_index": 28,
+          "focused_reason": "contract_pass",
+          "reference_reason": "contract_pass"
+        },
+        {
+          "city": "helsingborg",
+          "group_index": 65,
+          "focused_reason": "contract_pass",
+          "reference_reason": "contract_pass"
+        },
+        {
+          "city": "norrkoping",
+          "group_index": 38,
+          "focused_reason": "contract_pass",
+          "reference_reason": "contract_pass"
+        }
+      ],
+      "lost": [
+        {
+          "city": "gothenburg",
+          "group_index": 29,
+          "focused_reason": "solver_unresolved",
+          "reference_reason": "contract_pass"
+        },
+        {
+          "city": "linkoping",
+          "group_index": 60,
+          "focused_reason": "solver_unresolved",
+          "reference_reason": "contract_pass"
+        },
+        {
+          "city": "orebro",
+          "group_index": 29,
+          "focused_reason": "solver_unresolved",
+          "reference_reason": "contract_pass"
+        }
+      ],
+      "gained": [
+        {
+          "city": "lund",
+          "group_index": 23,
+          "focused_reason": "contract_pass",
+          "reference_reason": "constraint_limit"
+        },
+        {
+          "city": "lund",
+          "group_index": 54,
+          "focused_reason": "contract_pass",
+          "reference_reason": "time_limit"
+        },
+        {
+          "city": "lund",
+          "group_index": 55,
+          "focused_reason": "contract_pass",
+          "reference_reason": "chord_limit"
+        },
+        {
+          "city": "lund",
+          "group_index": 60,
+          "focused_reason": "contract_pass",
+          "reference_reason": "time_limit"
+        },
+        {
+          "city": "lund",
+          "group_index": 61,
+          "focused_reason": "contract_pass",
+          "reference_reason": "time_limit"
+        },
+        {
+          "city": "lund",
+          "group_index": 65,
+          "focused_reason": "contract_pass",
+          "reference_reason": "constraint_limit"
+        },
+        {
+          "city": "lund",
+          "group_index": 76,
+          "focused_reason": "contract_pass",
+          "reference_reason": "chord_limit"
+        },
+        {
+          "city": "lund",
+          "group_index": 79,
+          "focused_reason": "contract_pass",
+          "reference_reason": "chord_limit"
+        },
+        {
+          "city": "stockholm",
+          "group_index": 21,
+          "focused_reason": "contract_pass",
+          "reference_reason": "chord_limit"
+        },
+        {
+          "city": "gothenburg",
+          "group_index": 44,
+          "focused_reason": "contract_pass",
+          "reference_reason": "chord_limit"
+        },
+        {
+          "city": "gothenburg",
+          "group_index": 45,
+          "focused_reason": "contract_pass",
+          "reference_reason": "chord_limit"
+        },
+        {
+          "city": "malmo",
+          "group_index": 28,
+          "focused_reason": "contract_pass",
+          "reference_reason": "chord_limit"
+        },
+        {
+          "city": "uppsala",
+          "group_index": 36,
+          "focused_reason": "contract_pass",
+          "reference_reason": "chord_limit"
+        },
+        {
+          "city": "linkoping",
+          "group_index": 69,
+          "focused_reason": "contract_pass",
+          "reference_reason": "constraint_limit"
+        },
+        {
+          "city": "linkoping",
+          "group_index": 71,
+          "focused_reason": "contract_pass",
+          "reference_reason": "time_limit"
+        },
+        {
+          "city": "linkoping",
+          "group_index": 72,
+          "focused_reason": "contract_pass",
+          "reference_reason": "time_limit"
+        },
+        {
+          "city": "linkoping",
+          "group_index": 76,
+          "focused_reason": "contract_pass",
+          "reference_reason": "chord_limit"
+        },
+        {
+          "city": "linkoping",
+          "group_index": 77,
+          "focused_reason": "contract_pass",
+          "reference_reason": "chord_limit"
+        },
+        {
+          "city": "linkoping",
+          "group_index": 79,
+          "focused_reason": "contract_pass",
+          "reference_reason": "chord_limit"
+        },
+        {
+          "city": "orebro",
+          "group_index": 21,
+          "focused_reason": "contract_pass",
+          "reference_reason": "constraint_limit"
+        },
+        {
+          "city": "orebro",
+          "group_index": 36,
+          "focused_reason": "contract_pass",
+          "reference_reason": "chord_limit"
+        },
+        {
+          "city": "vasteras",
+          "group_index": 18,
+          "focused_reason": "contract_pass",
+          "reference_reason": "chord_limit"
+        },
+        {
+          "city": "vasteras",
+          "group_index": 25,
+          "focused_reason": "contract_pass",
+          "reference_reason": "time_limit"
+        },
+        {
+          "city": "vasteras",
+          "group_index": 32,
+          "focused_reason": "contract_pass",
+          "reference_reason": "constraint_limit"
+        },
+        {
+          "city": "vasteras",
+          "group_index": 36,
+          "focused_reason": "contract_pass",
+          "reference_reason": "chord_limit"
+        },
+        {
+          "city": "helsingborg",
+          "group_index": 21,
+          "focused_reason": "contract_pass",
+          "reference_reason": "constraint_limit"
+        },
+        {
+          "city": "helsingborg",
+          "group_index": 43,
+          "focused_reason": "contract_pass",
+          "reference_reason": "constraint_limit"
+        },
+        {
+          "city": "helsingborg",
+          "group_index": 61,
+          "focused_reason": "contract_pass",
+          "reference_reason": "chord_limit"
+        },
+        {
+          "city": "norrkoping",
+          "group_index": 32,
+          "focused_reason": "contract_pass",
+          "reference_reason": "chord_limit"
+        },
+        {
+          "city": "norrkoping",
+          "group_index": 40,
+          "focused_reason": "contract_pass",
+          "reference_reason": "chord_limit"
+        },
+        {
+          "city": "norrkoping",
+          "group_index": 47,
+          "focused_reason": "contract_pass",
+          "reference_reason": "solver_unresolved"
+        }
+      ]
+    },
+    "accepted_groups_vertex_removal_reasons": {
+      "no_admissible_shortcut": 7,
+      "resolved": 36
+    },
+    "cities": [
+      {
+        "city": "lund",
+        "groups": 85,
+        "outcomes": {
+          "unchanged": 41,
+          "site_limit": 3,
+          "chord_limit": 21,
+          "contract_pass": 10,
+          "constraint_limit": 8,
+          "solver_unresolved": 2
+        },
+        "seconds": 55.422785957343876
+      },
+      {
+        "city": "stockholm",
+        "groups": 24,
+        "outcomes": {
+          "solver_unresolved": 3,
+          "unchanged": 11,
+          "chord_limit": 7,
+          "constraint_limit": 2,
+          "contract_pass": 1
+        },
+        "seconds": 22.69765470782295
+      },
+      {
+        "city": "gothenburg",
+        "groups": 49,
+        "outcomes": {
+          "chord_limit": 9,
+          "unchanged": 27,
+          "model_infeasible": 1,
+          "constraint_limit": 5,
+          "solver_unresolved": 4,
+          "contract_pass": 3
+        },
+        "seconds": 37.4480747920461
+      },
+      {
+        "city": "malmo",
+        "groups": 31,
+        "outcomes": {
+          "chord_limit": 8,
+          "unchanged": 18,
+          "solver_unresolved": 1,
+          "constraint_limit": 3,
+          "contract_pass": 1
+        },
+        "seconds": 9.134128832025453
+      },
+      {
+        "city": "uppsala",
+        "groups": 47,
+        "outcomes": {
+          "chord_limit": 20,
+          "unchanged": 12,
+          "constraint_limit": 8,
+          "contract_pass": 3,
+          "solver_unresolved": 4
+        },
+        "seconds": 43.96098771225661
+      },
+      {
+        "city": "linkoping",
+        "groups": 93,
+        "outcomes": {
+          "constraint_limit": 7,
+          "unchanged": 38,
+          "chord_limit": 30,
+          "site_limit": 1,
+          "solver_unresolved": 8,
+          "contract_pass": 9
+        },
+        "seconds": 88.08639466599561
+      },
+      {
+        "city": "orebro",
+        "groups": 37,
+        "outcomes": {
+          "chord_limit": 12,
+          "unchanged": 15,
+          "constraint_limit": 4,
+          "contract_pass": 4,
+          "solver_unresolved": 2
+        },
+        "seconds": 32.23339703865349
+      },
+      {
+        "city": "vasteras",
+        "groups": 46,
+        "outcomes": {
+          "unchanged": 22,
+          "chord_limit": 9,
+          "constraint_limit": 5,
+          "solver_unresolved": 5,
+          "contract_pass": 4,
+          "time_limit": 1
+        },
+        "seconds": 53.01883058715612
+      },
+      {
+        "city": "helsingborg",
+        "groups": 75,
+        "outcomes": {
+          "unchanged": 39,
+          "chord_limit": 22,
+          "contract_pass": 4,
+          "solver_unresolved": 4,
+          "constraint_limit": 6
+        },
+        "seconds": 35.565956165548414
+      },
+      {
+        "city": "norrkoping",
+        "groups": 51,
+        "outcomes": {
+          "constraint_limit": 5,
+          "solver_unresolved": 2,
+          "chord_limit": 11,
+          "unchanged": 29,
+          "contract_pass": 4
+        },
+        "seconds": 28.318026583641768
+      }
+    ],
+    "mesh_smoke": null,
+    "decision": "Keep the focused family as an explicit research comparison, not the default reference or production integration. Smaller proposals increase city coverage but do not make bounded search reliable. Separate represented geometry from discovered solutions before changing formulation; do not raise limits or append repair fallbacks.",
+    "verification": "38 focused contract/graph/topology/route tests passed in 26.22 s, plus one CLI stale-artifact regression passed separately; focused example and fixed-city CLI completed; --help and missing-output exit 2 exercised; output figure inspected; git diff --check passed. No production or mesher changes.",
+    "gap_base_constraint_counts": {
+      "edge_direction_exclusion": 522,
+      "fixed_original_direction": 2,
+      "flow_balance": 72,
+      "outgoing_limit": 72,
+      "active_requires_selected_route": 72,
+      "turn_implications": 17296,
+      "crossing_exclusion": 13820,
+      "vertex_vertex_separation": 328,
+      "vertex_edge_separation": 7892
+    },
+    "post_survey_changes": "Formatting and removal of stale successful GeoJSON artifacts on an unresolved rerun; candidate/search geometry unchanged."
+  },
+  "compact_turn_experiment": {
+    "scripts": {
+      "sandbox/cleaning_route_probe.py": "59765521c89601603de3fee97e91c513b71478d4a1f9f2011a741e56134c0e50",
+      "sandbox/cleaning_pipeline_probe.py": "60bff75bc398cc836c0dc5236463c9e6837f06f98da3191d6d9fba3b5dbe9e97"
+    },
+    "invocation": "MPLCONFIGDIR=/tmp/dtcc-matplotlib XDG_CACHE_HOME=/tmp/dtcc-cache .venv/bin/python sandbox/cleaning_route_probe.py --focused --output /tmp/dtcc-compact-route-probe/final-focused --run benchmarks/runs/2026-09-17_100049_quick",
+    "change": "One turn row per incoming route, equivalent under existing binary flow and edge-direction constraints. Both proposal families use it; no old encoding switch. Candidate geometry, contract, objective and all caps unchanged.",
+    "algebra_check": {
+      "compatibility_relations": 512,
+      "visited_vertex_assignments": 9216,
+      "unused_vertex_checked": true
+    },
+    "candidate_counts_unchanged_for_all_groups": true,
+    "group_outcomes": {
+      "unchanged": 252,
+      "site_limit": 4,
+      "chord_limit": 149,
+      "solver_unresolved": 33,
+      "constraint_limit": 26,
+      "contract_pass": 72,
+      "model_infeasible": 2
+    },
+    "accepted_solver_status": {
+      "0": 72
+    },
+    "total_groups": 538,
+    "complete_conforming_cities": 0,
+    "seconds": 396.1350335739553,
+    "timing_scope": "Single sample, sum of per-group time excluding loading/grouping, unchanged soft five-second target. No concurrent test/mesh workload in this run; timing is not a performance guarantee.",
+    "examples": {
+      "point_contact": {
+        "outcome": "conforming",
+        "reason": "contract_pass",
+        "seed_vertices": 1,
+        "sites": 39,
+        "chords": 116,
+        "variables": 351,
+        "constraints": 3499,
+        "solver_status": 0,
+        "rounds": 1,
+        "seconds": 0.11696808412671089,
+        "contract_status": "pass"
+      },
+      "near_buildings": {
+        "outcome": "conforming",
+        "reason": "contract_pass",
+        "seed_vertices": 4,
+        "sites": 72,
+        "chords": 450,
+        "variables": 1116,
+        "constraints": 23826,
+        "solver_status": 0,
+        "rounds": 1,
+        "seconds": 1.1493383331689984,
+        "contract_status": "pass"
+      },
+      "courtyard_passage": {
+        "outcome": "conforming",
+        "reason": "contract_pass",
+        "seed_vertices": 4,
+        "sites": 76,
+        "chords": 450,
+        "variables": 1128,
+        "constraints": 23854,
+        "solver_status": 0,
+        "rounds": 1,
+        "seconds": 2.1750043330248445,
+        "contract_status": "pass"
+      },
+      "tiny_hole": {
+        "outcome": "conforming",
+        "reason": "contract_pass",
+        "seed_vertices": 4,
+        "sites": 16,
+        "chords": 42,
+        "variables": 132,
+        "constraints": 1172,
+        "solver_status": 0,
+        "rounds": 1,
+        "seconds": 0.025354792131111026,
+        "contract_status": "pass"
+      }
+    },
+    "default_family_examples": {
+      "point_contact": {
+        "outcome": "conforming",
+        "reason": "contract_pass",
+        "seed_vertices": 7,
+        "sites": 127,
+        "chords": 290,
+        "variables": 963,
+        "constraints": 8265,
+        "solver_status": 0,
+        "rounds": 1,
+        "seconds": 0.306773082818836,
+        "contract_status": "pass"
+      },
+      "near_buildings": {
+        "outcome": "conforming",
+        "reason": "contract_pass",
+        "seed_vertices": 8,
+        "sites": 136,
+        "chords": 568,
+        "variables": 1544,
+        "constraints": 26958,
+        "solver_status": 0,
+        "rounds": 1,
+        "seconds": 4.099238250171766,
+        "contract_status": "pass"
+      },
+      "courtyard_passage": {
+        "outcome": "unresolved",
+        "reason": "solver_unresolved",
+        "seed_vertices": 12,
+        "sites": 204,
+        "chords": 692,
+        "variables": 1996,
+        "constraints": 30658,
+        "solver_status": 1,
+        "rounds": 1,
+        "seconds": 6.793130500009283,
+        "contract_status": null
+      },
+      "tiny_hole": {
+        "outcome": "conforming",
+        "reason": "contract_pass",
+        "seed_vertices": 8,
+        "sites": 80,
+        "chords": 158,
+        "variables": 556,
+        "constraints": 4284,
+        "solver_status": 0,
+        "rounds": 1,
+        "seconds": 0.13136454089544713,
+        "contract_status": "pass"
+      }
+    },
+    "default_family_city_survey": "Not rerun in this step; the fixed-city comparison holds the focused proposal family constant.",
+    "comparison_to_previous_focused": {
+      "retained": [
+        {
+          "city": "lund",
+          "group_index": 50,
+          "compact_reason": "contract_pass",
+          "previous_reason": "contract_pass"
+        },
+        {
+          "city": "lund",
+          "group_index": 52,
+          "compact_reason": "contract_pass",
+          "previous_reason": "contract_pass"
+        },
+        {
+          "city": "lund",
+          "group_index": 54,
+          "compact_reason": "contract_pass",
+          "previous_reason": "contract_pass"
+        },
+        {
+          "city": "lund",
+          "group_index": 55,
+          "compact_reason": "contract_pass",
+          "previous_reason": "contract_pass"
+        },
+        {
+          "city": "lund",
+          "group_index": 60,
+          "compact_reason": "contract_pass",
+          "previous_reason": "contract_pass"
+        },
+        {
+          "city": "lund",
+          "group_index": 61,
+          "compact_reason": "contract_pass",
+          "previous_reason": "contract_pass"
+        },
+        {
+          "city": "lund",
+          "group_index": 65,
+          "compact_reason": "contract_pass",
+          "previous_reason": "contract_pass"
+        },
+        {
+          "city": "lund",
+          "group_index": 76,
+          "compact_reason": "contract_pass",
+          "previous_reason": "contract_pass"
+        },
+        {
+          "city": "lund",
+          "group_index": 79,
+          "compact_reason": "contract_pass",
+          "previous_reason": "contract_pass"
+        },
+        {
+          "city": "stockholm",
+          "group_index": 21,
+          "compact_reason": "contract_pass",
+          "previous_reason": "contract_pass"
+        },
+        {
+          "city": "gothenburg",
+          "group_index": 33,
+          "compact_reason": "contract_pass",
+          "previous_reason": "contract_pass"
+        },
+        {
+          "city": "gothenburg",
+          "group_index": 44,
+          "compact_reason": "contract_pass",
+          "previous_reason": "contract_pass"
+        },
+        {
+          "city": "gothenburg",
+          "group_index": 45,
+          "compact_reason": "contract_pass",
+          "previous_reason": "contract_pass"
+        },
+        {
+          "city": "malmo",
+          "group_index": 28,
+          "compact_reason": "contract_pass",
+          "previous_reason": "contract_pass"
+        },
+        {
+          "city": "uppsala",
+          "group_index": 15,
+          "compact_reason": "contract_pass",
+          "previous_reason": "contract_pass"
+        },
+        {
+          "city": "uppsala",
+          "group_index": 29,
+          "compact_reason": "contract_pass",
+          "previous_reason": "contract_pass"
+        },
+        {
+          "city": "uppsala",
+          "group_index": 36,
+          "compact_reason": "contract_pass",
+          "previous_reason": "contract_pass"
+        },
+        {
+          "city": "linkoping",
+          "group_index": 48,
+          "compact_reason": "contract_pass",
+          "previous_reason": "contract_pass"
+        },
+        {
+          "city": "linkoping",
+          "group_index": 53,
+          "compact_reason": "contract_pass",
+          "previous_reason": "contract_pass"
+        },
+        {
+          "city": "linkoping",
+          "group_index": 58,
+          "compact_reason": "contract_pass",
+          "previous_reason": "contract_pass"
+        },
+        {
+          "city": "linkoping",
+          "group_index": 69,
+          "compact_reason": "contract_pass",
+          "previous_reason": "contract_pass"
+        },
+        {
+          "city": "linkoping",
+          "group_index": 71,
+          "compact_reason": "contract_pass",
+          "previous_reason": "contract_pass"
+        },
+        {
+          "city": "linkoping",
+          "group_index": 72,
+          "compact_reason": "contract_pass",
+          "previous_reason": "contract_pass"
+        },
+        {
+          "city": "linkoping",
+          "group_index": 76,
+          "compact_reason": "contract_pass",
+          "previous_reason": "contract_pass"
+        },
+        {
+          "city": "linkoping",
+          "group_index": 77,
+          "compact_reason": "contract_pass",
+          "previous_reason": "contract_pass"
+        },
+        {
+          "city": "linkoping",
+          "group_index": 79,
+          "compact_reason": "contract_pass",
+          "previous_reason": "contract_pass"
+        },
+        {
+          "city": "orebro",
+          "group_index": 21,
+          "compact_reason": "contract_pass",
+          "previous_reason": "contract_pass"
+        },
+        {
+          "city": "orebro",
+          "group_index": 23,
+          "compact_reason": "contract_pass",
+          "previous_reason": "contract_pass"
+        },
+        {
+          "city": "orebro",
+          "group_index": 28,
+          "compact_reason": "contract_pass",
+          "previous_reason": "contract_pass"
+        },
+        {
+          "city": "orebro",
+          "group_index": 36,
+          "compact_reason": "contract_pass",
+          "previous_reason": "contract_pass"
+        },
+        {
+          "city": "vasteras",
+          "group_index": 18,
+          "compact_reason": "contract_pass",
+          "previous_reason": "contract_pass"
+        },
+        {
+          "city": "vasteras",
+          "group_index": 25,
+          "compact_reason": "contract_pass",
+          "previous_reason": "contract_pass"
+        },
+        {
+          "city": "vasteras",
+          "group_index": 32,
+          "compact_reason": "contract_pass",
+          "previous_reason": "contract_pass"
+        },
+        {
+          "city": "vasteras",
+          "group_index": 36,
+          "compact_reason": "contract_pass",
+          "previous_reason": "contract_pass"
+        },
+        {
+          "city": "helsingborg",
+          "group_index": 21,
+          "compact_reason": "contract_pass",
+          "previous_reason": "contract_pass"
+        },
+        {
+          "city": "helsingborg",
+          "group_index": 43,
+          "compact_reason": "contract_pass",
+          "previous_reason": "contract_pass"
+        },
+        {
+          "city": "helsingborg",
+          "group_index": 61,
+          "compact_reason": "contract_pass",
+          "previous_reason": "contract_pass"
+        },
+        {
+          "city": "helsingborg",
+          "group_index": 65,
+          "compact_reason": "contract_pass",
+          "previous_reason": "contract_pass"
+        },
+        {
+          "city": "norrkoping",
+          "group_index": 32,
+          "compact_reason": "contract_pass",
+          "previous_reason": "contract_pass"
+        },
+        {
+          "city": "norrkoping",
+          "group_index": 38,
+          "compact_reason": "contract_pass",
+          "previous_reason": "contract_pass"
+        },
+        {
+          "city": "norrkoping",
+          "group_index": 40,
+          "compact_reason": "contract_pass",
+          "previous_reason": "contract_pass"
+        },
+        {
+          "city": "norrkoping",
+          "group_index": 47,
+          "compact_reason": "contract_pass",
+          "previous_reason": "contract_pass"
+        }
+      ],
+      "lost": [
+        {
+          "city": "lund",
+          "group_index": 23,
+          "compact_reason": "solver_unresolved",
+          "previous_reason": "contract_pass"
+        }
+      ],
+      "gained": [
+        {
+          "city": "lund",
+          "group_index": 58,
+          "compact_reason": "contract_pass",
+          "previous_reason": "constraint_limit"
+        },
+        {
+          "city": "lund",
+          "group_index": 73,
+          "compact_reason": "contract_pass",
+          "previous_reason": "solver_unresolved"
+        },
+        {
+          "city": "gothenburg",
+          "group_index": 29,
+          "compact_reason": "contract_pass",
+          "previous_reason": "solver_unresolved"
+        },
+        {
+          "city": "gothenburg",
+          "group_index": 37,
+          "compact_reason": "contract_pass",
+          "previous_reason": "solver_unresolved"
+        },
+        {
+          "city": "gothenburg",
+          "group_index": 43,
+          "compact_reason": "contract_pass",
+          "previous_reason": "constraint_limit"
+        },
+        {
+          "city": "malmo",
+          "group_index": 14,
+          "compact_reason": "contract_pass",
+          "previous_reason": "solver_unresolved"
+        },
+        {
+          "city": "uppsala",
+          "group_index": 25,
+          "compact_reason": "contract_pass",
+          "previous_reason": "solver_unresolved"
+        },
+        {
+          "city": "uppsala",
+          "group_index": 26,
+          "compact_reason": "contract_pass",
+          "previous_reason": "constraint_limit"
+        },
+        {
+          "city": "uppsala",
+          "group_index": 40,
+          "compact_reason": "contract_pass",
+          "previous_reason": "constraint_limit"
+        },
+        {
+          "city": "uppsala",
+          "group_index": 41,
+          "compact_reason": "contract_pass",
+          "previous_reason": "solver_unresolved"
+        },
+        {
+          "city": "uppsala",
+          "group_index": 42,
+          "compact_reason": "contract_pass",
+          "previous_reason": "solver_unresolved"
+        },
+        {
+          "city": "uppsala",
+          "group_index": 43,
+          "compact_reason": "contract_pass",
+          "previous_reason": "solver_unresolved"
+        },
+        {
+          "city": "linkoping",
+          "group_index": 40,
+          "compact_reason": "contract_pass",
+          "previous_reason": "solver_unresolved"
+        },
+        {
+          "city": "linkoping",
+          "group_index": 44,
+          "compact_reason": "contract_pass",
+          "previous_reason": "solver_unresolved"
+        },
+        {
+          "city": "linkoping",
+          "group_index": 49,
+          "compact_reason": "contract_pass",
+          "previous_reason": "solver_unresolved"
+        },
+        {
+          "city": "linkoping",
+          "group_index": 67,
+          "compact_reason": "contract_pass",
+          "previous_reason": "solver_unresolved"
+        },
+        {
+          "city": "linkoping",
+          "group_index": 70,
+          "compact_reason": "contract_pass",
+          "previous_reason": "solver_unresolved"
+        },
+        {
+          "city": "linkoping",
+          "group_index": 88,
+          "compact_reason": "contract_pass",
+          "previous_reason": "constraint_limit"
+        },
+        {
+          "city": "orebro",
+          "group_index": 22,
+          "compact_reason": "contract_pass",
+          "previous_reason": "solver_unresolved"
+        },
+        {
+          "city": "orebro",
+          "group_index": 29,
+          "compact_reason": "contract_pass",
+          "previous_reason": "solver_unresolved"
+        },
+        {
+          "city": "vasteras",
+          "group_index": 16,
+          "compact_reason": "contract_pass",
+          "previous_reason": "solver_unresolved"
+        },
+        {
+          "city": "vasteras",
+          "group_index": 24,
+          "compact_reason": "contract_pass",
+          "previous_reason": "time_limit"
+        },
+        {
+          "city": "vasteras",
+          "group_index": 43,
+          "compact_reason": "contract_pass",
+          "previous_reason": "solver_unresolved"
+        },
+        {
+          "city": "vasteras",
+          "group_index": 44,
+          "compact_reason": "contract_pass",
+          "previous_reason": "solver_unresolved"
+        },
+        {
+          "city": "helsingborg",
+          "group_index": 47,
+          "compact_reason": "contract_pass",
+          "previous_reason": "solver_unresolved"
+        },
+        {
+          "city": "helsingborg",
+          "group_index": 62,
+          "compact_reason": "contract_pass",
+          "previous_reason": "solver_unresolved"
+        },
+        {
+          "city": "helsingborg",
+          "group_index": 63,
+          "compact_reason": "contract_pass",
+          "previous_reason": "constraint_limit"
+        },
+        {
+          "city": "helsingborg",
+          "group_index": 69,
+          "compact_reason": "contract_pass",
+          "previous_reason": "solver_unresolved"
+        },
+        {
+          "city": "norrkoping",
+          "group_index": 33,
+          "compact_reason": "contract_pass",
+          "previous_reason": "solver_unresolved"
+        },
+        {
+          "city": "norrkoping",
+          "group_index": 42,
+          "compact_reason": "contract_pass",
+          "previous_reason": "constraint_limit"
+        }
+      ]
+    },
+    "accepted_groups_vertex_removal_reasons": {
+      "no_admissible_shortcut": 22,
+      "resolved": 49,
+      "requires_topology_change": 1
+    },
+    "cities": [
+      {
+        "city": "lund",
+        "groups": 85,
+        "outcomes": {
+          "unchanged": 41,
+          "site_limit": 3,
+          "chord_limit": 21,
+          "solver_unresolved": 4,
+          "constraint_limit": 4,
+          "contract_pass": 11,
+          "model_infeasible": 1
+        },
+        "seconds": 51.03930879360996
+      },
+      {
+        "city": "stockholm",
+        "groups": 24,
+        "outcomes": {
+          "solver_unresolved": 4,
+          "unchanged": 11,
+          "chord_limit": 7,
+          "constraint_limit": 1,
+          "contract_pass": 1
+        },
+        "seconds": 28.97182003920898
+      },
+      {
+        "city": "gothenburg",
+        "groups": 49,
+        "outcomes": {
+          "chord_limit": 9,
+          "unchanged": 27,
+          "model_infeasible": 1,
+          "constraint_limit": 1,
+          "solver_unresolved": 5,
+          "contract_pass": 6
+        },
+        "seconds": 57.3731464992743
+      },
+      {
+        "city": "malmo",
+        "groups": 31,
+        "outcomes": {
+          "chord_limit": 8,
+          "unchanged": 18,
+          "contract_pass": 2,
+          "constraint_limit": 2,
+          "solver_unresolved": 1
+        },
+        "seconds": 12.741086583584547
+      },
+      {
+        "city": "uppsala",
+        "groups": 47,
+        "outcomes": {
+          "chord_limit": 20,
+          "unchanged": 12,
+          "solver_unresolved": 5,
+          "constraint_limit": 1,
+          "contract_pass": 9
+        },
+        "seconds": 53.07696924684569
+      },
+      {
+        "city": "linkoping",
+        "groups": 93,
+        "outcomes": {
+          "constraint_limit": 4,
+          "unchanged": 38,
+          "chord_limit": 30,
+          "site_limit": 1,
+          "contract_pass": 15,
+          "solver_unresolved": 5
+        },
+        "seconds": 68.24467570451088
+      },
+      {
+        "city": "orebro",
+        "groups": 37,
+        "outcomes": {
+          "chord_limit": 12,
+          "unchanged": 15,
+          "solver_unresolved": 1,
+          "contract_pass": 6,
+          "constraint_limit": 3
+        },
+        "seconds": 20.891659665619954
+      },
+      {
+        "city": "vasteras",
+        "groups": 46,
+        "outcomes": {
+          "unchanged": 22,
+          "chord_limit": 9,
+          "solver_unresolved": 4,
+          "contract_pass": 8,
+          "constraint_limit": 3
+        },
+        "seconds": 44.97087991423905
+      },
+      {
+        "city": "helsingborg",
+        "groups": 75,
+        "outcomes": {
+          "unchanged": 39,
+          "chord_limit": 22,
+          "contract_pass": 8,
+          "solver_unresolved": 2,
+          "constraint_limit": 4
+        },
+        "seconds": 32.07708337600343
+      },
+      {
+        "city": "norrkoping",
+        "groups": 51,
+        "outcomes": {
+          "solver_unresolved": 2,
+          "constraint_limit": 3,
+          "chord_limit": 11,
+          "unchanged": 29,
+          "contract_pass": 6
+        },
+        "seconds": 26.748403751058504
+      }
+    ],
+    "mesh_smoke": null,
+    "model_correction": "The first survey exposed overwritten parent identities for coincident sampled segments, producing inconsistent matrix dimensions. Distinct original routes now retain separate identities and costs; existing overlap constraints prohibit selecting both. A minimal one-ulp thin-triangle regression covers it. The aborted survey is excluded from timings.",
+    "verification_boundary": "The initial run had 39 passing tests and one failed timed-coverage assertion for the default courtyard example. Timed four-case coverage remains in this manifest; the maintained unit test now uses one representative real solve plus deterministic model/contract witnesses for all four classes. Limits and contract were not relaxed.",
+    "verification": "41 focused contract/graph/topology/route tests passed in 9.74 s after the graph-identity correction. Default analytic CLI and complete focused analytic/city CLI exercised. Missing-output error path checked. Final figure is byte-identical to the inspected figure. No production or mesher change.",
+    "decision": "Keep the compact encoding as the sole turn formulation. Focused coverage improves from 43 to 72 additional groups, retaining 42 and losing one; total time is roughly unchanged. No complete city passes. Next measure and prove removal of redundant candidate routes without changing delivered geometry or original-parent provenance; keep caps fixed.",
+    "gap_rows": {
+      "previous_turn_rows": 17296,
+      "compact_turn_rows": 1044,
+      "previous_total": 40078,
+      "compact_total": 23826
+    },
+    "corrected_graph_case": {
+      "city": "uppsala",
+      "group_index": 23,
+      "outcome": "unresolved",
+      "reason": "solver_unresolved",
+      "variables": 3358,
+      "constraints": 92544
+    }
+  },
+  "route_redundancy_experiment": {
+    "baseline_scripts": {
+      "sandbox/cleaning_route_probe.py": "59765521c89601603de3fee97e91c513b71478d4a1f9f2011a741e56134c0e50",
+      "sandbox/cleaning_pipeline_probe.py": "60bff75bc398cc836c0dc5236463c9e6837f06f98da3191d6d9fba3b5dbe9e97"
+    },
+    "scripts": {
+      "sandbox/cleaning_route_probe.py": "3fb898bec2be83e8f2ebd3f1ebafa44a6aa66647db548e8728ea6160466e60bb",
+      "sandbox/cleaning_pipeline_probe.py": "b45df58718c78a6d782d2d91a783f76b901e0084ed72d38779b8109e9e44f8f1"
+    },
+    "method": "One-off Python profile observer captured only the generator return state under existing bounds. Reused route_graph to exclude original aliases before counting potential two-new-chord decompositions. A capped set is only its first 2001 proposals, including overflow; no cap was increased and no suffix was inferred.",
+    "observed_scopes": {
+      "complete": {
+        "groups": 133,
+        "observed_proposals": 112043,
+        "available_new_routes": 102997,
+        "already_ignored_duplicates": 9046,
+        "potential_decompositions": 2871,
+        "chords_through_existing_sites": 3990
+      },
+      "capped_prefix": {
+        "groups": 149,
+        "observed_proposals": 298149,
+        "available_new_routes": 279753,
+        "already_ignored_duplicates": 18396,
+        "potential_decompositions": 5601,
+        "chords_through_existing_sites": 8003
+      }
+    },
+    "analytic_potential_two_new_chord_decompositions": {
+      "point_contact": 0,
+      "near_buildings": 0,
+      "courtyard_passage": 0,
+      "tiny_hole": 0
+    },
+    "rejected_substitution_witness": {
+      "definition": "O=(1e6,6e6), C=O+(.75,1); A=interpolate(O--C,1m); B=2C-A. Compare new chord AB with original routes AC,CB after original-parent coalescing. Upper corners complete the polygon.",
+      "same_linework": true,
+      "original_output_contract": "pass",
+      "replacement_fidelity": "pass",
+      "replacement_resolution": "fail",
+      "replacement_feature_separation": 0.25000000016298146,
+      "symmetric_difference_area": 5.820766091346741e-11
+    },
+    "implemented_change": "Move the existing original-route endpoint-pair exclusion before the chord cap. Construct sampled original route metadata once. Preserve separate original-parent identities and the historical eager-carrier linework; remove the late graph exclusion. No chord-splitting rule implemented.",
+    "graph_identity": {
+      "city_graphs": 133,
+      "analytic_graphs": 4,
+      "fields": [
+        "sites",
+        "ordered_edges",
+        "parents",
+        "directional_costs",
+        "node_parent_membership"
+      ],
+      "comparison": "SHA-256 of deterministic serialized graph records; all previously complete records match exactly."
+    },
+    "proposal_outcomes": {
+      "input_partition": 252,
+      "site_limit": 4,
+      "chord_limit": 146,
+      "proposed": 136
+    },
+    "duplicate_chords_skipped": 28624,
+    "newly_admitted_groups": [
+      {
+        "city": "uppsala",
+        "group_index": 28,
+        "previous_reason": "chord_limit",
+        "chords": 1890,
+        "seconds": 2.319373791804537,
+        "report": {
+          "outcome": "unresolved",
+          "reason": "constraint_limit",
+          "sites": 162,
+          "chords": 1890,
+          "duplicate_chords": 146
+        }
+      },
+      {
+        "city": "linkoping",
+        "group_index": 80,
+        "previous_reason": "chord_limit",
+        "chords": 1870,
+        "seconds": 2.497579541988671,
+        "report": {
+          "outcome": "unresolved",
+          "reason": "constraint_limit",
+          "sites": 176,
+          "chords": 1870,
+          "duplicate_chords": 161
+        }
+      },
+      {
+        "city": "linkoping",
+        "group_index": 85,
+        "previous_reason": "chord_limit",
+        "chords": 1868,
+        "seconds": 6.577929750084877,
+        "report": {
+          "outcome": "unresolved",
+          "reason": "solver_unresolved",
+          "sites": 222,
+          "chords": 1868,
+          "duplicate_chords": 182,
+          "variables": 4402,
+          "constraints": 99857,
+          "solver_status": 1
+        }
+      }
+    ],
+    "examples": {
+      "point_contact": {
+        "outcome": "conforming",
+        "reason": "contract_pass",
+        "sites": 39,
+        "chords": 116,
+        "duplicate_chords": 0,
+        "variables": 351,
+        "constraints": 3499,
+        "solver_status": 0,
+        "seconds": 0.1153852918650955
+      },
+      "near_buildings": {
+        "outcome": "conforming",
+        "reason": "contract_pass",
+        "sites": 72,
+        "chords": 450,
+        "duplicate_chords": 0,
+        "variables": 1116,
+        "constraints": 23826,
+        "solver_status": 0,
+        "seconds": 1.1405735409352928
+      },
+      "courtyard_passage": {
+        "outcome": "conforming",
+        "reason": "contract_pass",
+        "sites": 76,
+        "chords": 450,
+        "duplicate_chords": 0,
+        "variables": 1128,
+        "constraints": 23854,
+        "solver_status": 0,
+        "seconds": 2.1338545840699226
+      },
+      "tiny_hole": {
+        "outcome": "conforming",
+        "reason": "contract_pass",
+        "sites": 16,
+        "chords": 42,
+        "duplicate_chords": 0,
+        "variables": 132,
+        "constraints": 1172,
+        "solver_status": 0,
+        "seconds": 0.025252124993130565
+      }
+    },
+    "full_solver_rerun": false,
+    "new_conforming_city_groups_demonstrated": 0,
+    "mesh_rerun": false,
+    "verification": "42 focused tests passed; the stronger interpolation/contract counterexample was rerun after refinement. Ordinary focused example CLI passes all four. All 538 proposal sets compared; only the three newly admitted models solved. No claim that time-limited solver outcomes are unchanged for identical models.",
+    "decision": "Keep the earlier exclusion as a budget-accounting correction. Reject broader chord splitting under the current evidence. Next compare the 44 vertex-removal successes missed by the compact route run to distinguish missing chain-replacement geometry from search limits, before another solver or sampling change."
+  },
+  "chain_coverage_experiment": {
+    "scripts": {
+      "sandbox/cleaning_graph_prototype.py": "1e385849772a77eb93be8736039b16a3cf3833d1ef183dc3ab42eeaf09c2586b",
+      "sandbox/cleaning_pipeline_probe.py": "b45df58718c78a6d782d2d91a783f76b901e0084ed72d38779b8109e9e44f8f1",
+      "sandbox/cleaning_route_probe.py": "3fb898bec2be83e8f2ebd3f1ebafa44a6aa66647db548e8728ea6160466e60bb"
+    },
+    "comparison_inputs": {
+      "simple": {
+        "path": "/tmp/dtcc-graph-prototype/final-cities/results.json",
+        "sha256": "99e5524298beb4a56aea3a8045470f94f38e2dcd36a93ea39fb2e76c7f9972ca"
+      },
+      "compact_routes": {
+        "path": "/tmp/dtcc-compact-route-probe/final-focused/route-cities.json",
+        "sha256": "43c50fea8c5b678614892e1cf660cf1fefc666ef257d0bc2e7534e6502c81cec"
+      }
+    },
+    "scope": "44 groups resolved with at least one edit by vertex removal and not conforming in the compact-turn route survey. Group indices are zero-based, using saved_city_groups on the source_run above. Current proposals include the subsequent early duplicate exclusion.",
+    "reference_reproduction": "Reran simplify_group on the same raw groups with merge_buildings=True and the same 2000-check limit. All group metrics equal the saved reference and every normalized output polygon matches its saved city artifact. All 44 reference outputs independently pass the full contract.",
+    "absence_test": "For each changed canonical target edge, find all sampled sites lying exactly on the segment. Overapproximate possible emissions by permitting every <=1m link between those sites, without band/seed/chord-cap restrictions, and every same-original-parent run. Undirected reachability still fails for 138 edges in 37 groups. Every missing edge in this audit has only its two endpoints on the segment, no shared original parent and length >1m. Absence holds even without proposal/model/solver work limits; it concerns the exact reference output, not all conforming alternatives.",
+    "witness_test": "The remaining seven targets have explicit directed assignments. Keep every sampled original route and site, retain only target-required new chords, and fix all omitted chord variables to zero. Reuse build_model plus the initial core winding rows, check binary assignment feasibility, decode with selected_regions, compare geometry with the reference, and independently check the full contract. Omitted chord rows are vacuous under zero substitution and existing binary bounds; no solver is called. For two chord-capped groups, check only required suffix chords against the existing generator predicates without generating the suffix or increasing caps. This proves uncapped family eligibility, not that the ordinary capped generator returns a graph.",
+    "groups": 44,
+    "reference_contract_passes": 44,
+    "compact_outcomes": {
+      "solver_unresolved": 12,
+      "constraint_limit": 10,
+      "chord_limit": 21,
+      "model_infeasible": 1
+    },
+    "current_proposal_outcomes": {
+      "proposed": 24,
+      "chord_limit": 20
+    },
+    "representation_outcomes": {
+      "absent": 37,
+      "witness_verified": 5,
+      "eligible_witness_beyond_cap": 2
+    },
+    "changed_target_edges": 258,
+    "absent_target_edges": 138,
+    "absent_edge_length_range_m": [
+      1.0026774155615104,
+      62.493275101909155
+    ],
+    "rows": [
+      {
+        "city": "lund",
+        "group": 23,
+        "old_reason": "solver_unresolved",
+        "current_proposal_reason": "proposed",
+        "sites": 91,
+        "accepted_shortcuts": 3,
+        "contract": "pass",
+        "raw_sha256": "ca46dfb7c45d6d5dd4e42317691b2ee29b6a1dfe2b2121c4792d29a995b6a9bf",
+        "target_sha256": "55d9e80622355c40a148cf6b18480b033680760198b10156609b5b9ebfa5f8e2",
+        "representation": "absent",
+        "changed_edges": 2,
+        "missing_edges": 2,
+        "missing_edge_witness": {
+          "a": [
+            386206.077,
+            6174690.505
+          ],
+          "b": [
+            386207.664,
+            6174697.269
+          ],
+          "length": 6.947680548632358,
+          "interior_sites": 0,
+          "absent_even_without_band_seed_or_chord_caps": true
+        }
+      },
+      {
+        "city": "lund",
+        "group": 66,
+        "old_reason": "constraint_limit",
+        "current_proposal_reason": "proposed",
+        "sites": 81,
+        "accepted_shortcuts": 4,
+        "contract": "pass",
+        "raw_sha256": "8553ca77e52de0055584256ac466d516c97054d969c6d32dde32df02d4c6081e",
+        "target_sha256": "d12b6f5286f008458134d2cafe7d15be343f76518f819be1218813a87a15ba46",
+        "representation": "absent",
+        "changed_edges": 2,
+        "missing_edges": 2,
+        "missing_edge_witness": {
+          "a": [
+            386339.149,
+            6174471.146
+          ],
+          "b": [
+            386339.753,
+            6174477.443
+          ],
+          "length": 6.325901121836402,
+          "interior_sites": 0,
+          "absent_even_without_band_seed_or_chord_caps": true
+        }
+      },
+      {
+        "city": "lund",
+        "group": 69,
+        "old_reason": "chord_limit",
+        "current_proposal_reason": "chord_limit",
+        "sites": 183,
+        "accepted_shortcuts": 11,
+        "contract": "pass",
+        "raw_sha256": "a35926a24b04960bd4ab04a9bc4f8efe189340f497ddc92b81e6640d7443cd4f",
+        "target_sha256": "e431be5b9ce8b0ea36c54bf48fc28837754f2ed2254888c7806638eb52779050",
+        "representation": "absent",
+        "changed_edges": 4,
+        "missing_edges": 4,
+        "missing_edge_witness": {
+          "a": [
+            386230.165,
+            6174904.311
+          ],
+          "b": [
+            386231.171,
+            6174894.884
+          ],
+          "length": 9.480525565740372,
+          "interior_sites": 0,
+          "absent_even_without_band_seed_or_chord_caps": true
+        }
+      },
+      {
+        "city": "lund",
+        "group": 75,
+        "old_reason": "chord_limit",
+        "current_proposal_reason": "chord_limit",
+        "sites": 282,
+        "accepted_shortcuts": 11,
+        "contract": "pass",
+        "raw_sha256": "2687f6b4fda405ed83e25d52dccf0b6bfcc11fcaab40460e51b477ac3e7aaf06",
+        "target_sha256": "94b04f6ea9a0bb31c67d294ea2177c490bbc4d9a4d02fbf4fb315d603ebc8483",
+        "representation": "absent",
+        "changed_edges": 7,
+        "missing_edges": 2,
+        "missing_edge_witness": {
+          "a": [
+            386521.207,
+            6174923.389
+          ],
+          "b": [
+            386530.142,
+            6174921.933
+          ],
+          "length": 9.052853748992783,
+          "interior_sites": 0,
+          "absent_even_without_band_seed_or_chord_caps": true
+        }
+      },
+      {
+        "city": "lund",
+        "group": 77,
+        "old_reason": "model_infeasible",
+        "current_proposal_reason": "proposed",
+        "sites": 60,
+        "accepted_shortcuts": 16,
+        "contract": "pass",
+        "raw_sha256": "c388917e16b74c5395c4ab695e105f0199614b4af85d071689858716e74d430a",
+        "target_sha256": "0d4c2cff464cba6060ac6b3c5f7dcc806b492e05ec64e10ed9458edfd087cd71",
+        "representation": "absent",
+        "changed_edges": 2,
+        "missing_edges": 2,
+        "missing_edge_witness": {
+          "a": [
+            386374.14,
+            6174683.149
+          ],
+          "b": [
+            386374.802,
+            6174684.329
+          ],
+          "length": 1.3530129339039823,
+          "interior_sites": 0,
+          "absent_even_without_band_seed_or_chord_caps": true
+        }
+      },
+      {
+        "city": "lund",
+        "group": 80,
+        "old_reason": "chord_limit",
+        "current_proposal_reason": "chord_limit",
+        "sites": 352,
+        "accepted_shortcuts": 16,
+        "contract": "pass",
+        "raw_sha256": "9087d8570cd63b232fdd4ea97ef0fcc1dd7c3f38581e50a857909fe493410814",
+        "target_sha256": "4daf135dae9ca711ca02f818cbef423bc80420846973bfd4849ca55e828c3fbf",
+        "representation": "absent",
+        "changed_edges": 8,
+        "missing_edges": 5,
+        "missing_edge_witness": {
+          "a": [
+            386521.019,
+            6174898.772
+          ],
+          "b": [
+            386527.491,
+            6174898.307
+          ],
+          "length": 6.488683148372707,
+          "interior_sites": 0,
+          "absent_even_without_band_seed_or_chord_caps": true
+        }
+      },
+      {
+        "city": "lund",
+        "group": 81,
+        "old_reason": "chord_limit",
+        "current_proposal_reason": "chord_limit",
+        "sites": 121,
+        "accepted_shortcuts": 28,
+        "contract": "pass",
+        "raw_sha256": "56eafbf7600749c36812dbe800bf735efa7892be5883df8a9123f804521acfbd",
+        "target_sha256": "17d621b100927ee80cff10939df173b1ebd59fd763bca978eec3c79813467e8e",
+        "representation": "absent",
+        "changed_edges": 6,
+        "missing_edges": 1,
+        "missing_edge_witness": {
+          "a": [
+            386185.2,
+            6174909.337
+          ],
+          "b": [
+            386185.747,
+            6174910.888
+          ],
+          "length": 1.6446306575913636,
+          "interior_sites": 0,
+          "absent_even_without_band_seed_or_chord_caps": true
+        }
+      },
+      {
+        "city": "lund",
+        "group": 82,
+        "old_reason": "chord_limit",
+        "current_proposal_reason": "chord_limit",
+        "sites": 310,
+        "accepted_shortcuts": 25,
+        "contract": "pass",
+        "raw_sha256": "c773f3837349def33bc03cb3975602d35911ff2ed87022f9deb682268da810ca",
+        "target_sha256": "92d845f427d3806753a7c3f9f90f0050b24542f2e600c2640516b1256f76391c",
+        "representation": "absent",
+        "changed_edges": 16,
+        "missing_edges": 4,
+        "missing_edge_witness": {
+          "a": [
+            386511.285,
+            6174750.289
+          ],
+          "b": [
+            386512.688,
+            6174751.123
+          ],
+          "length": 1.6321657390727695,
+          "interior_sites": 0,
+          "absent_even_without_band_seed_or_chord_caps": true
+        }
+      },
+      {
+        "city": "stockholm",
+        "group": 5,
+        "old_reason": "chord_limit",
+        "current_proposal_reason": "chord_limit",
+        "sites": 241,
+        "accepted_shortcuts": 8,
+        "contract": "pass",
+        "raw_sha256": "5a482231f57d069eedf05da1eeb528b24380dc35de84d5283d6610d8f2767256",
+        "target_sha256": "1475148a689fd92dadf890b58b3f780f0f791088da614660a5d3cb508d7c6068",
+        "representation": "absent",
+        "changed_edges": 5,
+        "missing_edges": 5,
+        "missing_edge_witness": {
+          "a": [
+            674633.649,
+            6580952.703
+          ],
+          "b": [
+            674636.433,
+            6580933.569
+          ],
+          "length": 19.335475478640056,
+          "interior_sites": 0,
+          "absent_even_without_band_seed_or_chord_caps": true
+        }
+      },
+      {
+        "city": "gothenburg",
+        "group": 26,
+        "old_reason": "chord_limit",
+        "current_proposal_reason": "chord_limit",
+        "sites": 232,
+        "accepted_shortcuts": 12,
+        "contract": "pass",
+        "raw_sha256": "ee1391bb75532a96dc09ca893471fe8dce0ce4eedffcc4e52f4c4c6704d1a8c1",
+        "target_sha256": "09d1ecdb7f88482472878b50260f850077378af9bf49eb977992761169598ab3",
+        "representation": "absent",
+        "changed_edges": 5,
+        "missing_edges": 3,
+        "missing_edge_witness": {
+          "a": [
+            319687.819,
+            6400511.568
+          ],
+          "b": [
+            319688.529,
+            6400509.015
+          ],
+          "length": 2.649888488504158,
+          "interior_sites": 0,
+          "absent_even_without_band_seed_or_chord_caps": true
+        }
+      },
+      {
+        "city": "gothenburg",
+        "group": 35,
+        "old_reason": "solver_unresolved",
+        "current_proposal_reason": "proposed",
+        "sites": 84,
+        "accepted_shortcuts": 6,
+        "contract": "pass",
+        "raw_sha256": "e6e3e71ac7a84cbe0dbbda40e779aeb7847ac90bafbe9c86c20a75c087ceb976",
+        "target_sha256": "d8e50656acee3972ab6dfc603b66703bd1f0fafe4096fa834ca88d47bfe84e43",
+        "representation": "absent",
+        "changed_edges": 4,
+        "missing_edges": 3,
+        "missing_edge_witness": {
+          "a": [
+            319559.671,
+            6400323.281
+          ],
+          "b": [
+            319561.969,
+            6400324.298
+          ],
+          "length": 2.51298487859155,
+          "interior_sites": 0,
+          "absent_even_without_band_seed_or_chord_caps": true
+        }
+      },
+      {
+        "city": "gothenburg",
+        "group": 38,
+        "old_reason": "solver_unresolved",
+        "current_proposal_reason": "proposed",
+        "sites": 110,
+        "accepted_shortcuts": 7,
+        "contract": "pass",
+        "raw_sha256": "bb920c92daf324829596288ed59229f06ba91bb16fd9af96a56ec5c4bbb6f0a0",
+        "target_sha256": "67fe69f8a1ebc0e157e36f9263e22e953f5868d76da16f42a2453dbc1774c60f",
+        "representation": "absent",
+        "changed_edges": 5,
+        "missing_edges": 4,
+        "missing_edge_witness": {
+          "a": [
+            319548.448,
+            6400320.69
+          ],
+          "b": [
+            319553.268,
+            6400309.366
+          ],
+          "length": 12.30712704088869,
+          "interior_sites": 0,
+          "absent_even_without_band_seed_or_chord_caps": true
+        }
+      },
+      {
+        "city": "gothenburg",
+        "group": 42,
+        "old_reason": "solver_unresolved",
+        "current_proposal_reason": "proposed",
+        "sites": 114,
+        "accepted_shortcuts": 5,
+        "contract": "pass",
+        "raw_sha256": "e3c5e8117d28afc1d87e1cdb573d80e70ad7948bada353566674becace286038",
+        "target_sha256": "6f8fcce57fc6c5298f25ea17c889d7b8a9dc047ec21df713a2e723bf539cb919",
+        "representation": "absent",
+        "changed_edges": 4,
+        "missing_edges": 3,
+        "missing_edge_witness": {
+          "a": [
+            319979.977,
+            6400347.374
+          ],
+          "b": [
+            319981.571,
+            6400347.773
+          ],
+          "length": 1.6431789312523295,
+          "interior_sites": 0,
+          "absent_even_without_band_seed_or_chord_caps": true
+        }
+      },
+      {
+        "city": "gothenburg",
+        "group": 46,
+        "old_reason": "chord_limit",
+        "current_proposal_reason": "chord_limit",
+        "sites": 194,
+        "accepted_shortcuts": 50,
+        "contract": "pass",
+        "raw_sha256": "ed7213fc05a48106cf704f3a8613c29737230576459e1ac1a936622eb58232d3",
+        "target_sha256": "5b86dd196f526eb40c51f66e66c8df20dd97970a10646f04291129493e9278eb",
+        "representation": "absent",
+        "changed_edges": 14,
+        "missing_edges": 6,
+        "missing_edge_witness": {
+          "a": [
+            319889.174,
+            6400117.294
+          ],
+          "b": [
+            319889.322,
+            6400118.729
+          ],
+          "length": 1.442611867930118,
+          "interior_sites": 0,
+          "absent_even_without_band_seed_or_chord_caps": true
+        }
+      },
+      {
+        "city": "gothenburg",
+        "group": 47,
+        "old_reason": "chord_limit",
+        "current_proposal_reason": "chord_limit",
+        "sites": 202,
+        "accepted_shortcuts": 48,
+        "contract": "pass",
+        "raw_sha256": "ab9069834412c70c4d380e7d6cbbe26bd45fe3c3f265143ed5ef4c62fab90b6c",
+        "target_sha256": "39fd72bec6ea656760f8411c66608262e181834590cf8483bb68d59de5171885",
+        "representation": "absent",
+        "changed_edges": 16,
+        "missing_edges": 2,
+        "missing_edge_witness": {
+          "a": [
+            319897.516,
+            6400116.506
+          ],
+          "b": [
+            319898.699,
+            6400116.186
+          ],
+          "length": 1.2255158098677905,
+          "interior_sites": 0,
+          "absent_even_without_band_seed_or_chord_caps": true
+        }
+      },
+      {
+        "city": "malmo",
+        "group": 30,
+        "old_reason": "constraint_limit",
+        "current_proposal_reason": "proposed",
+        "sites": 159,
+        "accepted_shortcuts": 13,
+        "contract": "pass",
+        "raw_sha256": "1f8318722bfae5054adeef4b1db1b88d05a4c52c5ac7820857085b700e30f4f9",
+        "target_sha256": "2e5fb89a26e286ba70a6e18ae3aab3b40e51780eed645ef16258293da9b6074a",
+        "representation": "witness_verified",
+        "witness": {
+          "selected_directions": 72,
+          "required_new_chords": 8,
+          "checked_rows": 3113,
+          "unused_chords_fixed_to_zero": true,
+          "initial_core_rows_checked": true,
+          "decoder_equals_target": true,
+          "contract": "pass"
+        },
+        "changed_edges": 8,
+        "missing_edges": 0
+      },
+      {
+        "city": "uppsala",
+        "group": 14,
+        "old_reason": "constraint_limit",
+        "current_proposal_reason": "proposed",
+        "sites": 97,
+        "accepted_shortcuts": 3,
+        "contract": "pass",
+        "raw_sha256": "5c5e615394c4c06fc2294c7be1fe589d063d47f5589db73188434b3ca63b47aa",
+        "target_sha256": "eec5c805895f45702848a29ab8d78350601b27b1cc4b8ab94b48ab6c8c0252cb",
+        "representation": "absent",
+        "changed_edges": 2,
+        "missing_edges": 2,
+        "missing_edge_witness": {
+          "a": [
+            647814.425,
+            6638687.077
+          ],
+          "b": [
+            647818.268,
+            6638691.074
+          ],
+          "length": 5.544786560676969,
+          "interior_sites": 0,
+          "absent_even_without_band_seed_or_chord_caps": true
+        }
+      },
+      {
+        "city": "uppsala",
+        "group": 46,
+        "old_reason": "chord_limit",
+        "current_proposal_reason": "chord_limit",
+        "sites": 227,
+        "accepted_shortcuts": 17,
+        "contract": "pass",
+        "raw_sha256": "1b76cb66b431f8aa6331ae1186200ecd7c8b205f9d7fd886124c55e18a717ea3",
+        "target_sha256": "154108351ef96463bb0de38aeac2f783f8f6049d46645d523721cc73e160bcb4",
+        "representation": "absent",
+        "changed_edges": 4,
+        "missing_edges": 4,
+        "missing_edge_witness": {
+          "a": [
+            647935.68,
+            6638623.797
+          ],
+          "b": [
+            647963.673,
+            6638595.055
+          ],
+          "length": 40.12119904771185,
+          "interior_sites": 0,
+          "absent_even_without_band_seed_or_chord_caps": true
+        }
+      },
+      {
+        "city": "linkoping",
+        "group": 5,
+        "old_reason": "chord_limit",
+        "current_proposal_reason": "chord_limit",
+        "sites": 105,
+        "accepted_shortcuts": 3,
+        "contract": "pass",
+        "raw_sha256": "c52803a260ef533ad7ae37f45b97f8df00d2af3841589b6d202d227daefb5b1c",
+        "target_sha256": "5bd1db93359de28da77196e9fff31f6a0fdfa99ad9d541c8eeef7a8252fbd400",
+        "representation": "eligible_witness_beyond_cap",
+        "witness": {
+          "selected_directions": 54,
+          "required_new_chords": 1,
+          "checked_rows": 2895,
+          "unused_chords_fixed_to_zero": true,
+          "initial_core_rows_checked": true,
+          "decoder_equals_target": true,
+          "contract": "pass"
+        },
+        "changed_edges": 1,
+        "missing_edges": 0
+      },
+      {
+        "city": "linkoping",
+        "group": 60,
+        "old_reason": "solver_unresolved",
+        "current_proposal_reason": "proposed",
+        "sites": 58,
+        "accepted_shortcuts": 2,
+        "contract": "pass",
+        "raw_sha256": "a81eae11a699b47f9068d9d266d0fe1f0515d6b0ea5f67268f577dcbb5953441",
+        "target_sha256": "7c49330e32bfb4ec8f007d69150bef83bd916d6694839a4e531bc2616505ef68",
+        "representation": "absent",
+        "changed_edges": 2,
+        "missing_edges": 2,
+        "missing_edge_witness": {
+          "a": [
+            536264.349,
+            6474838.931
+          ],
+          "b": [
+            536269.336,
+            6474840.013
+          ],
+          "length": 5.1030278267434195,
+          "interior_sites": 0,
+          "absent_even_without_band_seed_or_chord_caps": true
+        }
+      },
+      {
+        "city": "linkoping",
+        "group": 61,
+        "old_reason": "solver_unresolved",
+        "current_proposal_reason": "proposed",
+        "sites": 47,
+        "accepted_shortcuts": 2,
+        "contract": "pass",
+        "raw_sha256": "25a842280d0f81c64e70a849cd6494a7f3c51720f1739aea18034094ebd81aaf",
+        "target_sha256": "599ef5ba415ed90b8fd93714fb7b6054c37123daab6c63b0c223a36da467140b",
+        "representation": "absent",
+        "changed_edges": 1,
+        "missing_edges": 1,
+        "missing_edge_witness": {
+          "a": [
+            536346.902,
+            6474392.697
+          ],
+          "b": [
+            536348.257,
+            6474392.378
+          ],
+          "length": 1.392043821161922,
+          "interior_sites": 0,
+          "absent_even_without_band_seed_or_chord_caps": true
+        }
+      },
+      {
+        "city": "linkoping",
+        "group": 63,
+        "old_reason": "solver_unresolved",
+        "current_proposal_reason": "proposed",
+        "sites": 114,
+        "accepted_shortcuts": 28,
+        "contract": "pass",
+        "raw_sha256": "4476c162849d2b1062994b342f06a97a82506bf843815dc98877330b3d6c2ff9",
+        "target_sha256": "79caafa79fa2615d907fa2a4d159f5e516c33f322a73a05fd19baef73d36dc5a",
+        "representation": "absent",
+        "changed_edges": 4,
+        "missing_edges": 2,
+        "missing_edge_witness": {
+          "a": [
+            536245.971,
+            6474395.688
+          ],
+          "b": [
+            536247.042,
+            6474396.122
+          ],
+          "length": 1.1555937868915882,
+          "interior_sites": 0,
+          "absent_even_without_band_seed_or_chord_caps": true
+        }
+      },
+      {
+        "city": "linkoping",
+        "group": 64,
+        "old_reason": "constraint_limit",
+        "current_proposal_reason": "proposed",
+        "sites": 124,
+        "accepted_shortcuts": 25,
+        "contract": "pass",
+        "raw_sha256": "04ad390e80436abb20ed6774092feb34d26a59f86c181ad7b00b2ddf4bc41420",
+        "target_sha256": "0c514c177b86869b4a961fa8e5f9b0f2a92e392e661a04d391fbef2f0460fabe",
+        "representation": "absent",
+        "changed_edges": 5,
+        "missing_edges": 5,
+        "missing_edge_witness": {
+          "a": [
+            536413.212,
+            6474496.098
+          ],
+          "b": [
+            536419.981,
+            6474457.411
+          ],
+          "length": 39.274716166934525,
+          "interior_sites": 0,
+          "absent_even_without_band_seed_or_chord_caps": true
+        }
+      },
+      {
+        "city": "linkoping",
+        "group": 68,
+        "old_reason": "chord_limit",
+        "current_proposal_reason": "chord_limit",
+        "sites": 269,
+        "accepted_shortcuts": 37,
+        "contract": "pass",
+        "raw_sha256": "f113d4bf19f9730020cc65ac5ef9dde7fc9048c767ce1de3b581383e13078165",
+        "target_sha256": "7e75e4f7af9bcc8a48f0c475309f0d4f1568631c42988579f7eb6e6424cee541",
+        "representation": "absent",
+        "changed_edges": 8,
+        "missing_edges": 7,
+        "missing_edge_witness": {
+          "a": [
+            536355.315,
+            6474573.893
+          ],
+          "b": [
+            536383.375,
+            6474567.098
+          ],
+          "length": 28.871017041353486,
+          "interior_sites": 0,
+          "absent_even_without_band_seed_or_chord_caps": true
+        }
+      },
+      {
+        "city": "linkoping",
+        "group": 81,
+        "old_reason": "constraint_limit",
+        "current_proposal_reason": "proposed",
+        "sites": 86,
+        "accepted_shortcuts": 3,
+        "contract": "pass",
+        "raw_sha256": "23e9dd57321eb242008071c7cc707d794949a779de6bf9409e08875291df0b2c",
+        "target_sha256": "586848f5c75a51888e2e5439350ce06a5812ac6ef2f846f6e2e23633fd040e89",
+        "representation": "absent",
+        "changed_edges": 1,
+        "missing_edges": 1,
+        "missing_edge_witness": {
+          "a": [
+            536445.943,
+            6474427.448
+          ],
+          "b": [
+            536447.522,
+            6474427.665
+          ],
+          "length": 1.5938412719473973,
+          "interior_sites": 0,
+          "absent_even_without_band_seed_or_chord_caps": true
+        }
+      },
+      {
+        "city": "linkoping",
+        "group": 83,
+        "old_reason": "chord_limit",
+        "current_proposal_reason": "chord_limit",
+        "sites": 299,
+        "accepted_shortcuts": 24,
+        "contract": "pass",
+        "raw_sha256": "ae8fb74bfb8b36e25e9ff1ea186aecaf9cda04e700ba7ac84c6b412108f5a372",
+        "target_sha256": "ee635dbf1bd66eefaf8d255463088c2a8a85098829ec6e24d6d20830075df743",
+        "representation": "absent",
+        "changed_edges": 9,
+        "missing_edges": 7,
+        "missing_edge_witness": {
+          "a": [
+            536137.805,
+            6474826.577
+          ],
+          "b": [
+            536174.228,
+            6474833.376
+          ],
+          "length": 37.052143392850766,
+          "interior_sites": 0,
+          "absent_even_without_band_seed_or_chord_caps": true
+        }
+      },
+      {
+        "city": "linkoping",
+        "group": 85,
+        "old_reason": "chord_limit",
+        "current_proposal_reason": "proposed",
+        "sites": 222,
+        "accepted_shortcuts": 11,
+        "contract": "pass",
+        "raw_sha256": "ecf09ef4942edbc88da64b0fa19ae44df3f510d59eef3b1239c4dad8f294ec16",
+        "target_sha256": "c96402edcac1f802feb17ee79a0268d06641efdae3a82aec49355e5d96b0e0d8",
+        "representation": "absent",
+        "changed_edges": 5,
+        "missing_edges": 5,
+        "missing_edge_witness": {
+          "a": [
+            536237.09,
+            6474672.58
+          ],
+          "b": [
+            536239.171,
+            6474658.802
+          ],
+          "length": 13.934268728504396,
+          "interior_sites": 0,
+          "absent_even_without_band_seed_or_chord_caps": true
+        }
+      },
+      {
+        "city": "orebro",
+        "group": 31,
+        "old_reason": "constraint_limit",
+        "current_proposal_reason": "proposed",
+        "sites": 108,
+        "accepted_shortcuts": 20,
+        "contract": "pass",
+        "raw_sha256": "3348305c886a3135beeb9f8bc926d04c1ec362fea77908baa696d2ce77a7eecd",
+        "target_sha256": "2059072ed281935cced2556ab8206db223004f6214a4f19531309d8f433e2a19",
+        "representation": "witness_verified",
+        "witness": {
+          "selected_directions": 38,
+          "required_new_chords": 5,
+          "checked_rows": 2856,
+          "unused_chords_fixed_to_zero": true,
+          "initial_core_rows_checked": true,
+          "decoder_equals_target": true,
+          "contract": "pass"
+        },
+        "changed_edges": 5,
+        "missing_edges": 0
+      },
+      {
+        "city": "orebro",
+        "group": 32,
+        "old_reason": "constraint_limit",
+        "current_proposal_reason": "proposed",
+        "sites": 68,
+        "accepted_shortcuts": 28,
+        "contract": "pass",
+        "raw_sha256": "a6d9c090790ca536f85df75eee6a890360fc0767636ac71b753bd0b18e14beb4",
+        "target_sha256": "3afe5c56e81a5675fd3fe0d963232b0eb1beb049cbc240fc9f86d91ebd1d72a9",
+        "representation": "witness_verified",
+        "witness": {
+          "selected_directions": 4,
+          "required_new_chords": 4,
+          "checked_rows": 2309,
+          "unused_chords_fixed_to_zero": true,
+          "initial_core_rows_checked": true,
+          "decoder_equals_target": true,
+          "contract": "pass"
+        },
+        "changed_edges": 4,
+        "missing_edges": 0
+      },
+      {
+        "city": "orebro",
+        "group": 34,
+        "old_reason": "chord_limit",
+        "current_proposal_reason": "chord_limit",
+        "sites": 171,
+        "accepted_shortcuts": 13,
+        "contract": "pass",
+        "raw_sha256": "2c8ed2b979dd7dfdbe2f8917f3d5b6416be88fd27d919e0b911f4ab1188ed1dd",
+        "target_sha256": "cc03ef8a911b7f3409e3dd80a1062ff0626b70b5f6835453adc582e62d37abe3",
+        "representation": "absent",
+        "changed_edges": 6,
+        "missing_edges": 2,
+        "missing_edge_witness": {
+          "a": [
+            511945.947,
+            6570589.191
+          ],
+          "b": [
+            511946.347034643,
+            6570578.35545844
+          ],
+          "length": 10.842923434237242,
+          "interior_sites": 0,
+          "absent_even_without_band_seed_or_chord_caps": true
+        }
+      },
+      {
+        "city": "vasteras",
+        "group": 30,
+        "old_reason": "solver_unresolved",
+        "current_proposal_reason": "proposed",
+        "sites": 67,
+        "accepted_shortcuts": 3,
+        "contract": "pass",
+        "raw_sha256": "e5439edf36e3a5f73a659780916716851036fe55d6d3f1147f7e1479347d0db1",
+        "target_sha256": "071f8a813f8e36ec2072d7e16d2b9436438f6f405f4a1ec5ceb627525f70ad5d",
+        "representation": "absent",
+        "changed_edges": 2,
+        "missing_edges": 2,
+        "missing_edge_witness": {
+          "a": [
+            587072.358,
+            6608898.143
+          ],
+          "b": [
+            587099.552,
+            6608909.865
+          ],
+          "length": 29.612816819791636,
+          "interior_sites": 0,
+          "absent_even_without_band_seed_or_chord_caps": true
+        }
+      },
+      {
+        "city": "vasteras",
+        "group": 39,
+        "old_reason": "solver_unresolved",
+        "current_proposal_reason": "proposed",
+        "sites": 97,
+        "accepted_shortcuts": 5,
+        "contract": "pass",
+        "raw_sha256": "db5a4d01197a08e07b8bc5b55af54fabb53c2d99ab12dc9c67327467f606af25",
+        "target_sha256": "4dc2bfac4cd3498246219cfca39ecdc2d792334169573c1050be0da5d512cdb0",
+        "representation": "absent",
+        "changed_edges": 4,
+        "missing_edges": 2,
+        "missing_edge_witness": {
+          "a": [
+            586977.625,
+            6609127.663
+          ],
+          "b": [
+            586986.789,
+            6609133.786
+          ],
+          "length": 11.021344065367103,
+          "interior_sites": 0,
+          "absent_even_without_band_seed_or_chord_caps": true
+        }
+      },
+      {
+        "city": "vasteras",
+        "group": 45,
+        "old_reason": "constraint_limit",
+        "current_proposal_reason": "proposed",
+        "sites": 108,
+        "accepted_shortcuts": 4,
+        "contract": "pass",
+        "raw_sha256": "390fe479928e78b3e0100a1a08b9e2fd5e651c699f85d230b4c9bc6f1fe64964",
+        "target_sha256": "a21e501c4aacc95d80bc66a7cca1f736313b4e26d4fe4614cd08c4da2db96e5f",
+        "representation": "absent",
+        "changed_edges": 2,
+        "missing_edges": 2,
+        "missing_edge_witness": {
+          "a": [
+            587112.968,
+            6609081.801
+          ],
+          "b": [
+            587117.665,
+            6609083.915
+          ],
+          "length": 5.150806247633782,
+          "interior_sites": 0,
+          "absent_even_without_band_seed_or_chord_caps": true
+        }
+      },
+      {
+        "city": "helsingborg",
+        "group": 9,
+        "old_reason": "chord_limit",
+        "current_proposal_reason": "chord_limit",
+        "sites": 261,
+        "accepted_shortcuts": 10,
+        "contract": "pass",
+        "raw_sha256": "ac283b80c34970cea9dbef4c2a2d6af697586e41ffe017975faa06cfb286f93b",
+        "target_sha256": "206a8382a9beceb98c5a126ec293f02c775e1f9bd0d11c2b1031a15c1e533fe1",
+        "representation": "absent",
+        "changed_edges": 5,
+        "missing_edges": 3,
+        "missing_edge_witness": {
+          "a": [
+            356176.385,
+            6213744.96
+          ],
+          "b": [
+            356177.488,
+            6213742.108
+          ],
+          "length": 3.0578608535626954,
+          "interior_sites": 0,
+          "absent_even_without_band_seed_or_chord_caps": true
+        }
+      },
+      {
+        "city": "helsingborg",
+        "group": 22,
+        "old_reason": "chord_limit",
+        "current_proposal_reason": "chord_limit",
+        "sites": 393,
+        "accepted_shortcuts": 12,
+        "contract": "pass",
+        "raw_sha256": "38522ef1112ed0f4ad20c51612927544ce47d108c907782c91702b708cb24786",
+        "target_sha256": "1173a594da32dff8d3c5aef77c18fbd43cac3a683462890c11d7662f91b9c14a",
+        "representation": "absent",
+        "changed_edges": 7,
+        "missing_edges": 7,
+        "missing_edge_witness": {
+          "a": [
+            356542.489,
+            6213770.282
+          ],
+          "b": [
+            356543.662,
+            6213767.269
+          ],
+          "length": 3.2332797583919475,
+          "interior_sites": 0,
+          "absent_even_without_band_seed_or_chord_caps": true
+        }
+      },
+      {
+        "city": "helsingborg",
+        "group": 34,
+        "old_reason": "solver_unresolved",
+        "current_proposal_reason": "proposed",
+        "sites": 169,
+        "accepted_shortcuts": 5,
+        "contract": "pass",
+        "raw_sha256": "f831d9022785a9015b4fc6ef23369de2bae2803c69b9dc58b82f0d69c7a88df3",
+        "target_sha256": "16082045336a702ea97e262061cce2dd3813e22cd71996b47e776a76b686f624",
+        "representation": "absent",
+        "changed_edges": 4,
+        "missing_edges": 3,
+        "missing_edge_witness": {
+          "a": [
+            356518.6313026632,
+            6213693.447284172
+          ],
+          "b": [
+            356532.2852420737,
+            6213677.204733784
+          ],
+          "length": 21.21910706255521,
+          "interior_sites": 0,
+          "absent_even_without_band_seed_or_chord_caps": true
+        }
+      },
+      {
+        "city": "helsingborg",
+        "group": 68,
+        "old_reason": "constraint_limit",
+        "current_proposal_reason": "proposed",
+        "sites": 107,
+        "accepted_shortcuts": 23,
+        "contract": "pass",
+        "raw_sha256": "70abc84f6eef9cc068fb7501e6fe39dd1513f1334db1383875186d34a481aa3f",
+        "target_sha256": "e1e95a16f89f8b85cbc9dc89cae517a9cc8767f56e6fea3daba4ee3ea5d5f6ad",
+        "representation": "witness_verified",
+        "witness": {
+          "selected_directions": 26,
+          "required_new_chords": 6,
+          "checked_rows": 3031,
+          "unused_chords_fixed_to_zero": true,
+          "initial_core_rows_checked": true,
+          "decoder_equals_target": true,
+          "contract": "pass"
+        },
+        "changed_edges": 6,
+        "missing_edges": 0
+      },
+      {
+        "city": "helsingborg",
+        "group": 70,
+        "old_reason": "chord_limit",
+        "current_proposal_reason": "chord_limit",
+        "sites": 236,
+        "accepted_shortcuts": 19,
+        "contract": "pass",
+        "raw_sha256": "b8d58dd4723002d25f8f3f127f255f383737141f5ec9ffb3d50245839043441a",
+        "target_sha256": "5d978ff5ef56e4f5a3494e18be10325e0c9c8718dd56a69ed76e13dbc4569176",
+        "representation": "eligible_witness_beyond_cap",
+        "witness": {
+          "selected_directions": 75,
+          "required_new_chords": 17,
+          "checked_rows": 5791,
+          "unused_chords_fixed_to_zero": true,
+          "initial_core_rows_checked": true,
+          "decoder_equals_target": true,
+          "contract": "pass"
+        },
+        "changed_edges": 17,
+        "missing_edges": 0
+      },
+      {
+        "city": "norrkoping",
+        "group": 0,
+        "old_reason": "solver_unresolved",
+        "current_proposal_reason": "proposed",
+        "sites": 185,
+        "accepted_shortcuts": 8,
+        "contract": "pass",
+        "raw_sha256": "d82732b45f5eb146b6518f35077b3473cc99f06198bd282c20f785f0f0562cca",
+        "target_sha256": "db70f383999e841b5e694cabec2b7121aeddab2c1ee2d1b850577d1d27c34d82",
+        "representation": "absent",
+        "changed_edges": 6,
+        "missing_edges": 5,
+        "missing_edge_witness": {
+          "a": [
+            569216.991,
+            6494906.397
+          ],
+          "b": [
+            569242.191,
+            6494913.532
+          ],
+          "length": 26.190613299318965,
+          "interior_sites": 0,
+          "absent_even_without_band_seed_or_chord_caps": true
+        }
+      },
+      {
+        "city": "norrkoping",
+        "group": 1,
+        "old_reason": "solver_unresolved",
+        "current_proposal_reason": "proposed",
+        "sites": 58,
+        "accepted_shortcuts": 1,
+        "contract": "pass",
+        "raw_sha256": "4655bd9bbd3d7aa2488353f1e8bfb2fbce205aad3d80e5ff9cddb15a6e57877a",
+        "target_sha256": "5e693b7b4cdb759429e549b6065c5578529acaaf966a6677e10a760cf4ae8bae",
+        "representation": "witness_verified",
+        "witness": {
+          "selected_directions": 40,
+          "required_new_chords": 1,
+          "checked_rows": 1031,
+          "unused_chords_fixed_to_zero": true,
+          "initial_core_rows_checked": true,
+          "decoder_equals_target": true,
+          "contract": "pass"
+        },
+        "changed_edges": 1,
+        "missing_edges": 0
+      },
+      {
+        "city": "norrkoping",
+        "group": 43,
+        "old_reason": "chord_limit",
+        "current_proposal_reason": "chord_limit",
+        "sites": 243,
+        "accepted_shortcuts": 8,
+        "contract": "pass",
+        "raw_sha256": "24caa2dbd7168244ec98ede3d131f179d2ccc58aa9a532b114fab6833a30e219",
+        "target_sha256": "dfcd9ce526475fe36c8f98356f35c3ddeed26de267c5be46d2c80dc3c04c3834",
+        "representation": "absent",
+        "changed_edges": 8,
+        "missing_edges": 8,
+        "missing_edge_witness": {
+          "a": [
+            569440.391,
+            6494760.706
+          ],
+          "b": [
+            569451.115,
+            6494763.827
+          ],
+          "length": 11.168921926349302,
+          "interior_sites": 0,
+          "absent_even_without_band_seed_or_chord_caps": true
+        }
+      },
+      {
+        "city": "norrkoping",
+        "group": 44,
+        "old_reason": "constraint_limit",
+        "current_proposal_reason": "proposed",
+        "sites": 104,
+        "accepted_shortcuts": 4,
+        "contract": "pass",
+        "raw_sha256": "01d8ff6451c4c70ada032b0d21c06e528db4fb7c49844306f6b7012b2c7635e4",
+        "target_sha256": "43c38c04af709ec14696401f46b2fcdc1cff5d3943aeecb31354a7562d2360ff",
+        "representation": "absent",
+        "changed_edges": 1,
+        "missing_edges": 1,
+        "missing_edge_witness": {
+          "a": [
+            569527.7319998359,
+            6494879.956009171
+          ],
+          "b": [
+            569544.3249998352,
+            6494822.915009166
+          ],
+          "length": 59.40541499333869,
+          "interior_sites": 0,
+          "absent_even_without_band_seed_or_chord_caps": true
+        }
+      },
+      {
+        "city": "norrkoping",
+        "group": 48,
+        "old_reason": "chord_limit",
+        "current_proposal_reason": "chord_limit",
+        "sites": 530,
+        "accepted_shortcuts": 29,
+        "contract": "pass",
+        "raw_sha256": "54deb80e30d8824e0c7c12ef6f58bcac48ba966344dbe5da8fdf8e83dde29381",
+        "target_sha256": "5b4f03fc893799633e19bee3812726e7bbd8f244f83ca84e71b650b0b3bb36e4",
+        "representation": "absent",
+        "changed_edges": 8,
+        "missing_edges": 8,
+        "missing_edge_witness": {
+          "a": [
+            569360.515,
+            6494912.442
+          ],
+          "b": [
+            569368.614,
+            6494914.77
+          ],
+          "length": 8.426943989233228,
+          "interior_sites": 0,
+          "absent_even_without_band_seed_or_chord_caps": true
+        }
+      },
+      {
+        "city": "norrkoping",
+        "group": 50,
+        "old_reason": "chord_limit",
+        "current_proposal_reason": "chord_limit",
+        "sites": 555,
+        "accepted_shortcuts": 50,
+        "contract": "pass",
+        "raw_sha256": "2d7eba09dedbdc7f9d6a3d9e5c85bbc5bb868f8c6d898cbcf6be2f33d8e3a822",
+        "target_sha256": "28c716e345aec6e6f1b442204d8e5fde7457d5fd05960a9fbb6ed6f797d2f75e",
+        "representation": "absent",
+        "changed_edges": 22,
+        "missing_edges": 11,
+        "missing_edge_witness": {
+          "a": [
+            569235.842,
+            6494801.759
+          ],
+          "b": [
+            569252.89,
+            6494741.636
+          ],
+          "length": 62.493275101909155,
+          "interior_sites": 0,
+          "absent_even_without_band_seed_or_chord_caps": true
+        }
+      }
+    ],
+    "verification": "43 focused contract/graph/topology/route tests pass, including the new generic 5m noisy-wall witness. No full solver or meshing survey rerun; no production, candidate-generator or solver change.",
+    "decision": "Treat whole-boundary-chain replacement geometry as the next construction obligation. Independence radius is not a maximum replacement-edge length. Define and measure a chain-based candidate family before changing the search; preserve topology examples, parent semantics, fixed fidelity and explicit work limits. Do not inject reference outputs, stack prototype fallbacks, raise caps or infer that all 37 groups are unsolvable by the existing family."
+  },
+  "whole_chain_experiment": {
+    "scripts": {
+      "sandbox/cleaning_pipeline_probe.py": "9c82e78d8430b2998780e77ba398d449ad86f4fcdf5bc594d630f504e23af270",
+      "sandbox/cleaning_route_probe.py": "5b92bfd7353e0e69a5edd90fafb8cf6363fb2d652f6793d919d4d0875c11130b"
+    },
+    "execution_note": "Only probe docstrings were edited after the long survey started; runtime code remained fixed. Hashes describe the final documented sources.",
+    "family": "Original canonical vertices bound subchains whose interior vertices are unresolved-feature seeds of degree two. Stop at a nonseed, junction or full cycle. No shortcut length limit; chord must lie in original strict band and not on original boundary. New chords retain no original-parent identity. Deduplicate with local chords. No reference output is used for generation.",
+    "bounds": {
+      "chain_checks": 2000,
+      "note": "Additional work is bounded; exceeding the bound returns no partial proposal set. Existing sites/chords/constraints/rounds/seconds unchanged."
+    },
+    "construction": {
+      "groups": 538,
+      "outcomes": {
+        "input_partition": 252,
+        "site_limit": 4,
+        "chord_limit": 123,
+        "chain_limit": 23,
+        "proposed": 136
+      },
+      "transitions": [
+        {
+          "before": "input_partition",
+          "after": "input_partition",
+          "groups": 252
+        },
+        {
+          "before": "site_limit",
+          "after": "site_limit",
+          "groups": 4
+        },
+        {
+          "before": "chord_limit",
+          "after": "chord_limit",
+          "groups": 123
+        },
+        {
+          "before": "chord_limit",
+          "after": "chain_limit",
+          "groups": 23
+        },
+        {
+          "before": "proposed",
+          "after": "proposed",
+          "groups": 136
+        }
+      ],
+      "previous_complete_retained": 136,
+      "complete_chords_before": 108625,
+      "complete_chords_after": 110309,
+      "complete_sites_before": 12436,
+      "complete_sites_after": 12436,
+      "max_chords_added": 258,
+      "seconds": 25.311343933688477,
+      "timing_scope": "Group proposal construction only; excludes loading/grouping and includes profiling overhead on 44 reference groups. No runtime comparison inferred."
+    },
+    "reference_coverage": {
+      "groups": 44,
+      "previous_absent_edges": 138,
+      "recovered_edges": 116,
+      "outcomes": {
+        "witness_verified": 18,
+        "missing_geometry": 14,
+        "eligible_beyond_chord_cap": 12
+      },
+      "remaining_edges": 22,
+      "remaining_reason": "All outside chosen seed chains; no strict-band rejections among these 22. Does not rule out other conforming outputs.",
+      "verification": "Unused chord variables fixed to zero; actual model builder and initial core rows pass, decoder equals reference, independent contract passes. For capped groups, check eligibility of required suffix chords without constructing uncapped family. No assignments supplied to solver.",
+      "rows": [
+        {
+          "city": "lund",
+          "group": 23,
+          "proposal_reason": "proposed",
+          "missing_edges": [],
+          "outcome": "witness_verified",
+          "rows": 1533,
+          "selected_directions": 35,
+          "required_chords": 2
+        },
+        {
+          "city": "lund",
+          "group": 66,
+          "proposal_reason": "proposed",
+          "missing_edges": [],
+          "outcome": "witness_verified",
+          "rows": 2144,
+          "selected_directions": 41,
+          "required_chords": 2
+        },
+        {
+          "city": "lund",
+          "group": 69,
+          "proposal_reason": "chord_limit",
+          "missing_edges": [
+            {
+              "endpoints": [
+                [
+                  386230.165,
+                  6174904.311
+                ],
+                [
+                  386231.171,
+                  6174894.884
+                ]
+              ],
+              "length": 9.480525565740372,
+              "reason": "outside_seed_chains"
+            }
+          ],
+          "outcome": "missing_geometry"
+        },
+        {
+          "city": "lund",
+          "group": 75,
+          "proposal_reason": "chord_limit",
+          "missing_edges": [],
+          "outcome": "eligible_beyond_chord_cap",
+          "rows": 8824,
+          "selected_directions": 65,
+          "required_chords": 7
+        },
+        {
+          "city": "lund",
+          "group": 77,
+          "proposal_reason": "proposed",
+          "missing_edges": [],
+          "outcome": "witness_verified",
+          "rows": 1010,
+          "selected_directions": 31,
+          "required_chords": 2
+        },
+        {
+          "city": "lund",
+          "group": 80,
+          "proposal_reason": "chord_limit",
+          "missing_edges": [],
+          "outcome": "eligible_beyond_chord_cap",
+          "rows": 8742,
+          "selected_directions": 103,
+          "required_chords": 8
+        },
+        {
+          "city": "lund",
+          "group": 81,
+          "proposal_reason": "chord_limit",
+          "missing_edges": [],
+          "outcome": "eligible_beyond_chord_cap",
+          "rows": 3721,
+          "selected_directions": 19,
+          "required_chords": 6
+        },
+        {
+          "city": "lund",
+          "group": 82,
+          "proposal_reason": "chord_limit",
+          "missing_edges": [],
+          "outcome": "eligible_beyond_chord_cap",
+          "rows": 8128,
+          "selected_directions": 121,
+          "required_chords": 16
+        },
+        {
+          "city": "stockholm",
+          "group": 5,
+          "proposal_reason": "chord_limit",
+          "missing_edges": [
+            {
+              "endpoints": [
+                [
+                  674599.264,
+                  6580930.906
+                ],
+                [
+                  674600.991,
+                  6580919.715
+                ]
+              ],
+              "length": 11.323471641377838,
+              "reason": "outside_seed_chains"
+            }
+          ],
+          "outcome": "missing_geometry"
+        },
+        {
+          "city": "gothenburg",
+          "group": 26,
+          "proposal_reason": "chord_limit",
+          "missing_edges": [
+            {
+              "endpoints": [
+                [
+                  319687.819,
+                  6400511.568
+                ],
+                [
+                  319688.529,
+                  6400509.015
+                ]
+              ],
+              "length": 2.649888488504158,
+              "reason": "outside_seed_chains"
+            }
+          ],
+          "outcome": "missing_geometry"
+        },
+        {
+          "city": "gothenburg",
+          "group": 35,
+          "proposal_reason": "proposed",
+          "missing_edges": [],
+          "outcome": "witness_verified",
+          "rows": 1645,
+          "selected_directions": 27,
+          "required_chords": 4
+        },
+        {
+          "city": "gothenburg",
+          "group": 38,
+          "proposal_reason": "proposed",
+          "missing_edges": [
+            {
+              "endpoints": [
+                [
+                  319553.268,
+                  6400309.366
+                ],
+                [
+                  319554.696,
+                  6400309.022
+                ]
+              ],
+              "length": 1.4688498903529237,
+              "reason": "outside_seed_chains"
+            }
+          ],
+          "outcome": "missing_geometry"
+        },
+        {
+          "city": "gothenburg",
+          "group": 42,
+          "proposal_reason": "proposed",
+          "missing_edges": [],
+          "outcome": "witness_verified",
+          "rows": 1735,
+          "selected_directions": 61,
+          "required_chords": 4
+        },
+        {
+          "city": "gothenburg",
+          "group": 46,
+          "proposal_reason": "chord_limit",
+          "missing_edges": [],
+          "outcome": "eligible_beyond_chord_cap",
+          "rows": 4936,
+          "selected_directions": 14,
+          "required_chords": 14
+        },
+        {
+          "city": "gothenburg",
+          "group": 47,
+          "proposal_reason": "chord_limit",
+          "missing_edges": [],
+          "outcome": "eligible_beyond_chord_cap",
+          "rows": 5360,
+          "selected_directions": 16,
+          "required_chords": 16
+        },
+        {
+          "city": "malmo",
+          "group": 30,
+          "proposal_reason": "proposed",
+          "missing_edges": [],
+          "outcome": "witness_verified",
+          "rows": 3113,
+          "selected_directions": 72,
+          "required_chords": 8
+        },
+        {
+          "city": "uppsala",
+          "group": 14,
+          "proposal_reason": "proposed",
+          "missing_edges": [],
+          "outcome": "witness_verified",
+          "rows": 2084,
+          "selected_directions": 14,
+          "required_chords": 2
+        },
+        {
+          "city": "uppsala",
+          "group": 46,
+          "proposal_reason": "chord_limit",
+          "missing_edges": [
+            {
+              "endpoints": [
+                [
+                  647935.68,
+                  6638623.797
+                ],
+                [
+                  647963.673,
+                  6638595.055
+                ]
+              ],
+              "length": 40.12119904771185,
+              "reason": "outside_seed_chains"
+            }
+          ],
+          "outcome": "missing_geometry"
+        },
+        {
+          "city": "linkoping",
+          "group": 5,
+          "proposal_reason": "chord_limit",
+          "missing_edges": [],
+          "outcome": "eligible_beyond_chord_cap",
+          "rows": 2895,
+          "selected_directions": 54,
+          "required_chords": 1
+        },
+        {
+          "city": "linkoping",
+          "group": 60,
+          "proposal_reason": "proposed",
+          "missing_edges": [],
+          "outcome": "witness_verified",
+          "rows": 915,
+          "selected_directions": 29,
+          "required_chords": 2
+        },
+        {
+          "city": "linkoping",
+          "group": 61,
+          "proposal_reason": "proposed",
+          "missing_edges": [],
+          "outcome": "witness_verified",
+          "rows": 734,
+          "selected_directions": 23,
+          "required_chords": 1
+        },
+        {
+          "city": "linkoping",
+          "group": 63,
+          "proposal_reason": "proposed",
+          "missing_edges": [],
+          "outcome": "witness_verified",
+          "rows": 1895,
+          "selected_directions": 66,
+          "required_chords": 4
+        },
+        {
+          "city": "linkoping",
+          "group": 64,
+          "proposal_reason": "proposed",
+          "missing_edges": [
+            {
+              "endpoints": [
+                [
+                  536413.212,
+                  6474496.098
+                ],
+                [
+                  536419.981,
+                  6474457.411
+                ]
+              ],
+              "length": 39.274716166934525,
+              "reason": "outside_seed_chains"
+            },
+            {
+              "endpoints": [
+                [
+                  536388.469,
+                  6474490.568
+                ],
+                [
+                  536413.212,
+                  6474496.098
+                ]
+              ],
+              "length": 25.35344057526934,
+              "reason": "outside_seed_chains"
+            }
+          ],
+          "outcome": "missing_geometry"
+        },
+        {
+          "city": "linkoping",
+          "group": 68,
+          "proposal_reason": "chord_limit",
+          "missing_edges": [
+            {
+              "endpoints": [
+                [
+                  536397.239,
+                  6474587.45
+                ],
+                [
+                  536398.102,
+                  6474582.564
+                ]
+              ],
+              "length": 4.961629268641344,
+              "reason": "outside_seed_chains"
+            },
+            {
+              "endpoints": [
+                [
+                  536351.119,
+                  6474596.342
+                ],
+                [
+                  536352.828,
+                  6474587.215
+                ]
+              ],
+              "length": 9.285623835052352,
+              "reason": "outside_seed_chains"
+            },
+            {
+              "endpoints": [
+                [
+                  536352.828,
+                  6474587.215
+                ],
+                [
+                  536355.315,
+                  6474573.893
+                ]
+              ],
+              "length": 13.552153075865286,
+              "reason": "outside_seed_chains"
+            },
+            {
+              "endpoints": [
+                [
+                  536355.315,
+                  6474573.893
+                ],
+                [
+                  536383.375,
+                  6474567.098
+                ]
+              ],
+              "length": 28.871017041353486,
+              "reason": "outside_seed_chains"
+            },
+            {
+              "endpoints": [
+                [
+                  536383.375,
+                  6474567.098
+                ],
+                [
+                  536395.311,
+                  6474564.205
+                ]
+              ],
+              "length": 12.28159374839414,
+              "reason": "outside_seed_chains"
+            }
+          ],
+          "outcome": "missing_geometry"
+        },
+        {
+          "city": "linkoping",
+          "group": 81,
+          "proposal_reason": "proposed",
+          "missing_edges": [],
+          "outcome": "witness_verified",
+          "rows": 2679,
+          "selected_directions": 33,
+          "required_chords": 1
+        },
+        {
+          "city": "linkoping",
+          "group": 83,
+          "proposal_reason": "chord_limit",
+          "missing_edges": [
+            {
+              "endpoints": [
+                [
+                  536134.701,
+                  6474837.982
+                ],
+                [
+                  536144.097,
+                  6474839.996
+                ]
+              ],
+              "length": 9.60942308366093,
+              "reason": "outside_seed_chains"
+            },
+            {
+              "endpoints": [
+                [
+                  536137.805,
+                  6474826.577
+                ],
+                [
+                  536174.228,
+                  6474833.376
+                ]
+              ],
+              "length": 37.052143392850766,
+              "reason": "outside_seed_chains"
+            },
+            {
+              "endpoints": [
+                [
+                  536179.847,
+                  6474846.798
+                ],
+                [
+                  536181.733,
+                  6474835.988
+                ]
+              ],
+              "length": 10.973290117894907,
+              "reason": "outside_seed_chains"
+            },
+            {
+              "endpoints": [
+                [
+                  536146.557,
+                  6474840.464
+                ],
+                [
+                  536179.847,
+                  6474846.798
+                ]
+              ],
+              "length": 33.88721965585225,
+              "reason": "outside_seed_chains"
+            }
+          ],
+          "outcome": "missing_geometry"
+        },
+        {
+          "city": "linkoping",
+          "group": 85,
+          "proposal_reason": "proposed",
+          "missing_edges": [
+            {
+              "endpoints": [
+                [
+                  536267.67,
+                  6474696.402
+                ],
+                [
+                  536269.773,
+                  6474687.584
+                ]
+              ],
+              "length": 9.065303800727593,
+              "reason": "outside_seed_chains"
+            }
+          ],
+          "outcome": "missing_geometry"
+        },
+        {
+          "city": "orebro",
+          "group": 31,
+          "proposal_reason": "proposed",
+          "missing_edges": [],
+          "outcome": "witness_verified",
+          "rows": 2856,
+          "selected_directions": 38,
+          "required_chords": 5
+        },
+        {
+          "city": "orebro",
+          "group": 32,
+          "proposal_reason": "proposed",
+          "missing_edges": [],
+          "outcome": "witness_verified",
+          "rows": 2309,
+          "selected_directions": 4,
+          "required_chords": 4
+        },
+        {
+          "city": "orebro",
+          "group": 34,
+          "proposal_reason": "chord_limit",
+          "missing_edges": [],
+          "outcome": "eligible_beyond_chord_cap",
+          "rows": 3526,
+          "selected_directions": 70,
+          "required_chords": 6
+        },
+        {
+          "city": "vasteras",
+          "group": 30,
+          "proposal_reason": "proposed",
+          "missing_edges": [],
+          "outcome": "witness_verified",
+          "rows": 1148,
+          "selected_directions": 5,
+          "required_chords": 2
+        },
+        {
+          "city": "vasteras",
+          "group": 39,
+          "proposal_reason": "proposed",
+          "missing_edges": [
+            {
+              "endpoints": [
+                [
+                  586987.745,
+                  6609112.055
+                ],
+                [
+                  586992.624,
+                  6609104.403
+                ]
+              ],
+              "length": 9.075116803438247,
+              "reason": "outside_seed_chains"
+            }
+          ],
+          "outcome": "missing_geometry"
+        },
+        {
+          "city": "vasteras",
+          "group": 45,
+          "proposal_reason": "proposed",
+          "missing_edges": [],
+          "outcome": "witness_verified",
+          "rows": 2211,
+          "selected_directions": 56,
+          "required_chords": 2
+        },
+        {
+          "city": "helsingborg",
+          "group": 9,
+          "proposal_reason": "chord_limit",
+          "missing_edges": [],
+          "outcome": "eligible_beyond_chord_cap",
+          "rows": 6322,
+          "selected_directions": 130,
+          "required_chords": 5
+        },
+        {
+          "city": "helsingborg",
+          "group": 22,
+          "proposal_reason": "chord_limit",
+          "missing_edges": [
+            {
+              "endpoints": [
+                [
+                  356514.493,
+                  6213778.051
+                ],
+                [
+                  356515.916,
+                  6213776.447
+                ]
+              ],
+              "length": 2.14423529514279,
+              "reason": "outside_seed_chains"
+            }
+          ],
+          "outcome": "missing_geometry"
+        },
+        {
+          "city": "helsingborg",
+          "group": 34,
+          "proposal_reason": "proposed",
+          "missing_edges": [
+            {
+              "endpoints": [
+                [
+                  356518.6313026632,
+                  6213693.447284172
+                ],
+                [
+                  356532.2852420737,
+                  6213677.204733784
+                ]
+              ],
+              "length": 21.21910706255521,
+              "reason": "outside_seed_chains"
+            }
+          ],
+          "outcome": "missing_geometry"
+        },
+        {
+          "city": "helsingborg",
+          "group": 68,
+          "proposal_reason": "proposed",
+          "missing_edges": [],
+          "outcome": "witness_verified",
+          "rows": 3031,
+          "selected_directions": 26,
+          "required_chords": 6
+        },
+        {
+          "city": "helsingborg",
+          "group": 70,
+          "proposal_reason": "chord_limit",
+          "missing_edges": [],
+          "outcome": "eligible_beyond_chord_cap",
+          "rows": 5791,
+          "selected_directions": 75,
+          "required_chords": 17
+        },
+        {
+          "city": "norrkoping",
+          "group": 0,
+          "proposal_reason": "proposed",
+          "missing_edges": [
+            {
+              "endpoints": [
+                [
+                  569273.968,
+                  6494940.019
+                ],
+                [
+                  569274.64,
+                  6494937.664
+                ]
+              ],
+              "length": 2.449001633754676,
+              "reason": "outside_seed_chains"
+            }
+          ],
+          "outcome": "missing_geometry"
+        },
+        {
+          "city": "norrkoping",
+          "group": 1,
+          "proposal_reason": "proposed",
+          "missing_edges": [],
+          "outcome": "witness_verified",
+          "rows": 1031,
+          "selected_directions": 40,
+          "required_chords": 1
+        },
+        {
+          "city": "norrkoping",
+          "group": 43,
+          "proposal_reason": "chord_limit",
+          "missing_edges": [],
+          "outcome": "eligible_beyond_chord_cap",
+          "rows": 3965,
+          "selected_directions": 110,
+          "required_chords": 8
+        },
+        {
+          "city": "norrkoping",
+          "group": 44,
+          "proposal_reason": "proposed",
+          "missing_edges": [],
+          "outcome": "witness_verified",
+          "rows": 2255,
+          "selected_directions": 47,
+          "required_chords": 1
+        },
+        {
+          "city": "norrkoping",
+          "group": 48,
+          "proposal_reason": "chord_limit",
+          "missing_edges": [
+            {
+              "endpoints": [
+                [
+                  569334.609,
+                  6494917.314
+                ],
+                [
+                  569336.126,
+                  6494912.03
+                ]
+              ],
+              "length": 5.497448953816662,
+              "reason": "outside_seed_chains"
+            }
+          ],
+          "outcome": "missing_geometry"
+        },
+        {
+          "city": "norrkoping",
+          "group": 50,
+          "proposal_reason": "chord_limit",
+          "missing_edges": [],
+          "outcome": "eligible_beyond_chord_cap",
+          "rows": 13796,
+          "selected_directions": 81,
+          "required_chords": 22
+        }
+      ]
+    },
+    "examples": {
+      "point_contact": {
+        "outcome": "conforming",
+        "reason": "contract_pass",
+        "sites": 39,
+        "chords": 116,
+        "chain_chords": 0,
+        "chain_checks": 0,
+        "variables": 351,
+        "constraints": 3499,
+        "solver_status": 0,
+        "seconds": 0.11641245801001787
+      },
+      "near_buildings": {
+        "outcome": "conforming",
+        "reason": "contract_pass",
+        "sites": 72,
+        "chords": 450,
+        "chain_chords": 0,
+        "chain_checks": 4,
+        "variables": 1116,
+        "constraints": 23826,
+        "solver_status": 0,
+        "seconds": 1.152386125177145
+      },
+      "courtyard_passage": {
+        "outcome": "conforming",
+        "reason": "contract_pass",
+        "sites": 76,
+        "chords": 450,
+        "chain_chords": 0,
+        "chain_checks": 6,
+        "variables": 1128,
+        "constraints": 23854,
+        "solver_status": 0,
+        "seconds": 2.1648127920925617
+      },
+      "tiny_hole": {
+        "outcome": "conforming",
+        "reason": "contract_pass",
+        "sites": 16,
+        "chords": 42,
+        "chain_chords": 2,
+        "chain_checks": 2,
+        "variables": 132,
+        "constraints": 1172,
+        "solver_status": 0,
+        "seconds": 0.025706958025693893
+      }
+    },
+    "full_solver_survey": {
+      "command": ".venv/bin/python sandbox/cleaning_route_probe.py --focused --run benchmarks/runs/2026-09-17_100049_quick --output /tmp/dtcc-whole-chain/full-survey",
+      "groups": 538,
+      "outcomes": {
+        "unchanged": 252,
+        "site_limit": 4,
+        "chord_limit": 123,
+        "chain_limit": 23,
+        "solver_unresolved": 33,
+        "constraint_limit": 31,
+        "contract_pass": 71,
+        "model_infeasible": 1
+      },
+      "additional_conforming": 71,
+      "seconds": 392.16180954896845,
+      "rows": [
+        {
+          "city": "lund",
+          "groups": 85,
+          "seconds": 51.735158196650445,
+          "outcomes": {
+            "unchanged": 41,
+            "site_limit": 3,
+            "chord_limit": 19,
+            "chain_limit": 2,
+            "solver_unresolved": 4,
+            "constraint_limit": 4,
+            "contract_pass": 12
+          },
+          "additional_conforming": 12
+        },
+        {
+          "city": "stockholm",
+          "groups": 24,
+          "seconds": 28.249258460011333,
+          "outcomes": {
+            "solver_unresolved": 4,
+            "unchanged": 11,
+            "chord_limit": 6,
+            "constraint_limit": 1,
+            "contract_pass": 1,
+            "chain_limit": 1
+          },
+          "additional_conforming": 1
+        },
+        {
+          "city": "gothenburg",
+          "groups": 49,
+          "seconds": 41.258392793824896,
+          "outcomes": {
+            "chord_limit": 8,
+            "unchanged": 27,
+            "model_infeasible": 1,
+            "constraint_limit": 2,
+            "solver_unresolved": 4,
+            "contract_pass": 6,
+            "chain_limit": 1
+          },
+          "additional_conforming": 6
+        },
+        {
+          "city": "malmo",
+          "groups": 31,
+          "seconds": 12.630896918475628,
+          "outcomes": {
+            "chord_limit": 8,
+            "unchanged": 18,
+            "contract_pass": 2,
+            "constraint_limit": 2,
+            "solver_unresolved": 1
+          },
+          "additional_conforming": 2
+        },
+        {
+          "city": "uppsala",
+          "groups": 47,
+          "seconds": 56.73129216954112,
+          "outcomes": {
+            "chord_limit": 15,
+            "chain_limit": 4,
+            "unchanged": 12,
+            "solver_unresolved": 6,
+            "constraint_limit": 2,
+            "contract_pass": 8
+          },
+          "additional_conforming": 8
+        },
+        {
+          "city": "linkoping",
+          "groups": 93,
+          "seconds": 76.88680041930638,
+          "outcomes": {
+            "constraint_limit": 7,
+            "unchanged": 38,
+            "chord_limit": 17,
+            "chain_limit": 11,
+            "site_limit": 1,
+            "contract_pass": 14,
+            "solver_unresolved": 5
+          },
+          "additional_conforming": 14
+        },
+        {
+          "city": "orebro",
+          "groups": 37,
+          "seconds": 20.608287290669978,
+          "outcomes": {
+            "chord_limit": 12,
+            "unchanged": 15,
+            "solver_unresolved": 1,
+            "contract_pass": 6,
+            "constraint_limit": 3
+          },
+          "additional_conforming": 6
+        },
+        {
+          "city": "vasteras",
+          "groups": 46,
+          "seconds": 44.3159562908113,
+          "outcomes": {
+            "unchanged": 22,
+            "chord_limit": 8,
+            "solver_unresolved": 4,
+            "contract_pass": 8,
+            "constraint_limit": 3,
+            "chain_limit": 1
+          },
+          "additional_conforming": 8
+        },
+        {
+          "city": "helsingborg",
+          "groups": 75,
+          "seconds": 33.566202672664076,
+          "outcomes": {
+            "unchanged": 39,
+            "chord_limit": 19,
+            "contract_pass": 8,
+            "solver_unresolved": 2,
+            "constraint_limit": 4,
+            "chain_limit": 3
+          },
+          "additional_conforming": 8
+        },
+        {
+          "city": "norrkoping",
+          "groups": 51,
+          "seconds": 26.17956433701329,
+          "outcomes": {
+            "solver_unresolved": 2,
+            "constraint_limit": 3,
+            "chord_limit": 11,
+            "unchanged": 29,
+            "contract_pass": 6
+          },
+          "additional_conforming": 6
+        }
+      ],
+      "retained": 70,
+      "lost": [
+        [
+          "linkoping",
+          88
+        ],
+        [
+          "uppsala",
+          26
+        ]
+      ],
+      "gained": [
+        [
+          "lund",
+          77
+        ]
+      ],
+      "also_vertex_removal": 49,
+      "not_vertex_removal": {
+        "no_admissible_shortcut": 21,
+        "requires_topology_change": 1
+      },
+      "solver_statuses_for_accepted_repairs": {
+        "0": 71
+      },
+      "complete_cities": 0,
+      "comparison_note": "Last full compact-turn run is the baseline. The current family also includes the intervening early-duplicate exclusion, which admitted three models; timed differences cannot all be attributed to chains alone.",
+      "represented_uncapped_reference_outcomes": {
+        "contract_pass": 1,
+        "constraint_limit": 9,
+        "solver_unresolved": 8
+      }
+    },
+    "verification": "44 focused tests passed; the two model-representation tests rerun after adding initial core-row checks passed. Ordinary focused CLI examples and full fixed-city invocation completed. Production is unchanged; no mesh rerun. The ordinary example plot was visually inspected; formatting and whitespace checks passed.",
+    "decision": "Keep whole-chain geometry in the research reference: it addresses a demonstrated representation omission with bounded work. Do not claim a cleaning-quality or runtime improvement or promote it to production: 71 repairs versus 72, one gain and two losses. Before more geometric operators or solver tuning, derive and measure a smaller representation of local boundary choices, with explicit preservation obligations on known feasible witnesses. No cap increases or stacked fallback cleaners."
+  },
+  "supported_chord_experiment": {
+    "scripts": {
+      "dtcc_core/builder/cleaning/contract.py": "a806828dd29b943db5d1dd8b6bb3ba15a7eaa26cbcce72afd58beb1087414a36",
+      "sandbox/cleaning_pipeline_probe.py": "e4dfbbf97fbed0a17241aa041dcff530a687af296248f8619696604b117d44e8",
+      "sandbox/cleaning_route_probe.py": "dc5670b7200d5aa3a7716f8e7be1d26cd6dff502935d6c9fb38207d84d84d9e8"
+    },
+    "baseline": "whole_chain_experiment: 71 additional conforming groups, 136 complete candidate sets, 392.16 seconds",
+    "rule": "Remove only a new chord shorter than the existing separation threshold and lacking any third collinear site at either endpoint origin. Use exact floating cross products, all sites, and deliberately ignore direction/route availability for a conservative support test. Apply before total chord cap; preserve original-parent segments, every site, all limits and the eager-carrier experiment. No geometry substitution or new fallback.",
+    "proof_scope": "In the current binary model such a chord forces both endpoints active, violating their separation row. Every removed direction is already zero in every feasible integer assignment, so simultaneous deletion preserves those assignments, costs and decoded geometry. This does not establish completeness relative to all contract-admissible polygons or promise identical timed solver outcomes. The unchanged separation tolerance is one private constant shared with the checker.",
+    "pre_edit_audit": {
+      "cases": 48,
+      "chords_observed": 68514,
+      "impossible_chords": 28091,
+      "scope": "Four analytic examples and 44 reference groups; capped groups contribute only their observed prefix, not inferred suffixes."
+    },
+    "construction": {
+      "groups": 538,
+      "outcomes": {
+        "input_partition": 252,
+        "site_limit": 4,
+        "chord_limit": 91,
+        "chain_limit": 23,
+        "proposed": 168
+      },
+      "transitions": [
+        {
+          "before": "input_partition",
+          "after": "input_partition",
+          "groups": 252
+        },
+        {
+          "before": "site_limit",
+          "after": "site_limit",
+          "groups": 4
+        },
+        {
+          "before": "chord_limit",
+          "after": "chord_limit",
+          "groups": 91
+        },
+        {
+          "before": "chain_limit",
+          "after": "chain_limit",
+          "groups": 23
+        },
+        {
+          "before": "proposed",
+          "after": "proposed",
+          "groups": 136
+        },
+        {
+          "before": "chord_limit",
+          "after": "proposed",
+          "groups": 32
+        }
+      ],
+      "previous_complete_retained": 136,
+      "previous_complete_chords_before": 110309,
+      "previous_complete_chords_after": 65142,
+      "previous_complete_sites_before": 12436,
+      "previous_complete_sites_after": 12436,
+      "seconds": 48.93006879091263,
+      "timing_scope": "Group proposal generation only; excludes loading/grouping and includes profiling overhead on 44 reference groups. Filtering also explores longer prefixes before the same retained-chord cap."
+    },
+    "reference_witnesses": {
+      "groups": 44,
+      "outcomes": {
+        "witness_verified": 25,
+        "missing_geometry": 14,
+        "eligible_beyond_chord_cap": 5
+      },
+      "all_previous_30_retained": true,
+      "verification": "Actual model builder including initial core rows, exact target decoding and independent contract; no witnesses supplied to search. Unused chord variables fixed to zero for the witness check.",
+      "represented_uncapped_solve_outcomes": {
+        "solver_unresolved": 14,
+        "contract_pass": 2,
+        "constraint_limit": 9
+      },
+      "rows": [
+        {
+          "city": "lund",
+          "group": 23,
+          "proposal_reason": "proposed",
+          "outcome": "witness_verified",
+          "rows": 1533,
+          "selected_directions": 35,
+          "required_chords": 2
+        },
+        {
+          "city": "lund",
+          "group": 66,
+          "proposal_reason": "proposed",
+          "outcome": "witness_verified",
+          "rows": 2144,
+          "selected_directions": 41,
+          "required_chords": 2
+        },
+        {
+          "city": "lund",
+          "group": 69,
+          "proposal_reason": "proposed",
+          "outcome": "missing_geometry"
+        },
+        {
+          "city": "lund",
+          "group": 75,
+          "proposal_reason": "chord_limit",
+          "outcome": "eligible_beyond_chord_cap",
+          "rows": 8824,
+          "selected_directions": 65,
+          "required_chords": 7
+        },
+        {
+          "city": "lund",
+          "group": 77,
+          "proposal_reason": "proposed",
+          "outcome": "witness_verified",
+          "rows": 1010,
+          "selected_directions": 31,
+          "required_chords": 2
+        },
+        {
+          "city": "lund",
+          "group": 80,
+          "proposal_reason": "chord_limit",
+          "outcome": "eligible_beyond_chord_cap",
+          "rows": 8742,
+          "selected_directions": 103,
+          "required_chords": 8
+        },
+        {
+          "city": "lund",
+          "group": 81,
+          "proposal_reason": "proposed",
+          "outcome": "witness_verified",
+          "rows": 3721,
+          "selected_directions": 19,
+          "required_chords": 6
+        },
+        {
+          "city": "lund",
+          "group": 82,
+          "proposal_reason": "chord_limit",
+          "outcome": "eligible_beyond_chord_cap",
+          "rows": 8128,
+          "selected_directions": 121,
+          "required_chords": 16
+        },
+        {
+          "city": "stockholm",
+          "group": 5,
+          "proposal_reason": "proposed",
+          "outcome": "missing_geometry"
+        },
+        {
+          "city": "gothenburg",
+          "group": 26,
+          "proposal_reason": "proposed",
+          "outcome": "missing_geometry"
+        },
+        {
+          "city": "gothenburg",
+          "group": 35,
+          "proposal_reason": "proposed",
+          "outcome": "witness_verified",
+          "rows": 1645,
+          "selected_directions": 27,
+          "required_chords": 4
+        },
+        {
+          "city": "gothenburg",
+          "group": 38,
+          "proposal_reason": "proposed",
+          "outcome": "missing_geometry"
+        },
+        {
+          "city": "gothenburg",
+          "group": 42,
+          "proposal_reason": "proposed",
+          "outcome": "witness_verified",
+          "rows": 1735,
+          "selected_directions": 61,
+          "required_chords": 4
+        },
+        {
+          "city": "gothenburg",
+          "group": 46,
+          "proposal_reason": "proposed",
+          "outcome": "witness_verified",
+          "rows": 4936,
+          "selected_directions": 14,
+          "required_chords": 14
+        },
+        {
+          "city": "gothenburg",
+          "group": 47,
+          "proposal_reason": "proposed",
+          "outcome": "witness_verified",
+          "rows": 5360,
+          "selected_directions": 16,
+          "required_chords": 16
+        },
+        {
+          "city": "malmo",
+          "group": 30,
+          "proposal_reason": "proposed",
+          "outcome": "witness_verified",
+          "rows": 3113,
+          "selected_directions": 72,
+          "required_chords": 8
+        },
+        {
+          "city": "uppsala",
+          "group": 14,
+          "proposal_reason": "proposed",
+          "outcome": "witness_verified",
+          "rows": 2084,
+          "selected_directions": 14,
+          "required_chords": 2
+        },
+        {
+          "city": "uppsala",
+          "group": 46,
+          "proposal_reason": "proposed",
+          "outcome": "missing_geometry"
+        },
+        {
+          "city": "linkoping",
+          "group": 5,
+          "proposal_reason": "proposed",
+          "outcome": "witness_verified",
+          "rows": 2895,
+          "selected_directions": 54,
+          "required_chords": 1
+        },
+        {
+          "city": "linkoping",
+          "group": 60,
+          "proposal_reason": "proposed",
+          "outcome": "witness_verified",
+          "rows": 915,
+          "selected_directions": 29,
+          "required_chords": 2
+        },
+        {
+          "city": "linkoping",
+          "group": 61,
+          "proposal_reason": "proposed",
+          "outcome": "witness_verified",
+          "rows": 734,
+          "selected_directions": 23,
+          "required_chords": 1
+        },
+        {
+          "city": "linkoping",
+          "group": 63,
+          "proposal_reason": "proposed",
+          "outcome": "witness_verified",
+          "rows": 1895,
+          "selected_directions": 66,
+          "required_chords": 4
+        },
+        {
+          "city": "linkoping",
+          "group": 64,
+          "proposal_reason": "proposed",
+          "outcome": "missing_geometry"
+        },
+        {
+          "city": "linkoping",
+          "group": 68,
+          "proposal_reason": "proposed",
+          "outcome": "missing_geometry"
+        },
+        {
+          "city": "linkoping",
+          "group": 81,
+          "proposal_reason": "proposed",
+          "outcome": "witness_verified",
+          "rows": 2679,
+          "selected_directions": 33,
+          "required_chords": 1
+        },
+        {
+          "city": "linkoping",
+          "group": 83,
+          "proposal_reason": "chord_limit",
+          "outcome": "missing_geometry"
+        },
+        {
+          "city": "linkoping",
+          "group": 85,
+          "proposal_reason": "proposed",
+          "outcome": "missing_geometry"
+        },
+        {
+          "city": "orebro",
+          "group": 31,
+          "proposal_reason": "proposed",
+          "outcome": "witness_verified",
+          "rows": 2856,
+          "selected_directions": 38,
+          "required_chords": 5
+        },
+        {
+          "city": "orebro",
+          "group": 32,
+          "proposal_reason": "proposed",
+          "outcome": "witness_verified",
+          "rows": 2309,
+          "selected_directions": 4,
+          "required_chords": 4
+        },
+        {
+          "city": "orebro",
+          "group": 34,
+          "proposal_reason": "proposed",
+          "outcome": "witness_verified",
+          "rows": 3526,
+          "selected_directions": 70,
+          "required_chords": 6
+        },
+        {
+          "city": "vasteras",
+          "group": 30,
+          "proposal_reason": "proposed",
+          "outcome": "witness_verified",
+          "rows": 1148,
+          "selected_directions": 5,
+          "required_chords": 2
+        },
+        {
+          "city": "vasteras",
+          "group": 39,
+          "proposal_reason": "proposed",
+          "outcome": "missing_geometry"
+        },
+        {
+          "city": "vasteras",
+          "group": 45,
+          "proposal_reason": "proposed",
+          "outcome": "witness_verified",
+          "rows": 2211,
+          "selected_directions": 56,
+          "required_chords": 2
+        },
+        {
+          "city": "helsingborg",
+          "group": 9,
+          "proposal_reason": "chord_limit",
+          "outcome": "eligible_beyond_chord_cap",
+          "rows": 6322,
+          "selected_directions": 130,
+          "required_chords": 5
+        },
+        {
+          "city": "helsingborg",
+          "group": 22,
+          "proposal_reason": "chord_limit",
+          "outcome": "missing_geometry"
+        },
+        {
+          "city": "helsingborg",
+          "group": 34,
+          "proposal_reason": "proposed",
+          "outcome": "missing_geometry"
+        },
+        {
+          "city": "helsingborg",
+          "group": 68,
+          "proposal_reason": "proposed",
+          "outcome": "witness_verified",
+          "rows": 3031,
+          "selected_directions": 26,
+          "required_chords": 6
+        },
+        {
+          "city": "helsingborg",
+          "group": 70,
+          "proposal_reason": "proposed",
+          "outcome": "witness_verified",
+          "rows": 5791,
+          "selected_directions": 75,
+          "required_chords": 17
+        },
+        {
+          "city": "norrkoping",
+          "group": 0,
+          "proposal_reason": "proposed",
+          "outcome": "missing_geometry"
+        },
+        {
+          "city": "norrkoping",
+          "group": 1,
+          "proposal_reason": "proposed",
+          "outcome": "witness_verified",
+          "rows": 1031,
+          "selected_directions": 40,
+          "required_chords": 1
+        },
+        {
+          "city": "norrkoping",
+          "group": 43,
+          "proposal_reason": "proposed",
+          "outcome": "witness_verified",
+          "rows": 3965,
+          "selected_directions": 110,
+          "required_chords": 8
+        },
+        {
+          "city": "norrkoping",
+          "group": 44,
+          "proposal_reason": "proposed",
+          "outcome": "witness_verified",
+          "rows": 2255,
+          "selected_directions": 47,
+          "required_chords": 1
+        },
+        {
+          "city": "norrkoping",
+          "group": 48,
+          "proposal_reason": "chord_limit",
+          "outcome": "missing_geometry"
+        },
+        {
+          "city": "norrkoping",
+          "group": 50,
+          "proposal_reason": "chord_limit",
+          "outcome": "eligible_beyond_chord_cap",
+          "rows": 13796,
+          "selected_directions": 81,
+          "required_chords": 22
+        }
+      ]
+    },
+    "examples": {
+      "point_contact": {
+        "outcome": "conforming",
+        "reason": "contract_pass",
+        "sites": 39,
+        "chords": 84,
+        "unsupported_chords": 32,
+        "variables": 287,
+        "constraints": 2679,
+        "solver_status": 0,
+        "seconds": 0.093889000127092
+      },
+      "near_buildings": {
+        "outcome": "conforming",
+        "reason": "contract_pass",
+        "sites": 72,
+        "chords": 304,
+        "unsupported_chords": 146,
+        "variables": 824,
+        "constraints": 15970,
+        "solver_status": 0,
+        "seconds": 0.8973196251317859
+      },
+      "courtyard_passage": {
+        "outcome": "conforming",
+        "reason": "contract_pass",
+        "sites": 76,
+        "chords": 304,
+        "unsupported_chords": 146,
+        "variables": 836,
+        "constraints": 15998,
+        "solver_status": 0,
+        "seconds": 2.2693904999177903
+      },
+      "tiny_hole": {
+        "outcome": "conforming",
+        "reason": "contract_pass",
+        "sites": 16,
+        "chords": 2,
+        "unsupported_chords": 40,
+        "variables": 52,
+        "constraints": 290,
+        "solver_status": 0,
+        "seconds": 0.008144458988681436
+      }
+    },
+    "full_solver_survey": {
+      "command": ".venv/bin/python sandbox/cleaning_route_probe.py --focused --run benchmarks/runs/2026-09-17_100049_quick --output /tmp/dtcc-supported-routes/full-survey",
+      "groups": 538,
+      "outcomes": {
+        "unchanged": 252,
+        "site_limit": 4,
+        "chord_limit": 91,
+        "chain_limit": 23,
+        "solver_unresolved": 66,
+        "contract_pass": 74,
+        "constraint_limit": 27,
+        "model_infeasible": 1
+      },
+      "additional_conforming": 74,
+      "seconds": 714.676885709865,
+      "retained": 71,
+      "lost": [],
+      "gained": [
+        [
+          "helsingborg",
+          34
+        ],
+        [
+          "norrkoping",
+          1
+        ],
+        [
+          "uppsala",
+          26
+        ]
+      ],
+      "also_vertex_removal": 51,
+      "not_vertex_removal": {
+        "no_admissible_shortcut": 22,
+        "requires_topology_change": 1
+      },
+      "solver_statuses_for_accepted_repairs": {
+        "0": 74
+      },
+      "complete_cities": 0,
+      "rows": [
+        {
+          "city": "lund",
+          "groups": 85,
+          "seconds": 63.66502737742849,
+          "outcomes": {
+            "unchanged": 41,
+            "site_limit": 3,
+            "chord_limit": 17,
+            "chain_limit": 2,
+            "solver_unresolved": 8,
+            "contract_pass": 12,
+            "constraint_limit": 2
+          }
+        },
+        {
+          "city": "stockholm",
+          "groups": 24,
+          "seconds": 66.68910703924485,
+          "outcomes": {
+            "solver_unresolved": 6,
+            "unchanged": 11,
+            "chord_limit": 3,
+            "constraint_limit": 2,
+            "contract_pass": 1,
+            "chain_limit": 1
+          }
+        },
+        {
+          "city": "gothenburg",
+          "groups": 49,
+          "seconds": 73.59043333330192,
+          "outcomes": {
+            "chord_limit": 2,
+            "unchanged": 27,
+            "model_infeasible": 1,
+            "solver_unresolved": 7,
+            "constraint_limit": 5,
+            "contract_pass": 6,
+            "chain_limit": 1
+          }
+        },
+        {
+          "city": "malmo",
+          "groups": 31,
+          "seconds": 35.801008626352996,
+          "outcomes": {
+            "chord_limit": 7,
+            "unchanged": 18,
+            "constraint_limit": 1,
+            "contract_pass": 2,
+            "solver_unresolved": 3
+          }
+        },
+        {
+          "city": "uppsala",
+          "groups": 47,
+          "seconds": 119.64599175564945,
+          "outcomes": {
+            "chord_limit": 9,
+            "solver_unresolved": 10,
+            "chain_limit": 4,
+            "unchanged": 12,
+            "contract_pass": 9,
+            "constraint_limit": 3
+          }
+        },
+        {
+          "city": "linkoping",
+          "groups": 93,
+          "seconds": 155.1346578693483,
+          "outcomes": {
+            "solver_unresolved": 12,
+            "unchanged": 38,
+            "constraint_limit": 4,
+            "chain_limit": 11,
+            "chord_limit": 13,
+            "site_limit": 1,
+            "contract_pass": 14
+          }
+        },
+        {
+          "city": "orebro",
+          "groups": 37,
+          "seconds": 34.35486117028631,
+          "outcomes": {
+            "chord_limit": 9,
+            "unchanged": 15,
+            "constraint_limit": 5,
+            "solver_unresolved": 2,
+            "contract_pass": 6
+          }
+        },
+        {
+          "city": "vasteras",
+          "groups": 46,
+          "seconds": 55.39578008442186,
+          "outcomes": {
+            "unchanged": 22,
+            "chord_limit": 8,
+            "solver_unresolved": 7,
+            "contract_pass": 8,
+            "chain_limit": 1
+          }
+        },
+        {
+          "city": "helsingborg",
+          "groups": 75,
+          "seconds": 57.29822020535357,
+          "outcomes": {
+            "unchanged": 39,
+            "chord_limit": 15,
+            "solver_unresolved": 5,
+            "contract_pass": 9,
+            "constraint_limit": 4,
+            "chain_limit": 3
+          }
+        },
+        {
+          "city": "norrkoping",
+          "groups": 51,
+          "seconds": 53.10179824847728,
+          "outcomes": {
+            "solver_unresolved": 6,
+            "contract_pass": 7,
+            "chord_limit": 8,
+            "unchanged": 29,
+            "constraint_limit": 1
+          }
+        }
+      ],
+      "newly_admitted_32_outcomes": {
+        "constraint_limit": 22,
+        "solver_unresolved": 10
+      },
+      "newly_admitted_32_seconds": 128.98737454321235,
+      "previous_complete_136_outcomes": {
+        "contract_pass": 74,
+        "solver_unresolved": 56,
+        "constraint_limit": 5,
+        "model_infeasible": 1
+      },
+      "max_group_seconds": 31.01033474993892,
+      "time_limit_note": "Five seconds is a solver target, not a hard process deadline; calls can overrun during solver work. Limits were not increased."
+    },
+    "verification": "45 focused contract/graph/topology/route tests pass. The new regression exhausts all 512 binary assignments in a small model and checks conservative collinear support and threshold equality. All known reference witnesses remain represented. Ordinary focused analytic and full fixed-city CLI completed. Production geometry is unchanged; checker tolerance only consolidated without changing its value. No mesh rerun. The ordinary example plot was inspected: point contact now uses a conforming bridge rather than the previous conforming separation, illustrating alternate solver optima. The separation witness remains represented. Formatting and whitespace checks passed.",
+    "decision": "Keep the sound filter in the bounded research reference, but stop treating this global mixed-integer route search as the production construction direction. The 41% reduction preserves known solutions yet yields only three extra repairs with 82% more group runtime. None of the 32 newly admitted candidate sets succeeds. Next specify a constructive boundary/occupancy method with explicit original-core preservation and progress obligations before coding; retain the checker and small route model as independent references. Do not add pruning, solver tuning or stacked fallback stages to chase city counts."
+  }
+}
