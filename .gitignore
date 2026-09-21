@@ -189,3 +189,7 @@ benchmarks/output*/
 
 # Generated CityJSON smoke outputs
 sandbox/*.city.json
+
+# Local agent plans and working documents
+/.agent/plans/
+/.agent/work/
