@@ -584,6 +584,8 @@ class Object(Model):
         for geometry in geometries:
             if geometry is None:
                 continue
+            if isinstance(geometry, PointCloud) and not geometry.points.size:
+                continue
             if isinstance(geometry, Surface) and not geometry.vertices.size:
                 continue
             if isinstance(geometry, (MultiSurface, Solid)) and not any(s.vertices.size for s in geometry.surfaces):
