@@ -42,7 +42,7 @@ TetGen volume meshing is provided by the separate `dtcc-tetgen-wrapper` package.
 The native `VolumeMesh` container remains for Python mesh conversion; the former
 columnar volume mesher, its layer metadata, and its FEM support are retired.
 See [dependency notices](../licenses/README.md) and
-[installation notes](../README.md#installation-notes) for packaging details.
+[installation guide](installation.md#package-contents) for packaging details.
 
 ## Retired private paths
 
