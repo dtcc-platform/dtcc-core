@@ -3,7 +3,9 @@
 import numpy as np
 import pytest
 
-from dtcc_core.model import Field, Object, Point, PointCloud, Surface, Tree, exchange
+from dtcc_core.model import (
+    Building, Field, MultiSurface, Object, Point, PointCloud, SemanticRegion, Surface, Tree, exchange,
+)
 from dtcc_core.reproject import reproject_pointcloud
 from dtcc_core.reproject.reproject import reproject_object
 
@@ -17,12 +19,16 @@ def cloud():
 
 def test_public_reprojection_preserves_source_and_native_arrays():
     source = cloud()
+    source.fields = [Field(name='temperature', unit='degC', association='sample',
+                           values=np.array([20.]))]
     before = exchange.dumps(source)
     _ = source.bounds
     result = reproject_pointcloud(source, None, 'EPSG:4326')
     assert exchange.dumps(source) == before
     assert result.transform is not source.transform and result.transform.srs == 'EPSG:4326'
     assert not np.shares_memory(source.classification, result.classification)
+    assert exchange.dumps(result.fields[0]) == exchange.dumps(source.fields[0])
+    assert not np.shares_memory(source.fields[0].values, result.fields[0].values)
     assert result.points[0, 2] == source.points[0, 2]
     assert result.bounds.xmax < 180 and result.bounds.ymax < 90
     assert exchange.dumps(exchange.loads(exchange.dumps(result))) == exchange.dumps(result)
@@ -34,12 +40,7 @@ def test_reprojection_rejects_state_without_a_transformation_rule():
     source = cloud()
     with pytest.raises(TypeError, match='override_geometry_crs'):
         reproject_pointcloud(source, 'EPSG:32633', 'EPSG:4326', override_geometry_crs='false')
-    source.fields = [Field(name='velocity', association='sample', values=np.array([2.]))]
-    before = exchange.dumps(source)
-    with pytest.raises(NotImplementedError, match='Fields'):
-        reproject_pointcloud(source, 'EPSG:3006', 'EPSG:4326')
-    assert exchange.dumps(source) == before
-    source.fields.clear()
+    source.fields = [Field(name='temperature', association='sample', values=np.array([20.]))]
     source.transform.set_translation(1, 0, 0)
     with pytest.raises(NotImplementedError, match='affine'):
         reproject_pointcloud(source, 'EPSG:3006', 'EPSG:4326')
@@ -52,10 +53,15 @@ def test_reprojection_rejects_state_without_a_transformation_rule():
     surface = Surface(vertices=np.vstack((source.points, source.points + [1, 0, 0],
                                          source.points + [0, 1, 0])),
                       fields=[Field(name='temperature', association='face', values=np.array([2.]))])
-    obj = Object(id='o')
-    obj.add_geometry(surface, id='survey')
+    multisurface = MultiSurface(surfaces=[surface])
+    multisurface.regions = [SemanticRegion(
+        semantic_type='https://github.com/dtcc-platform/dtcc-core/schemas/model#RoofSurface',
+        indices=np.array([0]),
+    )]
+    obj = Building(id='o')
+    obj.add_geometry(multisurface, id='survey')
     before = exchange.dumps(obj)
-    with pytest.raises(NotImplementedError, match='Fields'):
+    with pytest.raises(NotImplementedError, match='Semantic regions'):
         reproject_object(obj, 'EPSG:3006', 'EPSG:4326')
     assert exchange.dumps(obj) == before
     obj.geometry.clear()

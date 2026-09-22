@@ -91,6 +91,8 @@ See [native model previews](docs/model-preview.md) for representation selection,
 supported geometry and preview limitations. Full visualization belongs in DTCC Twin.
 See [model display and inspection](docs/model-display.md) for `repr`, `str`,
 `.info()` and dataset parameter help.
+See [reprojection with fields](docs/reprojection.md) for coordinate changes that
+preserve simulation values and the treatment of vector components.
 
 ## Documentation
 

@@ -1,14 +1,18 @@
-"""Bounded horizontal reprojection of bare native geometry.
+"""Horizontal coordinate reprojection with attached field values unchanged.
 
-Coordinates must already be in the declared source frame. Fields, semantic
-regions, normals, local affine transforms and DatasetContext need explicit
-transformation rules and are rejected. Z values are retained, not reprojected.
+Coordinates must already be in the declared source frame. Fields retain their
+values, associations, units and component conventions; vector fields warn on a
+CRS change because components are not rotated or rescaled. Semantic regions,
+normals, local affine transforms and DatasetContext still require explicit
+transformation rules. Z values are retained, not reprojected.
 """
+
+import warnings
 
 import numpy as np
 from pyproj import CRS, Transformer
 
-from dtcc_core.model import (PointCloud, Object, Surface, Mesh, MultiSurface,
+from dtcc_core.model import (PointCloud, Object, Surface, Mesh, VolumeMesh, MultiSurface,
                              City, CityObject, Building, BuildingPart, Terrain, Landuse)
 
 
@@ -28,15 +32,22 @@ def _crs_pair(value, src_crs, target_crs, *, override=False):
     return source, target
 
 
-def _bare(value):
+def _check_reprojection_state(value):
     if not np.array_equal(value.transform.affine, np.eye(4)):
         raise NotImplementedError("Apply the local affine transform explicitly before reprojection")
-    if getattr(value, 'fields', None) or getattr(value, 'regions', None):
-        raise NotImplementedError("Fields and semantic regions require an explicit reprojection rule")
+    if getattr(value, 'regions', None):
+        raise NotImplementedError("Semantic regions require an explicit reprojection rule")
     if getattr(value, 'normal', np.array([])).size or getattr(value, 'normals', np.array([])).size:
         raise NotImplementedError("Stored normals require an explicit reprojection rule")
     if value.dataset_context is not None:
         raise NotImplementedError("DatasetContext requires an explicit reprojection/provenance update")
+    if any(field.dim > 1 for field in getattr(value, 'fields', ())):
+        warnings.warn(
+            "Vector field components are preserved unchanged. Their orientation "
+            "and units are not transformed to the target coordinate system.",
+            UserWarning,
+            stacklevel=3,
+        )
 
 
 def reproject_array(points: np.ndarray, src_crs: str, target_crs: str) -> np.ndarray:
@@ -58,11 +69,15 @@ def reproject_array(points: np.ndarray, src_crs: str, target_crs: str) -> np.nda
 
 
 def reproject_surface(surface: Surface, src_crs: str, target_crs: str) -> Surface:
-    """Reproject a bare surface and its holes; preserve the source object."""
+    """Reproject a surface and its holes on a copy, keeping field values unchanged.
+
+    Field units and associations are preserved. Vector components are not
+    transformed; vector fields emit a UserWarning when the CRS changes.
+    """
     source, target = _crs_pair(surface, src_crs, target_crs)
     if source == target:
         return surface
-    _bare(surface)
+    _check_reprojection_state(surface)
     result = surface.copy()
     result.vertices = reproject_array(surface.vertices, source, target)
     result.holes = [reproject_array(hole, source, target) for hole in surface.holes]
@@ -71,12 +86,18 @@ def reproject_surface(surface: Surface, src_crs: str, target_crs: str) -> Surfac
     return result
 
 
-def reproject_mesh(mesh: Mesh, src_crs: str, target_crs: str) -> Mesh:
-    """Reproject a bare mesh, preserving connectivity and markers on a copy."""
+def reproject_mesh(mesh: Mesh | VolumeMesh, src_crs: str, target_crs: str) -> Mesh | VolumeMesh:
+    """Reproject a triangle or volume mesh on a copy, keeping field values unchanged.
+
+    Connectivity, markers, field units and associations are preserved. Vector
+    components are not rotated or rescaled; vector fields emit a UserWarning
+    when the CRS changes. Z is unchanged. This does not convert field components
+    into the target coordinate basis or resample the field within elements.
+    """
     source, target = _crs_pair(mesh, src_crs, target_crs)
     if source == target:
         return mesh
-    _bare(mesh)
+    _check_reprojection_state(mesh)
     result = mesh.copy()
     result.vertices = reproject_array(mesh.vertices, source, target)
     result.transform.srs = target.to_string()
@@ -85,11 +106,15 @@ def reproject_mesh(mesh: Mesh, src_crs: str, target_crs: str) -> Mesh:
 
 
 def reproject_multisurface(multisurface: MultiSurface, src_crs: str, target_crs: str) -> MultiSurface:
-    """Reproject bare constituent surfaces without discarding attached state."""
+    """Reproject constituent surfaces, keeping parent and surface fields unchanged.
+
+    Field units and associations are preserved. Vector components are not
+    transformed; vector fields emit a UserWarning when the CRS changes.
+    """
     source, target = _crs_pair(multisurface, src_crs, target_crs)
     if source == target:
         return multisurface
-    _bare(multisurface)
+    _check_reprojection_state(multisurface)
     result = multisurface.copy()
     result.surfaces = [reproject_surface(surface, source, target) for surface in multisurface.surfaces]
     result.transform.srs = target.to_string()
@@ -98,17 +123,23 @@ def reproject_multisurface(multisurface: MultiSurface, src_crs: str, target_crs:
 
 
 def reproject_object(obj: Object, src_crs: str, target_crs: str) -> Object:
-    """Reproject one object's bare representations; nested object frames are unsupported."""
+    """Reproject one object's representations, keeping their field values unchanged.
+
+    Field units and associations are preserved. Vector components are not
+    transformed; vector fields emit a UserWarning when the CRS changes.
+    Nested object frames remain unsupported.
+    """
     source, target = _crs_pair(obj, src_crs, target_crs)
     if source == target:
         return obj
-    _bare(obj)
+    _check_reprojection_state(obj)
     if type(obj) not in (Object, City, CityObject, Building, BuildingPart, Terrain, Landuse):
         raise NotImplementedError(f"{type(obj).__name__} object reprojection requires an explicit rule for intrinsic state")
     if any(obj.children.values()):
         raise NotImplementedError("Nested object reprojection requires explicit frame handling")
     handlers = {Surface: reproject_surface, MultiSurface: reproject_multisurface,
-                Mesh: reproject_mesh, PointCloud: reproject_pointcloud}
+                Mesh: reproject_mesh, VolumeMesh: reproject_mesh,
+                PointCloud: reproject_pointcloud}
     result = obj.copy()
     for record in result.geometry.values():
         handler = handlers.get(type(record.geometry))
@@ -122,8 +153,10 @@ def reproject_object(obj: Object, src_crs: str, target_crs: str) -> Object:
 
 def reproject_pointcloud(pointcloud: PointCloud, src_crs: str | None, target_crs: str,
                          override_geometry_crs: bool = False) -> PointCloud:
-    """Reproject a bare point cloud without modifying or sharing mutable source state.
+    """Reproject a point cloud without modifying or sharing mutable source state.
 
+    Field values, units and associations are preserved. Vector components are
+    not transformed; vector fields emit a UserWarning when the CRS changes.
     Supply the source CRS or declare it in transform.srs. Conflicts fail unless
     override_geometry_crs=True explicitly selects the supplied source. Local
     affine transforms and metadata needing transformation rules are unsupported.
@@ -133,7 +166,7 @@ def reproject_pointcloud(pointcloud: PointCloud, src_crs: str | None, target_crs
     source, target = _crs_pair(pointcloud, src_crs, target_crs, override=override_geometry_crs)
     if source == target:
         return pointcloud
-    _bare(pointcloud)
+    _check_reprojection_state(pointcloud)
     result = pointcloud.copy()
     result.points = reproject_array(pointcloud.points, source, target)
     result.transform.srs = target.to_string()
