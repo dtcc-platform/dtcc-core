@@ -1,154 +1,184 @@
 # Delft flagship development model
 
-`flagship.dtcc` is a rich, reproducible development fixture using the standard
-DTCC Model schema and ordinary Protobuf exchange. It combines 64 real buildings
-with an explicitly synthetic laboratory beside the selected neighbourhood.
-It is useful for developing readers, viewers, selection tools, field inspection,
-semantic queries and save/load workflows. It is not survey or simulation evidence.
+The flagship is a **2 × 2 km** district of Delft containing **10,344 real buildings** and
+**138 canal/water features**, with synthetic terrain and numerical fields. It includes
+the Nieuwe Kerk, Oude Kerk, the TU Delft EWI tower, dense historic streets, and
+the original 64-building reference neighbourhood. Detached demonstration
+architecture (pavilion, artificial park, road, bench, etc.) is no longer included.
 
-For the ordinary Python preview, use `dtcc.load_city(...).plot()`. The built-in
-preview also supports `city.plot(representation='dem')` and
-`city.plot(field='velocity')`; see the native model preview guide in
-`docs/model-preview.md`. The generated `preview.png` below remains the custom
-two-panel illustration from the flagship generator.
+## Inspect locally
 
-## Files
-
-Generated in `data/flagship/` (ignored by Git):
-
-- `flagship.dtcc`: the complete native model, with source attribution and
-  generation details embedded in `city.attributes['flagship']`.
-- `flagship.dtccpkg`: the same model plus Dataset Context and package integrity.
-- `source-neighbourhood.city.json`: the original selected CityJSON features with
-  a compacted vertex table. This is the real-data input subset, not an export of
-  the enriched native model.
-- `inventory.json`: counts, geometry types, LoDs, region vocabulary, field
-  locations/dtypes/shapes/units, checksum and verification results.
-- `preview.png`: an overview derivative and pavilion detail. It selects one
-  representation per object and simplifies polygon holes/interior shells for
-  display. Overview heights are exaggerated ×2; pavilion detail has true
-  proportions and triangulated openings. Complete geometry remains in the file.
-- `README.md`: a copy of this guide to accompany the artifacts.
-
-## Contents
-
-The real buildings retain source IDs, BuildingPart containment, footprint rings,
-LoDs 0/1.2/1.3/2.2, Solid shell topology, roof/wall/ground regions and original
-supplier attributes. `io.load_3dbag` adds qualified roof codes and NAP elevation
-records without inventing measured building heights. One source BuildingPart also
-has a derived boundary mesh with normals, markers, true triangle areas and a
-clearly synthetic irradiance field. Its original representations stay intact.
-
-The synthetic area contains a pavilion (LoDs 0, 1 and 3), two Solid shells,
-interior surfaces, wall holes with Window/Door regions and host relationships,
-qualified height metadata, a park parcel, plant cover, twelve procedural trees,
-a pond, road and routing graph, railway, waterway, square, bench, sensors and
-vehicles. The bench demonstrates a nonidentity geometry-local transform.
-A solar-panel Surface demonstrates an unfamiliar semantic URI admitted as a
-generic Object: its custom classification is preserved but is not a declared
-class in the standard schema.
-
-Numerical examples include a terrain triangle mesh, classified point samples,
-a DEM with deliberately missing ground samples, a 2D Grid, 3D VolumeGrid and
-1,152 tetrahedra. Scalar/vector fields cover vertex, edge, face, cell, sample
-and geometry associations, float32/float64 arrays and explicit units. Sensor/vehicle collections
-and named ID relationships demonstrate containment versus cross references.
-All sensor readings and flow/temperature/irradiance fields are authored examples,
-not observations or solver outputs. Each synthetic object says so in its attributes.
-
-Coordinates use EPSG:7415 (Amersfoort / RD New + NAP height), in metres. The
-synthetic landscape is authored in that coordinate frame; it is not fitted to
-real terrain. The bench's shape carries its own local-to-CRS affine. Generic
-aggregate bounds must not be interpreted as transformed world-frame bounds.
-
-## Reproduce
-
-Use the normal Core development environment and the checkout root. No extra
-dependencies are needed. Download the openly licensed source once:
+From the Core checkout, using its normal development environment:
 
 ```sh
-mkdir -p data/flagship-source
-curl --fail --location \
-  https://3d.bk.tudelft.nl/opendata/cityjson/3dcities/v2.0/9-284-556.city.json \
-  --output data/flagship-source/3dbag.city.json
+python scripts/inspect_flagship_model.py
+```
+
+The dashboard loads `data/flagship/flagship.dtcc` and displays a building-height
+map with real water outlines and landmark labels, district wind vectors/speed,
+tracer concentration, and a vertical temperature section. A slider selects four
+stored snapshots, 60 seconds apart. Colour scales are fixed between snapshots;
+grey field samples mean masked solids/ground or missing data, not zero values.
+The dashed rectangle marks the fine reference patch.
+
+Additional views:
+
+```sh
+python scripts/inspect_flagship_model.py --view map
+python scripts/inspect_flagship_model.py --view city
+python scripts/inspect_flagship_model.py --view fine --frame 2
+python scripts/inspect_flagship_model.py --view tetra
+python scripts/inspect_flagship_model.py --view solar
+python scripts/inspect_flagship_model.py --view wind --frame 2
+python scripts/inspect_flagship_model.py --view dem
+python scripts/inspect_flagship_model.py --view streamlines
+python scripts/inspect_flagship_model.py --save /tmp/flagship.png
+```
+
+`city` is Core's rotatable native `Model.plot()` preview, with numerical domains
+excluded and an explicit display budget large enough for this district. Native
+polygon previews outline faces with holes; the fine reference buildings also
+have triangulated previews. `fine` shows the densely sampled reference patch.
+`tetra` intersects the stored tetrahedra with a vertical plane and displays their
+connectivity, interpolated vertex pressure and cell tracer. It does not build a
+replacement mesh or recompute the fields. Its vertical scale is exaggerated for
+legibility. These are Matplotlib previews, without Twin's future volume renderer.
+
+All views read stored geometry/arrays and work offline. `--save` renders a PNG
+headlessly; interactive use requires a desktop Matplotlib backend. Cold native
+loading and plotting thousands of buildings can take appreciably longer than the
+small former fixture.
+
+## Domain and real sources
+
+- Horizontal bounds in RD New metres: **E 83,570–85,570; N 445,800–447,800**.
+- CRS: **EPSG:7415**, RD New + NAP height. All main-scene geometry uses world
+  coordinates and identity affines. Vectors follow projected east, north, up.
+- Include complete building envelopes contained in the square. Buildings that
+  straddle its boundary are omitted; solids are never cut into open shells.
+- Preserve the original 64 buildings from the pinned CityJSON sample, including
+  their parts, all source LoDs, attributes, surface semantics and geometry. These
+  take precedence over newer buildings with the same BAG IDs.
+- Fill the remaining district from **15 3DBAG v20250903 tiles**, retaining footprints, the finest available source LoD and all attributes.
+  Coarser alternate LoDs outside the reference patch are omitted to fit the
+  native 256 MiB limit; detailed roof geometry is not simplified. This is an explicitly mixed-vintage
+  fixture, not a claim that all buildings were observed on one date.
+- Use BGT/PDOK `waterdeel` outlines requested in EPSG:28992, the horizontal part
+  of EPSG:7415. Retain current records only (no end-registration or termination
+  date), clip outlines to the square, and preserve source attributes and holes.
+  The water plane at −0.5 m NAP and bed at −0.6 m are **synthetic elevations**.
+
+The source manifest is [`scripts/flagship-sources.json`](../scripts/flagship-sources.json).
+It pins the downloaded bytes with SHA-256 hashes. `building_source_files` on the
+City identifies each building's input. Supplier title/contact/version metadata,
+which the strict Core CityJSON profile does not accept at its root, is retained
+in `source_metadata` on the City. Building geometry/attributes still use the
+ordinary strict `load_3dbag` admission and its qualified elevation mapping.
+The pinned 2025 tiles use the supported `b3_h_dak_*` convention; a general mapping
+for later attribute conventions is not introduced by this example.
+
+3DBAG credit: **© 3DBAG by tudelft3d and 3DGI**, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+See [attribution](https://docs.3dbag.nl/en/copyright/) and
+[delivery documentation](https://docs.3dbag.nl/en/delivery/webservices/).
+Water outlines: [BGT / PDOK](https://api.pdok.nl/lv/bgt/ogc/v1/collections/waterdeel).
+The selected church/tower locations are labelled using public PDOK address
+coordinates; reconstructed roof elevations need not match architectural heights.
+
+## Fields and meshes
+
+A shared analytic sampler supplies wind shear, local building wakes/deflection,
+a moving vortex, vertical motion, changing wind direction, an advecting tracer
+pulse, pressure, and air temperature with illustrative cooling over water.
+Spatial indices restrict obstacle/wake work to nearby buildings. Footprint prisms
+approximate obstacles, with a smooth finite wake support. These fields are
+**synthetic illustrations**, not a fluid solution: conservation and no-slip
+conditions are not claimed. Related grids, sensors and slices sample the same
+function. Terrain interpolates building-base elevations and pins footprint
+interiors to their bases; it is not a surveyed terrain model.
+
+| Representation | Standard | Stress |
+|---|---:|---:|
+| District terrain/surface sampling | 8 m | 8 m |
+| District volume grid and tetrahedral lattice | ≤25 m | ≤20 m |
+| Reference-patch field samples | ≤2 m | ≤2 m |
+| Reference boundary mesh triangle target | 2 m | 1 m |
+| Stored snapshot times | 0, 60, 120, 180 s | same |
+
+Both profiles include:
+
+- Terrain TIN and complete coarse overview TIN, classified point samples, and a
+  DEM with a deliberate 3 × 3 no-data corner.
+- A 2D grid with scalar runoff proxy and two-component downhill direction.
+- A 3D structured grid with velocity, speed, temperature, pressure, tracer,
+  boolean air mask and integer flow-zone codes.
+- A **tetrahedral mesh covering the entire district volume**. Each Cartesian
+  box is divided into six tetrahedra along a consistent body diagonal, sharing
+  vertices and faces with neighbours. This is direct deterministic connectivity
+  construction in the generator, not a call to TetGen or the urban volume mesher.
+- Vertex velocity, pressure and validity on the tetrahedra; cell tracer,
+  cell validity and flow-zone markers; a six-component symmetric velocity
+  outer product (`xx, yy, zz, xy, xz, yz`, in m²/s²). This algebraic tensor example
+  is not a physical stress measurement.
+- Four snapshot Objects with district samples at 2 m and 15 m above terrain,
+  fine samples at 2 m above terrain over the reference patch, a vertical section,
+  steady streamlines, and eight sensor stations at stable locations.
+- On the 64 reference buildings: source-derived boundary meshes with normals,
+  region markers, triangle area, solar irradiance, surface temperature and
+  approximate footprint-prism shadow masks. Other buildings keep their real
+  source geometry without expensive dense surface subdivision.
+- Water-surface temperature illustrating surface-associated scalar values.
+
+The tetrahedral mesh **does not conform to terrain or building walls/roofs**.
+It includes cells crossing or lying inside obstacles. Validity is evaluated at
+sample locations: `air_mask` at vertices/grid cells and `cell_air_mask` at tetra
+centres. Physical fields are NaN at invalid samples. A centre mask is not a
+cut-cell geometry guarantee. A mesh suitable for CFD with fitted boundaries
+would require a separate meshing workflow.
+
+Flow-zone codes are 0 solid/ground, 1 open air and 2 wake. Times/component labels
+use ordinary Object metadata and relations; the native format has no dedicated
+time/tensor axes. Full 3D data is stored at t=0; subsequent snapshots store slices,
+streamlines and sensors to control size. Streamlines are steady integrations at
+one snapshot, not time-dependent particle trajectories.
+
+## Reproduce and inspect artifacts
+
+```sh
+python scripts/download_flagship_sources.py
 python scripts/generate_flagship_model.py
+python scripts/generate_flagship_model.py --detail stress --output data/flagship-stress
 ```
 
-After the source is downloaded, no command-line arguments are needed. From the
-`scripts` directory, run `python generate_flagship_model.py`. Both invocations
-read `data/flagship-source/3dbag.city.json` and write `data/flagship/` under the
-checkout root, regardless of the working directory. An optional source argument
-and `--output` override these defaults; explicit relative paths use the working
-directory.
+Default paths are checkout-relative; explicit paths are working-directory-relative.
+The downloader is the only network step. The generator checks every source hash
+and runs offline. The BGT endpoint is live: keep the pinned cached snapshot.
+Changed upstream bytes fail with an explicit error rather than silently changing
+the fixture. Updating source pins is a deliberate dataset revision.
 
-The generator checks SHA-256
-`2bb5d22ae2cbfe2096041e3a79b3e826f43d3a8c9824eeb019feab4e0a2742ba`
-before creating outputs. It uses the 64 nearest building footprint-envelope
-centres to `NL.IMBAG.Pand.0503100000000030`, breaking ties by ID. The source
-release is unspecified; do not relabel this cached sample as the latest 3DBAG.
-Generation itself makes no network requests. Re-running intentionally replaces
-the output files. Native bytes are deterministic in the same environment;
-mesher/dependency changes may change derived triangulations. Inventory timing
-and package creation metadata are not byte-reproducibility promises.
+The standard native file is about **195.4 MiB** and contains **230,400
+tetrahedra / 45,927 vertices**. The local full workflow (generation plus source
+preservation and native/package checks) took about 3 minutes; a warm in-process
+load took about 15 seconds. These are measurements on the development machine,
+not performance guarantees. The stress model is **216.6 MiB** with **420,000
+tetrahedra**. Rendering all detailed roofs/walls in the Matplotlib `city` view
+is substantially slower than the map or field views; start with the dashboard.
 
-## Python access
+Generated outputs are `flagship.dtcc`, `flagship.dtccpkg`, `inventory.json`,
+`preview.png`, and a copy of this guide. Inventory records exact building/water
+counts, array sizes/types, field ranges/missing values, sampling, source
+preservation, round-trip results, file size and generation/save/load timings.
+The package also retains Dataset Context; the bare native file contains the
+City's embedded provenance but not that separate context.
 
-```python
-from dtcc_core import io
+The generator checks exact native and canonical package round trips, verifies
+all selected source building facts after removing added meshes, checks exact 2 km XY
+bounds, and verifies a rejected invalid storey edit cannot replace the output.
+The focused regression checks positive tetrahedral volumes and their summed
+box volume, field associations/masks/time consistency, sensors, fine sampling,
+tetrahedral inspection, dashboard interaction and failed-save preservation.
+These checks do not certify every supplier solid geometrically.
 
-city = io.load_model('data/flagship/flagship.dtcc')  # validation is on
-
-def walk(obj):
-    yield obj
-    for group in obj.children.values():
-        for child in group:
-            yield from walk(child)
-
-features = {obj.id: obj for obj in walk(city)}
-building = features['NL.IMBAG.Pand.0503100000000030']
-footprint = building.get_geometry(lod='0').surfaces[0]
-polygon = footprint.vertices            # NumPy array; also inspect footprint.holes
-solid = building.building_parts[0].get_geometry(id='cityjson-2')
-# In this fixture cityjson-2 is the source LoD-2.2 Solid. The additional
-# flagship_boundary_mesh also has LoD 2.2, so use an explicit representation ID.
-
-pavilion = features['synthetic-pavilion']
-detailed = pavilion.get_geometry(id='detailed_shells')
-window = next(r for r in detailed.regions if r.semantic_type.endswith('#Window'))
-window_polygon = detailed.surfaces[window.indices[0]].vertices
-host_wall = detailed.regions[window.parent]
-
-bench_id = features['synthetic-bench-01'].id
-terrain = features['synthetic-terrain']
-dem = terrain.get_geometry(id='dem')
-elevations, georeference = dem.data, dem.georef
-
-tetra = features['synthetic-flow-domain'].get_geometry(id='tetrahedra')
-velocity = next(f for f in tetra.fields if f.name == 'velocity')
-vectors, unit, association = velocity.values, velocity.unit, velocity.association
-points, temperatures = features['synthetic-sensors'].to_arrays('air_temperature')
-source = city.attributes['flagship']  # retained in the standalone .dtcc
-```
-
-Use explicit representation IDs when LoD alone is ambiguous. Geometry coordinates,
-field values and metadata remain ordinary Python/NumPy data. Dataset Context is
-additionally available after `dtcc_core.datasets.load_model_package(...)` on the
-companion package. The complete enriched model has no lossless CityJSON mapping;
-strict export must reject unsupported native additions rather than discard them.
-
-## Verification and attribution
-
-The generator uses default schema validation for native save/load and package
-exchange. It checks exact native re-encoding, exact package model/context,
-preservation of all selected source facts, opening access, and rejection of an
-invalid storey-count edit without replacing the valid file. The development test
-also checks field dimensions and dangling-reference rejection. This does not
-certify watertightness or geometric validity of the original 3DBAG tile.
-
-Source geometry and source attributes: **© 3DBAG by tudelft3d and 3DGI**, licensed
-under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
-See the [required attribution and terms](https://docs.3dbag.nl/en/copyright/) and
-the [CityJSON sample catalogue](https://www.cityjson.org/datasets/).
-Changes are the spatial subset, DTCC mapping/enrichment, derived mesh and synthetic
-laboratory described above. Preserve this credit, the license link and the change
-description when redistributing the file or its visual derivatives.
+The flagship deliberately prioritizes a coherent real city. The removed
+pavilion's LoD3 openings/interiors, display-area furniture/transport and standalone
+affine specimen are no longer coverage claims for this model. Native schema
+coverage tests remain separate from the flagship's visual scene.

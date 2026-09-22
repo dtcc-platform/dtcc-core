@@ -7,6 +7,14 @@ city = dtcc.load_city('data/flagship/flagship.dtcc')
 city.plot()
 ```
 
+For the enriched flagship's physical scene and time-dependent fields, run
+`python scripts/inspect_flagship_model.py`. Its dashboard combines a district map
+with stored field maps and a snapshot slider; `--view city` opens the native 3D
+preview and `--view tetra` cuts through stored tetrahedral connectivity. See the
+[flagship guide](flagship-model.md) for individual views and headless PNG export.
+When using `plot(field=...)` directly on that model, select a snapshot Object and
+representation first to avoid combining samples from different times.
+
 `Model.plot()` lazily uses Matplotlib and returns a 3D axes. Objects recurse
 through their children, so a City includes building parts, terrain, vegetation,
 furniture, transport, sensor and vehicle locations, and numerical domains.
