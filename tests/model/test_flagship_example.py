@@ -17,7 +17,7 @@ def test_flagship_numerics_and_reference_integrity(tmp_path, capsys, monkeypatch
     spec.loader.exec_module(example)
     # Keep the workflow proof small; the ordinary CLI separately exercises the
     # full-resolution real neighbourhood and every source-building mesh.
-    monkeypatch.setitem(example.PROFILES, 'standard', (10., 20.))
+    monkeypatch.setitem(example.PROFILES, 'standard', (10., (20., 20., 20.)))
     city = City(id='synthetic-test')
     city.transform.srs = example.CRS
     building = Building(id='source-building')
@@ -26,7 +26,8 @@ def test_flagship_numerics_and_reference_integrity(tmp_path, capsys, monkeypatch
     example.attach(building, example.box(1040., 2020., 4., 20., 20., 12.), 'solid', lod='1')
     city.add_child(building)
     city.attributes["flagship_focus_bounds"] = dict(xmin=1010., ymin=2010., xmax=1090., ymax=2090.)
-    example.enrich(city, Bounds(xmin=1000, ymin=2000, xmax=1100, ymax=2100, zmin=4, zmax=16), mesh_real=False)
+    example.enrich(city, Bounds(xmin=1000, ymin=2000, xmax=1100, ymax=2100, zmin=4, zmax=16),
+                   mesh_real=False, volume_spacing=(26., 21., 10.))
     target = tmp_path / 'flagship.dtcc'
     city.save(target)
     restored = io.load_model(target)
@@ -43,6 +44,19 @@ def test_flagship_numerics_and_reference_integrity(tmp_path, capsys, monkeypatch
     assert len(restored.buildings) == 1
     assert not any('pavilion' in id or 'bench' in id for id in features)
     tetra = features['synthetic-flow-domain'].get_geometry(id='tetrahedra')
+    grid = features['synthetic-flow-domain'].get_geometry(id='air_grid')
+    assert (grid.width, grid.height, grid.depth) == (4, 5, 7)
+    assert len(tetra.cells) == 6*grid.num_cells
+    assert tetra.bounds.tuple == grid.bounds.tuple
+    # Both representations share the same seven vertical intervals, even when
+    # requested spacing does not exactly divide the unchanged domain.
+    np.testing.assert_array_equal(np.unique(tetra.vertices[:, 2]),
+                                  np.linspace(grid.bounds.zmin, grid.bounds.zmax, 8))
+    sampling = restored.attributes['flagship_sampling']
+    assert sampling['volume_spacing_max_m'] == [26., 21., 10.]
+    assert sampling['volume_shape_xyz'] == [4, 5, 7]
+    np.testing.assert_allclose(sampling['volume_spacing_actual_m'], [25., 20., 8.8])
+    assert sampling['volume_cell_axis_ratio'] == pytest.approx(25/8.8)
     v = tetra.vertices[tetra.cells]
     volumes = np.linalg.det(v[:, 1:]-v[:, :1])/6
     assert np.all(volumes > 0)
@@ -121,3 +135,27 @@ def test_flagship_water_keeps_current_outlines_and_clips_to_domain():
     assert water.bounds.xmin == 1000 and water.bounds.zmin == -.5
     field = water.get_geometry(id='water_surface').fields[0]
     assert field.association == 'face' and field.values.tolist() == [289.]
+
+
+@pytest.mark.parametrize('spacing', [('20', '20', '0'), ('20', '-1', '8'), ('nan', '20', '8')])
+def test_flagship_cli_rejects_invalid_spacing_before_reading_sources(monkeypatch, capsys, spacing):
+    path = Path(__file__).resolve().parents[2] / 'scripts/generate_flagship_model.py'
+    spec = importlib.util.spec_from_file_location('flagship_cli', path)
+    example = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(example)
+    monkeypatch.setattr('sys.argv', [str(path), '--volume-spacing', *spacing])
+    monkeypatch.setattr(example, 'load_sources', lambda _: pytest.fail('Must not read sources'))
+    with pytest.raises(SystemExit) as error:
+        example.main()
+    assert error.value.code == 2
+    assert 'three finite, positive values' in capsys.readouterr().err
+
+
+def test_flagship_volume_rejects_unbounded_resolution():
+    path = Path(__file__).resolve().parents[2] / 'scripts/generate_flagship_model.py'
+    spec = importlib.util.spec_from_file_location('flagship_budget', path)
+    example = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(example)
+    with pytest.raises(ValueError, match='geometry alone exceeds'):
+        example.volume_layout(Bounds(xmin=0, ymin=0, xmax=2000, ymax=2000, zmin=0, zmax=140),
+                              (1.e-300, 1.e-300, 1.e-300))

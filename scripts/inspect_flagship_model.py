@@ -157,6 +157,7 @@ def tetra_view(city):
         pvalues.append(float(np.mean(data)))
         cvalues.append(tracer[index])
     fig, axes = plt.subplots(2, 1, figsize=(15, 8), constrained_layout=True)
+    fig.get_layout_engine().set(rect=(0, .045, 1, .955))  # Space for the CLI's attribution footer.
     for ax, array, label, cmap in zip(axes, [pvalues, cvalues],
             ['Interpolated vertex pressure, averaged over cut polygon [Pa]', 'Cell tracer concentration [µg/m³]'],
             ['viridis', 'magma']):

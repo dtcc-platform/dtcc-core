@@ -35,9 +35,10 @@ CRS = 'EPSG:7415'  # Amersfoort / RD New + NAP height, metre axes.
 NAP = 'https://www.opengis.net/def/crs/EPSG/0/5709'
 SYNTHETIC = 'Synthetic DTCC development data; not a survey, observation or solver result.'
 CREDIT = '© 3DBAG by tudelft3d and 3DGI'
-VERSION = '3.0.0'
+VERSION = '3.1.0'
 TIMES = (0., 60., 120., 180.)
-PROFILES = {'standard': (8., 25.), 'stress': (8., 20.)}  # district surface / volume spacing
+# District surface spacing and maximum volume spacing in projected X, Y, Z.
+PROFILES = {'standard': (8., (20., 20., 10.)), 'stress': (8., (20., 20., 8.))}
 DOMAIN = tuple(json.loads(Path(__file__).with_name('flagship-sources.json').read_text())['domain_rd'])
 LANDMARKS = {'Nieuwe Kerk': (84493.542, 447578.225),
              'Oude Kerk': (84215., 447622.999),
@@ -309,7 +310,24 @@ def add_streamlines(frame, scene, seconds):
     attach(frame, MultiLineString(linestrings=paths), 'streamlines', role='steady_streamlines')
 
 
-def add_numerics(city, scene, surface_spacing, volume_spacing):
+def volume_layout(bounds, spacing):
+    """Fit whole cells to the domain, with spacing no greater than requested.
+
+    Reject impossible native payloads before allocating user-sized arrays. This
+    lower bound counts tetrahedral connectivity and vertex coordinates only;
+    the canonical writer still checks the complete model, including its fields.
+    """
+    lengths = np.array([bounds.width, bounds.height, bounds.depth])
+    with np.errstate(over='ignore', divide='ignore'):
+        counts = np.maximum(1., np.ceil(lengths / spacing))
+        geometry_bytes = 6*np.prod(counts)*4*4 + np.prod(counts+1)*3*8
+    if not np.isfinite(geometry_bytes) or geometry_bytes > exchange.MAX_BYTES:
+        raise ValueError('Requested volume geometry alone exceeds the native 256 MiB limit; '
+                         'increase --volume-spacing DX DY DZ')
+    return tuple(int(n) for n in counts), (lengths/counts).tolist()
+
+
+def add_numerics(city, scene, surface_spacing, volume_shape):
     b = scene.bounds
     terrain = feature(city, 'synthetic-terrain', cls=Terrain,
                       description='Interpolated building-base elevations and authored canal bed; synthetic terrain')
@@ -372,7 +390,7 @@ def add_numerics(city, scene, surface_spacing, volume_spacing):
                          'cell', '1', 2)]
     attach(simulation, grid, 'runoff_grid', role='analysis_grid')
 
-    nxv, nyv, nzv = [int(np.ceil(size/volume_spacing)) for size in (b.width, b.height, b.depth)]
+    nxv, nyv, nzv = volume_shape
     volume = VolumeGrid(width=nxv, height=nyv, depth=nzv)
     volume.bounds = copy.deepcopy(b)
     # Match VolumeGrid.coordinates(): (northing, easting, elevation) array order.
@@ -458,14 +476,20 @@ def add_numerics(city, scene, surface_spacing, volume_spacing):
     return simulation
 
 
-def enrich(city, bounds, *, mesh_real=True, detail='standard'):
+def enrich(city, bounds, *, mesh_real=True, detail='standard', volume_spacing=None):
     """Build a coherent world-coordinate scene, retaining source representations."""
-    surface_spacing, volume_spacing = PROFILES[detail]
+    surface_spacing, default_volume_spacing = PROFILES[detail]
+    if volume_spacing is None:
+        volume_spacing = default_volume_spacing
     all_bounds = copy.deepcopy(bounds)
     all_bounds.zmin = min(bounds.zmin, -.6)-1
     all_bounds.zmax = max(bounds.zmax+30, 60.)
+    volume_shape, actual_spacing = volume_layout(all_bounds, volume_spacing)
+    axis_ratio = max(actual_spacing)/min(actual_spacing)
+    print(f'Volume XYZ cells: {volume_shape}; spacing: '
+          f'{tuple(round(s, 3) for s in actual_spacing)} m; cell axis ratio: {axis_ratio:.3f}', flush=True)
     scene = UrbanScene(city, all_bounds)
-    add_numerics(city, scene, surface_spacing, volume_spacing)
+    add_numerics(city, scene, surface_spacing, volume_shape)
     derived = []
     if mesh_real:
         # Dense facade/roof fields cover the reference neighbourhood.
@@ -510,7 +534,9 @@ def enrich(city, bounds, *, mesh_real=True, detail='standard'):
                                 'method': 'dtcc_mesher triangulation; approximate prism shadows'})
     city.attributes['derived_representations'] = derived
     city.attributes['flagship_sampling'] = {'detail': detail, 'surface_spacing_max_m': surface_spacing,
-        'volume_spacing_max_m': volume_spacing, 'focus_surface_spacing_m': 2., 'boundary_triangle_target_m': 2. if detail == 'standard' else 1., 'times_seconds': list(TIMES),
+        'volume_spacing_max_m': list(volume_spacing), 'volume_spacing_actual_m': actual_spacing,
+        'volume_shape_xyz': list(volume_shape), 'volume_cell_axis_ratio': axis_ratio,
+        'focus_surface_spacing_m': 2., 'boundary_triangle_target_m': 2. if detail == 'standard' else 1., 'times_seconds': list(TIMES),
         'time_encoding': 'Snapshot Objects with time_seconds and timestamp; not a native time-series axis',
         'coordinates': 'World coordinates, identity affines, EPSG:7415; vectors follow projected axes'}
     city.calculate_bounds()
@@ -678,8 +704,16 @@ def main():
     parser.add_argument('--output', type=Path, default=root/'data/flagship',
                         help='Output directory (default: checkout/data/flagship)')
     parser.add_argument('--detail', choices=PROFILES, default='standard',
-                        help='standard: 8 m district / 25 m volume / 2 m focus; stress: 8 / 20 / 2 m, with 1 m boundary meshes')
+                        help='standard: 20/20/10 m volume, 2 m boundary meshes; '
+                             'stress: 20/20/8 m volume, 1 m boundary meshes; '
+                             'both: 8 m district and 2 m focus samples')
+    parser.add_argument('--volume-spacing', type=float, nargs=3, metavar=('DX', 'DY', 'DZ'),
+                        help='Override maximum cell spacing in projected X, Y, Z metres for both '
+                             'air_grid and tetrahedra; whole cells fit the unchanged domain')
     args = parser.parse_args()
+    if args.volume_spacing is not None and (not np.isfinite(args.volume_spacing).all()
+                                           or min(args.volume_spacing) <= 0):
+        parser.error('--volume-spacing requires three finite, positive values in metres')
     start = perf_counter()
     city, bounds, manifest, water = load_sources(args.source_dir)
     chosen = city.buildings
@@ -711,7 +745,7 @@ def main():
                        'Whole buildings crossing domain edges are omitted',
                        'Wind obstacles and shadows use footprint prisms; tetrahedra are not boundary conforming']}
     add_water(city, water, bounds)
-    enrich(city, bounds, detail=args.detail)
+    enrich(city, bounds, detail=args.detail, volume_spacing=args.volume_spacing)
     print('Fields and reference boundary meshes generated', flush=True)
     generated_seconds = perf_counter()-start
     args.output.mkdir(parents=True, exist_ok=True)

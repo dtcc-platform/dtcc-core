@@ -99,10 +99,20 @@ interiors to their bases; it is not a surveyed terrain model.
 | Representation | Standard | Stress |
 |---|---:|---:|
 | District terrain/surface sampling | 8 m | 8 m |
-| District volume grid and tetrahedral lattice | ≤25 m | ≤20 m |
+| Maximum volume spacing (X, Y, Z) | 20, 20, 10 m | 20, 20, 8 m |
+| Volume grid cells (X × Y × Z) | 100 × 100 × 14 | 100 × 100 × 18 |
+| Tetrahedra | 840,000 | 1,080,000 |
+| Longest/shortest grid-cell dimension | ≈2.02 | ≈2.60 |
 | Reference-patch field samples | ≤2 m | ≤2 m |
 | Reference boundary mesh triangle target | 2 m | 1 m |
 | Stored snapshot times | 0, 60, 120, 180 s | same |
+
+Both volume representations share the same vertical intervals: 14 in standard
+and 18 in stress. There are 15 or 19 vertex planes respectively. Actual vertical
+spacing is about 9.90 m or 7.70 m over the 138.576 m height of this domain. The
+reported axis ratio describes the Cartesian cells, not a tetrahedron quality
+metric. Neither the domain height nor the terrain/surface sampling is changed
+when volume spacing is overridden.
 
 Both profiles include:
 
@@ -147,7 +157,20 @@ one snapshot, not time-dependent particle trajectories.
 python scripts/download_flagship_sources.py
 python scripts/generate_flagship_model.py
 python scripts/generate_flagship_model.py --detail stress --output data/flagship-stress
+# Explicit maximum X, Y, Z spacing in metres (overrides the selected profile):
+python scripts/generate_flagship_model.py --volume-spacing 20 20 10 --output data/flagship-custom
 ```
+
+`--volume-spacing DX DY DZ` controls **both** `air_grid` and `tetrahedra`. Values
+must be finite and positive. Each axis uses `ceil(domain_length / requested_spacing)`
+cells; actual spacing is reduced slightly to fit the unchanged domain exactly.
+The generator prints the dimensions, actual spacing and cell axis ratio, and
+records them in `flagship_sampling` and `inventory.json` (XYZ order). The six
+positively oriented tetrahedra per grid box remain consistent across neighbours.
+For near-cubic cells, choose equal spacings; this grows the file much faster than
+refining Z alone. The existing 256 MiB native limit still applies. Requests whose
+connectivity/coordinates alone exceed it fail before volume allocation; other
+oversized complete models are rejected by the canonical writer.
 
 Default paths are checkout-relative; explicit paths are working-directory-relative.
 The downloader is the only network step. The generator checks every source hash
@@ -155,13 +178,10 @@ and runs offline. The BGT endpoint is live: keep the pinned cached snapshot.
 Changed upstream bytes fail with an explicit error rather than silently changing
 the fixture. Updating source pins is a deliberate dataset revision.
 
-The standard native file is about **195.4 MiB** and contains **230,400
-tetrahedra / 45,927 vertices**. The local full workflow (generation plus source
-preservation and native/package checks) took about 3 minutes; a warm in-process
-load took about 15 seconds. These are measurements on the development machine,
-not performance guarantees. The stress model is **216.6 MiB** with **420,000
-tetrahedra**. Rendering all detailed roofs/walls in the Matplotlib `city` view
-is substantially slower than the map or field views; start with the dashboard.
+Both profiles are generated and round-trip checked against the native 256 MiB
+limit. Exact sizes and generation/save/load timings are in each inventory.
+Rendering all detailed roofs/walls in the Matplotlib `city` view is substantially
+slower than the map or field views; start with the dashboard.
 
 Generated outputs are `flagship.dtcc`, `flagship.dtccpkg`, `inventory.json`,
 `preview.png`, and a copy of this guide. Inventory records exact building/water
