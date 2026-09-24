@@ -56,7 +56,7 @@ small former fixture.
   coordinates and identity affines. Vectors follow projected east, north, up.
 - Include complete building envelopes contained in the square. Buildings that
   straddle its boundary are omitted; solids are never cut into open shells.
-- Preserve the original 64 buildings from the pinned CityJSON sample, including
+- Preserve the original 64 buildings from the reference CityJSON sample, including
   their parts, all source LoDs, attributes, surface semantics and geometry. These
   take precedence over newer buildings with the same BAG IDs.
 - Fill the remaining district from **15 3DBAG v20250903 tiles**, retaining footprints, the finest available source LoD and all attributes.
@@ -69,12 +69,12 @@ small former fixture.
   The water plane at −0.5 m NAP and bed at −0.6 m are **synthetic elevations**.
 
 The source manifest is [`scripts/flagship-sources.json`](../scripts/flagship-sources.json).
-It pins the downloaded bytes with SHA-256 hashes. `building_source_files` on the
+It lists the source URLs and local filenames. `building_source_files` on the
 City identifies each building's input. Supplier title/contact/version metadata,
 which the strict Core CityJSON profile does not accept at its root, is retained
 in `source_metadata` on the City. Building geometry/attributes still use the
 ordinary strict `load_3dbag` admission and its qualified elevation mapping.
-The pinned 2025 tiles use the supported `b3_h_dak_*` convention; a general mapping
+The versioned 2025 tiles use the supported `b3_h_dak_*` convention; a general mapping
 for later attribute conventions is not introduced by this example.
 
 3DBAG credit: **© 3DBAG by tudelft3d and 3DGI**, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
@@ -173,10 +173,12 @@ connectivity/coordinates alone exceed it fail before volume allocation; other
 oversized complete models are rejected by the canonical writer.
 
 Default paths are checkout-relative; explicit paths are working-directory-relative.
-The downloader is the only network step. The generator checks every source hash
-and runs offline. The BGT endpoint is live: keep the pinned cached snapshot.
-Changed upstream bytes fail with an explicit error rather than silently changing
-the fixture. Updating source pins is a deliberate dataset revision.
+The downloader is the only network step. It downloads missing files and reuses
+existing files in `data/flagship-source`. Delete a cached file to download it again.
+The generator reads these files offline and validates the source data. Downloads
+do not need to match historical checksums: the BGT endpoint is live and includes
+response metadata that changes between requests. Water outlines may also change
+over time, so retain the same cached inputs when reproducing a particular model.
 
 Both profiles are generated and round-trip checked against the native 256 MiB
 limit. Exact sizes and generation/save/load timings are in each inventory.

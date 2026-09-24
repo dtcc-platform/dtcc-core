@@ -1,10 +1,10 @@
-"""Build the reproducible Delft flagship development model (no network access).
+"""Build the Delft flagship development model from cached sources (no network access).
 
 Run from the checkout:
     python scripts/generate_flagship_model.py
 Or from scripts/: python generate_flagship_model.py
 Default source and output paths are relative to the checkout, not the working directory.
-See docs/flagship-model.md for the pinned source, attribution and Python recipes.
+See docs/flagship-model.md for the sources, attribution and Python recipes.
 """
 
 import argparse
@@ -544,7 +544,7 @@ def enrich(city, bounds, *, mesh_real=True, detail='standard', volume_spacing=No
 
 
 def load_sources(directory):
-    """Admit pinned tiles, preserve the old reference patch, select whole buildings.
+    """Admit source tiles, preserve the old reference patch, select whole buildings.
 
     Complete building envelopes must lie in the square: edge buildings are not
     clipped into invalid solids. Sources are checked before any output is written.
@@ -559,8 +559,6 @@ def load_sources(directory):
         if not path.is_file():
             raise ValueError(f'Missing source {path}; run scripts/download_flagship_sources.py')
         raw = path.read_bytes()
-        if hashlib.sha256(raw).hexdigest() != source['sha256']:
-            raise ValueError(f'Source checksum mismatch: {path}')
         document = json.loads(gzip.decompress(raw) if path.suffix == '.gz' else raw)
         if document.get('type') == 'CityJSON':
             source_metadata[source['file']] = document.get('metadata', {}).copy()
@@ -741,7 +739,7 @@ def main():
         'coordinates': 'EPSG:7415; metre coordinates and NAP elevations',
         'limitations': ['No full-source geometric validity certification or repair',
                        'Synthetic terrain, water elevations and fields, not observations or solver results',
-                       'Reference patch uses the older pinned sample, other buildings use v20250903',
+                       'Reference patch uses the older sample, other buildings use v20250903',
                        'Whole buildings crossing domain edges are omitted',
                        'Wind obstacles and shadows use footprint prisms; tetrahedra are not boundary conforming']}
     add_water(city, water, bounds)

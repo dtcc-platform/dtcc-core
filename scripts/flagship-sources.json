@@ -6,92 +6,74 @@
     447800
   ],
   "release": "v20250903",
-  "water_snapshot_date": "2026-09-22",
   "sources": [
     {
       "file": "9-284-552.city.json.gz",
-      "url": "https://data.3dbag.nl/v20250903/tiles/9/284/552/9-284-552.city.json.gz",
-      "sha256": "a593d2defd9d8c4b9187fdb8a0bbe87bbaf6d9519341323c19983609d20050d0"
+      "url": "https://data.3dbag.nl/v20250903/tiles/9/284/552/9-284-552.city.json.gz"
     },
     {
       "file": "9-284-556.city.json.gz",
-      "url": "https://data.3dbag.nl/v20250903/tiles/9/284/556/9-284-556.city.json.gz",
-      "sha256": "fa1db6edac23c4cb09033f844c5fb1a4e8b020a88af2841fcd7480cee1927557"
+      "url": "https://data.3dbag.nl/v20250903/tiles/9/284/556/9-284-556.city.json.gz"
     },
     {
       "file": "9-280-556.city.json.gz",
-      "url": "https://data.3dbag.nl/v20250903/tiles/9/280/556/9-280-556.city.json.gz",
-      "sha256": "b038699f6cf24150a9605a32e7e926e38664b28a6ff30c115e44b0330a5522d5"
+      "url": "https://data.3dbag.nl/v20250903/tiles/9/280/556/9-280-556.city.json.gz"
     },
     {
       "file": "9-280-552.city.json.gz",
-      "url": "https://data.3dbag.nl/v20250903/tiles/9/280/552/9-280-552.city.json.gz",
-      "sha256": "42e1f496ae261657c8a0d05618ae75d563f73e67bcfd81dc5e80862511f23061"
+      "url": "https://data.3dbag.nl/v20250903/tiles/9/280/552/9-280-552.city.json.gz"
     },
     {
       "file": "9-276-552.city.json.gz",
-      "url": "https://data.3dbag.nl/v20250903/tiles/9/276/552/9-276-552.city.json.gz",
-      "sha256": "10e5922491669cce73d3f0767fa51247077ab2c76e5539e6e741d9020b3bcd0b"
+      "url": "https://data.3dbag.nl/v20250903/tiles/9/276/552/9-276-552.city.json.gz"
     },
     {
       "file": "9-276-556.city.json.gz",
-      "url": "https://data.3dbag.nl/v20250903/tiles/9/276/556/9-276-556.city.json.gz",
-      "sha256": "d2c0c29de280f1671475fb1b71ddf36b372799936ba3de7addb1517f53d35087"
+      "url": "https://data.3dbag.nl/v20250903/tiles/9/276/556/9-276-556.city.json.gz"
     },
     {
       "file": "9-276-560.city.json.gz",
-      "url": "https://data.3dbag.nl/v20250903/tiles/9/276/560/9-276-560.city.json.gz",
-      "sha256": "9880ecd5d933b5cc98b38e98d0be05ac06faf36c3305d375e050a153a815458c"
+      "url": "https://data.3dbag.nl/v20250903/tiles/9/276/560/9-276-560.city.json.gz"
     },
     {
       "file": "10-280-562.city.json.gz",
-      "url": "https://data.3dbag.nl/v20250903/tiles/10/280/562/10-280-562.city.json.gz",
-      "sha256": "1763a2974d282ebf90dde06627f0a774fddf653d43d13254cf16d243d1525809"
+      "url": "https://data.3dbag.nl/v20250903/tiles/10/280/562/10-280-562.city.json.gz"
     },
     {
       "file": "10-280-560.city.json.gz",
-      "url": "https://data.3dbag.nl/v20250903/tiles/10/280/560/10-280-560.city.json.gz",
-      "sha256": "a516ee3e8f073620cc5f9b9f10fc5ae0fc7cc91dd28692ee02e7a9d894d887ca"
+      "url": "https://data.3dbag.nl/v20250903/tiles/10/280/560/10-280-560.city.json.gz"
     },
     {
       "file": "10-282-560.city.json.gz",
-      "url": "https://data.3dbag.nl/v20250903/tiles/10/282/560/10-282-560.city.json.gz",
-      "sha256": "7c6619732eac17d54120f15e6f1d91991e139efa8a36395517115a2f6ec64487"
+      "url": "https://data.3dbag.nl/v20250903/tiles/10/282/560/10-282-560.city.json.gz"
     },
     {
       "file": "10-284-560.city.json.gz",
-      "url": "https://data.3dbag.nl/v20250903/tiles/10/284/560/10-284-560.city.json.gz",
-      "sha256": "6151172f10b584eedd1dd95a7c777601a69d192ab82aca85982a6703b1bf6b52"
+      "url": "https://data.3dbag.nl/v20250903/tiles/10/284/560/10-284-560.city.json.gz"
     },
     {
       "file": "10-284-562.city.json.gz",
-      "url": "https://data.3dbag.nl/v20250903/tiles/10/284/562/10-284-562.city.json.gz",
-      "sha256": "4e403314fe9d658c8a7a5cc75bbb20526370a34e09d76348d7536a1683a3570b"
+      "url": "https://data.3dbag.nl/v20250903/tiles/10/284/562/10-284-562.city.json.gz"
     },
     {
       "file": "10-282-562.city.json.gz",
-      "url": "https://data.3dbag.nl/v20250903/tiles/10/282/562/10-282-562.city.json.gz",
-      "sha256": "26aadeb42df62ca634e9d923f7349901bcdaf9ffc74123b8152dd5c2dea8b9d6"
+      "url": "https://data.3dbag.nl/v20250903/tiles/10/282/562/10-282-562.city.json.gz"
     },
     {
       "file": "10-286-562.city.json.gz",
-      "url": "https://data.3dbag.nl/v20250903/tiles/10/286/562/10-286-562.city.json.gz",
-      "sha256": "5779233d8078c176c014053e688b6f473ef166973cd5b892e0b561bc7dc5df10"
+      "url": "https://data.3dbag.nl/v20250903/tiles/10/286/562/10-286-562.city.json.gz"
     },
     {
       "file": "10-286-560.city.json.gz",
-      "url": "https://data.3dbag.nl/v20250903/tiles/10/286/560/10-286-560.city.json.gz",
-      "sha256": "da7eb5c5249055b3c47296aa02ac822c9b23c43ec30454e9e1ae17e4428b3381"
+      "url": "https://data.3dbag.nl/v20250903/tiles/10/286/560/10-286-560.city.json.gz"
     },
     {
       "file": "water.geojson",
-      "url": "https://api.pdok.nl/lv/bgt/ogc/v1/collections/waterdeel/items?bbox=83570%2C445800%2C85570%2C447800&bbox-crs=http%3A%2F%2Fwww.opengis.net%2Fdef%2Fcrs%2FEPSG%2F0%2F28992&crs=http%3A%2F%2Fwww.opengis.net%2Fdef%2Fcrs%2FEPSG%2F0%2F28992&f=json&limit=1000",
-      "sha256": "57086a9751b32238c1a99e9e53f1c4a4901d563322f4c276eacf233bf9c32ad5"
+      "url": "https://api.pdok.nl/lv/bgt/ogc/v1/collections/waterdeel/items?bbox=83570%2C445800%2C85570%2C447800&bbox-crs=http%3A%2F%2Fwww.opengis.net%2Fdef%2Fcrs%2FEPSG%2F0%2F28992&crs=http%3A%2F%2Fwww.opengis.net%2Fdef%2Fcrs%2FEPSG%2F0%2F28992&f=json&limit=1000"
     },
     {
       "file": "3dbag.city.json",
-      "url": "https://3d.bk.tudelft.nl/opendata/cityjson/3dcities/v2.0/9-284-556.city.json",
-      "sha256": "2bb5d22ae2cbfe2096041e3a79b3e826f43d3a8c9824eeb019feab4e0a2742ba"
+      "url": "https://3d.bk.tudelft.nl/opendata/cityjson/3dcities/v2.0/9-284-556.city.json"
     }
   ]
 }
