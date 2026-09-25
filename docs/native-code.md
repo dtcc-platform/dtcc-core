@@ -7,7 +7,7 @@ and small geometry containers; it is not a separate C++ model API or SDK.
 
 ## Retained bindings
 
-Paths below are relative to `dtcc_core/builder`. Each of the 26 native function
+Paths below are relative to `dtcc_core/builder`. Each of the 24 native function
 exports has a Python caller. Classes exposed by the extension support conversion
 and inspection of the native geometry containers.
 
@@ -20,13 +20,11 @@ and inspection of the native geometry containers.
 | `build_city_flat_mesh`, `build_city_surface_mesh_from_terrain_mesh` | `geometry_builders/meshes.py` |
 | `extract_building_points` | `geometry_builders/buildings.py` |
 | `points_in_polygons`, `statistical_outlier_finder` | `pointcloud/filter.py` |
-| `boundary_defect_clusters`, `rewrite_defect_cluster` | `cleaning/footprints.py` |
 | `ray_surface_intersection` | `geometry/surface.py` |
 | `ray_multisurface_intersection` | `geometry/multisurface.py` |
 
 Mesh smoothing, spatial search, triangulation, and shared geometry helpers remain
-internal to these paths. In particular, boundary statistics are still computed
-inside the footprint-cleaning kernels.
+internal to these paths.
 
 ## Native dependencies
 
@@ -53,7 +51,10 @@ callers. The duplicate boundary-mesh registration was removed with that path.
 The public Python `build_city_surface_mesh` remains and uses
 `build_city_surface_mesh_from_terrain_mesh` after preparing terrain in Python.
 The unreferenced `StiffnessMatrix.h`, `ufc.h`, and `ufc_geometry.h` were also
-removed. Direct consumers of these private native names must update their code.
+removed. The footprint-cleaning kernels `boundary_defect_clusters` and
+`rewrite_defect_cluster` were removed with the cleaner that called them; footprint
+cleaning is now implemented in Python on Shapely/GEOS. Direct consumers of these
+private native names must update their code.
 
 When removing more native code, check both Python callers and internal C++ use,
 then rebuild and exercise the affected public workflows. Python line coverage

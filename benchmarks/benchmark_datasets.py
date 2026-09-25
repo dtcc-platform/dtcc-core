@@ -344,6 +344,8 @@ def classify_failure(exc_type: str, message: str) -> str:
         return "timeout"
     if "conditioned footprint" in text and "contract" in text:
         return "conditioned_footprint_contract"
+    if "complete 2d mesher handoff" in text:
+        return "mesher_handoff"
     if "point outside" in text and "domain" in text:
         return "point_outside_domain"
     if exc_type == "IndexError" and "terrain" in text:

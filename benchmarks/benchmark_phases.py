@@ -34,14 +34,29 @@ PREPARATION_PARAMETERS = (
 
 
 def write_json(path: Path, value) -> None:
+    def json_ready(item):
+        if isinstance(item, dict):
+            return {str(key): json_ready(child) for key, child in item.items()}
+        if isinstance(item, (list, tuple)):
+            return [json_ready(child) for child in item]
+        if isinstance(item, np.ndarray):
+            return json_ready(item.tolist())
+        if isinstance(item, np.generic):
+            return item.item()
+        return item
+
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(value, indent=2, allow_nan=False) + "\n")
+    temporary.write_text(
+        json.dumps(json_ready(value), indent=2, allow_nan=False) + "\n"
+    )
     temporary.replace(path)
 
 
-def footprint_metrics(raw, cleaned, source_map, scale):
+def footprint_metrics(raw, cleaned, source_map, scale, *, epsilon=None):
     """Measure output and drift independently of repair operators/trace keys."""
+    from dtcc_core.builder.cleaning.contract import check_cleaning_contract
+
     raw_union = unary_union([make_valid(p) for p in raw])
     clean_union = unary_union(cleaned)
     lengths = [
@@ -52,6 +67,11 @@ def footprint_metrics(raw, cleaned, source_map, scale):
     lengths = np.concatenate(lengths) if lengths else np.array([])
     represented = {i for group in source_map for i in group}
     return {
+        "geometric_contract": (
+            check_cleaning_contract(raw, cleaned, delta=scale, epsilon=epsilon)
+            if scale > 0
+            else {"status": "not_checked", "reason": "No positive resolution declared"}
+        ),
         "input_count": len(raw),
         "output_count": len(cleaned),
         "invalid_input_count": sum(not p.is_valid for p in raw),
@@ -87,6 +107,16 @@ def save_cleaning(directory, city, conditioned, task):
             "bounds": task["case"]["bounds"],
             "parameters": {k: task["parameters"][k] for k in CLEANING_PARAMETERS},
             "declared_scale": conditioned.declared_scale,
+            "before_selection_contract": conditioned.diagnostics.get(
+                "before_selection_contract"
+            ),
+            "selection": conditioned.diagnostics.get("selection"),
+            "final_handoff_contract": conditioned.diagnostics.get(
+                "final_handoff_contract"
+            ),
+            "policy_exclusions": conditioned.diagnostics.get(
+                "policy_exclusions", []
+            ),
             "diagnostics": {
                 k: conditioned.diagnostics[k]
                 for k in (
@@ -143,6 +173,20 @@ def load_cleaning(path, task):
                     raise ValueError("invalid revalidation flag")
             elif type(value) not in (float, int) or not np.isfinite(value) or value < 0:
                 raise ValueError("invalid cleaning diagnostic")
+        before_selection_contract = metadata.get("before_selection_contract")
+        selection = metadata.get("selection")
+        final_handoff_contract = metadata.get("final_handoff_contract")
+        policy_exclusions = metadata.get("policy_exclusions", [])
+        if not isinstance(before_selection_contract, dict):
+            raise ValueError("missing before-selection contract")
+        if not isinstance(selection, dict):
+            raise ValueError("missing selection metadata")
+        if final_handoff_contract is not None and not isinstance(
+            final_handoff_contract, dict
+        ):
+            raise ValueError("invalid final handoff contract")
+        if not isinstance(policy_exclusions, list):
+            raise ValueError("invalid policy exclusions")
         city = load_model(path.parent / "raw.dtcc", expected_type=City)
         surfaces, source_map = [], []
         for feature in payload["features"]:
@@ -173,6 +217,70 @@ def load_cleaning(path, task):
             surface.from_polygon(polygon)
             surfaces.append(surface)
             source_map.append(indices)
+        required_selection_counts = (
+            "input_count",
+            "output_count",
+            "removed_count",
+        )
+        if any(
+            type(selection.get(key)) is not int or selection[key] < 0
+            for key in required_selection_counts
+        ):
+            raise ValueError("invalid selection counts")
+        if (
+            selection["output_count"] != len(surfaces)
+            or selection["input_count"]
+            != selection["output_count"] + selection["removed_count"]
+        ):
+            raise ValueError("selection counts do not match saved geometry")
+        for field in ("excluded_regions",):
+            if not isinstance(selection.get(field), list):
+                raise ValueError(f"invalid selection {field}")
+        for exclusion in [*selection["excluded_regions"], *policy_exclusions]:
+            if not isinstance(exclusion, dict):
+                raise ValueError("invalid selection or policy exclusion")
+            indices = exclusion.get("source_indices")
+            area = exclusion.get("area")
+            reason = exclusion.get("reason")
+            if (
+                not isinstance(indices, list)
+                or indices != sorted(set(indices))
+                or any(
+                    type(index) is not int or not 0 <= index < len(city.buildings)
+                    for index in indices
+                )
+                or type(area) not in (float, int)
+                or not np.isfinite(area)
+                or area < 0
+                or not isinstance(reason, str)
+                or not reason
+            ):
+                raise ValueError("invalid selection or policy exclusion")
+        for field in (
+            "represented_source_indices",
+            "unrepresented_source_indices",
+        ):
+            indices = selection.get(field)
+            if (
+                not isinstance(indices, list)
+                or indices != sorted(set(indices))
+                or any(
+                    type(index) is not int or not 0 <= index < len(city.buildings)
+                    for index in indices
+                )
+            ):
+                raise ValueError(f"invalid selection {field}")
+        represented = sorted({index for indices in source_map for index in indices})
+        if selection["represented_source_indices"] != represented:
+            raise ValueError("selection represented sources do not match geometry")
+        diagnostics = {
+            **diagnostics,
+            "before_selection_contract": before_selection_contract,
+            "selection": selection,
+            "policy_exclusions": policy_exclusions,
+        }
+        if final_handoff_contract is not None:
+            diagnostics["final_handoff_contract"] = final_handoff_contract
         conditioned = meshes.ConditionedFootprints(
             surfaces,
             source_map,
@@ -260,6 +368,10 @@ def execute_phases(task, metrics, artifacts):
                 raw, cleaned, conditioned.source_map, conditioned.declared_scale
             ),
             "contract": conditioned.contract,
+            "before_selection_contract": conditioned.diagnostics.get(
+                "before_selection_contract"
+            ),
+            "selection": conditioned.diagnostics.get("selection"),
         }
         path = save_cleaning(cleaning_dir, city, conditioned, task)
     artifacts["cleaning_input"] = {"format": "geojson", "path": str(path)}

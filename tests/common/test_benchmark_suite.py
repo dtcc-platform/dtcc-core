@@ -4,6 +4,7 @@ import argparse
 import io
 import json
 import os
+import shlex
 import subprocess
 import sys
 from importlib.machinery import SourceFileLoader
@@ -81,6 +82,39 @@ def cleaning_run(task, raw_city, tmp_path):
         },
     )
     return tmp_path, task, result
+
+
+@pytest.mark.parametrize("min_area", [15, 199])
+def test_separation_warning_survives_meshing_and_saved_replay(task, raw_city, tmp_path, monkeypatch, min_area):
+    from dtcc_core.builder.cleaning import (
+        ConditioningOptions, condition_polygon_coverage, select_footprints,
+    )
+
+    raw = [b.footprint().to_polygon(simplify=0.0) for b in raw_city.buildings]
+    cleaned = select_footprints(condition_polygon_coverage(
+        raw, options=ConditioningOptions(fidelity_tolerance=0, enable_logging=False),
+    ), min_area=min_area)
+    conditioned = meshes._assemble_conditioned_footprints(
+        cleaned.polygons, cleaned.source_map, cleaned.diagnostics,
+        source_areas=[p.area for p in raw], source_heights=[10, 10],
+        source_roof_z=[10, 10], min_building_detail=0.5,
+        max_mesh_size=10, pipeline_mode="strict",
+    )
+    monkeypatch.setattr(meshes, "build_conditioned_footprints", lambda *a, **k: conditioned)
+    task.update(dataset="city_flat_mesh", phase="both")
+    first = benchmark_datasets.run_dataset(task)
+    assert first["status"] == "warning", first["error"]
+    assert first["metrics"]["cleaning"]["status"] == "warning"
+    artifact = first["artifacts"]["cleaning_input"]["path"]
+    _, restored = benchmark_phases.load_cleaning(artifact, task)
+    assert restored.diagnostics["before_selection_contract"]["status"] == "fail"
+    task.update(phase="meshing", cleaning_input=artifact, task_dir=str(tmp_path / "replay"))
+    replay = benchmark_datasets.run_dataset(task)
+    assert replay["status"] == "warning", replay["error"]
+    assert replay["metrics"]["meshing"]["num_faces"] > 0
+    assert replay["metrics"]["meshing"]["degenerate_cell_count"] == 0
+    assert any("CONTRACT NOT SATISFIED" in row["message"]
+               for row in replay["metrics"]["stage_contract_warnings"])
 
 
 def test_simple_cli_and_spatial_scopes():
@@ -233,6 +267,12 @@ def _replay_args(directory, output):
 @pytest.mark.parametrize("encoding", [None, "cp1252"])
 def test_cli_saved_run_replay_report_compare_and_no_overwrite(cleaning_run, encoding):
     directory, task, result = cleaning_run
+    contract = result["metrics"]["cleaning"]["geometric_contract"]
+    assert contract["admissibility"]["resolved"]
+    assert contract["fidelity"]["status"] == "pass"
+    report = cli("report", directory, encoding=encoding)
+    assert report.returncode == 0, report.stderr
+    assert "Resolved" in report.stdout and "Fidelity" in report.stdout
     output = directory / "replay"
     args = _replay_args(directory, output)
     completed = cli(*args, encoding=encoding)
@@ -240,6 +280,10 @@ def test_cli_saved_run_replay_report_compare_and_no_overwrite(cleaning_run, enco
     assert "Logging error" not in completed.stderr
     if encoding == "cp1252":
         assert "[OK] success" in completed.stdout
+    plot_command = shlex.join(["bench", "plot", str(output)])
+    assert completed.stdout.endswith(
+        f"\nTo generate plots, run the command\n\n    {plot_command}\n\n"
+    )
     payload = json.loads((output / "results.json").read_text())
     assert payload["results"][0]["metrics"]["cleaning"]["status"] == "reused"
     assert payload["manifest"]["elapsed_seconds"] > 0
@@ -389,7 +433,9 @@ def test_cli_plots_saved_cleaning_and_rejects_empty_selection(cleaning_run):
     assert "No saved tasks match" in missing.stderr
 
 
-@pytest.mark.parametrize("corruption", ["crs", "sources", "bounds"])
+@pytest.mark.parametrize(
+    "corruption", ["crs", "sources", "bounds", "selection", "policy_exclusion"]
+)
 def test_corrupt_cleaning_artifact_fails_clearly(cleaning_run, corruption):
     _, task, result = cleaning_run
     path = Path(result["artifacts"]["cleaning_input"]["path"])
@@ -398,6 +444,12 @@ def test_corrupt_cleaning_artifact_fails_clearly(cleaning_run, corruption):
         payload["metadata"]["crs"] = "EPSG:4326"
     elif corruption == "sources":
         payload["features"][0]["properties"]["source_indices"] = [999]
+    elif corruption == "selection":
+        payload["metadata"]["selection"]["output_count"] += 1
+    elif corruption == "policy_exclusion":
+        payload["metadata"]["policy_exclusions"] = [
+            {"source_indices": [999], "area": 1.0, "reason": "test"}
+        ]
     else:
         payload["metadata"]["bounds"][0] += 1
     path.write_text(json.dumps(payload))
@@ -570,6 +622,13 @@ def test_benchmark_failure_classification_separates_data_from_geometry() -> None
         )
         == "conditioned_footprint_contract"
     )
+    assert (
+        benchmark_datasets.classify_failure(
+            "MesherHandoffError",
+            "Complete 2D mesher handoff failed: incident sector profile failed",
+        )
+        == "mesher_handoff"
+    )
 
 
 def test_data_coverage_and_cache_failures_are_warning_statuses() -> None:
@@ -596,3 +655,23 @@ def test_data_coverage_and_cache_failures_are_warning_statuses() -> None:
         == "warning"
     )
     assert benchmark_datasets.result_status_for_failure("pipeline") == "failed"
+
+
+def test_cleaning_fidelity_is_separate_from_explicit_area_selection(task, raw_city):
+    small = Building(id="selected-out")
+    small.add_geometry(
+        Surface().from_polygon(box(386330, 6174680, 386333, 6174683)), GeometryType.LOD0
+    )
+    raw_city.add_building(small)
+    result = benchmark_datasets.run_dataset(task)
+    assert result["status"] == "success", result["error"]
+    metrics = result["metrics"]["cleaning"]
+    assert metrics["before_selection_contract"]["status"] == "pass"
+    assert metrics["geometric_contract"]["fidelity"]["status"] == "fail"
+    assert metrics["selection"]["removed_count"] == 1
+    assert metrics["selection"]["removed_area"] == pytest.approx(9.0)
+    assert metrics["selection"]["unrepresented_source_indices"] == [2]
+    payload = json.loads(
+        Path(result["artifacts"]["cleaning_input"]["path"]).read_text()
+    )
+    assert payload["metadata"]["selection"] == metrics["selection"]
