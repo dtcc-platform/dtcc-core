@@ -144,3 +144,16 @@ def test_validation_option_cannot_claim_permissive_validation(source, tmp_path):
     with pytest.raises(TypeError, match='True or False'):
         load(source, strict=True, validate_schema=0)
     assert load(source, validate_schema=False).schema_id is None
+
+
+@pytest.mark.parametrize('suffix', ['.city.json', '.city.json.zip'])
+def test_cityjson_optional_byte_budget_is_independent_of_protobuf(source, tmp_path, suffix, monkeypatch):
+    from dtcc_core.model import exchange
+    path = tmp_path / ('city' + suffix)
+    write_source(path, source)
+    size = len(json.dumps(source).encode())
+    monkeypatch.setattr(exchange, 'MAX_PROTOBUF_BYTES', 1)
+    assert io.load_city(path, strict=True).buildings
+    assert io.load_city(path, strict=True, max_bytes=size).buildings
+    with pytest.raises(ValueError, match='max_bytes'):
+        io.load_city(path, strict=True, max_bytes=size - 1)

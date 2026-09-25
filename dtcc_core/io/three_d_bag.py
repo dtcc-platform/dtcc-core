@@ -18,7 +18,7 @@ _ELEVATIONS = ('b3_h_maaiveld', 'b3_h_dak_min', 'b3_h_dak_50p',
 _ROOF_CODES = frozenset({'horizontal', 'multiple horizontal', 'slanted'})
 
 
-def load_3dbag(path, *, extent_policy='validate', validate_schema=True):
+def load_3dbag(path, *, extent_policy='validate', validate_schema=True, max_bytes=None):
     """Load strict CityJSON and map the b3_h_dak attribute convention explicitly.
 
     Requires source CRS EPSG:7415. Known, non-null elevations become signed metre
@@ -29,6 +29,7 @@ def load_3dbag(path, *, extent_policy='validate', validate_schema=True):
 
     validate_schema=False bypasses only DTCC semantic evaluation, never strict
     source admission or this mapping's required source interpretation checks.
+    max_bytes optionally bounds CityJSON file input bytes, including ZIP contents.
     """
     from pyproj import CRS
     from ..datasets.schema import (DatasetContext, DatasetIdentity, DatasetMetadata,
@@ -38,7 +39,7 @@ def load_3dbag(path, *, extent_policy='validate', validate_schema=True):
         raise ValueError('validate_schema must be a boolean')
     # Admit geometry once; evaluate the selected semantics once, after enrichment.
     city = load_cityjson(path, strict=True, extent_policy=extent_policy,
-                         validate_schema=False)
+                         validate_schema=False, max_bytes=max_bytes)
     if not city.transform.srs or CRS.from_user_input(city.transform.srs) != CRS(7415):
         raise ValueError('3DBAG b3_h_dak mapping requires source CRS EPSG:7415 (RD New + NAP)')
     seen = 0

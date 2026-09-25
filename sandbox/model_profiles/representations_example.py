@@ -121,8 +121,8 @@ def main():
     parser.add_argument('output', type=Path)
     args = parser.parse_args()
     with args.source.open('rb') as stream:
-        raw = stream.read(exchange.MAX_BYTES + 1)
-    if len(raw) > exchange.MAX_BYTES or hashlib.sha256(raw).hexdigest() != SOURCE_SHA256:
+        raw = stream.read()
+    if hashlib.sha256(raw).hexdigest() != SOURCE_SHA256:
         raise ValueError('This evidence command requires the recorded unchanged 3DBAG source')
     args.output.mkdir(parents=True, exist_ok=True)
     seconds = {}

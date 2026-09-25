@@ -24,9 +24,7 @@ from benchmark_buildings import measure
 
 def audit(path, repeats):
     with path.open('rb') as stream:
-        raw = stream.read(exchange.MAX_BYTES + 1)
-    if len(raw) > exchange.MAX_BYTES:
-        raise ValueError('Source exceeds the canonical byte limit')
+        raw = stream.read()
     source = json.loads(raw)
     objects = source['CityObjects']
     geometries = [g for obj in objects.values() for g in obj.get('geometry', [])]

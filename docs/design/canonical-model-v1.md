@@ -88,9 +88,12 @@ rejected because per-entity provenance associations are not specified in v1.
 `ModelFile` declares `format="dtcc-model"`, version `1` and a typed root union.
 Readers reject unsupported versions, unknown fields, unspecified types, invalid
 transforms, malformed arrays and invalid native invariants. Raw legacy bytes are
-never used to guess a root class. The Python implementation limits payloads to
-256 MiB and containment/attribute nesting to 32 levels. This is an in-memory
-implementation, not a streaming format for large cities.
+never used to guess a root class. Containment/attribute nesting is limited to
+32 levels. The initial implementation also imposed a 256 MiB payload cap; that
+arbitrary cap has been removed. Native payloads must fit in one serialized
+Protobuf message, strictly smaller than 2 GiB (2,147,483,648 bytes), as required
+for [cross-implementation support](https://protobuf.dev/programming-guides/proto-limits/#total-size-of-the-message).
+This is an in-memory implementation; peak memory can exceed the file size.
 
 Canonical packages use `dtcc-dataset-manifest-v3`. They include exactly one artifact
 with role `canonical_model`, format `dtcc`, data kind `model`, media type
@@ -111,8 +114,15 @@ transform composition or computed spatial summaries.
 The reader checks manifest version and structure, safe paths, artifact integrity,
 canonical type/version/CRS agreement and derived relationships. ZIPs are read
 without extraction; duplicate or undeclared ZIP members fail. Limits are 4 MiB
-for the manifest, 9,999 artifacts, 256 MiB total artifact bytes and 256 MiB for an
-archive. File and package writers stage output before replacing a destination;
+for the manifest and 9,999 artifacts. Packages have no fixed aggregate byte cap;
+the Protobuf ceiling applies only to the native model artifact. Derived artifacts
+are integrity-checked in chunks without loading them into memory in full.
+Applications accepting untrusted packages can pass `max_bytes` to
+`load_model_package` to bound total uncompressed artifact bytes before reading
+them. CityJSON file readers similarly accept `max_bytes` to bound input bytes,
+including decompressed ZIP contents, independently of Protobuf. Both budgets
+default to `None`; upload services retain their own configured upload limits.
+File and package writers stage output before replacing a destination;
 failed admission or supplemental serialization preserves existing output. This
 provides local atomic replacement, not a cross-process transaction or a promise
 of crash durability for the whole package.

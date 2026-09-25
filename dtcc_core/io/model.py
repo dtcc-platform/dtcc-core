@@ -35,7 +35,9 @@ def save_model(model, path, *, validate_schema=True):
 def load_model(path, *, expected_type=None, validate_schema=True):
     """Load a canonical artifact using its own type/version discriminator."""
     with Path(path).open('rb') as stream:
-        data = stream.read(exchange.MAX_BYTES + 1)
+        if os.fstat(stream.fileno()).st_size > exchange.MAX_PROTOBUF_BYTES:
+            raise ValueError('Canonical Protobuf message must be smaller than 2 GiB')
+        data = stream.read(exchange.MAX_PROTOBUF_BYTES + 1)
     model = exchange.loads(data, validate_schema=validate_schema)
     if expected_type is not None and type(model) is not expected_type:
         raise ValueError(f"Expected {expected_type.__name__}, artifact contains {type(model).__name__}")

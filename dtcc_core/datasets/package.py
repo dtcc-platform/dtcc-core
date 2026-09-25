@@ -95,8 +95,11 @@ class DatasetPackage:
                 names = [entry.filename for entry in entries]
                 if len(names) != len(set(names)) or set(names) != expected:
                     raise ValueError("Canonical archive members must match the manifest exactly")
-                if sum(entry.file_size for entry in entries) > 256 * 1024 * 1024:
-                    raise ValueError("Canonical archive exceeds 256 MiB limit")
+                if archive.getinfo('manifest.json').file_size > 4 * 1024 * 1024:
+                    raise ValueError("Package manifest exceeds 4 MiB limit")
+                for artifact in self.artifacts:
+                    if archive.getinfo(artifact.path).file_size != artifact.size:
+                        raise ValueError("Artifact size does not match manifest")
             manifest_path = package_dir / "manifest.json"
             _extract_zip_member(archive, "manifest.json", manifest_path)
             artifact_files = []
@@ -461,7 +464,6 @@ def _export_canonical_package(obj, path, supplemental_format, validate_schema):
             package_format='directory', canonical_data=data,
         )
         if (len(package.artifacts) > 9999
-                or sum(artifact.size for artifact in package.artifacts) > exchange.MAX_BYTES
                 or package.manifest_path.stat().st_size > 4 * 1024 * 1024):
             raise ValueError("Canonical package exceeds artifact or manifest limits")
         if archive:
@@ -469,8 +471,6 @@ def _export_canonical_package(obj, path, supplemental_format, validate_schema):
             with zipfile.ZipFile(staged_archive, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
                 for file in package.files:
                     zf.write(file, file.relative_to(stage).as_posix())
-            if staged_archive.stat().st_size > exchange.MAX_BYTES:
-                raise ValueError("Package archive exceeds 256 MiB limit")
             os.replace(staged_archive, path)
             return DatasetPackage(path, Path('manifest.json'), package.manifest,
                                   package.artifacts, (path,), 'dtccpkg')
@@ -480,17 +480,23 @@ def _export_canonical_package(obj, path, supplemental_format, validate_schema):
     return DatasetPackage(path, manifest_path, package.manifest, package.artifacts, files, 'directory')
 
 
-def load_model_package(path, *, validate_schema=True):
+def load_model_package(path, *, validate_schema=True, max_bytes=None):
     """Read a canonical v3 directory/archive and restore its model and Context.
 
     All declared artifacts are integrity-checked. No archive extraction or network
     access occurs. Legacy v2 packages require their existing consumers.
     validate_schema=False bypasses semantic evaluation, not integrity/admission.
+    max_bytes optionally bounds the total uncompressed artifact bytes before
+    reading artifacts. The default has no package byte cap; the native model
+    must still fit in one Protobuf message smaller than 2 GiB. Applications
+    accepting untrusted packages should supply a budget appropriate to them.
     """
     from contextlib import ExitStack
     from ..model import exchange
     from .publish import _validate_package_path
 
+    if max_bytes is not None and (type(max_bytes) is not int or max_bytes < 1):
+        raise ValueError('max_bytes must be a positive integer or None')
     path = Path(path)
     with ExitStack() as stack:
         if path.is_dir():
@@ -504,8 +510,6 @@ def load_model_package(path, *, validate_schema=True):
 
             archive_names = None
         else:
-            if path.stat().st_size > exchange.MAX_BYTES:
-                raise ValueError("Package archive exceeds 256 MiB limit")
             archive = stack.enter_context(zipfile.ZipFile(path))
             infos = archive.infolist()
             archive_names = [entry.filename for entry in infos]
@@ -513,8 +517,8 @@ def load_model_package(path, *, validate_schema=True):
                 raise ValueError("Package archive has too many or duplicate members")
             for entry in infos:
                 _validate_package_path(entry.filename)
-                if entry.is_dir() or entry.file_size > exchange.MAX_BYTES:
-                    raise ValueError("Package archive contains an invalid or oversized member")
+                if entry.is_dir():
+                    raise ValueError("Package archive contains a directory member")
             open_member = archive.open
         with open_member('manifest.json') as stream:
             manifest_bytes = stream.read(4 * 1024 * 1024 + 1)
@@ -549,8 +553,18 @@ def load_model_package(path, *, validate_schema=True):
         if len(canonical) != 1:
             raise ValueError("Package must contain exactly one canonical model artifact")
         canonical = canonical[0]
-        data = None
         total = 0
+        for artifact in manifest.artifacts:
+            if artifact.size is None or artifact.size < 0 or artifact.sha256 is None:
+                raise ValueError("Canonical packages require artifact size and sha256")
+            total += artifact.size
+            if archive_names is not None and archive.getinfo(artifact.path).file_size != artifact.size:
+                raise ValueError("Artifact size does not match manifest")
+        if max_bytes is not None and total > max_bytes:
+            raise ValueError(f"Package artifacts exceed max_bytes={max_bytes}")
+        if canonical.size > exchange.MAX_PROTOBUF_BYTES:
+            raise ValueError("Canonical Protobuf message must be smaller than 2 GiB")
+        data = None
         for artifact in manifest.artifacts:
             if artifact is not canonical and (
                 artifact.role != 'derived' or artifact.derived_from != canonical.path
@@ -558,10 +572,6 @@ def load_model_package(path, *, validate_schema=True):
                 or artifact.model_type is not None or artifact.model_schema_version is not None
             ):
                 raise ValueError("Supplemental artifact must identify its canonical source")
-            if artifact.size is None or artifact.size < 0 or artifact.sha256 is None:
-                raise ValueError("Canonical packages require artifact size and sha256")
-            if artifact.size > exchange.MAX_BYTES or total + artifact.size > exchange.MAX_BYTES:
-                raise ValueError("Package artifacts exceed 256 MiB limit")
             digest, size, chunks = hashlib.sha256(), 0, []
             with open_member(artifact.path) as stream:
                 while chunk := stream.read(1024 * 1024):
@@ -573,7 +583,6 @@ def load_model_package(path, *, validate_schema=True):
                         chunks.append(chunk)
             if size != artifact.size or digest.hexdigest() != artifact.sha256:
                 raise ValueError("Artifact size/sha256 does not match manifest")
-            total += size
             if artifact is canonical:
                 data = b''.join(chunks)
         model, model_version = exchange._decode_model(data, validate_schema=validate_schema)

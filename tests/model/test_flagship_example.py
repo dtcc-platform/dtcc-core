@@ -156,6 +156,11 @@ def test_flagship_volume_rejects_unbounded_resolution():
     spec = importlib.util.spec_from_file_location('flagship_budget', path)
     example = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(example)
+    # This layout exceeds the former 256 MiB cap but fits the Protobuf ceiling.
+    shape, spacing = example.volume_layout(
+        Bounds(xmin=0, ymin=0, xmax=2000, ymax=2000, zmin=0, zmax=140), (5., 5., 5.))
+    assert shape == (400, 400, 28)
+    assert spacing == [5., 5., 5.]
     with pytest.raises(ValueError, match='geometry alone exceeds'):
         example.volume_layout(Bounds(xmin=0, ymin=0, xmax=2000, ymax=2000, zmin=0, zmax=140),
                               (1.e-300, 1.e-300, 1.e-300))

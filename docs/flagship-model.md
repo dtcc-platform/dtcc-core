@@ -60,8 +60,8 @@ small former fixture.
   their parts, all source LoDs, attributes, surface semantics and geometry. These
   take precedence over newer buildings with the same BAG IDs.
 - Fill the remaining district from **15 3DBAG v20250903 tiles**, retaining footprints, the finest available source LoD and all attributes.
-  Coarser alternate LoDs outside the reference patch are omitted to fit the
-  native 256 MiB limit; detailed roof geometry is not simplified. This is an explicitly mixed-vintage
+  Coarser alternate LoDs outside the reference patch are omitted to keep the
+  example compact; detailed roof geometry is not simplified. This is an explicitly mixed-vintage
   fixture, not a claim that all buildings were observed on one date.
 - Use BGT/PDOK `waterdeel` outlines requested in EPSG:28992, the horizontal part
   of EPSG:7415. Retain current records only (no end-registration or termination
@@ -168,9 +168,11 @@ The generator prints the dimensions, actual spacing and cell axis ratio, and
 records them in `flagship_sampling` and `inventory.json` (XYZ order). The six
 positively oriented tetrahedra per grid box remain consistent across neighbours.
 For near-cubic cells, choose equal spacings; this grows the file much faster than
-refining Z alone. The existing 256 MiB native limit still applies. Requests whose
-connectivity/coordinates alone exceed it fail before volume allocation; other
-oversized complete models are rejected by the canonical writer.
+refining Z alone. Native models must fit in a single Protobuf message, strictly
+smaller than 2 GiB. Requests whose connectivity/coordinates alone cannot fit fail
+before volume allocation; other oversized complete models are rejected by the
+canonical writer. This is a serialized-size ceiling, not a memory budget: generation
+and serialization can need substantially more RAM than the final file size.
 
 Default paths are checkout-relative; explicit paths are working-directory-relative.
 The downloader is the only network step. It downloads missing files and reuses
@@ -180,8 +182,8 @@ do not need to match historical checksums: the BGT endpoint is live and includes
 response metadata that changes between requests. Water outlines may also change
 over time, so retain the same cached inputs when reproducing a particular model.
 
-Both profiles are generated and round-trip checked against the native 256 MiB
-limit. Exact sizes and generation/save/load timings are in each inventory.
+Both profiles are generated and round-trip checked through native and package I/O.
+Exact sizes and generation/save/load timings are in each inventory.
 Rendering all detailed roofs/walls in the Matplotlib `city` view is substantially
 slower than the map or field views; start with the dashboard.
 

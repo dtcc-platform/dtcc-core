@@ -76,6 +76,31 @@ Strict CityJSON now follows the same semantic contract with mode-dependent flag
 defaults and explicit schema-selection limits; see [its contract](cityjson-schema-io.md).
 Mesh interchange, raster and point-cloud adapters remain subsequent work.
 
+## File sizes and resource budgets
+
+Native `.dtcc` files must fit in one serialized Protobuf message, strictly smaller
+than 2 GiB. This is a wire/runtime constraint, not a limit on in-memory models or
+CityJSON. The former 256 MiB cap has been removed. Packages have no aggregate byte
+cap; the Protobuf ceiling applies only to their native model artifact. These
+operations still use memory proportional to the model and may need substantially
+more RAM than the file size.
+
+For untrusted inputs, applications can supply a positive integer `max_bytes`:
+`load_model_package(path, max_bytes=budget)` limits total uncompressed artifact
+bytes, and `io.load_cityjson(path, strict=True, max_bytes=budget)` limits JSON
+input bytes, including decompressed ZIP contents. The CityJSON option is also
+forwarded by `io.load_city` and `io.load_3dbag`. Both budgets default to `None`;
+upload services retain their own configured limits. These options do not change
+schema, integrity or path validation. The 4 MiB package manifest and 9,999-artifact
+limits are unchanged.
+
+The opt-in large-file regression exercises a 260 MiB numerical field through
+native save/load, ZIP package export/load and local archive extraction:
+
+```sh
+DTCC_RUN_LARGE_MODEL_TEST=1 python -m pytest tests/model/test_large_model_io.py -q
+```
+
 ## Coverage and generic data
 
 The user selected allowing unfamiliar classifications as generic data. The schema

@@ -321,8 +321,8 @@ def volume_layout(bounds, spacing):
     with np.errstate(over='ignore', divide='ignore'):
         counts = np.maximum(1., np.ceil(lengths / spacing))
         geometry_bytes = 6*np.prod(counts)*4*4 + np.prod(counts+1)*3*8
-    if not np.isfinite(geometry_bytes) or geometry_bytes > exchange.MAX_BYTES:
-        raise ValueError('Requested volume geometry alone exceeds the native 256 MiB limit; '
+    if not np.isfinite(geometry_bytes) or geometry_bytes > exchange.MAX_PROTOBUF_BYTES:
+        raise ValueError('Requested volume geometry alone exceeds the Protobuf message limit (<2 GiB); '
                          'increase --volume-spacing DX DY DZ')
     return tuple(int(n) for n in counts), (lengths/counts).tolist()
 

@@ -25,7 +25,9 @@ from affine import Affine
 FORMAT = "dtcc-model"
 VERSION = 6
 READ_VERSIONS = {VERSION}
-MAX_BYTES = 256 * 1024 * 1024
+# Protobuf's cross-implementation ceiling applies to one serialized message.
+# https://protobuf.dev/programming-guides/proto-limits/#total-size-of-the-message
+MAX_PROTOBUF_BYTES = (1 << 31) - 1
 MAX_DEPTH = 32
 _MAX_DECODE_STRINGS = 4096
 OBJECT_KINDS = {Object: wire.Object.OBJECT, City: wire.Object.CITY,
@@ -52,8 +54,6 @@ def _array(value, name, *, dimensions=2):
         raise ValueError(f"{name} must be a supported real numeric NumPy array")
     if value.ndim > dimensions:
         raise ValueError(f"{name} must have at most {dimensions} dimensions")
-    if value.nbytes > MAX_BYTES:
-        raise ValueError(f"{name} exceeds the canonical payload limit")
 
 
 def _require_exact_double(value):
@@ -493,6 +493,8 @@ def _decode_value(pb, strings, depth=0):
 
 
 def _encode_array(array):
+    if array.nbytes > MAX_PROTOBUF_BYTES:
+        raise ValueError("Array cannot fit in a Protobuf message smaller than 2 GiB")
     normalized = array.astype(array.dtype.newbyteorder('<'), copy=False)
     return wire.Array(dtype=normalized.dtype.str, shape=array.shape, data=normalized.tobytes(order='C'))
 
@@ -785,8 +787,8 @@ def _encode_model(model, *, validate_schema=True):
         pb.transform.CopyFrom(_encode_transform(model))
     else:
         _encode_geometry(model, pb.geometry)
-    if pb.ByteSize() > MAX_BYTES:
-        raise ValueError("Canonical model exceeds 256 MiB limit")
+    if pb.ByteSize() > MAX_PROTOBUF_BYTES:
+        raise ValueError("Canonical Protobuf message must be smaller than 2 GiB")
     return pb
 
 
@@ -799,12 +801,14 @@ def _decode_model(data, *, validate_schema=True):
     """Decode once, retaining wire version for package metadata verification."""
     _schema_flag(validate_schema)
     if type(data) is wire.ModelFile:
-        if data.ByteSize() > MAX_BYTES:
-            raise ValueError('Canonical message exceeds 256 MiB limit')
+        if data.ByteSize() > MAX_PROTOBUF_BYTES:
+            raise ValueError('Canonical Protobuf message must be smaller than 2 GiB')
         pb = data
     else:
-        if not isinstance(data, bytes) or len(data) > MAX_BYTES:
-            raise ValueError('Expected ModelFile or canonical bytes within the 256 MiB limit')
+        if not isinstance(data, bytes):
+            raise ValueError('Expected ModelFile or canonical bytes')
+        if len(data) > MAX_PROTOBUF_BYTES:
+            raise ValueError('Canonical Protobuf message must be smaller than 2 GiB')
         try:
             pb = wire.ModelFile.FromString(data)
         except DecodeError as exc:

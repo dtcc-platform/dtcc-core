@@ -11,13 +11,10 @@ from .attributes import _AttributeNameError
 
 
 
-def _read_json(stream, strict):
-    if not strict:
-        return json.load(stream)
-    from ...model.exchange import MAX_BYTES
-    data = stream.read(MAX_BYTES + 1)
-    if len(data) > MAX_BYTES:
-        raise ValueError("CityJSON input exceeds 256 MiB limit")
+def _read_json(stream, strict, max_bytes):
+    data = stream.read() if max_bytes is None else stream.read(max_bytes + 1)
+    if max_bytes is not None and len(data) > max_bytes:
+        raise ValueError(f"CityJSON input exceeds max_bytes={max_bytes}")
     def unique_pairs(pairs):
         result = {}
         for key, value in pairs:
@@ -25,7 +22,7 @@ def _read_json(stream, strict):
                 raise ValueError(f"Duplicate CityJSON key {key!r}")
             result[key] = value
         return result
-    return json.loads(data, object_pairs_hook=unique_pairs)
+    return json.loads(data, object_pairs_hook=unique_pairs if strict else None)
 
 
 def setup_city(cj_obj: dict):
@@ -81,15 +78,21 @@ def setup_city(cj_obj: dict):
 
 
 def load(cityjson_path: str | dict, *, strict=False, extent_policy='validate',
-         validate_schema=None) -> City:
+         validate_schema=None, max_bytes=None) -> City:
     """Load CityJSON; strict mode evaluates the default standard schema.
 
     validate_schema=False bypasses semantics only. Omission follows strict mode;
     explicit True requires strict=True. Strict imports record the selected schema
     on the City; the source CityJSON does not declare a DTCC schema version.
+    max_bytes optionally bounds input bytes (uncompressed for ZIP files), in
+    either mode. The default has no byte cap. It applies only to file inputs.
     """
     from .admission import schema_validation
     validate_schema = schema_validation(strict, validate_schema)
+    if max_bytes is not None and (type(max_bytes) is not int or max_bytes < 1):
+        raise ValueError('max_bytes must be a positive integer or None')
+    if max_bytes is not None and isinstance(cityjson_path, dict):
+        raise ValueError('max_bytes applies only to CityJSON file inputs')
     if not strict and extent_policy != 'validate':
         raise ValueError('extent_policy requires strict CityJSON import')
     try:
@@ -106,10 +109,10 @@ def load(cityjson_path: str | dict, *, strict=False, extent_policy='validate',
                     if len(files) != 1 or not files[0].endswith(".json"):
                         raise ValueError("Invalid CityJSON zip file: must contain exactly one .json file")
                     with z.open(files[0]) as f:
-                        cj = _read_json(f, strict)
+                        cj = _read_json(f, strict, max_bytes)
             else:
                 with open(cityjson_path, "rb") as f:
-                    cj = _read_json(f, strict)
+                    cj = _read_json(f, strict, max_bytes)
 
         if strict:
             from .admission import load_city

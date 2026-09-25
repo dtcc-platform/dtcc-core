@@ -175,14 +175,67 @@ def test_canonical_archive_publication_rejects_unlisted_members(city, tmp_path):
         package.publish(dataset_key="invalid-package", uploader=object())
 
 
-def test_requested_supplement_keeps_canonical_artifact(city, tmp_path):
+def test_requested_supplement_keeps_canonical_artifact(city, tmp_path, monkeypatch):
     mesh = mesh_of(city)
     mesh.dataset_context = city.dataset_context
+    # A package may exceed the message ceiling in aggregate; only its native
+    # artifact is Protobuf. Use a small ceiling to exercise this without huge data.
+    monkeypatch.setattr(exchange, 'MAX_PROTOBUF_BYTES', len(exchange.dumps(mesh)))
     package = mesh.export(tmp_path / 'mesh', canonical=True, format='vtu')
     assert {artifact.role for artifact in package.artifacts} == {'canonical_model', 'derived'}
     derived = next(a for a in package.artifacts if a.role == 'derived')
     assert derived.derived_from == 'artifacts/model.dtcc'
     np.testing.assert_array_equal(load_model_package(package.path).vertices, mesh.vertices)
+
+
+def test_protobuf_size_boundary_and_failed_save_preservation(tmp_path, monkeypatch):
+    point = Point(x=1., y=2., z=3.)
+    payload = exchange.dumps(point)
+    path = tmp_path / 'point.dtcc'
+    monkeypatch.setattr(exchange, 'MAX_PROTOBUF_BYTES', len(payload))
+    io.save_model(point, path)
+    assert io.load_model(path).x == point.x
+
+    monkeypatch.setattr(exchange, 'MAX_PROTOBUF_BYTES', len(payload) - 1)
+    with pytest.raises(ValueError, match='smaller than 2 GiB'):
+        io.save_model(point, path)
+    assert path.read_bytes() == payload
+    with pytest.raises(ValueError, match='smaller than 2 GiB'):
+        io.load_model(path)
+    with pytest.raises(ValueError, match='smaller than 2 GiB'):
+        exchange.loads(payload)
+    with pytest.raises(ValueError, match='smaller than 2 GiB'):
+        exchange.loads(wire.ModelFile.FromString(payload))
+
+
+def test_impossible_array_rejected_before_serialization():
+    # Broadcasting creates a view, not a 2 GiB allocation.
+    values = np.broadcast_to(np.uint8(0), (1 << 31,))
+    with pytest.raises(ValueError, match='smaller than 2 GiB'):
+        exchange.dumps(Field(association='sample', values=values))
+
+
+@pytest.mark.parametrize('name', ['package', 'package.dtccpkg'])
+def test_package_byte_budget_precedes_artifact_reads(city, tmp_path, name):
+    package = city.export(tmp_path / name, canonical=True)
+    size = sum(a.size for a in package.artifacts)
+    assert_model_equal(city, load_model_package(package.path, max_bytes=size))
+    with pytest.raises(ValueError, match='max_bytes'):
+        load_model_package(package.path, max_bytes=size - 1)
+    # A truncated artifact must still be rejected without a caller budget.
+    if package.path.is_dir():
+        (package.path / package.artifacts[0].path).write_bytes(b'bad')
+        with pytest.raises(ValueError, match='max_bytes'):
+            load_model_package(package.path, max_bytes=size - 1)
+        with pytest.raises(ValueError, match='size/sha256'):
+            load_model_package(package.path)
+
+
+def test_archive_extraction_rejects_manifest_size_mismatch(city, tmp_path):
+    package = city.export(tmp_path / 'package.dtccpkg', canonical=True)
+    package.artifacts[0].size -= 1
+    with pytest.raises(ValueError, match='size does not match manifest'):
+        package.publish(dataset_key='invalid', uploader=object())
 
 
 @pytest.mark.parametrize('failure', ['hash', 'type', 'spatial', 'path'])

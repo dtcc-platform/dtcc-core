@@ -22,10 +22,11 @@ except ImportError:
     warning("Geopandas not found, some functionality may be disabled")
 
 
-def _load_json(path, *, strict=False, extent_policy='validate', validate_schema=None):
+def _load_json(path, *, strict=False, extent_policy='validate', validate_schema=None,
+               max_bytes=None):
     """Use the same CityJSON admission for public JSON and ZIP loading."""
     return cityjson.load(path, strict=strict, extent_policy=extent_policy,
-                         validate_schema=validate_schema)
+                         validate_schema=validate_schema, max_bytes=max_bytes)
 
 
 def _load_mesh_city(filename, lod=GeometryType.LOD1, merge_coplanar_surfaces=True) -> City:
