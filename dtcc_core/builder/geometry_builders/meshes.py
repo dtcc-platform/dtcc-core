@@ -83,9 +83,6 @@ if not hasattr(_dtcc_builder, "build_city_flat_mesh"):
     _dtcc_builder.build_city_flat_mesh = _missing_build_city_flat_mesh
 
 
-_GROUND_MESH_CLEANUP_SCALE_FRACTION = 0.005
-_GROUND_MESH_CLEANUP_SCALE_MIN = 0.01
-_GROUND_MESH_CLEANUP_SCALE_MAX = 0.1
 _RASTER_BOUNDARY_SNAP_FRACTION = 0.125
 _RASTER_BOUNDARY_SNAP_MIN = 1.0e-6
 _MERGED_ROOF_ENVELOPE_Z_SPAN = 2.0
@@ -2473,10 +2470,6 @@ def _prepare_surface_ground_regions(
         bounds=bounds,
         building_polygons=conditioned_building_polygons,
         hole_polygons=hole_polygons,
-        max_mesh_size=max_mesh_size,
-        footprint_diagnostics=footprint_diagnostics,
-        cleaning_diagnostics=cleaning_diagnostics,
-        preserve_shared_boundaries=True,
         pipeline_mode=pipeline_mode,
     )
     coverage_building_polygons = [
@@ -3722,40 +3715,11 @@ def _iter_polygon_components(geometry) -> list[Polygon]:
     return []
 
 
-def _flat_mesh_ground_cleanup_scale(
-    *,
-    max_mesh_size: float | None,
-    footprint_diagnostics: dict[str, Any],
-) -> float | None:
-    output_grid = float(footprint_diagnostics.get("output_grid", 0.0) or 0.0)
-    mesh_scale = 0.0
-    normalized_mesh_size = _normalize_max_mesh_size(max_mesh_size)
-
-    if normalized_mesh_size is not None:
-        mesh_scale = min(
-            max(
-                normalized_mesh_size * _GROUND_MESH_CLEANUP_SCALE_FRACTION,
-                _GROUND_MESH_CLEANUP_SCALE_MIN,
-            ),
-            _GROUND_MESH_CLEANUP_SCALE_MAX,
-        )
-
-    cleanup_scale = max(output_grid, mesh_scale)
-    if cleanup_scale <= 0.0:
-        return None
-
-    return cleanup_scale
-
-
 def _condition_flat_mesh_ground_polygons(
     *,
     bounds: tuple[float, float, float, float],
     building_polygons: list[Polygon],
     hole_polygons: list[Polygon],
-    max_mesh_size: float | None,
-    footprint_diagnostics: dict[str, Any],
-    cleaning_diagnostics: bool,
-    preserve_shared_boundaries: bool = False,
     pipeline_mode: MeshingPipelineMode = "strict",
 ) -> list[Polygon]:
     ground_domain = box(*bounds)
@@ -3779,44 +3743,6 @@ def _condition_flat_mesh_ground_polygons(
         for polygon in ground_polygons
         if polygon is not None and not polygon.is_empty
     ]
-
-
-def _regularize_flat_mesh_ground_polygons(
-    ground_polygons: list[Polygon],
-    *,
-    cleanup_scale: float | None,
-    cleaning_diagnostics: bool,
-) -> list[Polygon]:
-    if cleanup_scale is None or not ground_polygons:
-        return ground_polygons
-
-    conditioned: list[Polygon] = []
-    split_components = 0
-    for polygon in ground_polygons:
-        result = condition_polygon_coverage(
-            [polygon],
-            options=ConditioningOptions(
-                precision_grid=None,
-                min_feature_size=cleanup_scale,
-                merge_distance=0.0,
-                min_hole_area=cleanup_scale**2,
-                collect_stage_metrics=False,
-                enable_logging=False,
-            ),
-        )
-        parts = [candidate for candidate in result.polygons if not candidate.is_empty]
-        conditioned.extend(parts)
-        split_components += max(len(parts) - 1, 0)
-
-    if cleaning_diagnostics:
-        debug(
-            "Flat mesh ground conditioning: "
-            f"{len(ground_polygons)} -> {len(conditioned)} polygons, "
-            f"cleanup_scale={cleanup_scale} m, "
-            f"split_components={split_components}"
-        )
-
-    return conditioned
 
 
 def _consume_conditioned_building_regions_with_sources(
@@ -3950,9 +3876,6 @@ def _condition_flat_mesh_coverage_regions(
         bounds=bounds,
         building_polygons=building_polygons,
         hole_polygons=hole_polygons,
-        max_mesh_size=max_mesh_size,
-        footprint_diagnostics=footprint_diagnostics,
-        cleaning_diagnostics=cleaning_diagnostics,
         pipeline_mode=pipeline_mode,
     )
     region_polygons = [*ground_polygons, *building_polygons]
@@ -4125,11 +4048,8 @@ def _condition_meshing_footprints(
         initial_source_map.append([index])
 
     options = ConditioningOptions(
-        precision_grid=None,
         min_feature_size=min_building_detail,
         merge_distance=merge_tolerance if merge_buildings else 0.0,
-        min_hole_area=min_building_detail**2,
-        collect_stage_metrics=cleaning_diagnostics,
         enable_logging=cleaning_diagnostics,
         allow_source_merging=merge_buildings,
     )

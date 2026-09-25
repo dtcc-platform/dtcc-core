@@ -10,11 +10,30 @@ from .footprints import ConditioningResult
 def select_footprints(
     result: ConditioningResult, *, min_area: float
 ) -> ConditioningResult:
-    """Keep cleaned regions of at least min_area, without changing their geometry.
+    """Keep cleaned regions of at least ``min_area`` without changing them.
 
-    Selection is not geometric repair and does not alter the cleaning reference.
-    Return a new result, recording exclusions separately from cleaning defects.
-    Source indices remain in the original input's index space.
+    Selection is not geometric repair and does not alter the cleaning
+    reference. Exclusions are recorded separately from cleaning defects, and
+    source indices stay in the original input's index space.
+
+    Parameters
+    ----------
+    result : ConditioningResult
+        A cleaning result.
+    min_area : float
+        Smallest region area to keep, in square coordinate units.
+
+    Returns
+    -------
+    ConditioningResult
+        A new result with the kept regions. Its diagnostics add a
+        ``selection`` report with the excluded regions, their areas and
+        sources, and the sources no longer represented.
+
+    Raises
+    ------
+    ValueError
+        If ``min_area`` is negative or not finite.
     """
     if not math.isfinite(min_area) or min_area < 0:
         raise ValueError("min_area must be finite and nonnegative")
@@ -22,7 +41,6 @@ def select_footprints(
     for i, polygon in enumerate(result.polygons):
         (kept if polygon.area >= min_area else excluded).append(i)
     represented = {j for i in kept for j in result.source_map[i]}
-    removed_sources = {j for i in excluded for j in result.source_map[i]}
     policy_sources = {
         source
         for exclusion in result.diagnostics.get("policy_exclusions", [])

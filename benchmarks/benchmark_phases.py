@@ -119,13 +119,7 @@ def save_cleaning(directory, city, conditioned, task):
             ),
             "diagnostics": {
                 k: conditioned.diagnostics[k]
-                for k in (
-                    "precision_grid",
-                    "output_grid",
-                    "mesher_ready_coverage_revalidation_output_grid",
-                    "mesher_ready_coverage_revalidation_applied",
-                    "geos_exception_count",
-                )
+                for k in ("precision_grid", "output_grid")
                 if k in conditioned.diagnostics
             },
         },
@@ -167,11 +161,8 @@ def load_cleaning(path, task):
         if not np.isfinite(scale) or scale <= 0:
             raise ValueError("invalid declared scale")
         diagnostics = metadata["diagnostics"]
-        for key, value in diagnostics.items():
-            if key == "mesher_ready_coverage_revalidation_applied":
-                if type(value) is not bool:
-                    raise ValueError("invalid revalidation flag")
-            elif type(value) not in (float, int) or not np.isfinite(value) or value < 0:
+        for value in diagnostics.values():
+            if type(value) not in (float, int) or not np.isfinite(value) or value < 0:
                 raise ValueError("invalid cleaning diagnostic")
         before_selection_contract = metadata.get("before_selection_contract")
         selection = metadata.get("selection")

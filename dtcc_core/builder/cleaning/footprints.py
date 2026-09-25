@@ -245,12 +245,12 @@ def condition_polygon_coverage(
         )
 
     if options.min_feature_size == 0:
-        from .contract import _interpret_input, check_mesher_handoff_profile
+        from .contract import check_mesher_handoff_profile, interpret_input
 
         output_pairs: list[tuple[Polygon, list[int]]] = []
         interpretations = []
         for geometry, indices in zip(polygons, sources):
-            occupied, interpretation = _interpret_input([geometry])
+            occupied, interpretation = interpret_input([geometry])
             interpretations.append(interpretation)
             output_pairs.extend(
                 (part, list(indices)) for part in polygon_parts(occupied)
@@ -271,7 +271,6 @@ def condition_polygon_coverage(
                 "input_interpretation": interpretations,
                 "precision_grid": options.precision_grid or 0.0,
                 "output_grid": options.precision_grid or 0.0,
-                "collect_stage_metrics": options.collect_stage_metrics,
                 "enable_logging": options.enable_logging,
                 "fidelity": {"status": "not_checked"},
                 "input_count": len(polygons),
@@ -308,7 +307,6 @@ def condition_polygon_coverage(
         {
             "precision_grid": options.min_feature_size / 16,
             "output_grid": options.min_feature_size / 16,
-            "collect_stage_metrics": options.collect_stage_metrics,
             "enable_logging": options.enable_logging,
             "fidelity": diagnostics.get("before_selection_contract", {}).get(
                 "fidelity", {"status": "not_checked"}

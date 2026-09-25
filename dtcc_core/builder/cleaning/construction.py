@@ -1,25 +1,30 @@
-"""Bounded, source-aware footprint construction behind the public cleaning API.
+"""Bounded, source-aware construction of a cleaned footprint coverage.
 
-Original-source merge eligibility defines independent construction groups.
-Within each group, fixed preprocessing fallbacks remove dense sampling, then
-bounded topology, separation and combined passes repair the remaining defects.
-Conforming fallbacks are ranked by the preferred angle profile, geometric drift
-and canonical output order. Only explicit warning mode can return a candidate
-with residual separation; topology, fidelity and mandatory angles must pass.
+The public entry point is :func:`construct_coverage`, called by
+:func:`dtcc_core.builder.cleaning.condition_polygon_coverage`. It proceeds in
+four steps:
 
-Local clips cheaply filter and rank proposals. They are heuristic: removing
-vertices or moving long edges can change geometry beyond the clip. Every
-accepted edit must therefore pass the stage guard on the whole group as well
-as the fixed original fidelity budget. The final independent contract check
-alone determines conformance. Fixed work caps bound unsuccessful searches;
-"unresolved" does not mean infeasible.
+1. Interpret the input, fix the fidelity budget against the original occupied
+   set, and group source atoms by merge eligibility.
+2. Return input that already conforms. Otherwise, for each group, run a fixed
+   set of preprocessing attempts followed by bounded topology, separation and
+   combined repair passes. Proposals are removals, collapses, balanced motion
+   of both sides of a conflict, notches, closings and cuts.
+3. Filter and rank proposals on local clips, then admit an edit only if it
+   improves the group's defect measure and passes the original fidelity budget
+   on the whole group. Conforming attempts are finished towards the preferred
+   angle profile and ranked by that profile, drift and canonical geometry.
+4. Attribute each region to the sources that support it, and check the
+   assembled coverage independently.
 
-Operators include removal, collapse, splitting the separation deficit between
-boundaries, notching, closing and cutting. Integer ranking and fixed offer order
-avoid a numerical optimiser, but do not promise platform-independent GEOS output.
+Local clips are heuristic: removing vertices or moving long edges can change
+geometry beyond the clip, which is why admission is decided on the whole group.
+Only the final contract check determines conformance. Fixed work limits bound
+the search, so an unresolved group does not mean that no conforming result
+exists. Integer ranking and fixed offer order avoid a numerical optimizer, but
+GEOS output is not guaranteed to be identical across platforms.
 
-The controlling specification is docs/design/footprint-cleaning-contract.md;
-research history and measured acceptance evidence live alongside it.
+The specification is docs/design/footprint-cleaning-contract.md.
 """
 
 from __future__ import annotations
@@ -28,7 +33,6 @@ import time
 
 import numpy as np
 from shapely import STRtree, box, distance, linestrings, make_valid, points, set_precision
-from shapely.affinity import translate
 from shapely import simplify as shapely_simplify
 from shapely.errors import GEOSException
 from shapely.geometry import LineString, Point, Polygon
@@ -36,18 +40,22 @@ from shapely.ops import unary_union
 
 from .contract import (
     DEFAULT_PREFERRED_INCIDENT_SECTOR_DEGREES,
+    SEPARATION_RELATIVE_TOLERANCE,
     FidelityBudget,
-    _SEPARATION_RELATIVE_TOLERANCE,
-    _canonical_graph,
-    _interpret_input,
     admissibility,
+    canonical_graph,
     check_cleaning_contract,
     check_mesher_handoff_profile,
     has_only_separation_defects,
+    interpret_input,
 )
 
+# The public entry points; everything else supports construct_coverage.
+__all__ = ["construct_coverage", "polygon_parts"]
+
+
 def polygon_parts(geometry):
-    """Return polygon atoms without importing research code."""
+    """Return the Polygon parts of a geometry, flattening collections."""
     if geometry.is_empty:
         return []
     if isinstance(geometry, Polygon):
@@ -134,6 +142,59 @@ def _merge_eligibility_groups(
     return groups
 
 
+def _nonmerge_inset(raw, atoms, atom_sources, conflicts, *, delta, epsilon):
+    """Inset atoms in cross-group conflicts by just under epsilon, if that conforms.
+
+    A single whole-coverage proposal for sources that may not be merged. Mitred
+    insets keep corners sharp, so an atom with reflex corners usually loses
+    protected core and the proposal fails; the caller then constructs each
+    group separately.
+    """
+    inset_pairs = []
+    exclusions = []
+    inset_distance = epsilon * 0.999
+    for atom_index, (atom, sources) in enumerate(zip(atoms, atom_sources)):
+        candidate = (
+            atom.buffer(-inset_distance, join_style="mitre")
+            if atom_index in conflicts
+            else atom
+        )
+        parts = polygon_parts(candidate)
+        if not parts:
+            exclusions.append(
+                {
+                    "source_indices": list(sources),
+                    "area": float(atom.area),
+                    "reason": "empty_protected_core",
+                }
+            )
+        inset_pairs.extend((part, list(sources)) for part in parts)
+    inset_polygons = [item[0] for item in inset_pairs]
+    contract = check_cleaning_contract(raw, inset_polygons, delta=delta, epsilon=epsilon)
+    profile = check_mesher_handoff_profile(inset_polygons)
+    if contract["status"] != "pass" or profile["status"] != "pass":
+        return None
+    inset_pairs.sort(key=lambda item: _geometry_key(item[0]))
+    return (
+        [item[0] for item in inset_pairs],
+        [item[1] for item in inset_pairs],
+        {
+            "outcome": "conforming",
+            "group_reports": [
+                {
+                    "group": None,
+                    "outcome": "conforming",
+                    "reason": "nonmerge_balanced_inset",
+                    "inset_distance": inset_distance,
+                }
+            ],
+            "policy_exclusions": exclusions,
+            "before_selection_contract": contract,
+            "mesher_profile": profile,
+        },
+    )
+
+
 def construct_coverage(
     raw,
     source_map,
@@ -144,7 +205,31 @@ def construct_coverage(
     allow_source_merging=True,
     allow_residual_separation=False,
 ):
-    """Construct and attribute one complete coverage or report unresolved groups."""
+    """Construct and attribute one complete coverage, or report unresolved groups.
+
+    Parameters
+    ----------
+    raw : iterable of Polygon or MultiPolygon
+        Input footprints.
+    source_map : list[list[int]]
+        Source indices for each input footprint.
+    delta : float, optional
+        Minimum feature size.
+    epsilon : float or None, optional
+        Fidelity budget; ``None`` uses ``delta / 2``.
+    merge_distance : float, optional
+        Inclusive merge-eligibility distance on the original input.
+    allow_source_merging : bool, optional
+        Whether eligible sources may be merged.
+    allow_residual_separation : bool, optional
+        Accept a coverage whose only defect is residual separation.
+
+    Returns
+    -------
+    tuple
+        ``(polygons, source_map, diagnostics)``. The polygons and source map
+        are ``None`` when the coverage is unresolved.
+    """
     epsilon = delta / 2 if epsilon is None else epsilon
     raw = list(raw)
     source_map = [sorted(set(indices)) for indices in source_map]
@@ -155,7 +240,7 @@ def construct_coverage(
     atom_sources = []
     interpretations = []
     for geometry, sources in zip(raw, source_map):
-        occupied, interpretation = _interpret_input([geometry])
+        occupied, interpretation = interpret_input([geometry])
         interpretations.append(interpretation)
         for atom in polygon_parts(occupied):
             atoms.append(atom)
@@ -185,38 +270,41 @@ def construct_coverage(
                 )
             )
         # Removing shared source boundaries changes the labelled graph, even
-        # though occupancy is unchanged. Report the graph actually returned.
+        # though occupancy is unchanged. Check the graph actually returned.
         if len(identity_polygons) != len(atoms):
             identity_contract = check_cleaning_contract(
                 raw, identity_polygons, delta=delta, epsilon=epsilon
             )
             identity_profile = check_mesher_handoff_profile(identity_polygons)
-        ordered = sorted(
-            zip(identity_polygons, identity_sources),
-            key=lambda item: _geometry_key(item[0]),
-        )
-        return (
-            [item[0] for item in ordered],
-            [list(item[1]) for item in ordered],
-            {
-                "outcome": "unchanged",
-                "groups": len(merge_groups),
-                "group_reports": [],
-                "policy_exclusions": [],
-                "before_selection_contract": identity_contract,
-                "mesher_profile": identity_profile,
-                "seconds": time.perf_counter() - started,
-                "input_interpretation": interpretations,
-                "merge_distance": float(merge_distance),
-                "allow_source_merging": bool(allow_source_merging),
-                "merge_eligibility_groups": [list(group) for group in merge_groups],
-            },
-        )
+        if (
+            identity_contract["status"] == "pass"
+            and identity_profile["status"] == "pass"
+        ):
+            ordered = sorted(
+                zip(identity_polygons, identity_sources),
+                key=lambda item: _geometry_key(item[0]),
+            )
+            return (
+                [item[0] for item in ordered],
+                [list(item[1]) for item in ordered],
+                {
+                    "outcome": "unchanged",
+                    "groups": len(merge_groups),
+                    "group_reports": [],
+                    "policy_exclusions": [],
+                    "before_selection_contract": identity_contract,
+                    "mesher_profile": identity_profile,
+                    "seconds": time.perf_counter() - started,
+                    "input_interpretation": interpretations,
+                    "merge_distance": float(merge_distance),
+                    "allow_source_merging": bool(allow_source_merging),
+                    "merge_eligibility_groups": [
+                        list(group) for group in merge_groups
+                    ],
+                },
+            )
 
     if len(merge_groups) > 1 and atoms and epsilon > 0:
-        inset_pairs = []
-        exclusions = []
-        inset_distance = epsilon * 0.999
         group_for_atom = {
             atom_index: group_index
             for group_index, members in enumerate(merge_groups)
@@ -231,55 +319,28 @@ def construct_coverage(
             ):
                 if group_for_atom[candidate] != group_for_atom[atom_index]:
                     cross_group_conflicts.update((atom_index, candidate))
-        for atom_index, (atom, sources) in enumerate(zip(atoms, atom_sources)):
-            candidate = (
-                atom.buffer(-inset_distance, join_style="mitre")
-                if atom_index in cross_group_conflicts
-                else atom
+        # Without cross-group conflicts the proposal would be the input itself,
+        # which has already failed the identity check.
+        if cross_group_conflicts:
+            inset = _nonmerge_inset(
+                raw,
+                atoms,
+                atom_sources,
+                cross_group_conflicts,
+                delta=delta,
+                epsilon=epsilon,
             )
-            parts = polygon_parts(candidate)
-            if not parts:
-                exclusions.append(
-                    {
-                        "source_indices": list(sources),
-                        "area": float(atom.area),
-                        "reason": "empty_protected_core",
-                    }
+            if inset is not None:
+                polygons, sources, report = inset
+                report.update(
+                    groups=len(merge_groups),
+                    seconds=time.perf_counter() - started,
+                    input_interpretation=interpretations,
+                    merge_distance=float(merge_distance),
+                    allow_source_merging=bool(allow_source_merging),
+                    merge_eligibility_groups=[list(group) for group in merge_groups],
                 )
-            inset_pairs.extend((part, list(sources)) for part in parts)
-        inset_polygons = [item[0] for item in inset_pairs]
-        inset_contract = check_cleaning_contract(
-            raw, inset_polygons, delta=delta, epsilon=epsilon
-        )
-        inset_profile = check_mesher_handoff_profile(inset_polygons)
-        if inset_contract["status"] == "pass" and inset_profile["status"] == "pass":
-            inset_pairs.sort(key=lambda item: _geometry_key(item[0]))
-            return (
-                [item[0] for item in inset_pairs],
-                [item[1] for item in inset_pairs],
-                {
-                    "outcome": "conforming",
-                    "groups": len(merge_groups),
-                    "group_reports": [
-                        {
-                            "group": None,
-                            "outcome": "conforming",
-                            "reason": "nonmerge_balanced_inset",
-                            "inset_distance": inset_distance,
-                        }
-                    ],
-                    "policy_exclusions": exclusions,
-                    "before_selection_contract": inset_contract,
-                    "mesher_profile": inset_profile,
-                    "seconds": time.perf_counter() - started,
-                    "input_interpretation": interpretations,
-                    "merge_distance": float(merge_distance),
-                    "allow_source_merging": bool(allow_source_merging),
-                    "merge_eligibility_groups": [
-                        list(group) for group in merge_groups
-                    ],
-                },
-            )
+                return polygons, sources, report
 
     groups = merge_groups
     output_polygons = []
@@ -431,7 +492,8 @@ SIMPLIFY_LADDER = (0.05, 0.02, 0.01, 0.005, 0.001)
 # The share of epsilon the preprocessing stage may spend. The rest is kept
 # for repairs that have no alternative.
 SAMPLING_SHARE = 0.25
-# Preprocessing ladders tried in turn while the group stays unresolved.
+# Preprocessing ladders of the fixed attempts. Every attempt runs unless its
+# preprocessed start is identical to an earlier one; conforming results compete.
 SAMPLING_FALLBACKS = (SIMPLIFY_LADDER, SIMPLIFY_LADDER[2:], ())
 # Local operation sizes, as multiples of delta.
 CUT_RADII = (0.55, 0.65, 0.75, 0.9, 1.0, 1.25, 1.5, 2.0)
@@ -491,14 +553,14 @@ def conflicts(polygons, delta):
     wall, and a repair sized from those two points would keep re-cutting the
     ends of a feature it never spans.
     """
-    vertices, edges = _canonical_graph([p.boundary for p in polygons])
+    vertices, edges = canonical_graph([p.boundary for p in polygons])
     if not vertices:
         return []
     point_geometries = points(vertices)
     segments = linestrings(edges)
     vertex_ids = {xy: i for i, xy in enumerate(vertices)}
     endpoints = np.array([[vertex_ids[a], vertex_ids[b]] for a, b in edges])
-    tolerance = delta * _SEPARATION_RELATIVE_TOLERANCE
+    tolerance = delta * SEPARATION_RELATIVE_TOLERANCE
     found = []
     for kind, tree, targets in (
         (0, STRtree(point_geometries), point_geometries),
@@ -541,7 +603,7 @@ def nonmanifold_points(polygons):
     occupied = unary_union(polygons)
     if occupied.is_empty:
         return []
-    _, edges = _canonical_graph([occupied.boundary])
+    _, edges = canonical_graph([occupied.boundary])
     degree = {}
     for a, b in edges:
         degree[a] = degree.get(a, 0) + 1
@@ -600,7 +662,7 @@ class LocalJudge:
     def __init__(self, budget, delta, *, evaluation_limit=None):
         self.budget = budget
         self.delta = delta
-        self.core, self.envelope = budget._local_bounds[1]
+        self.core, self.envelope = budget.local_core_and_envelope
         self.evaluations = 0
         self.admissions = 0
         self.global_evaluations = 0
@@ -666,12 +728,12 @@ class LocalJudge:
         """
         if clip is not self._local_clip_geometry:
             self._local_clip_geometry = clip
-            self._local_clip = self.budget._to_local(clip)
+            self._local_clip = self.budget.to_local(clip)
             self._local_clip_core = self.core.intersection(self._local_clip)
             self._ranked_candidate_locals = []
         local_clip = self._local_clip
         self._last_candidate_geometry = candidate
-        self._last_local_candidate = self.budget._to_local(candidate)
+        self._last_local_candidate = self.budget.to_local(candidate)
         local = self._last_local_candidate.intersection(local_clip)
         lost = self._local_clip_core.difference(local).area
         if lost > 1e-10:
@@ -691,7 +753,7 @@ class LocalJudge:
         self.admissions += 1
         for geometry, local in self._ranked_candidate_locals:
             if candidate is geometry:
-                return self.budget._accepts_local_union(local)
+                return self.budget.accepts_local_union(local)
         return self.budget.accepts_union(candidate)
 
 
@@ -788,10 +850,7 @@ def combinatorial_candidates(occupied, locations, members, delta, *, rebuilder=N
             continue
         here = tuple(support[0])
         removable.append(here)
-        # A conflict has two sides. Trying only the vertex the query happened
-        # to start from leaves half the repairs unreachable, and the last
-        # unresolved groups were exactly the ones where the useful move was on
-        # the other side.
+        # A conflict has two sides: offer edits of the vertices on both.
         removable.extend(tuple(xy) for xy in support[1:])
         if len(support) == 2:
             collapsible.append((here, tuple(support[1])))
@@ -818,13 +877,13 @@ def combinatorial_candidates(occupied, locations, members, delta, *, rebuilder=N
 
 
 def nudge_candidates(occupied, locations, members, delta, *, rebuilder=None):
-    """Move the offending vertex straight away from what it is too close to.
+    """Move conflicting features apart along the direction of their separation.
 
-    The recorded construction reaches for a bounded convex program here. One
-    vertex moving along one direction has a closed form — put it at the required
-    distance from the feature it conflicts with — so the solver, and with it the
-    platform-dependent tie-break that made Lund 17 flip, is not needed. Whether
-    the move is allowed is still the checker's decision, not the formula's.
+    For a vertex closer than delta to another vertex or edge, offer (in fixed
+    order) a notch in the opposing edge, balanced motion of both sides, motion
+    of the vertex alone and motion of the opposing feature alone, each placing
+    the pair at a fixed multiple of delta. The positions are closed-form; the
+    checks decide whether a move is admitted.
     """
     rebuilder = _Rebuilder(occupied) if rebuilder is None else rebuilder
     for index in members:
@@ -846,13 +905,9 @@ def nudge_candidates(occupied, locations, members, delta, *, rebuilder=None):
         if length == 0:
             continue
         direction = direction / length
-        # Both sides move, each by half of what the separation still needs.
-        # One-sided moves have to cover the whole deficit, which exceeds
-        # epsilon whenever the gap is below delta - epsilon - that is, for most
-        # real conflicts. Splitting it is what keeps the repair inside the
-        # budget, and it is the one place the recorded construction's coupled
-        # motion is genuinely needed. Here it is one direction and one scalar,
-        # so it is a formula rather than a program.
+        # Both sides move, each by half of what the separation still needs. A
+        # one-sided move must cover the whole deficit, which exceeds epsilon
+        # whenever the gap is below delta - epsilon.
         for multiple in NUDGE_MULTIPLES:
             shift = (multiple * delta - length) / 2
             if shift > 0 and len(support) == 3:
@@ -906,8 +961,7 @@ def cut_shapes(centre, radius):
     The diamond is offered first because at a right-angled corner it buys the
     most separation per unit of material removed: it reaches `radius * sqrt(2)`
     of clearance while never removing anything deeper than `radius / 2` from the
-    original boundary. That is the recorded corner-cut witness, at its own
-    sampled leg length, arrived at as the general rule rather than as a case.
+    original boundary.
     """
     x, y = centre
     yield "diamond", Polygon(
@@ -1099,19 +1153,12 @@ def repair_site(occupied, judge, coordinates, delta, guard, candidates):
 def dense_sampling_stage(raw, occupied, delta, epsilon, ladder):
     """One global simplification, judged against a reserved share of the budget.
 
-    Milestone B measured this removing 98% of same-curve defects and a quarter
-    of everything else, in under a second for the whole corpus, so it is worth
-    doing first. It is preprocessing, which is what milestone E left open for
-    it. Its topology-preserving simplification can still spend fidelity needed
-    by later wall motion.
-
-    It is admitted against a fraction of epsilon rather than all of it. Taking
-    the largest tolerance the full budget allows was measured spending headroom
-    that the repairs afterwards need: on a part only a little wider than two
-    epsilon the protected core is razor thin, so a displacement of a few
-    centimetres here and a separation of a few centimetres later cross it
-    together while neither crosses it alone. Preprocessing gets a declared
-    share and no more.
+    Topology-preserving simplification removes most defects caused by dense
+    sampling of nearly straight walls. The largest tolerance of the ladder that
+    stays within ``SAMPLING_SHARE * epsilon`` of the original is kept, leaving
+    the rest of the budget for later repairs: on a part only a little wider than
+    two epsilon, a displacement here and a separation later could otherwise
+    cross the protected core together although neither does alone.
     """
     if not ladder:
         return occupied, None
@@ -1148,7 +1195,7 @@ def _fallback_preprocessing_is_equivalent(raw, delta, epsilon):
         budget = FidelityBudget(raw, epsilon)
         keys = set()
         for attempt_index, ladder in enumerate(SAMPLING_FALLBACKS):
-            occupied, _ = _interpret_input(raw)
+            occupied, _ = interpret_input(raw)
             occupied = tidy(occupied)
             state = safe_state(polygon_parts(occupied), delta)
             if "canonical_vertex_count" not in state:
@@ -1179,10 +1226,10 @@ def _fallback_preprocessing_is_equivalent(raw, delta, epsilon):
 def _structural_snap(occupied, budget, delta, before):
     """Offer one local-frame precision union as a real, budgeted edit."""
     grid = delta * STRUCTURAL_SNAP_GRID_FACTOR
-    local = budget._to_local(occupied)
+    local = budget.to_local(occupied)
     try:
         candidate = set_precision(local, grid, mode="valid_output")
-        candidate = translate(candidate, *budget._origin)
+        candidate = budget.from_local(candidate)
         candidate = unary_union(polygon_parts(candidate))
         state = safe_state(polygon_parts(candidate), delta)
     except GEOSException:
@@ -1215,9 +1262,9 @@ def _bulk_simplify(occupied, budget, delta, epsilon, before):
             "defects_per_vertex": defect_density,
         }
     try:
-        local = budget._to_local(occupied)
+        local = budget.to_local(occupied)
         candidate = shapely_simplify(local, epsilon, preserve_topology=True)
-        candidate = translate(candidate, *budget._origin)
+        candidate = budget.from_local(candidate)
         candidate = unary_union(polygon_parts(candidate))
         state = safe_state(polygon_parts(candidate), delta)
     except GEOSException:
@@ -1313,15 +1360,34 @@ def _finish_mesher_profile(raw, output, *, delta, epsilon):
 
 
 def construct(raw, *, delta=0.5, epsilon=None, allow_residual_separation=False):
-    """Run the staged construction, backing off preprocessing if it blocks.
+    """Construct one merge group with every fixed preprocessing attempt.
 
-    Simplification pays for itself on almost every group, and on a few it
-    quietly spends the fidelity the endgame needs: it is admissible on its own
-    and so is each later repair, yet together they cross the budget. Rather
-    than weaken the stage for everyone, a group that finishes unresolved is
-    retried with less of it and then with none. The ladder is fixed here, the
-    same for every group. Conforming candidates always outrank warning-only
-    candidates; the latter never alter the ladder or its repair budgets.
+    Input that already conforms is returned unchanged. Otherwise the attempts
+    of ``SAMPLING_FALLBACKS`` run in order: the full dense-sampling ladder, a
+    shorter one, and none. Less simplification leaves more of the fidelity
+    budget for repairs, which some groups need. Attempts whose preprocessed
+    start is identical to an earlier one are skipped. All other attempts run
+    even after one has conformed, and the conforming results are ranked by the
+    preferred angle profile, symmetric-difference drift from the input and
+    canonical geometry. Warning candidates (only separation defects) are used
+    only when no attempt conforms, and never change the attempts or budgets.
+
+    Parameters
+    ----------
+    raw : iterable of Polygon
+        The group's interpreted source atoms.
+    delta : float, optional
+        Minimum feature size.
+    epsilon : float or None, optional
+        Fidelity budget; ``None`` uses ``delta / 2``.
+    allow_residual_separation : bool, optional
+        Keep a warning candidate when no attempt conforms.
+
+    Returns
+    -------
+    tuple[list[Polygon] or None, dict]
+        The constructed polygons (``None`` if unresolved) and a report with the
+        outcome, the attempts and the work spent.
     """
     epsilon = delta / 2 if epsilon is None else epsilon
     if not np.isfinite(delta) or delta <= 0:
@@ -1330,7 +1396,7 @@ def construct(raw, *, delta=0.5, epsilon=None, allow_residual_separation=False):
         raise ValueError("epsilon must be finite and nonnegative")
     raw = list(raw)
     started = time.perf_counter()
-    occupied, interpretation = _interpret_input(raw)
+    occupied, interpretation = interpret_input(raw)
     occupied = tidy(occupied)
     identity = polygon_parts(occupied)
     identity_contract = check_cleaning_contract(
@@ -1526,7 +1592,7 @@ def attempt(
 ):
     """One run of the staged construction at a fixed preprocessing ladder."""
     started = time.perf_counter()
-    occupied, interpretation = _interpret_input(raw)
+    occupied, interpretation = interpret_input(raw)
     occupied = tidy(occupied)
     budget = FidelityBudget(raw, epsilon)
     report = {

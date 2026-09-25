@@ -287,10 +287,8 @@ def merge_building_footprints(
         buildings,
         lod=lod,
         options=ConditioningOptions(
-            precision_grid=None,
             min_feature_size=declared_scale,
             merge_distance=max_distance,
-            min_hole_area=0.0,
             fidelity_tolerance=max_distance / 2.0 if max_distance > 0 else 0.0,
             allow_source_merging=True,
         ),
@@ -339,8 +337,8 @@ def simplify_building_footprints(
     tolerance : float, optional
         The tolerance for simplification. A higher value results in a more simplified footprint (default is 0.5).
     method : str, optional
-        The simplification method to use. Options are 'rdp' for Ramer-Douglas-Peucker algorithm, 'vw' for
-        Visvalingam-Whyatt algorithm or 'vwp' for topology preserving Visvalingam-Whyatt (default is 'vwp').
+        Ignored; retained for compatibility. Footprints are simplified by the
+        shared cleaner at ``tolerance`` (default is 'vwp').
     lod : GeometryType, optional
         The level of detail of the geometry to simplify. Typically set to `GeometryType.LOD0` (default).
     return_index_map : bool, optional
@@ -351,6 +349,11 @@ def simplify_building_footprints(
     -------
     Union[List[Building], Tuple[List[Building], List[List[int]]]]
         Simplified buildings, optionally paired with the index map.
+
+    Notes
+    -----
+    Buildings are cleaned at ``tolerance`` without merging. Separate buildings
+    closer than ``tolerance`` may keep that gap, reported with a warning.
     """
 
     if method not in ["vwp", "vw", "rdp"]:
@@ -369,10 +372,8 @@ def simplify_building_footprints(
         buildings,
         lod=lod,
         options=ConditioningOptions(
-            precision_grid=None,
             min_feature_size=tolerance,
             merge_distance=0.0,
-            min_hole_area=0.0,
         ),
         operation_name="simplify_building_footprints",
         return_index_map=return_index_map,
@@ -395,7 +396,8 @@ def clean_building_footprints(
     clearance : float, default 0.5
         Minimum clearance distance in meters.
     smallest_hole_area : float, default 1.0
-        Minimum area of holes to keep.
+        Ignored; retained for compatibility. Holes follow the fidelity budget
+        of the cleaner: a hole without a protected open core may be filled.
     return_index_map : bool, optional
         When True, also return, for each cleaned building, the indices of the
         input buildings it came from.
@@ -404,16 +406,23 @@ def clean_building_footprints(
     -------
     Union[List[Building], Tuple[List[Building], List[List[int]]]]
         Cleaned buildings, optionally paired with the index map.
-    """
 
+    Notes
+    -----
+    Buildings are not merged. Separate buildings closer than ``clearance``
+    may keep that gap, reported with a warning.
+    """
+    if smallest_hole_area != 1.0:
+        warning(
+            "clean_building_footprints() ignores smallest_hole_area; holes follow "
+            "the cleaner's fidelity budget."
+        )
     return _condition_buildings_with_shared_cleaner(
         buildings,
         lod=GeometryType.LOD0,
         options=ConditioningOptions(
-            precision_grid=None,
             min_feature_size=clearance,
             merge_distance=0.0,
-            min_hole_area=smallest_hole_area,
         ),
         operation_name="clean_building_footprints",
         return_index_map=return_index_map,
@@ -445,15 +454,18 @@ def fix_building_footprint_clearance(
     -------
     Union[List[Building], Tuple[List[Building], List[List[int]]]]
         Buildings with fixed clearances, optionally paired with the index map.
+
+    Notes
+    -----
+    Buildings are not merged. Separate buildings closer than ``clearance``
+    may keep that gap, reported with a warning.
     """
     return _condition_buildings_with_shared_cleaner(
         buildings,
         lod=lod,
         options=ConditioningOptions(
-            precision_grid=None,
             min_feature_size=clearance,
             merge_distance=0.0,
-            min_hole_area=0.0,
         ),
         operation_name="fix_building_footprint_clearance",
         return_index_map=return_index_map,

@@ -1,8 +1,12 @@
-"""Independent geometric checks for docs/design/footprint-cleaning-contract.md.
+"""Independent checks of the footprint cleaning contract.
 
-These observe conformance independently of construction and warning-continuation
-policy. Distances are in the input's planar coordinate units. No repair operators
-or mesher heuristics participate in these checks.
+The contract (docs/design/footprint-cleaning-contract.md) has three separate
+obligations: admissibility of the output subdivision (topology and feature
+separation at scale delta), fidelity to the original occupied set (a two-sided
+erosion/dilation budget epsilon), and the mesher-input incident-sector profile.
+These checks observe conformance independently of construction and of the
+warning policy; no repair operators or mesher heuristics participate. Distances
+are in the input's planar coordinate units.
 """
 
 from __future__ import annotations
@@ -15,7 +19,8 @@ from shapely.affinity import translate
 from shapely.geometry import Point, Polygon, MultiPolygon
 from shapely.ops import unary_union
 
-_SEPARATION_RELATIVE_TOLERANCE = 1e-6
+# Distances below delta * (1 - SEPARATION_RELATIVE_TOLERANCE) are violations.
+SEPARATION_RELATIVE_TOLERANCE = 1e-6
 _INCIDENT_SECTOR_DEGREE_TOLERANCE = 1e-6
 DEFAULT_MINIMUM_INCIDENT_SECTOR_DEGREES = 1.0
 DEFAULT_PREFERRED_INCIDENT_SECTOR_DEGREES = 3.0
@@ -28,7 +33,28 @@ def _validate_scale(value, name, *, positive):
         )
 
 
-def _interpret_input(raw):
+def interpret_input(raw):
+    """Return the occupied set of raw footprints and how it was interpreted.
+
+    Invalid geometries are interpreted with GEOS ``make_valid``; only polygonal
+    parts are kept and lower-dimensional remnants are counted.
+
+    Parameters
+    ----------
+    raw : iterable of Polygon or MultiPolygon
+        Raw footprints with finite coordinates.
+
+    Returns
+    -------
+    tuple[BaseGeometry, dict]
+        The union of the interpreted polygons and a report with the method,
+        the number of repaired inputs and the number of non-area remnants.
+
+    Raises
+    ------
+    ValueError
+        If an input is not polygonal or has nonfinite coordinates.
+    """
     polygons = []
     repaired_count = 0
     remnant_count = 0
@@ -69,11 +95,23 @@ def _lines(geometry):
     return [line for part in geometry.geoms for line in _lines(part)]
 
 
-def _canonical_graph(boundaries):
-    """Node exact shared boundaries; suppress only collinear degree-two nodes.
+def canonical_graph(boundaries):
+    """Return the canonical straight-line graph of region boundaries.
 
-    No snapping or cleanup tolerance: a tiny genuine bend remains a feature.
-    The exact-collinearity decision here uses floating-point arithmetic.
+    Boundaries are noded so that shared pieces occur once; only exactly
+    collinear degree-two vertices are suppressed. There is no snapping or
+    cleanup tolerance, so a tiny genuine bend remains a feature. The
+    collinearity decision uses floating-point arithmetic.
+
+    Parameters
+    ----------
+    boundaries : list of BaseGeometry
+        Region boundaries (lines or rings).
+
+    Returns
+    -------
+    tuple[list, list]
+        Sorted vertex coordinates and sorted edges as coordinate pairs.
     """
     neighbors = {}
     for line in _lines(unary_union(boundaries)):
@@ -119,7 +157,7 @@ def admissibility(polygons, delta):
     ):
         return {"topology_ok": False, "resolved": False, "reason": "invalid polygon"}
     if len(polygons) == 1:
-        vertices, edges = _canonical_graph([polygons[0].boundary])
+        vertices, edges = canonical_graph([polygons[0].boundary])
         occupancy_edges = edges
         overlap_pairs = 0
     else:
@@ -131,10 +169,10 @@ def admissibility(polygons, delta):
             for j in tree.query(p, predicate="intersects")
             if j > i and p.relate_pattern(polygons[j], "T********")
         )
-        _, occupancy_edges = _canonical_graph(
+        _, occupancy_edges = canonical_graph(
             [occupied.boundary] if polygons else []
         )
-        vertices, edges = _canonical_graph([p.boundary for p in polygons])
+        vertices, edges = canonical_graph([p.boundary for p in polygons])
     degree = {}
     for a, b in occupancy_edges:
         degree[a] = degree.get(a, 0) + 1
@@ -145,7 +183,7 @@ def admissibility(polygons, delta):
     minimum = delta
     short_pairs = 0
     witness = None
-    tolerance = delta * _SEPARATION_RELATIVE_TOLERANCE
+    tolerance = delta * SEPARATION_RELATIVE_TOLERANCE
     if vertices:
         point_geometries = points(vertices)
         segments = linestrings(edges)
@@ -177,7 +215,7 @@ def admissibility(polygons, delta):
                 k = int(np.argmin(distances))
                 i, j = int(source[k]), int(target[k])
                 key = (float(distances[k]), i, kind)
-                # Preserve the old witness tie order: vertex order, then VV
+                # Deterministic witness order: vertex order, then VV
                 # before VE, then the tree's order within a vertex query.
                 if key[0] < delta and key < closest_key:
                     closest_key = key
@@ -243,7 +281,7 @@ def incident_sectors(
             "angle_tolerance_degrees": _INCIDENT_SECTOR_DEGREE_TOLERANCE,
         }
 
-    vertices, edges = _canonical_graph([polygon.boundary for polygon in polygons])
+    vertices, edges = canonical_graph([polygon.boundary for polygon in polygons])
     polygon_tree = STRtree(polygons)
     neighbors = {vertex: [] for vertex in vertices}
     for a, b in edges:
@@ -352,12 +390,12 @@ class FidelityBudget:
 
     def __init__(self, raw, epsilon):
         _validate_scale(epsilon, "epsilon", positive=False)
-        occupied, self.interpretation = _interpret_input(raw)
+        occupied, self.interpretation = interpret_input(raw)
         # GEOS overlay can lose thin differences at large map coordinates.
         # Keep one fixed frame for buffers, admission and reporting; never
         # choose a new origin from a candidate or an intermediate repair.
         self._origin = occupied.bounds[:2] if not occupied.is_empty else (0.0, 0.0)
-        occupied = self._to_local(occupied)
+        occupied = self.to_local(occupied)
         self.epsilon = epsilon
         quad_segs = 32
         self.uncertainty = (
@@ -375,24 +413,35 @@ class FidelityBudget:
             )
         ]
 
-    def _to_local(self, geometry):
+    @property
+    def origin(self):
+        """Origin of the fixed local frame used for all budget computations."""
+        return self._origin
+
+    def to_local(self, geometry):
+        """Translate world-coordinate geometry into the budget's local frame."""
         return translate(geometry, -self._origin[0], -self._origin[1])
 
+    def from_local(self, geometry):
+        """Translate local-frame geometry back to world coordinates."""
+        return translate(geometry, *self._origin)
+
     @property
-    def _bounds(self):
-        """World-coordinate views for research proposal geometry, not checking."""
-        return [
-            tuple(translate(g, *self._origin) for g in pair)
-            for pair in self._local_bounds
-        ]
+    def local_core_and_envelope(self):
+        """Protected core and allowed envelope used for admission, in the local frame.
+
+        Both use the radius ``epsilon - buffer_uncertainty``, so admission is a
+        definite pass.
+        """
+        return self._local_bounds[1]
 
     @staticmethod
     def _violations(bounds, candidate):
         protected, allowed = bounds
         return protected.difference(candidate).area, candidate.difference(allowed).area
 
-    def _accepts_local_union(self, candidate):
-        """Admit a union already expressed in this budget's fixed frame."""
+    def accepts_local_union(self, candidate):
+        """Admit a union already expressed in this budget's local frame."""
         protected, allowed = self._local_bounds[1]
         if protected.difference(candidate).area > 1e-10:
             return False
@@ -400,19 +449,7 @@ class FidelityBudget:
 
     def accepts_union(self, candidate):
         """Admit an internally validated coverage union only on a definite pass."""
-        return self._accepts_local_union(self._to_local(candidate))
-
-    def can_drop_input_part(self, original):
-        """Whether an original part contains no protected occupied interior.
-
-        Use the fixed union's core: eroding this part alone would overlook
-        protected space spanning shared walls. This tests complete disappearance
-        only; it does not certify other changes made by an opening operation.
-        """
-        return (
-            self._local_bounds[1][0].intersection(self._to_local(original)).area
-            <= 1e-10
-        )
+        return self.accepts_local_union(self.to_local(candidate))
 
     @property
     def protected_occupied_area(self):
@@ -429,7 +466,7 @@ class FidelityBudget:
             for g in cleaned
         ):
             return {"status": "not_checked", "reason": "invalid output"}
-        candidate = unary_union([self._to_local(p) for p in cleaned])
+        candidate = unary_union([self.to_local(p) for p in cleaned])
         lost, added = self._violations(self._local_bounds[0], candidate)
         status = (
             "pass"
@@ -484,7 +521,7 @@ def check_cleaning_contract(raw, cleaned, *, delta, epsilon=None):
         "status": status,
         "delta": delta,
         "epsilon": epsilon,
-        "separation_tolerance": delta * _SEPARATION_RELATIVE_TOLERANCE,
+        "separation_tolerance": delta * SEPARATION_RELATIVE_TOLERANCE,
         "admissibility": output,
         "fidelity": drift,
     }

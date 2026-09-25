@@ -220,19 +220,6 @@ def make_bounded_flat_city(
     return city
 
 
-def _nearest_nonadjacent_boundary_vertex_distance(polygon: Polygon) -> float:
-    exterior = np.asarray(polygon.exterior.coords, dtype=np.float64)
-    best = np.inf
-
-    for i in range(len(exterior) - 1):
-        for j in range(i + 2, len(exterior) - 1):
-            if i == 0 and j == len(exterior) - 2:
-                continue
-            best = min(best, float(np.linalg.norm(exterior[i] - exterior[j])))
-
-    return best
-
-
 def test_build_city_flat_mesh_handles_pathological_footprints(monkeypatch):
     calls = []
     original = meshes_module._condition_meshing_footprints
@@ -956,45 +943,6 @@ def test_tetgen_plc_contract_from_audit_reports_precheck_failures():
     assert any("25% of the declared meshing scale" in message for message in contract["warnings"])
 
 
-def test_regularize_flat_mesh_ground_polygons_splits_case55_style_pinch():
-    polygon = Polygon(
-        [
-            (675263.1249638698, 6581229.500071362),
-            (675274.8125201109, 6581225.406301662),
-            (675282.3125684819, 6581222.187530903),
-            (675278.5937848733, 6581210.874928664),
-            (675263.4062842835, 6581216.312428876),
-            (675261.562570048, 6581210.906283745),
-            (675276.0313192445, 6581205.718784033),
-            (675274.656285481, 6581201.468679672),
-            (675268.9687844442, 6581203.37493002),
-            (675268.375039339, 6581201.65619419),
-            (675265.3125405194, 6581201.687444177),
-            (675263.0312874243, 6581194.437434341),
-            (675245.0000353431, 6581198.656184828),
-            (675241.6875341476, 6581189.499931524),
-            (675232.7499284449, 6581192.249964047),
-            (675235.6562160432, 6581200.437569969),
-            (675239.9999676079, 6581198.96881944),
-            (675241.9374480231, 6581203.937519215),
-            (675248.093715854, 6581221.531320173),
-            (675263.4062151447, 6581216.3125704145),
-            (675265.8124304013, 6581223.499966635),
-            (675261.7499317214, 6581224.999966148),
-        ]
-    )
-
-    direct = meshes_module._regularize_flat_mesh_ground_polygons(
-        [polygon],
-        cleanup_scale=0.05,
-        cleaning_diagnostics=False,
-    )
-
-    assert _nearest_nonadjacent_boundary_vertex_distance(polygon) < 1e-3
-    assert len(direct) >= 1
-    assert min(_nearest_nonadjacent_boundary_vertex_distance(part) for part in direct) > 0.05
-
-
 def test_build_city_flat_mesh_dtcc_mesher_handles_touching_holes():
     pytest.importorskip("dtcc_mesher")
 
@@ -1125,9 +1073,6 @@ def test_condition_flat_mesh_ground_polygons_returns_explicit_courtyards():
         bounds=(0.0, 0.0, 40.0, 40.0),
         building_polygons=[building],
         hole_polygons=[],
-        max_mesh_size=10.0,
-        footprint_diagnostics={"output_grid": 0.03125},
-        cleaning_diagnostics=False,
     )
 
     courtyard = Polygon(building.interiors[0])
@@ -1145,9 +1090,6 @@ def test_condition_flat_mesh_ground_polygons_courtyards_exclude_nested_buildings
         bounds=(0.0, 0.0, 40.0, 40.0),
         building_polygons=[shell, nested],
         hole_polygons=[],
-        max_mesh_size=10.0,
-        footprint_diagnostics={"output_grid": 0.03125},
-        cleaning_diagnostics=False,
     )
 
     assert any(polygon.covers(Point(16.0, 16.0)) for polygon in ground_polygons)
