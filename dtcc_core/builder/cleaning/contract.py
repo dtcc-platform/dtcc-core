@@ -25,6 +25,7 @@ from __future__ import annotations
 import math
 
 import numpy as np
+import shapely
 from shapely import STRtree, distance, get_coordinates, linestrings, make_valid, points
 from shapely.affinity import translate
 from shapely.geometry import Point, Polygon, MultiPolygon
@@ -145,9 +146,12 @@ def essential_boundary_graph(boundaries):
         p = pending.pop()
         if p not in neighbors or len(neighbors[p]) != 2:
             continue
-        a, b = sorted(neighbors[p])
-        u, v = np.subtract(a, p), np.subtract(b, p)
-        if u[0] * v[1] - u[1] * v[0] == 0 and np.dot(u, v) < 0:
+        a, b = neighbors[p]
+        if b < a:
+            a, b = b, a
+        ux, uy = a[0] - p[0], a[1] - p[1]
+        vx, vy = b[0] - p[0], b[1] - p[1]
+        if ux * vy - uy * vx == 0 and ux * vx + uy * vy < 0:
             neighbors[a].remove(p)
             neighbors[b].remove(p)
             neighbors[a].add(b)
@@ -220,7 +224,18 @@ def _subscale_pairs(vertices, edges, delta, *, vertex_pairs):
     return counts, minimum, witness
 
 
-def admissibility(polygons, delta, *, vertex_pairs=False):
+def _invalid_polygons(polygons):
+    """Whether any polygon is empty, invalid or has nonfinite coordinates."""
+    return bool(
+        polygons
+        and (
+            (shapely.is_empty(polygons) | ~shapely.is_valid(polygons)).any()
+            or not np.isfinite(get_coordinates(polygons)).all()
+        )
+    )
+
+
+def admissibility(polygons, delta, *, vertex_pairs=False, union_parts=False):
     """Check membership of a subdivision in A_delta (union topology profile).
 
     Topology: regions must be valid with pairwise disjoint interiors, and the
@@ -241,6 +256,11 @@ def admissibility(polygons, delta, *, vertex_pairs=False):
         Also count vertex-vertex pairs closer than delta, reported as
         ``subscale_vertex_pairs``. They do not change the verdict; the
         constructor uses the finer count to rank proposals.
+    union_parts : bool, optional
+        The polygons are the parts of one union, so their interiors are
+        disjoint and their boundaries are the boundary of the union. The
+        overlap and union-boundary computations are then skipped; the result
+        is the same.
 
     Returns
     -------
@@ -259,14 +279,10 @@ def admissibility(polygons, delta, *, vertex_pairs=False):
     }
     if any(not isinstance(p, Polygon) for p in polygons):
         return {**failed, "reason": "expected polygons"}
-    if any(
-        p.is_empty or not p.is_valid or not np.isfinite(np.asarray(r.coords)).all()
-        for p in polygons
-        for r in [p.exterior, *p.interiors]
-    ):
+    if _invalid_polygons(polygons):
         return {**failed, "reason": "invalid polygon"}
-    if len(polygons) == 1:
-        vertices, edges = essential_boundary_graph([polygons[0].boundary])
+    if len(polygons) == 1 or union_parts:
+        vertices, edges = essential_boundary_graph([p.boundary for p in polygons])
         occupancy_edges = edges
         overlap_pairs = 0
     else:

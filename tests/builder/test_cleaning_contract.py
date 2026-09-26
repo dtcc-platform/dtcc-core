@@ -59,6 +59,24 @@ def test_feature_size_counts_nonincident_vertex_edge_pairs_across_batches():
     assert finer["admissible"] is report["admissible"] is False
 
 
+def test_union_parts_shortcut_gives_the_same_report():
+    # Parts of one union, including two that touch at a point (a pinch) and a
+    # part with a hole, with and without the shortcut.
+    union = unary_union(
+        [
+            box(0, 0, 2, 2),
+            box(2, 2, 4, 4),
+            box(4.2, 0, 6, 2),
+            box(10, 0, 20, 10).difference(box(12, 2, 18, 8)),
+        ]
+    )
+    parts = list(union.geoms)
+    for vertex_pairs in (False, True):
+        assert admissibility(
+            parts, 0.5, vertex_pairs=vertex_pairs, union_parts=True
+        ) == admissibility(parts, 0.5, vertex_pairs=vertex_pairs)
+
+
 def test_achieved_budget_is_the_least_epsilon_the_output_satisfies():
     # Note, Figure 1: filling a 0.6 m wide inlet adds points at most 0.3 m
     # from the input, whatever the declared budget.

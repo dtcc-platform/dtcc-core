@@ -152,6 +152,17 @@ def test_local_improvement_cannot_hide_new_distant_conflicts():
     assert accepted is None and reason == "global_progress"
 
 
+def test_equal_occupancy_is_recognised_across_representations():
+    square = box(0, 0, 10, 10)
+    resampled = Polygon([(0, 0), (5, 0), (10, 0), (10, 10), (0, 10)])
+    moved = box(0, 0, 10, 10.001)
+    assert construction._same_occupancy(resampled, square, square.area)
+    assert not construction._same_occupancy(moved, square, square.area)
+    # An equal area alone does not make two sets equal.
+    shifted = box(0.001, 0, 10.001, 10)
+    assert not construction._same_occupancy(shifted, square, square.area)
+
+
 def test_local_fidelity_clip_cache_is_invalidated_between_sites():
     raw = [box(0, 0, 10, 10)]
     judge = construction.LocalJudge(FidelityBudget(raw, 0.25), 0.5)

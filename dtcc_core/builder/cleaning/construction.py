@@ -928,7 +928,10 @@ class LocalJudge:
         started = time.perf_counter()
         self.evaluations += 1
         result = admissibility(
-            polygon_parts(occupied.intersection(clip)), self.delta, vertex_pairs=True
+            polygon_parts(occupied.intersection(clip)),
+            self.delta,
+            vertex_pairs=True,
+            union_parts=True,
         )
         self.timings["local_scoring"] += time.perf_counter() - started
         return result
@@ -938,7 +941,9 @@ class LocalJudge:
             return self._global_state_result
         started = time.perf_counter()
         self.global_evaluations += 1
-        result = admissibility(polygon_parts(occupied), self.delta, vertex_pairs=True)
+        result = admissibility(
+            polygon_parts(occupied), self.delta, vertex_pairs=True, union_parts=True
+        )
         self.timings["global_checks"] += time.perf_counter() - started
         self._global_state_geometry = occupied
         self._global_state_result = result
@@ -1045,10 +1050,11 @@ class _Rebuilder:
                     mapped.pop()
                 rings.append(mapped if len(mapped) >= 3 else None)
             if rings[0] is not None:
+                # Arrays take Shapely's fast path; lists of tuples are
+                # converted one coordinate at a time. The values are the same.
+                holes = [np.asarray(ring, dtype=float) for ring in rings[1:] if ring]
                 parts.append(
-                    make_valid(
-                        Polygon(rings[0], [ring for ring in rings[1:] if ring])
-                    )
+                    make_valid(Polygon(np.asarray(rings[0], dtype=float), holes))
                 )
 
         if not changed:
@@ -1303,6 +1309,17 @@ def progress_measure(state):
     )
 
 
+def _same_occupancy(candidate, occupied, occupied_area):
+    """Topological equality, decided by area first when the areas differ.
+
+    Equal point sets have equal areas up to rounding many orders of magnitude
+    below this margin, so the cheap test never rejects an equal candidate.
+    """
+    if abs(candidate.area - occupied_area) > 1e-9 * max(occupied_area, 1.0):
+        return False
+    return candidate.equals(occupied)
+
+
 def repair_site(occupied, judge, coordinates, delta, guard, candidates):
     """Rank locally, then require the stage guard and fidelity globally.
 
@@ -1311,6 +1328,7 @@ def repair_site(occupied, judge, coordinates, delta, guard, candidates):
     """
     window = judge.window(coordinates)
     clip = judge.clip(window)
+    occupied_area = occupied.area
     before = judge.state(occupied, clip)
     if "essential_vertex_count" not in before:
         return None, "invalid_before"
@@ -1336,7 +1354,11 @@ def repair_site(occupied, judge, coordinates, delta, guard, candidates):
                 time.perf_counter() - build_started
             )
         try:
-            if candidate is None or candidate.is_empty or candidate.equals(occupied):
+            if (
+                candidate is None
+                or candidate.is_empty
+                or _same_occupancy(candidate, occupied, occupied_area)
+            ):
                 continue
             if not judge.keeps_fidelity(candidate, clip):
                 reason = "fidelity"
@@ -1821,9 +1843,9 @@ def construct(
 
 
 def safe_state(polygons, delta):
-    """Admissibility, or a report that says the geometry could not be measured."""
+    """Admissibility of union parts, or a report that they could not be measured."""
     try:
-        return admissibility(polygons, delta, vertex_pairs=True)
+        return admissibility(polygons, delta, vertex_pairs=True, union_parts=True)
     except GEOSException as error:
         return {"admissible": False, "topology_ok": False, "reason": str(error)}
 
