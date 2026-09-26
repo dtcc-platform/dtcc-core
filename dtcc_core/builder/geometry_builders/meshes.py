@@ -43,12 +43,19 @@ from .. import _dtcc_builder
 
 from ..cleaning import (
     ConditioningOptions,
-    condition_building_footprints,
+    ConditioningResult,
     condition_polygon_coverage,
     plot_footprint_cleaning_comparison,
+    select_footprints,
 )
-from ..cleaning import footprints as cleaning_footprints
-
+from ..cleaning.contract import (
+    admissibility,
+    check_cleaning_contract,
+    check_mesher_handoff_profile,
+    classify_candidate,
+    has_only_separation_defects,
+)
+from ..cleaning.footprints import residual_separation_warning
 from ..logging import debug, info, warning, error
 from ..meshing.backends import resolve_2d_mesher
 from ..meshing.flat_mesh_backends import build_city_flat_mesh_from_coverage
@@ -77,11 +84,6 @@ if not hasattr(_dtcc_builder, "build_city_flat_mesh"):
     _dtcc_builder.build_city_flat_mesh = _missing_build_city_flat_mesh
 
 
-_GROUND_MESH_CLEANUP_SCALE_FRACTION = 0.005
-_GROUND_MESH_CLEANUP_SCALE_MIN = 0.01
-_GROUND_MESH_CLEANUP_SCALE_MAX = 0.1
-_FLAT_MESH_BUILDING_CLEANUP_SCALE_FRACTION = 0.25
-_FLAT_MESH_BUILDING_CLEANUP_DETAIL_MULTIPLIER = 5.0
 _RASTER_BOUNDARY_SNAP_FRACTION = 0.125
 _RASTER_BOUNDARY_SNAP_MIN = 1.0e-6
 _MERGED_ROOF_ENVELOPE_Z_SPAN = 2.0
@@ -149,6 +151,18 @@ class Coverage2D:
     region_markers: list[int]
     region_points: list[np.ndarray] | None = None
     region_triangle_sizes: dict[int, float] | None = None
+
+
+class MesherHandoffError(ValueError):
+    """The exact 2D subdivision presented to the mesher failed its profile."""
+
+    def __init__(self, contract: dict[str, Any]):
+        self.contract = contract
+        errors = [str(message) for message in contract.get("errors", [])]
+        summary = "; ".join(errors[:3]) or "unspecified handoff defect"
+        if len(errors) > 3:
+            summary += f"; ... ({len(errors)} total)"
+        super().__init__(f"Complete 2D mesher handoff failed: {summary}")
 
 
 @dataclass(frozen=True)
@@ -530,6 +544,94 @@ def _dedupe_stage_contract_messages(messages: Sequence[str]) -> list[str]:
     return ordered
 
 
+def _mesher_segment_graph_error(polygons: Sequence[Polygon]) -> str | None:
+    if not polygons or dtcc_mesher is None or not hasattr(
+        dtcc_mesher, "validate_coverage_graph"
+    ):
+        return None
+    try:
+        graph = dtcc_mesher.Coverage(
+            polygons,
+            markers=range(1, len(polygons) + 1),
+        ).graph()
+        dtcc_mesher.validate_coverage_graph(graph)
+    except Exception as exc:
+        return str(exc)
+    return None
+
+
+def _handoff_admission(
+    polygons: Sequence[Polygon],
+    *,
+    delta: float,
+    before_selection: dict[str, Any],
+    mesher_profile: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Apply the single admission rule to the regions actually handed onward.
+
+    The cleaning result before area selection must be a strict or a warning
+    candidate (see :func:`classify_candidate`). The regions handed onward,
+    after area selection and, in the mesh builders, after domain clipping,
+    must satisfy the union topology profile and the incident-sector profile.
+    Their minimum feature size must be at least delta, except that separation
+    defects are accepted, with a warning, when the pre-selection result is
+    itself a warning candidate. Selection therefore cannot hide a topology
+    defect, and clipping cannot add separation defects to a strict result.
+    Without a pre-selection report (``"unreported"``), the handed-on regions
+    must be strictly admissible.
+    """
+    reported = isinstance(before_selection, dict) and "status" in before_selection
+    candidate = (
+        classify_candidate(
+            before_selection,
+            before_selection.get("mesher_profile") or mesher_profile or {},
+        )
+        if reported
+        else "unreported"
+    )
+    report = admissibility(polygons, delta)
+    profile = check_mesher_handoff_profile(polygons)
+    separation_only = has_only_separation_defects(report)
+    separation_accepted = separation_only and candidate == "warning"
+    errors: list[str] = []
+    warnings: list[str] = []
+    if candidate == "fail":
+        errors.append(
+            "The cleaning result before area selection is neither strictly "
+            "conforming nor a warning candidate (topology, original-reference "
+            "fidelity or the incident-sector profile fails)."
+        )
+    elif candidate == "warning":
+        observation = report if separation_only else before_selection["admissibility"]
+        warnings.append(residual_separation_warning(observation, delta))
+    if not report.get("topology_ok", False):
+        errors.append(
+            "Handed-on regions violate the union topology profile "
+            f"({report.get('nonmanifold_boundary_vertices', 0)} nonmanifold "
+            "boundary vertex/vertices, "
+            f"{report.get('interior_overlap_pairs', 0)} overlapping pair(s))."
+        )
+    elif not report.get("admissible", False) and not separation_accepted:
+        errors.append(
+            "Handed-on regions have minimum feature size "
+            f"{report.get('mfs_capped_at_delta', 0.0):.6g} m < {delta:g} m at "
+            f"{report.get('subscale_pairs', 0)} nonincident vertex-edge pair(s) "
+            "that the cleaning result does not declare."
+        )
+    if profile["status"] != "pass":
+        errors.append(
+            "Handed-on regions violate the city-meshing incident-sector profile."
+        )
+    return {
+        "candidate": candidate,
+        "admissibility": report,
+        "incident_sector_profile": profile,
+        "separation_accepted": separation_accepted,
+        "errors": errors,
+        "warnings": warnings,
+    }
+
+
 def _conditioned_footprint_contract_audit(
     *,
     surfaces: Sequence[Surface],
@@ -543,184 +645,79 @@ def _conditioned_footprint_contract_audit(
             continue
         polygons.append(polygon)
 
-    errors: list[str] = []
-    warnings: list[str] = []
+    delta = float(declared_scale)
     requirements = {
         "nonempty_coverage": len(polygons) > 0,
-        "scale_contract_satisfied": False,
-        "no_pair_issues": False,
-        "no_ring_contacts": False,
-        "no_acute_tips": False,
-        "no_short_edges": False,
-        "min_clearance_respected": False,
+        "pre_selection_candidate": False,
+        "topology": False,
+        "minimum_feature_size": False,
+        "incident_sector_profile": False,
         "mesher_segment_graph_valid": True,
     }
-    metrics = {
-        "declared_scale": float(declared_scale),
-        "min_clearance": 0.0,
-        "clearance_deficit": float(declared_scale),
-        "residual_min_clearance_tolerated": False,
-        "residual_min_clearance_tolerance_reason": None,
-        "overlap_area": 0.0,
-        "overlap_tolerance": 0.0,
-        "pair_issue_count": 0,
-        "ring_contact_count": 0,
-        "acute_tip_count": 0,
-        "acute_tip_span": 0.0,
-        "short_edge_count": 0,
-        "geos_exception_count": int(diagnostics.get("geos_exception_count", 0)),
-        "mesher_segment_graph_error": None,
-    }
+    metrics: dict[str, Any] = {"delta": delta}
     if not polygons:
-        warnings.append(
-            "No conditioned building footprints remain; downstream meshing will run terrain-only."
-        )
         return _stage_contract_result(
             requirements=requirements,
-            errors=errors,
-            warnings=warnings,
+            errors=[],
+            warnings=[
+                "No conditioned building footprints remain; downstream meshing "
+                "will run terrain-only."
+            ],
             metrics=metrics,
         )
 
-    contract_tolerance = max(
-        float(diagnostics.get("output_grid", 0.0) or 0.0),
-        float(diagnostics.get("precision_grid", 0.0) or 0.0),
-        (
-            float(
-                diagnostics.get(
-                    "mesher_ready_coverage_revalidation_output_grid",
-                    0.0,
-                )
-                or 0.0
-            )
-            if diagnostics.get("mesher_ready_coverage_revalidation_applied")
-            else 0.0
-        ),
-        float(declared_scale) * 1.0e-6,
-        1.0e-9,
-    )
-    signature = cleaning_footprints._coverage_defect_signature(
+    admission = _handoff_admission(
         polygons,
-        target_scale=float(declared_scale),
+        delta=delta,
+        before_selection=diagnostics.get("before_selection_contract", {}),
+        mesher_profile=diagnostics.get("mesher_profile"),
     )
-    clearance_deficit = max(float(declared_scale) - (signature.min_clearance or 0.0), 0.0)
-    overlap_area = cleaning_footprints._coverage_overlap_area(polygons)
-    overlap_tolerance = max(contract_tolerance * contract_tolerance, 1.0e-9)
-    scale_contract_ok = cleaning_footprints._coverage_signature_satisfies_scale_contract(
-        signature,
-        target_scale=float(declared_scale),
-        grid=contract_tolerance,
-    )
+    errors = list(admission["errors"])
+    report = admission["admissibility"]
+    sectors = admission["incident_sector_profile"]["incident_sectors"]
+    graph_error = _mesher_segment_graph_error(polygons)
+    if graph_error is not None:
+        errors.append(
+            "Conditioned footprint coverage does not build a valid dtcc_mesher "
+            "segment graph."
+        )
     requirements.update(
         {
-            "scale_contract_satisfied": bool(scale_contract_ok),
-            "no_pair_issues": int(signature.pair_issue_count) == 0,
-            "no_ring_contacts": int(signature.ring_contact_count) == 0,
-            "no_acute_tips": int(signature.acute_tip_count) == 0,
-            "no_short_edges": int(signature.short_edge_count) == 0,
-            "min_clearance_respected": clearance_deficit <= contract_tolerance,
+            "pre_selection_candidate": admission["candidate"] != "fail",
+            "topology": bool(report.get("topology_ok", False)),
+            "minimum_feature_size": bool(report.get("admissible", False)),
+            "incident_sector_profile": (
+                admission["incident_sector_profile"]["status"] == "pass"
+            ),
+            "mesher_segment_graph_valid": graph_error is None,
         }
     )
     metrics.update(
         {
-            "contract_tolerance": float(contract_tolerance),
-            "min_clearance": float(signature.min_clearance or 0.0),
-            "clearance_deficit": float(clearance_deficit),
-            "overlap_area": float(overlap_area),
-            "overlap_tolerance": float(overlap_tolerance),
-            "pair_issue_count": int(signature.pair_issue_count),
-            "ring_contact_count": int(signature.ring_contact_count),
-            "acute_tip_count": int(signature.acute_tip_count),
-            "acute_tip_span": float(signature.acute_tip_span),
-            "short_edge_count": int(signature.short_edge_count),
+            "pre_selection_candidate": admission["candidate"],
+            "mfs_capped_at_delta": report.get("mfs_capped_at_delta"),
+            "subscale_pairs": report.get("subscale_pairs"),
+            "nonmanifold_boundary_vertices": report.get(
+                "nonmanifold_boundary_vertices"
+            ),
+            "interior_overlap_pairs": report.get("interior_overlap_pairs"),
+            "minimum_incident_sector_degrees": sectors.get("minimum_angle_degrees"),
+            "residual_separation_accepted": admission["separation_accepted"],
+            "admissibility": report,
+            "incident_sector_profile": admission["incident_sector_profile"],
+            "mesher_segment_graph_error": graph_error,
         }
     )
-    if dtcc_mesher is not None and hasattr(dtcc_mesher, "validate_coverage_graph"):
-        try:
-            graph = dtcc_mesher.Coverage(
-                polygons,
-                markers=range(1, len(polygons) + 1),
-            ).graph()
-            dtcc_mesher.validate_coverage_graph(graph)
-        except Exception as exc:
-            requirements["mesher_segment_graph_valid"] = False
-            metrics["mesher_segment_graph_error"] = str(exc)
-            errors.append(
-                "Conditioned footprint coverage does not build a valid dtcc_mesher segment graph."
-            )
-    residual_min_clearance_tolerated = (
-        not requirements["min_clearance_respected"]
-        and not requirements["scale_contract_satisfied"]
-        and requirements["mesher_segment_graph_valid"]
-        and requirements["no_pair_issues"]
-        and requirements["no_ring_contacts"]
-        and requirements["no_acute_tips"]
-        and requirements["no_short_edges"]
-        and overlap_area <= overlap_tolerance
-    )
-    if residual_min_clearance_tolerated:
-        tolerance_reason = (
-            "only residual self/min-clearance deficit remains after conditioning; "
-            "segment graph is valid and no pair, ring-contact, acute-tip, short-edge, "
-            "or overlap defects were detected"
-        )
-        metrics["residual_min_clearance_tolerated"] = True
-        metrics["residual_min_clearance_tolerance_reason"] = tolerance_reason
-        warnings.append(
-            "Conditioned footprint minimum clearance is below the declared meshing "
-            f"scale but was tolerated because {tolerance_reason} "
-            f"(declared_scale={float(declared_scale):.6g} m, "
-            f"min_clearance={float(signature.min_clearance or 0.0):.6g} m)."
-        )
-    if not requirements["scale_contract_satisfied"]:
-        if not residual_min_clearance_tolerated:
-            errors.append(
-                "Conditioned footprint coverage violates the declared mesher-ready scale contract."
-            )
-    if not requirements["no_pair_issues"]:
-        errors.append(
-            f"Conditioned footprint coverage still has {signature.pair_issue_count} close-pair issue(s)."
-        )
-    if not requirements["no_ring_contacts"]:
-        errors.append(
-            f"Conditioned footprint coverage still has {signature.ring_contact_count} ring-contact issue(s)."
-        )
-    if not requirements["no_acute_tips"]:
-        errors.append(
-            f"Conditioned footprint coverage still has {signature.acute_tip_count} meshing-hostile acute tip(s)."
-        )
-    if not requirements["no_short_edges"]:
-        errors.append(
-            f"Conditioned footprint coverage still has {signature.short_edge_count} short edge(s) below the declared scale."
-        )
-    if not requirements["min_clearance_respected"]:
-        if not residual_min_clearance_tolerated:
-            errors.append(
-                "Conditioned footprint minimum clearance is below the declared meshing scale."
-            )
-    geos_exception_count = int(diagnostics.get("geos_exception_count", 0))
-    if geos_exception_count > 0:
-        warnings.append(
-            f"Footprint conditioning encountered {geos_exception_count} GEOS exception(s) before reaching the final output."
-        )
     return _stage_contract_result(
         requirements=requirements,
         errors=_dedupe_stage_contract_messages(errors),
-        warnings=_dedupe_stage_contract_messages(warnings),
+        warnings=_dedupe_stage_contract_messages(admission["warnings"]),
         metrics=metrics,
     )
 
 
-def _conditioned_footprint_declared_scale(
-    *,
-    min_building_detail: float,
-    diagnostics: dict[str, Any],
-) -> float:
-    return max(
-        float(min_building_detail),
-        float(diagnostics.get("output_grid", 0.0) or 0.0),
-        1.0e-9,
-    )
+def _conditioned_footprint_declared_scale(*, min_building_detail: float) -> float:
+    return max(float(min_building_detail), 1.0e-9)
 
 
 def _conditioned_footprint_contract(
@@ -732,29 +729,10 @@ def _conditioned_footprint_contract(
     return _conditioned_footprint_contract_audit(
         surfaces=surfaces,
         declared_scale=_conditioned_footprint_declared_scale(
-            min_building_detail=min_building_detail,
-            diagnostics=diagnostics,
+            min_building_detail=min_building_detail
         ),
         diagnostics=diagnostics,
     )
-
-
-def _coverage_mesher_segment_graph_error(
-    polygons: Sequence[Polygon],
-) -> str | None:
-    if dtcc_mesher is None or not hasattr(dtcc_mesher, "validate_coverage_graph"):
-        return None
-    if not polygons:
-        return None
-    try:
-        graph = dtcc_mesher.Coverage(
-            polygons,
-            markers=range(1, len(polygons) + 1),
-        ).graph()
-        dtcc_mesher.validate_coverage_graph(graph)
-    except Exception as exc:
-        return str(exc)
-    return None
 
 
 def _triangle_areas(vertices: np.ndarray, faces: np.ndarray) -> np.ndarray:
@@ -1996,7 +1974,11 @@ def build_conditioned_footprints(
     pipeline_mode: str = "strict",
     raise_on_contract_error: bool = True,
 ) -> ConditionedFootprints:
-    """Build the supported mesher-ready conditioned footprint stage artifact."""
+    """Clean footprints, then explicitly select regions by min_building_area.
+
+    Diagnostics separate the pre-selection geometric contract and area
+    exclusions. Selection preserves surviving geometry and source indices.
+    """
 
     normalized_mode = _normalize_meshing_pipeline_mode(pipeline_mode)
     conditioned_footprints = _condition_meshing_footprints(
@@ -2180,6 +2162,153 @@ def _build_ground_mesh_from_coverage(
     return ground_mesh, active_mesher
 
 
+def _complete_2d_mesher_handoff_contract(
+    *,
+    region_polygons: Sequence[Polygon],
+    region_markers: Sequence[int],
+    bounds: tuple[float, float, float, float],
+) -> dict[str, Any]:
+    """Validate the exact labelled subdivision passed to the 2D mesher.
+
+    This is deliberately not the footprint occupancy contract: ground and
+    intentional holes have different semantics from building occupancy.  The
+    complete-region check owns only structural validity and the independently
+    documented incident-sector profile.
+    """
+    polygons = list(region_polygons)
+    markers = [int(marker) for marker in region_markers]
+    errors: list[str] = []
+    valid_regions = len(polygons) == len(markers)
+    if not valid_regions:
+        errors.append(
+            "region marker count does not match the complete subdivision"
+        )
+    invalid_indices = [
+        index
+        for index, polygon in enumerate(polygons)
+        if not isinstance(polygon, Polygon) or polygon.is_empty or not polygon.is_valid
+    ]
+    if invalid_indices:
+        errors.append(
+            "invalid or empty region polygon(s) at indices "
+            + ", ".join(map(str, invalid_indices[:8]))
+        )
+
+    domain = box(*bounds)
+    usable = [
+        polygon
+        for polygon in polygons
+        if isinstance(polygon, Polygon) and not polygon.is_empty and polygon.is_valid
+    ]
+    combined = unary_union(usable) if usable else GeometryCollection()
+    area_tolerance = max(float(domain.area) * 1.0e-12, 1.0e-9)
+    outside_area = float(combined.difference(domain).area)
+    overlap_area = max(
+        sum(float(polygon.area) for polygon in usable) - float(combined.area),
+        0.0,
+    )
+    if outside_area > area_tolerance:
+        errors.append(
+            f"regions extend {outside_area:.12g} m² outside the meshing domain"
+        )
+    if overlap_area > area_tolerance:
+        errors.append(
+            f"region interiors overlap by {overlap_area:.12g} m²"
+        )
+
+    profile = check_mesher_handoff_profile(usable)
+    sectors = profile.get("incident_sectors", {})
+    witness = sectors.get("minimum_witness")
+    if isinstance(witness, dict):
+        witness = dict(witness)
+        indices = [
+            int(index)
+            for index in witness.get("region_indices", [])
+            if isinstance(index, (int, np.integer))
+            and 0 <= int(index) < len(markers)
+        ]
+        witness["region_markers"] = [markers[index] for index in indices]
+        witness["region_roles"] = [
+            "ground" if markers[index] < 0 else "building" for index in indices
+        ]
+        vertex = witness.get("vertex")
+        witness["on_domain_boundary"] = bool(
+            isinstance(vertex, list)
+            and len(vertex) >= 2
+            and Point(float(vertex[0]), float(vertex[1])).distance(domain.boundary)
+            <= max(np.finfo(float).eps * max(abs(value) for value in bounds) * 32, 1e-12)
+        )
+        sectors = dict(sectors)
+        sectors["minimum_witness"] = witness
+        if sectors.get("below_minimum_witnesses"):
+            enriched = []
+            for item in sectors["below_minimum_witnesses"]:
+                item = dict(item)
+                item_indices = [
+                    int(index)
+                    for index in item.get("region_indices", [])
+                    if isinstance(index, (int, np.integer))
+                    and 0 <= int(index) < len(markers)
+                ]
+                item["region_markers"] = [markers[index] for index in item_indices]
+                item["region_roles"] = [
+                    "ground" if markers[index] < 0 else "building"
+                    for index in item_indices
+                ]
+                enriched.append(item)
+            sectors["below_minimum_witnesses"] = enriched
+        profile = dict(profile)
+        profile["incident_sectors"] = sectors
+    if profile.get("status") != "pass":
+        angle = sectors.get("minimum_angle_degrees")
+        location = witness.get("vertex") if isinstance(witness, dict) else None
+        errors.append(
+            "incident sector profile failed"
+            + (f" at {location}" if location is not None else "")
+            + (f" ({float(angle):.12g} degrees)" if angle is not None else "")
+        )
+
+    graph_error = None
+    if usable and dtcc_mesher is not None and hasattr(
+        dtcc_mesher, "validate_coverage_graph"
+    ):
+        try:
+            graph = dtcc_mesher.Coverage(
+                usable,
+                markers=range(1, len(usable) + 1),
+            ).graph()
+            dtcc_mesher.validate_coverage_graph(graph)
+        except Exception as exc:
+            graph_error = str(exc)
+            errors.append(f"invalid dtcc_mesher segment graph: {exc}")
+
+    requirements = {
+        "region_marker_count_matches": valid_regions,
+        "valid_nonempty_regions": not invalid_indices,
+        "inside_domain": outside_area <= area_tolerance,
+        "nonoverlapping_region_interiors": overlap_area <= area_tolerance,
+        "incident_sector_profile": profile.get("status") == "pass",
+        "mesher_segment_graph_valid": graph_error is None,
+    }
+    return {
+        "ok": not errors,
+        "status": "pass" if not errors else "fail",
+        "requirements": requirements,
+        "errors": errors,
+        "warnings": [],
+        "metrics": {
+            "region_count": len(polygons),
+            "ground_region_count": sum(marker < 0 for marker in markers),
+            "building_region_count": sum(marker >= 0 for marker in markers),
+            "outside_domain_area": outside_area,
+            "overlap_area": overlap_area,
+            "area_tolerance": area_tolerance,
+            "mesher_segment_graph_error": graph_error,
+            "mesher_profile": profile,
+        },
+    }
+
+
 def _build_ground_mesh_stage(
     *,
     region_polygons: list[Polygon],
@@ -2196,6 +2325,13 @@ def _build_ground_mesh_stage(
     require_markers: bool,
     stage_label: str,
 ) -> BuiltGroundMesh:
+    handoff_contract = _complete_2d_mesher_handoff_contract(
+        region_polygons=region_polygons,
+        region_markers=region_markers,
+        bounds=bounds,
+    )
+    if not handoff_contract["ok"]:
+        raise MesherHandoffError(handoff_contract)
     ground_mesh, active_mesher = _build_ground_mesh_from_coverage(
         region_polygons=region_polygons,
         region_markers=region_markers,
@@ -2210,6 +2346,7 @@ def _build_ground_mesh_stage(
     )
     audit = {
         "mesher": active_mesher,
+        "input_handoff_contract": handoff_contract,
         **_triangle_mesh_audit(ground_mesh),
     }
     contract = _triangle_mesh_contract_from_audit(
@@ -2291,7 +2428,6 @@ def _prepare_surface_ground_regions(
         min_building_detail=min_building_detail,
         cleaning_diagnostics=cleaning_diagnostics,
         pipeline_mode=pipeline_mode,
-        allow_boundary_short_edges=True,
     )
 
     active_surfaces: list[Surface] = []
@@ -2333,10 +2469,6 @@ def _prepare_surface_ground_regions(
         bounds=bounds,
         building_polygons=conditioned_building_polygons,
         hole_polygons=hole_polygons,
-        max_mesh_size=max_mesh_size,
-        footprint_diagnostics=footprint_diagnostics,
-        cleaning_diagnostics=cleaning_diagnostics,
-        preserve_shared_boundaries=True,
         pipeline_mode=pipeline_mode,
     )
     coverage_building_polygons = [
@@ -2634,71 +2766,6 @@ def _split_weakly_pinched_shell_polygon(
         split_polygons.append(candidate)
 
     return split_polygons if len(split_polygons) > 1 else [polygon]
-
-
-def _regularize_shell_building_regions_with_sources(
-    *,
-    polygons: list[Polygon],
-    sources: list[list[int]],
-    min_clearance: float,
-    precision_grid: float | None,
-) -> tuple[list[Polygon], list[list[int]], int]:
-    if not polygons or min_clearance <= 0.0:
-        return polygons, sources, 0
-
-    candidate_count = sum(
-        1
-        for polygon in polygons
-        if polygon is not None
-        and not polygon.is_empty
-        and float(polygon.minimum_clearance) < float(min_clearance)
-    )
-    if candidate_count == 0:
-        return polygons, sources, 0
-
-    cleanup_grid = (
-        float(precision_grid)
-        if precision_grid is not None and precision_grid > 0.0
-        else max(float(min_clearance) / 16.0, 1e-9)
-    )
-    cleanup_hole_area = max(float(min_clearance) ** 2, cleanup_grid**2)
-    cleanup_diagnostics = cleaning_footprints._empty_diagnostics(len(polygons))
-    regularized_polygons, regularized_sources = (
-        cleaning_footprints._regularize_low_clearance_polygons(
-            polygons,
-            sources,
-            min_clearance=float(min_clearance),
-            grid=cleanup_grid,
-            min_area=0.0,
-            min_hole_area=cleanup_hole_area,
-            diagnostics=cleanup_diagnostics,
-        )
-    )
-    regularized_polygons, regularized_sources = (
-        cleaning_footprints._simplify_polygons_for_meshing(
-            regularized_polygons,
-            regularized_sources,
-            min_segment_length=float(min_clearance),
-            grid=cleanup_grid,
-            min_area=0.0,
-            min_hole_area=cleanup_hole_area,
-            diagnostics=cleanup_diagnostics,
-        )
-    )
-
-    normalized_polygons: list[Polygon] = []
-    normalized_sources: list[list[int]] = []
-    declared_scale = max(float(min_clearance), cleanup_grid, 1e-9)
-    for polygon, polygon_sources in zip(regularized_polygons, regularized_sources):
-        for normalized_polygon in _normalize_mesher_ready_polygon(
-            polygon,
-            declared_scale=declared_scale,
-            diagnostics=None,
-        ):
-            normalized_polygons.append(normalized_polygon)
-            normalized_sources.append(list(polygon_sources))
-
-    return normalized_polygons, normalized_sources, candidate_count
 
 
 def _snap_ground_mesh_to_raster_bounds(mesh: Mesh, terrain_raster) -> Mesh:
@@ -3647,40 +3714,11 @@ def _iter_polygon_components(geometry) -> list[Polygon]:
     return []
 
 
-def _flat_mesh_ground_cleanup_scale(
-    *,
-    max_mesh_size: float | None,
-    footprint_diagnostics: dict[str, Any],
-) -> float | None:
-    output_grid = float(footprint_diagnostics.get("output_grid", 0.0) or 0.0)
-    mesh_scale = 0.0
-    normalized_mesh_size = _normalize_max_mesh_size(max_mesh_size)
-
-    if normalized_mesh_size is not None:
-        mesh_scale = min(
-            max(
-                normalized_mesh_size * _GROUND_MESH_CLEANUP_SCALE_FRACTION,
-                _GROUND_MESH_CLEANUP_SCALE_MIN,
-            ),
-            _GROUND_MESH_CLEANUP_SCALE_MAX,
-        )
-
-    cleanup_scale = max(output_grid, mesh_scale)
-    if cleanup_scale <= 0.0:
-        return None
-
-    return cleanup_scale
-
-
 def _condition_flat_mesh_ground_polygons(
     *,
     bounds: tuple[float, float, float, float],
     building_polygons: list[Polygon],
     hole_polygons: list[Polygon],
-    max_mesh_size: float | None,
-    footprint_diagnostics: dict[str, Any],
-    cleaning_diagnostics: bool,
-    preserve_shared_boundaries: bool = False,
     pipeline_mode: MeshingPipelineMode = "strict",
 ) -> list[Polygon]:
     ground_domain = box(*bounds)
@@ -3706,67 +3744,6 @@ def _condition_flat_mesh_ground_polygons(
     ]
 
 
-def _regularize_flat_mesh_ground_polygons(
-    ground_polygons: list[Polygon],
-    *,
-    cleanup_scale: float | None,
-    cleaning_diagnostics: bool,
-) -> list[Polygon]:
-    if cleanup_scale is None or not ground_polygons:
-        return ground_polygons
-
-    conditioned: list[Polygon] = []
-    split_components = 0
-    for polygon in ground_polygons:
-        result = condition_polygon_coverage(
-            [polygon],
-            options=ConditioningOptions(
-                precision_grid=None,
-                min_feature_size=cleanup_scale,
-                merge_distance=0.0,
-                min_area=0.0,
-                min_hole_area=cleanup_scale**2,
-                collect_stage_metrics=False,
-                enable_logging=False,
-            ),
-        )
-        parts = [candidate for candidate in result.polygons if not candidate.is_empty]
-        conditioned.extend(parts)
-        split_components += max(len(parts) - 1, 0)
-
-    if cleaning_diagnostics:
-        debug(
-            "Flat mesh ground conditioning: "
-            f"{len(ground_polygons)} -> {len(conditioned)} polygons, "
-            f"cleanup_scale={cleanup_scale} m, "
-            f"split_components={split_components}"
-        )
-
-    return conditioned
-
-
-def _condition_flat_mesh_building_regions(
-    *,
-    building_polygons: list[Polygon],
-    building_markers: list[int],
-    footprint_diagnostics: dict[str, Any],
-    max_mesh_size: float | None,
-    min_building_detail: float,
-    cleaning_diagnostics: bool,
-    pipeline_mode: MeshingPipelineMode = "strict",
-) -> tuple[list[Polygon], list[int]]:
-    polygons, markers, _sources = _condition_flat_mesh_building_regions_with_sources(
-        building_polygons=building_polygons,
-        building_markers=building_markers,
-        footprint_diagnostics=footprint_diagnostics,
-        max_mesh_size=max_mesh_size,
-        min_building_detail=min_building_detail,
-        cleaning_diagnostics=cleaning_diagnostics,
-        pipeline_mode=pipeline_mode,
-    )
-    return polygons, markers
-
-
 def _consume_conditioned_building_regions_with_sources(
     *,
     building_polygons: list[Polygon],
@@ -3775,8 +3752,13 @@ def _consume_conditioned_building_regions_with_sources(
     min_building_detail: float,
     cleaning_diagnostics: bool,
     pipeline_mode: MeshingPipelineMode = "strict",
-    allow_boundary_short_edges: bool = False,
 ) -> tuple[list[Polygon], list[int], list[list[int]]]:
+    """Validate the clipped building regions before 2D coverage construction.
+
+    Uses the same admission rule as the conditioned-footprint stage audit, on
+    the regions actually passed on after domain clipping. Rejects but never
+    repairs.
+    """
     if len(building_polygons) != len(building_markers):
         raise ValueError("building_markers length must match building_polygons length")
     if not building_polygons:
@@ -3796,55 +3778,27 @@ def _consume_conditioned_building_regions_with_sources(
     if not resolved_polygons:
         return [], [], []
 
-    declared_scale = max(
-        float(min_building_detail),
-        float(footprint_diagnostics.get("output_grid", 0.0) or 0.0),
-        1.0e-9,
+    declared_scale = _conditioned_footprint_declared_scale(
+        min_building_detail=min_building_detail
     )
-    signature = cleaning_footprints._coverage_defect_signature(
+    admission = _handoff_admission(
         resolved_polygons,
-        target_scale=declared_scale,
+        delta=declared_scale,
+        before_selection=footprint_diagnostics.get("before_selection_contract", {}),
+        mesher_profile=footprint_diagnostics.get("mesher_profile"),
     )
-    validation_errors: list[str] = []
-    if int(signature.pair_issue_count) > 0:
-        validation_errors.append(
-            f"{signature.pair_issue_count} close-pair issue(s)"
-        )
-    if int(signature.ring_contact_count) > 0:
-        validation_errors.append(
-            f"{signature.ring_contact_count} ring-contact issue(s)"
-        )
-    if int(signature.acute_tip_count) > 0:
-        validation_errors.append(
-            f"{signature.acute_tip_count} meshing-hostile acute tip(s)"
-        )
-    if int(signature.short_edge_count) > 0 and not allow_boundary_short_edges:
-        validation_errors.append(
-            f"{signature.short_edge_count} short edge(s) below the declared scale"
-        )
-    elif int(signature.short_edge_count) > 0 and cleaning_diagnostics:
-        debug(
-            "Tolerated %d subscale surface-boundary edge(s) introduced by "
-            "raster-domain clipping.",
-            int(signature.short_edge_count),
-        )
-    if dtcc_mesher is not None and hasattr(dtcc_mesher, "validate_coverage_graph"):
-        try:
-            graph = dtcc_mesher.Coverage(
-                resolved_polygons,
-                markers=range(1, len(resolved_polygons) + 1),
-            ).graph()
-            dtcc_mesher.validate_coverage_graph(graph)
-        except Exception as exc:
-            validation_errors.append(f"invalid dtcc_mesher segment graph: {exc}")
+    validation_errors = list(admission["errors"])
+    graph_error = _mesher_segment_graph_error(resolved_polygons)
+    if graph_error is not None:
+        validation_errors.append(f"invalid dtcc_mesher segment graph: {graph_error}")
 
     if validation_errors:
         summary = "; ".join(validation_errors[:3])
         if len(validation_errors) > 3:
             summary += f"; ... ({len(validation_errors)} total)"
         raise ValueError(
-            "Conditioned building regions failed validation before 2D coverage "
-            f"construction: {summary}."
+            "Clipped building regions failed validation before 2D coverage "
+            f"construction: {summary}"
         )
 
     if cleaning_diagnostics:
@@ -3855,69 +3809,6 @@ def _consume_conditioned_building_regions_with_sources(
         )
 
     return resolved_polygons, resolved_markers, resolved_sources
-
-
-def _condition_flat_mesh_building_regions_with_sources(
-    *,
-    building_polygons: list[Polygon],
-    building_markers: list[int],
-    footprint_diagnostics: dict[str, Any],
-    max_mesh_size: float | None,
-    min_building_detail: float,
-    cleaning_diagnostics: bool,
-    pipeline_mode: MeshingPipelineMode = "strict",
-) -> tuple[list[Polygon], list[int], list[list[int]]]:
-    if len(building_polygons) != len(building_markers):
-        raise ValueError("building_markers length must match building_polygons length")
-    if not building_polygons:
-        return [], [], []
-
-    _normalize_meshing_pipeline_mode(pipeline_mode)
-    resolved_polygons: list[Polygon] = []
-    resolved_markers: list[int] = []
-    resolved_sources: list[list[int]] = []
-    for index, (polygon, marker) in enumerate(zip(building_polygons, building_markers)):
-        if polygon is None or polygon.is_empty:
-            continue
-        resolved_polygons.append(orient(polygon, sign=1.0))
-        resolved_markers.append(int(marker))
-        resolved_sources.append([index])
-
-    if not resolved_polygons:
-        return [], [], []
-
-    declared_scale = max(
-        float(min_building_detail),
-        float(footprint_diagnostics.get("output_grid", 0.0) or 0.0),
-        1.0e-9,
-    )
-    normalization_diagnostics = {
-        "geos_exception_count": 0,
-        "geos_exception_messages": [],
-    }
-    normalized_polygons, normalized_sources = _normalize_mesher_ready_coverage(
-        resolved_polygons,
-        resolved_sources,
-        declared_scale=declared_scale,
-        min_hole_area=max(declared_scale**2, 1.0e-12),
-        contract_grid_tolerance=float(footprint_diagnostics.get("output_grid", 0.0) or 0.0),
-        diagnostics=normalization_diagnostics,
-        cleaning_diagnostics=cleaning_diagnostics,
-    )
-    normalized_markers = [
-        resolved_markers[source_indices[0]]
-        for source_indices in normalized_sources
-        if source_indices
-    ]
-
-    if cleaning_diagnostics:
-        debug(
-            "Flat mesh building conditioning: "
-            f"{len(building_polygons)} -> {len(normalized_polygons)} polygons, "
-            f"cleanup_scale={declared_scale} m"
-        )
-
-    return normalized_polygons, normalized_markers, normalized_sources
 
 
 def _condition_flat_mesh_coverage_regions(
@@ -3932,13 +3823,26 @@ def _condition_flat_mesh_coverage_regions(
     cleaning_diagnostics: bool,
     pipeline_mode: MeshingPipelineMode = "strict",
 ) -> tuple[list[Polygon], list[int]]:
+    domain = box(*bounds)
+    clipped_building_polygons: list[Polygon] = []
+    clipped_building_markers: list[int] = []
+    for polygon, marker in zip(building_polygons, building_markers):
+        if polygon is None or polygon.is_empty:
+            continue
+        for component in _iter_polygon_components(polygon.intersection(domain)):
+            if component.area <= 0.0:
+                continue
+            clipped_building_polygons.append(orient(component, sign=1.0))
+            clipped_building_markers.append(int(marker))
+    # Validate what is actually meshed: the regions after domain clipping, as
+    # the surface path does.
     (
         building_polygons,
         building_markers,
         _building_sources,
     ) = _consume_conditioned_building_regions_with_sources(
-        building_polygons=building_polygons,
-        building_markers=building_markers,
+        building_polygons=clipped_building_polygons,
+        building_markers=clipped_building_markers,
         footprint_diagnostics=footprint_diagnostics,
         min_building_detail=min_building_detail,
         cleaning_diagnostics=cleaning_diagnostics,
@@ -3949,9 +3853,6 @@ def _condition_flat_mesh_coverage_regions(
         bounds=bounds,
         building_polygons=building_polygons,
         hole_polygons=hole_polygons,
-        max_mesh_size=max_mesh_size,
-        footprint_diagnostics=footprint_diagnostics,
-        cleaning_diagnostics=cleaning_diagnostics,
         pipeline_mode=pipeline_mode,
     )
     region_polygons = [*ground_polygons, *building_polygons]
@@ -4047,405 +3948,6 @@ def _iter_polygons(geometry) -> list[Polygon]:
     return []
 
 
-def _polygon_has_ring_boundary_contacts(
-    polygon: Polygon,
-    *,
-    tolerance: float = 1e-12,
-) -> bool:
-    return cleaning_footprints._polygon_has_ring_boundary_contacts(
-        polygon,
-        tolerance=tolerance,
-    )
-
-
-def _normalize_mesher_ready_polygon(
-    polygon: Polygon,
-    *,
-    declared_scale: float,
-    diagnostics: dict[str, Any] | None = None,
-) -> list[Polygon]:
-    candidate_polygons = cleaning_footprints._normalize_mesher_ready_polygon(
-        polygon,
-        declared_scale=declared_scale,
-        diagnostics=diagnostics,
-    )
-    if any(_polygon_has_ring_boundary_contacts(candidate) for candidate in candidate_polygons):
-        warning(
-            "Unable to fully regularize a conditioned footprint for meshing; "
-            "keeping the original polygon."
-        )
-    return candidate_polygons
-
-
-def _normalize_mesher_ready_coverage(
-    polygons: Sequence[Polygon],
-    source_map: Sequence[Sequence[int]],
-    *,
-    declared_scale: float,
-    min_hole_area: float,
-    contract_grid_tolerance: float | None,
-    diagnostics: dict[str, Any],
-    cleaning_diagnostics: bool,
-) -> tuple[list[Polygon], list[list[int]]]:
-    def _normalize(
-        coverage_polygons: Sequence[Polygon],
-        coverage_sources: Sequence[Sequence[int]],
-    ) -> tuple[list[Polygon], list[list[int]]]:
-        normalized_polygons: list[Polygon] = []
-        normalized_sources: list[list[int]] = []
-        for polygon, source_indices in zip(coverage_polygons, coverage_sources):
-            for normalized_polygon in _normalize_mesher_ready_polygon(
-                polygon,
-                declared_scale=declared_scale,
-                diagnostics=diagnostics,
-            ):
-                normalized_polygons.append(normalized_polygon)
-                normalized_sources.append(sorted(set(source_indices)))
-        return cleaning_footprints._stable_sort(
-            normalized_polygons,
-            normalized_sources,
-        )
-
-    diagnostics["mesher_ready_coverage_revalidation_attempted"] = False
-    diagnostics["mesher_ready_coverage_revalidation_applied"] = False
-    diagnostics["mesher_ready_coverage_revalidation_output_grid"] = 0.0
-    diagnostics["mesher_ready_coverage_revalidation_iteration_count"] = 0
-    diagnostics["mesher_ready_coverage_revalidation_stop_reason"] = "not_attempted"
-    diagnostics["mesher_ready_coverage_revalidation_operator_applied"] = {}
-    diagnostics["mesher_ready_coverage_revalidation_rejected_bridge_operator"] = False
-    diagnostics[
-        "mesher_ready_coverage_revalidation_rejected_insufficient_clearance_gain"
-    ] = False
-    diagnostics["mesher_ready_coverage_segment_graph_valid_before"] = True
-    diagnostics["mesher_ready_coverage_segment_graph_valid_after"] = True
-    diagnostics["mesher_ready_coverage_segment_graph_error_before"] = None
-    diagnostics["mesher_ready_coverage_segment_graph_error_after"] = None
-
-    normalized_polygons, normalized_sources = _normalize(polygons, source_map)
-    contract_grid = max(
-        float(contract_grid_tolerance or 0.0),
-        max(declared_scale * 1.0e-6, 1.0e-9),
-    )
-    initial_signature = cleaning_footprints._coverage_defect_signature(
-        normalized_polygons,
-        target_scale=declared_scale,
-    )
-    diagnostics["mesher_ready_coverage_short_edge_count_before"] = (
-        initial_signature.short_edge_count
-    )
-    diagnostics["mesher_ready_coverage_pair_issue_count_before"] = (
-        initial_signature.pair_issue_count
-    )
-    diagnostics["mesher_ready_coverage_ring_contact_count_before"] = (
-        initial_signature.ring_contact_count
-    )
-    initial_graph_error = _coverage_mesher_segment_graph_error(normalized_polygons)
-    diagnostics["mesher_ready_coverage_segment_graph_valid_before"] = (
-        initial_graph_error is None
-    )
-    diagnostics["mesher_ready_coverage_segment_graph_error_before"] = (
-        initial_graph_error
-    )
-
-    if cleaning_footprints._coverage_signature_satisfies_scale_contract(
-        initial_signature,
-        target_scale=declared_scale,
-        grid=contract_grid,
-    ) and initial_graph_error is None:
-        diagnostics["mesher_ready_coverage_short_edge_count_after"] = (
-            initial_signature.short_edge_count
-        )
-        diagnostics["mesher_ready_coverage_pair_issue_count_after"] = (
-            initial_signature.pair_issue_count
-        )
-        diagnostics["mesher_ready_coverage_ring_contact_count_after"] = (
-            initial_signature.ring_contact_count
-        )
-        diagnostics["mesher_ready_coverage_segment_graph_valid_after"] = True
-        diagnostics["mesher_ready_coverage_segment_graph_error_after"] = None
-        diagnostics["mesher_ready_coverage_revalidation_stop_reason"] = (
-            "initial_contract_satisfied"
-        )
-        return normalized_polygons, normalized_sources
-
-    diagnostics["mesher_ready_coverage_revalidation_attempted"] = True
-    revalidation_precision_grid = float(contract_grid_tolerance or 0.0)
-
-    def _merge_revalidation_operator_counts(counts: dict[str, Any]) -> None:
-        applied = diagnostics["mesher_ready_coverage_revalidation_operator_applied"]
-        for operator_name, count in counts.items():
-            applied[str(operator_name)] = int(applied.get(str(operator_name), 0)) + int(
-                count
-            )
-
-    def _record_revalidation_diagnostics(revalidation: Any) -> None:
-        output_grid = float(revalidation.diagnostics.get("output_grid", 0.0) or 0.0)
-        diagnostics["mesher_ready_coverage_revalidation_output_grid"] = max(
-            float(diagnostics["mesher_ready_coverage_revalidation_output_grid"]),
-            output_grid,
-        )
-        diagnostics["geos_exception_count"] += int(
-            revalidation.diagnostics.get("geos_exception_count", 0)
-        )
-        diagnostics["geos_exception_messages"].extend(
-            list(revalidation.diagnostics.get("geos_exception_messages", []))
-        )
-        _merge_revalidation_operator_counts(
-            dict(
-                revalidation.diagnostics.get(
-                    "coverage_meshing_regularization_operator_applied", {}
-                )
-            )
-        )
-
-    def _revalidation_score(
-        signature: Any,
-        difference_metrics: dict[str, float],
-    ) -> tuple[float, ...]:
-        return (
-            *cleaning_footprints._coverage_signature_score(
-                signature,
-                target_scale=declared_scale,
-            ),
-            difference_metrics["reference_minus_candidate_area"],
-            difference_metrics["candidate_minus_reference_area"],
-            difference_metrics["symmetric_difference_area"],
-            abs(difference_metrics["union_area_delta"]),
-        )
-
-    def _signature_satisfies_contract(signature: Any) -> bool:
-        return cleaning_footprints._coverage_signature_satisfies_scale_contract(
-            signature,
-            target_scale=declared_scale,
-            grid=contract_grid,
-        )
-
-    def _run_revalidation_pass(
-        coverage_polygons: Sequence[Polygon],
-        coverage_sources: Sequence[Sequence[int]],
-    ) -> tuple[
-        list[Polygon],
-        list[list[int]],
-        Any,
-        str | None,
-        dict[str, float],
-    ]:
-        revalidation = condition_polygon_coverage(
-            coverage_polygons,
-            source_map=[list(indices) for indices in coverage_sources],
-            options=ConditioningOptions(
-                precision_grid=(
-                    revalidation_precision_grid
-                    if revalidation_precision_grid > 0.0
-                    else None
-                ),
-                min_feature_size=declared_scale,
-                merge_distance=0.0,
-                min_area=0.0,
-                min_hole_area=min_hole_area,
-                collect_stage_metrics=cleaning_diagnostics,
-                enable_logging=cleaning_diagnostics,
-            ),
-        )
-        _record_revalidation_diagnostics(revalidation)
-        pass_polygons, pass_sources = _normalize(
-            revalidation.polygons,
-            revalidation.source_map,
-        )
-        pass_signature = cleaning_footprints._coverage_defect_signature(
-            pass_polygons,
-            target_scale=declared_scale,
-        )
-        pass_graph_error = _coverage_mesher_segment_graph_error(pass_polygons)
-        pass_difference_metrics = cleaning_footprints._difference_area_metrics(
-            unary_union(normalized_polygons),
-            unary_union(pass_polygons),
-        )
-        return (
-            pass_polygons,
-            pass_sources,
-            pass_signature,
-            pass_graph_error,
-            pass_difference_metrics,
-        )
-
-    revalidation = condition_polygon_coverage(
-        normalized_polygons,
-        source_map=[list(indices) for indices in normalized_sources],
-        options=ConditioningOptions(
-            precision_grid=(
-                revalidation_precision_grid
-                if revalidation_precision_grid > 0.0
-                else None
-            ),
-            min_feature_size=declared_scale,
-            merge_distance=0.0,
-            min_area=0.0,
-            min_hole_area=min_hole_area,
-            collect_stage_metrics=cleaning_diagnostics,
-            enable_logging=cleaning_diagnostics,
-        ),
-    )
-    diagnostics["mesher_ready_coverage_revalidation_iteration_count"] = 1
-    diagnostics["mesher_ready_coverage_revalidation_stop_reason"] = "initial_pass"
-    _record_revalidation_diagnostics(revalidation)
-    bridge_operator_applied = any(
-        str(operator_name).startswith("coverage_pair_issue_bridge")
-        for operator_name in diagnostics["mesher_ready_coverage_revalidation_operator_applied"]
-    )
-
-    candidate_polygons, candidate_sources = _normalize(
-        revalidation.polygons,
-        revalidation.source_map,
-    )
-    candidate_signature = cleaning_footprints._coverage_defect_signature(
-        candidate_polygons,
-        target_scale=declared_scale,
-    )
-    candidate_graph_error = _coverage_mesher_segment_graph_error(candidate_polygons)
-    difference_metrics = cleaning_footprints._difference_area_metrics(
-        unary_union(normalized_polygons),
-        unary_union(candidate_polygons),
-    )
-    initial_score = (
-        *cleaning_footprints._coverage_signature_score(
-            initial_signature,
-            target_scale=declared_scale,
-        ),
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-    )
-    candidate_score = _revalidation_score(candidate_signature, difference_metrics)
-    initial_graph_valid = initial_graph_error is None
-    candidate_graph_valid = candidate_graph_error is None
-    initial_satisfies_contract = _signature_satisfies_contract(initial_signature)
-    candidate_satisfies_contract = _signature_satisfies_contract(candidate_signature)
-    use_candidate = False
-    if candidate_graph_valid and not initial_graph_valid:
-        use_candidate = True
-    elif initial_graph_valid and not candidate_graph_valid:
-        use_candidate = False
-    else:
-        use_candidate = candidate_score < initial_score
-    if (
-        use_candidate
-        and initial_signature.pair_issue_count == 0
-        and initial_signature.ring_contact_count == 0
-        and bridge_operator_applied
-    ):
-        diagnostics["mesher_ready_coverage_revalidation_rejected_bridge_operator"] = True
-        use_candidate = False
-    if (
-        use_candidate
-        and initial_graph_valid
-        and candidate_graph_valid
-        and initial_signature.pair_issue_count == 0
-        and initial_signature.ring_contact_count == 0
-        and initial_signature.short_edge_count == 0
-        and not initial_satisfies_contract
-        and not candidate_satisfies_contract
-        and (candidate_signature.min_clearance or 0.0) < 0.5 * declared_scale
-    ):
-        diagnostics[
-            "mesher_ready_coverage_revalidation_rejected_insufficient_clearance_gain"
-        ] = True
-        use_candidate = False
-    if not use_candidate:
-        diagnostics["mesher_ready_coverage_revalidation_stop_reason"] = "rejected"
-
-    chosen_polygons = candidate_polygons if use_candidate else normalized_polygons
-    chosen_sources = candidate_sources if use_candidate else normalized_sources
-    chosen_signature = candidate_signature if use_candidate else initial_signature
-    chosen_graph_error = candidate_graph_error if use_candidate else initial_graph_error
-    chosen_score = candidate_score if use_candidate else initial_score
-
-    max_extra_iterations = 3
-    while (
-        use_candidate
-        and diagnostics["mesher_ready_coverage_revalidation_iteration_count"]
-        <= max_extra_iterations
-        and (
-            not _signature_satisfies_contract(chosen_signature)
-            or chosen_graph_error is not None
-        )
-    ):
-        (
-            next_polygons,
-            next_sources,
-            next_signature,
-            next_graph_error,
-            next_difference_metrics,
-        ) = _run_revalidation_pass(chosen_polygons, chosen_sources)
-        diagnostics["mesher_ready_coverage_revalidation_iteration_count"] += 1
-        next_score = _revalidation_score(next_signature, next_difference_metrics)
-        if next_graph_error is not None and chosen_graph_error is None:
-            diagnostics["mesher_ready_coverage_revalidation_stop_reason"] = (
-                "candidate_graph_invalid"
-            )
-            break
-        if not cleaning_footprints._coverage_signature_improves(
-            chosen_signature,
-            next_signature,
-            grid=contract_grid,
-            target_scale=declared_scale,
-        ):
-            diagnostics["mesher_ready_coverage_revalidation_stop_reason"] = (
-                "no_signature_improvement"
-            )
-            break
-        if next_score >= chosen_score and not (
-            _signature_satisfies_contract(next_signature)
-            and not _signature_satisfies_contract(chosen_signature)
-        ):
-            diagnostics["mesher_ready_coverage_revalidation_stop_reason"] = (
-                "no_score_improvement"
-            )
-            break
-
-        chosen_polygons = next_polygons
-        chosen_sources = next_sources
-        chosen_signature = next_signature
-        chosen_graph_error = next_graph_error
-        chosen_score = next_score
-    if use_candidate and (
-        _signature_satisfies_contract(chosen_signature) and chosen_graph_error is None
-    ):
-        diagnostics["mesher_ready_coverage_revalidation_stop_reason"] = (
-            "contract_satisfied"
-        )
-    elif (
-        use_candidate
-        and diagnostics["mesher_ready_coverage_revalidation_stop_reason"]
-        == "initial_pass"
-    ):
-        diagnostics["mesher_ready_coverage_revalidation_stop_reason"] = (
-            "max_iterations"
-        )
-
-    diagnostics["mesher_ready_coverage_revalidation_applied"] = use_candidate
-    diagnostics["mesher_ready_coverage_short_edge_count_after"] = (
-        chosen_signature.short_edge_count
-    )
-    diagnostics["mesher_ready_coverage_pair_issue_count_after"] = (
-        chosen_signature.pair_issue_count
-    )
-    diagnostics["mesher_ready_coverage_ring_contact_count_after"] = (
-        chosen_signature.ring_contact_count
-    )
-    diagnostics["mesher_ready_coverage_segment_graph_valid_after"] = (
-        chosen_graph_error is None
-    )
-    diagnostics["mesher_ready_coverage_segment_graph_error_after"] = (
-        chosen_graph_error
-    )
-
-    if use_candidate:
-        return chosen_polygons, chosen_sources
-    return normalized_polygons, normalized_sources
-
-
 def _condition_meshing_footprints(
     buildings: list[Building],
     *,
@@ -4466,8 +3968,27 @@ def _condition_meshing_footprints(
         warning("No buildings to preprocess.")
         diagnostics = {"pipeline_mode": pipeline_mode}
         declared_scale = _conditioned_footprint_declared_scale(
-            min_building_detail=min_building_detail,
-            diagnostics=diagnostics,
+            min_building_detail=min_building_detail
+        )
+        empty_contract = check_cleaning_contract(
+            [], [], delta=declared_scale, epsilon=declared_scale / 2
+        )
+        empty_contract["mesher_profile"] = check_mesher_handoff_profile([])
+        diagnostics.update(
+            before_selection_contract=empty_contract,
+            selection={
+                "min_area": min_building_area,
+                "input_count": 0,
+                "output_count": 0,
+                "removed_count": 0,
+                "removed_area": 0.0,
+                "removed_source_map": [],
+                "excluded_regions": [],
+                "represented_source_indices": [],
+                "unrepresented_source_indices": [],
+            },
+            final_handoff_contract=empty_contract,
+            policy_exclusions=[],
         )
         return ConditionedFootprints(
             surfaces=[],
@@ -4503,44 +4024,77 @@ def _condition_meshing_footprints(
         initial_source_map.append([index])
 
     options = ConditioningOptions(
-        precision_grid=None,
         min_feature_size=min_building_detail,
         merge_distance=merge_tolerance if merge_buildings else 0.0,
-        min_area=min_building_area,
-        min_hole_area=min_building_detail**2,
-        collect_stage_metrics=cleaning_diagnostics,
         enable_logging=cleaning_diagnostics,
+        allow_source_merging=merge_buildings,
     )
 
-    if isinstance(lod, GeometryType):
-        result = condition_building_footprints(
-            buildings,
-            lod=lod,
-            options=options,
-        )
-    else:
-        result = condition_polygon_coverage(
-            extracted_polygons,
-            source_map=initial_source_map,
-            options=options,
-        )
+    result = condition_polygon_coverage(
+        extracted_polygons,
+        source_map=initial_source_map,
+        options=options,
+    )
 
     mesher_scale = _conditioned_footprint_declared_scale(
-        min_building_detail=min_building_detail,
-        diagnostics=result.diagnostics,
+        min_building_detail=min_building_detail
     )
-    result.diagnostics["mesher_ready_coverage_revalidation_enabled"] = True
-    mesher_ready_polygons, mesher_ready_source_map = _normalize_mesher_ready_coverage(
-        list(result.polygons),
-        [list(indices) for indices in result.source_map],
-        declared_scale=mesher_scale,
-        min_hole_area=max(mesher_scale**2, 1.0e-12),
-        contract_grid_tolerance=float(
-            result.diagnostics.get("output_grid", 0.0) or 0.0
+    mesher_ready_polygons = list(result.polygons)
+    mesher_ready_source_map = [list(indices) for indices in result.source_map]
+    epsilon = float(
+        result.diagnostics.get(
+            "fidelity_budget_used",
+            result.diagnostics.get("fidelity_budget", mesher_scale / 2),
+        )
+    )
+
+    before_selection_contract = result.diagnostics.get("before_selection_contract")
+    if (
+        isinstance(before_selection_contract, dict)
+        and before_selection_contract.get("status") != "not_checked"
+        and "admissibility" in before_selection_contract
+    ):
+        # The cleaner checked exactly these regions against this input.
+        before_selection_contract = {
+            "mesher_profile": result.diagnostics["mesher_profile"],
+            **before_selection_contract,
+        }
+    else:
+        # Zero-scale identity mode: check at the declared numerical scale.
+        before_selection_contract = check_cleaning_contract(
+            extracted_polygons,
+            mesher_ready_polygons,
+            delta=mesher_scale,
+            epsilon=epsilon,
+            achieved=True,
+        )
+        before_selection_contract["mesher_profile"] = check_mesher_handoff_profile(
+            mesher_ready_polygons
+        )
+    selected = select_footprints(
+        ConditioningResult(
+            polygons=mesher_ready_polygons,
+            source_map=mesher_ready_source_map,
+            diagnostics={
+                **result.diagnostics,
+                "before_selection_contract": before_selection_contract,
+            },
         ),
-        diagnostics=result.diagnostics,
-        cleaning_diagnostics=cleaning_diagnostics,
+        min_area=min_building_area,
     )
+    mesher_ready_polygons = selected.polygons
+    mesher_ready_source_map = selected.source_map
+    result.diagnostics = selected.diagnostics
+    final_handoff_contract = check_cleaning_contract(
+        extracted_polygons,
+        mesher_ready_polygons,
+        delta=mesher_scale,
+        epsilon=epsilon,
+    )
+    final_handoff_contract["mesher_profile"] = check_mesher_handoff_profile(
+        mesher_ready_polygons
+    )
+    result.diagnostics["final_handoff_contract"] = final_handoff_contract
 
     if show_footprints:
         plot_footprint_cleaning_comparison(
@@ -4566,8 +4120,7 @@ def _condition_meshing_footprints(
         info(
             "Footprint conditioning complete: "
             f"{len(buildings)} -> {len(conditioned.surfaces)} footprints | "
-            f"groups={conditioned.diagnostics.get('merged_group_count', 0)} | "
-            f"grid={conditioned.diagnostics.get('output_grid')} m"
+            f"groups={conditioned.diagnostics.get('groups', 0)}"
         )
     return conditioned
 
@@ -4587,8 +4140,7 @@ def _reuse_conditioned_footprints(
     if len(conditioned.surfaces) != len(conditioned.source_map):
         raise ValueError("Conditioned footprint geometry/source-map length mismatch")
     expected_scale = _conditioned_footprint_declared_scale(
-        min_building_detail=min_building_detail,
-        diagnostics=conditioned.diagnostics,
+        min_building_detail=min_building_detail
     )
     if (
         not np.isfinite(conditioned.declared_scale)
@@ -4634,6 +4186,8 @@ def _reuse_conditioned_footprints(
         pipeline_mode=pipeline_mode,
     )
     _raise_stage_contract_errors("Conditioned footprints", result.contract)
+    for message in result.contract["warnings"]:
+        warning(message)
     return result
 
 
@@ -4686,8 +4240,7 @@ def _assemble_conditioned_footprints(
     diagnostics["conservative_merged_roof_count"] = conservative_roof_count
     diagnostics["conservative_merged_roof_max_span"] = conservative_roof_max_span
     declared_scale = _conditioned_footprint_declared_scale(
-        min_building_detail=min_building_detail,
-        diagnostics=diagnostics,
+        min_building_detail=min_building_detail
     )
     contract = _conditioned_footprint_contract(
         surfaces=conditioned_surfaces,

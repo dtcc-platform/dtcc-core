@@ -1,0 +1,103 @@
+{
+  "type": "FeatureCollection",
+  "metadata": {
+    "source": "Reduced Gothenburg 11 overlay witness from original_material_motion_experiment in docs/design/footprint-cleaning-patch-results.json",
+    "purpose": "Seven vertices per polygon retain a thin occupied loss hidden by world-coordinate overlay. Geometry is a numerical witness, not a desired cleaning result.",
+    "local_origin": [
+      319580,
+      6400540
+    ]
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "role": "protected"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              319593.26258469786,
+              6400555.57858511
+            ],
+            [
+              319590.1836578434,
+              6400566.671046334
+            ],
+            [
+              319592.72003050434,
+              6400567.375314158
+            ],
+            [
+              319593.3043205657,
+              6400554.851897953
+            ],
+            [
+              319593.0328405523,
+              6400554.53739364
+            ],
+            [
+              319593.2778447546,
+              6400553.649138704
+            ],
+            [
+              319587.39945801743,
+              6400549.423236112
+            ],
+            [
+              319593.26258469786,
+              6400555.57858511
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "role": "candidate"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              319593.4480872916,
+              6400554.65223345
+            ],
+            [
+              319593.251195651,
+              6400553.492118161
+            ],
+            [
+              319588.229,
+              6400548.136
+            ],
+            [
+              319587.056,
+              6400549.43
+            ],
+            [
+              319593.2625832793,
+              6400555.578584664
+            ],
+            [
+              319590.1168206465,
+              6400566.911844369
+            ],
+            [
+              319592.894,
+              6400567.683
+            ],
+            [
+              319593.4480872916,
+              6400554.65223345
+            ]
+          ]
+        ]
+      }
+    }
+  ]
+}

@@ -591,15 +591,27 @@ def _result_quality_summary(result: dict[str, Any]) -> str:
     cleaning = metrics.get("cleaning", {})
     if cleaning:
         parts.append(f"cleaning={cleaning.get('status', '-')}")
-        for key in (
-            "seconds",
-            "removed_area",
-            "added_area",
-            "short_edge_count",
-            "min_clearance",
-        ):
+        geometric = cleaning.get("before_selection_contract") or cleaning.get(
+            "geometric_contract", {}
+        )
+        if geometric:
+            parts.append(f"cleaning_contract={geometric.get('status', '-')}")
+        selection = cleaning.get("selection")
+        if selection:
+            parts.append(f"selected_out={selection['removed_count']}")
+        for key in ("seconds", "removed_area", "added_area"):
             if cleaning.get(key) is not None:
                 parts.append(f"clean_{key}={_format_number(cleaning[key])}")
+        for label, value in (
+            ("clean_mfs", geometric.get("admissibility", {}).get("mfs_capped_at_delta")),
+            ("clean_epsilon", geometric.get("epsilon")),
+            (
+                "clean_achieved_epsilon",
+                geometric.get("fidelity", {}).get("achieved_epsilon"),
+            ),
+        ):
+            if value is not None:
+                parts.append(f"{label}={_format_number(value)}")
     meshing = metrics.get("meshing", {})
     if meshing:
         parts.append(f"meshing={meshing.get('status', '-')}")
@@ -753,6 +765,12 @@ def _phase_tables(results, symbols=UNICODE_SYMBOLS):
         metrics = result.get("metrics", {})
         c = metrics.get("cleaning")
         if c:
+            geometric = c.get("before_selection_contract") or c.get(
+                "geometric_contract", {}
+            )
+            observed = geometric.get("admissibility", {})
+            admissible = observed.get("admissible")
+            fidelity = geometric.get("fidelity", {})
             cleaning.append(
                 [
                     label,
@@ -762,7 +780,12 @@ def _phase_tables(results, symbols=UNICODE_SYMBOLS):
                     f"{c.get('output_count', '-')}",
                     _format_number(c.get("removed_area")),
                     _format_number(c.get("added_area")),
-                    _format_number(c.get("short_edge_count")),
+                    "-" if admissible is None else "yes" if admissible else "no",
+                    _format_number(observed.get("mfs_capped_at_delta")),
+                    fidelity.get("status", "-"),
+                    _format_number(geometric.get("epsilon")),
+                    _format_number(fidelity.get("achieved_epsilon")),
+                    (c.get("selection") or {}).get("removed_count", "-"),
                 ]
             )
         m = metrics.get("meshing")
@@ -789,7 +812,12 @@ def _phase_tables(results, symbols=UNICODE_SYMBOLS):
                 f"In {symbols['arrow']} out",
                 f"Removed m{symbols['squared']}",
                 f"Added m{symbols['squared']}",
-                "Short edges",
+                "Admissible",
+                "mfs m",
+                "Fidelity",
+                "Budget m",
+                "Achieved m",
+                "Selected out",
             ],
             cleaning,
         ),
@@ -986,10 +1014,8 @@ def _execute_tasks(tasks, args):
     print(f"Total time: {_format_duration(manifest['elapsed_seconds'])}")
     print(f"Run directory: {run_dir}")
     if any(result.get("artifacts", {}).get("cleaning_input") for result in results):
-        plot_command = shlex.join(
-            [sys.executable, str(Path(__file__).resolve()), "plot", str(run_dir)]
-        )
-        print(f"Generate footprint comparison plots with:\n  {plot_command}")
+        plot_command = shlex.join(["bench", "plot", str(run_dir)])
+        print(f"\nTo generate plots, run the command\n\n    {plot_command}\n")
     return 0 if all(not _is_hard_failure(result["status"]) for result in results) else 1
 
 
@@ -1084,7 +1110,8 @@ def command_compare(args: argparse.Namespace) -> int:
         ("cleaning", "removed_area"),
         ("cleaning", "added_area"),
         ("cleaning", "boundary_displacement_max"),
-        ("cleaning", "short_edge_count"),
+        ("cleaning", "before_selection_contract", "admissibility", "mfs_capped_at_delta"),
+        ("cleaning", "before_selection_contract", "fidelity", "achieved_epsilon"),
         ("meshing", "seconds"),
         ("meshing", "element_quality_p01"),
         ("meshing", "num_faces"),

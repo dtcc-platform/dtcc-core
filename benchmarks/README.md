@@ -112,11 +112,13 @@ The footprint artifact explicitly records **EPSG:3006, metre coordinates** in
 its metadata; do not interpret it as WGS84 GeoJSON. Loading checks its version,
 CRS, bounds, cleaning parameters, polygon geometry and source indices. Mesher
 input validation remains active. Results from before phase separation do not
-contain this handoff and cannot be used for meshing-only runs.
+contain this handoff and cannot be used for meshing-only runs, and artifacts of
+format version 1 (before the reports used the contract's current terms) are
+rejected; rerun their cleaning phase.
 
 | Phase | Measurements |
 | --- | --- |
-| Cleaning | Input/output/vertex/hole counts, invalid input/output counts, unrepresented sources, added/removed area, maximum boundary displacement, overlap, minimum clearance, short edges, stage contract, cleaning time |
+| Cleaning | Input/output/vertex/hole counts, invalid input/output counts, unrepresented sources, added/removed area, maximum boundary displacement, overlap, admissibility, minimum feature size, fidelity, budget and achieved budget, stage contract, cleaning time |
 | Meshing | Vertex/element/region counts; min/mean/max element quality, aspect ratio, radius ratio, edge ratio and skewness; 1st-percentile element quality; counts below quality 0.02 and of degenerate cells; stage contracts; meshing time |
 
 Area and displacement compare coverage unions, so overlapping raw polygons do
@@ -124,6 +126,34 @@ not inflate area. Invalid raw polygons use GEOS `make_valid` for these
 measurements; the original raw geometry and invalid-input count are retained.
 Unrepresented sources and changes in holes/area are observations, not automatic
 failures: declared scale rules intentionally remove some geometry.
+
+New cleaning metrics include independent
+[contract checks](../dtcc_core/builder/cleaning/contract.py). The columns
+`Admissible`, `mfs m`, `Fidelity`, `Budget m` and `Achieved m` describe the final
+cleaned geometry **before area selection**, in the terms of the
+[contract](../docs/design/footprint-cleaning-contract.md): membership in
+`A_delta` under the union topology profile, the minimum feature size of the
+essential boundary graph (capped at delta, so an admissible result shows delta),
+the fidelity status, the fidelity budget used (scale / 2 by default, or the
+retry budget 3 scale / 4 when a merge group needed it) and the achieved budget,
+the smallest epsilon the result would also satisfy.
+`Selected out` counts regions excluded afterward by `min_building_area`.
+
+JSON separates `before_selection_contract`, `selection`, and the selected
+handoff's `geometric_contract`. The usual counts and added/removed areas still
+compare raw inputs with that selected handoff. Selection reports excluded area
+and source maps explicitly; it never changes the cleaning reference. Direct
+cleaner callers use `select_footprints(cleaned, min_area=...)` separately;
+`ConditioningOptions` no longer has a `min_area` parameter. Dataset and benchmark
+`min_building_area` parameters still apply after cleaning.
+
+A `borderline` fidelity result is inconclusive, not a pass. By default, residual
+separation defects alone produce a prominent warning and allow meshing to be
+attempted; topology, fidelity, source attribution and mesher-input safety remain
+mandatory. `Admissible` remains `no` and the geometric contract remains `fail`;
+the pipeline reports `warning`, not geometric conformance. Smaller elements and
+greater mesh cost are possible. Warnings survive selection and saved-stage
+replay. Older reports are not relabeled and show `-` for missing observations.
 
 Replayed cleaning is marked `reused`, without a new cleaning time or claimed
 new cleaning measurements. Consult its source run for those measurements.
