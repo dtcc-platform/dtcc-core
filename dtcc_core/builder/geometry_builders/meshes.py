@@ -4041,7 +4041,12 @@ def _condition_meshing_footprints(
     )
     mesher_ready_polygons = list(result.polygons)
     mesher_ready_source_map = [list(indices) for indices in result.source_map]
-    epsilon = float(result.diagnostics.get("fidelity_budget", mesher_scale / 2))
+    epsilon = float(
+        result.diagnostics.get(
+            "fidelity_budget_used",
+            result.diagnostics.get("fidelity_budget", mesher_scale / 2),
+        )
+    )
 
     before_selection_contract = result.diagnostics.get("before_selection_contract")
     if (

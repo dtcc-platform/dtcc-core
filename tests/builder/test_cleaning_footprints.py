@@ -96,6 +96,7 @@ def test_positive_scale_uses_authoritative_constructor_and_reports_contract(
         *,
         delta,
         epsilon,
+        retry_epsilon,
         merge_distance,
         allow_source_merging,
         allow_residual_separation,
@@ -107,6 +108,7 @@ def test_positive_scale_uses_authoritative_constructor_and_reports_contract(
                 source_map,
                 delta,
                 epsilon,
+                retry_epsilon,
                 merge_distance,
                 allow_source_merging,
             )
@@ -132,7 +134,7 @@ def test_positive_scale_uses_authoritative_constructor_and_reports_contract(
         ),
     )
 
-    assert calls == [([polygon], [[4]], 0.5, 0.2, 0.0, False)]
+    assert calls == [([polygon], [[4]], 0.5, 0.2, pytest.approx(0.3), 0.0, False)]
     assert result.polygons == [polygon]
     assert result.source_map == [[4]]
     assert result.diagnostics["fidelity"]["status"] == "pass"
@@ -425,3 +427,12 @@ def test_merge_distance_is_inclusive_and_transitive():
     assert len(result.polygons) == 1
     assert result.source_map == [[0, 1, 2]]
     assert result.diagnostics["merge_eligibility_groups"] == [[0, 1, 2]]
+
+
+@pytest.mark.parametrize("factor", [1.0, 0.5, float("nan")])
+def test_fidelity_retry_factor_must_enlarge_the_budget(factor):
+    with pytest.raises(ValueError, match="fidelity_retry_factor"):
+        cleaning.condition_polygon_coverage(
+            [box(0, 0, 1, 1)],
+            options=cleaning.ConditioningOptions(fidelity_retry_factor=factor),
+        )

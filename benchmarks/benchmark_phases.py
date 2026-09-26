@@ -347,7 +347,7 @@ def execute_phases(task, metrics, artifacts):
                 cleaned,
                 conditioned.source_map,
                 conditioned.declared_scale,
-                epsilon=conditioned.diagnostics.get("fidelity_budget"),
+                epsilon=conditioned.diagnostics.get("fidelity_budget_used"),
             ),
             "contract": conditioned.contract,
             "before_selection_contract": conditioned.diagnostics.get(

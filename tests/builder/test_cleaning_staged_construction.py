@@ -80,16 +80,50 @@ def test_dense_structural_proposal_repairs_one_cap_case_and_explains_the_residua
     ]
 
 
-def test_identical_fixed_fallback_starts_are_evaluated_once():
+def test_search_stops_at_the_first_candidate_with_preferred_angles():
     raw = survey_merge_group("city_grid:norrkoping:003", 0)
     output, report = construction.construct(raw)
     assert output is not None, report
     assert report["fallback_attempts"][0]["accepted_for_ranking"] is True
+    assert report["mesher_profile"]["preferred"]["status"] == "pass"
+    assert report["reason"] == "preferred_candidate"
     assert [row["reason"] for row in report["fallback_attempts"][1:]] == [
-        "canonical_preprocessing_equivalence",
-        "canonical_preprocessing_equivalence",
+        "preferred_candidate_found",
+        "preferred_candidate_found",
     ]
     assert report["evaluations"] < 100
+
+
+def test_a_conforming_result_without_preferred_angles_does_not_stop_the_search(
+    monkeypatch,
+):
+    raw = [box(0, 0, 5, 5), box(5.1, 0, 10, 5)]
+    variants = [[box(0, 0, 10, 5 + 0.05 * index)] for index in range(3)]
+    calls = []
+
+    def attempt(*args, **kwargs):
+        repaired = variants[len(calls)]
+        calls.append(len(calls))
+        contract = check_cleaning_contract(raw, repaired, delta=0.5)
+        return repaired, dict(
+            contract=contract, outcome="conforming", stages={},
+            final=construction.defect_tuple(contract["admissibility"]),
+            edits=0, sites=0, evaluations=1, admissions=0, global_evaluations=0,
+        )
+
+    def finish(raw, output, **kwargs):
+        preferred = {"status": "pass" if len(calls) == 3 else "fail"}
+        return output, {"status": "pass", "preferred": preferred}
+
+    monkeypatch.setattr(construction, "attempt", attempt)
+    monkeypatch.setattr(construction, "_finish_mesher_profile", finish)
+    monkeypatch.setattr(
+        construction, "_fallback_preprocessing_is_equivalent", lambda *args: False
+    )
+    output, report = construction.construct(raw)
+    assert calls == [0, 1, 2]
+    assert output == variants[2]
+    assert report["reason"] == "preferred_candidate"
 
 
 def test_local_improvement_cannot_hide_new_distant_conflicts():
@@ -250,3 +284,100 @@ def test_failed_bulk_attempt_retries_without_bulk_simplification(monkeypatch):
 def test_invalid_parameters(delta, epsilon):
     with pytest.raises(ValueError):
         construction.construct([], delta=delta, epsilon=epsilon)
+
+
+def _budget_retry_fixture(monkeypatch, outcomes):
+    """Two merge groups: a pair 0.1 m apart and a separate square."""
+    pair = [box(0, 0, 5, 5), box(5.1, 0, 10, 5)]
+    single = box(20, 0, 30, 10)
+    calls = []
+
+    def construct(raw, *, delta, epsilon, allow_residual_separation, **kwargs):
+        calls.append(epsilon)
+        if len(raw) == 1:
+            return list(raw), {"outcome": "unchanged"}
+        outcome = outcomes[epsilon]
+        output = {
+            "conforming": [box(0, 0, 10, 5.3)],  # adds points 0.3 m out
+            "warning": list(raw),
+            "unresolved": None,
+        }[outcome]
+        return output, {"outcome": outcome}
+
+    monkeypatch.setattr(construction, "construct", construct)
+    return pair + [single], calls
+
+
+def test_group_that_fails_is_retried_at_the_larger_budget(monkeypatch):
+    raw, calls = _budget_retry_fixture(
+        monkeypatch, {0.25: "unresolved", 0.375: "conforming"}
+    )
+    polygons, sources, report = construction.construct_coverage(
+        raw, [[0], [1], [2]], delta=0.5, epsilon=0.25, retry_epsilon=0.375
+    )
+    assert sorted(calls) == [0.25, 0.25, 0.375]
+    assert report["outcome"] == "conforming"
+    assert report["fidelity_budget_used"] == 0.375
+    contract = report["before_selection_contract"]
+    assert contract["epsilon"] == 0.375 and contract["status"] == "pass"
+    # The farthest added point is above the middle of the 0.1 m gap.
+    assert contract["fidelity"]["achieved_epsilon"] == pytest.approx(
+        (0.3**2 + 0.05**2) ** 0.5, abs=0.004
+    )
+    (retried,) = [row for row in report["group_reports"] if "budget_attempts" in row]
+    assert retried["fidelity_budget"] == 0.375
+    assert [row["outcome"] for row in retried["budget_attempts"]] == [
+        "unresolved",
+        "conforming",
+    ]
+    assert sorted(sources) == [[0, 1], [2]]
+
+
+def test_a_retry_that_does_not_improve_keeps_the_declared_budget(monkeypatch):
+    raw, calls = _budget_retry_fixture(
+        monkeypatch, {0.25: "warning", 0.375: "unresolved"}
+    )
+    polygons, _, report = construction.construct_coverage(
+        raw,
+        [[0], [1], [2]],
+        delta=0.5,
+        epsilon=0.25,
+        retry_epsilon=0.375,
+        allow_residual_separation=True,
+    )
+    assert report["outcome"] == "warning"
+    assert report["fidelity_budget_used"] == 0.25
+    assert report["before_selection_contract"]["epsilon"] == 0.25
+
+    calls.clear()
+    _, _, report = construction.construct_coverage(
+        raw, [[0], [1], [2]], delta=0.5, epsilon=0.25,
+        allow_residual_separation=True,
+    )
+    assert 0.375 not in calls and report["fidelity_budget_used"] == 0.25
+
+
+def test_early_stop_is_revisited_when_groups_end_up_too_close(monkeypatch):
+    # Two merge groups 0.6 m apart. The first preferred candidate of the left
+    # group grows towards the right one; ranking every attempt keeps it apart.
+    left = [box(0, 0, 5, 5), box(5.1, 0, 10, 5)]
+    right = box(10.6, 0, 20, 5)
+    calls = []
+
+    def construct(raw, *, delta, epsilon, allow_residual_separation, stop_at_preferred):
+        calls.append(stop_at_preferred)
+        if len(raw) == 1:
+            return list(raw), {"outcome": "unchanged"}
+        grown = box(0, 0, 10.2, 5) if stop_at_preferred else box(0, 0, 10, 5)
+        skipped = [{"reason": "preferred_candidate_found"}] if stop_at_preferred else []
+        return [grown], {"outcome": "conforming", "fallback_attempts": skipped}
+
+    monkeypatch.setattr(construction, "construct", construct)
+    polygons, _, report = construction.construct_coverage(
+        left + [right], [[0], [1], [2]], delta=0.5, epsilon=0.25,
+        allow_residual_separation=True,
+    )
+    assert report["outcome"] == "conforming"
+    assert report["cross_group_rebuild"] == {"groups": [0], "adopted": True}
+    assert box(0, 0, 10, 5) in polygons
+    assert calls.count(False) == 1

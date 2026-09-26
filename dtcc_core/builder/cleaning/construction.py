@@ -9,11 +9,13 @@ four steps:
 2. Return input that already conforms. Otherwise, for each group, run a fixed
    set of preprocessing attempts followed by bounded topology, separation and
    combined repair passes. Proposals are removals, collapses, balanced motion
-   of both sides of a conflict, notches, closings and cuts.
+   of both sides of a conflict, notches, closings and cuts. A group that does
+   not conform may be constructed once more with a larger fidelity budget.
 3. Filter and rank proposals on local clips, then admit an edit only if it
    improves the group's defect measure and passes the original fidelity budget
    on the whole group. Conforming attempts are finished towards the preferred
-   angle profile and ranked by that profile, drift and canonical geometry.
+   angle profile; the first that meets it is kept, otherwise attempts are
+   ranked by that profile, drift and canonical geometry.
 4. Attribute each region to the sources that support it, and check the
    assembled coverage independently.
 
@@ -198,12 +200,165 @@ def _nonmerge_inset(raw, atoms, atom_sources, conflicts, *, delta, epsilon):
     )
 
 
+def _construct_group(
+    group_index,
+    members,
+    atoms,
+    atom_sources,
+    *,
+    delta,
+    epsilon,
+    retry_epsilon,
+    allow_residual_separation,
+    stop_at_preferred=True,
+):
+    """Construct one merge group, retrying once at ``retry_epsilon`` if given.
+
+    Returns the attributed regions (None when unresolved), a compact report,
+    any empty-protected-core exclusion, the budget used and whether the search
+    stopped at the first preferred candidate.
+    """
+    group_raw = [atoms[index] for index in members]
+    output, report = construct(
+        group_raw,
+        delta=delta,
+        epsilon=epsilon,
+        allow_residual_separation=allow_residual_separation,
+        stop_at_preferred=stop_at_preferred,
+    )
+    group_epsilon = epsilon
+    budget_attempts = []
+    if retry_epsilon is not None and report["outcome"] not in (
+        "unchanged",
+        "conforming",
+    ):
+        retry_output, retry_report = construct(
+            group_raw,
+            delta=delta,
+            epsilon=retry_epsilon,
+            allow_residual_separation=allow_residual_separation,
+            stop_at_preferred=stop_at_preferred,
+        )
+        budget_attempts = [
+            {
+                "fidelity_budget": value,
+                "outcome": attempt_report["outcome"],
+                "total_work": attempt_report.get("total_work", {}),
+                "seconds": attempt_report.get("seconds", 0.0),
+            }
+            for value, attempt_report in ((epsilon, report), (retry_epsilon, retry_report))
+        ]
+        if retry_report["outcome"] in ("unchanged", "conforming") or (
+            output is None and retry_output is not None
+        ):
+            output, report, group_epsilon = retry_output, retry_report, retry_epsilon
+    compact = {
+        "group": group_index,
+        "fidelity_budget": group_epsilon,
+        "input_count": len(group_raw),
+        "source_indices": sorted(
+            {source for index in members for source in atom_sources[index]}
+        ),
+        "outcome": report["outcome"],
+        "reason": report.get("reason", "unresolved"),
+        "initial": report.get("initial"),
+        "final": report.get("final"),
+        "edits": report.get("edits", 0),
+        "evaluations": report.get("evaluations", 0),
+        "global_evaluations": report.get("global_evaluations", 0),
+        "total_work": report.get("total_work", {}),
+        "selected_attempt_work": report.get("selected_attempt_work", {}),
+        "fallback_attempts": report.get("fallback_attempts", []),
+        "terminal_rejection": report.get("terminal_rejection"),
+        "work_limit": report.get("work_limit"),
+        "timing": report.get("timing", {}),
+        "seconds": report.get("seconds", 0.0),
+    }
+    if budget_attempts:
+        compact["budget_attempts"] = budget_attempts
+    if not stop_at_preferred:
+        compact["ranked_all_attempts"] = True
+    profile = report.get("mesher_profile", {})
+    if profile.get("operations"):
+        compact["profile_operations"] = profile["operations"]
+    result = {
+        "regions": None,
+        "report": compact,
+        "exclusion": None,
+        "epsilon": group_epsilon,
+        "stopped_early": any(
+            row.get("reason") == "preferred_candidate_found"
+            for row in report.get("fallback_attempts", [])
+        ),
+        "attribution_failed": False,
+    }
+    if output is None:
+        return result
+    if profile.get("empty_protected_core_removal") and not output:
+        result["exclusion"] = {
+            "group": group_index,
+            "source_indices": compact["source_indices"],
+            "area": float(unary_union(group_raw).area),
+            "reason": "empty_protected_core",
+        }
+    owners_by_region = _attribute_sources(
+        output, group_raw, [atom_sources[index] for index in members]
+    )
+    if any(not owners for owners in owners_by_region):
+        compact["outcome"] = "unresolved"
+        compact["reason"] = "missing_source_attribution"
+        result["attribution_failed"] = True
+        return result
+    result["regions"] = list(zip(output, owners_by_region))
+    return result
+
+
+def _group_reports(built, groups, extra):
+    """Compact reports of the groups that changed, in group order."""
+    reports = [
+        built[index]["report"]
+        for index in range(len(groups))
+        if index in built
+        and (
+            built[index]["report"]["outcome"] != "unchanged"
+            or built[index]["report"].get("profile_operations")
+            or built[index]["report"].get("budget_attempts")
+            or built[index]["report"].get("ranked_all_attempts")
+        )
+    ]
+    return sorted(reports + list(extra), key=lambda report: report["group"])
+
+
+def _policy_exclusions(built):
+    return [
+        built[index]["exclusion"]
+        for index in sorted(built)
+        if built[index]["exclusion"] is not None
+    ]
+
+
+def _conflicting_groups(polygons, region_groups, delta):
+    """Merge groups whose regions take part in a feature pair closer than delta."""
+    locations = conflicts(polygons, delta)
+    if not locations:
+        return set()
+    tree = STRtree([polygon.boundary for polygon in polygons])
+    found = set()
+    for _, _, support in locations:
+        for index in tree.query(
+            points(support), predicate="dwithin", distance=delta * 1e-6
+        )[1]:
+            found.add(region_groups[int(index)])
+    return found
+
+
 def construct_coverage(
     raw,
     source_map,
     *,
     delta=0.5,
     epsilon=None,
+    retry_epsilon=None,
     merge_distance=0.5,
     allow_source_merging=True,
     allow_residual_separation=False,
@@ -220,6 +375,11 @@ def construct_coverage(
         Minimum feature size.
     epsilon : float or None, optional
         Fidelity budget; ``None`` uses ``delta / 2``.
+    retry_epsilon : float or None, optional
+        A larger budget for one more construction of each merge group that
+        does not conform at ``epsilon``. The retry is kept when it conforms,
+        or when it gives a warning candidate for a group that had none. The
+        assembled coverage is then checked at the largest budget used.
     merge_distance : float, optional
         Inclusive merge-eligibility distance on the original input.
     allow_source_merging : bool, optional
@@ -231,9 +391,12 @@ def construct_coverage(
     -------
     tuple
         ``(polygons, source_map, diagnostics)``. The polygons and source map
-        are ``None`` when the coverage is unresolved.
+        are ``None`` when the coverage is unresolved. The diagnostics report
+        the fidelity budget used, ``fidelity_budget_used``.
     """
     epsilon = delta / 2 if epsilon is None else epsilon
+    if retry_epsilon is not None and not retry_epsilon > epsilon:
+        retry_epsilon = None
     raw = list(raw)
     source_map = [sorted(set(indices)) for indices in source_map]
     if len(raw) != len(source_map):
@@ -301,6 +464,7 @@ def construct_coverage(
                     "groups": len(merge_groups),
                     "group_reports": [],
                     "policy_exclusions": [],
+                    "fidelity_budget_used": epsilon,
                     "before_selection_contract": identity_contract,
                     "mesher_profile": identity_profile,
                     "seconds": time.perf_counter() - started,
@@ -343,6 +507,7 @@ def construct_coverage(
                 polygons, sources, report = inset
                 report.update(
                     groups=len(merge_groups),
+                    fidelity_budget_used=epsilon,
                     seconds=time.perf_counter() - started,
                     input_interpretation=interpretations,
                     merge_distance=float(merge_distance),
@@ -352,86 +517,37 @@ def construct_coverage(
                 return polygons, sources, report
 
     groups = merge_groups
-    output_polygons = []
-    output_sources = []
-    group_reports = []
+    built = {}
     unresolved = []
-    policy_exclusions = []
+    unresolved_reports = []
     for group_index, members in enumerate(groups):
-        group_raw = [atoms[index] for index in members]
-        output, report = construct(
-            group_raw,
+        result = _construct_group(
+            group_index,
+            members,
+            atoms,
+            atom_sources,
             delta=delta,
             epsilon=epsilon,
+            retry_epsilon=retry_epsilon,
             allow_residual_separation=allow_residual_separation,
         )
-        compact = {
-            "group": group_index,
-            "input_count": len(group_raw),
-            "source_indices": sorted(
-                {
-                    source
-                    for index in members
-                    for source in atom_sources[index]
-                }
-            ),
-            "outcome": report["outcome"],
-            "reason": report.get("reason", "unresolved"),
-            "initial": report.get("initial"),
-            "final": report.get("final"),
-            "edits": report.get("edits", 0),
-            "evaluations": report.get("evaluations", 0),
-            "global_evaluations": report.get("global_evaluations", 0),
-            "total_work": report.get("total_work", {}),
-            "selected_attempt_work": report.get("selected_attempt_work", {}),
-            "fallback_attempts": report.get("fallback_attempts", []),
-            "terminal_rejection": report.get("terminal_rejection"),
-            "work_limit": report.get("work_limit"),
-            "timing": report.get("timing", {}),
-            "seconds": report.get("seconds", 0.0),
-        }
-        profile = report.get("mesher_profile", {})
-        if profile.get("operations"):
-            compact["profile_operations"] = profile["operations"]
-        if output is None:
-            unresolved.append(compact)
+        if result["regions"] is None:
+            unresolved.append(result["report"])
+            if result["attribution_failed"]:
+                unresolved_reports.append(result["report"])
             continue
-        if profile.get("empty_protected_core_removal") and not output:
-            sources = sorted(
-                {source for index in members for source in atom_sources[index]}
-            )
-            policy_exclusions.append(
-                {
-                    "group": group_index,
-                    "source_indices": sources,
-                    "area": float(unary_union(group_raw).area),
-                    "reason": "empty_protected_core",
-                }
-            )
-        attributed = []
-        owners_by_region = _attribute_sources(
-            output, group_raw, [atom_sources[index] for index in members]
-        )
-        for polygon, owners in zip(output, owners_by_region):
-            if not owners:
-                compact["outcome"] = "unresolved"
-                compact["reason"] = "missing_source_attribution"
-                unresolved.append(compact)
-                break
-            attributed.append((polygon, owners))
-        else:
-            output_polygons.extend(polygon for polygon, _ in attributed)
-            output_sources.extend(owners for _, owners in attributed)
-        if compact["outcome"] != "unchanged" or compact.get("profile_operations"):
-            group_reports.append(compact)
+        built[group_index] = result
 
     if unresolved:
         return None, None, {
             "outcome": "unresolved",
             "groups": len(groups),
             "unresolved_groups": unresolved,
-            "group_reports": group_reports,
-            "policy_exclusions": policy_exclusions,
+            "group_reports": _group_reports(built, groups, unresolved_reports),
+            "policy_exclusions": _policy_exclusions(built),
+            "fidelity_budget_used": max(
+                [epsilon, *(result["epsilon"] for result in built.values())]
+            ),
             "seconds": time.perf_counter() - started,
             "input_interpretation": interpretations,
             "merge_distance": float(merge_distance),
@@ -439,15 +555,85 @@ def construct_coverage(
             "merge_eligibility_groups": [list(group) for group in merge_groups],
         }
 
-    ordered = sorted(
-        zip(output_polygons, output_sources), key=lambda item: _geometry_key(item[0])
-    )
-    output_polygons = [item[0] for item in ordered]
-    output_sources = [item[1] for item in ordered]
-    contract = check_cleaning_contract(
-        raw, output_polygons, delta=delta, epsilon=epsilon, achieved=True
-    )
-    profile = check_mesher_handoff_profile(output_polygons)
+    def assemble(results):
+        pairs = sorted(
+            (
+                (polygon, owners, group_index)
+                for group_index, result in results.items()
+                for polygon, owners in result["regions"]
+            ),
+            key=lambda item: _geometry_key(item[0]),
+        )
+        polygons = [item[0] for item in pairs]
+        # Groups within the budget satisfy any larger one (the note's
+        # Observation 2), so one check at the largest budget used covers all.
+        budget = max([epsilon, *(result["epsilon"] for result in results.values())])
+        return {
+            "polygons": polygons,
+            "sources": [item[1] for item in pairs],
+            "region_groups": [item[2] for item in pairs],
+            "budget": budget,
+            "contract": check_cleaning_contract(
+                raw, polygons, delta=delta, epsilon=budget, achieved=True
+            ),
+            "profile": check_mesher_handoff_profile(polygons),
+        }
+
+    assembled = assemble(built)
+    cross_group = None
+    if (
+        has_only_separation_defects(assembled["contract"]["admissibility"])
+        and assembled["contract"]["fidelity"]["status"] == "pass"
+        and assembled["profile"]["status"] == "pass"
+    ):
+        # Groups are constructed independently, so stopping at the first
+        # preferred candidate can bring two of them within delta. Rank all
+        # fixed attempts for the groups involved and keep that coverage only
+        # if it conforms.
+        involved = sorted(
+            group_index
+            for group_index in _conflicting_groups(
+                assembled["polygons"], assembled["region_groups"], delta
+            )
+            if built[group_index]["stopped_early"]
+        )
+        if involved:
+            rebuilt = dict(built)
+            for group_index in involved:
+                result = _construct_group(
+                    group_index,
+                    groups[group_index],
+                    atoms,
+                    atom_sources,
+                    delta=delta,
+                    epsilon=built[group_index]["epsilon"],
+                    retry_epsilon=None,
+                    allow_residual_separation=allow_residual_separation,
+                    stop_at_preferred=False,
+                )
+                if result["regions"] is None:
+                    break
+                rebuilt[group_index] = result
+            else:
+                candidate = assemble(rebuilt)
+                adopted = (
+                    candidate["contract"]["status"] == "pass"
+                    and candidate["profile"]["status"] == "pass"
+                )
+                if adopted:
+                    built, assembled = rebuilt, candidate
+            cross_group = {
+                "groups": involved,
+                "adopted": bool(involved) and assembled["contract"]["status"] == "pass",
+            }
+
+    output_polygons = assembled["polygons"]
+    output_sources = assembled["sources"]
+    budget_used = assembled["budget"]
+    contract = assembled["contract"]
+    profile = assembled["profile"]
+    group_reports = _group_reports(built, groups, [])
+    policy_exclusions = _policy_exclusions(built)
     separation_warning = (
         allow_residual_separation
         and has_only_separation_defects(contract["admissibility"])
@@ -474,6 +660,8 @@ def construct_coverage(
             ],
             "group_reports": group_reports,
             "policy_exclusions": policy_exclusions,
+            "fidelity_budget_used": budget_used,
+            "cross_group_rebuild": cross_group,
             "seconds": time.perf_counter() - started,
             "input_interpretation": interpretations,
             "merge_distance": float(merge_distance),
@@ -486,6 +674,8 @@ def construct_coverage(
         "groups": len(groups),
         "group_reports": group_reports,
         "policy_exclusions": policy_exclusions,
+        "fidelity_budget_used": budget_used,
+        "cross_group_rebuild": cross_group,
         "before_selection_contract": contract,
         "mesher_profile": profile,
         "seconds": time.perf_counter() - started,
@@ -502,8 +692,9 @@ SIMPLIFY_LADDER = (0.05, 0.02, 0.01, 0.005, 0.001)
 # The share of epsilon the preprocessing stage may spend. The rest is kept
 # for repairs that have no alternative.
 SAMPLING_SHARE = 0.25
-# Preprocessing ladders of the fixed attempts. Every attempt runs unless its
-# preprocessed start is identical to an earlier one; conforming results compete.
+# Preprocessing ladders of the fixed attempts, tried in order until one gives a
+# conforming result with the preferred angle profile. An attempt whose
+# preprocessed start is identical to an earlier one is skipped.
 SAMPLING_FALLBACKS = (SIMPLIFY_LADDER, SIMPLIFY_LADDER[2:], ())
 # Local operation sizes, as multiples of delta.
 CUT_RADII = (0.55, 0.65, 0.75, 0.9, 1.0, 1.25, 1.5, 2.0)
@@ -1394,18 +1585,27 @@ def _finish_mesher_profile(raw, output, *, delta, epsilon):
     }
 
 
-def construct(raw, *, delta=0.5, epsilon=None, allow_residual_separation=False):
-    """Construct one merge group with every fixed preprocessing attempt.
+def construct(
+    raw,
+    *,
+    delta=0.5,
+    epsilon=None,
+    allow_residual_separation=False,
+    stop_at_preferred=True,
+):
+    """Construct one merge group with the fixed preprocessing attempts.
 
     Input that already conforms is returned unchanged. Otherwise the attempts
     of ``SAMPLING_FALLBACKS`` run in order: the full dense-sampling ladder, a
     shorter one, and none. Less simplification leaves more of the fidelity
-    budget for repairs, which some groups need. Attempts whose preprocessed
-    start is identical to an earlier one are skipped. All other attempts run
-    even after one has conformed, and the conforming results are ranked by the
-    preferred angle profile, symmetric-difference drift from the input and
-    canonical geometry. Warning candidates (only separation defects) are used
-    only when no attempt conforms, and never change the attempts or budgets.
+    budget for repairs, which some groups need. The search stops at the first
+    conforming result that also meets the preferred 3 degree angle profile.
+    Attempts whose preprocessed start is identical to an earlier one are
+    skipped. When no attempt meets the preference, the conforming results are
+    ranked by the preferred angle profile, symmetric-difference drift from the
+    input and canonical geometry. Warning candidates (only separation defects)
+    are used only when no attempt conforms, and never change the attempts or
+    budgets.
 
     Parameters
     ----------
@@ -1417,6 +1617,9 @@ def construct(raw, *, delta=0.5, epsilon=None, allow_residual_separation=False):
         Fidelity budget; ``None`` uses ``delta / 2``.
     allow_residual_separation : bool, optional
         Keep a warning candidate when no attempt conforms.
+    stop_at_preferred : bool, optional
+        Stop at the first conforming result with the preferred angle profile.
+        When False, every fixed attempt runs and the results are ranked.
 
     Returns
     -------
@@ -1478,17 +1681,22 @@ def construct(raw, *, delta=0.5, epsilon=None, allow_residual_separation=False):
     warning_candidates = []
     seen_outputs = set()
     totals = dict(edits=0, sites=0, evaluations=0, admissions=0, global_evaluations=0)
-    equivalent_preprocessing = _fallback_preprocessing_is_equivalent(
-        raw, delta, epsilon
-    )
+    equivalence = []  # computed at most once, and only when a skip depends on it
+    preferred_found = False
     for attempt_index, ladder in enumerate(SAMPLING_FALLBACKS):
-        if attempt_index and equivalent_preprocessing and (candidates or epsilon == 0):
+        skip_reason = None
+        if attempt_index and preferred_found and stop_at_preferred:
+            skip_reason = "preferred_candidate_found"
+        elif attempt_index and (candidates or epsilon == 0):
+            if not equivalence:
+                equivalence.append(
+                    _fallback_preprocessing_is_equivalent(raw, delta, epsilon)
+                )
+            if equivalence[0]:
+                skip_reason = "canonical_preprocessing_equivalence"
+        if skip_reason is not None:
             fallback_reports.append(
-                {
-                    "attempt": attempt_index,
-                    "outcome": "skipped",
-                    "reason": "canonical_preprocessing_equivalence",
-                }
+                {"attempt": attempt_index, "outcome": "skipped", "reason": skip_reason}
             )
             continue
         output, report = attempt(
@@ -1546,6 +1754,7 @@ def construct(raw, *, delta=0.5, epsilon=None, allow_residual_separation=False):
                 preferred = profile["preferred"]["status"] == "pass"
                 rank = (not preferred, drift, key)
                 candidates.append((rank, output, report, contract, profile))
+                preferred_found = preferred_found or preferred
                 fallback["accepted_for_ranking"] = True
                 fallback["raw_symmetric_difference_area"] = drift
             else:
@@ -1576,7 +1785,11 @@ def construct(raw, *, delta=0.5, epsilon=None, allow_residual_separation=False):
         report["contract"] = contract
         report["mesher_profile"] = profile
         report["outcome"] = "conforming"
-        report["reason"] = "best_fixed_fallback"
+        report["reason"] = (
+            "preferred_candidate"
+            if preferred_found and stop_at_preferred
+            else "best_fixed_fallback"
+        )
     elif warning_candidate is not None:
         output, report, contract, profile = warning_candidate
         report["contract"] = contract

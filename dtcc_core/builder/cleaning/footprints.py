@@ -56,6 +56,11 @@ class ConditioningOptions:
         Fidelity budget epsilon: occupancy may change only within this
         distance of the original boundary, P^{-epsilon} ⊆ U(Q) ⊆ P^{+epsilon}.
         ``None`` uses half of ``min_feature_size``.
+    fidelity_retry_factor : float or None
+        A merge group that does not conform at the fidelity budget is
+        constructed once more at this multiple of it: 3 delta / 4 with the
+        defaults. The result then satisfies fidelity at the larger budget,
+        reported as ``fidelity_budget_used``. ``None`` disables the retry.
     collect_stage_metrics : bool
         Deprecated and ignored. Contract and work diagnostics are always
         recorded.
@@ -75,6 +80,7 @@ class ConditioningOptions:
     merge_distance: float = 0.5
     min_hole_area: float = 0.25
     fidelity_budget: float | None = None
+    fidelity_retry_factor: float | None = 1.5
     collect_stage_metrics: bool = True
     enable_logging: bool = True
     allow_source_merging: bool | None = None
@@ -172,6 +178,11 @@ def _validate_options(options: ConditioningOptions) -> None:
         not math.isfinite(options.fidelity_budget) or options.fidelity_budget < 0
     ):
         raise ValueError("fidelity_budget must be finite and non-negative")
+    if options.fidelity_retry_factor is not None and (
+        not math.isfinite(options.fidelity_retry_factor)
+        or options.fidelity_retry_factor <= 1
+    ):
+        raise ValueError("fidelity_retry_factor must be None or finite and above 1")
     if options.precision_grid is not None and (
         not math.isfinite(options.precision_grid) or options.precision_grid <= 0
     ):
@@ -301,6 +312,11 @@ def condition_polygon_coverage(
         sources,
         delta=options.min_feature_size,
         epsilon=epsilon,
+        retry_epsilon=(
+            None
+            if options.fidelity_retry_factor is None
+            else epsilon * options.fidelity_retry_factor
+        ),
         merge_distance=options.merge_distance,
         allow_source_merging=allow_source_merging,
         allow_residual_separation=options.allow_residual_separation,
@@ -324,6 +340,16 @@ def condition_polygon_coverage(
             )
         raise UnresolvedFootprintCleaningError(diagnostics)
 
+    budget_used = diagnostics.get("fidelity_budget_used", epsilon)
+    if options.enable_logging and budget_used > epsilon:
+        retried = sum(
+            report.get("fidelity_budget", epsilon) > epsilon
+            for report in diagnostics.get("group_reports", [])
+        )
+        info(
+            f"Footprint cleaning used the retry fidelity budget {budget_used:g} "
+            f"(requested {epsilon:g}) for {retried} merge group(s)"
+        )
     if diagnostics["outcome"] == "warning":
         # Safety/quality warnings are not disabled with progress logging.
         warning(

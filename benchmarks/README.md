@@ -134,8 +134,9 @@ cleaned geometry **before area selection**, in the terms of the
 [contract](../docs/design/footprint-cleaning-contract.md): membership in
 `A_delta` under the union topology profile, the minimum feature size of the
 essential boundary graph (capped at delta, so an admissible result shows delta),
-the fidelity status, the fidelity budget epsilon (scale / 2 by default) and the
-achieved budget, the smallest epsilon the result would also satisfy.
+the fidelity status, the fidelity budget used (scale / 2 by default, or the
+retry budget 3 scale / 4 when a merge group needed it) and the achieved budget,
+the smallest epsilon the result would also satisfy.
 `Selected out` counts regions excluded afterward by `min_building_area`.
 
 JSON separates `before_selection_contract`, `selection`, and the selected

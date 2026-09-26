@@ -30,6 +30,9 @@ admissibility by destroying useful input.
 The cleaner is a bounded heuristic, not an optimizer: it does not minimize the
 budget, the changed area or the vertex count. It returns a conforming result or
 explicitly reports that it found none, which does not prove that none exists.
+By default it tries one larger budget, 3 delta / 4, for merge groups that do
+not conform at delta / 2, and reports the budget it used (see Construction and
+outcomes).
 
 Fidelity bounds where occupied and unoccupied space may change. It is not a
 Hausdorff-distance bound on boundaries: removing a tiny hole can legitimately
@@ -45,7 +48,7 @@ contract concerns this 2D occupancy and its subdivision, not roofs or terrain.
 | Parameter | Meaning |
 | --- | --- |
 | delta > 0 | Required minimum feature size of the output |
-| epsilon >= 0 | Fidelity budget: the thickness of the band around the input boundary where occupancy may change |
+| epsilon >= 0 | Fidelity budget: the thickness of the band around the input boundary where occupancy may change; one retry at 1.5 epsilon by default |
 | theta | Minimum incident-sector angle handed to meshing, 1 degree |
 | eta | Declared numerical uncertainty, small relative to delta; not permission for physical alteration |
 | h | Requested mesh spacing, owned by meshing rather than cleaning |
@@ -261,19 +264,40 @@ followed by bounded local repairs (removing or collapsing vertices, moving
 features apart, notching, closing gaps and cutting material). Every accepted edit
 must pass the group's progress guard and the original fidelity budget. The
 progress guard also counts vertex-vertex pairs, which gives it a finer measure
-without changing what is admissible. All fixed attempts run, except that
-identical preprocessed starts are evaluated once; conforming candidates are
-ranked by the 3 degree preference, then by symmetric-difference drift from the
-input, then by canonical geometry. Groups are not repaired jointly: separation
-between different merge groups is only checked, in the assembled coverage.
-Each output region is attributed to the sources that support it with positive
-area, and the assembled coverage is checked again as a whole.
+without changing what is admissible.
+
+The attempts run in order (full simplification ladder, shorter ladder, none) and
+the search **stops at the first conforming result that meets the 3 degree
+preference**. Identical preprocessed starts are evaluated once. If no attempt
+meets the preference, the conforming results are ranked by that preference,
+then by symmetric-difference drift from the input, then by canonical geometry.
+Stopping early trades some drift for time: less simplification often gives a
+result closer to the input, but the first attempt usually conforms already.
+
+**Budget retry.** A group that does not conform at the fidelity budget epsilon
+is constructed once more at a larger budget, `fidelity_retry_factor * epsilon`
+(3 delta / 4 with the defaults). The retry is kept when it conforms, or when it
+gives a warning candidate for a group that had none. By the note's Observation
+2 a result within epsilon is also within the larger budget, so the assembled
+coverage is checked once at the largest budget used, which is reported as
+`fidelity_budget_used` and as the contract's `epsilon`. The result is then a
+feasible witness at that budget, not at epsilon. `fidelity_retry_factor=None`
+keeps the budget fixed.
+
+Groups are not repaired jointly: separation between different merge groups is
+only checked, in the assembled coverage. When the only defects of the assembled
+coverage are separation defects and they involve groups whose search stopped at
+the first preferred candidate, those groups are constructed again ranking every
+attempt, and the new coverage is kept only if it conforms
+(`cross_group_rebuild` in the report). Each output region is attributed to the
+sources that support it with positive area, and the assembled coverage is
+checked again as a whole.
 
 The public outcome is one of the note's three outcomes, or the zero-scale mode:
 
 | Outcome | Note | Geometric contract | Behaviour |
 | --- | --- | --- | --- |
-| `unchanged` / `conforming` | Strictly conforming candidate | Pass | Return geometry |
+| `unchanged` / `conforming` | Strictly conforming candidate | Pass, at `fidelity_budget_used` | Return geometry |
 | `warning` | Warning candidate | Fail: minimum feature size only; topology, fidelity, attribution and the profile pass | Return geometry with a prominent warning (default) |
 | unresolved | No candidate found | No acceptable result found | Raise `UnresolvedFootprintCleaningError`; no partial coverage |
 | `unscaled_identity` | - | Not checked (delta = 0) | Return the interpreted input |
