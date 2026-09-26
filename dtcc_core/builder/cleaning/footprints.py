@@ -1,14 +1,17 @@
-"""Public entry point for footprint cleaning (polygon coverage conditioning).
+"""Public entry point for footprint cleaning (conditioning in the research note).
 
-Given the interpreted occupied set P of the input polygons, cleaning seeks a
-polygonal subdivision whose boundary graph has minimum feature size at least
-``min_feature_size`` (delta) and whose occupied union lies between P eroded and
-P dilated by the fidelity budget ``fidelity_tolerance`` (epsilon), subject to
-the source-merging policy, source attribution and the mesher-input angle
-profile. The bounded constructor in
-:mod:`dtcc_core.builder.cleaning.construction` searches for such a result and
-the checks in :mod:`dtcc_core.builder.cleaning.contract` decide conformance.
-The specification is ``docs/design/footprint-cleaning-contract.md``.
+Given the interpreted occupied set P of the input polygons, cleaning solves the
+feasibility problem of the footprint conditioning note heuristically: find a
+polygonal subdivision Q in A_{delta,theta} with
+P^{-epsilon} ⊆ U(Q) ⊆ P^{+epsilon}. Here delta is ``min_feature_size``, the
+required minimum feature size mfs(G_Q) of the essential boundary graph under
+the union topology profile; epsilon is the fidelity budget ``fidelity_budget``;
+and theta is the 1 degree incident-sector profile for meshing. The
+source-merging policy and source attribution are additional constraints. The
+bounded constructor in :mod:`dtcc_core.builder.cleaning.construction` searches
+for such a result and the checks in :mod:`dtcc_core.builder.cleaning.contract`
+decide conformance. The specification is
+``docs/design/footprint-cleaning-contract.md``.
 
 This module validates options and source identities, handles the zero-scale
 identity mode, and defines the result and failure types.
@@ -37,22 +40,22 @@ class ConditioningOptions:
     Attributes
     ----------
     precision_grid : float or None
-        Deprecated and ignored by the constructor. It is only echoed in the
-        diagnostics of the zero-scale identity mode.
+        Deprecated and ignored.
     min_feature_size : float
-        Resolution delta: the minimum distance between a vertex and a
-        nonincident edge of the output boundary graph. Zero disables cleaning
-        and returns the interpreted input.
+        Resolution delta: the required minimum feature size, i.e. the least
+        distance between a vertex of the output's essential boundary graph
+        and an edge not incident to it. Zero disables cleaning and returns
+        the interpreted input.
     merge_distance : float
         Inclusive distance, measured on the original input, within which
         sources may be merged. Eligible pairs form transitive groups.
     min_hole_area : float
         Deprecated and ignored. Holes follow the fidelity budget: a hole
         without a protected open core may be filled, others are kept.
-    fidelity_tolerance : float or None
+    fidelity_budget : float or None
         Fidelity budget epsilon: occupancy may change only within this
-        distance of the original boundary. ``None`` uses half of
-        ``min_feature_size``.
+        distance of the original boundary, P^{-epsilon} ⊆ U(Q) ⊆ P^{+epsilon}.
+        ``None`` uses half of ``min_feature_size``.
     collect_stage_metrics : bool
         Deprecated and ignored. Contract and work diagnostics are always
         recorded.
@@ -71,7 +74,7 @@ class ConditioningOptions:
     min_feature_size: float = 0.5
     merge_distance: float = 0.5
     min_hole_area: float = 0.25
-    fidelity_tolerance: float | None = None
+    fidelity_budget: float | None = None
     collect_stage_metrics: bool = True
     enable_logging: bool = True
     allow_source_merging: bool | None = None
@@ -92,9 +95,10 @@ class ConditioningResult:
         it with positive area.
     diagnostics : dict[str, Any]
         Outcome (``unchanged``, ``conforming``, ``warning`` or
-        ``unscaled_identity``), the independent contract report before area
-        selection, the mesher-input profile, merge groups, policy exclusions
-        and bounded-work accounting.
+        ``unscaled_identity``), the fidelity budget, the independent contract
+        report before area selection (including the achieved budget), the
+        mesher-input profile, merge groups, policy exclusions and
+        bounded-work accounting.
     """
 
     polygons: list[Polygon]
@@ -143,11 +147,12 @@ def residual_separation_warning(observation, delta):
     """
     return (
         "FOOTPRINT CLEANING CONTRACT NOT SATISFIED: "
-        f"{observation['subscale_pairs']} nonincident subscale pair(s); "
-        f"minimum separation={observation['separation_capped_at_delta']:.6g} m, "
-        f"required={delta:g} m. Continuing to meshing with residual separation "
-        "defects; smaller elements and increased mesh cost are possible. "
-        "Topology, fidelity and mesher-input safety requirements remain mandatory."
+        f"minimum feature size {observation['mfs_capped_at_delta']:.6g} m "
+        f"< required {delta:g} m at {observation['subscale_pairs']} "
+        "nonincident vertex-edge pair(s). Continuing to meshing with residual "
+        "separation defects; smaller elements and increased mesh cost are "
+        "possible. Topology, fidelity and mesher-input safety requirements "
+        "remain mandatory."
     )
 
 
@@ -163,11 +168,10 @@ def _validate_options(options: ConditioningOptions) -> None:
         value = getattr(options, name)
         if not math.isfinite(value) or value < 0:
             raise ValueError(f"{name} must be finite and non-negative, got {value}.")
-    if options.fidelity_tolerance is not None and (
-        not math.isfinite(options.fidelity_tolerance)
-        or options.fidelity_tolerance < 0
+    if options.fidelity_budget is not None and (
+        not math.isfinite(options.fidelity_budget) or options.fidelity_budget < 0
     ):
-        raise ValueError("fidelity_tolerance must be finite and non-negative")
+        raise ValueError("fidelity_budget must be finite and non-negative")
     if options.precision_grid is not None and (
         not math.isfinite(options.precision_grid) or options.precision_grid <= 0
     ):
@@ -269,8 +273,6 @@ def condition_polygon_coverage(
                 },
                 "mesher_profile": check_mesher_handoff_profile(output),
                 "input_interpretation": interpretations,
-                "precision_grid": options.precision_grid or 0.0,
-                "output_grid": options.precision_grid or 0.0,
                 "enable_logging": options.enable_logging,
                 "fidelity": {"status": "not_checked"},
                 "input_count": len(polygons),
@@ -286,8 +288,8 @@ def condition_polygon_coverage(
 
     epsilon = (
         options.min_feature_size / 2
-        if options.fidelity_tolerance is None
-        else options.fidelity_tolerance
+        if options.fidelity_budget is None
+        else options.fidelity_budget
     )
     allow_source_merging = (
         options.merge_distance > 0
@@ -305,8 +307,7 @@ def condition_polygon_coverage(
     )
     diagnostics.update(
         {
-            "precision_grid": options.min_feature_size / 16,
-            "output_grid": options.min_feature_size / 16,
+            "fidelity_budget": epsilon,
             "enable_logging": options.enable_logging,
             "fidelity": diagnostics.get("before_selection_contract", {}).get(
                 "fidelity", {"status": "not_checked"}

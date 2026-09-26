@@ -212,8 +212,8 @@ def test_condition_city_meshing_footprints_uses_shared_conditioning_stage(
     footprint = Mock(name="footprint_surface")
     polygon = Mock(name="footprint_polygon")
     footprint.to_polygon.return_value = polygon
-    diagnostics = {"output_grid": 0.03125}
-    contract = {"requirements": {"scale_contract_satisfied": True}}
+    diagnostics = {}
+    contract = {"requirements": {"minimum_feature_size": True}}
     conditioned = meshes_module.ConditionedFootprints(
         surfaces=[footprint],
         source_map=[[1, 2]],

@@ -12,6 +12,7 @@ from dtcc_core.builder.cleaning.contract import (
     admissibility,
     check_cleaning_contract,
     check_mesher_handoff_profile,
+    classify_candidate,
     fidelity,
     incident_sectors,
 )
@@ -22,7 +23,7 @@ from tests.builder.cleaning_fixtures import survey_merge_group
 
 
 @pytest.mark.parametrize(
-    "polygons,resolved",
+    "polygons,admissible",
     [
         ([box(0, 0, 2, 2), box(2, 0, 4, 2)], True),  # shared wall
         ([box(0, 0, 2, 2), box(2, 2, 4, 4)], False),  # point contact
@@ -34,19 +35,68 @@ from tests.builder.cleaning_fixtures import survey_merge_group
         ([], True),
     ],
 )
-def test_resolved_subdivision(polygons, resolved):
-    assert admissibility(polygons, 0.5)["resolved"] is resolved
+def test_admissible_subdivision(polygons, admissible):
+    report = admissibility(polygons, 0.5)
+    assert report["admissible"] is admissible
+    assert report["topology_profile"] == "union"
 
 
-def test_separation_queries_count_pairs_across_batches_without_counting_incidence():
+def test_feature_size_counts_nonincident_vertex_edge_pairs_across_batches():
     # Only the last two rectangles are close; their facing vertices straddle
-    # the query batch boundary. Two VV pairs and eight nonincident VE pairs.
+    # the query batch boundary: eight nonincident vertex-edge pairs define
+    # mfs. The two vertex-vertex pairs are redundant (note, Observation 1) and
+    # are counted only on request.
     polygons = [box(3 * i, 0, 3 * i + 2, 2) for i in range(64)]
     polygons.append(box(191.25, 0, 193.25, 2))
     report = admissibility(polygons, 0.5)
-    assert report["subscale_pairs"] == 10
-    assert report["separation_capped_at_delta"] == 0.25
+    assert report["subscale_pairs"] == 8
+    assert "subscale_vertex_pairs" not in report
+    assert report["mfs_capped_at_delta"] == 0.25
     assert report["closest_pair"] == [(191, 0), (191.25, 0)]
+    finer = admissibility(polygons, 0.5, vertex_pairs=True)
+    assert finer["subscale_pairs"] == 8 and finer["subscale_vertex_pairs"] == 2
+    assert finer["mfs_capped_at_delta"] == report["mfs_capped_at_delta"]
+    assert finer["admissible"] is report["admissible"] is False
+
+
+def test_achieved_budget_is_the_least_epsilon_the_output_satisfies():
+    # Note, Figure 1: filling a 0.6 m wide inlet adds points at most 0.3 m
+    # from the input, whatever the declared budget.
+    inlet = box(0, 0, 4, 2.6).difference(box(1.7, 1.8, 2.3, 2.6))
+    filled = box(0, 0, 4, 2.6)
+    report = check_cleaning_contract(
+        [inlet], [filled], delta=0.8, epsilon=0.4, achieved=True
+    )["fidelity"]
+    assert report["status"] == "pass"
+    assert report["achieved_epsilon"] == pytest.approx(0.3, abs=0.005)
+    assert 0 < report["achieved_epsilon_resolution"] < 0.005
+    # Removing a 0.2 m band loses occupied points at most 0.2 m deep.
+    report = fidelity([box(0, 0, 10, 10)], [box(0.2, 0, 10, 10)], 0.25, achieved=True)
+    assert report["achieved_epsilon"] == pytest.approx(0.2, abs=0.004)
+    unchanged = fidelity([box(0, 0, 10, 10)], [box(0, 0, 10, 10)], 0.25, achieved=True)
+    assert unchanged["achieved_epsilon"] == 0.0
+    failing = fidelity([box(0, 0, 10, 10)], [box(1, 0, 10, 10)], 0.25, achieved=True)
+    assert failing["status"] == "fail" and failing["achieved_epsilon"] is None
+    assert "achieved_epsilon" not in fidelity([box(0, 0, 1, 1)], [box(0, 0, 1, 1)], 0.25)
+
+
+def test_candidates_are_classified_as_strict_warning_or_failed():
+    raw = [box(0, 0, 5, 5), box(5.1, 0, 10, 5)]
+
+    def classify(cleaned):
+        return classify_candidate(
+            check_cleaning_contract(raw, cleaned, delta=0.5),
+            check_mesher_handoff_profile(cleaned),
+        )
+
+    assert classify([box(0, 0, 10, 5)]) == "strict"
+    assert classify(raw) == "warning"
+    assert classify([]) == "fail"
+    touching = [box(0, 0, 5, 5), box(5, 5, 10, 10)]
+    assert classify_candidate(
+        check_cleaning_contract(touching, touching, delta=0.5),
+        check_mesher_handoff_profile(touching),
+    ) == "fail"
 
 
 def test_fidelity_protects_both_occupied_and_open_cores():
@@ -185,7 +235,7 @@ def test_helsingborg_courtyard_survives_final_cleaning():
     )
     cleaned = [s.to_polygon(simplify=0) for s in result.surfaces]
     report = check_cleaning_contract(raw, cleaned, delta=0.5)
-    assert report["admissibility"]["resolved"]
+    assert report["admissibility"]["admissible"]
     # A protected interior point must remain open. This detects wholesale
     # courtyard deletion without blessing the remaining boundary deviations.
     open_core = courtyard.difference(occupied.buffer(report["epsilon"]))
@@ -205,7 +255,7 @@ def test_public_cleaning_reports_fidelity_against_the_original_input():
         [raw],
         options=ConditioningOptions(
             merge_distance=0,
-            fidelity_tolerance=0.25,
+            fidelity_budget=0.25,
             enable_logging=False,
         ),
     )

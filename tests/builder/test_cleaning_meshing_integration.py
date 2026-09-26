@@ -20,6 +20,7 @@ from dtcc_core.builder import (
 )
 from dtcc_core.builder.building.modify import clean_building_footprints
 from dtcc_core.builder.cleaning.contract import (
+    check_cleaning_contract,
     check_mesher_handoff_profile,
 )
 from dtcc_core.builder.geometry_builders import meshes as meshes_module
@@ -41,6 +42,13 @@ def make_surface(polygon: Polygon, z: float) -> Surface:
     return surface
 
 
+def checked_candidate(raw, cleaned, *, delta=0.5):
+    """Return a pre-selection report as the meshing adapter records it."""
+    contract = check_cleaning_contract(raw, cleaned, delta=delta)
+    contract["mesher_profile"] = check_mesher_handoff_profile(cleaned)
+    return contract
+
+
 def make_conditioned_footprints(
     surfaces: list[Surface],
     source_map: list[list[int]],
@@ -51,8 +59,7 @@ def make_conditioned_footprints(
     contract: dict[str, object] | None = None,
 ) -> meshes_module.ConditionedFootprints:
     declared_scale = meshes_module._conditioned_footprint_declared_scale(
-        min_building_detail=min_building_detail,
-        diagnostics=diagnostics,
+        min_building_detail=min_building_detail
     )
     return meshes_module.ConditionedFootprints(
         surfaces=surfaces,
@@ -299,7 +306,7 @@ def test_meshing_adapter_propagates_numeric_merge_policy(monkeypatch):
         return meshes_module.ConditioningResult(
             polygons=[polygon],
             source_map=[[0]],
-            diagnostics={"output_grid": 0.03125},
+            diagnostics={},
         )
 
     monkeypatch.setattr(meshes_module, "condition_polygon_coverage", fake_condition)
@@ -521,11 +528,7 @@ def test_condition_meshing_footprints_repairs_lund_style_self_clearance_slit():
     assert resolutions == [5.0]
     contract = meshes_module._conditioned_footprint_contract_audit(
         surfaces=surfaces,
-        declared_scale=max(
-            0.5,
-            float(diagnostics.get("output_grid", 0.0) or 0.0),
-            1.0e-9,
-        ),
+        declared_scale=0.5,
         diagnostics=diagnostics,
     )
     assert contract["errors"] == []
@@ -570,11 +573,7 @@ def test_condition_meshing_footprints_repairs_gbg_same_hole_neck():
     assert resolutions == [5.0]
     contract = meshes_module._conditioned_footprint_contract_audit(
         surfaces=surfaces,
-        declared_scale=max(
-            0.5,
-            float(diagnostics.get("output_grid", 0.0) or 0.0),
-            1.0e-9,
-        ),
+        declared_scale=0.5,
         diagnostics=diagnostics,
     )
     assert contract["errors"] == []
@@ -626,32 +625,31 @@ def test_condition_meshing_footprints_repairs_stockholm_cross_ring_slit():
     assert resolutions == [5.0]
     contract = meshes_module._conditioned_footprint_contract_audit(
         surfaces=surfaces,
-        declared_scale=max(
-            0.5,
-            float(diagnostics.get("output_grid", 0.0) or 0.0),
-            1.0e-9,
-        ),
+        declared_scale=0.5,
         diagnostics=diagnostics,
     )
     assert contract["errors"] == []
     assert diagnostics["mesher_profile"]["status"] == "pass"
 
 
-def test_conditioned_footprint_contract_audit_passes_scale_clean_output():
+def test_conditioned_footprint_contract_audit_passes_admissible_output():
     contract = meshes_module._conditioned_footprint_contract_audit(
         surfaces=[make_surface(box(0.0, 0.0, 10.0, 10.0), 8.0)],
         declared_scale=0.5,
-        diagnostics={"geos_exception_count": 0},
+        diagnostics={},
     )
 
     assert contract["status"] == "pass"
-    assert contract["requirements"]["scale_contract_satisfied"] is True
-    assert contract["requirements"]["no_short_edges"] is True
-    assert contract["metrics"]["pair_issue_count"] == 0
+    assert contract["requirements"]["topology"] is True
+    assert contract["requirements"]["minimum_feature_size"] is True
+    assert contract["requirements"]["incident_sector_profile"] is True
     assert contract["requirements"]["mesher_segment_graph_valid"] is True
+    assert contract["metrics"]["pre_selection_candidate"] == "unreported"
+    assert contract["metrics"]["subscale_pairs"] == 0
+    assert contract["metrics"]["mfs_capped_at_delta"] == 0.5
 
 
-def test_conditioned_footprint_contract_audit_warns_scale_contract():
+def test_conditioned_footprint_contract_audit_warns_for_a_warning_candidate():
     polygon = Polygon(
         [
             (0.0, 0.0),
@@ -669,26 +667,68 @@ def test_conditioned_footprint_contract_audit_warns_scale_contract():
     contract = meshes_module._conditioned_footprint_contract_audit(
         surfaces=[make_surface(polygon, 8.0)],
         declared_scale=0.5,
-        diagnostics={"before_selection_contract": {"fidelity": {"status": "pass"}}},
+        diagnostics={"before_selection_contract": checked_candidate([polygon], [polygon])},
     )
 
     assert contract["status"] == "warn"
     assert contract["ok"] is True
-    assert contract["requirements"]["scale_contract_satisfied"] is False
-    assert contract["requirements"]["no_short_edges"] is True
-    assert contract["metrics"]["short_edge_obligation"] == (
-        "not_applicable_to_incident_edges"
-    )
+    assert contract["requirements"]["minimum_feature_size"] is False
+    assert contract["requirements"]["pre_selection_candidate"] is True
+    assert contract["metrics"]["pre_selection_candidate"] == "warning"
+    assert contract["metrics"]["residual_separation_accepted"] is True
     assert any("CONTRACT NOT SATISFIED" in message for message in contract["warnings"])
 
 
-def test_residual_separation_without_fidelity_evidence_is_rejected():
+def test_residual_separation_requires_a_declared_warning_candidate():
+    polygons = [box(0, 0, 5, 5), box(5.1, 0, 10, 5)]
     contract = meshes_module._conditioned_footprint_contract_audit(
-        surfaces=[make_surface(box(0, 0, 5, 5), 8), make_surface(box(5.1, 0, 10, 5), 8)],
-        declared_scale=0.5, diagnostics={},
+        surfaces=[make_surface(polygon, 8) for polygon in polygons],
+        declared_scale=0.5,
+        diagnostics={},
     )
     assert contract["ok"] is False
-    assert any("fidelity report" in message for message in contract["errors"])
+    assert any("does not declare" in message for message in contract["errors"])
+
+    # A strict pre-selection result does not declare them either.
+    merged = [box(0, 0, 10, 5)]
+    contract = meshes_module._conditioned_footprint_contract_audit(
+        surfaces=[make_surface(polygon, 8) for polygon in polygons],
+        declared_scale=0.5,
+        diagnostics={"before_selection_contract": checked_candidate(polygons, merged)},
+    )
+    assert contract["ok"] is False
+    assert contract["metrics"]["pre_selection_candidate"] == "strict"
+
+
+def test_area_selection_cannot_hide_a_topology_defect():
+    # Before selection: a point contact and a narrow gap. Selecting out the
+    # touching square leaves only the gap, which the audit and the mesh
+    # builders both refuse: the cleaning result was not a warning candidate.
+    before = [
+        box(0, 0, 5, 5),
+        box(5, 5, 6, 6),
+        box(20, 0, 25, 5),
+        box(25.1, 0, 30, 5),
+    ]
+    selected = [before[0], before[2], before[3]]
+    diagnostics = {"before_selection_contract": checked_candidate(before, before)}
+    assert diagnostics["before_selection_contract"]["admissibility"]["topology_ok"] is False
+
+    contract = meshes_module._conditioned_footprint_contract_audit(
+        surfaces=[make_surface(polygon, 8) for polygon in selected],
+        declared_scale=0.5,
+        diagnostics=diagnostics,
+    )
+    assert contract["ok"] is False
+    assert contract["metrics"]["pre_selection_candidate"] == "fail"
+    with pytest.raises(ValueError, match="neither strictly conforming"):
+        meshes_module._consume_conditioned_building_regions_with_sources(
+            building_polygons=selected,
+            building_markers=[0, 1, 2],
+            footprint_diagnostics=diagnostics,
+            min_building_detail=0.5,
+            cleaning_diagnostics=False,
+        )
 
 
 def test_conditioned_footprint_contract_audit_warns_residual_self_clearance():
@@ -714,77 +754,16 @@ def test_conditioned_footprint_contract_audit_warns_residual_self_clearance():
     contract = meshes_module._conditioned_footprint_contract_audit(
         surfaces=[make_surface(polygon, 8.0)],
         declared_scale=0.5,
-        diagnostics={
-            "output_grid": 0.03125,
-            "before_selection_contract": {"fidelity": {"status": "pass"}},
-        },
+        diagnostics={"before_selection_contract": checked_candidate([polygon], [polygon])},
     )
 
     assert contract["ok"] is True
     assert contract["status"] == "warn"
-    assert contract["requirements"]["scale_contract_satisfied"] is False
-    assert contract["requirements"]["min_clearance_respected"] is False
-    assert contract["metrics"]["residual_min_clearance_tolerated"] is True
-    assert contract["metrics"]["declared_scale"] == pytest.approx(0.5)
-    assert contract["metrics"]["min_clearance"] == pytest.approx(0.45)
+    assert contract["requirements"]["minimum_feature_size"] is False
+    assert contract["metrics"]["residual_separation_accepted"] is True
+    assert contract["metrics"]["delta"] == pytest.approx(0.5)
+    assert contract["metrics"]["mfs_capped_at_delta"] == pytest.approx(0.45)
     assert any("CONTRACT NOT SATISFIED" in message for message in contract["warnings"])
-
-
-def test_conditioned_footprint_contract_ignores_retired_revalidation_grid():
-    polygon = Polygon(
-        shell=[
-            (0.0, 0.0),
-            (10.0, 0.0),
-            (10.0, 10.0),
-            (0.0, 10.0),
-            (0.0, 0.0),
-        ],
-        holes=[
-            [
-                (3.0, 1.9),
-                (7.0, 1.9),
-                (7.0, 6.0),
-                (3.0, 6.0),
-                (3.0, 1.9),
-            ]
-        ],
-    )
-
-    without_revalidation_grid = meshes_module._conditioned_footprint_contract_audit(
-        surfaces=[make_surface(polygon, 8.0)],
-        declared_scale=2.0,
-        diagnostics={
-            "before_selection_contract": {"fidelity": {"status": "pass"}},
-            "geos_exception_count": 0,
-            "output_grid": 0.03125,
-            "precision_grid": 0.03125,
-        },
-    )
-    with_revalidation_grid = meshes_module._conditioned_footprint_contract_audit(
-        surfaces=[make_surface(polygon, 8.0)],
-        declared_scale=2.0,
-        diagnostics={
-            "before_selection_contract": {"fidelity": {"status": "pass"}},
-            "geos_exception_count": 0,
-            "output_grid": 0.03125,
-            "precision_grid": 0.03125,
-            "mesher_ready_coverage_revalidation_applied": True,
-            "mesher_ready_coverage_revalidation_output_grid": 0.125,
-        },
-    )
-
-    assert without_revalidation_grid["status"] == "warn"
-    assert without_revalidation_grid["metrics"]["clearance_deficit"] == pytest.approx(
-        0.1
-    )
-    assert (
-        without_revalidation_grid["metrics"]["residual_min_clearance_tolerated"]
-        is True
-    )
-    assert with_revalidation_grid["status"] == "warn"
-    assert with_revalidation_grid["metrics"]["contract_tolerance"] == pytest.approx(
-        2.0e-6
-    )
 
 
 def test_conditioned_footprint_contract_audit_reports_invalid_mesher_segment_graph(
@@ -805,7 +784,7 @@ def test_conditioned_footprint_contract_audit_reports_invalid_mesher_segment_gra
     contract = meshes_module._conditioned_footprint_contract_audit(
         surfaces=[make_surface(box(0.0, 0.0, 10.0, 10.0), 8.0)],
         declared_scale=0.5,
-        diagnostics={"geos_exception_count": 0},
+        diagnostics={},
     )
 
     assert contract["status"] == "fail"
@@ -1110,7 +1089,7 @@ def test_prepare_surface_ground_regions_preserves_building_holes_for_courtyards(
         bounds=(0.0, 0.0, 40.0, 40.0),
         max_mesh_size=10.0,
         min_building_detail=0.5,
-        footprint_diagnostics={"output_grid": 0.03125},
+        footprint_diagnostics={},
         cleaning_diagnostics=False,
         treat_lod0_as_holes=False,
     )
@@ -1359,7 +1338,7 @@ def test_build_city_flat_mesh_triangle_uses_conditioned_coverage(monkeypatch):
             [make_surface(box(8, 8, 18, 18), 10.0)],
             [[0]],
             [],
-            {"output_grid": 0.03125},
+            {},
         )
 
     def fake_condition_coverage_regions(**kwargs):
@@ -1432,7 +1411,7 @@ def test_build_city_flat_mesh_propagates_runtime_mesher_errors(monkeypatch):
             [make_surface(box(8, 8, 18, 18), 10.0)],
             [[0]],
             [],
-            {"output_grid": 0.03125},
+            {},
         )
 
     def fake_condition_coverage_regions(**kwargs):
@@ -1517,7 +1496,7 @@ def test_build_city_flat_mesh_forwards_triangle_backend(monkeypatch):
     captured = {}
 
     def fake_condition(*args, **kwargs):
-        return make_conditioned_footprints([], [], [], {"output_grid": 0.03125})
+        return make_conditioned_footprints([], [], [], {})
 
     def fake_build_ground_mesh_from_coverage(**kwargs):
         captured["mesher"] = kwargs["mesher"]
@@ -1561,7 +1540,7 @@ def test_build_city_flat_mesh_marks_halos_for_triangle_backend(monkeypatch):
             [make_surface(box(8, 8, 18, 18), 10.0)],
             [[0]],
             [],
-            {"output_grid": 0.03125},
+            {},
         )
 
     def fake_condition_coverage_regions(**kwargs):
@@ -1869,7 +1848,7 @@ def test_build_city_surface_mesh_uses_raw_ground_markers(monkeypatch):
     terrain = city.terrain
     terrain_raster = terrain.raster
     conditioned_surface = make_surface(box(10, 10, 20, 20), 10.0)
-    diagnostics = {"output_grid": 0.25}
+    diagnostics = {}
     captured = {}
 
     def fake_prepare(*args, **kwargs):
@@ -2039,7 +2018,7 @@ def test_build_city_volume_mesh_uses_shared_surface_pipeline(monkeypatch):
     terrain = city.terrain
     terrain_raster = terrain.raster
     conditioned_surface = make_surface(box(10, 10, 20, 20), 10.0)
-    diagnostics = {"output_grid": 0.25}
+    diagnostics = {}
     captured = {}
 
     def fake_prepare(*args, **kwargs):
@@ -2196,7 +2175,7 @@ def test_build_city_volume_mesh_stage_audit_records_stage_contracts(monkeypatch)
     terrain = city.terrain
     terrain_raster = terrain.raster
     conditioned_surface = make_surface(box(10, 10, 20, 20), 10.0)
-    diagnostics = {"output_grid": 0.25, "geos_exception_count": 0}
+    diagnostics = {}
     stage_audit: dict[str, object] = {}
 
     def fake_prepare(*args, **kwargs):
@@ -2331,7 +2310,7 @@ def test_build_city_volume_mesh_stage_audit_records_stage_contracts(monkeypatch)
         city,
         lod=GeometryType.LOD0,
         merge_buildings=False,
-        min_building_detail=0.0,
+        min_building_detail=0.25,
         min_building_area=1.0,
         merge_tolerance=0.0,
         max_mesh_size=6.0,
@@ -2486,7 +2465,7 @@ def test_prepare_surface_ground_regions_clips_buildings_to_raster_bounds():
         bounds=bounds,
         max_mesh_size=2.0,
         min_building_detail=0.5,
-        footprint_diagnostics={"output_grid": 0.03125},
+        footprint_diagnostics={},
         cleaning_diagnostics=False,
         treat_lod0_as_holes=False,
     )
@@ -2509,7 +2488,7 @@ def test_build_city_surface_mesh_stage_audit_records_core_stages(monkeypatch):
         [building_surface],
         [[0]],
         [5.0],
-        {"output_grid": 0.03125},
+        {},
     )
     ground_mesh = Mesh(
         vertices=np.array(
@@ -2697,7 +2676,7 @@ def test_build_city_volume_mesh_keeps_requested_tetgen_switches(monkeypatch):
     terrain_raster = terrain.raster
     terrain_raster.data[0, 0] = 0.1
     conditioned_surface = make_surface(box(10, 10, 20, 20), 10.0)
-    diagnostics = {"output_grid": 0.25}
+    diagnostics = {}
     captured = {}
 
     def fake_prepare(*args, **kwargs):
@@ -2848,7 +2827,7 @@ def test_build_city_volume_mesh_uses_split_surface_default_without_flat_special_
     terrain = city.terrain
     terrain_raster = terrain.raster
     conditioned_surface = make_surface(box(10, 10, 20, 20), 10.0)
-    diagnostics = {"output_grid": 0.25}
+    diagnostics = {}
     captured = {}
     stage_audit = {}
     refinement_calls = {"transition": 0, "wall": 0, "horizontal": 0}
@@ -3020,7 +2999,7 @@ def test_build_city_volume_mesh_allows_empty_conditioned_footprints(monkeypatch)
         return (
             terrain,
             terrain_raster,
-            make_conditioned_footprints([], [], [], {"output_grid": 0.25}),
+            make_conditioned_footprints([], [], [], {}),
         )
 
     def fake_prepare_regions(**kwargs):
@@ -3151,7 +3130,7 @@ def test_build_city_volume_mesh_respects_explicit_tetgen_switches_for_dtcc_meshe
     terrain = city.terrain
     terrain_raster = terrain.raster
     conditioned_surface = make_surface(box(10, 10, 20, 20), 10.0)
-    diagnostics = {"output_grid": 0.25}
+    diagnostics = {}
     captured = {}
 
     def fake_prepare(*args, **kwargs):
@@ -3295,7 +3274,7 @@ def test_build_city_volume_mesh_saves_tetgen_debug_meshes(monkeypatch, tmp_path)
     terrain = city.terrain
     terrain_raster = terrain.raster
     conditioned_surface = make_surface(box(10, 10, 20, 20), 10.0)
-    diagnostics = {"output_grid": 0.25}
+    diagnostics = {}
     captured = {}
 
     def fake_prepare(*args, **kwargs):
@@ -3647,7 +3626,7 @@ def test_build_city_volume_mesh_captures_quality_failure_artifacts(monkeypatch, 
     terrain = city.terrain
     terrain_raster = terrain.raster
     conditioned_surface = make_surface(box(10, 10, 20, 20), 10.0)
-    diagnostics = {"output_grid": 0.25}
+    diagnostics = {}
     captured = {}
 
     def fake_prepare(*args, **kwargs):
@@ -3819,7 +3798,7 @@ def test_build_city_volume_mesh_ignores_quality_failure_capture_errors(
             [conditioned_surface],
             [[0]],
             [4.0],
-            {"output_grid": 0.25},
+            {},
         )
 
     def fake_prepare_regions(**kwargs):
@@ -3966,7 +3945,7 @@ def test_build_city_volume_mesh_uses_refined_shell_without_retry(
     terrain_raster = terrain.raster
     terrain_raster.data[0, 0] = 0.1
     conditioned_surface = make_surface(box(10, 10, 20, 20), 10.0)
-    diagnostics = {"output_grid": 0.25}
+    diagnostics = {}
     stage_audit = {}
     calls: list[dict[str, object]] = []
 
@@ -4197,7 +4176,7 @@ def test_build_city_volume_mesh_keeps_shell_refinement_enabled_when_preserving_s
             [conditioned_surface],
             [[0]],
             [4.0],
-            {"output_grid": 0.25},
+            {},
         )
 
     def fake_prepare_regions(**kwargs):

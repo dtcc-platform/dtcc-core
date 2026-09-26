@@ -92,7 +92,7 @@ def test_separation_warning_survives_meshing_and_saved_replay(task, raw_city, tm
 
     raw = [b.footprint().to_polygon(simplify=0.0) for b in raw_city.buildings]
     cleaned = select_footprints(condition_polygon_coverage(
-        raw, options=ConditioningOptions(fidelity_tolerance=0, enable_logging=False),
+        raw, options=ConditioningOptions(fidelity_budget=0, enable_logging=False),
     ), min_area=min_area)
     conditioned = meshes._assemble_conditioned_footprints(
         cleaned.polygons, cleaned.source_map, cleaned.diagnostics,
@@ -268,11 +268,14 @@ def _replay_args(directory, output):
 def test_cli_saved_run_replay_report_compare_and_no_overwrite(cleaning_run, encoding):
     directory, task, result = cleaning_run
     contract = result["metrics"]["cleaning"]["geometric_contract"]
-    assert contract["admissibility"]["resolved"]
+    assert contract["admissibility"]["admissible"]
     assert contract["fidelity"]["status"] == "pass"
+    before = result["metrics"]["cleaning"]["before_selection_contract"]
+    assert before["fidelity"]["achieved_epsilon"] is not None
     report = cli("report", directory, encoding=encoding)
     assert report.returncode == 0, report.stderr
-    assert "Resolved" in report.stdout and "Fidelity" in report.stdout
+    assert "Admissible" in report.stdout and "Fidelity" in report.stdout
+    assert "Achieved m" in report.stdout
     output = directory / "replay"
     args = _replay_args(directory, output)
     completed = cli(*args, encoding=encoding)
@@ -618,7 +621,7 @@ def test_benchmark_failure_classification_separates_data_from_geometry() -> None
     assert (
         benchmark_datasets.classify_failure(
             "RuntimeError",
-            "Conditioned footprints contract failed: short_edge_count=2",
+            "Conditioned footprints contract failed: subscale_pairs=2",
         )
         == "conditioned_footprint_contract"
     )

@@ -127,7 +127,7 @@ def test_positive_scale_uses_authoritative_constructor_and_reports_contract(
         options=cleaning.ConditioningOptions(
             min_feature_size=0.5,
             merge_distance=0.0,
-            fidelity_tolerance=0.2,
+            fidelity_budget=0.2,
             enable_logging=False,
         ),
     )
@@ -166,7 +166,7 @@ def test_residual_separation_warns_by_default_without_relaxing_fidelity(monkeypa
     messages = []
     monkeypatch.setattr(footprints, "warning", messages.append)
     raw = [box(0, 0, 5, 5), box(5.1, 0, 10, 5)]
-    options = cleaning.ConditioningOptions(fidelity_tolerance=0, enable_logging=False)
+    options = cleaning.ConditioningOptions(fidelity_budget=0, enable_logging=False)
     result = cleaning.condition_polygon_coverage(raw, options=options)
     contract = result.diagnostics["before_selection_contract"]
     assert result.diagnostics["outcome"] == "warning"
@@ -202,7 +202,7 @@ def test_warning_policy_does_not_admit_other_contract_failures(monkeypatch, fail
     with pytest.raises(cleaning.UnresolvedFootprintCleaningError):
         cleaning.condition_polygon_coverage(
             raw, options=cleaning.ConditioningOptions(
-                fidelity_tolerance=0, enable_logging=False,
+                fidelity_budget=0, enable_logging=False,
             ),
         )
 
@@ -267,7 +267,7 @@ def test_building_adapter_keeps_original_building_indices():
         cleaning.ConditioningOptions(min_feature_size=-1.0),
         cleaning.ConditioningOptions(merge_distance=float("nan")),
         cleaning.ConditioningOptions(precision_grid=0.0),
-        cleaning.ConditioningOptions(fidelity_tolerance=float("inf")),
+        cleaning.ConditioningOptions(fidelity_budget=float("inf")),
     ],
 )
 def test_condition_polygon_coverage_rejects_bad_options(options):
@@ -397,9 +397,10 @@ def test_merge_policy_handles_zero_touching_and_explicit_disable():
 
     assert len(touching.polygons) == 1
     assert touching.source_map == [[0, 1]]
-    assert touching.diagnostics["before_selection_contract"] == check_cleaning_contract(
-        raw, touching.polygons, delta=0.5
-    )
+    assert touching.diagnostics["before_selection_contract"] == {
+        **check_cleaning_contract(raw, touching.polygons, delta=0.5, achieved=True),
+        "mesher_profile": check_mesher_handoff_profile(touching.polygons),
+    }
     assert len(disabled.polygons) == 2
     assert sorted(disabled.source_map) == [[0], [1]]
 

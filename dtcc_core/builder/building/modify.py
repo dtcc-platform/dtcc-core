@@ -289,7 +289,7 @@ def merge_building_footprints(
         options=ConditioningOptions(
             min_feature_size=declared_scale,
             merge_distance=max_distance,
-            fidelity_tolerance=max_distance / 2.0 if max_distance > 0 else 0.0,
+            fidelity_budget=max_distance / 2.0 if max_distance > 0 else 0.0,
             allow_source_merging=True,
         ),
         operation_name="merge_building_footprints",

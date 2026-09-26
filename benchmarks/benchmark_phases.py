@@ -25,6 +25,8 @@ from dtcc_core.datasets._city_mesh_common import (
 )
 from benchmarks.benchmark_catalog import CLEANING_PARAMETERS
 
+# Version 2: reports use the note's terms (mfs, admissible, achieved budget).
+ARTIFACT_VERSION = 2
 PREPARATION_PARAMETERS = (
     "raster_cell_size",
     "raster_radius",
@@ -59,12 +61,6 @@ def footprint_metrics(raw, cleaned, source_map, scale, *, epsilon=None):
 
     raw_union = unary_union([make_valid(p) for p in raw])
     clean_union = unary_union(cleaned)
-    lengths = [
-        np.linalg.norm(np.diff(np.asarray(ring.coords)[:, :2], axis=0), axis=1)
-        for polygon in cleaned
-        for ring in [polygon.exterior, *polygon.interiors]
-    ]
-    lengths = np.concatenate(lengths) if lengths else np.array([])
     represented = {i for group in source_map for i in group}
     return {
         "geometric_contract": (
@@ -89,10 +85,11 @@ def footprint_metrics(raw, cleaned, source_map, scale, *, epsilon=None):
             else None
         ),
         "overlap_area": max(0.0, sum(p.area for p in cleaned) - clean_union.area),
-        "min_clearance": min((p.minimum_clearance for p in cleaned), default=None),
-        "min_edge_length": float(lengths.min()) if lengths.size else None,
-        "short_edge_count": int(np.count_nonzero(lengths < scale - 1e-9)),
-        "vertex_count": int(lengths.size),
+        "vertex_count": sum(
+            len(ring.coords) - 1
+            for polygon in cleaned
+            for ring in [polygon.exterior, *polygon.interiors]
+        ),
     }
 
 
@@ -102,7 +99,7 @@ def save_cleaning(directory, city, conditioned, task):
     payload = {
         "type": "FeatureCollection",
         "metadata": {
-            "version": 1,
+            "version": ARTIFACT_VERSION,
             "crs": "EPSG:3006",
             "bounds": task["case"]["bounds"],
             "parameters": {k: task["parameters"][k] for k in CLEANING_PARAMETERS},
@@ -117,11 +114,6 @@ def save_cleaning(directory, city, conditioned, task):
             "policy_exclusions": conditioned.diagnostics.get(
                 "policy_exclusions", []
             ),
-            "diagnostics": {
-                k: conditioned.diagnostics[k]
-                for k in ("precision_grid", "output_grid")
-                if k in conditioned.diagnostics
-            },
         },
         "features": [
             {
@@ -145,7 +137,7 @@ def load_cleaning(path, task):
         metadata = payload["metadata"]
         if (
             payload["type"] != "FeatureCollection"
-            or metadata["version"] != 1
+            or metadata["version"] != ARTIFACT_VERSION
             or metadata["crs"] != "EPSG:3006"
         ):
             raise ValueError("unsupported cleaning artifact format or CRS")
@@ -160,10 +152,6 @@ def load_cleaning(path, task):
         scale = float(metadata["declared_scale"])
         if not np.isfinite(scale) or scale <= 0:
             raise ValueError("invalid declared scale")
-        diagnostics = metadata["diagnostics"]
-        for value in diagnostics.values():
-            if type(value) not in (float, int) or not np.isfinite(value) or value < 0:
-                raise ValueError("invalid cleaning diagnostic")
         before_selection_contract = metadata.get("before_selection_contract")
         selection = metadata.get("selection")
         final_handoff_contract = metadata.get("final_handoff_contract")
@@ -265,7 +253,6 @@ def load_cleaning(path, task):
         if selection["represented_source_indices"] != represented:
             raise ValueError("selection represented sources do not match geometry")
         diagnostics = {
-            **diagnostics,
             "before_selection_contract": before_selection_contract,
             "selection": selection,
             "policy_exclusions": policy_exclusions,
@@ -356,7 +343,11 @@ def execute_phases(task, metrics, artifacts):
             "status": "warning" if cleaning_warnings else "success",
             "seconds": seconds,
             **footprint_metrics(
-                raw, cleaned, conditioned.source_map, conditioned.declared_scale
+                raw,
+                cleaned,
+                conditioned.source_map,
+                conditioned.declared_scale,
+                epsilon=conditioned.diagnostics.get("fidelity_budget"),
             ),
             "contract": conditioned.contract,
             "before_selection_contract": conditioned.diagnostics.get(

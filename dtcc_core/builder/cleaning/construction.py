@@ -43,9 +43,9 @@ from .contract import (
     SEPARATION_RELATIVE_TOLERANCE,
     FidelityBudget,
     admissibility,
-    canonical_graph,
     check_cleaning_contract,
     check_mesher_handoff_profile,
+    essential_boundary_graph,
     has_only_separation_defects,
     interpret_input,
 )
@@ -170,10 +170,13 @@ def _nonmerge_inset(raw, atoms, atom_sources, conflicts, *, delta, epsilon):
             )
         inset_pairs.extend((part, list(sources)) for part in parts)
     inset_polygons = [item[0] for item in inset_pairs]
-    contract = check_cleaning_contract(raw, inset_polygons, delta=delta, epsilon=epsilon)
+    contract = check_cleaning_contract(
+        raw, inset_polygons, delta=delta, epsilon=epsilon, achieved=True
+    )
     profile = check_mesher_handoff_profile(inset_polygons)
     if contract["status"] != "pass" or profile["status"] != "pass":
         return None
+    contract["mesher_profile"] = profile
     inset_pairs.sort(key=lambda item: _geometry_key(item[0]))
     return (
         [item[0] for item in inset_pairs],
@@ -280,6 +283,12 @@ def construct_coverage(
             identity_contract["status"] == "pass"
             and identity_profile["status"] == "pass"
         ):
+            # The regions are unions of the interpreted atoms, so the occupied
+            # set is exactly the input's and the achieved budget is zero.
+            identity_contract["fidelity"].update(
+                achieved_epsilon=0.0, achieved_epsilon_resolution=0.0
+            )
+            identity_contract["mesher_profile"] = identity_profile
             ordered = sorted(
                 zip(identity_polygons, identity_sources),
                 key=lambda item: _geometry_key(item[0]),
@@ -436,7 +445,7 @@ def construct_coverage(
     output_polygons = [item[0] for item in ordered]
     output_sources = [item[1] for item in ordered]
     contract = check_cleaning_contract(
-        raw, output_polygons, delta=delta, epsilon=epsilon
+        raw, output_polygons, delta=delta, epsilon=epsilon, achieved=True
     )
     profile = check_mesher_handoff_profile(output_polygons)
     separation_warning = (
@@ -471,6 +480,7 @@ def construct_coverage(
             "allow_source_merging": bool(allow_source_merging),
             "merge_eligibility_groups": [list(group) for group in merge_groups],
         }
+    contract["mesher_profile"] = profile
     return output_polygons, output_sources, {
         "outcome": "warning" if separation_warning else "conforming",
         "groups": len(groups),
@@ -521,6 +531,27 @@ class _WorkLimit(RuntimeError):
     pass
 
 
+def _subscale_count(state):
+    """Return the constructor's count of feature pairs closer than delta.
+
+    The contract counts nonincident vertex-edge pairs. The constructor also
+    counts vertex-vertex pairs, which is redundant for admissibility (the
+    note's Observation 1) but gives its progress measure a finer resolution.
+
+    Parameters
+    ----------
+    state : dict
+        Admissibility report from
+        :func:`dtcc_core.builder.cleaning.contract.admissibility`.
+
+    Returns
+    -------
+    int
+        Subscale vertex-edge pairs plus any counted vertex-vertex pairs.
+    """
+    return state["subscale_pairs"] + state.get("subscale_vertex_pairs", 0)
+
+
 def defect_tuple(state):
     """Return the integer defect tuple used to rank local proposals.
 
@@ -533,27 +564,29 @@ def defect_tuple(state):
     Returns
     -------
     tuple[int, int, int]
-        Nonmanifold boundary vertices, subscale pairs and canonical vertices.
+        Nonmanifold boundary vertices, subscale pairs (see
+        :func:`_subscale_count`) and essential vertices.
     """
     return (
         state["nonmanifold_boundary_vertices"],
-        state["subscale_pairs"],
-        state["canonical_vertex_count"],
+        _subscale_count(state),
+        state["essential_vertex_count"],
     )
 
 
 def conflicts(polygons, delta):
-    """Points where the contract's own separation rule is violated.
+    """Points where the minimum feature size is violated.
 
-    Repeats the checker's queries on the checker's canonical graph and returns
-    the offending locations rather than a count, so a repair can be aimed. Each
-    conflict also carries the *support* of the two features involved, not only
-    the point between them. A long pair of parallel walls produces conflicts
-    only at its ends, because the canonical graph has no vertex along a straight
-    wall, and a repair sized from those two points would keep re-cutting the
-    ends of a feature it never spans.
+    Repeats the checker's vertex-edge query on the essential boundary graph,
+    plus vertex-vertex pairs, and returns the offending locations rather than
+    a count, so a repair can be aimed. Each conflict also carries the
+    *support* of the two features involved, not only the point between them.
+    A long pair of parallel walls produces conflicts only at its ends, because
+    the essential graph has no vertex along a straight wall, and a repair
+    sized from those two points would keep re-cutting the ends of a feature it
+    never spans.
     """
-    vertices, edges = canonical_graph([p.boundary for p in polygons])
+    vertices, edges = essential_boundary_graph([p.boundary for p in polygons])
     if not vertices:
         return []
     point_geometries = points(vertices)
@@ -603,7 +636,7 @@ def nonmanifold_points(polygons):
     occupied = unary_union(polygons)
     if occupied.is_empty:
         return []
-    _, edges = canonical_graph([occupied.boundary])
+    _, edges = essential_boundary_graph([occupied.boundary])
     degree = {}
     for a, b in edges:
         degree[a] = degree.get(a, 0) + 1
@@ -703,7 +736,9 @@ class LocalJudge:
             raise _WorkLimit("candidate evaluation limit reached")
         started = time.perf_counter()
         self.evaluations += 1
-        result = admissibility(polygon_parts(occupied.intersection(clip)), self.delta)
+        result = admissibility(
+            polygon_parts(occupied.intersection(clip)), self.delta, vertex_pairs=True
+        )
         self.timings["local_scoring"] += time.perf_counter() - started
         return result
 
@@ -712,7 +747,7 @@ class LocalJudge:
             return self._global_state_result
         started = time.perf_counter()
         self.global_evaluations += 1
-        result = admissibility(polygon_parts(occupied), self.delta)
+        result = admissibility(polygon_parts(occupied), self.delta, vertex_pairs=True)
         self.timings["global_checks"] += time.perf_counter() - started
         self._global_state_geometry = occupied
         self._global_state_result = result
@@ -1054,7 +1089,7 @@ def separation_guard(before, after):
     collapsing it sometimes makes two boundaries meet at a point. Termination
     does not rest on these guards; it rests on `progress_measure` falling.
     """
-    return after["subscale_pairs"] < before["subscale_pairs"]
+    return _subscale_count(after) < _subscale_count(before)
 
 
 def combined_guard(before, after):
@@ -1072,8 +1107,8 @@ def progress_measure(state):
     tuple the stages use internally would call that a regression.
     """
     return (
-        state["nonmanifold_boundary_vertices"] + state["subscale_pairs"],
-        state["canonical_vertex_count"],
+        state["nonmanifold_boundary_vertices"] + _subscale_count(state),
+        state["essential_vertex_count"],
     )
 
 
@@ -1086,7 +1121,7 @@ def repair_site(occupied, judge, coordinates, delta, guard, candidates):
     window = judge.window(coordinates)
     clip = judge.clip(window)
     before = judge.state(occupied, clip)
-    if "canonical_vertex_count" not in before:
+    if "essential_vertex_count" not in before:
         return None, "invalid_before"
     reason = "no_candidate_helped"
     ranked = []
@@ -1117,7 +1152,7 @@ def repair_site(occupied, judge, coordinates, delta, guard, candidates):
                 judge.rejections["local_fidelity"] += 1
                 continue
             after = judge.state(candidate, clip)
-            if "canonical_vertex_count" not in after:
+            if "essential_vertex_count" not in after:
                 judge.rejections["geometry_operation"] += 1
                 continue
             if not guard(before, after):
@@ -1198,15 +1233,15 @@ def _fallback_preprocessing_is_equivalent(raw, delta, epsilon):
             occupied, _ = interpret_input(raw)
             occupied = tidy(occupied)
             state = safe_state(polygon_parts(occupied), delta)
-            if "canonical_vertex_count" not in state:
+            if "essential_vertex_count" not in state:
                 return False
             snap_grid = delta * STRUCTURAL_SNAP_GRID_FACTOR
             if (
                 attempt_index == 0
                 and state["nonmanifold_boundary_vertices"]
-                + state["subscale_pairs"]
+                + _subscale_count(state)
                 <= 64
-                and state["separation_capped_at_delta"] < 2 * snap_grid
+                and state["mfs_capped_at_delta"] < 2 * snap_grid
             ):
                 occupied, state, _ = _structural_snap(
                     occupied, budget, delta, state
@@ -1236,7 +1271,7 @@ def _structural_snap(occupied, budget, delta, before):
         return occupied, before, {"applied": False, "reason": "geometry_operation"}
     if (
         candidate.is_empty
-        or "canonical_vertex_count" not in state
+        or "essential_vertex_count" not in state
         or progress_measure(state) >= progress_measure(before)
     ):
         return occupied, before, {"applied": False, "reason": "no_progress"}
@@ -1251,9 +1286,9 @@ def _structural_snap(occupied, budget, delta, before):
 
 def _bulk_simplify(occupied, budget, delta, epsilon, before):
     """One whole-group proposal for conflict-dense subdivisions."""
-    vertices = max(int(before["canonical_vertex_count"]), 1)
+    vertices = max(int(before["essential_vertex_count"]), 1)
     defect_density = (
-        before["nonmanifold_boundary_vertices"] + before["subscale_pairs"]
+        before["nonmanifold_boundary_vertices"] + _subscale_count(before)
     ) / vertices
     if defect_density <= BULK_SIMPLIFY_DEFECTS_PER_VERTEX or epsilon <= 0:
         return occupied, before, {
@@ -1275,7 +1310,7 @@ def _bulk_simplify(occupied, budget, delta, epsilon, before):
         }
     if (
         candidate.is_empty
-        or "canonical_vertex_count" not in state
+        or "essential_vertex_count" not in state
         or progress_measure(state) >= progress_measure(before)
     ):
         return occupied, before, {
@@ -1575,9 +1610,9 @@ def construct(raw, *, delta=0.5, epsilon=None, allow_residual_separation=False):
 def safe_state(polygons, delta):
     """Admissibility, or a report that says the geometry could not be measured."""
     try:
-        return admissibility(polygons, delta)
+        return admissibility(polygons, delta, vertex_pairs=True)
     except GEOSException as error:
-        return {"resolved": False, "topology_ok": False, "reason": str(error)}
+        return {"admissible": False, "topology_ok": False, "reason": str(error)}
 
 
 def attempt(
@@ -1603,23 +1638,23 @@ def attempt(
     }
 
     state = safe_state(polygon_parts(occupied), delta)
-    if "canonical_vertex_count" not in state:
+    if "essential_vertex_count" not in state:
         raise ValueError("the interpreted input could not be measured")
     evaluation_limit = max(
         MIN_CANDIDATE_EVALUATION_LIMIT,
-        MAX_CANDIDATE_EVALUATIONS_PER_VERTEX * state["canonical_vertex_count"],
+        MAX_CANDIDATE_EVALUATIONS_PER_VERTEX * state["essential_vertex_count"],
     )
     judge = LocalJudge(budget, delta, evaluation_limit=evaluation_limit)
     report["work_limit"] = {
         "candidate_evaluations": evaluation_limit,
         "formula": (
             f"max({MIN_CANDIDATE_EVALUATION_LIMIT}, "
-            f"{MAX_CANDIDATE_EVALUATIONS_PER_VERTEX} * canonical_vertices)"
+            f"{MAX_CANDIDATE_EVALUATIONS_PER_VERTEX} * essential_vertices)"
         ),
         "exhausted": False,
     }
     report["initial"] = defect_tuple(state)
-    if state["resolved"]:
+    if state["admissible"]:
         report.update(
             outcome="unchanged",
             reason="already_admissible",
@@ -1638,8 +1673,8 @@ def attempt(
     snap_grid = delta * STRUCTURAL_SNAP_GRID_FACTOR
     if (
         use_structural_snap
-        and state["nonmanifold_boundary_vertices"] + state["subscale_pairs"] <= 64
-        and state["separation_capped_at_delta"] < 2 * snap_grid
+        and state["nonmanifold_boundary_vertices"] + _subscale_count(state) <= 64
+        and state["mfs_capped_at_delta"] < 2 * snap_grid
     ):
         occupied, state, snap_report = _structural_snap(
             occupied, budget, delta, state
@@ -1660,7 +1695,7 @@ def attempt(
     state = safe_state(polygon_parts(occupied), delta)
     report["stages"]["dense_sampling"] = {
         "tolerance": tolerance,
-        "state": defect_tuple(state) if "canonical_vertex_count" in state else None,
+        "state": defect_tuple(state) if "essential_vertex_count" in state else None,
     }
 
     measure = progress_measure(state)
@@ -1773,10 +1808,10 @@ def attempt(
                 break
 
         state = safe_state(polygon_parts(occupied), delta)
-        if "canonical_vertex_count" not in state:
+        if "essential_vertex_count" not in state:
             break
         report["passes"].append({"measure": measure, "state": defect_tuple(state)})
-        if not state["subscale_pairs"] and not state["nonmanifold_boundary_vertices"]:
+        if not _subscale_count(state) and not state["nonmanifold_boundary_vertices"]:
             break
         if progress_measure(state) >= measure:
             occupied = pass_start
@@ -1788,10 +1823,10 @@ def attempt(
             break
 
     if (
-        "canonical_vertex_count" in state
-        and state["nonmanifold_boundary_vertices"] + state["subscale_pairs"] <= 64
-        and (state["nonmanifold_boundary_vertices"] or state["subscale_pairs"])
-        and state["separation_capped_at_delta"] < 2 * snap_grid
+        "essential_vertex_count" in state
+        and state["nonmanifold_boundary_vertices"] + _subscale_count(state) <= 64
+        and (state["nonmanifold_boundary_vertices"] or _subscale_count(state))
+        and state["mfs_capped_at_delta"] < 2 * snap_grid
     ):
         snapped, snapped_state, final_snap = _structural_snap(
             occupied, budget, delta, state
@@ -1812,7 +1847,7 @@ def attempt(
     report.update(
         outcome="conforming" if contract["status"] == "pass" else "unresolved",
         reason="contract_pass" if contract["status"] == "pass" else "residual_defects",
-        final=defect_tuple(state) if "canonical_vertex_count" in state else None,
+        final=defect_tuple(state) if "essential_vertex_count" in state else None,
         seconds=time.perf_counter() - started,
         evaluations=judge.evaluations,
         admissions=judge.admissions,
