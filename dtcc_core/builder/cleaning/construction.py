@@ -909,6 +909,7 @@ class LocalJudge:
         self._local_clip_geometry = None
         self._local_clip = None
         self._local_clip_core = None
+        self._local_clip_envelope = None
         self._last_candidate_geometry = None
         self._last_local_candidate = None
         self._ranked_candidate_locals = []
@@ -958,9 +959,13 @@ class LocalJudge:
         everywhere. `admits` is what accepts.
         """
         if clip is not self._local_clip_geometry:
+            # Only the core and envelope on the clip can meet the clipped
+            # candidate. Clipping them once per site keeps every offer's
+            # overlays small; the group's envelope has thousands of vertices.
             self._local_clip_geometry = clip
             self._local_clip = self.budget.to_local(clip)
             self._local_clip_core = self.core.intersection(self._local_clip)
+            self._local_clip_envelope = self.envelope.intersection(self._local_clip)
             self._ranked_candidate_locals = []
         local_clip = self._local_clip
         self._last_candidate_geometry = candidate
@@ -969,7 +974,7 @@ class LocalJudge:
         lost = self._local_clip_core.difference(local).area
         if lost > 1e-10:
             return False
-        added = local.difference(self.envelope).area
+        added = local.difference(self._local_clip_envelope).area
         return added <= 1e-10
 
     def remember_ranked_candidate(self, candidate):
@@ -1313,8 +1318,11 @@ def _same_occupancy(candidate, occupied, occupied_area):
     """Topological equality, decided by area first when the areas differ.
 
     Equal point sets have equal areas up to rounding many orders of magnitude
-    below this margin, so the cheap test never rejects an equal candidate.
+    below this margin, so the cheap test never rejects an equal candidate. An
+    edit that touches no ring returns the geometry itself.
     """
+    if candidate is occupied:
+        return True
     if abs(candidate.area - occupied_area) > 1e-9 * max(occupied_area, 1.0):
         return False
     return candidate.equals(occupied)

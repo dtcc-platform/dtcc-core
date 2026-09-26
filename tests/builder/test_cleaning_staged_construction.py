@@ -173,6 +173,11 @@ def test_local_fidelity_clip_cache_is_invalidated_between_sites():
     assert judge.keeps_fidelity(candidate, unaffected)
     assert not judge.keeps_fidelity(candidate, affected)
     assert judge.keeps_fidelity(candidate, unaffected)
+    # The same holds for material added beyond the envelope.
+    grown = box(0, 0, 10.4, 10)
+    assert judge.keeps_fidelity(grown, affected)
+    assert not judge.keeps_fidelity(grown, unaffected)
+    assert judge.keeps_fidelity(grown, affected)
 
 
 def test_rebuilder_cache_is_bounded_to_its_occupied_geometry():
