@@ -266,6 +266,14 @@ must pass the group's progress guard and the original fidelity budget. The
 progress guard also counts vertex-vertex pairs, which gives it a finer measure
 without changing what is admissible.
 
+At each repair site the proposals are built in a fixed order, at most 64 of
+them, filtered on a clip around the site and ranked by the local defect counts;
+the best that passes the guard and the budget on the whole group is accepted.
+Ranking every proposal matters: accepting the first admissible one, or stopping
+at the first kind of edit that works, leaves more defects or more drift. Cuts
+remove the most material, so when separating gaps they are built only if no
+other proposal at the site is accepted.
+
 The attempts run in order (full simplification ladder, shorter ladder, none) and
 the search **stops at the first conforming result that meets the 3 degree
 preference**. Identical preprocessed starts are evaluated once. If no attempt

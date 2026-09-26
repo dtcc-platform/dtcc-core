@@ -152,6 +152,35 @@ def test_local_improvement_cannot_hide_new_distant_conflicts():
     assert accepted is None and reason == "global_progress"
 
 
+def test_fallback_offers_are_built_only_when_no_other_offer_is_admitted():
+    raw = [box(0, 0, 10, 10), box(10.3, 0, 20, 10)]
+    occupied = unary_union(raw)
+    bridged = unary_union(raw + [box(10, 0, 10.3, 10)])
+    coordinates = np.array([(10, 0), (10.3, 0), (10, 10), (10.3, 10)])
+    built = []
+
+    def fallback(*args):
+        built.append(True)
+        return iter([("fallback", bridged)])
+
+    def repair(candidates):
+        judge = construction.LocalJudge(FidelityBudget(raw, 0.25), 0.5)
+        return construction.repair_site(
+            occupied,
+            judge,
+            coordinates,
+            0.5,
+            construction.separation_guard,
+            candidates,
+            fallback,
+        )
+
+    assert repair(lambda *args: iter([("close", bridged)]))[1] == "close"
+    assert not built
+    assert repair(lambda *args: iter([("no_op", occupied)]))[1] == "fallback"
+    assert built
+
+
 def test_equal_occupancy_is_recognised_across_representations():
     square = box(0, 0, 10, 10)
     resampled = Polygon([(0, 0), (5, 0), (10, 0), (10, 10), (0, 10)])

@@ -13,9 +13,10 @@ four steps:
    not conform may be constructed once more with a larger fidelity budget.
 3. Filter and rank proposals on local clips, then admit an edit only if it
    improves the group's defect measure and passes the original fidelity budget
-   on the whole group. Conforming attempts are finished towards the preferred
-   angle profile; the first that meets it is kept, otherwise attempts are
-   ranked by that profile, drift and canonical geometry.
+   on the whole group. When separating gaps, cuts are proposed only if no
+   other proposal at the site is admitted. Conforming attempts are finished
+   towards the preferred angle profile; the first that meets it is kept,
+   otherwise attempts are ranked by that profile, drift and canonical geometry.
 4. Attribute each region to the sources that support it, and check the
    assembled coverage independently.
 
@@ -1328,11 +1329,33 @@ def _same_occupancy(candidate, occupied, occupied_area):
     return candidate.equals(occupied)
 
 
-def repair_site(occupied, judge, coordinates, delta, guard, candidates):
+def site_offers(families, occupied, coordinates, window, locations, members, delta):
+    """Yield one site's offers, family by family, in a fixed order."""
+    rebuilder = (
+        _Rebuilder(occupied) if {"combinatorial", "motion"} & set(families) else None
+    )
+    for family in families:
+        if family == "combinatorial":
+            yield from combinatorial_candidates(
+                occupied, locations, members, delta, rebuilder=rebuilder
+            )
+        elif family == "motion":
+            yield from nudge_candidates(
+                occupied, locations, members, delta, rebuilder=rebuilder
+            )
+        elif family == "close":
+            yield from close_candidates(occupied, coordinates, delta, window)
+        else:
+            yield from cut_candidates(occupied, coordinates, delta)
+
+
+def repair_site(occupied, judge, coordinates, delta, guard, candidates, fallback=None):
     """Rank locally, then require the stage guard and fidelity globally.
 
     Topology and separation stages deliberately allow trading the other defect
-    kind. Their own strict improvement must hold on the entire group.
+    kind. Their own strict improvement must hold on the entire group. Offers
+    from ``fallback`` are built and ranked only when no offer from
+    ``candidates`` is admitted; both count towards the same offer limit.
     """
     window = judge.window(coordinates)
     clip = judge.clip(window)
@@ -1341,67 +1364,76 @@ def repair_site(occupied, judge, coordinates, delta, guard, candidates):
     if "essential_vertex_count" not in before:
         return None, "invalid_before"
     reason = "no_candidate_helped"
-    ranked = []
-    # The generator builds geometry as it is consumed, so its own failures
-    # arrive here rather than inside the loop body. A candidate that cannot be
-    # built is one fewer candidate, not a failed group.
-    offers = candidates(occupied, coordinates, window)
-    offers_exhausted = False
-    for position in range(MAX_SITE_OPERATIONS):
-        build_started = time.perf_counter()
-        try:
-            name, candidate = next(offers)
-        except StopIteration:
-            offers_exhausted = True
-            break
-        except GEOSException:
-            judge.rejections["geometry_operation"] += 1
+    global_before = None
+    position = 0
+    any_ranked = False
+    for tier in (candidates, fallback):
+        if tier is None:
             continue
-        finally:
-            judge.timings["candidate_construction"] += (
-                time.perf_counter() - build_started
-            )
-        try:
-            if (
-                candidate is None
-                or candidate.is_empty
-                or _same_occupancy(candidate, occupied, occupied_area)
-            ):
+        ranked = []
+        # The generator builds geometry as it is consumed, so its own failures
+        # arrive here rather than inside the loop body. A candidate that cannot
+        # be built is one fewer candidate, not a failed group.
+        offers = tier(occupied, coordinates, window)
+        while position < MAX_SITE_OPERATIONS:
+            build_started = time.perf_counter()
+            try:
+                name, candidate = next(offers)
+            except StopIteration:
+                break
+            except GEOSException:
+                judge.rejections["geometry_operation"] += 1
+                position += 1
                 continue
-            if not judge.keeps_fidelity(candidate, clip):
-                reason = "fidelity"
-                judge.rejections["local_fidelity"] += 1
-                continue
-            after = judge.state(candidate, clip)
-            if "essential_vertex_count" not in after:
+            finally:
+                judge.timings["candidate_construction"] += (
+                    time.perf_counter() - build_started
+                )
+            position += 1
+            try:
+                if (
+                    candidate is None
+                    or candidate.is_empty
+                    or _same_occupancy(candidate, occupied, occupied_area)
+                ):
+                    continue
+                if not judge.keeps_fidelity(candidate, clip):
+                    reason = "fidelity"
+                    judge.rejections["local_fidelity"] += 1
+                    continue
+                after = judge.state(candidate, clip)
+                if "essential_vertex_count" not in after:
+                    judge.rejections["geometry_operation"] += 1
+                    continue
+                if not guard(before, after):
+                    judge.rejections["local_progress"] += 1
+                    continue
+            except GEOSException:
                 judge.rejections["geometry_operation"] += 1
                 continue
-            if not guard(before, after):
-                judge.rejections["local_progress"] += 1
+            # Integers and a fixed offer order decide, never a measured objective.
+            judge.remember_ranked_candidate(candidate)
+            ranked.append((defect_tuple(after), position, name, candidate))
+        if ranked:
+            any_ranked = True
+            if global_before is None:
+                global_before = judge.global_state(occupied)
+        for _, _, name, candidate in sorted(ranked, key=lambda row: row[:2]):
+            try:
+                if not judge.admits(candidate):
+                    reason = "global_fidelity"
+                    judge.rejections["global_fidelity"] += 1
+                    continue
+                global_after = judge.global_state(candidate)
+                if not guard(global_before, global_after):
+                    reason = "global_progress"
+                    judge.rejections["global_progress"] += 1
+                    continue
+            except GEOSException:
+                judge.rejections["geometry_operation"] += 1
                 continue
-        except GEOSException:
-            judge.rejections["geometry_operation"] += 1
-            continue
-        # Integers and a fixed offer order decide, never a measured objective.
-        judge.remember_ranked_candidate(candidate)
-        ranked.append((defect_tuple(after), position, name, candidate))
-    global_before = judge.global_state(occupied) if ranked else None
-    for _, _, name, candidate in sorted(ranked, key=lambda row: row[:2]):
-        try:
-            if not judge.admits(candidate):
-                reason = "global_fidelity"
-                judge.rejections["global_fidelity"] += 1
-                continue
-            global_after = judge.global_state(candidate)
-            if not guard(global_before, global_after):
-                reason = "global_progress"
-                judge.rejections["global_progress"] += 1
-                continue
-        except GEOSException:
-            judge.rejections["geometry_operation"] += 1
-            continue
-        return candidate, name
-    if not offers_exhausted and not ranked:
+            return candidate, name
+    if position >= MAX_SITE_OPERATIONS and not any_ranked:
         reason = "offer_truncated"
     return None, reason
 
@@ -1946,7 +1978,9 @@ def attempt(
     work_exhausted = False
     for _ in range(MAX_PASSES):
         pass_start = occupied
-        for stage, locate, guard, order in (
+        # Cuts remove material wholesale. Separating a gap, they are tried only
+        # when no other offer at the site is admitted.
+        for stage, locate, guard, order, fallback in (
             (
                 "topology",
                 lambda parts: [
@@ -1954,12 +1988,14 @@ def attempt(
                 ],
                 topology_guard,
                 ("combinatorial", "cut", "close", "motion"),
+                (),
             ),
             (
                 "separation",
                 lambda parts: conflicts(parts, delta),
                 separation_guard,
-                ("combinatorial", "close", "motion", "cut"),
+                ("combinatorial", "close", "motion"),
+                ("cut",),
             ),
             (
                 # Where the decomposition deadlocks - a junction whose only
@@ -1972,7 +2008,8 @@ def attempt(
                 ]
                 + conflicts(parts, delta),
                 combined_guard,
-                ("combinatorial", "close", "motion", "cut"),
+                ("combinatorial", "close", "motion"),
+                ("cut",),
             ),
         ):
             rounds = []
@@ -1994,35 +2031,26 @@ def attempt(
                 for coordinates, members in sites:
                     report["sites"] += 1
 
-                    def candidates(occupied, coordinates, window, members=members):
-                        rebuilder = _Rebuilder(occupied)
-                        for family in order:
-                            if family == "combinatorial":
-                                yield from combinatorial_candidates(
-                                    occupied,
-                                    locations,
-                                    members,
-                                    delta,
-                                    rebuilder=rebuilder,
-                                )
-                            elif family == "motion":
-                                yield from nudge_candidates(
-                                    occupied,
-                                    locations,
-                                    members,
-                                    delta,
-                                    rebuilder=rebuilder,
-                                )
-                            elif family == "close":
-                                yield from close_candidates(
-                                    occupied, coordinates, delta, window
-                                )
-                            else:
-                                yield from cut_candidates(occupied, coordinates, delta)
+                    def offers(families, members=members):
+                        return lambda occupied, coordinates, window: site_offers(
+                            families,
+                            occupied,
+                            coordinates,
+                            window,
+                            locations,
+                            members,
+                            delta,
+                        )
 
                     try:
                         candidate, terminal_reason = repair_site(
-                            occupied, judge, coordinates, delta, guard, candidates
+                            occupied,
+                            judge,
+                            coordinates,
+                            delta,
+                            guard,
+                            offers(order),
+                            offers(fallback) if fallback else None,
                         )
                     except _WorkLimit:
                         report["work_limit"]["exhausted"] = True
