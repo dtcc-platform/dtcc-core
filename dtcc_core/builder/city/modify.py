@@ -98,7 +98,7 @@ def merge_buildings(
     min_area : float, optional
         The minimum area in square meters for a building to be kept (default 10).
     simplify : bool, optional
-        Ignored; retained for compatibility. Merged footprints are always
+        Deprecated and ignored. Merged footprints are always
         cleaned at ``max_distance`` (default True).
     properties_merge_strategy : str, optional
         The strategy for merging properties. Options are 'list' and 'sample'. 'list' will create a list of all properties for the merged building. 'sample' will pick a property value from a random building (default "list").

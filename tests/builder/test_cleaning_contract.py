@@ -202,8 +202,9 @@ def test_fidelity_area_measurement_is_stable_at_large_map_coordinates():
     world = fidelity([protected], [candidate], 0)
     x, y = data["metadata"]["local_origin"]
     local = fidelity([translate(protected, -x, -y)], [translate(candidate, -x, -y)], 0)
-    # World-coordinate overlay previously reported zero occupied loss. The
-    # reduced seven-vertex polygons retain the original narrow sliver.
+    # Far from the origin a direct overlay can miss the narrow sliver of
+    # protected area this seven-vertex case loses; the check must report it
+    # and agree with the same polygons moved to the origin.
     assert world["lost_protected_area"] > 1e-6
     for metric in ("lost_protected_area", "added_outside_budget_area"):
         assert world[metric] == pytest.approx(local[metric], abs=1e-11)

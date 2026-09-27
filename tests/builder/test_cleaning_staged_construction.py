@@ -1,4 +1,4 @@
-"""Regression tests for the bounded footprint constructor."""
+"""Tests for the bounded footprint constructor."""
 
 import numpy as np
 import pytest
@@ -41,9 +41,7 @@ def test_required_construction_witnesses():
         ("city_grid:norrkoping:039", 23),
     ],
 )
-def test_full_survey_conformance_regressions_use_general_structural_snap(
-    case_id, group_id
-):
+def test_survey_groups_conform_using_structural_snap(case_id, group_id):
     raw = survey_merge_group(case_id, group_id)
     for candidate in (raw, [translate(polygon, 17.125, -9.875) for polygon in raw]):
         output, report = construction.construct(candidate)

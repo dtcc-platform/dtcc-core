@@ -962,7 +962,7 @@ class LocalJudge:
         if clip is not self._local_clip_geometry:
             # Only the core and envelope on the clip can meet the clipped
             # candidate. Clipping them once per site keeps every offer's
-            # overlays small; the group's envelope has thousands of vertices.
+            # overlays small; the group's envelope is far larger than a clip.
             self._local_clip_geometry = clip
             self._local_clip = self.budget.to_local(clip)
             self._local_clip_core = self.core.intersection(self._local_clip)
@@ -1057,7 +1057,7 @@ class _Rebuilder:
                 rings.append(mapped if len(mapped) >= 3 else None)
             if rings[0] is not None:
                 # Arrays take Shapely's fast path; lists of tuples are
-                # converted one coordinate at a time. The values are the same.
+                # converted one coordinate at a time.
                 holes = [np.asarray(ring, dtype=float) for ring in rings[1:] if ring]
                 parts.append(
                     make_valid(Polygon(np.asarray(rings[0], dtype=float), holes))

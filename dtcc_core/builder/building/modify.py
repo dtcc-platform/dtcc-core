@@ -337,7 +337,7 @@ def simplify_building_footprints(
     tolerance : float, optional
         The tolerance for simplification. A higher value results in a more simplified footprint (default is 0.5).
     method : str, optional
-        Ignored; retained for compatibility. Footprints are simplified by the
+        Deprecated and ignored. Footprints are simplified by the
         shared cleaner at ``tolerance`` (default is 'vwp').
     lod : GeometryType, optional
         The level of detail of the geometry to simplify. Typically set to `GeometryType.LOD0` (default).
@@ -396,7 +396,7 @@ def clean_building_footprints(
     clearance : float, default 0.5
         Minimum clearance distance in meters.
     smallest_hole_area : float, default 1.0
-        Ignored; retained for compatibility. Holes follow the fidelity budget
+        Deprecated and ignored. Holes follow the fidelity budget
         of the cleaner: a hole without a protected open core may be filled.
     return_index_map : bool, optional
         When True, also return, for each cleaned building, the indices of the

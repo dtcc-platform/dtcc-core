@@ -25,7 +25,7 @@ from dtcc_core.datasets._city_mesh_common import (
 )
 from benchmarks.benchmark_catalog import CLEANING_PARAMETERS
 
-# Version 2: reports use the note's terms (mfs, admissible, achieved budget).
+# Format version of saved cleaning artifacts; loading rejects any other.
 ARTIFACT_VERSION = 2
 PREPARATION_PARAMETERS = (
     "raster_cell_size",

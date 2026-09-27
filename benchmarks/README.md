@@ -113,8 +113,7 @@ its metadata; do not interpret it as WGS84 GeoJSON. Loading checks its version,
 CRS, bounds, cleaning parameters, polygon geometry and source indices. Mesher
 input validation remains active. Results from before phase separation do not
 contain this handoff and cannot be used for meshing-only runs, and artifacts of
-format version 1 (before the reports used the contract's current terms) are
-rejected; rerun their cleaning phase.
+another format version are rejected; rerun their cleaning phase.
 
 | Phase | Measurements |
 | --- | --- |
@@ -127,7 +126,7 @@ measurements; the original raw geometry and invalid-input count are retained.
 Unrepresented sources and changes in holes/area are observations, not automatic
 failures: declared scale rules intentionally remove some geometry.
 
-New cleaning metrics include independent
+Cleaning metrics include independent
 [contract checks](../dtcc_core/builder/cleaning/contract.py). The columns
 `Admissible`, `mfs m`, `Fidelity`, `Budget m` and `Achieved m` describe the final
 cleaned geometry **before area selection**, in the terms of the
@@ -143,9 +142,8 @@ JSON separates `before_selection_contract`, `selection`, and the selected
 handoff's `geometric_contract`. The usual counts and added/removed areas still
 compare raw inputs with that selected handoff. Selection reports excluded area
 and source maps explicitly; it never changes the cleaning reference. Direct
-cleaner callers use `select_footprints(cleaned, min_area=...)` separately;
-`ConditioningOptions` no longer has a `min_area` parameter. Dataset and benchmark
-`min_building_area` parameters still apply after cleaning.
+cleaner callers apply `select_footprints(cleaned, min_area=...)` themselves.
+Dataset and benchmark `min_building_area` parameters apply after cleaning.
 
 A `borderline` fidelity result is inconclusive, not a pass. By default, residual
 separation defects alone produce a prominent warning and allow meshing to be
