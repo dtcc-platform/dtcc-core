@@ -8,3 +8,6 @@ Both directories are ignored by Git; do not force-add their contents.
 
 Commit lasting project documentation when it is part of the requested change.
 Review staged files before committing to catch accidental working documents.
+
+Comments and docstrings describe what the code does now: no authorship notes,
+change history, or references to earlier versions, reviews or experiments.
