@@ -310,24 +310,31 @@ def add_streamlines(frame, scene, seconds):
     attach(frame, MultiLineString(linestrings=paths), 'streamlines', role='steady_streamlines')
 
 
-def volume_layout(bounds, spacing):
+def volume_layout(bounds, spacing, *, grid_only=False):
     """Fit whole cells to the domain, with spacing no greater than requested.
 
     Reject impossible native payloads before allocating user-sized arrays. This
-    lower bound counts tetrahedral connectivity and vertex coordinates only;
-    the canonical writer still checks the complete model, including its fields.
+    lower bound counts the required volume arrays; the canonical writer still
+    checks the complete model, including buildings and other representations.
     """
     lengths = np.array([bounds.width, bounds.height, bounds.depth])
     with np.errstate(over='ignore', divide='ignore'):
         counts = np.maximum(1., np.ceil(lengths / spacing))
-        geometry_bytes = 6*np.prod(counts)*4*4 + np.prod(counts+1)*3*8
-    if not np.isfinite(geometry_bytes) or geometry_bytes > exchange.MAX_PROTOBUF_BYTES:
-        raise ValueError('Requested volume geometry alone exceeds the Protobuf message limit (<2 GiB); '
+        cells = np.prod(counts)
+        vertices = np.prod(counts+1)
+        # Grid fields: velocity, speed, temperature, pressure, tracer, air mask,
+        # flow zone. Tetrahedra: vertices and their fields, then six cells per
+        # grid box with connectivity, markers, tracer and air mask.
+        volume_bytes = cells*34
+        if not grid_only:
+            volume_bytes += cells*6*(16 + 4 + 4 + 1) + vertices*(24 + 12 + 8 + 1 + 24)
+    if not np.isfinite(volume_bytes) or volume_bytes > exchange.MAX_PROTOBUF_BYTES:
+        raise ValueError('Requested volume arrays alone exceed the Protobuf message limit (<2 GiB); '
                          'increase --volume-spacing DX DY DZ')
     return tuple(int(n) for n in counts), (lengths/counts).tolist()
 
 
-def add_numerics(city, scene, surface_spacing, volume_shape):
+def add_numerics(city, scene, surface_spacing, volume_shape, *, grid_only=False):
     b = scene.bounds
     terrain = feature(city, 'synthetic-terrain', cls=Terrain,
                       description='Interpolated building-base elevations and authored canal bed; synthetic terrain')
@@ -375,11 +382,13 @@ def add_numerics(city, scene, surface_spacing, volume_shape):
         vector_basis=['projected_easting', 'projected_northing', 'up'],
         flow_zone_labels={'0': 'solid or ground', '1': 'open air', '2': 'wake'},
         construction='UrbanScene.sample: analytic shear, local footprint wakes, vortex and advecting Gaussian pulse',
-        tetrahedralization='Six tetrahedra per Cartesian grid box, shared vertices and consistent body diagonal; no boundary fitting',
         limitations=['Not a fluid solver; no conservation or no-slip guarantee',
                      'Footprint prisms approximate roofs; volume cells are not boundary conforming',
                      'NaN fields and air_mask distinguish solid/ground samples from valid zero values'],
         snapshot_ids=[f'synthetic-flow-t{int(t):03d}' for t in TIMES])
+    if not grid_only:
+        simulation.attributes['tetrahedralization'] = (
+            'Six tetrahedra per Cartesian grid box, shared vertices and consistent body diagonal; no boundary fitting')
     grid = Grid(width=nx, height=ny)
     grid.bounds = Bounds(xmin=b.xmin, ymin=b.ymin, zmin=scene.base,
                          xmax=b.xmax, ymax=b.ymax, zmax=scene.base)
@@ -402,33 +411,34 @@ def add_numerics(city, scene, surface_spacing, volume_shape):
     volume.fields = sampled_fields(scene, centres, association='cell')
     attach(simulation, volume, 'air_grid', role='simulation_volume')
 
-    # Same domain as the structured grid; six positively oriented tetrahedra/cube.
-    # Store only t=0 in 3D. Time snapshots use dense slices, avoiding duplicated volumes.
-    X, Y, Z = np.meshgrid(xv, yv, zv, indexing='ij')
-    xyz = np.column_stack([X.ravel(), Y.ravel(), Z.ravel()])
-    I, J, K = np.meshgrid(np.arange(nxv), np.arange(nyv), np.arange(nzv), indexing='ij')
-    a = ((I*(nyv+1)+J)*(nzv+1)+K).ravel()
-    dx, dy = (nyv+1)*(nzv+1), nzv+1
-    corners = a[:, None]+np.array([0, dx, dy, dx+dy, 1, dx+1, dy+1, dx+dy+1])
-    pattern = np.array([[0, 1, 3, 7], [0, 3, 2, 7], [0, 2, 6, 7],
-                        [0, 6, 4, 7], [0, 4, 5, 7], [0, 5, 1, 7]])
-    cells = corners[:, pattern].reshape(-1, 4).astype('int32')
-    values = scene.sample(xyz)
-    tetra = VolumeMesh(vertices=xyz, cells=cells)
-    tetra.fields = [field(name, values[name], 'vertex', FIELD_UNITS[name], 3 if name == 'velocity' else 1)
-                    for name in ('velocity', 'pressure', 'air_mask')]
-    # A six-component symmetric velocity outer product exercises tensor-shaped
-    # data with explicit ordering. It is not labelled as a physical stress tensor.
-    u, v, w = values['velocity'].T
-    tetra.fields.append(field('velocity_dyadic', np.column_stack([u*u, v*v, w*w, u*v, u*w, v*w]),
-                              'vertex', 'm2/s2', 6))
-    simulation.attributes['field_components'] = {'velocity_dyadic': ['xx', 'yy', 'zz', 'xy', 'xz', 'yz'],
-                                                'runoff_direction': ['easting', 'northing']}
-    cell_values = scene.sample(xyz[cells].mean(axis=1))
-    tetra.markers = cell_values['flow_zone'].astype('int32')
-    tetra.fields.extend([field('tracer_concentration', cell_values['tracer_concentration'], 'cell', 'ug/m3'),
-                         field('cell_air_mask', cell_values['air_mask'], 'cell', '1')])
-    attach(simulation, tetra, 'tetrahedra', role='simulation_volume')
+    simulation.attributes['field_components'] = {'runoff_direction': ['easting', 'northing']}
+    if not grid_only:
+        # Same domain as the structured grid; six positively oriented tetrahedra/cube.
+        # Store only t=0 in 3D. Time snapshots use dense slices, avoiding duplicated volumes.
+        X, Y, Z = np.meshgrid(xv, yv, zv, indexing='ij')
+        xyz = np.column_stack([X.ravel(), Y.ravel(), Z.ravel()])
+        I, J, K = np.meshgrid(np.arange(nxv), np.arange(nyv), np.arange(nzv), indexing='ij')
+        a = ((I*(nyv+1)+J)*(nzv+1)+K).ravel()
+        dx, dy = (nyv+1)*(nzv+1), nzv+1
+        corners = a[:, None]+np.array([0, dx, dy, dx+dy, 1, dx+1, dy+1, dx+dy+1])
+        pattern = np.array([[0, 1, 3, 7], [0, 3, 2, 7], [0, 2, 6, 7],
+                            [0, 6, 4, 7], [0, 4, 5, 7], [0, 5, 1, 7]])
+        cells = corners[:, pattern].reshape(-1, 4).astype('int32')
+        values = scene.sample(xyz)
+        tetra = VolumeMesh(vertices=xyz, cells=cells)
+        tetra.fields = [field(name, values[name], 'vertex', FIELD_UNITS[name], 3 if name == 'velocity' else 1)
+                        for name in ('velocity', 'pressure', 'air_mask')]
+        # A six-component symmetric velocity outer product exercises tensor-shaped
+        # data with explicit ordering. It is not labelled as a physical stress tensor.
+        u, v, w = values['velocity'].T
+        tetra.fields.append(field('velocity_dyadic', np.column_stack([u*u, v*v, w*w, u*v, u*w, v*w]),
+                                  'vertex', 'm2/s2', 6))
+        simulation.attributes['field_components']['velocity_dyadic'] = ['xx', 'yy', 'zz', 'xy', 'xz', 'yz']
+        cell_values = scene.sample(xyz[cells].mean(axis=1))
+        tetra.markers = cell_values['flow_zone'].astype('int32')
+        tetra.fields.extend([field('tracer_concentration', cell_values['tracer_concentration'], 'cell', 'ug/m3'),
+                             field('cell_air_mask', cell_values['air_mask'], 'cell', '1')])
+        attach(simulation, tetra, 'tetrahedra', role='simulation_volume')
 
     # Ordinary native Objects carry explicit snapshot metadata. No private wire
     # extensions or implicit tensor/time axes are introduced.
@@ -476,7 +486,7 @@ def add_numerics(city, scene, surface_spacing, volume_shape):
     return simulation
 
 
-def enrich(city, bounds, *, mesh_real=True, detail='standard', volume_spacing=None):
+def enrich(city, bounds, *, mesh_real=True, detail='standard', volume_spacing=None, grid_only=False):
     """Build a coherent world-coordinate scene, retaining source representations."""
     surface_spacing, default_volume_spacing = PROFILES[detail]
     if volume_spacing is None:
@@ -484,12 +494,12 @@ def enrich(city, bounds, *, mesh_real=True, detail='standard', volume_spacing=No
     all_bounds = copy.deepcopy(bounds)
     all_bounds.zmin = min(bounds.zmin, -.6)-1
     all_bounds.zmax = max(bounds.zmax+30, 60.)
-    volume_shape, actual_spacing = volume_layout(all_bounds, volume_spacing)
+    volume_shape, actual_spacing = volume_layout(all_bounds, volume_spacing, grid_only=grid_only)
     axis_ratio = max(actual_spacing)/min(actual_spacing)
     print(f'Volume XYZ cells: {volume_shape}; spacing: '
           f'{tuple(round(s, 3) for s in actual_spacing)} m; cell axis ratio: {axis_ratio:.3f}', flush=True)
     scene = UrbanScene(city, all_bounds)
-    add_numerics(city, scene, surface_spacing, volume_shape)
+    add_numerics(city, scene, surface_spacing, volume_shape, grid_only=grid_only)
     derived = []
     if mesh_real:
         # Dense facade/roof fields cover the reference neighbourhood.
@@ -536,6 +546,7 @@ def enrich(city, bounds, *, mesh_real=True, detail='standard', volume_spacing=No
     city.attributes['flagship_sampling'] = {'detail': detail, 'surface_spacing_max_m': surface_spacing,
         'volume_spacing_max_m': list(volume_spacing), 'volume_spacing_actual_m': actual_spacing,
         'volume_shape_xyz': list(volume_shape), 'volume_cell_axis_ratio': axis_ratio,
+        'grid_only': grid_only,
         'focus_surface_spacing_m': 2., 'boundary_triangle_target_m': 2. if detail == 'standard' else 1., 'times_seconds': list(TIMES),
         'time_encoding': 'Snapshot Objects with time_seconds and timestamp; not a native time-series axis',
         'coordinates': 'World coordinates, identity affines, EPSG:7415; vectors follow projected axes'}
@@ -706,8 +717,10 @@ def main():
                              'stress: 20/20/8 m volume, 1 m boundary meshes; '
                              'both: 8 m district and 2 m focus samples')
     parser.add_argument('--volume-spacing', type=float, nargs=3, metavar=('DX', 'DY', 'DZ'),
-                        help='Override maximum cell spacing in projected X, Y, Z metres for both '
-                             'air_grid and tetrahedra; whole cells fit the unchanged domain')
+                        help='Override maximum cell spacing in projected X, Y, Z metres for air_grid '
+                             'and, unless --grid-only, tetrahedra; whole cells fit the unchanged domain')
+    parser.add_argument('--grid-only', action='store_true',
+                        help='Generate the air_grid without tetrahedra; useful for fine volume spacing')
     args = parser.parse_args()
     if args.volume_spacing is not None and (not np.isfinite(args.volume_spacing).all()
                                            or min(args.volume_spacing) <= 0):
@@ -741,9 +754,11 @@ def main():
                        'Synthetic terrain, water elevations and fields, not observations or solver results',
                        'Reference patch uses the older sample, other buildings use v20250903',
                        'Whole buildings crossing domain edges are omitted',
-                       'Wind obstacles and shadows use footprint prisms; tetrahedra are not boundary conforming']}
+                       'Wind obstacles and shadows use footprint prisms'] +
+                       ([] if args.grid_only else ['Tetrahedra are not boundary conforming'])}
     add_water(city, water, bounds)
-    enrich(city, bounds, detail=args.detail, volume_spacing=args.volume_spacing)
+    enrich(city, bounds, detail=args.detail, volume_spacing=args.volume_spacing,
+           grid_only=args.grid_only)
     print('Fields and reference boundary meshes generated', flush=True)
     generated_seconds = perf_counter()-start
     args.output.mkdir(parents=True, exist_ok=True)

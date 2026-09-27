@@ -159,17 +159,23 @@ python scripts/generate_flagship_model.py
 python scripts/generate_flagship_model.py --detail stress --output data/flagship-stress
 # Explicit maximum X, Y, Z spacing in metres (overrides the selected profile):
 python scripts/generate_flagship_model.py --volume-spacing 20 20 10 --output data/flagship-custom
+# Fine structured grid without the tetrahedral mesh:
+python scripts/generate_flagship_model.py --grid-only --volume-spacing 8 8 1 --output data/flagship-grid-8x8x1
 ```
 
-`--volume-spacing DX DY DZ` controls **both** `air_grid` and `tetrahedra`. Values
+`--volume-spacing DX DY DZ` controls `air_grid` and, by default, `tetrahedra`. Values
 must be finite and positive. Each axis uses `ceil(domain_length / requested_spacing)`
 cells; actual spacing is reduced slightly to fit the unchanged domain exactly.
 The generator prints the dimensions, actual spacing and cell axis ratio, and
 records them in `flagship_sampling` and `inventory.json` (XYZ order). The six
 positively oriented tetrahedra per grid box remain consistent across neighbours.
+With `--grid-only`, the generator omits `tetrahedra` and retains the structured
+`air_grid` with its cell fields, the buildings, terrain and snapshot views. The
+8/8/1 m request yields 250 × 250 × 139 cells, with actual Z spacing about 0.997 m.
+The inspector's `tetra` view is unavailable for this variant.
 For near-cubic cells, choose equal spacings; this grows the file much faster than
 refining Z alone. Native models must fit in a single Protobuf message, strictly
-smaller than 2 GiB. Requests whose connectivity/coordinates alone cannot fit fail
+smaller than 2 GiB. Requests whose required volume arrays alone cannot fit fail
 before volume allocation; other oversized complete models are rejected by the
 canonical writer. This is a serialized-size ceiling, not a memory budget: generation
 and serialization can need substantially more RAM than the final file size.

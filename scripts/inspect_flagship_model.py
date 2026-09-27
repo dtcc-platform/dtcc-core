@@ -129,6 +129,8 @@ def tetra_view(city):
     from matplotlib.collections import PolyCollection
     simulation = next(o for o in objects(city) if o.id == 'synthetic-flow-domain')
     mesh = simulation.get_geometry(id='tetrahedra')
+    if mesh is None:
+        raise ValueError('This flagship dataset has no tetrahedra (--grid-only)')
     plane = (mesh.bounds.ymin+mesh.bounds.ymax)/2 + .173  # Avoid an exactly coincident grid face.
     y = mesh.vertices[mesh.cells, 1]
     selected = np.flatnonzero((y.min(axis=1) < plane) & (y.max(axis=1) > plane))
@@ -267,7 +269,9 @@ def dashboard(city, *, interactive=True, frame_index=0):
         # Matplotlib widgets need a live reference for callbacks.
         figure._flagship_slider = slider
     else:
-        figure.text(.045, .055, 'Open scripts/inspect_flagship_model.py for the time slider and 3D city, fine patch and tetrahedral section views.',
+        has_tetrahedra = next(o for o in objects(city) if o.id == 'synthetic-flow-domain').get_geometry(id='tetrahedra') is not None
+        views = '3D city and fine patch views' + (', and a tetrahedral section view' if has_tetrahedra else '')
+        figure.text(.045, .055, f'Open scripts/inspect_flagship_model.py for the time slider, {views}.',
                     fontsize=10, color='#526577')
     credit(figure)
     return figure

@@ -161,6 +161,40 @@ def test_flagship_volume_rejects_unbounded_resolution():
         Bounds(xmin=0, ymin=0, xmax=2000, ymax=2000, zmin=0, zmax=140), (5., 5., 5.))
     assert shape == (400, 400, 28)
     assert spacing == [5., 5., 5.]
-    with pytest.raises(ValueError, match='geometry alone exceeds'):
+    with pytest.raises(ValueError, match='arrays alone exceed'):
         example.volume_layout(Bounds(xmin=0, ymin=0, xmax=2000, ymax=2000, zmin=0, zmax=140),
                               (1.e-300, 1.e-300, 1.e-300))
+    with pytest.raises(ValueError, match='arrays alone exceed'):
+        example.volume_layout(Bounds(xmin=0, ymin=0, xmax=2000, ymax=2000, zmin=0, zmax=138.576),
+                              (8., 8., 1.))
+    shape, _ = example.volume_layout(
+        Bounds(xmin=0, ymin=0, xmax=2000, ymax=2000, zmin=0, zmax=138.576),
+        (8., 8., 1.), grid_only=True)
+    assert shape == (250, 250, 139)
+
+
+def test_flagship_grid_only_round_trip(tmp_path, monkeypatch):
+    path = Path(__file__).resolve().parents[2] / 'scripts/generate_flagship_model.py'
+    spec = importlib.util.spec_from_file_location('flagship_grid_only', path)
+    example = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(example)
+    monkeypatch.setitem(example.PROFILES, 'standard', (10., (20., 20., 10.)))
+    city = City(id='synthetic-grid-only')
+    city.transform.srs = example.CRS
+    building = Building(id='source-building')
+    example.attach(building, MultiSurface(surfaces=[example.rectangle(1040., 2020., 4., 20., 20.)]),
+                   'footprint', lod='0')
+    example.attach(building, example.box(1040., 2020., 4., 20., 20., 12.), 'solid', lod='1')
+    city.add_child(building)
+    city.attributes['flagship_focus_bounds'] = dict(xmin=1010., ymin=2010., xmax=1090., ymax=2090.)
+    example.enrich(city, Bounds(xmin=1000, ymin=2000, xmax=1100, ymax=2100, zmin=4, zmax=16),
+                   mesh_real=False, volume_spacing=(20., 20., 5.), grid_only=True)
+    target = tmp_path / 'flagship.dtcc'
+    city.save(target)
+    restored = io.load_model(target)
+    simulation = next(o for o in example.objects(restored) if o.id == 'synthetic-flow-domain')
+    grid = simulation.get_geometry(id='air_grid')
+    assert (grid.width, grid.height, grid.depth) == (5, 5, 13)
+    assert simulation.get_geometry(id='tetrahedra') is None
+    assert len(grid.fields) == 7
+    assert restored.attributes['flagship_sampling']['grid_only'] is True
