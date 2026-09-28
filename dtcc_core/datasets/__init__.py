@@ -41,6 +41,7 @@ from .hydrology import HydrologyDataset
 from .ocean import OceanDataset
 from .footprints import FootprintsDataset
 from .roads import RoadsDataset
+from .satellite_imagery import SatelliteImageryDataset
 from .space_syntax import SpaceSyntaxDataset
 from .transit_vehicles import (
     TransitVehiclesDataset,
@@ -94,6 +95,7 @@ weather = get_dataset("weather")
 hydrology = get_dataset("hydrology")
 ocean = get_dataset("ocean")
 roads = get_dataset("roads")
+satellite_imagery = get_dataset("satellite_imagery")
 space_syntax = get_dataset("space_syntax")
 transit_vehicles = get_dataset("transit_vehicles")
 buses = get_dataset("buses")
