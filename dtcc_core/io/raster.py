@@ -95,6 +95,8 @@ def _save_json_raster(raster, path):
 
 def _save_geotif(raster, path):
     data = raster.data
+    # Rasters loaded from files without a CRS carry the string "None".
+    crs = raster.crs if raster.crs and raster.crs != "None" else None
     with rasterio.open(
         path,
         "w",
@@ -104,12 +106,15 @@ def _save_geotif(raster, path):
         count=raster.channels,
         dtype=data.dtype,
         transform=raster.georef,
+        crs=crs,
         compress="DEFLATE",
     ) as dst:
         if raster.channels == 1:
             dst.write(data, 1)
         else:
-            dst.write(data, list(range(1, raster.channels + 1)))
+            # Raster keeps channels last (height, width, channels), while
+            # rasterio writes bands first (channels, height, width).
+            dst.write(np.moveaxis(data, -1, 0), list(range(1, raster.channels + 1)))
     return True
 
 
