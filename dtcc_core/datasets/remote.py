@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from pydantic import BaseModel, ConfigDict, ValidationError as PydanticValidationError
 
 from .dataset import DatasetDescriptor
-from .registry import register
+from .registry import get_dataset, register
 
 logger = logging.getLogger(__name__)
 
@@ -256,10 +256,31 @@ class RemoteDatasetDescriptor(DatasetDescriptor, register=False):
 _cached_service_discoveries: Dict[str, Dict] = {}
 
 
+def _register_remote_descriptor(name: str, descriptor: RemoteDatasetDescriptor) -> bool:
+    """Register a remote descriptor without replacing a non-remote dataset."""
+    try:
+        existing = get_dataset(name)
+    except KeyError:
+        existing = None
+
+    if existing is not None and not isinstance(existing, RemoteDatasetDescriptor):
+        logger.warning(
+            "Skipping remote dataset '%s' from %s: name is already registered "
+            "to a non-remote dataset.",
+            name,
+            descriptor.base_url,
+        )
+        return False
+
+    register(name, descriptor)
+    return True
+
+
 def register_remote_service(base_url: str, timeout: int = 5) -> List[str]:
     """Query a remote service's discovery endpoint and register its datasets.
 
     Returns list of registered dataset names, or empty list on failure.
+    Names already registered to non-remote datasets are skipped.
     Graceful degradation: catches all errors so atlas starts regardless.
     """
     import httpx
@@ -284,12 +305,17 @@ def register_remote_service(base_url: str, timeout: int = 5) -> List[str]:
                 data_category=meta.get("data_category"),
             )
 
+        registered = []
         for name, descriptor in descriptors.items():
-            register(name, descriptor)
+            if _register_remote_descriptor(name, descriptor):
+                registered.append(name)
 
         # Cache accepted discovery data for worker bootstrap.
-        _cached_service_discoveries[base_url] = service_info
-        return list(descriptors)
+        _cached_service_discoveries[base_url] = {
+            **service_info,
+            "datasets": {name: service_info["datasets"][name] for name in registered},
+        }
+        return registered
     except Exception as e:
         logger.warning(f"Failed to discover service at {base_url}: {e}")
         return []
@@ -299,6 +325,7 @@ def register_remote_descriptors_from_cache(cached_discoveries: Dict[str, Dict]):
     """Register remote datasets from pre-fetched discovery data.
 
     Called by worker processes to avoid HTTP calls in child processes.
+    Names already registered to non-remote datasets are skipped.
     """
     for base_url, service_info in cached_discoveries.items():
         for name, meta in service_info["datasets"].items():
@@ -313,7 +340,7 @@ def register_remote_descriptors_from_cache(cached_discoveries: Dict[str, Dict]):
                 timeout_hint=meta.get("timeout_hint"),
                 data_category=meta.get("data_category"),
             )
-            register(name, descriptor)
+            _register_remote_descriptor(name, descriptor)
 
 
 def get_cached_discoveries() -> Dict[str, Dict]:

@@ -228,6 +228,56 @@ class TestRegisterRemoteService:
 
         unregister("mock_sim_dataset")
 
+    @pytest.mark.parametrize("discovery_source", ["live", "cache"])
+    def test_remote_discovery_preserves_local_datasets(
+        self, monkeypatch, caplog, discovery_source
+    ):
+        from dtcc_core.datasets import registry, remote
+
+        monkeypatch.setattr(registry, "_datasets_by_name", dict(registry._datasets_by_name))
+        monkeypatch.setattr(registry, "_datasets_registry", list(registry._datasets_registry))
+        monkeypatch.setattr(remote, "_cached_service_discoveries", {})
+        local_dataset = registry.get_dataset("point_cloud")
+        registry.register("custom_local", local_dataset)
+        service_info = _mock_discovery_response()
+        metadata = service_info["datasets"]["mock_sim_dataset"]
+        for name in ("point_cloud", "custom_local", "existing_remote"):
+            service_info["datasets"][name] = {**metadata, "name": name}
+        previous_remote = RemoteDatasetDescriptor(
+            **service_info["datasets"]["existing_remote"],
+            base_url="http://previous:8001",
+            source_service=service_info["service"],
+        )
+        registry.register("existing_remote", previous_remote)
+        base_url = "http://discovery-test:8001"
+        expected_names = ["mock_sim_dataset", "existing_remote"]
+
+        with patch.object(remote, "register", wraps=registry.register) as register:
+            if discovery_source == "live":
+                mock_resp = MagicMock()
+                mock_resp.json.return_value = service_info
+                with patch("httpx.get", return_value=mock_resp):
+                    assert remote.register_remote_service(base_url) == expected_names
+                cached = remote.get_cached_discoveries()[base_url]
+                assert list(cached["datasets"]) == expected_names
+                assert list(service_info["datasets"]) == [
+                    "mock_sim_dataset", "point_cloud", "custom_local", "existing_remote"
+                ]
+            else:
+                remote.register_remote_descriptors_from_cache({base_url: service_info})
+
+            assert [call.args[0] for call in register.call_args_list] == expected_names
+
+        assert registry.get_dataset("point_cloud") is local_dataset
+        assert registry.get_dataset("custom_local") is local_dataset
+        for name in expected_names:
+            descriptor = registry.get_dataset(name)
+            assert isinstance(descriptor, RemoteDatasetDescriptor)
+            assert descriptor.base_url == base_url
+        assert registry.get_dataset("existing_remote") is not previous_remote
+        assert "Skipping remote dataset 'point_cloud'" in caplog.text
+        assert "Skipping remote dataset 'custom_local'" in caplog.text
+
     @pytest.mark.parametrize("previous_registration", [False, True])
     def test_malformed_discovery_preserves_registry_and_cache(
         self, monkeypatch, previous_registration
