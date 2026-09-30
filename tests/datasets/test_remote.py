@@ -228,6 +228,38 @@ class TestRegisterRemoteService:
 
         unregister("mock_sim_dataset")
 
+    @pytest.mark.parametrize("previous_registration", [False, True])
+    def test_malformed_discovery_preserves_registry_and_cache(
+        self, monkeypatch, previous_registration
+    ):
+        from dtcc_core.datasets import registry, remote
+
+        monkeypatch.setattr(registry, "_datasets_by_name", dict(registry._datasets_by_name))
+        monkeypatch.setattr(registry, "_datasets_registry", list(registry._datasets_registry))
+        monkeypatch.setattr(
+            remote, "_cached_service_discoveries", dict(remote._cached_service_discoveries)
+        )
+        base_url = "http://discovery-test:8001"
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = _mock_discovery_response()
+
+        with patch("httpx.get", return_value=mock_resp):
+            if previous_registration:
+                assert remote.register_remote_service(base_url) == ["mock_sim_dataset"]
+
+            datasets_before = registry.list_datasets()
+            instances_before = list(registry._datasets_registry)
+            cache_before = remote.get_cached_discoveries()
+            malformed = _mock_discovery_response()
+            malformed["datasets"]["broken_dataset"] = {"name": "broken_dataset"}
+            mock_resp.json.return_value = malformed
+
+            for _ in range(3):
+                assert remote.register_remote_service(base_url) == []
+                assert registry.list_datasets() == datasets_before
+                assert registry._datasets_registry == instances_before
+                assert remote.get_cached_discoveries() == cache_before
+
     def test_unreachable_returns_empty(self):
         from dtcc_core.datasets.remote import register_remote_service
         import httpx

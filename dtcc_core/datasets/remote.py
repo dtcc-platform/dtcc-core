@@ -270,12 +270,9 @@ def register_remote_service(base_url: str, timeout: int = 5) -> List[str]:
         resp.raise_for_status()
         service_info = resp.json()
 
-        # Cache for worker bootstrap (no HTTP in child processes)
-        _cached_service_discoveries[base_url] = service_info
-
-        registered = []
+        descriptors = {}
         for name, meta in service_info["datasets"].items():
-            descriptor = RemoteDatasetDescriptor(
+            descriptors[name] = RemoteDatasetDescriptor(
                 name=meta["name"],
                 description=meta["description"],
                 args_schema=meta["args_schema"],
@@ -286,9 +283,13 @@ def register_remote_service(base_url: str, timeout: int = 5) -> List[str]:
                 timeout_hint=meta.get("timeout_hint"),
                 data_category=meta.get("data_category"),
             )
+
+        for name, descriptor in descriptors.items():
             register(name, descriptor)
-            registered.append(name)
-        return registered
+
+        # Cache accepted discovery data for worker bootstrap.
+        _cached_service_discoveries[base_url] = service_info
+        return list(descriptors)
     except Exception as e:
         logger.warning(f"Failed to discover service at {base_url}: {e}")
         return []
