@@ -3,6 +3,7 @@
 import asyncio
 import os
 import json
+import tempfile
 import time
 import aiohttp
 import requests
@@ -145,7 +146,6 @@ async def download_gpkg_file(session, base_url, filename, output_dir):
     url = f"{base_url}/get/gpkg/{filename}"
     os.makedirs(output_dir, exist_ok=True)
     out_path = os.path.join(output_dir, filename)
-    tmp_path = f"{out_path}.part"
 
     # 1) Check local cache
     if os.path.exists(out_path):
@@ -154,6 +154,7 @@ async def download_gpkg_file(session, base_url, filename, output_dir):
 
     # 2) If not cached, download
     info(f"Downloading {filename} from {url}")
+    tmp_path = None
     try:
         async with session.get(url) as resp:
             if resp.status != 200:
@@ -161,18 +162,23 @@ async def download_gpkg_file(session, base_url, filename, output_dir):
                     f"Failed to download {filename}, status code={resp.status}"
                 )
             content = await resp.read()
-            with open(tmp_path, "wb") as f:
+            fd, tmp_path = tempfile.mkstemp(
+                dir=output_dir, prefix=f"{filename}.", suffix=".part"
+            )
+            with os.fdopen(fd, "wb") as f:
                 f.write(content)
             os.replace(tmp_path, out_path)
             info(f"Saved {filename} to {out_path}")
     except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as exc:
-        try:
-            os.remove(tmp_path)
-        except OSError:
-            pass
         raise FootprintDownloadError(
             f"Failed to download footprint tile {filename}: {type(exc).__name__}: {exc}"
         ) from exc
+    finally:
+        if tmp_path is not None:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
 
 async def download_all_gpkg_files(base_url, filenames, output_dir="downloaded_gpkg"):
     """

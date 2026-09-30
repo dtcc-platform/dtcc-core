@@ -2,6 +2,7 @@
 # Licensed under the MIT License
 
 import os
+import tempfile
 import time
 import requests
 import folium
@@ -247,7 +248,6 @@ async def download_laz_file(session, base_url, filename, output_dir, semaphore):
         debug(f"File {filename} already in cache, skipping download.")
         return  # skip
 
-    tmp_path = f"{out_path}.part"
     timeout = aiohttp.ClientTimeout(
         total=_DOWNLOAD_TOTAL_TIMEOUT_SECONDS,
         connect=_DOWNLOAD_CONNECT_TIMEOUT_SECONDS,
@@ -256,6 +256,7 @@ async def download_laz_file(session, base_url, filename, output_dir, semaphore):
 
     async with semaphore:
         for attempt in range(1, _DOWNLOAD_MAX_ATTEMPTS + 1):
+            tmp_path = None
             try:
                 info(
                     f"Downloading {filename} from {url} "
@@ -266,7 +267,10 @@ async def download_laz_file(session, base_url, filename, output_dir, semaphore):
                         retry_after = resp.headers.get("Retry-After")
                         raise LidarDownloadError(filename, resp.status, retry_after)
 
-                    with open(tmp_path, "wb") as f:
+                    fd, tmp_path = tempfile.mkstemp(
+                        dir=output_dir, prefix=f"{filename}.", suffix=".part"
+                    )
+                    with os.fdopen(fd, "wb") as f:
                         async for chunk in resp.content.iter_chunked(1024 * 1024):
                             f.write(chunk)
 
@@ -274,11 +278,6 @@ async def download_laz_file(session, base_url, filename, output_dir, semaphore):
                 info(f"Saved {filename} to {out_path}")
                 return
             except (aiohttp.ClientError, asyncio.TimeoutError, OSError, RuntimeError) as exc:
-                try:
-                    os.remove(tmp_path)
-                except OSError:
-                    pass
-
                 if attempt >= _DOWNLOAD_MAX_ATTEMPTS:
                     raise
 
@@ -298,7 +297,14 @@ async def download_laz_file(session, base_url, filename, output_dir, semaphore):
                     f"failed for {filename}: {type(exc).__name__}: {exc}. "
                     f"Retrying in {backoff:.1f}s."
                 )
-                await asyncio.sleep(backoff)
+            finally:
+                if tmp_path is not None:
+                    try:
+                        os.remove(tmp_path)
+                    except OSError:
+                        pass
+
+            await asyncio.sleep(backoff)
 
 async def download_all_lidar_files(base_url, filenames, output_dir="downloaded_laz"):
     """
