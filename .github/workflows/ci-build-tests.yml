@@ -140,8 +140,13 @@ jobs:
             contract-artifacts/
           if-no-files-found: error
 
+  sim-compatibility:
+    uses: dtcc-platform/dtcc-sim/.github/workflows/dtcc-core-contract.yml@develop
+    with:
+      core_sha: ${{ github.sha }}
+
   dispatch-dtcc-sim:
-    needs: [build-and-test, python-compatibility, contract-artifacts]
+    needs: [build-and-test, python-compatibility, contract-artifacts, sim-compatibility]
     if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
     steps:
@@ -172,12 +177,12 @@ jobs:
             --field "client_payload[core_run_id]=${GITHUB_RUN_ID}"
 
   notify:
-    needs: [build-and-test, python-compatibility, contract-artifacts, dispatch-dtcc-sim, dispatch-dtcc-upload]
+    needs: [build-and-test, python-compatibility, contract-artifacts, sim-compatibility, dispatch-dtcc-sim, dispatch-dtcc-upload]
     runs-on: ubuntu-latest
     if: always()  # always run even if build fails
     steps:
       - name: Slack notification on success
-        if: ${{ needs.build-and-test.result == 'success' && needs.python-compatibility.result == 'success' && needs.contract-artifacts.result == 'success' && (needs.dispatch-dtcc-sim.result == 'success' || needs.dispatch-dtcc-sim.result == 'skipped') && (needs.dispatch-dtcc-upload.result == 'success' || needs.dispatch-dtcc-upload.result == 'skipped') }}
+        if: ${{ needs.build-and-test.result == 'success' && needs.python-compatibility.result == 'success' && needs.contract-artifacts.result == 'success' && needs.sim-compatibility.result == 'success' && (needs.dispatch-dtcc-sim.result == 'success' || needs.dispatch-dtcc-sim.result == 'skipped') && (needs.dispatch-dtcc-upload.result == 'success' || needs.dispatch-dtcc-upload.result == 'skipped') }}
         env:
           COMMIT_AUTHOR: ${{ github.event.head_commit.author.name }}
           COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
@@ -200,7 +205,7 @@ jobs:
               "$SLACK_WEBHOOK_URL"
 
       - name: Slack notification on failure
-        if: ${{ needs.build-and-test.result == 'failure' || needs.python-compatibility.result == 'failure' || needs.contract-artifacts.result == 'failure' || needs.dispatch-dtcc-sim.result == 'failure' || needs.dispatch-dtcc-upload.result == 'failure' }}
+        if: ${{ needs.build-and-test.result == 'failure' || needs.python-compatibility.result == 'failure' || needs.contract-artifacts.result == 'failure' || needs.sim-compatibility.result == 'failure' || needs.dispatch-dtcc-sim.result == 'failure' || needs.dispatch-dtcc-upload.result == 'failure' }}
         env:
           COMMIT_AUTHOR: ${{ github.event.head_commit.author.name }}
           COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
