@@ -152,6 +152,7 @@ Current Built-In Datasets
 | `city_volume_mesh` | derived | `VolumeMesh` | `xdmf`, `vtu` | TetGen-backed tetrahedral computational-domain mesh; `xdmf` is a multi-file format. |
 | `trees` | derived | `TreeCollection` | `tif`, `gpkg`, `geojson` | Tree points or canopy-height raster derived from point-cloud vegetation returns. |
 | `roads` | raw | `RoadNetwork` | `pb` | OpenStreetMap/Overpass road network in EPSG:3006 with highway-tag semantics, cache/live source caveats, and ODbL review status. |
+| `satellite_imagery` | raw | `Raster` | `tif`, `png` | Digital Earth Sweden (RISE) Sentinel-2 RGBA imagery in EPSG:3006 at 10 m, defaulting to the newest clear acquisition, with style and cloud-cover options.
 | `space_syntax` | derived | `RoadNetwork` | `pb` | RoadNetwork enriched with dual-segment graph measures: connectivity, reach, mean depth, integration, choice, radius/cost metadata, and component labels. |
 | `transit_vehicles` | raw | `VehicleCollection` | `pb` | Live Trafiklab/Västtrafik vehicle snapshot with provider metadata, credential guidance, mode filtering, timestamps, speed/bearing fields, and partial-result health. |
 | `buses` | raw | `VehicleCollection` | `pb` | Mode-preset shortcut for `transit_vehicles(..., modes=("bus",))`. |

@@ -87,3 +87,21 @@ def test_load_multiple(data_dir, test_raster_paths):
     # Compare with reference raster
     reference_raster = io.load_raster(data_dir / "testraster.tif")
     assert np.all(combined_raster.data == reference_raster.data)
+
+
+def test_write_multichannel_geotiff_round_trips(tmp_path):
+    from affine import Affine
+    from dtcc_core.model import Raster
+
+    raster = Raster()
+    raster.data = np.arange(3 * 2 * 4, dtype=np.uint8).reshape(3, 2, 4)
+    raster.georef = Affine(10.0, 0.0, 100.0, 0.0, -10.0, 200.0)
+    raster.crs = "EPSG:3006"
+
+    outfile = tmp_path / "rgba.tif"
+    raster.save(outfile)
+    loaded = io.load_raster(outfile)
+
+    assert loaded.data.shape == (3, 2, 4)
+    assert np.array_equal(loaded.data, raster.data)
+    assert loaded.crs == "EPSG:3006"

@@ -155,3 +155,20 @@ def test_public_download_helpers_forward_bounds_crs_and_provider(
     download.assert_called_once_with(data_type, expected_provider, bounds, epsg="3021")
     with pytest.raises(RuntimeError, match="valid provider"):
         getattr(wrapper, name)(bounds, provider="unsupported")
+
+
+def test_download_imagery_loads_des_raster_and_forwards_options():
+    bounds = Bounds(xmin=0, ymin=0, xmax=10, ymax=10)
+
+    with patch.object(
+        wrapper, "_download_imagery", return_value="imagery.tif"
+    ) as download_imagery, patch.object(
+        wrapper.io, "load_raster", return_value="raster"
+    ) as load_raster:
+        result = wrapper.download_imagery(bounds, date="2025-06-01", style="ndvi")
+
+    assert result == "raster"
+    download_imagery.assert_called_once_with(
+        bounds.tuple, date="2025-06-01", style="ndvi"
+    )
+    load_raster.assert_called_once_with("imagery.tif")
