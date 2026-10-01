@@ -11,3 +11,6 @@ Review staged files before committing to catch accidental working documents.
 
 Comments and docstrings describe what the code does now: no authorship notes,
 change history, or references to earlier versions, reviews or experiments.
+
+Keep README.md a concise project introduction with documentation links, never
+a changelog, work log or design document.
