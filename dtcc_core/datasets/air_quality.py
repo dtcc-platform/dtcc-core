@@ -530,6 +530,10 @@ class AirQualityDataset(DatasetDescriptor):
     - Field with the latest measured value
     - Metadata attributes (station ID, name, timestamp, etc.)
 
+    Each station records ``elevation_source="upstream"`` when the provider
+    supplies a third coordinate, or ``"missing"`` for a 2D location. For a
+    missing elevation, Point.z is a zero placeholder, not a measured elevation.
+
     The dataset queries stations within the specified geographic bounds and
     retrieves the most recent measurement for the selected phenomenon (pollutant).
 
@@ -986,6 +990,9 @@ class AirQualityDataset(DatasetDescriptor):
                     station.attributes = {
                         "station_id": station_id,
                         "station_name": station_props.get("label", ""),
+                        "elevation_source": (
+                            "upstream" if len(coordinates) > 2 else "missing"
+                        ),
                         "operator": station_props.get("operator", ""),
                         "phenomenon": args.phenomenon,
                         "phenomenon_id": phenomenon_id,

@@ -195,6 +195,7 @@ def test_air_quality_station_attributes_and_string_summary():
 
     assert station.attributes["station_id"] == "station1"
     assert station.attributes["station_name"] == "Test Station 1"
+    assert station.attributes["elevation_source"] == "upstream"
     assert station.attributes["operator"] == "SMHI"
     assert station.attributes["phenomenon"] == "NO2"
     assert station.attributes["phenomenon_id"] == "8"
@@ -218,6 +219,23 @@ def test_air_quality_station_attributes_and_string_summary():
     text = str(result)
     assert "SensorCollection" in text
     assert "station" in text.lower()
+
+
+def test_air_quality_distinguishes_missing_elevation_from_supplied_zero():
+    from dtcc_core.model import exchange
+
+    stations = copy.deepcopy(MOCK_STATIONS_LIST)
+    stations[0]["geometry"]["coordinates"] = stations[0]["geometry"]["coordinates"][:2]
+    result = _build_dataset(payloads={f"{BASE_URL}/stations": stations})
+    restored = exchange.loads(exchange.dumps(result))
+    assert [station.attributes["elevation_source"] for station in restored.stations()] == [
+        "missing",
+        "upstream",
+    ]
+    assert [station.get_geometry("location").z for station in restored.stations()] == [
+        0.0,
+        0.0,
+    ]
 
 
 def test_air_quality_dataset_reprojects_and_filters_in_output_crs():
