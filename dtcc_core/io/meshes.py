@@ -31,9 +31,6 @@ try:
 
     HAS_ASSIMP = True
 except:
-    warning(
-        "Unable to find assimp, reading and writing .dae and .fbx files will not work\nTo install assimp please see the instructions at https://www.assimp.org"
-    )
     HAS_ASSIMP = False
 
 
@@ -617,7 +614,9 @@ def _save_gltf_mesh(mesh, path):
 def _load_assimp_mesh(path):
     if not HAS_ASSIMP:
         error(
-            f"pyassimp not found, cannot load mesh {path}\nplease install assimp and try again"
+            f"Unable to load mesh {path}: .dae and .fbx import requires pyassimp "
+            "and the native Assimp library. See https://www.assimp.org "
+            "for installation instructions."
         )
     with pyassimp.load(str(path)) as scene:
         _meshes = scene.meshes
@@ -643,6 +642,8 @@ _load_formats = {
         ".vtk": _load_meshio_mesh,
         ".vtu": _load_meshio_mesh,
         ".xdmf": _load_meshio_mesh,
+        ".dae": _load_assimp_mesh,
+        ".fbx": _load_assimp_mesh,
     },
     VolumeMesh: {
         ".dtcc": partial(load_model, expected_type=VolumeMesh),
@@ -691,12 +692,6 @@ _save_formats = {
 }
 
 if HAS_ASSIMP:
-    _load_formats[Mesh].update(
-        {
-            ".dae": _load_assimp_mesh,
-            ".fbx": _load_assimp_mesh,
-        }
-    )
     _save_formats[Mesh].update(
         {
             ".dae": _save_assimp_mesh,

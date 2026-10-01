@@ -1,6 +1,8 @@
 import pytest
 import json
 import os
+import subprocess
+import sys
 import tempfile
 import pathlib
 import numpy as np
@@ -78,6 +80,33 @@ def test_load_mesh_fbx(mesh_paths):
     mesh = io.load_mesh(mesh_paths["fbx"])
     assert len(mesh.vertices) == 24
     assert len(mesh.faces) == 44
+
+
+def test_import_mesh_io_without_assimp_is_quiet():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys\n"
+            "sys.modules['pyassimp'] = None\n"
+            "from dtcc_core import io\n"
+            "assert not io.meshes.has_assimp()\n",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "assimp" not in (result.stdout + result.stderr).lower()
+
+
+@pytest.mark.parametrize("extension", [".fbx", ".dae"])
+def test_load_assimp_mesh_reports_missing_dependency(monkeypatch, tmp_path, extension):
+    monkeypatch.setattr(io.meshes, "HAS_ASSIMP", False)
+    with pytest.raises(
+        RuntimeError, match="requires pyassimp and the native Assimp library"
+    ):
+        io.load_mesh(tmp_path / f"mesh{extension}")
 
 
 # Save and load tests for different formats
