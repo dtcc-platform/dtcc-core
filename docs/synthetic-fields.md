@@ -74,15 +74,15 @@ model/schema change and keeping each file directly loadable as a mesh or grid.
 `-nt` counts snapshots, including `t=0` and `t=T`; `-T` (also `--duration`)
 sets both the sampled duration and the field's period in seconds. Every phase
 uses integer harmonics, so the last frame matches the first for a smooth loop.
-For example, the defaults produce 21 evenly spaced times from 0 to 10 seconds,
-with **42 `.dtcc` files** and 42 matching VTU files:
+For example, the defaults produce 101 evenly spaced times from 0 to 10 seconds,
+with **202 `.dtcc` files** and 202 matching VTU files:
 
 ```text
 fields_tet_0000.dtcc   fields_grid_0000.dtcc
 fields_tet_0000.vtu    fields_grid_0000.vtu
 ...
-fields_tet_0020.dtcc   fields_grid_0020.dtcc
-fields_tet_0020.vtu    fields_grid_0020.vtu
+fields_tet_0100.dtcc   fields_grid_0100.dtcc
+fields_tet_0100.vtu    fields_grid_0100.vtu
 fields_tet.pvd        fields_grid.pvd
 fields-series.json
 ```
@@ -90,7 +90,7 @@ fields-series.json
 At the default spatial resolution, each time contains **615,717 vertices**,
 **589,824 grid cells**, and **3,538,944 tetrahedra**. The native tetrahedral
 arrays alone occupy approximately **77.5 MiB per snapshot**, plus **9.4 MiB**
-for the native grid fields. The 21-time native series totals roughly **1.8 GiB**;
+for the native grid fields. The 101-time native series totals roughly **8.6 GiB**;
 VTU references require additional storage. Use `-nt 1` to inspect one full
 resolution snapshot before generating the whole series.
 

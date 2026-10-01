@@ -24,7 +24,7 @@ from dtcc_core.model import City, Field, VolumeGrid, VolumeMesh, exchange
 DEFAULT_NX = 128
 DEFAULT_NY = 128
 DEFAULT_NZ = 36
-DEFAULT_NT = 21
+DEFAULT_NT = 101
 DEFAULT_DURATION = 10.0
 DEFAULT_OUTPUT = Path(__file__).resolve().parents[1] / "data" / "fields"
 DEFAULT_FLAGSHIP = Path(__file__).resolve().parents[1] / "data" / "flagship" / "flagship.dtcc"
