@@ -114,8 +114,9 @@ def test_space_syntax_rejects_mismatched_radius_unit():
 def test_space_syntax_dataset_returns_roadnetwork(monkeypatch):
     expected_roads = _road_network()
 
-    def fake_roads(bounds, source="OSM"):
+    def fake_roads(bounds, source="OSM", network="all"):
         assert source == "OSM"
+        assert network == "all"
         return expected_roads
 
     monkeypatch.setattr(datasets, "roads", fake_roads)
@@ -129,6 +130,20 @@ def test_space_syntax_dataset_returns_roadnetwork(monkeypatch):
     assert result is not expected_roads
     assert result.attributes["space_syntax_connectivity"] == [1.0, 1.0]
     assert "space_syntax_integration" in result.attributes
+
+
+def test_space_syntax_dataset_passes_network_to_roads(monkeypatch):
+    networks = []
+
+    def fake_roads(bounds, source="OSM", network="all"):
+        networks.append(network)
+        return _road_network()
+
+    monkeypatch.setattr(datasets, "roads", fake_roads)
+
+    datasets.space_syntax(bounds=(0.0, 0.0, 2.0, 1.0), network="walk")
+
+    assert networks == ["walk"]
 
 
 def test_space_syntax_three_segment_path_expected_measures():
@@ -190,7 +205,9 @@ def test_space_syntax_excluding_disconnected_keeps_largest_component():
 
 
 def test_space_syntax_dataset_protobuf_format(monkeypatch):
-    monkeypatch.setattr(datasets, "roads", lambda bounds, source="OSM": _road_network())
+    monkeypatch.setattr(
+        datasets, "roads", lambda bounds, source="OSM", network="all": _road_network()
+    )
 
     payload = datasets.space_syntax(bounds=(0.0, 0.0, 2.0, 1.0), format="pb")
     restored = RoadNetwork()
