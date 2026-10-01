@@ -6,7 +6,6 @@ import re
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-import pyproj
 import geopandas as gpd
 from shapely.geometry import box, Polygon, LineString
 from shapely.ops import polygonize, unary_union
@@ -189,6 +188,17 @@ def is_superset_bbox(bbox_sup, bbox_sub):
         ymaxS >= ymaxT
     )
 
+def _bbox_3006_to_wgs84(bbox_3006):
+    """Return (min_lon, min_lat, max_lon, max_lat) covering an EPSG:3006 bbox.
+
+    Uses all four corners; transforming only two diagonal corners clips the
+    requested area.
+    """
+    from dtcc_core.datasets.geospatial import bounds_to_wgs84
+
+    return bounds_to_wgs84(bbox_3006, "EPSG:3006")
+
+
 def filter_gdf_to_bbox(gdf, bbox_3006):
     """
     Filter a GeoDataFrame (already in EPSG:3006) to the specified bounding box by intersection.
@@ -341,10 +351,7 @@ def download_overpass_buildings(bbox_3006):
     2) Query Overpass for building footprints in that bounding box.
     3) Return a GeoDataFrame in EPSG:3006.
     """
-    transformer = pyproj.Transformer.from_crs("EPSG:3006", "EPSG:4326", always_xy=True)
-    xmin, ymin, xmax, maxy = bbox_3006
-    min_lon, min_lat = transformer.transform(xmin, ymin)
-    max_lon, max_lat = transformer.transform(xmax, maxy)
+    min_lon, min_lat, max_lon, max_lat = _bbox_3006_to_wgs84(bbox_3006)
 
     query = f"""
     [out:json][timeout:{OVERPASS_SERVER_TIMEOUT_SECONDS}];
@@ -409,10 +416,7 @@ def download_overpass_roads(bbox_3006):
     2) Query Overpass for roads (highways) in that bounding box.
     3) Return a GeoDataFrame in EPSG:3006.
     """
-    transformer = pyproj.Transformer.from_crs("EPSG:3006", "EPSG:4326", always_xy=True)
-    xmin, ymin, xmax, maxy = bbox_3006
-    min_lon, min_lat = transformer.transform(xmin, ymin)
-    max_lon, max_lat = transformer.transform(xmax, maxy)
+    min_lon, min_lat, max_lon, max_lat = _bbox_3006_to_wgs84(bbox_3006)
 
     node_highways = "|".join(ROAD_NODE_HIGHWAYS)
     query = f"""

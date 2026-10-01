@@ -1,3 +1,8 @@
+import re
+
+import pyproj
+import pytest
+
 from dtcc_core.io.data import overpass
 
 BBOX = (319900.0, 6398900.0, 320100.0, 6399100.0)
@@ -154,3 +159,28 @@ def test_building_cache_ignores_legacy_records(monkeypatch, tmp_path):
 
     assert seen_records == []
     assert saved_records[-1]["version"] == overpass.BUILDING_CACHE_VERSION
+
+
+@pytest.mark.parametrize(
+    "download", ["download_overpass_buildings", "download_overpass_roads"]
+)
+def test_overpass_query_box_covers_all_bbox_corners(monkeypatch, download):
+    queries = []
+
+    def fake_query(query):
+        queries.append(query)
+        return {"elements": []}
+
+    monkeypatch.setattr(overpass, "query_overpass_with_failover", fake_query)
+    bbox = (319720.0, 6397660.0, 320220.0, 6398160.0)
+
+    getattr(overpass, download)(bbox)
+
+    match = re.search(r"\(([-\d.]+),([-\d.]+),([-\d.]+),([-\d.]+)\)", queries[0])
+    south, west, north, east = map(float, match.groups())
+    to_wgs84 = pyproj.Transformer.from_crs("EPSG:3006", "EPSG:4326", always_xy=True)
+    for x in (bbox[0], bbox[2]):
+        for y in (bbox[1], bbox[3]):
+            lon, lat = to_wgs84.transform(x, y)
+            assert west <= lon <= east
+            assert south <= lat <= north
