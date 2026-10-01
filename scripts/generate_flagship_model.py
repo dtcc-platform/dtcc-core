@@ -493,7 +493,8 @@ def enrich(city, bounds, *, mesh_real=True, detail='standard', volume_spacing=No
         volume_spacing = default_volume_spacing
     all_bounds = copy.deepcopy(bounds)
     all_bounds.zmin = min(bounds.zmin, -.6)-1
-    all_bounds.zmax = max(bounds.zmax+30, 60.)
+    # Double the padded volume height upward while retaining the same bottom.
+    all_bounds.zmax = all_bounds.zmin + 2*(max(bounds.zmax+30, 60.) - all_bounds.zmin)
     volume_shape, actual_spacing = volume_layout(all_bounds, volume_spacing, grid_only=grid_only)
     axis_ratio = max(actual_spacing)/min(actual_spacing)
     print(f'Volume XYZ cells: {volume_shape}; spacing: '

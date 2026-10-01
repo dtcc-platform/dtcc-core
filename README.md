@@ -47,6 +47,7 @@ requires a graphical environment.
 
 - [Demo catalog](docs/datasets/demo-catalog.md): datasets and city-building workflows.
 - [Model inspection](docs/model-display.md) and [plotting](docs/model-preview.md).
+- [Synthetic volume fields](docs/synthetic-fields.md): mesh/grid snapshots and ParaView animation references.
 - [Reprojection](docs/reprojection.md): changing coordinates while preserving fields.
 - [Data schemas](dtcc_core/schemas/): model definitions and exchange formats.
 - [Architecture and design](DESIGN.md).

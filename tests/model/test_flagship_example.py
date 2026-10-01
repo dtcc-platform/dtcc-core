@@ -45,18 +45,21 @@ def test_flagship_numerics_and_reference_integrity(tmp_path, capsys, monkeypatch
     assert not any('pavilion' in id or 'bench' in id for id in features)
     tetra = features['synthetic-flow-domain'].get_geometry(id='tetrahedra')
     grid = features['synthetic-flow-domain'].get_geometry(id='air_grid')
-    assert (grid.width, grid.height, grid.depth) == (4, 5, 7)
+    assert (grid.width, grid.height, grid.depth) == (4, 5, 13)
+    assert grid.bounds.zmin == pytest.approx(-1.6)
+    assert grid.bounds.zmax == pytest.approx(121.6)
+    assert grid.bounds.depth == pytest.approx(2*61.6)
     assert len(tetra.cells) == 6*grid.num_cells
     assert tetra.bounds.tuple == grid.bounds.tuple
-    # Both representations share the same seven vertical intervals, even when
+    # Both representations share the same thirteen vertical intervals, even when
     # requested spacing does not exactly divide the unchanged domain.
     np.testing.assert_array_equal(np.unique(tetra.vertices[:, 2]),
-                                  np.linspace(grid.bounds.zmin, grid.bounds.zmax, 8))
+                                  np.linspace(grid.bounds.zmin, grid.bounds.zmax, 14))
     sampling = restored.attributes['flagship_sampling']
     assert sampling['volume_spacing_max_m'] == [26., 21., 10.]
-    assert sampling['volume_shape_xyz'] == [4, 5, 7]
-    np.testing.assert_allclose(sampling['volume_spacing_actual_m'], [25., 20., 8.8])
-    assert sampling['volume_cell_axis_ratio'] == pytest.approx(25/8.8)
+    assert sampling['volume_shape_xyz'] == [4, 5, 13]
+    np.testing.assert_allclose(sampling['volume_spacing_actual_m'], [25., 20., 123.2/13])
+    assert sampling['volume_cell_axis_ratio'] == pytest.approx(25/(123.2/13))
     v = tetra.vertices[tetra.cells]
     volumes = np.linalg.det(v[:, 1:]-v[:, :1])/6
     assert np.all(volumes > 0)
@@ -194,7 +197,7 @@ def test_flagship_grid_only_round_trip(tmp_path, monkeypatch):
     restored = io.load_model(target)
     simulation = next(o for o in example.objects(restored) if o.id == 'synthetic-flow-domain')
     grid = simulation.get_geometry(id='air_grid')
-    assert (grid.width, grid.height, grid.depth) == (5, 5, 13)
+    assert (grid.width, grid.height, grid.depth) == (5, 5, 25)
     assert simulation.get_geometry(id='tetrahedra') is None
     assert len(grid.fields) == 7
     assert restored.attributes['flagship_sampling']['grid_only'] is True
