@@ -57,3 +57,10 @@ class RasterTileCollection(Model):
             "Exporting a RasterTileCollection is not supported: its tiles are "
             "local cache files. Use each tile's path directly."
         )
+
+    def publish(self, *args, **kwargs):
+        """Refuse publishing, before any upload configuration is read."""
+        raise NotImplementedError(
+            "Publishing a RasterTileCollection is not supported: its tiles are "
+            "local cache files."
+        )

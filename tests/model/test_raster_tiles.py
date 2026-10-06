@@ -119,15 +119,27 @@ def test_export_is_refused_before_writing_anything(collection, tmp_path, kwargs)
     assert not target.exists()
 
 
-def test_publish_is_refused_before_uploading(collection):
-    collection.dataset_context = make_context()
+@pytest.mark.parametrize("with_context", [True, False])
+@pytest.mark.parametrize("with_uploader", [True, False])
+def test_publish_is_refused_before_configuration_or_upload(
+    collection, monkeypatch, with_context, with_uploader
+):
+    from dtcc_core.datasets.publish import DatasetUploadClient
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("upload configuration must not be read")
+
+    monkeypatch.setattr(DatasetUploadClient, "from_config", forbidden)
 
     class Uploader:
         def upload(self, *args, **kwargs):
             raise AssertionError("nothing may be uploaded")
 
+    if with_context:
+        collection.dataset_context = make_context()
+    kwargs = {"uploader": Uploader()} if with_uploader else {}
     with pytest.raises(NotImplementedError, match="RasterTileCollection"):
-        collection.publish(dataset_key="orthophoto", uploader=Uploader())
+        collection.publish(dataset_key="orthophoto", **kwargs)
 
 
 @pytest.mark.parametrize("method", ["to_proto", "to_json"])
