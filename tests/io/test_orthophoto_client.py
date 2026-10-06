@@ -1,14 +1,23 @@
+import hashlib
 import json
 import math
+import os
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
+import numpy as np
 import pytest
+import rasterio
 import requests
+from affine import Affine
+from rasterio.transform import from_bounds
+from requests.structures import CaseInsensitiveDict
 
 from dtcc_core.io.data import orthophoto
 from dtcc_core.io.data.orthophoto import (
     OrthophotoClientError,
     OrthophotoItem,
+    download_tile,
     fetch_manifest,
     file_url,
     resolve_server_url,
@@ -20,11 +29,14 @@ TIMEOUT = (10.0, 150.0)
 
 
 class FakeResponse:
-    def __init__(self, status_code=200, body=b"", headers=None, exc=None):
+    def __init__(
+        self, status_code=200, body=b"", headers=None, exc=None, during=None
+    ):
         self.status_code = status_code
         self.body = body if isinstance(body, bytes) else body.encode()
-        self.headers = {} if headers is None else headers
+        self.headers = CaseInsensitiveDict(headers or {})
         self.exc = exc
+        self.during = during
         self.bytes_read = 0
         self.closed = False
 
@@ -33,6 +45,9 @@ class FakeResponse:
             chunk = self.body[start : start + chunk_size]
             self.bytes_read += len(chunk)
             yield chunk
+            if self.during is not None:
+                during, self.during = self.during, None
+                during()
         if self.exc is not None:
             raise self.exc
 
@@ -539,3 +554,410 @@ def test_client_error_truncates_message_and_detail():
     )
     assert error.message == str(error) == "m" * 1024
     assert error.detail == "d" * 1024
+
+
+# Original-file cache
+
+CELL = (672500.0, 6577500.0, 672502.0, 6577502.0)
+ITEM = OrthophotoItem(
+    id="o65775_6725_25_mr25",
+    collection="orto-o2-2025",
+    bbox=CELL,
+    datetime=datetime(2025, 5, 31, 8, 10, 56, tzinfo=timezone.utc),
+    spektraltyp="rgbi",
+    href="/files/orto-o2-2025/o65775_6725_25_mr25.tif",
+    resolution=0.5,
+    size_bytes=None,
+)
+
+
+def tiff_bytes(tmp_path, bounds=CELL, crs="EPSG:3006", transform=None):
+    path = tmp_path / "src" / "tile.tif"
+    path.parent.mkdir(exist_ok=True)
+    with rasterio.open(
+        path,
+        "w",
+        driver="GTiff",
+        width=4,
+        height=4,
+        count=3,
+        dtype="uint8",
+        crs=crs,
+        transform=transform or from_bounds(*bounds, 4, 4),
+    ) as dst:
+        dst.write(np.arange(48, dtype=np.uint8).reshape(3, 4, 4))
+    data = path.read_bytes()
+    path.unlink()
+    return data
+
+
+def tile_response(body, length=True, **kwargs):
+    headers = kwargs.pop("headers", {})
+    if length is True:
+        headers["Content-Length"] = str(len(body))
+    elif length is not None:
+        headers["Content-Length"] = length
+    return FakeResponse(200, body, headers=headers, **kwargs)
+
+
+def download(cache_root, server_url=BASE, item=ITEM):
+    return download_tile(
+        item, server_url=server_url, timeout=TIMEOUT, cache_root=cache_root
+    )
+
+
+def files_under(root):
+    return sorted(
+        str(p.relative_to(root)) for p in Path(root).rglob("*") if p.is_file()
+    )
+
+
+def download_error(monkeypatch, cache_root, *responses):
+    fake = install(monkeypatch, *responses)
+    with pytest.raises(OrthophotoClientError) as info:
+        download(cache_root)
+    assert len(fake.calls) == 1
+    assert not any(name.endswith(".tif") for name in files_under(cache_root))
+    assert [n for n in files_under(cache_root) if not n.endswith(".tif")] == []
+    assert info.value.operation == "download"
+    return info.value
+
+
+def test_download_publishes_original_bytes_under_service_namespace(
+    monkeypatch, tmp_path
+):
+    body = tiff_bytes(tmp_path)
+    cache_root = tmp_path / "cache"
+    install(monkeypatch, tile_response(body))
+    path = download(cache_root)
+    service = path.parent.parent.name
+    assert path == (
+        cache_root / "orthophoto" / service / "orto-o2-2025" / "o65775_6725_25_mr25.tif"
+    )
+    assert len(service) == 16 and set(service) <= set("0123456789abcdef")
+    assert path.read_bytes() == body
+    assert files_under(tmp_path) == [str(path.relative_to(tmp_path))]
+
+
+def test_download_request_uses_identity_encoding_and_no_redirects(
+    monkeypatch, tmp_path
+):
+    fake = install(monkeypatch, tile_response(tiff_bytes(tmp_path)))
+    download(tmp_path / "cache", server_url="https://host/proxy/lm/")
+    (call,) = fake.calls
+    assert call["url"] == (
+        "https://host/proxy/lm/files/orto-o2-2025/o65775_6725_25_mr25.tif"
+    )
+    assert call["headers"]["Accept-Encoding"] == "identity"
+    assert call["allow_redirects"] is False
+    assert call["stream"] is True
+    assert call["timeout"] == TIMEOUT
+
+
+def test_service_namespace_includes_prefix_and_ignores_trailing_slash(
+    monkeypatch, tmp_path
+):
+    body = tiff_bytes(tmp_path)
+    cache_root = tmp_path / "cache"
+    urls = ["http://h.test/a", "http://h.test/a/", "http://h.test/b", "http://g.test/a"]
+    install(monkeypatch, *(tile_response(body) for _ in urls))
+    paths = []
+    for url in urls:
+        paths.append(download(cache_root, server_url=url))
+        if url == "http://h.test/a":
+            paths[-1].unlink()
+    assert paths[0] == paths[1]
+    assert len({paths[1], paths[2], paths[3]}) == 3
+
+
+def test_published_file_is_reused_without_request_or_header_read(
+    monkeypatch, tmp_path
+):
+    body = tiff_bytes(tmp_path)
+    cache_root = tmp_path / "cache"
+    install(monkeypatch, tile_response(body))
+    path = download(cache_root)
+    path.write_bytes(b"cached bytes are trusted")
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("no request or header read on a cache hit")
+
+    monkeypatch.setattr(orthophoto.requests, "get", forbidden)
+    monkeypatch.setattr(orthophoto.rasterio, "open", forbidden)
+    assert download(cache_root) == path
+    assert path.read_bytes() == b"cached bytes are trusted"
+
+
+def test_missing_file_is_downloaded_again(monkeypatch, tmp_path):
+    body = tiff_bytes(tmp_path)
+    cache_root = tmp_path / "cache"
+    fake = install(monkeypatch, tile_response(body), tile_response(body))
+    download(cache_root).unlink()
+    assert download(cache_root).read_bytes() == body
+    assert len(fake.calls) == 2
+
+
+@pytest.mark.parametrize(
+    "status, body, headers, failure_class",
+    [
+        (
+            503,
+            {"detail": "LM credentials not configured"},
+            {"Content-Encoding": "gzip"},
+            "configuration",
+        ),
+        (404, {"detail": "not found"}, {}, "http_4xx"),
+        (502, {"detail": "LM error"}, {}, "http_5xx"),
+        (504, {"detail": "LM timed out"}, {}, "http_5xx"),
+        (302, "", {"Location": "http://elsewhere.test/x.tif"}, "invalid_payload"),
+    ],
+)
+def test_download_status_is_classified_before_body_checks(
+    monkeypatch, tmp_path, status, body, headers, failure_class
+):
+    if not isinstance(body, str):
+        body = json.dumps(body)
+    response = FakeResponse(status, body, headers=headers)
+    error = download_error(monkeypatch, tmp_path / "cache", response)
+    assert error.failure_class == failure_class
+    assert error.status_code == status
+    assert response.closed
+
+
+@pytest.mark.parametrize(
+    "exc, failure_class",
+    [
+        (requests.ConnectTimeout("connect"), "timeout"),
+        (requests.ReadTimeout("read"), "timeout"),
+        (requests.ConnectionError("refused"), "connection"),
+    ],
+)
+def test_download_transport_failures_are_classified(
+    monkeypatch, tmp_path, exc, failure_class
+):
+    error = download_error(monkeypatch, tmp_path / "cache", exc)
+    assert error.failure_class == failure_class
+
+
+def test_encoded_response_is_invalid_payload(monkeypatch, tmp_path):
+    response = tile_response(
+        tiff_bytes(tmp_path), headers={"Content-Encoding": "gzip"}
+    )
+    error = download_error(monkeypatch, tmp_path / "cache", response)
+    assert error.failure_class == "invalid_payload"
+    assert error.status_code == 200
+    assert response.closed
+
+
+def test_body_shorter_than_content_length_is_connection_failure(
+    monkeypatch, tmp_path
+):
+    body = tiff_bytes(tmp_path)
+    response = tile_response(body, length=str(len(body) + 100))
+    error = download_error(monkeypatch, tmp_path / "cache", response)
+    assert error.failure_class == "connection"
+    assert error.status_code == 200
+
+
+def test_body_longer_than_content_length_is_invalid_payload(monkeypatch, tmp_path):
+    body = tiff_bytes(tmp_path)
+    response = tile_response(body, length=str(len(body) - 1))
+    error = download_error(monkeypatch, tmp_path / "cache", response)
+    assert error.failure_class == "invalid_payload"
+
+
+@pytest.mark.parametrize(
+    "length",
+    ["abc", "-5", "", "1e3", "10, 10", " 5000", "\u0665\u0660", "9" * 5000],
+)
+def test_malformed_content_length_is_rejected_before_reading_body(
+    monkeypatch, tmp_path, length
+):
+    response = tile_response(tiff_bytes(tmp_path), length=length)
+    error = download_error(monkeypatch, tmp_path / "cache", response)
+    assert error.failure_class == "invalid_payload"
+    assert error.status_code == 200
+    assert response.bytes_read == 0
+    assert response.closed
+
+
+def test_body_interrupted_mid_stream_is_connection_failure(monkeypatch, tmp_path):
+    body = tiff_bytes(tmp_path)
+    response = tile_response(
+        body[:200],
+        length=str(len(body)),
+        exc=requests.exceptions.ChunkedEncodingError("connection broken"),
+    )
+    error = download_error(monkeypatch, tmp_path / "cache", response)
+    assert error.failure_class == "connection"
+    assert error.status_code == 200
+    assert response.closed
+
+
+@pytest.mark.parametrize(
+    "body",
+    [b"<html><body>Bad gateway</body></html>", b"", "truncated"],
+)
+def test_unreadable_tiff_is_invalid_payload(monkeypatch, tmp_path, body):
+    if body == "truncated":
+        body = tiff_bytes(tmp_path)[:16]
+    error = download_error(
+        monkeypatch, tmp_path / "cache", tile_response(body, length=None)
+    )
+    assert error.failure_class == "invalid_payload"
+
+
+@pytest.mark.parametrize("crs", ["EPSG:3021", None])
+def test_tiff_in_other_crs_is_invalid_payload(monkeypatch, tmp_path, crs):
+    response = tile_response(tiff_bytes(tmp_path, crs=crs))
+    error = download_error(monkeypatch, tmp_path / "cache", response)
+    assert error.failure_class == "invalid_payload"
+
+
+@pytest.mark.parametrize(
+    "transform",
+    [
+        Affine(math.nan, 0.0, math.nan, 0.0, math.nan, math.nan),
+        Affine(0.5, 0.0, math.nan, 0.0, -0.5, CELL[3]),
+    ],
+)
+def test_tiff_with_nan_georeferencing_is_invalid_payload(
+    monkeypatch, tmp_path, transform
+):
+    response = tile_response(tiff_bytes(tmp_path, transform=transform))
+    error = download_error(monkeypatch, tmp_path / "cache", response)
+    assert error.failure_class == "invalid_payload"
+    assert error.status_code == 200
+    assert response.closed
+
+
+def test_tiff_for_wrong_cell_is_invalid_payload(monkeypatch, tmp_path):
+    shifted = tuple(v + 2500.0 if i % 2 == 0 else v for i, v in enumerate(CELL))
+    response = tile_response(tiff_bytes(tmp_path, bounds=shifted))
+    error = download_error(monkeypatch, tmp_path / "cache", response)
+    assert error.failure_class == "invalid_payload"
+
+
+@pytest.mark.parametrize("edge", range(4))
+@pytest.mark.parametrize("offset, accepted", [(0.0005, True), (0.002, False)])
+def test_bounds_tolerance_is_absolute_per_edge(
+    monkeypatch, tmp_path, edge, offset, accepted
+):
+    bounds = list(CELL)
+    bounds[edge] += offset if edge >= 2 else -offset
+    response = tile_response(tiff_bytes(tmp_path, bounds=tuple(bounds)))
+    cache_root = tmp_path / "cache"
+    if accepted:
+        install(monkeypatch, response)
+        assert download(cache_root).is_file()
+    else:
+        error = download_error(monkeypatch, cache_root, response)
+        assert error.failure_class == "invalid_payload"
+
+
+def test_failed_write_propagates_and_removes_temporary_file(monkeypatch, tmp_path):
+    install(monkeypatch, tile_response(tiff_bytes(tmp_path)))
+
+    class FullDisk:
+        def __init__(self, fd, mode):
+            os.close(fd)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def write(self, data):
+            raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(orthophoto, "open", FullDisk, raising=False)
+    with pytest.raises(OSError) as info:
+        download(tmp_path / "cache")
+    assert not isinstance(info.value, OrthophotoClientError)
+    assert info.value.errno == 28
+    assert files_under(tmp_path / "cache") == []
+
+
+def test_failed_replace_propagates_and_removes_temporary_file(monkeypatch, tmp_path):
+    install(monkeypatch, tile_response(tiff_bytes(tmp_path)))
+
+    def deny(src, dst):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(orthophoto.os, "replace", deny)
+    with pytest.raises(PermissionError):
+        download(tmp_path / "cache")
+    assert files_under(tmp_path / "cache") == []
+
+
+@pytest.mark.parametrize("exc", [RuntimeError("boom"), KeyboardInterrupt()])
+def test_unexpected_errors_propagate_unchanged_and_clean_up(
+    monkeypatch, tmp_path, exc
+):
+    body = tiff_bytes(tmp_path)
+    response = tile_response(body[:200], length=str(len(body)), exc=exc)
+    install(monkeypatch, response)
+    with pytest.raises(type(exc)):
+        download(tmp_path / "cache")
+    assert files_under(tmp_path / "cache") == []
+    assert response.closed
+
+
+def test_header_check_error_propagates_unchanged(monkeypatch, tmp_path):
+    install(monkeypatch, tile_response(tiff_bytes(tmp_path)))
+
+    def broken_open(path):
+        raise RuntimeError("unexpected")
+
+    monkeypatch.setattr(orthophoto.rasterio, "open", broken_open)
+    with pytest.raises(RuntimeError, match="unexpected"):
+        download(tmp_path / "cache")
+    assert files_under(tmp_path / "cache") == []
+
+
+def test_concurrent_downloads_use_distinct_temporary_files(monkeypatch, tmp_path):
+    body = tiff_bytes(tmp_path)
+    cache_root = tmp_path / "cache"
+    temporary_names = []
+    real_mkstemp = orthophoto.tempfile.mkstemp
+
+    def recording_mkstemp(**kwargs):
+        fd, name = real_mkstemp(**kwargs)
+        temporary_names.append(name)
+        return fd, name
+
+    monkeypatch.setattr(orthophoto.tempfile, "mkstemp", recording_mkstemp)
+    inner = tile_response(body)
+    outer = tile_response(body, during=lambda: download(cache_root))
+    install(monkeypatch, outer, inner)
+    path = download(cache_root)
+    assert path.read_bytes() == body
+    assert len(temporary_names) == 2
+    assert len(set(temporary_names)) == 2
+    assert Path(temporary_names[0]).parent == path.parent
+    assert files_under(cache_root) == [str(path.relative_to(cache_root))]
+
+
+def test_failed_download_leaves_competing_writer_files_intact(monkeypatch, tmp_path):
+    body = tiff_bytes(tmp_path)
+    cache_root = tmp_path / "cache"
+    competitor = {}
+
+    def competing_writer():
+        directory = next((cache_root / "orthophoto").iterdir()) / "orto-o2-2025"
+        competitor["published"] = directory / "o65775_6725_25_mr25.tif"
+        competitor["temporary"] = directory / ".o65775_6725_25_mr25.other.part"
+        competitor["published"].write_bytes(b"competitor original")
+        competitor["temporary"].write_bytes(b"competitor in progress")
+
+    response = tile_response(
+        body[:200], length=str(len(body)), during=competing_writer
+    )
+    install(monkeypatch, response)
+    with pytest.raises(OrthophotoClientError) as info:
+        download(cache_root)
+    assert info.value.failure_class == "connection"
+    assert competitor["published"].read_bytes() == b"competitor original"
+    assert competitor["temporary"].read_bytes() == b"competitor in progress"
+    assert len(files_under(cache_root)) == 2

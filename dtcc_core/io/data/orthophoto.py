@@ -4,20 +4,25 @@ The server lists original Lantmäteriet orthophoto GeoTIFFs for an EPSG:3006
 bbox (``GET /items``) and streams each file on request (``GET /files/...``).
 """
 
+import hashlib
 import json
 import math
 import os
 import re
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from urllib.parse import urlsplit
 
+import rasterio
 import requests
 
 SERVER_URL_ENV = "DTCC_ORTHOPHOTO_URL"
 CRS = "EPSG:3006"
 MAX_DETAIL_CHARS = 1024
 CREDENTIALS_MISSING_DETAIL = "LM credentials not configured"
+BOUNDS_TOLERANCE = 0.001
 
 _IDENTIFIER = re.compile(r"[a-z0-9_-]+")
 
@@ -172,6 +177,101 @@ def fetch_manifest(
         ) from None
 
 
+def download_tile(
+    item: OrthophotoItem,
+    *,
+    server_url: str,
+    timeout: tuple[float, float],
+    cache_root: Path,
+) -> Path:
+    """Return the local path of ``item``'s original GeoTIFF, downloading it if needed.
+
+    Files live at ``cache_root/orthophoto/<service>/<collection>/<id>.tif``,
+    where ``<service>`` hashes the normalized service root. An existing file is
+    returned as is. A missing file is streamed into a unique temporary file in
+    the same directory, checked (status, encoding, length, GeoTIFF header, CRS
+    and bounds against ``item.bbox``) and then atomically renamed into place.
+    Local filesystem errors and unexpected exceptions propagate unchanged.
+    """
+    base = _normalize_server_url(server_url)
+    service = hashlib.sha256(base.encode()).hexdigest()[:16]
+    destination = (
+        Path(cache_root) / "orthophoto" / service / item.collection / f"{item.id}.tif"
+    )
+    if destination.is_file():
+        return destination
+
+    url = file_url(base, item)
+
+    def fail(message, failure_class, status_code=None, detail=None):
+        return OrthophotoClientError(
+            message,
+            operation="download",
+            target=url,
+            failure_class=failure_class,
+            status_code=status_code,
+            detail=detail,
+        )
+
+    try:
+        response = requests.get(
+            url,
+            timeout=timeout,
+            headers={"Accept-Encoding": "identity"},
+            allow_redirects=False,
+            stream=True,
+        )
+    except requests.RequestException as error:
+        _raise_transport_error(error, fail)
+    try:
+        _check_status(response, fail)
+        if "Content-Encoding" in response.headers:
+            raise fail(
+                f"Unexpected Content-Encoding "
+                f"{response.headers['Content-Encoding']!r}",
+                "invalid_payload",
+                status_code=200,
+            )
+        expected = _content_length(response, fail)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        fd, name = tempfile.mkstemp(
+            dir=destination.parent, prefix=f".{item.id}.", suffix=".part"
+        )
+        temporary = Path(name)
+        try:
+            written = 0
+            with open(fd, "wb") as output:
+                try:
+                    for chunk in response.iter_content(chunk_size=1 << 20):
+                        output.write(chunk)
+                        written += len(chunk)
+                except requests.RequestException as error:
+                    _raise_transport_error(error, fail, status_code=200)
+            if expected is not None and written < expected:
+                raise fail(
+                    f"Body ended after {written} of {expected} bytes",
+                    "connection",
+                    status_code=200,
+                )
+            if expected is not None and written > expected:
+                raise fail(
+                    f"Body has {written} bytes, Content-Length is {expected}",
+                    "invalid_payload",
+                    status_code=200,
+                )
+            _check_geotiff(temporary, item, fail)
+            os.replace(temporary, destination)
+        except BaseException:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
+    finally:
+        response.close()
+    return destination
+
+
 def _normalize_server_url(server_url: str) -> str:
     parts = urlsplit(server_url)
     if parts.scheme not in ("http", "https") or not parts.netloc:
@@ -226,6 +326,53 @@ def _check_status(response, fail):
     raise fail(
         f"HTTP {status}: {detail}", failure_class, status_code=status, detail=detail
     )
+
+
+def _content_length(response, fail) -> int | None:
+    value = response.headers.get("Content-Length")
+    if value is None:
+        return None
+    try:
+        if re.fullmatch(r"[0-9]+", value):
+            return int(value)
+    except ValueError:
+        pass
+    raise fail(
+        f"Malformed Content-Length {value!r}", "invalid_payload", status_code=200
+    )
+
+
+def _check_geotiff(path: Path, item: OrthophotoItem, fail) -> None:
+    """Check the header of a downloaded file without reading pixels."""
+    try:
+        with rasterio.open(path) as source:
+            driver = source.driver
+            shape = (source.width, source.height, source.count)
+            epsg = source.crs.to_epsg() if source.crs is not None else None
+            bounds = tuple(source.bounds)
+    except rasterio.errors.RasterioError as error:
+        raise fail(
+            f"Not a readable GeoTIFF: {error}", "invalid_payload", status_code=200
+        ) from None
+    if driver != "GTiff" or min(shape) <= 0:
+        raise fail(
+            f"Unexpected raster: driver {driver}, width/height/bands {shape}",
+            "invalid_payload",
+            status_code=200,
+        )
+    if epsg != 3006:
+        raise fail(
+            f"Raster CRS is EPSG:{epsg}, expected {CRS}",
+            "invalid_payload",
+            status_code=200,
+        )
+    # Written as "all within" so that NaN bounds fail the check.
+    if not all(abs(a - b) <= BOUNDS_TOLERANCE for a, b in zip(bounds, item.bbox)):
+        raise fail(
+            f"Raster bounds {bounds} do not match manifest bbox {item.bbox}",
+            "invalid_payload",
+            status_code=200,
+        )
 
 
 def _read_bounded(response) -> bytes:
