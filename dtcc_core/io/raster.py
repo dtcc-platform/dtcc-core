@@ -100,8 +100,9 @@ WRITE_STRIP_BYTES = 8 * 1024**2
 def _save_geotif(raster, path, alpha=False):
     """Write a GeoTIFF with the raster's CRS and nodata, if set.
 
-    (height, width, channels) data is written band by band in windows of at
-    most WRITE_STRIP_BYTES, so no band-first copy of the whole array is made.
+    (height, width, channels) data is written in windows of at most
+    WRITE_STRIP_BYTES, all bands of a window at once, so no band-first copy of
+    the whole array is made and each compressed strip is written once.
     With ``alpha=True`` the last band is labelled alpha, which GeoTIFF supports
     for two bands (gray, alpha) or four (red, green, blue, alpha); otherwise no
     band is, whatever the band count. A CRS of "" or "None" (how the loader
@@ -137,26 +138,28 @@ def _save_geotif(raster, path, alpha=False):
 
 def _write_bands_in_windows(dst, data):
     height, width, channels = data.shape
-    itemsize = data.dtype.itemsize
-    cols = max(1, min(width, WRITE_STRIP_BYTES // itemsize))
-    rows = max(1, min(height, WRITE_STRIP_BYTES // (cols * itemsize)))
+    pixel_bytes = channels * data.dtype.itemsize
+    cols = max(1, min(width, WRITE_STRIP_BYTES // pixel_bytes))
+    rows = max(1, min(height, WRITE_STRIP_BYTES // (cols * pixel_bytes)))
     # One buffer for every window; each window uses a contiguous prefix of it.
-    # Rasterio writes a C-contiguous (1, rows, cols) array with a list of band
-    # indexes without copying it; a 2-D array would be copied.
-    buffer = np.empty(rows * cols, dtype=data.dtype)
-    for band in range(channels):
-        for row in range(0, height, rows):
-            for col in range(0, width, cols):
-                source = data[row : row + rows, col : col + cols, band]
-                block = buffer[: source.size].reshape((1, *source.shape))
-                np.copyto(block[0], source)
-                dst.write(
-                    block,
-                    [band + 1],
-                    window=rasterio.windows.Window(
-                        col, row, source.shape[1], source.shape[0]
-                    ),
-                )
+    # Rasterio writes a C-contiguous (bands, rows, cols) array with a list of
+    # band indexes without copying it. Writing all bands of a window together
+    # keeps GDAL from rewriting a pixel-interleaved strip once per band when its
+    # block cache cannot hold the image.
+    buffer = np.empty(channels * rows * cols, dtype=data.dtype)
+    indexes = list(range(1, channels + 1))
+    for row in range(0, height, rows):
+        for col in range(0, width, cols):
+            source = data[row : row + rows, col : col + cols]
+            block = buffer[: source.size].reshape((channels, *source.shape[:2]))
+            np.copyto(block, np.moveaxis(source, -1, 0))
+            dst.write(
+                block,
+                indexes,
+                window=rasterio.windows.Window(
+                    col, row, source.shape[1], source.shape[0]
+                ),
+            )
 
 
 def _save_image(raster, path):

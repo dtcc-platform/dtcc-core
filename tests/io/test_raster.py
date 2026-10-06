@@ -200,6 +200,37 @@ def test_strips_respect_the_cap_even_for_wide_rows(tmp_path, monkeypatch, writte
         assert a.colorinterp == b.colorinterp
 
 
+@pytest.mark.parametrize("cap", [None, 4 * 20])
+def test_each_window_writes_every_band_once(tmp_path, monkeypatch, cap):
+    indexes = []
+    real_write = rasterio.io.DatasetWriter.write
+
+    def recording_write(self, arr, *args, **kwargs):
+        indexes.append(list(args[0] if args else kwargs["indexes"]))
+        return real_write(self, arr, *args, **kwargs)
+
+    monkeypatch.setattr(rasterio.io.DatasetWriter, "write", recording_write)
+    if cap is not None:
+        # One 20-pixel row of all four bands per window.
+        monkeypatch.setattr(raster_io, "WRITE_STRIP_BYTES", cap)
+    georeferenced(samples((6, 20, 4))).save(tmp_path / "out.tif", alpha=True)
+    assert indexes == [[1, 2, 3, 4]] * (1 if cap is None else 6)
+
+
+def test_small_gdal_cache_does_not_inflate_the_file(tmp_path):
+    raster = georeferenced(samples((256, 256, 4)), crs="EPSG:3006")
+    small, large = tmp_path / "small.tif", tmp_path / "large.tif"
+    # GDAL reads cache sizes below 100000 as megabytes.
+    with rasterio.Env(GDAL_CACHEMAX=200_000):
+        raster.save(small, alpha=True)
+    with rasterio.Env(GDAL_CACHEMAX=512 * 1024**2):
+        raster.save(large, alpha=True)
+    # Strips rewritten once per band would make the file about twice as large.
+    assert small.stat().st_size <= large.stat().st_size * 1.01
+    with rasterio.open(small) as a, rasterio.open(large) as b:
+        np.testing.assert_array_equal(a.read(), b.read())
+
+
 def test_writing_allocates_at_most_one_strip(tmp_path, monkeypatch):
     data = samples((1024, 1024, 4))
     cap = 1024**2

@@ -414,7 +414,31 @@ def test_tif_write_is_refused_when_output_and_strip_exceed_the_budget(
     monkeypatch.setattr(raster_io, "_save_geotif", forbidden)
     with pytest.raises(WorkingMemoryError) as info:
         call(bounds=big, format="tif", max_memory_bytes=mosaic_estimate)
-    assert info.value.estimate_bytes == 32 * 32 * 4 + 32 * 32 + READ_OVERHEAD_BYTES
+    # The output, one strip of all four bands, and GDAL's allowance.
+    assert info.value.estimate_bytes == (
+        32 * 32 * 4 + 32 * 32 * 4 + READ_OVERHEAD_BYTES
+    )
+
+
+def test_tif_file_size_does_not_depend_on_the_gdal_cache(
+    server, tmp_path, monkeypatch
+):
+    big = cell(0, size=256.0)
+    data = np.random.default_rng(0).integers(1, 255, (4, 512, 512), dtype=np.uint8)
+    server.add("a", big, tiff(tmp_path, big, data=data))
+    # The GDAL cache the GeoTIFF is written under, far below the 1 MiB output.
+    monkeypatch.setattr(orthophoto_module, "READ_OVERHEAD_BYTES", 200_000)
+    sizes = []
+    real_size = orthophoto_module._written_size
+
+    def recording_size(path):
+        sizes.append(real_size(path))
+        return sizes[-1]
+
+    monkeypatch.setattr(orthophoto_module, "_written_size", recording_size)
+    call(bounds=big, format="tif")
+    # Random pixels barely compress; strips rewritten per band would double this.
+    assert sizes and sizes[0] <= 512 * 512 * 4 * 1.05
 
 
 def test_tif_read_is_refused_when_the_file_exceeds_the_budget(

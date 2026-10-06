@@ -554,7 +554,7 @@ def _write_geotiff(mosaic, budget, directory: Path) -> Path:
     height, width = mosaic.raster.data.shape[:2]
     needed = (
         height * width * 4
-        + min(raster_io.WRITE_STRIP_BYTES, height * width)
+        + min(raster_io.WRITE_STRIP_BYTES, height * width * 4)
         + READ_OVERHEAD_BYTES
     )
     if needed > budget:
