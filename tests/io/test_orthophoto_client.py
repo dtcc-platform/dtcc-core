@@ -272,6 +272,17 @@ def test_server_url_with_invalid_port_is_rejected_before_any_request(
     assert fake.calls == []
 
 
+@pytest.mark.parametrize("url", ["http://:8000", "http://:8000/secret", "https://:"])
+def test_server_url_without_a_host_is_rejected_before_any_request(monkeypatch, url):
+    fake = install(monkeypatch)
+    with pytest.raises(ValueError, match=r"http\(s\)://host") as info:
+        resolve_server_url(url)
+    assert_not_echoed(info.value)
+    with pytest.raises(ValueError):
+        fetch(server_url=url)
+    assert fake.calls == []
+
+
 # The parser ignores some of these characters, but the URL is used as given.
 SPACED_URLS = [
     "http://tiles.test\n",

@@ -408,7 +408,7 @@ def _normalize_server_url(server_url: str) -> str:
             "Orthophoto server URL must not contain user information "
             "(user name or password)"
         )
-    if parts is None or parts.scheme not in ("http", "https") or not parts.netloc:
+    if parts is None or parts.scheme not in ("http", "https") or not parts.hostname:
         raise ValueError("Orthophoto server URL must be http(s)://host[:port][/prefix]")
     if "?" in server_url or "#" in server_url:
         raise ValueError("Orthophoto server URL must not have a query or fragment")

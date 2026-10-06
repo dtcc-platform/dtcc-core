@@ -34,10 +34,10 @@ There is no built-in service URL. Pass `server_url=` or set
 blank value, the call raises `ValueError` before any request.
 
 Give the service root as `http(s)://host[:port][/prefix]`, including any
-reverse-proxy prefix; a trailing slash is dropped. A user name or password, a
-query, a fragment, spaces, control characters or an invalid port are refused,
-and these validation errors never repeat the URL. Redirects are not followed and
-count as `invalid_payload` failures, so give the final address.
+reverse-proxy prefix; a trailing slash is dropped. A missing host, a user name
+or password, a query, a fragment, spaces, control characters or an invalid port
+are refused, and these validation errors never repeat the URL. Redirects are not
+followed and count as `invalid_payload` failures, so give the final address.
 
 The result's context does record the address: an explicit `server_url` in the
 request parameters, and the request URL in each upstream error and its warning.
