@@ -320,6 +320,7 @@ def build_mosaic(
     *,
     resolution: float | None,
     max_memory_bytes: int,
+    progress=None,
 ) -> Mosaic:
     """Mosaic local rgb and rgbi tiles into an RGBA Raster over bounds.
 
@@ -339,9 +340,25 @@ def build_mosaic(
     read. Tiles whose files are not admitted or cannot be decoded are recorded
     as failures; local filesystem errors propagate. Without any valid pixel the
     result is the empty Raster.
+
+    ``progress(stage, done, total)``, if given, is called with ``("headers", k,
+    n)`` after each of the n candidate headers is checked and, once the buffers
+    are allocated, with ``("mosaic", done, total)`` from 0 to the total of
+    planned blocks: after each block is read and composited, and past a failed
+    tile's remaining blocks. An exception it raises propagates unchanged, never
+    recorded as a failure.
     """
     _check_request(bounds, resolution, required=False)
     _check_budget(max_memory_bytes)
+    raised = []
+
+    def report(*values):
+        try:
+            progress(*values)
+        except BaseException as error:
+            raised.append(error)
+            raise
+
     requested = tuple(float(value) for value in bounds)
     xmin, ymin, xmax, ymax = requested
     candidates = sorted(
@@ -359,7 +376,7 @@ def build_mosaic(
     failures = []
     with _reading():
         admitted = []
-        for tile in candidates:
+        for number, tile in enumerate(candidates, 1):
             path = Path(tile.path)
             _preflight(path)
             try:
@@ -369,8 +386,10 @@ def build_mosaic(
                     bands = source.count
             except (RasterTileLayoutError, RasterTileReadError) as error:
                 failures.append(TileFailure(tile, without_tracebacks(error), 0))
-                continue
-            admitted.append((tile, path, levels, bands))
+            else:
+                admitted.append((tile, path, levels, bands))
+            if progress is not None:
+                report("headers", number, len(candidates))
         if not admitted:
             return _empty(requested, failures)
         if resolution is None:
@@ -398,14 +417,32 @@ def build_mosaic(
         output = np.zeros((height, width, 4), dtype=np.uint8)
         arena = np.empty(arena_bytes, dtype=np.uint8)
         sources = []
+        total = sum(_block_count(plan) for plan in plans)
+        done = [0]
+
+        def block_done():
+            done[0] += 1
+            report("mosaic", done[0], total)
+
+        if progress is not None:
+            report("mosaic", 0, total)
         for plan in plans:
             counter = [0]
+            planned = done[0] + _block_count(plan)
             try:
-                _composite(plan, output, arena, counter)
+                _composite(
+                    plan, output, arena, counter,
+                    None if progress is None else block_done,
+                )
             except (RasterTileLayoutError, RasterTileReadError) as error:
+                if any(error is other for other in raised):
+                    raise
                 failures.append(
                     TileFailure(plan.tile, without_tracebacks(error), counter[0])
                 )
+                if progress is not None and done[0] < planned:
+                    done[0] = planned
+                    report("mosaic", done[0], total)
             if counter[0]:
                 sources.append((plan.tile, counter[0]))
     valid_pixels = sum(pixels for _, pixels in sources)
@@ -547,7 +584,14 @@ def _carve(arena, offset: int, shape, dtype):
     return arena[offset : offset + size].view(dtype).reshape(shape), offset + size
 
 
-def _composite(plan: _Plan, output, arena, counter) -> None:
+def _block_count(plan: _Plan) -> int:
+    block_rows, block_cols = plan.block
+    rows = plan.rows[1] - plan.rows[0]
+    cols = plan.cols[1] - plan.cols[0]
+    return math.ceil(rows / block_rows) * math.ceil(cols / block_cols)
+
+
+def _composite(plan: _Plan, output, arena, counter, block_done=None) -> None:
     """Fill output pixels that are still empty from one tile, block by block.
 
     The reopened full resolution is admitted with the mosaic rules and checked
@@ -557,7 +601,8 @@ def _composite(plan: _Plan, output, arena, counter) -> None:
     identity must not change across both opens: cache files are only replaced,
     never rewritten, and the open full resolution keeps its inode from being
     reused, so both handles read the admitted file.
-    counter[0] counts the pixels filled, including when a later block fails.
+    counter[0] counts the pixels filled, including when a later block fails;
+    block_done, if given, is called after each block.
     """
     _preflight(plan.path)
     before = _identity(plan.path)
@@ -565,7 +610,10 @@ def _composite(plan: _Plan, output, arena, counter) -> None:
         nodata = _admit_mosaic(plan.tile, plan.path, source)
         _check_unchanged(plan, source, plan.base)
         if plan.level.index is None:
-            _blend(plan, source, _sample_value(nodata), output, arena, counter)
+            _blend(
+                plan, source, _sample_value(nodata), output, arena, counter,
+                block_done,
+            )
             return
         with _open_source(plan.path, overview_level=plan.level.index) as level:
             nodata = _admit(plan.tile, plan.path, level, MOSAIC_LAYOUTS)
@@ -576,7 +624,10 @@ def _composite(plan: _Plan, output, arena, counter) -> None:
                     plan.tile.spektraltyp,
                     "the file changed while the mosaic was built",
                 )
-            _blend(plan, level, _sample_value(nodata), output, arena, counter)
+            _blend(
+                plan, level, _sample_value(nodata), output, arena, counter,
+                block_done,
+            )
 
 
 def _identity(path: Path) -> tuple[int, int, int, int]:
@@ -603,7 +654,7 @@ def _check_unchanged(plan: _Plan, dataset, expected: _Level) -> None:
         )
 
 
-def _blend(plan: _Plan, source, nodata, output, arena, counter) -> None:
+def _blend(plan: _Plan, source, nodata, output, arena, counter, block_done) -> None:
     block_rows, block_cols = plan.block
     for col in range(*plan.cols, block_cols):
         ncols = min(block_cols, plan.cols[1] - col)
@@ -651,3 +702,5 @@ def _blend(plan: _Plan, source, nodata, output, arena, counter) -> None:
                 np.copyto(target[..., band], samples[band], where=valid)
             np.copyto(target[..., 3], 255, where=valid)
             counter[0] += int(np.count_nonzero(valid))
+            if block_done is not None:
+                block_done()

@@ -1843,3 +1843,115 @@ def test_mosaic_is_local_and_leaves_files_unchanged(tmp_path, monkeypatch):
     before = (tile.path.read_bytes(), tile.path.stat().st_mtime_ns)
     mosaic([tile], extent_of(tile))
     assert (tile.path.read_bytes(), tile.path.stat().st_mtime_ns) == before
+
+
+# Progress
+
+
+def mosaic_reporting(tiles, bounds, progress, resolution=None):
+    return build_mosaic(
+        tiles, bounds, resolution=resolution,
+        max_memory_bytes=DEFAULT_MAX_MEMORY_BYTES, progress=progress,
+    )
+
+
+def test_header_progress_counts_only_candidates(tmp_path):
+    older = tile_at(grid_tiff(tmp_path / "old.tif", 40, 40, 0.4, tag=1), year=2010)
+    newer = tile_at(grid_tiff(tmp_path / "new.tif", 40, 40, 0.4, tag=2), year=2020)
+    away = tile_at(
+        grid_tiff(tmp_path / "away.tif", 10, 10, 0.4,
+                  origin=(ORIGIN[0] + 1000.0, ORIGIN[1])),
+        year=2015,
+    )
+    tiles = [older, newer, bad_tile(tmp_path, "cir", older), away]
+    events = []
+    result = mosaic_reporting(
+        tiles, extent_of(older), lambda *event: events.append(event)
+    )
+    assert len(result.failures) == 1
+    assert events[:3] == [("headers", 1, 3), ("headers", 2, 3), ("headers", 3, 3)]
+    assert events[3][:2] == ("mosaic", 0)
+
+
+def test_mosaic_progress_reports_each_planned_block_after_its_read(
+    tmp_path, monkeypatch
+):
+    older = tile_at(grid_tiff(tmp_path / "old.tif", 40, 40, 0.4, tag=1), year=2010)
+    newer = tile_at(grid_tiff(tmp_path / "new.tif", 40, 40, 0.4, tag=2), year=2020)
+    # Below one 40-pixel row of buffers: blocks split in both directions.
+    monkeypatch.setattr(raster_tiles, "STRIP_BYTES", 600)
+    log = []
+    real_read = rasterio.io.DatasetReader.read
+
+    def recording_read(self, *args, **kwargs):
+        log.append("read")
+        return real_read(self, *args, **kwargs)
+
+    monkeypatch.setattr(rasterio.io.DatasetReader, "read", recording_read)
+    mosaic_reporting([older, newer], extent_of(older), lambda *event: log.append(event))
+    blocks = [entry for entry in log if entry != "read" and entry[0] == "mosaic"]
+    total = blocks[0][2]
+    assert total > 2
+    assert blocks == [("mosaic", done, total) for done in range(total + 1)]
+    after_start = log[log.index(blocks[0]) + 1 :]
+    assert after_start == [entry for pair in zip(["read"] * total, blocks[1:])
+                           for entry in pair]
+
+
+def test_mosaic_progress_skips_a_failed_tiles_remaining_blocks(tmp_path, monkeypatch):
+    older = tile_at(grid_tiff(tmp_path / "old.tif", 40, 40, 0.4, tag=1), year=2010)
+    path = grid_tiff(
+        tmp_path / "new.tif", 40, 40, 0.4, tag=2, tiled=True, blockxsize=16,
+        blockysize=16, compress="deflate",
+    )
+    damage_block(path, 0)  # read first, so the tile's later blocks are skipped
+    newer = tile_at(path, year=2020)
+    monkeypatch.setattr(raster_tiles, "STRIP_BYTES", 5000)
+    reads = []
+    real_read = rasterio.io.DatasetReader.read
+
+    def counting_read(self, *args, **kwargs):
+        reads.append(1)
+        return real_read(self, *args, **kwargs)
+
+    monkeypatch.setattr(rasterio.io.DatasetReader, "read", counting_read)
+    events = []
+    result = mosaic_reporting([older, newer], extent_of(older),
+                              lambda *event: events.append(event))
+    assert len(result.failures) == 1
+    done = [event[1] for event in events if event[0] == "mosaic"]
+    total = events[-1][2]
+    assert done == sorted(done) and done[-1] == total
+    assert len(reads) < total
+
+
+def test_no_admitted_tile_reports_headers_only(tmp_path):
+    refused = bad_tile(tmp_path, "cir", None)
+    events = []
+    result = mosaic_reporting([refused], extent_of(refused),
+                              lambda *event: events.append(event))
+    assert result.valid_pixels == 0
+    assert events == [("headers", 1, 1)]
+
+
+CALLBACK_ERRORS = {
+    "runtime": lambda: RuntimeError("subscriber"),
+    "layout": lambda: RasterTileLayoutError(Path("x.tif"), "rgb", "subscriber"),
+    "read": lambda: RasterTileReadError(Path("x.tif"), "subscriber"),
+    "rasterio": lambda: rasterio.errors.RasterioError("subscriber"),
+}
+
+
+@pytest.mark.parametrize("kind", CALLBACK_ERRORS, ids=list(CALLBACK_ERRORS))
+@pytest.mark.parametrize("stage", ["headers", "mosaic"])
+def test_progress_callback_errors_propagate_unchanged(tmp_path, stage, kind):
+    tile = tile_at(grid_tiff(tmp_path / "t.tif", 40, 40, 0.4))
+    error = CALLBACK_ERRORS[kind]()
+
+    def progress(event_stage, done, total):
+        if event_stage == stage and done >= 1:
+            raise error
+
+    with pytest.raises(type(error)) as info:
+        mosaic_reporting([tile], extent_of(tile), progress)
+    assert info.value is error
