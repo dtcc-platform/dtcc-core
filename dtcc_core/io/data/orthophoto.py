@@ -391,10 +391,13 @@ def _content_length(response, fail) -> int | None:
 
 
 def _check_geotiff(path: Path, item: OrthophotoItem, fail) -> None:
-    """Check the header of a downloaded file without reading pixels."""
+    """Check the header of a downloaded file without reading pixels.
+
+    Only the GeoTIFF driver may open the file, so formats that refer to other
+    files or remote sources (such as VRT) are never opened.
+    """
     try:
-        with rasterio.open(path) as source:
-            driver = source.driver
+        with rasterio.open(path, driver="GTiff") as source:
             shape = (source.width, source.height, source.count)
             epsg = source.crs.to_epsg() if source.crs is not None else None
             bounds = tuple(source.bounds)
@@ -402,9 +405,9 @@ def _check_geotiff(path: Path, item: OrthophotoItem, fail) -> None:
         raise fail(
             f"Not a readable GeoTIFF: {error}", "invalid_payload", status_code=200
         ) from None
-    if driver != "GTiff" or min(shape) <= 0:
+    if min(shape) <= 0:
         raise fail(
-            f"Unexpected raster: driver {driver}, width/height/bands {shape}",
+            f"Unexpected raster: width/height/bands {shape}",
             "invalid_payload",
             status_code=200,
         )

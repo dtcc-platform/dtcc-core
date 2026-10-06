@@ -834,6 +834,34 @@ def test_tiff_with_nan_georeferencing_is_invalid_payload(
     assert response.closed
 
 
+def test_vrt_payload_is_never_opened_as_vrt(monkeypatch, tmp_path):
+    source = tmp_path / "src" / "valid.tif"
+    source.parent.mkdir()
+    source.write_bytes(tiff_bytes(tmp_path))
+    body = (
+        '<VRTDataset rasterXSize="4" rasterYSize="4"><SRS>EPSG:3006</SRS>'
+        f"<GeoTransform>{CELL[0]},0.5,0,{CELL[3]},0,-0.5</GeoTransform>"
+        '<VRTRasterBand dataType="Byte" band="1"><SimpleSource>'
+        f'<SourceFilename relativeToVRT="0">{source}</SourceFilename>'
+        "<SourceBand>1</SourceBand></SimpleSource></VRTRasterBand></VRTDataset>"
+    ).encode()
+    with rasterio.open(source) as valid:
+        assert valid.driver == "GTiff"
+    opened = []
+    real_open = rasterio.open
+
+    def recording_open(*args, **kwargs):
+        dataset = real_open(*args, **kwargs)
+        opened.append(dataset.driver)
+        return dataset
+
+    monkeypatch.setattr(orthophoto.rasterio, "open", recording_open)
+    error = download_error(monkeypatch, tmp_path / "cache", tile_response(body))
+    assert error.failure_class == "invalid_payload"
+    assert error.status_code == 200
+    assert "VRT" not in opened
+
+
 def test_tiff_for_wrong_cell_is_invalid_payload(monkeypatch, tmp_path):
     shifted = tuple(v + 2500.0 if i % 2 == 0 else v for i, v in enumerate(CELL))
     response = tile_response(tiff_bytes(tmp_path, bounds=shifted))
@@ -910,7 +938,7 @@ def test_unexpected_errors_propagate_unchanged_and_clean_up(
 def test_header_check_error_propagates_unchanged(monkeypatch, tmp_path):
     install(monkeypatch, tile_response(tiff_bytes(tmp_path)))
 
-    def broken_open(path):
+    def broken_open(*args, **kwargs):
         raise RuntimeError("unexpected")
 
     monkeypatch.setattr(orthophoto.rasterio, "open", broken_open)
