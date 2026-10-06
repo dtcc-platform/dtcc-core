@@ -1381,7 +1381,17 @@ def test_failure_mid_read_keeps_composited_blocks(tmp_path, monkeypatch):
     assert path.is_file()
 
 
-def test_layout_change_before_reading_is_a_failure(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    "replacement, reason",
+    [
+        ({"bands": 4}, "4 bands, expected 3"),
+        # Same geometry and bands: only readmission sees the change.
+        ({"crs": "EPSG:3021"}, "CRS is EPSG:3021"),
+    ],
+)
+def test_layout_change_before_reading_is_a_failure(
+    tmp_path, monkeypatch, replacement, reason
+):
     older = tile_at(grid_tiff(tmp_path / "old.tif", 10, 10, 0.4, tag=1), year=2010)
     newer = tile_at(grid_tiff(tmp_path / "new.tif", 10, 10, 0.4, tag=2), year=2020)
     opens = []
@@ -1390,7 +1400,7 @@ def test_layout_change_before_reading_is_a_failure(tmp_path, monkeypatch):
         if Path(path) == newer.path and "overview_level" not in kwargs:
             opens.append(path)
             if len(opens) == 2:
-                grid_tiff(newer.path, 10, 10, 0.4, bands=4)
+                grid_tiff(newer.path, 10, 10, 0.4, tag=2, **replacement)
         return RASTERIO_OPEN(path, *args, **kwargs)
 
     monkeypatch.setattr(rasterio, "open", replacing_open)
@@ -1398,7 +1408,54 @@ def test_layout_change_before_reading_is_a_failure(tmp_path, monkeypatch):
     (failure,) = result.failures
     assert failure.tile == newer and failure.pixels == 0
     assert isinstance(failure.error, RasterTileLayoutError)
+    assert reason in failure.error.reason
     assert set(np.unique(result.raster.data[..., 2])) == {1}
+
+
+def test_same_bounds_replacement_before_reading_is_a_failure(tmp_path, monkeypatch):
+    older = tile_at(grid_tiff(tmp_path / "old.tif", 10, 10, 0.4, tag=1), year=2010)
+    newer = tile_at(grid_tiff(tmp_path / "new.tif", 10, 10, 0.4, tag=2), year=2020)
+    opens = []
+
+    def replacing_open(path, *args, **kwargs):
+        if Path(path) == newer.path and "overview_level" not in kwargs:
+            opens.append(path)
+            if len(opens) == 2:
+                # Admissible and with the same bounds, at a different resolution.
+                grid_tiff(newer.path, 20, 20, 0.2, tag=2)
+        return RASTERIO_OPEN(path, *args, **kwargs)
+
+    monkeypatch.setattr(rasterio, "open", replacing_open)
+    result = mosaic([older, newer], extent_of(older), 0.4)
+    (failure,) = result.failures
+    assert failure.tile == newer and failure.pixels == 0
+    assert isinstance(failure.error, RasterTileLayoutError)
+    assert "changed" in failure.error.reason
+    assert set(np.unique(result.raster.data[..., 2])) == {1}
+
+
+def test_replaced_overview_before_reading_is_a_failure(tmp_path, monkeypatch):
+    older = tile_at(grid_tiff(tmp_path / "old.tif", 50, 50, 0.4, tag=1), year=2010)
+    path = grid_tiff(tmp_path / "new.tif", 50, 50, 0.4, tag=2, overviews=[2, 4, 8])
+    newer = tile_at(path, year=2020)
+    level_opens = []
+
+    def replacing_open(path, *args, **kwargs):
+        if Path(path) == newer.path and "overview_level" in kwargs:
+            level_opens.append(path)
+            if len(level_opens) == 4:
+                # Same full-resolution geometry; level 0 is now 17 px, not 25.
+                grid_tiff(newer.path, 50, 50, 0.4, tag=2, overviews=[3])
+        return RASTERIO_OPEN(path, *args, **kwargs)
+
+    monkeypatch.setattr(rasterio, "open", replacing_open)
+    result = mosaic([older, newer], extent_of(older), 1.0)
+    assert len(level_opens) == 4
+    (failure,) = result.failures
+    assert failure.tile == newer and failure.pixels == 0
+    assert "changed" in failure.error.reason
+    opaque = result.raster.data[..., 3] == 255
+    assert set(np.unique(result.raster.data[..., 2][opaque])) == {1}
 
 
 def test_file_removed_after_the_header_pass_raises_file_not_found(

@@ -261,6 +261,7 @@ class _Axis:
 class _Plan:
     tile: RasterTile
     path: Path
+    base: _Level
     level: _Level
     bands: int
     rows: tuple[int, int]
@@ -494,6 +495,7 @@ def _plan(tile, path, levels, bands, bounds, resolution, width, height):
     return _Plan(
         tile=tile,
         path=path,
+        base=base,
         level=level,
         bands=bands,
         rows=row_span,
@@ -531,56 +533,76 @@ def _composite(plan: _Plan, output, arena, counter) -> None:
     _preflight(plan.path)
     with _open_source(plan.path) as source:
         nodata = _admit_mosaic(plan.tile, plan.path, source)
-    if math.isnan(nodata) or nodata != int(nodata) or not 0 <= nodata <= 255:
-        nodata = None
-    else:
-        nodata = np.uint8(nodata)
-    options = {} if plan.level.index is None else {"overview_level": plan.level.index}
+        _check_unchanged(plan, source, plan.base)
+        if math.isnan(nodata) or nodata != int(nodata) or not 0 <= nodata <= 255:
+            nodata = None
+        else:
+            nodata = np.uint8(nodata)
+        if plan.level.index is None:
+            _blend(plan, source, nodata, output, arena, counter)
+            return
+    with _open_source(plan.path, overview_level=plan.level.index) as level:
+        _check_unchanged(plan, level, plan.level)
+        _blend(plan, level, nodata, output, arena, counter)
+
+
+def _check_unchanged(plan: _Plan, dataset, expected: _Level) -> None:
+    """Refuse a file whose geometry differs from the one the plan was made for."""
+    actual = (dataset.transform, dataset.width, dataset.height, dataset.count)
+    if actual != (expected.transform, expected.width, expected.height, plan.bands):
+        raise RasterTileLayoutError(
+            plan.path,
+            plan.tile.spektraltyp,
+            "the file changed while the mosaic was built: transform, size and "
+            f"bands {actual}, expected {expected}",
+        )
+
+
+def _blend(plan: _Plan, source, nodata, output, arena, counter) -> None:
     block_rows, block_cols = plan.block
-    with _open_source(plan.path, **options) as source:
-        for col in range(*plan.cols, block_cols):
-            ncols = min(block_cols, plan.cols[1] - col)
-            col_index, offset = _carve(arena, 0, (ncols,), np.intp)
-            plan.col_axis.fill(col_index, col, plan.level.width)
-            col_first = int(col_index[0])
-            window_cols = int(col_index[-1]) - col_first + 1
-            np.subtract(col_index, col_first, out=col_index)
-            for row in range(*plan.rows, block_rows):
-                nrows = min(block_rows, plan.rows[1] - row)
-                row_index, at = _carve(arena, offset, (nrows,), np.intp)
-                plan.row_axis.fill(row_index, row, plan.level.height)
-                row_first = int(row_index[0])
-                window_rows = int(row_index[-1]) - row_first + 1
-                np.subtract(row_index, row_first, out=row_index)
-                bands = plan.bands
-                window, at = _carve(
-                    arena, at, (bands, window_rows, window_cols), np.uint8
+    for col in range(*plan.cols, block_cols):
+        ncols = min(block_cols, plan.cols[1] - col)
+        col_index, offset = _carve(arena, 0, (ncols,), np.intp)
+        plan.col_axis.fill(col_index, col, plan.level.width)
+        col_first = int(col_index[0])
+        window_cols = int(col_index[-1]) - col_first + 1
+        np.subtract(col_index, col_first, out=col_index)
+        for row in range(*plan.rows, block_rows):
+            nrows = min(block_rows, plan.rows[1] - row)
+            row_index, at = _carve(arena, offset, (nrows,), np.intp)
+            plan.row_axis.fill(row_index, row, plan.level.height)
+            row_first = int(row_index[0])
+            window_rows = int(row_index[-1]) - row_first + 1
+            np.subtract(row_index, row_first, out=row_index)
+            bands = plan.bands
+            window, at = _carve(
+                arena, at, (bands, window_rows, window_cols), np.uint8
+            )
+            gathered, at = _carve(arena, at, (bands, nrows, window_cols), np.uint8)
+            samples, at = _carve(arena, at, (bands, nrows, ncols), np.uint8)
+            valid, at = _carve(arena, at, (nrows, ncols), np.bool_)
+            scratch, at = _carve(arena, at, (nrows, ncols), np.bool_)
+            try:
+                source.read(
+                    out=window,
+                    window=Window(col_first, row_first, window_cols, window_rows),
                 )
-                gathered, at = _carve(arena, at, (bands, nrows, window_cols), np.uint8)
-                samples, at = _carve(arena, at, (bands, nrows, ncols), np.uint8)
-                valid, at = _carve(arena, at, (nrows, ncols), np.bool_)
-                scratch, at = _carve(arena, at, (nrows, ncols), np.bool_)
-                try:
-                    source.read(
-                        out=window,
-                        window=Window(col_first, row_first, window_cols, window_rows),
-                    )
-                except rasterio.errors.RasterioError as error:
-                    raise RasterTileReadError(plan.path, str(error)) from error
-                # mode="clip" with out= gathers without a temporary copy.
-                np.take(window, row_index, axis=1, out=gathered, mode="clip")
-                np.take(gathered, col_index, axis=2, out=samples, mode="clip")
-                if nodata is None:
-                    valid.fill(True)
-                else:
-                    np.not_equal(samples[0], nodata, out=valid)
-                    for band in range(1, bands):
-                        np.not_equal(samples[band], nodata, out=scratch)
-                        np.logical_or(valid, scratch, out=valid)
-                target = output[row : row + nrows, col : col + ncols]
-                np.equal(target[..., 3], 0, out=scratch)
-                np.logical_and(valid, scratch, out=valid)
-                for band in range(3):
-                    np.copyto(target[..., band], samples[band], where=valid)
-                np.copyto(target[..., 3], 255, where=valid)
-                counter[0] += int(np.count_nonzero(valid))
+            except rasterio.errors.RasterioError as error:
+                raise RasterTileReadError(plan.path, str(error)) from error
+            # mode="clip" with out= gathers without a temporary copy.
+            np.take(window, row_index, axis=1, out=gathered, mode="clip")
+            np.take(gathered, col_index, axis=2, out=samples, mode="clip")
+            if nodata is None:
+                valid.fill(True)
+            else:
+                np.not_equal(samples[0], nodata, out=valid)
+                for band in range(1, bands):
+                    np.not_equal(samples[band], nodata, out=scratch)
+                    np.logical_or(valid, scratch, out=valid)
+            target = output[row : row + nrows, col : col + ncols]
+            np.equal(target[..., 3], 0, out=scratch)
+            np.logical_and(valid, scratch, out=valid)
+            for band in range(3):
+                np.copyto(target[..., band], samples[band], where=valid)
+            np.copyto(target[..., 3], 255, where=valid)
+            counter[0] += int(np.count_nonzero(valid))
