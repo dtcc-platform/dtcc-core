@@ -3,6 +3,7 @@ import importlib
 import json
 import math
 import struct
+from functools import partial
 import traceback
 import warnings
 import weakref
@@ -22,6 +23,7 @@ from requests.structures import CaseInsensitiveDict
 
 import dtcc_core.datasets as datasets
 import dtcc_core.io as dtcc_io
+from dtcc_core.common import progress as progress_module
 from dtcc_core.datasets.dataset import DatasetDescriptor, DatasetUpstreamError
 from dtcc_core.datasets.package import export_model_package, load_model_package
 from dtcc_core.datasets.publish import _validate_upload_package
@@ -51,12 +53,15 @@ def cell(i, j=0, size=2.0):
 
 
 class FakeResponse:
-    def __init__(self, status_code=200, body=b"", headers=None):
+    def __init__(self, status_code=200, body=b"", headers=None, chunk=None):
         self.status_code = status_code
         self.body = body if isinstance(body, bytes) else body.encode()
         self.headers = CaseInsensitiveDict(headers or {})
+        self.chunk = chunk
 
     def iter_content(self, chunk_size=1):
+        # A fixed chunk, when set, replaces the size the client asks for.
+        chunk_size = self.chunk or chunk_size
         for start in range(0, len(self.body), chunk_size):
             yield self.body[start : start + chunk_size]
 
@@ -78,6 +83,8 @@ class Server:
         self.file_failures = {}
         self.calls = []
         self.before = None
+        self.chunk = None
+        self.without_length = set()
 
     def add(self, name, bounds, body, *, year=2020, spektraltyp="rgbi",
             resolution=0.5, collection=None):
@@ -113,7 +120,10 @@ class Server:
         if path in self.file_failures:
             return self.file_failures[path]
         body = self.files[path]
-        return FakeResponse(200, body, {"Content-Length": str(len(body))})
+        headers = {} if path in self.without_length else {
+            "Content-Length": str(len(body))
+        }
+        return FakeResponse(200, body, headers, chunk=self.chunk)
 
     def file_calls(self):
         return [url for url in self.calls if "/files/" in url]
@@ -1168,6 +1178,262 @@ def test_tile_collection_export_is_refused_on_every_path(
     assert not isinstance(info.value, AssertionError)
     assert str(data_cache.cache_dir) not in str(info.value)
     assert [path for path in out.rglob("*") if path.is_file()] == []
+
+
+# Progress
+
+
+@pytest.fixture
+def events(monkeypatch):
+    """Every progress state the call reports, unthrottled."""
+    recorded = []
+    monkeypatch.setattr(
+        orthophoto_module, "ProgressTracker",
+        partial(progress_module.ProgressTracker, callback=recorded.append,
+                mode="callback", min_update_interval=0),
+    )
+    return recorded
+
+
+def subscribe(monkeypatch, subscriber):
+    monkeypatch.setattr(
+        orthophoto_module, "ProgressTracker",
+        partial(progress_module.ProgressTracker, callback=subscriber,
+                mode="callback", min_update_interval=0),
+    )
+
+
+def phases_seen(events):
+    seen = []
+    for state in events:
+        if state["phase"] and (not seen or seen[-1] != state["phase"]):
+            seen.append(state["phase"])
+    return seen
+
+
+def transfer_states(events):
+    return [state for state in events if state["phase"] == "transfer"]
+
+
+def random_tile(tmp_path, bounds, pixel=0.125):
+    width = int(round((bounds[2] - bounds[0]) / pixel))
+    height = int(round((bounds[3] - bounds[1]) / pixel))
+    data = np.random.default_rng(0).integers(1, 255, (4, height, width),
+                                             dtype=np.uint8)
+    return tiff(tmp_path, bounds, data=data, pixel=pixel)
+
+
+@pytest.mark.parametrize(
+    "kwargs, expected",
+    [
+        ({}, ["discovery", "transfer", "headers", "mosaic"]),
+        ({"format": "tif"}, ["discovery", "transfer", "headers", "mosaic", "export"]),
+        ({"product": "tiles"}, ["discovery", "transfer"]),
+    ],
+    ids=["raster", "tif", "tiles"],
+)
+def test_progress_phases_run_in_order_to_100(server, tmp_path, events, kwargs,
+                                             expected):
+    server.add("a", cell(0), tiff(tmp_path, cell(0)))
+    call(**kwargs)
+    assert phases_seen(events) == expected
+    percents = [state["percent"] for state in events]
+    assert percents == sorted(percents)
+    assert events[0]["percent"] == 0.0 and events[-1]["percent"] == 100.0
+
+
+def test_transfer_progress_follows_content_length(server, tmp_path, events):
+    big = cell(0, size=8.0)
+    server.add("a", big, random_tile(tmp_path, big))
+    server.chunk = 256
+    call(bounds=big)
+    within = [state["phases"]["transfer"]["progress"]
+              for state in transfer_states(events)]
+    assert len([value for value in within if 0 < value < 100]) > 5
+
+
+def test_transfer_without_content_length_reports_bytes_only(
+    server, tmp_path, events, monkeypatch
+):
+    first, second = cell(0, size=8.0), cell(1, size=8.0)
+    href = server.add("a", first, random_tile(tmp_path, first))
+    server.add("b", second, tiff(tmp_path, second, pixel=0.125))
+    server.chunk = 256
+    server.without_length.add(href)
+    monkeypatch.setattr(orthophoto_module, "BYTES_MESSAGE_STEP", 4096)
+    call(bounds=(first[0], first[1], second[2], second[3]))
+    # One report per BYTES_MESSAGE_STEP received, each naming the item; the
+    # phase holds at the item's start while the length is unknown.
+    reports = [state for state in transfer_states(events)
+               if "orto-2020/a" in (state["message"] or "")]
+    assert len(reports) > 2 and all("MiB" in state["message"] for state in reports)
+    assert {state["phases"]["transfer"]["progress"] for state in reports} == {0.0}
+
+
+def test_mosaic_progress_moves_within_the_mosaic_phase(
+    server, tmp_path, events, monkeypatch
+):
+    big = cell(0, size=4.0)
+    server.add("a", big, tiff(tmp_path, big, pixel=0.125))
+    # Small blocks: the 32 x 32 output is composited in many steps.
+    monkeypatch.setattr(raster_tiles, "STRIP_BYTES", 3000)
+    call(bounds=big)
+    within = [state["phases"]["mosaic"]["progress"] for state in events
+              if state["phase"] == "mosaic"]
+    assert len([value for value in within if 0 < value < 100]) > 2
+
+
+def test_a_long_transfer_reports_about_once_per_percent(server, tmp_path, events):
+    big = cell(0, size=16.0)
+    href = server.add("a", big, random_tile(tmp_path, big))
+    server.chunk = 100
+    call(bounds=big)
+    assert len(server.files[href]) / server.chunk > 600
+    assert len(transfer_states(events)) <= 105
+
+
+def test_cached_call_completes_the_transfer_without_requests(server, tmp_path,
+                                                             events):
+    server.add("a", cell(0), tiff(tmp_path, cell(0)))
+    call()
+    events.clear()
+    server.calls.clear()
+    call()
+    assert server.file_calls() == []
+    assert transfer_states(events)[-1]["phases"]["transfer"]["completed"] is True
+    assert events[-1]["percent"] == 100.0
+
+
+def test_download_failures_and_progress(server, tmp_path, events):
+    server.add("a", cell(0), tiff(tmp_path, cell(0)))
+    href = server.add("b", cell(1), tiff(tmp_path, cell(1)))
+    server.file_failures[href] = FakeResponse(404, "missing")
+    call(bounds=TWO_CELLS)
+    assert phases_seen(events) == ["discovery", "transfer", "headers", "mosaic"]
+    assert events[-1]["percent"] == 100.0
+    events.clear()
+    with pytest.raises(DatasetUpstreamError):
+        call(bounds=TWO_CELLS, strict_live=True)
+    assert phases_seen(events) == ["discovery", "transfer"]
+
+
+def test_overlong_body_never_advances_past_its_item(server, tmp_path, events):
+    href = server.add("a", cell(0), tiff(tmp_path, cell(0)))
+    server.add("b", cell(1), tiff(tmp_path, cell(1)))
+    body = server.files[href]
+    server.file_failures[href] = FakeResponse(
+        200, body + b"x" * 4096, {"Content-Length": str(len(body))}, chunk=64
+    )
+    call(bounds=TWO_CELLS)
+    first = [state["phases"]["transfer"]["progress"]
+             for state in transfer_states(events)
+             if "orto-2020/a" in (state["message"] or "")]
+    assert first and max(first) <= 50.0
+
+
+def test_zero_content_length_is_a_recorded_failure(server, tmp_path, events):
+    href = server.add("a", cell(0), tiff(tmp_path, cell(0)))
+    server.file_failures[href] = FakeResponse(200, b"", {"Content-Length": "0"})
+    health = call().dataset_context.health
+    assert health["upstream_errors"][0]["failure_class"] == "invalid_payload"
+
+
+def test_a_nested_call_leaves_the_outer_tracker_alone(server, tmp_path, events):
+    server.add("a", cell(0), tiff(tmp_path, cell(0)))
+    with progress_module.ProgressTracker(phases={"outer": 1.0}, mode="silent") as outer:
+        with outer.phase("outer"):
+            call()
+            assert outer.state.phases["outer"].progress == 0.0
+            assert progress_module.get_progress() is outer
+    assert progress_module.get_progress() is None
+    assert events[0]["percent"] == 0.0
+
+
+def test_a_memory_refusal_closes_the_header_phase(server, tmp_path, events):
+    server.add("a", cell(0), tiff(tmp_path, cell(0)), resolution=None)
+    with pytest.raises(WorkingMemoryError):
+        call(max_memory_bytes=1)
+    assert events[-1]["phase"] == "headers"
+    assert events[-1]["phases"]["headers"]["completed"] is True
+    assert progress_module.get_progress() is None
+
+
+def test_all_refused_headers_still_end_at_100(server, tmp_path, events):
+    server.add("a", cell(0), tiff(tmp_path, cell(0), bands=3))
+    raster = call()
+    assert raster.dataset_context.health["status"] == "failed"
+    assert phases_seen(events)[-1] == "mosaic"
+    assert events[-1]["percent"] == 100.0
+
+
+@pytest.mark.parametrize("phase", ["discovery", "transfer", "headers", "mosaic",
+                                   "export"])
+def test_the_first_subscriber_error_propagates_from_every_phase(
+    server, tmp_path, monkeypatch, phase
+):
+    server.add("a", cell(0), tiff(tmp_path, cell(0)))
+    seen = []
+    errors = []
+
+    def subscriber(state):
+        seen.append(state["phase"])
+        # The second state of the phase is reported inside it; every later call
+        # (the phase's cleanup included) raises again.
+        if errors or seen.count(phase) == 2:
+            errors.append(RuntimeError(f"call {len(errors) + 1}"))
+            raise errors[-1]
+
+    subscribe(monkeypatch, subscriber)
+    with pytest.raises(RuntimeError) as info:
+        call(format="tif")
+    assert info.value is errors[0]
+    assert progress_module.get_progress() is None
+
+
+def client_error():
+    return client.OrthophotoClientError(
+        "subscriber", operation="download", target="x", failure_class="connection"
+    )
+
+
+@pytest.mark.parametrize("strict", [False, True], ids=["default", "strict"])
+def test_a_transfer_subscribers_client_error_escapes_unchanged(
+    server, tmp_path, monkeypatch, strict
+):
+    server.add("a", cell(0), tiff(tmp_path, cell(0)))
+    seen = []
+    errors = []
+
+    def subscriber(state):
+        seen.append(state["phase"])
+        if errors:
+            errors.append(RuntimeError("cleanup"))
+            raise errors[-1]
+        if seen.count("transfer") == 2:
+            errors.append(client_error())
+            raise errors[-1]
+
+    subscribe(monkeypatch, subscriber)
+    with pytest.raises(client.OrthophotoClientError) as info:
+        call(strict_live=strict)
+    assert info.value is errors[0]
+
+
+def test_a_discovery_subscribers_client_error_is_not_a_failed_result(
+    server, tmp_path, monkeypatch
+):
+    server.add("a", cell(0), tiff(tmp_path, cell(0)))
+    errors = []
+
+    def subscriber(state):
+        if state["phase"] == "discovery":
+            errors.append(client_error())
+            raise errors[-1]
+
+    subscribe(monkeypatch, subscriber)
+    with pytest.raises(client.OrthophotoClientError) as info:
+        call()
+    assert info.value is errors[0]
 
 
 # Registration

@@ -2,13 +2,16 @@
 
 import math
 import re
+import sys
 import tempfile
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Optional, Sequence
 
 from pydantic import Field, field_validator, model_validator
 
+from dtcc_core.common.progress import ProgressTracker, report_progress
 from dtcc_core.io.raster_tiles import (
     DEFAULT_MAX_MEMORY_BYTES,
     READ_OVERHEAD_BYTES,
@@ -25,6 +28,7 @@ from .dataset import DatasetBaseArgs, DatasetDescriptor, DatasetUpstreamError
 from .providers import provider_display_name, provider_entry
 
 DEFAULT_SPEKTRALTYP = ("rgb", "rgbi")
+BYTES_MESSAGE_STEP = 8 * 1024**2
 MAX_MESSAGE_CHARS = 1024
 _LM = provider_display_name("lantmateriet")
 _IDENTIFIER = re.compile(r"[a-z0-9_-]+")
@@ -271,6 +275,17 @@ class OrthophotoDataset(DatasetDescriptor):
         return result, {"dataset_context": context.model_dump(mode="json")}
 
     def _realize(self, args):
+        if args.product == "tiles":
+            phases = {"discovery": 0.05, "transfer": 0.95}
+        else:
+            phases = {"discovery": 0.05, "transfer": 0.6, "headers": 0.05,
+                      "mosaic": 0.25}
+            if args.format is not None:
+                phases["export"] = 0.05
+        with ProgressTracker(phases=phases) as tracker:
+            return self._realize_tracked(args, tracker)
+
+    def _realize_tracked(self, args, tracker):
         from dtcc_core.io.data import cache as data_cache
         from dtcc_core.io.data import orthophoto as client
 
@@ -282,48 +297,75 @@ class OrthophotoDataset(DatasetDescriptor):
         raster = args.product == "raster"
         if raster and args.resolution is not None:
             _refuse_minimum(bounds, args.resolution, budget)
-        try:
-            items = client.fetch_manifest(
-                bounds,
-                server_url=server_url,
-                year=args.year,
-                collection=args.collection,
-                spektraltyp=tuple(args.spektraltyp or DEFAULT_SPEKTRALTYP),
-                timeout=timeout,
-            )
-        except client.OrthophotoClientError as error:
-            upstream = _upstream(error)
-            if args.strict_live:
-                raise upstream from error
-            report.errors.append(upstream)
-            return _empty(args), report
+        # Phases are entered outside the client-error handlers, so an error
+        # raised by a progress subscriber never reaches them.
+        with _phase(tracker, "discovery", "Listing orthophotos"):
+            try:
+                items = client.fetch_manifest(
+                    bounds,
+                    server_url=server_url,
+                    year=args.year,
+                    collection=args.collection,
+                    spektraltyp=tuple(args.spektraltyp or DEFAULT_SPEKTRALTYP),
+                    timeout=timeout,
+                )
+            except client.OrthophotoClientError as error:
+                upstream = _upstream(error)
+                if args.strict_live:
+                    raise upstream from error
+                report.errors.append(upstream)
+                return _empty(args), report
         report.items_listed = len(items)
         resolutions = [item.resolution for item in items]
         if raster and args.resolution is None and items and None not in resolutions:
             _refuse_minimum(bounds, min(resolutions), budget)
         failures = None if args.strict_live else []
-        try:
-            tiles = client.download_items(
-                items,
-                server_url=server_url,
-                timeout=timeout,
-                cache_root=data_cache.cache_dir,
-                failures=failures,
-            )
-        except client.OrthophotoClientError as error:
-            raise _upstream(error) from error
+        raised = []
+        with _phase(tracker, "transfer", "Downloading original orthophotos"):
+            try:
+                tiles = client.download_items(
+                    items,
+                    server_url=server_url,
+                    timeout=timeout,
+                    cache_root=data_cache.cache_dir,
+                    failures=failures,
+                    progress=_transfer_progress(items, raised),
+                )
+            except client.OrthophotoClientError as error:
+                # A subscriber's own error is not an upstream failure.
+                if any(error is other for other in raised):
+                    raise
+                raise _upstream(error) from error
         for item, error in failures or ():
             report.errors.append(_upstream(error))
             report.failed_items.append((item.id, item.datetime, Bounds(*item.bbox)))
         if not raster:
             report.sources = [(tile, None) for tile in tiles]
             return tiles, report
-        mosaic = build_mosaic(
-            tiles.tiles,
-            bounds,
-            resolution=args.resolution,
-            max_memory_bytes=budget,
-        )
+        with ExitStack() as phase:
+            phase.enter_context(_phase(tracker, "headers", "Checking headers"))
+            stage = ["headers"]
+
+            def enter_mosaic():
+                phase.close()
+                phase.enter_context(_phase(tracker, "mosaic", "Compositing"))
+                stage[0] = "mosaic"
+
+            def mosaic_progress(event, done, total):
+                if event == "mosaic" and stage[0] == "headers":
+                    enter_mosaic()
+                percent = 100.0 * done / total if total else 100.0
+                report_progress(percent=percent, message=f"{event}: {done} of {total}")
+
+            mosaic = build_mosaic(
+                tiles.tiles,
+                bounds,
+                resolution=args.resolution,
+                max_memory_bytes=budget,
+                progress=mosaic_progress,
+            )
+            if stage[0] == "headers":
+                enter_mosaic()
         source_errors = [_source_error(failure) for failure in mosaic.failures]
         if args.strict_live and source_errors:
             raise source_errors[0]
@@ -342,19 +384,20 @@ class OrthophotoDataset(DatasetDescriptor):
                 "written; see the upstream errors in the result health or call "
                 "without format."
             )
-        with tempfile.TemporaryDirectory() as directory:
-            path = _write_geotiff(mosaic, budget, Path(directory))
-            # Only the written file is needed from here: release the pixels.
-            mosaic = None
-            size = _written_size(path)
-            if size > budget:
-                raise WorkingMemoryError(
-                    size,
-                    budget,
-                    f"Reading the {size}-byte GeoTIFF",
-                    _TOO_LARGE,
-                )
-            return _read_written(path), report
+        with _phase(tracker, "export", "Writing the GeoTIFF"):
+            with tempfile.TemporaryDirectory() as directory:
+                path = _write_geotiff(mosaic, budget, Path(directory))
+                # Only the written file is needed from here: release the pixels.
+                mosaic = None
+                size = _written_size(path)
+                if size > budget:
+                    raise WorkingMemoryError(
+                        size,
+                        budget,
+                        f"Reading the {size}-byte GeoTIFF",
+                        _TOO_LARGE,
+                    )
+                return _read_written(path), report
 
     def _context(self, args, report: _Report):
         context = self.create_context(args)
@@ -419,6 +462,58 @@ class OrthophotoDataset(DatasetDescriptor):
                 "warnings": warnings,
             }
         )
+
+
+@contextmanager
+def _phase(tracker, name: str, message: str):
+    """Run the body in a tracker phase, keeping the body's exception.
+
+    The tracker reports again while closing a phase, so a subscriber that
+    raised in the body may raise again there; that second error is dropped.
+    """
+    phase = tracker.phase(name, message)
+    phase.__enter__()
+    try:
+        yield
+    except BaseException:
+        try:
+            phase.__exit__(*sys.exc_info())
+        except BaseException:
+            pass
+        raise
+    phase.__exit__(None, None, None)
+
+
+def _transfer_progress(items, raised: list):
+    """A download_items callback reporting per item, and per byte with a length.
+
+    The phase advances by item, and within an item by the share of its
+    Content-Length received; without one it holds and the message gives the
+    bytes received. Reports go out only when the item, the whole percent or the
+    BYTES_MESSAGE_STEP count of bytes changes. Errors raised while reporting
+    are collected in ``raised``.
+    """
+    last = [None]
+
+    def progress(index, count, written, expected):
+        fraction = min(written, expected) / expected if expected else 0.0
+        percent = 100.0 * (index + fraction) / count if count else 100.0
+        key = (index, int(percent), written // BYTES_MESSAGE_STEP)
+        if key == last[0]:
+            return
+        last[0] = key
+        if index < count:
+            item = items[index]
+            message = f"{item.collection}/{item.id}: {written / 1024**2:.1f} MiB"
+        else:
+            message = f"{count} original orthophotos ready"
+        try:
+            report_progress(percent=percent, message=message)
+        except BaseException as error:
+            raised.append(error)
+            raise
+
+    return progress
 
 
 def _horizontal(bounds) -> tuple[float, float, float, float]:
