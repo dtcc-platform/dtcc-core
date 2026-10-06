@@ -117,11 +117,13 @@ def _admit(tile: RasterTile, path: Path, source) -> float:
         raise refuse(f"band types {source.dtypes}, expected uint8")
     if ColorInterp.alpha in source.colorinterp:
         raise refuse("a band is labelled alpha")
+    # Only masks derived from nodata, or none, are admitted. GDAL reports an
+    # explicit per-band mask (such as a .msk sidecar) with no flags at all.
     if any(
-        MaskFlags.per_dataset in flags or MaskFlags.alpha in flags
+        list(flags) not in ([MaskFlags.all_valid], [MaskFlags.nodata])
         for flags in source.mask_flag_enums
     ):
-        raise refuse("the file has a mask band")
+        raise refuse(f"the file has a mask band: {source.mask_flag_enums}")
     nodatavals = tuple(source.nodatavals)
     if None in nodatavals and set(nodatavals) != {None}:
         raise refuse(f"nodata declared on some bands only: {nodatavals}")

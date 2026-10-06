@@ -1,6 +1,7 @@
 import math
 import os
 import struct
+import warnings
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -11,6 +12,7 @@ import requests
 from affine import Affine
 from rasterio.enums import ColorInterp
 from rasterio.env import get_gdal_config
+from rasterio.errors import NotGeoreferencedWarning
 from rasterio.transform import from_bounds
 
 from dtcc_core.io import raster_tiles
@@ -53,9 +55,14 @@ def write_tiff(
     transform=None,
     colorinterp=None,
     mask=False,
+    band_masks=False,
     **profile,
 ):
-    """Write a GeoTIFF labelled like the LM originals: R, G, B, then undefined."""
+    """Write a GeoTIFF labelled like the LM originals: R, G, B, then undefined.
+
+    ``mask`` adds an internal per-dataset mask; ``band_masks`` adds a ``.msk``
+    sidecar holding one mask per band, which GDAL reads with the file.
+    """
     bands, height, width = data.shape
     colors = (colorinterp or LM_COLORS + [ColorInterp.undefined] * bands)[:bands]
     if bands > 3 and ColorInterp.alpha not in colors:
@@ -79,6 +86,24 @@ def write_tiff(
             dst.colorinterp = colors
             if mask:
                 dst.write_mask(np.full((height, width), 255, dtype=np.uint8))
+    if band_masks:
+        masks = np.full((bands, height, width), 255, dtype=np.uint8)
+        masks[:, 0, 0] = 0
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", NotGeoreferencedWarning)
+            with RASTERIO_OPEN(
+                f"{path}.msk",
+                "w",
+                driver="GTiff",
+                width=width,
+                height=height,
+                count=bands,
+                dtype="uint8",
+            ) as dst:
+                dst.write(masks)
+                dst.update_tags(
+                    **{f"INTERNAL_MASK_FLAGS_{b}": "0" for b in range(1, bands + 1)}
+                )
     with RASTERIO_OPEN(path) as src:
         assert list(src.colorinterp) == colors
     return path
@@ -231,6 +256,7 @@ REFUSALS = {
         "alpha",
     ),
     "internal mask": (dict(spektraltyp="rgb", mask=True), "mask"),
+    "per-band masks": (dict(spektraltyp="rgb", band_masks=True), "mask"),
     "other CRS": (dict(spektraltyp="rgb", crs="EPSG:3021"), "CRS"),
     "no CRS": (dict(spektraltyp="rgb", crs=None), "CRS"),
     "tile in other CRS": (
