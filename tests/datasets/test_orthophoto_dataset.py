@@ -21,7 +21,9 @@ from rasterio.io import MemoryFile
 from requests.structures import CaseInsensitiveDict
 
 import dtcc_core.datasets as datasets
-from dtcc_core.datasets.dataset import DatasetUpstreamError
+import dtcc_core.io as dtcc_io
+from dtcc_core.datasets.dataset import DatasetDescriptor, DatasetUpstreamError
+from dtcc_core.datasets.package import export_model_package, load_model_package
 from dtcc_core.datasets.publish import _validate_upload_package
 from dtcc_core.datasets.schema import DatasetContext
 from dtcc_core.datasets.orthophoto import OrthophotoArgs, OrthophotoDataset
@@ -30,7 +32,7 @@ from dtcc_core.io import raster_tiles
 from dtcc_core.io.data import cache as data_cache
 from dtcc_core.io.data import orthophoto as client
 from dtcc_core.io.raster_tiles import READ_OVERHEAD_BYTES, WorkingMemoryError
-from dtcc_core.model import Bounds, Raster
+from dtcc_core.model import Bounds, Raster, exchange
 from dtcc_core.model.values.raster_tiles import RasterTileCollection
 from tests.datasets.test_dataset_publish import RecordingUploader
 
@@ -925,6 +927,247 @@ def test_complete_or_canonical_packages_do_not_warn(server, tmp_path):
         warnings.simplefilter("error")
         complete.export(tmp_path / "complete")
         partial.export(tmp_path / "canonical", canonical=True)
+
+
+# Export paths: what each one carries
+
+TWO_CELLS = (X0, Y0, X0 + 4.0, Y0 + 2.0)
+
+
+def serve_black_and_gap(server, tmp_path):
+    """Cell 0 holds valid black (RGB 0, NIR 5) and nodata 0; cell 1 is a gap."""
+    data = np.zeros((4, 4, 4), dtype=np.uint8)
+    data[3, :, :2] = 5
+    data[0, 0, 0] = 200
+    server.add("a", cell(0), tiff(tmp_path, cell(0), data=data, nodata=0))
+
+
+def written_tiff(directory):
+    (path,) = Path(directory).rglob("*.tif")
+    return path
+
+
+def extracted_tiff(archive_path, directory):
+    with zipfile.ZipFile(archive_path) as archive:
+        (name,) = [name for name in archive.namelist() if name.endswith(".tif")]
+        archive.extract(name, directory)
+    return Path(directory) / name
+
+
+TIFF_PATHS = {
+    "format tif": lambda raster, out: (
+        out.mkdir(),
+        (out / "o.tif").write_bytes(call(bounds=TWO_CELLS, format="tif")),
+    )
+    and out / "o.tif",
+    "descriptor export": lambda raster, out: export(
+        out / "o.tif", bounds=TWO_CELLS
+    ).path,
+    "descriptor publish": lambda raster, out: written_tiff(
+        datasets.orthophoto.publish(
+            dataset_key="orthophoto-test", format="tif", bounds=TWO_CELLS,
+            server_url=BASE, output_dir=out, keep_export=True,
+            uploader=RecordingUploader(),
+        )
+        and out
+    ),
+    "save with alpha": lambda raster, out: (
+        out.mkdir(), raster.save(out / "o.tif", alpha=True)
+    )
+    and out / "o.tif",
+    "save": lambda raster, out: (out.mkdir(), raster.save(out / "o.tif"))
+    and out / "o.tif",
+    "legacy package directory": lambda raster, out: written_tiff(
+        raster.export(out / "pkg").path
+    ),
+    "legacy package archive": lambda raster, out: extracted_tiff(
+        raster.export(out / "pkg.dtccpkg").path, out / "extracted"
+    ),
+    "canonical package supplement": lambda raster, out: written_tiff(
+        raster.export(out / "pkg", canonical=True, format="tif").path
+    ),
+}
+LABELLED_ALPHA = {"format tif", "descriptor export", "descriptor publish",
+                  "save with alpha"}
+
+
+@pytest.mark.parametrize("name", TIFF_PATHS, ids=list(TIFF_PATHS))
+def test_every_tiff_path_keeps_the_rgba_pixels(server, tmp_path, name):
+    # Generic paths write band 4 without an alpha label: a documented limitation.
+    serve_black_and_gap(server, tmp_path)
+    raster = call(bounds=TWO_CELLS)
+    data = raster.data
+    alpha = data[..., 3]
+    assert ((data[..., :3] == 0).all(-1) & (alpha == 255)).sum() > 0
+    assert (alpha == 0).sum() > 0
+    path = TIFF_PATHS[name](raster, tmp_path / "out")
+    with rasterio.open(path) as src:
+        assert src.count == 4 and set(src.dtypes) == {"uint8"}
+        assert src.crs.to_epsg() == 3006
+        assert src.transform == raster.georef
+        assert src.nodata is None
+        np.testing.assert_array_equal(np.moveaxis(src.read(), 0, -1), data)
+        assert (src.colorinterp[-1] == ColorInterp.alpha) == (name in LABELLED_ALPHA)
+    np.testing.assert_array_equal(dtcc_io.load_raster(path).data, data)
+
+
+def test_tiff_bytes_carry_no_context_or_paths(server, tmp_path):
+    serve_black_and_gap(server, tmp_path)
+    payload = call(bounds=TWO_CELLS, format="tif")
+    assert type(payload) is bytes
+    with MemoryFile(payload) as memory, memory.open() as src:
+        assert src.tags() == {"AREA_OR_POINT": "Area"}
+        assert src.descriptions == (None, None, None, None)
+    assert str(data_cache.cache_dir).encode() not in payload
+    assert str(tmp_path).encode() not in payload
+    path = tmp_path / "bare.tif"
+    path.write_bytes(payload)
+    assert dtcc_io.load_raster(path).dataset_context is None
+
+
+def forbidden_get(*args, **kwargs):
+    raise AssertionError("no request may be made")
+
+
+@pytest.mark.parametrize("target", ["pkg", "pkg.dtccpkg"])
+def test_canonical_package_keeps_the_calls_context_without_requests(
+    server, tmp_path, monkeypatch, target
+):
+    serve_partial(server, tmp_path)
+    raster = call()
+    monkeypatch.setattr(client.requests, "get", forbidden_get)
+    package = raster.export(tmp_path / target, canonical=True)
+    manifest = package.manifest.model_dump(mode="json")
+    assert manifest["health"]["status"] == "partial"
+    assert manifest["warnings"] == raster.dataset_context.warnings
+    assert str(data_cache.cache_dir) not in json.dumps(manifest)
+    loaded = load_model_package(tmp_path / target)
+    np.testing.assert_array_equal(loaded.data, raster.data)
+    assert loaded.crs == "EPSG:3006"
+    assert loaded.dataset_context == raster.dataset_context
+
+
+@pytest.mark.parametrize("status", ["failed", "empty"])
+def test_failed_and_empty_results_export_canonically(server, tmp_path, status):
+    if status == "failed":
+        server.manifest_failure = FakeResponse(502, "bad gateway")
+    raster = call()
+    raster.export(tmp_path / "pkg", canonical=True)
+    loaded = load_model_package(tmp_path / "pkg")
+    assert loaded.dataset_context.health["status"] == status
+
+
+def test_canonical_packages_of_two_results_keep_their_own_health(server, tmp_path):
+    server.add("a", cell(0), tiff(tmp_path, cell(0)))
+    whole = call()
+    with_gap = call(bounds=TWO_CELLS)
+    with_gap.export(tmp_path / "with_gap", canonical=True)
+    whole.export(tmp_path / "whole", canonical=True)
+    health = [load_model_package(tmp_path / name).dataset_context.health
+              for name in ("whole", "with_gap")]
+    assert [item["coverage_complete"] for item in health] == [True, False]
+
+
+def test_canonical_publish_records_health(server, tmp_path):
+    serve_partial(server, tmp_path)
+    uploader = PackageRecorder()
+    call().publish(dataset_key="orthophoto-test", uploader=uploader, canonical=True)
+    (manifest,) = uploader.calls
+    assert manifest["health"]["status"] == "partial"
+
+
+class ForbiddenUploader:
+    def upload_package(self, **kwargs):
+        raise AssertionError("nothing may be uploaded")
+
+
+EMPTY_TIFF_PATHS = {
+    "save": lambda raster, out: raster.save(out / "o.tif"),
+    "save with alpha": lambda raster, out: raster.save(out / "o.tif", alpha=True),
+    "legacy package directory": lambda raster, out: raster.export(out / "pkg"),
+    "legacy package archive": lambda raster, out: raster.export(out / "o.dtccpkg"),
+    "canonical package supplement": lambda raster, out: raster.export(
+        out / "can", canonical=True, format="tif"
+    ),
+    "publish": lambda raster, out: raster.publish(
+        dataset_key="orthophoto-test", uploader=ForbiddenUploader()
+    ),
+}
+
+
+# Legacy exports warn about the dropped "empty" health before they fail.
+@pytest.mark.filterwarnings("ignore:A legacy v2 Dataset package:UserWarning")
+@pytest.mark.parametrize("name", EMPTY_TIFF_PATHS, ids=list(EMPTY_TIFF_PATHS))
+def test_an_empty_result_writes_no_tiff(server, tmp_path, name):
+    raster = call()
+    assert raster.data.shape == ()
+    out = tmp_path / "out"
+    out.mkdir()
+    with pytest.raises((ValueError, OSError)):
+        EMPTY_TIFF_PATHS[name](raster, out)
+    assert list(out.rglob("*.tif")) == [] and list(out.rglob("*.dtccpkg")) == []
+
+
+@pytest.mark.parametrize("path", ["call", "export", "publish"])
+def test_tiff_after_a_manifest_failure_is_refused(server, tmp_path, path):
+    server.manifest_failure = FakeResponse(502, "bad gateway")
+    out = tmp_path / "out"
+    with pytest.raises(ValueError, match="could not be fetched"):
+        if path == "call":
+            call(format="tif")
+        elif path == "export":
+            export(out / "o.tif")
+        else:
+            datasets.orthophoto.publish(
+                dataset_key="orthophoto-test", format="tif", bounds=cell(0),
+                server_url=BASE, uploader=ForbiddenUploader(),
+            )
+    assert not out.exists()
+
+
+def test_tile_export_is_refused_before_any_request(no_http, tmp_path):
+    kwargs = {"bounds": cell(0), "server_url": BASE, "product": "tiles"}
+    with pytest.raises(ValidationError, match='product="tiles"'):
+        datasets.orthophoto.export(tmp_path / "t.tif", **kwargs)
+    with pytest.raises(ValidationError, match='product="tiles"'):
+        datasets.orthophoto.publish(
+            dataset_key="orthophoto-test", format="tif",
+            uploader=ForbiddenUploader(), **kwargs,
+        )
+    assert list(tmp_path.iterdir()) == []
+
+
+TILE_EXPORTS = {
+    "package": lambda tiles, out: export_model_package(tiles, out / "pkg"),
+    "package as tif": lambda tiles, out: export_model_package(
+        tiles, out / "pkg", format="tif"
+    ),
+    "package as json": lambda tiles, out: export_model_package(
+        tiles, out / "pkg", format="json"
+    ),
+    "canonical package": lambda tiles, out: export_model_package(
+        tiles, out / "pkg", canonical=True
+    ),
+    "canonical encoding": lambda tiles, out: exchange.dumps(tiles),
+    "bytes": lambda tiles, out: DatasetDescriptor.export_to_bytes(tiles, "tif"),
+    "save_raster": lambda tiles, out: dtcc_io.save_raster(tiles, out / "t.tif"),
+}
+
+
+@pytest.mark.parametrize("name", TILE_EXPORTS, ids=list(TILE_EXPORTS))
+def test_tile_collection_export_is_refused_on_every_path(
+    server, tmp_path, monkeypatch, name
+):
+    server.add("a", cell(0), tiff(tmp_path, cell(0)))
+    tiles = call(product="tiles")
+    monkeypatch.setattr(client.requests, "get", forbidden_get)
+    out = tmp_path / "out"
+    out.mkdir()
+    with pytest.raises(Exception) as info:
+        TILE_EXPORTS[name](tiles, out)
+    assert not isinstance(info.value, AssertionError)
+    assert str(data_cache.cache_dir) not in str(info.value)
+    assert [path for path in out.rglob("*") if path.is_file()] == []
 
 
 # Registration
