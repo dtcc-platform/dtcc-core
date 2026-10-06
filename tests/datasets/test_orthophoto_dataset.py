@@ -4,7 +4,9 @@ import json
 import math
 import struct
 import traceback
+import warnings
 import weakref
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -872,6 +874,57 @@ def test_failed_export_writes_nothing(server, tmp_path, strict):
         with pytest.raises(ValueError, match="could not be fetched"):
             export(out / "o.tif")
     assert not out.exists() or list(out.iterdir()) == []
+
+
+class PackageRecorder:
+    def __init__(self):
+        self.calls = []
+
+    def upload_package(self, *, dataset_key, manifest_path, files, manifest,
+                       idempotency_key=None):
+        self.calls.append(manifest)
+        return {"published": dataset_key}
+
+
+def test_legacy_package_of_a_partial_mosaic_warns_and_keeps_warnings(
+    server, tmp_path
+):
+    serve_partial(server, tmp_path)
+    raster = call()
+    uploader = PackageRecorder()
+    exports = [
+        lambda: raster.export(tmp_path / "pkg"),
+        lambda: raster.export(tmp_path / "pkg.dtccpkg"),
+        lambda: raster.publish(dataset_key="orthophoto-test", uploader=uploader),
+    ]
+    for export_package in exports:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            export_package()
+        messages = [str(warning.message) for warning in caught
+                    if issubclass(warning.category, UserWarning)]
+        assert len(messages) == 1
+        assert "'partial'" in messages[0] and "canonical=True" in messages[0]
+    manifest = json.loads((tmp_path / "pkg" / "manifest.json").read_text())
+    with zipfile.ZipFile(tmp_path / "pkg.dtccpkg") as archive:
+        assert json.loads(archive.read("manifest.json")) == manifest
+    assert "Older imagery (a) overlaps b, which failed." in (
+        manifest["presentation"]["warnings"]
+    )
+    assert "health" not in manifest
+    assert uploader.calls[0]["presentation"] == manifest["presentation"]
+
+
+def test_complete_or_canonical_packages_do_not_warn(server, tmp_path):
+    server.add("a", cell(0), tiff(tmp_path, cell(0)))
+    complete = call()
+    assert complete.dataset_context.health["status"] == "complete"
+    serve_partial(server, tmp_path)
+    partial = call(bounds=cell(0))
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        complete.export(tmp_path / "complete")
+        partial.export(tmp_path / "canonical", canonical=True)
 
 
 # Registration

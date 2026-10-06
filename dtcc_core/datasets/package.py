@@ -8,6 +8,7 @@ import json
 import os
 import shutil
 import tempfile
+import warnings
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -145,6 +146,7 @@ def export_model_package(
             f"Cannot infer a safe export format for {type(obj).__name__}. "
             "Pass format= explicitly when a serializer is available."
         )
+    _warn_if_health_is_dropped(context)
 
     if package_format == "directory":
         package_dir = target_path
@@ -184,6 +186,19 @@ def export_model_package(
             files=(target_path,),
             package_format=package_format,
         )
+
+
+def _warn_if_health_is_dropped(context: DatasetContext) -> None:
+    """Warn that a legacy v2 package drops health that is not complete."""
+    health = context.health
+    if health is None or health.get("status") == "complete":
+        return
+    warnings.warn(
+        f"A legacy v2 Dataset package does not record DatasetContext health "
+        f"(status {health.get('status')!r}); pass canonical=True to keep it.",
+        UserWarning,
+        stacklevel=4,
+    )
 
 
 def _write_directory_package(
