@@ -394,10 +394,13 @@ def _check_geotiff(path: Path, item: OrthophotoItem, fail) -> None:
     """Check the header of a downloaded file without reading pixels.
 
     Only the GeoTIFF driver may open the file, so formats that refer to other
-    files or remote sources (such as VRT) are never opened.
+    files or remote sources (such as VRT) are never opened, and GDAL sidecar
+    files beside it (.msk, .ovr, .aux.xml) are not read.
     """
     try:
-        with rasterio.open(path, driver="GTiff") as source:
+        with rasterio.Env(GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR"), rasterio.open(
+            path, driver="GTiff"
+        ) as source:
             shape = (source.width, source.height, source.count)
             epsg = source.crs.to_epsg() if source.crs is not None else None
             bounds = tuple(source.bounds)

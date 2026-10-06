@@ -52,7 +52,8 @@ class RasterTileReadError(OSError):
 def load_tile(tile: RasterTile, *, max_memory_bytes: int) -> Raster:
     """Load every band of a local tile file into an (H, W, C) Raster.
 
-    The header is admitted and the working memory estimated before any pixel is
+    Only the file itself is read; GDAL sidecar files beside it are ignored. The
+    header is admitted and the working memory estimated before any pixel is
     read. Local filesystem errors propagate unchanged; Rasterio failures to open
     or decode the file raise RasterTileReadError. The file is never modified and
     no network access is made.
@@ -72,7 +73,11 @@ def load_tile(tile: RasterTile, *, max_memory_bytes: int) -> Raster:
     # OSError before Rasterio sees the path.
     with open(path, "rb"):
         pass
-    with rasterio.Env(GDAL_CACHEMAX=READ_OVERHEAD_BYTES):
+    # EMPTY_DIR keeps GDAL from reading sidecar files (.msk, .ovr, .aux.xml)
+    # next to the tile, so only the original file's bytes are read.
+    with rasterio.Env(
+        GDAL_CACHEMAX=READ_OVERHEAD_BYTES, GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR"
+    ):
         try:
             source = rasterio.open(path, driver="GTiff")
         except rasterio.errors.RasterioError as error:

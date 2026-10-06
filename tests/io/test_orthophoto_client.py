@@ -862,6 +862,38 @@ def test_vrt_payload_is_never_opened_as_vrt(monkeypatch, tmp_path):
     assert "VRT" not in opened
 
 
+def test_download_check_ignores_sidecar_files(monkeypatch, tmp_path):
+    body = tiff_bytes(tmp_path)
+    real_mkstemp = orthophoto.tempfile.mkstemp
+    sidecars = []
+
+    def mkstemp_with_sidecar(**kwargs):
+        fd, name = real_mkstemp(**kwargs)
+        sidecar = Path(f"{name}.aux.xml")
+        sidecar.write_text(
+            "<PAMDataset><GeoTransform>0, 0.5, 0, 0, 0, -0.5</GeoTransform>"
+            "</PAMDataset>"
+        )
+        sidecars.append(sidecar)
+        return fd, name
+
+    monkeypatch.setattr(orthophoto.tempfile, "mkstemp", mkstemp_with_sidecar)
+    opened = []
+    real_open = rasterio.open
+
+    def recording_open(*args, **kwargs):
+        dataset = real_open(*args, **kwargs)
+        opened.append(dataset.files)
+        return dataset
+
+    monkeypatch.setattr(orthophoto.rasterio, "open", recording_open)
+    install(monkeypatch, tile_response(body))
+    path = download(tmp_path / "cache")
+    assert path.read_bytes() == body
+    assert len(opened) == 1 and len(opened[0]) == 1
+    assert sidecars[0].is_file()
+
+
 def test_tiff_for_wrong_cell_is_invalid_payload(monkeypatch, tmp_path):
     shifted = tuple(v + 2500.0 if i % 2 == 0 else v for i, v in enumerate(CELL))
     response = tile_response(tiff_bytes(tmp_path, bounds=shifted))

@@ -163,10 +163,12 @@ def opened(monkeypatch):
             "args": args,
             "kwargs": kwargs,
             "cache": get_gdal_config("GDAL_CACHEMAX"),
+            "readdir": get_gdal_config("GDAL_DISABLE_READDIR_ON_OPEN"),
         }
         calls.append(call)
         dataset = RASTERIO_OPEN(*args, **kwargs)
         call["driver"] = dataset.driver
+        call["files"] = dataset.files
         return dataset
 
     monkeypatch.setattr(rasterio, "open", recording_open)
@@ -256,7 +258,6 @@ REFUSALS = {
         "alpha",
     ),
     "internal mask": (dict(spektraltyp="rgb", mask=True), "mask"),
-    "per-band masks": (dict(spektraltyp="rgb", band_masks=True), "mask"),
     "other CRS": (dict(spektraltyp="rgb", crs="EPSG:3021"), "CRS"),
     "no CRS": (dict(spektraltyp="rgb", crs=None), "CRS"),
     "tile in other CRS": (
@@ -334,6 +335,30 @@ def test_nodata_must_be_common_to_every_band(
     with pytest.raises(RasterTileLayoutError) as info:
         load(tile)
     assert reason in info.value.reason
+
+
+def write_aux_nodata(path, value=7):
+    Path(f"{path}.aux.xml").write_text(
+        '<PAMDataset><PAMRasterBand band="1">'
+        f"<NoDataValue>{value}</NoDataValue></PAMRasterBand></PAMDataset>"
+    )
+
+
+@pytest.mark.parametrize("sidecar", ["msk", "aux.xml"])
+def test_sidecar_files_are_ignored(tmp_path, opened, sidecar):
+    tile, data = written_tile(tmp_path, "rgb", band_masks=sidecar == "msk")
+    if sidecar == "aux.xml":
+        write_aux_nodata(tile.path)
+    with RASTERIO_OPEN(tile.path) as src:
+        # GDAL reads the sidecar unless told to ignore the directory.
+        assert f"{tile.path}.{sidecar}" in src.files
+    readdir_before = get_gdal_config("GDAL_DISABLE_READDIR_ON_OPEN")
+    raster = load(tile)
+    np.testing.assert_array_equal(raster.data, data.transpose(1, 2, 0))
+    assert math.isnan(raster.nodata)
+    assert [call["files"] for call in opened] == [[str(tile.path)]]
+    assert opened[0]["readdir"] == "EMPTY_DIR"
+    assert get_gdal_config("GDAL_DISABLE_READDIR_ON_OPEN") == readdir_before
 
 
 @pytest.mark.parametrize("edge", range(4))
