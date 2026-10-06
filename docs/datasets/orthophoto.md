@@ -110,18 +110,22 @@ normalized service URL; another spelling of the same URL uses a separate cache.
 
 Cached files are kept until removed, with no expiry or revalidation; new
 acquisitions are still found because the item list is fetched on every call. A
-cached file that cannot be decoded is reported as an `invalid_payload` failure
-and is not downloaded again; delete it to fetch it anew. Deleting the
-`orthophoto` folder clears only orthophotos, while `dtcc_core.io.empty_cache()`
-clears everything under `cache_dir`, the shared DTCC data cache.
+cached file is not checked again. If it cannot be decoded, the mosaic reports an
+`invalid_payload` failure for it, while `product="tiles"` returns it as listed
+and its `tile.load()` raises `RasterTileReadError`
+(`dtcc_core.io.raster_tiles`). Neither downloads it again; delete it to fetch it
+anew. Deleting the `orthophoto` folder clears only orthophotos, while
+`dtcc_core.io.empty_cache()` clears everything under `cache_dir`, the shared DTCC
+data cache.
 
 ## Mixed imagery and gaps
 
 The newest tile, by acquisition datetime (then collection and id), gives each
 pixel; older tiles fill pixels it leaves empty. A mosaic can therefore mix
-acquisition dates and resolutions; pass `year=` or `collection=` to keep one
-acquisition. Each item's `bbox` is its grid cell, not its imaged area: a tile
-partly imaged without declared nodata can cover older imagery with black.
+acquisition dates and resolutions; `year=` and `collection=` narrow the
+selection, but a year or a collection can still hold several acquisition dates.
+Each item's `bbox` is its grid cell, not its imaged area: a tile partly imaged
+without declared nodata can cover older imagery with black.
 
 The result's `dataset_context` records each source item (with the pixels it
 contributed), the collection period and the grid. Its `health` has `status`,
