@@ -1295,6 +1295,116 @@ def test_a_long_transfer_reports_about_once_per_percent(server, tmp_path, events
     assert len(transfer_states(events)) <= 105
 
 
+RASTER_PHASES = {"discovery": 0.05, "transfer": 0.6, "headers": 0.05, "mosaic": 0.25}
+TILE_BYTES = 659_037_310  # an original 2025 tile
+
+
+def drive_transfer(sizes, step, with_length=True):
+    """Transfer states for logical downloads of ``sizes`` bytes in ``step``s.
+
+    Each state carries the call's unrounded percent as ``exact``.
+    """
+    recorded = []
+
+    def record(state):
+        exact = progress_module.get_progress().state.overall_percent
+        recorded.append({**state, "exact": exact})
+
+    items = [listed_item("orto-2025", f"t{index}") for index in range(len(sizes))]
+    with progress_module.ProgressTracker(
+        phases=RASTER_PHASES, callback=record, mode="callback",
+        min_update_interval=0,
+    ) as tracker:
+        with tracker.phase("discovery"):
+            pass
+        progress = orthophoto_module._transfer_progress(items, tracker, [], [])
+        with tracker.phase("transfer"):
+            count = len(sizes)
+            for index, size in enumerate(sizes):
+                progress(index, count, 0, None)
+                for written in [*range(0, size, step), size]:
+                    progress(index, count, written, size if with_length else None)
+            progress(count, count, 0, None)
+    return transfer_states(recorded)
+
+
+def whole_percents(states):
+    return {int(state["percent"]) for state in states}
+
+
+# Besides one report per whole percent of the call: the phase's entry and exit
+# and its completion message.
+BOUNDARY_STATES = 3
+
+
+@pytest.mark.parametrize(
+    "sizes, step",
+    [([TILE_BYTES], 1024**2), ([1000] * 300, 100)],
+    ids=["one full-size tile", "300 small tiles"],
+)
+def test_transfer_reports_once_per_whole_percent_of_the_call(sizes, step):
+    states = drive_transfer(sizes, step)
+    assert len(whole_percents(states)) > 60
+    assert len(states) <= len(whole_percents(states)) + BOUNDARY_STATES
+    count = len(sizes)
+    assert states[-1]["message"] == f"{count} of {count} original orthophotos ready"
+    # Between the phase's entry and its completion message, each report is the
+    # first in a new whole percent of the call (rounded for float noise at exact
+    # boundaries).
+    reports = [int(round(state["exact"], 6)) for state in states[1:-2]]
+    assert reports == sorted(set(reports))
+
+
+def test_a_report_starts_each_whole_percent_of_the_call():
+    recorded = []
+    with progress_module.ProgressTracker(
+        phases=RASTER_PHASES, callback=recorded.append, mode="callback",
+        min_update_interval=0,
+    ) as tracker:
+        with tracker.phase("discovery"):
+            pass
+        with tracker.phase("transfer"):
+            report = orthophoto_module._Reporter(tracker, "transfer")
+            # Transfer starts at 5.26% of the call and spans 63.2%: 1.4% and
+            # 1.9% of it are 6.15% and 6.46% of the call, one whole percent.
+            for percent in (0.0, 1.4, 1.9, 3.0):
+                report(percent, f"at {percent}")
+    messages = [state["message"] for state in transfer_states(recorded)]
+    assert messages[1:-1] == ["at 0.0", "at 1.4", "at 3.0"]
+
+
+def test_a_full_size_transfer_without_length_reports_every_byte_step():
+    states = drive_transfer([TILE_BYTES], 1024**2, with_length=False)
+    steps = TILE_BYTES // orthophoto_module.BYTES_MESSAGE_STEP
+    assert steps < len(states) <= steps + 1 + BOUNDARY_STATES
+
+
+def test_a_many_block_mosaic_reports_once_per_whole_percent_of_the_call(
+    server, tmp_path, events, monkeypatch
+):
+    big = cell(0, size=8.0)
+    server.add("a", big, tiff(tmp_path, big, pixel=0.125))
+    monkeypatch.setattr(raster_tiles, "STRIP_BYTES", 600)
+    call(bounds=big)
+    mosaic = [state for state in events if state["phase"] == "mosaic"]
+    assert len(mosaic) > 5
+    done, total = mosaic[-1]["message"].removeprefix("mosaic: ").split(" of ")
+    assert done == total
+    assert len(events) <= (
+        len(whole_percents(events)) + BOUNDARY_STATES * len(phases_seen(events))
+    )
+
+
+def test_transfer_completion_counts_only_ready_originals(server, tmp_path, events):
+    server.add("a", cell(0), tiff(tmp_path, cell(0)))
+    href = server.add("b", cell(1), tiff(tmp_path, cell(1)))
+    server.file_failures[href] = FakeResponse(404, "missing")
+    call(bounds=TWO_CELLS)
+    assert transfer_states(events)[-1]["message"] == (
+        "1 of 2 original orthophotos ready"
+    )
+
+
 def test_cached_call_completes_the_transfer_without_requests(server, tmp_path,
                                                              events):
     server.add("a", cell(0), tiff(tmp_path, cell(0)))

@@ -190,9 +190,9 @@ an enclosing `ProgressTracker(callback=...)`. The phases are `discovery`,
 `transfer`, `headers` and `mosaic` (plus `export` with `format="tif"`); tiles
 report `discovery` and `transfer`. Transfer advances per item and, within an
 item, by the share of its `Content-Length`; without that header it holds and
-the message gives the bytes received. Downloads report when the item, the whole
-percent or each 8 MiB received changes; the mosaic reports per header and per
-block.
+the message gives the bytes received. Updates are sent when the call's whole
+percent changes, about 100 per call, and without `Content-Length` also every
+8 MiB received; the end of the transfer gives the number of originals ready.
 
 Without a subscriber, progress is drawn on a terminal and printed as
 `##PROGRESS##` JSON lines on standard error otherwise. `DTCC_PROGRESS_MODE`

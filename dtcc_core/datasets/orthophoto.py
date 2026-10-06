@@ -329,7 +329,7 @@ class OrthophotoDataset(DatasetDescriptor):
                     timeout=timeout,
                     cache_root=data_cache.cache_dir,
                     failures=failures,
-                    progress=_transfer_progress(items, raised),
+                    progress=_transfer_progress(items, tracker, failures, raised),
                 )
             except client.OrthophotoClientError as error:
                 # A subscriber's own error is not an upstream failure.
@@ -345,6 +345,9 @@ class OrthophotoDataset(DatasetDescriptor):
         with ExitStack() as phase:
             phase.enter_context(_phase(tracker, "headers", "Checking headers"))
             stage = ["headers"]
+            reporters = {
+                name: _Reporter(tracker, name) for name in ("headers", "mosaic")
+            }
 
             def enter_mosaic():
                 phase.close()
@@ -355,7 +358,8 @@ class OrthophotoDataset(DatasetDescriptor):
                 if event == "mosaic" and stage[0] == "headers":
                     enter_mosaic()
                 percent = 100.0 * done / total if total else 100.0
-                report_progress(percent=percent, message=f"{event}: {done} of {total}")
+                # The last event of a stage is always reported.
+                reporters[event](percent, f"{event}: {done} of {total}", done == total)
 
             mosaic = build_mosaic(
                 tiles.tiles,
@@ -484,31 +488,52 @@ def _phase(tracker, name: str, message: str):
     phase.__exit__(None, None, None)
 
 
-def _transfer_progress(items, raised: list):
+class _Reporter:
+    """Reports progress in one tracker phase when the call's whole percent changes.
+
+    A report with a different ``detail`` goes out even within the same percent.
+    """
+
+    def __init__(self, tracker, name: str):
+        phases = tracker.state.phases
+        names = list(phases)
+        self._start = sum(phases[other].weight for other in names[: names.index(name)])
+        self._weight = phases[name].weight
+        self._last = None
+
+    def __call__(self, percent: float, message: str, detail=None) -> None:
+        key = (int(100 * self._start + self._weight * percent), detail)
+        if key == self._last:
+            return
+        self._last = key
+        report_progress(percent=percent, message=message)
+
+
+def _transfer_progress(items, tracker, failures, raised: list):
     """A download_items callback reporting per item, and per byte with a length.
 
     The phase advances by item, and within an item by the share of its
     Content-Length received; without one it holds and the message gives the
-    bytes received. Reports go out only when the item, the whole percent or the
-    BYTES_MESSAGE_STEP count of bytes changes. Errors raised while reporting
-    are collected in ``raised``.
+    bytes received. Reports go out when the call's whole percent changes and,
+    without a Content-Length, every BYTES_MESSAGE_STEP bytes; the last one
+    counts the originals ready, leaving out the ``failures`` recorded. Errors
+    raised while reporting are collected in ``raised``.
     """
-    last = [None]
+    report = _Reporter(tracker, "transfer")
 
     def progress(index, count, written, expected):
         fraction = min(written, expected) / expected if expected else 0.0
         percent = 100.0 * (index + fraction) / count if count else 100.0
-        key = (index, int(percent), written // BYTES_MESSAGE_STEP)
-        if key == last[0]:
-            return
-        last[0] = key
         if index < count:
             item = items[index]
             message = f"{item.collection}/{item.id}: {written / 1024**2:.1f} MiB"
+            detail = written // BYTES_MESSAGE_STEP if expected is None else 0
         else:
-            message = f"{count} original orthophotos ready"
+            ready = count - len(failures or ())
+            message = f"{ready} of {count} original orthophotos ready"
+            detail = "ready"
         try:
-            report_progress(percent=percent, message=message)
+            report(percent, message, detail)
         except BaseException as error:
             raised.append(error)
             raise
