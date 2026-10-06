@@ -351,6 +351,11 @@ def download_items(
 def _normalize_server_url(server_url: str) -> str:
     # No message repeats the URL, since any part of it may hold a credential. A
     # parser error is replaced outside its handler, so nothing chains to it.
+    # The parser ignores some control characters, but the URL is used as given.
+    if any(ord(char) <= 0x20 or ord(char) == 0x7F for char in server_url):
+        raise ValueError(
+            "Orthophoto server URL must not contain spaces or control characters"
+        )
     try:
         parts = urlsplit(server_url)
         parts.port  # raises ValueError unless the port is a number in range

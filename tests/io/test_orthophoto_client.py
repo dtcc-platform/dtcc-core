@@ -272,6 +272,42 @@ def test_server_url_with_invalid_port_is_rejected_before_any_request(
     assert fake.calls == []
 
 
+# The parser ignores some of these characters, but the URL is used as given.
+SPACED_URLS = [
+    "http://tiles.test\n",
+    "\thttp://tiles.test",
+    "http://tiles.\r\ntest",
+    "\x00http://tiles.test",
+    "http://tiles.test ",
+    " http://tiles.test",
+    "http://tiles.test/a b",
+    "http://tiles.test\x7f",
+]
+
+
+@pytest.mark.parametrize(
+    "source, url",
+    [("explicit", url) for url in SPACED_URLS]
+    # An environment value cannot hold a NUL character.
+    + [("environment", url) for url in SPACED_URLS if "\x00" not in url],
+)
+def test_server_url_with_spaces_or_control_characters_is_rejected(
+    monkeypatch, url, source
+):
+    fake = install(monkeypatch)
+    if source == "environment":
+        monkeypatch.setenv("DTCC_ORTHOPHOTO_URL", url)
+        url_argument = None
+    else:
+        url_argument = url
+    with pytest.raises(ValueError, match="spaces or control characters") as info:
+        resolve_server_url(url_argument)
+    assert info.value.__context__ is None
+    with pytest.raises(ValueError):
+        fetch(server_url=url)
+    assert fake.calls == []
+
+
 def test_prefixed_service_keeps_prefix_for_items_and_files(monkeypatch):
     fake = install(monkeypatch, manifest_response([item_json()]))
     (item,) = fetch(server_url="https://host/proxy/lm/")
