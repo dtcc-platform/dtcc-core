@@ -62,6 +62,13 @@ contract regression. Non-transient `DatasetUpstreamError` failures such as
 `http_4xx`, malformed provider payloads, invalid parameters, or untyped
 exceptions fail the live run and should be investigated.
 
+The `live-dataset-checks` GitHub workflow runs `tests/datasets/live` every
+Monday and on manual dispatch, and writes a per-test status table to the run
+summary. `tests/datasets/live/test_datasets_live.py` covers each downloading
+dataset over a small Gothenburg bbox. Credentialed transit tests read
+`TRAFIKLAB_API_KEY` and `VASTTRAFIK_AUTHENTICATION_KEY` from repository secrets
+and skip when they are unset.
+
 ## Table Catalog QA
 
 Concrete tangible-table dataset packages are generated in the tangible-table
