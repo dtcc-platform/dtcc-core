@@ -264,6 +264,12 @@ class OrthophotoDataset(DatasetDescriptor):
         """Return the mosaic, the tile collection or GeoTIFF bytes."""
         return self._realize(args)[0]
 
+    def _export_payload(self, args):
+        """Build once and add this call's context to the export sidecar."""
+        result, report = self._realize(args)
+        context = self._context(args, report)
+        return result, {"dataset_context": context.model_dump(mode="json")}
+
     def _realize(self, args):
         from dtcc_core.io.data import cache as data_cache
         from dtcc_core.io.data import orthophoto as client

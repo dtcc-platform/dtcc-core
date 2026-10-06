@@ -651,6 +651,14 @@ class DatasetDescriptor(ABC):
         """Return dataset-specific metadata for an exported artifact."""
         return {}
 
+    def _export_payload(self, args) -> tuple[Any, dict[str, Any]]:
+        """Return the serialized payload and extra sidecar fields for one export.
+
+        The default builds the payload and adds nothing. A dataset whose
+        manifest needs the realization's results overrides this to build once.
+        """
+        return self.build(args), {}
+
     @staticmethod
     def _sanitize_publish_filename(value: str) -> str:
         filename = str(value).strip().replace(" ", "_").replace("-", "_").lower()
@@ -755,7 +763,7 @@ class DatasetDescriptor(ABC):
         request_kwargs = dict(kwargs)
         request_kwargs["format"] = output_format
         args = self.validate(request_kwargs)
-        payload = self.build(args)
+        payload, manifest_extra = self._export_payload(args)
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         if isinstance(payload, str):
@@ -783,6 +791,7 @@ class DatasetDescriptor(ABC):
                 title=title,
                 description=description,
             )
+            exported_manifest.update(manifest_extra)
             exported_manifest_path.parent.mkdir(parents=True, exist_ok=True)
             exported_manifest_path.write_text(
                 json.dumps(exported_manifest, indent=2) + "\n",

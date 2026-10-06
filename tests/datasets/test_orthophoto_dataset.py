@@ -14,11 +14,14 @@ import rasterio
 import requests
 from affine import Affine
 from pydantic import ValidationError
+from rasterio.enums import ColorInterp
 from rasterio.io import MemoryFile
 from requests.structures import CaseInsensitiveDict
 
 import dtcc_core.datasets as datasets
 from dtcc_core.datasets.dataset import DatasetUpstreamError
+from dtcc_core.datasets.publish import _validate_upload_package
+from dtcc_core.datasets.schema import DatasetContext
 from dtcc_core.datasets.orthophoto import OrthophotoArgs, OrthophotoDataset
 from dtcc_core.io import raster as raster_io
 from dtcc_core.io import raster_tiles
@@ -27,6 +30,7 @@ from dtcc_core.io.data import orthophoto as client
 from dtcc_core.io.raster_tiles import READ_OVERHEAD_BYTES, WorkingMemoryError
 from dtcc_core.model import Bounds, Raster
 from dtcc_core.model.values.raster_tiles import RasterTileCollection
+from tests.datasets.test_dataset_publish import RecordingUploader
 
 # The package attribute is the registered dataset; the module is imported directly.
 orthophoto_module = importlib.import_module("dtcc_core.datasets.orthophoto")
@@ -756,6 +760,118 @@ def test_successive_and_nested_calls_have_independent_contexts(server, tmp_path)
     assert contexts[2].health["coverage_complete"] is False
     assert contexts[1].health == contexts[0].health
     assert dict(vars(descriptor)) == before
+
+
+# Export
+
+
+def serve_partial(server, tmp_path):
+    """Item a (2021) is served; b (2022, same cell) fails with 503."""
+    server.add("a", cell(0), tiff(tmp_path, cell(0), tag=1), year=2021)
+    href = server.add("b", cell(0), tiff(tmp_path, cell(0), tag=2), year=2022)
+    server.file_failures[href] = FakeResponse(503, "busy")
+
+
+def export(path, **kwargs):
+    kwargs.setdefault("server_url", BASE)
+    kwargs.setdefault("bounds", cell(0))
+    return datasets.orthophoto.export(path, **kwargs)
+
+
+def test_export_sidecar_carries_this_calls_context(server, tmp_path):
+    serve_partial(server, tmp_path)
+    direct = call().dataset_context
+    server.calls.clear()
+    path = tmp_path / "out" / "o.tif"
+    result = export(path)
+    assert len(server.manifest_calls()) == 1
+    assert result.manifest_path == tmp_path / "out" / "o.manifest.json"
+    assert json.loads(result.manifest_path.read_text()) == result.manifest
+    context = DatasetContext.model_validate(result.manifest["dataset_context"])
+    assert context.health["status"] == "partial"
+    assert context.health["upstream_error_count"] == 1
+    assert [source["id"] for source in item_sources(context)] == ["a"]
+    assert "Older imagery (a) overlaps b, which failed." in context.warnings
+    assert context.request.parameters["format"] == "tif"
+    assert context.health == direct.health
+    assert item_sources(context) == item_sources(direct)
+    assert context.warnings == direct.warnings
+    with rasterio.open(path) as src:
+        assert src.count == 4 and src.colorinterp[-1] == ColorInterp.alpha
+
+
+def test_export_sidecar_has_no_cache_paths(server, tmp_path):
+    server.add("a", cell(0), tiff(tmp_path, cell(0), tag=1), year=2010)
+    server.add("bad", cell(0), tiff(tmp_path, cell(0), bands=3), year=2020)
+    server.add("broken", cell(0, size=4.0),
+               tiff(tmp_path, cell(0, size=4.0), pixel=0.125, damaged_block=2),
+               year=2021)
+    server.add("html", cell(0), b"<html>bad gateway</html>", year=2022)
+    result = export(tmp_path / "out" / "o.tif")
+    text = result.manifest_path.read_text()
+    assert result.manifest["dataset_context"]["health"]["upstream_error_count"] == 3
+    assert str(data_cache.cache_dir) not in text
+    assert str(tmp_path) not in text
+    assert ".part" not in text
+
+
+def test_nested_exports_have_independent_sidecars(server, tmp_path):
+    server.add("a", cell(0), tiff(tmp_path, cell(0), tag=1))
+    descriptor = datasets.orthophoto
+    before = dict(vars(descriptor))
+    nested = []
+
+    def export_inside(url):
+        if url.endswith("/items") and server.before is not None:
+            server.before = None
+            nested.append(export(tmp_path / "inner.tif",
+                                 bounds=(X0, Y0, X0 + 4.0, Y0 + 2.0)))
+
+    server.before = export_inside
+    outer = export(tmp_path / "outer.tif")
+    server.before = None
+    health = [result.manifest["dataset_context"]["health"]
+              for result in (outer, nested[0])]
+    assert health[0]["coverage_complete"] is True
+    assert health[1]["coverage_complete"] is False
+    assert dict(vars(descriptor)) == before
+
+
+def test_publish_uploads_a_sidecar_with_context(server, tmp_path):
+    serve_partial(server, tmp_path)
+    uploader = RecordingUploader()
+    datasets.orthophoto.publish(
+        dataset_key="orthophoto-test", format="tif", bounds=cell(0),
+        server_url=BASE, output_dir=tmp_path / "package", keep_export=True,
+        uploader=uploader,
+    )
+    (upload,) = uploader.calls
+    assert len(server.manifest_calls()) == 1
+    assert upload["manifest"]["dataset_context"]["health"]["status"] == "partial"
+    _validate_upload_package(
+        upload["manifest_path"], upload["files"], manifest=upload["manifest"]
+    )
+
+
+def test_export_without_manifest_writes_only_the_tiff(server, tmp_path):
+    server.add("a", cell(0), tiff(tmp_path, cell(0)))
+    out = tmp_path / "out"
+    result = export(out / "o.tif", manifest=False)
+    assert result.manifest is None and result.manifest_path is None
+    assert [path.name for path in out.iterdir()] == ["o.tif"]
+
+
+@pytest.mark.parametrize("strict", [False, True])
+def test_failed_export_writes_nothing(server, tmp_path, strict):
+    server.manifest_failure = FakeResponse(502, "bad gateway")
+    out = tmp_path / "out"
+    if strict:
+        with pytest.raises(DatasetUpstreamError):
+            export(out / "o.tif", strict_live=True)
+    else:
+        with pytest.raises(ValueError, match="could not be fetched"):
+            export(out / "o.tif")
+    assert not out.exists() or list(out.iterdir()) == []
 
 
 # Registration
