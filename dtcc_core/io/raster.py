@@ -93,11 +93,26 @@ def _save_json_raster(raster, path):
     path.write_text(raster.to_json())
 
 
-def _save_geotif(raster, path):
+# Largest array copied at once when writing (height, width, channels) data.
+WRITE_STRIP_BYTES = 8 * 1024**2
+
+
+def _save_geotif(raster, path, alpha=False):
+    """Write a GeoTIFF with the raster's CRS and nodata, if set.
+
+    (height, width, channels) data is written band by band in windows of at
+    most WRITE_STRIP_BYTES, so no band-first copy of the whole array is made.
+    With ``alpha=True`` the last band is labelled alpha, which GeoTIFF supports
+    for two bands (gray, alpha) or four (red, green, blue, alpha); otherwise no
+    band is, whatever the band count. A CRS of "" or "None" (how the loader
+    records a file without one) is not written.
+    """
+    if alpha and raster.channels not in (2, 4):
+        raise ValueError(
+            f"alpha needs a raster with 2 or 4 bands, not {raster.channels}"
+        )
     data = raster.data
-    with rasterio.open(
-        path,
-        "w",
+    profile = dict(
         driver="GTiff",
         height=raster.height,
         width=raster.width,
@@ -105,12 +120,43 @@ def _save_geotif(raster, path):
         dtype=data.dtype,
         transform=raster.georef,
         compress="DEFLATE",
-    ) as dst:
+    )
+    if raster.crs and raster.crs != "None":
+        profile["crs"] = raster.crs
+    if not np.isnan(raster.nodata):
+        profile["nodata"] = raster.nodata
+    if raster.channels > 1:
+        profile["alpha"] = "YES" if alpha else "UNSPECIFIED"
+    with rasterio.open(path, "w", **profile) as dst:
         if raster.channels == 1:
             dst.write(data, 1)
         else:
-            dst.write(data, list(range(1, raster.channels + 1)))
+            _write_bands_in_windows(dst, data)
     return True
+
+
+def _write_bands_in_windows(dst, data):
+    height, width, channels = data.shape
+    itemsize = data.dtype.itemsize
+    cols = max(1, min(width, WRITE_STRIP_BYTES // itemsize))
+    rows = max(1, min(height, WRITE_STRIP_BYTES // (cols * itemsize)))
+    # One buffer for every window; each window uses a contiguous prefix of it.
+    # Rasterio writes a C-contiguous (1, rows, cols) array with a list of band
+    # indexes without copying it; a 2-D array would be copied.
+    buffer = np.empty(rows * cols, dtype=data.dtype)
+    for band in range(channels):
+        for row in range(0, height, rows):
+            for col in range(0, width, cols):
+                source = data[row : row + rows, col : col + cols, band]
+                block = buffer[: source.size].reshape((1, *source.shape))
+                np.copyto(block[0], source)
+                dst.write(
+                    block,
+                    [band + 1],
+                    window=rasterio.windows.Window(
+                        col, row, source.shape[1], source.shape[0]
+                    ),
+                )
 
 
 def _save_image(raster, path):
