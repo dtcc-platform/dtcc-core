@@ -1,6 +1,7 @@
 """Budgeted loading and mosaicking of file-backed raster tiles into Rasters."""
 
 import math
+import os
 from collections.abc import Sequence
 from dataclasses import dataclass
 from fractions import Fraction
@@ -528,22 +529,38 @@ def _carve(arena, offset: int, shape, dtype):
 def _composite(plan: _Plan, output, arena, counter) -> None:
     """Fill output pixels that are still empty from one tile, block by block.
 
-    The handle that is read is admitted and checked against the plan first: the
-    full resolution with the mosaic rules, or an overview level with the same
-    rules except square pixels (overview spacing may differ between X and Y).
+    The reopened full resolution is admitted with the mosaic rules and checked
+    against the plan. An overview level is then opened while the full resolution
+    stays open, admitted with the same rules except square pixels (overview
+    spacing may differ between X and Y) and checked against the plan. The file's
+    identity must not change across both opens: cache files are only replaced,
+    never rewritten, and the open full resolution keeps its inode from being
+    reused, so both handles read the admitted file.
     counter[0] counts the pixels filled, including when a later block fails.
     """
     _preflight(plan.path)
-    if plan.level.index is None:
-        with _open_source(plan.path) as source:
-            nodata = _admit_mosaic(plan.tile, plan.path, source)
-            _check_unchanged(plan, source, plan.base)
+    before = _identity(plan.path)
+    with _open_source(plan.path) as source:
+        nodata = _admit_mosaic(plan.tile, plan.path, source)
+        _check_unchanged(plan, source, plan.base)
+        if plan.level.index is None:
             _blend(plan, source, _sample_value(nodata), output, arena, counter)
-        return
-    with _open_source(plan.path, overview_level=plan.level.index) as level:
-        nodata = _admit(plan.tile, plan.path, level, MOSAIC_LAYOUTS)
-        _check_unchanged(plan, level, plan.level)
-        _blend(plan, level, _sample_value(nodata), output, arena, counter)
+            return
+        with _open_source(plan.path, overview_level=plan.level.index) as level:
+            nodata = _admit(plan.tile, plan.path, level, MOSAIC_LAYOUTS)
+            _check_unchanged(plan, level, plan.level)
+            if _identity(plan.path) != before:
+                raise RasterTileLayoutError(
+                    plan.path,
+                    plan.tile.spektraltyp,
+                    "the file changed while the mosaic was built",
+                )
+            _blend(plan, level, _sample_value(nodata), output, arena, counter)
+
+
+def _identity(path: Path) -> tuple[int, int, int, int]:
+    status = os.stat(path)
+    return (status.st_dev, status.st_ino, status.st_size, status.st_mtime_ns)
 
 
 def _sample_value(nodata: float):

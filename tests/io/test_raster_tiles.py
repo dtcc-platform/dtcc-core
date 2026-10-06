@@ -1438,15 +1438,19 @@ def test_replaced_overview_before_reading_is_a_failure(tmp_path, monkeypatch):
     older = tile_at(grid_tiff(tmp_path / "old.tif", 50, 50, 0.4, tag=1), year=2010)
     path = grid_tiff(tmp_path / "new.tif", 50, 50, 0.4, tag=2, overviews=[2, 4, 8])
     newer = tile_at(path, year=2020)
+    # The same full-resolution geometry, but level 0 is 17 px, not 25.
+    other = grid_tiff(tmp_path / "other.tif", 50, 50, 0.4, tag=2, overviews=[3])
     level_opens = []
 
     def replacing_open(path, *args, **kwargs):
+        dataset = RASTERIO_OPEN(path, *args, **kwargs)
         if Path(path) == newer.path and "overview_level" in kwargs:
             level_opens.append(path)
-            if len(level_opens) == 4:
-                # Same full-resolution geometry; level 0 is now 17 px, not 25.
-                grid_tiff(newer.path, 50, 50, 0.4, tag=2, overviews=[3])
-        return RASTERIO_OPEN(path, *args, **kwargs)
+            if len(level_opens) == 3:
+                # The header pass has read every level: replace the file
+                # before compositing takes its identity.
+                os.replace(other, newer.path)
+        return dataset
 
     monkeypatch.setattr(rasterio, "open", replacing_open)
     result = mosaic([older, newer], extent_of(older), 1.0)
@@ -1487,6 +1491,88 @@ def test_overview_from_a_replaced_file_is_admitted_before_reading(
     assert set(np.unique(result.raster.data[..., 2][opaque])) == {1}
 
 
+def non_square_with_the_same_overview(path):
+    """49 x 50 pixels over the same 20 m cell: non-square full resolution whose
+    factor 2 overview is 25 x 25 at 0.8 m, like a 50 x 50 0.4 m file's."""
+    x0, y0 = ORIGIN
+    transform = Affine(20 / 49, 0.0, x0, 0.0, -0.4, y0)
+    grid_tiff(path, 49, 50, 0.4, tag=3, overviews=[2], transform=transform)
+
+
+@pytest.mark.parametrize("moment", ["before the full resolution", "before the level"])
+def test_overview_plans_read_one_admitted_file(tmp_path, monkeypatch, moment):
+    older = tile_at(grid_tiff(tmp_path / "old.tif", 50, 50, 0.4, tag=1), year=2010)
+    path = grid_tiff(tmp_path / "new.tif", 50, 50, 0.4, tag=2, overviews=[2])
+    newer = tile_at(path, year=2020)
+    with RASTERIO_OPEN(path, overview_level=0) as src:
+        level_geometry = (src.transform, src.width, src.height)
+    base_opens, level_opens = [], []
+
+    def replacing_open(path, *args, **kwargs):
+        if Path(path) == newer.path:
+            opens = level_opens if "overview_level" in kwargs else base_opens
+            opens.append(path)
+            if (moment == "before the full resolution" and opens is base_opens
+                    and len(base_opens) == 2) or (
+                moment == "before the level" and opens is level_opens
+                and len(level_opens) == 2
+            ):
+                non_square_with_the_same_overview(newer.path)
+        return RASTERIO_OPEN(path, *args, **kwargs)
+
+    monkeypatch.setattr(rasterio, "open", replacing_open)
+    result = mosaic([older, newer], extent_of(older), 0.8)
+    # Refused at the full resolution, the level is not opened again.
+    assert len(base_opens) == 2
+    assert len(level_opens) == (1 if moment == "before the full resolution" else 2)
+    with RASTERIO_OPEN(newer.path, overview_level=0) as src:
+        assert (src.transform, src.width, src.height) == level_geometry
+    (failure,) = result.failures
+    assert failure.tile == newer and failure.pixels == 0
+    expected = "square" if moment == "before the full resolution" else "changed"
+    assert expected in failure.error.reason
+    opaque = result.raster.data[..., 3] == 255
+    assert set(np.unique(result.raster.data[..., 2][opaque])) == {1}
+
+
+@pytest.mark.parametrize("change", ["replaced, same size and mtime", "rewritten"])
+def test_file_identity_covers_replacement_and_rewriting(tmp_path, monkeypatch, change):
+    older = tile_at(grid_tiff(tmp_path / "old.tif", 50, 50, 0.4, tag=1), year=2010)
+    path = grid_tiff(tmp_path / "new.tif", 50, 50, 0.4, tag=2, overviews=[2])
+    newer = tile_at(path, year=2020)
+    # An admissible file of the same size and geometry with other samples.
+    other = grid_tiff(tmp_path / "other.tif", 50, 50, 0.4, tag=3, overviews=[2])
+    assert other.stat().st_size == path.stat().st_size
+    level_opens = []
+
+    def changing_open(path, *args, **kwargs):
+        if Path(path) == newer.path and "overview_level" in kwargs:
+            level_opens.append(path)
+            if len(level_opens) == 2:
+                original = newer.path.stat()
+                if change == "rewritten":
+                    # Same inode and size; only the modification time changes.
+                    with open(newer.path, "r+b") as file:
+                        file.write(other.read_bytes())
+                    assert newer.path.stat().st_ino == original.st_ino
+                    assert newer.path.stat().st_mtime_ns != original.st_mtime_ns
+                else:
+                    os.utime(other, ns=(original.st_atime_ns, original.st_mtime_ns))
+                    os.replace(other, newer.path)
+                    assert newer.path.stat().st_ino != original.st_ino
+                    assert newer.path.stat().st_mtime_ns == original.st_mtime_ns
+                assert newer.path.stat().st_size == original.st_size
+        return RASTERIO_OPEN(path, *args, **kwargs)
+
+    monkeypatch.setattr(rasterio, "open", changing_open)
+    result = mosaic([older, newer], extent_of(older), 0.8)
+    (failure,) = result.failures
+    assert failure.tile == newer and failure.pixels == 0
+    assert "changed" in failure.error.reason
+    opaque = result.raster.data[..., 3] == 255
+    assert set(np.unique(result.raster.data[..., 2][opaque])) == {1}
+
+
 def test_overview_of_a_file_with_declared_nodata_keeps_its_gaps(tmp_path):
     cols, rows = np.meshgrid(np.arange(40), np.arange(40))
     data = np.stack([cols, rows, np.full_like(cols, 5)]).astype(np.uint8)
@@ -1503,19 +1589,31 @@ def test_overview_of_a_file_with_declared_nodata_keeps_its_gaps(tmp_path):
     )
 
 
-def test_file_removed_after_the_header_pass_raises_file_not_found(
-    tmp_path, monkeypatch
+@pytest.mark.parametrize("change", ["removed", "unreadable"])
+def test_local_changes_after_the_header_pass_raise_their_own_error(
+    tmp_path, monkeypatch, change
 ):
+    if change == "unreadable" and os.geteuid() == 0:
+        pytest.skip("root ignores file permissions")
     tile = tile_at(grid_tiff(tmp_path / "t.tif", 10, 10, 0.4))
 
-    def removing_open(path, *args, **kwargs):
+    def changing_open(path, *args, **kwargs):
         dataset = RASTERIO_OPEN(path, *args, **kwargs)
-        Path(path).unlink(missing_ok=True)
+        if change == "removed":
+            Path(path).unlink(missing_ok=True)
+        else:
+            Path(path).chmod(0)
         return dataset
 
-    monkeypatch.setattr(rasterio, "open", removing_open)
-    with pytest.raises(FileNotFoundError):
-        mosaic([tile], extent_of(tile))
+    monkeypatch.setattr(rasterio, "open", changing_open)
+    error = FileNotFoundError if change == "removed" else PermissionError
+    try:
+        with pytest.raises(error) as info:
+            mosaic([tile], extent_of(tile))
+    finally:
+        if tile.path.exists():
+            tile.path.chmod(0o644)
+    assert not isinstance(info.value, RasterTileReadError)
 
 
 @pytest.mark.parametrize("kind", ["missing", "directory", "unreadable"])
