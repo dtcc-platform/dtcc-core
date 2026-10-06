@@ -189,7 +189,8 @@ def _admit(tile: RasterTile, path: Path, source, layouts) -> float:
 class TileFailure:
     """A tile left out of a mosaic, or only partly used, because of its source.
 
-    ``pixels`` counts the output pixels it contributed before failing.
+    ``pixels`` counts the output pixels it contributed before failing. ``error``
+    and the exceptions it chains to carry no traceback.
     """
 
     tile: RasterTile
@@ -367,7 +368,7 @@ def build_mosaic(
                     levels = _levels(path, source)
                     bands = source.count
             except (RasterTileLayoutError, RasterTileReadError) as error:
-                failures.append(TileFailure(tile, error, 0))
+                failures.append(TileFailure(tile, without_tracebacks(error), 0))
                 continue
             admitted.append((tile, path, levels, bands))
         if not admitted:
@@ -402,7 +403,9 @@ def build_mosaic(
             try:
                 _composite(plan, output, arena, counter)
             except (RasterTileLayoutError, RasterTileReadError) as error:
-                failures.append(TileFailure(plan.tile, error, counter[0]))
+                failures.append(
+                    TileFailure(plan.tile, without_tracebacks(error), counter[0])
+                )
             if counter[0]:
                 sources.append((plan.tile, counter[0]))
     valid_pixels = sum(pixels for _, pixels in sources)
@@ -418,6 +421,24 @@ def build_mosaic(
         failures=tuple(failures),
         valid_pixels=valid_pixels,
     )
+
+
+def without_tracebacks(error: BaseException) -> BaseException:
+    """Return ``error`` with its traceback and those of its causes dropped.
+
+    A traceback keeps the frames it passed through alive, with their locals,
+    so an exception kept for reporting holds no traceback in its whole
+    ``__cause__``/``__context__`` chain.
+    """
+    pending, seen = [error], set()
+    while pending:
+        current = pending.pop()
+        if current is None or id(current) in seen:
+            continue
+        seen.add(id(current))
+        current.__traceback__ = None
+        pending += [current.__cause__, current.__context__]
+    return error
 
 
 def _empty(requested, failures) -> Mosaic:

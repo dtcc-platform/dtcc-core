@@ -1,7 +1,11 @@
+import gc
 import hashlib
+from dataclasses import replace
 import json
 import math
 import os
+import traceback
+import weakref
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -20,6 +24,7 @@ from dtcc_core.io.data.orthophoto import (
     OrthophotoClientError,
     OrthophotoItem,
     acquire_tiles,
+    download_items,
     download_tile,
     fetch_manifest,
     file_url,
@@ -177,6 +182,94 @@ def test_server_url_is_normalized(url, expected):
 def test_invalid_server_url_is_rejected(url):
     with pytest.raises(ValueError):
         resolve_server_url(url)
+
+
+USERINFO_URLS = [
+    "http://user:secret@tiles.test",
+    "http://user@tiles.test:8000",
+    "http://@tiles.test",
+    "https://:secret@host/proxy/lm",
+]
+
+
+@pytest.mark.parametrize("url", USERINFO_URLS)
+@pytest.mark.parametrize("source", ["explicit", "environment"])
+def test_server_url_with_user_information_is_rejected_without_echo(
+    monkeypatch, url, source
+):
+    fake = install(monkeypatch)
+    if source == "environment":
+        monkeypatch.setenv("DTCC_ORTHOPHOTO_URL", url)
+        url_argument = None
+    else:
+        url_argument = url
+    with pytest.raises(ValueError) as info:
+        resolve_server_url(url_argument)
+    message = str(info.value)
+    assert "user information" in message
+    assert "secret" not in message and "user@" not in message and url not in message
+    with pytest.raises(ValueError):
+        fetch(server_url=url)
+    assert fake.calls == []
+
+
+# "secret" sits where a credential or token could be, in a form the user
+# information check cannot see (the parser fails or finds no host) or in a query
+# or fragment.
+UNECHOED_URLS = [
+    "http://us：er:secret@tiles.test",
+    "http://user:secret＠tiles.test",
+    "https:user:secret@tiles.test",
+    "http:/user:secret@tiles.test",
+    "user:secret@tiles.test",
+    "http//user:secret@tiles.test",
+    "http://tiles.test?key=secret",
+    "http://tiles.test/#token=secret",
+]
+
+
+def assert_not_echoed(error):
+    assert error.__context__ is None and error.__cause__ is None
+    assert "secret" not in "".join(traceback.format_exception(error))
+
+
+@pytest.mark.parametrize("url", UNECHOED_URLS)
+@pytest.mark.parametrize("source", ["explicit", "environment"])
+def test_invalid_server_url_is_rejected_without_echo(
+    monkeypatch, tmp_path, url, source
+):
+    fake = install(monkeypatch)
+    if source == "environment":
+        monkeypatch.setenv("DTCC_ORTHOPHOTO_URL", url)
+        url_argument = None
+    else:
+        url_argument = url
+    with pytest.raises(ValueError) as info:
+        resolve_server_url(url_argument)
+    assert_not_echoed(info.value)
+    for call in (
+        lambda: fetch(server_url=url),
+        lambda: download(tmp_path, server_url=url),
+        lambda: file_url(url, ITEM),
+    ):
+        with pytest.raises(ValueError) as info:
+            call()
+        assert_not_echoed(info.value)
+    assert fake.calls == []
+
+
+@pytest.mark.parametrize("url", ["http://user:secret", "http://tiles.test:99999"])
+def test_server_url_with_invalid_port_is_rejected_before_any_request(
+    monkeypatch, url
+):
+    fake = install(monkeypatch)
+    # The first is a user name and password with the "@host" part missing.
+    with pytest.raises(ValueError) as info:
+        resolve_server_url(url)
+    assert_not_echoed(info.value)
+    with pytest.raises(ValueError):
+        fetch(server_url=url)
+    assert fake.calls == []
 
 
 def test_prefixed_service_keeps_prefix_for_items_and_files(monkeypatch):
@@ -810,6 +903,15 @@ def test_unreadable_tiff_is_invalid_payload(monkeypatch, tmp_path, body):
     assert error.failure_class == "invalid_payload"
 
 
+def test_unreadable_payload_error_names_no_local_path(monkeypatch, tmp_path):
+    cache_root = tmp_path / "cache"
+    error = download_error(
+        monkeypatch, cache_root, tile_response(b"<html>bad gateway</html>")
+    )
+    assert error.failure_class == "invalid_payload"
+    assert str(tmp_path) not in str(error) and ".part" not in str(error)
+
+
 @pytest.mark.parametrize("crs", ["EPSG:3021", None])
 def test_tiff_in_other_crs_is_invalid_payload(monkeypatch, tmp_path, crs):
     response = tile_response(tiff_bytes(tmp_path, crs=crs))
@@ -1178,3 +1280,124 @@ def test_local_cache_error_propagates_unchanged(monkeypatch, tmp_path):
     with pytest.raises(OSError) as info:
         acquire(cache_root)
     assert not isinstance(info.value, OrthophotoClientError)
+
+
+# Downloading listed items
+
+
+def listed(name):
+    return replace(ITEM, id=name, href=f"/files/orto-o2-2025/{name}.tif")
+
+
+def download_listed(cache_root, items, failures=None):
+    return download_items(
+        items,
+        server_url=BASE,
+        timeout=TIMEOUT,
+        cache_root=cache_root,
+        failures=failures,
+    )
+
+
+def test_download_items_records_failures_and_continues(monkeypatch, tmp_path):
+    body = tiff_bytes(tmp_path)
+    items = [listed("a"), listed("b"), listed("c")]
+    fake = install(
+        monkeypatch,
+        tile_response(body),
+        FakeResponse(404, b"missing"),
+        tile_response(body),
+    )
+    failures = []
+    collection = download_listed(tmp_path / "cache", items, failures)
+    assert [tile.id for tile in collection] == ["a", "c"]
+    assert [tile.path.read_bytes() for tile in collection] == [body, body]
+    ((item, error),) = failures
+    assert item == items[1]
+    assert isinstance(error, OrthophotoClientError)
+    assert (error.failure_class, error.status_code) == ("http_4xx", 404)
+    assert [call["url"] for call in fake.calls] == [
+        BASE + "/files/orto-o2-2025/a.tif",
+        BASE + "/files/orto-o2-2025/b.tif",
+        BASE + "/files/orto-o2-2025/c.tif",
+    ]
+
+
+def test_download_items_without_collector_stops_at_the_first_failure(
+    monkeypatch, tmp_path
+):
+    body = tiff_bytes(tmp_path)
+    fake = install(monkeypatch, tile_response(body), FakeResponse(404, b"missing"))
+    cache_root = tmp_path / "cache"
+    with pytest.raises(OrthophotoClientError) as info:
+        download_listed(cache_root, [listed("a"), listed("b"), listed("c")])
+    assert info.value.failure_class == "http_4xx"
+    assert len(fake.calls) == 2
+    assert [name for name in files_under(cache_root) if name.endswith(".tif")] == [
+        str(Path("orthophoto") / service_of(cache_root) / "orto-o2-2025" / "a.tif")
+    ]
+
+
+@pytest.mark.parametrize("collect", [False, True])
+def test_download_items_local_errors_propagate(monkeypatch, tmp_path, collect):
+    body = tiff_bytes(tmp_path)
+    install(monkeypatch, tile_response(body))
+    cache_root = tmp_path / "not-a-directory"
+    cache_root.write_text("")
+    failures = [] if collect else None
+    with pytest.raises(OSError) as info:
+        download_listed(cache_root, [listed("a"), listed("b")], failures)
+    assert not isinstance(info.value, OrthophotoClientError)
+    assert failures in (None, [])
+
+
+class Chunk(bytearray):
+    """A body chunk that can be referenced weakly."""
+
+
+@pytest.mark.parametrize("case", ["truncated", "not a GeoTIFF"])
+def test_recorded_download_failures_keep_no_body_chunk(monkeypatch, tmp_path, case):
+    body = b"<html>bad gateway</html>"
+    chunks = []
+
+    class Streamed(FakeResponse):
+        def iter_content(self, chunk_size=1):
+            chunk = Chunk(self.body)
+            chunks.append(weakref.ref(chunk))
+            yield chunk
+
+    # A truncated body fails directly; a body that is not a GeoTIFF fails while
+    # handling the Rasterio error.
+    length = 2 * len(body) if case == "truncated" else len(body)
+    install(monkeypatch, Streamed(200, body, {"Content-Length": str(length)}))
+    failures = []
+    # With cyclic collection off, a chunk outlives the call only if the
+    # recorded failures still reach it.
+    gc.disable()
+    try:
+        assert len(download_listed(tmp_path / "cache", [listed("a")], failures)) == 0
+        assert len(failures) == 1 and len(chunks) == 1
+        assert chunks[0]() is None
+    finally:
+        gc.enable()
+
+
+def test_download_items_returns_tile_records_without_a_manifest(monkeypatch, tmp_path):
+    body = tiff_bytes(tmp_path)
+    fake = install(monkeypatch, tile_response(body))
+    (tile,) = download_listed(tmp_path / "cache", [ITEM])
+    assert all("/items" not in call["url"] for call in fake.calls)
+    assert (tile.id, tile.collection, tile.datetime) == (
+        ITEM.id, ITEM.collection, ITEM.datetime
+    )
+    assert (tile.extent.xmin, tile.extent.ymin, tile.extent.xmax, tile.extent.ymax) == (
+        ITEM.bbox
+    )
+    assert (tile.crs, tile.spektraltyp, tile.resolution, tile.size_bytes) == (
+        "EPSG:3006", ITEM.spektraltyp, ITEM.resolution, ITEM.size_bytes
+    )
+
+
+def service_of(cache_root):
+    (service,) = [p.name for p in (Path(cache_root) / "orthophoto").iterdir()]
+    return service

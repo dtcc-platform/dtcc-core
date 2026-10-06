@@ -10,6 +10,7 @@ import math
 import os
 import re
 import tempfile
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -18,6 +19,7 @@ from urllib.parse import urlsplit
 import rasterio
 import requests
 
+from dtcc_core.io.raster_tiles import without_tracebacks
 from dtcc_core.model import Bounds
 from dtcc_core.model.values.raster_tiles import RasterTile, RasterTileCollection
 
@@ -299,11 +301,37 @@ def acquire_tiles(
         spektraltyp=spektraltyp,
         timeout=timeout,
     )
+    return download_items(
+        items, server_url=server_url, timeout=timeout, cache_root=cache_root
+    )
+
+
+def download_items(
+    items: Sequence[OrthophotoItem],
+    *,
+    server_url: str,
+    timeout: tuple[float, float],
+    cache_root: Path,
+    failures: list | None = None,
+) -> RasterTileCollection:
+    """Download listed items in order, or reuse them from ``cache_root``.
+
+    Without ``failures`` the first OrthophotoClientError propagates. With a list,
+    each one is recorded as ``(item, error)`` without tracebacks, the item is left
+    out and the next item is downloaded. Local errors always propagate; files
+    published before them stay cached.
+    """
     tiles = []
     for item in items:
-        path = download_tile(
-            item, server_url=server_url, timeout=timeout, cache_root=cache_root
-        )
+        try:
+            path = download_tile(
+                item, server_url=server_url, timeout=timeout, cache_root=cache_root
+            )
+        except OrthophotoClientError as error:
+            if failures is None:
+                raise
+            failures.append((item, without_tracebacks(error)))
+            continue
         tiles.append(
             RasterTile(
                 path=path,
@@ -321,17 +349,22 @@ def acquire_tiles(
 
 
 def _normalize_server_url(server_url: str) -> str:
-    parts = urlsplit(server_url)
-    if parts.scheme not in ("http", "https") or not parts.netloc:
+    # No message repeats the URL, since any part of it may hold a credential. A
+    # parser error is replaced outside its handler, so nothing chains to it.
+    try:
+        parts = urlsplit(server_url)
+        parts.port  # raises ValueError unless the port is a number in range
+    except ValueError:
+        parts = None
+    if parts is not None and "@" in parts.netloc:
         raise ValueError(
-            f"Orthophoto server URL must be http(s)://host[/prefix], "
-            f"got {server_url!r}"
+            "Orthophoto server URL must not contain user information "
+            "(user name or password)"
         )
+    if parts is None or parts.scheme not in ("http", "https") or not parts.netloc:
+        raise ValueError("Orthophoto server URL must be http(s)://host[:port][/prefix]")
     if "?" in server_url or "#" in server_url:
-        raise ValueError(
-            f"Orthophoto server URL must not have a query or fragment, "
-            f"got {server_url!r}"
-        )
+        raise ValueError("Orthophoto server URL must not have a query or fragment")
     return server_url.rstrip("/")
 
 
@@ -404,9 +437,10 @@ def _check_geotiff(path: Path, item: OrthophotoItem, fail) -> None:
             shape = (source.width, source.height, source.count)
             epsg = source.crs.to_epsg() if source.crs is not None else None
             bounds = tuple(source.bounds)
-    except rasterio.errors.RasterioError as error:
+    except rasterio.errors.RasterioError:
+        # GDAL's message names the temporary file in the cache; leave it out.
         raise fail(
-            f"Not a readable GeoTIFF: {error}", "invalid_payload", status_code=200
+            "Not a readable GeoTIFF", "invalid_payload", status_code=200
         ) from None
     if min(shape) <= 0:
         raise fail(

@@ -1,8 +1,10 @@
+import gc
 import math
 import os
 import struct
 import warnings
 import tracemalloc
+import weakref
 from datetime import datetime, timezone
 from fractions import Fraction
 from pathlib import Path
@@ -31,6 +33,7 @@ from dtcc_core.io.raster_tiles import (
     load_tile,
     mosaic_grid,
     mosaic_minimum_bytes,
+    without_tracebacks,
 )
 from dtcc_core.model import Bounds
 from dtcc_core.model import exchange
@@ -1115,6 +1118,72 @@ def test_numpy_and_python_memory_stays_within_the_estimate(tmp_path):
         tracemalloc.stop()
     assert result.valid_pixels == width * height
     assert peak <= width * height * 4 + arena + 256 * 1024
+
+
+@pytest.mark.parametrize("case", ["mid-read", "header", "no valid pixel"])
+def test_recorded_failures_keep_no_mosaic_buffer_alive(tmp_path, monkeypatch, case):
+    older = tile_at(grid_tiff(tmp_path / "old.tif", 40, 40, 0.4, tag=1), year=2010)
+    path = grid_tiff(
+        tmp_path / "new.tif", 40, 40, 0.4, tag=2, tiled=True, blockxsize=16,
+        blockysize=16, compress="deflate",
+    )
+    if case == "mid-read":
+        damage_block(path, -1)
+        tiles = [older, tile_at(path, year=2020)]
+        monkeypatch.setattr(raster_tiles, "STRIP_BYTES", 5000)
+    elif case == "header":
+        # Refused when opened, before the buffers exist; the error has a cause.
+        tiles = [older, bad_tile(tmp_path, "non-raster", older)]
+    else:
+        damage_block(path, 0)
+        tiles = [tile_at(path, year=2020)]
+    buffers = []
+    real_zeros = np.zeros
+    real_read = rasterio.io.DatasetReader.read
+
+    def recording_zeros(*args, **kwargs):
+        array = real_zeros(*args, **kwargs)
+        buffers.append(weakref.ref(array))
+        return array
+
+    def recording_read(self, *args, **kwargs):
+        buffers.append(weakref.ref(arena_root(kwargs["out"])))
+        return real_read(self, *args, **kwargs)
+
+    monkeypatch.setattr(np, "zeros", recording_zeros)
+    monkeypatch.setattr(rasterio.io.DatasetReader, "read", recording_read)
+    # With cyclic collection off, a buffer outlives the result only if the
+    # recorded failures still reach it.
+    gc.disable()
+    try:
+        result = mosaic(tiles, extent_of(older))
+        failures = result.failures
+        del result
+        assert len(failures) == 1 and len(buffers) >= 2
+        assert [buffer for buffer in buffers if buffer() is not None] == []
+    finally:
+        gc.enable()
+
+
+def test_without_tracebacks_clears_every_chained_traceback():
+    def caught(error, cause=None):
+        try:
+            raise error from cause
+        except Exception as raised:
+            return raised
+
+    cause = caught(OSError("cause"))
+    try:
+        raise KeyError("context")
+    except KeyError:
+        error = caught(ValueError("error"), cause)
+    context = error.__context__
+    assert isinstance(context, KeyError) and error.__cause__ is cause
+    cause.__context__ = error  # a cycle
+    chain = [error, cause, context]
+    assert all(link.__traceback__ is not None for link in chain)
+    assert without_tracebacks(error) is error
+    assert [link.__traceback__ for link in chain] == [None, None, None]
 
 
 # Validity and alpha
