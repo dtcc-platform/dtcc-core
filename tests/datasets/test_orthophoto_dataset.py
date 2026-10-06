@@ -1150,20 +1150,39 @@ def test_tile_export_is_refused_before_any_request(no_http, tmp_path):
     assert list(tmp_path.iterdir()) == []
 
 
+NO_SAVER = "Cannot save object: RasterTileCollection. No IO save method"
+NOT_CANONICAL = "Canonical object RasterTileCollection is unsupported"
+
+# Each path's own refusal: the exception class and a pattern of its message.
 TILE_EXPORTS = {
-    "package": lambda tiles, out: export_model_package(tiles, out / "pkg"),
-    "package as tif": lambda tiles, out: export_model_package(
-        tiles, out / "pkg", format="tif"
+    "package": (
+        lambda tiles, out: export_model_package(tiles, out / "pkg"),
+        ValueError, "Cannot infer a safe export format for RasterTileCollection",
     ),
-    "package as json": lambda tiles, out: export_model_package(
-        tiles, out / "pkg", format="json"
+    "package as tif": (
+        lambda tiles, out: export_model_package(tiles, out / "pkg", format="tif"),
+        ValueError, f"Could not export RasterTileCollection as 'tif': {NO_SAVER}",
     ),
-    "canonical package": lambda tiles, out: export_model_package(
-        tiles, out / "pkg", canonical=True
+    "package as json": (
+        lambda tiles, out: export_model_package(tiles, out / "pkg", format="json"),
+        ValueError, f"Could not export RasterTileCollection as 'json': {NO_SAVER}",
     ),
-    "canonical encoding": lambda tiles, out: exchange.dumps(tiles),
-    "bytes": lambda tiles, out: DatasetDescriptor.export_to_bytes(tiles, "tif"),
-    "save_raster": lambda tiles, out: dtcc_io.save_raster(tiles, out / "t.tif"),
+    "canonical package": (
+        lambda tiles, out: export_model_package(tiles, out / "pkg", canonical=True),
+        NotImplementedError, NOT_CANONICAL,
+    ),
+    "canonical encoding": (
+        lambda tiles, out: exchange.dumps(tiles), NotImplementedError, NOT_CANONICAL,
+    ),
+    "bytes": (
+        lambda tiles, out: DatasetDescriptor.export_to_bytes(tiles, "tif"),
+        AttributeError, NO_SAVER,
+    ),
+    "save_raster": (
+        lambda tiles, out: dtcc_io.save_raster(tiles, out / "t.tif"),
+        RuntimeError, "Unable to save raster; type .*RasterTileCollection.* not "
+        "supported",
+    ),
 }
 
 
@@ -1176,9 +1195,10 @@ def test_tile_collection_export_is_refused_on_every_path(
     monkeypatch.setattr(client.requests, "get", forbidden_get)
     out = tmp_path / "out"
     out.mkdir()
-    with pytest.raises(Exception) as info:
-        TILE_EXPORTS[name](tiles, out)
-    assert not isinstance(info.value, AssertionError)
+    export, expected, message = TILE_EXPORTS[name]
+    with pytest.raises(expected, match=message) as info:
+        export(tiles, out)
+    assert type(info.value) is expected
     assert str(data_cache.cache_dir) not in str(info.value)
     assert [path for path in out.rglob("*") if path.is_file()] == []
 
