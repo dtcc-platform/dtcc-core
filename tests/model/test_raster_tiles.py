@@ -153,3 +153,22 @@ def test_save_is_refused_without_writing(collection, tmp_path):
     with pytest.raises(AttributeError, match="RasterTileCollection"):
         collection.save(target)
     assert not target.exists()
+
+
+def test_load_delegates_to_load_tile_with_the_budget(tmp_path, monkeypatch):
+    from dtcc_core.io import raster_tiles
+
+    calls = []
+
+    def recording_load_tile(tile, **kwargs):
+        calls.append((tile, kwargs))
+        return "raster"
+
+    monkeypatch.setattr(raster_tiles, "load_tile", recording_load_tile)
+    tile = make_tile(tmp_path)
+    assert tile.load(max_memory_bytes=123) == "raster"
+    assert tile.load() == "raster"
+    assert calls == [
+        (tile, {"max_memory_bytes": 123}),
+        (tile, {"max_memory_bytes": raster_tiles.DEFAULT_MAX_MEMORY_BYTES}),
+    ]

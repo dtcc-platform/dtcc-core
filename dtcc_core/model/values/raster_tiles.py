@@ -28,6 +28,15 @@ class RasterTile:
     resolution: float | None
     size_bytes: int | None
 
+    def load(self, *, max_memory_bytes: int = 2 * 1024**3):
+        """Load every band of the local file into an (H, W, C) Raster.
+
+        Reads only the local file, within an estimated working-memory budget.
+        """
+        from ...io.raster_tiles import load_tile
+
+        return load_tile(self, max_memory_bytes=max_memory_bytes)
+
 
 @dataclass(repr=False)
 class RasterTileCollection(Model):
