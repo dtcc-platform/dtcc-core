@@ -18,6 +18,9 @@ from urllib.parse import urlsplit
 import rasterio
 import requests
 
+from dtcc_core.model import Bounds
+from dtcc_core.model.values.raster_tiles import RasterTile, RasterTileCollection
+
 SERVER_URL_ENV = "DTCC_ORTHOPHOTO_URL"
 CRS = "EPSG:3006"
 MAX_DETAIL_CHARS = 1024
@@ -270,6 +273,51 @@ def download_tile(
     finally:
         response.close()
     return destination
+
+
+def acquire_tiles(
+    bounds: tuple[float, float, float, float],
+    *,
+    server_url: str,
+    year: int | None,
+    collection: str | None,
+    spektraltyp: tuple[str, ...],
+    timeout: tuple[float, float],
+    cache_root: Path,
+) -> RasterTileCollection:
+    """Fetch the manifest for ``bounds`` and return its items as local tiles.
+
+    The manifest is fetched on every call; each item is then downloaded in
+    manifest order, or reused from ``cache_root``. The first error stops
+    acquisition and propagates; files published before it stay cached.
+    """
+    items = fetch_manifest(
+        bounds,
+        server_url=server_url,
+        year=year,
+        collection=collection,
+        spektraltyp=spektraltyp,
+        timeout=timeout,
+    )
+    tiles = []
+    for item in items:
+        path = download_tile(
+            item, server_url=server_url, timeout=timeout, cache_root=cache_root
+        )
+        tiles.append(
+            RasterTile(
+                path=path,
+                id=item.id,
+                collection=item.collection,
+                datetime=item.datetime,
+                extent=Bounds(*item.bbox),
+                crs=CRS,
+                spektraltyp=item.spektraltyp,
+                resolution=item.resolution,
+                size_bytes=item.size_bytes,
+            )
+        )
+    return RasterTileCollection(tiles=tiles)
 
 
 def _normalize_server_url(server_url: str) -> str:

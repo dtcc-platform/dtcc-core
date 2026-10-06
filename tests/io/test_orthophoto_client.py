@@ -13,10 +13,13 @@ from affine import Affine
 from rasterio.transform import from_bounds
 from requests.structures import CaseInsensitiveDict
 
+from dtcc_core.model.values.raster_tiles import RasterTileCollection
+
 from dtcc_core.io.data import orthophoto
 from dtcc_core.io.data.orthophoto import (
     OrthophotoClientError,
     OrthophotoItem,
+    acquire_tiles,
     download_tile,
     fetch_manifest,
     file_url,
@@ -961,3 +964,157 @@ def test_failed_download_leaves_competing_writer_files_intact(monkeypatch, tmp_p
     assert competitor["published"].read_bytes() == b"competitor original"
     assert competitor["temporary"].read_bytes() == b"competitor in progress"
     assert len(files_under(cache_root)) == 2
+
+
+# Tile acquisition
+
+
+def cell_item_json(item_id, collection, timestamp, **overrides):
+    values = {
+        "id": item_id,
+        "collection": collection,
+        "bbox": list(CELL),
+        "datetime": timestamp,
+        "href": f"/files/{collection}/{item_id}.tif",
+        "resolution": 0.5,
+        "size_bytes": None,
+    }
+    values.update(overrides)
+    return item_json(**values)
+
+
+NEWER = cell_item_json("o65775_6725_25_mr25", "orto-o2-2025", "2025-05-31T08:10:56Z")
+OLDER = cell_item_json(
+    "o65775_6725_25_im17",
+    "orto-o2-2017",
+    "2017-06-01T10:00:00+02:00",
+    spektraltyp="rgb",
+    resolution=None,
+    size_bytes=1234,
+)
+
+
+def acquire(cache_root, **overrides):
+    kwargs = {
+        "server_url": BASE,
+        "year": None,
+        "collection": None,
+        "spektraltyp": (),
+        "timeout": TIMEOUT,
+        "cache_root": cache_root,
+    }
+    kwargs.update(overrides)
+    return acquire_tiles(BOUNDS, **kwargs)
+
+
+def test_acquire_tiles_returns_records_in_manifest_order(monkeypatch, tmp_path):
+    body = tiff_bytes(tmp_path)
+    cache_root = tmp_path / "cache"
+    fake = install(
+        monkeypatch,
+        manifest_response([NEWER, OLDER]),
+        tile_response(body),
+        tile_response(body),
+    )
+    tiles = acquire(
+        cache_root, year=2025, collection="orto-o2-2025", spektraltyp=("rgb", "rgbi")
+    )
+    assert isinstance(tiles, RasterTileCollection)
+    assert [call["url"] for call in fake.calls] == [
+        BASE + "/items",
+        BASE + "/files/orto-o2-2025/o65775_6725_25_mr25.tif",
+        BASE + "/files/orto-o2-2017/o65775_6725_25_im17.tif",
+    ]
+    assert fake.calls[0]["params"]["year"] == 2025
+    assert fake.calls[0]["params"]["collection"] == "orto-o2-2025"
+    assert fake.calls[0]["params"]["spektraltyp"] == "rgb,rgbi"
+    assert all(call["timeout"] == TIMEOUT for call in fake.calls)
+
+    newer, older = tiles
+    service_dir = newer.path.parent.parent
+    assert service_dir.parent == cache_root / "orthophoto"
+    assert newer.path == service_dir / "orto-o2-2025" / "o65775_6725_25_mr25.tif"
+    assert older.path == service_dir / "orto-o2-2017" / "o65775_6725_25_im17.tif"
+    assert newer.path.read_bytes() == older.path.read_bytes() == body
+    assert (newer.id, newer.collection, newer.spektraltyp) == (
+        "o65775_6725_25_mr25",
+        "orto-o2-2025",
+        "rgbi",
+    )
+    assert newer.datetime == datetime(2025, 5, 31, 8, 10, 56, tzinfo=timezone.utc)
+    assert older.datetime == datetime(2017, 6, 1, 8, 0, tzinfo=timezone.utc)
+    assert newer.extent.tuple == older.extent.tuple == CELL
+    assert newer.crs == older.crs == "EPSG:3006"
+    assert (newer.resolution, newer.size_bytes) == (0.5, None)
+    assert (older.resolution, older.size_bytes) == (None, 1234)
+    assert (older.id, older.collection, older.spektraltyp) == (
+        "o65775_6725_25_im17",
+        "orto-o2-2017",
+        "rgb",
+    )
+
+
+def test_repeated_acquisition_refreshes_manifest_and_reuses_files(
+    monkeypatch, tmp_path
+):
+    body = tiff_bytes(tmp_path)
+    cache_root = tmp_path / "cache"
+    install(monkeypatch, manifest_response([NEWER]), tile_response(body))
+    (first,) = acquire(cache_root)
+    fake = install(monkeypatch, manifest_response([NEWER, OLDER]), tile_response(body))
+    second = acquire(cache_root)
+    assert [call["url"] for call in fake.calls] == [
+        BASE + "/items",
+        BASE + "/files/orto-o2-2017/o65775_6725_25_im17.tif",
+    ]
+    assert second[0].path == first.path
+    assert len(second) == 2
+
+
+def test_empty_manifest_gives_empty_collection(monkeypatch, tmp_path):
+    fake = install(monkeypatch, manifest_response([]))
+    tiles = acquire(tmp_path / "cache")
+    assert isinstance(tiles, RasterTileCollection)
+    assert len(tiles) == 0
+    assert len(fake.calls) == 1
+    assert files_under(tmp_path) == []
+
+
+def test_first_download_error_stops_acquisition(monkeypatch, tmp_path):
+    body = tiff_bytes(tmp_path)
+    cache_root = tmp_path / "cache"
+    third = cell_item_json(
+        "o65775_6725_25_mr24", "orto-o2-2024", "2024-06-01T00:00:00Z"
+    )
+    fake = install(
+        monkeypatch,
+        manifest_response([NEWER, OLDER, third]),
+        tile_response(body),
+        FakeResponse(502, json.dumps({"detail": "LM error"})),
+    )
+    with pytest.raises(OrthophotoClientError) as info:
+        acquire(cache_root)
+    assert info.value.failure_class == "http_5xx"
+    assert info.value.target == BASE + "/files/orto-o2-2017/o65775_6725_25_im17.tif"
+    assert len(fake.calls) == 3
+    (published,) = files_under(cache_root)
+    assert published.endswith("orto-o2-2025/o65775_6725_25_mr25.tif")
+    assert (cache_root / published).read_bytes() == body
+
+
+def test_manifest_error_propagates_before_downloads(monkeypatch, tmp_path):
+    fake = install(monkeypatch, requests.ConnectionError("refused"))
+    with pytest.raises(OrthophotoClientError) as info:
+        acquire(tmp_path / "cache")
+    assert info.value.operation == "manifest"
+    assert len(fake.calls) == 1
+
+
+def test_local_cache_error_propagates_unchanged(monkeypatch, tmp_path):
+    cache_root = tmp_path / "cache"
+    cache_root.write_text("not a directory")
+    body = tiff_bytes(tmp_path)
+    install(monkeypatch, manifest_response([NEWER]), tile_response(body))
+    with pytest.raises(OSError) as info:
+        acquire(cache_root)
+    assert not isinstance(info.value, OrthophotoClientError)
