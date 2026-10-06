@@ -1458,6 +1458,51 @@ def test_replaced_overview_before_reading_is_a_failure(tmp_path, monkeypatch):
     assert set(np.unique(result.raster.data[..., 2][opaque])) == {1}
 
 
+def test_overview_from_a_replaced_file_is_admitted_before_reading(
+    tmp_path, monkeypatch
+):
+    older = tile_at(grid_tiff(tmp_path / "old.tif", 50, 50, 0.4, tag=1), year=2010)
+    path = grid_tiff(tmp_path / "new.tif", 50, 50, 0.4, tag=2, overviews=[2, 4, 8])
+    newer = tile_at(path, year=2020)
+    level_opens = []
+
+    def replacing_open(path, *args, **kwargs):
+        if Path(path) == newer.path and "overview_level" in kwargs:
+            level_opens.append(path)
+            if len(level_opens) == 4:
+                # Same geometry, bands and overview sizes; another CRS.
+                grid_tiff(
+                    newer.path, 50, 50, 0.4, tag=2, overviews=[2, 4, 8],
+                    crs="EPSG:3021",
+                )
+        return RASTERIO_OPEN(path, *args, **kwargs)
+
+    monkeypatch.setattr(rasterio, "open", replacing_open)
+    result = mosaic([older, newer], extent_of(older), 1.0)
+    assert len(level_opens) == 4
+    (failure,) = result.failures
+    assert failure.tile == newer and failure.pixels == 0
+    assert "CRS is EPSG:3021" in failure.error.reason
+    opaque = result.raster.data[..., 3] == 255
+    assert set(np.unique(result.raster.data[..., 2][opaque])) == {1}
+
+
+def test_overview_of_a_file_with_declared_nodata_keeps_its_gaps(tmp_path):
+    cols, rows = np.meshgrid(np.arange(40), np.arange(40))
+    data = np.stack([cols, rows, np.full_like(cols, 5)]).astype(np.uint8)
+    data[:, :, :20] = 0
+    path = grid_tiff(tmp_path / "t.tif", 40, 40, 0.4, data=data, nodata=0,
+                     overviews=[2])
+    tile = tile_at(path)
+    result = mosaic([tile], extent_of(tile), 0.8)
+    assert result.failures == ()
+    alpha = result.raster.data[..., 3]
+    assert (alpha[:, :10] == 0).all() and (alpha[:, 10:] == 255).all()
+    np.testing.assert_array_equal(
+        result.raster.data, reference([tile], extent_of(tile), 0.8, level=0)
+    )
+
+
 def test_file_removed_after_the_header_pass_raises_file_not_found(
     tmp_path, monkeypatch
 ):

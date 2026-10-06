@@ -528,22 +528,29 @@ def _carve(arena, offset: int, shape, dtype):
 def _composite(plan: _Plan, output, arena, counter) -> None:
     """Fill output pixels that are still empty from one tile, block by block.
 
+    The handle that is read is admitted and checked against the plan first: the
+    full resolution with the mosaic rules, or an overview level with the same
+    rules except square pixels (overview spacing may differ between X and Y).
     counter[0] counts the pixels filled, including when a later block fails.
     """
     _preflight(plan.path)
-    with _open_source(plan.path) as source:
-        nodata = _admit_mosaic(plan.tile, plan.path, source)
-        _check_unchanged(plan, source, plan.base)
-        if math.isnan(nodata) or nodata != int(nodata) or not 0 <= nodata <= 255:
-            nodata = None
-        else:
-            nodata = np.uint8(nodata)
-        if plan.level.index is None:
-            _blend(plan, source, nodata, output, arena, counter)
-            return
+    if plan.level.index is None:
+        with _open_source(plan.path) as source:
+            nodata = _admit_mosaic(plan.tile, plan.path, source)
+            _check_unchanged(plan, source, plan.base)
+            _blend(plan, source, _sample_value(nodata), output, arena, counter)
+        return
     with _open_source(plan.path, overview_level=plan.level.index) as level:
+        nodata = _admit(plan.tile, plan.path, level, MOSAIC_LAYOUTS)
         _check_unchanged(plan, level, plan.level)
-        _blend(plan, level, nodata, output, arena, counter)
+        _blend(plan, level, _sample_value(nodata), output, arena, counter)
+
+
+def _sample_value(nodata: float):
+    """The declared nodata as a uint8 sample, or None if no sample can equal it."""
+    if math.isnan(nodata) or nodata != int(nodata) or not 0 <= nodata <= 255:
+        return None
+    return np.uint8(nodata)
 
 
 def _check_unchanged(plan: _Plan, dataset, expected: _Level) -> None:
