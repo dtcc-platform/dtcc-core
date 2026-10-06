@@ -13,6 +13,7 @@ import tempfile
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from functools import partial
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -188,6 +189,7 @@ def download_tile(
     server_url: str,
     timeout: tuple[float, float],
     cache_root: Path,
+    progress=None,
 ) -> Path:
     """Return the local path of ``item``'s original GeoTIFF, downloading it if needed.
 
@@ -197,6 +199,11 @@ def download_tile(
     the same directory, checked (status, encoding, length, GeoTIFF header, CRS
     and bounds against ``item.bbox``) and then atomically renamed into place.
     Local filesystem errors and unexpected exceptions propagate unchanged.
+
+    ``progress(written, content_length)``, if given, is called once the
+    response is accepted and after each chunk, with the bytes written so far
+    and the ``Content-Length`` (None when absent). An exception it raises
+    propagates unchanged; the temporary file is removed.
     """
     base = _normalize_server_url(server_url)
     service = hashlib.sha256(base.encode()).hexdigest()[:16]
@@ -238,6 +245,8 @@ def download_tile(
                 status_code=200,
             )
         expected = _content_length(response, fail)
+        if progress is not None:
+            progress(0, expected)
         destination.parent.mkdir(parents=True, exist_ok=True)
         fd, name = tempfile.mkstemp(
             dir=destination.parent, prefix=f".{item.id}.", suffix=".part"
@@ -246,12 +255,20 @@ def download_tile(
         try:
             written = 0
             with open(fd, "wb") as output:
-                try:
-                    for chunk in response.iter_content(chunk_size=1 << 20):
-                        output.write(chunk)
-                        written += len(chunk)
-                except requests.RequestException as error:
-                    _raise_transport_error(error, fail, status_code=200)
+                chunks = response.iter_content(chunk_size=1 << 20)
+                # Only reading the body maps requests errors, so an error from
+                # the progress callback is never taken for a transport failure.
+                while True:
+                    try:
+                        chunk = next(chunks, None)
+                    except requests.RequestException as error:
+                        _raise_transport_error(error, fail, status_code=200)
+                    if chunk is None:
+                        break
+                    output.write(chunk)
+                    written += len(chunk)
+                    if progress is not None:
+                        progress(written, expected)
             if expected is not None and written < expected:
                 raise fail(
                     f"Body ended after {written} of {expected} bytes",
@@ -313,6 +330,7 @@ def download_items(
     timeout: tuple[float, float],
     cache_root: Path,
     failures: list | None = None,
+    progress=None,
 ) -> RasterTileCollection:
     """Download listed items in order, or reuse them from ``cache_root``.
 
@@ -320,15 +338,37 @@ def download_items(
     each one is recorded as ``(item, error)`` without tracebacks, the item is left
     out and the next item is downloaded. Local errors always propagate; files
     published before them stay cached.
+
+    ``progress(index, count, written, content_length)``, if given, is called
+    with ``(index, count, 0, None)`` before each item and ``(count, count, 0,
+    None)`` after the last, and with the item's bytes while it downloads (see
+    download_tile). An exception it raises propagates unchanged, never recorded
+    as a failure, even an OrthophotoClientError.
     """
+    raised = []
+
+    def report(*values):
+        try:
+            progress(*values)
+        except BaseException as error:
+            raised.append(error)
+            raise
+
+    count = len(items)
     tiles = []
-    for item in items:
+    for index, item in enumerate(items):
+        if progress is not None:
+            report(index, count, 0, None)
         try:
             path = download_tile(
-                item, server_url=server_url, timeout=timeout, cache_root=cache_root
+                item,
+                server_url=server_url,
+                timeout=timeout,
+                cache_root=cache_root,
+                progress=None if progress is None else partial(report, index, count),
             )
         except OrthophotoClientError as error:
-            if failures is None:
+            if failures is None or any(error is other for other in raised):
                 raise
             failures.append((item, without_tracebacks(error)))
             continue
@@ -345,6 +385,8 @@ def download_items(
                 size_bytes=item.size_bytes,
             )
         )
+    if progress is not None:
+        report(count, count, 0, None)
     return RasterTileCollection(tiles=tiles)
 
 
