@@ -54,6 +54,16 @@ def _skip_if_transient(error: DatasetUpstreamError):
     raise error
 
 
+def _strict_call(**kwargs):
+    """A strict call for the test's bounds and year, skipping on transient failures."""
+    try:
+        return datasets.orthophoto(
+            bounds=BOUNDS, year=YEAR, strict_live=True, **kwargs
+        )
+    except DatasetUpstreamError as error:
+        _skip_if_transient(error)
+
+
 def guard_downloads(download_items):
     """Wrap download_items to download only the pinned item.
 
@@ -127,10 +137,7 @@ def test_orthophoto_live_mosaic_and_tiles(monkeypatch):
         monkeypatch.setattr(
             client, "download_items", guard_downloads(client.download_items)
         )
-        try:
-            raster = datasets.orthophoto(bounds=BOUNDS, year=YEAR, strict_live=True)
-        except DatasetUpstreamError as error:
-            _skip_if_transient(error)
+        raster = _strict_call()
         check_mosaic(raster, BOUNDS, cache_root)
         requests_made = []
         real_get = client.requests.get
@@ -140,7 +147,5 @@ def test_orthophoto_live_mosaic_and_tiles(monkeypatch):
             return real_get(url, **kwargs)
 
         monkeypatch.setattr(client.requests, "get", recording_get)
-        tiles = datasets.orthophoto(
-            bounds=BOUNDS, year=YEAR, product="tiles", strict_live=True
-        )
+        tiles = _strict_call(product="tiles")
         check_tiles(tiles, BOUNDS, cache_root, requests_made)

@@ -1733,6 +1733,58 @@ def test_live_tiles_check_rejects_broken_results(live_like, case):
         live.check_tiles(tiles, THREE_CELLS, data_cache.cache_dir, requests_made)
 
 
+@pytest.fixture
+def live_server(server, tmp_path, monkeypatch):
+    """The fake server listing only the live test's pinned item."""
+    monkeypatch.setenv("DTCC_ORTHOPHOTO_URL", BASE)
+    ((collection, item_id),) = live.PINNED
+    server.add(item_id, live.BOUNDS, tiff(tmp_path, live.BOUNDS, pixel=5.0),
+               year=live.YEAR, collection=collection, resolution=5.0)
+    return server
+
+
+def test_live_test_body_passes_offline(live_server, monkeypatch):
+    live.test_orthophoto_live_mosaic_and_tiles(monkeypatch)
+    assert len(live_server.manifest_calls()) == 2
+    assert len(live_server.file_calls()) == 1
+
+
+LIVE_FAILURES = {
+    "connection": lambda: requests.ConnectionError("down"),
+    "timeout": lambda: requests.Timeout("slow"),
+    "http_5xx": lambda: FakeResponse(503, "busy"),
+    "http_4xx": lambda: FakeResponse(404, "missing"),
+}
+
+
+@pytest.mark.parametrize("call_number", [1, 2], ids=["mosaic call", "tiles call"])
+@pytest.mark.parametrize("failure_class", LIVE_FAILURES)
+def test_live_test_classifies_failures_of_both_calls(
+    live_server, monkeypatch, call_number, failure_class
+):
+    failure = LIVE_FAILURES[failure_class]()
+
+    def before(url):
+        if url.endswith("/items") and len(live_server.manifest_calls()) == call_number:
+            if isinstance(failure, BaseException):
+                raise failure
+            live_server.manifest_failure = failure
+
+    live_server.before = before
+    # pytest.raises does not catch a skip, so both outcomes are caught here.
+    try:
+        live.test_orthophoto_live_mosaic_and_tiles(monkeypatch)
+    except pytest.skip.Exception as skip:
+        assert failure_class in live.TRANSIENT, f"{failure_class} was skipped"
+        assert failure_class in str(skip)
+    except DatasetUpstreamError as error:
+        assert failure_class not in live.TRANSIENT, f"{failure_class} failed"
+        assert error.failure_class == failure_class
+    else:
+        pytest.fail("the failure must skip or fail the live test")
+    assert len(live_server.manifest_calls()) == call_number
+
+
 # Registration
 
 
