@@ -2,6 +2,7 @@ import gc
 import importlib
 import json
 import math
+import dataclasses
 import struct
 from functools import partial
 import traceback
@@ -22,6 +23,7 @@ from rasterio.io import MemoryFile
 from requests.structures import CaseInsensitiveDict
 
 import dtcc_core.datasets as datasets
+from dtcc_core.datasets import attach_dataset_context
 import dtcc_core.io as dtcc_io
 from dtcc_core.common import progress as progress_module
 from dtcc_core.datasets.dataset import DatasetDescriptor, DatasetUpstreamError
@@ -36,6 +38,7 @@ from dtcc_core.io.data import orthophoto as client
 from dtcc_core.io.raster_tiles import READ_OVERHEAD_BYTES, WorkingMemoryError
 from dtcc_core.model import Bounds, Raster, exchange
 from dtcc_core.model.values.raster_tiles import RasterTileCollection
+import tests.datasets.live.test_orthophoto_live as live
 from tests.datasets.test_dataset_publish import RecordingUploader
 
 # The package attribute is the registered dataset; the module is imported directly.
@@ -1434,6 +1437,190 @@ def test_a_discovery_subscribers_client_error_is_not_a_failed_result(
     with pytest.raises(client.OrthophotoClientError) as info:
         call()
     assert info.value is errors[0]
+
+
+# Live test helpers (the live module is imported, so its test is not collected
+# here)
+
+
+def test_live_module_is_gated():
+    assert live.pytestmark.name == "live"
+    assert Path(live.__file__).parent.parts[-3:] == ("tests", "datasets", "live")
+
+
+@pytest.mark.parametrize("value", [None, "", "   "])
+def test_live_test_skips_without_a_server_url(monkeypatch, value):
+    if value is None:
+        monkeypatch.delenv("DTCC_ORTHOPHOTO_URL", raising=False)
+    else:
+        monkeypatch.setenv("DTCC_ORTHOPHOTO_URL", value)
+    with pytest.raises(pytest.skip.Exception) as info:
+        live._require_server_url()
+    assert "DTCC_ORTHOPHOTO_URL" in str(info.value)
+    assert "Chalmers" in str(info.value)
+
+
+def test_live_test_runs_with_a_server_url(monkeypatch):
+    monkeypatch.setenv("DTCC_ORTHOPHOTO_URL", BASE)
+    assert live._require_server_url() is None
+
+
+def upstream_error(failure_class):
+    return DatasetUpstreamError(
+        dataset="orthophoto", operation="list", target="x",
+        failure_class=failure_class, status_code=None, message="m",
+    )
+
+
+@pytest.mark.parametrize("failure_class", ["connection", "timeout", "http_5xx"])
+def test_live_test_skips_transient_failures(failure_class):
+    with pytest.raises(pytest.skip.Exception, match=failure_class):
+        live._skip_if_transient(upstream_error(failure_class))
+
+
+@pytest.mark.parametrize("failure_class",
+                         ["http_4xx", "invalid_payload", "configuration"])
+def test_live_test_fails_on_other_failures(failure_class):
+    error = upstream_error(failure_class)
+    # pytest.raises does not catch a skip, so a skip would pass silently.
+    try:
+        live._skip_if_transient(error)
+    except pytest.skip.Exception:
+        pytest.fail(f"{failure_class} must fail the live test, not skip it")
+    except DatasetUpstreamError as raised:
+        assert raised is error
+    else:
+        pytest.fail("the failure must be re-raised")
+
+
+def listed_item(collection, item_id):
+    return client.OrthophotoItem(
+        id=item_id, collection=collection, bbox=cell(0),
+        datetime=datetime(2025, 6, 1, tzinfo=timezone.utc), spektraltyp="rgbi",
+        href=f"/files/{collection}/{item_id}.tif", resolution=0.16, size_bytes=None,
+    )
+
+
+@pytest.mark.parametrize(
+    "items, allowed",
+    [
+        ([("orto-o2-2025", "o65775_6725_25_mr25")], True),
+        ([("orto-o2-2025", "o65775_6725_25_mr25"), ("orto-e-2008", "o65750_6700_50")],
+         False),
+        ([("orto-o2-2025", "o65775_6725_25_mr26")], False),
+        ([("orto-o2-2024", "o65775_6725_25_mr25")], False),
+    ],
+    ids=["pinned", "extra item", "other id", "other collection"],
+)
+def test_live_download_guard_admits_only_the_pinned_item(items, allowed):
+    calls = []
+    guarded = live.guard_downloads(lambda items, **kwargs: calls.append(items))
+    listed = [listed_item(*item) for item in items]
+    if allowed:
+        guarded(listed, server_url=BASE)
+        assert calls == [listed]
+    else:
+        with pytest.raises(AssertionError):
+            guarded(listed, server_url=BASE)
+        assert calls == []
+
+
+THREE_CELLS = (X0, Y0, X0 + 6.0, Y0 + 2.0)
+
+
+@pytest.fixture
+def live_like(server, tmp_path):
+    """A strict mosaic with mixed 0.5 and 0.25 m sources and a gap, and tiles."""
+    server.add("a", cell(0), tiff(tmp_path, cell(0), tag=1))
+    server.add("b", cell(1), tiff(tmp_path, cell(1), tag=2, pixel=0.25),
+               resolution=0.25)
+    raster = call(bounds=THREE_CELLS, strict_live=True)
+    server.calls.clear()
+    tiles = call(bounds=THREE_CELLS, product="tiles", strict_live=True)
+    return raster, tiles, list(server.calls)
+
+
+def with_changes(raster, data=None, **health):
+    context = raster.dataset_context
+    changed = Raster(
+        data=raster.data.copy() if data is None else data, georef=raster.georef,
+        crs=raster.crs, nodata=raster.nodata,
+    )
+    return attach_dataset_context(
+        changed,
+        context.model_copy(update={"health": {**context.health, **health}}),
+    )
+
+
+def test_live_checks_pass_on_a_valid_result(live_like):
+    raster, tiles, requests_made = live_like
+    assert raster.dataset_context.health["coverage_complete"] is False
+    live.check_mosaic(raster, THREE_CELLS, data_cache.cache_dir)
+    live.check_tiles(tiles, THREE_CELLS, data_cache.cache_dir, requests_made)
+
+
+def broken_mosaics(raster):
+    health = raster.dataset_context.health
+    alpha = raster.data.copy()
+    # A transparent pixel, so neither the valid count nor the colour check sees it.
+    row, col = np.argwhere(alpha[..., 3] == 0)[0]
+    alpha[row, col, 3] = 128
+    colour = raster.data.copy()
+    row, col = np.argwhere(colour[..., 3] == 0)[0]
+    colour[row, col, :3] = 7
+    xmin, ymin, xmax, ymax = health["bounds"]
+    step = health["resolution"]
+    context = raster.dataset_context
+    leaked = attach_dataset_context(
+        Raster(data=raster.data.copy(), georef=raster.georef, crs=raster.crs,
+               nodata=raster.nodata),
+        context.model_copy(update={"warnings": context.warnings
+                                   + [str(data_cache.cache_dir)]}),
+    )
+    return {
+        "alpha 128": with_changes(raster, data=alpha),
+        "colour under alpha 0": with_changes(raster, data=colour),
+        "valid pixels off": with_changes(raster,
+                                         valid_pixels=health["valid_pixels"] + 1),
+        "total pixels off": with_changes(raster,
+                                         total_pixels=health["total_pixels"] + 1),
+        "grid shifted": with_changes(
+            raster, bounds=[xmin + step, ymin, xmax + step, ymax]
+        ),
+        "partial": with_changes(raster, status="partial"),
+        "cache path in warnings": leaked,
+    }
+
+
+@pytest.mark.parametrize("case", ["alpha 128", "colour under alpha 0",
+                                  "valid pixels off", "total pixels off",
+                                  "grid shifted", "partial",
+                                  "cache path in warnings"])
+def test_live_mosaic_check_rejects_broken_results(live_like, case):
+    raster, _, _ = live_like
+    with pytest.raises(AssertionError):
+        live.check_mosaic(broken_mosaics(raster)[case], THREE_CELLS,
+                          data_cache.cache_dir)
+
+
+@pytest.mark.parametrize("case", ["missing file", "wrong size", "file request",
+                                  "second manifest"])
+def test_live_tiles_check_rejects_broken_results(live_like, case):
+    _, tiles, requests_made = live_like
+    if case == "missing file":
+        tiles[0].path.unlink()
+    elif case == "wrong size":
+        changed = [dataclasses.replace(tiles[0], size_bytes=tiles[0].size_bytes + 1)]
+        tiles = attach_dataset_context(
+            RasterTileCollection(tiles=changed + list(tiles)[1:]),
+            tiles.dataset_context,
+        )
+    elif case == "file request":
+        requests_made = requests_made + [BASE + "/files/orto-2020/a.tif"]
+    else:
+        requests_made = requests_made + [BASE + "/items"]
+    with pytest.raises(AssertionError):
+        live.check_tiles(tiles, THREE_CELLS, data_cache.cache_dir, requests_made)
 
 
 # Registration
