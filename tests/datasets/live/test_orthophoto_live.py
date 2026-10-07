@@ -11,6 +11,7 @@ cache that is removed afterwards.
 
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 from pathlib import Path
@@ -105,7 +106,10 @@ def check_mosaic(raster, bounds, cache_root) -> None:
              if source["resolution"] is not None]
     assert sources and (not known or step <= min(known))
     assert context.metadata.collection_period is not None
-    assert str(cache_root) not in context.model_dump_json()
+    # JSON escapes the path's backslashes on Windows, so search for its JSON form.
+    assert json.dumps(str(cache_root), ensure_ascii=False)[1:-1] not in (
+        context.model_dump_json()
+    )
 
 
 def check_tiles(tiles, bounds, cache_root, requests_made) -> None:

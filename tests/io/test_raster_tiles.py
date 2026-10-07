@@ -48,6 +48,11 @@ BANDS = {"rgb": 3, "rgbi": 4, "cir": 3}
 RASTERIO_OPEN = rasterio.open
 # chmod(0) cannot deny reads on Windows, and root ignores file permissions.
 CANNOT_DENY_READ = sys.platform == "win32" or os.geteuid() == 0
+# Windows refuses to replace or delete a file while it is open.
+LOCKED_REASON = "open files cannot be replaced or deleted"
+SKIP_IF_OPEN_FILES_LOCKED = pytest.mark.skipif(
+    sys.platform == "win32", reason=LOCKED_REASON
+)
 
 
 def band_values(bands, height=4, width=4, dtype="uint8"):
@@ -1506,6 +1511,7 @@ def test_same_bounds_replacement_before_reading_is_a_failure(tmp_path, monkeypat
     assert set(np.unique(result.raster.data[..., 2])) == {1}
 
 
+@SKIP_IF_OPEN_FILES_LOCKED
 def test_replaced_overview_before_reading_is_a_failure(tmp_path, monkeypatch):
     older = tile_at(grid_tiff(tmp_path / "old.tif", 50, 50, 0.4, tag=1), year=2010)
     path = grid_tiff(tmp_path / "new.tif", 50, 50, 0.4, tag=2, overviews=[2, 4, 8])
@@ -1534,6 +1540,7 @@ def test_replaced_overview_before_reading_is_a_failure(tmp_path, monkeypatch):
     assert set(np.unique(result.raster.data[..., 2][opaque])) == {1}
 
 
+@SKIP_IF_OPEN_FILES_LOCKED
 def test_overview_from_a_replaced_file_is_admitted_before_reading(
     tmp_path, monkeypatch
 ):
@@ -1571,7 +1578,10 @@ def non_square_with_the_same_overview(path):
     grid_tiff(path, 49, 50, 0.4, tag=3, overviews=[2], transform=transform)
 
 
-@pytest.mark.parametrize("moment", ["before the full resolution", "before the level"])
+@pytest.mark.parametrize("moment", [
+    "before the full resolution",
+    pytest.param("before the level", marks=SKIP_IF_OPEN_FILES_LOCKED),
+])
 def test_overview_plans_read_one_admitted_file(tmp_path, monkeypatch, moment):
     older = tile_at(grid_tiff(tmp_path / "old.tif", 50, 50, 0.4, tag=1), year=2010)
     path = grid_tiff(tmp_path / "new.tif", 50, 50, 0.4, tag=2, overviews=[2])
@@ -1607,7 +1617,10 @@ def test_overview_plans_read_one_admitted_file(tmp_path, monkeypatch, moment):
     assert set(np.unique(result.raster.data[..., 2][opaque])) == {1}
 
 
-@pytest.mark.parametrize("change", ["replaced, same size and mtime", "rewritten"])
+@pytest.mark.parametrize("change", [
+    pytest.param("replaced, same size and mtime", marks=SKIP_IF_OPEN_FILES_LOCKED),
+    "rewritten",
+])
 def test_file_identity_covers_replacement_and_rewriting(tmp_path, monkeypatch, change):
     older = tile_at(grid_tiff(tmp_path / "old.tif", 50, 50, 0.4, tag=1), year=2010)
     path = grid_tiff(tmp_path / "new.tif", 50, 50, 0.4, tag=2, overviews=[2])
@@ -1667,6 +1680,8 @@ def test_local_changes_after_the_header_pass_raise_their_own_error(
 ):
     if change == "unreadable" and CANNOT_DENY_READ:
         pytest.skip("file permissions cannot deny reads")
+    if change == "removed" and sys.platform == "win32":
+        pytest.skip(LOCKED_REASON)
     tile = tile_at(grid_tiff(tmp_path / "t.tif", 10, 10, 0.4))
 
     def changing_open(path, *args, **kwargs):

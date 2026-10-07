@@ -1307,7 +1307,7 @@ def test_first_download_error_stops_acquisition(monkeypatch, tmp_path):
     assert info.value.target == BASE + "/files/orto-o2-2017/o65775_6725_25_im17.tif"
     assert len(fake.calls) == 3
     (published,) = files_under(cache_root)
-    assert published.endswith("orto-o2-2025/o65775_6725_25_mr25.tif")
+    assert Path(published).as_posix().endswith("orto-o2-2025/o65775_6725_25_mr25.tif")
     assert (cache_root / published).read_bytes() == body
 
 

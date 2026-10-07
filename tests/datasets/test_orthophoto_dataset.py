@@ -920,7 +920,9 @@ def test_legacy_package_of_a_partial_mosaic_warns_and_keeps_warnings(
                     if issubclass(warning.category, UserWarning)]
         assert len(messages) == 1
         assert "'partial'" in messages[0] and "canonical=True" in messages[0]
-    manifest = json.loads((tmp_path / "pkg" / "manifest.json").read_text())
+    manifest = json.loads(
+        (tmp_path / "pkg" / "manifest.json").read_text(encoding="utf-8")
+    )
     with zipfile.ZipFile(tmp_path / "pkg.dtccpkg") as archive:
         assert json.loads(archive.read("manifest.json")) == manifest
     assert "Older imagery (a) overlaps b, which failed." in (
