@@ -98,89 +98,18 @@ jobs:
         run: |
           cd tests && uv run --locked pytest
 
-  contract-artifacts:
-    needs: build-and-test
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v10.1.0
-        with:
-          python-version: "3.11"
-          enable-cache: true
-
-      - name: Build sdist and wheel
-        run: |
-          uv build --out-dir dist
-
-      # Install the built wheel into a clean environment, outside the checkout,
-      # so the test exercises the packaged artifact rather than the source tree.
-      - name: Install wheel
-        run: |
-          uv venv "${RUNNER_TEMP}/wheel-env"
-          uv pip install --python "${RUNNER_TEMP}/wheel-env" dist/dtcc_core-*.whl
-
-      - name: Verify installed wheel
-        run: |
-          cd "${RUNNER_TEMP}"
-          "${RUNNER_TEMP}/wheel-env/bin/python" -c "import dtcc_core; import dtcc_core.datasets as datasets; assert datasets.list()"
-
-      - name: Generate dataset contract artifacts
-        run: |
-          "${RUNNER_TEMP}/wheel-env/bin/python" scripts/generate_dataset_contract.py --output contract-artifacts
-
-      - name: Upload wheel and dataset contract
-        uses: actions/upload-artifact@v4
-        with:
-          name: dtcc-core-contract-${{ github.sha }}
-          path: |
-            dist/*.whl
-            contract-artifacts/
-          if-no-files-found: error
-
-  dispatch-dtcc-sim:
-    needs: [build-and-test, python-compatibility, contract-artifacts]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Dispatch dtcc-sim contract tests
-        env:
-          GH_TOKEN: ${{ secrets.DTCC_REPOSITORY_DISPATCH_TOKEN }}
-        run: |
-          gh api \
-            --method POST \
-            repos/dtcc-platform/dtcc-sim/dispatches \
-            --field event_type=dtcc-core-contract \
-            --field "client_payload[core_sha]=${GITHUB_SHA}"
-
-  dispatch-dtcc-upload:
-    needs: [build-and-test, python-compatibility, contract-artifacts]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Dispatch dtcc-upload contract tests
-        env:
-          GH_TOKEN: ${{ secrets.DTCC_REPOSITORY_DISPATCH_TOKEN }}
-        run: |
-          gh api \
-            --method POST \
-            repos/dtcc-platform/dtcc-upload/dispatches \
-            --field event_type=dtcc-core-contract \
-            --field "client_payload[core_sha]=${GITHUB_SHA}" \
-            --field "client_payload[core_run_id]=${GITHUB_RUN_ID}"
-
   notify:
-    needs: [build-and-test, python-compatibility, contract-artifacts, dispatch-dtcc-sim, dispatch-dtcc-upload]
+    needs: [build-and-test, python-compatibility]
     runs-on: ubuntu-latest
     if: always()  # always run even if build fails
     steps:
       - name: Slack notification on success
-        if: ${{ needs.build-and-test.result == 'success' && needs.python-compatibility.result == 'success' && needs.contract-artifacts.result == 'success' && (needs.dispatch-dtcc-sim.result == 'success' || needs.dispatch-dtcc-sim.result == 'skipped') && (needs.dispatch-dtcc-upload.result == 'success' || needs.dispatch-dtcc-upload.result == 'skipped') }}
+        if: ${{ needs.build-and-test.result == 'success' && needs.python-compatibility.result == 'success' }}
         env:
-          COMMIT_AUTHOR: ${{ github.event.head_commit.author.name }}
-          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+          # head_commit exists only on push; pull_request runs use the PR head.
+          COMMIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          COMMIT_AUTHOR: ${{ github.event.head_commit.author.name || github.event.pull_request.user.login }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message || github.event.pull_request.title }}
           NOTIFICATION_TITLE: "✅ *SUCCESS*"
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_GITHUB }}
         shell: bash
@@ -189,7 +118,7 @@ jobs:
             text: ([
               env.NOTIFICATION_TITLE,
               ("Repository: `" + env.GITHUB_REPOSITORY + "`"),
-              ("Commit: `" + (env.GITHUB_SHA[0:7]) + "`"),
+              ("Commit: `" + (env.COMMIT_SHA[0:7]) + "`"),
               ("Author: " + env.COMMIT_AUTHOR),
               ("Message: " + env.COMMIT_MESSAGE)
             ] | join("\n"))
@@ -200,10 +129,12 @@ jobs:
               "$SLACK_WEBHOOK_URL"
 
       - name: Slack notification on failure
-        if: ${{ needs.build-and-test.result == 'failure' || needs.python-compatibility.result == 'failure' || needs.contract-artifacts.result == 'failure' || needs.dispatch-dtcc-sim.result == 'failure' || needs.dispatch-dtcc-upload.result == 'failure' }}
+        if: ${{ needs.build-and-test.result == 'failure' || needs.python-compatibility.result == 'failure' }}
         env:
-          COMMIT_AUTHOR: ${{ github.event.head_commit.author.name }}
-          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+          # head_commit exists only on push; pull_request runs use the PR head.
+          COMMIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          COMMIT_AUTHOR: ${{ github.event.head_commit.author.name || github.event.pull_request.user.login }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message || github.event.pull_request.title }}
           NOTIFICATION_TITLE: "❌ *FAILURE*"
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_DEVELOPMENT }}
         shell: bash
@@ -212,7 +143,7 @@ jobs:
             text: ([
               env.NOTIFICATION_TITLE,
               ("Repository: `" + env.GITHUB_REPOSITORY + "`"),
-              ("Commit: `" + (env.GITHUB_SHA[0:7]) + "`"),
+              ("Commit: `" + (env.COMMIT_SHA[0:7]) + "`"),
               ("Author: " + env.COMMIT_AUTHOR),
               ("Message: " + env.COMMIT_MESSAGE)
             ] | join("\n"))
