@@ -67,8 +67,26 @@ def test_concurrent_downloads_publish_complete_tiles(
     assert session.get.call_count == 2
 
 
-def test_failed_download_removes_only_its_own_temporary_file(
+def test_download_that_loses_publication_race_keeps_published_tile(
     downloader, monkeypatch, tmp_path: Path
+) -> None:
+    module, filename, payload, _session = downloader
+
+    # Windows refuses a replace while a concurrent download publishes the tile.
+    def lose_race(src, dst):
+        Path(dst).write_bytes(payload)
+        raise PermissionError("Access is denied")
+
+    monkeypatch.setattr(module.os, "replace", lose_race)
+    module.run_download_files("http://example.test", [filename], tmp_path)
+
+    assert (tmp_path / filename).read_bytes() == payload
+    assert not list(tmp_path.glob("*.part"))
+
+
+@pytest.mark.parametrize("error", [OSError, PermissionError])
+def test_failed_download_removes_only_its_own_temporary_file(
+    downloader, monkeypatch, tmp_path: Path, error
 ) -> None:
     module, filename, payload, _session = downloader
     other_download = tmp_path / f"{filename}.part"
@@ -76,7 +94,7 @@ def test_failed_download_removes_only_its_own_temporary_file(
 
     def fail_replace(src, dst):
         assert Path(src).read_bytes() == payload
-        raise OSError("publication failed")
+        raise error("publication failed")
 
     monkeypatch.setattr(module.os, "replace", fail_replace)
     expected_error = geopkg.FootprintDownloadError if module is geopkg else OSError
