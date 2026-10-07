@@ -382,6 +382,23 @@ def test_default_product_is_an_rgba_mosaic(server, tmp_path):
     assert (raster.data[..., 3] == 255).all() and tags(raster) == {9}
 
 
+def test_orthophoto_mosaic_plots_as_an_image(server, tmp_path):
+    import matplotlib
+    matplotlib.use('Agg', force=True)
+    import matplotlib.pyplot as plt
+
+    server.add("a", cell(0), tiff(tmp_path, cell(0), tag=9))
+    raster = call()
+    ax = raster.plot(show=False)
+    try:
+        assert ax.name == 'rectilinear'
+        np.testing.assert_array_equal(ax.images[0].get_array(), raster.data)
+        assert raster.dataset_context.health['status'] == 'complete'
+        ax.figure.canvas.draw()
+    finally:
+        plt.close(ax.figure)
+
+
 def test_tiles_product_returns_original_files(server, tmp_path):
     body = tiff(tmp_path, cell(0), bands=3)
     server.add("a", cell(0), body, spektraltyp="cir")

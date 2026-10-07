@@ -11,6 +11,7 @@ from dtcc_core import datasets
 bounds = [673700, 6578700, 673800, 6578800]  # EPSG:3006
 image = datasets.orthophoto(bounds=bounds)
 image = datasets.orthophoto(bounds=bounds, year=2025, resolution=1.0)
+image.plot()  # Georeferenced 2D preview, with alpha transparency
 tiles = datasets.orthophoto(bounds=bounds, product="tiles")
 raster = tiles[0].load()
 ```
