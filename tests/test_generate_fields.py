@@ -137,5 +137,6 @@ def test_missing_flagship_writes_nothing(tmp_path, monkeypatch, capsys):
     with pytest.raises(SystemExit) as error:
         script.main()
     assert error.value.code == 1
-    assert str(missing) in capsys.readouterr().err
+    # OSError reports the filename via repr(), which escapes Windows backslashes.
+    assert repr(str(missing)) in capsys.readouterr().err
     assert not output.exists()
