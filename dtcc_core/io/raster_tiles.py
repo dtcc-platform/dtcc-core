@@ -1,5 +1,6 @@
 """Budgeted loading and mosaicking of file-backed raster tiles into Rasters."""
 
+import errno
 import math
 import os
 from collections.abc import Sequence
@@ -117,6 +118,9 @@ def _check_budget(max_memory_bytes) -> None:
 def _preflight(path: Path) -> None:
     """Raise missing files, directories and permission problems as their own
     OSError before Rasterio sees the path."""
+    # Windows reports opening a directory as PermissionError.
+    if path.is_dir():
+        raise IsADirectoryError(errno.EISDIR, os.strerror(errno.EISDIR), str(path))
     with open(path, "rb"):
         pass
 

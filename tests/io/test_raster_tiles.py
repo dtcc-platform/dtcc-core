@@ -2,6 +2,7 @@ import gc
 import math
 import os
 import struct
+import sys
 import warnings
 import tracemalloc
 import weakref
@@ -45,6 +46,8 @@ LM_COLORS = [ColorInterp.red, ColorInterp.green, ColorInterp.blue]
 BANDS = {"rgb": 3, "rgbi": 4, "cir": 3}
 # Fixtures write and check files with the real open, unseen by recording spies.
 RASTERIO_OPEN = rasterio.open
+# chmod(0) cannot deny reads on Windows, and root ignores file permissions.
+CANNOT_DENY_READ = sys.platform == "win32" or os.geteuid() == 0
 
 
 def band_values(bands, height=4, width=4, dtype="uint8"):
@@ -442,7 +445,7 @@ def test_directory_raises_is_a_directory(tmp_path, opened):
     assert opened == []
 
 
-@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores file permissions")
+@pytest.mark.skipif(CANNOT_DENY_READ, reason="file permissions cannot deny reads")
 def test_unreadable_file_raises_permission_error(tmp_path, opened):
     tile, _ = written_tile(tmp_path)
     tile.path.chmod(0)
@@ -1662,8 +1665,8 @@ def test_overview_of_a_file_with_declared_nodata_keeps_its_gaps(tmp_path):
 def test_local_changes_after_the_header_pass_raise_their_own_error(
     tmp_path, monkeypatch, change
 ):
-    if change == "unreadable" and os.geteuid() == 0:
-        pytest.skip("root ignores file permissions")
+    if change == "unreadable" and CANNOT_DENY_READ:
+        pytest.skip("file permissions cannot deny reads")
     tile = tile_at(grid_tiff(tmp_path / "t.tif", 10, 10, 0.4))
 
     def changing_open(path, *args, **kwargs):
@@ -1692,8 +1695,8 @@ def test_local_file_errors_propagate(tmp_path, kind):
     if kind == "directory":
         path.mkdir()
     elif kind == "unreadable":
-        if os.geteuid() == 0:
-            pytest.skip("root ignores file permissions")
+        if CANNOT_DENY_READ:
+            pytest.skip("file permissions cannot deny reads")
         grid_tiff(path, 10, 10, 0.4)
         path.chmod(0)
     tile = make_tile(path, extent=extent_of(good), id="local")
