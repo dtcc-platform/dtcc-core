@@ -17,6 +17,9 @@ class ProviderInfo:
 
 _PROVIDERS: dict[str, ProviderInfo] = {
     "dtcc-platform": ProviderInfo("dtcc-platform", "DTCC Platform"),
+    "copernicus-land": ProviderInfo(
+        "copernicus-land", "Copernicus Land Monitoring Service"
+    ),
     "lantmateriet": ProviderInfo("lantmateriet", "Lantmäteriet"),
     "openstreetmap": ProviderInfo("openstreetmap", "OpenStreetMap"),
     "scb": ProviderInfo("scb", "SCB"),
@@ -26,6 +29,9 @@ _PROVIDERS: dict[str, ProviderInfo] = {
 }
 
 _ALIASES: dict[str, str] = {
+    "clms": "copernicus-land",
+    "copernicus": "copernicus-land",
+    "copernicus-land": "copernicus-land",
     "dtcc": "dtcc-platform",
     "dtcc-platform": "dtcc-platform",
     "lantmateriet": "lantmateriet",
