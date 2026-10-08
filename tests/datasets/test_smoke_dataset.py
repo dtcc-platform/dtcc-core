@@ -499,6 +499,8 @@ def test_smoke_streamlines_png_export_writes_visualization_manifest(tmp_path):
     assert manifest["data_kind"] == "raster"
     assert manifest["product"] == "streamlines"
     assert manifest["fields"] == ["velocity", "speed", "pressure"]
+    # Only datasets that supply per-call context add it to the sidecar.
+    assert "dataset_context" not in manifest
 
     visualization = manifest["visualization"]
     assert visualization["profile"] == "table"
