@@ -20,8 +20,7 @@ from dtcc_core.io.raster_tiles import (
     build_mosaic,
     mosaic_minimum_bytes,
 )
-from dtcc_core.model import Bounds, Raster
-from dtcc_core.model.values.raster_tiles import RasterTileCollection
+from dtcc_core.model import Bounds
 
 from .context import attach_dataset_context
 from .dataset import DatasetBaseArgs, DatasetDescriptor, DatasetUpstreamError
@@ -202,9 +201,10 @@ class OrthophotoDataset(DatasetDescriptor):
         "returns the original GeoTIFFs as a RasterTileCollection. The tile "
         "server is internal to Chalmers, reachable from the Chalmers network or "
         "VPN only, and has no public default URL: set DTCC_ORTHOPHOTO_URL or pass "
-        f"server_url, and ask {CONTACT} for the address and access. Use "
-        "strict_live=True when testing the setup, so a failure raises instead of "
-        "returning an empty result."
+        f"server_url, and ask {CONTACT} for the address and access. A call "
+        "that cannot fetch the item list raises DatasetUpstreamError. Use "
+        "strict_live=True when testing the setup, so a failed download raises "
+        "too instead of being left out."
     )
     ArgsModel = OrthophotoArgs
     data_category = "raw"
@@ -324,11 +324,9 @@ class OrthophotoDataset(DatasetDescriptor):
                     timeout=timeout,
                 )
             except client.OrthophotoClientError as error:
-                upstream = _upstream(error)
-                if args.strict_live:
-                    raise upstream from error
-                report.errors.append(upstream)
-                return _empty(args, upstream), report
+                # Without the item list there is nothing to return, so this
+                # raises whatever strict_live is.
+                raise _upstream(error) from error
         report.items_listed = len(items)
         resolutions = [item.resolution for item in items]
         if raster and args.resolution is None and items and None not in resolutions:
@@ -572,18 +570,6 @@ def _refuse_minimum(bounds, resolution, budget) -> None:
             f"An orthophoto mosaic at {resolution} m over {list(bounds)}",
             _TOO_LARGE,
         )
-
-
-def _empty(args, error: DatasetUpstreamError):
-    """The result of a call whose item list failed with ``error``."""
-    if args.product == "tiles":
-        return RasterTileCollection()
-    if args.format is not None:
-        raise ValueError(
-            "The orthophoto request has no valid pixel, so no GeoTIFF is "
-            f"written; the item list could not be fetched: {error}"
-        ) from error
-    return Raster(crs="EPSG:3006")
 
 
 def _upstream(error) -> DatasetUpstreamError:

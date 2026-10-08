@@ -25,9 +25,10 @@ bounds = [673700, 6578700, 673800, 6578800]  # EPSG:3006
 image = datasets.orthophoto(bounds=bounds, server_url="http://<host>:<port>")
 ```
 
-When testing the setup, pass `strict_live=True`. A missing network, VPN or
-service then raises `DatasetUpstreamError` with the reason, instead of returning
-an empty result whose `dataset_context.health` reports `failed`.
+A call that cannot fetch the item list, for example without the network, VPN
+or service, raises `DatasetUpstreamError` with the reason. When testing the
+setup, also pass `strict_live=True`, so a failed download raises too instead of
+being left out and reported in `dataset_context.health`.
 
 ## Example
 
@@ -171,13 +172,14 @@ include:
 Upstream failures are classified as `timeout`, `connection`, `http_4xx`,
 `http_5xx`, `invalid_payload` (including redirects and files that are not
 readable GeoTIFFs) or `configuration` (the server has no Lantmäteriet
-credentials). By default (`strict_live=False`) they are reported in health: a
-failed item list gives an empty result with `failed` health, a failed download
-is left out, and a file that cannot be read keeps only the pixels used before
-the failure. The status is `complete`, `partial` (failures and some imagery),
-`failed` (failures and no imagery) or `empty` (no imagery and no failure). With
-`format="tif"`, and through export and publish, a result without imagery raises
-`ValueError` instead, naming the first upstream failure and chained to it. With
+credentials). A failed item list raises `DatasetUpstreamError` in either mode,
+since there is nothing to return. Otherwise, by default (`strict_live=False`),
+failures are reported in health: a failed download is left out, and a file that
+cannot be read keeps only the pixels used before the failure. The status is
+`complete`, `partial` (failures and some imagery), `failed` (failures and no
+imagery) or `empty` (no imagery and no failure). With `format="tif"`, and
+through export and publish, a result without imagery raises `ValueError`
+instead, naming the first upstream failure and chained to it. With
 `strict_live=True` the first upstream failure raises `DatasetUpstreamError`.
 Argument errors (a missing or invalid service URL included), memory refusals and
 local file-system errors always raise.

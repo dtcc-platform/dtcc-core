@@ -591,21 +591,19 @@ NETWORK_HINT = "check the server URL, your network and VPN connection"
 
 
 @pytest.mark.parametrize("path", ["call", "export"])
-def test_tif_after_a_failed_listing_keeps_the_upstream_explanation(
+def test_tif_after_a_failed_listing_raises_the_upstream_failure(
     server, tmp_path, path
 ):
     server.manifest_failure = requests.ConnectionError("down")
-    with pytest.raises(ValueError) as info:
+    with pytest.raises(DatasetUpstreamError) as info:
         if path == "call":
             call(format="tif")
         else:
             datasets.orthophoto.export(tmp_path / "o.tif", bounds=cell(0),
                                        server_url=BASE)
-    message = str(info.value)
-    assert "could not be fetched" in message and NETWORK_HINT in message
-    cause = info.value.__cause__
-    assert isinstance(cause, DatasetUpstreamError)
-    assert cause.failure_class == "connection" and str(cause) in message
+    assert info.value.failure_class == "connection"
+    assert NETWORK_HINT in str(info.value)
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_tif_after_failed_downloads_keeps_the_upstream_explanation(server,
@@ -632,8 +630,21 @@ def test_tif_without_upstream_errors_names_no_cause(server, tmp_path):
     assert "upstream" not in str(info.value)
 
 
-def test_health_keeps_the_network_suggestion(server):
+def test_a_failed_listing_raises_with_the_network_suggestion(server):
     server.manifest_failure = requests.ConnectionError("down")
+    with pytest.raises(DatasetUpstreamError) as info:
+        call()
+    assert info.value.message.startswith(f"Connection failed ({NETWORK_HINT})")
+
+
+def test_health_keeps_the_network_suggestion(server, tmp_path):
+    server.add("a", cell(0), tiff(tmp_path, cell(0)))
+
+    def before(url):
+        if "/files/" in url:
+            raise requests.ConnectionError("down")
+
+    server.before = before
     error = call().dataset_context.health["upstream_errors"][0]
     assert error["message"].startswith(f"Connection failed ({NETWORK_HINT})")
 
@@ -653,22 +664,20 @@ MANIFEST_FAILURES = {
 }
 
 
+# A failed item list leaves nothing to return, so it raises in either mode.
+@pytest.mark.parametrize("product", ["raster", "tiles"])
+@pytest.mark.parametrize("strict", [False, True], ids=["default", "strict"])
 @pytest.mark.parametrize("case", MANIFEST_FAILURES, ids=list(MANIFEST_FAILURES))
-def test_manifest_failures(server, case):
+def test_manifest_failures(server, case, strict, product):
     failure, failure_class, status = MANIFEST_FAILURES[case]
     server.manifest_failure = failure
     with pytest.raises(DatasetUpstreamError) as info:
-        call(strict_live=True)
+        call(strict_live=strict, product=product)
     assert info.value.dataset == "orthophoto"
     assert info.value.failure_class == failure_class
     assert info.value.status_code == status
     assert isinstance(info.value.__cause__, client.OrthophotoClientError)
-    result = call()
-    assert result.data.shape == ()
-    health = result.dataset_context.health
-    assert health["status"] == "failed" and health["partial_result"] is True
-    assert health["upstream_errors"][0]["failure_class"] == failure_class
-    assert health["coverage_complete"] is False
+    assert server.file_calls() == []
 
 
 def test_download_failure_strict_stops_and_default_continues(server, tmp_path):
@@ -965,12 +974,8 @@ def test_export_without_manifest_writes_only_the_tiff(server, tmp_path):
 def test_failed_export_writes_nothing(server, tmp_path, strict):
     server.manifest_failure = FakeResponse(502, "bad gateway")
     out = tmp_path / "out"
-    if strict:
-        with pytest.raises(DatasetUpstreamError):
-            export(out / "o.tif", strict_live=True)
-    else:
-        with pytest.raises(ValueError, match="could not be fetched"):
-            export(out / "o.tif")
+    with pytest.raises(DatasetUpstreamError):
+        export(out / "o.tif", strict_live=strict)
     assert not out.exists() or list(out.iterdir()) == []
 
 
@@ -1148,7 +1153,8 @@ def test_canonical_package_keeps_the_calls_context_without_requests(
 @pytest.mark.parametrize("status", ["failed", "empty"])
 def test_failed_and_empty_results_export_canonically(server, tmp_path, status):
     if status == "failed":
-        server.manifest_failure = FakeResponse(502, "bad gateway")
+        href = server.add("a", cell(0), tiff(tmp_path, cell(0)))
+        server.file_failures[href] = FakeResponse(502, "bad gateway")
     raster = call()
     raster.export(tmp_path / "pkg", canonical=True)
     loaded = load_model_package(tmp_path / "pkg")
@@ -1210,7 +1216,7 @@ def test_an_empty_result_writes_no_tiff(server, tmp_path, name):
 def test_tiff_after_a_manifest_failure_is_refused(server, tmp_path, path):
     server.manifest_failure = FakeResponse(502, "bad gateway")
     out = tmp_path / "out"
-    with pytest.raises(ValueError, match="could not be fetched"):
+    with pytest.raises(DatasetUpstreamError):
         if path == "call":
             call(format="tif")
         elif path == "export":
