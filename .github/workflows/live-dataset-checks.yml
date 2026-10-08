@@ -1,0 +1,53 @@
+name: live-dataset-checks
+
+# Downloads a small sample from every live dataset upstream to catch broken
+# external APIs. Runs weekly and on demand, never on pushes or pull requests.
+on:
+  schedule:
+    - cron: "0 5 * * 1"  # Mondays 05:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-datasets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.1.0
+        with:
+          python-version: "3.11"
+          enable-cache: true
+
+      - name: Install dtcc-core
+        run: uv sync --locked
+
+      # Tests that need a provider key skip themselves when the secret is unset.
+      - name: Run live dataset tests
+        env:
+          DTCC_LIVE_DATASET_TESTS: "1"
+          TRAFIKLAB_API_KEY: ${{ secrets.TRAFIKLAB_API_KEY }}
+          VASTTRAFIK_AUTHENTICATION_KEY: ${{ secrets.VASTTRAFIK_AUTHENTICATION_KEY }}
+        run: |
+          cd tests
+          uv run --locked pytest datasets/live --run-live -rA \
+            --junitxml=live-results.xml
+
+      - name: Write summary
+        if: always()
+        run: |
+          uv run --locked python scripts/summarize_live_tests.py \
+            tests/live-results.xml >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-dataset-results
+          path: tests/live-results.xml
+          if-no-files-found: ignore
