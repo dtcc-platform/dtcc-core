@@ -5,6 +5,32 @@ server. The server lists the original GeoTIFFs covering an EPSG:3006 bounding bo
 and streams each file on request; cropping, mosaicking and conversion happen in
 dtcc-core.
 
+## Access
+
+The tile server is internal to Chalmers: it is reachable from the Chalmers
+network or VPN only and has no public default URL. Ask the DTCC development team
+at Chalmers for its address and access. General availability needs a publicly
+reachable service or another supported source.
+
+Give the address in the environment or in Python; an explicit `server_url` wins:
+
+```sh
+export DTCC_ORTHOPHOTO_URL=http://<host>:<port>
+```
+
+```python
+from dtcc_core import datasets
+
+bounds = [673700, 6578700, 673800, 6578800]  # EPSG:3006
+image = datasets.orthophoto(bounds=bounds, server_url="http://<host>:<port>")
+```
+
+When testing the setup, pass `strict_live=True`. A missing network, VPN or
+service then raises `DatasetUpstreamError` with the reason, instead of returning
+an empty result whose `dataset_context.health` reports `failed`.
+
+## Example
+
 ```python
 from dtcc_core import datasets
 
@@ -44,9 +70,8 @@ The result's context does record the address: an explicit `server_url` in the
 request parameters, and the request URL in each upstream error and its warning.
 Export sidecars, packages and published uploads carry that context.
 
-The service is reachable from the Chalmers network or VPN only. The current
-deployment uses plain HTTP; the client sends no credentials, and the server holds
-the Lantmäteriet credentials.
+The current deployment uses plain HTTP; the client sends no credentials, and the
+server holds the Lantmäteriet credentials.
 
 ## Products
 
@@ -152,9 +177,15 @@ is left out, and a file that cannot be read keeps only the pixels used before
 the failure. The status is `complete`, `partial` (failures and some imagery),
 `failed` (failures and no imagery) or `empty` (no imagery and no failure). With
 `format="tif"`, and through export and publish, a result without imagery raises
-`ValueError` instead. With `strict_live=True` the first upstream failure raises
-`DatasetUpstreamError`. Argument errors (a missing or invalid service URL
-included), memory refusals and local file-system errors always raise.
+`ValueError` instead, naming the first upstream failure and chained to it. With
+`strict_live=True` the first upstream failure raises `DatasetUpstreamError`.
+Argument errors (a missing or invalid service URL included), memory refusals and
+local file-system errors always raise.
+
+Connection and timeout messages suggest checking the server URL, the network and
+the VPN connection, which are the usual causes but not the only ones. A
+`configuration` failure means the tile server has no Lantmäteriet credentials;
+contact the DTCC development team at Chalmers, which operates it.
 
 ## Timeouts
 

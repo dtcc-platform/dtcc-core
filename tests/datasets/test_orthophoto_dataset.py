@@ -331,6 +331,20 @@ def test_describe_is_deterministic_and_has_no_url(monkeypatch):
     assert "tiles.test" not in first and "http" not in first
 
 
+def test_discovery_metadata_states_access_and_setup():
+    described = datasets.orthophoto.describe()
+    description = described["description"]
+    for phrase in ("internal to Chalmers", "Chalmers network or VPN",
+                   "no public default URL", CONTACT, "DTCC_ORTHOPHOTO_URL",
+                   "server_url", "strict_live=True"):
+        assert phrase in description, phrase
+    server_url = described["args_schema"]["properties"]["server_url"]
+    assert "Chalmers network or VPN" in server_url["description"]
+    assert CONTACT in server_url["description"]
+    limitations = " ".join(datasets.orthophoto.presentation_limitations)
+    assert CONTACT in limitations and "publicly reachable service" in limitations
+
+
 # One manifest and early refusals
 
 
@@ -570,6 +584,58 @@ def test_tif_in_strict_mode_raises_the_upstream_failure_first(server):
     server.manifest_failure = FakeResponse(502, "bad gateway")
     with pytest.raises(DatasetUpstreamError):
         call(format="tif", strict_live=True)
+
+
+CONTACT = "the DTCC development team at Chalmers"
+NETWORK_HINT = "check the server URL, your network and VPN connection"
+
+
+@pytest.mark.parametrize("path", ["call", "export"])
+def test_tif_after_a_failed_listing_keeps_the_upstream_explanation(
+    server, tmp_path, path
+):
+    server.manifest_failure = requests.ConnectionError("down")
+    with pytest.raises(ValueError) as info:
+        if path == "call":
+            call(format="tif")
+        else:
+            datasets.orthophoto.export(tmp_path / "o.tif", bounds=cell(0),
+                                       server_url=BASE)
+    message = str(info.value)
+    assert "could not be fetched" in message and NETWORK_HINT in message
+    cause = info.value.__cause__
+    assert isinstance(cause, DatasetUpstreamError)
+    assert cause.failure_class == "connection" and str(cause) in message
+
+
+def test_tif_after_failed_downloads_keeps_the_upstream_explanation(server,
+                                                                   tmp_path):
+    href = server.add("a", cell(0), tiff(tmp_path, cell(0)))
+    server.file_failures[href] = FakeResponse(
+        503, json.dumps({"detail": "LM credentials not configured"})
+    )
+    with pytest.raises(ValueError) as info:
+        call(format="tif")
+    message = str(info.value)
+    assert "no valid pixel" in message and CONTACT in message
+    cause = info.value.__cause__
+    assert isinstance(cause, DatasetUpstreamError)
+    assert cause.failure_class == "configuration" and str(cause) in message
+
+
+def test_tif_without_upstream_errors_names_no_cause(server, tmp_path):
+    empty = np.zeros((4, 4, 4), dtype=np.uint8)
+    server.add("a", cell(0), tiff(tmp_path, cell(0), data=empty, nodata=0))
+    with pytest.raises(ValueError) as info:
+        call(format="tif")
+    assert info.value.__cause__ is None
+    assert "upstream" not in str(info.value)
+
+
+def test_health_keeps_the_network_suggestion(server):
+    server.manifest_failure = requests.ConnectionError("down")
+    error = call().dataset_context.health["upstream_errors"][0]
+    assert error["message"].startswith(f"Connection failed ({NETWORK_HINT})")
 
 
 # Strictness

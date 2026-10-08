@@ -29,6 +29,8 @@ CRS = "EPSG:3006"
 MAX_DETAIL_CHARS = 1024
 CREDENTIALS_MISSING_DETAIL = "LM credentials not configured"
 BOUNDS_TOLERANCE = 0.001
+CONTACT = "the DTCC development team at Chalmers"
+NETWORK_HINT = "check the server URL, your network and VPN connection"
 
 _IDENTIFIER = re.compile(r"[a-z0-9_-]+")
 
@@ -88,7 +90,9 @@ def resolve_server_url(server_url: str | None) -> str:
         if server_url is None:
             raise ValueError(
                 f"No orthophoto server configured: pass server_url or set "
-                f"{SERVER_URL_ENV}."
+                f"{SERVER_URL_ENV}. The DTCC LM tile server is internal to "
+                f"Chalmers, reachable from the Chalmers network or VPN only; ask "
+                f"{CONTACT} for its address."
             )
     return _normalize_server_url(server_url)
 
@@ -409,7 +413,10 @@ def _normalize_server_url(server_url: str) -> str:
             "(user name or password)"
         )
     if parts is None or parts.scheme not in ("http", "https") or not parts.hostname:
-        raise ValueError("Orthophoto server URL must be http(s)://host[:port][/prefix]")
+        raise ValueError(
+            "Orthophoto server URL must be http(s)://host[:port][/prefix], such as "
+            f"http://host:8000; ask {CONTACT} for the address."
+        )
     if "?" in server_url or "#" in server_url:
         raise ValueError("Orthophoto server URL must not have a query or fragment")
     return server_url.rstrip("/")
@@ -418,11 +425,13 @@ def _normalize_server_url(server_url: str) -> str:
 def _raise_transport_error(error, fail, status_code=None):
     """Raise a client error for a transport failure, else re-raise ``error``."""
     if isinstance(error, requests.Timeout):
-        failure_class, message = "timeout", f"Request timed out: {error}"
+        failure_class = "timeout"
+        message = f"Request timed out ({NETWORK_HINT}): {error}"
     elif isinstance(
         error, (requests.ConnectionError, requests.exceptions.ChunkedEncodingError)
     ):
-        failure_class, message = "connection", f"Connection failed: {error}"
+        failure_class = "connection"
+        message = f"Connection failed ({NETWORK_HINT}): {error}"
     elif isinstance(error, requests.exceptions.ContentDecodingError):
         failure_class, message = "invalid_payload", f"Undecodable body: {error}"
     else:
@@ -443,8 +452,13 @@ def _check_status(response, fail):
             status_code=status,
             detail=detail,
         )
+    explanation = ""
     if status == 503 and _json_detail(detail) == CREDENTIALS_MISSING_DETAIL:
         failure_class = "configuration"
+        explanation = (
+            f"the tile server has no Lantmäteriet credentials; contact {CONTACT}, "
+            f"which operates it: "
+        )
     elif 500 <= status < 600:
         failure_class = "http_5xx"
     elif 400 <= status < 500:
@@ -452,7 +466,10 @@ def _check_status(response, fail):
     else:
         failure_class = "invalid_payload"
     raise fail(
-        f"HTTP {status}: {detail}", failure_class, status_code=status, detail=detail
+        f"HTTP {status}: {explanation}{detail}",
+        failure_class,
+        status_code=status,
+        detail=detail,
     )
 
 

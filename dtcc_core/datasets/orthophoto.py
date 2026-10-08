@@ -29,6 +29,7 @@ from .providers import provider_display_name, provider_entry
 
 DEFAULT_SPEKTRALTYP = ("rgb", "rgbi")
 BYTES_MESSAGE_STEP = 8 * 1024**2
+CONTACT = "the DTCC development team at Chalmers"
 MAX_MESSAGE_CHARS = 1024
 _LM = provider_display_name("lantmateriet")
 _IDENTIFIER = re.compile(r"[a-z0-9_-]+")
@@ -71,7 +72,11 @@ class OrthophotoArgs(DatasetBaseArgs):
     )
     server_url: Optional[str] = Field(
         None,
-        description="Tile server root; default the DTCC_ORTHOPHOTO_URL variable",
+        description=(
+            "Tile server root; default the DTCC_ORTHOPHOTO_URL variable. The "
+            "server is internal to Chalmers, reachable from the Chalmers network "
+            f"or VPN only; ask {CONTACT} for the address."
+        ),
     )
     max_memory_bytes: Optional[int] = Field(
         None, description="Mosaic working-memory budget in bytes; default 2 GiB"
@@ -194,7 +199,12 @@ class OrthophotoDataset(DatasetDescriptor):
         "Lantmäteriet orthophotos through the DTCC LM tile server. The default "
         "product is an RGBA mosaic (dtcc_core.model.Raster) over the bounds at "
         "the finest source resolution, newest imagery first; product='tiles' "
-        "returns the original GeoTIFFs as a RasterTileCollection."
+        "returns the original GeoTIFFs as a RasterTileCollection. The tile "
+        "server is internal to Chalmers, reachable from the Chalmers network or "
+        "VPN only, and has no public default URL: set DTCC_ORTHOPHOTO_URL or pass "
+        f"server_url, and ask {CONTACT} for the address and access. Use "
+        "strict_live=True when testing the setup, so a failure raises instead of "
+        "returning an empty result."
     )
     ArgsModel = OrthophotoArgs
     data_category = "raw"
@@ -236,7 +246,11 @@ class OrthophotoDataset(DatasetDescriptor):
         "Mixed acquisition dates and resolutions are possible in one mosaic.",
     ]
     presentation_limitations = [
-        "The tile server is reachable from the Chalmers network or VPN only.",
+        "The tile server is internal to Chalmers, reachable from the Chalmers "
+        "network or VPN only, with no public default URL; ask "
+        f"{CONTACT} for the address and access.",
+        "General availability needs a publicly reachable service or another "
+        "supported source.",
         "A mosaic exported as a dataset package does not yet mark band 4 as "
         "alpha; use format='tif' for an RGBA GeoTIFF.",
         "Tiles partly imaged without declared nodata can cover older imagery "
@@ -314,7 +328,7 @@ class OrthophotoDataset(DatasetDescriptor):
                 if args.strict_live:
                     raise upstream from error
                 report.errors.append(upstream)
-                return _empty(args), report
+                return _empty(args, upstream), report
         report.items_listed = len(items)
         resolutions = [item.resolution for item in items]
         if raster and args.resolution is None and items and None not in resolutions:
@@ -383,11 +397,13 @@ class OrthophotoDataset(DatasetDescriptor):
         if args.format is None:
             return mosaic.raster, report
         if not mosaic.valid_pixels:
-            raise ValueError(
-                "The orthophoto request has no valid pixel, so no GeoTIFF is "
-                "written; see the upstream errors in the result health or call "
-                "without format."
+            refusal = (
+                "The orthophoto request has no valid pixel, so no GeoTIFF is written"
             )
+            if not report.errors:
+                raise ValueError(f"{refusal}.")
+            first = report.errors[0]
+            raise ValueError(f"{refusal}; the first upstream error: {first}") from first
         with _phase(tracker, "export", "Writing the GeoTIFF"):
             with tempfile.TemporaryDirectory() as directory:
                 path = _write_geotiff(mosaic, budget, Path(directory))
@@ -558,14 +574,15 @@ def _refuse_minimum(bounds, resolution, budget) -> None:
         )
 
 
-def _empty(args):
+def _empty(args, error: DatasetUpstreamError):
+    """The result of a call whose item list failed with ``error``."""
     if args.product == "tiles":
         return RasterTileCollection()
     if args.format is not None:
         raise ValueError(
             "The orthophoto request has no valid pixel, so no GeoTIFF is "
-            "written; the item list could not be fetched."
-        )
+            f"written; the item list could not be fetched: {error}"
+        ) from error
     return Raster(crs="EPSG:3006")
 
 

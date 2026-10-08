@@ -591,6 +591,69 @@ def test_transport_failures_are_classified(monkeypatch, exc, failure_class):
     assert error.status_code is None
 
 
+# Guidance in messages
+
+CONTACT = "the DTCC development team at Chalmers"
+NETWORK_HINT = "check the server URL, your network and VPN connection"
+
+
+def test_missing_server_url_says_where_to_get_one(monkeypatch):
+    monkeypatch.delenv("DTCC_ORTHOPHOTO_URL", raising=False)
+    with pytest.raises(ValueError) as info:
+        resolve_server_url(None)
+    message = str(info.value)
+    assert "server_url" in message and "DTCC_ORTHOPHOTO_URL" in message
+    assert "Chalmers network or VPN" in message and CONTACT in message
+
+
+@pytest.mark.parametrize("url", ["", "ftp://tiles.test", "tiles.test:8000",
+                                 "http://:8000"])
+def test_malformed_server_url_shows_the_expected_form(url):
+    with pytest.raises(ValueError) as info:
+        resolve_server_url(url)
+    message = str(info.value)
+    assert "http(s)://host[:port][/prefix], such as http://host:8000" in message
+    assert CONTACT in message
+
+
+@pytest.mark.parametrize(
+    "exc, prefix",
+    [
+        (requests.ConnectTimeout("connect timed out"), "Request timed out"),
+        (requests.ReadTimeout("read timed out"), "Request timed out"),
+        (requests.ConnectionError("refused"), "Connection failed"),
+    ],
+)
+def test_transport_failures_suggest_checks_before_the_details(monkeypatch, exc,
+                                                               prefix):
+    message = str(fetch_error(monkeypatch, exc))
+    # The suggestion comes before the library's text, which can be long, and
+    # names no single cause.
+    assert message.startswith(f"{prefix} ({NETWORK_HINT}): ")
+    assert message.endswith(str(exc))
+
+
+def test_missing_server_credentials_point_to_the_operator(monkeypatch):
+    body = json.dumps({"detail": "LM credentials not configured"})
+    error = fetch_error(monkeypatch, FakeResponse(503, body))
+    assert error.failure_class == "configuration"
+    assert str(error).startswith(
+        f"HTTP 503: the tile server has no Lantmäteriet credentials; contact "
+        f"{CONTACT}, which operates it: "
+    )
+    assert error.detail == body
+
+
+@pytest.mark.parametrize(
+    "status, body",
+    [(503, {"detail": "Service unavailable"}), (500, ""), (404, {"detail": "gone"})],
+)
+def test_other_status_failures_do_not_blame_credentials(monkeypatch, status, body):
+    error = fetch_error(monkeypatch, FakeResponse(status, json.dumps(body)))
+    assert error.failure_class != "configuration"
+    assert "credentials" not in str(error) and CONTACT not in str(error)
+
+
 def test_body_interrupted_while_reading_is_a_connection_failure(monkeypatch):
     response = FakeResponse(
         200, b'{"crs": "EPSG:3006", "it', exc=requests.exceptions.ChunkedEncodingError()
