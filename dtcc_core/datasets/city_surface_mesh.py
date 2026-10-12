@@ -37,12 +37,6 @@ class CitySurfaceMeshArgs(DatasetBaseArgs):
     min_building_area: float = Field(
         15.0, description="Smallest building footprint area to include (m²)"
     )
-    merge_buildings: bool = Field(
-        True, description="Whether to merge adjacent building footprints"
-    )
-    merge_tolerance: float = Field(
-        0.5, description="Distance tolerance for merging footprints in meters"
-    )
     smoothing: int = Field(0, description="Number of terrain smoothing iterations")
     show_footprints: bool = Field(
         False,
@@ -135,7 +129,7 @@ class CitySurfaceMeshDataset(DatasetDescriptor):
         "Build a terrain raster with raster_cell_size and raster_radius",
         "Optionally replace topography with a flat terrain raster when flat_ground=True",
         "Extract roof points and compute building heights from the terrain raster",
-        "Condition footprints using min_building_detail, min_building_area, merge_buildings, merge_tolerance, and pipeline_mode",
+        "Clean footprints with clean_footprints at min_building_detail (footprints closer than that are merged) and drop those smaller than min_building_area",
         "Generate a terrain plus extruded-building surface mesh using max_mesh_size, min_mesh_angle, smoothing, mesher, and mesh-quality reporting settings",
         "Return the native Mesh object or serialize the requested mesh format",
         CENTER_ON_ORIGIN_PROCESSING_STEP,
@@ -220,8 +214,6 @@ class CitySurfaceMeshDataset(DatasetDescriptor):
             min_mesh_angle=args.min_mesh_angle,
             min_building_detail=args.min_building_detail,
             min_building_area=args.min_building_area,
-            merge_buildings=args.merge_buildings,
-            merge_tolerance=args.merge_tolerance,
             smoothing=args.smoothing,
             show_footprints=args.show_footprints,
             footprint_cleaning_plot_block=args.footprint_cleaning_plot_block,

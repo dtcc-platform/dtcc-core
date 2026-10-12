@@ -1,7 +1,7 @@
 """Build a footprint-conforming terrain surface mesh.
 
-Cleans up building footprints and passes them as subdomains so the terrain mesh
-edges follow the building outlines exactly.  Saves to ``demos/output/``.  Run
+Cleans the building footprints and passes them as subdomains so the terrain
+mesh edges follow the building outlines exactly.  Saves to ``demos/output/``.  Run
 with ``--view`` to open the result in the 3D viewer.
 """
 
@@ -21,12 +21,10 @@ city.download_footprints()
 city.download_pointcloud()
 
 pc = city.pointcloud
-buildings = city.buildings
 
-# Clean up footprints so they are suitable as mesh subdomains
-buildings = builder.merge_building_footprints(buildings, max_distance=0.5, min_area=10)
-buildings = builder.simplify_building_footprints(buildings, tolerance=0.25)
-buildings = builder.fix_building_footprint_clearance(buildings, clearance=0.5)
+# Clean the footprints in unison so they are suitable as mesh subdomains
+city = city.clean_footprints(min_building_detail=0.5, min_area=10)
+buildings = city.buildings
 
 # Extract LOD0 footprint surfaces to use as mesh subdomains
 # The mesher will insert edges along footprint boundaries so the terrain

@@ -28,9 +28,7 @@ def build_surface_mesh(bounds: dtcc.Bounds, smoothing_iterations: int = 0) -> dt
     city.download_footprints(bounds=bounds)
     city.building_heights_from_pointcloud()
     lod = [dtcc.GeometryType.LOD1 for _ in city.buildings]
-    return city.build_surface_mesh(
-        lod=lod, treat_lod0_as_holes=False, smoothing=smoothing_iterations
-    )
+    return city.build_surface_mesh(lod=lod, smoothing=smoothing_iterations)
 
 if __name__ == "__main__":
     

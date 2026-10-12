@@ -1057,15 +1057,17 @@ def command_plot(args: argparse.Namespace) -> int:
         if path is None:
             print(f"Skipping {result['task_id']}: no saved cleaning result")
             continue
-        city, conditioned = load_cleaning(path, result)
-        raw = [
-            polygon
-            for building in city.buildings
-            if (geometry := building.flatten_geometry(GeometryType.LOD0)) is not None
-            if (polygon := geometry.to_polygon(simplify=0.0)) is not None
-            and not polygon.is_empty
+        raw_city, cleaned_city = load_cleaning(path, result)
+        raw, cleaned = [
+            [
+                polygon
+                for building in city.buildings
+                if (geometry := building.get_geometry(GeometryType.LOD0)) is not None
+                if (polygon := geometry.to_polygon(simplify=0.0)) is not None
+                and not polygon.is_empty
+            ]
+            for city in (raw_city, cleaned_city)
         ]
-        cleaned = [surface.to_polygon(simplify=0.0) for surface in conditioned.surfaces]
         fig, _ = plot_footprint_cleaning_comparison(
             raw,
             cleaned,

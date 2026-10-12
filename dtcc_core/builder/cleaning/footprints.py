@@ -1,4 +1,4 @@
-"""Public entry point for footprint cleaning (conditioning in the research note).
+"""Polygon-level footprint cleaning (conditioning in the research note).
 
 Given the interpreted occupied set P of the input polygons, cleaning solves the
 feasibility problem of the footprint conditioning note heuristically: find a
@@ -6,15 +6,17 @@ polygonal subdivision Q in A_{delta,theta} with
 P^{-epsilon} ⊆ U(Q) ⊆ P^{+epsilon}. Here delta is ``min_feature_size``, the
 required minimum feature size mfs(G_Q) of the essential boundary graph under
 the union topology profile; epsilon is the fidelity budget ``fidelity_budget``;
-and theta is the 1 degree incident-sector profile for meshing. The
-source-merging policy and source attribution are additional constraints. The
-bounded constructor in :mod:`dtcc_core.builder.cleaning.construction` searches
-for such a result and the checks in :mod:`dtcc_core.builder.cleaning.contract`
-decide conformance. The specification is
-``docs/design/footprint-cleaning-contract.md``.
+and theta is the 1 degree incident-sector profile for meshing. Sources closer
+than delta may be merged, and every region is attributed to the sources that
+support it. The bounded constructor in
+:mod:`dtcc_core.builder.cleaning.construction` searches for such a result and
+the checks in :mod:`dtcc_core.builder.cleaning.contract` decide conformance.
+The specification is ``docs/design/footprint-cleaning-contract.md``.
 
-This module validates options and source identities, handles the zero-scale
-identity mode, and defines the result and failure types.
+This module is internal. The public entry point is
+:func:`dtcc_core.builder.cleaning.clean.clean_footprints`, which works on
+buildings and cities. This module validates options and source identities,
+handles the zero-scale identity mode, and defines the result and failure types.
 """
 
 from __future__ import annotations
@@ -34,24 +36,19 @@ class ConditioningOptions:
     """Scales and policies for :func:`condition_polygon_coverage`.
 
     Distances are in the planar coordinate units of the input (metres for DTCC
-    data) and areas in square units. Area-based selection of buildings is not
-    an option here; apply :func:`select_footprints` to the result instead.
+    data). Area-based selection of buildings is not an option here; apply
+    :func:`select_footprints` to the result instead.
 
     Attributes
     ----------
-    precision_grid : float or None
-        Deprecated and ignored.
     min_feature_size : float
         Resolution delta: the required minimum feature size, i.e. the least
         distance between a vertex of the output's essential boundary graph
-        and an edge not incident to it. Zero disables cleaning and returns
-        the interpreted input.
-    merge_distance : float
-        Inclusive distance, measured on the original input, within which
-        sources may be merged. Eligible pairs form transitive groups.
-    min_hole_area : float
-        Deprecated and ignored. Holes follow the fidelity budget: a hole
-        without a protected open core may be filled, others are kept.
+        and an edge not incident to it. Sources within this distance of each
+        other on the original input may be merged (inclusive and transitive).
+        Holes follow the fidelity budget: a hole without a protected open core
+        may be filled, others are kept. Zero disables cleaning and returns the
+        interpreted input.
     fidelity_budget : float or None
         Fidelity budget epsilon: occupancy may change only within this
         distance of the original boundary, P^{-epsilon} ⊆ U(Q) ⊆ P^{+epsilon}.
@@ -61,29 +58,18 @@ class ConditioningOptions:
         constructed once more at this multiple of it: 3 delta / 4 with the
         defaults. The result then satisfies fidelity at the larger budget,
         reported as ``fidelity_budget_used``. ``None`` disables the retry.
-    collect_stage_metrics : bool
-        Deprecated and ignored. Contract and work diagnostics are always
-        recorded.
     enable_logging : bool
         Log progress messages. Contract warnings are always emitted.
-    allow_source_merging : bool or None
-        Whether sources may be merged. ``None`` merges when
-        ``merge_distance`` is positive.
     allow_residual_separation : bool
         When no conforming result is found, return a result whose only defect
         is feature separation below ``min_feature_size``, with a warning. When
         False, raise :class:`UnresolvedFootprintCleaningError` instead.
     """
 
-    precision_grid: float | None = None
     min_feature_size: float = 0.5
-    merge_distance: float = 0.5
-    min_hole_area: float = 0.25
     fidelity_budget: float | None = None
     fidelity_retry_factor: float | None = 1.5
-    collect_stage_metrics: bool = True
     enable_logging: bool = True
-    allow_source_merging: bool | None = None
     allow_residual_separation: bool = True
 
 
@@ -165,15 +151,9 @@ def residual_separation_warning(observation, delta):
 def _validate_options(options: ConditioningOptions) -> None:
     if type(options.allow_residual_separation) is not bool:
         raise TypeError("allow_residual_separation must be a boolean")
-    if (
-        options.allow_source_merging is not None
-        and type(options.allow_source_merging) is not bool
-    ):
-        raise TypeError("allow_source_merging must be a boolean or None")
-    for name in ("min_feature_size", "merge_distance", "min_hole_area"):
-        value = getattr(options, name)
-        if not math.isfinite(value) or value < 0:
-            raise ValueError(f"{name} must be finite and non-negative, got {value}.")
+    value = options.min_feature_size
+    if not math.isfinite(value) or value < 0:
+        raise ValueError(f"min_feature_size must be finite and non-negative, got {value}.")
     if options.fidelity_budget is not None and (
         not math.isfinite(options.fidelity_budget) or options.fidelity_budget < 0
     ):
@@ -183,12 +163,6 @@ def _validate_options(options: ConditioningOptions) -> None:
         or options.fidelity_retry_factor <= 1
     ):
         raise ValueError("fidelity_retry_factor must be None or finite and above 1")
-    if options.precision_grid is not None and (
-        not math.isfinite(options.precision_grid) or options.precision_grid <= 0
-    ):
-        raise ValueError(
-            f"precision_grid must be positive when provided, got {options.precision_grid}."
-        )
 
 
 def _sanitize_source_indices(indices: Sequence[int]) -> list[int]:
@@ -302,11 +276,6 @@ def condition_polygon_coverage(
         if options.fidelity_budget is None
         else options.fidelity_budget
     )
-    allow_source_merging = (
-        options.merge_distance > 0
-        if options.allow_source_merging is None
-        else options.allow_source_merging
-    )
     output, output_sources, diagnostics = construct_coverage(
         polygons,
         sources,
@@ -317,8 +286,6 @@ def condition_polygon_coverage(
             if options.fidelity_retry_factor is None
             else epsilon * options.fidelity_retry_factor
         ),
-        merge_distance=options.merge_distance,
-        allow_source_merging=allow_source_merging,
         allow_residual_separation=options.allow_residual_separation,
     )
     diagnostics.update(
