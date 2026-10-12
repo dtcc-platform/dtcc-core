@@ -6,8 +6,12 @@ and fidelity* (revision 3); "conditioning" in the note and "cleaning" here name
 the same operation. The independent checks live in
 `dtcc_core/builder/cleaning/contract.py`; the bounded constructor that searches
 for a conforming result lives in `dtcc_core/builder/cleaning/construction.py`.
-The default scales are delta = 0.5 m and epsilon = delta / 2. They are
-configurable operating choices, not values derived from a meshing theorem.
+The entry point is `clean_footprints` (`dtcc_core.builder`, with the shortcuts
+`City.clean_footprints()` and `Building.clean_footprint()`); the mesh builders
+use it too. One scale, `min_building_detail` = delta, sets the minimum feature
+size delta, the fidelity budget epsilon = delta / 2 and the merge distance
+delta. The default delta = 0.5 m is an operating choice, not a value derived
+from a meshing theorem.
 
 ## Principle
 
@@ -22,7 +26,7 @@ the feasibility problem
 find Q in A_{delta,theta}  such that  P^{-epsilon} ⊆ U(Q) ⊆ P^{+epsilon},
 ```
 
-under the source-merging and attribution constraints below. Admissibility
+under the merge-eligibility and attribution constraints below. Admissibility
 (membership in A_{delta,theta}) and fidelity are separate obligations.
 Admissibility prevents unresolved output; fidelity prevents obtaining
 admissibility by destroying useful input.
@@ -251,13 +255,11 @@ is judged like any other; the grid is never a checker tolerance.
 The constructor follows the four steps of the note's Section 7. Sources are
 first grouped by merge eligibility: two interpreted source atoms may be merged
 when their source IDs intersect or their distance on the original input is at
-most the declared merge distance. Eligibility is inclusive and transitive and is
-not enlarged by later motion. Input that already conforms is returned unchanged,
-apart from dissolving walls inside merge groups.
-
-When sources that may not be merged are too close, one whole-coverage proposal
-insets the conflicting atoms by just under epsilon; it is accepted only if the
-complete contract and profile pass.
+most delta. Eligibility is inclusive and transitive and is not enlarged by later
+motion. Input that already conforms is returned unchanged, apart from dissolving
+walls inside merge groups. Buildings cleaned in isolation
+(`clean_footprints(..., isolated=True)`) are each cleaned on their own and may
+overlap or come closer than delta; no joint contract applies to them.
 
 Otherwise each group is constructed with a fixed set of preprocessing attempts
 followed by bounded local repairs (removing or collapsing vertices, moving
@@ -310,42 +312,43 @@ The public outcome is one of the note's three outcomes, or the zero-scale mode:
 | unresolved | No candidate found | No acceptable result found | Raise `UnresolvedFootprintCleaningError`; no partial coverage |
 | `unscaled_identity` | - | Not checked (delta = 0) | Return the interpreted input |
 
-`ConditioningOptions(allow_residual_separation=False)` turns warnings into
-unresolved results. Unresolved means that the bounded search was exhausted, not
+`clean_footprints(..., strict=True)` turns warnings into unresolved results. Unresolved means that the bounded search was exhausted, not
 that the problem is infeasible. Warning results keep the failed contract report;
 smaller mesh elements and higher mesh cost are possible.
 
 ## Selection and handoff
 
-Area selection is an explicit operation after cleaning:
+Cleaning returns buildings, one per cleaned region:
 
 ```python
-from dtcc_core.builder.cleaning import (
-    ConditioningOptions, condition_polygon_coverage, select_footprints,
-)
-
-cleaned = condition_polygon_coverage(
-    raw_polygons,
-    options=ConditioningOptions(min_feature_size=0.5, fidelity_budget=0.25),
-)
-selected = select_footprints(cleaned, min_area=15.0)  # optional
+city = city.clean_footprints(min_building_detail=0.5, min_area=15.0)
 ```
 
-Selection keeps regions of at least `min_area` without moving them, keeps source
-indices in the original input's index space, and reports excluded regions, their
-area and sources, and the sources no longer represented. Dataset
-`min_building_area` parameters compose cleaning and selection automatically.
+A region that is the cleaned footprint of exactly one building is that building
+with its new LOD0 footprint (ID, attributes, heights and children kept). Any
+other region is a new block whose `BuildingPart` children are the buildings that
+support it; `attributes["merged_from"]` lists their IDs. LOD1-LOD3 geometry is
+removed because it no longer matches the footprint.
 
-The meshing adapter records three separate reports:
+Area selection (`min_area`) is an explicit operation after cleaning. It keeps
+regions of at least `min_area` without moving them and reports the excluded
+buildings by ID. The mesh builders' `min_building_area` applies the same
+selection after cleaning.
 
-1. `before_selection_contract` compares the cleaned occupancy with the complete
-   original input and includes the mesher-input profile and the achieved budget.
+A cleaned city records the cleaning in `city.attributes["footprint_cleaning"]`:
+the scale, mode, outcome, the compact contract report before selection
+(admissibility, fidelity and budget), the mesher-input profile status, the
+excluded buildings and a fingerprint of the building IDs and XY footprints. The
+mesh builders reuse a valid record (same scale, unison, unchanged footprints)
+instead of cleaning again. Setting heights does not invalidate it.
+
+The mesh builders keep two reports:
+
+1. `before_selection_contract` compares the cleaned occupancy with the input
+   of the cleaning and includes the mesher-input profile and the budget used.
    This is the cleaning result, the one the note's outcomes classify.
-2. `selection` lists every excluded region with its index, source indices, area
-   and reason.
-3. `final_handoff_contract` checks the selected geometry actually sent onward.
-   Its raw-reference fidelity may fail because of selection; it does not inherit
-   a pass from step 1.
+2. `selection` lists every excluded region with the index of its cleaned
+   building, its area and the reason.
 
 **One admission rule** decides what is handed on, in the stage audit of the
 conditioned footprints and again in the mesh builders:
@@ -362,7 +365,8 @@ conditioned footprints and again in the mesh builders:
 Selection therefore cannot hide a topology defect of the cleaning result, and
 clipping cannot add separation defects to a strict result. Flat and surface mesh
 builders both validate after clipping and before triangulation; they may reject
-but never repair. Saved benchmark handoffs store and validate all three reports.
+but never repair. Saved benchmark handoffs store the cleaned city and validate
+its record.
 
 The [benchmark guide](../../benchmarks/README.md) explains how these reports
 appear in benchmark runs.

@@ -14,11 +14,7 @@ from dtcc_core.builder import (
     build_city_flat_mesh,
     build_city_surface_mesh,
     build_city_volume_mesh,
-    fix_building_footprint_clearance,
-    merge_building_footprints,
-    simplify_building_footprints,
 )
-from dtcc_core.builder.building.modify import clean_building_footprints
 from dtcc_core.builder.cleaning.contract import (
     check_cleaning_contract,
     check_mesher_handoff_profile,
@@ -57,11 +53,11 @@ def make_conditioned_footprints(
     *,
     min_building_detail: float = 0.5,
     contract: dict[str, object] | None = None,
-) -> meshes_module.ConditionedFootprints:
+) -> meshes_module._MeshingFootprints:
     declared_scale = meshes_module._conditioned_footprint_declared_scale(
         min_building_detail=min_building_detail
     )
-    return meshes_module.ConditionedFootprints(
+    return meshes_module._MeshingFootprints(
         surfaces=surfaces,
         source_map=source_map,
         subdomain_resolution=subdomain_resolution,
@@ -79,8 +75,16 @@ def make_conditioned_footprints(
     )
 
 
+def condition_meshing_footprints(buildings, **kwargs):
+    """Run the mesh builders' footprint stage on a city of these buildings."""
+    city = City()
+    city.add_buildings(list(buildings))
+    kwargs.setdefault("show_footprints", False)
+    return meshes_module._meshing_footprints(city, **kwargs)
+
+
 def unpack_conditioned_footprints(
-    conditioned: meshes_module.ConditionedFootprints,
+    conditioned: meshes_module._MeshingFootprints,
 ) -> tuple[list[Surface], list[list[int]], list[float], dict[str, object]]:
     return (
         conditioned.surfaces,
@@ -99,7 +103,7 @@ def make_prepared_city_inputs(
     diagnostics: dict[str, object],
     *,
     min_building_detail: float = 0.5,
-) -> tuple[object, object, meshes_module.ConditionedFootprints]:
+) -> tuple[object, object, meshes_module._MeshingFootprints]:
     return (
         terrain,
         terrain_raster,
@@ -229,13 +233,13 @@ def make_bounded_flat_city(
 
 def test_build_city_flat_mesh_handles_pathological_footprints(monkeypatch):
     calls = []
-    original = meshes_module._condition_meshing_footprints
+    original = meshes_module._meshing_footprints
 
     def wrapped(*args, **kwargs):
         calls.append(kwargs.get("lod"))
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(meshes_module, "_condition_meshing_footprints", wrapped)
+    monkeypatch.setattr(meshes_module, "_meshing_footprints", wrapped)
 
     buildings = [
         make_building(Polygon([(8, 8), (18, 8), (18, 18), (8, 18), (8, 8)]), roof_z=12.0),
@@ -247,10 +251,8 @@ def test_build_city_flat_mesh_handles_pathological_footprints(monkeypatch):
     mesh = build_city_flat_mesh(
         city,
         lod=GeometryType.LOD0,
-        merge_buildings=True,
         min_building_detail=0.3,
         min_building_area=1.0,
-        merge_tolerance=0.25,
         max_mesh_size=5.0,
         min_mesh_angle=20.0,
         report_mesh_quality=False,
@@ -260,71 +262,6 @@ def test_build_city_flat_mesh_handles_pathological_footprints(monkeypatch):
     assert calls
     assert mesh.vertices.shape[0] > 0
     assert mesh.faces.shape[0] > 0
-
-
-def test_build_city_flat_mesh_forwards_cleaning_diagnostics_flag(monkeypatch):
-    captured = {}
-    original = meshes_module._condition_meshing_footprints
-
-    def wrapped(*args, **kwargs):
-        captured["cleaning_diagnostics"] = kwargs.get("cleaning_diagnostics")
-        return original(*args, **kwargs)
-
-    monkeypatch.setattr(meshes_module, "_condition_meshing_footprints", wrapped)
-
-    city = make_flat_city(
-        [make_building(box(8, 8, 18, 18), roof_z=10.0)]
-    )
-
-    mesh = build_city_flat_mesh(
-        city,
-        lod=GeometryType.LOD0,
-        merge_buildings=True,
-        min_building_detail=0.3,
-        min_building_area=1.0,
-        merge_tolerance=0.25,
-        max_mesh_size=5.0,
-        min_mesh_angle=20.0,
-        report_mesh_quality=False,
-        cleaning_diagnostics=False,
-        mesher="dtcc_mesher",
-    )
-
-    assert captured["cleaning_diagnostics"] is False
-    assert mesh.vertices.shape[0] > 0
-    assert mesh.faces.shape[0] > 0
-
-
-def test_meshing_adapter_propagates_numeric_merge_policy(monkeypatch):
-    captured = []
-    polygon = box(8.0, 8.0, 18.0, 18.0)
-
-    def fake_condition(polygons, *, source_map, options):
-        assert polygons == [polygon]
-        assert source_map == [[0]]
-        captured.append(options)
-        return meshes_module.ConditioningResult(
-            polygons=[polygon],
-            source_map=[[0]],
-            diagnostics={},
-        )
-
-    monkeypatch.setattr(meshes_module, "condition_polygon_coverage", fake_condition)
-    building = make_building(polygon, roof_z=10.0)
-    for merge_buildings in (True, False):
-        meshes_module._condition_meshing_footprints(
-            [building],
-            lod=GeometryType.LOD0,
-            min_building_detail=0.5,
-            min_building_area=0.0,
-            merge_tolerance=0.375,
-            merge_buildings=merge_buildings,
-            max_mesh_size=5.0,
-            cleaning_diagnostics=False,
-        )
-
-    assert [options.merge_distance for options in captured] == [0.375, 0.0]
-    assert [options.allow_source_merging for options in captured] == [True, False]
 
 
 def test_build_city_flat_mesh_rejects_complete_domain_handoff_acute_sector():
@@ -343,14 +280,11 @@ def test_build_city_flat_mesh_rejects_complete_domain_handoff_acute_sector():
         build_city_flat_mesh(
             city,
             lod=GeometryType.LOD0,
-            merge_buildings=True,
             min_building_detail=0.5,
             min_building_area=0.0,
-            merge_tolerance=0.5,
             max_mesh_size=2.0,
             min_mesh_angle=25.0,
             report_mesh_quality=False,
-            cleaning_diagnostics=False,
             mesher="dtcc_mesher",
         )
 
@@ -375,14 +309,11 @@ def test_build_city_flat_mesh_allows_benign_boundary_touch():
     mesh = build_city_flat_mesh(
         city,
         lod=GeometryType.LOD0,
-        merge_buildings=True,
         min_building_detail=0.5,
         min_building_area=0.0,
-        merge_tolerance=0.5,
         max_mesh_size=2.0,
         min_mesh_angle=25.0,
         report_mesh_quality=False,
-        cleaning_diagnostics=False,
         mesher="dtcc_mesher",
     )
 
@@ -402,15 +333,12 @@ def test_build_city_surface_mesh_rejects_complete_domain_handoff_acute_sector():
         build_city_surface_mesh(
             city,
             lod=GeometryType.LOD0,
-            merge_buildings=True,
             min_building_detail=0.5,
             min_building_area=0.0,
-            merge_tolerance=0.5,
             building_mesh_triangle_size=2.0,
             max_mesh_size=2.0,
             min_mesh_angle=25.0,
             report_mesh_quality=False,
-            cleaning_diagnostics=False,
             mesher="dtcc_mesher",
         )
 
@@ -431,15 +359,12 @@ def test_condition_meshing_footprints_regularizes_touching_holes():
     )
     assert touching_holes.is_valid
 
-    conditioned = meshes_module._condition_meshing_footprints(
+    conditioned = condition_meshing_footprints(
         [make_building(touching_holes, roof_z=10.0)],
         lod=GeometryType.LOD0,
         min_building_detail=0.5,
         min_building_area=1.0,
-        merge_tolerance=0.5,
-        merge_buildings=False,
         max_mesh_size=5.0,
-        cleaning_diagnostics=False,
     )
     surfaces, source_map, resolutions, diagnostics = unpack_conditioned_footprints(
         conditioned
@@ -465,17 +390,16 @@ def test_condition_meshing_footprints_shows_plot_when_requested(monkeypatch):
         captured["block"] = block
         return None, None
 
-    monkeypatch.setattr(meshes_module, "plot_footprint_cleaning_comparison", fake_plot)
+    from dtcc_core.builder.cleaning import clean as clean_module
 
-    conditioned = meshes_module._condition_meshing_footprints(
+    monkeypatch.setattr(clean_module, "plot_footprint_cleaning_comparison", fake_plot)
+
+    conditioned = condition_meshing_footprints(
         [make_building(box(0.0, 0.0, 10.0, 10.0), roof_z=10.0)],
         lod=GeometryType.LOD0,
         min_building_detail=0.5,
         min_building_area=1.0,
-        merge_tolerance=0.5,
-        merge_buildings=False,
         max_mesh_size=5.0,
-        cleaning_diagnostics=False,
         show_footprints=True,
         footprint_cleaning_plot_block=False,
     )
@@ -486,7 +410,7 @@ def test_condition_meshing_footprints_shows_plot_when_requested(monkeypatch):
     assert len(surfaces) == 1
     assert source_map == [[0]]
     assert resolutions == [5.0]
-    assert diagnostics["output_count"] == 1
+    assert diagnostics["selection"]["output_count"] == 1
     assert captured == {
         "raw_count": 1,
         "cleaned_count": 1,
@@ -509,15 +433,12 @@ def test_condition_meshing_footprints_repairs_lund_style_self_clearance_slit():
         "388232.25 6176876.5))"
     )
 
-    conditioned = meshes_module._condition_meshing_footprints(
+    conditioned = condition_meshing_footprints(
         [make_building(polygon, roof_z=10.0)],
         lod=GeometryType.LOD0,
         min_building_detail=0.5,
         min_building_area=1.0,
-        merge_tolerance=0.5,
-        merge_buildings=False,
         max_mesh_size=5.0,
-        cleaning_diagnostics=False,
     )
     surfaces, source_map, resolutions, diagnostics = unpack_conditioned_footprints(
         conditioned
@@ -554,15 +475,12 @@ def test_condition_meshing_footprints_repairs_gbg_same_hole_neck():
         "318436 6398600.5625))"
     )
 
-    conditioned = meshes_module._condition_meshing_footprints(
+    conditioned = condition_meshing_footprints(
         [make_building(polygon, roof_z=10.0)],
         lod=GeometryType.LOD0,
         min_building_detail=0.5,
         min_building_area=1.0,
-        merge_tolerance=0.5,
-        merge_buildings=False,
         max_mesh_size=5.0,
-        cleaning_diagnostics=False,
     )
     surfaces, source_map, resolutions, diagnostics = unpack_conditioned_footprints(
         conditioned
@@ -606,15 +524,12 @@ def test_condition_meshing_footprints_repairs_stockholm_cross_ring_slit():
         "673549.875 6581765.09375))"
     )
 
-    conditioned = meshes_module._condition_meshing_footprints(
+    conditioned = condition_meshing_footprints(
         [make_building(polygon, roof_z=10.0)],
         lod=GeometryType.LOD0,
         min_building_detail=0.5,
         min_building_area=1.0,
-        merge_tolerance=0.5,
-        merge_buildings=False,
         max_mesh_size=5.0,
-        cleaning_diagnostics=False,
     )
     surfaces, source_map, resolutions, diagnostics = unpack_conditioned_footprints(
         conditioned
@@ -727,7 +642,6 @@ def test_area_selection_cannot_hide_a_topology_defect():
             building_markers=[0, 1, 2],
             footprint_diagnostics=diagnostics,
             min_building_detail=0.5,
-            cleaning_diagnostics=False,
         )
 
 
@@ -937,10 +851,8 @@ def test_build_city_flat_mesh_dtcc_mesher_handles_touching_holes():
     mesh = build_city_flat_mesh(
         city,
         lod=GeometryType.LOD0,
-        merge_buildings=False,
         min_building_detail=0.5,
         min_building_area=1.0,
-        merge_tolerance=0.5,
         max_mesh_size=5.0,
         min_mesh_angle=20.0,
         report_mesh_quality=False,
@@ -972,10 +884,8 @@ def test_build_city_flat_mesh_dtcc_mesher_handles_nested_building_in_courtyard()
     mesh = build_city_flat_mesh(
         city,
         lod=GeometryType.LOD0,
-        merge_buildings=False,
         min_building_detail=0.5,
         min_building_area=1.0,
-        merge_tolerance=0.5,
         max_mesh_size=5.0,
         min_mesh_angle=20.0,
         report_mesh_quality=False,
@@ -993,25 +903,21 @@ def test_condition_meshing_footprints_uses_conservative_roof_for_heterogeneous_m
         make_building(box(16, 8, 24, 16), roof_z=10.0),
     ]
 
-    conditioned = meshes_module._condition_meshing_footprints(
+    conditioned = condition_meshing_footprints(
         buildings,
         lod=GeometryType.LOD0,
         min_building_detail=0.5,
         min_building_area=1.0,
-        merge_tolerance=0.5,
-        merge_buildings=True,
         max_mesh_size=20.0,
-        cleaning_diagnostics=False,
     )
     surfaces, source_map, resolutions, diagnostics = unpack_conditioned_footprints(
         conditioned
     )
 
     assert len(surfaces) == 1
-    assert source_map == [[0, 1]]
+    assert source_map == [[0]]  # one cleaned building
     assert resolutions == [10.0]
     assert diagnostics["conservative_merged_roof_count"] == 1
-    assert diagnostics["conservative_merged_roof_max_span"] == pytest.approx(6.0)
     assert np.unique(np.asarray(surfaces[0].vertices)[:, 2]) == pytest.approx([10.0])
 
 
@@ -1021,22 +927,19 @@ def test_condition_meshing_footprints_keeps_weighted_roof_for_similar_merge():
         make_building(box(16, 8, 24, 16), roof_z=5.0),
     ]
 
-    conditioned = meshes_module._condition_meshing_footprints(
+    conditioned = condition_meshing_footprints(
         buildings,
         lod=GeometryType.LOD0,
         min_building_detail=0.5,
         min_building_area=1.0,
-        merge_tolerance=0.5,
-        merge_buildings=True,
         max_mesh_size=20.0,
-        cleaning_diagnostics=False,
     )
     surfaces, source_map, resolutions, diagnostics = unpack_conditioned_footprints(
         conditioned
     )
 
     assert len(surfaces) == 1
-    assert source_map == [[0, 1]]
+    assert source_map == [[0]]  # one cleaned building
     assert resolutions == [4.5]
     assert diagnostics["conservative_merged_roof_count"] == 0
     assert np.unique(np.asarray(surfaces[0].vertices)[:, 2]) == pytest.approx([4.5])
@@ -1085,13 +988,10 @@ def test_prepare_surface_ground_regions_preserves_building_holes_for_courtyards(
     ground_regions = meshes_module._prepare_surface_ground_regions(
         conditioned_surfaces=[surface],
         conditioned_resolution=[5.0],
-        target_lods=[GeometryType.LOD1],
         bounds=(0.0, 0.0, 40.0, 40.0),
         max_mesh_size=10.0,
         min_building_detail=0.5,
         footprint_diagnostics={},
-        cleaning_diagnostics=False,
-        treat_lod0_as_holes=False,
     )
 
     assert len(ground_regions.building_surfaces) == 1
@@ -1170,10 +1070,8 @@ def test_build_city_flat_mesh_dtcc_mesher_uses_single_coverage_call(monkeypatch)
     mesh = build_city_flat_mesh(
         city,
         lod=GeometryType.LOD0,
-        merge_buildings=False,
         min_building_detail=0.5,
         min_building_area=1.0,
-        merge_tolerance=0.5,
         max_mesh_size=5.0,
         min_mesh_angle=20.0,
         report_mesh_quality=False,
@@ -1236,10 +1134,8 @@ def test_build_city_flat_mesh_dtcc_mesher_unrestricted_enables_refinement(monkey
     build_city_flat_mesh(
         city,
         lod=GeometryType.LOD0,
-        merge_buildings=False,
         min_building_detail=0.5,
         min_building_area=1.0,
-        merge_tolerance=0.5,
         max_mesh_size=None,
         min_mesh_angle=20.0,
         report_mesh_quality=False,
@@ -1371,7 +1267,7 @@ def test_build_city_flat_mesh_triangle_uses_conditioned_coverage(monkeypatch):
             markers=np.array([-2], dtype=int),
         )
 
-    monkeypatch.setattr(meshes_module, "_condition_meshing_footprints", fake_condition)
+    monkeypatch.setattr(meshes_module, "_meshing_footprints", fake_condition)
     monkeypatch.setattr(meshes_module, "_condition_flat_mesh_coverage_regions", fake_condition_coverage_regions)
     monkeypatch.setattr(meshes_module, "build_city_flat_mesh_from_coverage", fake_build_from_coverage)
     monkeypatch.setattr(
@@ -1384,10 +1280,8 @@ def test_build_city_flat_mesh_triangle_uses_conditioned_coverage(monkeypatch):
     mesh = build_city_flat_mesh(
         city,
         lod=GeometryType.LOD0,
-        merge_buildings=False,
         min_building_detail=0.5,
         min_building_area=1.0,
-        merge_tolerance=0.5,
         max_mesh_size=5.0,
         min_mesh_angle=20.0,
         report_mesh_quality=False,
@@ -1421,7 +1315,7 @@ def test_build_city_flat_mesh_propagates_runtime_mesher_errors(monkeypatch):
     def fake_build_from_coverage(**kwargs):
         raise RuntimeError("internal triangulation error")
 
-    monkeypatch.setattr(meshes_module, "_condition_meshing_footprints", fake_condition)
+    monkeypatch.setattr(meshes_module, "_meshing_footprints", fake_condition)
     monkeypatch.setattr(meshes_module, "_condition_flat_mesh_coverage_regions", fake_condition_coverage_regions)
     monkeypatch.setattr(meshes_module, "build_city_flat_mesh_from_coverage", fake_build_from_coverage)
     monkeypatch.setattr(
@@ -1435,10 +1329,8 @@ def test_build_city_flat_mesh_propagates_runtime_mesher_errors(monkeypatch):
         build_city_flat_mesh(
             city,
             lod=GeometryType.LOD0,
-            merge_buildings=False,
             min_building_detail=0.5,
             min_building_area=1.0,
-            merge_tolerance=0.5,
             max_mesh_size=None,
             min_mesh_angle=20.0,
             report_mesh_quality=False,
@@ -1465,7 +1357,7 @@ def test_build_city_flat_mesh_allows_empty_conditioned_footprints(monkeypatch):
             "dtcc_mesher",
         )
 
-    monkeypatch.setattr(meshes_module, "_condition_meshing_footprints", fake_condition)
+    monkeypatch.setattr(meshes_module, "_meshing_footprints", fake_condition)
     monkeypatch.setattr(
         meshes_module,
         "_build_ground_mesh_from_coverage",
@@ -1476,10 +1368,8 @@ def test_build_city_flat_mesh_allows_empty_conditioned_footprints(monkeypatch):
     mesh = build_city_flat_mesh(
         city,
         lod=GeometryType.LOD0,
-        merge_buildings=True,
         min_building_detail=0.5,
         min_building_area=1.0,
-        merge_tolerance=0.5,
         max_mesh_size=5.0,
         min_mesh_angle=20.0,
         report_mesh_quality=False,
@@ -1509,7 +1399,7 @@ def test_build_city_flat_mesh_forwards_triangle_backend(monkeypatch):
             "triangle",
         )
 
-    monkeypatch.setattr(meshes_module, "_condition_meshing_footprints", fake_condition)
+    monkeypatch.setattr(meshes_module, "_meshing_footprints", fake_condition)
     monkeypatch.setattr(
         meshes_module,
         "_build_ground_mesh_from_coverage",
@@ -1520,10 +1410,8 @@ def test_build_city_flat_mesh_forwards_triangle_backend(monkeypatch):
     mesh = build_city_flat_mesh(
         city,
         lod=GeometryType.LOD0,
-        merge_buildings=True,
         min_building_detail=0.5,
         min_building_area=1.0,
-        merge_tolerance=0.5,
         max_mesh_size=5.0,
         min_mesh_angle=20.0,
         report_mesh_quality=False,
@@ -1561,7 +1449,7 @@ def test_build_city_flat_mesh_marks_halos_for_triangle_backend(monkeypatch):
             markers=np.array([-2, 7], dtype=int),
         )
 
-    monkeypatch.setattr(meshes_module, "_condition_meshing_footprints", fake_condition)
+    monkeypatch.setattr(meshes_module, "_meshing_footprints", fake_condition)
     monkeypatch.setattr(meshes_module, "_condition_flat_mesh_coverage_regions", fake_condition_coverage_regions)
     monkeypatch.setattr(meshes_module, "build_city_flat_mesh_from_coverage", fake_build_from_coverage)
     monkeypatch.setattr(
@@ -1574,10 +1462,8 @@ def test_build_city_flat_mesh_marks_halos_for_triangle_backend(monkeypatch):
     mesh = build_city_flat_mesh(
         city,
         lod=GeometryType.LOD0,
-        merge_buildings=False,
         min_building_detail=0.5,
         min_building_area=1.0,
-        merge_tolerance=0.5,
         max_mesh_size=5.0,
         min_mesh_angle=20.0,
         report_mesh_quality=False,
@@ -1721,12 +1607,12 @@ def test_native_triangle_build_city_flat_mesh_handles_internal_loops_and_holes()
     assert set(np.asarray(mesh.markers, dtype=int)) >= {-2, 0}
 
 
-def test_build_city_surface_mesh_reduces_lod_from_source_map(monkeypatch):
+def test_build_city_surface_mesh_extrudes_every_cleaned_building(monkeypatch):
     surfaces = [
         make_surface(box(10, 10, 20, 20), 10.0),
         make_surface(box(30, 10, 40, 20), 12.0),
     ]
-    source_map = [[0, 1], [2]]
+    source_map = [[0], [1]]
     resolutions = [4.0, 5.0]
 
     captured = {}
@@ -1785,7 +1671,7 @@ def test_build_city_surface_mesh_reduces_lod_from_source_map(monkeypatch):
         captured["lod_switches"] = building_lod_switches
         return [DummyCppMesh()]
 
-    monkeypatch.setattr(meshes_module, "_condition_meshing_footprints", fake_condition)
+    monkeypatch.setattr(meshes_module, "_meshing_footprints", fake_condition)
     monkeypatch.setattr(
         meshes_module,
         "_consume_conditioned_building_regions_with_sources",
@@ -1824,10 +1710,8 @@ def test_build_city_surface_mesh_reduces_lod_from_source_map(monkeypatch):
     mesh = build_city_surface_mesh(
         city,
         lod=[GeometryType.LOD1, GeometryType.LOD0, GeometryType.LOD2],
-        merge_buildings=True,
         min_building_detail=0.5,
         min_building_area=1.0,
-        merge_tolerance=0.5,
         building_mesh_triangle_size=6.0,
         max_mesh_size=8.0,
         min_mesh_angle=20.0,
@@ -1837,7 +1721,8 @@ def test_build_city_surface_mesh_reduces_lod_from_source_map(monkeypatch):
     )
 
     assert mesh.faces.shape[0] >= 1
-    assert captured["lod_switches"] == [1, 2]
+    # Cleaned footprints are always extruded, whatever geometry they came from.
+    assert captured["lod_switches"] == [1, 1]
     assert captured["backend"] == "triangle"
     assert captured["region_markers"] == [-2, 0, 1]
     assert captured["region_triangle_sizes"] == {0: 4.0, 1: 5.0}
@@ -1909,10 +1794,8 @@ def test_build_city_surface_mesh_uses_raw_ground_markers(monkeypatch):
     mesh = build_city_surface_mesh(
         city,
         lod=GeometryType.LOD0,
-        merge_buildings=False,
         min_building_detail=0.0,
         min_building_area=1.0,
-        merge_tolerance=0.0,
         max_mesh_size=6.0,
         min_mesh_angle=20.0,
         report_mesh_quality=False,
@@ -2025,7 +1908,6 @@ def test_build_city_volume_mesh_uses_shared_surface_pipeline(monkeypatch):
         return make_prepared_city_inputs(terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics)
 
     def fake_prepare_regions(**kwargs):
-        captured["target_lods"] = kwargs["target_lods"]
         captured["conditioned_resolution"] = kwargs["conditioned_resolution"]
         return make_prepared_ground_regions(
             [conditioned_surface],
@@ -2150,10 +2032,8 @@ def test_build_city_volume_mesh_uses_shared_surface_pipeline(monkeypatch):
     volume_mesh = build_city_volume_mesh(
         city,
         lod=GeometryType.LOD0,
-        merge_buildings=False,
         min_building_detail=0.0,
         min_building_area=1.0,
-        merge_tolerance=0.0,
         max_mesh_size=6.0,
         min_mesh_angle=20.0,
         report_mesh_quality=False,
@@ -2162,7 +2042,6 @@ def test_build_city_volume_mesh_uses_shared_surface_pipeline(monkeypatch):
 
     assert captured["mesher"] == "dtcc_mesher"
     assert captured["add_halo_markers"] is False
-    assert captured["target_lods"] == [GeometryType.LOD1]
     assert captured["conditioned_resolution"] == [4.0]
     assert captured["surface_called"] is True
     assert captured["tetgen_mesh_faces"] == 1
@@ -2309,10 +2188,8 @@ def test_build_city_volume_mesh_stage_audit_records_stage_contracts(monkeypatch)
     volume_mesh = build_city_volume_mesh(
         city,
         lod=GeometryType.LOD0,
-        merge_buildings=False,
         min_building_detail=0.25,
         min_building_area=1.0,
-        merge_tolerance=0.0,
         max_mesh_size=6.0,
         min_mesh_angle=20.0,
         report_mesh_quality=False,
@@ -2461,13 +2338,10 @@ def test_prepare_surface_ground_regions_clips_buildings_to_raster_bounds():
     regions = meshes_module._prepare_surface_ground_regions(
         conditioned_surfaces=[make_surface(box(-5.0, 2.0, 5.0, 8.0), 12.0)],
         conditioned_resolution=[2.0],
-        target_lods=[GeometryType.LOD3],
         bounds=bounds,
         max_mesh_size=2.0,
         min_building_detail=0.5,
         footprint_diagnostics={},
-        cleaning_diagnostics=False,
-        treat_lod0_as_holes=False,
     )
 
     assert len(regions.building_surfaces) == 1
@@ -2570,22 +2444,12 @@ def test_build_city_surface_mesh_unmerged_components_are_compact():
             lod=GeometryType.LOD0,
             min_building_detail=0.5,
             min_building_area=1.0,
-            merge_tolerance=0.25,
-            merge_buildings=True,
             max_mesh_size=8.0,
-            cleaning_diagnostics=False,
         )
     )
-    target_lods = meshes_module._resolve_conditioned_target_lods(
-        city.buildings,
-        GeometryType.LOD0,
-        conditioned_footprints.source_map,
-    )
-    shell_target_lods = meshes_module._promote_volume_shell_target_lods(target_lods)
     surface_regions = meshes_module._prepare_surface_ground_regions(
         conditioned_surfaces=conditioned_footprints.surfaces,
         conditioned_resolution=conditioned_footprints.subdomain_resolution,
-        target_lods=shell_target_lods,
         bounds=(
             terrain.bounds.xmin,
             terrain.bounds.ymin,
@@ -2595,8 +2459,6 @@ def test_build_city_surface_mesh_unmerged_components_are_compact():
         max_mesh_size=8.0,
         min_building_detail=0.5,
         footprint_diagnostics=conditioned_footprints.diagnostics,
-        cleaning_diagnostics=False,
-        treat_lod0_as_holes=False,
     )
     ground_mesh, _ = meshes_module._build_ground_mesh_from_coverage(
         region_polygons=surface_regions.region_polygons,
@@ -2799,10 +2661,8 @@ def test_build_city_volume_mesh_keeps_requested_tetgen_switches(monkeypatch):
     build_city_volume_mesh(
         city,
         lod=GeometryType.LOD0,
-        merge_buildings=False,
         min_building_detail=0.0,
         min_building_area=1.0,
-        merge_tolerance=0.0,
         max_mesh_size=6.0,
         top_cap_max_mesh_size=9.0,
         min_mesh_angle=20.0,
@@ -2963,10 +2823,8 @@ def test_build_city_volume_mesh_uses_split_surface_default_without_flat_special_
     build_city_volume_mesh(
         city,
         lod=GeometryType.LOD0,
-        merge_buildings=False,
         min_building_detail=0.0,
         min_building_area=1.0,
-        merge_tolerance=0.0,
         max_mesh_size=6.0,
         min_mesh_angle=20.0,
         report_mesh_quality=False,
@@ -3108,10 +2966,8 @@ def test_build_city_volume_mesh_allows_empty_conditioned_footprints(monkeypatch)
     volume_mesh = build_city_volume_mesh(
         city,
         lod=GeometryType.LOD0,
-        merge_buildings=False,
         min_building_detail=0.0,
         min_building_area=1.0,
-        merge_tolerance=0.0,
         max_mesh_size=6.0,
         min_mesh_angle=20.0,
         report_mesh_quality=False,
@@ -3245,10 +3101,8 @@ def test_build_city_volume_mesh_respects_explicit_tetgen_switches_for_dtcc_meshe
     build_city_volume_mesh(
         city,
         lod=GeometryType.LOD0,
-        merge_buildings=False,
         min_building_detail=0.0,
         min_building_area=1.0,
-        merge_tolerance=0.0,
         max_mesh_size=6.0,
         min_mesh_angle=20.0,
         report_mesh_quality=False,
@@ -3394,10 +3248,8 @@ def test_build_city_volume_mesh_saves_tetgen_debug_meshes(monkeypatch, tmp_path)
     build_city_volume_mesh(
         city,
         lod=GeometryType.LOD0,
-        merge_buildings=False,
         min_building_detail=0.0,
         min_building_area=1.0,
-        merge_tolerance=0.0,
         max_mesh_size=6.0,
         min_mesh_angle=20.0,
         report_mesh_quality=False,
@@ -3764,10 +3616,8 @@ def test_build_city_volume_mesh_captures_quality_failure_artifacts(monkeypatch, 
     build_city_volume_mesh(
         city,
         lod=GeometryType.LOD0,
-        merge_buildings=False,
         min_building_detail=0.0,
         min_building_area=1.0,
-        merge_tolerance=0.0,
         max_mesh_size=6.0,
         min_mesh_angle=20.0,
         report_mesh_quality=False,
@@ -3922,10 +3772,8 @@ def test_build_city_volume_mesh_ignores_quality_failure_capture_errors(
     volume_mesh = build_city_volume_mesh(
         city,
         lod=GeometryType.LOD0,
-        merge_buildings=False,
         min_building_detail=0.0,
         min_building_area=1.0,
-        merge_tolerance=0.0,
         max_mesh_size=6.0,
         min_mesh_angle=20.0,
         report_mesh_quality=False,
@@ -4130,10 +3978,8 @@ def test_build_city_volume_mesh_uses_refined_shell_without_retry(
     volume_mesh = build_city_volume_mesh(
         city,
         lod=GeometryType.LOD0,
-        merge_buildings=False,
         min_building_detail=0.0,
         min_building_area=1.0,
-        merge_tolerance=0.0,
         max_mesh_size=6.0,
         min_mesh_angle=20.0,
         report_mesh_quality=False,
@@ -4308,10 +4154,8 @@ def test_build_city_volume_mesh_keeps_shell_refinement_enabled_when_preserving_s
     build_city_volume_mesh(
         city,
         lod=GeometryType.LOD0,
-        merge_buildings=False,
         min_building_detail=0.0,
         min_building_area=1.0,
-        merge_tolerance=0.0,
         max_mesh_size=6.0,
         min_mesh_angle=20.0,
         report_mesh_quality=False,
@@ -4344,10 +4188,8 @@ def test_build_city_flat_mesh_runs_with_dtcc_mesher():
     mesh = build_city_flat_mesh(
         city,
         lod=GeometryType.LOD0,
-        merge_buildings=False,
         min_building_detail=0.0,
         min_building_area=1.0,
-        merge_tolerance=0.0,
         max_mesh_size=6.0,
         min_mesh_angle=20.0,
         report_mesh_quality=False,
@@ -4375,10 +4217,9 @@ def test_build_city_mesh_auto_lod_prefers_available_geometry():
     lod2_building.attributes["ground_height"] = 0.0
     lod0_building = make_building(box(36, 8, 46, 18), roof_z=8.0)
 
-    lod_values = meshes_module._normalize_lod_values(
-        [lod1_building, lod2_building, lod0_building],
-        None,
-    )
+    from dtcc_core.builder.cleaning.clean import _resolve_lods
+
+    lod_values = _resolve_lods([lod1_building, lod2_building, lod0_building], None)
 
     assert lod_values == [
         GeometryType.LOD1,
@@ -4397,10 +4238,8 @@ def test_build_city_flat_mesh_runs_with_auto_lod_resolution():
 
     mesh = build_city_flat_mesh(
         city,
-        merge_buildings=False,
         min_building_detail=0.0,
         min_building_area=1.0,
-        merge_tolerance=0.0,
         max_mesh_size=6.0,
         min_mesh_angle=20.0,
         report_mesh_quality=False,
@@ -4423,10 +4262,8 @@ def test_build_city_surface_mesh_runs_with_mixed_lod_directives():
     mesh = build_city_surface_mesh(
         city,
         lod=[GeometryType.LOD1, GeometryType.LOD2],
-        merge_buildings=False,
         min_building_detail=0.0,
         min_building_area=1.0,
-        merge_tolerance=0.0,
         building_mesh_triangle_size=5.0,
         max_mesh_size=6.0,
         min_mesh_angle=20.0,
@@ -4452,10 +4289,8 @@ def test_build_city_surface_mesh_runs_with_auto_lod_resolution():
 
     mesh = build_city_surface_mesh(
         city,
-        merge_buildings=False,
         min_building_detail=0.0,
         min_building_area=1.0,
-        merge_tolerance=0.0,
         building_mesh_triangle_size=5.0,
         max_mesh_size=6.0,
         min_mesh_angle=20.0,
@@ -4494,10 +4329,8 @@ def test_build_city_surface_mesh_keeps_tall_wall_roof_seams_closed():
     mesh = build_city_surface_mesh(
         city,
         lod=GeometryType.LOD0,
-        merge_buildings=True,
         min_building_detail=0.5,
         min_building_area=1.0,
-        merge_tolerance=0.25,
         building_mesh_triangle_size=4.0,
         max_mesh_size=8.0,
         min_mesh_angle=20.0,
@@ -4565,41 +4398,6 @@ def test_build_city_surface_mesh_flattens_extruded_building_bases_on_sloped_terr
     assert np.allclose(vertices[roof_vertices, 2], 7.0)
 
 
-def test_legacy_building_wrappers_still_return_buildings():
-    buildings = [
-        make_building(box(0, 0, 4, 4), roof_z=8.0),
-        make_building(box(4.1, 0, 8.1, 4), roof_z=10.0),
-    ]
-
-    merged, merged_map = merge_building_footprints(
-        buildings,
-        max_distance=0.2,
-        min_area=0.0,
-        return_index_map=True,
-    )
-    cleaned, cleaned_map = clean_building_footprints(
-        buildings,
-        clearance=0.2,
-        smallest_hole_area=0.0,
-        return_index_map=True,
-    )
-    fixed, fixed_map = fix_building_footprint_clearance(
-        buildings,
-        clearance=0.2,
-        return_index_map=True,
-    )
-    simplified, simplified_map = simplify_building_footprints(
-        buildings,
-        tolerance=0.1,
-        return_index_map=True,
-    )
-
-    assert merged and merged_map
-    assert cleaned and cleaned_map
-    assert fixed and fixed_map
-    assert simplified and simplified_map
-
-
 def test_volume_mesh_requires_tetgen_before_preparation(monkeypatch):
     from dtcc_core.builder.meshing import tetgen
     from dtcc_core.datasets.city_volume_mesh import CityVolumeMeshDataset
@@ -4639,7 +4437,6 @@ def test_build_city_volume_mesh_smoke(entry_point):
         domain_height=40.0,
         max_mesh_size=8.0,
         min_mesh_angle=20.0,
-        merge_buildings=True,
         min_building_detail=0.0,
         min_building_area=1.0,
         smoothing=0,
@@ -4684,10 +4481,8 @@ def test_build_city_volume_mesh_smoke_auto_lod_resolution():
         domain_height=40.0,
         max_mesh_size=8.0,
         min_mesh_angle=20.0,
-        merge_buildings=True,
         min_building_detail=0.0,
         min_building_area=1.0,
-        merge_tolerance=0.0,
         smoothing=0,
         boundary_face_markers=False,
         report_mesh_quality=False,

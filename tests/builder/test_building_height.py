@@ -5,7 +5,7 @@ import pytest
 from shapely.geometry import box
 
 from dtcc_core import io
-from dtcc_core.builder import compute_building_heights, merge_building_footprints
+from dtcc_core.builder import clean_footprints, compute_building_heights
 from dtcc_core.model import Building, City, GeometryType, PointCloud, Raster, Surface
 
 
@@ -51,15 +51,20 @@ def test_pointcloud_estimate_preserves_measurement_and_handles_missing_points():
     assert missing.lod0.zmax == 102.5
 
 
-def test_conditioning_retains_single_measurement_but_aggregates_estimates():
+def test_cleaning_keeps_measurements_on_parts_and_sets_block_estimate():
     first = building('a', box(0, 0, 2, 2), 10)
     second = building('b', box(2, 0, 4, 2), 20)
     first.estimated_height = 8
     second.estimated_height = 12
-    merged = merge_building_footprints([first, second], max_distance=0.1, min_area=0)
+    merged = clean_footprints([first, second], min_building_detail=0.1)
     assert len(merged) == 1
-    assert merged[0].height is None and merged[0].estimated_height == pytest.approx(10)
+    block = merged[0]
+    assert block.height is None and block.estimated_height == pytest.approx(10)
+    parts = {part.id: part for part in block.building_parts}
+    assert set(parts) == {'a', 'b'}
+    assert (parts['a'].height, parts['b'].height) == (10, 20)
+    assert (parts['a'].estimated_height, parts['b'].estimated_height) == (8, 12)
     assert (first.height, second.height) == (10, 20)
     first.height = 0
-    single = merge_building_footprints([first], max_distance=0.1, min_area=0)
-    assert len(single) == 1 and single[0].height == 0
+    single = clean_footprints([first], min_building_detail=0.1)
+    assert len(single) == 1 and single[0].id == 'a' and single[0].height == 0

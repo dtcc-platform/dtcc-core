@@ -13,24 +13,13 @@ from shapely.ops import polygonize, unary_union
 from ...model import (
     Mesh,
     VolumeMesh,
-    Building,
     City,
     Surface,
     GeometryType,
 )
 
-_LOD_PRIORITY: dict[GeometryType, int] = {
-    GeometryType.LOD0: 0,
-    GeometryType.LOD1: 1,
-    GeometryType.LOD2: 2,
-    GeometryType.LOD3: 3,
-}
-_AUTO_MESHING_LOD_ORDER: tuple[GeometryType, ...] = (
-    GeometryType.LOD1,
-    GeometryType.LOD2,
-    GeometryType.LOD3,
-    GeometryType.LOD0,
-)
+# Directive for the C++ surface builder: every building region is extruded.
+_EXTRUDE_DIRECTIVE = 1
 
 from ..model_conversion import (
     create_builder_polygon,
@@ -41,16 +30,16 @@ from ..model_conversion import (
 
 from .. import _dtcc_builder
 
-from ..cleaning import (
-    ConditioningOptions,
-    ConditioningResult,
-    condition_polygon_coverage,
-    plot_footprint_cleaning_comparison,
-    select_footprints,
+from ..cleaning.clean import (
+    clean_regions,
+    cleaning_record,
+    regions_from_cleaned_city,
 )
+from ..cleaning.footprints import ConditioningResult
+from ..cleaning.plotting import plot_footprint_cleaning_comparison
+from ..cleaning.selection import select_footprints
 from ..cleaning.contract import (
     admissibility,
-    check_cleaning_contract,
     check_mesher_handoff_profile,
     classify_candidate,
     has_only_separation_defects,
@@ -120,8 +109,13 @@ MeshingPipelineMode = Literal["strict"]
 
 
 @dataclass(frozen=True)
-class ConditionedFootprints:
-    """Meshing-ready footprint geometry plus the bookkeeping needed downstream."""
+class _MeshingFootprints:
+    """Cleaned footprint regions handed to the mesh builders.
+
+    ``source_map`` gives, for each region, the index of its building in the
+    cleaned city; ``subdomain_resolution`` the target triangle size of each
+    region.
+    """
 
     surfaces: list[Surface]
     source_map: list[list[int]]
@@ -469,7 +463,7 @@ def _surface_collection_audit(
 
 
 def _conditioned_footprints_audit(
-    conditioned_footprints: ConditionedFootprints,
+    conditioned_footprints: _MeshingFootprints,
 ) -> dict[str, Any]:
     return {
         "footprints": _surface_collection_audit(
@@ -1364,7 +1358,6 @@ def _start_stage_audit_attempt(
     label: str | None,
     retry_reason: str | None,
     backend: str,
-    merge_buildings: bool,
     requested_mesher: str | None,
     max_mesh_size: float | None,
     min_mesh_angle: float,
@@ -1383,7 +1376,6 @@ def _start_stage_audit_attempt(
         "retry_reason": retry_reason,
         "backend": backend,
         "config": {
-            "merge_buildings": bool(merge_buildings),
             "requested_mesher": requested_mesher,
             "max_mesh_size": None if max_mesh_size is None else float(max_mesh_size),
             "min_mesh_angle": float(min_mesh_angle),
@@ -1915,91 +1907,118 @@ def _raster_bounds_tuple(terrain_raster: object) -> tuple[float, float, float, f
     )
 
 
-def _condition_city_meshing_footprints(
+def _meshing_footprints(
     city: City,
     *,
     lod: GeometryType | Sequence[GeometryType] | None,
     min_building_detail: float,
     min_building_area: float,
-    merge_tolerance: float,
-    merge_buildings: bool,
     max_mesh_size: float | None,
-    cleaning_diagnostics: bool,
     show_footprints: bool = False,
     footprint_cleaning_plot_block: bool = True,
     pipeline_mode: MeshingPipelineMode = "strict",
-    conditioned_footprints: ConditionedFootprints | None = None,
-) -> ConditionedFootprints:
+) -> _MeshingFootprints:
+    """Clean the city's footprints in unison, or reuse its recorded cleaning.
+
+    A city returned by ``clean_footprints`` at the same ``min_building_detail``
+    is not cleaned again (see :func:`cleaning_record`). Regions smaller than
+    ``min_building_area`` are then dropped. Selection never changes the kept
+    regions.
+    """
+    pipeline_mode = _normalize_meshing_pipeline_mode(pipeline_mode)
     buildings = city.buildings
-    if conditioned_footprints is not None:
-        return _reuse_conditioned_footprints(
-            buildings,
-            conditioned_footprints,
-            lod=lod,
-            min_building_detail=min_building_detail,
-            max_mesh_size=max_mesh_size,
-            pipeline_mode=pipeline_mode,
-        )
     if not buildings:
         warning("City has no buildings.")
-
-    return build_conditioned_footprints(
-        buildings,
-        lod=lod,
-        min_building_detail=min_building_detail,
-        min_building_area=min_building_area,
-        merge_tolerance=merge_tolerance,
-        merge_buildings=merge_buildings,
-        max_mesh_size=max_mesh_size,
-        cleaning_diagnostics=cleaning_diagnostics,
-        show_footprints=show_footprints,
-        footprint_cleaning_plot_block=footprint_cleaning_plot_block,
-        pipeline_mode=pipeline_mode,
-        raise_on_contract_error=False,
-    )
-
-
-def build_conditioned_footprints(
-    buildings: Sequence[Building],
-    *,
-    lod: GeometryType | Sequence[GeometryType] | None,
-    min_building_detail: float,
-    min_building_area: float,
-    merge_tolerance: float,
-    merge_buildings: bool,
-    max_mesh_size: float | None,
-    cleaning_diagnostics: bool,
-    show_footprints: bool = False,
-    footprint_cleaning_plot_block: bool = True,
-    pipeline_mode: str = "strict",
-    raise_on_contract_error: bool = True,
-) -> ConditionedFootprints:
-    """Clean footprints, then explicitly select regions by min_building_area.
-
-    Diagnostics separate the pre-selection geometric contract and area
-    exclusions. Selection preserves surviving geometry and source indices.
-    """
-
-    normalized_mode = _normalize_meshing_pipeline_mode(pipeline_mode)
-    conditioned_footprints = _condition_meshing_footprints(
-        buildings,
-        lod=lod,
-        min_building_detail=min_building_detail,
-        min_building_area=min_building_area,
-        merge_tolerance=merge_tolerance,
-        merge_buildings=merge_buildings,
-        max_mesh_size=max_mesh_size,
-        cleaning_diagnostics=cleaning_diagnostics,
-        show_footprints=show_footprints,
-        footprint_cleaning_plot_block=footprint_cleaning_plot_block,
-        pipeline_mode=normalized_mode,
-    )
-    if raise_on_contract_error:
-        _raise_stage_contract_errors(
-            "Conditioned footprints",
-            conditioned_footprints.contract,
+    record = cleaning_record(city, min_building_detail=min_building_detail, lod=lod)
+    reused = record is not None
+    if reused:
+        info(
+            f"Reusing the footprint cleaning of {len(buildings)} buildings at "
+            f"{min_building_detail:g} m recorded on the city."
         )
-    return conditioned_footprints
+        cleaned = regions_from_cleaned_city(city, record)
+        if show_footprints:
+            plot_footprint_cleaning_comparison(
+                cleaned.polygons,
+                cleaned.polygons,
+                title="Footprint cleaning (reused)",
+                show=True,
+                block=footprint_cleaning_plot_block,
+            )
+    else:
+        cleaned = clean_regions(
+            buildings,
+            min_building_detail=min_building_detail,
+            lod=lod,
+            show=show_footprints,
+            plot_block=footprint_cleaning_plot_block,
+        )
+    record = cleaned.record
+
+    declared_scale = _conditioned_footprint_declared_scale(
+        min_building_detail=min_building_detail
+    )
+    before_selection_contract = {
+        **record["contract"],
+        "mesher_profile": record["mesher_profile"],
+    }
+    diagnostics = {
+        "pipeline_mode": pipeline_mode,
+        "outcome": record.get("outcome"),
+        "reused_cleaning": reused,
+        "fidelity_budget_used": record.get("fidelity_budget_used"),
+        "merged_count": record.get("merged_count", 0),
+        "conservative_merged_roof_count": record.get("single_height_merged_roofs", 0),
+        "before_selection_contract": before_selection_contract,
+        "mesher_profile": record["mesher_profile"],
+        "policy_exclusions": [],
+    }
+    selected = select_footprints(
+        ConditioningResult(
+            polygons=cleaned.polygons,
+            source_map=[[output] for output in cleaned.region_outputs],
+            diagnostics=diagnostics,
+        ),
+        min_area=min_building_area,
+    )
+    diagnostics = selected.diagnostics
+
+    max_mesh_size = _normalize_max_mesh_size(max_mesh_size)
+    height_default = max_mesh_size or float(min_building_detail)
+    surfaces: list[Surface] = []
+    source_map: list[list[int]] = []
+    subdomain_resolution: list[float] = []
+    for polygon, (output,) in zip(selected.polygons, selected.source_map):
+        surface = Surface()
+        surface.from_polygon(polygon, cleaned.output_roof_z[output])
+        surfaces.append(surface)
+        source_map.append([output])
+        height = cleaned.output_height[output]
+        height = height_default if height is None else height
+        if max_mesh_size is None:
+            subdomain_resolution.append(height)
+        else:
+            subdomain_resolution.append(min(height, max_mesh_size))
+
+    if not surfaces and buildings:
+        warning("No building footprints remain after cleaning and selection.")
+    debug(
+        "Meshing footprints: "
+        f"{len(buildings)} buildings -> {len(surfaces)} regions "
+        f"(outcome={record.get('outcome')}, merged={record.get('merged_count', 0)})"
+    )
+    return _MeshingFootprints(
+        surfaces=surfaces,
+        source_map=source_map,
+        subdomain_resolution=subdomain_resolution,
+        diagnostics=diagnostics,
+        declared_scale=declared_scale,
+        contract=_conditioned_footprint_contract(
+            surfaces=surfaces,
+            min_building_detail=min_building_detail,
+            diagnostics=diagnostics,
+        ),
+    )
 
 
 def _prepare_city_meshing_inputs(
@@ -2008,126 +2027,26 @@ def _prepare_city_meshing_inputs(
     lod: GeometryType | Sequence[GeometryType] | None,
     min_building_detail: float,
     min_building_area: float,
-    merge_tolerance: float,
-    merge_buildings: bool,
     max_mesh_size: float | None,
-    cleaning_diagnostics: bool,
     show_footprints: bool = False,
     footprint_cleaning_plot_block: bool = True,
     pipeline_mode: MeshingPipelineMode = "strict",
-    conditioned_footprints: ConditionedFootprints | None = None,
-) -> tuple[object, object, ConditionedFootprints]:
+) -> tuple[object, object, _MeshingFootprints]:
     terrain, terrain_raster = _require_city_terrain_raster(
         city,
         max_mesh_size=max_mesh_size,
     )
-
-    conditioned_footprints = _condition_city_meshing_footprints(
+    footprints = _meshing_footprints(
         city,
         lod=lod,
         min_building_detail=min_building_detail,
         min_building_area=min_building_area,
-        merge_tolerance=merge_tolerance,
-        merge_buildings=merge_buildings,
         max_mesh_size=max_mesh_size,
-        cleaning_diagnostics=cleaning_diagnostics,
         show_footprints=show_footprints,
         footprint_cleaning_plot_block=footprint_cleaning_plot_block,
         pipeline_mode=pipeline_mode,
-        conditioned_footprints=conditioned_footprints,
     )
-
-    return (
-        terrain,
-        terrain_raster,
-        conditioned_footprints,
-    )
-
-
-def _resolve_merged_group_roof_metadata(
-    source_indices: Sequence[int],
-    *,
-    source_areas: Sequence[float],
-    source_roof_z: Sequence[float],
-    source_heights: Sequence[float | None],
-    default_height: float,
-) -> tuple[float, float, bool, float]:
-    roof_z = _area_weighted_value(
-        source_indices,
-        source_areas,
-        source_roof_z,
-        default=0.0,
-    )
-    height = _area_weighted_value(
-        source_indices,
-        source_areas,
-        source_heights,
-        default=default_height,
-    )
-    if len(source_indices) <= 1:
-        return roof_z, height, False, 0.0
-
-    roof_levels = [
-        float(source_roof_z[index])
-        for index in source_indices
-        if 0 <= index < len(source_roof_z)
-    ]
-    if not roof_levels:
-        return roof_z, height, False, 0.0
-
-    roof_z_span = max(roof_levels) - min(roof_levels)
-    if roof_z_span <= _MERGED_ROOF_ENVELOPE_Z_SPAN:
-        return roof_z, height, False, roof_z_span
-
-    merged_height_candidates = [
-        float(source_heights[index])
-        for index in source_indices
-        if 0 <= index < len(source_heights) and source_heights[index] is not None
-    ]
-    if merged_height_candidates:
-        height = max(merged_height_candidates)
-    return max(roof_levels), height, True, roof_z_span
-
-
-def _resolve_conditioned_target_lods(
-    buildings: list[Building],
-    lod: GeometryType | Sequence[GeometryType] | None,
-    conditioned_source_map: list[list[int]],
-) -> list[GeometryType]:
-    lod_values = _normalize_lod_values(buildings, lod)
-    return [
-        min(
-            (lod_values[index] for index in indices),
-            key=lambda value: _LOD_PRIORITY[value],
-        )
-        for indices in conditioned_source_map
-    ]
-
-
-def _promote_volume_shell_target_lods(
-    target_lods: Sequence[GeometryType],
-) -> list[GeometryType]:
-    return [
-        GeometryType.LOD1 if lod_value == GeometryType.LOD0 else lod_value
-        for lod_value in target_lods
-    ]
-
-
-def _promote_surface_shell_target_lods(
-    target_lods: Sequence[GeometryType],
-) -> list[GeometryType]:
-    """Promote footprint-only directives to building shells for surface meshes.
-
-    The C++ surface builder interprets directive ``0`` as a supported platform
-    region rather than an extruded building. For the public surface-mesh API we
-    want footprint-only cities to produce buildings by default, so resolved
-    ``LOD0`` directives are promoted to ``LOD1`` unless the caller explicitly
-    opts into hole handling via ``treat_lod0_as_holes=True``.
-    """
-    return [
-        GeometryType.LOD1 if lod_value == GeometryType.LOD0 else lod_value
-        for lod_value in target_lods
-    ]
+    return terrain, terrain_raster, footprints
 
 
 def _build_ground_mesh_from_coverage(
@@ -2368,41 +2287,24 @@ def _prepare_surface_ground_regions(
     *,
     conditioned_surfaces: list[Surface],
     conditioned_resolution: list[float],
-    target_lods: list[GeometryType],
     bounds: tuple[float, float, float, float],
     max_mesh_size: float | None,
     min_building_detail: float,
     footprint_diagnostics: dict[str, Any],
-    cleaning_diagnostics: bool,
-    treat_lod0_as_holes: bool,
     pipeline_mode: MeshingPipelineMode = "strict",
 ) -> PreparedGroundRegions:
     _normalize_meshing_pipeline_mode(pipeline_mode)
     source_surfaces: list[Surface] = []
-    source_directives: list[int] = []
     source_resolutions: list[float] = []
     source_roof_z: list[float] = []
     source_areas: list[float] = []
     building_polygons: list[Polygon] = []
     building_markers: list[int] = []
-    hole_polygons: list[Polygon] = []
-    default_priority = _LOD_PRIORITY[GeometryType.LOD3]
     domain_polygon = box(*bounds)
 
-    for surface, resolution, lod_value in zip(
-        conditioned_surfaces,
-        conditioned_resolution,
-        target_lods,
-    ):
+    for surface, resolution in zip(conditioned_surfaces, conditioned_resolution):
         polygon = surface.to_polygon(simplify=0.0)
         if polygon.is_empty:
-            continue
-
-        if treat_lod0_as_holes and lod_value == GeometryType.LOD0:
-            clipped_hole = polygon.intersection(domain_polygon)
-            for clipped_polygon in _iter_polygon_components(clipped_hole):
-                if clipped_polygon.area > 0.0:
-                    hole_polygons.append(orient(clipped_polygon, sign=1.0))
             continue
 
         clipped = polygon.intersection(domain_polygon)
@@ -2411,7 +2313,6 @@ def _prepare_surface_ground_regions(
                 continue
             marker = len(source_surfaces)
             source_surfaces.append(surface)
-            source_directives.append(_LOD_PRIORITY.get(lod_value, default_priority))
             source_resolutions.append(float(resolution))
             source_areas.append(float(max(clipped_polygon.area, 0.0)))
             source_roof_z.append(float(getattr(surface.bounds, "zmax", 0.0)))
@@ -2426,7 +2327,6 @@ def _prepare_surface_ground_regions(
         building_markers=building_markers,
         footprint_diagnostics=footprint_diagnostics,
         min_building_detail=min_building_detail,
-        cleaning_diagnostics=cleaning_diagnostics,
         pipeline_mode=pipeline_mode,
     )
 
@@ -2451,11 +2351,7 @@ def _prepare_surface_ground_regions(
         surface.from_polygon(polygon, roof_z)
         active_surfaces.append(surface)
         conditioned_markers.append(marker)
-        meshing_directives.append(
-            min(source_directives[index] for index in sources)
-            if sources
-            else default_priority
-        )
+        meshing_directives.append(_EXTRUDE_DIRECTIVE)
         region_triangle_sizes[marker] = (
             min(source_resolutions[index] for index in sources)
             if sources
@@ -2468,7 +2364,7 @@ def _prepare_surface_ground_regions(
     ground_polygons = _condition_flat_mesh_ground_polygons(
         bounds=bounds,
         building_polygons=conditioned_building_polygons,
-        hole_polygons=hole_polygons,
+        hole_polygons=[],
         pipeline_mode=pipeline_mode,
     )
     coverage_building_polygons = [
@@ -3675,30 +3571,6 @@ def _refine_near_horizontal_surface_faces_for_tetgen(
     }
 
 
-def _normalize_lod_values(
-    buildings: list[Building],
-    lod: GeometryType | Sequence[GeometryType] | None,
-) -> list[GeometryType]:
-    if lod is None:
-        return [_resolve_auto_meshing_lod(building) for building in buildings]
-    if isinstance(lod, GeometryType):
-        return [lod] * len(buildings)
-    if len(lod) != len(buildings):
-        raise ValueError(
-            f"lod list length {len(lod)} != number of buildings {len(buildings)}"
-        )
-    if not all(isinstance(value, GeometryType) for value in lod):
-        raise TypeError("all elements in lod list must be GeometryType instances")
-    return list(lod)
-
-
-def _resolve_auto_meshing_lod(building: Building) -> GeometryType:
-    for candidate in _AUTO_MESHING_LOD_ORDER:
-        if building.flatten_geometry(candidate) is not None:
-            return candidate
-    return GeometryType.LOD0
-
-
 def _iter_polygon_components(geometry) -> list[Polygon]:
     if geometry.is_empty:
         return []
@@ -3750,7 +3622,6 @@ def _consume_conditioned_building_regions_with_sources(
     building_markers: list[int],
     footprint_diagnostics: dict[str, Any],
     min_building_detail: float,
-    cleaning_diagnostics: bool,
     pipeline_mode: MeshingPipelineMode = "strict",
 ) -> tuple[list[Polygon], list[int], list[list[int]]]:
     """Validate the clipped building regions before 2D coverage construction.
@@ -3801,12 +3672,11 @@ def _consume_conditioned_building_regions_with_sources(
             f"construction: {summary}"
         )
 
-    if cleaning_diagnostics:
-        debug(
-            "Flat/surface building regions consumed without reconditioning: "
-            f"{len(building_polygons)} -> {len(resolved_polygons)} polygons, "
-            f"declared_scale={declared_scale} m"
-        )
+    debug(
+        "Flat/surface building regions consumed without reconditioning: "
+        f"{len(building_polygons)} -> {len(resolved_polygons)} polygons, "
+        f"declared_scale={declared_scale} m"
+    )
 
     return resolved_polygons, resolved_markers, resolved_sources
 
@@ -3820,7 +3690,6 @@ def _condition_flat_mesh_coverage_regions(
     max_mesh_size: float | None,
     min_building_detail: float,
     footprint_diagnostics: dict[str, Any],
-    cleaning_diagnostics: bool,
     pipeline_mode: MeshingPipelineMode = "strict",
 ) -> tuple[list[Polygon], list[int]]:
     domain = box(*bounds)
@@ -3845,7 +3714,6 @@ def _condition_flat_mesh_coverage_regions(
         building_markers=clipped_building_markers,
         footprint_diagnostics=footprint_diagnostics,
         min_building_detail=min_building_detail,
-        cleaning_diagnostics=cleaning_diagnostics,
         pipeline_mode=pipeline_mode,
     )
 
@@ -3877,37 +3745,6 @@ def _add_flat_mesh_halo_markers(mesh: Mesh) -> Mesh:
 
     mesh.markers = markers
     return mesh
-
-
-def _extract_meshing_polygon(
-    building: Building,
-    lod: GeometryType,
-):
-    geometry = building.flatten_geometry(lod)
-    if geometry is None:
-        return None, 0.0, None, 0.0
-
-    polygon = geometry.to_polygon(simplify=0.0)
-    if polygon is None or polygon.is_empty:
-        return None, 0.0, None, 0.0
-
-    roof_z = 0.0
-    try:
-        roof_z = float(geometry.bounds.zmax)
-    except (AttributeError, TypeError):
-        roof_z = 0.0
-
-    try:
-        # Meshing/conditioning uses the modelled height when one was computed.
-        value = building.estimated_height
-        height = float(building.measured_height if value is None else value)
-    except (AttributeError, TypeError):
-        height = None
-
-    if height is not None and height <= 0:
-        height = None
-
-    return polygon, float(max(polygon.area, 0.0)), height, roof_z
 
 
 def _area_weighted_value(
@@ -3948,365 +3785,44 @@ def _iter_polygons(geometry) -> list[Polygon]:
     return []
 
 
-def _condition_meshing_footprints(
-    buildings: list[Building],
-    *,
-    lod: GeometryType | Sequence[GeometryType] | None,
-    min_building_detail: float,
-    min_building_area: float,
-    merge_tolerance: float,
-    merge_buildings: bool,
-    max_mesh_size: float | None,
-    cleaning_diagnostics: bool = True,
-    show_footprints: bool = False,
-    footprint_cleaning_plot_block: bool = True,
-    pipeline_mode: MeshingPipelineMode = "strict",
-) -> ConditionedFootprints:
-    pipeline_mode = _normalize_meshing_pipeline_mode(pipeline_mode)
-
-    if not buildings:
-        warning("No buildings to preprocess.")
-        diagnostics = {"pipeline_mode": pipeline_mode}
-        declared_scale = _conditioned_footprint_declared_scale(
-            min_building_detail=min_building_detail
-        )
-        empty_contract = check_cleaning_contract(
-            [], [], delta=declared_scale, epsilon=declared_scale / 2
-        )
-        empty_contract["mesher_profile"] = check_mesher_handoff_profile([])
-        diagnostics.update(
-            before_selection_contract=empty_contract,
-            selection={
-                "min_area": min_building_area,
-                "input_count": 0,
-                "output_count": 0,
-                "removed_count": 0,
-                "removed_area": 0.0,
-                "removed_source_map": [],
-                "excluded_regions": [],
-                "represented_source_indices": [],
-                "unrepresented_source_indices": [],
-            },
-            final_handoff_contract=empty_contract,
-            policy_exclusions=[],
-        )
-        return ConditionedFootprints(
-            surfaces=[],
-            source_map=[],
-            subdomain_resolution=[],
-            diagnostics=diagnostics,
-            declared_scale=declared_scale,
-            contract=_conditioned_footprint_contract(
-                surfaces=[],
-                min_building_detail=min_building_detail,
-                diagnostics=diagnostics,
-            ),
-        )
-
-    if cleaning_diagnostics:
-        info(f"Starting meshing footprint conditioning for {len(buildings)} buildings.")
-
-    lod_values = _normalize_lod_values(buildings, lod)
-    extracted_polygons = []
-    initial_source_map: list[list[int]] = []
-    source_areas = [0.0] * len(buildings)
-    source_heights: list[float | None] = [None] * len(buildings)
-    source_roof_z = [0.0] * len(buildings)
-
-    for index, (building, lod_value) in enumerate(zip(buildings, lod_values)):
-        polygon, area, height, roof_z = _extract_meshing_polygon(building, lod_value)
-        source_areas[index] = area
-        source_heights[index] = height
-        source_roof_z[index] = roof_z
-        if polygon is None:
-            continue
-        extracted_polygons.append(polygon)
-        initial_source_map.append([index])
-
-    options = ConditioningOptions(
-        min_feature_size=min_building_detail,
-        merge_distance=merge_tolerance if merge_buildings else 0.0,
-        enable_logging=cleaning_diagnostics,
-        allow_source_merging=merge_buildings,
-    )
-
-    result = condition_polygon_coverage(
-        extracted_polygons,
-        source_map=initial_source_map,
-        options=options,
-    )
-
-    mesher_scale = _conditioned_footprint_declared_scale(
-        min_building_detail=min_building_detail
-    )
-    mesher_ready_polygons = list(result.polygons)
-    mesher_ready_source_map = [list(indices) for indices in result.source_map]
-    epsilon = float(
-        result.diagnostics.get(
-            "fidelity_budget_used",
-            result.diagnostics.get("fidelity_budget", mesher_scale / 2),
-        )
-    )
-
-    before_selection_contract = result.diagnostics.get("before_selection_contract")
-    if (
-        isinstance(before_selection_contract, dict)
-        and before_selection_contract.get("status") != "not_checked"
-        and "admissibility" in before_selection_contract
-    ):
-        # The cleaner checked exactly these regions against this input.
-        before_selection_contract = {
-            "mesher_profile": result.diagnostics["mesher_profile"],
-            **before_selection_contract,
-        }
-    else:
-        # Zero-scale identity mode: check at the declared numerical scale.
-        before_selection_contract = check_cleaning_contract(
-            extracted_polygons,
-            mesher_ready_polygons,
-            delta=mesher_scale,
-            epsilon=epsilon,
-            achieved=True,
-        )
-        before_selection_contract["mesher_profile"] = check_mesher_handoff_profile(
-            mesher_ready_polygons
-        )
-    selected = select_footprints(
-        ConditioningResult(
-            polygons=mesher_ready_polygons,
-            source_map=mesher_ready_source_map,
-            diagnostics={
-                **result.diagnostics,
-                "before_selection_contract": before_selection_contract,
-            },
-        ),
-        min_area=min_building_area,
-    )
-    mesher_ready_polygons = selected.polygons
-    mesher_ready_source_map = selected.source_map
-    result.diagnostics = selected.diagnostics
-    final_handoff_contract = check_cleaning_contract(
-        extracted_polygons,
-        mesher_ready_polygons,
-        delta=mesher_scale,
-        epsilon=epsilon,
-    )
-    final_handoff_contract["mesher_profile"] = check_mesher_handoff_profile(
-        mesher_ready_polygons
-    )
-    result.diagnostics["final_handoff_contract"] = final_handoff_contract
-
-    if show_footprints:
-        plot_footprint_cleaning_comparison(
-            extracted_polygons,
-            mesher_ready_polygons,
-            title="Footprint cleaning",
-            show=True,
-            block=footprint_cleaning_plot_block,
-        )
-
-    conditioned = _assemble_conditioned_footprints(
-        mesher_ready_polygons,
-        mesher_ready_source_map,
-        result.diagnostics,
-        source_areas=source_areas,
-        source_heights=source_heights,
-        source_roof_z=source_roof_z,
-        min_building_detail=min_building_detail,
-        max_mesh_size=max_mesh_size,
-        pipeline_mode=pipeline_mode,
-    )
-    if cleaning_diagnostics:
-        info(
-            "Footprint conditioning complete: "
-            f"{len(buildings)} -> {len(conditioned.surfaces)} footprints | "
-            f"groups={conditioned.diagnostics.get('groups', 0)}"
-        )
-    return conditioned
-
-
-def _reuse_conditioned_footprints(
-    buildings,
-    conditioned,
-    *,
-    lod,
-    min_building_detail,
-    max_mesh_size,
-    pipeline_mode,
-) -> ConditionedFootprints:
-    """Validate a supplied stage and attach current heights, never re-clean XY."""
-    if not isinstance(conditioned, ConditionedFootprints):
-        raise TypeError("conditioned_footprints must be a ConditionedFootprints result")
-    if len(conditioned.surfaces) != len(conditioned.source_map):
-        raise ValueError("Conditioned footprint geometry/source-map length mismatch")
-    expected_scale = _conditioned_footprint_declared_scale(
-        min_building_detail=min_building_detail
-    )
-    if (
-        not np.isfinite(conditioned.declared_scale)
-        or conditioned.declared_scale != expected_scale
-    ):
-        raise ValueError(
-            "Conditioned footprints do not match the requested cleaning scale"
-        )
-    polygons = []
-    for surface, indices in zip(conditioned.surfaces, conditioned.source_map):
-        polygon = surface.to_polygon(simplify=0.0)
-        if (
-            polygon is None
-            or polygon.is_empty
-            or not polygon.is_valid
-            or not np.isfinite(polygon.bounds).all()
-        ):
-            raise ValueError(
-                "Conditioned footprints must contain valid finite polygons"
-            )
-        if (
-            not indices
-            or any(type(i) is not int or i < 0 or i >= len(buildings) for i in indices)
-            or indices != sorted(set(indices))
-        ):
-            raise ValueError("Conditioned footprint source indices are invalid")
-        polygons.append(polygon)
-    metadata = [
-        _extract_meshing_polygon(building, target_lod)
-        for building, target_lod in zip(
-            buildings, _normalize_lod_values(buildings, lod)
-        )
-    ]
-    result = _assemble_conditioned_footprints(
-        polygons,
-        conditioned.source_map,
-        conditioned.diagnostics,
-        source_areas=[item[1] for item in metadata],
-        source_heights=[item[2] for item in metadata],
-        source_roof_z=[item[3] for item in metadata],
-        min_building_detail=min_building_detail,
-        max_mesh_size=max_mesh_size,
-        pipeline_mode=pipeline_mode,
-    )
-    _raise_stage_contract_errors("Conditioned footprints", result.contract)
-    for message in result.contract["warnings"]:
-        warning(message)
-    return result
-
-
-def _assemble_conditioned_footprints(
-    polygons,
-    source_map,
-    diagnostics,
-    *,
-    source_areas,
-    source_heights,
-    source_roof_z,
-    min_building_detail,
-    max_mesh_size,
-    pipeline_mode,
-) -> ConditionedFootprints:
-    """Attach roof metadata without changing the cleaned XY geometry."""
-    normalized_mesh_size = _normalize_max_mesh_size(max_mesh_size)
-    conservative_roof_count = 0
-    conservative_roof_max_span = 0.0
-    conditioned_surfaces: list[Surface] = []
-    conditioned_source_map: list[list[int]] = []
-    subdomain_resolution: list[float] = []
-
-    for polygon, source_indices in zip(polygons, source_map):
-        height_default = normalized_mesh_size or float(min_building_detail)
-        roof_z, height, conservative_roof, roof_z_span = (
-            _resolve_merged_group_roof_metadata(
-                source_indices,
-                source_areas=source_areas,
-                source_roof_z=source_roof_z,
-                source_heights=source_heights,
-                default_height=height_default,
-            )
-        )
-        if conservative_roof:
-            conservative_roof_count += 1
-            conservative_roof_max_span = max(conservative_roof_max_span, roof_z_span)
-
-        surface = Surface()
-        surface.from_polygon(polygon, roof_z)
-        conditioned_surfaces.append(surface)
-        conditioned_source_map.append(sorted(set(source_indices)))
-        if normalized_mesh_size is None:
-            subdomain_resolution.append(height)
-        else:
-            subdomain_resolution.append(min(height, normalized_mesh_size))
-
-    diagnostics = dict(diagnostics)
-    diagnostics["pipeline_mode"] = pipeline_mode
-    diagnostics["conservative_merged_roof_count"] = conservative_roof_count
-    diagnostics["conservative_merged_roof_max_span"] = conservative_roof_max_span
-    declared_scale = _conditioned_footprint_declared_scale(
-        min_building_detail=min_building_detail
-    )
-    contract = _conditioned_footprint_contract(
-        surfaces=conditioned_surfaces,
-        min_building_detail=min_building_detail,
-        diagnostics=diagnostics,
-    )
-
-    return ConditionedFootprints(
-        surfaces=conditioned_surfaces,
-        source_map=conditioned_source_map,
-        subdomain_resolution=subdomain_resolution,
-        diagnostics=diagnostics,
-        declared_scale=declared_scale,
-        contract=contract,
-    )
-
-
 def build_city_surface_mesh(
     city: City,
     lod: GeometryType | list[GeometryType] | None = None,
     min_building_detail: float = 0.5,
     min_building_area: float = 15.0,
-    merge_buildings: bool = True,
-    merge_tolerance: float = 0.5,
     building_mesh_triangle_size: float = 5.0,
     max_mesh_size: float = 10.0,
     min_mesh_angle: float = 25.0,
     merge_meshes: bool = True,
     smoothing: int = 0,
     sort_triangles: bool = False,
-    treat_lod0_as_holes: bool = False,
     report_mesh_quality: bool = True,
-    cleaning_diagnostics: bool = True,
     show_footprints: bool = False,
     footprint_cleaning_plot_block: bool = True,
     mesher: str | None = None,
     pipeline_mode: str = "strict",
     stage_audit: dict[str, Any] | None = None,
-    conditioned_footprints: ConditionedFootprints | None = None,
 ) -> Mesh | list[Mesh]:
     """
     Build a surface mesh from the surfaces of the buildings in the city.
 
-    ``conditioned_footprints`` optionally supplies an existing cleaning-stage
-    result. Its XY geometry is validated and reused without cleaning; roof
-    heights and region sizes are attached from this city's source buildings.
-    Source indices must refer to those buildings in their original order.
+    The building footprints are cleaned in unison with ``clean_footprints``
+    at ``min_building_detail``, unless the city was already cleaned at that
+    scale (``City.clean_footprints``), and every cleaned building is extruded.
 
     Parameters
     ----------
     `city` : model.City
         The city to build the mesh from.
     `lod` : GeometryType or list of GeometryType, optional
-        Meshing directive (Level of Detail) for the buildings. When omitted,
-        each building resolves the first available geometry in the order
-        ``LOD1 -> LOD2 -> LOD3 -> LOD0`` so footprint-only cities work out of
-        the box. If a single value is provided, it is applied uniformly to all
-        buildings. If a list is provided, it must have the same length as the
-        number of buildings in the city, and each entry specifies the directive
-        for the corresponding building.
+        Geometry to take footprints and roof levels from. When omitted, each
+        building uses the first of LOD1, LOD2, LOD3 and LOD0 that it has. A
+        list gives one value per building.
     `min_building_detail` : float, optional
-        The minimum detail of the buildin to resolve, by default 0.5.
+        The scale of footprint cleaning (minimum feature size, fidelity and
+        merge distance), by default 0.5.
     `min_building_area` : float, optional
-        The smallest building to include, by default 15.0.
-    `merge_buildings` : bool, optional
-        merge building footprints, by default True.
+        The smallest cleaned building to include, by default 15.0.
     `max_mesh_size` : float, optional
         The maximum size of the mesh, by default 1.0.
     `min_mesh_angle` : float, optional
@@ -4315,10 +3831,6 @@ def build_city_surface_mesh(
         Whether to merge the meshes to a single mesh, by default True.
     `smoothing` : float, optional
         The smoothing of the mesh, by default 0.0.
-    `treat_lod0_as_holes` : bool, optional
-        When True, building directives resolved to LOD0 are sent to the mesher
-        as hole surfaces instead of meshed buildings. When False, footprint-only
-        LOD0 buildings are still extruded as buildings in the surface mesh.
     `mesher` : {"auto", "dtcc_mesher", "triangle"}, optional
         Select the 2D meshing backend used to build the ground/surface
         triangulation. ``"auto"`` prefers ``dtcc_mesher`` when available,
@@ -4340,7 +3852,6 @@ def build_city_surface_mesh(
         label=None,
         retry_reason=None,
         backend="surface",
-        merge_buildings=merge_buildings,
         requested_mesher=mesher,
         max_mesh_size=max_mesh_size,
         min_mesh_angle=min_mesh_angle,
@@ -4355,17 +3866,12 @@ def build_city_surface_mesh(
             lod=lod,
             min_building_detail=min_building_detail,
             min_building_area=min_building_area,
-            merge_tolerance=merge_tolerance,
-            merge_buildings=merge_buildings,
             max_mesh_size=max_mesh_size,
-            cleaning_diagnostics=cleaning_diagnostics,
             show_footprints=show_footprints,
             footprint_cleaning_plot_block=footprint_cleaning_plot_block,
             pipeline_mode=pipeline_mode,
-            conditioned_footprints=conditioned_footprints,
         )
         building_footprints = conditioned_footprints.surfaces
-        source_map = conditioned_footprints.source_map
         conditioned_resolution = conditioned_footprints.subdomain_resolution
         conditioning_diagnostics = conditioned_footprints.diagnostics
         if attempt is not None:
@@ -4382,10 +3888,6 @@ def build_city_surface_mesh(
         )
         debug(f"Surface meshing footprint diagnostics: {conditioning_diagnostics}")
 
-        buildings = city.buildings
-        target_lods = _resolve_conditioned_target_lods(buildings, lod, source_map)
-        if not treat_lod0_as_holes:
-            target_lods = _promote_surface_shell_target_lods(target_lods)
         base_resolution = [
             min(resolution, building_mesh_triangle_size)
             if building_mesh_triangle_size > 0
@@ -4396,13 +3898,10 @@ def build_city_surface_mesh(
         ground_regions = _prepare_surface_ground_regions(
             conditioned_surfaces=building_footprints,
             conditioned_resolution=base_resolution,
-            target_lods=target_lods,
             bounds=surface_mesh_bounds,
             max_mesh_size=max_mesh_size,
             min_building_detail=min_building_detail,
             footprint_diagnostics=conditioning_diagnostics,
-            cleaning_diagnostics=cleaning_diagnostics,
-            treat_lod0_as_holes=treat_lod0_as_holes,
             pipeline_mode=pipeline_mode,
         )
         if attempt is not None:
@@ -4493,18 +3992,14 @@ def build_city_flat_mesh(
     lod: GeometryType | None = None,
     max_mesh_size: float | None = 10.0,
     min_mesh_angle: float = 25.0,
-    merge_buildings: bool = True,
     min_building_detail: float = 0.5,
     min_building_area: float = 15.0,
-    merge_tolerance: float = 0.5,
     report_mesh_quality: bool = True,
-    cleaning_diagnostics: bool = True,
     show_footprints: bool = False,
     footprint_cleaning_plot_block: bool = True,
     mesher: str | None = None,
     pipeline_mode: str = "strict",
     stage_audit: dict[str, Any] | None = None,
-    conditioned_footprints: ConditionedFootprints | None = None,
 ) -> Mesh:
     """Build a flat 2D triangular mesh of the city with building footprints marked.
 
@@ -4513,22 +4008,22 @@ def build_city_flat_mesh(
 
     * ``-2`` — ground (outside buildings and halos)
     * ``-1`` — halo (triangles that touch a building but are not inside one)
-    * ``0, 1, 2, …`` — index of the building whose footprint contains the
-      triangle
+    * ``0, 1, 2, …`` — index of the cleaned building whose footprint contains
+      the triangle
 
-    ``conditioned_footprints`` optionally supplies an existing cleaning-stage
-    result. Its XY geometry is validated and reused without cleaning; roof
-    heights and region sizes are attached from this city's source buildings.
-    Source indices must refer to those buildings in their original order.
+    The building footprints are cleaned in unison with ``clean_footprints``
+    at ``min_building_detail``, unless the city was already cleaned at that
+    scale (``City.clean_footprints``). The marker of a building is its index
+    in ``clean_footprints(city).buildings`` (or in ``city.buildings`` for a
+    cleaned city); buildings smaller than ``min_building_area`` are left out.
 
     Parameters
     ----------
     city : City
         City object containing terrain bounds and building data.
     lod : GeometryType, optional
-        Level-of-Detail used for footprint extraction. When omitted, each
-        building resolves the first available geometry in the order
-        ``LOD1 -> LOD2 -> LOD3 -> LOD0``.
+        Geometry to take footprints from. When omitted, each building uses
+        the first of LOD1, LOD2, LOD3 and LOD0 that it has.
     max_mesh_size : float | None, optional
         Maximum target triangle edge length in meters. ``dtcc_mesher`` uses
         it directly as an edge-length cap, while ``triangle`` converts it to
@@ -4538,14 +4033,12 @@ def build_city_flat_mesh(
         backward compatibility.
     min_mesh_angle : float, optional
         Minimum angle quality constraint in degrees (default 25.0).
-    merge_buildings : bool, optional
-        Merge adjacent/overlapping building footprints (default True).
     min_building_detail : float, optional
-        Minimum feature size to resolve in footprints (default 0.5).
+        The scale of footprint cleaning (minimum feature size, fidelity and
+        merge distance), by default 0.5.
     min_building_area : float, optional
-        Minimum footprint area; smaller buildings are dropped (default 15.0).
-    merge_tolerance : float, optional
-        Distance tolerance for merging footprints (default 0.5).
+        Minimum cleaned footprint area; smaller buildings are dropped
+        (default 15.0).
     mesher : {"auto", "dtcc_mesher", "triangle"}, optional
         Select the 2D meshing backend. ``"auto"`` prefers ``dtcc_mesher``
         when it is installed, then ``triangle``.
@@ -4574,7 +4067,6 @@ def build_city_flat_mesh(
         label=None,
         retry_reason=None,
         backend="flat",
-        merge_buildings=merge_buildings,
         requested_mesher=mesher,
         max_mesh_size=max_mesh_size,
         min_mesh_angle=min_mesh_angle,
@@ -4588,19 +4080,15 @@ def build_city_flat_mesh(
         if terrain is None:
             raise ValueError("City has no terrain data. Please compute terrain first.")
 
-        conditioned_footprints = _condition_city_meshing_footprints(
+        conditioned_footprints = _meshing_footprints(
             city,
             lod=lod,
             min_building_detail=min_building_detail,
             min_building_area=min_building_area,
-            merge_tolerance=merge_tolerance,
-            merge_buildings=merge_buildings,
             max_mesh_size=max_mesh_size,
-            cleaning_diagnostics=cleaning_diagnostics,
             show_footprints=show_footprints,
             footprint_cleaning_plot_block=footprint_cleaning_plot_block,
             pipeline_mode=pipeline_mode,
-            conditioned_footprints=conditioned_footprints,
         )
         building_footprints = conditioned_footprints.surfaces
         conditioned_source_map = conditioned_footprints.source_map
@@ -4631,13 +4119,8 @@ def build_city_flat_mesh(
         building_polygons = [
             footprint.to_polygon(simplify=0.0) for footprint in building_footprints
         ]
-        marker_lookup: dict[tuple[int, ...], int] = {}
-        building_markers: list[int] = []
-        for source_indices in conditioned_source_map:
-            marker_key = tuple(source_indices)
-            if marker_key not in marker_lookup:
-                marker_lookup[marker_key] = len(marker_lookup)
-            building_markers.append(marker_lookup[marker_key])
+        # A region's marker is the index of its building in the cleaned city.
+        building_markers = [int(indices[0]) for indices in conditioned_source_map]
         flat_mesh_bounds = _terrain_bounds_tuple(terrain)
         region_polygons, region_markers = _condition_flat_mesh_coverage_regions(
             bounds=flat_mesh_bounds,
@@ -4647,7 +4130,6 @@ def build_city_flat_mesh(
             max_mesh_size=max_mesh_size,
             min_building_detail=min_building_detail,
             footprint_diagnostics=diagnostics,
-            cleaning_diagnostics=cleaning_diagnostics,
             pipeline_mode=pipeline_mode,
         )
         flat_coverage = Coverage2D(
@@ -4708,17 +4190,14 @@ def build_city_volume_mesh(
     domain_height: float = 100.0,
     max_mesh_size: float = 10.0,
     min_mesh_angle: float = 25.0,
-    merge_buildings: bool = True,
     min_building_detail: float = 0.5,
     min_building_area: float = 15.0,
-    merge_tolerance: float = 0.5,
     smoothing: int = 0,
     boundary_face_markers: bool = True,
     tetgen_switches: Optional[Dict[str, Any]] = None,
     tetgen_switch_overrides: Optional[Dict[str, Any]] = None,
     *,
     report_mesh_quality: bool = True,
-    cleaning_diagnostics: bool = True,
     show_footprints: bool = False,
     footprint_cleaning_plot_block: bool = True,
     mesher: str | None = None,
@@ -4730,19 +4209,16 @@ def build_city_volume_mesh(
     pipeline_mode: str = "strict",
     top_cap_max_mesh_size: float | None = None,
     max_volume: float | None = None,
-    conditioned_footprints: ConditionedFootprints | None = None,
 ) -> VolumeMesh:
     """
     Build a 3D tetrahedral volume mesh for a city terrain with embedded building volumes.
 
     This function generates a ground mesh from the city terrain and extrudes building
-    footprints to produce a full volume mesh, optionally merging adjacent buildings
-    and marking boundary faces.
+    footprints to produce a full volume mesh, and marks boundary faces.
 
-    ``conditioned_footprints`` optionally supplies an existing cleaning-stage
-    result. Its XY geometry is validated and reused without cleaning; roof
-    heights and region sizes are attached from this city's source buildings.
-    Source indices must refer to those buildings in their original order.
+    The building footprints are cleaned in unison with ``clean_footprints``
+    at ``min_building_detail``, unless the city was already cleaned at that
+    scale (``City.clean_footprints``).
 
     Parameters
     ----------
@@ -4750,9 +4226,8 @@ def build_city_volume_mesh(
         City object containing terrain and building data. The terrain must provide
         either a raster or a mesh representation to support domain surface generation.
     lod : GeometryType, optional
-        Meshing directive applied to building footprints. When omitted, each
-        building resolves the first available geometry in the order
-        ``LOD1 -> LOD2 -> LOD3 -> LOD0``.
+        Geometry to take footprints and roof levels from. When omitted, each
+        building uses the first of LOD1, LOD2, LOD3 and LOD0 that it has.
     domain_height : float, optional
         The vertical height of the volume domain above the terrain surface, in the
         same coordinate units as the city. Defaults to 100.0.
@@ -4764,17 +4239,12 @@ def build_city_volume_mesh(
         TetGen PLC. When omitted, the top cap uses ``max_mesh_size``.
     min_mesh_angle : float, optional
         Minimum allowable mesh angle used as a quality constraint. Defaults to 25.0.
-    merge_buildings : bool, optional
-        Whether to merge adjacent or overlapping building footprints into larger
-        composite blocks prior to meshing. Defaults to True.
     min_building_detail : float, optional
-        Minimum geometric feature size to resolve within building footprints.
-        Defaults to 0.5.
+        The scale of footprint cleaning (minimum feature size, fidelity and
+        merge distance). Defaults to 0.5.
     min_building_area : float, optional
-        Minimum footprint area required for a building to be included in the mesh.
-        Buildings below this threshold are omitted. Defaults to 15.0.
-    merge_tolerance : float, optional
-        Distance tolerance used when merging building footprints. Defaults to 0.5.
+        Minimum cleaned footprint area required for a building to be included
+        in the mesh. Defaults to 15.0.
     smoothing : int, optional
         Number of mesh-smoothing iterations applied to the terrain and building
         surface meshes prior to volume meshing. Defaults to 0 (no smoothing).
@@ -4868,9 +4338,8 @@ def build_city_volume_mesh(
 
     Notes
     -----
-    - Building footprints are extracted at the specified `lod` level (or LOD0 if
-      `merge_buildings` is True), optionally merged and simplified using internal
-      area/detail thresholds.
+    - Building footprints are cleaned in unison at `min_building_detail`;
+      footprints closer than that are merged.
     - Subdomain resolution for each building is set to the minimum of its height
       and `max_mesh_size`.
     - Ground mesh is built via the internal DTCC builder, and building surfaces
@@ -4883,7 +4352,6 @@ def build_city_volume_mesh(
     ...                               lod=GeometryType.LOD1,
     ...                               domain_height=150.0,
     ...                               max_mesh_size=5.0,
-    ...                               merge_buildings=False,
     ...                               boundary_face_markers=True)
     """
     _require_tetgen()
@@ -4899,7 +4367,6 @@ def build_city_volume_mesh(
         label=None,
         retry_reason=None,
         backend="tetgen",
-        merge_buildings=merge_buildings,
         requested_mesher=mesher,
         max_mesh_size=max_mesh_size,
         min_mesh_angle=min_mesh_angle,
@@ -4933,17 +4400,12 @@ def build_city_volume_mesh(
         lod=lod,
         min_building_detail=min_building_detail,
         min_building_area=min_building_area,
-        merge_tolerance=merge_tolerance,
-        merge_buildings=merge_buildings,
         max_mesh_size=max_mesh_size,
-        cleaning_diagnostics=cleaning_diagnostics,
         show_footprints=show_footprints,
         footprint_cleaning_plot_block=footprint_cleaning_plot_block,
         pipeline_mode=pipeline_mode,
-        conditioned_footprints=conditioned_footprints,
     )
     building_footprints = conditioned_footprints.surfaces
-    source_map = conditioned_footprints.source_map
     subdomain_resolution = conditioned_footprints.subdomain_resolution
     diagnostics = conditioned_footprints.diagnostics
     terrain_effectively_flat = _is_effectively_flat_raster(terrain_raster)
@@ -4978,8 +4440,6 @@ def build_city_volume_mesh(
         message=f"Preprocessed {len(building_footprints)} building footprints",
     )
     debug(f"Volume meshing footprint diagnostics: {diagnostics}")
-    target_lods = _resolve_conditioned_target_lods(city.buildings, lod, source_map)
-    shell_target_lods = _promote_volume_shell_target_lods(target_lods)
     volume_mesh_bounds = _terrain_bounds_tuple(terrain)
 
     info("Building volume mesh with TetGen...")
@@ -4989,13 +4449,10 @@ def build_city_volume_mesh(
         surface_regions = _prepare_surface_ground_regions(
             conditioned_surfaces=building_footprints,
             conditioned_resolution=subdomain_resolution,
-            target_lods=shell_target_lods,
             bounds=volume_mesh_bounds,
             max_mesh_size=max_mesh_size,
             min_building_detail=min_building_detail,
             footprint_diagnostics=diagnostics,
-            cleaning_diagnostics=cleaning_diagnostics,
-            treat_lod0_as_holes=False,
             pipeline_mode=pipeline_mode,
         )
         if attempt is not None:

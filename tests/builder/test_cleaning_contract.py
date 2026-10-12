@@ -17,7 +17,7 @@ from dtcc_core.builder.cleaning.contract import (
     incident_sectors,
 )
 from dtcc_core.builder.cleaning.construction import construct
-from dtcc_core.builder.geometry_builders.meshes import build_conditioned_footprints
+from dtcc_core.builder import clean_footprints
 from dtcc_core.model import Building, GeometryType, Surface
 from tests.builder.cleaning_fixtures import survey_merge_group
 
@@ -242,41 +242,30 @@ def test_helsingborg_courtyard_survives_final_cleaning():
         building = Building()
         building.add_geometry(surface, GeometryType.LOD0)
         buildings.append(building)
-    result = build_conditioned_footprints(
-        buildings,
-        lod=GeometryType.LOD0,
-        min_building_detail=0.5,
-        min_building_area=15,
-        merge_tolerance=0.5,
-        merge_buildings=True,
-        max_mesh_size=10,
-        cleaning_diagnostics=False,
-    )
-    cleaned = [s.to_polygon(simplify=0) for s in result.surfaces]
+    result = clean_footprints(buildings, min_area=15)
+    cleaned = [b.lod0.to_polygon(simplify=0) for b in result]
     report = check_cleaning_contract(raw, cleaned, delta=0.5)
     assert report["admissibility"]["admissible"]
     # A protected interior point must remain open. This detects wholesale
     # courtyard deletion without blessing the remaining boundary deviations.
     open_core = courtyard.difference(occupied.buffer(report["epsilon"]))
     assert not unary_union(cleaned).covers(open_core.representative_point())
-    assert sorted({i for group in result.source_map for i in group}) == list(
-        range(len(raw))
-    )
+    # Every original building survives, as a building or a part of a block.
+    kept = {part.id for b in result for part in b.building_parts} | {
+        b.id for b in result if not b.building_parts
+    }
+    assert kept == {b.id for b in buildings}
 
 
 def test_public_cleaning_reports_fidelity_against_the_original_input():
-    from dtcc_core.builder.cleaning import (
+    from dtcc_core.builder.cleaning.footprints import (
         ConditioningOptions,
         condition_polygon_coverage,
     )
     raw = box(0, 0, 10, 10)
     result = condition_polygon_coverage(
         [raw],
-        options=ConditioningOptions(
-            merge_distance=0,
-            fidelity_budget=0.25,
-            enable_logging=False,
-        ),
+        options=ConditioningOptions(fidelity_budget=0.25, enable_logging=False),
     )
     assert unary_union(result.polygons).equals(raw)
     assert result.diagnostics["fidelity"]["status"] == "pass"
@@ -284,7 +273,7 @@ def test_public_cleaning_reports_fidelity_against_the_original_input():
 
 
 def test_cleaning_preserves_occupied_core_across_shared_walls():
-    from dtcc_core.builder.cleaning import (
+    from dtcc_core.builder.cleaning.footprints import (
         ConditioningOptions,
         condition_polygon_coverage,
     )

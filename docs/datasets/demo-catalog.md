@@ -51,7 +51,7 @@ and run fully offline.
 | `demos/build_city_flat_mesh.py` | 2D flat mesh with building footprint subdomains | DTCC service |
 | `demos/build_city_volume_mesh.py` | 3D tetrahedral volume mesh of air domain | DTCC service |
 | `demos/build_cityjson_surface_mesh.py` | CityJSON → LOD2 surface mesh | bundled |
-| `demos/simplify_building_footprints.py` | Footprint merge / simplify / clearance / wall-split pipeline | DTCC service |
+| `demos/clean_building_footprints.py` | Footprint cleaning (`City.clean_footprints`) and wall splitting | DTCC service |
 | `demos/view_cityjson.py` | Load bundled CityJSON and view it | bundled |
 | `demos/build_view_cityjson.py` | Load bundled CityJSON, add attributes, and view | bundled |
 | `demos/view_pointcloud.py` | Download and view a LiDAR point cloud | DTCC service |

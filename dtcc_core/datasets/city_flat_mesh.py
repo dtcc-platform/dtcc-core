@@ -39,9 +39,6 @@ class CityFlatMeshArgs(DatasetBaseArgs):
     min_building_area: float = Field(
         15.0, description="Smallest building footprint area to include (m²)"
     )
-    merge_buildings: bool = Field(
-        True, description="Whether to merge adjacent building footprints"
-    )
     show_footprints: bool = Field(
         False,
         description="Whether to show a live matplotlib view of raw vs conditioned footprints before meshing",
@@ -124,7 +121,7 @@ class CityFlatMeshDataset(DatasetDescriptor):
         "Optionally remove global point-cloud outliers using outlier_threshold",
         "Build a terrain raster with raster_cell_size and raster_radius for height context",
         "Extract roof points and compute building heights before city assembly",
-        "Condition LOD0 footprints using min_building_detail, min_building_area, merge_buildings, and pipeline_mode",
+        "Clean LOD0 footprints with clean_footprints at min_building_detail (footprints closer than that are merged) and drop those smaller than min_building_area",
         "Generate a flat z=0 triangular mesh with building subdomains using max_mesh_size, min_mesh_angle, mesher, and mesh-quality reporting settings",
         "Return the native Mesh object or serialize the requested mesh format",
         CENTER_ON_ORIGIN_PROCESSING_STEP,
@@ -212,7 +209,6 @@ class CityFlatMeshDataset(DatasetDescriptor):
             min_mesh_angle=args.min_mesh_angle,
             min_building_detail=args.min_building_detail,
             min_building_area=args.min_building_area,
-            merge_buildings=args.merge_buildings,
             show_footprints=args.show_footprints,
             footprint_cleaning_plot_block=args.footprint_cleaning_plot_block,
             mesher=args.mesher,

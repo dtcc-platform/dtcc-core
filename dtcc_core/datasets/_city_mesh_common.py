@@ -1,31 +1,12 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
-from dataclasses import dataclass
 from typing import Any, Sequence
 
 import numpy as np
 
 import dtcc_core
-from dtcc_core.model import Bounds, City, GeometryType, Surface
-
-
-@dataclass(frozen=True)
-class CityMeshingFootprints:
-    """Meshing-ready conditioned footprints prepared from a city model."""
-
-    terrain: Any
-    terrain_raster: Any
-    footprints: list[Surface]
-    source_map: list[list[int]]
-    subdomain_resolution: list[float]
-    diagnostics: dict[str, Any]
-    declared_scale: float
-    contract: dict[str, Any]
-
-    @property
-    def polygons(self):
-        return [footprint.to_polygon(simplify=0.0) for footprint in self.footprints]
+from dtcc_core.model import Bounds, City
 
 
 def ground_level_from_raster(raster) -> float:
@@ -51,8 +32,8 @@ def prepare_city_from_bounds(
 
     This helper centralizes the public mesh-dataset preparation path so the
     end-user datasets and the benchmark scripts can share the same
-    bounds-to-City implementation. Supplied buildings bypass footprint download
-    and retain their order for a previously cleaned stage.
+    bounds-to-City implementation. Supplied buildings, such as those of a
+    cleaned city, bypass footprint download and keep their order.
     """
 
     supplied_buildings = buildings is not None
@@ -121,7 +102,7 @@ def prepare_city_from_bounds(
 
         city = City()
         city.add_terrain(raster)
-        # A supplied cleaning stage indexes these buildings; retain their order.
+        # Supplied buildings (e.g. a cleaned city) keep their order.
         city.add_buildings(buildings, remove_outside_terrain=not supplied_buildings)
 
     return city
@@ -145,47 +126,3 @@ def prepare_footprint_city_from_bounds(
     city = City()
     city.add_buildings(buildings)
     return city
-
-
-def condition_city_meshing_footprints(
-    city: City,
-    *,
-    lod: GeometryType | Sequence[GeometryType] | None = None,
-    min_building_detail: float,
-    min_building_area: float,
-    merge_tolerance: float,
-    merge_buildings: bool,
-    max_mesh_size: float | None,
-    cleaning_diagnostics: bool,
-    show_footprints: bool = False,
-    footprint_cleaning_plot_block: bool = True,
-    pipeline_mode: str = "strict",
-) -> CityMeshingFootprints:
-    """Run the same footprint conditioning stage used by mesh builders."""
-
-    terrain = city.terrain
-    terrain_raster = terrain.raster if terrain is not None else None
-    conditioned_footprints = dtcc_core.builder.build_conditioned_footprints(
-        city.buildings,
-        lod=lod,
-        min_building_detail=min_building_detail,
-        min_building_area=min_building_area,
-        merge_tolerance=merge_tolerance,
-        merge_buildings=merge_buildings,
-        max_mesh_size=max_mesh_size,
-        cleaning_diagnostics=cleaning_diagnostics,
-        show_footprints=show_footprints,
-        footprint_cleaning_plot_block=footprint_cleaning_plot_block,
-        pipeline_mode=pipeline_mode,
-    )
-
-    return CityMeshingFootprints(
-        terrain=terrain,
-        terrain_raster=terrain_raster,
-        footprints=conditioned_footprints.surfaces,
-        source_map=conditioned_footprints.source_map,
-        subdomain_resolution=conditioned_footprints.subdomain_resolution,
-        diagnostics=conditioned_footprints.diagnostics,
-        declared_scale=conditioned_footprints.declared_scale,
-        contract=conditioned_footprints.contract,
-    )

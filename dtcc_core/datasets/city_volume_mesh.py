@@ -59,9 +59,6 @@ class CityVolumeMeshArgs(DatasetBaseArgs):
     min_building_area: float = Field(
         15.0, description="Smallest building footprint area to include (m²)"
     )
-    merge_buildings: bool = Field(
-        True, description="Whether to merge adjacent building footprints"
-    )
     smoothing: int = Field(0, description="Number of terrain smoothing iterations")
     max_volume: Optional[float] = Field(
         None,
@@ -198,7 +195,7 @@ class CityVolumeMeshDataset(DatasetDescriptor):
         "Build a terrain raster with raster_cell_size and raster_radius",
         "Optionally replace topography with a flat terrain raster when flat_ground=True",
         "Extract roof points and compute building heights from the terrain raster",
-        "Condition building footprints using lod, min_building_detail, min_building_area, merge_buildings, and pipeline_mode",
+        "Clean building footprints with clean_footprints at min_building_detail (footprints closer than that are merged) and drop those smaller than min_building_area",
         "Build intermediate ground, shell, and top-cap surfaces using max_mesh_size, top_cap_max_mesh_size, min_mesh_angle, smoothing, and mesher",
         "Run TetGen with max_volume and tetgen_switches/tetgen_extra to produce tetrahedra",
         "Optionally attach boundary face markers (-1 ground, -2 top, -3 west, -4 east, -5 south, -6 north)",
@@ -311,7 +308,6 @@ class CityVolumeMeshDataset(DatasetDescriptor):
             top_cap_max_mesh_size=args.top_cap_max_mesh_size,
             domain_height=args.domain_height,
             min_mesh_angle=args.min_mesh_angle,
-            merge_buildings=args.merge_buildings,
             min_building_detail=args.min_building_detail,
             min_building_area=args.min_building_area,
             smoothing=args.smoothing,
