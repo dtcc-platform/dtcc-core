@@ -52,6 +52,7 @@ from .transit_vehicles import (
 )
 from .deso import DeSODataset
 from .urban_atlas import UrbanAtlasDataset
+from .imperviousness import ImperviousnessDataset
 from .smoke import SmokeDataset
 from .calibration_grid import CalibrationGridDataset
 
@@ -104,6 +105,7 @@ metros = get_dataset("metros")
 ferries = get_dataset("ferries")
 deso = get_dataset("deso")
 urban_atlas = get_dataset("urban_atlas")
+imperviousness = get_dataset("imperviousness")
 smoke = get_dataset("smoke")
 calibration_grid = get_dataset("calibration_grid")
 
