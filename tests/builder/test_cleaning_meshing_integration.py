@@ -897,7 +897,7 @@ def test_build_city_flat_mesh_dtcc_mesher_handles_nested_building_in_courtyard()
     assert set(np.unique(mesh.markers)).issuperset({-2, 0, 1})
 
 
-def test_condition_meshing_footprints_uses_conservative_roof_for_heterogeneous_merge():
+def test_merged_buildings_are_meshed_at_their_own_roofs():
     buildings = [
         make_building(box(8, 8, 16, 16), roof_z=4.0),
         make_building(box(16, 8, 24, 16), roof_z=10.0),
@@ -914,17 +914,23 @@ def test_condition_meshing_footprints_uses_conservative_roof_for_heterogeneous_m
         conditioned
     )
 
-    assert len(surfaces) == 1
-    assert source_map == [[0]]  # one cleaned building
-    assert resolutions == [10.0]
-    assert diagnostics["conservative_merged_roof_count"] == 1
-    assert np.unique(np.asarray(surfaces[0].vertices)[:, 2]) == pytest.approx([10.0])
+    # One cleaned building (a block), one region per roof level.
+    assert source_map == [[0], [0]]
+    assert [s.to_polygon(simplify=0.0).area for s in surfaces] == [64.0, 64.0]
+    assert [np.unique(np.asarray(s.vertices)[:, 2]).tolist() for s in surfaces] == [
+        [4.0],
+        [10.0],
+    ]
+    assert resolutions == [4.0, 10.0]
+    assert diagnostics["levels"]["regions"] == 2
+    assert diagnostics["levels"]["max_level_shift"] == 0.0
+    assert conditioned.contract["status"] == "pass", conditioned.contract
 
 
-def test_condition_meshing_footprints_keeps_weighted_roof_for_similar_merge():
+def test_merged_roofs_closer_than_the_resolution_are_one_region():
     buildings = [
         make_building(box(8, 8, 16, 16), roof_z=4.0),
-        make_building(box(16, 8, 24, 16), roof_z=5.0),
+        make_building(box(16, 8, 20, 16), roof_z=4.3),
     ]
 
     conditioned = condition_meshing_footprints(
@@ -934,15 +940,15 @@ def test_condition_meshing_footprints_keeps_weighted_roof_for_similar_merge():
         min_building_area=1.0,
         max_mesh_size=20.0,
     )
-    surfaces, source_map, resolutions, diagnostics = unpack_conditioned_footprints(
-        conditioned
-    )
+    surfaces, source_map, _, diagnostics = unpack_conditioned_footprints(conditioned)
 
-    assert len(surfaces) == 1
-    assert source_map == [[0]]  # one cleaned building
-    assert resolutions == [4.5]
-    assert diagnostics["conservative_merged_roof_count"] == 0
-    assert np.unique(np.asarray(surfaces[0].vertices)[:, 2]) == pytest.approx([4.5])
+    # The wall between them is dissolved and the roof is the area-weighted
+    # mean, within delta / 2 of both.
+    assert source_map == [[0]]
+    assert surfaces[0].to_polygon(simplify=0.0).equals(box(8, 8, 20, 16))
+    roof = (4.0 * 64 + 4.3 * 32) / 96
+    assert np.unique(np.asarray(surfaces[0].vertices)[:, 2]) == pytest.approx([roof])
+    assert diagnostics["levels"]["max_level_shift"] == pytest.approx(4.3 - roof)
 
 
 def test_condition_flat_mesh_ground_polygons_returns_explicit_courtyards():

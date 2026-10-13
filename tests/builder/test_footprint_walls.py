@@ -280,7 +280,7 @@ def test_heights_per_part_from_roof_points():
     assert parts["low"].estimated_height == pytest.approx(6.0)
     assert parts["high"].estimated_height == pytest.approx(30.0)
     assert parts["high"].get_geometry(GeometryType.LOD0).zmax == pytest.approx(30.0)
-    # The block roof follows the 2 m rule until meshing uses the parts.
+    # The block has the roof of its highest part.
     assert block.estimated_height == pytest.approx(30.0)
     assert block.get_geometry(GeometryType.LOD0).zmax == pytest.approx(30.0)
 
@@ -297,4 +297,5 @@ def test_heights_per_part_from_attribute():
     set_building_heights_from_attribute([block], terrain, height_attribute="storey_height")
     parts = parts_by_id(block)
     assert [parts["a"].estimated_height, parts["b"].estimated_height] == [9.0, 10.0]
-    assert block.estimated_height == pytest.approx((9 * 200 + 10 * 100) / 300)
+    assert block.estimated_height == 10.0
+    assert block.get_geometry(GeometryType.LOD0).zmax == 10.0

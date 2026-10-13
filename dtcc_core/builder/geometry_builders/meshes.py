@@ -31,11 +31,13 @@ from ..model_conversion import (
 from .. import _dtcc_builder
 
 from ..cleaning.clean import (
+    CleanedRegions,
     clean_regions,
     cleaning_record,
     regions_from_cleaned_city,
 )
 from ..cleaning.footprints import ConditioningResult
+from ..cleaning.levels import level_regions, pinched_levels
 from ..cleaning.plotting import plot_footprint_cleaning_comparison
 from ..cleaning.selection import select_footprints
 from ..cleaning.contract import (
@@ -112,9 +114,11 @@ MeshingPipelineMode = Literal["strict"]
 class _MeshingFootprints:
     """Cleaned footprint regions handed to the mesh builders.
 
-    ``source_map`` gives, for each region, the index of its building in the
-    cleaned city; ``subdomain_resolution`` the target triangle size of each
-    region.
+    A building is one region, and a merged block one region per grouped roof
+    level of its parts (see :mod:`dtcc_core.builder.cleaning.levels`), each at
+    its own roof. ``source_map`` gives, for each region, the index of its
+    building in the cleaned city; ``subdomain_resolution`` the target triangle
+    size of each region.
     """
 
     surfaces: list[Surface]
@@ -569,10 +573,11 @@ def _handoff_admission(
     must satisfy the union topology profile and the incident-sector profile.
     Their minimum feature size must be at least delta, except that separation
     defects are accepted, with a warning, when the pre-selection result is
-    itself a warning candidate. Selection therefore cannot hide a topology
-    defect, and clipping cannot add separation defects to a strict result.
-    Without a pre-selection report (``"unreported"``), the handed-on regions
-    must be strictly admissible.
+    itself a warning candidate or declares walls closer than delta between
+    merged buildings (``wall_warnings``). Selection therefore cannot hide a
+    topology defect, and clipping cannot add separation defects to a strict
+    result. Without a pre-selection report (``"unreported"``), the handed-on
+    regions must be strictly admissible.
     """
     reported = isinstance(before_selection, dict) and "status" in before_selection
     candidate = (
@@ -586,9 +591,20 @@ def _handoff_admission(
     report = admissibility(polygons, delta)
     profile = check_mesher_handoff_profile(polygons)
     separation_only = has_only_separation_defects(report)
-    separation_accepted = separation_only and candidate == "warning"
+    wall_warnings = int(before_selection.get("wall_warnings") or 0) if reported else 0
+    separation_accepted = separation_only and (
+        candidate == "warning" or (candidate == "strict" and wall_warnings > 0)
+    )
     errors: list[str] = []
     warnings: list[str] = []
+    if candidate == "strict" and separation_accepted:
+        warnings.append(
+            f"Walls between merged buildings come closer than {delta:g} m in "
+            f"{wall_warnings} block(s): minimum feature size "
+            f"{report['mfs_capped_at_delta']:.6g} m at {report['subscale_pairs']} "
+            "nonincident vertex-edge pair(s). Smaller elements and increased mesh "
+            "cost are possible."
+        )
     if candidate == "fail":
         errors.append(
             "The cleaning result before area selection is neither strictly "
@@ -667,6 +683,14 @@ def _conditioned_footprint_contract_audit(
         mesher_profile=diagnostics.get("mesher_profile"),
     )
     errors = list(admission["errors"])
+    warnings = list(admission["warnings"])
+    pinched = diagnostics.get("levels", {}).get("pinched_level_sets", [])
+    if pinched:
+        warnings.append(
+            f"Buildings of {len({row['building'] for row in pinched})} merged "
+            "block(s) touch at a point only above a lower roof: the building "
+            "shells have vertical line contacts (edges with four faces)."
+        )
     report = admission["admissibility"]
     sectors = admission["incident_sector_profile"]["incident_sectors"]
     graph_error = _mesher_segment_graph_error(polygons)
@@ -700,12 +724,13 @@ def _conditioned_footprint_contract_audit(
             "admissibility": report,
             "incident_sector_profile": admission["incident_sector_profile"],
             "mesher_segment_graph_error": graph_error,
+            "pinched_level_sets": pinched,
         }
     )
     return _stage_contract_result(
         requirements=requirements,
         errors=_dedupe_stage_contract_messages(errors),
-        warnings=_dedupe_stage_contract_messages(admission["warnings"]),
+        warnings=_dedupe_stage_contract_messages(warnings),
         metrics=metrics,
     )
 
@@ -2114,6 +2139,7 @@ def _meshing_footprints(
             plot_block=footprint_cleaning_plot_block,
         )
     record = cleaned.record
+    walls = record.get("walls", {})
 
     declared_scale = _conditioned_footprint_declared_scale(
         min_building_detail=min_building_detail
@@ -2121,6 +2147,7 @@ def _meshing_footprints(
     before_selection_contract = {
         **record["contract"],
         "mesher_profile": record["mesher_profile"],
+        "wall_warnings": walls.get("warning", 0),
     }
     diagnostics = {
         "pipeline_mode": pipeline_mode,
@@ -2128,7 +2155,7 @@ def _meshing_footprints(
         "reused_cleaning": reused,
         "fidelity_budget_used": record.get("fidelity_budget_used"),
         "merged_count": record.get("merged_count", 0),
-        "conservative_merged_roof_count": record.get("single_height_merged_roofs", 0),
+        "walls": walls,
         "before_selection_contract": before_selection_contract,
         "mesher_profile": record["mesher_profile"],
         "policy_exclusions": [],
@@ -2148,17 +2175,32 @@ def _meshing_footprints(
     surfaces: list[Surface] = []
     source_map: list[list[int]] = []
     subdomain_resolution: list[float] = []
+    pinched = []
+    level_shifts = []
     for polygon, (output,) in zip(selected.polygons, selected.source_map):
-        surface = Surface()
-        surface.from_polygon(polygon, cleaned.output_roof_z[output])
-        surfaces.append(surface)
-        source_map.append([output])
-        height = cleaned.output_height[output]
-        height = height_default if height is None else height
-        if max_mesh_size is None:
-            subdomain_resolution.append(height)
-        else:
-            subdomain_resolution.append(min(height, max_mesh_size))
+        regions, shift = _building_level_regions(
+            cleaned, output, polygon, delta=float(min_building_detail)
+        )
+        if shift is not None:
+            level_shifts.append(shift)
+        if len({level for _, level, _ in regions}) > 1:
+            for row in pinched_levels([(region, level) for region, level, _ in regions]):
+                pinched.append({"building": output, **row})
+        for region, roof_z, height in regions:
+            surface = Surface()
+            surface.from_polygon(region, roof_z)
+            surfaces.append(surface)
+            source_map.append([output])
+            height = height_default if height is None else height
+            if max_mesh_size is None:
+                subdomain_resolution.append(height)
+            else:
+                subdomain_resolution.append(min(height, max_mesh_size))
+    diagnostics["levels"] = {
+        "regions": len(surfaces),
+        "max_level_shift": max(level_shifts, default=0.0),
+        "pinched_level_sets": pinched,
+    }
 
     if not surfaces and buildings:
         warning("No building footprints remain after cleaning and selection.")
@@ -2179,6 +2221,38 @@ def _meshing_footprints(
             diagnostics=diagnostics,
         ),
     )
+
+
+def _building_level_regions(
+    cleaned: CleanedRegions, output: int, polygon: Polygon, *, delta: float
+) -> tuple[list[tuple[Polygon, float, float | None]], float | None]:
+    """The regions of one cleaned building at their roofs, with their heights.
+
+    A building with one cell is one region at its own roof. The cells of a
+    block are grouped by roof level at the resolution delta and dissolved
+    into one region per level. A block that keeps one footprint is one
+    region at its single roof. Also returns the largest change of a roof
+    level by the grouping (None without walls).
+    """
+    cells = cleaned.output_cells[output] if cleaned.output_cells else []
+    labels = sorted({label for _, label in cells})
+    if not cells:
+        return [(polygon, cleaned.output_roof_z[output], cleaned.output_height[output])], None
+    if len(labels) == 1:
+        label = labels[0]
+        return [(polygon, cleaned.label_roof_z[label], cleaned.label_height[label])], None
+    levels = {label: float(cleaned.label_roof_z[label]) for label in labels}
+    regions = []
+    shift = 0.0
+    for region, level, members in level_regions(cells, levels, delta):
+        heights = [
+            cleaned.label_height[label]
+            for label in members
+            if cleaned.label_height[label] is not None
+        ]
+        regions.append((region, level, min(heights) if heights else None))
+        shift = max(shift, *(abs(level - levels[label]) for label in members))
+    return regions, shift
 
 
 def _prepare_city_meshing_inputs(
@@ -4000,6 +4074,10 @@ def build_city_surface_mesh(
     The building footprints are cleaned in unison with ``clean_footprints``
     at ``min_building_detail``, unless the city was already cleaned at that
     scale (``City.clean_footprints``), and every cleaned building is extruded.
+    A merged block is extruded per part at the parts' roofs. The roofs of a
+    block are first grouped at the resolution ``min_building_detail``: each
+    moves by at most half of it, and different roofs end up at least
+    ``min_building_detail`` apart. Parts at different roofs share a step wall.
 
     Parameters
     ----------
@@ -4229,6 +4307,9 @@ def build_city_flat_mesh(
     scale (``City.clean_footprints``). The marker of a building is its index
     in ``clean_footprints(city).buildings`` (or in ``city.buildings`` for a
     cleaned city); buildings smaller than ``min_building_area`` are left out.
+    The mesh also follows the walls between the parts of a merged block that
+    are meshed at different roofs (see :func:`build_city_surface_mesh`); all
+    parts carry the block's marker.
 
     Parameters
     ----------
@@ -4431,7 +4512,8 @@ def build_city_volume_mesh(
 
     The building footprints are cleaned in unison with ``clean_footprints``
     at ``min_building_detail``, unless the city was already cleaned at that
-    scale (``City.clean_footprints``).
+    scale (``City.clean_footprints``). A merged block is extruded per part at
+    the parts' roofs, grouped as in :func:`build_city_surface_mesh`.
 
     Parameters
     ----------

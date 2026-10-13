@@ -203,61 +203,60 @@ TOUCHING_VOLUME_CASES = {
 }
 
 
-@pytest.mark.parametrize("name", sorted(TOUCHING_VOLUME_CASES))
-def test_volume_mesh_of_touching_buildings(monkeypatch, name):
-    """TetGen meshes the air around touching buildings with step walls.
+def city_of_touching(polygons, heights, *, cell=2.0):
+    """A city of the buildings on flat ground, with a margin of 15 m."""
+    from dtcc_core.model import Building, City, GeometryType, Terrain
 
-    The cleaner merges touching buildings, so they are handed to the volume
-    builder as separate footprints. With overlapping full-height walls (before
-    step walls) TetGen rejected these shells as self-intersecting.
-    """
-    from dtcc_core.builder import build_city_volume_mesh
-    from dtcc_core.builder.cleaning.contract import (
-        check_cleaning_contract,
-        check_mesher_handoff_profile,
-    )
-    from dtcc_core.builder.meshing.tetgen import is_tetgen_available
-    from dtcc_core.model import City, GeometryType, Terrain
-
-    if not is_tetgen_available():
-        pytest.skip("TetGen is not available")
-    pytest.importorskip("dtcc_mesher")
-    polygons, heights = TOUCHING_VOLUME_CASES[name]
     xmin, ymin, xmax, ymax = unary_union(polygons).buffer(15.0, join_style=2).bounds
     raster = Raster()
-    raster.data = np.zeros((int(round((ymax - ymin) / 2)), int(round((xmax - xmin) / 2))))
+    raster.data = np.zeros((int(round((ymax - ymin) / cell)), int(round((xmax - xmin) / cell))))
     raster.set_bounds(Bounds(xmin, ymin, xmax, ymax))
     terrain = Terrain()
     terrain.add_geometry(raster, GeometryType.RASTER)
     city = City()
     city.add_terrain(terrain)
-
-    surfaces = []
     for polygon, height in zip(polygons, heights):
         surface = Surface()
         surface.from_polygon(polygon, height)
-        surfaces.append(surface)
-    contract = check_cleaning_contract(polygons, polygons, delta=0.5)
-    contract["mesher_profile"] = check_mesher_handoff_profile(polygons)
-    diagnostics = {
-        "before_selection_contract": contract,
-        "mesher_profile": contract["mesher_profile"],
-    }
-    footprints = meshes._MeshingFootprints(
-        surfaces=surfaces,
-        source_map=[[i] for i in range(len(polygons))],
-        subdomain_resolution=[5.0] * len(polygons),
-        diagnostics=diagnostics,
-        declared_scale=0.5,
-        contract=meshes._conditioned_footprint_contract(
-            surfaces=surfaces, min_building_detail=0.5, diagnostics=diagnostics
-        ),
+        building = Building()
+        building.add_geometry(surface, GeometryType.LOD0)
+        building.estimated_height = height
+        city.add_building(building)
+    return city, (xmin, ymin, xmax, ymax)
+
+
+def test_merged_buildings_get_a_step_wall_through_the_cleaner():
+    from dtcc_core.builder import build_city_surface_mesh
+
+    pytest.importorskip("dtcc_mesher")
+    low, high = box(10, 10, 30, 25), box(30, 10, 40, 25)
+    city, _ = city_of_touching([low, high], [6.0, 30.0])
+    mesh = build_city_surface_mesh(
+        city, max_mesh_size=5.0, report_mesh_quality=False, mesher="dtcc_mesher"
     )
-    monkeypatch.setattr(
-        meshes,
-        "_prepare_city_meshing_inputs",
-        lambda *args, **kwargs: (terrain, raster, footprints),
-    )
+    is_closed, report = closed(mesh, 2)
+    assert is_closed, report
+    walls = wall_area_on_plane(mesh, 30.0)
+    assert list(walls.values()) == [pytest.approx(360.0)]
+    assert enclosed_volume(mesh) == pytest.approx(300 * 6 + 150 * 30)
+
+
+@pytest.mark.parametrize("name", sorted(TOUCHING_VOLUME_CASES))
+def test_volume_mesh_of_touching_buildings(name):
+    """TetGen meshes the air around merged buildings with step walls.
+
+    The buildings are merged into one block by the cleaner, and the block is
+    meshed per part at the parts' own roofs. With overlapping full-height walls
+    (before step walls) TetGen rejected these shells as self-intersecting.
+    """
+    from dtcc_core.builder import build_city_volume_mesh
+    from dtcc_core.builder.meshing.tetgen import is_tetgen_available
+
+    if not is_tetgen_available():
+        pytest.skip("TetGen is not available")
+    pytest.importorskip("dtcc_mesher")
+    polygons, heights = TOUCHING_VOLUME_CASES[name]
+    city, (xmin, ymin, xmax, ymax) = city_of_touching(polygons, heights)
 
     domain_height = 60.0
     volume_mesh = build_city_volume_mesh(

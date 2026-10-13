@@ -138,6 +138,7 @@ def save_cleaning(directory, raw_city, cleaned_city, footprints, task):
                 "properties": {
                     "building_index": indices[0],
                     "building_id": cleaned_city.buildings[indices[0]].id,
+                    "roof_z": float(surface.zmax),
                 },
             }
             for surface, indices in zip(footprints.surfaces, footprints.source_map)
@@ -183,14 +184,25 @@ def load_cleaning(path, task):
         if metadata.get("cleaning") != record:
             raise ValueError("cleaning metadata does not match the cleaned city")
         buildings = cleaned_city.buildings
+        regions: dict[int, list] = {}
         for feature in payload["features"]:
             properties = feature["properties"]
             index = properties["building_index"]
             if type(index) is not int or not 0 <= index < len(buildings):
                 raise ValueError("invalid building index")
-            if properties["building_id"] != buildings[index].id or not shape(
-                feature["geometry"]
-            ).equals_exact(_footprint_polygon(buildings[index]), 0.0):
+            if properties["building_id"] != buildings[index].id:
+                raise ValueError("saved footprints do not match the cleaned city")
+            regions.setdefault(index, []).append(shape(feature["geometry"]))
+        # The regions of a building (one per roof level of a block) tile its
+        # footprint.
+        for index, polygons in regions.items():
+            footprint = _footprint_polygon(buildings[index])
+            union = unary_union(polygons)
+            tolerance = 1e-9 * max(1.0, footprint.area)
+            if (
+                abs(sum(polygon.area for polygon in polygons) - union.area) > tolerance
+                or union.symmetric_difference(footprint).area > tolerance
+            ):
                 raise ValueError("saved footprints do not match the cleaned city")
         return raw_city, cleaned_city
     except (KeyError, TypeError, OSError, ValueError) as exc:

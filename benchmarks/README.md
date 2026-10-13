@@ -103,7 +103,7 @@ stderr.log
 cleaning/
     raw.dtcc              # Original source buildings and IDs
     cleaned.dtcc          # Cleaned city: blocks with the original buildings as parts
-    footprints.geojson    # Cleaned polygons with their building index and ID
+    footprints.geojson    # Regions handed to meshing (a block per roof level) with building index, ID, roof
     metrics.json
 meshing/
     city.dtcc             # Cleaned buildings with prepared terrain/heights

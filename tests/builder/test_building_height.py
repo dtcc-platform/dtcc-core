@@ -59,7 +59,8 @@ def test_cleaning_keeps_measurements_on_parts_and_sets_block_estimate():
     merged = clean_footprints([first, second], min_building_detail=0.1)
     assert len(merged) == 1
     block = merged[0]
-    assert block.height is None and block.estimated_height == pytest.approx(10)
+    # The block's estimate is that of its highest part.
+    assert block.height is None and block.estimated_height == 12
     parts = {part.id: part for part in block.building_parts}
     assert set(parts) == {'a', 'b'}
     assert (parts['a'].height, parts['b'].height) == (10, 20)

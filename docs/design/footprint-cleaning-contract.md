@@ -350,6 +350,36 @@ the repair is retried once at the retry budget.
 With `strict=True`, a wall warning becomes a fallback. Cleaning never fails
 because of walls.
 
+## Roof levels at meshing
+
+The mesh builders mesh each block per part, at the parts' own roofs, but first
+group the roof levels of each block at the vertical resolution delta
+(`dtcc_core/builder/cleaning/levels.py`). A difference below delta would give a
+step wall lower than the resolution, and it is below the accuracy of the height
+estimates. Within a block the levels are sorted and grouped greedily from the
+lowest, each group spanning at most delta, and the groups get, in increasing
+order,
+
+    eta_c = max(clamp(w_c, [max_c - delta/2, min_c + delta/2]), eta_{c-1} + delta),
+
+with w_c the area-weighted mean of group c. Every roof moves by at most
+delta / 2, the order of the roofs is kept, and distinct roofs end up at least
+delta apart; roofs at least delta apart are never unified. Walls between cells
+of the same level are then dissolved, which never adds a feature pair or a
+small sector, and each connected region of one level is handed to the mesher
+with its roof. The building shell gets a step wall from the lower roof to the
+higher between regions of different levels.
+
+A block that keeps one footprint is meshed with one roof: the area-weighted
+mean of its sources, or the highest source roof when they span more than 2 m.
+
+The union of the extruded regions is a manifold solid only if every level set,
+the union of the regions with roofs at or above a level, is a 2-manifold with
+boundary. Where regions of a level set touch at a point only, the shells have a
+vertical line contact (an edge with four faces). The mesh builders report such
+level sets (`levels.pinched_level_sets`) with a warning; they are a property of
+the input, not of cleaning.
+
 ## Selection and handoff
 
 Cleaning returns buildings, one per cleaned region:
@@ -362,8 +392,8 @@ A region that is the cleaned footprint of exactly one building is that building
 with its new LOD0 footprint (ID, attributes, heights and children kept). Any
 other region is a new block whose `BuildingPart` children are the buildings that
 support it; `attributes["merged_from"]` lists their IDs. The block's LOD0 is its
-region, and each part's LOD0 is its cell (a `MultiSurface` if the cell has
-several pieces) at the part's own roof. The cells tile the region; walls ending
+region at the roof of its highest part, and each part's LOD0 is its cell (a
+`MultiSurface` if the cell has several pieces) at the part's own roof. The cells tile the region; walls ending
 on its edges add vertices there. A part without a cell, or every part of a
 fallback block, has no LOD0. LOD1-LOD3 geometry is removed because it no longer
 matches the footprint.
@@ -405,7 +435,8 @@ conditioned footprints and again in the mesh builders:
   profile;
 - their minimum feature size must be at least delta, except that separation
   defects are accepted, with a warning, when the cleaning result is itself a
-  warning candidate.
+  warning candidate or declares walls closer than delta (wall warnings in the
+  record).
 
 Selection therefore cannot hide a topology defect of the cleaning result, and
 clipping cannot add separation defects to a strict result. Flat and surface mesh

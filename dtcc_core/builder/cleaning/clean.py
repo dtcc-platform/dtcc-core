@@ -38,10 +38,11 @@ none; the record lists these blocks.
 A cleaned block is cleaned again from its own footprint, which its parts'
 footprints divide, so cleaning a cleaned city changes nothing.
 
-Until meshing consumes the parts (issue #147), a block is extruded with one
-height. The roof follows the area-weighted mean of its sources, or the highest
-source roof when the source roofs span more than 2 m. The same rule sets the
-block's ``estimated_height``. Its ``ground_height`` is the lowest of its parts.
+A block's roof and ``estimated_height`` are those of its highest part, and its
+``ground_height`` is the lowest of its parts. The mesh builders use the parts'
+own roofs. A block that keeps one footprint is meshed with one roof: the
+area-weighted mean of its sources, or the highest source roof when they span
+more than 2 m (:func:`fallback_roof`).
 """
 
 from __future__ import annotations
@@ -83,8 +84,9 @@ MERGED_FROM_KEY = "merged_from"
 
 # Numerical scale at which an unscaled (delta = 0) result is still checked.
 _UNSCALED_CHECK_SCALE = 1.0e-9
-# Temporary single-height rule for merged blocks (issue #147).
-_MERGED_ROOF_SPAN_LIMIT = 2.0
+# Source roofs of a block without walls that span more than this get the
+# highest roof instead of the area-weighted mean.
+_FALLBACK_ROOF_SPAN_LIMIT = 2.0
 
 _FOOTPRINT_LODS = (
     GeometryType.LOD0,
@@ -155,6 +157,8 @@ class CleanedRegions:
         index and, for a part of a cleaned block, the part index.
     label_roof_z : list[float]
         For each label, its roof level.
+    label_height : list[float or None]
+        For each label, its modelling height, or None.
     output_cells : list[list[tuple[Polygon, int]]]
         For each output building, its cells and their label indices: one
         cell (the region) for a single label, the cells of the walls for
@@ -171,6 +175,7 @@ class CleanedRegions:
     diagnostics: dict[str, Any] = field(default_factory=dict)
     labels: list[tuple[int, int | None]] = field(default_factory=list)
     label_roof_z: list[float] = field(default_factory=list)
+    label_height: list[float | None] = field(default_factory=list)
     output_cells: list[list[tuple[Polygon, int]]] = field(default_factory=list)
 
 
@@ -364,13 +369,16 @@ def clean_regions(
     areas = [source.area for source in sources]
     roofs = [source.roof_z for source in sources]
     heights = [source.height for source in sources]
-    output_roof_z, output_height, output_cells, merged_roofs = [], [], [], 0
+    output_roof_z, output_height, output_cells = [], [], []
     for region in order:
-        roof_z, height, conservative = merged_roof(region_sources[region], areas, roofs, heights)
+        cells = labelled[region].cells
+        if len(_region_labels(region_sources[region], sources)) > 1 and cells:
+            roof_z, height = _top([labels[label] for _, label in cells])
+        else:
+            roof_z, height = fallback_roof(region_sources[region], areas, roofs, heights)
         output_roof_z.append(roof_z)
         output_height.append(height)
-        merged_roofs += conservative
-        output_cells.append(list(labelled[region].cells))
+        output_cells.append(list(cells))
 
     diagnostics = dict(selected.diagnostics)
     diagnostics["walls"] = [
@@ -402,7 +410,6 @@ def clean_regions(
         "input_count": len(buildings),
         "output_count": len(polygons),
         "merged_count": sum(len(indices) > 1 for indices in output_sources),
-        "single_height_merged_roofs": merged_roofs,
         "missing_footprint_ids": [buildings[index].id for index in missing],
         "excluded": _excluded_ids(buildings, sources, diagnostics),
     }
@@ -438,6 +445,7 @@ def clean_regions(
         diagnostics=diagnostics,
         labels=[(label.building, label.part) for label in labels],
         label_roof_z=[label.roof_z for label in labels],
+        label_height=[label.height for label in labels],
         output_cells=output_cells,
     )
 
@@ -551,14 +559,31 @@ def regions_from_cleaned_city(city: City, record: dict[str, Any]) -> CleanedRegi
     """Read the regions of a city cleaned in unison, one per building.
 
     Regions are returned in the cleaner's canonical order, as a new cleaning
-    would return them.
+    would return them. The cells of a block are its parts' footprints.
     """
     polygons, roofs, heights = [], [], []
-    for building in city.buildings:
+    labels, label_roofs, label_heights, output_cells = [], [], [], []
+    for index, building in enumerate(city.buildings):
         footprint = building.get_geometry(GeometryType.LOD0)
-        polygons.append(footprint.to_polygon(simplify=0.0))
+        polygon = footprint.to_polygon(simplify=0.0)
+        polygons.append(polygon)
         roofs.append(float(footprint.zmax))
         heights.append(_modelling_height(building))
+        cells = []
+        for part_index, part in enumerate(building.building_parts):
+            pieces = _footprint_pieces(part.get_geometry(GeometryType.LOD0))
+            if not pieces:
+                continue
+            cells.extend((piece, len(labels)) for piece in pieces)
+            labels.append((index, part_index))
+            label_roofs.append(_footprint_roof(part))
+            label_heights.append(_modelling_height(part))
+        if not cells and not _is_block(building):
+            cells = [(polygon, len(labels))]
+            labels.append((index, None))
+            label_roofs.append(roofs[-1])
+            label_heights.append(heights[-1])
+        output_cells.append(cells)
     order = sorted(range(len(polygons)), key=lambda index: polygons[index].normalize().wkb)
     return CleanedRegions(
         polygons=[polygons[index] for index in order],
@@ -569,28 +594,37 @@ def regions_from_cleaned_city(city: City, record: dict[str, Any]) -> CleanedRegi
         raw_polygons=list(polygons),
         record=record,
         diagnostics={},
+        labels=labels,
+        label_roof_z=label_roofs,
+        label_height=label_heights,
+        output_cells=output_cells,
     )
 
 
-def merged_roof(indices, areas, roofs, heights):
-    """Single roof level and height of a block (temporary rule, issue #147).
+def fallback_roof(indices, areas, roofs, heights):
+    """One roof level and height for sources that keep one footprint.
 
     Returns the area-weighted roof level and height of the sources. When the
     source roofs span more than 2 m, the highest roof and the largest height
-    are used instead, so no source is cut down. The third value is 1 in that
-    case and 0 otherwise.
+    are used instead, so no source is cut down.
     """
     roof_z = _area_weighted(indices, areas, roofs, default=0.0)
     height = _area_weighted(indices, areas, heights, default=None)
     if len(indices) <= 1:
-        return roof_z, height, 0
+        return roof_z, height
     levels = [float(roofs[index]) for index in indices]
-    if max(levels) - min(levels) <= _MERGED_ROOF_SPAN_LIMIT:
-        return roof_z, height, 0
+    if max(levels) - min(levels) <= _FALLBACK_ROOF_SPAN_LIMIT:
+        return roof_z, height
     candidates = [float(heights[index]) for index in indices if heights[index] is not None]
     if candidates:
         height = max(candidates)
-    return max(levels), height, 1
+    return max(levels), height
+
+
+def _top(labels) -> tuple[float, float | None]:
+    """The highest roof and the largest height of a block's labels."""
+    heights = [label.height for label in labels if label.height is not None]
+    return max(label.roof_z for label in labels), (max(heights) if heights else None)
 
 
 def _area_weighted(indices, areas, values, *, default):
@@ -677,6 +711,18 @@ def _footprint_polygon(geometry) -> Polygon | MultiPolygon | None:
         return None
     union = polygons[0] if len(polygons) == 1 else unary_union(polygons)
     return None if union.is_empty else union
+
+
+def _footprint_pieces(geometry) -> list[Polygon]:
+    """The polygons of a LOD0 Surface or MultiSurface."""
+    if isinstance(geometry, Surface):
+        surfaces = [geometry]
+    elif isinstance(geometry, MultiSurface):
+        surfaces = geometry.surfaces
+    else:
+        return []
+    pieces = [surface.to_polygon(simplify=0.0) for surface in surfaces]
+    return [piece for piece in pieces if piece is not None and not piece.is_empty]
 
 
 def _footprint_roof(obj) -> float | None:

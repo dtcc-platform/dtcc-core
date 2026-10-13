@@ -79,8 +79,7 @@ def test_touching_buildings_become_a_block_whose_parts_are_the_originals():
     assert footprint(parts[0]).equals(box(10, 10, 30, 25))
     assert footprint(parts[1]).equals(box(30, 10, 40, 25))
     assert [p.get_geometry(GeometryType.LOD0).zmax for p in parts] == [6, 30]
-    # Until meshing uses the parts, the roofs span more than 2 m, so the
-    # block keeps the highest roof instead of an average.
+    # The block's roof and height are those of its highest part.
     assert block.estimated_height == 30
     assert block.measured_height is None
     assert block.get_geometry(GeometryType.LOD0).zmax == 30
@@ -88,19 +87,19 @@ def test_touching_buildings_become_a_block_whose_parts_are_the_originals():
     assert block.footprint().to_polygon(simplify=0.0).equals(box(10, 10, 40, 25))
     record = cleaned.attributes[RECORD_KEY]
     assert record["merged_count"] == 1
-    assert record["single_height_merged_roofs"] == 1
     assert record["walls"]["strict"] == 1
     assert cleaned.terrain is not city.terrain
     assert cleaned.terrain.raster is not None
 
 
-def test_close_roofs_are_averaged_by_area():
+def test_block_has_the_roof_of_its_highest_part_and_the_lowest_ground():
     city = city_of(
-        building("a", box(0, 0, 20, 10), 10),
+        building("a", box(0, 0, 20, 10), 10, ground=1.0),
         building("b", box(20.2, 0, 30.2, 10), 11),
     )
     block = city.clean_footprints().buildings[0]
-    assert block.estimated_height == pytest.approx((10 * 200 + 11 * 100) / 300)
+    assert block.estimated_height == 11
+    assert block.get_geometry(GeometryType.LOD0).zmax == 11
     assert block.attributes["ground_height"] == 0
 
 

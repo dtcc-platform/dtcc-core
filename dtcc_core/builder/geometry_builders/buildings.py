@@ -32,21 +32,12 @@ def _footprint_vertices(footprint):
     return footprint.vertices
 
 
-def _footprint_area(footprint):
-    surfaces = footprint.surfaces if isinstance(footprint, MultiSurface) else [footprint]
-    return float(sum(surface.to_polygon(simplify=0.0).area for surface in surfaces))
-
-
 def _derive_block_height(building, parts):
     """Set a block's ground, roof and height from its parts.
 
-    The ground is the lowest of the parts. Until meshing uses the parts, the
-    block is extruded with one roof: the area-weighted mean of the part roofs,
-    or the highest when they span more than 2 m (see
-    :func:`dtcc_core.builder.cleaning.clean.merged_roof`).
+    The ground is the lowest of the parts; the roof and height are those of
+    the highest part.
     """
-    from ..cleaning.clean import merged_roof
-
     grounds = [
         float(part.attributes["ground_height"])
         for part in parts
@@ -54,16 +45,13 @@ def _derive_block_height(building, parts):
     ]
     if grounds:
         building.attributes["ground_height"] = min(grounds)
-    footprints = [part.get_geometry(GeometryType.LOD0) for part in parts]
-    areas = [_footprint_area(footprint) for footprint in footprints]
-    roofs = [float(footprint.zmax) for footprint in footprints]
-    heights = [part.estimated_height for part in parts]
-    roof_z, height, _ = merged_roof(list(range(len(parts))), areas, roofs, heights)
+    roofs = [float(part.get_geometry(GeometryType.LOD0).zmax) for part in parts]
+    heights = [part.estimated_height for part in parts if part.estimated_height is not None]
     footprint = building.lod0
     if footprint is not None:
-        footprint.set_z(roof_z)
-    if height is not None:
-        building.estimated_height = height
+        footprint.set_z(max(roofs))
+    if heights:
+        building.estimated_height = max(heights)
 
 
 def extrude_building(
