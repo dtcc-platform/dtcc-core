@@ -1,9 +1,12 @@
 import pytest
 import numpy as np
 import os
+import rasterio
 import tempfile
+from affine import Affine
 from pathlib import Path
 from dtcc_core import io
+from dtcc_core.model import Raster
 
 
 @pytest.fixture
@@ -75,6 +78,34 @@ def test_write_elevation_model(dem_raster):
         assert loaded_em.cell_size == (2.0, -2.0)
     finally:
         os.unlink(outfile)
+
+
+def test_write_geotif_keeps_crs_and_nodata(tmp_path):
+    raster = Raster(
+        data=np.array([[1.0, np.nan], [3.0, 4.0]], dtype=np.float32),
+        georef=Affine(10.0, 0, 0.0, 0, -10.0, 20.0),
+        nodata=np.nan,
+        crs="EPSG:3006",
+    )
+    outfile = tmp_path / "raster.tif"
+
+    raster.save(outfile)
+
+    with rasterio.open(outfile) as src:
+        assert src.crs.to_epsg() == 3006
+        assert np.isnan(src.nodata)
+    assert io.load_raster(outfile).crs == "EPSG:3006"
+
+
+def test_write_geotif_skips_nan_nodata_for_integer_data(tmp_path):
+    raster = Raster(data=np.ones((2, 2), dtype=np.uint8), crs="EPSG:3006")
+    outfile = tmp_path / "raster.tif"
+
+    raster.save(outfile)
+
+    with rasterio.open(outfile) as src:
+        assert src.nodata is None
+        assert src.crs.to_epsg() == 3006
 
 
 def test_load_multiple(data_dir, test_raster_paths):
