@@ -402,6 +402,11 @@ A cleaned block is cleaned again from its own footprint, divided by its parts'
 footprints, so cleaning a cleaned city changes nothing. Heights can be computed
 per part afterwards: `extract_roof_points`, `compute_building_heights` and
 `set_building_heights_from_attribute` work on the parts of cleaned blocks.
+`build_lod1_buildings` gives each part its own LOD1 prism, from its own ground
+to its own roof, and the block none, as for building parts in CityGML.
+`build_building_shell` gives one closed triangle shell of a building, with the
+parts at their grouped roofs and step walls between them (see "Roof levels at
+meshing").
 
 Area selection (`min_area`) is an explicit operation after cleaning. It keeps
 regions of at least `min_area` without moving them and reports the excluded

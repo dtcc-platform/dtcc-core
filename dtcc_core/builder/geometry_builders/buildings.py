@@ -302,6 +302,15 @@ def build_lod1_buildings(
     """
     Build the LOD1 representation of the given buildings.
 
+    Each building is extruded from its ground to its roof. A cleaned block,
+    whose parts have their own LOD0 footprints, is extruded per part instead:
+    each part gets its own LOD1 prism, from its own ground to its own roof,
+    and the block itself gets none, as for building parts in CityGML.
+    Neighbouring prisms share faces up to the lower roof.
+    ``building.flatten_geometry(GeometryType.LOD1)`` gives all prisms of a
+    block; :func:`dtcc_core.builder.build_building_shell` gives one closed
+    shell with step walls.
+
     Parameters
     ----------
     `buildings` : [model.Building]
@@ -323,18 +332,23 @@ def build_lod1_buildings(
     report_progress(percent=0, message=f"Building LOD1 for {total_buildings} buildings...")
 
     for i, building in enumerate(buildings):
-        if building.lod1 is not None and not rebuild:
-            continue
-        if building.lod0 is None:
-            warning(f"Building {building.id} has no LOD0 geometry.")
-            continue
-        geometry = extrude_building(
-            building, default_ground_height, always_use_default_ground
-        )
-        if geometry is not None:
-            building.add_geometry(geometry, GeometryType.LOD1)
-        else:
-            warning(f"Building {building.id} LOD1 geometry could not be built.")
+        parts = _part_footprints(building)
+        targets = parts if parts else [building]
+        if parts:
+            building.remove_geometry(GeometryType.LOD1)
+        for target in targets:
+            if target.lod1 is not None and not rebuild:
+                continue
+            if target.lod0 is None:
+                warning(f"Building {target.id} has no LOD0 geometry.")
+                continue
+            geometry = extrude_building(
+                target, default_ground_height, always_use_default_ground
+            )
+            if geometry is not None:
+                target.add_geometry(geometry, GeometryType.LOD1)
+            else:
+                warning(f"Building {target.id} LOD1 geometry could not be built.")
 
         # Report progress every 10 buildings or on last building
         if (i + 1) % 10 == 0 or i + 1 == total_buildings:

@@ -11,7 +11,10 @@ from shapely.geometry.polygon import orient
 from shapely.ops import polygonize, unary_union
 
 from ...model import (
+    Bounds,
+    Building,
     Mesh,
+    Raster,
     VolumeMesh,
     City,
     Surface,
@@ -34,6 +37,7 @@ from ..cleaning.clean import (
     CleanedRegions,
     clean_regions,
     cleaning_record,
+    footprint_cells,
     regions_from_cleaned_city,
 )
 from ..cleaning.footprints import ConditioningResult
@@ -4048,6 +4052,150 @@ def _iter_polygons(geometry) -> list[Polygon]:
             polygons.extend(_iter_polygons(item))
         return polygons
     return []
+
+
+def build_building_shell(
+    building: Building,
+    *,
+    base_z: float | None = None,
+    min_building_detail: float = 0.5,
+    max_mesh_size: float | None = None,
+    min_mesh_angle: float = 25.0,
+    floor: bool = True,
+    mesher: str | None = None,
+) -> Mesh:
+    """Build a triangle shell of one building: roofs, outer walls and step walls.
+
+    The building is meshed from its LOD0 footprint at its roof. A cleaned
+    block, whose parts have their own LOD0 footprints, is meshed from its
+    parts at their own roofs, grouped as by :func:`build_city_surface_mesh`:
+    roofs closer than ``min_building_detail`` are unified (each moves by at
+    most half of it) and the walls between them dropped. Parts at different
+    roofs share a step wall from the lower roof to the higher. Outer walls
+    reach down to ``base_z``. All walls are split at the same levels, so the
+    shell is conforming; with ``floor`` it is closed, with outward normals.
+
+    The building is not cleaned; clean it first (``clean_footprints``) if its
+    footprints may overlap or have features below ``min_building_detail``.
+
+    Parameters
+    ----------
+    building : Building
+        The building, with an LOD0 footprint or parts with LOD0 footprints.
+    base_z : float, optional
+        Level of the bottom of the walls. By default the building's
+        ``ground_height`` attribute, or 0.
+    min_building_detail : float, optional
+        Vertical resolution for grouping roofs (default 0.5).
+    max_mesh_size : float, optional
+        Maximum triangle edge length of roofs and floor; None leaves it to
+        the footprint geometry.
+    min_mesh_angle : float, optional
+        Minimum triangle angle in degrees (default 25).
+    floor : bool, optional
+        Close the shell with a floor at ``base_z`` (default True).
+    mesher : {"auto", "dtcc_mesher", "triangle"}, optional
+        2D meshing backend for the roofs and floor.
+
+    Returns
+    -------
+    Mesh
+        The shell. Its regions are the parts grouped by roof level, ordered
+        by level; for region m of n, wall faces have marker m, roof faces
+        n + m and floor faces 2n + m.
+
+    Raises
+    ------
+    ValueError
+        If the building has no footprint, or a roof is not above ``base_z``.
+    """
+    cells, roofs = footprint_cells(building)
+    if not cells:
+        raise ValueError(f"Building {building.id} has no LOD0 footprint.")
+    regions = [
+        (orient(polygon, sign=1.0), level)
+        for polygon, level, _ in level_regions(cells, roofs, float(min_building_detail))
+    ]
+    if base_z is None:
+        ground = building.attributes.get("ground_height")
+        base_z = float(ground) if ground is not None else 0.0
+    base_z = float(base_z)
+    if min(level for _, level in regions) <= base_z:
+        raise ValueError(
+            f"Building {building.id} has a roof at or below its base {base_z:g}."
+        )
+
+    # Mesh the footprint in a domain with a ground ring, extrude it with the
+    # city shell builder on flat terrain at the base, and keep the shell.
+    union = unary_union([polygon for polygon, _ in regions])
+    margin = max(1.0, 2.0 * float(min_building_detail))
+    xmin, ymin, xmax, ymax = union.bounds
+    bounds = (xmin - margin, ymin - margin, xmax + margin, ymax + margin)
+    grounds = [
+        orient(polygon, sign=1.0)
+        for polygon in _iter_polygon_components(box(*bounds).difference(union))
+    ]
+    polygons = [*grounds, *(polygon for polygon, _ in regions)]
+    ground_mesh, _ = _build_ground_mesh_from_coverage(
+        region_polygons=polygons,
+        region_markers=[-2] * len(grounds) + list(range(len(regions))),
+        region_points=[
+            np.asarray(polygon.representative_point().coords[0]) for polygon in polygons
+        ],
+        bounds=bounds,
+        max_mesh_size=_normalize_max_mesh_size(max_mesh_size),
+        min_mesh_angle=min_mesh_angle,
+        mesher=mesher,
+        sort_triangles=False,
+        add_halo_markers=False,
+    )
+    raster = Raster()
+    raster.data = np.full((2, 2), base_z)
+    raster.set_bounds(Bounds(*bounds))
+    surfaces = []
+    for polygon, level in regions:
+        surface = Surface()
+        surface.from_polygon(polygon, level)
+        surfaces.append(surface)
+    city_shell = _build_city_surface_mesh_from_ground_mesh(
+        ground_mesh=ground_mesh,
+        terrain_raster=raster,
+        building_surfaces=surfaces,
+        meshing_directives=[_EXTRUDE_DIRECTIVE] * len(surfaces),
+        smoothing=0,
+        merge_meshes=True,
+    )
+    markers = np.asarray(city_shell.markers, dtype=np.int64)
+    keep = markers >= 0
+    vertices = [np.asarray(city_shell.vertices, dtype=np.float64)]
+    faces = [np.asarray(city_shell.faces, dtype=np.int64)[keep]]
+    face_markers = [markers[keep]]
+    if floor:
+        ground_markers = np.asarray(ground_mesh.markers, dtype=np.int64)
+        inside = ground_markers >= 0
+        floor_vertices = np.asarray(ground_mesh.vertices, dtype=np.float64)[:, :2]
+        floor_vertices = np.column_stack([floor_vertices, np.full(len(floor_vertices), base_z)])
+        floor_faces = np.asarray(ground_mesh.faces, dtype=np.int64)[inside]
+        points = floor_vertices[floor_faces]
+        upward = (
+            (points[:, 1, 0] - points[:, 0, 0]) * (points[:, 2, 1] - points[:, 0, 1])
+            - (points[:, 1, 1] - points[:, 0, 1]) * (points[:, 2, 0] - points[:, 0, 0])
+        ) > 0
+        floor_faces[upward] = floor_faces[upward][:, ::-1]
+        vertices.append(floor_vertices)
+        faces.append(floor_faces + len(vertices[0]))
+        face_markers.append(2 * len(regions) + ground_markers[inside])
+    # Weld exactly coincident vertices and drop unused ones.
+    all_vertices = np.vstack(vertices)
+    all_faces = np.vstack(faces)
+    unique, inverse = np.unique(all_vertices, axis=0, return_inverse=True)
+    all_faces = inverse.reshape(-1)[all_faces]
+    used, compact = np.unique(all_faces, return_inverse=True)
+    return Mesh(
+        vertices=unique[used],
+        faces=compact.reshape(all_faces.shape),
+        markers=np.concatenate(face_markers),
+    )
 
 
 def build_city_surface_mesh(

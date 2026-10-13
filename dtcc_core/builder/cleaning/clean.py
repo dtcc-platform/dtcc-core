@@ -601,6 +601,34 @@ def regions_from_cleaned_city(city: City, record: dict[str, Any]) -> CleanedRegi
     )
 
 
+def footprint_cells(building: Building) -> tuple[list[tuple[Polygon, int]], dict[int, float]]:
+    """The cells of a building's footprint and their roof levels.
+
+    A cleaned block whose parts have LOD0 footprints has one label per such
+    part, its index in ``building.building_parts``, and one cell per piece of
+    its footprint. Any other building is one cell, its own LOD0 footprint,
+    with label -1.
+
+    Returns
+    -------
+    tuple[list[tuple[Polygon, int]], dict[int, float]]
+        The cells with their labels, and the roof level of each label. Both
+        are empty if the building has no LOD0 footprint.
+    """
+    cells, roofs = [], {}
+    for index, part in enumerate(building.building_parts):
+        pieces = _footprint_pieces(part.get_geometry(GeometryType.LOD0))
+        if pieces:
+            cells.extend((piece, index) for piece in pieces)
+            roofs[index] = _footprint_roof(part)
+    if not cells:
+        pieces = _footprint_pieces(building.get_geometry(GeometryType.LOD0))
+        if pieces:
+            cells = [(piece, -1) for piece in pieces]
+            roofs[-1] = _footprint_roof(building)
+    return cells, roofs
+
+
 def fallback_roof(indices, areas, roofs, heights):
     """One roof level and height for sources that keep one footprint.
 

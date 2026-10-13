@@ -27,6 +27,7 @@ from .cleaning import clean_footprints, UnresolvedFootprintCleaningError
 from .register import register_model_method
 
 from .geometry_builders.meshes import (
+    build_building_shell,
     build_city_surface_mesh,
     build_city_flat_mesh,
     build_city_volume_mesh,
@@ -81,6 +82,7 @@ __all__ = [
     "build_lod2_buildings",
     "clean_footprints",
     "UnresolvedFootprintCleaningError",
+    "build_building_shell",
     "build_city_surface_mesh",
     "build_city_flat_mesh",
     "build_terrain_surface_mesh",
