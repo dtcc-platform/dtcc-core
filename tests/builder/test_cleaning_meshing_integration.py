@@ -2315,6 +2315,63 @@ def test_ground_mesh_raster_alignment_clamps_bounded_single_axis_overshoot():
     assert np.all(aligned.vertices[:, 1] <= 10.0)
 
 
+def _strip_mesh(xs, ys):
+    """A structured triangle mesh over the grid of the given coordinates."""
+    vertices = np.array([[x, y, 0.0] for y in ys for x in xs])
+    n = len(xs)
+    faces = []
+    for j in range(len(ys) - 1):
+        for i in range(n - 1):
+            v = j * n + i
+            faces += [[v, v + 1, v + n + 1], [v, v + n + 1, v + n]]
+    return Mesh(
+        vertices=vertices,
+        faces=np.array(faces, dtype=int),
+        markers=np.zeros(len(faces), dtype=int),
+    )
+
+
+def test_ground_mesh_raster_alignment_moves_only_the_outline_across_its_side():
+    raster = Raster()
+    raster.data = np.zeros((10, 10), dtype=float)
+    raster.set_bounds(Bounds(0.0, 0.0, 20.0, 20.0))  # 2 m cells: snap within 0.25 m
+    # The left outline lies 0.1 m inside the raster; an interior column lies
+    # 0.2 m from the bottom side; an outline vertex lies 0.2 m from a corner.
+    ground_mesh = _strip_mesh([0.1, 0.3, 10.0, 20.0], [0.0, 0.2, 10.0, 20.0])
+    original = np.asarray(ground_mesh.vertices).copy()
+
+    aligned = np.asarray(
+        meshes_module._snap_ground_mesh_to_raster_bounds(ground_mesh, raster).vertices
+    )
+
+    left = np.isclose(original[:, 0], 0.1)
+    assert np.all(aligned[left, 0] == 0.0)
+    assert np.array_equal(aligned[left, 1], original[left, 1])
+    interior = (original[:, 0] == 0.3) & (original[:, 1] == 0.2)
+    assert np.array_equal(aligned[interior], original[interior])
+    # Moved vertices stay distinct: nothing collapses onto the outline.
+    assert len(np.unique(aligned[:, :2], axis=0)) == len(aligned)
+    points = aligned[np.asarray(ground_mesh.faces)]
+    areas = 0.5 * np.abs(
+        np.cross(points[:, 1, :2] - points[:, 0, :2], points[:, 2, :2] - points[:, 0, :2])
+    )
+    assert np.all(areas > 0.0)
+
+
+def test_ground_mesh_raster_alignment_keeps_vertices_near_coarse_raster_bounds():
+    raster = Raster()
+    raster.data = np.zeros((4, 4), dtype=float)
+    raster.set_bounds(Bounds(0.0, 0.0, 48.0, 48.0))  # 12 m cells: snap within 1.5 m
+    ground_mesh = _strip_mesh([0.0, 1.0, 1.2, 48.0], [0.0, 0.6, 1.4, 48.0])
+    original = np.asarray(ground_mesh.vertices).copy()
+
+    aligned = np.asarray(
+        meshes_module._snap_ground_mesh_to_raster_bounds(ground_mesh, raster).vertices
+    )
+
+    assert np.array_equal(aligned, original)
+
+
 def test_ground_mesh_raster_alignment_rejects_unbounded_overshoot():
     raster = Raster()
     raster.data = np.zeros((10, 10), dtype=float)

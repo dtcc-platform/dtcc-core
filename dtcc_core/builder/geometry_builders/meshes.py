@@ -2867,6 +2867,7 @@ def _snap_ground_mesh_to_raster_bounds(mesh: Mesh, terrain_raster) -> Mesh:
             f"bounds=[{xmin:.6g}, {xmax:.6g}] x [{ymin:.6g}, {ymax:.6g}])."
         )
 
+    # Clamp the (bounded) overshoot computed above onto the raster bounds.
     for axis, lower, upper in ((0, xmin, xmax), (1, ymin, ymax)):
         below_mask = vertices[:, axis] < lower
         above_mask = vertices[:, axis] > upper
@@ -2876,14 +2877,44 @@ def _snap_ground_mesh_to_raster_bounds(mesh: Mesh, terrain_raster) -> Mesh:
         if np.any(above_mask):
             vertices[above_mask, axis] = upper
             changed |= above_mask
-        lower_mask = np.abs(vertices[:, axis] - lower) <= snap_tol
-        upper_mask = np.abs(vertices[:, axis] - upper) <= snap_tol
-        if np.any(lower_mask):
-            vertices[lower_mask, axis] = lower
-            changed |= lower_mask
-        if np.any(upper_mask):
-            vertices[upper_mask, axis] = upper
-            changed |= upper_mask
+
+    # Align the mesh outline with the raster bounds. Only vertices on the
+    # mesh boundary move, and only across the side they lie on: an outline
+    # edge within snap_tol of a side, and running along it, is moved onto it.
+    # Interior vertices never move, and a boundary vertex is never pulled along
+    # its side, so no triangle can collapse onto the outline.
+    faces = np.asarray(mesh.faces, dtype=np.int64)
+    if len(faces):
+        edges = np.sort(
+            np.concatenate([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]]),
+            axis=1,
+        )
+        keys, counts = np.unique(edges, axis=0, return_counts=True)
+        outline = keys[counts == 1]
+        a, b = vertices[outline[:, 0]], vertices[outline[:, 1]]
+        for axis, side in ((0, xmin), (0, xmax), (1, ymin), (1, ymax)):
+            other = 1 - axis
+            along = (
+                (np.abs(a[:, axis] - side) <= snap_tol)
+                & (np.abs(b[:, axis] - side) <= snap_tol)
+                & (np.abs(a[:, axis] - b[:, axis]) <= np.abs(a[:, other] - b[:, other]))
+            )
+            if np.any(along):
+                ends = np.unique(outline[along].ravel())
+                moved = ends[vertices[ends, axis] != side]
+                vertices[moved, axis] = side
+                changed[moved] = True
+        # A corner of the raster bounds takes the nearest outline vertex.
+        boundary_vertices = np.unique(outline.ravel())
+        for corner in ((xmin, ymin), (xmax, ymin), (xmax, ymax), (xmin, ymax)):
+            offset = np.abs(vertices[boundary_vertices, :2] - np.asarray(corner))
+            near = np.flatnonzero(np.all(offset <= snap_tol, axis=1))
+            if len(near) == 0:
+                continue
+            nearest = boundary_vertices[near[np.argmin(offset[near].sum(axis=1))]]
+            if tuple(vertices[nearest, :2]) != corner:
+                vertices[nearest, :2] = corner
+                changed[nearest] = True
 
     post_outside_mask = (
         (vertices[:, 0] < xmin - _RASTER_BOUNDARY_SNAP_MIN)
