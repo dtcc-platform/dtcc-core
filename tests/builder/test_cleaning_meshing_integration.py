@@ -1941,6 +1941,7 @@ def test_build_city_volume_mesh_uses_shared_surface_pipeline(monkeypatch):
 
     def fake_build_surface_from_ground(**kwargs):
         captured["surface_called"] = True
+        # A terrain-only shell: the closure check only inspects walls and roofs.
         return Mesh(
             vertices=np.array(
                 [
@@ -1950,7 +1951,7 @@ def test_build_city_volume_mesh_uses_shared_surface_pipeline(monkeypatch):
                 ]
             ),
             faces=np.array([[0, 1, 2]], dtype=int),
-            markers=np.array([0], dtype=int),
+            markers=np.array([-1], dtype=int),
         )
 
     def fake_tetgen_build(**kwargs):
@@ -2098,6 +2099,7 @@ def test_build_city_volume_mesh_stage_audit_records_stage_contracts(monkeypatch)
         )
 
     def fake_build_surface_from_ground(**kwargs):
+        # A terrain-only shell: the closure check only inspects walls and roofs.
         return Mesh(
             vertices=np.array(
                 [
@@ -2107,7 +2109,7 @@ def test_build_city_volume_mesh_stage_audit_records_stage_contracts(monkeypatch)
                 ]
             ),
             faces=np.array([[0, 1, 2]], dtype=int),
-            markers=np.array([0], dtype=int),
+            markers=np.array([-1], dtype=int),
         )
 
     def fake_plc_audit(**kwargs):

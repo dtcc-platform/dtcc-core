@@ -1000,6 +1000,153 @@ def _triangle_mesh_contract_from_audit(
     )
 
 
+def _shell_closure_audit(mesh: Mesh, *, num_buildings: int) -> dict[str, Any]:
+    """Check that a city surface mesh closes around its buildings.
+
+    The terrain with its building holes, the walls and the roofs must form one
+    oriented 2-manifold whose only boundary is the outline of the domain:
+
+    * ``open_interior_edges``: edges with one face away from the domain
+      outline (cracks);
+    * ``nonmanifold_edges``: edges with more than two faces;
+    * ``inconsistent_edges``: edges whose two faces disagree on orientation;
+    * ``buried_wall_faces``: wall faces whose outer side lies inside another
+      building, i.e. below a roof. Edge counts alone miss these: two
+      buildings with full-height walls on a shared edge overlap without
+      sharing their wall edges.
+
+    Walls carry markers ``0 <= m < num_buildings`` and roofs
+    ``num_buildings + m``, as built by the C++ shell builder. Only edges of
+    wall and roof faces are checked, so terrain defects elsewhere (such as
+    degenerate faces along the domain outline) are not reported here.
+    """
+    import shapely
+
+    vertices = np.asarray(mesh.vertices, dtype=np.float64)
+    faces = np.asarray(mesh.faces, dtype=np.int64)
+    report = {
+        "open_interior_edges": 0,
+        "nonmanifold_edges": 0,
+        "inconsistent_edges": 0,
+        "buried_wall_faces": 0,
+        "closed": True,
+    }
+    if faces.ndim != 2 or len(faces) == 0 or vertices.ndim != 2:
+        return report
+
+    directed = np.concatenate([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]])
+    forward = directed[:, 0] < directed[:, 1]
+    undirected = np.sort(directed, axis=1)
+    keys, inverse, counts = np.unique(
+        undirected, axis=0, return_inverse=True, return_counts=True
+    )
+    inverse = np.asarray(inverse).reshape(-1)
+    forward_count = np.bincount(inverse, weights=forward, minlength=len(keys))
+    markers = getattr(mesh, "markers", None)
+    has_markers = markers is not None and len(markers) == len(faces)
+    if has_markers:
+        markers = np.asarray(markers, dtype=np.int64)
+    if has_markers and num_buildings > 0:
+        building_face = (markers >= 0) & (markers < 2 * num_buildings)
+        checked = np.zeros(len(keys), dtype=bool)
+        checked[inverse[np.tile(building_face, 3)]] = True
+    else:
+        checked = np.ones(len(keys), dtype=bool)
+    # An edge lies on the domain outline when both ends lie on the same side
+    # of the bounding box.
+    xy = vertices[:, :2]
+    lower, upper = xy.min(axis=0), xy.max(axis=0)
+    scale = max(1.0, float(np.abs(xy).max()))
+    sides = np.concatenate(
+        [np.abs(xy - lower) <= 1e-9 * scale, np.abs(xy - upper) <= 1e-9 * scale], axis=1
+    )
+    on_outline = np.any(sides[keys[:, 0]] & sides[keys[:, 1]], axis=1)
+    single = checked & (counts == 1)
+    report["open_interior_edges"] = int(np.count_nonzero(single & ~on_outline))
+    report["nonmanifold_edges"] = int(np.count_nonzero(checked & (counts > 2)))
+    report["inconsistent_edges"] = int(
+        np.count_nonzero(checked & (counts == 2) & (forward_count != 1))
+    )
+
+    if has_markers and num_buildings > 0:
+        walls = faces[(markers >= 0) & (markers < num_buildings)]
+        roofs = faces[(markers >= num_buildings) & (markers < 2 * num_buildings)]
+        if len(walls) and len(roofs):
+            wall_points = vertices[walls]
+            normals = np.cross(
+                wall_points[:, 1] - wall_points[:, 0], wall_points[:, 2] - wall_points[:, 0]
+            )[:, :2]
+            lengths = np.linalg.norm(normals, axis=1)
+            vertical = lengths > 0.0
+            centers = wall_points.mean(axis=1)[vertical]
+            outward = normals[vertical] / lengths[vertical, None]
+            # Step just outside the wall, then look for a roof above that point.
+            probes = shapely.points(centers[:, :2] + 1.0e-4 * outward)
+            roof_points = vertices[roofs]
+            rings = np.concatenate([roof_points[:, :, :2], roof_points[:, :1, :2]], axis=1)
+            tree = shapely.STRtree(shapely.polygons(rings))
+            probe_index, roof_index = tree.query(probes, predicate="intersects")
+            roof_z = roof_points[:, :, 2].max(axis=1)
+            tolerance = 1.0e-9 * np.maximum(1.0, np.abs(centers[probe_index, 2]))
+            buried = roof_z[roof_index] > centers[probe_index, 2] + tolerance
+            report["buried_wall_faces"] = int(len(np.unique(probe_index[buried])))
+
+    report["closed"] = not any(
+        report[key]
+        for key in (
+            "open_interior_edges",
+            "nonmanifold_edges",
+            "inconsistent_edges",
+            "buried_wall_faces",
+        )
+    )
+    return report
+
+
+def _welded_mesh(meshes: Sequence[Mesh]) -> Mesh:
+    """Concatenate meshes and merge exactly coincident vertices."""
+    vertices = [np.asarray(mesh.vertices, dtype=np.float64) for mesh in meshes]
+    offsets = np.cumsum([0, *(len(v) for v in vertices)])[:-1]
+    faces = [
+        np.asarray(mesh.faces, dtype=np.int64) + offset
+        for mesh, offset in zip(meshes, offsets)
+    ]
+    markers = [np.asarray(mesh.markers, dtype=np.int64) for mesh in meshes]
+    unique, inverse = np.unique(np.concatenate(vertices), axis=0, return_inverse=True)
+    return Mesh(
+        vertices=unique,
+        faces=np.asarray(inverse).reshape(-1)[np.concatenate(faces)],
+        markers=np.concatenate(markers),
+    )
+
+
+def _shell_closure_messages(closure: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """Errors (cracks, buried walls) and warnings (other defects) of a shell."""
+    errors: list[str] = []
+    warnings: list[str] = []
+    if closure.get("open_interior_edges", 0):
+        errors.append(
+            f"Surface shell has {closure['open_interior_edges']} open edge(s) inside "
+            "the domain (cracks between walls, roofs and terrain)."
+        )
+    if closure.get("buried_wall_faces", 0):
+        errors.append(
+            f"Surface shell has {closure['buried_wall_faces']} wall face(s) inside "
+            "another building (overlapping walls)."
+        )
+    if closure.get("nonmanifold_edges", 0):
+        warnings.append(
+            f"Surface shell has {closure['nonmanifold_edges']} edge(s) shared by more "
+            "than two faces."
+        )
+    if closure.get("inconsistent_edges", 0):
+        warnings.append(
+            f"Surface shell has {closure['inconsistent_edges']} edge(s) with "
+            "inconsistently oriented faces."
+        )
+    return errors, warnings
+
+
 def _surface_shell_contract_from_audit(
     surface_shell_audit: dict[str, Any],
     *,
@@ -1036,6 +1183,12 @@ def _surface_shell_contract_from_audit(
         )
 
     warnings = list(base_contract["warnings"])
+    closure = surface_shell_audit.get("closure")
+    if closure is not None:
+        closure_errors, closure_warnings = _shell_closure_messages(closure)
+        requirements["shell_closed"] = not closure_errors
+        errors.extend(closure_errors)
+        warnings.extend(closure_warnings)
     if (
         not preserve_surface_requested
         and not wall_faces_within_quality_bounds
@@ -1707,6 +1860,7 @@ def _surface_shell_stage_audit(
     shell_refinement_stats: dict[str, int | float | bool],
     transition_refinement_stats: dict[str, int | float | bool] | None = None,
     wall_refinement_stats: dict[str, int | float | bool] | None = None,
+    num_buildings: int | None = None,
 ) -> dict[str, Any]:
     faces = np.asarray(surface_mesh.faces, dtype=np.int64)
     markers = getattr(surface_mesh, "markers", None)
@@ -1738,6 +1892,10 @@ def _surface_shell_stage_audit(
     surface_shell_audit["tetgen_preserve_surface_requested"] = bool(
         preserve_surface_requested
     )
+    if num_buildings is not None:
+        surface_shell_audit["closure"] = _shell_closure_audit(
+            surface_mesh, num_buildings=num_buildings
+        )
     surface_shell_audit["contract"] = _surface_shell_contract_from_audit(
         surface_shell_audit,
         reference_length=reference_length,
@@ -1803,6 +1961,7 @@ def _build_tetgen_surface_shell_stage(
         shell_refinement_stats=shell_refinement_stats,
         transition_refinement_stats=transition_refinement_stats,
         wall_refinement_stats=wall_refinement_stats,
+        num_buildings=len(building_surfaces),
     )
 
     if refine_for_tetgen:
@@ -1833,6 +1992,7 @@ def _build_tetgen_surface_shell_stage(
             shell_refinement_stats=shell_refinement_stats,
             transition_refinement_stats=transition_refinement_stats,
             wall_refinement_stats=wall_refinement_stats,
+            num_buildings=len(building_surfaces),
         )
 
     if refine_for_tetgen:
@@ -3958,6 +4118,28 @@ def build_city_surface_mesh(
             smoothing=smoothing,
             merge_meshes=merge_meshes,
         )
+        closure = _shell_closure_audit(
+            result_mesh if merge_meshes else _welded_mesh(result_mesh),
+            num_buildings=len(building_surfaces),
+        )
+        closure_errors, closure_warnings = _shell_closure_messages(closure)
+        # A surface mesh is also used for visualization: report, do not fail.
+        for message in [*closure_errors, *closure_warnings]:
+            warning(message)
+        if attempt is not None:
+            _record_stage_audit_stage(
+                attempt,
+                "surface_shell",
+                {
+                    "closure": closure,
+                    "contract": _stage_contract_result(
+                        requirements={"shell_closed": bool(closure["closed"])},
+                        errors=[],
+                        warnings=[*closure_errors, *closure_warnings],
+                        metrics=closure,
+                    ),
+                },
+            )
         report_progress(percent=100, message="City surface mesh complete")
 
         if report_mesh_quality:
