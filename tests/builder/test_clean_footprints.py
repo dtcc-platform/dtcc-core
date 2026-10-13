@@ -75,16 +75,21 @@ def test_touching_buildings_become_a_block_whose_parts_are_the_originals():
     assert [p.attributes["name"] for p in parts] == ["A", "B"]
     assert [p.measured_height for p in parts] == [6.5, None]
     assert [p.estimated_height for p in parts] == [6, 30]
-    assert all(p.get_geometry(GeometryType.LOD0) is None for p in parts)
+    # Each part keeps its own footprint, at its own roof.
+    assert footprint(parts[0]).equals(box(10, 10, 30, 25))
+    assert footprint(parts[1]).equals(box(30, 10, 40, 25))
+    assert [p.get_geometry(GeometryType.LOD0).zmax for p in parts] == [6, 30]
     # Until meshing uses the parts, the roofs span more than 2 m, so the
     # block keeps the highest roof instead of an average.
     assert block.estimated_height == 30
     assert block.measured_height is None
     assert block.get_geometry(GeometryType.LOD0).zmax == 30
     assert footprint(block).equals(box(10, 10, 40, 25))
+    assert block.footprint().to_polygon(simplify=0.0).equals(box(10, 10, 40, 25))
     record = cleaned.attributes[RECORD_KEY]
     assert record["merged_count"] == 1
     assert record["single_height_merged_roofs"] == 1
+    assert record["walls"]["strict"] == 1
     assert cleaned.terrain is not city.terrain
     assert cleaned.terrain.raster is not None
 
@@ -166,6 +171,10 @@ def test_cleaning_a_cleaned_city_changes_nothing():
         b.estimated_height for b in once.buildings
     ]
     assert twice.attributes[RECORD_KEY]["outcome"] == "unchanged"
+    parts = [(p.id, footprint(p)) for b in once.buildings for p in b.building_parts]
+    again = [(p.id, footprint(p)) for b in twice.buildings for p in b.building_parts]
+    assert [i for i, _ in again] == [i for i, _ in parts] == ["a", "b"]
+    assert all(x.equals_exact(y, 0.0) for (_, x), (_, y) in zip(parts, again))
 
 
 def test_merging_blocks_again_lifts_their_parts():
@@ -182,6 +191,11 @@ def test_merging_blocks_again_lifts_their_parts():
     assert [p.id for p in block.building_parts] == ["a", "b", "c"]
     assert block.attributes[MERGED_FROM_KEY] == ["a", "b", "c"]
     assert all(not p.building_parts for p in block.building_parts)
+    # The new block is divided by the old parts' footprints and c; the gap
+    # between b and c is split in the middle.
+    pieces = [footprint(p) for p in block.building_parts]
+    expected = [box(0, 0, 10, 10), box(10, 0, 20.4, 10), box(20.4, 0, 30, 10)]
+    assert all(p.symmetric_difference(q).area < 1e-9 for p, q in zip(pieces, expected))
 
 
 def test_building_shortcut_cleans_one_building_in_isolation():
@@ -215,6 +229,11 @@ def test_record_tracks_footprints_but_not_heights(tmp_path):
 
     loaded.add_building(building("new", box(50, 0, 60, 10), 10))
     assert cleaning_record(loaded, min_building_detail=0.5) is None
+
+    # Part footprints are part of the fingerprint.
+    moved = io.load_model(path)
+    moved.buildings[0].building_parts[0].get_geometry(GeometryType.LOD0).translate(x=0.1)
+    assert cleaning_record(moved, min_building_detail=0.5) is None
 
 
 def test_strict_cleaning_does_not_accept_residual_separation(monkeypatch):

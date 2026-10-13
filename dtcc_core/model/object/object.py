@@ -570,6 +570,13 @@ class Object(Model):
                 if geom is None and child_geom is not None:
                     geom = child_geom.copy(geometry_only=True)
                 elif child_geom is not None:
+                    # Surfaces have no merge; several are a MultiSurface.
+                    if isinstance(geom, Surface):
+                        geom = MultiSurface(surfaces=[geom])
+                    if isinstance(geom, MultiSurface) and isinstance(child_geom, Surface):
+                        child_geom = MultiSurface(
+                            surfaces=[child_geom.copy(geometry_only=True)]
+                        )
                     geom.merge(child_geom)
         return geom
 

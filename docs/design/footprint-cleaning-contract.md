@@ -316,6 +316,40 @@ The public outcome is one of the note's three outcomes, or the zero-scale mode:
 that the problem is infeasible. Warning results keep the failed contract report;
 smaller mesh elements and higher mesh cost are possible.
 
+## Walls between merged buildings
+
+A second stage divides every region supported by several buildings into cells,
+one set per building, by walls along the boundaries between the buildings
+(`dtcc_core/builder/cleaning/walls.py`). The region boundary from the first stage
+never moves. Every building is a label; where buildings overlap, the taller one
+wins, then the larger, then the first, and V_c is the part of building c that no
+earlier building covers. The cells Q^(c) satisfy the identity fidelity condition
+
+    V_c^{-epsilon} ⊆ Q^(c) ⊆ V_c^{+epsilon}
+
+at the budget of the region's merge group, so a building may lose its cell only
+if V_c^{-epsilon} is empty. The cells must keep the incident-sector profile, and
+the walls must not add a feature pair closer than delta: every such pair of the
+labelled subdivision must be a pair of the region boundary alone.
+`check_labelled_contract` in `contract.py` checks this independently.
+
+The construction starts from the exact labelling (each point of the input gets
+the label of its V_c, material added by the first stage the nearest label),
+keeps it if it conforms, and otherwise simplifies the walls with the region
+boundary fixed and repairs them site by site. Each edit must keep (2L) and
+reduce the defects: sectors below 1 degree at vertices the walls add or change,
+then wall pairs closer than delta, then their total deficit. If defects remain,
+the repair is retried once at the retry budget.
+
+| Outcome | Result |
+| --- | --- |
+| `strict` | The walls add no defect; every building keeps its cell |
+| `warning` | Only wall pairs closer than delta remain; cells are kept and a warning is logged |
+| `fallback` | No acceptable walls; the block keeps one footprint and a warning is logged |
+
+With `strict=True`, a wall warning becomes a fallback. Cleaning never fails
+because of walls.
+
 ## Selection and handoff
 
 Cleaning returns buildings, one per cleaned region:
@@ -327,8 +361,17 @@ city = city.clean_footprints(min_building_detail=0.5, min_area=15.0)
 A region that is the cleaned footprint of exactly one building is that building
 with its new LOD0 footprint (ID, attributes, heights and children kept). Any
 other region is a new block whose `BuildingPart` children are the buildings that
-support it; `attributes["merged_from"]` lists their IDs. LOD1-LOD3 geometry is
-removed because it no longer matches the footprint.
+support it; `attributes["merged_from"]` lists their IDs. The block's LOD0 is its
+region, and each part's LOD0 is its cell (a `MultiSurface` if the cell has
+several pieces) at the part's own roof. The cells tile the region; walls ending
+on its edges add vertices there. A part without a cell, or every part of a
+fallback block, has no LOD0. LOD1-LOD3 geometry is removed because it no longer
+matches the footprint.
+
+A cleaned block is cleaned again from its own footprint, divided by its parts'
+footprints, so cleaning a cleaned city changes nothing. Heights can be computed
+per part afterwards: `extract_roof_points`, `compute_building_heights` and
+`set_building_heights_from_attribute` work on the parts of cleaned blocks.
 
 Area selection (`min_area`) is an explicit operation after cleaning. It keeps
 regions of at least `min_area` without moving them and reports the excluded
@@ -338,7 +381,9 @@ selection after cleaning.
 A cleaned city records the cleaning in `city.attributes["footprint_cleaning"]`:
 the scale, mode, outcome, the compact contract report before selection
 (admissibility, fidelity and budget), the mesher-input profile status, the
-excluded buildings and a fingerprint of the building IDs and XY footprints. The
+wall outcomes (counts, and the part IDs of warning and fallback blocks), the
+excluded buildings and a fingerprint of the building and part IDs and XY
+footprints. The
 mesh builders reuse a valid record (same scale, unison, unchanged footprints)
 instead of cleaning again. Setting heights does not invalidate it.
 

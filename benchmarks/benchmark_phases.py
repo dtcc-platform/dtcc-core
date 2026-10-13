@@ -29,7 +29,7 @@ from dtcc_core.datasets._city_mesh_common import (
 from benchmarks.benchmark_catalog import CLEANING_PARAMETERS
 
 # Format version of saved cleaning artifacts; loading rejects any other.
-ARTIFACT_VERSION = 3
+ARTIFACT_VERSION = 4
 PREPARATION_PARAMETERS = (
     "raster_cell_size",
     "raster_radius",

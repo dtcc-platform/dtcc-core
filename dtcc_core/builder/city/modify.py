@@ -22,8 +22,9 @@ def clean_footprints(
     Shortcut for :func:`dtcc_core.builder.clean_footprints` on a city. By
     default the city is cleaned in unison: footprints closer than
     ``min_building_detail`` are merged into blocks whose ``BuildingPart``
-    children are the original buildings. With ``isolated=True`` each building
-    is cleaned on its own and nothing is merged.
+    children are the original buildings, each with its own cleaned footprint.
+    With ``isolated=True`` each building is cleaned on its own and nothing is
+    merged.
 
     Parameters
     ----------
