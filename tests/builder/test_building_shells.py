@@ -190,3 +190,88 @@ def test_surface_shell_contract_rejects_an_open_or_buried_shell():
     assert contract["requirements"]["shell_closed"] is False
     assert any("inside another building" in message for message in contract["errors"])
     assert any("more than two faces" in message for message in contract["warnings"])
+
+
+TOUCHING_VOLUME_CASES = {
+    "step": ([box(10, 10, 30, 25), box(30, 10, 40, 25)], [6.0, 30.0]),
+    "equal": ([box(10, 10, 30, 25), box(30, 10, 40, 25)], [12.0, 12.0]),
+    "terrace": ([box(5 + 10 * i, 10, 15 + 10 * i, 25) for i in range(4)], [9.0, 9.0, 15.0, 6.0]),
+    "tower_in_podium": (
+        [box(5, 5, 45, 30).difference(box(15, 10, 27, 22)), box(15, 10, 27, 22)],
+        [10.0, 45.0],
+    ),
+}
+
+
+@pytest.mark.parametrize("name", sorted(TOUCHING_VOLUME_CASES))
+def test_volume_mesh_of_touching_buildings(monkeypatch, name):
+    """TetGen meshes the air around touching buildings with step walls.
+
+    The cleaner merges touching buildings, so they are handed to the volume
+    builder as separate footprints. With overlapping full-height walls (before
+    step walls) TetGen rejected these shells as self-intersecting.
+    """
+    from dtcc_core.builder import build_city_volume_mesh
+    from dtcc_core.builder.cleaning.contract import (
+        check_cleaning_contract,
+        check_mesher_handoff_profile,
+    )
+    from dtcc_core.builder.meshing.tetgen import is_tetgen_available
+    from dtcc_core.model import City, GeometryType, Terrain
+
+    if not is_tetgen_available():
+        pytest.skip("TetGen is not available")
+    pytest.importorskip("dtcc_mesher")
+    polygons, heights = TOUCHING_VOLUME_CASES[name]
+    xmin, ymin, xmax, ymax = unary_union(polygons).buffer(15.0, join_style=2).bounds
+    raster = Raster()
+    raster.data = np.zeros((int(round((ymax - ymin) / 2)), int(round((xmax - xmin) / 2))))
+    raster.set_bounds(Bounds(xmin, ymin, xmax, ymax))
+    terrain = Terrain()
+    terrain.add_geometry(raster, GeometryType.RASTER)
+    city = City()
+    city.add_terrain(terrain)
+
+    surfaces = []
+    for polygon, height in zip(polygons, heights):
+        surface = Surface()
+        surface.from_polygon(polygon, height)
+        surfaces.append(surface)
+    contract = check_cleaning_contract(polygons, polygons, delta=0.5)
+    contract["mesher_profile"] = check_mesher_handoff_profile(polygons)
+    diagnostics = {
+        "before_selection_contract": contract,
+        "mesher_profile": contract["mesher_profile"],
+    }
+    footprints = meshes._MeshingFootprints(
+        surfaces=surfaces,
+        source_map=[[i] for i in range(len(polygons))],
+        subdomain_resolution=[5.0] * len(polygons),
+        diagnostics=diagnostics,
+        declared_scale=0.5,
+        contract=meshes._conditioned_footprint_contract(
+            surfaces=surfaces, min_building_detail=0.5, diagnostics=diagnostics
+        ),
+    )
+    monkeypatch.setattr(
+        meshes,
+        "_prepare_city_meshing_inputs",
+        lambda *args, **kwargs: (terrain, raster, footprints),
+    )
+
+    domain_height = 60.0
+    volume_mesh = build_city_volume_mesh(
+        city,
+        max_mesh_size=5.0,
+        domain_height=domain_height,
+        report_mesh_quality=False,
+        mesher="dtcc_mesher",
+    )
+
+    points = np.asarray(volume_mesh.vertices)[np.asarray(volume_mesh.cells)]
+    a, b, c = (points[:, i] - points[:, 0] for i in (1, 2, 3))
+    volume = np.abs(np.einsum("ij,ij->i", a, np.cross(b, c))).sum() / 6.0
+    air = (xmax - xmin) * (ymax - ymin) * domain_height - sum(
+        polygon.area * height for polygon, height in zip(polygons, heights)
+    )
+    assert volume == pytest.approx(air, rel=1e-9)
