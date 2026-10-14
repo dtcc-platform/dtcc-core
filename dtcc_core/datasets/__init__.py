@@ -51,6 +51,7 @@ from .transit_vehicles import (
     FerriesDataset,
 )
 from .deso import DeSODataset
+from .built_up import BuiltUpDataset
 from .smoke import SmokeDataset
 from .calibration_grid import CalibrationGridDataset
 
@@ -102,6 +103,7 @@ trains = get_dataset("trains")
 metros = get_dataset("metros")
 ferries = get_dataset("ferries")
 deso = get_dataset("deso")
+built_up = get_dataset("built_up")
 smoke = get_dataset("smoke")
 calibration_grid = get_dataset("calibration_grid")
 
