@@ -153,6 +153,21 @@ def test_min_area_and_missing_footprints_are_reported_by_id():
     ]
 
 
+def test_a_building_without_an_occupied_core_is_reported_when_it_vanishes():
+    # A 0.3 m triangle next to a house has no core at epsilon = 0.25 m.
+    from shapely.geometry import Polygon
+
+    city = city_of(
+        building("house", box(0, 0, 10, 10), 10),
+        building("speck", Polygon([(10.3, 2), (10.6, 2), (10.3, 2.3)]), 5),
+    )
+    cleaned = city.clean_footprints()
+    assert [b.id for b in cleaned.buildings] == ["house"]
+    assert cleaned.attributes[RECORD_KEY]["excluded"] == [
+        {"ids": ["speck"], "area": pytest.approx(0.045), "reason": "no_protected_core"}
+    ]
+
+
 def test_cleaning_a_cleaned_city_changes_nothing():
     city = city_of(
         building("a", box(0, 0, 10, 10), 10),

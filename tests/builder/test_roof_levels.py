@@ -14,7 +14,11 @@ def test_grouped_levels_move_at_most_half_the_resolution_and_keep_their_order():
     for _ in range(2000):
         n = int(rng.integers(1, 9))
         delta = float(rng.choice([0.25, 0.5, 1.0]))
-        levels = np.cumsum(rng.uniform(0, 1.5 * delta, n)) + 5.0
+        steps = rng.uniform(0, 1.5 * delta, n)
+        if rng.random() < 0.5:
+            # Levels on a grid of delta / 4 hit differences of exactly delta.
+            steps = np.floor(steps / (delta / 4)) * (delta / 4)
+        levels = np.cumsum(steps) + 5.0
         rng.shuffle(levels)
         areas = rng.uniform(1, 500, n)
         grouped = np.asarray(group_levels(levels, areas, delta))
@@ -37,6 +41,8 @@ def test_grouped_levels_example_and_exact_values():
     )
     assert group_levels([12.0, 12.0, 30.0], [1, 2, 3], 0.5) == [12.0, 12.0, 30.0]
     assert group_levels([12.0, 12.3], [1, 2], 0.0) == [12.0, 12.3]
+    # Levels exactly delta apart stay apart.
+    assert group_levels([9.0, 9.5, 10.0], [1, 1, 1], 0.5) == [9.0, 9.5, 10.0]
 
 
 def test_cells_of_one_level_are_dissolved():

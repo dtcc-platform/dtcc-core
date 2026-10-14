@@ -413,6 +413,13 @@ def clean_regions(
         "missing_footprint_ids": [buildings[index].id for index in missing],
         "excluded": _excluded_ids(buildings, sources, diagnostics),
     }
+    vanished = _vanished_ids(buildings, sources, output_sources, missing, diagnostics)
+    record["excluded"].extend(vanished)
+    if vanished:
+        warning(
+            f"Footprint cleaning: {len(vanished)} building(s) without an occupied core "
+            f"at {delta:g} m have no cleaned footprint (see the cleaning record)."
+        )
     if isolated:
         record["outcomes"] = diagnostics.get("outcomes", {})
     walls = record["walls"]
@@ -1021,6 +1028,28 @@ def _excluded_ids(buildings, sources, diagnostics) -> list[dict[str, Any]]:
                 "reason": exclusion["reason"],
             }
         )
+    return rows
+
+
+def _vanished_ids(buildings, sources, output_sources, missing, diagnostics) -> list[dict[str, Any]]:
+    """Buildings that have a footprint but no cleaned region and no exclusion.
+
+    The fidelity budget lets a building without an occupied core after erosion
+    disappear; this accounts for every such building by ID.
+    """
+    accounted = {index for group in output_sources for index in group} | set(missing)
+    selection = diagnostics.get("selection", {})
+    for exclusion in [
+        *selection.get("excluded_regions", []),
+        *diagnostics.get("policy_exclusions", []),
+    ]:
+        accounted |= {sources[index].building for index in exclusion["source_indices"]}
+    rows = []
+    for index, building in enumerate(buildings):
+        if index in accounted:
+            continue
+        area = sum(source.area for source in sources if source.building == index)
+        rows.append({"ids": [building.id], "area": float(area), "reason": "no_protected_core"})
     return rows
 
 

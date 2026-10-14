@@ -4391,13 +4391,13 @@ def build_city_surface_mesh(
     `min_building_area` : float, optional
         The smallest cleaned building to include, by default 15.0.
     `max_mesh_size` : float, optional
-        The maximum size of the mesh, by default 1.0.
+        The maximum size of the mesh, by default 10.0.
     `min_mesh_angle` : float, optional
-        The minimum angle of the mesh, by default 30.0.
+        The minimum angle of the mesh, by default 25.0.
     `merge_meshes` : bool, optional
         Whether to merge the meshes to a single mesh, by default True.
-    `smoothing` : float, optional
-        The smoothing of the mesh, by default 0.0.
+    `smoothing` : int, optional
+        The smoothing of the mesh, by default 0.
     `mesher` : {"auto", "dtcc_mesher", "triangle"}, optional
         Select the 2D meshing backend used to build the ground/surface
         triangulation. ``"auto"`` prefers ``dtcc_mesher`` when available,

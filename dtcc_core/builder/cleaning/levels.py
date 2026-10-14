@@ -6,7 +6,7 @@ the height estimates. Before meshing, the roof levels of each block are
 therefore grouped (:func:`group_levels`):
 
 * sort the levels and group them greedily from the lowest, each group spanning
-  at most delta;
+  less than delta;
 * give the groups, in increasing order, the values
 
       eta_c = max(clamp(w_c, [max_c - delta / 2, min_c + delta / 2]), eta_{c-1} + delta),
@@ -18,9 +18,9 @@ levels end up at least delta apart; levels at least delta apart are never
 unified. Walls between cells of the same level are then dissolved
 (:func:`level_regions`), which never adds a feature pair or a small sector.
 
-The union of the extruded regions is a manifold solid only if every level set
-Q_t, the union of the regions with roofs at or above t, is a 2-manifold with
-boundary (the level-union profile). :func:`pinched_levels` reports the level
+The union of the extruded regions is a 3-manifold with boundary if and only
+if every level set Q_t, the union of the regions with roofs at or above t, is
+a 2-manifold with boundary (the level-union profile). :func:`pinched_levels` reports the level
 sets where regions touch at a point only, which gives a vertical line contact
 between buildings.
 """
@@ -49,7 +49,7 @@ def group_levels(
     areas : sequence of float
         Their footprint areas, the weights of the group means.
     delta : float
-        Vertical resolution; zero groups equal levels only.
+        Vertical resolution; with zero, only equal levels get one value.
 
     Returns
     -------
@@ -65,7 +65,7 @@ def group_levels(
     previous = -np.inf
     start = 0
     for end in range(1, len(levels) + 1):
-        if end < len(levels) and sorted_levels[end] <= sorted_levels[start] + delta:
+        if end < len(levels) and sorted_levels[end] < sorted_levels[start] + delta:
             continue
         members = order[start:end]
         low, high = sorted_levels[start], sorted_levels[end - 1]
