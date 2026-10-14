@@ -19,6 +19,7 @@ from dtcc_core.builder.cleaning.blocks import (
     SOURCE_ID_KEY,
     WALLS_KEY,
     block_walls,
+    set_part_roof,
     source_footprint,
     source_ids,
 )
@@ -301,3 +302,23 @@ def test_a_block_read_back_without_part_attributes_is_divided_by_its_parts(tmp_p
     again = loaded.clean_footprints().buildings[0]
     assert sorted(p.lod0.zmax for p in again.building_parts) == [10.0, 20.0]
     assert all(source_footprint(p) is not None for p in again.building_parts)
+
+
+def test_new_roofs_keep_walls_unless_they_change_the_winner_of_an_overlap():
+    cleaned = city_of(
+        building("a", box(0, 0, 10, 10), 10.0),
+        building("b", box(10, 0, 20, 10), 20.0),
+        building("c", box(19.5, 0, 30, 10), 15.0),
+    ).clean_footprints()
+    block = cleaned.buildings[0]
+    parts = parts_by_id(block)
+    assert block.attributes[WALLS_KEY]["order"] == ["b", "c", "a"]
+    # a overlaps nothing: its new roof changes the order but not the walls.
+    set_part_roof(parts["a"], 25.0)
+    assert block_walls(block).current
+    # c above b changes the winner of their overlap.
+    set_part_roof(parts["c"], 22.0)
+    walls = block_walls(block)
+    assert not walls.current
+    pieces = {block.building_parts[i].id: cell for cell, i in walls.cells}
+    assert pieces["c"].equals(box(19.5, 0, 30, 10))

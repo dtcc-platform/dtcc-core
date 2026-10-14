@@ -32,11 +32,12 @@ Precedence
 Walls record
     ``attributes["footprint_walls"]`` records the precedence order the cells
     were made with (part IDs), the parameters of the walls and a digest of the
-    cells. The walls of a block are *current* when its parts are in this order
-    and their footprints match the digest. Otherwise, after heights change the
-    order, they are recomputed from the source footprints with the recorded
-    parameters (:func:`block_walls`): by the next cleaning or meshing, by
-    :func:`update_walls` and by the LOD1 builder.
+    cells. The walls of a block are *current* when its parts' footprints match
+    the digest and every pair of overlapping sources is in the recorded order
+    (only overlaps depend on the order). Otherwise, after heights change the
+    winner of an overlap, they are recomputed from the source footprints with
+    the recorded parameters (:func:`block_walls`): by the next cleaning or
+    meshing, by :func:`update_walls` and by the LOD1 builder.
 """
 
 from __future__ import annotations
@@ -64,6 +65,8 @@ WALLS_KEY = "footprint_walls"
 # A block without walls whose source roofs span more than this gets the
 # highest roof instead of the area-weighted mean.
 FALLBACK_ROOF_SPAN_LIMIT = 2.0
+# Sources that share less area than this (square metres) do not overlap.
+_OVERLAP_AREA = 1.0e-6
 _RETRY_FACTOR = next(
     item.default for item in fields(ConditioningOptions) if item.name == "fidelity_retry_factor"
 )
@@ -314,9 +317,10 @@ def block_walls(building: Building) -> BlockWalls:
         raise ValueError(
             f"Block {building.id} has no walls record; blocks are made by clean_footprints."
         )
-    if record.get("order") == [str(parts[i].id) for i in order] and record.get(
-        "cells"
-    ) == walls_digest(parts):
+    ids = [str(parts[i].id) for i in order]
+    if record.get("cells") == walls_digest(parts) and _same_overlaps(
+        record.get("order"), ids, {str(parts[i].id): sources[i] for i in labels}
+    ):
         cells = [
             (piece, index)
             for index, part in enumerate(parts)
@@ -335,6 +339,32 @@ def block_walls(building: Building) -> BlockWalls:
     return BlockWalls(
         list(labelled.cells), labelled.outcome, order, rule, False, dict(labelled.report)
     )
+
+
+def _same_overlaps(recorded, order, sources) -> bool:
+    """Whether every pair of overlapping sources is in the same order.
+
+    Only overlaps depend on the order: with the same winner of every overlap,
+    every source has the same input partition, so cells made in the recorded
+    order meet the identity condition for the new one.
+    """
+    if not isinstance(recorded, list) or sorted(map(str, recorded)) != sorted(order):
+        return False
+    if recorded == order:
+        return True
+    old = {id: position for position, id in enumerate(recorded)}
+    new = {id: position for position, id in enumerate(order)}
+    ids = list(order)
+    tree = shapely.STRtree([sources[id] for id in ids])
+    for i, j in zip(*tree.query([sources[id] for id in ids], predicate="intersects")):
+        if i >= j:
+            continue
+        a, b = ids[i], ids[j]
+        if (old[a] < old[b]) == (new[a] < new[b]):
+            continue
+        if sources[a].intersection(sources[b]).area > _OVERLAP_AREA:
+            return False
+    return True
 
 
 def update_walls(building: Building) -> bool:

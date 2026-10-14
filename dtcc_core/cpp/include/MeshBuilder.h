@@ -202,7 +202,8 @@ public:
       const std::vector<int> meshing_directive,
       Mesh terrain_mesh,
       size_t smooth_ground = 0,
-      bool merge_meshes = true)
+      bool merge_meshes = true,
+      double min_wall_strip = 0.0)
   {
     auto build_city_surface_t = Timer("build_city_surface_mesh");
     const size_t num_buildings = buildings.size();
@@ -355,19 +356,25 @@ public:
     // Walls. An edge on the outline of a block gets a wall from the base to
     // the roof. An edge between two buildings of a block gets a step wall from
     // the lower roof to the higher, owned by the taller building, and none
-    // when the roofs are equal. All walls of a block are split at the same
-    // levels (the base, every roof, and strips between them), so walls and
-    // roofs meeting at a vertical line or a roof edge share their vertices.
+    // when the roofs are equal.
+    //
+    // Every wall on a vertical line (a footprint vertex) is split at the same
+    // levels there: the bottoms and tops of those walls, and strips between
+    // them no taller than 5 times the shortest wall edge at the vertex. A wall
+    // panel is triangulated between the levels of its two vertical lines. So
+    // walls and roofs that meet at a vertical line or a roof edge share their
+    // vertices, slender panels are subdivided, and a short edge refines only
+    // the walls at its ends. Strips are never lower than min_wall_strip, and
+    // a panel narrower than a fiftieth of it is left whole: no strip would
+    // give it triangles of quality 0.04 or more.
     std::map<size_t, std::vector<BuildingWall>> walls;
-    std::map<size_t, std::vector<double>> wall_levels;
+    std::unordered_map<size_t, std::vector<double>> line_keys;
+    std::unordered_map<size_t, double> line_width;
     for (const auto &block : blocks)
     {
       const double base = building_min_z[block.front()];
-      std::vector<double> levels = {base};
-      std::vector<double> horizontal_lengths;
       for (const auto marker : block)
       {
-        levels.push_back(roof_z[marker]);
         for (const auto &edge_face : MeshProcessor::find_naked_edges(building_faces[marker]))
         {
           const Simplex1D edge = edge_face.first;
@@ -387,13 +394,31 @@ public:
           const auto &v1 = terrain_mesh.vertices[edge.v1];
           const double horizontal_length =
               Geometry::distance_2d(Vector2D(v0.x, v0.y), Vector2D(v1.x, v1.y));
-          if (horizontal_length > Constants::epsilon)
-            horizontal_lengths.push_back(horizontal_length);
+          for (const size_t v : {static_cast<size_t>(edge.v0), static_cast<size_t>(edge.v1)})
+          {
+            auto &keys = line_keys[v];
+            keys.push_back(z0);
+            keys.push_back(roof_z[marker]);
+            if (horizontal_length > Constants::epsilon &&
+                50.0 * horizontal_length >= min_wall_strip)
+            {
+              auto inserted = line_width.emplace(v, horizontal_length);
+              if (!inserted.second)
+                set_min(inserted.first->second, horizontal_length);
+            }
+          }
         }
       }
-      const auto block_levels = subdivided_wall_levels(levels, horizontal_lengths);
-      for (const auto marker : block)
-        wall_levels[marker] = block_levels;
+    }
+    std::unordered_map<size_t, std::vector<double>> line_levels;
+    line_levels.reserve(line_keys.size());
+    for (auto &kv : line_keys)
+    {
+      const auto width = line_width.find(kv.first);
+      line_levels[kv.first] = subdivided_wall_levels(
+          std::move(kv.second),
+          width == line_width.end() ? 0.0 : width->second,
+          min_wall_strip);
     }
 
     for (const auto &kv : building_faces)
@@ -402,12 +427,11 @@ public:
       const auto &faces = kv.second;
       const auto roof_height = roof_z[marker];
       const auto &building_walls = walls[marker];
-      const auto &levels = wall_levels[marker];
 
       Mesh building_mesh;
-      building_mesh.vertices.reserve(faces.size() * 3 + building_walls.size() * 4 * levels.size());
-      building_mesh.faces.reserve(faces.size() + building_walls.size() * 2 * levels.size());
-      building_mesh.markers.reserve(faces.size() + building_walls.size() * 2 * levels.size());
+      building_mesh.vertices.reserve(faces.size() * 3 + building_walls.size() * 4);
+      building_mesh.faces.reserve(faces.size() + building_walls.size() * 2);
+      building_mesh.markers.reserve(faces.size() + building_walls.size() * 2);
 
       // add roofs
       for (const auto &face : faces)
@@ -440,13 +464,14 @@ public:
         const auto wall_normal = Geometry::triangle_normal(bottom_v0, bottom_v1, top_v1);
         const bool flip_orientation =
             Geometry::dot_3d(wall_normal, face_center - bottom_v0) > 0;
-        append_vertical_quad_levels(
+        append_wall_panel(
             building_mesh,
             ground_v0,
             ground_v1,
             wall.z0,
             wall.z1,
-            levels,
+            line_levels[wall.edge.v0],
+            line_levels[wall.edge.v1],
             static_cast<int>(marker),
             flip_orientation);
       }
@@ -621,21 +646,6 @@ private:
         "Unsupported 2D mesher '" + backend + "'. Expected one of: auto, triangle.");
   }
 
-  static size_t vertical_quad_strip_count(double horizontal_length,
-                                          double vertical_height,
-                                          double target_aspect_ratio = 15.0)
-  {
-    if (horizontal_length <= Constants::epsilon || vertical_height <= Constants::epsilon)
-      return 1;
-
-    const double target_height = horizontal_length * target_aspect_ratio;
-    if (target_height <= Constants::epsilon)
-      return 1;
-
-    return std::max<size_t>(
-        1, static_cast<size_t>(std::ceil(vertical_height / target_height)));
-  }
-
   // A wall of a building shell: the footprint edge, a face of the building
   // on that edge (to orient the wall outwards) and its bottom and top level.
   struct BuildingWall
@@ -701,32 +711,29 @@ private:
     return blocks;
   }
 
-  // The levels at which the walls of one block are split: the given levels
-  // (base and roofs), with every interval between consecutive levels split
-  // into strips. The shortest wall edge sets one strip height for the block,
-  // so the most slender wall panels are subdivided by construction (TetGen
-  // quality is dominated by preserved wall panels).
-  static std::vector<double>
-  subdivided_wall_levels(std::vector<double> levels,
-                         const std::vector<double> &horizontal_lengths)
+  // The levels at which the walls on one vertical line are split: the given
+  // levels (bottoms and tops of the walls), with every interval between
+  // consecutive levels split into equal strips no taller than 5 times the
+  // shortest wall edge at the line (width) that is refined, and no lower than
+  // min_strip. A zero width leaves the intervals whole.
+  static std::vector<double> subdivided_wall_levels(std::vector<double> levels,
+                                                    double width,
+                                                    double min_strip)
   {
     std::sort(levels.begin(), levels.end());
     levels.erase(std::unique(levels.begin(), levels.end()), levels.end());
-    const double shortest =
-        horizontal_lengths.empty()
-            ? 0.0
-            : *std::min_element(horizontal_lengths.begin(), horizontal_lengths.end());
-
     std::vector<double> subdivided;
     if (levels.empty())
       return subdivided;
+    const double strip = std::max(5.0 * width, min_strip);
     subdivided.push_back(levels.front());
     for (size_t i = 1; i < levels.size(); ++i)
     {
       const double lo = levels[i - 1];
       const double hi = levels[i];
-      const size_t strips =
-          horizontal_lengths.empty() ? 1 : vertical_quad_strip_count(shortest, hi - lo, 5.0);
+      size_t strips = 1;
+      if (width > Constants::epsilon && strip > Constants::epsilon)
+        strips = std::max<size_t>(1, static_cast<size_t>(std::ceil((hi - lo) / strip)));
       for (size_t step = 1; step < strips; ++step)
       {
         const double t = static_cast<double>(step) / static_cast<double>(strips);
@@ -737,48 +744,77 @@ private:
     return subdivided;
   }
 
-  // Append a vertical wall over the footprint edge (v0, v1) from level z0 to
-  // level z1, as one quad (two triangles) between each pair of consecutive
-  // levels in that range.
-  static void append_vertical_quad_levels(Mesh &mesh,
-                                          const Vector3D &v0,
-                                          const Vector3D &v1,
-                                          double z0,
-                                          double z1,
-                                          const std::vector<double> &levels,
-                                          int marker,
-                                          bool flip_orientation)
+  // Append a vertical wall panel over the footprint edge (v0, v1) from level
+  // z0 to level z1. Its sides are split at the levels of their vertical lines
+  // in that range (levels0 at v0, levels1 at v1), and the panel is
+  // triangulated between them, from the bottom up: each triangle advances the
+  // side whose next level is lower, and a quad is two triangles where both
+  // sides advance to the same level.
+  static void append_wall_panel(Mesh &mesh,
+                                const Vector3D &v0,
+                                const Vector3D &v1,
+                                double z0,
+                                double z1,
+                                const std::vector<double> &levels0,
+                                const std::vector<double> &levels1,
+                                int marker,
+                                bool flip_orientation)
   {
-    std::vector<double> zs;
-    for (const double z : levels)
+    const double lo = std::min(z0, z1);
+    const double hi = std::max(z0, z1);
+    if (!(hi > lo))
+      return;
+    const auto side = [&](const Vector3D &v, const std::vector<double> &levels)
     {
-      if (z >= std::min(z0, z1) && z <= std::max(z0, z1))
-        zs.push_back(z);
-    }
-    if (z0 > z1)
-      std::reverse(zs.begin(), zs.end());
-
-    for (size_t step = 0; step + 1 < zs.size(); ++step)
-    {
-      const auto base = mesh.vertices.size();
-      mesh.vertices.push_back(Vector3D(v0.x, v0.y, zs[step]));
-      mesh.vertices.push_back(Vector3D(v1.x, v1.y, zs[step]));
-      mesh.vertices.push_back(Vector3D(v0.x, v0.y, zs[step + 1]));
-      mesh.vertices.push_back(Vector3D(v1.x, v1.y, zs[step + 1]));
-
-      if (flip_orientation)
+      std::vector<size_t> indices;
+      indices.push_back(mesh.vertices.size());
+      mesh.vertices.push_back(Vector3D(v.x, v.y, lo));
+      for (const double z : levels)
       {
-        mesh.faces.push_back(Simplex2D(base, base + 3, base + 1));
-        mesh.faces.push_back(Simplex2D(base, base + 2, base + 3));
+        if (z > lo && z < hi)
+        {
+          indices.push_back(mesh.vertices.size());
+          mesh.vertices.push_back(Vector3D(v.x, v.y, z));
+        }
+      }
+      indices.push_back(mesh.vertices.size());
+      mesh.vertices.push_back(Vector3D(v.x, v.y, hi));
+      return indices;
+    };
+    const auto a = side(v0, levels0);
+    const auto b = side(v1, levels1);
+    const auto add = [&](size_t p, size_t q, size_t r)
+    {
+      // Unflipped, (v0 bottom, v1 bottom, v1 top) is the orientation of a quad.
+      if (flip_orientation)
+        mesh.faces.push_back(Simplex2D(p, r, q));
+      else
+        mesh.faces.push_back(Simplex2D(p, q, r));
+      mesh.markers.push_back(marker);
+    };
+    size_t i = 0;
+    size_t j = 0;
+    while (i + 1 < a.size() || j + 1 < b.size())
+    {
+      const double za = i + 1 < a.size() ? mesh.vertices[a[i + 1]].z : hi + 1.0;
+      const double zb = j + 1 < b.size() ? mesh.vertices[b[j + 1]].z : hi + 1.0;
+      if (za == zb)
+      {
+        add(a[i], b[j], b[j + 1]);
+        add(a[i], b[j + 1], a[i + 1]);
+        ++i;
+        ++j;
+      }
+      else if (za < zb)
+      {
+        add(a[i], b[j], a[i + 1]);
+        ++i;
       }
       else
       {
-        mesh.faces.push_back(Simplex2D(base, base + 1, base + 3));
-        mesh.faces.push_back(Simplex2D(base, base + 3, base + 2));
+        add(a[i], b[j], b[j + 1]);
+        ++j;
       }
-
-      mesh.markers.push_back(marker);
-      mesh.markers.push_back(marker);
     }
   }
 

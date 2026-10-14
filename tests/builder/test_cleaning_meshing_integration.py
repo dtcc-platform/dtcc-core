@@ -1673,6 +1673,7 @@ def test_build_city_surface_mesh_extrudes_every_cleaned_building(monkeypatch):
         terrain_mesh,
         smoothing,
         merge_meshes,
+        min_wall_strip,
     ):
         captured["lod_switches"] = building_lod_switches
         return [DummyCppMesh()]
@@ -2285,6 +2286,7 @@ def test_build_city_surface_mesh_from_ground_mesh_snaps_boundary_vertices(monkey
         meshing_directives=[],
         smoothing=0,
         merge_meshes=True,
+        min_wall_strip=0.5,
     )
 
     assert np.allclose(captured["aligned_vertices"][0], [0.0, 0.0, 0.0])
@@ -2556,6 +2558,7 @@ def test_build_city_surface_mesh_unmerged_components_are_compact():
         meshing_directives=surface_directives,
         smoothing=0,
         merge_meshes=False,
+        min_wall_strip=0.5,
     )
 
     assert len(components) == 2
@@ -4442,6 +4445,7 @@ def test_build_city_surface_mesh_flattens_extruded_building_bases_on_sloped_terr
         mesh_to_builder_mesh(terrain_mesh),
         0,
         True,
+        0.5,
     )
     mesh = builder_mesh_to_mesh(raw_meshes[0])
 

@@ -1,6 +1,7 @@
 """LOD1 per part and closed shells of cleaned blocks."""
 
 from collections import Counter
+import math
 
 import numpy as np
 import pytest
@@ -111,3 +112,67 @@ def test_shell_needs_a_roof_above_its_base():
         build_building_shell(value, base_z=5.0)
     with pytest.raises(ValueError, match="no LOD0 footprint"):
         build_building_shell(Building(id="empty"))
+
+
+def wall_levels(mesh):
+    """The z levels of the shell's vertices on each vertical line, by (x, y)."""
+    levels = {}
+    for x, y, z in np.round(np.asarray(mesh.vertices), 9):
+        levels.setdefault((x, y), set()).add(z)
+    return levels
+
+
+def quality(mesh):
+    from dtcc_core.model.mixins.mesh.quality import tri_element_quality
+
+    return tri_element_quality(np.asarray(mesh.vertices), np.asarray(mesh.faces))
+
+
+def panel_widths(mesh):
+    """The widths of the wall panels at each vertical line, by (x, y)."""
+    points = np.round(np.asarray(mesh.vertices), 9)[np.asarray(mesh.faces)]
+    normals = np.cross(points[:, 1] - points[:, 0], points[:, 2] - points[:, 0])
+    widths = {}
+    for triangle, normal in zip(points, normals):
+        if abs(normal[2]) > 1e-9 * np.linalg.norm(normal):
+            continue
+        lines = {(x, y) for x, y, _ in triangle}
+        if len(lines) == 2:
+            a, b = lines
+            for line in lines:
+                widths.setdefault(line, set()).add(math.dist(a, b))
+    return widths
+
+
+@pytest.mark.parametrize("notch", [0.5, 0.05, 0.005])
+def test_a_short_wall_edge_refines_only_the_walls_at_its_ends(notch):
+    from shapely.geometry import Polygon
+
+    footprint = Polygon(
+        [(0, 0), (20, 0), (20, 10), (10.5, 10), (10.5, 10 + notch), (0, 10 + notch)]
+    )
+    shell = build_building_shell(building("notched", footprint, 30), min_building_detail=0.5)
+    assert closed_and_oriented(shell)
+    # Each vertical line is split into strips no taller than 5 times its
+    # narrowest panel and no lower than 0.5 m; panels narrower than a
+    # fiftieth of 0.5 m are left whole.
+    levels = wall_levels(shell)
+    for line, widths in panel_widths(shell).items():
+        refined = [width for width in widths if 50 * width >= 0.5]
+        strips = math.ceil(30 / max(5 * min(refined), 0.5)) if refined else 1
+        assert len(levels[line]) == strips + 1, (line, sorted(widths))
+    if notch >= 0.01:
+        assert quality(shell).min() > 0.04
+        assert len(levels[(10.5, 10.0)]) >= math.ceil(30 / max(5 * notch, 0.5)) + 1
+
+
+def test_walls_of_a_block_conform_at_steps_with_unequal_edges():
+    block, _ = cleaned(
+        building("long", box(0, 0, 40, 10), 6),
+        building("tower", box(15, -5, 25.4, 15), 30),
+        building("solo", box(60, 0, 70, 10), 9),
+    )
+    shell = build_building_shell(block, min_building_detail=0.5)
+    assert closed_and_oriented(shell)
+    assert volume(shell) == pytest.approx(29.6 * 10 * 6 + 10.4 * 20 * 30)
+    assert quality(shell).min() > 0.04

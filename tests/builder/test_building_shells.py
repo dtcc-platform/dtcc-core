@@ -50,6 +50,7 @@ def shell(polygons, heights, *, terrain=None, merge_meshes=True):
         meshing_directives=[1] * len(polygons),
         smoothing=0,
         merge_meshes=merge_meshes,
+        min_wall_strip=0.5,
     )
 
 

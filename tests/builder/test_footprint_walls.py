@@ -186,12 +186,12 @@ def fallback(polygon, sources, order, **kwargs):
 def test_failed_walls_fall_back_to_one_footprint(monkeypatch, caplog):
     monkeypatch.setattr(blocks_module, "label_region", fallback)
     cleaned = city_of(
-        building("a", box(0, 0, 10, 10), 10), building("b", box(10, 0, 20, 10), 11)
+        building("a", box(0, 0, 10.2, 10), 10), building("b", box(10, 0, 20, 10), 11)
     ).clean_footprints()
     block = cleaned.buildings[0]
     assert all(p.get_geometry(GeometryType.LOD0) is None for p in block.building_parts)
     assert footprint(block).equals(box(0, 0, 20, 10))
-    assert block.estimated_height == pytest.approx(10.5)
+    assert block.estimated_height == pytest.approx((10 * 102 + 11 * 100) / 202)
     walls = cleaned.attributes[RECORD_KEY]["walls"]
     assert walls["fallback"] == 1 and walls["fallback_ids"] == [["a", "b"]]
     assert block.attributes[WALLS_KEY]["outcome"] == "fallback"
@@ -204,13 +204,17 @@ def test_failed_walls_fall_back_to_one_footprint(monkeypatch, caplog):
     assert again.attributes[RECORD_KEY]["walls"]["fallback"] == 1
     assert again.buildings[0].attributes[MERGED_FROM_KEY] == ["a", "b"]
 
-    # New roofs that change the order recompute the walls from the sources.
-    set_part_roof(parts_by_id(again.buildings[0])["a"], 12)
+    # New roofs that do not change the winner of the overlap keep the walls;
+    # new roofs that do recompute them from the sources.
+    set_part_roof(parts_by_id(again.buildings[0])["b"], 13)
+    assert again.clean_footprints().attributes[RECORD_KEY]["walls"]["fallback"] == 1
+    set_part_roof(parts_by_id(again.buildings[0])["a"], 14)
     third = again.clean_footprints()
     assert third.attributes[RECORD_KEY]["walls"]["strict"] == 1
     parts = parts_by_id(third.buildings[0])
-    assert footprint(parts["a"]).equals(box(0, 0, 10, 10))
-    assert parts["a"].get_geometry(GeometryType.LOD0).zmax == 12
+    assert footprint(parts["a"]).equals(box(0, 0, 10.2, 10))
+    assert footprint(parts["b"]).equals(box(10.2, 0, 20, 10))
+    assert parts["a"].get_geometry(GeometryType.LOD0).zmax == 14
 
 
 def test_strict_cleaning_falls_back_instead_of_wall_warnings(monkeypatch):

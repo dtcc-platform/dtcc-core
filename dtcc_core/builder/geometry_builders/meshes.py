@@ -1956,6 +1956,7 @@ def _build_tetgen_surface_shell_stage(
         meshing_directives=meshing_directives,
         smoothing=smoothing,
         merge_meshes=True,
+        min_wall_strip=reference_length,
     )
     transition_refinement_stats = _tetgen_shell_transition_refinement_disabled_stats()
     if refine_for_tetgen:
@@ -3045,7 +3046,13 @@ def _build_city_surface_mesh_from_ground_mesh(
     meshing_directives: list[int],
     smoothing: int,
     merge_meshes: bool,
+    min_wall_strip: float,
 ) -> Mesh | list[Mesh]:
+    """Terrain and building shells on a ground mesh.
+
+    Wall panels are split into strips no taller than 5 times the shortest
+    wall edge at their vertical lines, and no lower than ``min_wall_strip``.
+    """
     builder_dem = raster_to_builder_gridfield(terrain_raster)
     aligned_ground_mesh = _snap_ground_mesh_to_raster_bounds(ground_mesh, terrain_raster)
     builder_ground_mesh = mesh_to_builder_mesh(aligned_ground_mesh)
@@ -3065,6 +3072,7 @@ def _build_city_surface_mesh_from_ground_mesh(
         terrain_builder_mesh,
         smoothing,
         merge_meshes,
+        float(min_wall_strip),
     )
 
     if merge_meshes:
@@ -4167,6 +4175,7 @@ def build_building_shell(
         meshing_directives=[_EXTRUDE_DIRECTIVE] * len(surfaces),
         smoothing=0,
         merge_meshes=True,
+        min_wall_strip=float(min_building_detail),
     )
     markers = np.asarray(city_shell.markers, dtype=np.int64)
     keep = markers >= 0
@@ -4559,6 +4568,7 @@ def build_city_surface_mesh(
             meshing_directives=building_lod_switches,
             smoothing=smoothing,
             merge_meshes=merge_meshes,
+            min_wall_strip=conditioned_footprints.declared_scale,
         )
         closure = _shell_closure_audit(
             result_mesh if merge_meshes else _welded_mesh(result_mesh),
