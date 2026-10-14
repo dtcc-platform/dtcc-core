@@ -4,6 +4,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, List, Literal, Sequence
 import numpy as np
+import shapely
 from shapely import BufferJoinStyle
 from shapely.errors import GEOSException
 from shapely.geometry import GeometryCollection, LineString, MultiPolygon, Point, Polygon, box
@@ -13,6 +14,7 @@ from shapely.ops import polygonize, unary_union
 from ...model import (
     Bounds,
     Building,
+    Field,
     Mesh,
     Raster,
     VolumeMesh,
@@ -35,6 +37,7 @@ from .. import _dtcc_builder
 
 from ..cleaning.clean import (
     CleanedRegions,
+    clean_footprints,
     clean_regions,
     cleaning_record,
     footprint_cells,
@@ -4198,6 +4201,152 @@ def build_building_shell(
     )
 
 
+def _lowest_terrain(terrain_mesh: Mesh, tree, reach: float, polygon: Polygon) -> float | None:
+    """Lowest terrain under a footprint: the lowest terrain-mesh vertex within
+    one terrain edge length of it, so walls down to it meet the terrain."""
+    near = polygon.buffer(reach)
+    candidates = tree.query(near)
+    if len(candidates) == 0:
+        return None
+    vertices = np.asarray(terrain_mesh.vertices)[candidates]
+    inside = shapely.contains_xy(near, vertices[:, 0], vertices[:, 1])
+    if not np.any(inside):
+        return None
+    return float(vertices[inside, 2].min())
+
+
+def _isolated_surface_mesh(
+    city: City,
+    *,
+    lod,
+    min_building_detail: float,
+    min_building_area: float,
+    building_mesh_triangle_size: float,
+    max_mesh_size: float | None,
+    min_mesh_angle: float,
+    merge_meshes: bool,
+    smoothing: int,
+    mesher: str | None,
+) -> Mesh | list[Mesh]:
+    """Terrain mesh plus one shell per building cleaned in isolation (a soup)."""
+    from .terrain import build_terrain_surface_mesh
+    from ..meshing.tetgen import WATERTIGHT_FIELD
+
+    _terrain, terrain_raster = _require_city_terrain_raster(city, max_mesh_size=max_mesh_size)
+    if cleaning_record(city, min_building_detail=min_building_detail, lod=lod, isolated=True):
+        buildings = list(city.buildings)
+    else:
+        buildings = clean_footprints(
+            list(city.buildings),
+            min_building_detail=min_building_detail,
+            isolated=True,
+            lod=lod,
+        )
+    terrain_mesh = build_terrain_surface_mesh(
+        terrain_raster,
+        max_mesh_size=max_mesh_size or 10.0,
+        min_mesh_angle=min(min_mesh_angle, 33.0),
+        smoothing=smoothing,
+        report_mesh_quality=False,
+        mesher=mesher,
+    )
+    terrain_mesh.markers = np.full(len(terrain_mesh.faces), -2, dtype=np.int64)
+    points = np.asarray(terrain_mesh.vertices)
+    edges = points[np.asarray(terrain_mesh.faces)][:, [1, 2, 0], :2] - points[
+        np.asarray(terrain_mesh.faces)
+    ][:, :, :2]
+    reach = float(np.linalg.norm(edges, axis=2).max()) if len(edges) else 0.0
+    tree = shapely.STRtree(shapely.points(points[:, :2]))
+    domain = box(*_raster_bounds_tuple(terrain_raster))
+
+    shells: list[tuple[int, Mesh]] = []
+    outside = small = failed = 0
+    triangle_size = building_mesh_triangle_size if building_mesh_triangle_size > 0 else max_mesh_size
+    for index, building in enumerate(buildings):
+        footprint = building.get_geometry(GeometryType.LOD0)
+        polygon = footprint.to_polygon(simplify=0.0) if footprint is not None else None
+        if polygon is None or polygon.is_empty or polygon.area < min_building_area:
+            small += 1
+            continue
+        if not domain.contains(polygon):
+            outside += 1
+            continue
+        base_z = _lowest_terrain(terrain_mesh, tree, reach, polygon)
+        try:
+            shell = build_building_shell(
+                building,
+                base_z=base_z,
+                min_building_detail=min_building_detail,
+                max_mesh_size=triangle_size,
+                min_mesh_angle=min_mesh_angle,
+                floor=False,
+                mesher=mesher,
+            )
+        except ValueError as exc:
+            failed += 1
+            warning(f"No shell for building {building.id}: {exc}")
+            continue
+        shells.append((index, shell))
+    if outside:
+        warning(f"{outside} building(s) not inside the terrain domain were left out.")
+    debug(
+        f"Isolated surface mesh: {len(shells)} building shells "
+        f"({small} small or without footprint, {outside} outside, {failed} failed)"
+    )
+
+    # Region m of the whole mesh: walls m, roofs N + m.
+    counts = [(int(np.max(shell.markers)) + 1) // 2 for _, shell in shells]
+    total = sum(counts)
+    offset = 0
+    meshes_out = []
+    for (index, shell), count in zip(shells, counts):
+        markers = np.asarray(shell.markers, dtype=np.int64)
+        roofs = markers >= count
+        markers = np.where(roofs, total + offset + markers - count, offset + markers)
+        shell.markers = markers
+        shell.fields.append(
+            Field(name="building", values=np.full(len(markers), float(index)), association="face")
+        )
+        meshes_out.append(shell)
+        offset += count
+    terrain_mesh.fields.append(
+        Field(name="building", values=np.full(len(terrain_mesh.faces), -1.0), association="face")
+    )
+    parts = [terrain_mesh, *meshes_out]
+    if merge_meshes:
+        vertices, faces, markers, building_index = [], [], [], []
+        shift = 0
+        for mesh in parts:
+            vertices.append(np.asarray(mesh.vertices, dtype=np.float64))
+            faces.append(np.asarray(mesh.faces, dtype=np.int64) + shift)
+            markers.append(np.asarray(mesh.markers, dtype=np.int64))
+            building_index.append(np.asarray(mesh.fields[-1].values, dtype=np.float64))
+            shift += len(mesh.vertices)
+        merged = Mesh(
+            vertices=np.vstack(vertices),
+            faces=np.vstack(faces),
+            markers=np.concatenate(markers),
+        )
+        merged.fields.append(
+            Field(name="building", values=np.concatenate(building_index), association="face")
+        )
+        parts = [merged]
+    description = (
+        "0: separate building shells that may intersect each other and the "
+        "terrain; not a boundary for volume meshing"
+    )
+    for mesh in parts:
+        mesh.fields.append(
+            Field(
+                name=WATERTIGHT_FIELD,
+                values=np.array([0.0]),
+                association="geometry",
+                description=description,
+            )
+        )
+    return parts[0] if merge_meshes else parts
+
+
 def build_city_surface_mesh(
     city: City,
     lod: GeometryType | list[GeometryType] | None = None,
@@ -4215,6 +4364,7 @@ def build_city_surface_mesh(
     mesher: str | None = None,
     pipeline_mode: str = "strict",
     stage_audit: dict[str, Any] | None = None,
+    isolated: bool = False,
 ) -> Mesh | list[Mesh]:
     """
     Build a surface mesh from the surfaces of the buildings in the city.
@@ -4258,12 +4408,47 @@ def build_city_surface_mesh(
     `footprint_cleaning_plot_block` : bool, optional
         Whether the optional footprint-cleaning plot blocks execution until
         the window is closed. Defaults to True.
+    `isolated` : bool, optional
+        Clean each building on its own (``clean_footprints(...,
+        isolated=True)``) and build a mesh for visualization: the terrain
+        surface mesh, not conforming to the footprints, plus one shell per
+        building (roofs, outer walls down to the lowest terrain under the
+        footprint, and step walls between its parts; see
+        :func:`build_building_shell`). Shells are not welded to each other or
+        to the terrain and may intersect them. The mesh carries a face field
+        ``building`` (index of the building in the buildings cleaned in
+        isolation, -1 for terrain) and a geometry field ``watertight`` = 0,
+        so volume meshing refuses it. Default False.
 
     Returns
     -------
     `model.Mesh`
     """
     pipeline_mode = _normalize_meshing_pipeline_mode(pipeline_mode)
+    if type(isolated) is not bool:
+        raise TypeError("isolated must be a boolean")
+    if isolated:
+        mesh = _isolated_surface_mesh(
+            city,
+            lod=lod,
+            min_building_detail=min_building_detail,
+            min_building_area=min_building_area,
+            building_mesh_triangle_size=building_mesh_triangle_size,
+            max_mesh_size=_normalize_max_mesh_size(max_mesh_size),
+            min_mesh_angle=min_mesh_angle,
+            merge_meshes=merge_meshes,
+            smoothing=smoothing,
+            mesher=mesher,
+        )
+        if report_mesh_quality:
+            from dtcc_core.model.mixins.mesh.quality import (
+                triangle_mesh_quality,
+                report_quality,
+            )
+
+            for m in [mesh] if merge_meshes else mesh:
+                report_quality(triangle_mesh_quality(m.vertices, m.faces), log_fn=info)
+        return mesh
     attempt = _start_stage_audit_attempt(
         stage_audit,
         label=None,
@@ -4426,6 +4611,18 @@ def build_city_surface_mesh(
         raise
 
 
+def _require_unison(isolated, kind: str) -> None:
+    if type(isolated) is not bool:
+        raise TypeError("isolated must be a boolean")
+    if isolated:
+        raise ValueError(
+            f"A {kind} needs the buildings cleaned in unison: buildings cleaned "
+            "in isolation may overlap or come closer than min_building_detail. "
+            "Use build_city_surface_mesh(..., isolated=True) for a "
+            "visualization mesh of buildings cleaned in isolation."
+        )
+
+
 def build_city_flat_mesh(
     city: City,
     lod: GeometryType | None = None,
@@ -4439,6 +4636,7 @@ def build_city_flat_mesh(
     mesher: str | None = None,
     pipeline_mode: str = "strict",
     stage_audit: dict[str, Any] | None = None,
+    isolated: bool = False,
 ) -> Mesh:
     """Build a flat 2D triangular mesh of the city with building footprints marked.
 
@@ -4497,11 +4695,16 @@ def build_city_flat_mesh(
         A flat (z = 0) triangular mesh with per-face markers indicating
         building membership.
 
+    isolated : bool, optional
+        Must be False: a flat mesh is a partition of the domain, which needs
+        the buildings cleaned in unison.
+
     Raises
     ------
     ValueError
-        If the city has no terrain data.
+        If the city has no terrain data, or ``isolated`` is True.
     """
+    _require_unison(isolated, "flat mesh")
     # Validate terrain (needed for domain bounds)
     pipeline_mode = _normalize_meshing_pipeline_mode(pipeline_mode)
     attempt = _start_stage_audit_attempt(
@@ -4651,6 +4854,7 @@ def build_city_volume_mesh(
     pipeline_mode: str = "strict",
     top_cap_max_mesh_size: float | None = None,
     max_volume: float | None = None,
+    isolated: bool = False,
 ) -> VolumeMesh:
     """
     Build a 3D tetrahedral volume mesh for a city terrain with embedded building volumes.
@@ -4750,6 +4954,9 @@ def build_city_volume_mesh(
     pipeline_mode : {"strict"}, optional
         Meshing pipeline mode. Only ``"strict"`` is currently supported; the
         parameter remains in the API for compatibility with existing callers.
+    isolated : bool, optional
+        Must be False: TetGen needs a valid boundary, which needs the
+        buildings cleaned in unison.
 
     Returns
     -------
@@ -4764,7 +4971,8 @@ def build_city_volume_mesh(
     ValueError
         If the city has no terrain data (neither raster nor mesh).
     ValueError
-        If the terrain object exists but has no usable raster or mesh data.
+        If the terrain object exists but has no usable raster or mesh data,
+        or ``isolated`` is True.
     Boundary Face Markers
     ---------------------
     When `boundary_face_markers=True`, integer markers are added as follows (for
@@ -4797,6 +5005,7 @@ def build_city_volume_mesh(
     ...                               max_mesh_size=5.0,
     ...                               boundary_face_markers=True)
     """
+    _require_unison(isolated, "volume mesh")
     _require_tetgen()
     pipeline_mode = _normalize_meshing_pipeline_mode(pipeline_mode)
     max_mesh_size = _normalize_max_mesh_size(max_mesh_size)

@@ -38,6 +38,14 @@ class CitySurfaceMeshArgs(DatasetBaseArgs):
         15.0, description="Smallest building footprint area to include (m²)"
     )
     smoothing: int = Field(0, description="Number of terrain smoothing iterations")
+    isolated: bool = Field(
+        False,
+        description=(
+            "Clean each building on its own and return a visualization mesh: the "
+            "terrain plus one shell per building, not welded and possibly "
+            "intersecting (not watertight; refused by volume meshing)"
+        ),
+    )
     show_footprints: bool = Field(
         False,
         description="Whether to show a live matplotlib view of raw vs conditioned footprints before meshing",
@@ -129,7 +137,7 @@ class CitySurfaceMeshDataset(DatasetDescriptor):
         "Build a terrain raster with raster_cell_size and raster_radius",
         "Optionally replace topography with a flat terrain raster when flat_ground=True",
         "Extract roof points and compute building heights from the terrain raster",
-        "Clean footprints with clean_footprints at min_building_detail (footprints closer than that are merged) and drop those smaller than min_building_area",
+        "Clean footprints with clean_footprints at min_building_detail (footprints closer than that are merged, or each building on its own when isolated=True) and drop those smaller than min_building_area",
         "Generate a terrain plus extruded-building surface mesh using max_mesh_size, min_mesh_angle, smoothing, mesher, and mesh-quality reporting settings",
         "Return the native Mesh object or serialize the requested mesh format",
         CENTER_ON_ORIGIN_PROCESSING_STEP,
@@ -221,6 +229,7 @@ class CitySurfaceMeshDataset(DatasetDescriptor):
             report_mesh_quality=args.report_mesh_quality,
             pipeline_mode=args.pipeline_mode,
             stage_audit=stage_audit,
+            isolated=args.isolated,
         )
 
     def build_from_city(self, city: City, **kwargs):

@@ -247,12 +247,17 @@ class CityBuilderMixin:
         footprint_cleaning_plot_block: bool = True,
         mesher: str | None = None,
         pipeline_mode: str = "strict",
+        isolated: bool = False,
     ) -> Mesh:
         """
         Build a city surface mesh from the buildings and terrain.
 
         Building footprints are cleaned in unison with ``clean_footprints``
-        unless the city was already cleaned at ``min_building_detail``.
+        unless the city was already cleaned at ``min_building_detail``. With
+        ``isolated=True`` each building is cleaned on its own and the result
+        is a mesh for visualization: the terrain plus one shell per building,
+        not welded and possibly intersecting (see
+        :func:`dtcc_core.builder.build_city_surface_mesh`).
 
         Parameters
         ----------
@@ -298,6 +303,7 @@ class CityBuilderMixin:
             footprint_cleaning_plot_block=footprint_cleaning_plot_block,
             mesher=mesher,
             pipeline_mode=pipeline_mode,
+            isolated=isolated,
         )
         return surface_mesh
 
@@ -312,6 +318,7 @@ class CityBuilderMixin:
         footprint_cleaning_plot_block: bool = True,
         mesher: str | None = None,
         pipeline_mode: str = "strict",
+        isolated: bool = False,
     ) -> Mesh:
         """Build a flat 2D triangular mesh of the city with building markers.
 
@@ -343,6 +350,8 @@ class CityBuilderMixin:
         show_footprints : bool, optional
             Show a live Matplotlib comparison of raw and conditioned
             footprints before meshing.
+        isolated : bool, optional
+            Must be False: a flat mesh needs the buildings cleaned in unison.
 
         Returns
         -------
@@ -362,6 +371,7 @@ class CityBuilderMixin:
             footprint_cleaning_plot_block=footprint_cleaning_plot_block,
             mesher=mesher,
             pipeline_mode=pipeline_mode,
+            isolated=isolated,
         )
         return flat_mesh
 
@@ -384,6 +394,7 @@ class CityBuilderMixin:
         pipeline_mode: str = "strict",
         top_cap_max_mesh_size: float | None = None,
         max_volume: float | None = None,
+        isolated: bool = False,
     ) -> VolumeMesh:
         """Build a 3D tetrahedral volume mesh for the city.
 
@@ -428,6 +439,9 @@ class CityBuilderMixin:
         show_footprints : bool, optional
             Show a live Matplotlib comparison of raw and conditioned
             footprints before meshing.
+        isolated : bool, optional
+            Must be False: a volume mesh needs the buildings cleaned in
+            unison.
 
         Returns
         -------
@@ -454,6 +468,7 @@ class CityBuilderMixin:
             footprint_cleaning_plot_block=footprint_cleaning_plot_block,
             mesher=mesher,
             pipeline_mode=pipeline_mode,
+            isolated=isolated,
         )
         return volume_mesh
 

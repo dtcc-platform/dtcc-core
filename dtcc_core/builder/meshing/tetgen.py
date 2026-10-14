@@ -59,6 +59,23 @@ def get_default_tetgen_switches() -> Dict[str, Any]:
     return _tetgen_switch_module.tetgen_defaults()
 
 
+WATERTIGHT_FIELD = "watertight"
+
+
+def is_watertight_surface(mesh: Mesh) -> bool:
+    """Whether a surface mesh may bound a volume mesh.
+
+    A mesh is refused only when it carries a geometry field ``watertight``
+    with value 0, as the surface mesh of buildings cleaned in isolation does.
+    """
+    for field in getattr(mesh, "fields", []) or []:
+        if field.name == WATERTIGHT_FIELD and field.association == "geometry":
+            values = np.asarray(field.values).reshape(-1)
+            if len(values) and values[0] == 0:
+                return False
+    return True
+
+
 def build_volume_mesh(
     mesh: Mesh,
     build_top_sidewalls: bool = True,
@@ -125,7 +142,9 @@ def build_volume_mesh(
     TypeError
         If ``mesh`` is not a ``Mesh`` instance.
     ValueError
-        If the input mesh lacks faces, face markers, or required boundary facets.
+        If the input mesh lacks faces, face markers, or required boundary
+        facets, or is marked as not watertight (see
+        :func:`is_watertight_surface`).
     """
     _require_tetgen()
     if not isinstance(mesh, Mesh):
@@ -138,6 +157,13 @@ def build_volume_mesh(
         raise ValueError("Input mesh must have face markers defined.")
     if len(mesh.markers) != len(mesh.faces):
         raise ValueError("Input mesh must have one face marker per face.")
+    if not is_watertight_surface(mesh):
+        raise ValueError(
+            "Input mesh is marked as not watertight (for example a surface mesh "
+            "of buildings cleaned in isolation, whose shells may intersect each "
+            "other and the terrain); it cannot bound a volume mesh. Build the "
+            "volume mesh from the city with buildings cleaned in unison."
+        )
 
     b_facets = None
     boundary_facet_markers = None

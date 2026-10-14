@@ -373,6 +373,15 @@ higher between regions of different levels.
 A block that keeps one footprint is meshed with one roof: the area-weighted
 mean of its sources, or the highest source roof when they span more than 2 m.
 
+Buildings cleaned in isolation have no joint contract, so only
+`build_city_surface_mesh(..., isolated=True)` meshes them, for visualization:
+the terrain surface mesh, not conforming to the footprints, plus one shell per
+building (`build_building_shell` without a floor, with walls down to the lowest
+terrain under the footprint). Shells are not welded to each other or to the
+terrain and may intersect them. The mesh carries a face field `building` and a
+geometry field `watertight` = 0, and volume meshing refuses it. The flat and
+volume mesh builders raise an error with `isolated=True`.
+
 The union of the extruded regions is a manifold solid only if every level set,
 the union of the regions with roofs at or above a level, is a 2-manifold with
 boundary. Where regions of a level set touch at a point only, the shells have a

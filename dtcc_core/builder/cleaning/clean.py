@@ -530,18 +530,19 @@ def cleaning_record(
     *,
     min_building_detail: float,
     lod: GeometryType | Sequence[GeometryType] | None = None,
+    isolated: bool = False,
 ) -> dict[str, Any] | None:
     """Return the city's cleaning record if it covers this request, else None.
 
-    The record is valid for a city cleaned in unison at the same minimum
-    building detail whose buildings and footprints (IDs, order, XY) have not
-    changed since. Only the LOD0 footprint, or the default geometry choice,
-    can be reused.
+    The record is valid for a city cleaned in the same mode (in unison, or in
+    isolation with ``isolated``) at the same minimum building detail whose
+    buildings and footprints (IDs, order, XY) have not changed since. Only
+    the LOD0 footprint, or the default geometry choice, can be reused.
     """
     record = city.attributes.get(RECORD_KEY)
     if not isinstance(record, dict) or record.get("version") != RECORD_VERSION:
         return None
-    if record.get("isolated") is not False:
+    if record.get("isolated") is not bool(isolated):
         return None
     try:
         if float(record.get("min_building_detail")) != float(min_building_detail):

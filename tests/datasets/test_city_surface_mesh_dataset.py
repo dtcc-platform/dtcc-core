@@ -65,6 +65,7 @@ def test_city_surface_mesh_default_build_returns_surface_mesh(
         report_mesh_quality=True,
         pipeline_mode="strict",
         stage_audit=None,
+        isolated=False,
     )
 
 
@@ -114,6 +115,7 @@ def test_city_surface_mesh_parameter_plumbing(
         report_mesh_quality=False,
         pipeline_mode="strict",
         stage_audit=ANY,
+        isolated=False,
     )
     assert isinstance(mock_build_city_surface_mesh.call_args.kwargs["stage_audit"], dict)
 
