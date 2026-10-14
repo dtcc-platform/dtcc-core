@@ -459,7 +459,9 @@ def _nearest_regions(extent, near, generators, epsilon):
         labels.append(np.full(len(sampled), label))
     if not coordinates:
         return {}
-    coordinates = np.round(np.vstack(coordinates), 9)
+    # Samples on the precision grid, so near-coincident samples of different
+    # labels become one point instead of a degenerate Voronoi edge.
+    coordinates = np.round(np.vstack(coordinates) / GRID) * GRID
     labels = np.concatenate(labels)
     coordinates, first = np.unique(coordinates, axis=0, return_index=True)
     labels = labels[first]
@@ -469,10 +471,16 @@ def _nearest_regions(extent, near, generators, epsilon):
         ordered=True,
     )
     polygons = np.asarray(cells.geoms)
-    return {
-        int(label): shapely.coverage_union_all(polygons[labels == label])
-        for label in np.unique(labels)
-    }
+    return {int(label): _union_cells(polygons[labels == label]) for label in np.unique(labels)}
+
+
+def _union_cells(polygons):
+    """Union of Voronoi cells: a coverage union, or an overlay union on the
+    precision grid when the cells do not form an exact coverage."""
+    try:
+        return shapely.coverage_union_all(polygons)
+    except shapely.errors.GEOSException:
+        return _union(polygons)
 
 
 def _exact_cells(region, partition, epsilon, rank) -> tuple[Cells, bool]:
@@ -1000,6 +1008,8 @@ def _site_offers(region, cells: Cells, site, delta, dispensable):
             yield name, _canonical(region, _rebuild(region, walls, cells))
         except shapely.errors.GEOSException:
             continue
+    if not any(label in dispensable for _, label in cells):
+        return
     site_geometry = MultiPoint([tuple(p) for p in site]).buffer(SITE_REACH * delta)
     near = [
         index
@@ -1039,20 +1049,44 @@ def _global_offers(region, cells: Cells, delta, dispensable):
 
 def _sites(evaluation, radius):
     """Group defect locations: small-sector vertices, and the vertex of each
-    wall pair with its closest point on the edge."""
+    wall pair with its closest point on the edge.
+
+    Groups are taken in order; each joins the earliest site that has a point
+    within ``radius`` of one of its points, or starts a new site. A site holds
+    each point once.
+    """
     groups = [[tuple(vertex)] for vertex, _ in evaluation["sectors"]]
     for vertex, edge, _ in evaluation["pairs"]:
         line = LineString(edge)
         foot = line.interpolate(line.project(Point(vertex)))
         groups.append([tuple(vertex), (foot.x, foot.y)])
-    sites = []
+    sites: list[list[tuple[float, float]]] = []
+    members: list[set] = []
+    grid: dict[tuple[int, int], list[tuple[tuple[float, float], int]]] = {}
+
+    def cell(point):
+        return (math.floor(point[0] / radius), math.floor(point[1] / radius))
+
     for group in groups:
-        for site in sites:
-            if min(math.hypot(p[0] - q[0], p[1] - q[1]) for p in group for q in site) <= radius:
-                site.extend(group)
-                break
-        else:
-            sites.append(list(group))
+        found = None
+        for p in group:
+            cx, cy = cell(p)
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    for q, index in grid.get((cx + dx, cy + dy), ()):
+                        if (found is None or index < found) and math.hypot(
+                            p[0] - q[0], p[1] - q[1]
+                        ) <= radius:
+                            found = index
+        if found is None:
+            found = len(sites)
+            sites.append([])
+            members.append(set())
+        for p in group:
+            if p not in members[found]:
+                members[found].add(p)
+                sites[found].append(p)
+                grid.setdefault(cell(p), []).append((p, found))
     return sites
 
 

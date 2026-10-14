@@ -1,14 +1,17 @@
 """Walls between merged buildings: every part keeps a cleaned footprint."""
 
 import json
+import math
 from pathlib import Path
 
 import numpy as np
 import pytest
-from shapely.geometry import box, shape
+import shapely
+from shapely.geometry import LineString, Point, box, shape
 from shapely.ops import unary_union
 
 from dtcc_core.builder.cleaning import clean as clean_module
+from dtcc_core.builder.cleaning import walls as walls_module
 from dtcc_core.builder.cleaning.clean import MERGED_FROM_KEY, RECORD_KEY, clean_regions
 from dtcc_core.builder.cleaning.contract import check_labelled_contract
 from dtcc_core.builder.cleaning.walls import LabelledRegion, label_region
@@ -210,6 +213,108 @@ def test_strict_cleaning_falls_back_instead_of_wall_warnings(monkeypatch):
     assert city.clean_footprints().attributes[RECORD_KEY]["walls"]["warning"] == 1
     walls = city.clean_footprints(strict=True).attributes[RECORD_KEY]["walls"]
     assert walls["warning"] == 0 and walls["fallback"] == 1
+
+
+def test_a_geometry_failure_in_the_walls_leaves_only_that_block_one_footprint(
+    monkeypatch, caplog
+):
+    def fail(polygon, sources, order, **kwargs):
+        if 0 in sources:
+            raise shapely.errors.GEOSException("TopologyException: test")
+        return label_region(polygon, sources, order, **kwargs)
+
+    monkeypatch.setattr(clean_module, "label_region", fail)
+    buildings = [
+        building("a", box(0, 0, 10, 10), 10),
+        building("b", box(10, 0, 20, 10), 20),
+        building("c", box(40, 0, 50, 10), 10),
+        building("d", box(50, 0, 60, 10), 20),
+    ]
+    regions = clean_regions(buildings, enable_logging=False)
+    reports = {tuple(row["labels"]): row for row in regions.diagnostics["walls"]}
+    assert reports[(0, 1)]["outcome"] == "fallback"
+    assert reports[(0, 1)]["reason"] == "construction_error"
+    assert reports[(2, 3)]["outcome"] == "strict"
+    walls = city_of(*buildings).clean_footprints().attributes[RECORD_KEY]["walls"]
+    assert walls["fallback_ids"] == [["a", "b"]] and walls["strict"] == 1
+    assert "construction failed" in caplog.text
+
+
+def test_walls_of_a_block_with_near_coincident_samples():
+    # Helsingborg 007: Voronoi cells of samples a few nanometres apart did not
+    # form an exact coverage, and their union raised a TopologyException.
+    payload = json.loads((DATA / "helsingborg-wall-construction.geojson").read_text())
+    meta = payload["metadata"]
+    region = next(
+        shape(f["geometry"]) for f in payload["features"] if f["properties"]["role"] == "region"
+    )
+    sources = {
+        f["properties"]["label"]: shape(f["geometry"])
+        for f in payload["features"]
+        if f["properties"]["role"] == "source"
+    }
+    labelled = label_region(
+        region,
+        sources,
+        meta["order"],
+        delta=meta["delta"],
+        epsilon=meta["epsilon"],
+        retry_epsilon=meta["retry_epsilon"],
+    )
+    assert labelled.outcome == "strict"
+    assert sorted(label for _, label in labelled.cells) == sorted(sources)
+    union = unary_union([cell for cell, _ in labelled.cells])
+    assert union.symmetric_difference(region).area < 1e-6
+
+
+def test_site_offers_without_dispensable_labels_build_no_reach(monkeypatch):
+    def forbidden(*args, **kwargs):
+        raise AssertionError("site reach built without a dispensable label")
+
+    region = box(0, 0, 20, 10)
+    cells = [(box(0, 0, 10, 10), 0), (box(10, 0, 20, 10), 1)]
+    monkeypatch.setattr(walls_module, "MultiPoint", forbidden)
+    list(walls_module._site_offers(region, cells, [(10.0, 5.0)], 0.5, set()))
+    monkeypatch.undo()
+    calls = []
+    multipoint = walls_module.MultiPoint
+    monkeypatch.setattr(
+        walls_module, "MultiPoint", lambda points: calls.append(points) or multipoint(points)
+    )
+    list(walls_module._site_offers(region, cells, [(10.0, 5.0)], 0.5, {1}))
+    assert calls
+
+
+def _greedy_sites(evaluation, radius):
+    """The original quadratic grouping, as the reference for the grid index."""
+    groups = [[tuple(vertex)] for vertex, _ in evaluation["sectors"]]
+    for vertex, edge, _ in evaluation["pairs"]:
+        line = LineString(edge)
+        foot = line.interpolate(line.project(Point(vertex)))
+        groups.append([tuple(vertex), (foot.x, foot.y)])
+    sites = []
+    for group in groups:
+        for site in sites:
+            if min(math.hypot(p[0] - q[0], p[1] - q[1]) for p in group for q in site) <= radius:
+                site.extend(group)
+                break
+        else:
+            sites.append(list(group))
+    return [list(dict.fromkeys(site)) for site in sites]
+
+
+@pytest.mark.parametrize("seed", range(5))
+def test_sites_group_defects_as_the_greedy_rule(seed):
+    rng = np.random.default_rng(seed)
+    points = np.round(rng.uniform(0, 30, size=(120, 2)), 1)
+    evaluation = {
+        "sectors": [(tuple(p), 0.1) for p in points[:60]],
+        "pairs": [
+            (tuple(p), (tuple(q), tuple(q + rng.uniform(-2, 2, 2))), 0.2)
+            for p, q in zip(points[60:90], points[90:])
+        ],
+    }
+    assert walls_module._sites(evaluation, 1.5) == _greedy_sites(evaluation, 1.5)
 
 
 def survey_group(key):

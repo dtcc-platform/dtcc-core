@@ -54,6 +54,7 @@ import math
 from typing import Any, Sequence
 
 import numpy as np
+import shapely
 from shapely.geometry import MultiPolygon, Polygon
 from shapely.ops import unary_union
 
@@ -862,14 +863,22 @@ def _label(
             polygon, [], "fallback", {"reason": "block_without_part_footprints"}
         )
     order = sorted(region_labels, key=lambda label: _precedence(labels[label], label))
-    labelled = label_region(
-        polygon,
-        {label: labels[label].polygon for label in region_labels},
-        order,
-        delta=delta,
-        epsilon=epsilon,
-        retry_epsilon=retry_epsilon,
-    )
+    try:
+        labelled = label_region(
+            polygon,
+            {label: labels[label].polygon for label in region_labels},
+            order,
+            delta=delta,
+            epsilon=epsilon,
+            retry_epsilon=retry_epsilon,
+        )
+    except shapely.errors.GEOSException as exc:
+        # A geometry failure in the walls of one block leaves that block one
+        # footprint; the rest of the cleaning stands.
+        warning(f"Footprint walls: construction failed for one block ({exc}); it keeps one footprint.")
+        return LabelledRegion(
+            polygon, [], "fallback", {"reason": "construction_error", "error": str(exc)}
+        )
     if strict and labelled.outcome == "warning":
         return LabelledRegion(polygon, [], "fallback", {**labelled.report, "reason": "strict"})
     return labelled
