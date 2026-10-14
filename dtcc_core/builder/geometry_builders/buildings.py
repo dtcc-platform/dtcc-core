@@ -109,7 +109,7 @@ def set_building_heights_from_attribute(
     its ground on the footprint of its source, also where it has lost its cell
     to a neighbour; the block's roof follows from its parts. Where the new
     roofs change which part wins an overlap, the walls of the block are
-    recomputed by the next cleaning, meshing or LOD1 build.
+    recomputed (:func:`.cleaning.blocks.update_walls`).
 
     Parameters
     ----------
@@ -149,6 +149,7 @@ def set_building_heights_from_attribute(
                 if roof is not None:
                     set_part_roof(part, roof)
             set_block_roof(building)
+            update_walls(building)
             continue
         footprint = building.lod0
         if footprint is None:
@@ -251,7 +252,7 @@ def compute_building_heights(
     its ground on the footprint of its source, also where it has lost its cell
     to a neighbour; the block's roof follows from its parts. Where the new
     roofs change which part wins an overlap, the walls of the block are
-    recomputed by the next cleaning, meshing or LOD1 build.
+    recomputed (:func:`.cleaning.blocks.update_walls`).
 
     Parameters
     ----------
@@ -291,6 +292,7 @@ def compute_building_heights(
                 if roof is not None:
                     set_part_roof(part, roof)
             set_block_roof(building)
+            update_walls(building)
         else:
             footprint = building.lod0
             if footprint is None:
@@ -360,10 +362,13 @@ def build_lod1_buildings(
 
     Each building is extruded from its ground to its roof. A cleaned block
     with walls is extruded per part instead: its walls are first brought up
-    to date with the roofs of its parts (:func:`.cleaning.blocks.update_walls`),
-    then each part with a footprint gets its own LOD1 prism, from its own
-    ground to its own roof, and the block itself gets none, as for building
-    parts in CityGML.
+    to date with its region, sources and roofs
+    (:func:`.cleaning.blocks.update_walls`, which removes the LOD1 geometry
+    of a block whose walls change), then each part with a footprint gets its
+    own LOD1 prism, from its own ground to its own roof, and the block itself
+    and its parts without a footprint get none, as for building parts in
+    CityGML. A block that keeps one footprint gets one prism and its parts
+    none.
     Neighbouring prisms share faces up to the lower roof.
     ``building.flatten_geometry(GeometryType.LOD1)`` gives all prisms of a
     block; :func:`dtcc_core.builder.build_building_shell` gives one closed
@@ -379,7 +384,8 @@ def build_lod1_buildings(
     `always_use_default_ground` : bool, optional
         Whether to always use the default ground height or use groun_height attribute, by default False.
     `rebuild` : bool, optional
-        Whether to rebuild the LOD1 representation if it already exists, by default True.
+        Whether to rebuild the LOD1 representation if it already exists, by
+        default True. Prisms of a block whose walls change are always rebuilt.
     Returns
     -------
     [model.Building]
@@ -392,7 +398,8 @@ def build_lod1_buildings(
     for i, building in enumerate(buildings):
         parts = []
         if is_block(building):
-            # The walls of a block follow the current roofs of its parts.
+            # The walls of a block follow its region, sources and roofs; a
+            # change removes the prisms of the block and its parts.
             update_walls(building)
             parts = [
                 part
@@ -400,8 +407,13 @@ def build_lod1_buildings(
                 if part.get_geometry(GeometryType.LOD0) is not None
             ]
         targets = parts if parts else [building]
-        if parts:
-            building.remove_geometry(GeometryType.LOD1)
+        if is_block(building):
+            # Only the parts with a footprint, or the block without walls,
+            # have prisms.
+            keep = {id(target) for target in targets}
+            for obj in [building, *building.building_parts]:
+                if id(obj) not in keep:
+                    obj.remove_geometry(GeometryType.LOD1)
         for target in targets:
             if target.lod1 is not None and not rebuild:
                 continue

@@ -29,7 +29,10 @@ first building that supports it:
   ``attributes["source_id"]`` of a part and ``attributes["merged_from"]`` of
   a block give the source IDs. Parts of a block that is merged again are
   lifted into the new block. The ID of a new block is derived from its parts'
-  IDs, so cleaning the same buildings gives the same IDs.
+  IDs, so cleaning the same buildings gives the same IDs. IDs are unique in
+  the whole model: the copies of a split source and of its descendants get
+  ``<id>#<n>`` with the first ``n`` that no object of the input has, and keep
+  the ID of what they copy in ``attributes["source_id"]``.
 
 Cleaned buildings carry only the cleaned LOD0 footprint. LOD1-LOD3 geometry is
 removed from the buildings and their parts because it no longer matches the
@@ -48,8 +51,9 @@ Otherwise new walls divide the region by the parts' source footprints, with
 the fidelity budget of the earlier cleaning added to that of this one.
 
 When heights are set after cleaning, the walls follow them: where they change
-which source wins an overlap, the next cleaning or meshing recomputes the
-walls of that block from its source footprints.
+which source wins an overlap, the height builders recompute the walls of that
+block from its source footprints (:func:`.blocks.update_walls`); so do the
+next cleaning and meshing of a block whose walls are not current.
 
 A block's roof and ``estimated_height`` are those of its highest part, and its
 ``ground_height`` is the lowest of its parts. The mesh builders use the parts'
@@ -101,6 +105,8 @@ from .blocks import (
     set_source_footprint,
     source_id,
     wall_cells,
+    walls_detail,
+    walls_of,
     walls_record,
 )
 from .contract import check_cleaning_contract, check_mesher_handoff_profile
@@ -114,7 +120,7 @@ from .selection import select_footprints
 from .walls import LabelledRegion
 
 RECORD_KEY = "footprint_cleaning"
-RECORD_VERSION = 3
+RECORD_VERSION = 4
 
 # Numerical scale at which an unscaled (delta = 0) result is still checked.
 _UNSCALED_CHECK_SCALE = 1.0e-9
@@ -301,7 +307,7 @@ def clean_footprints(
             strict=strict,
             show=show,
         )
-        cleaned = cleaned_buildings(target.buildings, regions)
+        cleaned = cleaned_buildings(target.buildings, regions, reserved=_model_ids(target))
         city = _copy_city_without_buildings(target)
         city.add_buildings(cleaned)
         record = dict(regions.record)
@@ -511,9 +517,14 @@ def clean_regions(
 
 
 def cleaned_buildings(
-    buildings: Sequence[Building], regions: CleanedRegions
+    buildings: Sequence[Building], regions: CleanedRegions, *, reserved=()
 ) -> list[Building]:
-    """Build the output buildings of a cleaning (see the module documentation)."""
+    """Build the output buildings of a cleaning (see the module documentation).
+
+    ``reserved`` are IDs of other objects of the model (such as its city),
+    which new IDs avoid as they avoid the IDs of the buildings and their
+    descendants.
+    """
     polygons_by_output: dict[int, list[Polygon]] = {}
     for polygon, output in zip(regions.polygons, regions.region_outputs):
         polygons_by_output.setdefault(output, []).append(polygon)
@@ -522,7 +533,10 @@ def cleaned_buildings(
         for index in indices:
             outputs_of.setdefault(index, []).append(output)
     members = _output_members(regions, polygons_by_output, outputs_of)
-    ids = _occurrence_ids(buildings, regions, members)
+    used = set(map(str, reserved))
+    for building in buildings:
+        used.update(_model_ids(building))
+    ids = _occurrence_ids(buildings, regions, members, used)
 
     cleaned = []
     for output, indices in enumerate(regions.output_sources):
@@ -546,6 +560,7 @@ def cleaned_buildings(
                 members[output],
                 ids,
                 output,
+                used,
                 output_height=regions.output_height[output],
             )
         building.add_geometry(footprint, GeometryType.LOD0)
@@ -564,13 +579,14 @@ def cleaned_buildings(
             assign_cells(parts, cells)
             made = regions.output_walls[output]
             building.attributes[WALLS_KEY] = walls_record(
-                parts,
+                building,
                 [positions[label] for label in made["order"] if label in positions],
                 made["precedence"],
                 made["outcome"],
                 delta=made["min_building_detail"],
                 epsilon=made["fidelity_budget"],
                 strict=made["strict"],
+                detail=made["detail"],
             )
         cleaned.append(building)
     return cleaned
@@ -655,7 +671,7 @@ def regions_from_cleaned_city(city: City, record: dict[str, Any]) -> CleanedRegi
     output_cells, output_walls = [], []
     walls_now = {
         "strict": 0, "warning": 0, "fallback": 0, "warning_ids": [], "fallback_ids": [],
-        "recomputed": 0,
+        "fallback_reasons": [], "recomputed": 0,
     }
     for index, building in enumerate(city.buildings):
         if is_block(building):
@@ -693,6 +709,8 @@ def regions_from_cleaned_city(city: City, record: dict[str, Any]) -> CleanedRegi
                 walls_now[f"{outcome}_ids"].append(
                     [str(building.building_parts[part].id) for part in label_of]
                 )
+            if outcome == "fallback":
+                walls_now["fallback_reasons"].append(walls.detail)
             walls_now["recomputed"] += not walls.current
         if walls.cells:
             roofs.append(max(label_roofs[label_of[part]] for _, part in walls.cells))
@@ -828,12 +846,8 @@ def _extract_sources(buildings, lods):
     missing: list[int] = []
     for index, (building, lod) in enumerate(zip(buildings, lods)):
         if is_block(building):
+            record = walls_of(building)
             region = block_region(building)
-            record = building.attributes.get(WALLS_KEY)
-            if not isinstance(record, dict):
-                raise ValueError(
-                    f"Block {building.id} has no walls record; blocks are made by clean_footprints."
-                )
             parts = [
                 _Label(polygon, index, part_index, *part_key(building.building_parts[part_index], polygon))
                 for part_index, polygon in part_sources(building).items()
@@ -904,20 +918,23 @@ def _label(
     )
     if unchanged:
         building = buildings[source.building]
-        record = building.attributes[WALLS_KEY]
+        record = walls_of(building)
         if float(record["min_building_detail"]) >= delta and not (
             strict and record.get("outcome") == "warning"
         ):
             walls = block_walls(building)
+            # Part indices to labels: parts without a source have no label.
+            label_of = {labels[label].part: label for label in source.labels}
             outcome = walls.outcome
-            cells = [(piece, source.labels[part]) for piece, part in walls.cells]
+            cells = [(piece, label_of[part]) for piece, part in walls.cells]
             report = {**walls.report, "current": walls.current}
             if strict and outcome == "warning":
                 outcome, cells, report = "fallback", [], {**report, "reason": "strict"}
             return LabelledRegion(polygon, cells, outcome, report), {
-                "order": [source.labels[part] for part in walls.order],
+                "order": [label_of[part] for part in walls.order],
                 "precedence": walls.rule,
                 "outcome": outcome,
+                "detail": walls_detail(outcome, report),
                 "min_building_detail": float(record["min_building_detail"]),
                 "fidelity_budget": float(record["fidelity_budget"]),
                 "strict": bool(record.get("strict", False)) or strict,
@@ -939,6 +956,7 @@ def _label(
         "order": order,
         "precedence": rule,
         "outcome": labelled.outcome,
+        "detail": walls_detail(labelled.outcome, labelled.report),
         "min_building_detail": float(delta),
         "fidelity_budget": float(epsilon),
         "strict": bool(strict),
@@ -955,7 +973,10 @@ def _label_id(buildings, labels, index):
 
 def _walls_record(buildings, sources, labels, region_sources, labelled, order):
     """Counts and IDs of the stage 2 outcomes, for regions of several labels."""
-    record = {"strict": 0, "warning": 0, "fallback": 0, "warning_ids": [], "fallback_ids": []}
+    record = {
+        "strict": 0, "warning": 0, "fallback": 0, "warning_ids": [], "fallback_ids": [],
+        "fallback_reasons": [],
+    }
     budgets = []
     for region in order:
         region_labels = _region_labels(region_sources[region], sources)
@@ -970,6 +991,9 @@ def _walls_record(buildings, sources, labels, region_sources, labelled, order):
             record["warning_ids"].append(ids)
         elif outcome == "fallback":
             record["fallback_ids"].append(ids)
+            record["fallback_reasons"].append(
+                walls_detail(outcome, labelled[region].report)
+            )
         if "fidelity_budget" in labelled[region].report:
             budgets.append(float(labelled[region].report["fidelity_budget"]))
     record["fidelity_budget_used"] = max(budgets, default=None)
@@ -1134,8 +1158,13 @@ def _strip_footprint_geometry(obj: Object) -> None:
             _strip_footprint_geometry(child)
 
 
-def _as_part(obj: Object, id: str) -> BuildingPart:
-    """A copy of a building or part, without LOD0-LOD3 geometry, as a part."""
+def _as_part(obj: Object, id: str, used: set[str] | None = None) -> BuildingPart:
+    """A copy of a building or part, without LOD0-LOD3 geometry, as a part.
+
+    With ``used`` (the copy is one of several occurrences), every descendant
+    of the copy gets a new ID that is not in ``used`` and keeps the ID of
+    what it copies in ``attributes["source_id"]``.
+    """
     copy = deepcopy(obj)
     _strip_footprint_geometry(copy)
     if not isinstance(copy, BuildingPart):
@@ -1143,7 +1172,33 @@ def _as_part(obj: Object, id: str) -> BuildingPart:
         values["_bounds"] = None
         copy = BuildingPart(**values)
     copy.id = id
+    if used is not None:
+        for child in _descendants(copy):
+            child.attributes[SOURCE_ID_KEY] = source_id(child)
+            child.id = _new_id(str(child.id), used)
     return copy
+
+
+def _descendants(obj: Object):
+    for children in obj.children.values():
+        for child in children:
+            yield child
+            yield from _descendants(child)
+
+
+def _model_ids(obj: Object) -> set[str]:
+    """The IDs of an object and all its descendants."""
+    return {str(obj.id), *(str(child.id) for child in _descendants(obj))}
+
+
+def _new_id(base: str, used: set[str]) -> str:
+    """``<base>#<n>`` with the smallest n not in ``used``, which it joins."""
+    number = 1
+    while f"{base}#{number}" in used:
+        number += 1
+    candidate = f"{base}#{number}"
+    used.add(candidate)
+    return candidate
 
 
 def _output_members(regions: CleanedRegions, polygons_by_output, outputs_of) -> list[list[int]]:
@@ -1187,36 +1242,25 @@ def _output_members(regions: CleanedRegions, polygons_by_output, outputs_of) -> 
     return [sorted(labels) for labels in members]
 
 
-def _occurrence_ids(buildings, regions: CleanedRegions, members) -> dict[tuple[int, int], str]:
+def _occurrence_ids(
+    buildings, regions: CleanedRegions, members, used: set[str]
+) -> dict[tuple[int, int], str]:
     """IDs of the parts of new blocks, by output and label.
 
     A label that is a part of one output keeps the ID of its building or
-    part; the occurrences of a label in several outputs get ``<id>#<n>``.
+    part; the occurrences of a label in several outputs get ``<id>#<n>``,
+    with the smallest n whose ID is not in ``used`` (the IDs of the model),
+    which they join.
     """
-    used = set()
-    for building in buildings:
-        used.add(str(building.id))
-        used.update(str(part.id) for part in building.building_parts)
     count: dict[int, int] = {}
     for labels in members:
         for label in labels:
             count[label] = count.get(label, 0) + 1
-    ids, numbers = {}, {}
+    ids = {}
     for output, labels in enumerate(members):
         for label in labels:
             base = str(_label_object(buildings, regions.labels[label]).id)
-            if count[label] == 1:
-                ids[(output, label)] = base
-                continue
-            number = numbers.get(label, 0)
-            while True:
-                number += 1
-                candidate = f"{base}#{number}"
-                if candidate not in used:
-                    break
-            numbers[label] = number
-            used.add(candidate)
-            ids[(output, label)] = candidate
+            ids[(output, label)] = base if count[label] == 1 else _new_id(base, used)
     return ids
 
 
@@ -1225,17 +1269,20 @@ def _label_object(buildings, key) -> Object:
     return buildings[building] if part is None else buildings[building].building_parts[part]
 
 
-def _block(buildings, regions: CleanedRegions, members, ids, output, *, output_height):
+def _block(buildings, regions: CleanedRegions, members, ids, output, used, *, output_height):
     """A new block whose parts are the given labels.
 
-    Returns the block and, for each label, the index of its part.
+    Returns the block and, for each label, the index of its part. The
+    descendants of a part that is one of several occurrences of its label get
+    new IDs (see :func:`_as_part`).
     """
     parts: list[BuildingPart] = []
     positions = {}
     for label in members:
         key = regions.labels[label]
         obj = _label_object(buildings, key)
-        part = _as_part(obj, ids[(output, label)])
+        split = ids[(output, label)] != str(obj.id)
+        part = _as_part(obj, ids[(output, label)], used if split else None)
         part.attributes[SOURCE_ID_KEY] = source_id(obj)
         if key[1] is None:
             set_source_footprint(part, regions.label_polygons[label], regions.label_roof_z[label])

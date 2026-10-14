@@ -30,14 +30,25 @@ Precedence
     then to the first (:func:`precedence`).
 
 Walls record
-    ``attributes["footprint_walls"]`` records the precedence order the cells
-    were made with (part IDs), the parameters of the walls and a digest of the
-    cells. The walls of a block are *current* when its parts' footprints match
-    the digest and every pair of overlapping sources is in the recorded order
-    (only overlaps depend on the order). Otherwise, after heights change the
-    winner of an overlap, they are recomputed from the source footprints with
-    the recorded parameters (:func:`block_walls`): by the next cleaning or
-    meshing, by :func:`update_walls` and by the LOD1 builder.
+    ``attributes["footprint_walls"]`` records what the cells were made from
+    and how: the precedence order (part IDs), the parameters of the walls,
+    the outcome with a compact detail (the reason of a fallback, the closest
+    wall pair of a warning), a digest of the inputs (the XY of the block's
+    region and of its parts' source footprints) and a digest of the cells.
+    The walls of a block are *current* when both digests match, the cells
+    cover the region and every pair of overlapping sources is in the
+    recorded order (only overlaps depend on the order). Otherwise they are
+    recomputed from the source footprints with the recorded parameters
+    (:func:`block_walls`); :func:`update_walls` stores them, and the height
+    builders and the LOD1 builder call it. A record of another version is an
+    error: blocks made by an earlier version of the cleaning are cleaned
+    again from the buildings they were made from.
+
+Derived geometry
+    LOD1 prisms are derived from the cells: the parts with cells have them,
+    or the block itself when it keeps one footprint. Whenever the cells of a
+    block change, the LOD1 geometry of the block and of all its parts is
+    removed, so no prism outlives the partition it was built from.
 """
 
 from __future__ import annotations
@@ -61,6 +72,8 @@ MERGED_FROM_KEY = "merged_from"
 SOURCE_ID_KEY = "source_id"
 SOURCE_FOOTPRINT_KEY = "source_footprint"
 WALLS_KEY = "footprint_walls"
+# Version of the walls record; records of other versions are not read.
+WALLS_VERSION = 2
 
 # A block without walls whose source roofs span more than this gets the
 # highest roof instead of the area-weighted mean.
@@ -70,6 +83,8 @@ _OVERLAP_AREA = 1.0e-6
 # Walls closer than this (metres) are numerical artifacts, not building
 # features; meshers do not resolve them robustly.
 WALL_PAIR_FLOOR = 1.0e-4
+# Longest message of a construction error kept in a walls record.
+_DETAIL_MESSAGE = 300
 _RETRY_FACTOR = next(
     item.default for item in fields(ConditioningOptions) if item.name == "fidelity_retry_factor"
 )
@@ -256,28 +271,103 @@ def walls_digest(parts) -> str:
     digest = hashlib.sha1()
     for part in parts:
         digest.update(str(part.id).encode())
-        for surface in _surfaces(part.get_geometry(GeometryType.LOD0)):
-            for ring in [surface.vertices, *surface.holes]:
-                digest.update(b"(")
-                ring = np.asarray(ring, dtype=np.float64)
-                digest.update(np.ascontiguousarray(ring[:, :2]).tobytes())
+        _digest_surfaces(digest, part.get_geometry(GeometryType.LOD0))
         digest.update(b"|")
     return digest.hexdigest()
 
 
+def inputs_digest(building: Building) -> str:
+    """Hash of what the cells of a block are made from: the XY coordinates of
+    its LOD0 footprint (the region) and, for each part, its ID and the XY
+    coordinates of its source footprint (``-`` without one: its cell is its
+    source, covered by :func:`walls_digest`)."""
+    digest = hashlib.sha1()
+    _digest_surfaces(digest, building.get_geometry(GeometryType.LOD0))
+    for part in building.building_parts:
+        digest.update(b"|")
+        digest.update(str(part.id).encode())
+        value = part.attributes.get(SOURCE_FOOTPRINT_KEY)
+        if not isinstance(value, dict):
+            digest.update(b"-")
+            continue
+        polygons = [value["coordinates"]] if value["type"] == "Polygon" else value["coordinates"]
+        for rings in polygons:
+            digest.update(b"[")
+            for ring in rings:
+                digest.update(b"(")
+                ring = np.asarray(ring, dtype=np.float64)
+                digest.update(np.ascontiguousarray(ring[:, :2]).tobytes())
+    return digest.hexdigest()
+
+
+def walls_detail(outcome: str, report: dict[str, Any]) -> dict[str, Any]:
+    """The compact detail of a walls outcome kept in the walls record.
+
+    A fallback keeps its reason (``construction_error``, ``strict``,
+    ``degenerate_walls``, ``small_sectors``, ``no_faithful_start`` or
+    ``invalid_after_translation``) and, for a construction error, the
+    message; walls with pairs closer than delta keep their number and the
+    closest distance.
+    """
+    detail: dict[str, Any] = {}
+    if outcome == "fallback":
+        detail["reason"] = str(report.get("reason", "unknown"))
+        if report.get("error"):
+            detail["error"] = str(report["error"])[:_DETAIL_MESSAGE]
+    for key, kind in (("wall_pairs", int), ("min_wall_distance", float), ("small_sectors", int)):
+        value = report.get(key)
+        if value:
+            detail[key] = kind(value)
+    return detail
+
+
 def walls_record(
-    parts, order: Sequence[int], rule: str, outcome: str, *, delta, epsilon, strict
+    building: Building,
+    order: Sequence[int],
+    rule: str,
+    outcome: str,
+    *,
+    delta,
+    epsilon,
+    strict,
+    detail: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The walls record of a block whose parts have their cells."""
+    parts = building.building_parts
     return {
+        "version": WALLS_VERSION,
         "order": [str(parts[index].id) for index in order],
         "precedence": rule,
         "outcome": outcome,
+        "detail": dict(detail or {}),
         "min_building_detail": float(delta),
         "fidelity_budget": float(epsilon),
         "strict": bool(strict),
+        "inputs": inputs_digest(building),
         "cells": walls_digest(parts),
     }
+
+
+def walls_of(building: Building) -> dict[str, Any]:
+    """The walls record of a block.
+
+    Raises
+    ------
+    ValueError
+        If the block has no record of this version: it was not made by this
+        version of :func:`.clean.clean_footprints`.
+    """
+    record = building.attributes.get(WALLS_KEY)
+    if not isinstance(record, dict) or record.get("version") != WALLS_VERSION:
+        found = "no walls record" if not isinstance(record, dict) else (
+            f"a walls record of version {record.get('version', 1)}"
+        )
+        raise ValueError(
+            f"Block {building.id} has {found}, not version {WALLS_VERSION}: it was made by an "
+            "earlier version of clean_footprints, or not by clean_footprints. Clean the "
+            "buildings it was made from (for example the raw footprints) again."
+        )
+    return record
 
 
 @dataclass
@@ -298,7 +388,8 @@ class BlockWalls:
     current : bool
         Whether the cells are the parts' footprints, rather than recomputed.
     report : dict
-        The wall report of a recomputation.
+        The wall report of a recomputation; for current walls, the recorded
+        detail (:func:`walls_detail`).
     """
 
     cells: list[tuple[Polygon, int]]
@@ -308,35 +399,44 @@ class BlockWalls:
     current: bool
     report: dict[str, Any] = field(default_factory=dict)
 
+    @property
+    def detail(self) -> dict[str, Any]:
+        """The compact detail of the outcome (:func:`walls_detail`)."""
+        return walls_detail(self.outcome, self.report)
+
 
 def block_walls(building: Building) -> BlockWalls:
-    """The cells of a block for the current roofs of its parts.
+    """The cells of a block for its current region, sources and roofs.
 
-    The parts' footprints if the walls are current, else walls recomputed from
-    the source footprints with the recorded parameters. The block is not
-    modified (see :func:`update_walls`).
+    The parts' footprints if the walls are current (see the module
+    documentation), else walls recomputed from the source footprints with
+    the recorded parameters. The block is not modified (see
+    :func:`update_walls`).
     """
+    record = walls_of(building)
     parts = building.building_parts
     sources = part_sources(building)
     labels = list(sources)
     positions, rule = precedence([part_key(parts[i], sources[i]) for i in labels])
     order = [labels[position] for position in positions]
-    record = building.attributes.get(WALLS_KEY)
-    if not isinstance(record, dict):
-        raise ValueError(
-            f"Block {building.id} has no walls record; blocks are made by clean_footprints."
-        )
-    ids = [str(parts[i].id) for i in order]
-    if record.get("cells") == walls_digest(parts) and _same_overlaps(
-        record.get("order"), ids, {str(parts[i].id): sources[i] for i in labels}
+    region = block_region(building)
+    if record.get("inputs") == inputs_digest(building) and record.get("cells") == walls_digest(
+        parts
     ):
         cells = [
             (piece, index)
             for index, part in enumerate(parts)
             for piece in footprint_pieces(part.get_geometry(GeometryType.LOD0))
         ]
-        return BlockWalls(cells, str(record.get("outcome")), order, rule, True)
-    region = block_region(building)
+        covered = not cells or math.isclose(
+            sum(piece.area for piece, _ in cells), region.area, rel_tol=1e-9, abs_tol=1e-6
+        )
+        ids = [str(parts[i].id) for i in order]
+        if covered and _same_overlaps(
+            record.get("order"), ids, {str(parts[i].id): sources[i] for i in labels}
+        ):
+            outcome = str(record.get("outcome"))
+            return BlockWalls(cells, outcome, order, rule, True, dict(record.get("detail", {})))
     labelled = wall_cells(
         region,
         sources,
@@ -379,21 +479,25 @@ def _same_overlaps(recorded, order, sources) -> bool:
 def update_walls(building: Building) -> bool:
     """Recompute the walls of a block in place if they are not current.
 
-    Returns whether the parts' footprints changed.
+    The parts get the new cells, the record their order and outcome, and the
+    block and all its parts lose their LOD1 geometry (see the module
+    documentation). Returns whether the walls were recomputed.
     """
     walls = block_walls(building)
     if walls.current:
         return False
-    record = building.attributes[WALLS_KEY]
+    record = walls_of(building)
     assign_cells(building.building_parts, walls.cells)
+    building.remove_geometry(GeometryType.LOD1)
     building.attributes[WALLS_KEY] = walls_record(
-        building.building_parts,
+        building,
         walls.order,
         walls.rule,
         walls.outcome,
         delta=record["min_building_detail"],
         epsilon=record["fidelity_budget"],
         strict=record.get("strict", False),
+        detail=walls.detail,
     )
     set_block_roof(building)
     return True
@@ -401,13 +505,15 @@ def update_walls(building: Building) -> bool:
 
 def assign_cells(parts, cells: Sequence[tuple[Polygon, int]]) -> None:
     """Give each part the LOD0 footprint of its cells at its roof level;
-    parts without cells have none."""
+    parts without cells have none. Every part loses its LOD1 geometry, which
+    was derived from its former cells."""
     pieces: dict[int, list[Polygon]] = {}
     for polygon, index in cells:
         pieces.setdefault(index, []).append(polygon)
     for index, part in enumerate(parts):
         roof_z = part_roof(part)
         part.remove_geometry(GeometryType.LOD0)
+        part.remove_geometry(GeometryType.LOD1)
         if index not in pieces:
             continue
         surfaces = []
@@ -493,6 +599,14 @@ def footprint_pieces(geometry) -> list[Polygon]:
     """The polygons of a LOD0 Surface or MultiSurface."""
     pieces = [surface.to_polygon(simplify=0.0) for surface in _surfaces(geometry)]
     return [piece for piece in pieces if piece is not None and not piece.is_empty]
+
+
+def _digest_surfaces(digest, geometry) -> None:
+    for surface in _surfaces(geometry):
+        for ring in [surface.vertices, *surface.holes]:
+            digest.update(b"(")
+            ring = np.asarray(ring, dtype=np.float64)
+            digest.update(np.ascontiguousarray(ring[:, :2]).tobytes())
 
 
 def _surfaces(geometry) -> list[Surface]:
