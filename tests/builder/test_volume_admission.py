@@ -78,11 +78,16 @@ def test_a_volume_mesh_gives_a_pinched_block_one_roof(caplog):
     )
     levels = footprints.diagnostics["levels"]
     assert levels["pinched_level_sets"] == []
-    assert levels["one_roof"] == [{"building": 0, "roof": 30.0, "levels": [30.0]}]
+    (block,) = cleaned.buildings
+    assert levels["one_roof"] == [
+        {"building": 0, "ids": [block.id], "roof": 30.0, "levels": [30.0]}
+    ]
     # Roofs spanning more than 2 m: the highest, so no source is cut down.
     assert [surface.zmax for surface in footprints.surfaces] == [30.0]
     assert "meshed with one roof" in caplog.text
-    assert not any("touch at a point only" in m for m in footprints.contract["warnings"])
+    warnings = footprints.contract["warnings"]
+    assert any("meshed with one roof each" in message for message in warnings)
+    assert not any("vertical line contacts" in message for message in warnings)
 
 
 def test_volume_mesh_of_a_pinched_block():

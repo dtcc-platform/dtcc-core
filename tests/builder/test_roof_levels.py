@@ -97,8 +97,9 @@ def test_point_contacts_are_a_warning_of_the_meshing_footprints():
         city, lod=None, min_building_detail=0.5, min_building_area=1.0, max_mesh_size=5.0
     )
     assert len(footprints.surfaces) == 4
+    ids = [building.id for building in city.buildings]
     assert footprints.diagnostics["levels"]["pinched_level_sets"] == [
-        {"building": 0, "level": 30.0, "points": [[10.0, 10.0]]}
+        {"building": 0, "ids": ids, "level": 30.0, "points": [[10.0, 10.0]]}
     ]
     assert footprints.contract["status"] == "warn"
     assert any("vertical line contacts" in w for w in footprints.contract["warnings"])

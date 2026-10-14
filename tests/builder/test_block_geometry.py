@@ -153,8 +153,8 @@ def test_a_short_wall_edge_refines_only_the_walls_at_its_ends(notch):
     )
     shell = build_building_shell(building("notched", footprint, 30), min_building_detail=0.5)
     assert closed_and_oriented(shell)
-    # Each vertical line is split into strips no taller than 5 times its
-    # narrowest panel and no lower than 0.5 m; panels narrower than a
+    # Each vertical line is split into the fewest strips no taller than
+    # max(5 times its narrowest panel, 0.5 m); panels narrower than a
     # fiftieth of 0.5 m are left whole.
     levels = wall_levels(shell)
     for line, widths in panel_widths(shell).items():
@@ -176,3 +176,29 @@ def test_walls_of_a_block_conform_at_steps_with_unequal_edges():
     assert closed_and_oriented(shell)
     assert volume(shell) == pytest.approx(29.6 * 10 * 6 + 10.4 * 20 * 30)
     assert quality(shell).min() > 0.04
+
+
+def test_a_step_near_the_top_of_one_line_gives_no_sliver():
+    # The vertical line at (30, 10) has a step at 29.4 m, 0.6 m below the top
+    # of the high part's outline wall, whose other line has no level between
+    # its bottom and 30 m (wide panels: the wall edges are 5 m). Joining the
+    # short interval at the step to the far bottom of the other line gave a
+    # triangle of quality 0.011.
+    from dtcc_core.builder.geometry_builders.meshes import build_city_surface_mesh
+    from dtcc_core.model import Bounds, Raster, Terrain
+
+    city = City()
+    raster = Raster()
+    raster.data = np.zeros((4, 4))
+    raster.set_bounds(Bounds(0, -20, 60, 40))
+    terrain = Terrain()
+    terrain.add_geometry(raster, GeometryType.RASTER)
+    city.add_terrain(terrain)
+    city.add_buildings(
+        [building("high", box(20, 0, 30, 10), 30), building("mid", box(30, 5, 40, 10), 29.4)]
+    )
+    mesh = build_city_surface_mesh(
+        city.clean_footprints(), max_mesh_size=10.0, report_mesh_quality=False
+    )
+    assert sorted(wall_levels(mesh)[(30.0, 10.0)])[-2:] == [29.4, 30.0]
+    assert quality(mesh).min() > 0.05

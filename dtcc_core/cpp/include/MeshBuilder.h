@@ -359,14 +359,17 @@ public:
     // when the roofs are equal.
     //
     // Every wall on a vertical line (a footprint vertex) is split at the same
-    // levels there: the bottoms and tops of those walls, and strips between
-    // them no taller than 5 times the shortest wall edge at the vertex. A wall
-    // panel is triangulated between the levels of its two vertical lines. So
-    // walls and roofs that meet at a vertical line or a roof edge share their
-    // vertices, slender panels are subdivided, and a short edge refines only
-    // the walls at its ends. Strips are never lower than min_wall_strip, and
-    // a panel narrower than a fiftieth of it is left whole: no strip would
-    // give it triangles of quality 0.04 or more.
+    // levels there: the bottoms and tops of those walls, and between them the
+    // fewest equal strips no taller than the target spacing max(5 w,
+    // min_wall_strip), where w is the shortest wall edge at the vertex. A
+    // wall panel is triangulated between the levels of its two vertical
+    // lines. So walls and roofs that meet at a vertical line or a roof edge
+    // share their vertices, slender panels are subdivided, and a short edge
+    // refines only the walls at its ends. min_wall_strip bounds the target
+    // spacing, so the number of strips, not every strip: an interval of
+    // 0.7 m with a target of 0.5 m gets two strips of 0.35 m. A panel
+    // narrower than a fiftieth of min_wall_strip is left whole: no strip
+    // would give it triangles of quality 0.04 or more.
     std::map<size_t, std::vector<BuildingWall>> walls;
     std::unordered_map<size_t, std::vector<double>> line_keys;
     std::unordered_map<size_t, double> line_width;
@@ -713,9 +716,10 @@ private:
 
   // The levels at which the walls on one vertical line are split: the given
   // levels (bottoms and tops of the walls), with every interval between
-  // consecutive levels split into equal strips no taller than 5 times the
-  // shortest wall edge at the line (width) that is refined, and no lower than
-  // min_strip. A zero width leaves the intervals whole.
+  // consecutive levels split into the fewest equal strips no taller than
+  // max(5 width, min_strip), where width is the shortest refined wall edge at
+  // the line. Strips can be lower than min_strip, which bounds the target
+  // spacing only. A zero width leaves the intervals whole.
   static std::vector<double> subdivided_wall_levels(std::vector<double> levels,
                                                     double width,
                                                     double min_strip)
@@ -792,20 +796,32 @@ private:
         mesh.faces.push_back(Simplex2D(p, q, r));
       mesh.markers.push_back(marker);
     };
+    // Zipper: each step adds the triangle that advances one line. Where
+    // both can advance, the better triangle is taken (the one advancing a on
+    // a tie), so a short interval on one line is not joined to a far level
+    // on the other.
+    const auto quality = [&](size_t p, size_t q, size_t r)
+    {
+      const Vector3D &x = mesh.vertices[p];
+      const Vector3D &y = mesh.vertices[q];
+      const Vector3D &w = mesh.vertices[r];
+      const double ux = y.x - x.x, uy = y.y - x.y, uz = y.z - x.z;
+      const double vx = w.x - x.x, vy = w.y - x.y, vz = w.z - x.z;
+      const double cx = uy * vz - uz * vy, cy = uz * vx - ux * vz, cz = ux * vy - uy * vx;
+      const double area = 0.5 * std::sqrt(cx * cx + cy * cy + cz * cz);
+      const double wx = w.x - y.x, wy = w.y - y.y, wz = w.z - y.z;
+      const double lengths = ux * ux + uy * uy + uz * uz + vx * vx + vy * vy + vz * vz +
+                             wx * wx + wy * wy + wz * wz;
+      return lengths > 0.0 ? 4.0 * std::sqrt(3.0) * area / lengths : 0.0;
+    };
     size_t i = 0;
     size_t j = 0;
     while (i + 1 < a.size() || j + 1 < b.size())
     {
-      const double za = i + 1 < a.size() ? mesh.vertices[a[i + 1]].z : hi + 1.0;
-      const double zb = j + 1 < b.size() ? mesh.vertices[b[j + 1]].z : hi + 1.0;
-      if (za == zb)
-      {
-        add(a[i], b[j], b[j + 1]);
-        add(a[i], b[j + 1], a[i + 1]);
-        ++i;
-        ++j;
-      }
-      else if (za < zb)
+      const bool advance_a = i + 1 < a.size();
+      const bool advance_b = j + 1 < b.size();
+      if (advance_a &&
+          (!advance_b || quality(a[i], b[j], a[i + 1]) >= quality(a[i], b[j], b[j + 1])))
       {
         add(a[i], b[j], a[i + 1]);
         ++i;

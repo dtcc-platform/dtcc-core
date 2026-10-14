@@ -695,6 +695,12 @@ def _conditioned_footprint_contract_audit(
     pinched = diagnostics.get("levels", {}).get("pinched_level_sets", [])
     if pinched:
         warnings.append(pinch_warning(len({row["building"] for row in pinched})))
+    one_roof = diagnostics.get("levels", {}).get("one_roof", [])
+    if one_roof:
+        warnings.append(
+            f"{len(one_roof)} merged block(s) whose roof levels touch at a point only "
+            "are meshed with one roof each (diagnostics levels.one_roof lists their IDs)."
+        )
     report = admission["admissibility"]
     sectors = admission["incident_sector_profile"]["incident_sectors"]
     graph_error = _mesher_segment_graph_error(polygons)
@@ -2200,14 +2206,21 @@ def _meshing_footprints(
         rows = []
         if len({level for _, level, _ in regions}) > 1:
             rows = pinched_levels([(region, level) for region, level, _ in regions])
+        # The city buildings behind this output (the block itself when reused).
+        ids = [str(buildings[index].id) for index in cleaned.output_sources[output]]
         if rows and volume:
             roof_z, height = _one_roof(cleaned, output)
             regions, shift = [(polygon, roof_z, height)], None
             one_roof.append(
-                {"building": output, "roof": roof_z, "levels": [row["level"] for row in rows]}
+                {
+                    "building": output,
+                    "ids": ids,
+                    "roof": roof_z,
+                    "levels": [row["level"] for row in rows],
+                }
             )
         else:
-            pinched.extend({"building": output, **row} for row in rows)
+            pinched.extend({"building": output, "ids": ids, **row} for row in rows)
         if shift is not None:
             level_shifts.append(shift)
         for region, roof_z, height in regions:
@@ -3100,8 +3113,10 @@ def _build_city_surface_mesh_from_ground_mesh(
 ) -> Mesh | list[Mesh]:
     """Terrain and building shells on a ground mesh.
 
-    Wall panels are split into strips no taller than 5 times the shortest
-    wall edge at their vertical lines, and no lower than ``min_wall_strip``.
+    Each interval between wall levels at a vertical line is split into the
+    fewest equal strips no taller than max(5 w, ``min_wall_strip``), where w
+    is the shortest wall edge at the line; ``min_wall_strip`` bounds this
+    target spacing, not every strip.
     """
     builder_dem = raster_to_builder_gridfield(terrain_raster)
     aligned_ground_mesh = _snap_ground_mesh_to_raster_bounds(ground_mesh, terrain_raster)
@@ -4933,6 +4948,15 @@ def build_city_volume_mesh(
     at ``min_building_detail``, unless the city was already cleaned at that
     scale (``City.clean_footprints``). A merged block is extruded per part at
     the parts' roofs, grouped as in :func:`build_city_surface_mesh`.
+
+    A block whose roof levels touch at a point only (its shell would have
+    vertical edges with four faces, which a volume mesh cannot have) is
+    extruded with one roof instead: the area-weighted mean of its parts'
+    roofs, or the highest when they span more than 2 m. This removes the
+    steps of that block. A warning is logged, the conditioned-footprint
+    contract warns, and ``stage_audit`` lists the blocks with the IDs of
+    their buildings under the conditioned footprints' diagnostics
+    ``levels.one_roof``.
 
     Parameters
     ----------
