@@ -520,10 +520,12 @@ Construction runs as follows.
 | `warning` | Only wall pairs closer than delta remain; cells are kept and a warning is logged |
 | `fallback` | No acceptable walls: no start satisfies (2L), small sectors remain, or the cells cannot be mapped back. The block keeps one footprint and a warning is logged |
 
-With `strict=True`, a wall warning becomes a fallback. A geometry failure in
-the construction of one block's walls also leaves that block one footprint,
-with the cause in its wall report (reason `construction_error`). Cleaning
-never fails because of walls.
+With `strict=True`, a wall warning becomes a fallback. Walls with a pair
+closer than 0.1 mm are numerical artifacts, not building features, and meshers
+do not resolve them robustly: they also leave the block one footprint (reason
+`degenerate_walls`). A geometry failure in the construction of one block's
+walls does the same, with the cause in its wall report (reason
+`construction_error`). Cleaning never fails because of walls.
 
 **Walls record.** `attributes["footprint_walls"]` of a block holds the order
 (part IDs), the precedence rule used, the outcome, the detail, budget and
@@ -756,7 +758,9 @@ cleaned footprints and again in the mesh builders:
   for it.
 - Their minimum feature size must be at least delta. Separation defects are
   accepted, with a warning, when the cleaning result is itself a warning
-  candidate or declares walls closer than delta (wall warnings in the record).
+  candidate or declares walls closer than delta (wall warnings in the record,
+  or in the current walls when new roofs made the mesh builders recompute
+  them).
 
 Selection therefore cannot hide a topology defect of the cleaning result, and
 clipping cannot add separation defects to a result without warnings. Flat and
