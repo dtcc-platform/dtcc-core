@@ -322,3 +322,26 @@ def test_new_roofs_keep_walls_unless_they_change_the_winner_of_an_overlap():
     assert not walls.current
     pieces = {block.building_parts[i].id: cell for cell, i in walls.cells}
     assert pieces["c"].equals(box(19.5, 0, 30, 10))
+
+
+def test_meshing_reports_the_outcomes_of_recomputed_walls(monkeypatch):
+    from dtcc_core.builder.cleaning import blocks as blocks_module
+    from dtcc_core.builder.cleaning.walls import LabelledRegion, label_region
+
+    cleaned = raw_tower_city().clean_footprints()
+    parts = parts_by_id(cleaned.buildings[0])
+    set_part_roof(parts["low"], 6.0)
+    set_part_roof(parts["tower"], 30.0)
+
+    def warn(region, sources, order, **kwargs):
+        labelled = label_region(region, sources, order, **kwargs)
+        return LabelledRegion(labelled.region, labelled.cells, "warning", labelled.report)
+
+    monkeypatch.setattr(blocks_module, "label_region", warn)
+    footprints = meshes._meshing_footprints(
+        cleaned, lod=None, min_building_detail=0.5, min_building_area=0.0, max_mesh_size=5.0
+    )
+    walls = footprints.diagnostics["walls"]
+    assert cleaned.attributes[RECORD_KEY]["walls"]["warning"] == 0
+    assert (walls["warning"], walls["recomputed"]) == (1, 1)
+    assert footprints.diagnostics["before_selection_contract"]["wall_warnings"] == 1

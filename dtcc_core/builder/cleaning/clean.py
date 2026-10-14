@@ -647,11 +647,16 @@ def regions_from_cleaned_city(city: City, record: dict[str, Any]) -> CleanedRegi
 
     Regions are returned in the cleaner's canonical order, as a new cleaning
     would return them. The cells of a block are its walls for the current
-    roofs of its parts (:func:`.blocks.block_walls`).
+    roofs of its parts (:func:`.blocks.block_walls`); ``diagnostics["walls"]``
+    counts their outcomes as the record does, and the walls recomputed.
     """
     polygons, roofs, heights = [], [], []
     labels, label_roofs, label_heights, label_polygons = [], [], [], []
     output_cells, output_walls = [], []
+    walls_now = {
+        "strict": 0, "warning": 0, "fallback": 0, "warning_ids": [], "fallback_ids": [],
+        "recomputed": 0,
+    }
     for index, building in enumerate(city.buildings):
         if is_block(building):
             polygon = block_region(building)
@@ -681,6 +686,14 @@ def regions_from_cleaned_city(city: City, record: dict[str, Any]) -> CleanedRegi
         output_walls.append(
             {"order": [label_of[part] for part in walls.order], "outcome": walls.outcome}
         )
+        if len(label_of) > 1:
+            outcome = "strict" if walls.outcome == "single" else walls.outcome
+            walls_now[outcome] += 1
+            if outcome != "strict":
+                walls_now[f"{outcome}_ids"].append(
+                    [str(building.building_parts[part].id) for part in label_of]
+                )
+            walls_now["recomputed"] += not walls.current
         if walls.cells:
             roofs.append(max(label_roofs[label_of[part]] for _, part in walls.cells))
             values = [label_heights[label_of[part]] for _, part in walls.cells]
@@ -699,7 +712,7 @@ def regions_from_cleaned_city(city: City, record: dict[str, Any]) -> CleanedRegi
         output_height=heights,
         raw_polygons=list(polygons),
         record=record,
-        diagnostics={},
+        diagnostics={"walls": walls_now},
         labels=labels,
         label_roof_z=label_roofs,
         label_height=label_heights,

@@ -2152,6 +2152,9 @@ def _meshing_footprints(
         )
     record = cleaned.record
     walls = record.get("walls", {})
+    if reused:
+        # Walls recomputed for new roofs have outcomes of their own.
+        walls = {**walls, **cleaned.diagnostics["walls"]}
 
     declared_scale = _conditioned_footprint_declared_scale(
         min_building_detail=min_building_detail
