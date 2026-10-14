@@ -435,8 +435,8 @@ def clean_regions(
     diagnostics["walls"] = [
         {
             "labels": _region_labels(region_sources[region], sources),
-            "outcome": labelled[region].outcome,
             **labelled[region].report,
+            "outcome": labelled[region].outcome,
         }
         for region in order
         if len(_region_labels(region_sources[region], sources)) > 1

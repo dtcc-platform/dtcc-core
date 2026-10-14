@@ -418,3 +418,19 @@ def test_heights_per_part_from_attribute():
     assert [parts["a"].estimated_height, parts["b"].estimated_height] == [9.0, 10.0]
     assert block.estimated_height == 10.0
     assert block.get_geometry(GeometryType.LOD0).zmax == 10.0
+
+
+def test_walls_closer_than_a_tenth_of_a_millimetre_fall_back(monkeypatch):
+    def degenerate(polygon, sources, order, **kwargs):
+        labelled = label_region(polygon, sources, order, **kwargs)
+        return LabelledRegion(
+            labelled.region, labelled.cells, "warning", {**labelled.report, "min_wall_distance": 5e-5}
+        )
+
+    monkeypatch.setattr(blocks_module, "label_region", degenerate)
+    regions = clean_regions(
+        [building("a", box(0, 0, 10, 10), 10), building("b", box(10, 0, 20, 10), 20)],
+        enable_logging=False,
+    )
+    (report,) = regions.diagnostics["walls"]
+    assert (report["outcome"], report["reason"]) == ("fallback", "degenerate_walls")

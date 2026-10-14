@@ -67,6 +67,9 @@ WALLS_KEY = "footprint_walls"
 FALLBACK_ROOF_SPAN_LIMIT = 2.0
 # Sources that share less area than this (square metres) do not overlap.
 _OVERLAP_AREA = 1.0e-6
+# Walls closer than this (metres) are numerical artifacts, not building
+# features; meshers do not resolve them robustly.
+WALL_PAIR_FLOOR = 1.0e-4
 _RETRY_FACTOR = next(
     item.default for item in fields(ConditioningOptions) if item.name == "fidelity_retry_factor"
 )
@@ -215,8 +218,9 @@ def wall_cells(
     """Walls of one region between its sources, or one footprint.
 
     The walls are retried at 3 delta / 4 when that exceeds ``epsilon``. A
-    geometry failure, or a warning in strict mode, leaves the region one
-    footprint (outcome ``fallback``, with the reason in the report).
+    geometry failure, a warning in strict mode, or walls closer than 0.1 mm
+    (``WALL_PAIR_FLOOR``) leave the region one footprint (outcome
+    ``fallback``, with the reason in the report).
     """
     if len(order) == 1:
         return LabelledRegion(region, [(region, order[0])], "single", {})
@@ -239,6 +243,11 @@ def wall_cells(
         )
     if strict and labelled.outcome == "warning":
         return LabelledRegion(region, [], "fallback", {**labelled.report, "reason": "strict"})
+    closest = labelled.report.get("min_wall_distance")
+    if labelled.outcome == "warning" and closest is not None and closest < WALL_PAIR_FLOOR:
+        return LabelledRegion(
+            region, [], "fallback", {**labelled.report, "reason": "degenerate_walls"}
+        )
     return labelled
 
 
