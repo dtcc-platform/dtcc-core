@@ -37,12 +37,17 @@ Construction
        first) to the first start that satisfies (2L).
     3. Bounded repair, site by site and with whole-region wall operations:
        collapse short wall edges, snap or slide wall junctions on the region
-       boundary, project wall vertices onto the boundary, drop wall vertices,
-       and give a cell without a protected core to its neighbour. An edit is
-       admitted only if (2L) holds for every label and the defect measure
-       decreases: the number of sectors below the profile's minimum angle at
-       vertices the walls add or change, then the number of wall pairs closer
-       than delta, then their total deficit.
+       boundary, move junctions of walls near the boundary onto it, contract
+       walls shorter than delta to one junction, project wall vertices onto
+       the boundary, drop wall vertices,
+       give a cell without a protected core to its neighbour, and give a
+       *thin piece* (a piece of a label's cell thinner than delta, beside
+       another piece of the same label) to a neighbour, also right after a
+       wall edit that cuts it off. An edit is admitted only if (2L) holds for
+       every label and the defect measure decreases: the number of sectors
+       below the profile's minimum angle at vertices the walls add or change,
+       then the number of wall pairs closer than delta, then their total
+       deficit.
     4. If defects remain, the repair is retried once at the retry budget.
 
 Outcomes are ``strict`` (no defects), ``warning`` (only wall pairs closer than
@@ -715,24 +720,48 @@ def _absorb(region, cells: Cells, indices) -> Cells | None:
     out = list(cells)
     changed = False
     for index in indices:
-        polygon, label = out[index]
-        shared = {}
-        for other, (neighbour, other_label) in enumerate(out):
-            if other == index or other_label == label:
-                continue
-            length = sum(
-                line.length for line in _lines(polygon.boundary.intersection(neighbour.boundary))
-            )
-            if length > 0:
-                shared[other_label] = shared.get(other_label, 0.0) + length
+        shared = _shared_walls(out, index)
         if not shared:
             continue
-        best = max(shared.values())
-        out[index] = (polygon, min(label for label, length in shared.items() if length == best))
+        out[index] = (out[index][0], shared[0][0])
         changed = True
     if not changed:
         return None
     return _canonical(region, out)
+
+
+def _shared_walls(cells: Cells, index) -> list[tuple[int, float]]:
+    """The labels that share walls with a cell, longest shared length first."""
+    polygon, label = cells[index]
+    shared = {}
+    for other, (neighbour, other_label) in enumerate(cells):
+        if other == index or other_label == label or not polygon.intersects(neighbour):
+            continue
+        length = sum(
+            line.length for line in _lines(polygon.boundary.intersection(neighbour.boundary))
+        )
+        if length > 0:
+            shared[other_label] = shared.get(other_label, 0.0) + length
+    return sorted(shared.items(), key=lambda item: (-item[1], item[0]))
+
+
+def _thin_pieces(cells: Cells, delta, near=None) -> list[int]:
+    """Pieces thinner than delta beside another piece of the same label.
+
+    No disk of diameter delta fits in such a piece: it is a feature below
+    the minimum feature size, which its label can lose without losing its
+    cell. With ``near``, only pieces that meet it.
+    """
+    count = {}
+    for _, label in cells:
+        count[label] = count.get(label, 0) + 1
+    return [
+        index
+        for index, (polygon, label) in enumerate(cells)
+        if count[label] > 1
+        and (near is None or polygon.intersects(near))
+        and polygon.buffer(-delta / 2).is_empty
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -925,6 +954,19 @@ def _site_wall_offers(region, cells: Cells, site, delta):
         coordinates = [tuple(c[:2]) for c in wall.coords]
         closed = coordinates[0] == coordinates[-1]
         ring = coordinates[:-1] if closed else coordinates
+        if not closed and wall.length < delta and any(
+            np.min(np.hypot(site[:, 0] - c[0], site[:, 1] - c[1])) <= SITE_REACH * delta
+            for c in (ring[0], ring[-1])
+        ):
+            # A wall shorter than delta between two junctions: contract it
+            # to one junction (on the boundary if an end is there).
+            a, b = ring[0], ring[-1]
+            on_a = boundary.distance(Point(a)) <= ON_BOUNDARY
+            on_b = boundary.distance(Point(b)) <= ON_BOUNDARY
+            if not (on_a and on_b):
+                q = a if on_a else b if on_b else tuple((np.asarray(a) + np.asarray(b)) / 2)
+                rest = [other for index, other in enumerate(walls) if index != w_index]
+                yield "contract_wall", _move_end(_move_end(rest, a, q), b, q)
         for v_index, c in enumerate(ring):
             if np.min(np.hypot(site[:, 0] - c[0], site[:, 1] - c[1])) > SITE_REACH * delta:
                 continue
@@ -952,6 +994,20 @@ def _site_wall_offers(region, cells: Cells, site, delta):
                     )
                 continue
             if is_end:
+                # A junction of walls inside the region, closer than delta
+                # to its boundary: move it onto the boundary, with every
+                # wall that ends there.
+                distance = boundary.distance(Point(c))
+                if distance < delta:
+                    d = np.linalg.norm(vertices - point, axis=1)
+                    k = int(np.argmin(d))
+                    if d[k] < delta:
+                        q = tuple(vertices[k])
+                    else:
+                        q = tuple(
+                            np.asarray(boundary.interpolate(boundary.project(Point(c))).coords[0])
+                        )
+                    yield "snap_inner_junction", _move_end(walls, c, q)
                 continue
             reduced = [p for i, p in enumerate(ring) if i != v_index]
             if closed:
@@ -1001,25 +1057,73 @@ def _site_wall_offers(region, cells: Cells, site, delta):
                 yield "collapse_edge", _replace(walls, w_index, merged)
 
 
+def _move_end(walls, end, target):
+    """Walls with every end at ``end`` moved to ``target``."""
+    out = []
+    for wall in walls:
+        coordinates = [tuple(c[:2]) for c in wall.coords]
+        if coordinates[0] != coordinates[-1]:
+            for index in (0, len(coordinates) - 1):
+                if coordinates[index] == end:
+                    coordinates[index] = target
+        if len(set(coordinates)) >= 2:
+            out.append(LineString(coordinates))
+    return out
+
+
 def _site_offers(region, cells: Cells, site, delta, dispensable):
     """Candidate cells for one site."""
+    reach = []
+
+    def near():
+        """The reach of the site, built once and only when a cell offer needs it."""
+        if not reach:
+            reach.append(MultiPoint([tuple(p) for p in site]).buffer(SITE_REACH * delta))
+        return reach[0]
+
     for name, walls in _site_wall_offers(region, cells, site, delta):
         try:
-            yield name, _canonical(region, _rebuild(region, walls, cells))
+            edited = _canonical(region, _rebuild(region, walls, cells))
         except shapely.errors.GEOSException:
             continue
+        yield name, edited
+        # A wall edit can cut a thin piece off a cell; give it away too.
+        if _has_pieces(edited):
+            thin = _thin_pieces(edited, delta, near())
+            absorbed = None
+            if thin:
+                try:
+                    absorbed = _absorb(region, edited, thin)
+                except shapely.errors.GEOSException:
+                    pass
+            if absorbed is not None:
+                yield f"{name}+absorb_piece", absorbed
+    if _has_pieces(cells):
+        for index in _thin_pieces(cells, delta, near()):
+            for label, _ in _shared_walls(cells, index):
+                moved = list(cells)
+                moved[index] = (cells[index][0], label)
+                try:
+                    yield "absorb_piece", _canonical(region, moved)
+                except shapely.errors.GEOSException:
+                    continue
     if not any(label in dispensable for _, label in cells):
         return
-    site_geometry = MultiPoint([tuple(p) for p in site]).buffer(SITE_REACH * delta)
-    near = [
+    indices = [
         index
         for index, (polygon, label) in enumerate(cells)
-        if label in dispensable and polygon.intersects(site_geometry)
+        if label in dispensable and polygon.intersects(near())
     ]
-    for index in near:
+    for index in indices:
         moved = _absorb(region, cells, [index])
         if moved is not None:
             yield "absorb_cell", moved
+
+
+def _has_pieces(cells: Cells) -> bool:
+    """Whether some label has more than one piece."""
+    labels = [label for _, label in cells]
+    return len(labels) != len(set(labels))
 
 
 def _global_offers(region, cells: Cells, delta, dispensable):
@@ -1035,6 +1139,7 @@ def _global_offers(region, cells: Cells, delta, dispensable):
                 region, c, [i for i, (_, label) in enumerate(c) if label in dispensable]
             ),
         ),
+        ("absorb_pieces", lambda c: _absorb(region, c, _thin_pieces(c, delta))),
     )
     for name, operation in operations:
         try:

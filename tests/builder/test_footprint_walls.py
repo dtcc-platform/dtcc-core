@@ -16,6 +16,8 @@ from dtcc_core.builder.cleaning.blocks import WALLS_KEY, set_part_roof
 from dtcc_core.builder.cleaning.clean import MERGED_FROM_KEY, RECORD_KEY, clean_regions
 from dtcc_core.builder.cleaning.contract import check_labelled_contract
 from dtcc_core.builder.cleaning.walls import LabelledRegion, label_region
+from dtcc_core.builder.geometry_builders.meshes import build_city_flat_mesh_from_coverage
+from dtcc_core.model.mixins.mesh.quality import tri_element_quality
 from dtcc_core.builder.geometry_builders.buildings import (
     compute_building_heights,
     extract_roof_points,
@@ -279,6 +281,68 @@ def test_walls_of_a_block_with_near_coincident_samples():
     assert sorted(label for _, label in labelled.cells) == sorted(sources)
     union = unary_union([cell for cell, _ in labelled.cells])
     assert union.symmetric_difference(region).area < 1e-6
+
+
+def _fixture(name):
+    payload = json.loads((DATA / name).read_text())
+    region = next(
+        shape(f["geometry"]) for f in payload["features"] if f["properties"]["role"] == "region"
+    )
+    sources = {
+        f["properties"]["label"]: shape(f["geometry"])
+        for f in payload["features"]
+        if f["properties"]["role"] == "source"
+    }
+    return payload["metadata"], region, sources
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "stockholm-069-thin-piece.geojson",
+        "stockholm-085-short-wall.geojson",
+        "stockholm-085-junction-near-boundary.geojson",
+        "orebro-085-thin-tail.geojson",
+    ],
+)
+def test_walls_of_real_blocks_have_no_sub_millimetre_pieces(name):
+    # Real blocks of the surface survey whose walls left a piece of a cell of
+    # about a square millimetre, two junctions 0.18 mm apart, a junction
+    # 1.8 mm from a region vertex, or a wall running millimetres from a region
+    # edge. The 2D mesher failed on the first two (coverage seed conflicts)
+    # and refined the last into 27,000 triangles. Thin pieces go to a
+    # neighbour, short walls contract and junctions move onto the boundary.
+    meta, region, sources = _fixture(name)
+    labelled = blocks_module.wall_cells(
+        region, sources, meta["order"], delta=meta["delta"], epsilon=meta["epsilon"], strict=False
+    )
+    assert labelled.outcome == "strict"
+    labels = [label for _, label in labelled.cells]
+    assert len(labels) == len(set(labels))
+    union = unary_union([cell for cell, _ in labelled.cells])
+    assert union.symmetric_difference(region).area < 1e-6
+    report = check_labelled_contract(
+        sources,
+        meta["order"],
+        region,
+        labelled.cells,
+        delta=meta["delta"],
+        epsilon=labelled.report["fidelity_budget"],
+    )
+    assert report["status"] == "strict", report
+    x0, y0, x1, y1 = region.bounds
+    polygons = [cell for cell, _ in labelled.cells]
+    mesh = build_city_flat_mesh_from_coverage(
+        region_polygons=polygons,
+        region_markers=list(range(len(polygons))),
+        bounds=(x0 - 10, y0 - 10, x1 + 10, y1 + 10),
+        max_mesh_size=10,
+        min_mesh_angle=25,
+        backend="dtcc_mesher",
+    )
+    quality = tri_element_quality(mesh.vertices, mesh.faces)
+    assert len(mesh.faces) < 1000
+    assert quality.min() > 0.02
 
 
 def test_site_offers_without_dispensable_labels_build_no_reach(monkeypatch):
