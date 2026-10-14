@@ -461,10 +461,12 @@ footprint area decides. Ownership then waits for the heights:
   are taken on it, so a part that lost an overlap keeps its height;
 - each block records the order its walls were made with
   (`attributes["footprint_walls"]`);
-- where new roofs change the winner of an overlap, the next cleaning or
-  meshing, or `build_lod1_buildings`, recomputes the block's walls from the
-  source footprints with the recorded parameters. Only overlaps depend on the
-  order: with the same winner of every overlap, every V_c is the same.
+- where new roofs change the winner of an overlap, the height builders
+  recompute the block's walls from the source footprints with the recorded
+  parameters (`blocks.update_walls`); so do the next cleaning and meshing,
+  and `build_lod1_buildings`, for a block whose walls are not current (roofs
+  set by hand, say). Only overlaps depend on the order: with the same winner
+  of every overlap, every V_c is the same.
 
 Cleaning before or after height estimation therefore gives the same cells.
 
@@ -499,9 +501,15 @@ Construction runs as follows.
    fixed, at delta, delta / 2, delta / 4, delta / 10 and 0 (the exact
    labelling). The first that satisfies (2L) is the start.
 3. **Repair.** At most 6 rounds of repairs follow:
-   - local edits at each defect site: collapsing short wall edges, moving
-     junctions along the region boundary, projecting wall vertices onto it,
-     dropping vertices;
+   - local edits at each defect site: collapsing short wall edges,
+     contracting a wall shorter than delta between two junctions into one,
+     moving junctions along the region boundary, moving a junction of walls
+     closer than delta to the boundary onto it, projecting wall vertices onto
+     it, dropping vertices;
+   - giving a *thin piece* to a neighbour: a piece of a label's cells in
+     which no disk of diameter delta fits, beside another piece of the same
+     label (a feature below the minimum feature size that the label can lose
+     without losing its cell), also right after a local edit that cuts it off;
    - whole-region edits, each followed by simplification at delta;
    - giving a cell without a protected core to its neighbour.
 
@@ -520,19 +528,40 @@ Construction runs as follows.
 | `warning` | Only wall pairs closer than delta remain; cells are kept and a warning is logged |
 | `fallback` | No acceptable walls: no start satisfies (2L), small sectors remain, or the cells cannot be mapped back. The block keeps one footprint and a warning is logged |
 
-With `strict=True`, a wall warning becomes a fallback. Walls with a pair
-closer than 0.1 mm are numerical artifacts, not building features, and meshers
-do not resolve them robustly: they also leave the block one footprint (reason
-`degenerate_walls`). A geometry failure in the construction of one block's
-walls does the same, with the cause in its wall report (reason
-`construction_error`). Cleaning never fails because of walls.
+With `strict=True`, a wall warning becomes a fallback (reason `strict`). Walls
+with a pair closer than 0.1 mm are numerical artifacts, not building features,
+and meshers do not resolve them robustly: they also leave the block one
+footprint (reason `degenerate_walls`). A geometry failure in the construction
+of one block's walls does the same (reason `construction_error`). Without an
+acceptable start or with small sectors, the reasons are `no_faithful_start`
+and `small_sectors`. Cleaning never fails because of walls.
 
-**Walls record.** `attributes["footprint_walls"]` of a block holds the order
-(part IDs), the precedence rule used, the outcome, the detail, budget and
-strictness of the walls, and a digest of the parts' footprints. The walls are
-*current* when the parts' footprints match the digest and every pair of
-overlapping sources keeps its recorded order. Walls that are not current are
-recomputed from the source footprints with the recorded parameters.
+The thin-piece, contraction and junction edits were added for real blocks of
+the surface survey whose warnings left pieces of about a square millimetre,
+junctions 0.18 mm apart or walls millimetres from the region boundary: the 2D
+mesher failed on two (coverage seed conflicts) and refined others into tens of
+thousands of slivers. They are test fixtures in `tests/data/cleaning`.
+
+**Walls record.** `attributes["footprint_walls"]` of a block (version 2)
+holds:
+
+- the order (part IDs) and the precedence rule used;
+- the outcome and its `detail`: the reason of a fallback (with the message of
+  a construction error), and the number of wall pairs closer than delta and
+  the closest distance of a warning;
+- the detail, budget and strictness the walls were made with;
+- a digest of the inputs of the cells, the XY of the block's region and of
+  its parts' source footprints, and a digest of the cells (the parts' LOD0).
+
+The walls are *current* when both digests match, the cells cover the region,
+and every pair of overlapping sources keeps its recorded order. Walls that
+are not current are made again from the source footprints with the recorded
+parameters: a changed region or source is never covered by stale cells. The
+detail is kept when walls are reused and replaced when they are made again,
+and the city record lists the reasons of its fallback blocks. A record of
+another version is an error that asks to clean the buildings the block was
+made from again: a block made by an earlier development version may lack its
+source footprints, which cannot be recovered.
 
 ## Roof levels at meshing
 
@@ -568,12 +597,15 @@ with w_c the mean of group c weighted by cell area. Then:
 - Between regions of different levels, the building shell gets a step wall
   from the lower roof to the higher.
 - Every vertical line of the walls (a footprint vertex) has its own levels:
-  the bottoms and tops of the walls on it, and strips no taller than 5 times
-  its narrowest wall panel and no lower than delta. A panel narrower than
-  delta / 50 is left whole. Each panel is triangulated between the levels of
-  its two lines, so walls meeting at a vertical line share their vertices and
-  the shell is conforming, while a short edge refines only the walls at its
-  ends.
+  the bottoms and tops of the walls on it, and between them the fewest equal
+  strips no taller than max(5 w, delta), where w is its narrowest wall panel.
+  Delta bounds this target spacing, not every strip: an interval of 0.7 m at
+  delta = 0.5 m gets two strips of 0.35 m. A panel narrower than delta / 50
+  is left whole. Each panel is triangulated between the levels of its two
+  lines by a zipper that takes the better triangle where both lines can
+  advance, so walls meeting at a vertical line share their vertices and the
+  shell is conforming, a short edge refines only the walls at its ends, and a
+  short interval on one line is not joined to a far level on the other.
 
 A block that keeps one footprint is meshed with one roof. At cleaning, that
 roof is the area-weighted mean of its sources' roofs, or the highest roof when
@@ -591,8 +623,11 @@ boundary. Q_t is the union of the regions with roofs at or above t.
   contract; `build_building_shell` warns in the same words.
 - A volume mesh cannot have such edges. `build_city_volume_mesh` meshes a
   block with a pinch with one roof, as a block that keeps one footprint (see
-  below), before any surface is built, lists it in `levels.one_roof` and
-  warns.
+  below), before any surface is built. This removes the steps of that block:
+  it is a deliberate loss of height fidelity, not height preservation. The
+  block is listed with the IDs of its buildings in `levels.one_roof` of the
+  conditioned footprints' diagnostics (in `stage_audit`), and the stage
+  contract and the log warn.
 
 **Buildings cleaned in isolation.** These have no joint contract, so only
 `build_city_surface_mesh(..., isolated=True)` meshes them, for visualization.
@@ -638,10 +673,13 @@ city = city.clean_footprints(min_building_detail=0.5, min_area=15.0)
   to the regions where they have cells (a part without a cell to the regions
   its source overlaps).
 
-**Identity and provenance.** Every object of the result has a unique ID.
+**Identity and provenance.** Every object of the model has a unique ID.
 
 - A part that occurs once keeps the ID of its source; the occurrences of a
-  source in several blocks get `<id>#<n>`, numbered in output order.
+  source in several blocks get `<id>#<n>`, in output order, with the first n
+  that no object of the input model has (the city and every descendant).
+- The descendants of such an occurrence get IDs the same way, and keep the
+  ID of what they copy in `attributes["source_id"]`.
 - `attributes["source_id"]` of a part is the ID of its source, and
   `attributes["merged_from"]` of a block the source IDs of its parts.
   `blocks.source_ids(building)` gives the source IDs of any cleaned building.
@@ -663,7 +701,8 @@ city = city.clean_footprints(min_building_detail=0.5, min_area=15.0)
 - **Cells.** The cells tile the region. Where a wall ends on the region
   boundary, the cells have a vertex that the block's outline does not.
 - **Other geometry.** LOD1-LOD3 geometry is removed because it no longer
-  matches the footprint.
+  matches the footprint. Whenever the cells of a block change later, the LOD1
+  geometry of the block and of all its parts is removed as well.
 
 **Cleaning again.** A cleaned block is cleaned again from its LOD0 footprint
 and its parts, whatever `lod` and `min_building_detail` (also after LOD1 and
@@ -683,15 +722,19 @@ at zero detail).
 - **Heights.** Heights can be computed per part afterwards:
   `extract_roof_points`, `compute_building_heights` and
   `set_building_heights_from_attribute` work on the parts of cleaned blocks,
-  on the footprints of their sources. They set the roofs; they do not change
-  the walls.
+  on the footprints of their sources. They set the roofs and then bring the
+  walls up to date (`blocks.update_walls`), so the parts' LOD0 is the current
+  partition and later meshing does not recompute it.
 - **LOD1.** `build_lod1_buildings` first brings the walls of a block up to
-  date (`blocks.update_walls`), then gives each part its own LOD1 prism, from
-  its own ground to its own roof, and the block none, as for building parts in
-  CityGML. A fallback block gets one prism, and its parts none.
+  date, then gives each part with a cell its own LOD1 prism, from its own
+  ground to its own roof, and the block and its parts without a cell none, as
+  for building parts in CityGML. A fallback block gets one prism, and its
+  parts none. Prisms of a block whose walls change are rebuilt also with
+  `rebuild=False`; no prism outlives the partition it was built from.
 - **Traversal.** `flatten_geometry` merges an object's own geometry with that
-  of its descendants, so a city finds the LOD1 prisms of parts. A footprint
-  (LOD0) covers its children's: an object with one does not add theirs.
+  of its descendants, so a city finds the LOD1 prisms of parts. For every
+  object type, a footprint (LOD0) covers its children's: an object with one
+  does not add theirs, and without one it collects them.
 - **Shell.** `build_building_shell` gives one triangle shell of a building:
   - the parts at their grouped roofs, with step walls between them;
   - walls down to `base_z`, by default `ground_height`, else 0;
@@ -712,7 +755,7 @@ first stage and before the walls.
 - The isolated surface mesh selects per building footprint.
 
 **Record.** A cleaned city records the cleaning in
-`city.attributes["footprint_cleaning"]` (version 3):
+`city.attributes["footprint_cleaning"]` (version 4):
 
 - the scale, mode, `min_area`, `lod` and `strict`;
 - the outcome, and the budgets of the first stage (`fidelity_budget`,
@@ -720,7 +763,7 @@ first stage and before the walls.
 - the compact contract report before selection (admissibility, fidelity and
   budget) and the mesher-input profile status;
 - the wall outcomes: counts, the label IDs of each warning and fallback block,
-  and the budget used;
+  the reason of each fallback (`fallback_reasons`), and the budget used;
 - input, output and merged counts;
 - the buildings without footprints (`missing_footprint_ids`);
 - every other building without a cleaned region, with its reason

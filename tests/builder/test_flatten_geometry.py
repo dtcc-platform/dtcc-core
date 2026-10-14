@@ -89,3 +89,51 @@ def test_flatten_root_and_child(building3):
     orig_geom = building3.get_geometry(GeometryType.LOD1)
     assert orig_geom is not None
     assert len(orig_geom.surfaces) == 4
+
+
+def _square(x0, y0, size, z=0.0):
+    return Surface(
+        vertices=np.array(
+            [[x0, y0, z], [x0 + size, y0, z], [x0 + size, y0 + size, z], [x0, y0 + size, z]],
+            dtype=float,
+        )
+    )
+
+
+def test_a_footprint_covers_the_footprints_of_children():
+    # The model contract for LOD0: a footprint of an object covers those of
+    # its children (the parts of a building lie inside its footprint), so a
+    # parent with a footprint gives its own, and the children's are not
+    # added. Without one, the children's footprints are collected.
+    building = Building()
+    building.add_geometry(_square(0, 0, 10), GeometryType.LOD0)
+    for x in (0, 5):
+        part = BuildingPart()
+        part.add_geometry(_square(x, 0, 5), GeometryType.LOD0)
+        building.add_child(part)
+    footprint = building.flatten_geometry(GeometryType.LOD0)
+    assert isinstance(footprint, Surface)
+    assert np.allclose(footprint.vertices, _square(0, 0, 10).vertices)
+
+    parts_only = Building()
+    for x in (0, 5):
+        part = BuildingPart()
+        part.add_geometry(_square(x, 0, 5), GeometryType.LOD0)
+        parts_only.add_child(part)
+    footprints = parts_only.flatten_geometry(GeometryType.LOD0)
+    assert isinstance(footprints, MultiSurface)
+    assert len(footprints.surfaces) == 2
+
+
+def test_other_geometry_of_a_parent_and_its_children_is_combined(walls, floor_roof):
+    # LOD1 and higher are solids or surfaces of their own: a parent's and its
+    # children's are combined, at every depth.
+    building = Building()
+    building.add_geometry(walls, GeometryType.LOD1)
+    part = BuildingPart()
+    part.add_geometry(floor_roof, GeometryType.LOD1)
+    inner = BuildingPart()
+    inner.add_geometry(MultiSurface(surfaces=[_square(0, 0, 1, 2.0)]), GeometryType.LOD1)
+    part.add_child(inner)
+    building.add_child(part)
+    assert len(building.flatten_geometry(GeometryType.LOD1).surfaces) == 4 + 2 + 1

@@ -556,10 +556,12 @@ class Object(Model):
 
         The object's own geometry is merged with that of its children, each
         flattened in turn, so geometry stored on building parts is found from
-        a building and from a city. A footprint (LOD0) of an object covers its
-        children's: when the object has one, theirs are not added (the parts
-        of a cleaned block divide its footprint). Child types in ``exclude``
-        are skipped at every level. The object is not modified.
+        a building and from a city. For every object type, a footprint (LOD0)
+        of an object covers its children's: when the object has one, theirs
+        are not added (the parts of a building lie inside its footprint, and
+        the parts of a cleaned block divide it), and without one, its
+        children's are collected. Child types in ``exclude`` are skipped at
+        every level. The object is not modified.
         """
         if exclude is None:
             exclude = []
