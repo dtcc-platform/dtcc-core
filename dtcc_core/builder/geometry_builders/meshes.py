@@ -44,6 +44,7 @@ from ..cleaning.clean import (
     regions_from_cleaned_city,
 )
 from ..cleaning.footprints import ConditioningResult
+from ..cleaning.blocks import fallback_roof
 from ..cleaning.levels import level_regions, pinched_levels
 from ..cleaning.plotting import plot_footprint_cleaning_comparison
 from ..cleaning.selection import select_footprints
@@ -693,11 +694,7 @@ def _conditioned_footprint_contract_audit(
     warnings = list(admission["warnings"])
     pinched = diagnostics.get("levels", {}).get("pinched_level_sets", [])
     if pinched:
-        warnings.append(
-            f"Buildings of {len({row['building'] for row in pinched})} merged "
-            "block(s) touch at a point only above a lower roof: the building "
-            "shells have vertical line contacts (edges with four faces)."
-        )
+        warnings.append(pinch_warning(len({row["building"] for row in pinched})))
     report = admission["admissibility"]
     sectors = admission["incident_sector_profile"]["incident_sectors"]
     graph_error = _mesher_segment_graph_error(polygons)
@@ -2110,6 +2107,7 @@ def _meshing_footprints(
     show_footprints: bool = False,
     footprint_cleaning_plot_block: bool = True,
     pipeline_mode: MeshingPipelineMode = "strict",
+    volume: bool = False,
 ) -> _MeshingFootprints:
     """Clean the city's footprints in unison, or reuse its recorded cleaning.
 
@@ -2117,6 +2115,12 @@ def _meshing_footprints(
     is not cleaned again (see :func:`cleaning_record`). Regions smaller than
     ``min_building_area`` are then dropped. Selection never changes the kept
     regions.
+
+    The regions of a block are its cells grouped by roof level. For a volume
+    mesh (``volume``), a block whose level sets touch at a point only (a
+    pinch: the shell would have edges with four faces) is one region at one
+    roof instead (:func:`.cleaning.blocks.fallback_roof`); the diagnostics
+    list these blocks under ``levels.one_roof``.
     """
     pipeline_mode = _normalize_meshing_pipeline_mode(pipeline_mode)
     buildings = city.buildings
@@ -2184,16 +2188,25 @@ def _meshing_footprints(
     source_map: list[list[int]] = []
     subdomain_resolution: list[float] = []
     pinched = []
+    one_roof = []
     level_shifts = []
     for polygon, (output,) in zip(selected.polygons, selected.source_map):
         regions, shift = _building_level_regions(
             cleaned, output, polygon, delta=float(min_building_detail)
         )
+        rows = []
+        if len({level for _, level, _ in regions}) > 1:
+            rows = pinched_levels([(region, level) for region, level, _ in regions])
+        if rows and volume:
+            roof_z, height = _one_roof(cleaned, output)
+            regions, shift = [(polygon, roof_z, height)], None
+            one_roof.append(
+                {"building": output, "roof": roof_z, "levels": [row["level"] for row in rows]}
+            )
+        else:
+            pinched.extend({"building": output, **row} for row in rows)
         if shift is not None:
             level_shifts.append(shift)
-        if len({level for _, level, _ in regions}) > 1:
-            for row in pinched_levels([(region, level) for region, level, _ in regions]):
-                pinched.append({"building": output, **row})
         for region, roof_z, height in regions:
             surface = Surface()
             surface.from_polygon(region, roof_z)
@@ -2208,7 +2221,13 @@ def _meshing_footprints(
         "regions": len(surfaces),
         "max_level_shift": max(level_shifts, default=0.0),
         "pinched_level_sets": pinched,
+        "one_roof": one_roof,
     }
+    if one_roof:
+        warning(
+            f"{len(one_roof)} merged block(s) whose roof levels touch at a point only "
+            "are meshed with one roof each for the volume mesh (see the diagnostics)."
+        )
 
     if not surfaces and buildings:
         warning("No building footprints remain after cleaning and selection.")
@@ -2263,6 +2282,32 @@ def _building_level_regions(
     return regions, shift
 
 
+def _one_roof(cleaned: CleanedRegions, output: int) -> tuple[float, float | None]:
+    """One roof level and height for a block: those of its labels as one
+    footprint (:func:`.cleaning.blocks.fallback_roof`)."""
+    labels = list(cleaned.output_walls[output].get("order", [])) if cleaned.output_walls else []
+    if not labels:
+        labels = sorted({label for _, label in cleaned.output_cells[output]})
+    if not labels:
+        return cleaned.output_roof_z[output], cleaned.output_height[output]
+    areas = {label: float(cleaned.label_polygons[label].area) for label in labels}
+    return fallback_roof(
+        labels,
+        areas,
+        {label: cleaned.label_roof_z[label] for label in labels},
+        {label: cleaned.label_height[label] for label in labels},
+    )
+
+
+def pinch_warning(blocks: int) -> str:
+    """The warning for blocks whose shells have vertical line contacts."""
+    return (
+        f"Buildings of {blocks} merged block(s) touch at a point only above a "
+        "lower roof: the building shells have vertical line contacts (edges with "
+        "four faces), which a volume mesh cannot have."
+    )
+
+
 def _prepare_city_meshing_inputs(
     city: City,
     *,
@@ -2273,6 +2318,7 @@ def _prepare_city_meshing_inputs(
     show_footprints: bool = False,
     footprint_cleaning_plot_block: bool = True,
     pipeline_mode: MeshingPipelineMode = "strict",
+    volume: bool = False,
 ) -> tuple[object, object, _MeshingFootprints]:
     terrain, terrain_raster = _require_city_terrain_raster(
         city,
@@ -2287,6 +2333,7 @@ def _prepare_city_meshing_inputs(
         show_footprints=show_footprints,
         footprint_cleaning_plot_block=footprint_cleaning_plot_block,
         pipeline_mode=pipeline_mode,
+        volume=volume,
     )
     return terrain, terrain_raster, footprints
 
@@ -4078,13 +4125,18 @@ def build_building_shell(
     """Build a triangle shell of one building: roofs, outer walls and step walls.
 
     The building is meshed from its LOD0 footprint at its roof. A cleaned
-    block, whose parts have their own LOD0 footprints, is meshed from its
-    parts at their own roofs, grouped as by :func:`build_city_surface_mesh`:
-    roofs closer than ``min_building_detail`` are unified (each moves by at
-    most half of it) and the walls between them dropped. Parts at different
-    roofs share a step wall from the lower roof to the higher. Outer walls
-    reach down to ``base_z``. All walls are split at the same levels, so the
-    shell is conforming; with ``floor`` it is closed, with outward normals.
+    block with walls is meshed from the cells of its parts at their own roofs
+    (walls follow the current roofs, see
+    :func:`dtcc_core.builder.cleaning.blocks.block_walls`), grouped as by
+    :func:`build_city_surface_mesh`: roofs closer than ``min_building_detail``
+    are unified (each moves by at most half of it) and the walls between them
+    dropped. Parts at different roofs share a step wall from the lower roof to
+    the higher. Outer walls reach down to ``base_z``. Walls meeting at a
+    vertical line are split at the same levels there, so the shell is
+    conforming; with ``floor`` it is closed, with outward normals. Where the
+    regions of one roof level touch at a point only above a lower roof (a
+    pinch), the shell has edges with four faces: it is closed but not a
+    manifold, and a warning says so.
 
     The building is not cleaned; clean it first (``clean_footprints``) if its
     footprints may overlap or have features below ``min_building_detail``.
@@ -4127,6 +4179,8 @@ def build_building_shell(
         (orient(polygon, sign=1.0), level)
         for polygon, level, _ in level_regions(cells, roofs, float(min_building_detail))
     ]
+    if len({level for _, level in regions}) > 1 and pinched_levels(regions):
+        warning(f"Building {building.id}: {pinch_warning(1)}")
     if base_z is None:
         ground = building.attributes.get("ground_height")
         base_z = float(ground) if ground is not None else 0.0
@@ -4239,7 +4293,7 @@ def _isolated_surface_mesh(
 ) -> Mesh | list[Mesh]:
     """Terrain mesh plus one shell per building cleaned in isolation (a soup)."""
     from .terrain import build_terrain_surface_mesh
-    from ..meshing.tetgen import WATERTIGHT_FIELD
+    from ..meshing.tetgen import VOLUME_BOUNDARY_FIELD
 
     _terrain, terrain_raster = _require_city_terrain_raster(city, max_mesh_size=max_mesh_size)
     if cleaning_record(city, min_building_detail=min_building_detail, lod=lod, isolated=True):
@@ -4347,7 +4401,7 @@ def _isolated_surface_mesh(
     for mesh in parts:
         mesh.fields.append(
             Field(
-                name=WATERTIGHT_FIELD,
+                name=VOLUME_BOUNDARY_FIELD,
                 values=np.array([0.0]),
                 association="geometry",
                 description=description,
@@ -4426,8 +4480,8 @@ def build_city_surface_mesh(
         :func:`build_building_shell`). Shells are not welded to each other or
         to the terrain and may intersect them. The mesh carries a face field
         ``building`` (index of the building in the buildings cleaned in
-        isolation, -1 for terrain) and a geometry field ``watertight`` = 0,
-        so volume meshing refuses it. Default False.
+        isolation, -1 for terrain) and a geometry field ``volume_boundary``
+        = 0, so volume meshing refuses it. Default False.
 
     Returns
     -------
@@ -5066,6 +5120,7 @@ def build_city_volume_mesh(
         show_footprints=show_footprints,
         footprint_cleaning_plot_block=footprint_cleaning_plot_block,
         pipeline_mode=pipeline_mode,
+        volume=True,
     )
     building_footprints = conditioned_footprints.surfaces
     subdomain_resolution = conditioned_footprints.subdomain_resolution

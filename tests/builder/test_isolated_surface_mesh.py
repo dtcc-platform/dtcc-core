@@ -11,7 +11,7 @@ from dtcc_core.builder import (
     build_city_volume_mesh,
 )
 from dtcc_core.builder.geometry_builders import meshes
-from dtcc_core.builder.meshing.tetgen import is_watertight_surface
+from dtcc_core.builder.meshing.tetgen import has_volume_veto
 from dtcc_core.model import Bounds, Building, City, GeometryType, Raster, Surface, Terrain
 
 pytest.importorskip("dtcc_mesher")
@@ -62,8 +62,8 @@ def test_buildings_cleaned_in_isolation_get_separate_shells_on_the_terrain():
     assert set(markers[owner == -1]) == {-2}
     # Three regions: walls 0-2, roofs 3-5.
     assert sorted(set(markers[owner >= 0])) == list(range(6))
-    assert field(mesh, "watertight").association == "geometry"
-    assert not is_watertight_surface(mesh)
+    assert field(mesh, "volume_boundary").association == "geometry"
+    assert has_volume_veto(mesh)
 
     # Walls reach down to the lowest terrain under each footprint.
     vertices = np.asarray(mesh.vertices)
@@ -80,7 +80,7 @@ def test_unmerged_soup_is_the_terrain_and_one_shell_per_building(tmp_path):
         overlapping_city(), isolated=True, merge_meshes=False, report_mesh_quality=False
     )
     assert len(meshes_list) == 4
-    assert all(not is_watertight_surface(mesh) for mesh in meshes_list)
+    assert all(has_volume_veto(mesh) for mesh in meshes_list)
     assert [np.unique(field(mesh, "building").values).tolist() for mesh in meshes_list] == [
         [-1.0],
         [0.0],
@@ -89,7 +89,7 @@ def test_unmerged_soup_is_the_terrain_and_one_shell_per_building(tmp_path):
     ]
 
     io.save_model(meshes_list[1], tmp_path / "shell.dtcc")
-    assert not is_watertight_surface(io.load_model(tmp_path / "shell.dtcc"))
+    assert has_volume_veto(io.load_model(tmp_path / "shell.dtcc"))
 
 
 def test_a_block_gets_one_shell_with_step_walls_and_a_recorded_cleaning_is_reused(monkeypatch):
@@ -122,7 +122,7 @@ def test_flat_and_volume_meshes_need_buildings_cleaned_in_unison():
         build_city_volume_mesh(city, isolated=True)
     with pytest.raises(TypeError):
         build_city_surface_mesh(city, isolated=1)
-    assert is_watertight_surface(
+    assert not has_volume_veto(
         build_city_surface_mesh(city, report_mesh_quality=False, max_mesh_size=10.0)
     )
 
@@ -133,5 +133,5 @@ def test_volume_meshing_refuses_a_soup():
     if not is_tetgen_available():
         pytest.skip("TetGen is not available")
     mesh = build_city_surface_mesh(overlapping_city(), isolated=True, report_mesh_quality=False)
-    with pytest.raises(ValueError, match="not watertight"):
+    with pytest.raises(ValueError, match="unfit to bound a volume mesh"):
         build_volume_mesh(mesh)
