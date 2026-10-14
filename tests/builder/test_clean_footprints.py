@@ -7,6 +7,7 @@ from shapely.geometry import box
 from dtcc_core import io
 from dtcc_core.builder import clean_footprints
 from dtcc_core.builder.cleaning import clean as clean_module
+from dtcc_core.builder.cleaning.blocks import block_walls
 from dtcc_core.builder.cleaning.clean import (
     MERGED_FROM_KEY,
     RECORD_KEY,
@@ -244,10 +245,16 @@ def test_record_tracks_footprints_but_not_heights(tmp_path):
     loaded.add_building(building("new", box(50, 0, 60, 10), 10))
     assert cleaning_record(loaded, min_building_detail=0.5) is None
 
-    # Part footprints are part of the fingerprint.
+    # The footprints of parts are checked by the walls record of their block:
+    # changed ones are recomputed from the sources.
     moved = io.load_model(path)
-    moved.buildings[0].building_parts[0].get_geometry(GeometryType.LOD0).translate(x=0.1)
-    assert cleaning_record(moved, min_building_detail=0.5) is None
+    block = moved.buildings[0]
+    block.building_parts[0].get_geometry(GeometryType.LOD0).translate(x=0.1)
+    assert cleaning_record(moved, min_building_detail=0.5) is not None
+    walls = block_walls(block)
+    assert not walls.current
+    assert [cell.equals(box(0, 0, 10, 10) if part == 0 else box(10, 0, 20, 10))
+            for cell, part in walls.cells] == [True, True]
 
 
 def test_strict_cleaning_does_not_accept_residual_separation(monkeypatch):

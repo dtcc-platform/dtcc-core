@@ -10,10 +10,11 @@ and the merge distance delta. See ``docs/design/footprint-cleaning-contract.md``
 and the footprint conditioning note for the contract.
 
 Cleaning has two stages. Stage 1 cleans the occupied area and merges
-footprints closer than delta into regions. Stage 2 (:mod:`.walls`) divides
-every region supported by several footprints into cells by walls between the
-footprints, so each keeps a cleaned footprint of its own. Where footprints
-overlap, the taller one wins, then the larger, then the first.
+footprints closer than delta into regions; it does not depend on heights.
+Stage 2 (:mod:`.walls`) divides every region supported by several footprints
+into cells by walls between the footprints, so each keeps a cleaned footprint
+of its own. Where footprints overlap, the one with the highest roof wins (see
+:func:`.blocks.precedence` for sources without roof levels or heights).
 
 Cleaning returns one building per cleaned region, in the input order of the
 first building that supports it:
@@ -21,10 +22,14 @@ first building that supports it:
 * A region that is the cleaned footprint of exactly one input building, and
   the only region of that building, is that building with a new footprint. It
   keeps its ID, attributes, heights and children.
-* Any other region is a new *block*: a building whose ``BuildingPart``
-  children are the input buildings that support it, with their IDs,
-  attributes and heights. ``attributes["merged_from"]`` lists the part IDs.
-  Parts of a block that is merged again are lifted into the new block.
+* Any other region is a new *block* (:mod:`.blocks`): a building whose
+  ``BuildingPart`` children are the sources that support it, with their
+  attributes and heights, and their footprints before cleaning. A part keeps
+  the ID of its source unless cleaning splits the source over several blocks;
+  ``attributes["source_id"]`` of a part and ``attributes["merged_from"]`` of
+  a block give the source IDs. Parts of a block that is merged again are
+  lifted into the new block. The ID of a new block is derived from its parts'
+  IDs, so cleaning the same buildings gives the same IDs.
 
 Cleaned buildings carry only the cleaned LOD0 footprint. LOD1-LOD3 geometry is
 removed from the buildings and their parts because it no longer matches the
@@ -35,14 +40,22 @@ neighbours within the fidelity budget has no cell and no footprint. When no
 acceptable walls are found, the block keeps one footprint and its parts have
 none; the record lists these blocks.
 
-A cleaned block is cleaned again from its own footprint, which its parts'
-footprints divide, so cleaning a cleaned city changes nothing.
+A cleaned block is cleaned again from its own footprint, whatever ``lod`` and
+``min_building_detail``. If cleaning leaves that footprint as it is, at most
+at the detail of its walls, the walls stay as they are while they are current
+(:func:`.blocks.block_walls`), so cleaning a cleaned city changes nothing.
+Otherwise new walls divide the region by the parts' source footprints, with
+the fidelity budget of the earlier cleaning added to that of this one.
+
+When heights are set after cleaning, the walls follow them: where they change
+which source wins an overlap, the next cleaning or meshing recomputes the
+walls of that block from its source footprints.
 
 A block's roof and ``estimated_height`` are those of its highest part, and its
 ``ground_height`` is the lowest of its parts. The mesh builders use the parts'
 own roofs. A block that keeps one footprint is meshed with one roof: the
 area-weighted mean of its sources, or the highest source roof when they span
-more than 2 m (:func:`fallback_roof`).
+more than 2 m (:func:`.blocks.fallback_roof`).
 """
 
 from __future__ import annotations
@@ -52,11 +65,10 @@ from dataclasses import dataclass, field, fields
 import hashlib
 import math
 from typing import Any, Sequence
+import uuid
 
 import numpy as np
-import shapely
 from shapely.geometry import MultiPolygon, Polygon
-from shapely.ops import unary_union
 
 from dtcc_core.model import (
     Building,
@@ -69,6 +81,28 @@ from dtcc_core.model import (
 from dtcc_core.model.object.object import Object
 
 from ..logging import info, warning
+from .blocks import (
+    MERGED_FROM_KEY,
+    SOURCE_FOOTPRINT_KEY,
+    SOURCE_ID_KEY,
+    WALLS_KEY,
+    assign_cells,
+    block_region,
+    block_roof,
+    block_walls,
+    fallback_roof,
+    footprint_pieces,
+    is_block,
+    modelling_height,
+    part_key,
+    part_roof,
+    precedence,
+    part_sources,
+    set_source_footprint,
+    source_id,
+    wall_cells,
+    walls_record,
+)
 from .contract import check_cleaning_contract, check_mesher_handoff_profile
 from .footprints import (
     ConditioningOptions,
@@ -77,17 +111,15 @@ from .footprints import (
 )
 from .plotting import plot_footprint_cleaning_comparison
 from .selection import select_footprints
-from .walls import LabelledRegion, label_region
+from .walls import LabelledRegion
 
 RECORD_KEY = "footprint_cleaning"
-RECORD_VERSION = 2
-MERGED_FROM_KEY = "merged_from"
+RECORD_VERSION = 3
 
 # Numerical scale at which an unscaled (delta = 0) result is still checked.
 _UNSCALED_CHECK_SCALE = 1.0e-9
-# Source roofs of a block without walls that span more than this get the
-# highest roof instead of the area-weighted mean.
-_FALLBACK_ROOF_SPAN_LIMIT = 2.0
+# Namespace of the IDs of new blocks, derived from their parts' IDs.
+_BLOCK_NAMESPACE = uuid.uuid5(uuid.NAMESPACE_URL, "https://dtcc.chalmers.se/footprint-cleaning")
 
 _FOOTPRINT_LODS = (
     GeometryType.LOD0,
@@ -105,7 +137,9 @@ _AUTO_LOD_ORDER = (
 
 @dataclass
 class _Label:
-    """A footprint that gets cells in stage 2: a building or a part of a block."""
+    """A footprint that gets cells in stage 2: a building or a part of a block.
+
+    The polygon of a part is the footprint of its source."""
 
     polygon: Polygon | MultiPolygon
     building: int
@@ -114,10 +148,19 @@ class _Label:
     height: float | None
     roof_z: float
 
+    @property
+    def key(self) -> tuple[float, float | None, float]:
+        return (self.area, self.height, self.roof_z)
+
 
 @dataclass
 class _Source:
-    """The footprint of one building given to stage 1, and its labels."""
+    """The footprint of one building given to stage 1, and its labels.
+
+    ``budget`` is the fidelity budget by which the footprint of a block may
+    already differ from its labels' polygons (that of its earlier cleaning);
+    zero for any other building.
+    """
 
     polygon: Polygon | MultiPolygon
     building: int
@@ -125,6 +168,7 @@ class _Source:
     height: float | None
     roof_z: float
     labels: list[int]
+    budget: float = 0.0
 
 
 @dataclass
@@ -160,10 +204,17 @@ class CleanedRegions:
         For each label, its roof level.
     label_height : list[float or None]
         For each label, its modelling height, or None.
+    label_polygons : list[Polygon or MultiPolygon]
+        For each label, the footprint that stage 2 divides the region by: the
+        building's footprint, or the source footprint of a part.
     output_cells : list[list[tuple[Polygon, int]]]
         For each output building, its cells and their label indices: one
         cell (the region) for a single label, the cells of the walls for
         several, and none when the block keeps one footprint.
+    output_walls : list[dict]
+        For each output building, how its cells were made: ``order`` (label
+        indices in precedence order), ``precedence``, ``outcome``,
+        ``min_building_detail``, ``fidelity_budget`` and ``strict``.
     """
 
     polygons: list[Polygon]
@@ -177,7 +228,9 @@ class CleanedRegions:
     labels: list[tuple[int, int | None]] = field(default_factory=list)
     label_roof_z: list[float] = field(default_factory=list)
     label_height: list[float | None] = field(default_factory=list)
+    label_polygons: list[Polygon | MultiPolygon] = field(default_factory=list)
     output_cells: list[list[tuple[Polygon, int]]] = field(default_factory=list)
+    output_walls: list[dict[str, Any]] = field(default_factory=list)
 
 
 def clean_footprints(
@@ -211,7 +264,8 @@ def clean_footprints(
         (default 0). Dropped buildings are listed in the record.
     lod : GeometryType or list of GeometryType, optional
         Geometry to take each footprint from. By default each building uses
-        the first of LOD1, LOD2, LOD3 and LOD0 that it has.
+        the first of LOD1, LOD2, LOD3 and LOD0 that it has. A cleaned block
+        always uses its LOD0 footprint and its parts.
     strict : bool, optional
         Raise :class:`UnresolvedFootprintCleaningError` instead of returning a
         result with residual separation below delta (and a warning), and give
@@ -223,8 +277,8 @@ def clean_footprints(
     -------
     City, Building, list of Building or None
         Cleaned buildings, one per cleaned region (see the module
-        documentation). The parts of a merged block have their own cleaned
-        footprints. A cleaned city records the cleaning in
+        documentation), with unique IDs. The parts of a merged block have
+        their own cleaned footprints. A cleaned city records the cleaning in
         ``city.attributes["footprint_cleaning"]``; the mesh builders reuse it
         instead of cleaning again. For a single Building, None is returned if
         ``min_area`` drops it.
@@ -312,7 +366,7 @@ def clean_regions(
         raise TypeError("isolated and strict must be booleans")
     buildings = list(buildings)
     lods = _resolve_lods(buildings, lod)
-    sources, labels, missing = _extract_sources(buildings, lods, expand=delta > 0)
+    sources, labels, missing = _extract_sources(buildings, lods)
     raw = [source.polygon for source in sources]
 
     options = ConditioningOptions(
@@ -335,27 +389,21 @@ def clean_regions(
     # Stage 2: walls between the labels of each region.
     budgets = _source_budgets(selected.diagnostics)
     epsilon = delta / 2
-    retry = (
-        None
-        if options.fidelity_retry_factor is None
-        else epsilon * options.fidelity_retry_factor
-    )
     labelled: list[LabelledRegion] = []
+    walls: list[dict[str, Any]] = []
     for polygon, indices in zip(polygons, region_sources):
-        budget = max([epsilon, *(budgets.get(index, epsilon) for index in indices)])
-        labelled.append(
-            _label(
-                polygon,
-                indices,
-                sources,
-                labels,
-                buildings,
-                delta=delta,
-                epsilon=budget,
-                retry_epsilon=retry if retry is not None and retry > budget else None,
-                strict=strict,
-            )
+        result, made = _label(
+            polygon,
+            indices,
+            sources,
+            labels,
+            buildings,
+            delta=delta,
+            budget=max([epsilon, *(budgets.get(index, epsilon) for index in indices)]),
+            strict=strict,
         )
+        labelled.append(result)
+        walls.append(made)
 
     # One output building per region. Regions stay in the cleaner's order;
     # output buildings follow the input order of their first building.
@@ -367,16 +415,18 @@ def clean_regions(
     for output, region in enumerate(order):
         region_outputs[region] = output
     output_sources = [region_buildings[region] for region in order]
-    areas = [source.area for source in sources]
-    roofs = [source.roof_z for source in sources]
-    heights = [source.height for source in sources]
+    areas = [label.area for label in labels]
+    roofs = [label.roof_z for label in labels]
+    heights = [label.height for label in labels]
     output_roof_z, output_height, output_cells = [], [], []
+    output_walls = [walls[region] for region in order]
     for region in order:
         cells = labelled[region].cells
-        if len(_region_labels(region_sources[region], sources)) > 1 and cells:
+        region_labels = _region_labels(region_sources[region], sources)
+        if len(region_labels) > 1 and cells:
             roof_z, height = _top([labels[label] for _, label in cells])
         else:
-            roof_z, height = fallback_roof(region_sources[region], areas, roofs, heights)
+            roof_z, height = fallback_roof(region_labels, areas, roofs, heights)
         output_roof_z.append(roof_z)
         output_height.append(height)
         output_cells.append(list(cells))
@@ -454,7 +504,9 @@ def clean_regions(
         labels=[(label.building, label.part) for label in labels],
         label_roof_z=[label.roof_z for label in labels],
         label_height=[label.height for label in labels],
+        label_polygons=[label.polygon for label in labels],
         output_cells=output_cells,
+        output_walls=output_walls,
     )
 
 
@@ -462,14 +514,15 @@ def cleaned_buildings(
     buildings: Sequence[Building], regions: CleanedRegions
 ) -> list[Building]:
     """Build the output buildings of a cleaning (see the module documentation)."""
-    region_count = {}
-    for indices in regions.output_sources:
-        for index in indices:
-            region_count[index] = region_count.get(index, 0) + 1
     polygons_by_output: dict[int, list[Polygon]] = {}
     for polygon, output in zip(regions.polygons, regions.region_outputs):
         polygons_by_output.setdefault(output, []).append(polygon)
-    expanded = {building for building, part in regions.labels if part is not None}
+    outputs_of: dict[int, list[int]] = {}
+    for output, indices in enumerate(regions.output_sources):
+        for index in indices:
+            outputs_of.setdefault(index, []).append(output)
+    members = _output_members(regions, polygons_by_output, outputs_of)
+    ids = _occurrence_ids(buildings, regions, members)
 
     cleaned = []
     for output, indices in enumerate(regions.output_sources):
@@ -478,37 +531,64 @@ def cleaned_buildings(
             raise ValueError("each cleaned building must have exactly one region")
         footprint = Surface()
         footprint.from_polygon(polygons[0], regions.output_roof_z[output])
-        if len(indices) == 1 and region_count[indices[0]] == 1:
+        if len(indices) == 1 and len(outputs_of[indices[0]]) == 1:
             building = deepcopy(buildings[indices[0]])
             _strip_footprint_geometry(building)
-            targets = {}
-            if indices[0] in expanded:
-                targets = {
-                    (indices[0], part): child
-                    for part, child in enumerate(building.building_parts)
-                }
+            positions = {
+                label: regions.labels[label][1]
+                for label in members[output]
+                if regions.labels[label][1] is not None
+            }
         else:
-            building, targets = _block(
-                buildings, indices, expanded, height=regions.output_height[output]
+            building, positions = _block(
+                buildings,
+                regions,
+                members[output],
+                ids,
+                output,
+                output_height=regions.output_height[output],
             )
-        cells = regions.output_cells[output] if regions.output_cells else []
-        _assign_cells(cells, targets, regions)
         building.add_geometry(footprint, GeometryType.LOD0)
+        if positions:
+            parts = building.building_parts
+            for label, position in positions.items():
+                if SOURCE_FOOTPRINT_KEY not in parts[position].attributes:
+                    set_source_footprint(
+                        parts[position], regions.label_polygons[label], regions.label_roof_z[label]
+                    )
+            cells = [
+                (polygon, positions[label])
+                for polygon, label in regions.output_cells[output]
+                if label in positions
+            ]
+            assign_cells(parts, cells)
+            made = regions.output_walls[output]
+            building.attributes[WALLS_KEY] = walls_record(
+                parts,
+                [positions[label] for label in made["order"] if label in positions],
+                made["precedence"],
+                made["outcome"],
+                delta=made["min_building_detail"],
+                epsilon=made["fidelity_budget"],
+                strict=made["strict"],
+            )
         cleaned.append(building)
     return cleaned
 
 
 def footprint_fingerprint(buildings: Sequence[Building]) -> str:
-    """Hash building and part IDs and the XY coordinates of their LOD0 footprints.
+    """Hash the IDs of buildings and their parts and the XY coordinates of the
+    buildings' LOD0 footprints: the occupancy of a cleaning.
 
     Heights (z) are excluded, so setting heights after cleaning keeps the
-    record valid; any change of footprints, IDs or order invalidates it.
+    record valid; any change of footprints, IDs or order invalidates it. The
+    footprints of the parts of a block are checked by its walls record
+    (:func:`.blocks.block_walls`).
     """
     digest = hashlib.sha1()
-
-    def add(obj):
-        digest.update(str(obj.id).encode())
-        footprint = obj.get_geometry(GeometryType.LOD0)
+    for building in buildings:
+        digest.update(str(building.id).encode())
+        footprint = building.get_geometry(GeometryType.LOD0)
         if isinstance(footprint, MultiSurface):
             surfaces = footprint.surfaces
         elif isinstance(footprint, Surface):
@@ -522,13 +602,11 @@ def footprint_fingerprint(buildings: Sequence[Building]) -> str:
                 ring = np.asarray(ring, dtype=np.float64)
                 digest.update(np.ascontiguousarray(ring[:, :2]).tobytes())
         digest.update(b"|")
-
-    for building in buildings:
-        add(building)
         if building.building_parts:
             digest.update(b"[")
             for part in building.building_parts:
-                add(part)
+                digest.update(str(part.id).encode())
+                digest.update(b"|")
             digest.update(b"]")
     return digest.hexdigest()
 
@@ -568,31 +646,50 @@ def regions_from_cleaned_city(city: City, record: dict[str, Any]) -> CleanedRegi
     """Read the regions of a city cleaned in unison, one per building.
 
     Regions are returned in the cleaner's canonical order, as a new cleaning
-    would return them. The cells of a block are its parts' footprints.
+    would return them. The cells of a block are its walls for the current
+    roofs of its parts (:func:`.blocks.block_walls`).
     """
     polygons, roofs, heights = [], [], []
-    labels, label_roofs, label_heights, output_cells = [], [], [], []
+    labels, label_roofs, label_heights, label_polygons = [], [], [], []
+    output_cells, output_walls = [], []
     for index, building in enumerate(city.buildings):
-        footprint = building.get_geometry(GeometryType.LOD0)
-        polygon = footprint.to_polygon(simplify=0.0)
+        if is_block(building):
+            polygon = block_region(building)
+        else:
+            polygon = building.get_geometry(GeometryType.LOD0).to_polygon(simplify=0.0)
         polygons.append(polygon)
-        roofs.append(float(footprint.zmax))
-        heights.append(_modelling_height(building))
-        cells = []
-        for part_index, part in enumerate(building.building_parts):
-            pieces = _footprint_pieces(part.get_geometry(GeometryType.LOD0))
-            if not pieces:
-                continue
-            cells.extend((piece, len(labels)) for piece in pieces)
-            labels.append((index, part_index))
-            label_roofs.append(_footprint_roof(part))
-            label_heights.append(_modelling_height(part))
-        if not cells and not _is_block(building):
-            cells = [(polygon, len(labels))]
+        if not is_block(building):
+            roofs.append(float(_footprint_roof(building)))
+            heights.append(modelling_height(building))
+            output_cells.append([(polygon, len(labels))])
+            output_walls.append({})
             labels.append((index, None))
             label_roofs.append(roofs[-1])
             label_heights.append(heights[-1])
-        output_cells.append(cells)
+            label_polygons.append(polygon)
+            continue
+        walls = block_walls(building)
+        label_of = {}
+        for part_index, polygon in part_sources(building).items():
+            part = building.building_parts[part_index]
+            label_of[part_index] = len(labels)
+            labels.append((index, part_index))
+            label_roofs.append(part_roof(part))
+            label_heights.append(modelling_height(part))
+            label_polygons.append(polygon)
+        output_cells.append([(piece, label_of[part]) for piece, part in walls.cells])
+        output_walls.append(
+            {"order": [label_of[part] for part in walls.order], "outcome": walls.outcome}
+        )
+        if walls.cells:
+            roofs.append(max(label_roofs[label_of[part]] for _, part in walls.cells))
+            values = [label_heights[label_of[part]] for _, part in walls.cells]
+            values = [value for value in values if value is not None]
+            heights.append(max(values) if values else None)
+        else:
+            roof_z, height = block_roof(building)
+            roofs.append(roof_z)
+            heights.append(height)
     order = sorted(range(len(polygons)), key=lambda index: polygons[index].normalize().wkb)
     return CleanedRegions(
         polygons=[polygons[index] for index in order],
@@ -606,17 +703,20 @@ def regions_from_cleaned_city(city: City, record: dict[str, Any]) -> CleanedRegi
         labels=labels,
         label_roof_z=label_roofs,
         label_height=label_heights,
+        label_polygons=label_polygons,
         output_cells=output_cells,
+        output_walls=output_walls,
     )
 
 
 def footprint_cells(building: Building) -> tuple[list[tuple[Polygon, int]], dict[int, float]]:
     """The cells of a building's footprint and their roof levels.
 
-    A cleaned block whose parts have LOD0 footprints has one label per such
-    part, its index in ``building.building_parts``, and one cell per piece of
-    its footprint. Any other building is one cell, its own LOD0 footprint,
-    with label -1.
+    A block with walls has one label per part with a cell, its index in
+    ``building.building_parts``, and one cell per piece of its footprint; the
+    walls are those for the current roofs of its parts
+    (:func:`.blocks.block_walls`). Any other building, and a block that keeps
+    one footprint, is one cell, its own LOD0 footprint, with label -1.
 
     Returns
     -------
@@ -624,59 +724,25 @@ def footprint_cells(building: Building) -> tuple[list[tuple[Polygon, int]], dict
         The cells with their labels, and the roof level of each label. Both
         are empty if the building has no LOD0 footprint.
     """
-    cells, roofs = [], {}
-    for index, part in enumerate(building.building_parts):
-        pieces = _footprint_pieces(part.get_geometry(GeometryType.LOD0))
-        if pieces:
-            cells.extend((piece, index) for piece in pieces)
-            roofs[index] = _footprint_roof(part)
-    if not cells:
-        pieces = _footprint_pieces(building.get_geometry(GeometryType.LOD0))
-        if pieces:
-            cells = [(piece, -1) for piece in pieces]
-            roofs[-1] = _footprint_roof(building)
-    return cells, roofs
-
-
-def fallback_roof(indices, areas, roofs, heights):
-    """One roof level and height for sources that keep one footprint.
-
-    Returns the area-weighted roof level and height of the sources. When the
-    source roofs span more than 2 m, the highest roof and the largest height
-    are used instead, so no source is cut down.
-    """
-    roof_z = _area_weighted(indices, areas, roofs, default=0.0)
-    height = _area_weighted(indices, areas, heights, default=None)
-    if len(indices) <= 1:
-        return roof_z, height
-    levels = [float(roofs[index]) for index in indices]
-    if max(levels) - min(levels) <= _FALLBACK_ROOF_SPAN_LIMIT:
-        return roof_z, height
-    candidates = [float(heights[index]) for index in indices if heights[index] is not None]
-    if candidates:
-        height = max(candidates)
-    return max(levels), height
+    if is_block(building):
+        walls = block_walls(building)
+        if walls.cells:
+            parts = building.building_parts
+            return list(walls.cells), {part: part_roof(parts[part]) for _, part in walls.cells}
+        roof_z, _ = block_roof(building)
+        return [(piece, -1) for piece in footprint_pieces(building.get_geometry(GeometryType.LOD0))], {
+            -1: roof_z
+        }
+    pieces = footprint_pieces(building.get_geometry(GeometryType.LOD0))
+    if not pieces:
+        return [], {}
+    return [(piece, -1) for piece in pieces], {-1: _footprint_roof(building)}
 
 
 def _top(labels) -> tuple[float, float | None]:
     """The highest roof and the largest height of a block's labels."""
     heights = [label.height for label in labels if label.height is not None]
     return max(label.roof_z for label in labels), (max(heights) if heights else None)
-
-
-def _area_weighted(indices, areas, values, *, default):
-    weighted, weights = [], []
-    for index in indices:
-        value = values[index]
-        if value is None:
-            continue
-        weighted.append(float(value))
-        weights.append(float(areas[index]) if areas[index] > 0 else 1.0)
-    if not weighted:
-        return default
-    if len(set(weighted)) == 1:
-        return weighted[0]
-    return float(np.average(weighted, weights=weights))
 
 
 def _resolve_lods(buildings, lod) -> list[GeometryType]:
@@ -709,15 +775,6 @@ def _lod_label(lod) -> str:
     return "per_building"
 
 
-def _modelling_height(building) -> float | None:
-    try:
-        value = building.estimated_height
-        height = float(building.measured_height if value is None else value)
-    except (AttributeError, TypeError, ValueError):
-        return None
-    return height if height > 0 else None
-
-
 def _extract_source(building: Building, lod: GeometryType):
     """Footprint polygon, its area, modelling height and roof level."""
     geometry = building.get_geometry(lod) if lod == GeometryType.LOD0 else None
@@ -732,34 +789,7 @@ def _extract_source(building: Building, lod: GeometryType):
         roof_z = float(geometry.bounds.zmax)
     except (AttributeError, TypeError):
         roof_z = 0.0
-    return polygon, float(max(polygon.area, 0.0)), _modelling_height(building), roof_z
-
-
-def _footprint_polygon(geometry) -> Polygon | MultiPolygon | None:
-    """The polygon of a LOD0 Surface, or the union of a MultiSurface's."""
-    if isinstance(geometry, Surface):
-        polygons = [geometry.to_polygon(simplify=0.0)]
-    elif isinstance(geometry, MultiSurface):
-        polygons = [surface.to_polygon(simplify=0.0) for surface in geometry.surfaces]
-    else:
-        return None
-    polygons = [polygon for polygon in polygons if polygon is not None and not polygon.is_empty]
-    if not polygons:
-        return None
-    union = polygons[0] if len(polygons) == 1 else unary_union(polygons)
-    return None if union.is_empty else union
-
-
-def _footprint_pieces(geometry) -> list[Polygon]:
-    """The polygons of a LOD0 Surface or MultiSurface."""
-    if isinstance(geometry, Surface):
-        surfaces = [geometry]
-    elif isinstance(geometry, MultiSurface):
-        surfaces = geometry.surfaces
-    else:
-        return []
-    pieces = [surface.to_polygon(simplify=0.0) for surface in surfaces]
-    return [piece for piece in pieces if piece is not None and not piece.is_empty]
+    return polygon, float(max(polygon.area, 0.0)), modelling_height(building), roof_z
 
 
 def _footprint_roof(obj) -> float | None:
@@ -773,44 +803,45 @@ def _footprint_roof(obj) -> float | None:
     return None
 
 
-def _extract_sources(buildings, lods, *, expand: bool):
+def _extract_sources(buildings, lods):
     """The footprints to clean (one per building) and the labels for walls.
 
-    A cleaned block, whose parts have their own LOD0 footprints, is cleaned
-    from its own footprint and divided by its parts' footprints, when
-    ``expand`` is set and its footprint comes from LOD0. Every other building
-    is its own label.
+    A cleaned block is cleaned from its LOD0 footprint, whatever the LOD
+    asked for, and its labels are its parts with their source footprints.
+    Every other building is its own label.
     """
     sources: list[_Source] = []
     labels: list[_Label] = []
     missing: list[int] = []
     for index, (building, lod) in enumerate(zip(buildings, lods)):
-        parts = []
-        if expand and lod == GeometryType.LOD0:
-            for part_index, part in enumerate(building.building_parts):
-                polygon = _footprint_polygon(part.get_geometry(GeometryType.LOD0))
-                if polygon is not None:
-                    roof_z = _footprint_roof(part)
-                    parts.append(
-                        _Label(
-                            polygon=polygon,
-                            building=index,
-                            part=part_index,
-                            area=float(polygon.area),
-                            height=_modelling_height(part),
-                            roof_z=0.0 if roof_z is None else roof_z,
-                        )
-                    )
+        if is_block(building):
+            region = block_region(building)
+            record = building.attributes.get(WALLS_KEY)
+            if not isinstance(record, dict):
+                raise ValueError(
+                    f"Block {building.id} has no walls record; blocks are made by clean_footprints."
+                )
+            parts = [
+                _Label(polygon, index, part_index, *part_key(building.building_parts[part_index], polygon))
+                for part_index, polygon in part_sources(building).items()
+            ]
+            sources.append(
+                _Source(
+                    polygon=region,
+                    building=index,
+                    area=float(region.area),
+                    height=modelling_height(building),
+                    roof_z=float(_footprint_roof(building)),
+                    labels=list(range(len(labels), len(labels) + len(parts))),
+                    budget=float(record["fidelity_budget"]),
+                )
+            )
+            labels.extend(parts)
+            continue
         polygon, area, height, roof_z = _extract_source(building, lod)
-        if polygon is None and parts:
-            polygon = unary_union([part.polygon for part in parts])
-            area = float(polygon.area)
-            roof_z = max(part.roof_z for part in parts)
         if polygon is None:
             missing.append(index)
             continue
-        if not parts:
-            parts = [_Label(polygon, index, None, area, height, roof_z)]
         sources.append(
             _Source(
                 polygon=polygon,
@@ -818,10 +849,10 @@ def _extract_sources(buildings, lods, *, expand: bool):
                 area=area,
                 height=height,
                 roof_z=roof_z,
-                labels=list(range(len(labels), len(labels) + len(parts))),
+                labels=[len(labels)],
             )
         )
-        labels.extend(parts)
+        labels.append(_Label(polygon, index, None, area, height, roof_z))
     return sources, labels, missing
 
 
@@ -838,50 +869,67 @@ def _source_budgets(diagnostics) -> dict[int, float]:
     return budgets
 
 
-def _precedence(label: _Label, index: int):
-    """Overlaps go to the taller label, then the larger, then the first."""
-    return (label.height is None, -(label.height or 0.0), -label.area, index)
-
-
-def _is_block(building) -> bool:
-    return MERGED_FROM_KEY in building.attributes and bool(building.building_parts)
-
-
 def _label(
-    polygon, indices, sources, labels, buildings, *, delta, epsilon, retry_epsilon, strict
-):
-    """Stage 2 for one region: cells of its labels, or one footprint."""
+    polygon, indices, sources, labels, buildings, *, delta, budget, strict
+) -> tuple[LabelledRegion, dict[str, Any]]:
+    """Stage 2 for one region: the cells of its labels, or one footprint,
+    and how they were made.
+
+    A block whose footprint stage 1 leaves as it is keeps its walls (as
+    current for the roofs of its parts) when they were made at a detail of
+    at least delta. Otherwise the region is divided by its labels' polygons
+    in precedence order, with the fidelity budget of the region's merge group
+    added to that of a block's earlier cleaning.
+    """
     region_labels = _region_labels(indices, sources)
-    if len(region_labels) == 1:
-        return LabelledRegion(polygon, [(polygon, region_labels[0])], "single", {})
-    if any(
-        labels[label].part is None and _is_block(buildings[labels[label].building])
-        for label in region_labels
-    ):
-        # The parts of this block have no footprints to divide the region by.
-        return LabelledRegion(
-            polygon, [], "fallback", {"reason": "block_without_part_footprints"}
-        )
-    order = sorted(region_labels, key=lambda label: _precedence(labels[label], label))
-    try:
-        labelled = label_region(
-            polygon,
-            {label: labels[label].polygon for label in region_labels},
-            order,
-            delta=delta,
-            epsilon=epsilon,
-            retry_epsilon=retry_epsilon,
-        )
-    except shapely.errors.GEOSException as exc:
-        # A geometry failure in the walls of one block leaves that block one
-        # footprint; the rest of the cleaning stands.
-        warning(f"Footprint walls: construction failed for one block ({exc}); it keeps one footprint.")
-        return LabelledRegion(
-            polygon, [], "fallback", {"reason": "construction_error", "error": str(exc)}
-        )
-    if strict and labelled.outcome == "warning":
-        return LabelledRegion(polygon, [], "fallback", {**labelled.report, "reason": "strict"})
-    return labelled
+    prior = max(sources[index].budget for index in indices)
+    source = sources[indices[0]]
+    unchanged = (
+        len(indices) == 1
+        and labels[source.labels[0]].part is not None
+        and polygon.equals(source.polygon)
+    )
+    if unchanged:
+        building = buildings[source.building]
+        record = building.attributes[WALLS_KEY]
+        if float(record["min_building_detail"]) >= delta and not (
+            strict and record.get("outcome") == "warning"
+        ):
+            walls = block_walls(building)
+            outcome = walls.outcome
+            cells = [(piece, source.labels[part]) for piece, part in walls.cells]
+            report = {**walls.report, "current": walls.current}
+            if strict and outcome == "warning":
+                outcome, cells, report = "fallback", [], {**report, "reason": "strict"}
+            return LabelledRegion(polygon, cells, outcome, report), {
+                "order": [source.labels[part] for part in walls.order],
+                "precedence": walls.rule,
+                "outcome": outcome,
+                "min_building_detail": float(record["min_building_detail"]),
+                "fidelity_budget": float(record["fidelity_budget"]),
+                "strict": bool(record.get("strict", False)) or strict,
+            }
+        epsilon = max(prior, budget)
+    else:
+        epsilon = prior + budget
+    positions, rule = precedence([labels[label].key for label in region_labels])
+    order = [region_labels[position] for position in positions]
+    labelled = wall_cells(
+        polygon,
+        {label: labels[label].polygon for label in region_labels},
+        order,
+        delta=delta,
+        epsilon=epsilon,
+        strict=strict,
+    )
+    return labelled, {
+        "order": order,
+        "precedence": rule,
+        "outcome": labelled.outcome,
+        "min_building_detail": float(delta),
+        "fidelity_budget": float(epsilon),
+        "strict": bool(strict),
+    }
 
 
 def _label_id(buildings, labels, index):
@@ -1073,39 +1121,117 @@ def _strip_footprint_geometry(obj: Object) -> None:
             _strip_footprint_geometry(child)
 
 
-def _as_part(building: Building) -> BuildingPart:
-    copy = deepcopy(building)
+def _as_part(obj: Object, id: str) -> BuildingPart:
+    """A copy of a building or part, without LOD0-LOD3 geometry, as a part."""
+    copy = deepcopy(obj)
     _strip_footprint_geometry(copy)
-    if isinstance(copy, BuildingPart):
-        return copy
-    values = {item.name: getattr(copy, item.name) for item in fields(Object) if item.init}
-    values["_bounds"] = None
-    return BuildingPart(**values)
+    if not isinstance(copy, BuildingPart):
+        values = {item.name: getattr(copy, item.name) for item in fields(Object) if item.init}
+        values["_bounds"] = None
+        copy = BuildingPart(**values)
+    copy.id = id
+    return copy
 
 
-def _block(buildings, indices, expanded, *, height: float | None):
-    """A new building whose parts are the buildings (blocks are lifted).
+def _output_members(regions: CleanedRegions, polygons_by_output, outputs_of) -> list[list[int]]:
+    """The labels that become parts of each output building.
 
-    Returns the block and, for each source key (building index, part index or
-    None), the part that receives its cell.
+    All labels of a building with one region go to that region's output. The
+    labels of a building split over several regions go to each region where
+    they have a cell; a label without a cell goes to the regions its polygon
+    overlaps, and each region gets at least the label that overlaps it most.
+    """
+    labels_of: dict[int, list[int]] = {}
+    for label, (building, _) in enumerate(regions.labels):
+        labels_of.setdefault(building, []).append(label)
+    members: list[set[int]] = [set() for _ in regions.output_sources]
+    for building, outputs in outputs_of.items():
+        own = labels_of.get(building, [])
+        if len(outputs) == 1:
+            members[outputs[0]].update(own)
+            continue
+        overlap = {
+            (label, output): regions.label_polygons[label]
+            .intersection(polygons_by_output[output][0])
+            .area
+            for label in own
+            for output in outputs
+        }
+        celled = {
+            output: {label for _, label in regions.output_cells[output]} for output in outputs
+        }
+        for label in own:
+            homes = [output for output in outputs if label in celled[output]]
+            if not homes:
+                homes = [output for output in outputs if overlap[(label, output)] > 0]
+            if not homes:
+                homes = [max(outputs, key=lambda output: overlap[(label, output)])]
+            for output in homes:
+                members[output].add(label)
+        for output in outputs:
+            if not members[output] & set(own):
+                members[output].add(max(own, key=lambda label: overlap[(label, output)]))
+    return [sorted(labels) for labels in members]
+
+
+def _occurrence_ids(buildings, regions: CleanedRegions, members) -> dict[tuple[int, int], str]:
+    """IDs of the parts of new blocks, by output and label.
+
+    A label that is a part of one output keeps the ID of its building or
+    part; the occurrences of a label in several outputs get ``<id>#<n>``.
+    """
+    used = set()
+    for building in buildings:
+        used.add(str(building.id))
+        used.update(str(part.id) for part in building.building_parts)
+    count: dict[int, int] = {}
+    for labels in members:
+        for label in labels:
+            count[label] = count.get(label, 0) + 1
+    ids, numbers = {}, {}
+    for output, labels in enumerate(members):
+        for label in labels:
+            base = str(_label_object(buildings, regions.labels[label]).id)
+            if count[label] == 1:
+                ids[(output, label)] = base
+                continue
+            number = numbers.get(label, 0)
+            while True:
+                number += 1
+                candidate = f"{base}#{number}"
+                if candidate not in used:
+                    break
+            numbers[label] = number
+            used.add(candidate)
+            ids[(output, label)] = candidate
+    return ids
+
+
+def _label_object(buildings, key) -> Object:
+    building, part = key
+    return buildings[building] if part is None else buildings[building].building_parts[part]
+
+
+def _block(buildings, regions: CleanedRegions, members, ids, output, *, output_height):
+    """A new block whose parts are the given labels.
+
+    Returns the block and, for each label, the index of its part.
     """
     parts: list[BuildingPart] = []
-    targets = {}
-    for index in indices:
-        source = buildings[index]
-        if index in expanded or _is_block(source):
-            for part_index, child in enumerate(source.building_parts):
-                part = _as_part(child)
-                parts.append(part)
-                targets[(index, part_index)] = part
-        else:
-            part = _as_part(source)
-            parts.append(part)
-            targets[(index, None)] = part
-    block = Building()
-    block.attributes[MERGED_FROM_KEY] = [part.id for part in parts]
-    if height is not None:
-        block.estimated_height = height
+    positions = {}
+    for label in members:
+        key = regions.labels[label]
+        obj = _label_object(buildings, key)
+        part = _as_part(obj, ids[(output, label)])
+        part.attributes[SOURCE_ID_KEY] = source_id(obj)
+        if key[1] is None:
+            set_source_footprint(part, regions.label_polygons[label], regions.label_roof_z[label])
+        positions[label] = len(parts)
+        parts.append(part)
+    block = Building(id=str(uuid.uuid5(_BLOCK_NAMESPACE, "\n".join(part.id for part in parts))))
+    block.attributes[MERGED_FROM_KEY] = list(dict.fromkeys(source_id(part) for part in parts))
+    if output_height is not None:
+        block.estimated_height = output_height
     grounds = [
         float(part.attributes["ground_height"])
         for part in parts
@@ -1114,26 +1240,7 @@ def _block(buildings, indices, expanded, *, height: float | None):
     if grounds:
         block.attributes["ground_height"] = min(grounds)
     block.add_children(parts)
-    return block, targets
-
-
-def _assign_cells(cells, targets, regions: CleanedRegions) -> None:
-    """Give each target part the LOD0 footprint of its cells."""
-    by_source: dict[int, list[Polygon]] = {}
-    for polygon, index in cells:
-        by_source.setdefault(index, []).append(polygon)
-    for index, polygons in by_source.items():
-        target = targets.get(tuple(regions.labels[index]))
-        if target is None:
-            continue
-        roof_z = regions.label_roof_z[index]
-        surfaces = []
-        for polygon in polygons:
-            surface = Surface()
-            surface.from_polygon(polygon, roof_z)
-            surfaces.append(surface)
-        footprint = surfaces[0] if len(surfaces) == 1 else MultiSurface(surfaces=surfaces)
-        target.add_geometry(footprint, GeometryType.LOD0)
+    return block, positions
 
 
 def _is_number(value) -> bool:

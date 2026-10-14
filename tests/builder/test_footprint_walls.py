@@ -10,8 +10,9 @@ import shapely
 from shapely.geometry import LineString, Point, box, shape
 from shapely.ops import unary_union
 
-from dtcc_core.builder.cleaning import clean as clean_module
+from dtcc_core.builder.cleaning import blocks as blocks_module
 from dtcc_core.builder.cleaning import walls as walls_module
+from dtcc_core.builder.cleaning.blocks import WALLS_KEY, set_part_roof
 from dtcc_core.builder.cleaning.clean import MERGED_FROM_KEY, RECORD_KEY, clean_regions
 from dtcc_core.builder.cleaning.contract import check_labelled_contract
 from dtcc_core.builder.cleaning.walls import LabelledRegion, label_region
@@ -183,7 +184,7 @@ def fallback(polygon, sources, order, **kwargs):
 
 
 def test_failed_walls_fall_back_to_one_footprint(monkeypatch, caplog):
-    monkeypatch.setattr(clean_module, "label_region", fallback)
+    monkeypatch.setattr(blocks_module, "label_region", fallback)
     cleaned = city_of(
         building("a", box(0, 0, 10, 10), 10), building("b", box(10, 0, 20, 10), 11)
     ).clean_footprints()
@@ -193,14 +194,23 @@ def test_failed_walls_fall_back_to_one_footprint(monkeypatch, caplog):
     assert block.estimated_height == pytest.approx(10.5)
     walls = cleaned.attributes[RECORD_KEY]["walls"]
     assert walls["fallback"] == 1 and walls["fallback_ids"] == [["a", "b"]]
+    assert block.attributes[WALLS_KEY]["outcome"] == "fallback"
     assert "keep one footprint" in caplog.text
 
-    # A block without part footprints is cleaned as one footprint again.
+    # Cleaning again changes nothing: the walls are current for the roofs.
     monkeypatch.undo()
     again = cleaned.clean_footprints()
     assert again.attributes[RECORD_KEY]["outcome"] == "unchanged"
-    assert again.attributes[RECORD_KEY]["walls"]["fallback"] == 0
+    assert again.attributes[RECORD_KEY]["walls"]["fallback"] == 1
     assert again.buildings[0].attributes[MERGED_FROM_KEY] == ["a", "b"]
+
+    # New roofs that change the order recompute the walls from the sources.
+    set_part_roof(parts_by_id(again.buildings[0])["a"], 12)
+    third = again.clean_footprints()
+    assert third.attributes[RECORD_KEY]["walls"]["strict"] == 1
+    parts = parts_by_id(third.buildings[0])
+    assert footprint(parts["a"]).equals(box(0, 0, 10, 10))
+    assert parts["a"].get_geometry(GeometryType.LOD0).zmax == 12
 
 
 def test_strict_cleaning_falls_back_instead_of_wall_warnings(monkeypatch):
@@ -208,7 +218,7 @@ def test_strict_cleaning_falls_back_instead_of_wall_warnings(monkeypatch):
         labelled = label_region(polygon, sources, order, **kwargs)
         return LabelledRegion(labelled.region, labelled.cells, "warning", labelled.report)
 
-    monkeypatch.setattr(clean_module, "label_region", warn)
+    monkeypatch.setattr(blocks_module, "label_region", warn)
     city = city_of(building("a", box(0, 0, 10, 10), 10), building("b", box(10, 0, 20, 10), 20))
     assert city.clean_footprints().attributes[RECORD_KEY]["walls"]["warning"] == 1
     walls = city.clean_footprints(strict=True).attributes[RECORD_KEY]["walls"]
@@ -223,7 +233,7 @@ def test_a_geometry_failure_in_the_walls_leaves_only_that_block_one_footprint(
             raise shapely.errors.GEOSException("TopologyException: test")
         return label_region(polygon, sources, order, **kwargs)
 
-    monkeypatch.setattr(clean_module, "label_region", fail)
+    monkeypatch.setattr(blocks_module, "label_region", fail)
     buildings = [
         building("a", box(0, 0, 10, 10), 10),
         building("b", box(10, 0, 20, 10), 20),

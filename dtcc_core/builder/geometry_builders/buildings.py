@@ -4,6 +4,14 @@ from ..model_conversion import create_builder_polygon
 from .terrain import build_terrain_raster
 from .. import _dtcc_builder
 from ..logging import debug, info, warning, error
+from ..cleaning.blocks import (
+    is_block,
+    part_roof,
+    set_block_roof,
+    set_part_roof,
+    source_footprint,
+    update_walls,
+)
 from shapely.geometry import Polygon
 import numpy as np
 
@@ -13,13 +21,23 @@ from .surface import extrude_surface
 from dtcc_core.common.progress import report_progress
 
 
-def _part_footprints(building):
-    """Parts of a block that have their own LOD0 footprint (cleaned blocks)."""
-    return [
-        part
-        for part in building.building_parts
-        if isinstance(part.get_geometry(GeometryType.LOD0), (Surface, MultiSurface))
-    ]
+def _source_vertices(part):
+    """Exterior vertices of a part's source footprint, without the closing ones."""
+    polygon = source_footprint(part)
+    if polygon is None:
+        return np.empty((0, 2))
+    pieces = [polygon] if isinstance(polygon, Polygon) else list(polygon.geoms)
+    return np.vstack([np.asarray(piece.exterior.coords)[:-1, :2] for piece in pieces])
+
+
+def _roof_point_polygon(polygon):
+    """The polygon that collects the roof points of a footprint, as for a
+    building with this footprint (simplified as by ``get_footprint``)."""
+    surface = Surface()
+    surface.from_polygon(polygon, 0.0)
+    footprint = Surface()
+    footprint.from_polygon(surface.to_polygon(), 0.0)
+    return footprint.to_polygon()
 
 
 def _footprint_centroid(footprint):
@@ -30,28 +48,6 @@ def _footprint_vertices(footprint):
     if isinstance(footprint, MultiSurface):
         return np.vstack([surface.vertices for surface in footprint.surfaces])
     return footprint.vertices
-
-
-def _derive_block_height(building, parts):
-    """Set a block's ground, roof and height from its parts.
-
-    The ground is the lowest of the parts; the roof and height are those of
-    the highest part.
-    """
-    grounds = [
-        float(part.attributes["ground_height"])
-        for part in parts
-        if part.attributes.get("ground_height") is not None
-    ]
-    if grounds:
-        building.attributes["ground_height"] = min(grounds)
-    roofs = [float(part.get_geometry(GeometryType.LOD0).zmax) for part in parts]
-    heights = [part.estimated_height for part in parts if part.estimated_height is not None]
-    footprint = building.lod0
-    if footprint is not None:
-        footprint.set_z(max(roofs))
-    if heights:
-        building.estimated_height = max(heights)
 
 
 def extrude_building(
@@ -109,9 +105,11 @@ def set_building_heights_from_attribute(
 ) -> List[Building]:
     """Calculates ground level and absolute height for each building footprint from a given height attribute.
 
-    The parts of a cleaned block (parts with their own LOD0 footprints) get
-    their heights from their own attributes, and the block's roof follows from
-    its parts.
+    Each part of a cleaned block gets its height from its own attributes and
+    its ground on the footprint of its source, also where it has lost its cell
+    to a neighbour; the block's roof follows from its parts. Where the new
+    roofs change which part wins an overlap, the walls of the block are
+    recomputed by the next cleaning, meshing or LOD1 build.
 
     Parameters
     ----------
@@ -134,72 +132,105 @@ def set_building_heights_from_attribute(
         Strategy to determine ground height from terrain ("centroid", "vertex").
     """
     for building in buildings:
-        parts = _part_footprints(building)
-        if parts:
-            set_building_heights_from_attribute(
-                parts,
-                terrain,
-                height_attribute=height_attribute,
-                default_ground_height=default_ground_height,
-                always_use_default_ground=always_use_default_ground,
-                min_building_height=min_building_height,
-                default_building_height=default_building_height,
-                ground_height_strategy=ground_height_strategy,
-            )
-            _derive_block_height(building, parts)
+        if is_block(building):
+            # A cleaned block: each part on the footprint of its source.
+            for part in building.building_parts:
+                roof = _height_from_attribute(
+                    part,
+                    _source_vertices(part),
+                    terrain,
+                    height_attribute=height_attribute,
+                    default_ground_height=default_ground_height,
+                    always_use_default_ground=always_use_default_ground,
+                    min_building_height=min_building_height,
+                    default_building_height=default_building_height,
+                    ground_height_strategy=ground_height_strategy,
+                )
+                if roof is not None:
+                    set_part_roof(part, roof)
+            set_block_roof(building)
             continue
         footprint = building.lod0
         if footprint is None:
             warning(f"Building {building.id} has no LOD0 geometry.")
             continue
-        vertices = _footprint_vertices(footprint)
-        if len(vertices) < 3:
-            warning(
-                f"Building {building.id} has an invalid footprint with only {len(vertices)} vertices."
-            )
-            continue
-        if always_use_default_ground:
-            ground_height = default_ground_height
-        else:
-            ground_height_strategy = ground_height_strategy.lower()
-            if ground_height_strategy == "centroid":
-                centroid = _footprint_centroid(footprint)
-                if np.isnan(centroid[0]) or np.isnan(centroid[1]):
-                    warning(f"Building {building.id} has an invalid centroid.")
-                    ground_height = default_ground_height
-                else:
-                    ground_height = terrain.get_value(centroid[0], centroid[1])
-            elif ground_height_strategy == "vertex":
-                z_values = []
-                for vertex in vertices:
-                    z = terrain.get_value(vertex[0], vertex[1])
-                    if not np.isnan(z):
-                        z_values.append(z)
-                if len(z_values) == 0:
-                    warning(
-                        f"Building {building.id} has no valid terrain values at its vertices."
-                    )
-                    ground_height = default_ground_height
-                else:
-                    ground_height = min(z_values)
+        roof = _height_from_attribute(
+            building,
+            _footprint_vertices(footprint),
+            terrain,
+            height_attribute=height_attribute,
+            default_ground_height=default_ground_height,
+            always_use_default_ground=always_use_default_ground,
+            min_building_height=min_building_height,
+            default_building_height=default_building_height,
+            ground_height_strategy=ground_height_strategy,
+        )
+        if roof is not None:
+            footprint.set_z(roof)
+    return buildings
+
+
+def _height_from_attribute(
+    building,
+    vertices,
+    terrain,
+    *,
+    height_attribute,
+    default_ground_height,
+    always_use_default_ground,
+    min_building_height,
+    default_building_height,
+    ground_height_strategy,
+):
+    """Set the ground and height of a building or part from an attribute,
+    with the ground from the terrain at its footprint vertices. Returns the
+    roof level, or None for an invalid footprint."""
+    if len(vertices) < 3:
+        warning(
+            f"Building {building.id} has an invalid footprint with only {len(vertices)} vertices."
+        )
+        return None
+    if always_use_default_ground:
+        ground_height = default_ground_height
+    else:
+        ground_height_strategy = ground_height_strategy.lower()
+        if ground_height_strategy == "centroid":
+            centroid = vertices.mean(axis=0)
+            if np.isnan(centroid[0]) or np.isnan(centroid[1]):
+                warning(f"Building {building.id} has an invalid centroid.")
+                ground_height = default_ground_height
             else:
+                ground_height = terrain.get_value(centroid[0], centroid[1])
+        elif ground_height_strategy == "vertex":
+            z_values = []
+            for vertex in vertices:
+                z = terrain.get_value(vertex[0], vertex[1])
+                if not np.isnan(z):
+                    z_values.append(z)
+            if len(z_values) == 0:
                 warning(
-                    f"Unknown ground height strategy '{ground_height_strategy}'. Using default ground height."
+                    f"Building {building.id} has no valid terrain values at its vertices."
                 )
                 ground_height = default_ground_height
-        building.attributes["ground_height"] = ground_height
-
-        height = building.attributes.get(height_attribute)
-        if height is None:
-            height = default_building_height
-        if height < min_building_height:
+            else:
+                ground_height = min(z_values)
+        else:
             warning(
-                f"Building {building.id} has a height of {height}, which is less than the minimum building height of {min_building_height}. Setting height to {min_building_height}."
+                f"Unknown ground height strategy '{ground_height_strategy}'. Using default ground height."
             )
-            height = min_building_height
-        footprint.set_z(ground_height + height)
-        building.estimated_height = height
-    return buildings
+            ground_height = default_ground_height
+    building.attributes["ground_height"] = ground_height
+
+    height = building.attributes.get(height_attribute)
+    if height is None:
+        height = default_building_height
+    if height < min_building_height:
+        warning(
+            f"Building {building.id} has a height of {height}, which is less than the minimum building height of {min_building_height}. Setting height to {min_building_height}."
+        )
+        height = min_building_height
+    building.estimated_height = height
+    return ground_height + height
 
 
 def compute_building_heights(
@@ -216,9 +247,11 @@ def compute_building_heights(
     from the terrain raster and the roof elevation from building roof points.
     Results (including minimum-height defaults) are stored as estimated_height;
     measured_height is preserved. Terrain and point coordinates must be in metres.
-    The parts of a cleaned block (parts with their own LOD0 footprints) get
-    their own heights from their own roof points, and the block's roof follows
-    from its parts.
+    Each part of a cleaned block gets its height from its own roof points and
+    its ground on the footprint of its source, also where it has lost its cell
+    to a neighbour; the block's roof follows from its parts. Where the new
+    roofs change which part wins an overlap, the walls of the block are
+    recomputed by the next cleaning, meshing or LOD1 build.
 
     Parameters
     ----------
@@ -242,14 +275,38 @@ def compute_building_heights(
     info("Computing building heights...")
     report_progress(percent=0, message=f"Computing heights for {total_buildings} buildings...")
     for i, building in enumerate(buildings):
-        parts = _part_footprints(building)
-        if parts:
-            # A cleaned block: each part has its own footprint and roof points.
-            for part in parts:
-                _compute_height(part, terrain, min_building_height, roof_percentile, overwrite)
-            _derive_block_height(building, parts)
+        if is_block(building):
+            # A cleaned block: each part on the footprint of its source, with
+            # its own roof points.
+            for part in building.building_parts:
+                roof = _compute_height(
+                    part,
+                    _source_vertices(part),
+                    part_roof(part),
+                    terrain,
+                    min_building_height,
+                    roof_percentile,
+                    overwrite,
+                )
+                if roof is not None:
+                    set_part_roof(part, roof)
+            set_block_roof(building)
         else:
-            _compute_height(building, terrain, min_building_height, roof_percentile, overwrite)
+            footprint = building.lod0
+            if footprint is None:
+                warning(f"Building {building.id} has no LOD0 geometry.")
+                continue
+            roof = _compute_height(
+                building,
+                _footprint_vertices(footprint),
+                footprint.zmax,
+                terrain,
+                min_building_height,
+                roof_percentile,
+                overwrite,
+            )
+            if roof is not None:
+                footprint.set_z(roof)
         if (i + 1) % 20 == 0 or i + 1 == total_buildings:
             report_progress(
                 current=i + 1,
@@ -259,38 +316,37 @@ def compute_building_heights(
     return buildings
 
 
-def _compute_height(building, terrain, min_building_height, roof_percentile, overwrite):
-    """Ground and height of one building or part from its roof points."""
-    footprint = building.lod0
-    if footprint is None:
-        warning(f"Building {building.id} has no LOD0 geometry.")
-        return
-    vertices = _footprint_vertices(footprint)
+def _compute_height(
+    building, vertices, roof_z, terrain, min_building_height, roof_percentile, overwrite
+):
+    """Ground and height of one building or part from its roof points.
+
+    The ground is the terrain at the mean of the footprint vertices. Returns
+    the new roof level, or None if the roof is kept.
+    """
     if len(vertices) < 3:
         warning(
             f"Building {building.id} has an invalid footprint with only {len(vertices)} vertices."
         )
-        return
-    centroid = _footprint_centroid(footprint)
+        return None
+    centroid = vertices.mean(axis=0)
     if np.isnan(centroid[0]) or np.isnan(centroid[1]):
         warning(f"Building {building.id} has an invalid centroid.")
-        return
+        return None
     ground_height = terrain.get_value(centroid[0], centroid[1])
     building.attributes["ground_height"] = ground_height
-    if overwrite or footprint.zmax == 0:
-        roof_points = building.point_cloud
-        if roof_points is None or len(roof_points) == 0:
-            warning(f"Building {building.id} has no roof points. using min height")
-            footprint.set_z(ground_height + min_building_height)
-            building.estimated_height = min_building_height
-        else:
-            z_values = roof_points.points[:, 2]
-            roof_top = np.percentile(z_values, roof_percentile * 100)
-            height = roof_top - ground_height
-            if height < min_building_height:
-                height = min_building_height
-            footprint.set_z(ground_height + height)
-            building.estimated_height = height
+    if not (overwrite or roof_z == 0):
+        return None
+    roof_points = building.point_cloud
+    if roof_points is None or len(roof_points) == 0:
+        warning(f"Building {building.id} has no roof points. using min height")
+        building.estimated_height = min_building_height
+        return ground_height + min_building_height
+    z_values = roof_points.points[:, 2]
+    roof_top = np.percentile(z_values, roof_percentile * 100)
+    height = max(roof_top - ground_height, min_building_height)
+    building.estimated_height = height
+    return ground_height + height
 
 
 def build_lod1_buildings(
@@ -302,10 +358,12 @@ def build_lod1_buildings(
     """
     Build the LOD1 representation of the given buildings.
 
-    Each building is extruded from its ground to its roof. A cleaned block,
-    whose parts have their own LOD0 footprints, is extruded per part instead:
-    each part gets its own LOD1 prism, from its own ground to its own roof,
-    and the block itself gets none, as for building parts in CityGML.
+    Each building is extruded from its ground to its roof. A cleaned block
+    with walls is extruded per part instead: its walls are first brought up
+    to date with the roofs of its parts (:func:`.cleaning.blocks.update_walls`),
+    then each part with a footprint gets its own LOD1 prism, from its own
+    ground to its own roof, and the block itself gets none, as for building
+    parts in CityGML.
     Neighbouring prisms share faces up to the lower roof.
     ``building.flatten_geometry(GeometryType.LOD1)`` gives all prisms of a
     block; :func:`dtcc_core.builder.build_building_shell` gives one closed
@@ -332,7 +390,15 @@ def build_lod1_buildings(
     report_progress(percent=0, message=f"Building LOD1 for {total_buildings} buildings...")
 
     for i, building in enumerate(buildings):
-        parts = _part_footprints(building)
+        parts = []
+        if is_block(building):
+            # The walls of a block follow the current roofs of its parts.
+            update_walls(building)
+            parts = [
+                part
+                for part in building.building_parts
+                if part.get_geometry(GeometryType.LOD0) is not None
+            ]
         targets = parts if parts else [building]
         if parts:
             building.remove_geometry(GeometryType.LOD1)
@@ -374,8 +440,8 @@ def extract_roof_points(
     """
     Extract roof points from a point cloud for a list of buildings.
 
-    Each part of a cleaned block (a part with its own LOD0 footprint) gets the
-    roof points inside its own footprint.
+    Each part of a cleaned block gets the roof points inside the footprint of
+    its source.
 
     Parameters
     ----------
@@ -403,19 +469,17 @@ def extract_roof_points(
     """
 
     report_progress(percent=10, message="Preparing building footprints...")
-    # Each building, or each part of a cleaned block, gets the roof points
-    # inside its own footprint.
+    # Each building gets the roof points inside its footprint, each part of a
+    # cleaned block those inside the footprint of its source.
     targets, polygons, owners = [], [], []
     for building in buildings:
-        parts = _part_footprints(building)
-        if parts:
-            for part in parts:
-                footprint = part.get_geometry(GeometryType.LOD0)
-                surfaces = (
-                    footprint.surfaces if isinstance(footprint, MultiSurface) else [footprint]
-                )
-                for surface in surfaces:
-                    polygons.append(surface.to_polygon())
+        if is_block(building):
+            for part in building.building_parts:
+                polygon = source_footprint(part)
+                if polygon is None:
+                    continue
+                for piece in [polygon] if isinstance(polygon, Polygon) else polygon.geoms:
+                    polygons.append(_roof_point_polygon(piece))
                     owners.append(len(targets))
                 targets.append(part)
             continue

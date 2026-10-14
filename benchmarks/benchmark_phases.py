@@ -20,7 +20,8 @@ from shapely.ops import unary_union
 
 from dtcc_core.model import Bounds, City, GeometryType, Raster
 from dtcc_core.io.model import load_model, save_model
-from dtcc_core.builder.cleaning.clean import MERGED_FROM_KEY, RECORD_KEY, cleaning_record
+from dtcc_core.builder.cleaning.blocks import source_ids
+from dtcc_core.builder.cleaning.clean import RECORD_KEY, cleaning_record
 from dtcc_core.builder.geometry_builders import meshes
 from dtcc_core.datasets._city_mesh_common import (
     prepare_city_from_bounds,
@@ -107,7 +108,7 @@ def _raw_source_map(raw_city, cleaned_city, kept):
     source_map = []
     for position in kept:
         building = cleaned_city.buildings[position]
-        ids = building.attributes.get(MERGED_FROM_KEY) or [building.id]
+        ids = source_ids(building)
         source_map.append(sorted({index[i] for i in ids if i in index}))
     return source_map
 

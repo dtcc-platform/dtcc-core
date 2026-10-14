@@ -9,8 +9,8 @@ boundary from stage 1 never moves.
 
 Labels and the input partition
     Every source is a label. Where sources overlap, the source that comes first
-    in a precedence order wins (the caller orders by height, then area, then
-    input order). The input partition V_c is the part of source c that no
+    in a precedence order wins (the caller orders by roof level, height or
+    area; see :func:`.blocks.precedence`). The input partition V_c is the part of source c that no
     earlier source covers.
 
 Contract
