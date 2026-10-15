@@ -40,15 +40,14 @@ Construction
        boundary, move junctions of walls near the boundary onto it, contract
        walls shorter than delta to one junction, route a wall through a
        region vertex closer than delta to it, project wall vertices onto the
-       boundary, drop wall vertices,
-       give a cell without a protected core to its neighbour, and give a
-       *thin piece* (a piece of a label's cell thinner than delta, beside
-       another piece of the same label) to a neighbour, also right after a
-       wall edit that cuts it off. An edit is admitted only if (2L) holds for
-       every label and the defect measure decreases: the number of sectors
-       below the profile's minimum angle at vertices the walls add or change,
-       then the number of wall pairs closer than delta, then their total
-       deficit.
+       boundary, drop wall vertices, give a cell without a protected core to
+       its neighbour, and give a *thin piece* (a piece of a label's cell
+       thinner than delta, beside another piece of the same label) to a
+       neighbour, also right after a wall edit that cuts it off. An edit is
+       admitted only if (2L) holds for every label and the defect measure
+       decreases: the number of sectors below the profile's minimum angle at
+       vertices the walls add or change, then the number of wall pairs
+       closer than delta, then their total deficit.
     4. If defects remain, the repair is retried once at the retry budget.
 
 Outcomes are ``strict`` (no defects), ``warning`` (only wall pairs closer than

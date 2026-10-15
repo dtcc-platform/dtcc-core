@@ -504,8 +504,9 @@ Construction runs as follows.
    - local edits at each defect site: collapsing short wall edges,
      contracting a wall shorter than delta between two junctions into one,
      moving junctions along the region boundary, moving a junction of walls
-     closer than delta to the boundary onto it, projecting wall vertices onto
-     it, dropping vertices;
+     closer than delta to the boundary onto it, routing a wall through a
+     region vertex closer than delta to it, projecting wall vertices onto
+     the boundary, dropping vertices;
    - giving a *thin piece* to a neighbour: a piece of a label's cells in
      which no disk of diameter delta fits, beside another piece of the same
      label (a feature below the minimum feature size that the label can lose
@@ -536,11 +537,13 @@ of one block's walls does the same (reason `construction_error`). Without an
 acceptable start or with small sectors, the reasons are `no_faithful_start`
 and `small_sectors`. Cleaning never fails because of walls.
 
-The thin-piece, contraction and junction edits were added for real blocks of
-the surface survey whose warnings left pieces of about a square millimetre,
-junctions 0.18 mm apart or walls millimetres from the region boundary: the 2D
-mesher failed on two (coverage seed conflicts) and refined others into tens of
-thousands of slivers. They are test fixtures in `tests/data/cleaning`.
+The thin-piece, contraction, junction and routing edits were added for real
+blocks of the surface survey whose warnings left pieces of about a square
+millimetre, junctions 0.18 mm apart, walls millimetres from the region
+boundary, or walls a few centimetres from region vertices: the 2D mesher
+failed on two (coverage seed conflicts), refined one into tens of thousands
+of slivers, and made tiny ground triangles next to the others, which steep
+terrain lifts into slivers. They are test fixtures in `tests/data/cleaning`.
 
 **Walls record.** `attributes["footprint_walls"]` of a block (version 2)
 holds:
@@ -602,10 +605,11 @@ with w_c the mean of group c weighted by cell area. Then:
   Delta bounds this target spacing, not every strip: an interval of 0.7 m at
   delta = 0.5 m gets two strips of 0.35 m. A panel narrower than delta / 50
   is left whole. Each panel is triangulated between the levels of its two
-  lines by a zipper that takes the better triangle where both lines can
-  advance, so walls meeting at a vertical line share their vertices and the
-  shell is conforming, a short edge refines only the walls at its ends, and a
-  short interval on one line is not joined to a far level on the other.
+  lines by the zipper (a monotone path through the levels of both lines)
+  whose smallest triangle quality is largest, so walls meeting at a vertical
+  line share their vertices and the shell is conforming, a short edge refines
+  only the walls at its ends, and the fine levels of one line are not fanned
+  from a far level of the other.
 
 A block that keeps one footprint is meshed with one roof. At cleaning, that
 roof is the area-weighted mean of its sources' roofs, or the highest roof when
