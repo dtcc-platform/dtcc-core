@@ -303,15 +303,20 @@ def _fixture(name):
         "stockholm-085-short-wall.geojson",
         "stockholm-085-junction-near-boundary.geojson",
         "orebro-085-thin-tail.geojson",
+        "gothenburg-008-wall-near-corners.geojson",
+        "linkoping-056-wall-near-vertex.geojson",
     ],
 )
-def test_walls_of_real_blocks_have_no_sub_millimetre_pieces(name):
+def test_walls_of_real_blocks_have_no_sub_delta_defects(name):
     # Real blocks of the surface survey whose walls left a piece of a cell of
     # about a square millimetre, two junctions 0.18 mm apart, a junction
-    # 1.8 mm from a region vertex, or a wall running millimetres from a region
-    # edge. The 2D mesher failed on the first two (coverage seed conflicts)
-    # and refined the last into 27,000 triangles. Thin pieces go to a
-    # neighbour, short walls contract and junctions move onto the boundary.
+    # 1.8 mm from a region vertex, a wall running millimetres from a region
+    # edge, or a wall passing 2 to 10 cm from region vertices. The 2D mesher
+    # failed on the first two (coverage seed conflicts), refined the fourth
+    # into 27,000 triangles, and the last two gave tiny ground triangles,
+    # which steep terrain lifts into slivers. Thin pieces go to a neighbour,
+    # short walls contract, junctions move onto the boundary, and walls are
+    # routed through region vertices next to them.
     meta, region, sources = _fixture(name)
     labelled = blocks_module.wall_cells(
         region, sources, meta["order"], delta=meta["delta"], epsilon=meta["epsilon"], strict=False

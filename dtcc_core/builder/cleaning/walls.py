@@ -38,8 +38,9 @@ Construction
     3. Bounded repair, site by site and with whole-region wall operations:
        collapse short wall edges, snap or slide wall junctions on the region
        boundary, move junctions of walls near the boundary onto it, contract
-       walls shorter than delta to one junction, project wall vertices onto
-       the boundary, drop wall vertices,
+       walls shorter than delta to one junction, route a wall through a
+       region vertex closer than delta to it, project wall vertices onto the
+       boundary, drop wall vertices,
        give a cell without a protected core to its neighbour, and give a
        *thin piece* (a piece of a label's cell thinner than delta, beside
        another piece of the same label) to a neighbour, also right after a
@@ -954,6 +955,24 @@ def _site_wall_offers(region, cells: Cells, site, delta):
         coordinates = [tuple(c[:2]) for c in wall.coords]
         closed = coordinates[0] == coordinates[-1]
         ring = coordinates[:-1] if closed else coordinates
+        if not closed:
+            # A region vertex closer than delta to the wall: route the wall
+            # through it (the part along the boundary then merges with it).
+            near = shapely.dwithin(shapely.points(vertices), wall, delta)
+            for v in vertices[near]:
+                v = (float(v[0]), float(v[1]))
+                if v in (ring[0], ring[-1]) or wall.distance(Point(v)) <= ON_BOUNDARY:
+                    continue
+                if np.min(np.hypot(site[:, 0] - v[0], site[:, 1] - v[1])) > SITE_REACH * delta:
+                    continue
+                segments = [
+                    LineString([ring[k], ring[k + 1]]).distance(Point(v))
+                    for k in range(len(ring) - 1)
+                ]
+                k = int(np.argmin(segments))
+                yield "route_through_vertex", _replace(
+                    walls, w_index, [*ring[: k + 1], v, *ring[k + 1 :]]
+                )
         if not closed and wall.length < delta and any(
             np.min(np.hypot(site[:, 0] - c[0], site[:, 1] - c[1])) <= SITE_REACH * delta
             for c in (ring[0], ring[-1])
