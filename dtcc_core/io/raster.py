@@ -35,7 +35,7 @@ def _load_rasterio(path: Union[Path, List], **kwargs):
 
             raster.data = np.squeeze(data)
             raster.georef = src.transform
-            raster.crs = str(src.crs) if src.crs else ""
+            raster.crs = str(src.crs)
     else:
         if "merge_method" in kwargs:
             merge_method = kwargs["merge_method"]
@@ -48,7 +48,7 @@ def _load_rasterio(path: Union[Path, List], **kwargs):
         raster.data = data.squeeze()
         raster.georef = transform
         with rasterio.open(path[0]) as src:
-            raster.crs = str(src.crs) if src.crs else ""
+            raster.crs = str(src.crs)
 
     return raster
 
@@ -95,9 +95,6 @@ def _save_json_raster(raster, path):
 
 def _save_geotif(raster, path):
     data = raster.data
-    nodata = raster.nodata
-    if nodata is not None and np.isnan(nodata) and not np.issubdtype(data.dtype, np.floating):
-        nodata = None
     with rasterio.open(
         path,
         "w",
@@ -106,9 +103,7 @@ def _save_geotif(raster, path):
         width=raster.width,
         count=raster.channels,
         dtype=data.dtype,
-        crs=raster.crs or None,
         transform=raster.georef,
-        nodata=nodata,
         compress="DEFLATE",
     ) as dst:
         if raster.channels == 1:
