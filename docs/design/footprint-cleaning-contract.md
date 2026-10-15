@@ -544,6 +544,12 @@ boundary, or walls a few centimetres from region vertices: the 2D mesher
 failed on two (coverage seed conflicts), refined one into tens of thousands
 of slivers, and made tiny ground triangles next to the others, which steep
 terrain lifts into slivers. They are test fixtures in `tests/data/cleaning`.
+These edits can turn a near contact (cells that nearly meet at a point,
+separated by a wall far shorter than delta) into a point contact: a pinch of
+a level set when both cells are higher than the cells around them, which
+the mesh builders report and a volume mesh resolves with one roof for that
+block (below). On central Lund this gives 7 such blocks instead of 4; the
+alternative, keeping the sub-delta walls, gave sliver triangles.
 
 **Walls record.** `attributes["footprint_walls"]` of a block (version 2)
 holds:
