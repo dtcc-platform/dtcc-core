@@ -5,6 +5,7 @@
 #define DTCC_MESH_BUILDER_H
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cmath>
 #include <iostream>
@@ -796,10 +797,11 @@ private:
         mesh.faces.push_back(Simplex2D(p, q, r));
       mesh.markers.push_back(marker);
     };
-    // Zipper: each step adds the triangle that advances one line. Where
-    // both can advance, the better triangle is taken (the one advancing a on
-    // a tie), so a short interval on one line is not joined to a far level
-    // on the other.
+    // Zipper: every triangulation of the panel by its line vertices is a
+    // monotone path from (bottom, bottom) to (top, top) that advances one
+    // line per triangle. The path taken maximizes the smallest triangle
+    // quality (then the total), so a short interval on one line is joined
+    // to a near level of the other, whatever the spacing of the two lines.
     const auto quality = [&](size_t p, size_t q, size_t r)
     {
       const Vector3D &x = mesh.vertices[p];
@@ -814,24 +816,62 @@ private:
                              wx * wx + wy * wy + wz * wz;
       return lengths > 0.0 ? 4.0 * std::sqrt(3.0) * area / lengths : 0.0;
     };
-    size_t i = 0;
-    size_t j = 0;
-    while (i + 1 < a.size() || j + 1 < b.size())
+    const size_t m = a.size();
+    const size_t n = b.size();
+    // For each state (i, j): the smallest and the total quality of the best
+    // path to it, and whether it was reached by advancing line a.
+    std::vector<double> lowest(m * n, -1.0);
+    std::vector<double> total(m * n, 0.0);
+    std::vector<char> by_a(m * n, 0);
+    lowest[0] = std::numeric_limits<double>::infinity();
+    for (size_t i = 0; i < m; ++i)
     {
-      const bool advance_a = i + 1 < a.size();
-      const bool advance_b = j + 1 < b.size();
-      if (advance_a &&
-          (!advance_b || quality(a[i], b[j], a[i + 1]) >= quality(a[i], b[j], b[j + 1])))
+      for (size_t j = 0; j < n; ++j)
       {
-        add(a[i], b[j], a[i + 1]);
-        ++i;
+        if (i == 0 && j == 0)
+          continue;
+        const size_t k = i * n + j;
+        if (i > 0)
+        {
+          const double q = quality(a[i - 1], b[j], a[i]);
+          const size_t from = (i - 1) * n + j;
+          lowest[k] = std::min(lowest[from], q);
+          total[k] = total[from] + q;
+          by_a[k] = 1;
+        }
+        if (j > 0)
+        {
+          const double q = quality(a[i], b[j - 1], b[j]);
+          const size_t from = i * n + j - 1;
+          const double low = std::min(lowest[from], q);
+          const double sum = total[from] + q;
+          if (i == 0 || low > lowest[k] || (low == lowest[k] && sum > total[k]))
+          {
+            lowest[k] = low;
+            total[k] = sum;
+            by_a[k] = 0;
+          }
+        }
+      }
+    }
+    std::vector<std::array<size_t, 3>> path;
+    size_t i = m - 1;
+    size_t j = n - 1;
+    while (i > 0 || j > 0)
+    {
+      if (by_a[i * n + j])
+      {
+        path.push_back({a[i - 1], b[j], a[i]});
+        --i;
       }
       else
       {
-        add(a[i], b[j], b[j + 1]);
-        ++j;
+        path.push_back({a[i], b[j - 1], b[j]});
+        --j;
       }
     }
+    for (auto t = path.rbegin(); t != path.rend(); ++t)
+      add((*t)[0], (*t)[1], (*t)[2]);
   }
 
   // Set x = min(x, y)
