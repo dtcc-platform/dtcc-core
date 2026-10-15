@@ -493,6 +493,18 @@ def test_ids_are_unique_in_the_whole_model(tmp_path):
     assert model_ids(io.load_model(tmp_path / "nested.dtcc")) == ids
     assert model_ids(cleaned.clean_footprints()) == ids
 
+    # Split and merged with a neighbour.
+    neighbour = building("neighbour", box(536780, 6474050, 536790, 6474056), 12.0, height=12, ground=0)
+    merged = city_of(source, neighbour).clean_footprints()
+    ids = model_ids(merged)
+    assert len(ids) == len(set(ids))
+    assert sorted(c.id for b in merged.buildings for p in b.building_parts for c in p.building_parts) == [
+        "original-child#1",
+        "original-child#2",
+    ]
+    io.save_model(merged, tmp_path / "merged.dtcc")
+    assert model_ids(io.load_model(tmp_path / "merged.dtcc")) == ids
+
     # New IDs avoid the IDs of every object of the model, the city's too.
     source, _ = split_source()
     city = city_of(source)
