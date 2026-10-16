@@ -1,5 +1,6 @@
-import dtcc_core as dtcc
+"""Plot a synthetic grid for table alignment."""
 
+import dtcc_core as dtcc
 
 bounds = dtcc.Bounds(319720, 6397660, 320220, 6398160)
 

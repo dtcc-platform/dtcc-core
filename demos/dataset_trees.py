@@ -1,5 +1,6 @@
-import dtcc_core as dtcc
+"""Plot trees inferred from the point cloud."""
 
+import dtcc_core as dtcc
 
 bounds = dtcc.Bounds(319720, 6397660, 320220, 6398160)
 
