@@ -75,6 +75,66 @@ def assert_parts_tile_block(block):
     assert unary_union(pieces).symmetric_difference(outline).area < 1e-9
 
 
+def test_simplification_keeps_coordinate_changes_when_occupancy_is_equal():
+    x = 10.1234567  # Compaction must also preserve coordinates off the local grid.
+    left = shapely.Polygon([(0, 0), (x, 0), *[(x, y) for y in np.linspace(0, 10, 321)[1:]], (0, 10)])
+    right = box(0, 0, 20, 10).difference(left)
+    cells = [(left, 0), (right, 1)]
+    simplified = walls_module._simplify_walls(box(0, 0, 20, 10), cells, 0.5)
+    assert sorted(label for _, label in simplified) == [0, 1]
+    for (original, _), (compact, _) in zip(cells, sorted(simplified, key=lambda item: item[1])):
+        assert original.equals(compact)
+        assert len(compact.exterior.coords) == 5
+
+
+@pytest.mark.parametrize("junction", [False, True])
+def test_exact_labelling_compacts_straight_walls_and_keeps_junctions(junction):
+    region = box(0, 0, 20, 10)
+    left = shapely.Polygon([(0, 0), (10, 0), *[(10, y) for y in np.linspace(0, 10, 321)[1:]], (0, 10)])
+    sources = {0: left, 1: region.difference(left)}
+    if junction:
+        sources[1] = sources[1].intersection(box(10, 0, 20, 5))
+        sources[2] = box(10, 5, 20, 10)
+    result = label_region(region, sources, list(sources), delta=0.5, epsilon=0.25)
+    assert result.outcome == "strict"
+    assert shapely.coverage_is_valid([p for p, _ in result.cells])
+    assert unary_union([p for p, _ in result.cells]).equals(region)
+    for polygon, label in result.cells:
+        assert polygon.equals(sources[label])
+        assert len(polygon.exterior.coords) <= 6
+        if junction:
+            assert (10, 5) in polygon.exterior.coords
+    report = check_labelled_contract(sources, list(sources), region, result.cells, delta=0.5, epsilon=0.25)
+    assert report["status"] == "strict", report
+
+
+def test_canonical_walls_keep_genuine_small_bends():
+    region = box(0, 0, 20, 10)
+    bend = (10.00001, 5)
+    left = shapely.Polygon([(0, 0), (10, 0), (10, 4), bend, (10, 6), (10, 10), (0, 10)])
+    cells = [(left, 0), (region.difference(left), 1)]
+    compact = walls_module._canonical(region, cells)
+    assert shapely.coverage_is_valid([p for p, _ in compact])
+    for polygon, label in compact:
+        assert polygon.equals(cells[label][0])
+        assert bend in polygon.exterior.coords
+
+
+def test_canonical_walls_preserve_holes_and_disconnected_label_pieces():
+    region = shapely.Polygon(box(0, 0, 30, 20).exterior, [box(12, 8, 18, 12).exterior])
+    pieces = [region.intersection(box(x, 0, x + 10, 20)) for x in (0, 10, 20)]
+    cells = [(shapely.segmentize(p, 0.125), label) for p, label in zip(pieces, (0, 1, 0))]
+    compact = walls_module._canonical(region, cells)
+    assert shapely.coverage_is_valid([p for p, _ in compact])
+    assert unary_union([p for p, _ in compact]).equals(region)
+    for label in (0, 1):
+        assert unary_union([p for p, i in compact if i == label]).equals(
+            unary_union([p for p, i in cells if i == label])
+        )
+    assert sum(len(p.interiors) for p, _ in compact) == 1
+    assert sum(len(p.exterior.coords) for p, _ in compact) == 15
+
+
 def test_overlap_goes_to_the_taller_building_then_the_larger():
     low = building("low", box(0, 0, 10, 10), 10)
     high = building("high", box(9.8, 0, 20, 10), 20)

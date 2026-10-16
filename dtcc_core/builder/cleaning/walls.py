@@ -582,7 +582,12 @@ def _walls(cells: Cells):
     segments = [key for key, labels in owners.items() if len(labels) > 1]
     if not segments:
         return []
-    return _lines(shapely.line_merge(shapely.multilinestrings(segments)))
+    # Merged lines end at graph junctions. Zero-tolerance simplification drops
+    # only redundant subdivision points, keeping bends and shared junctions.
+    return [
+        line.simplify(0)
+        for line in _lines(shapely.line_merge(shapely.multilinestrings(segments)))
+    ]
 
 
 def _boundary_vertices(region):
@@ -819,7 +824,7 @@ def _simplify_walls(region, cells: Cells, tolerance) -> Cells | None:
     if any(not polygon.is_valid or polygon.is_empty for polygon, _ in out):
         return None
     if np.all(shapely.equals(simplified, [polygon for polygon, _ in cells])):
-        return cells
+        return out
     try:
         return _canonical(region, out)
     except shapely.errors.GEOSException:

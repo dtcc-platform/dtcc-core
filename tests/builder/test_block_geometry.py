@@ -128,6 +128,74 @@ def quality(mesh):
     return tri_element_quality(np.asarray(mesh.vertices), np.asarray(mesh.faces))
 
 
+def test_gap_closing_keeps_compact_cells_through_reuse_and_reload(tmp_path):
+    from dtcc_core import io
+    from dtcc_core.builder.cleaning.blocks import block_region, set_part_roof
+    from dtcc_core.builder.cleaning.levels import level_regions
+    from dtcc_core.builder.geometry_builders.meshes import footprint_cells
+
+    city = City()
+    city.add_buildings([
+        building(str(i), box(x, 0, x + 10, 10), height)
+        for i, (x, height) in enumerate([(0, 8), (10.2, 16), (20.4, 12)])
+    ])
+    once = city.clean_footprints(min_building_detail=0.5, isolated=False)
+    io.save_model(once, tmp_path / "compact.dtcc")
+    loaded = io.load_model(tmp_path / "compact.dtcc")
+    original_cells, _ = footprint_cells(once.buildings[0])
+    for candidate in (once, once.clean_footprints(), loaded, loaded.clean_footprints()):
+        block = candidate.buildings[0]
+        assert len(candidate.buildings) == 1 and len(block.building_parts) == 3
+        assert block_region(block).equals(box(0, 0, 30.4, 10))
+        cells, roofs = footprint_cells(block)
+        assert sorted(roofs.values()) == [8, 12, 16]
+        assert sum(len(p.exterior.coords) - 1 for p, _ in cells) <= 16
+        for (p, i), (expected, j) in zip(cells, original_cells):
+            assert i == j and p.equals_exact(expected, 0)
+        for p, _, _ in level_regions(cells, roofs, 0.5):
+            assert len(p.exterior.coords) <= 6
+        shell = build_building_shell(block, max_mesh_size=5.0)
+        # A handful of rectangular panels needs hundreds, not tens of thousands,
+        # of triangles at this mesh size; leave ample triangulator variation.
+        assert len(shell.faces) < 1500
+        assert quality(shell).min() > 0.25
+        assert closed_and_oriented(shell)
+        assert volume(shell) == pytest.approx(3652)
+
+    # Exposing different roof groups rechecks contacts without restoring samples.
+    block = loaded.buildings[0]
+    set_part_roof(block.building_parts[0], 12)
+    cells, roofs = footprint_cells(block)
+    assert sum(len(p.exterior.coords) - 1 for p, _ in cells) <= 16
+    assert sorted(roofs.values()) == [12, 12, 16]
+
+
+@pytest.mark.parametrize("isolated", [False, True])
+def test_gap_closing_city_surface_mesh_has_compact_building_constraints(isolated):
+    from dtcc_core.builder import build_city_surface_mesh
+    from dtcc_core.model import Bounds, Raster, Terrain
+
+    city = City()
+    raster = Raster()
+    raster.data = np.zeros((4, 8))
+    raster.set_bounds(Bounds(-5, -5, 35, 15))
+    terrain = Terrain()
+    terrain.add_geometry(raster, GeometryType.RASTER)
+    city.add_terrain(terrain)
+    city.add_buildings([
+        building(str(i), box(x, 0, x + 10, 10), height)
+        for i, (x, height) in enumerate([(0, 8), (10.2, 16), (20.4, 12)])
+    ])
+    # A jointly cleaned block can also be consumed by the isolated shell workflow.
+    city = city.clean_footprints(min_building_detail=0.5)
+    mesh = build_city_surface_mesh(city, isolated=isolated, max_mesh_size=5, report_mesh_quality=False)
+    assert len(mesh.faces) < 2000
+    assert quality(mesh).min() > 0.1
+    points = mesh.vertices[mesh.faces]
+    flat = np.ptp(points[:, :, 2], axis=1) == 0
+    assert sorted(set(np.round(points[flat, 0, 2], 9))) == [0, 8, 12, 16]
+
+
 def panel_widths(mesh):
     """The widths of the wall panels at each vertical line, by (x, y)."""
     points = np.round(np.asarray(mesh.vertices), 9)[np.asarray(mesh.faces)]
