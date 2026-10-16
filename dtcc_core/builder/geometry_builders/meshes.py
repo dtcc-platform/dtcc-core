@@ -692,6 +692,13 @@ def _conditioned_footprint_contract_audit(
     )
     errors = list(admission["errors"])
     warnings = list(admission["warnings"])
+    fallbacks = diagnostics.get("kept_wall_fallbacks", [])
+    for row in fallbacks:
+        warnings.append(
+            f"Merged block {', '.join(row['ids'])} is meshed with one roof "
+            f"after footprint wall fallback ({row['detail'].get('reason', 'unknown')}); "
+            "source roof heights may be approximated."
+        )
     pinched = diagnostics.get("levels", {}).get("pinched_level_sets", [])
     if pinched:
         warnings.append(pinch_warning(len({row["building"] for row in pinched})))
@@ -735,6 +742,7 @@ def _conditioned_footprint_contract_audit(
             "incident_sector_profile": admission["incident_sector_profile"],
             "mesher_segment_graph_error": graph_error,
             "pinched_level_sets": pinched,
+            "kept_wall_fallbacks": fallbacks,
         }
     )
     return _stage_contract_result(
@@ -2199,6 +2207,7 @@ def _meshing_footprints(
     pinched = []
     one_roof = []
     level_shifts = []
+    kept_wall_fallbacks = []
     for polygon, (output,) in zip(selected.polygons, selected.source_map):
         regions, shift = _building_level_regions(
             cleaned, output, polygon, delta=float(min_building_detail)
@@ -2208,6 +2217,16 @@ def _meshing_footprints(
             rows = pinched_levels([(region, level) for region, level, _ in regions])
         # The city buildings behind this output (the block itself when reused).
         ids = [str(buildings[index].id) for index in cleaned.output_sources[output]]
+        wall = cleaned.output_walls[output] if cleaned.output_walls else {}
+        if wall.get("outcome") == "fallback":
+            kept_wall_fallbacks.append(
+                {"building": output, "ids": ids, "detail": wall.get("detail", {})}
+            )
+            warning(
+                f"Merged block {', '.join(ids)} is meshed with one roof after "
+                f"wall fallback ({wall.get('detail', {}).get('reason', 'unknown')}); "
+                "source roof heights may be approximated."
+            )
         if rows and volume:
             roof_z, height = _one_roof(cleaned, output)
             regions, shift = [(polygon, roof_z, height)], None
@@ -2239,6 +2258,7 @@ def _meshing_footprints(
         "pinched_level_sets": pinched,
         "one_roof": one_roof,
     }
+    diagnostics["kept_wall_fallbacks"] = kept_wall_fallbacks
     if one_roof:
         warning(
             f"{len(one_roof)} merged block(s) whose roof levels touch at a point only "

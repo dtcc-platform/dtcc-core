@@ -462,13 +462,31 @@ footprint area decides. Ownership then waits for the heights:
 - each block records the order its walls were made with
   (`attributes["footprint_walls"]`);
 - where new roofs change the winner of an overlap, the height builders
-  recompute the block's walls from the source footprints with the recorded
+  check the existing cells against the full labelled contract under the new
+  order, including exposed source membership and roof-level contacts. Cells
+  that fail are recomputed from the source footprints with the recorded
   parameters (`blocks.update_walls`); so do the next cleaning and meshing,
   and `build_lod1_buildings`, for a block whose walls are not current (roofs
   set by hand, say). Only overlaps depend on the order: with the same winner
   of every overlap, every V_c is the same.
 
-Cleaning before or after height estimation therefore gives the same cells.
+Cleaning before or after height estimation preserves the same source-cell
+membership and roofs. The local XY geometry may differ because a repeated
+repair starts from the recorded cleaned occupancy and fidelity budget.
+
+`build_lod1_buildings` records the inputs and geometry digest of its
+extrusions. Height builders invalidate these prisms when their roof or
+ground changes, even when cell ownership stays the same; a subsequent
+`build_lod1_buildings(rebuild=False)` reconstructs missing prisms.
+Caller-provided or edited LOD1 geometry is preserved by height-only updates.
+Unmarked existing prisms require an explicit `rebuild=True` to replace them;
+they are treated as caller-provided geometry.
+Changes to the cell partition still remove all affected LOD1 geometry.
+
+The meshing handoff reports a warning for every stage-2 wall fallback kept
+after area selection, with its affected IDs and detailed cause in
+`diagnostics.kept_wall_fallbacks`. Passing the XY coverage checks does not
+imply that different source roof heights survived a one-roof fallback.
 
 V_c is the closure of the interior of the part of label c that no earlier
 label covers. The cells Q^(c) of label c must satisfy the identity fidelity
@@ -516,11 +534,15 @@ Construction runs as follows.
 
    Each edit must keep (2L) and reduce the defects. Defects are compared in
    this order: sectors below 1 degree at vertices the walls add or change,
-   then wall pairs closer than delta, then their total deficit.
+   then pairs closer than delta / 10, then all wall pairs closer than delta,
+   then their total deficit. This ranking removes very short wall features
+   before reducing the count of moderate residual features; it does not
+   change the fidelity, separation or angle requirements.
 4. **Retry.** If the result is not strict, the repair is retried once at
    3 delta / 4, unless the region's merge group already used that budget. The
-   better result is kept: a strict one, else fewer wall pairs, then less
-   deficit. The record reports the largest budget used.
+   better result is kept: a strict one, else fewer pairs closer than delta / 10,
+   then fewer wall pairs, then less deficit. The record reports the accepted
+   budget, including a successful retry.
 
 | Outcome | Result |
 | --- | --- |
@@ -544,12 +566,51 @@ boundary, or walls a few centimetres from region vertices: the 2D mesher
 failed on two (coverage seed conflicts), refined one into tens of thousands
 of slivers, and made tiny ground triangles next to the others, which steep
 terrain lifts into slivers. They are test fixtures in `tests/data/cleaning`.
-These edits can turn a near contact (cells that nearly meet at a point,
-separated by a wall far shorter than delta) into a point contact: a pinch of
-a level set when both cells are higher than the cells around them, which
-the mesh builders report and a volume mesh resolves with one roof for that
-block (below). On central Lund this gives 7 such blocks instead of 4; the
-alternative, keeping the sub-delta walls, gave sliver triangles.
+Roof-level sets are checked after wall repair and when the exposed roof
+groups change. A wall touching the outer boundary can be moved inward or
+across it to open separate boundary junctions; the linework is clipped to
+the fixed region. Directions aligned with the adjoining walls permit
+source ownership at tight fidelity limits. An interior four-way junction can be split into two three-way
+junctions. These finite local offers keep the occupied region and source
+roof elevations fixed. Each must satisfy (2L), avoid small incident sectors,
+and remove contact points without introducing contacts elsewhere. The existing
+fidelity retry remains available after partial progress; panels narrower than
+the shell builder's subdivision floor
+are refused. After a contact opens, the existing wall offers can resolve
+severe residual features, provided they introduce no new roof-level pinch.
+Short boundary intervals are noded after restoring exact boundary coordinates.
+Surface and volume meshes consume the resulting common cells.
+If contacts remain, a nonpinched input ownership partition can be retained
+when it independently passes the same labelled contract, coverage and sector
+checks and preserves all exposed labels. Its exact source coordinates are
+kept. Warning status in XY does not prevent retaining useful roof regions.
+Remaining contacts after these bounded alternatives stay visible in the
+diagnostics and use the documented volume fallback below.
+
+Contact outcomes distinguish no repair needed, no accepted improvement,
+partial progress and completion. A partial result seeds the permitted retry,
+whose fidelity target remains the original sources and fixed region. The
+best valid result survives a failed or worse retry. The record stores the
+accepted budget, final contact count and attempted budgets; XY status is
+independent of roof-contact completion and numerical mesh quality.
+
+The geometry-layer coordinator in `walls.py` owns permitted budgets, XY and
+contact progress selection, independent contact-candidate acceptance and retention
+of an earlier valid partition. Its `LabelledRegion` result carries cells, the XY
+outcome, contact outcome and remaining count, accepted budget and compact attempts.
+The contact operator returns the same explicit result; absence of progress is an
+`unchanged` outcome rather than an empty or absent report. Final changed ownership
+area is calculated once, relative to the cells entering contact repair; all
+fidelity checks still use the original sources and fixed occupied region.
+`blocks.py` checks freshness, assigns changed cells, invalidates derived geometry
+and persists diagnostics. It does not choose repair candidates or retry budgets.
+
+Construction errors (with truncated causes), independent contract rejection and
+ordinary no-progress attempts retain their attempted budgets, including when all
+attempts fail. A diagnostic-only update preserves LOD0/LOD1 objects and reports
+no reconstruction. Saving and reusing the certificate preserves the current
+contact outcome without repeating attempts or appending duplicate history. A new
+roof grouping starts a fresh contact report, replacing obsolete failure outcomes.
 
 **Walls record.** `attributes["footprint_walls"]` of a block (version 2)
 holds:
@@ -559,18 +620,37 @@ holds:
   a construction error), and the number of wall pairs closer than delta and
   the closest distance of a warning;
 - the detail, budget and strictness the walls were made with;
+- the bounded-repair recipe version (`repair_version`), distinct from the
+  record schema version;
+- the ordered groups of exposed source IDs at the roof resolution, and any
+  local contact-repair operations and changed ownership area;
 - a digest of the inputs of the cells, the XY of the block's region and of
   its parts' source footprints, and a digest of the cells (the parts' LOD0).
 
 The walls are *current* when both digests match, the cells cover the region,
-and every pair of overlapping sources keeps its recorded order. Walls that
-are not current are made again from the source footprints with the recorded
+and every pair of overlapping sources keeps its recorded order. A changed
+order can retain cells after the full labelled contract passes at the recorded
+budget, all exposed sources retain cells, and roof contacts are absent or
+repaired locally within the existing repair budgets. The stored order is
+then refreshed. Walls that fail these checks are made again with the recorded
 parameters: a changed region or source is never covered by stale cells. The
 detail is kept when walls are reused and replaced when they are made again,
 and the city record lists the reasons of its fallback blocks. A record of
 another version is an error that asks to clean the buildings the block was
 made from again: a block made by an earlier development version may lack its
 source footprints, which cannot be recovered.
+
+Compatible warning records predating wall-feature conditioning are conditioned
+again from their retained sources when they contain severe short features
+(pairs closer than delta / 10), or lack the distance diagnostic. Other
+compatible cells retain their geometry and receive the local roof-contact
+check. This includes saved cells with short boundary artifacts. Recipe 2 also revisits
+saved partial contact repairs, including recipe-1 records whose other inputs
+are current. Completed records are then reused without repeating repair.
+If an optional conditioning upgrade fails, still-current source
+ownership is retained with its warning and a `detail.repair_failure` cause;
+it is not replaced by a new one-roof approximation. A successful cell change
+invalidates the affected LOD1 prisms.
 
 ## Roof levels at meshing
 
@@ -600,8 +680,8 @@ with w_c the mean of group c weighted by cell area. Then:
 **Dissolving and step walls.**
 
 - Walls between cells of the same level are dissolved. This never adds a
-  feature pair or a small sector. The merged regions are not checked for
-  pinches; the extruded solid depends only on the level sets.
+  feature pair or a small sector. The resulting level sets are checked for
+  pinches; the extruded solid depends on these level sets.
 - Each connected region of one level is handed to the mesher with its roof.
 - Between regions of different levels, the building shell gets a step wall
   from the lower roof to the higher.
@@ -626,8 +706,9 @@ with boundary if and only if every level set Q_t is a 2-manifold with
 boundary. Q_t is the union of the regions with roofs at or above t.
 
 - Where regions of a level set touch at a point only (a pinch), the shell has
-  a vertical line contact: an edge with four faces. Pinches are a property of
-  the input, not of cleaning.
+  a vertical line contact: an edge with four faces. A pinch can exist in the
+  sources or remain after bounded wall repair; passing the XY contract
+  alone does not establish the level-union profile.
 - Surface and flat meshes keep the step walls. The mesh builders report such
   level sets in `levels.pinched_level_sets` and as a warning of the stage
   contract; `build_building_shell` warns in the same words.
@@ -638,6 +719,16 @@ boundary. Q_t is the union of the regions with roofs at or above t.
   block is listed with the IDs of its buildings in `levels.one_roof` of the
   conditioned footprints' diagnostics (in `stage_audit`), and the stage
   contract and the log warn.
+
+**Volume quality controls.** TetGen refinement is separate from footprint and
+roof preservation. The default retains `quality=None`. Request bare `-q`
+explicitly with `tetgen_switch_overrides={"quality": True}`, or `-q2/5` with
+`{"quality": [2.0, 5.0]}`. Trials on corrected city PLCs substantially reduced
+the number of tetrahedra below quality 0.02, with more cells, runtime and
+memory. Neither setting guarantees that threshold. Some otherwise accepted
+PLCs return a TetGen internal error under refinement, so this is a measured
+opt-in choice per input, without a global default change. Compare signed
+volumes and roof regions as well as the quality statistic when selecting it.
 
 **Buildings cleaned in isolation.** These have no joint contract, so only
 `build_city_surface_mesh(..., isolated=True)` meshes them, for visualization.
@@ -694,7 +785,10 @@ city = city.clean_footprints(min_building_detail=0.5, min_area=15.0)
   `attributes["merged_from"]` of a block the source IDs of its parts.
   `blocks.source_ids(building)` gives the source IDs of any cleaned building.
 - The ID of a new block is derived from its parts' IDs (a UUID 5), so
-  cleaning the same buildings gives the same IDs.
+  cleaning the same buildings gives the same IDs. This ID is also reserved
+  against surviving model objects; a collision uses the first available
+  `<uuid>#<n>`. Replaced block containers release their IDs, and a block
+  copied unchanged keeps its ID when cleaned again.
 
 **Footprints and heights.**
 
@@ -740,7 +834,10 @@ at zero detail).
   ground to its own roof, and the block and its parts without a cell none, as
   for building parts in CityGML. A fallback block gets one prism, and its
   parts none. Prisms of a block whose walls change are rebuilt also with
-  `rebuild=False`; no prism outlives the partition it was built from.
+  `rebuild=False`. Height-only updates also invalidate unchanged
+  builder-produced extrusions whose roof or ground changed; edited or
+  caller-provided geometry is preserved. No generated prism outlives its
+  recorded inputs.
 - **Traversal.** `flatten_geometry` merges an object's own geometry with that
   of its descendants, so a city finds the LOD1 prisms of parts. For every
   object type, a footprint (LOD0) covers its children's: an object with one

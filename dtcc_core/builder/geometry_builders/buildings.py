@@ -6,7 +6,9 @@ from .. import _dtcc_builder
 from ..logging import debug, info, warning, error
 from ..cleaning.blocks import (
     is_block,
+    invalidate_lod1,
     part_roof,
+    record_lod1,
     set_block_roof,
     set_part_roof,
     source_footprint,
@@ -168,6 +170,7 @@ def set_building_heights_from_attribute(
         )
         if roof is not None:
             footprint.set_z(roof)
+            invalidate_lod1(building)
     return buildings
 
 
@@ -309,6 +312,7 @@ def compute_building_heights(
             )
             if roof is not None:
                 footprint.set_z(roof)
+                invalidate_lod1(building)
         if (i + 1) % 20 == 0 or i + 1 == total_buildings:
             report_progress(
                 current=i + 1,
@@ -385,7 +389,9 @@ def build_lod1_buildings(
         Whether to always use the default ground height or use groun_height attribute, by default False.
     `rebuild` : bool, optional
         Whether to rebuild the LOD1 representation if it already exists, by
-        default True. Prisms of a block whose walls change are always rebuilt.
+        default True. Generated prisms invalidated by changed cells, roof or
+        ground are rebuilt even when False. Existing unmarked or edited LOD1
+        geometry is retained when False.
     Returns
     -------
     [model.Building]
@@ -415,6 +421,7 @@ def build_lod1_buildings(
                 if id(obj) not in keep:
                     obj.remove_geometry(GeometryType.LOD1)
         for target in targets:
+            invalidate_lod1(target)
             if target.lod1 is not None and not rebuild:
                 continue
             if target.lod0 is None:
@@ -425,6 +432,7 @@ def build_lod1_buildings(
             )
             if geometry is not None:
                 target.add_geometry(geometry, GeometryType.LOD1)
+                record_lod1(target)
             else:
                 warning(f"Building {target.id} LOD1 geometry could not be built.")
 

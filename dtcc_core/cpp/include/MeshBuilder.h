@@ -752,9 +752,8 @@ private:
   // Append a vertical wall panel over the footprint edge (v0, v1) from level
   // z0 to level z1. Its sides are split at the levels of their vertical lines
   // in that range (levels0 at v0, levels1 at v1), and the panel is
-  // triangulated between them, from the bottom up: each triangle advances the
-  // side whose next level is lower, and a quad is two triangles where both
-  // sides advance to the same level.
+  // triangulated by a monotone zipper that maximizes its worst triangle
+  // quality while retaining every boundary level on both sides.
   static void append_wall_panel(Mesh &mesh,
                                 const Vector3D &v0,
                                 const Vector3D &v1,

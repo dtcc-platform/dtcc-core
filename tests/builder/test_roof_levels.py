@@ -88,7 +88,7 @@ def city_of(polygons, roofs):
     return city
 
 
-def test_point_contacts_are_a_warning_of_the_meshing_footprints():
+def test_repairable_point_contacts_keep_the_two_roofs_in_meshing_footprints():
     city = city_of(
         [box(0, 0, 10, 10), box(10, 10, 20, 20), box(10, 0, 20, 10), box(0, 10, 10, 20)],
         [30.0, 30.0, 9.0, 9.0],
@@ -96,13 +96,11 @@ def test_point_contacts_are_a_warning_of_the_meshing_footprints():
     footprints = meshes._meshing_footprints(
         city, lod=None, min_building_detail=0.5, min_building_area=1.0, max_mesh_size=5.0
     )
-    assert len(footprints.surfaces) == 4
-    ids = [building.id for building in city.buildings]
-    assert footprints.diagnostics["levels"]["pinched_level_sets"] == [
-        {"building": 0, "ids": ids, "level": 30.0, "points": [[10.0, 10.0]]}
-    ]
-    assert footprints.contract["status"] == "warn"
-    assert any("vertical line contacts" in w for w in footprints.contract["warnings"])
+    assert {surface.zmax for surface in footprints.surfaces} == {9, 30}
+    assert footprints.diagnostics["levels"]["pinched_level_sets"] == []
+    assert footprints.diagnostics["levels"]["one_roof"] == []
+    assert footprints.contract["errors"] == []
+    assert not any("vertical line contacts" in w for w in footprints.contract["warnings"])
 
 
 def test_reused_cleaning_meshes_parts_exactly_as_a_new_cleaning():

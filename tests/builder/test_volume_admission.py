@@ -1,10 +1,4 @@
-"""Pinched roof levels: reported by every shell builder, one roof for volumes.
-
-A block whose regions at one roof level touch at a point only above a lower
-roof (a checkerboard) has a closed shell with edges of four faces. Surface
-meshes keep the step walls and warn; a volume mesh meshes such a block with
-one roof, so its boundary is a manifold.
-"""
+"""Local roof-contact repair, and diagnostics when fidelity forbids repair."""
 
 from collections import Counter
 
@@ -14,7 +8,7 @@ from shapely.geometry import box
 
 from dtcc_core.builder import build_building_shell
 from dtcc_core.builder.geometry_builders import meshes
-from dtcc_core.model import Bounds, Building, City, GeometryType, Raster, Surface, Terrain
+from dtcc_core.model import Bounds, Building, BuildingPart, City, GeometryType, Raster, Surface, Terrain
 
 CHECKERBOARD = [
     (box(0, 0, 10, 10), 30.0),
@@ -51,8 +45,40 @@ def edges_with_four_faces(mesh):
     return sum(count > 2 for count in counts.values())
 
 
+def locked_checkerboard_city():
+    """A valid recorded block whose ownership has zero displacement budget."""
+    from dtcc_core.builder.cleaning import blocks
+    from dtcc_core.builder.cleaning.contract import check_labelled_contract
+
+    city = checkerboard_city()
+    city.remove_buildings()
+    block = Building(id="locked", attributes={"merged_from": list(map(str, range(4)))})
+    region = box(0, 0, 20, 20)
+    surface = Surface()
+    surface.from_polygon(region, 30)
+    block.add_geometry(surface, GeometryType.LOD0)
+    parts = []
+    for i, (polygon, roof) in enumerate(CHECKERBOARD):
+        part = BuildingPart(id=str(i))
+        blocks.set_source_footprint(part, polygon, roof)
+        parts.append(part)
+    block.add_children(parts)
+    cells = [(polygon, i) for i, (polygon, _) in enumerate(CHECKERBOARD)]
+    blocks.assign_cells(parts, cells)
+    assert check_labelled_contract(
+        dict((i, p) for p, i in cells), [0, 1, 2, 3], region, cells,
+        delta=0.5, epsilon=0,
+    )["status"] == "strict"
+    block.attributes[blocks.WALLS_KEY] = blocks.walls_record(
+        block, [0, 1, 2, 3], "roof", "strict", delta=0.5, epsilon=0, strict=False,
+    )
+    city.add_building(block)
+    return city
+
+
 def test_shells_of_a_pinched_block_are_reported_by_both_builders(caplog):
-    cleaned = checkerboard_city().clean_footprints()
+    # Zero fidelity budget makes this a genuinely unrepairable point contact.
+    cleaned = locked_checkerboard_city().clean_footprints()
     (block,) = cleaned.buildings
     shell = build_building_shell(block)
     assert edges_with_four_faces(shell) > 0
@@ -67,7 +93,7 @@ def test_shells_of_a_pinched_block_are_reported_by_both_builders(caplog):
 
 
 def test_a_volume_mesh_gives_a_pinched_block_one_roof(caplog):
-    cleaned = checkerboard_city().clean_footprints()
+    cleaned = locked_checkerboard_city().clean_footprints()
     footprints = meshes._meshing_footprints(
         cleaned,
         lod=None,
@@ -90,15 +116,30 @@ def test_a_volume_mesh_gives_a_pinched_block_one_roof(caplog):
     assert not any("vertical line contacts" in message for message in warnings)
 
 
-def test_volume_mesh_of_a_pinched_block():
+@pytest.mark.parametrize("locked", [False, True])
+def test_volume_mesh_preserves_repairable_roofs_and_reports_unavoidable_contacts(locked):
     from dtcc_core.builder import build_city_volume_mesh
     from dtcc_core.builder.meshing.tetgen import is_tetgen_available
 
     if not is_tetgen_available():
         pytest.skip("TetGen is not available")
     pytest.importorskip("dtcc_mesher")
+    city = (locked_checkerboard_city() if locked else checkerboard_city()).clean_footprints()
+    footprints = meshes._meshing_footprints(
+        city, lod=None, min_building_detail=0.5, min_building_area=0,
+        max_mesh_size=5, volume=True,
+    )
+    if not locked:
+        assert footprints.diagnostics["levels"]["one_roof"] == []
+        assert {surface.zmax for surface in footprints.surfaces} == {9, 30}
+        assert edges_with_four_faces(build_building_shell(city.buildings[0])) == 0
+    else:
+        assert len(footprints.diagnostics["levels"]["one_roof"]) == 1
+    building_volume = sum(surface.to_polygon(simplify=0).area * surface.zmax
+                          for surface in footprints.surfaces)
     mesh = build_city_volume_mesh(
-        checkerboard_city(),
+        city,
+        min_building_detail=0.5,
         max_mesh_size=5.0,
         domain_height=60.0,
         report_mesh_quality=False,
@@ -106,5 +147,6 @@ def test_volume_mesh_of_a_pinched_block():
     )
     points = np.asarray(mesh.vertices)[np.asarray(mesh.cells)]
     a, b, c = (points[:, i] - points[:, 0] for i in (1, 2, 3))
-    volume = np.abs(np.einsum("ij,ij->i", a, np.cross(b, c))).sum() / 6.0
-    assert volume == pytest.approx(50 * 50 * 60 - 400 * 30, rel=1e-9)
+    signed = np.einsum("ij,ij->i", a, np.cross(b, c)) / 6.0
+    assert np.all(signed > 0)
+    assert signed.sum() == pytest.approx(50 * 50 * 60 - building_volume, rel=1e-9)

@@ -536,6 +536,14 @@ def cleaned_buildings(
     used = set(map(str, reserved))
     for building in buildings:
         used.update(_model_ids(building))
+    # Replaced block containers do not survive as parts. Their descendants
+    # still reserve their IDs, as do containers copied to a single output.
+    for index, building in enumerate(buildings):
+        outputs = outputs_of.get(index, [])
+        if is_block(building) and outputs and not (
+            len(outputs) == 1 and len(regions.output_sources[outputs[0]]) == 1
+        ):
+            used.discard(str(building.id))
     ids = _occurrence_ids(buildings, regions, members, used)
 
     cleaned = []
@@ -700,7 +708,8 @@ def regions_from_cleaned_city(city: City, record: dict[str, Any]) -> CleanedRegi
             label_polygons.append(polygon)
         output_cells.append([(piece, label_of[part]) for piece, part in walls.cells])
         output_walls.append(
-            {"order": [label_of[part] for part in walls.order], "outcome": walls.outcome}
+            {"order": [label_of[part] for part in walls.order], "outcome": walls.outcome,
+             "detail": walls.detail}
         )
         if len(label_of) > 1:
             outcome = "strict" if walls.outcome == "single" else walls.outcome
@@ -936,7 +945,7 @@ def _label(
                 "outcome": outcome,
                 "detail": walls_detail(outcome, report),
                 "min_building_detail": float(record["min_building_detail"]),
-                "fidelity_budget": float(record["fidelity_budget"]),
+                "fidelity_budget": float(report.get("fidelity_budget", record["fidelity_budget"])),
                 "strict": bool(record.get("strict", False)) or strict,
             }
         epsilon = max(prior, budget)
@@ -951,6 +960,7 @@ def _label(
         delta=delta,
         epsilon=epsilon,
         strict=strict,
+        levels={label: labels[label].roof_z for label in region_labels},
     )
     return labelled, {
         "order": order,
@@ -958,7 +968,7 @@ def _label(
         "outcome": labelled.outcome,
         "detail": walls_detail(labelled.outcome, labelled.report),
         "min_building_detail": float(delta),
-        "fidelity_budget": float(epsilon),
+        "fidelity_budget": float(labelled.report.get("fidelity_budget", epsilon)),
         "strict": bool(strict),
     }
 
@@ -1288,7 +1298,10 @@ def _block(buildings, regions: CleanedRegions, members, ids, output, used, *, ou
             set_source_footprint(part, regions.label_polygons[label], regions.label_roof_z[label])
         positions[label] = len(parts)
         parts.append(part)
-    block = Building(id=str(uuid.uuid5(_BLOCK_NAMESPACE, "\n".join(part.id for part in parts))))
+    base = str(uuid.uuid5(_BLOCK_NAMESPACE, "\n".join(part.id for part in parts)))
+    block_id = _new_id(base, used) if base in used else base
+    used.add(block_id)
+    block = Building(id=block_id)
     block.attributes[MERGED_FROM_KEY] = list(dict.fromkeys(source_id(part) for part in parts))
     if output_height is not None:
         block.estimated_height = output_height

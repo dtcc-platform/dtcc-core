@@ -46,8 +46,8 @@ Construction
        neighbour, also right after a wall edit that cuts it off. An edit is
        admitted only if (2L) holds for every label and the defect measure
        decreases: the number of sectors below the profile's minimum angle at
-       vertices the walls add or change, then the number of wall pairs
-       closer than delta, then their total deficit.
+       vertices the walls add or change, then pairs closer than delta / 10,
+       then all pairs closer than delta, then their total deficit.
     4. If defects remain, the repair is retried once at the retry budget.
 
 Outcomes are ``strict`` (no defects), ``warning`` (only wall pairs closer than
@@ -63,7 +63,7 @@ coordinates, and wall ends on its edges are projected onto them.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields, replace
 import math
 import time
 from typing import Any, Mapping, Sequence
@@ -76,6 +76,8 @@ from shapely.geometry import LineString, MultiPoint, Point, Polygon
 from shapely.ops import polygonize
 
 from .construction import polygon_parts
+from .footprints import ConditioningOptions
+from ..logging import warning
 from .contract import (
     DEFAULT_MINIMUM_INCIDENT_SECTOR_DEGREES,
     SEPARATION_RELATIVE_TOLERANCE,
@@ -100,6 +102,13 @@ SITE_REACH = 1.5
 # the contract's profile check.
 _SECTOR_TOLERANCE_DEGREES = 1e-6
 
+# Walls closer than this are numerical artifacts rather than building features.
+WALL_PAIR_FLOOR = 1.0e-4
+_DETAIL_MESSAGE = 300
+_RETRY_FACTOR = next(
+    item.default for item in fields(ConditioningOptions) if item.name == "fidelity_retry_factor"
+)
+
 Cells = list[tuple[Polygon, int]]
 
 
@@ -118,129 +127,348 @@ class LabelledRegion:
     outcome : str
         ``single``, ``strict``, ``warning`` or ``fallback``.
     report : dict
-        Fidelity budget used, wall pairs, edits and work.
+        Compact XY construction and current contact diagnostics for persistence.
+    contact_outcome : str
+        ``unneeded``, ``unchanged``, ``partial`` or ``complete``, independently
+        of the XY outcome. ``remaining_contacts`` counts final contact points.
+    accepted_budget : float or None
+        Fidelity budget certifying the returned cells against original sources.
+    attempts : list[dict]
+        Bounded XY and contact attempts, including rejected and failed attempts.
+    changed : bool
+        Whether the caller must replace cells. Diagnostic updates alone are false.
     """
 
     region: Polygon
     cells: Cells
     outcome: str
     report: dict[str, Any] = field(default_factory=dict)
+    contact_outcome: str = "unneeded"
+    remaining_contacts: int = 0
+    accepted_budget: float | None = None
+    attempts: list[dict[str, Any]] = field(default_factory=list)
+    changed: bool = False
 
 
-def label_region(
-    region: Polygon,
-    sources: Mapping[int, Any],
-    order: Sequence[int],
-    *,
-    delta: float,
-    epsilon: float,
-    retry_epsilon: float | None = None,
-) -> LabelledRegion:
-    """Partition a cleaned region into cells, one set per source.
+def label_region(region, sources, order, *, delta, epsilon, retry_epsilon=None):
+    """Partition a fixed occupied region at the given XY fidelity budgets."""
+    return _WallRepair(region, sources, order, delta, epsilon, retry_epsilon).run()
 
-    Parameters
-    ----------
-    region : Polygon
-        A region from stage 1.
-    sources : mapping of int to Polygon or MultiPolygon
-        The raw footprints of the sources that support the region, by label.
-    order : sequence of int
-        All labels in precedence order; earlier labels win overlaps.
-    delta : float
-        Minimum feature size.
-    epsilon : float
-        Fidelity budget of the region's merge group.
-    retry_epsilon : float or None, optional
-        Budget for one more repair when defects remain at ``epsilon``.
 
-    Returns
-    -------
-    LabelledRegion
+def condition_walls(region, sources, order, *, delta, epsilon, strict=False,
+                    levels=None, previous=None, revalidate=False, recondition=False):
+    """Condition or certify cells, retaining useful geometry and compact diagnostics.
+
+    All fidelity targets are the original sources and fixed occupied region.
+    ``previous`` supplies persisted cells; ``changed`` says whether to assign cells.
+    ``revalidate`` checks changed precedence before reuse. A conditioning upgrade
+    may retain an earlier warning partition if construction fails.
     """
-    started = time.perf_counter()
-    rank = {label: position for position, label in enumerate(order)}
-    if len(sources) < 2:
-        label = next(iter(sources))
-        return LabelledRegion(region, [(region, label)], "single", {"seconds": 0.0})
+    retry = None if _RETRY_FACTOR is None else delta / 2 * _RETRY_FACTOR
+    return _WallRepair(region, sources, order, delta, epsilon, retry, levels, strict).run(
+        previous, revalidate=revalidate, recondition=recondition,
+    )
 
-    origin = region.bounds[:2]
-    local_region = _to_local(region, origin)
-    local_sources = {}
-    for label in sorted(sources, key=rank.__getitem__):
-        occupied, _ = interpret_input([sources[label]])
-        local_sources[label] = _to_local(occupied, origin)
-    partition = _input_partition(local_sources, rank)
-    exact, gap_filled = _exact_cells(local_region, partition, epsilon, rank)
-    if len({label for _, label in exact}) <= 1:
-        label = exact[0][1]
-        return LabelledRegion(
-            region,
-            [(region, label)],
-            "single",
-            {"seconds": time.perf_counter() - started},
-        )
 
-    budgets = [epsilon]
-    if retry_epsilon is not None and retry_epsilon > epsilon:
-        budgets.append(retry_epsilon)
-    best = None
-    attempts = []
-    for budget in budgets:
-        judge = _Judge(local_region, partition, delta, budget)
-        cells, report = _repair(local_region, exact, judge, delta, try_exact=not gap_filled)
-        report["fidelity_budget"] = budget
-        attempts.append(
-            {
-                key: report.get(key)
-                for key in ("fidelity_budget", "outcome", "small_sectors", "wall_pairs", "evaluations")
-            }
-        )
-        if cells is None or report["outcome"] == "fallback":
-            continue
-        key = (report["wall_pairs"], report["wall_deficit"])
-        if best is None or key < best[0]:
-            best = (key, cells, report)
-        if report["outcome"] == "strict":
-            break
+@dataclass
+class _WallRepair:
+    """One owner for budgets, progress selection, retention and final acceptance."""
 
-    if best is None:
-        return LabelledRegion(
-            region,
-            [],
-            "fallback",
-            {
-                "reason": (
-                    "small_sectors"
-                    if any(attempt.get("small_sectors") for attempt in attempts)
-                    else "no_faithful_start"
-                ),
-                "attempts": attempts,
-                "seconds": time.perf_counter() - started,
-            },
+    region: Polygon
+    sources: Mapping[int, Any]
+    order: Sequence[int]
+    delta: float
+    epsilon: float
+    retry_epsilon: float | None = None
+    levels: Mapping[int, float] | None = None
+    strict: bool = False
+
+    def budgets(self, epsilon):
+        return [epsilon, self.retry_epsilon] if (
+            self.retry_epsilon is not None and self.retry_epsilon > epsilon
+        ) else [epsilon]
+
+    def run(self, previous=None, *, revalidate=False, recondition=False):
+        from .contract import check_labelled_contract
+
+        started = time.perf_counter()
+        distance = previous.report.get("min_wall_distance") if previous is not None else None
+        retain_on_failure = recondition and previous is not None and previous.outcome == "warning" and (
+            distance is None or distance < self.delta / 10
         )
-    _, cells, report = best
-    world = _to_world(cells, origin, region)
-    if world is None:
-        return LabelledRegion(
-            region,
-            [],
-            "fallback",
-            {
-                "reason": "invalid_after_translation",
-                "attempts": attempts,
-                "seconds": time.perf_counter() - started,
-            },
-        )
-    world.sort(key=lambda item: (rank[item[1]], item[0].wkb))
-    report["attempts"] = attempts
-    report["seconds"] = time.perf_counter() - started
-    report["cells"] = len(world)
-    return LabelledRegion(region, world, report["outcome"], report)
+        retained = previous if retain_on_failure else None
+        if retain_on_failure:
+            previous = None
+        if previous is not None and revalidate:
+            checked = check_labelled_contract(
+                self.sources, self.order, self.region, previous.cells,
+                delta=self.delta, epsilon=self.epsilon,
+            )
+            if (checked["status"] == "fail"
+                    or {i for _, i in previous.cells} != set(checked["fidelity"])
+                    or (self.strict and checked["status"] != "strict")):
+                previous = None
+        constructed = previous is None
+        try:
+            result = previous if previous is not None else self._xy()
+            result = replace(result, changed=previous is None,
+                             accepted_budget=result.report.get("fidelity_budget", self.epsilon))
+            if self.levels and result.cells:
+                result = self._contacts(result)
+            if revalidate and previous is not None and result.remaining_contacts:
+                # A changed ownership certificate cannot retain a pinched partition.
+                result = self._xy()
+                constructed = True
+                result = replace(result, changed=True,
+                                 accepted_budget=result.report.get("fidelity_budget", self.epsilon))
+                if self.levels and result.cells:
+                    result = self._contacts(result)
+        except shapely.errors.GEOSException as exc:
+            disposition = "retaining recorded warning cells" if retained is not None else "it keeps one footprint"
+            warning(f"Footprint walls: construction failed for one block ({exc}); {disposition}.")
+            result = LabelledRegion(self.region, [], "fallback", {
+                "reason": "construction_error", "error": str(exc)[:_DETAIL_MESSAGE],
+            }, accepted_budget=self.epsilon, changed=True)
+        reason = None
+        if result.outcome == "warning":
+            if self.strict:
+                reason = "strict"
+            elif (constructed and result.report.get("min_wall_distance") is not None
+                  and result.report["min_wall_distance"] < WALL_PAIR_FLOOR):
+                reason = "degenerate_walls"
+        if reason:
+            result = replace(result, cells=[], outcome="fallback", changed=True,
+                             report={**result.report, "reason": reason})
+        if retained is not None and result.outcome == "fallback":
+            failed = result
+            result = replace(retained, changed=False, accepted_budget=self.epsilon)
+            if self.levels and result.cells:
+                result = self._contacts(result, repair=False)
+            result.report = {**result.report, "repair_failure": failed.report}
+        result.report = {**result.report, "seconds": time.perf_counter() - started}
+        result.attempts = [
+            {"phase": "xy", **attempt} for attempt in result.report.get("attempts", [])
+        ] + [{"phase": "contact", **attempt} for attempt in result.attempts]
+        return result
+
+    def _contacts(self, labelled, *, repair=True):
+        from .contract import check_labelled_contract
+        from .levels import level_regions, pinched_levels
+
+        cells = labelled.cells
+        remaining = len({
+            tuple(point)
+            for row in pinched_levels([(p, z) for p, z, _ in level_regions(cells, self.levels, self.delta)])
+            for point in row["points"]
+        }) if len(set(self.levels.values())) > 1 else 0
+        budget = labelled.accepted_budget
+        best = LabelledRegion(self.region, cells, labelled.outcome, {},
+                              "unchanged" if remaining else "unneeded", remaining, budget)
+        attempts = []
+        if remaining and repair:
+            for budget in self.budgets(budget):
+                try:
+                    candidate = repair_roof_contacts(
+                        self.region, self.sources, self.order, best.cells, self.levels,
+                        delta=self.delta, epsilon=budget,
+                    )
+                except shapely.errors.GEOSException as exc:
+                    attempts.append({"budget": budget, "state": "construction_error",
+                                     "error": str(exc)[:_DETAIL_MESSAGE]})
+                    continue
+                attempts.append({"budget": budget, "state": candidate.contact_outcome,
+                                 **({"rejections": candidate.report["rejections"]}
+                                    if candidate.report.get("rejections") else {})})
+                if candidate.remaining_contacts >= best.remaining_contacts:
+                    continue
+                try:
+                    checked = check_labelled_contract(
+                        self.sources, self.order, self.region, candidate.cells,
+                        delta=self.delta, epsilon=budget,
+                    )
+                except shapely.errors.GEOSException as exc:
+                    attempts[-1].update(state="construction_error", error=str(exc)[:_DETAIL_MESSAGE])
+                    continue
+                if checked["status"] == "fail" or {i for _, i in candidate.cells} != {i for _, i in cells}:
+                    attempts[-1].update(state="contract_rejected", reason=(
+                        "labelled_contract" if checked["status"] == "fail" else "exposed_labels"
+                    ))
+                    continue
+                candidate.report["operations"] = [
+                    *best.report.get("operations", []), *candidate.report.get("operations", []),
+                ]
+                best = candidate
+                if not best.remaining_contacts:
+                    break
+            if best.remaining_contacts:
+                try:
+                    retained = _nonpinched_start(
+                        self.region, self.sources, self.order, self.levels,
+                        delta=self.delta, epsilon=best.accepted_budget,
+                    )
+                except shapely.errors.GEOSException as exc:
+                    retained = None
+                    attempts.append({"budget": best.accepted_budget, "state": "construction_error",
+                                     "operation": "retain_nonpinched_start", "error": str(exc)[:_DETAIL_MESSAGE]})
+                if retained is not None and {i for _, i in retained.cells} == {i for _, i in cells}:
+                    best = replace(retained, contact_outcome="complete", remaining_contacts=0,
+                                   accepted_budget=best.accepted_budget, changed=True,
+                                   report={**retained.report, "operations": ["retain_nonpinched_start"]})
+        report = dict(labelled.report)
+        report.pop("contact_repair", None)
+        report.pop("repair_failure", None)
+        if best.changed:
+            report.update(best.report)
+            report.update(outcome=best.outcome, cells=len(best.cells), fidelity_budget=best.accepted_budget)
+        # Calculate final ownership accounting once, after all permitted attempts.
+        changed_area = sum(
+            shapely.union_all([p for p, i in cells if i == label]).symmetric_difference(
+                shapely.union_all([p for p, i in best.cells if i == label])
+            ).area for label in self.sources
+        ) / 2 if best.changed else 0.0
+        report["contact_repair"] = {
+            **best.report, "state": best.contact_outcome, "remaining_contacts": best.remaining_contacts,
+            "changed_area": changed_area, "attempts": attempts,
+        }
+        return replace(best, report=report, attempts=attempts,
+                       changed=labelled.changed or best.changed)
+
+    def _xy(self):
+        region, sources, order = self.region, self.sources, self.order
+        delta, epsilon = self.delta, self.epsilon
+        started = time.perf_counter()
+        rank = {label: position for position, label in enumerate(order)}
+        if len(sources) < 2:
+            label = next(iter(sources))
+            return LabelledRegion(region, [(region, label)], "single", {"seconds": 0.0})
+
+        origin = region.bounds[:2]
+        local_region = _to_local(region, origin)
+        local_sources = {}
+        for label in sorted(sources, key=rank.__getitem__):
+            occupied, _ = interpret_input([sources[label]])
+            local_sources[label] = _to_local(occupied, origin)
+        partition = _input_partition(local_sources, rank)
+        exact, gap_filled = _exact_cells(local_region, partition, epsilon, rank)
+        if len({label for _, label in exact}) <= 1:
+            label = exact[0][1]
+            return LabelledRegion(
+                region,
+                [(region, label)],
+                "single",
+                {"seconds": time.perf_counter() - started},
+            )
+
+        best = None
+        attempts = []
+        for budget in self.budgets(epsilon):
+            judge = _Judge(local_region, partition, delta, budget)
+            try:
+                cells, report = _repair(local_region, exact, judge, delta, try_exact=not gap_filled)
+            except shapely.errors.GEOSException as exc:
+                attempts.append({"fidelity_budget": budget, "outcome": "construction_error",
+                                 "error": str(exc)[:_DETAIL_MESSAGE]})
+                continue
+            report["fidelity_budget"] = budget
+            attempts.append(
+                {
+                    key: report.get(key)
+                    for key in ("fidelity_budget", "outcome", "small_sectors", "wall_pairs", "evaluations")
+                }
+            )
+            if cells is None or report["outcome"] == "fallback":
+                continue
+            key = (report["severe_wall_pairs"], report["wall_pairs"], report["wall_deficit"])
+            if best is None or key < best[0]:
+                best = (key, cells, report, judge)
+            if report["outcome"] == "strict":
+                break
+
+        if best is None:
+            reason = (
+                "construction_error" if attempts and all(a["outcome"] == "construction_error" for a in attempts)
+                else "small_sectors" if any(a.get("small_sectors") for a in attempts)
+                else "no_faithful_start"
+            )
+            report = {"reason": reason, "attempts": attempts, "seconds": time.perf_counter() - started}
+            if reason == "construction_error":
+                report["error"] = attempts[-1]["error"]
+            return LabelledRegion(region, [], "fallback", report)
+        _, cells, report, accepted_judge = best
+        world = _to_world(cells, origin, region)
+        if world is None:
+            return LabelledRegion(
+                region,
+                [],
+                "fallback",
+                {
+                    "reason": "invalid_after_translation",
+                    "attempts": attempts,
+                    "seconds": time.perf_counter() - started,
+                },
+            )
+        # Restoring exact boundary coordinates can leave a tiny, nearly
+        # collinear boundary interval beside a wall. Node that returned geometry
+        # once, rather than canonicalizing every repair proposal twice.
+        if delta > 0 and any(
+            np.any(np.linalg.norm(np.diff(np.asarray(ring.coords)[:, :2], axis=0), axis=1) < delta / 50)
+            for polygon, _ in world for ring in [polygon.exterior, *polygon.interiors]
+        ):
+            local = _canonical(local_region, [(_to_local(p, origin), label) for p, label in world])
+            noded = _to_world(local, origin, region)
+            evaluation = accepted_judge.evaluate(local)
+            if noded is not None and evaluation is not None and not evaluation["sectors"]:
+                world = noded
+                pairs = evaluation["pairs"]
+                report.update(
+                    outcome="warning" if pairs else "strict", wall_pairs=len(pairs),
+                    severe_wall_pairs=evaluation["measure"][1],
+                    wall_deficit=evaluation["measure"][-1],
+                    min_wall_distance=min((distance for _, _, distance in pairs), default=None),
+                )
+        world.sort(key=lambda item: (rank[item[1]], item[0].wkb))
+        report["attempts"] = attempts
+        report["seconds"] = time.perf_counter() - started
+        report["cells"] = len(world)
+        return LabelledRegion(region, world, report["outcome"], report)
 
 
 # ---------------------------------------------------------------------------
 # Local frame
 # ---------------------------------------------------------------------------
+
+
+def _nonpinched_start(region, sources, order, levels, *, delta, epsilon):
+    """Retain the faithful input partition if wall edits leave new roof contacts.
+
+    This bounded alternative uses the same canonical labelling and independent
+    contract as wall construction. Warning XY partitions remain admissible.
+    """
+    from .contract import check_labelled_contract, input_partition
+    from .levels import level_regions, pinched_levels
+
+    # Keep exact source coordinates when they already tile the region. Grid
+    # rounding and boundary restoration can otherwise leave nearly collinear
+    # wall runs that a downstream constrained triangulator cannot distinguish.
+    partition = input_partition(sources, order)
+    world = [(piece, label) for label, geometry in partition.items()
+             for piece in polygon_parts(geometry.intersection(region))]
+    checked = check_labelled_contract(sources, order, region, world, delta=delta, epsilon=epsilon)
+    if checked["status"] == "fail" or {label for _, label in world} != set(checked["fidelity"]):
+        return None
+    if pinched_levels([(p, z) for p, z, _ in level_regions(world, levels, delta)]):
+        return None
+    evaluation = _Judge(region, partition, delta, epsilon).evaluate(world)
+    if evaluation is None or evaluation["sectors"]:
+        return None
+    pairs = evaluation["pairs"]
+    return LabelledRegion(region, world, checked["status"], {
+        "outcome": checked["status"], "cells": len(world), "fidelity_budget": epsilon,
+        "wall_pairs": len(pairs), "severe_wall_pairs": evaluation["measure"][1],
+        "wall_deficit": evaluation["measure"][-1],
+        "min_wall_distance": min((distance for _, _, distance in pairs), default=None),
+        "retained_nonpinched_start": True,
+    })
 
 
 def _to_local(geometry, origin):
@@ -364,38 +592,63 @@ def _boundary_vertices(region):
 
 def _insert_junctions(region, walls):
     """Region rings with wall ends inserted as vertices, and the walls ending there."""
-    rings = [np.asarray(region.exterior.coords)[:-1, :2]] + [
-        np.asarray(ring.coords)[:-1, :2] for ring in region.interiors
-    ]
+    walls = list(walls)
+    rings = [np.asarray(ring.coords)[:-1, :2] for ring in [region.exterior, *region.interiors]]
     ring_lines = [LineString(np.vstack([ring, ring[:1]])) for ring in rings]
+    coordinates = [np.asarray(wall.coords)[:, :2].copy() for wall in walls]
+    if not coordinates:
+        return ring_lines, []
+    ends = np.array([point for ring in coordinates for point in (ring[0], ring[-1])])
+    original_ends = ends.copy()
+    points = shapely.points(ends)
+    nearest = np.empty(len(ends), dtype=int)
+    close = np.empty(len(ends), dtype=bool)
+    ring_array = np.asarray(ring_lines)
+    chunk = max(1, 65536 // len(rings))
+    for start in range(0, len(ends), chunk):
+        stop = min(start + chunk, len(ends))
+        distances = shapely.distance(points[start:stop, None], ring_array[None, :])
+        closest = distances.argmin(axis=1)
+        nearest[start:stop] = closest
+        close[start:stop] = distances[np.arange(stop - start), closest] <= ON_BOUNDARY
     inserts = [[] for _ in rings]
-    fixed = []
-    for wall in walls:
-        coordinates = [tuple(c[:2]) for c in wall.coords]
-        for end in (0, len(coordinates) - 1):
-            point = Point(coordinates[end])
-            distances = [line.distance(point) for line in ring_lines]
-            k = int(np.argmin(distances))
-            if distances[k] > ON_BOUNDARY:
-                continue  # an interior junction
-            ring = rings[k]
-            to_vertex = np.linalg.norm(ring - np.asarray(coordinates[end]), axis=1)
-            v = int(np.argmin(to_vertex))
-            if to_vertex[v] <= ON_BOUNDARY:
-                coordinates[end] = tuple(ring[v])
-                continue
-            s = ring_lines[k].project(point)
-            q = ring_lines[k].interpolate(s)
-            coordinates[end] = (q.x, q.y)
-            inserts[k].append((s, (q.x, q.y)))
-        if len(set(coordinates)) >= 2:
-            fixed.append(LineString(coordinates))
-    new_rings = []
-    for ring, extra in zip(rings, inserts):
-        closed = np.vstack([ring, ring[:1]])
-        if not extra:
-            new_rings.append(LineString(closed))
+    for k, ring in enumerate(rings):
+        chosen = np.flatnonzero(close & (nearest == k))
+        if not len(chosen):
             continue
+        vertices = np.empty(len(chosen), dtype=int)
+        snap = np.empty(len(chosen), dtype=bool)
+        # Bound the temporary distance matrix independently of polygon size.
+        chunk = max(1, 65536 // len(ring))
+        for start in range(0, len(chosen), chunk):
+            selection = chosen[start : start + chunk]
+            to_vertex = np.linalg.norm(ring[None, :, :] - ends[selection, None, :], axis=2)
+            closest = to_vertex.argmin(axis=1)
+            stop = start + len(selection)
+            vertices[start:stop] = closest
+            snap[start:stop] = to_vertex[np.arange(len(selection)), closest] <= ON_BOUNDARY
+        ends[chosen[snap]] = ring[vertices[snap]]
+        project = chosen[~snap]
+        if len(project):
+            along = shapely.line_locate_point(ring_lines[k], points[project])
+            projected = shapely.get_coordinates(shapely.line_interpolate_point(ring_lines[k], along))
+            ends[project] = projected
+            inserts[k].extend((float(s), tuple(q)) for s, q in zip(along, projected))
+    fixed = []
+    unchanged = np.all(ends == original_ends, axis=1).reshape(-1, 2).all(axis=1)
+    for i, (wall, ring) in enumerate(zip(walls, coordinates)):
+        if unchanged[i]:
+            fixed.append(wall)
+            continue
+        ring[0], ring[-1] = ends[2 * i], ends[2 * i + 1]
+        if np.any(ring[1:] != ring[0]):
+            fixed.append(LineString(ring))
+    new_rings = []
+    for ring, line, extra in zip(rings, ring_lines, inserts):
+        if not extra:
+            new_rings.append(line)
+            continue
+        closed = np.vstack([ring, ring[:1]])
         cumulative = np.concatenate(
             [[0.0], np.cumsum(np.linalg.norm(np.diff(closed, axis=0), axis=1))]
         )
@@ -412,15 +665,19 @@ def _insert_junctions(region, walls):
         new_rings.append(LineString(out))
     return new_rings, fixed
 
-
 def _rebuild(region, walls, reference: Cells) -> Cells:
     """Polygonize the region boundary and walls; label faces by largest overlap."""
     rings, walls = _insert_junctions(region, walls)
     noded = _union([*rings, *walls])
     faces = [face for face in polygonize(noded) if region.contains(face.representative_point())]
     tree = STRtree([polygon for polygon, _ in reference])
+    unchanged = {polygon.normalize().wkb: label for polygon, label in reference}
     labelled = {}
     for face in faces:
+        label = unchanged.get(face.normalize().wkb)
+        if label is not None:
+            labelled.setdefault(label, []).append(face)
+            continue
         overlaps = {}
         for k in tree.query(face, predicate="intersects"):
             polygon, label = reference[int(k)]
@@ -561,6 +818,8 @@ def _simplify_walls(region, cells: Cells, tolerance) -> Cells | None:
     out = [(polygon, label) for polygon, (_, label) in zip(simplified, cells)]
     if any(not polygon.is_valid or polygon.is_empty for polygon, _ in out):
         return None
+    if np.all(shapely.equals(simplified, [polygon for polygon, _ in cells])):
+        return cells
     try:
         return _canonical(region, out)
     except shapely.errors.GEOSException:
@@ -597,7 +856,7 @@ def _move_junctions(region, cells: Cells, delta, mode) -> Cells | None:
             new_walls.append(LineString(coordinates))
     if not changed:
         return None
-    return _canonical(region, _rebuild(region, new_walls, cells))
+    return _rebuild(region, new_walls, cells)
 
 
 def _line_intersection(p1, p2, p3, p4):
@@ -652,7 +911,7 @@ def _collapse_short_edges(region, cells: Cells, delta) -> Cells | None:
             new_walls.append(LineString(out))
     if not changed:
         return None
-    return _canonical(region, _rebuild(region, new_walls, cells))
+    return _rebuild(region, new_walls, cells)
 
 
 def _project_near_boundary(region, cells: Cells, delta) -> Cells | None:
@@ -712,7 +971,7 @@ def _project_near_boundary(region, cells: Cells, delta) -> Cells | None:
                 new_walls.append(LineString(piece))
     if not changed:
         return None
-    return _canonical(region, _rebuild(region, new_walls, cells))
+    return _rebuild(region, new_walls, cells)
 
 
 def _absorb(region, cells: Cells, indices) -> Cells | None:
@@ -832,7 +1091,8 @@ class _Judge:
     The defects of a candidate are the incident sectors below the profile's
     minimum angle at vertices that walls add or change, and the feature pairs
     closer than delta that the region alone does not have. Candidates are
-    ranked by the measure (small sectors, wall pairs, total pair deficit).
+    ranked by small sectors, pairs closer than delta / 10, all wall pairs,
+    then total pair deficit. This ranking does not change admissibility.
     """
 
     def __init__(self, region, partition, delta, epsilon):
@@ -894,6 +1154,11 @@ class _Judge:
     def measure(self, sectors, pairs):
         return (
             len(sectors),
+            # Removing a millimetre-scale wall takes priority over reducing
+            # the count of moderate sub-delta features. Splitting one short
+            # boundary interval into two useful intervals can increase that
+            # count while avoiding pathological wall triangles.
+            sum(distance < self.delta / 10 for _, _, distance in pairs),
             len(pairs),
             sum(self.delta - distance for _, _, distance in pairs),
         )
@@ -918,14 +1183,16 @@ class _Judge:
 
     def evaluate(self, cells: Cells, *, below=None):
         """Defects and their measure for faithful cells measuring below ``below``."""
+        # Fidelity is independent of graph defects and rejects invalid output
+        # too; avoid constructing feature graphs for unfaithful proposals.
+        if not self.faithful(cells):
+            return None
         found = self.defects(cells)
         if found is None:
             return None
         sectors, pairs = found
         measure = self.measure(sectors, pairs)
         if below is not None and measure >= below:
-            return None
-        if not self.faithful(cells):
             return None
         return {"sectors": sectors, "pairs": pairs, "measure": measure}
 
@@ -1001,10 +1268,11 @@ def _site_wall_offers(region, cells: Cells, site, delta):
                     s_vertex = boundary.project(Point(vertices[k]))
                     s_junction = boundary.project(Point(point))
                     direction = 1.0 if s_junction >= s_vertex else -1.0
-                    target = boundary.interpolate(s_vertex + direction * delta * 1.0001)
-                    moved = list(ring)
-                    moved[v_index] = (target.x, target.y)
-                    yield "slide_junction", _replace(walls, w_index, moved)
+                    for factor in (1.0001, 0.75, 0.5, 0.25):
+                        target = boundary.interpolate(s_vertex + direction * delta * factor)
+                        moved = list(ring)
+                        moved[v_index] = (target.x, target.y)
+                        yield "slide_junction", _replace(walls, w_index, moved)
                 neighbour = 1 if v_index == 0 else len(ring) - 2
                 if 0 < neighbour < len(ring) - 1:
                     yield "drop_next", _replace(
@@ -1089,7 +1357,229 @@ def _move_end(walls, end, target):
     return out
 
 
-def _site_offers(region, cells: Cells, site, delta, dispensable):
+def _contact_offers(region, cells: Cells, vertex, delta):
+    """Separate a boundary contact, or split an interior four-way junction.
+
+    Offsets are bounded by delta. The caller checks source ownership fidelity,
+    incident sectors and roof-level topology before accepting an offer.
+    """
+    walls = _walls(cells)
+    point = np.asarray(vertex)
+    touching = []
+    for index, wall in enumerate(walls):
+        for k, coordinate in enumerate(wall.coords):
+            if np.linalg.norm(np.asarray(coordinate[:2]) - point) <= ON_BOUNDARY:
+                touching.append((index, k))
+    distances = [delta * factor for factor in (1.0, 0.75, 0.5, 0.25)]
+    if region.boundary.distance(Point(vertex)) <= ON_BOUNDARY:
+        for index, k in touching:
+            coordinates = list(walls[index].coords)
+            if k in (0, len(coordinates) - 1):
+                continue
+            targets = []
+            # Coarse inward moves precede the more constrained directions.
+            for angle in np.arange(0, 2 * np.pi, np.pi / 8):
+                direction = np.array([np.cos(angle), np.sin(angle)])
+                for distance in distances:
+                    target = point + distance * direction
+                    if region.contains(Point(target)):
+                        targets.append(target)
+            directions = [
+                np.array([np.cos(angle), np.sin(angle)])
+                for angle in np.linspace(0, 2 * np.pi, 16, endpoint=False)
+            ]
+            a = np.asarray(coordinates[k - 1]) - point
+            b = np.asarray(coordinates[k + 1]) - point
+            a /= np.linalg.norm(a)
+            b /= np.linalg.norm(b)
+            for direction in (a, b, a + b, a - b):
+                length = np.linalg.norm(direction)
+                if length > 1e-12:
+                    direction = direction / length
+                    directions.extend([direction, -direction])
+            # A source at its fidelity limit can require a move parallel to
+            # one adjoining wall. Moving outside opens two boundary junctions;
+            # reconstruction clips the linework to the unchanged region.
+            targets.extend(
+                point + delta * factor * direction
+                for direction in directions
+                for factor in (1.0, 0.75, 0.5, 0.25, 0.125, 0.0625, 0.03125)
+            )
+            seen_targets = set()
+            for target in targets:
+                key = tuple(target)
+                if key in seen_targets:
+                    continue
+                seen_targets.add(key)
+                moved = list(coordinates)
+                moved[k] = key
+                yield "unhook_contact", _replace(walls, index, moved)
+    elif len(touching) == 4:
+        rays = []
+        for index, k in touching:
+            coordinates = list(walls[index].coords)
+            if k not in (0, len(coordinates) - 1):
+                return
+            direction = np.asarray(coordinates[1 if k == 0 else -2]) - point
+            direction /= np.linalg.norm(direction)
+            rays.append((math.atan2(direction[1], direction[0]), index, k, direction))
+        rays.sort(key=lambda row: row[0])
+        # The two ways to connect consecutive pairs of the four rays.
+        for offset in range(2):
+            direction = rays[offset][3] + rays[offset + 1][3]
+            length = np.linalg.norm(direction)
+            if length <= GRID:
+                continue
+            direction /= length
+            for distance in distances:
+                a, b = point + distance * direction, point - distance * direction
+                moved = list(walls)
+                for j, (_, index, k, _) in enumerate(rays):
+                    coordinates = list(walls[index].coords)
+                    coordinates[k] = tuple(a if (j - offset) % 4 < 2 else b)
+                    moved[index] = LineString(coordinates)
+                moved.append(LineString([a, b]))
+                yield "split_contact", moved
+
+
+def repair_roof_contacts(region, sources, order, cells, levels, *, delta, epsilon):
+    """Bounded source-labelled repair of pinched roof-level sets.
+
+    The occupied region and roof elevations stay fixed. Only faithful candidates
+    without small incident sectors and with fewer contact points are accepted.
+    Subsequent wall edits reduce severe defects without reintroducing contacts.
+    Returns an explicit contact outcome, independently of XY strictness.
+    The coordinator certifies accepted candidates and accounts final ownership.
+    """
+    from .levels import level_regions, pinched_levels
+
+    def contacts(candidate):
+        return sorted({
+            tuple(point)
+            for row in pinched_levels([(p, z) for p, z, _ in level_regions(candidate, levels, delta)])
+            for point in row["points"]
+        })
+
+    initial_count = len(contacts(cells)) if cells and len(set(levels.values())) > 1 else 0
+
+    rejections = {}
+
+    def reject(reason, error=None):
+        row = rejections.setdefault(reason, {"count": 0})
+        row["count"] += 1
+        if error is not None:
+            row.setdefault("error", str(error)[:_DETAIL_MESSAGE])
+
+    def unchanged():
+        return LabelledRegion(region, cells, "strict", {"rejections": rejections} if rejections else {},
+                              "unchanged" if initial_count else "unneeded", initial_count, epsilon)
+
+    if not initial_count:
+        return unchanged()
+    origin = region.bounds[:2]
+    local = _to_local(region, origin)
+    state = [(_to_local(polygon, origin), label) for polygon, label in cells]
+    partition = _input_partition(
+        {label: _to_local(sources[label], origin) for label in order},
+        {label: position for position, label in enumerate(order)},
+    )
+    judge = _Judge(local, partition, delta, epsilon)
+    operations = []
+    for _ in range(MAX_ROUNDS):
+        points = contacts(state)
+        if not points:
+            break
+        best = None
+        seen = set()
+        for point in points:
+            for name, walls in _contact_offers(local, state, point, delta):
+                key = tuple(sorted(line.normalize().wkb for line in walls))
+                if key in seen:
+                    continue
+                seen.add(key)
+                try:
+                    candidate = _rebuild(local, walls, state)
+                    assessed = judge.evaluate(candidate)
+                except shapely.errors.GEOSException as exc:
+                    reject("construction_error", exc)
+                    continue
+                if assessed is None or assessed["sectors"]:
+                    reject("contract_rejected")
+                    continue
+                # Panels below this width are left unsplit by the shell
+                # builder: replacing a point contact with such a panel only
+                # trades the topology defect for pathological triangles.
+                if any(distance < delta / 50 for _, _, distance in assessed["pairs"]):
+                    continue
+                remaining = contacts(candidate)
+                if len(remaining) >= len(points) or not set(remaining).issubset(points):
+                    continue
+                score = (len(remaining), *assessed["measure"])
+                if best is None or score < best[0]:
+                    best = score, candidate, name, assessed
+                    if score == (0, 0, 0, 0, 0):
+                        break
+            if best is not None and best[0] == (0, 0, 0, 0, 0):
+                break
+        if best is None:
+            break
+        _, state, name, evaluation = best
+        operations.append(name)
+    if not operations:
+        return unchanged()
+    # Opening a contact can make a previously rejected wall edit feasible.
+    # Resolve severe residual sites using the same bounded offers, while
+    # keeping the repaired roof-level sets free of point contacts.
+    if not contacts(state):
+        seen = {_key(state)}
+        reconstructed = set()
+        for _ in range(MAX_ROUNDS):
+            severe = [pair for pair in evaluation["pairs"] if pair[2] < delta / 10]
+            if not severe:
+                break
+            best = None
+            for site in _sites({"sectors": [], "pairs": severe}, SITE_RADIUS * delta):
+                for name, candidate in _site_offers(
+                    local, state, site, delta, judge.dispensable, reconstructed
+                ):
+                    key = _key(candidate)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    assessed = judge.evaluate(candidate, below=evaluation["measure"])
+                    if assessed is None or assessed["sectors"] or contacts(candidate):
+                        continue
+                    if best is None or assessed["measure"] < best[0]["measure"]:
+                        best = assessed, candidate, name
+                        if assessed["measure"] == (0, 0, 0, 0):
+                            break
+                if best is not None and best[0]["measure"] == (0, 0, 0, 0):
+                    break
+            if best is None:
+                break
+            evaluation, state, name = best
+            operations.append(name)
+    world = _to_world(state, origin, region)
+    if world is None or len(contacts(world)) >= initial_count:
+        reject("invalid_after_translation" if world is None else "unchanged")
+        return unchanged()
+    # Check returned ownership too, including exact restored boundary vertices.
+    if not judge.faithful([(_to_local(p, origin), label) for p, label in world]):
+        reject("contract_rejected")
+        return unchanged()
+    pairs = evaluation["pairs"]
+    count = len(contacts(world))
+    return LabelledRegion(region, world, "warning" if pairs else "strict", {
+        "operations": operations, "rejections": rejections,
+        "remaining_contacts": count,
+        "wall_pairs": len(pairs),
+        "severe_wall_pairs": evaluation["measure"][1],
+        "wall_deficit": evaluation["measure"][-1],
+        "min_wall_distance": min((distance for _, _, distance in pairs), default=None),
+    }, "partial" if count else "complete", count, epsilon, changed=True)
+
+
+def _site_offers(region, cells: Cells, site, delta, dispensable, reconstructed=None):
     """Candidate cells for one site."""
     reach = []
 
@@ -1099,9 +1589,16 @@ def _site_offers(region, cells: Cells, site, delta, dispensable):
             reach.append(MultiPoint([tuple(p) for p in site]).buffer(SITE_REACH * delta))
         return reach[0]
 
+    state_key = _key(cells)
+    if reconstructed is None:
+        reconstructed = set()
     for name, walls in _site_wall_offers(region, cells, site, delta):
+        proposal = (state_key, tuple(sorted(line.normalize().wkb for line in walls)))
+        if proposal in reconstructed:
+            continue
+        reconstructed.add(proposal)
         try:
-            edited = _canonical(region, _rebuild(region, walls, cells))
+            edited = _rebuild(region, walls, cells)
         except shapely.errors.GEOSException:
             continue
         yield name, edited
@@ -1147,6 +1644,7 @@ def _has_pieces(cells: Cells) -> bool:
 def _global_offers(region, cells: Cells, delta, dispensable):
     """Whole-region wall operations, each followed by simplification at delta."""
     operations = (
+        ("node_walls", lambda c: _canonical(region, c)),
         ("collapse_all", lambda c: _collapse_short_edges(region, c, delta)),
         ("project_all", lambda c: _project_near_boundary(region, c, delta)),
         ("snap_all", lambda c: _move_junctions(region, c, delta, "snap")),
@@ -1225,7 +1723,7 @@ def _repair(region, exact: Cells, judge: _Judge, delta, *, try_exact=True):
     if try_exact:
         evaluation = judge.evaluate(exact)
         report["start_tolerance"] = 0.0
-    if evaluation is None or evaluation["measure"] != (0, 0, 0):
+    if evaluation is None or evaluation["measure"] != (0, 0, 0, 0):
         evaluation = None
         for factor in WALL_LADDER:
             if factor == 0 and not try_exact:
@@ -1245,6 +1743,7 @@ def _repair(region, exact: Cells, judge: _Judge, delta, *, try_exact=True):
         return None, report
 
     seen = {_key(state)}
+    reconstructed = set()
 
     def best_of(offers):
         best = None
@@ -1257,10 +1756,13 @@ def _repair(region, exact: Cells, judge: _Judge, delta, *, try_exact=True):
             candidate = judge.evaluate(cells, below=below)
             if candidate is not None:
                 best = (candidate, cells, name)
+                # No later candidate can improve this fully checked minimum.
+                if candidate["measure"] == (0, 0, 0, 0):
+                    break
         return best
 
     for _ in range(MAX_ROUNDS):
-        if evaluation["measure"] == (0, 0, 0):
+        if evaluation["measure"] == (0, 0, 0, 0):
             break
         improved = False
         best = best_of(_global_offers(region, state, delta, judge.dispensable))
@@ -1270,9 +1772,9 @@ def _repair(region, exact: Cells, judge: _Judge, delta, *, try_exact=True):
             report["operations"].append(best[2])
             improved = True
         for site in _sites(evaluation, SITE_RADIUS * delta):
-            if evaluation["measure"] == (0, 0, 0):
+            if evaluation["measure"] == (0, 0, 0, 0):
                 break
-            best = best_of(_site_offers(region, state, site, delta, judge.dispensable))
+            best = best_of(_site_offers(region, state, site, delta, judge.dispensable, reconstructed))
             if best is not None:
                 evaluation, state = best[0], best[1]
                 report["edits"] += 1
@@ -1285,7 +1787,8 @@ def _repair(region, exact: Cells, judge: _Judge, delta, *, try_exact=True):
         outcome="fallback" if sectors else "warning" if pairs else "strict",
         small_sectors=len(sectors),
         wall_pairs=len(pairs),
-        wall_deficit=evaluation["measure"][2],
+        severe_wall_pairs=evaluation["measure"][1],
+        wall_deficit=evaluation["measure"][-1],
         min_wall_distance=min((distance for _, _, distance in pairs), default=None),
         evaluations=judge.evaluations,
         walls=len(_walls(state)),

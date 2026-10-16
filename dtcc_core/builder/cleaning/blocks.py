@@ -37,23 +37,31 @@ Walls record
     region and of its parts' source footprints) and a digest of the cells.
     The walls of a block are *current* when both digests match, the cells
     cover the region and every pair of overlapping sources is in the
-    recorded order (only overlaps depend on the order). Otherwise they are
-    recomputed from the source footprints with the recorded parameters
+    recorded order (only overlaps depend on the order). A changed order can
+    also retain cells that pass the full source-labelled contract and the
+    roof-contact check. Otherwise they are recomputed with the recorded parameters
     (:func:`block_walls`); :func:`update_walls` stores them, and the height
     builders and the LOD1 builder call it. A record of another version is an
     error: blocks made by an earlier version of the cleaning are cleaned
     again from the buildings they were made from.
+
+    The repair recipe is recorded separately. Compatible warning cells with severe
+    short features from an earlier recipe are conditioned again; a failed upgrade retains current
+    ownership and its warning, with the failure cause. Changed exposed roof
+    groups trigger a bounded local check for pinched level sets.
 
 Derived geometry
     LOD1 prisms are derived from the cells: the parts with cells have them,
     or the block itself when it keeps one footprint. Whenever the cells of a
     block change, the LOD1 geometry of the block and of all its parts is
     removed, so no prism outlives the partition it was built from.
+    Builder extrusions also record their inputs and output digest. Height-only
+    changes invalidate these prisms while preserving unmarked or edited LOD1.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field
 import hashlib
 import math
 from typing import Any, Sequence
@@ -64,9 +72,7 @@ from shapely.geometry import MultiPolygon, Polygon, shape
 
 from dtcc_core.model import Building, GeometryType, MultiSurface, Surface
 
-from ..logging import warning
-from .footprints import ConditioningOptions
-from .walls import LabelledRegion, label_region
+from .walls import LabelledRegion, condition_walls
 
 MERGED_FROM_KEY = "merged_from"
 SOURCE_ID_KEY = "source_id"
@@ -74,20 +80,16 @@ SOURCE_FOOTPRINT_KEY = "source_footprint"
 WALLS_KEY = "footprint_walls"
 # Version of the walls record; records of other versions are not read.
 WALLS_VERSION = 2
+# Bounded repair recipe used to condition compatible persisted cells.
+WALLS_REPAIR_VERSION = 2
 
 # A block without walls whose source roofs span more than this gets the
 # highest roof instead of the area-weighted mean.
 FALLBACK_ROOF_SPAN_LIMIT = 2.0
 # Sources that share less area than this (square metres) do not overlap.
 _OVERLAP_AREA = 1.0e-6
-# Walls closer than this (metres) are numerical artifacts, not building
-# features; meshers do not resolve them robustly.
-WALL_PAIR_FLOOR = 1.0e-4
 # Longest message of a construction error kept in a walls record.
 _DETAIL_MESSAGE = 300
-_RETRY_FACTOR = next(
-    item.default for item in fields(ConditioningOptions) if item.name == "fidelity_retry_factor"
-)
 
 
 def is_block(building) -> bool:
@@ -176,6 +178,48 @@ def set_part_roof(part, roof_z: float) -> None:
     cell = part.get_geometry(GeometryType.LOD0)
     if cell is not None:
         cell.set_z(roof_z)
+    invalidate_lod1(part)
+
+
+def _lod1_digest(geometry) -> str:
+    digest = hashlib.sha256()
+    for surface in _surfaces(geometry):
+        for ring in [surface.vertices, *surface.holes]:
+            values = np.asarray(ring, dtype=np.float64)
+            digest.update(str(values.shape).encode())
+            digest.update(np.ascontiguousarray(values).tobytes())
+    return digest.hexdigest()
+
+
+def _lod1_inputs(building) -> list:
+    return [
+        _lod1_digest(building.get_geometry(GeometryType.LOD0)),
+        building.attributes.get("ground_height"),
+    ]
+
+
+def record_lod1(building) -> None:
+    """Record the inputs and output of a builder-produced LOD1 extrusion."""
+    building.attributes["lod1_extrusion"] = {
+        "inputs": _lod1_inputs(building),
+        "geometry": _lod1_digest(building.get_geometry(GeometryType.LOD1)),
+    }
+
+
+def invalidate_lod1(building) -> None:
+    """Remove a stale builder extrusion, preserving caller-provided geometry.
+
+    The output digest distinguishes a recorded extrusion from a replacement
+    or an in-place edit, including after model save/load.
+    """
+    record = building.attributes.get("lod1_extrusion")
+    if not isinstance(record, dict):
+        return
+    if record.get("geometry") != _lod1_digest(building.get_geometry(GeometryType.LOD1)):
+        building.attributes.pop("lod1_extrusion", None)
+    elif record.get("inputs") != _lod1_inputs(building):
+        building.remove_geometry(GeometryType.LOD1)
+        building.attributes.pop("lod1_extrusion", None)
 
 
 def modelling_height(obj) -> float | None:
@@ -229,41 +273,11 @@ def wall_cells(
     delta: float,
     epsilon: float,
     strict: bool,
+    levels: dict[int, float] | None = None,
 ) -> LabelledRegion:
-    """Walls of one region between its sources, or one footprint.
-
-    The walls are retried at 3 delta / 4 when that exceeds ``epsilon``. A
-    geometry failure, a warning in strict mode, or walls closer than 0.1 mm
-    (``WALL_PAIR_FLOOR``) leave the region one footprint (outcome
-    ``fallback``, with the reason in the report).
-    """
-    if len(order) == 1:
-        return LabelledRegion(region, [(region, order[0])], "single", {})
-    retry = None if _RETRY_FACTOR is None else delta / 2 * _RETRY_FACTOR
-    try:
-        labelled = label_region(
-            region,
-            polygons,
-            order,
-            delta=delta,
-            epsilon=epsilon,
-            retry_epsilon=retry if retry is not None and retry > epsilon else None,
-        )
-    except shapely.errors.GEOSException as exc:
-        # A geometry failure in the walls of one block leaves that block one
-        # footprint; the rest of the cleaning stands.
-        warning(f"Footprint walls: construction failed for one block ({exc}); it keeps one footprint.")
-        return LabelledRegion(
-            region, [], "fallback", {"reason": "construction_error", "error": str(exc)}
-        )
-    if strict and labelled.outcome == "warning":
-        return LabelledRegion(region, [], "fallback", {**labelled.report, "reason": "strict"})
-    closest = labelled.report.get("min_wall_distance")
-    if labelled.outcome == "warning" and closest is not None and closest < WALL_PAIR_FLOOR:
-        return LabelledRegion(
-            region, [], "fallback", {**labelled.report, "reason": "degenerate_walls"}
-        )
-    return labelled
+    """Condition one region through the geometry-layer repair coordinator."""
+    return condition_walls(region, polygons, order, delta=delta, epsilon=epsilon,
+                           strict=strict, levels=levels)
 
 
 def walls_digest(parts) -> str:
@@ -318,7 +332,31 @@ def walls_detail(outcome: str, report: dict[str, Any]) -> dict[str, Any]:
         value = report.get(key)
         if value:
             detail[key] = kind(value)
+    if report.get("attempts"):
+        detail["attempts"] = report["attempts"]
+    if report.get("contact_repair"):
+        detail["contact_repair"] = report["contact_repair"]
+    if report.get("repair_failure"):
+        detail["repair_failure"] = walls_detail("fallback", report["repair_failure"])
+    if report.get("retained_nonpinched_start"):
+        detail["retained_nonpinched_start"] = True
     return detail
+
+
+def _roof_groups(building, delta):
+    """Exposed source identities grouped and ordered by roof."""
+    from .levels import group_levels
+
+    sources = part_sources(building)
+    parts = building.building_parts
+    labels = [i for i in sources if parts[i].get_geometry(GeometryType.LOD0) is not None]
+    grouped = group_levels(
+        [part_roof(parts[i]) for i in labels], [sources[i].area for i in labels], delta
+    )
+    return [
+        sorted(str(parts[i].id) for i, level in zip(labels, grouped) if level == value)
+        for value in sorted(set(grouped))
+    ]
 
 
 def walls_record(
@@ -336,6 +374,7 @@ def walls_record(
     parts = building.building_parts
     return {
         "version": WALLS_VERSION,
+        "repair_version": WALLS_REPAIR_VERSION,
         "order": [str(parts[index].id) for index in order],
         "precedence": rule,
         "outcome": outcome,
@@ -345,6 +384,7 @@ def walls_record(
         "strict": bool(strict),
         "inputs": inputs_digest(building),
         "cells": walls_digest(parts),
+        "roof_groups": _roof_groups(building, delta),
     }
 
 
@@ -420,6 +460,7 @@ def block_walls(building: Building) -> BlockWalls:
     positions, rule = precedence([part_key(parts[i], sources[i]) for i in labels])
     order = [labels[position] for position in positions]
     region = block_region(building)
+    repair_current = record.get("repair_version") == WALLS_REPAIR_VERSION
     if record.get("inputs") == inputs_digest(building) and record.get("cells") == walls_digest(
         parts
     ):
@@ -432,10 +473,25 @@ def block_walls(building: Building) -> BlockWalls:
             sum(piece.area for piece, _ in cells), region.area, rel_tol=1e-9, abs_tol=1e-6
         )
         ids = [str(parts[i].id) for i in order]
-        if covered and _same_overlaps(
+        ownership_current = covered and _same_overlaps(
             record.get("order"), ids, {str(parts[i].id): sources[i] for i in labels}
-        ):
+        )
+        upgrade = record.get("repair_version", 0) < 1
+        revalidate = covered and bool(cells) and repair_current and not ownership_current
+        if ownership_current or revalidate:
             outcome = str(record.get("outcome"))
+            if cells and (revalidate or not repair_current
+                          or record.get("roof_groups") != _roof_groups(
+                              building, float(record["min_building_detail"]))):
+                labelled = condition_walls(
+                    region, sources, order, delta=float(record["min_building_detail"]),
+                    epsilon=float(record["fidelity_budget"]), strict=bool(record.get("strict", False)),
+                    levels={i: part_roof(parts[i]) for i in labels},
+                    previous=LabelledRegion(region, cells, outcome, dict(record.get("detail", {}))),
+                    revalidate=revalidate, recondition=upgrade,
+                )
+                return BlockWalls(labelled.cells, labelled.outcome, order, rule,
+                                  not labelled.changed, labelled.report)
             return BlockWalls(cells, outcome, order, rule, True, dict(record.get("detail", {})))
     labelled = wall_cells(
         region,
@@ -444,6 +500,7 @@ def block_walls(building: Building) -> BlockWalls:
         delta=float(record["min_building_detail"]),
         epsilon=float(record["fidelity_budget"]),
         strict=bool(record.get("strict", False)),
+        levels={i: part_roof(parts[i]) for i in labels},
     )
     return BlockWalls(
         list(labelled.cells), labelled.outcome, order, rule, False, dict(labelled.report)
@@ -485,6 +542,12 @@ def update_walls(building: Building) -> bool:
     """
     walls = block_walls(building)
     if walls.current:
+        record = walls_of(building)
+        record["order"] = [str(building.building_parts[i].id) for i in walls.order]
+        record["precedence"] = walls.rule
+        record["roof_groups"] = _roof_groups(building, float(record["min_building_detail"]))
+        record["repair_version"] = WALLS_REPAIR_VERSION
+        record["detail"] = walls.detail
         return False
     record = walls_of(building)
     assign_cells(building.building_parts, walls.cells)
@@ -495,7 +558,7 @@ def update_walls(building: Building) -> bool:
         walls.rule,
         walls.outcome,
         delta=record["min_building_detail"],
-        epsilon=record["fidelity_budget"],
+        epsilon=walls.report.get("fidelity_budget", record["fidelity_budget"]),
         strict=record.get("strict", False),
         detail=walls.detail,
     )
@@ -564,6 +627,7 @@ def set_block_roof(building: Building) -> None:
         footprint.set_z(roof_z)
     if height is not None:
         building.estimated_height = height
+    invalidate_lod1(building)
 
 
 def block_region(building: Building) -> Polygon:
