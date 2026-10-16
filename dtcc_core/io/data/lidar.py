@@ -274,8 +274,15 @@ async def download_laz_file(session, base_url, filename, output_dir, semaphore):
                         async for chunk in resp.content.iter_chunked(1024 * 1024):
                             f.write(chunk)
 
-                os.replace(tmp_path, out_path)
-                info(f"Saved {filename} to {out_path}")
+                try:
+                    os.replace(tmp_path, out_path)
+                except PermissionError:
+                    # Windows refuses a replace while a concurrent download publishes the tile.
+                    if not os.path.exists(out_path):
+                        raise
+                    debug(f"File {filename} was published by a concurrent download.")
+                else:
+                    info(f"Saved {filename} to {out_path}")
                 return
             except (aiohttp.ClientError, asyncio.TimeoutError, OSError, RuntimeError) as exc:
                 if attempt >= _DOWNLOAD_MAX_ATTEMPTS:

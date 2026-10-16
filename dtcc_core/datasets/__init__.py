@@ -53,6 +53,7 @@ from .transit_vehicles import (
 from .deso import DeSODataset
 from .smoke import SmokeDataset
 from .calibration_grid import CalibrationGridDataset
+from .orthophoto import OrthophotoDataset
 
 # Remote dataset support (optional, requires httpx)
 try:
@@ -104,6 +105,7 @@ ferries = get_dataset("ferries")
 deso = get_dataset("deso")
 smoke = get_dataset("smoke")
 calibration_grid = get_dataset("calibration_grid")
+orthophoto = get_dataset("orthophoto")
 
 
 _CATEGORY_ORDER = ("raw", "derived", "synthetic", "simulation", "remote", "unknown")

@@ -167,8 +167,15 @@ async def download_gpkg_file(session, base_url, filename, output_dir):
             )
             with os.fdopen(fd, "wb") as f:
                 f.write(content)
-            os.replace(tmp_path, out_path)
-            info(f"Saved {filename} to {out_path}")
+            try:
+                os.replace(tmp_path, out_path)
+            except PermissionError:
+                # Windows refuses a replace while a concurrent download publishes the tile.
+                if not os.path.exists(out_path):
+                    raise
+                debug(f"File {filename} was published by a concurrent download.")
+            else:
+                info(f"Saved {filename} to {out_path}")
     except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as exc:
         raise FootprintDownloadError(
             f"Failed to download footprint tile {filename}: {type(exc).__name__}: {exc}"
