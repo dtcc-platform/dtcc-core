@@ -148,6 +148,7 @@ Current Built-In Datasets
 | `city` | derived | `City` | `cityjson`, `json` | Terrain plus LoD1 buildings; both serialized paths currently produce CityJSON-compatible JSON bytes. |
 | `terrain_surface_mesh` | derived | `Mesh` or `Raster` | `tif`, `obj`, `stl` | Point-cloud-derived terrain raster or mesh with outlier, adaptive meshing, smoothing, and mesher controls. |
 | `city_flat_mesh` | derived | `Mesh` | `obj`, `stl`, `vtu` | Flat z=0 2D mesh with conditioned LOD0 building subdomains. |
+| `imperviousness` | raw | `Raster` | `tif` | Copernicus HRL Imperviousness Density for 2018, 2021 or 2024: sealed share of each 10 m cell in percent (0-100), NaN over sea and outside coverage. |
 | `city_surface_mesh` | derived | `Mesh` | `obj`, `stl`, `vtu` | Terrain plus generalized building surface mesh for visualization or preprocessing. |
 | `city_volume_mesh` | derived | `VolumeMesh` | `xdmf`, `vtu` | TetGen-backed tetrahedral computational-domain mesh; `xdmf` is a multi-file format. |
 | `trees` | derived | `TreeCollection` | `tif`, `gpkg`, `geojson` | Tree points or canopy-height raster derived from point-cloud vegetation returns. |
