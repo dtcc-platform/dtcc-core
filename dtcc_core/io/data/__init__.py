@@ -11,6 +11,8 @@ from .wrapper import (
     download_roadnetwork,
 )
 from .deso import attach_deso_statistics, download_deso, download_deso_statistics
+from .urban_atlas import download_urban_atlas
+from .imperviousness import download_imperviousness
 from .cache import empty_cache
 __all__ = [
     "download_data",
@@ -20,5 +22,7 @@ __all__ = [
     "download_deso",
     "download_deso_statistics",
     "attach_deso_statistics",
+    "download_urban_atlas",
+    "download_imperviousness",
     "empty_cache",
 ]

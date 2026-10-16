@@ -149,9 +149,11 @@ Current Built-In Datasets
 | `city` | derived | `City` | `cityjson`, `json` | Terrain plus LoD1 buildings; both serialized paths currently produce CityJSON-compatible JSON bytes. |
 | `terrain_surface_mesh` | derived | `Mesh` or `Raster` | `tif`, `obj`, `stl` | Point-cloud-derived terrain raster or mesh with outlier, adaptive meshing, smoothing, and mesher controls. |
 | `city_flat_mesh` | derived | `Mesh` | `obj`, `stl`, `vtu` | Flat z=0 2D mesh with conditioned LOD0 building subdomains. |
+| `imperviousness` | raw | `Raster` | `tif` | Copernicus HRL Imperviousness Density for 2018, 2021 or 2024: sealed share of each 10 m cell in percent (0-100), NaN over sea and outside coverage. |
 | `city_surface_mesh` | derived | `Mesh` | `obj`, `stl`, `vtu` | Terrain plus generalized building surface mesh for visualization or preprocessing. |
 | `city_volume_mesh` | derived | `VolumeMesh` | `xdmf`, `vtu` | TetGen-backed tetrahedral computational-domain mesh; `xdmf` is a multi-file format. |
 | `trees` | derived | `TreeCollection` | `tif`, `gpkg`, `geojson` | Tree points or canopy-height raster derived from point-cloud vegetation returns. |
+| `urban_atlas` | raw | `Landuse` | `pb`, `geojson`, `gpkg` | Copernicus Urban Atlas 2018 land use polygons for Functional Urban Areas from the EEA REST service, mapped to `LanduseClasses` with the original Urban Atlas code and class kept as attributes. |
 | `roads` | raw | `RoadNetwork` | `pb` | OpenStreetMap/Overpass road network in EPSG:3006 with highway-tag semantics, cache/live source caveats, and ODbL review status. |
 | `space_syntax` | derived | `RoadNetwork` | `pb` | RoadNetwork enriched with dual-segment graph measures: connectivity, reach, mean depth, integration, choice, radius/cost metadata, and component labels. |
 | `transit_vehicles` | raw | `VehicleCollection` | `pb` | Live Trafiklab/Västtrafik vehicle snapshot with provider metadata, credential guidance, mode filtering, timestamps, speed/bearing fields, and partial-result health. |
