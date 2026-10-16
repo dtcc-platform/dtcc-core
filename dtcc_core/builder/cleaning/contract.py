@@ -759,3 +759,116 @@ def check_cleaning_contract(raw, cleaned, *, delta, epsilon=None, achieved=False
         "admissibility": output,
         "fidelity": drift,
     }
+
+
+def input_partition(raw, order):
+    """Return the input partition V_c of labelled raw footprints.
+
+    Where footprints overlap, the label that comes first in ``order`` wins, so
+    V_c is the part of footprint c that no earlier footprint covers. Inputs are
+    interpreted as by :func:`interpret_input`.
+
+    Parameters
+    ----------
+    raw : mapping of label to Polygon or MultiPolygon
+        Raw footprints.
+    order : sequence
+        All labels in precedence order.
+
+    Returns
+    -------
+    dict
+        For each label with a part of positive area, V_c as a polygonal
+        geometry.
+    """
+    partition = {}
+    taken = None
+    for label in order:
+        occupied, _ = interpret_input([raw[label]])
+        part = occupied if taken is None else occupied.difference(taken)
+        part = unary_union(
+            [g for g in getattr(part, "geoms", [part]) if isinstance(g, (Polygon, MultiPolygon))]
+        )
+        if not part.is_empty and part.area > 0:
+            partition[label] = part
+        taken = occupied if taken is None else unary_union([taken, occupied])
+    return partition
+
+
+def check_labelled_contract(raw, order, region, cells, *, delta, epsilon):
+    """Check cells of one cleaned region against the identity contract.
+
+    The cells must tile the region, keep the incident-sector profile and
+    satisfy V_c^{-epsilon} ⊆ Q^(c) ⊆ V_c^{+epsilon} for every label c. They are
+    ``strict`` when the labelled subdivision has no feature pair closer than
+    delta that the region alone does not have (by count), ``warning`` when it
+    has, and ``fail`` otherwise.
+
+    Parameters
+    ----------
+    raw : mapping of label to Polygon or MultiPolygon
+        Raw footprints of the region's sources.
+    order : sequence
+        The labels in precedence order (see :func:`input_partition`).
+    region : Polygon
+        The cleaned region.
+    cells : sequence of (Polygon, label)
+        The cells.
+    delta, epsilon : float
+        Minimum feature size and fidelity budget.
+
+    Returns
+    -------
+    dict
+        ``status``, ``tiles_region``, per-label ``fidelity`` statuses, and the
+        ``admissibility`` reports of the cells and of the region alone, and
+        the ``mesher_profile``.
+    """
+    polygons = [polygon for polygon, _ in cells]
+    union = unary_union(polygons) if polygons else Polygon()
+    overlap = sum(p.area for p in polygons) - union.area
+    tiles = (
+        bool(polygons)
+        and not _invalid_polygons(polygons)
+        and abs(overlap) <= 1e-9 * max(1.0, region.area)
+        and union.symmetric_difference(region).area <= 1e-9 * max(1.0, region.area)
+    )
+    partition = input_partition(raw, order)
+    clip = region.buffer(2 * epsilon)
+    fidelity_by_label = {}
+    for label, part in partition.items():
+        reference = part.intersection(clip)
+        if reference.is_empty or reference.area == 0:
+            continue
+        own = [polygon for polygon, cell_label in cells if cell_label == label]
+        fidelity_by_label[label] = FidelityBudget([reference], epsilon).measure(own)["status"]
+    unreferenced = {label for _, label in cells} - set(fidelity_by_label)
+    for label in unreferenced:
+        fidelity_by_label[label] = "fail"
+    cell_admissibility = admissibility(polygons, delta) if tiles else {"topology_ok": False}
+    region_admissibility = admissibility([region], delta)
+    profile = check_mesher_handoff_profile(polygons) if tiles else {"status": "fail"}
+    if (
+        not tiles
+        or not cell_admissibility.get("topology_ok")
+        or profile["status"] != "pass"
+        or any(status != "pass" for status in fidelity_by_label.values())
+    ):
+        status = "fail"
+    elif cell_admissibility["admissible"] or (
+        cell_admissibility["subscale_pairs"] <= region_admissibility["subscale_pairs"]
+        and not region_admissibility["admissible"]
+    ):
+        status = "strict"
+    else:
+        status = "warning"
+    return {
+        "status": status,
+        "delta": delta,
+        "epsilon": epsilon,
+        "tiles_region": tiles,
+        "fidelity": fidelity_by_label,
+        "admissibility": cell_admissibility,
+        "region_admissibility": region_admissibility,
+        "mesher_profile": profile,
+    }

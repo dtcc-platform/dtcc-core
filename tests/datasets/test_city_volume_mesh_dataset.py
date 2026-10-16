@@ -71,7 +71,6 @@ def test_city_volume_mesh_default_build_returns_volume_mesh(
         top_cap_max_mesh_size=None,
         domain_height=80.0,
         min_mesh_angle=25.0,
-        merge_buildings=True,
         min_building_detail=0.5,
         min_building_area=15.0,
         smoothing=0,
@@ -110,7 +109,6 @@ def test_city_volume_mesh_build_from_city_forwards_advanced_args(
         min_mesh_angle=31.0,
         min_building_detail=1.25,
         min_building_area=19.0,
-        merge_buildings=False,
         boundary_face_markers=False,
         max_volume=12.5,
         mesher="dtcc_mesher",
@@ -133,7 +131,6 @@ def test_city_volume_mesh_build_from_city_forwards_advanced_args(
     assert kwargs["min_mesh_angle"] == 31.0
     assert kwargs["min_building_detail"] == 1.25
     assert kwargs["min_building_area"] == 19.0
-    assert kwargs["merge_buildings"] is False
     assert kwargs["boundary_face_markers"] is False
     assert kwargs["mesher"] == "dtcc_mesher"
     assert kwargs["max_volume"] == 12.5

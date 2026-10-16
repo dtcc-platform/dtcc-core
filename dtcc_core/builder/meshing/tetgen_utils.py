@@ -688,7 +688,12 @@ def inspect_tetgen_plc(
             "vertex_count": int(len(indices)),
             "projected_area": projected_area,
             "projected_min_edge_length": float(projected_edge_lengths.min()),
-            "projected_min_nonadjacent_distance": float(min_nonadjacent_distance),
+            # None when the facet has no nonadjacent vertex pairs.
+            "projected_min_nonadjacent_distance": (
+                float(min_nonadjacent_distance)
+                if np.isfinite(min_nonadjacent_distance)
+                else None
+            ),
             "support_plane_spread": plane_spread,
             "valid": valid,
         }

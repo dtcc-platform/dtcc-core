@@ -20,8 +20,6 @@ DEFAULT_PARAMETERS: dict[str, Any] = {
     "min_mesh_angle": 25.0,
     "min_building_detail": 0.5,
     "min_building_area": 15.0,
-    "merge_buildings": True,
-    "merge_tolerance": 0.5,
     "domain_height": 100.0,
     "stage_audit_enabled": True,
     "pipeline_mode": "strict",
@@ -202,8 +200,6 @@ DEFAULT_DATASETS = ("city_flat_mesh", "city_surface_mesh")
 CLEANING_PARAMETERS = (
     "min_building_detail",
     "min_building_area",
-    "merge_buildings",
-    "merge_tolerance",
 )
 SUITE_DESCRIPTIONS = {
     "quick": "One central tile per city at default parameters.",

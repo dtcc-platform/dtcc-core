@@ -237,31 +237,35 @@ class CityBuilderMixin:
         lod: GeometryType | list[GeometryType] | None = None,
         min_building_detail: float = 0.5,
         min_building_area: float = 15.0,
-        merge_buildings: bool = True,
-        merge_tolerance: float = 0.5,
         building_mesh_triangle_size: float = 5.0,
         max_mesh_size: float = 10.0,
         min_mesh_angle: float = 25.0,
         merge_meshes: bool = True,
         smoothing: int = 0,
         sort_triangles: bool = False,
-        treat_lod0_as_holes: bool = False,
         show_footprints: bool = False,
         footprint_cleaning_plot_block: bool = True,
         mesher: str | None = None,
         pipeline_mode: str = "strict",
+        isolated: bool = False,
     ) -> Mesh:
         """
         Build a city surface mesh from the buildings and terrain.
 
+        Building footprints are cleaned in unison with ``clean_footprints``
+        unless the city was already cleaned at ``min_building_detail``. With
+        ``isolated=True`` each building is cleaned on its own and the result
+        is a mesh for visualization: the terrain plus one shell per building,
+        not welded and possibly intersecting (see
+        :func:`dtcc_core.builder.build_city_surface_mesh`).
+
         Parameters
         ----------
         `min_building_detail` : float, optional
-            The minimum detail of the building to resolve, by default 0.5.
+            The scale of footprint cleaning (minimum feature size, fidelity
+            and merge distance), by default 0.5.
         `min_building_area` : float, optional
-            The smallest building to include, by default 15.0.
-        `merge_buildings` : bool, optional
-            merge building footprints, by default True.
+            The smallest cleaned building to include, by default 15.0.
         `max_mesh_size` : float, optional
             The maximum size of the mesh, by default 10.0.
         `min_mesh_angle` : float, optional
@@ -289,19 +293,17 @@ class CityBuilderMixin:
             lod=lod,
             min_building_detail=min_building_detail,
             min_building_area=min_building_area,
-            merge_buildings=merge_buildings,
-            merge_tolerance=merge_tolerance,
             building_mesh_triangle_size=building_mesh_triangle_size,
             max_mesh_size=max_mesh_size,
             min_mesh_angle=min_mesh_angle,
             merge_meshes=merge_meshes,
             smoothing=smoothing,
             sort_triangles=sort_triangles,
-            treat_lod0_as_holes=treat_lod0_as_holes,
             show_footprints=show_footprints,
             footprint_cleaning_plot_block=footprint_cleaning_plot_block,
             mesher=mesher,
             pipeline_mode=pipeline_mode,
+            isolated=isolated,
         )
         return surface_mesh
 
@@ -310,14 +312,13 @@ class CityBuilderMixin:
         lod: GeometryType | None = None,
         max_mesh_size: float | None = 10.0,
         min_mesh_angle: float = 25.0,
-        merge_buildings: bool = True,
         min_building_detail: float = 0.5,
         min_building_area: float = 15.0,
-        merge_tolerance: float = 0.5,
         show_footprints: bool = False,
         footprint_cleaning_plot_block: bool = True,
         mesher: str | None = None,
         pipeline_mode: str = "strict",
+        isolated: bool = False,
     ) -> Mesh:
         """Build a flat 2D triangular mesh of the city with building markers.
 
@@ -340,19 +341,17 @@ class CityBuilderMixin:
             ``min_mesh_angle`` drive refinement.
         min_mesh_angle : float, optional
             Minimum angle quality constraint (default 25.0).
-        merge_buildings : bool, optional
-            Merge adjacent building footprints (default True).
         min_building_detail : float, optional
-            Minimum feature size to resolve (default 0.5).
+            Scale of footprint cleaning (default 0.5).
         min_building_area : float, optional
-            Minimum footprint area threshold (default 15.0).
-        merge_tolerance : float, optional
-            Distance tolerance for merging (default 0.5).
+            Minimum cleaned footprint area (default 15.0).
         mesher : {"auto", "dtcc_mesher", "triangle"}, optional
             Select the 2D meshing backend.
         show_footprints : bool, optional
             Show a live Matplotlib comparison of raw and conditioned
             footprints before meshing.
+        isolated : bool, optional
+            Must be False: a flat mesh needs the buildings cleaned in unison.
 
         Returns
         -------
@@ -366,14 +365,13 @@ class CityBuilderMixin:
             lod=lod,
             max_mesh_size=max_mesh_size,
             min_mesh_angle=min_mesh_angle,
-            merge_buildings=merge_buildings,
             min_building_detail=min_building_detail,
             min_building_area=min_building_area,
-            merge_tolerance=merge_tolerance,
             show_footprints=show_footprints,
             footprint_cleaning_plot_block=footprint_cleaning_plot_block,
             mesher=mesher,
             pipeline_mode=pipeline_mode,
+            isolated=isolated,
         )
         return flat_mesh
 
@@ -383,10 +381,8 @@ class CityBuilderMixin:
         domain_height: float = 100.0,
         max_mesh_size: float = 10.0,
         min_mesh_angle: float = 25.0,
-        merge_buildings: bool = True,
         min_building_detail: float = 0.5,
         min_building_area: float = 15.0,
-        merge_tolerance: float = 0.5,
         smoothing: int = 0,
         boundary_face_markers: bool = True,
         tetgen_switches=None,
@@ -398,6 +394,7 @@ class CityBuilderMixin:
         pipeline_mode: str = "strict",
         top_cap_max_mesh_size: float | None = None,
         max_volume: float | None = None,
+        isolated: bool = False,
     ) -> VolumeMesh:
         """Build a 3D tetrahedral volume mesh for the city.
 
@@ -419,14 +416,10 @@ class CityBuilderMixin:
             Optional maximum edge length for the lifted top cap triangulation.
         min_mesh_angle : float, optional
             Minimum mesh angle quality constraint (default 25.0).
-        merge_buildings : bool, optional
-            Merge adjacent building footprints (default True).
         min_building_detail : float, optional
-            Minimum feature size to resolve in footprints (default 0.5).
+            Scale of footprint cleaning (default 0.5).
         min_building_area : float, optional
-            Minimum footprint area threshold (default 15.0).
-        merge_tolerance : float, optional
-            Distance tolerance for merging footprints (default 0.5).
+            Minimum cleaned footprint area (default 15.0).
         smoothing : int, optional
             Number of smoothing iterations (default 0).
         boundary_face_markers : bool, optional
@@ -446,6 +439,9 @@ class CityBuilderMixin:
         show_footprints : bool, optional
             Show a live Matplotlib comparison of raw and conditioned
             footprints before meshing.
+        isolated : bool, optional
+            Must be False: a volume mesh needs the buildings cleaned in
+            unison.
 
         Returns
         -------
@@ -461,10 +457,8 @@ class CityBuilderMixin:
             max_mesh_size=max_mesh_size,
             top_cap_max_mesh_size=top_cap_max_mesh_size,
             min_mesh_angle=min_mesh_angle,
-            merge_buildings=merge_buildings,
             min_building_detail=min_building_detail,
             min_building_area=min_building_area,
-            merge_tolerance=merge_tolerance,
             smoothing=smoothing,
             boundary_face_markers=boundary_face_markers,
             max_volume=max_volume,
@@ -474,6 +468,7 @@ class CityBuilderMixin:
             footprint_cleaning_plot_block=footprint_cleaning_plot_block,
             mesher=mesher,
             pipeline_mode=pipeline_mode,
+            isolated=isolated,
         )
         return volume_mesh
 

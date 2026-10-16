@@ -28,7 +28,7 @@ WORKFLOW_DEMOS = (
     "build_terrain_with_footprints.py",
     "build_view_cityjson.py",
     "create_cityjson.py",
-    "simplify_building_footprints.py",
+    "clean_building_footprints.py",
     "view_cityjson.py",
     "view_pointcloud.py",
 )
@@ -117,7 +117,7 @@ MIGRATED_FROM_DTCC = {
     "build_terrain_surface_mesh_with_footprints.py": "demos/build_terrain_with_footprints.py",
     "build_view_cityjson.py": "demos/build_view_cityjson.py",
     "create_cityjson.py": "demos/create_cityjson.py",
-    "simplify_building_footprints.py": "demos/simplify_building_footprints.py",
+    "simplify_building_footprints.py": "demos/clean_building_footprints.py",
     "view_cityjson.py": "demos/view_cityjson.py",
     "view_pointcloud.py": "demos/view_pointcloud.py",
 }

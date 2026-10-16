@@ -88,23 +88,16 @@ def _attribute_sources(output, raw, source_map):
     ]
 
 
-def _merge_eligibility_groups(
-    polygons,
-    source_map,
-    *,
-    merge_distance,
-    allow_source_merging,
-):
-    """Connected original-source groups that policy permits construction to join.
+def _merge_eligibility_groups(polygons, source_map, *, merge_distance):
+    """Connected groups of atoms that construction may join.
 
-    Eligibility is inclusive and transitive.  It is evaluated once against the
-    admitted original atoms, so later movement cannot bring a previously
-    ineligible source into a merge group.
+    Atoms of the same source, and atoms within ``merge_distance`` of each other
+    on the original input, belong to the same group. Eligibility is inclusive
+    and transitive. It is evaluated once against the admitted original atoms,
+    so later movement cannot bring a previously ineligible atom into a group.
     """
     if not polygons:
         return []
-    if not allow_source_merging:
-        return [[index] for index in range(len(polygons))]
 
     scale = max(
         1.0,
@@ -143,62 +136,6 @@ def _merge_eligibility_groups(
             stack.extend(sorted(nearby))
         groups.append(sorted(group, key=lambda index: _geometry_key(polygons[index])))
     return groups
-
-
-def _nonmerge_inset(raw, atoms, atom_sources, conflicts, *, delta, epsilon):
-    """Inset atoms in cross-group conflicts by just under epsilon, if that conforms.
-
-    A single whole-coverage proposal for sources that may not be merged. Mitred
-    insets keep corners sharp, so an atom with reflex corners usually loses
-    protected core and the proposal fails; the caller then constructs each
-    group separately.
-    """
-    inset_pairs = []
-    exclusions = []
-    inset_distance = epsilon * 0.999
-    for atom_index, (atom, sources) in enumerate(zip(atoms, atom_sources)):
-        candidate = (
-            atom.buffer(-inset_distance, join_style="mitre")
-            if atom_index in conflicts
-            else atom
-        )
-        parts = polygon_parts(candidate)
-        if not parts:
-            exclusions.append(
-                {
-                    "source_indices": list(sources),
-                    "area": float(atom.area),
-                    "reason": "empty_protected_core",
-                }
-            )
-        inset_pairs.extend((part, list(sources)) for part in parts)
-    inset_polygons = [item[0] for item in inset_pairs]
-    contract = check_cleaning_contract(
-        raw, inset_polygons, delta=delta, epsilon=epsilon, achieved=True
-    )
-    profile = check_mesher_handoff_profile(inset_polygons)
-    if contract["status"] != "pass" or profile["status"] != "pass":
-        return None
-    contract["mesher_profile"] = profile
-    inset_pairs.sort(key=lambda item: _geometry_key(item[0]))
-    return (
-        [item[0] for item in inset_pairs],
-        [item[1] for item in inset_pairs],
-        {
-            "outcome": "conforming",
-            "group_reports": [
-                {
-                    "group": None,
-                    "outcome": "conforming",
-                    "reason": "nonmerge_balanced_inset",
-                    "inset_distance": inset_distance,
-                }
-            ],
-            "policy_exclusions": exclusions,
-            "before_selection_contract": contract,
-            "mesher_profile": profile,
-        },
-    )
 
 
 def _construct_group(
@@ -360,8 +297,6 @@ def construct_coverage(
     delta=0.5,
     epsilon=None,
     retry_epsilon=None,
-    merge_distance=0.5,
-    allow_source_merging=True,
     allow_residual_separation=False,
 ):
     """Construct and attribute one complete coverage, or report unresolved groups.
@@ -381,10 +316,6 @@ def construct_coverage(
         does not conform at ``epsilon``. The retry is kept when it conforms,
         or when it gives a warning candidate for a group that had none. The
         assembled coverage is then checked at the largest budget used.
-    merge_distance : float, optional
-        Inclusive merge-eligibility distance on the original input.
-    allow_source_merging : bool, optional
-        Whether eligible sources may be merged.
     allow_residual_separation : bool, optional
         Accept a coverage whose only defect is residual separation.
 
@@ -396,6 +327,9 @@ def construct_coverage(
         the fidelity budget used, ``fidelity_budget_used``.
     """
     epsilon = delta / 2 if epsilon is None else epsilon
+    # One scale: sources within delta of each other on the original input may
+    # be merged.
+    merge_distance = delta
     if retry_epsilon is not None and not retry_epsilon > epsilon:
         retry_epsilon = None
     raw = list(raw)
@@ -414,10 +348,7 @@ def construct_coverage(
             atom_sources.append(sources)
 
     merge_groups = _merge_eligibility_groups(
-        atoms,
-        atom_sources,
-        merge_distance=merge_distance,
-        allow_source_merging=allow_source_merging,
+        atoms, atom_sources, merge_distance=merge_distance
     )
 
     identity_contract = check_cleaning_contract(
@@ -471,51 +402,11 @@ def construct_coverage(
                     "seconds": time.perf_counter() - started,
                     "input_interpretation": interpretations,
                     "merge_distance": float(merge_distance),
-                    "allow_source_merging": bool(allow_source_merging),
                     "merge_eligibility_groups": [
                         list(group) for group in merge_groups
                     ],
                 },
             )
-
-    if len(merge_groups) > 1 and atoms and epsilon > 0:
-        group_for_atom = {
-            atom_index: group_index
-            for group_index, members in enumerate(merge_groups)
-            for atom_index in members
-        }
-        tree = STRtree(atoms)
-        cross_group_conflicts: set[int] = set()
-        for atom_index, atom in enumerate(atoms):
-            for candidate in map(
-                int,
-                tree.query(atom, predicate="dwithin", distance=delta),
-            ):
-                if group_for_atom[candidate] != group_for_atom[atom_index]:
-                    cross_group_conflicts.update((atom_index, candidate))
-        # Without cross-group conflicts the proposal would be the input itself,
-        # which has already failed the identity check.
-        if cross_group_conflicts:
-            inset = _nonmerge_inset(
-                raw,
-                atoms,
-                atom_sources,
-                cross_group_conflicts,
-                delta=delta,
-                epsilon=epsilon,
-            )
-            if inset is not None:
-                polygons, sources, report = inset
-                report.update(
-                    groups=len(merge_groups),
-                    fidelity_budget_used=epsilon,
-                    seconds=time.perf_counter() - started,
-                    input_interpretation=interpretations,
-                    merge_distance=float(merge_distance),
-                    allow_source_merging=bool(allow_source_merging),
-                    merge_eligibility_groups=[list(group) for group in merge_groups],
-                )
-                return polygons, sources, report
 
     groups = merge_groups
     built = {}
@@ -552,7 +443,6 @@ def construct_coverage(
             "seconds": time.perf_counter() - started,
             "input_interpretation": interpretations,
             "merge_distance": float(merge_distance),
-            "allow_source_merging": bool(allow_source_merging),
             "merge_eligibility_groups": [list(group) for group in merge_groups],
         }
 
@@ -666,7 +556,6 @@ def construct_coverage(
             "seconds": time.perf_counter() - started,
             "input_interpretation": interpretations,
             "merge_distance": float(merge_distance),
-            "allow_source_merging": bool(allow_source_merging),
             "merge_eligibility_groups": [list(group) for group in merge_groups],
         }
     contract["mesher_profile"] = profile
@@ -682,7 +571,6 @@ def construct_coverage(
         "seconds": time.perf_counter() - started,
         "input_interpretation": interpretations,
         "merge_distance": float(merge_distance),
-        "allow_source_merging": bool(allow_source_merging),
         "merge_eligibility_groups": [list(group) for group in merge_groups],
     }
 

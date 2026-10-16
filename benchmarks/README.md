@@ -41,17 +41,19 @@ there is no implicit fallback to downloading new footprints or cleaning again.
 The selected tasks must have matching bounds and cleaning parameters in the
 saved run. Missing or ambiguous inputs fail clearly before execution.
 
-Flat meshing needs only the requested domain bounds and cleaned footprints.
+The cleaning phase saves the raw city, the cleaned city returned by
+`City.clean_footprints` (with its cleaning record) and the cleaned footprints.
+Flat meshing needs only the requested domain bounds and the cleaned city.
 Surface/volume meshing also needs terrain and building heights. These are
-prepared separately from the **saved source buildings**, preserving source
-indices, and saved as a city artifact. A later meshing run reuses that artifact
+prepared separately for the **saved cleaned buildings**, preserving their IDs
+and order, and saved as a city artifact. A later meshing run reuses that artifact
 when the dataset and preparation parameters match. Otherwise it acquires the
 additional LiDAR inputs and records that fact. Input preparation has its own
 status and time; its failure does not erase completed cleaning results.
 
-The cleaning handoff is the final mesher-ready footprint stage, including its
-existing normalization, not an earlier intermediate. Mesh builders validate
-and consume it without footprint repair. Height attachment, domain clipping,
+The cleaning handoff is the cleaned city. Its cleaning record (scale and a
+fingerprint of building IDs and footprints) lets the mesh builders validate and
+consume it without cleaning again; setting heights does not invalidate it. Height attachment, domain clipping,
 ground-region construction and meshing remain downstream operations. Existing
 mesh datasets compose the same builder stages automatically.
 
@@ -100,17 +102,19 @@ stdout.log
 stderr.log
 cleaning/
     raw.dtcc              # Original source buildings and IDs
-    footprints.geojson    # Cleaned polygons and many-to-many source mapping
+    cleaned.dtcc          # Cleaned city: blocks with the original buildings as parts
+    footprints.geojson    # Regions handed to meshing (a block per roof level) with building index, ID, roof
     metrics.json
 meshing/
-    city.dtcc             # Source buildings with prepared terrain/heights
+    city.dtcc             # Cleaned buildings with prepared terrain/heights
     metrics.json
 artifacts/                # Optional exported mesh
 ```
 
 The footprint artifact explicitly records **EPSG:3006, metre coordinates** in
 its metadata; do not interpret it as WGS84 GeoJSON. Loading checks its version,
-CRS, bounds, cleaning parameters, polygon geometry and source indices. Mesher
+CRS, bounds and cleaning parameters, that the cleaned city's cleaning record
+is valid, and that the saved footprints match the cleaned buildings. Mesher
 input validation remains active. Results from before phase separation do not
 contain this handoff and cannot be used for meshing-only runs, and artifacts of
 another format version are rejected; rerun their cleaning phase.
@@ -141,9 +145,9 @@ the smallest epsilon the result would also satisfy.
 JSON separates `before_selection_contract`, `selection`, and the selected
 handoff's `geometric_contract`. The usual counts and added/removed areas still
 compare raw inputs with that selected handoff. Selection reports excluded area
-and source maps explicitly; it never changes the cleaning reference. Direct
-cleaner callers apply `select_footprints(cleaned, min_area=...)` themselves.
-Dataset and benchmark `min_building_area` parameters apply after cleaning.
+and cleaned-building indices explicitly; it never changes the cleaning
+reference. Dataset and benchmark `min_building_area` parameters apply after
+cleaning, as in the mesh builders.
 
 A `borderline` fidelity result is inconclusive, not a pass. By default, residual
 separation defects alone produce a prominent warning and allow meshing to be

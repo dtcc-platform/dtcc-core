@@ -86,28 +86,23 @@ def cleaning_run(task, raw_city, tmp_path):
 
 @pytest.mark.parametrize("min_area", [15, 199])
 def test_separation_warning_survives_meshing_and_saved_replay(task, raw_city, tmp_path, monkeypatch, min_area):
-    from dtcc_core.builder.cleaning import (
-        ConditioningOptions, condition_polygon_coverage, select_footprints,
-    )
+    from functools import partial
 
-    raw = [b.footprint().to_polygon(simplify=0.0) for b in raw_city.buildings]
-    cleaned = select_footprints(condition_polygon_coverage(
-        raw, options=ConditioningOptions(fidelity_budget=0, enable_logging=False),
-    ), min_area=min_area)
-    conditioned = meshes._assemble_conditioned_footprints(
-        cleaned.polygons, cleaned.source_map, cleaned.diagnostics,
-        source_areas=[p.area for p in raw], source_heights=[10, 10],
-        source_roof_z=[10, 10], min_building_detail=0.5,
-        max_mesh_size=10, pipeline_mode="strict",
+    from dtcc_core.builder.cleaning import clean as clean_module
+    from dtcc_core.builder.cleaning.footprints import ConditioningOptions
+
+    # A zero fidelity budget cannot close the 0.2 m gap: a warning candidate.
+    monkeypatch.setattr(
+        clean_module, "ConditioningOptions", partial(ConditioningOptions, fidelity_budget=0)
     )
-    monkeypatch.setattr(meshes, "build_conditioned_footprints", lambda *a, **k: conditioned)
+    task["parameters"]["min_building_area"] = min_area
     task.update(dataset="city_flat_mesh", phase="both")
     first = benchmark_datasets.run_dataset(task)
     assert first["status"] == "warning", first["error"]
     assert first["metrics"]["cleaning"]["status"] == "warning"
     artifact = first["artifacts"]["cleaning_input"]["path"]
     _, restored = benchmark_phases.load_cleaning(artifact, task)
-    assert restored.diagnostics["before_selection_contract"]["status"] == "fail"
+    assert restored.attributes["footprint_cleaning"]["contract"]["status"] == "fail"
     task.update(phase="meshing", cleaning_input=artifact, task_dir=str(tmp_path / "replay"))
     replay = benchmark_datasets.run_dataset(task)
     assert replay["status"] == "warning", replay["error"]
@@ -185,9 +180,10 @@ def test_cleaning_is_independent_and_measures_fidelity(cleaning_run, raw_city):
     assert metrics["unrepresented_source_count"] == 0
     assert "mesh_input" not in result["metrics"]
     saved = Path(result["artifacts"]["cleaning_input"]["path"])
-    city, conditioned = benchmark_phases.load_cleaning(saved, task)
-    assert [b.id for b in city.buildings] == ["raw-0", "raw-1"]
-    assert conditioned.source_map == [[0, 1]]
+    raw, cleaned = benchmark_phases.load_cleaning(saved, task)
+    assert [b.id for b in raw.buildings] == ["raw-0", "raw-1"]
+    assert len(cleaned.buildings) == 1
+    assert [p.id for p in cleaned.buildings[0].building_parts] == ["raw-0", "raw-1"]
     assert (saved.parent / "metrics.json").exists()
 
 
@@ -207,8 +203,7 @@ def test_meshing_replays_cleaned_geometry_without_cleaner(
     def forbidden(*args, **kwargs):
         raise AssertionError("Cleaner or footprint download called during meshing")
 
-    monkeypatch.setattr(meshes, "condition_polygon_coverage", forbidden)
-    monkeypatch.setattr(meshes, "build_conditioned_footprints", forbidden)
+    monkeypatch.setattr(meshes, "clean_regions", forbidden)
     monkeypatch.setattr(
         benchmark_phases, "prepare_footprint_city_from_bounds", forbidden
     )
@@ -437,7 +432,7 @@ def test_cli_plots_saved_cleaning_and_rejects_empty_selection(cleaning_run):
 
 
 @pytest.mark.parametrize(
-    "corruption", ["crs", "sources", "bounds", "selection", "policy_exclusion"]
+    "corruption", ["crs", "building", "geometry", "bounds", "parameters", "record"]
 )
 def test_corrupt_cleaning_artifact_fails_clearly(cleaning_run, corruption):
     _, task, result = cleaning_run
@@ -445,14 +440,16 @@ def test_corrupt_cleaning_artifact_fails_clearly(cleaning_run, corruption):
     payload = json.loads(path.read_text())
     if corruption == "crs":
         payload["metadata"]["crs"] = "EPSG:4326"
-    elif corruption == "sources":
-        payload["features"][0]["properties"]["source_indices"] = [999]
-    elif corruption == "selection":
-        payload["metadata"]["selection"]["output_count"] += 1
-    elif corruption == "policy_exclusion":
-        payload["metadata"]["policy_exclusions"] = [
-            {"source_indices": [999], "area": 1.0, "reason": "test"}
-        ]
+    elif corruption == "building":
+        payload["features"][0]["properties"]["building_index"] = 999
+    elif corruption == "geometry":
+        ring = payload["features"][0]["geometry"]["coordinates"][0]
+        ring[0][0] += 1
+        ring[-1][0] += 1
+    elif corruption == "parameters":
+        payload["metadata"]["parameters"]["min_building_area"] += 1
+    elif corruption == "record":
+        payload["metadata"]["cleaning"]["fingerprint"] = "0" * 40
     else:
         payload["metadata"]["bounds"][0] += 1
     path.write_text(json.dumps(payload))
@@ -673,7 +670,8 @@ def test_cleaning_fidelity_is_separate_from_explicit_area_selection(task, raw_ci
     assert metrics["geometric_contract"]["fidelity"]["status"] == "fail"
     assert metrics["selection"]["removed_count"] == 1
     assert metrics["selection"]["removed_area"] == pytest.approx(9.0)
-    assert metrics["selection"]["unrepresented_source_indices"] == [2]
+    # Indices of cleaned buildings: the merged block, then the small one.
+    assert metrics["selection"]["unrepresented_source_indices"] == [1]
     payload = json.loads(
         Path(result["artifacts"]["cleaning_input"]["path"]).read_text()
     )

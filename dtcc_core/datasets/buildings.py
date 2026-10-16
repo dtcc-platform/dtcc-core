@@ -1,5 +1,5 @@
 import dtcc_core
-from dtcc_core.model import BuildingCollection, City
+from dtcc_core.model import BuildingCollection, City, GeometryType
 from typing import Literal, Optional
 from pydantic import Field
 
@@ -241,8 +241,13 @@ class BuildingDataset(DatasetDescriptor):
                     return buildings
                 elif args.format in ("obj", "stl"):
                     report_progress(percent=20, message="Extracting building meshes...")
+                    # A cleaned block has one LOD1 prism per part.
                     building_meshes = [
-                        b.lod1.mesh(weld=True, snap=0.005) for b in buildings
+                        lod1.mesh(weld=True, snap=0.005)
+                        for lod1 in (
+                            b.flatten_geometry(GeometryType.LOD1) for b in buildings
+                        )
+                        if lod1 is not None
                     ]
                     if args.place_on_zero:
                         for b in building_meshes:

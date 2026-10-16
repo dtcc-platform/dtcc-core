@@ -58,8 +58,6 @@ def test_city_surface_mesh_default_build_returns_surface_mesh(
         min_mesh_angle=25.0,
         min_building_detail=0.5,
         min_building_area=15.0,
-        merge_buildings=True,
-        merge_tolerance=0.5,
         smoothing=0,
         show_footprints=False,
         footprint_cleaning_plot_block=True,
@@ -67,6 +65,7 @@ def test_city_surface_mesh_default_build_returns_surface_mesh(
         report_mesh_quality=True,
         pipeline_mode="strict",
         stage_audit=None,
+        isolated=False,
     )
 
 
@@ -88,8 +87,6 @@ def test_city_surface_mesh_parameter_plumbing(
             min_mesh_angle=31.0,
             min_building_detail=1.25,
             min_building_area=27.0,
-            merge_buildings=False,
-            merge_tolerance=0.75,
             smoothing=4,
             show_footprints=True,
             footprint_cleaning_plot_block=False,
@@ -111,8 +108,6 @@ def test_city_surface_mesh_parameter_plumbing(
         min_mesh_angle=31.0,
         min_building_detail=1.25,
         min_building_area=27.0,
-        merge_buildings=False,
-        merge_tolerance=0.75,
         smoothing=4,
         show_footprints=True,
         footprint_cleaning_plot_block=False,
@@ -120,6 +115,7 @@ def test_city_surface_mesh_parameter_plumbing(
         report_mesh_quality=False,
         pipeline_mode="strict",
         stage_audit=ANY,
+        isolated=False,
     )
     assert isinstance(mock_build_city_surface_mesh.call_args.kwargs["stage_audit"], dict)
 
