@@ -10,6 +10,7 @@ from dtcc_core.model import Bounds, Raster
 # 1 km x 1 km in central Gothenburg (EPSG:3006): a 10 x 10 grid of 100 m cells.
 BOUNDS = Bounds(319000.0, 6397000.0, 320000.0, 6398000.0)
 MOLLWEIDE = "ESRI:54009"
+NODATA = 65535
 
 
 def _mollweide_window(value=2500.0, margin=500.0):
@@ -23,8 +24,8 @@ def _mollweide_window(value=2500.0, margin=500.0):
     top = np.ceil((max(ys) + margin) / 100) * 100
     cols = int(np.ceil((max(xs) + margin - left) / 100))
     rows = int(np.ceil((top - (min(ys) - margin)) / 100))
-    data = np.full((rows, cols), value, dtype=np.float32)
-    return data, Affine(100.0, 0, left, 0, -100.0, top), MOLLWEIDE
+    data = np.full((rows, cols), value, dtype=np.uint16)
+    return data, Affine(100.0, 0, left, 0, -100.0, top), MOLLWEIDE, NODATA
 
 
 @pytest.fixture
@@ -34,8 +35,8 @@ def fake_read(monkeypatch, tmp_path):
 
     def read(url, bounds):
         calls.append((url, bounds))
-        data, transform, crs = state["window"]
-        return data.copy(), transform, crs
+        data, transform, crs, nodata = state["window"]
+        return data.copy(), transform, crs, nodata
 
     monkeypatch.setattr(ghsl, "_read_window", read)
     monkeypatch.setattr(ghsl, "cache_dir", tmp_path)
@@ -78,8 +79,8 @@ def test_selects_file_for_epoch_and_component(fake_read, epoch, component, name)
 def test_nodata_source_gives_nan_and_warns(fake_read, monkeypatch):
     warnings = []
     monkeypatch.setattr(ghsl, "warning", warnings.append)
-    data, transform, crs = _mollweide_window()
-    fake_read.state["window"] = (np.full_like(data, np.nan), transform, crs)
+    data, transform, crs, nodata = _mollweide_window()
+    fake_read.state["window"] = (np.full_like(data, NODATA), transform, crs, nodata)
 
     raster = ghsl.download_built_up(BOUNDS)
 
