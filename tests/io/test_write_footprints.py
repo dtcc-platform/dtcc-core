@@ -1,6 +1,7 @@
 import pytest
 from pathlib import Path
 import json
+from shapely.geometry import shape
 
 import dtcc_core
 
@@ -45,6 +46,20 @@ def test_write_shp_zip(simple_city, loaded_buildings):
         data = f.read()
         assert data[:2] == b"PK"  # zip file signature
     Path("footprints.shp.zip").unlink()
+
+
+def test_source_bounds_vector_export_and_reload(simple_city, tmp_path):
+    source_bounds = simple_city.buildings[0].attributes["source_bounds"]
+    path = tmp_path / "footprints.geojson"
+    dtcc_core.io.save_footprints(simple_city, path)
+    data = json.loads(path.read_text())
+    feature = data["features"][0]
+    assert feature["properties"]["source_bounds"] == ",".join(map(str, source_bounds))
+
+    restored = dtcc_core.io.load_footprints(path)
+    assert restored[0].attributes["source_bounds"] == pytest.approx(
+        shape(feature["geometry"]).bounds
+    )
 
 
 @pytest.mark.parametrize("extension", ["pb", "pb2"])

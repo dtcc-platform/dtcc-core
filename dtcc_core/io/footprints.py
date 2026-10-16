@@ -151,7 +151,7 @@ def _load_fiona(
                 building = _building_from_fiona(
                     s, uuid_field, height_field, target_crs, geometry=building_shape
                 )
-
+                building.attributes["source_bounds"] = list(building_shape.bounds)
                 buildings.append(building)
             if geom_type == "MultiPolygon":
                 for idx, polygon in enumerate(list(building_shape.geoms)):
@@ -168,7 +168,7 @@ def _load_fiona(
                         target_crs,
                         geometry=polygon,
                     )
-
+                    building.attributes["source_bounds"] = list(building_shape.bounds)
                     buildings.append(building)
 
     info(f"Loaded {len(buildings)} building footprints in {target_crs}")
@@ -185,7 +185,7 @@ def load(
     target_crs=None,
 ) -> list[Building]:
     """
-    Load the buildings from a supported file and return a `City` object.
+    Load building footprints from supported vector files.
 
     Parameters
     ----------
@@ -208,8 +208,22 @@ def load(
 
     Returns
     -------
-    City
-        A `City` object representing the city loaded from the shapefile.
+    list[Building]
+        Buildings representing the loaded footprints.
+
+    Notes
+    -----
+    Each building has a computed ``attributes["source_bounds"]`` list containing
+    ``[minx, miny, maxx, maxy]`` for its whole source feature in the load's target
+    CRS, before multipart splitting or invalid-polygon repair. All parts carry
+    the same source extent even if dataset area filters later remove some parts.
+    This key replaces any source property of the same name.
+
+    These bounds preserve the extent used for source-feature containment tests;
+    they are not the current building's bounds and are not updated by later
+    geometry changes. Compare them only with query bounds in the load's CRS.
+    Native model serialization preserves the numeric list. Vector-file reloads
+    compute new source bounds from the features in that file.
     """
     if isinstance(filename, (list, tuple)):
         buildings = []
@@ -346,6 +360,15 @@ def save(city, filename, output_crs=None):
         automatically reprojected. If None:
         - GeoJSON files use EPSG:4326 (WGS84) per spec
         - Other formats use data's current CRS
+
+    Notes
+    -----
+    GeoJSON, Shapefile and GeoPackage exports serialize list attributes,
+    including ``source_bounds``, as comma-separated strings. Attributes are not
+    reprojected with the geometry, so ``source_bounds`` remains in the CRS used
+    when the footprints were loaded.
+    Use native model serialization to preserve the numeric list. Reloading an
+    exported vector file computes source bounds from its exported geometry.
     """
     generic.save(city, filename, "city", _save_formats, output_crs=output_crs)
 

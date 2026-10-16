@@ -4,6 +4,7 @@ import pytest
 import matplotlib
 matplotlib.use('Agg', force=True)
 import matplotlib.pyplot as plt
+from affine import Affine
 
 from dtcc_core.model import (
     Bounds, City, Field, Grid, Mesh, Object, Point, PointCloud, Raster, Solid,
@@ -94,3 +95,80 @@ def test_raster_nodata_and_explicit_elevation_meaning():
     raster.data[:] = np.nan
     with pytest.raises(ValueError, match='No finite'):
         raster.plot(show=False)
+
+
+@pytest.mark.parametrize('channels', [3, 4])
+@pytest.mark.parametrize('floating', [False, True])
+def test_image_raster_preserves_colours_alpha_and_model(channels, floating):
+    data = np.array([[[255, 0, 0, 255], [0, 0, 0, 255]],
+                     [[0, 255, 0, 128], [0, 0, 255, 0]]], dtype=np.uint8)[..., :channels]
+    if floating:
+        data = data.astype(float) / 255
+    raster = Raster(data=data, georef=Affine(10, 0, 100, 0, -10, 200), crs='EPSG:3006')
+    before = exchange.dumps(raster)
+    ax = raster.plot(show=False)
+    assert ax.name == 'rectilinear'
+    assert len(ax.images) == 1 and len(ax.figure.axes) == 1
+    np.testing.assert_array_equal(ax.images[0].get_array(), data)
+    assert ax.get_xlim() == pytest.approx((100, 120))
+    assert ax.get_ylim() == pytest.approx((180, 200))
+    assert ax.get_aspect() == 1
+    ax.figure.canvas.draw()
+    assert exchange.dumps(raster) == before
+
+
+@pytest.mark.parametrize('georef', [Affine(10, 0, 100, 0, -20, 200),
+                                   Affine(10, 0, 100, 0, 20, 200),
+                                   Affine(10, 3, 100, 2, -20, 200)])
+def test_image_raster_places_pixel_centres_using_the_full_affine(georef):
+    raster = Raster(data=np.full((2, 3, 3), 255, dtype=np.uint8), georef=georef)
+    ax = raster.plot(show=False)
+    artist = ax.images[0]
+    assert artist.origin == 'upper'
+    assert tuple(artist.get_extent()) == (0, 3, 2, 0)
+    centres = np.array([[.5, .5], [2.5, 1.5]])
+    plotted = ax.transData.inverted().transform(artist.get_transform().transform(centres))
+    np.testing.assert_allclose(plotted, [georef * tuple(p) for p in centres])
+    b = raster.bounds
+    assert ax.get_xlim() == pytest.approx((b.xmin, b.xmax))
+    assert ax.get_ylim() == pytest.approx((b.ymin, b.ymax))
+
+
+@pytest.mark.parametrize('shape', [(21, 33), (1, 1000), (1000, 1)])
+def test_large_image_preview_is_bounded_without_cropping(shape):
+    raster = Raster(data=np.full((*shape, 4), 255, dtype=np.uint8),
+                    georef=Affine(2, 0, 100, 0, -2, 200))
+    ax = raster.plot(max_elements=17, show=False)
+    sampled = ax.images[0].get_array()
+    assert sampled.shape[0] * sampled.shape[1] <= 17
+    assert sampled.shape[-1] == 4
+    assert tuple(ax.images[0].get_extent()) == (0, shape[1], shape[0], 0)
+    b = raster.bounds
+    assert ax.get_xlim() == pytest.approx((b.xmin, b.xmax))
+    assert ax.get_ylim() == pytest.approx((b.ymin, b.ymax))
+    assert any('sampled' in text.get_text() for text in ax.texts)
+
+
+def test_image_preview_uses_supplied_axes_and_show_option(monkeypatch):
+    raster = Raster(data=np.full((2, 2, 3), 255, dtype=np.uint8))
+    _, ax = plt.subplots()
+    shown = []
+    monkeypatch.setattr(plt, 'show', lambda: shown.append(True))
+    assert raster.plot(ax=ax, show=False, theme='light') is ax
+    assert shown == []
+    raster.plot()
+    assert shown == [True]
+    ax3d = plt.figure().add_subplot(projection='3d')
+    with pytest.raises(ValueError, match='2D axes'):
+        raster.plot(ax=ax3d, show=False)
+    with pytest.raises(ValueError, match='positive integer'):
+        raster.plot(max_elements=0, show=False)
+    with pytest.raises(ValueError, match='selectors require an Object'):
+        raster.plot(lod='0', show=False)
+
+
+def test_empty_image_and_unsupported_band_layouts_fail_clearly():
+    with pytest.raises(ValueError, match='No image pixels'):
+        Raster(data=np.empty((0, 2, 4), dtype=np.uint8)).plot(show=False)
+    with pytest.raises(ValueError, match='scalar 2D raster'):
+        Raster(data=np.zeros((2, 2, 2), dtype=np.uint8)).plot(show=False)

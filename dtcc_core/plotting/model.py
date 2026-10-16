@@ -149,6 +149,42 @@ def _field_locations(g, f, limit, notes):
     return _xyz(points), values
 
 
+def _plot_image_raster(raster, *, ax, max_elements, theme, show):
+    """Preview RGB/RGBA pixels in their georeferenced 2D frame."""
+    from matplotlib.transforms import Affine2D
+
+    plt = require_matplotlib('raster previews')
+    height, width = raster.data.shape[:2]
+    if not height or not width:
+        raise ValueError('No image pixels to preview')
+    data = raster.data
+    sampled = height * width > max_elements
+    if sampled:
+        rows = max(1, min(height, max_elements, int(np.sqrt(max_elements * height / width))))
+        cols = min(width, max_elements // rows)
+        row_ids = ((np.arange(rows) + .5) * height / rows).astype(np.intp)
+        col_ids = ((np.arange(cols) + .5) * width / cols).astype(np.intp)
+        data = data[row_ids[:, None], col_ids]
+    if ax is None:
+        _, ax = plt.subplots(figsize=(11, 8))
+    elif getattr(ax, 'name', None) != 'rectilinear':
+        raise ValueError('Image raster previews require a Matplotlib 2D axes')
+    t = raster.georef
+    transform = Affine2D.from_values(t.a, t.d, t.b, t.e, t.c, t.f)
+    ax.imshow(data, origin='upper', extent=(0, width, height, 0),
+              interpolation='nearest', transform=transform + ax.transData)
+    bounds = raster.bounds
+    ax.set(xlim=(bounds.xmin, bounds.xmax), ylim=(bounds.ymin, bounds.ymax))
+    apply_dtcc_style(ax, theme=theme, equal_aspect=True, title='Raster preview',
+                     xlabel='X', ylabel='Y')
+    if sampled:
+        ax.text(.01, .01, 'Large image sampled', transform=ax.transAxes,
+                fontsize=8, color=get_theme(theme)['muted'])
+    if show:
+        plt.show()
+    return ax
+
+
 def _plot_model(root, *, ax, lod, representation, field, max_elements, theme, show):
     if isinstance(max_elements, bool) or not isinstance(max_elements, int) or max_elements < 1:
         raise ValueError('max_elements must be a positive integer')
@@ -173,6 +209,10 @@ def _plot_model(root, *, ax, lod, representation, field, max_elements, theme, sh
     entries = _entries(root, lod, representation, field, check_crs)
     if not entries:
         raise ValueError('No geometry matches the requested preview selectors')
+    if (isinstance(root, Raster) and root.data.ndim == 3
+            and root.channels in (3, 4) and field is None):
+        return _plot_image_raster(root, ax=ax, max_elements=max_elements,
+                                  theme=theme, show=show)
     limit = max_elements
     polygons, polygon_colors, lines, line_colors, points, point_colors = [], [], [], [], [], []
     numeric_points, numeric_values, numeric_metadata = [], [], []
