@@ -145,6 +145,7 @@ Current Built-In Datasets
 | `point_cloud` | raw | `PointCloud` | `copc`, `las`, `laz` | Lantmäteriet/DTCC backend point cloud with classification presets and optional outlier removal. |
 | `building_footprints` | raw | `FootprintCollection` | `geojson`, `gpkg`, `shp.zip` | Provider/cache footprints for context and table alignment; use `crs="EPSG:3006"` for table GeoJSON. |
 | `buildings` | derived | `BuildingCollection` | `obj`, `stl` | LoD1 block buildings from selected footprints and point-cloud-derived heights. |
+| `built_up` | raw | `Raster` | `tif` | GHSL GHS-BUILT-S R2023A built-up surface in m² per 100 m cell for any epoch 1975-2030 (2025/2030 projected), total or non-residential; reprojection preserves area totals. |
 | `city` | derived | `City` | `cityjson`, `json` | Terrain plus LoD1 buildings; both serialized paths currently produce CityJSON-compatible JSON bytes. |
 | `terrain_surface_mesh` | derived | `Mesh` or `Raster` | `tif`, `obj`, `stl` | Point-cloud-derived terrain raster or mesh with outlier, adaptive meshing, smoothing, and mesher controls. |
 | `city_flat_mesh` | derived | `Mesh` | `obj`, `stl`, `vtu` | Flat z=0 2D mesh with conditioned LOD0 building subdomains. |
