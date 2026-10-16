@@ -54,6 +54,7 @@ from .deso import DeSODataset
 from .built_up import BuiltUpDataset
 from .smoke import SmokeDataset
 from .calibration_grid import CalibrationGridDataset
+from .orthophoto import OrthophotoDataset
 
 # Remote dataset support (optional, requires httpx)
 try:
@@ -106,6 +107,7 @@ deso = get_dataset("deso")
 built_up = get_dataset("built_up")
 smoke = get_dataset("smoke")
 calibration_grid = get_dataset("calibration_grid")
+orthophoto = get_dataset("orthophoto")
 
 
 _CATEGORY_ORDER = ("raw", "derived", "synthetic", "simulation", "remote", "unknown")

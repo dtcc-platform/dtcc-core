@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import warnings
 import zipfile
 
 import numpy as np
@@ -99,6 +100,33 @@ def test_object_export_sanitizes_object_artifact_names(tmp_path):
     assert ".." not in artifact.path
     assert artifact.size == artifact_path.stat().st_size
     assert artifact.sha256 == _sha256(artifact_path)
+
+
+@pytest.mark.parametrize("status", [None, "complete"])
+def test_legacy_export_without_lost_health_does_not_warn(tmp_path, status):
+    city = City()
+    context = _context(datasets.city)
+    if status is not None:
+        context = context.model_copy(update={"health": {"status": status}})
+    attach_dataset_context(city, context)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        city.export(tmp_path / "city_pkg", format="json")
+
+
+@pytest.mark.parametrize("status", ["partial", "warning"])
+def test_legacy_export_warns_when_health_is_dropped(tmp_path, status):
+    city = City()
+    context = _context(datasets.city).model_copy(update={"health": {"status": status}})
+    attach_dataset_context(city, context)
+    with pytest.warns(UserWarning, match=f"{status}.*canonical=True") as record:
+        city.export(tmp_path / "city_pkg", format="json")
+    # Attributed to the caller of export, not to the package code.
+    assert record[0].filename == __file__
+    assert (tmp_path / "city_pkg" / "manifest.json").is_file()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        city.export(tmp_path / "canonical_pkg", canonical=True)
 
 
 def test_object_export_without_dataset_context_is_rejected(tmp_path):

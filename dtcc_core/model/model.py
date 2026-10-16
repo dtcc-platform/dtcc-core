@@ -66,7 +66,10 @@ class Model(ABC):
 
     def plot(self, ax=None, *, lod=None, representation=None, field=None,
              max_elements=20000, theme="dark", show=True):
-        """Quick 3D Matplotlib preview; return the axes for further customization.
+        """Quick Matplotlib preview; return the axes for further customization.
+
+        RGB/RGBA rasters use a georeferenced 2D image preview; other models use
+        a 3D preview.
 
         Objects select one representation each and traverse their children.
         Use ``representation`` (attachment ID), exact ``lod`` or a ``field`` name
