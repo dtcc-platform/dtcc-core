@@ -1,9 +1,9 @@
 import dtcc_core
 import numpy as np
 from pathlib import Path
-from dtcc_core.model import City, GeometryType
+from dtcc_core.model import City
 from typing import Any, Literal, Optional
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from .dataset import DatasetDescriptor, DatasetBaseArgs
 from ._city_mesh_common import prepare_city_from_bounds
@@ -28,9 +28,9 @@ class CityVolumeMeshArgs(DatasetBaseArgs):
     domain_height: float = Field(
         80.0, description="Height of the computational domain (H parameter) in meters"
     )
-    lod: Optional[GeometryType] = Field(
-        None,
-        description="Optional building geometry level of detail for meshing",
+    lod: Literal["lod1", "lod2"] = Field("lod1", description="Requested output level of detail")
+    lod2_method: Literal["catalogue", "ransac"] = Field(
+        "catalogue", description="Roof reconstruction algorithm for LOD2 output"
     )
     min_mesh_angle: float = Field(25.0, description="Minimum triangle angle in degrees")
     raster_cell_size: float = Field(
@@ -130,6 +130,13 @@ class CityVolumeMeshArgs(DatasetBaseArgs):
     format: Optional[Literal["xdmf", "vtu"]] = Field(
         None, description="Output file format"
     )
+
+
+    @model_validator(mode="after")
+    def validate_output_lod(self):
+        if self.lod == "lod1" and self.lod2_method != "catalogue":
+            raise ValueError("lod2_method='ransac' requires lod='lod2'")
+        return self
 
 
 class CityVolumeMeshDataset(DatasetDescriptor):
@@ -304,6 +311,7 @@ class CityVolumeMeshDataset(DatasetDescriptor):
         return dtcc_core.builder.build_city_volume_mesh(
             city,
             lod=args.lod,
+            lod2_method=args.lod2_method,
             max_mesh_size=args.max_mesh_size,
             top_cap_max_mesh_size=args.top_cap_max_mesh_size,
             domain_height=args.domain_height,

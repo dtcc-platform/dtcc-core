@@ -12,7 +12,6 @@ from dtcc_core.datasets.city_volume_mesh import (
     CityVolumeMeshDataset,
     _regular_tet_volume,
 )
-from dtcc_core.model import GeometryType
 from pydantic import ValidationError
 
 
@@ -66,7 +65,8 @@ def test_city_volume_mesh_default_build_returns_volume_mesh(
     )
     mock_build_city_volume_mesh.assert_called_once_with(
         city,
-        lod=None,
+        lod="lod1",
+        lod2_method="catalogue",
         max_mesh_size=25.0,
         top_cap_max_mesh_size=None,
         domain_height=80.0,
@@ -102,7 +102,8 @@ def test_city_volume_mesh_build_from_city_forwards_advanced_args(
     result = dataset.build_from_city(
         city,
         bounds=(0.0, 0.0, 1.0, 1.0),
-        lod=GeometryType.LOD0,
+        lod="lod2",
+        lod2_method="ransac",
         max_mesh_size=30.0,
         top_cap_max_mesh_size=45.0,
         domain_height=95.0,
@@ -124,7 +125,8 @@ def test_city_volume_mesh_build_from_city_forwards_advanced_args(
 
     assert result is volume_mesh
     kwargs = mock_build_city_volume_mesh.call_args.kwargs
-    assert kwargs["lod"] == GeometryType.LOD0
+    assert kwargs["lod"] == "lod2"
+    assert kwargs["lod2_method"] == "ransac"
     assert kwargs["max_mesh_size"] == 30.0
     assert kwargs["top_cap_max_mesh_size"] == 45.0
     assert kwargs["domain_height"] == 95.0
@@ -240,7 +242,7 @@ def test_city_volume_mesh_context_documents_tetgen_and_boundary_markers():
         "DTCC Platform": "processor",
         "TetGen": "tetrahedral_meshing_backend",
     }
-    assert manifest.metadata.lod.startswith("3D computational volume")
+    assert manifest.metadata.lod == "lod1"
     assert "tetrahedral_mesh" in manifest.metadata.data_types
     assert "xdmf" in manifest.metadata.formats
     assert {item["name"] for item in manifest.provenance.derived_from} == {

@@ -11,7 +11,7 @@ city.add_flat_terrain(buffer=10)
 
 # The city mesher extrudes footprints; it does not retain the detailed LOD2 roofs.
 mesh = dtcc.builder.build_city_surface_mesh(
-    city, lod=dtcc.model.GeometryType.LOD2, max_mesh_size=10.0,
+    city, lod="lod1", max_mesh_size=10.0,
 )
 mesh.plot()
 mesh.view()

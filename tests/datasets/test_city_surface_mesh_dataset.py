@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from unittest.mock import ANY, Mock, patch
+import pytest
 
 import dtcc_core.datasets as datasets
 from dtcc_core.datasets import get_dataset
@@ -14,6 +15,14 @@ from dtcc_core.datasets.city_surface_mesh import (
 
 def test_city_surface_mesh_registered_name():
     assert CitySurfaceMeshDataset().name == "city_surface_mesh"
+
+
+@pytest.mark.parametrize('kwargs',[
+    dict(lod='lod1',lod2_method='ransac'),
+])
+def test_invalid_output_lod_combinations_fail_during_request_validation(kwargs):
+    with pytest.raises(ValueError):
+        CitySurfaceMeshDataset().validate(dict(bounds=(0.,0.,1.,1.),**kwargs))
 
 
 def test_city_surface_mesh_get_dataset():
@@ -54,6 +63,8 @@ def test_city_surface_mesh_default_build_returns_surface_mesh(
     )
     mock_build_city_surface_mesh.assert_called_once_with(
         city,
+        lod="lod1",
+        lod2_method="catalogue",
         max_mesh_size=10.0,
         min_mesh_angle=25.0,
         min_building_detail=0.5,
@@ -83,6 +94,8 @@ def test_city_surface_mesh_parameter_plumbing(
     dataset.build(
         CitySurfaceMeshArgs(
             bounds=(0.0, 0.0, 1.0, 1.0),
+            lod="lod2",
+            lod2_method="ransac",
             max_mesh_size=18.0,
             min_mesh_angle=31.0,
             min_building_detail=1.25,
@@ -104,6 +117,8 @@ def test_city_surface_mesh_parameter_plumbing(
 
     mock_build_city_surface_mesh.assert_called_once_with(
         city,
+        lod="lod2",
+        lod2_method="ransac",
         max_mesh_size=18.0,
         min_mesh_angle=31.0,
         min_building_detail=1.25,
@@ -183,7 +198,7 @@ def test_city_surface_mesh_context_documents_meshing_lineage_and_limits():
         "Lantmäteriet": "source_provider",
         "DTCC Platform": "processor",
     }
-    assert manifest.metadata.lod.startswith("Terrain surface")
+    assert manifest.metadata.lod == "lod1"
     assert "surface_mesh" in manifest.metadata.data_types
     assert {item["name"] for item in manifest.provenance.derived_from} == {
         "point_cloud",

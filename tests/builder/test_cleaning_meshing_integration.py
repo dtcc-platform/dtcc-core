@@ -332,7 +332,7 @@ def test_build_city_surface_mesh_rejects_complete_domain_handoff_acute_sector():
     with pytest.raises(meshes_module.MesherHandoffError) as error:
         build_city_surface_mesh(
             city,
-            lod=GeometryType.LOD0,
+            lod="lod1",
             min_building_detail=0.5,
             min_building_area=0.0,
             building_mesh_triangle_size=2.0,
@@ -1716,7 +1716,7 @@ def test_build_city_surface_mesh_extrudes_every_cleaned_building(monkeypatch):
 
     mesh = build_city_surface_mesh(
         city,
-        lod=[GeometryType.LOD1, GeometryType.LOD0, GeometryType.LOD2],
+        lod="lod1",
         min_building_detail=0.5,
         min_building_area=1.0,
         building_mesh_triangle_size=6.0,
@@ -1800,7 +1800,7 @@ def test_build_city_surface_mesh_uses_raw_ground_markers(monkeypatch):
 
     mesh = build_city_surface_mesh(
         city,
-        lod=GeometryType.LOD0,
+        lod="lod1",
         min_building_detail=0.0,
         min_building_area=1.0,
         max_mesh_size=6.0,
@@ -2039,7 +2039,7 @@ def test_build_city_volume_mesh_uses_shared_surface_pipeline(monkeypatch):
 
     volume_mesh = build_city_volume_mesh(
         city,
-        lod=GeometryType.LOD0,
+        lod="lod1",
         min_building_detail=0.0,
         min_building_area=1.0,
         max_mesh_size=6.0,
@@ -2196,7 +2196,7 @@ def test_build_city_volume_mesh_stage_audit_records_stage_contracts(monkeypatch)
 
     volume_mesh = build_city_volume_mesh(
         city,
-        lod=GeometryType.LOD0,
+        lod="lod1",
         min_building_detail=0.25,
         min_building_area=1.0,
         max_mesh_size=6.0,
@@ -2489,7 +2489,7 @@ def test_build_city_surface_mesh_stage_audit_records_core_stages(monkeypatch):
     stage_audit = {}
     mesh = build_city_surface_mesh(
         city,
-        lod=GeometryType.LOD0,
+        lod="lod1",
         report_mesh_quality=False,
         stage_audit=stage_audit,
     )
@@ -2728,7 +2728,7 @@ def test_build_city_volume_mesh_keeps_requested_tetgen_switches(monkeypatch):
 
     build_city_volume_mesh(
         city,
-        lod=GeometryType.LOD0,
+        lod="lod1",
         min_building_detail=0.0,
         min_building_area=1.0,
         max_mesh_size=6.0,
@@ -2890,7 +2890,7 @@ def test_build_city_volume_mesh_uses_split_surface_default_without_flat_special_
 
     build_city_volume_mesh(
         city,
-        lod=GeometryType.LOD0,
+        lod="lod1",
         min_building_detail=0.0,
         min_building_area=1.0,
         max_mesh_size=6.0,
@@ -3033,7 +3033,7 @@ def test_build_city_volume_mesh_allows_empty_conditioned_footprints(monkeypatch)
 
     volume_mesh = build_city_volume_mesh(
         city,
-        lod=GeometryType.LOD0,
+        lod="lod1",
         min_building_detail=0.0,
         min_building_area=1.0,
         max_mesh_size=6.0,
@@ -3168,7 +3168,7 @@ def test_build_city_volume_mesh_respects_explicit_tetgen_switches_for_dtcc_meshe
 
     build_city_volume_mesh(
         city,
-        lod=GeometryType.LOD0,
+        lod="lod1",
         min_building_detail=0.0,
         min_building_area=1.0,
         max_mesh_size=6.0,
@@ -3315,7 +3315,7 @@ def test_build_city_volume_mesh_saves_tetgen_debug_meshes(monkeypatch, tmp_path)
 
     build_city_volume_mesh(
         city,
-        lod=GeometryType.LOD0,
+        lod="lod1",
         min_building_detail=0.0,
         min_building_area=1.0,
         max_mesh_size=6.0,
@@ -3683,7 +3683,7 @@ def test_build_city_volume_mesh_captures_quality_failure_artifacts(monkeypatch, 
 
     build_city_volume_mesh(
         city,
-        lod=GeometryType.LOD0,
+        lod="lod1",
         min_building_detail=0.0,
         min_building_area=1.0,
         max_mesh_size=6.0,
@@ -3839,7 +3839,7 @@ def test_build_city_volume_mesh_ignores_quality_failure_capture_errors(
 
     volume_mesh = build_city_volume_mesh(
         city,
-        lod=GeometryType.LOD0,
+        lod="lod1",
         min_building_detail=0.0,
         min_building_area=1.0,
         max_mesh_size=6.0,
@@ -4045,7 +4045,7 @@ def test_build_city_volume_mesh_uses_refined_shell_without_retry(
 
     volume_mesh = build_city_volume_mesh(
         city,
-        lod=GeometryType.LOD0,
+        lod="lod1",
         min_building_detail=0.0,
         min_building_area=1.0,
         max_mesh_size=6.0,
@@ -4221,7 +4221,7 @@ def test_build_city_volume_mesh_keeps_shell_refinement_enabled_when_preserving_s
 
     build_city_volume_mesh(
         city,
-        lod=GeometryType.LOD0,
+        lod="lod1",
         min_building_detail=0.0,
         min_building_area=1.0,
         max_mesh_size=6.0,
@@ -4319,7 +4319,7 @@ def test_build_city_flat_mesh_runs_with_auto_lod_resolution():
     assert np.any(mesh.markers == -2)
 
 
-def test_build_city_surface_mesh_runs_with_mixed_lod_directives():
+def test_build_city_surface_mesh_runs_with_mixed_stored_geometry():
     city = make_flat_city(
         [
             make_building(box(8, 8, 18, 18), roof_z=10.0, lod1_polygon=box(8, 8, 18, 18)),
@@ -4329,7 +4329,7 @@ def test_build_city_surface_mesh_runs_with_mixed_lod_directives():
 
     mesh = build_city_surface_mesh(
         city,
-        lod=[GeometryType.LOD1, GeometryType.LOD2],
+        lod="lod1",
         min_building_detail=0.0,
         min_building_area=1.0,
         building_mesh_triangle_size=5.0,
@@ -4396,7 +4396,7 @@ def test_build_city_surface_mesh_keeps_tall_wall_roof_seams_closed():
 
     mesh = build_city_surface_mesh(
         city,
-        lod=GeometryType.LOD0,
+        lod="lod1",
         min_building_detail=0.5,
         min_building_area=1.0,
         building_mesh_triangle_size=4.0,
@@ -4502,7 +4502,7 @@ def test_build_city_volume_mesh_smoke(entry_point):
     )
 
     kwargs = dict(
-        lod=GeometryType.LOD0,
+        lod="lod1",
         domain_height=40.0,
         max_mesh_size=8.0,
         min_mesh_angle=20.0,
@@ -4575,7 +4575,7 @@ def test_city_volume_mesh_propagates_tetgen_failure(monkeypatch):
     monkeypatch.setattr(meshes_module, "tetgen_build_volume_mesh", fail_tetgen)
     with pytest.raises(RuntimeError, match="TetGen meshing failed") as exc:
         build_city_volume_mesh(
-            city, lod=GeometryType.LOD0, max_mesh_size=8.0, domain_height=40.0,
+            city, lod="lod1", max_mesh_size=8.0, domain_height=40.0,
             min_building_detail=0.0, min_building_area=1.0,
             report_mesh_quality=False, stage_audit=stage_audit,
         )

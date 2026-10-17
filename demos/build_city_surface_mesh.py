@@ -19,17 +19,17 @@ isolated_city = dtcc.builder.clean_footprints(
     city, min_building_detail=0.5, isolated=True, min_area=15.0, show=True,
 )
 isolated_mesh = dtcc.builder.build_city_surface_mesh(
-    isolated_city, min_building_detail=0.5, isolated=True, max_mesh_size=10.0,
+    isolated_city, lod="lod2", min_building_detail=0.5, isolated=True, max_mesh_size=10.0,
 )
 isolated_mesh.plot(max_elements=len(isolated_mesh.faces))
 isolated_mesh.view()
 
-# Start from the original city again and merge nearby footprints.
+# Start from the original city again and fit catalogue roofs to merged footprints.
 merged_city = dtcc.builder.clean_footprints(
     city, min_building_detail=0.5, isolated=False, min_area=15.0, show=True,
 )
 merged_mesh = dtcc.builder.build_city_surface_mesh(
-    merged_city, min_building_detail=0.5, isolated=False, max_mesh_size=10.0,
+    merged_city, lod="lod2", min_building_detail=0.5, isolated=False, max_mesh_size=10.0,
 )
 merged_mesh.plot(max_elements=len(merged_mesh.faces))
 merged_mesh.view()

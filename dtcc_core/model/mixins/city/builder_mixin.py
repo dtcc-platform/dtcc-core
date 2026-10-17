@@ -234,7 +234,7 @@ class CityBuilderMixin:
 
     def build_surface_mesh(
         self: "T_City",
-        lod: GeometryType | list[GeometryType] | None = None,
+        lod: str | GeometryType = "lod1",
         min_building_detail: float = 0.5,
         min_building_area: float = 15.0,
         building_mesh_triangle_size: float = 5.0,
@@ -248,6 +248,13 @@ class CityBuilderMixin:
         mesher: str | None = None,
         pipeline_mode: str = "strict",
         isolated: bool = False,
+        *,
+        lod2_method: str = "catalogue",
+        roof_options=None,
+        surface_refinement=None,
+        compact_surface=None,
+        stage_audit=None,
+        report_mesh_quality: bool = True,
     ) -> Mesh:
         """
         Build a city surface mesh from the buildings and terrain.
@@ -277,6 +284,21 @@ class CityBuilderMixin:
         `mesher` : {"auto", "dtcc_mesher", "triangle"}, optional
             Select the 2D meshing backend used to triangulate the ground and
             surface shell.
+        `lod` : {"lod1", "lod2"} or GeometryType, optional
+            Requested output level, default "lod1". LOD2 reconstructs roofs from
+            observations in either isolation mode; it does not support volumes.
+        `lod2_method` : {"catalogue", "ransac"}, keyword-only
+            LOD2 reconstruction algorithm, default "catalogue".
+        `roof_options` : RoofFitOptions or None, keyword-only
+            Catalogue shapes and fit thresholds (see builder.roofs).
+        `compact_surface` : CompactSurfaceOptions or None, keyword-only
+            None selects bounded compact catalogue meshing with dtcc_mesher.
+            CompactSurfaceOptions(budgeted=False) disables optional points.
+            Mesh sizes govern reference terrain; see docs/compact_mesher_interface.md.
+        `surface_refinement` : SurfaceRefinementOptions or None, keyword-only
+            Explicit shared-edge catalogue pilot; see docs/shared_edge_pilot.md.
+        `stage_audit` : dict or None, keyword-only
+            Receives source, fitting, topology and fallback diagnostics.
         `show_footprints` : bool, optional
             Show a live Matplotlib comparison of raw and conditioned
             footprints before meshing.
@@ -304,6 +326,12 @@ class CityBuilderMixin:
             mesher=mesher,
             pipeline_mode=pipeline_mode,
             isolated=isolated,
+            lod2_method=lod2_method,
+            roof_options=roof_options,
+            report_mesh_quality=report_mesh_quality,
+            **({"compact_surface": compact_surface} if compact_surface is not None else {}),
+            **({"surface_refinement": surface_refinement} if surface_refinement is not None else {}),
+            stage_audit=stage_audit,
         )
         return surface_mesh
 
@@ -377,7 +405,7 @@ class CityBuilderMixin:
 
     def build_volume_mesh(
         self: "T_City",
-        lod: GeometryType | None = None,
+        lod: str | GeometryType = "lod1",
         domain_height: float = 100.0,
         max_mesh_size: float = 10.0,
         min_mesh_angle: float = 25.0,
@@ -388,6 +416,9 @@ class CityBuilderMixin:
         tetgen_switches=None,
         tetgen_switch_overrides=None,
         *,
+        lod2_method: str = "catalogue",
+        roof_options=None,
+        compact_surface=None,
         show_footprints: bool = False,
         footprint_cleaning_plot_block: bool = True,
         mesher: str | None = None,
@@ -403,10 +434,13 @@ class CityBuilderMixin:
 
         Parameters
         ----------
-        lod : GeometryType, optional
-            Level-of-Detail directive for building footprints. When omitted,
-            each building resolves the first available geometry in the order
-            ``LOD1 -> LOD2 -> LOD3 -> LOD0``.
+        lod : {"lod1", "lod2"}, optional
+            Requested output detail, default "lod1". LOD2 uses the joint fitted
+            surface pipeline and catalogue roofs by default.
+        lod2_method : {"catalogue", "ransac"}, optional
+            Select the LOD2 roof reconstruction method.
+        roof_options, compact_surface : optional
+            LOD2 fitting and triangulation options, as in build_surface_mesh.
         domain_height : float, optional
             Height of the volume domain above terrain (default 100.0).
         max_mesh_size : float, optional
@@ -453,6 +487,9 @@ class CityBuilderMixin:
         volume_mesh = build_city_volume_mesh(
             self,
             lod=lod,
+            lod2_method=lod2_method,
+            roof_options=roof_options,
+            compact_surface=compact_surface,
             domain_height=domain_height,
             max_mesh_size=max_mesh_size,
             top_cap_max_mesh_size=top_cap_max_mesh_size,

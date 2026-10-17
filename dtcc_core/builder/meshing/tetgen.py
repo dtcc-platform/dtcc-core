@@ -66,8 +66,8 @@ def has_volume_veto(mesh: Mesh) -> bool:
     """Whether a surface mesh is marked as unfit to bound a volume mesh.
 
     The mark is a geometry field ``volume_boundary`` with value 0, as on the
-    surface mesh of buildings cleaned in isolation. It is metadata, not a
-    geometric check: a mesh without it is still audited as a boundary (PLC)
+    surface mesh of buildings cleaned in isolation or a separated shell. It is
+    metadata, not a geometric check: a mesh without it is still audited as a boundary (PLC)
     before volume meshing.
     """
     for field in getattr(mesh, "fields", []) or []:
@@ -105,10 +105,9 @@ def build_volume_mesh(
     return_boundary_faces : bool, optional
         Request TetGen to return boundary faces; stored on the resulting VolumeMesh.
     closure_mesh : Mesh, optional
-        Optional flat closure mesh used to source the outer-domain top-cap and
-        sidewall boundary loops when ``prebuilt_plc`` is not supplied. The live
-        PLC is rebuilt from the shell/closure geometry rather than by copying a
-        pre-existing boundary-facet list directly.
+        Closure reference when ``prebuilt_plc`` is not supplied. Its vertex
+        array shape is checked; top-cap and sidewall loops come from ``mesh``.
+        The shell itself can be used as this reference.
     top_cap_backend : str, optional
         2D backend used when re-triangulating the top cap from the shell's
         outer-domain boundary. Defaults to ``"auto"``.
@@ -162,8 +161,8 @@ def build_volume_mesh(
     if has_volume_veto(mesh):
         raise ValueError(
             "Input mesh is marked as unfit to bound a volume mesh (for example a "
-            "surface mesh of buildings cleaned in isolation, whose shells may "
-            "intersect each other and the terrain). Build the volume mesh from "
+            "separated surface mesh or buildings cleaned in isolation). "
+            "Build the volume mesh from "
             "the city with buildings cleaned in unison."
         )
 

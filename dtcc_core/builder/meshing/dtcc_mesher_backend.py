@@ -174,6 +174,7 @@ def build_city_flat_mesh_with_dtcc_mesher(
     region_points: list[np.ndarray] | None = None,
     max_mesh_size: float | None,
     min_mesh_angle: float,
+    coordinate_tolerance: float | None = None,
 ) -> Mesh:
     """Mesh a flat polygon coverage at z=0 with dtcc_mesher.
 
@@ -233,7 +234,7 @@ def build_city_flat_mesh_with_dtcc_mesher(
     if not valid_polygons:
         return Mesh()
 
-    geometry = dtcc_mesher.Coverage(valid_polygons, valid_markers)
+    geometry = dtcc_mesher.Coverage(valid_polygons, valid_markers, tolerance=coordinate_tolerance)
     if region_points is not None:
         coverage_graph = geometry.graph(max_edge_length=max_edge_length)
         geometry = dtcc_mesher.CoverageGraph(

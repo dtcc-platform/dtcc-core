@@ -7,6 +7,7 @@ from . import meshing
 from . import geometry
 from . import city
 from . import building
+from .roofs import RoofFitOptions, supported_shapes
 from . import polygons
 from . import roadnetwork
 
@@ -73,6 +74,8 @@ def __getattr__(name: str):
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 
 
+from .meshing.surface_refinement import SurfaceRefinementOptions
+
 from .meshing.boundary_conformance import conform_boundary
 
 __all__ = [
@@ -80,6 +83,9 @@ __all__ = [
     "compute_building_heights",
     "build_lod1_buildings",
     "build_lod2_buildings",
+    "RoofFitOptions",
+    "SurfaceRefinementOptions",
+    "supported_shapes",
     "clean_footprints",
     "UnresolvedFootprintCleaningError",
     "build_building_shell",
@@ -105,3 +111,5 @@ __all__ = [
     "set_default_2d_mesher",
     "conform_boundary",
 ]
+
+from .meshing.compact_surface import CompactSurfaceOptions

@@ -1133,6 +1133,19 @@ def _remesh_top_cap_from_outer_boundary(
         )
         top_vertices_xy = np.asarray(raw_mesh.points, dtype=np.float64)
         top_faces = np.asarray(raw_mesh.triangles, dtype=np.int64)
+        boundary_indices = _triangle_mesh_boundary_vertex_indices(top_faces)
+        if len(boundary_indices) != len(top_ring):
+            # Size seeding can subdivide constrained edges even with refine=False.
+            # Reuse its interior seeds with the prescribed ring as fixed constraints.
+            # Domain side walls and the cap must share these exact boundary vertices.
+            interior = np.ones(len(top_vertices_xy), dtype=bool)
+            interior[boundary_indices] = False
+            domain = dtcc_mesher.Domain.from_loops(ring_xy, [])
+            domain.points = np.vstack([domain.points, top_vertices_xy[interior]])
+            raw_mesh = dtcc_mesher.mesh(domain, options=dtcc_mesher.MeshingOptions(
+                refine=False, acute_protection="none"))
+            top_vertices_xy = np.asarray(raw_mesh.points, dtype=np.float64)
+            top_faces = np.asarray(raw_mesh.triangles, dtype=np.int64)
     else:
         from .flat_mesh_backends import build_city_flat_mesh_from_coverage
 

@@ -9,6 +9,7 @@ isolated_mesh = dtcc.datasets.city_surface_mesh(
     bounds=bounds,
     min_building_detail=0.5,
     max_mesh_size=10.0,
+    lod="lod2",
     isolated=True,
     show_footprints=True,
 )
@@ -17,11 +18,12 @@ isolated_mesh.save("output/city_surface_mesh_isolated.vtu")
 isolated_mesh.plot(max_elements=len(isolated_mesh.faces))
 isolated_mesh.view()
 
-# Merge nearby footprints while retaining their different roof heights.
+# Fit catalogue roofs to jointly cleaned footprints.
 merged_mesh = dtcc.datasets.city_surface_mesh(
     bounds=bounds,
     min_building_detail=0.5,
     max_mesh_size=10.0,
+    lod="lod2",
     isolated=False,
     show_footprints=True,
 )

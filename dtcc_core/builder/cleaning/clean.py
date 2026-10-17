@@ -572,6 +572,9 @@ def cleaned_buildings(
                 output_height=regions.output_height[output],
             )
         building.add_geometry(footprint, GeometryType.LOD0)
+        if not positions and len(members[output]) == 1 and SOURCE_FOOTPRINT_KEY not in building.attributes:
+            label = members[output][0]
+            set_source_footprint(building, regions.label_polygons[label], regions.label_roof_z[label])
         if positions:
             parts = building.building_parts
             for label, position in positions.items():
@@ -667,7 +670,7 @@ def cleaning_record(
 
 
 def regions_from_cleaned_city(city: City, record: dict[str, Any]) -> CleanedRegions:
-    """Read the regions of a city cleaned in unison, one per building.
+    """Read the regions of a cleaned city, one per building.
 
     Regions are returned in the cleaner's canonical order, as a new cleaning
     would return them. The cells of a block are its walls for the current

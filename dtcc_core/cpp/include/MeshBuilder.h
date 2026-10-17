@@ -11,6 +11,7 @@
 #include <iostream>
 #include <limits>
 #include <map>
+#include <set>
 #include <stack>
 #include <stdexcept>
 #include <string>
@@ -132,7 +133,8 @@ public:
                                    const std::vector<double> &subdomain_triangle_size, double xmin,
                                    double ymin, double xmax, double ymax, double max_mesh_size,
                                    double min_mesh_angle, bool sort_triangles = false,
-                                   const std::string &backend = "auto")
+                                   const std::string &backend = "auto",
+                                   size_t max_steiner_points = 0)
   {
     info("Building city flat mesh...");
     Timer timer("build_city_flat_mesh");
@@ -190,21 +192,57 @@ public:
     info("Triangulation backend: triangle");
     Triangulate::call_triangle(mesh, boundary, triangle_sub_domains, triangle_holes,
                                subdomain_triangle_size, max_mesh_size, min_mesh_angle,
-                               sort_triangles);
+                               sort_triangles, max_steiner_points);
 
     MeshProcessor::compute_mesh_domain_markers(mesh, subdomains);
 
     return mesh;
   }
 
+  // Compatibility entry point for constant-height LOD1 roofs.
   static std::vector<Mesh>
   build_city_surface_mesh_from_terrain_mesh(
       const std::vector<Surface> &buildings,
       const std::vector<int> meshing_directive,
+      Mesh terrain_mesh, size_t smooth_ground = 0,
+      bool merge_meshes = true, double min_wall_strip = 0.0)
+  {
+    return build_city_surface_mesh_from_terrain_mesh_impl(
+        buildings, meshing_directive, std::move(terrain_mesh), smooth_ground,
+        merge_meshes, min_wall_strip, {}, {});
+  }
+
+  // Generic affine patches: [origin x, origin y, slope x, slope y, elevation].
+  // Region markers index planes; owners identify source cells, not roof families.
+  static std::vector<Mesh>
+  build_city_surface_mesh_from_patch_planes(
+      const std::vector<Surface> &patches,
+      const std::vector<std::array<double, 5>> &planes,
+      const std::vector<int> &owners,
+      Mesh terrain_mesh, size_t smooth_ground = 0,
+      bool merge_meshes = true, double min_wall_strip = 0.0)
+  {
+    if (planes.size() != patches.size() || owners.size() != patches.size())
+      throw std::invalid_argument("Each roof patch needs one affine plane and source owner.");
+    for (const auto &plane : planes)
+      for (const double coefficient : plane)
+        if (!std::isfinite(coefficient))
+          throw std::invalid_argument("Nonfinite roof plane coefficient.");
+    return build_city_surface_mesh_from_terrain_mesh_impl(
+        patches, std::vector<int>(patches.size(), 1), std::move(terrain_mesh),
+        smooth_ground, merge_meshes, min_wall_strip, planes, owners);
+  }
+
+  static std::vector<Mesh>
+  build_city_surface_mesh_from_terrain_mesh_impl(
+      const std::vector<Surface> &buildings,
+      const std::vector<int> meshing_directive,
       Mesh terrain_mesh,
-      size_t smooth_ground = 0,
-      bool merge_meshes = true,
-      double min_wall_strip = 0.0)
+      size_t smooth_ground,
+      bool merge_meshes,
+      double min_wall_strip,
+      const std::vector<std::array<double, 5>> &planes,
+      const std::vector<int> &owners)
   {
     auto build_city_surface_t = Timer("build_city_surface_mesh");
     const size_t num_buildings = buildings.size();
@@ -321,6 +359,7 @@ public:
     // Roof level of each building. Roofs in a block that differ by less than
     // a tolerance are unified, so they meet without a sliver step.
     std::map<size_t, double> roof_z;
+    if (planes.empty())
     for (const auto &block : blocks)
     {
       std::vector<std::pair<double, size_t>> roofs;
@@ -338,6 +377,44 @@ public:
         start = i;
       }
     }
+
+    // Reconcile numerical coincidence only, independently of cleaning scale.
+    std::map<std::pair<size_t, size_t>, double> patch_heights;
+    if (!planes.empty())
+    {
+      std::map<size_t, std::vector<std::pair<double, size_t>>> at_vertex;
+      for (const auto &kv : building_faces)
+      {
+        std::set<size_t> vertices;
+        for (const auto &face : kv.second)
+          for (int j = 0; j < 3; ++j)
+            vertices.insert(face[j]);
+        const auto &p = planes[kv.first];
+        for (const auto vi : vertices)
+        {
+          const auto &v = terrain_mesh.vertices[vi];
+          const double z = p[2] * (v.x - p[0]) + p[3] * (v.y - p[1]) + p[4];
+          if (!(z > building_min_z[kv.first]))
+            throw std::runtime_error("Roof patch is at or below the terrain base.");
+          at_vertex[vi].push_back({z, kv.first});
+        }
+      }
+      for (auto &kv : at_vertex)
+      {
+        std::sort(kv.second.begin(), kv.second.end());
+        double canonical = kv.second.front().first;
+        for (const auto &height_marker : kv.second)
+        {
+          if (height_marker.first - canonical > 1e-6)
+            canonical = height_marker.first;
+          patch_heights[{height_marker.second, kv.first}] = canonical;
+        }
+      }
+    }
+    const auto roof_at = [&](size_t marker, size_t vertex)
+    {
+      return planes.empty() ? roof_z[marker] : patch_heights.at({marker, vertex});
+    };
 
     // The building markers on each edge of a building face.
     std::unordered_map<Simplex1D, std::vector<size_t>, Simplex1DHash> edge_markers;
@@ -382,18 +459,29 @@ public:
         for (const auto &edge_face : MeshProcessor::find_naked_edges(building_faces[marker]))
         {
           const Simplex1D edge = edge_face.first;
-          double z0 = base;
+          double bottom0 = base, bottom1 = base;
+          const double top0 = roof_at(marker, edge.v0), top1 = roof_at(marker, edge.v1);
           bool shared = false;
           for (const auto other : edge_markers[edge])
           {
             if (other == marker)
               continue;
             shared = true;
-            z0 = roof_z[other];
+            bottom0 = roof_at(other, edge.v0);
+            bottom1 = roof_at(other, edge.v1);
+            if (!planes.empty() && owners[marker] == owners[other] &&
+                (std::abs(top0 - bottom0) > 1e-6 || std::abs(top1 - bottom1) > 1e-6))
+              throw std::runtime_error("Discontinuous patches within source roof at patch " + std::to_string(marker) +
+                  " (endpoint differences in nm: " + std::to_string(1e9 * (top0-bottom0)) + ", " +
+                  std::to_string(1e9 * (top1-bottom1)) + ").");
           }
-          if (shared && z0 >= roof_z[marker])
+          const double d0 = top0 - bottom0, d1 = top1 - bottom1;
+          if (shared && !planes.empty() &&
+              ((d0 > 1e-8 && d1 < -1e-8) || (d1 > 1e-8 && d0 < -1e-8)))
+            throw std::runtime_error("Unnoded roof-height crossing on a shared edge.");
+          if (shared && d0 + d1 <= 0)
             continue;
-          walls[marker].push_back({edge, edge_face.second, z0, roof_z[marker]});
+          walls[marker].push_back({edge, edge_face.second, bottom0, top0, bottom1, top1});
           const auto &v0 = terrain_mesh.vertices[edge.v0];
           const auto &v1 = terrain_mesh.vertices[edge.v1];
           const double horizontal_length =
@@ -401,8 +489,8 @@ public:
           for (const size_t v : {static_cast<size_t>(edge.v0), static_cast<size_t>(edge.v1)})
           {
             auto &keys = line_keys[v];
-            keys.push_back(z0);
-            keys.push_back(roof_z[marker]);
+            keys.push_back(v == static_cast<size_t>(edge.v0) ? bottom0 : bottom1);
+            keys.push_back(v == static_cast<size_t>(edge.v0) ? top0 : top1);
             if (horizontal_length > Constants::epsilon &&
                 50.0 * horizontal_length >= min_wall_strip)
             {
@@ -419,6 +507,19 @@ public:
     for (auto &kv : line_keys)
     {
       const auto width = line_width.find(kv.first);
+      // Bound the zipper's state space for generic patches, including when
+      // physical footprint detail is zero and a mandatory edge is very short.
+      if (!planes.empty())
+      {
+        const double w = width == line_width.end() ? 0.0 : width->second;
+        const double strip = std::max(5.0 * w, min_wall_strip);
+        const auto range = std::minmax_element(kv.second.begin(), kv.second.end());
+        const double span = *range.second - *range.first;
+        const double extra = w > Constants::epsilon && strip > Constants::epsilon
+                                 ? std::ceil(span / strip) : 0.0;
+        if (kv.second.size() + extra > 1024)
+          throw std::runtime_error("Roof wall subdivision budget exceeded at a narrow vertical interface.");
+      }
       line_levels[kv.first] = subdivided_wall_levels(
           std::move(kv.second),
           width == line_width.end() ? 0.0 : width->second,
@@ -429,7 +530,6 @@ public:
     {
       const auto marker = kv.first;
       const auto &faces = kv.second;
-      const auto roof_height = roof_z[marker];
       const auto &building_walls = walls[marker];
 
       Mesh building_mesh;
@@ -443,9 +543,9 @@ public:
         const auto v0 = terrain_mesh.vertices[face.v0];
         const auto v1 = terrain_mesh.vertices[face.v1];
         const auto v2 = terrain_mesh.vertices[face.v2];
-        const auto v3 = Vector3D(v0.x, v0.y, roof_height);
-        const auto v4 = Vector3D(v1.x, v1.y, roof_height);
-        const auto v5 = Vector3D(v2.x, v2.y, roof_height);
+        const auto v3 = Vector3D(v0.x, v0.y, roof_at(marker, face.v0));
+        const auto v4 = Vector3D(v1.x, v1.y, roof_at(marker, face.v1));
+        const auto v5 = Vector3D(v2.x, v2.y, roof_at(marker, face.v2));
 
         const auto num_vertices = building_mesh.vertices.size();
         building_mesh.vertices.push_back(v3);
@@ -462,8 +562,8 @@ public:
         const auto ground_v0 = terrain_mesh.vertices[wall.edge.v0];
         const auto ground_v1 = terrain_mesh.vertices[wall.edge.v1];
         const auto bottom_v0 = Vector3D(ground_v0.x, ground_v0.y, wall.z0);
-        const auto bottom_v1 = Vector3D(ground_v1.x, ground_v1.y, wall.z0);
-        const auto top_v1 = Vector3D(ground_v1.x, ground_v1.y, wall.z1);
+        const auto bottom_v1 = Vector3D(ground_v1.x, ground_v1.y, wall.bottom1);
+        const auto top_v1 = Vector3D(ground_v1.x, ground_v1.y, std::max(wall.top1, wall.bottom1 + 1.0));
 
         const auto wall_normal = Geometry::triangle_normal(bottom_v0, bottom_v1, top_v1);
         const bool flip_orientation =
@@ -474,6 +574,8 @@ public:
             ground_v1,
             wall.z0,
             wall.z1,
+            wall.bottom1,
+            wall.top1,
             line_levels[wall.edge.v0],
             line_levels[wall.edge.v1],
             static_cast<int>(marker),
@@ -651,13 +753,15 @@ private:
   }
 
   // A wall of a building shell: the footprint edge, a face of the building
-  // on that edge (to orient the wall outwards) and its bottom and top level.
+  // on that edge (to orient the wall outwards), with bottom/top at both ends.
   struct BuildingWall
   {
     Simplex1D edge;
     Simplex2D face;
     double z0;
     double z1;
+    double bottom1;
+    double top1;
   };
 
   // Roofs closer than this are the same level.
@@ -750,7 +854,8 @@ private:
   }
 
   // Append a vertical wall panel over the footprint edge (v0, v1) from level
-  // z0 to level z1. Its sides are split at the levels of their vertical lines
+  // z0/z1 at v0 and bottom1/top1 at v1. A collapsed side is one vertex.
+  // Its sides are split at the levels of their vertical lines
   // in that range (levels0 at v0, levels1 at v1), and the panel is
   // triangulated by a monotone zipper that maximizes its worst triangle
   // quality while retaining every boundary level on both sides.
@@ -759,6 +864,8 @@ private:
                                 const Vector3D &v1,
                                 double z0,
                                 double z1,
+                                double bottom1,
+                                double top1,
                                 const std::vector<double> &levels0,
                                 const std::vector<double> &levels1,
                                 int marker,
@@ -766,9 +873,9 @@ private:
   {
     const double lo = std::min(z0, z1);
     const double hi = std::max(z0, z1);
-    if (!(hi > lo))
+    if (!(hi > lo) && !(top1 > bottom1))
       return;
-    const auto side = [&](const Vector3D &v, const std::vector<double> &levels)
+    const auto side = [&](const Vector3D &v, const std::vector<double> &levels, double lo, double hi)
     {
       std::vector<size_t> indices;
       indices.push_back(mesh.vertices.size());
@@ -781,12 +888,15 @@ private:
           mesh.vertices.push_back(Vector3D(v.x, v.y, z));
         }
       }
-      indices.push_back(mesh.vertices.size());
-      mesh.vertices.push_back(Vector3D(v.x, v.y, hi));
+      if (hi > lo)
+      {
+        indices.push_back(mesh.vertices.size());
+        mesh.vertices.push_back(Vector3D(v.x, v.y, hi));
+      }
       return indices;
     };
-    const auto a = side(v0, levels0);
-    const auto b = side(v1, levels1);
+    const auto a = side(v0, levels0, lo, hi);
+    const auto b = side(v1, levels1, bottom1, top1);
     const auto add = [&](size_t p, size_t q, size_t r)
     {
       // Unflipped, (v0 bottom, v1 bottom, v1 top) is the orientation of a quad.

@@ -26,7 +26,7 @@ weather, air-quality, hydrology, ocean, and transit layers.
 | `demos/dataset_transit_vehicles.py` | Live bus positions | `vehicles.plot()` |
 | `demos/dataset_trees.py` | Point-cloud-derived trees | `trees.plot()` |
 | `demos/dataset_terrain_surface_mesh.py` | Terrain surface mesh | `terrain.plot()` / `.view()` |
-| `demos/dataset_city_surface_mesh.py` | Joint and isolated city surface meshes | `isolated_mesh.plot()` / `.view()` and `merged_mesh.plot()` / `.view()` |
+| `demos/dataset_city_surface_mesh.py` | Joint and isolated LOD2 city surface meshes | `isolated_mesh.plot()` / `.view()` and `merged_mesh.plot()` / `.view()` |
 | `demos/dataset_city_flat_mesh.py` | Flat mesh with footprint subdomains | `flat_mesh.plot()` / `.view()` |
 | `demos/dataset_city_volume_mesh.py` | Air-volume mesh; see limitations below | `volume_mesh.plot()` / `.view()` |
 | `demos/dataset_city.py` | Terrain and LOD1 city model | `city.plot(lod="1")` / `.view()` |
@@ -46,8 +46,8 @@ when it is installed with a working graphical display.
 | 3 | `demos/build_lod1_buildings.py` | Offline: one block with roofs at 8, 16 and 12 m; LOD1 geometry followed by `build_building_shell()` |
 | 4 | `demos/dataset_city.py` | Terrain and LOD1 buildings through one high-level call |
 | 5 | `demos/dataset_city_flat_mesh.py` | A 2D mesh with footprint subdomains |
-| 6 | `demos/dataset_city_surface_mesh.py` | Isolated and joint surface meshes through two explicit dataset calls |
-| 7 | `demos/build_city_surface_mesh.py` | Download and estimate heights once, then explicitly clean and mesh in each isolation mode |
+| 6 | `demos/dataset_city_surface_mesh.py` | Isolated and joint LOD2 surface meshes through two explicit dataset calls |
+| 7 | `demos/build_city_surface_mesh.py` | Download and estimate heights once, then explicitly clean and mesh isolated and joint LOD2 buildings |
 
 `isolated=True` cleans buildings independently and does not merge neighbours.
 Its surface mesh contains separate building shells and terrain, which may
@@ -73,7 +73,8 @@ dtcc-core creates missing parent directories automatically. The CityJSON export
 example writes `output/city.city.json`. The surface-mesh dataset demo writes
 `output/city_surface_mesh_isolated.vtu` and `output/city_surface_mesh_merged.vtu`
 for ParaView. The volume-mesh dataset demo writes `output/city_volume_mesh.vtu`
-after successful meshing.
+after successful meshing. The LOD2 comparison writes `output/lod2_catalogue.vtu`
+and `output/lod2_ransac.vtu`, without opening a viewer.
 The two CityJSON examples read bundled data using paths relative to
 the repository root.
 
@@ -81,6 +82,7 @@ the repository root.
 |---|---|---|
 | `demos/clean_building_footprints.py` | Compare isolated and joint footprint cleaning | DTCC service |
 | `demos/build_lod1_buildings.py` | Clean three neighbours, build LOD1 geometry and mesh the block's exterior shell | synthetic, offline |
+| `demos/compare_lod2.py` | Two dataset calls → catalogue and RANSAC LOD2 surface meshes saved as VTU | DTCC service |
 | `demos/build_city_surface_mesh.py` | Estimate heights → clean footprints → mesh terrain and buildings | DTCC service |
 | `demos/build_terrain_with_footprints.py` | Terrain-only mesh conforming to cleaned footprint subdomains | DTCC service |
 | `demos/build_terrain_raster.py` | Ground points → terrain raster | DTCC service |
@@ -92,8 +94,7 @@ the repository root.
 
 Volume meshing (`dataset_city_volume_mesh.py`) is separate from the core tour. The volume example
 requires TetGen and exports the air-volume tetrahedra to `output/city_volume_mesh.vtu`.
-It uses jointly cleaned buildings; isolated surface meshes are not valid volume boundaries. It
-shows the API, not a guarantee of mesh quality: nearly collinear wall constraints
+It uses `lod="lod2"` and the same joint fitted surface pipeline as surface meshing. Isolated surface meshes are not valid volume boundaries. It shows the API, not a guarantee of mesh quality: nearly collinear wall constraints
 and near-flat tetrahedra remain unresolved in
 [issue #156](https://github.com/dtcc-platform/dtcc-core/issues/156). Keep its
 reported failures visible rather than changing tolerances to force a result.
