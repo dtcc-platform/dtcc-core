@@ -3,6 +3,7 @@ from dtcc_core.model import RoadNetwork
 from pydantic import Field
 from typing import Literal, Optional
 
+from dtcc_core.builder.roadnetwork import filter_road_network
 from .dataset import DatasetDescriptor, DatasetBaseArgs
 from .providers import provider_entry
 
@@ -14,6 +15,14 @@ class RoadsArgs(DatasetBaseArgs):
         description=(
             "Road-network source. OSM uses OpenStreetMap highway ways through "
             "the Overpass/cache download path."
+        ),
+    )
+    network: Literal["all", "drive", "walk", "bike"] = Field(
+        "all",
+        description=(
+            "Travel mode. 'all' keeps every OSM highway way; 'drive', 'walk' "
+            "and 'bike' keep only the ways that mode may use, based on "
+            "highway, access, foot, bicycle, motor_vehicle and motorroad tags."
         ),
     )
     format: Optional[Literal["pb"]] = Field(
@@ -70,8 +79,16 @@ class RoadsDataset(DatasetDescriptor):
         ),
         "Convert provider geometries to a DTCC RoadNetwork in EPSG:3006",
         (
-            "Preserve edge-aligned OpenStreetMap tags such as highway and "
-            "oneway when available"
+            "Preserve edge-aligned OpenStreetMap tags such as highway, oneway, "
+            "surface, lit, sidewalk and cycleway when available"
+        ),
+        (
+            "Mark segment ends at crossings and traffic signals with "
+            "start/end_node_highway and start/end_node_crossing"
+        ),
+        (
+            "Keep only the ways usable by the requested travel mode when "
+            "network is 'drive', 'walk' or 'bike'"
         ),
         "Return a RoadNetwork or serialize protobuf bytes when format='pb'",
     ]
@@ -109,6 +126,7 @@ class RoadsDataset(DatasetDescriptor):
     key_points = [
         "Currently source='OSM' is the only public roads source",
         "Road classes come from OpenStreetMap highway tags when present",
+        "network='walk' or 'bike' returns a pedestrian or cycle network from the same data",
         "Coordinates are requested and returned through the EPSG:3006 path",
         "The dataset is a raw network source for derived analyses such as space_syntax",
     ]
@@ -125,6 +143,13 @@ class RoadsDataset(DatasetDescriptor):
             {
                 "label": "oneway",
                 "meaning": "OpenStreetMap one-way tag when present in provider data",
+            },
+            {
+                "label": "start_node_highway / end_node_highway",
+                "meaning": (
+                    "crossing or traffic_signals when the segment starts or ends "
+                    "at such an OpenStreetMap node"
+                ),
             },
             {
                 "label": "length",
@@ -168,6 +193,8 @@ class RoadsDataset(DatasetDescriptor):
             provider=args.source,
             epsg="3006",
         )
+        if args.network != "all":
+            roads = filter_road_network(roads, args.network)
         if args.format == "pb":
             return roads.to_proto().SerializeToString()
         return roads

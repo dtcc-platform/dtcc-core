@@ -94,7 +94,20 @@ def test_overpass_roads_are_segmented_with_traffic_attributes(monkeypatch):
                         "bridge": "yes",
                         "tunnel": "no",
                         "junction": "roundabout",
+                        "surface": "asphalt",
+                        "lit": "yes",
+                        "sidewalk:left": "separate",
+                        "cycleway:right": "track",
+                        "width": "7",
+                        "access": "destination",
                     },
+                },
+                {
+                    "type": "node",
+                    "id": 2,
+                    "lat": 57.7005,
+                    "lon": 11.9705,
+                    "tags": {"highway": "crossing", "crossing": "marked"},
                 },
             ]
         }
@@ -118,6 +131,18 @@ def test_overpass_roads_are_segmented_with_traffic_attributes(monkeypatch):
     assert roads["bridge"].tolist() == ["yes", "yes"]
     assert roads["tunnel"].tolist() == ["no", "no"]
     assert roads["junction"].tolist() == ["roundabout", "roundabout"]
+    assert roads["surface"].tolist() == ["asphalt", "asphalt"]
+    assert roads["lit"].tolist() == ["yes", "yes"]
+    assert roads["sidewalk_left"].tolist() == ["separate", "separate"]
+    assert roads["cycleway_right"].tolist() == ["track", "track"]
+    assert roads["width"].tolist() == ["7", "7"]
+    assert roads["access"].tolist() == ["destination", "destination"]
+    assert roads["sidewalk"].isna().all()
+    assert roads["service"].isna().all()
+    # Segments run 3->2 and 2->1 because of oneway=-1; node 2 is a crossing.
+    assert roads["end_node_highway"].fillna("").tolist() == ["crossing", ""]
+    assert roads["end_node_crossing"].fillna("").tolist() == ["marked", ""]
+    assert roads["start_node_highway"].fillna("").tolist() == ["", "crossing"]
     assert roads["source_endpoint"].tolist() == ["endpoint-2", "endpoint-2"]
     assert roads.attrs["source_endpoint"] == "endpoint-2"
 
