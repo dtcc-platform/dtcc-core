@@ -4,6 +4,21 @@ import shapely
 from shapely.ops import unary_union
 
 from .roof_interfaces import RoofAssemblyError, XY_PRECISION
+from ..geometry_policy import COINCIDENCE
+
+
+def validate_terrain_coverage(mesh, polygons):
+    """Check outside terrain coverage before any building faces are attached."""
+    target = unary_union(polygons)
+    triangles = shapely.polygons(np.asarray(mesh.vertices)[np.asarray(mesh.faces),:2])
+    union = shapely.union_all(triangles)
+    error = float(target.symmetric_difference(union).area)
+    overlap = max(0.,float(shapely.area(triangles).sum()-union.area))
+    tolerance = target.length*COINCIDENCE+64*np.finfo(float).eps*target.area
+    if error>tolerance or overlap>tolerance or np.any(np.asarray(mesh.markers)!=-2):
+        raise RoofAssemblyError(f'Terrain subdivision coverage failed: missing/different={error:g}, '
+                                f'overlap={overlap:g}, numerical budget={tolerance:g} m2')
+    return dict(coverage_error_m2=error,overlap_m2=overlap,numerical_area_budget_m2=float(tolerance))
 
 
 def validate_partition(patches, target):

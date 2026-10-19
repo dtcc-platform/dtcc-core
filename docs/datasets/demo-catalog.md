@@ -29,7 +29,7 @@ weather, air-quality, hydrology, ocean, and transit layers.
 | `demos/dataset_city_surface_mesh.py` | Joint and isolated LOD2 city surface meshes | `isolated_mesh.plot()` / `.view()` and `merged_mesh.plot()` / `.view()` |
 | `demos/dataset_city_flat_mesh.py` | Flat mesh with footprint subdomains | `flat_mesh.plot()` / `.view()` |
 | `demos/dataset_city_volume_mesh.py` | Air-volume mesh; see limitations below | `volume_mesh.plot()` / `.view()` |
-| `demos/dataset_city.py` | Terrain and LOD1 city model | `city.plot(lod="1")` / `.view()` |
+| `demos/dataset_city.py` | Terrain and catalogue LOD2 city model | `city.plot()` / `.view()` |
 
 
 ## Cleaning and Building Meshing: A Short Tour
@@ -44,7 +44,7 @@ when it is installed with a working graphical display.
 | 1 | `demos/dataset_building_footprints.py` | Original source outlines, before any cleaning |
 | 2 | `demos/clean_building_footprints.py` | Input/output plots for isolated and joint cleaning, using two explicit calls on the original city |
 | 3 | `demos/build_lod1_buildings.py` | Offline: one block with roofs at 8, 16 and 12 m; LOD1 geometry followed by `build_building_shell()` |
-| 4 | `demos/dataset_city.py` | Terrain and LOD1 buildings through one high-level call |
+| 4 | `demos/dataset_city.py` | Terrain and catalogue LOD2 buildings through one high-level call |
 | 5 | `demos/dataset_city_flat_mesh.py` | A 2D mesh with footprint subdomains |
 | 6 | `demos/dataset_city_surface_mesh.py` | Isolated and joint LOD2 surface meshes through two explicit dataset calls |
 | 7 | `demos/build_city_surface_mesh.py` | Download and estimate heights once, then explicitly clean and mesh isolated and joint LOD2 buildings |
@@ -73,8 +73,9 @@ dtcc-core creates missing parent directories automatically. The CityJSON export
 example writes `output/city.city.json`. The surface-mesh dataset demo writes
 `output/city_surface_mesh_isolated.vtu` and `output/city_surface_mesh_merged.vtu`
 for ParaView. The volume-mesh dataset demo writes `output/city_volume_mesh.vtu`
-after successful meshing. The LOD2 comparison writes `output/lod2_catalogue.vtu`
-and `output/lod2_ransac.vtu`, without opening a viewer.
+after successful meshing. The [Höganäs LOD2 comparison](../../sandbox/compare_lod2.md)
+lives in the sandbox and exports seven building-only VTUs (reference plus
+catalogue, RANSAC, and standalone Roofer with two clouds) without opening a viewer.
 The two CityJSON examples read bundled data using paths relative to
 the repository root.
 
@@ -82,14 +83,13 @@ the repository root.
 |---|---|---|
 | `demos/clean_building_footprints.py` | Compare isolated and joint footprint cleaning | DTCC service |
 | `demos/build_lod1_buildings.py` | Clean three neighbours, build LOD1 geometry and mesh the block's exterior shell | synthetic, offline |
-| `demos/compare_lod2.py` | Two dataset calls → catalogue and RANSAC LOD2 surface meshes saved as VTU | DTCC service |
 | `demos/build_city_surface_mesh.py` | Estimate heights → clean footprints → mesh terrain and buildings | DTCC service |
 | `demos/build_terrain_with_footprints.py` | Terrain-only mesh conforming to cleaned footprint subdomains | DTCC service |
 | `demos/build_terrain_raster.py` | Ground points → terrain raster | DTCC service |
 | `demos/build_terrain_surface_mesh.py` | Ground points → terrain mesh | DTCC service |
-| `demos/build_cityjson_surface_mesh.py` | Twelve CityJSON buildings → extruded surface mesh; detailed roofs are not retained | bundled, offline |
+| `demos/build_cityjson_surface_mesh.py` | Twelve supplied LOD2 CityJSON buildings → triangulated building surfaces; roofs are retained | bundled, offline |
 | `demos/view_cityjson.py` | Inspect the original detailed LOD2 model | bundled, offline |
-| `demos/create_cityjson.py` | City dataset → CityJSON export | DTCC service |
+| `demos/create_cityjson.py` | Catalogue LOD2 city dataset → CityJSON export | DTCC service |
 | `demos/view_pointcloud.py` | Inspect raw LiDAR points | DTCC service |
 
 Volume meshing (`dataset_city_volume_mesh.py`) is separate from the core tour. The volume example

@@ -65,7 +65,7 @@ from ..meshing.tetgen import (
 )
 from ..meshing import tetgen_utils
 
-from dtcc_core.common.progress import report_progress
+from dtcc_core.common.progress import report_progress, progress_range
 
 try:
     import dtcc_mesher
@@ -4518,7 +4518,6 @@ def build_city_surface_mesh(
     *,
     lod2_method: str = "catalogue",
     roof_options=None,
-    surface_refinement=None,
     compact_surface=None,
 ) -> Mesh | list[Mesh]:
     """
@@ -4538,14 +4537,9 @@ def build_city_surface_mesh(
         None selects bounded compact meshing for catalogue/dtcc_mesher calls.
         CompactSurfaceOptions(budgeted=False) disables optional points.
         Mesh sizes govern reference terrain, not building-skin refinement.
-        Explicit compact options exclude surface_refinement. Unsupported
+        Unsupported
         capabilities/backends fail before reconstruction; see
         docs/compact_mesher_interface.md.
-    `surface_refinement` : SurfaceRefinementOptions or None, keyword-only
-        Explicit shared-edge quality experiment for catalogue surfaces. With
-        compact_surface=None it selects that existing representation instead of
-        automatic compact meshing. Explicit compact options cannot be combined.
-        See docs/shared_edge_pilot.md for backend requirements.
     `roof_options` : RoofFitOptions or None, keyword-only
         Candidate shapes and robust support thresholds, with documented defaults
         in :mod:`dtcc_core.builder.roofs` and docs/roof_catalogue.md. Diagnostics,
@@ -4559,9 +4553,9 @@ def build_city_surface_mesh(
     `lod2_method` : {"catalogue", "ransac"}, keyword-only
         LOD2 reconstruction algorithm. Catalogue is the default. RANSAC preserves
         the existing plane reconstruction algorithm; both use shared city meshing.
-        LOD2 supports both isolation modes and is not validated for volume meshing.
-        Rejected fits use their LOD1 level; invalid assemblies permit one whole-block
-        LOD1 fallback before raising.
+        LOD2 supports both isolation modes; joint shells support volume meshing.
+        Rejected candidates select a declared flat model before assembly.
+        Assembly failures raise without changing admitted roofs.
     `min_building_detail` : float, optional
         The scale of footprint cleaning (minimum feature size, fidelity and
         merge distance), by default 0.5.
@@ -4616,23 +4610,17 @@ def build_city_surface_mesh(
             raise TypeError("roof_options must be RoofFitOptions or None")
         if output_lod != "lod2":
             raise ValueError("roof_options requires lod='lod2'")
-    if surface_refinement is not None:
-        from ..meshing.surface_refinement import SurfaceRefinementOptions
-        if not isinstance(surface_refinement, SurfaceRefinementOptions):
-            raise TypeError("surface_refinement must be SurfaceRefinementOptions or None")
-        if output_lod != "lod2":
-            raise ValueError("surface_refinement requires lod='lod2'")
     if compact_surface is not None:
         from ..meshing.compact_surface import CompactSurfaceOptions
         if not isinstance(compact_surface, CompactSurfaceOptions):
             raise TypeError("compact_surface must be CompactSurfaceOptions or None")
-        if output_lod != "lod2" or surface_refinement is not None:
-            raise ValueError("compact_surface requires lod='lod2' and excludes surface_refinement")
+        if output_lod != "lod2":
+            raise ValueError("compact_surface requires lod='lod2'")
     _log_city_mesh_lod("surface", output_lod, lod2_method)
     if output_lod == "lod2":
         from ..meshing.backends import resolve_2d_mesher
         resolved = resolve_2d_mesher(mesher)
-        if compact_surface is None and surface_refinement is None and resolved == 'dtcc_mesher':
+        if compact_surface is None and resolved == 'dtcc_mesher':
             from ..meshing.compact_surface import CompactSurfaceOptions
             compact_surface = CompactSurfaceOptions()
         if compact_surface is not None:
@@ -4656,8 +4644,7 @@ def build_city_surface_mesh(
             footprint_cleaning_plot_block=footprint_cleaning_plot_block,
             mesher=mesher, pipeline_mode=pipeline_mode, stage_audit=stage_audit,
             roof_options=roof_options, lod2_method=lod2_method,
-            **({"compact_surface": compact_surface} if compact_surface is not None else {}),
-            **({"surface_refinement": surface_refinement} if surface_refinement is not None else {}))
+            **({"compact_surface": compact_surface} if compact_surface is not None else {}))
     if isolated:
         mesh = _isolated_surface_mesh(
             city,
@@ -5310,15 +5297,16 @@ def build_city_volume_mesh(
         if output_lod == "lod2":
             surface_audit = {}
             try:
-                surface_mesh = build_city_surface_mesh(
-                    city, lod="lod2", lod2_method=lod2_method,
-                    roof_options=roof_options, compact_surface=compact_surface,
-                    min_building_detail=min_building_detail, min_building_area=min_building_area,
-                    max_mesh_size=max_mesh_size, min_mesh_angle=min_mesh_angle,
-                    smoothing=smoothing, mesher=mesher, merge_meshes=True,
-                    report_mesh_quality=False, show_footprints=show_footprints,
-                    footprint_cleaning_plot_block=footprint_cleaning_plot_block,
-                    stage_audit=surface_audit, pipeline_mode=pipeline_mode)
+                with progress_range(30, 55):
+                    surface_mesh = build_city_surface_mesh(
+                        city, lod="lod2", lod2_method=lod2_method,
+                        roof_options=roof_options, compact_surface=compact_surface,
+                        min_building_detail=min_building_detail, min_building_area=min_building_area,
+                        max_mesh_size=max_mesh_size, min_mesh_angle=min_mesh_angle,
+                        smoothing=smoothing, mesher=mesher, merge_meshes=True,
+                        report_mesh_quality=False, show_footprints=show_footprints,
+                        footprint_cleaning_plot_block=footprint_cleaning_plot_block,
+                        stage_audit=surface_audit, pipeline_mode=pipeline_mode)
             finally:
                 if stage_audit is not None:
                     stage_audit.update(lod2_method=lod2_method,

@@ -50,6 +50,24 @@ def test_distinct_coincident_xy_edges_and_atomic_budget():
     assert r.boundary(1)==[(2,3)]
 
 
+def test_single_edge_trial_copies_only_mutable_split_state():
+    vertices = np.array([[0.,0,0],[4,0,0],[0,0,2],[4,0,2]])
+    original = SharedEdges(vertices, {0:[(0,1)], 1:[(1,0)], 2:[(2,3)]})
+    first = original.copy_for_split(0)
+    second = original.copy_for_split(0)
+    first.reconcile([(0,.25)], max_vertices=5)
+    second.reconcile([(0,.75)], max_vertices=5)
+    assert original.boundary(0) == [(0,1)]
+    assert original.edges[0].parameters == [0.,1.]
+    assert first.edges[0].parameters == [0.,.25,1.]
+    assert second.edges[0].parameters == [0.,.75,1.]
+    assert first.boundary(0) == [e[::-1] for e in first.boundary(1)[::-1]]
+    assert len(original.vertices) == 4
+    assert first.edges[1] is original.edges[1]
+    assert first.vertices[0] is original.vertices[0]
+    assert np.array_equal(original.vertices, vertices)
+
+
 @pytest.mark.parametrize('backend',['dtcc_mesher','triangle'])
 def test_maintained_quality_backend_holes_and_short_eave(backend):
     if backend=='triangle':
@@ -113,12 +131,10 @@ def test_roof_wall_terrain_preserves_domains_planes_and_shared_ids(offset,tmp_pa
     assert sum(len(m.regions) for m in parts)==len(result.regions)
 
 
-def test_pilot_api_requires_lod2():
+def test_superseded_pilot_is_not_a_public_assembly_route():
     from dtcc_core.model import City
-    with pytest.raises(ValueError,match="requires lod='lod2'"):
+    with pytest.raises(TypeError,match='surface_refinement'):
         meshes.build_city_surface_mesh(City(),surface_refinement=SurfaceRefinementOptions())
-    with pytest.raises(TypeError,match='SurfaceRefinementOptions'):
-        meshes.build_city_surface_mesh(City(),surface_refinement=True)
 
 
 @pytest.mark.parametrize('configuration',['step','crossing','acute'])

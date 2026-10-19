@@ -8,11 +8,11 @@ from dataclasses import replace
 import numpy as np
 import shapely
 from shapely import affinity
-from shapely.geometry import LineString, Point
-from shapely.ops import polygonize, unary_union
+from shapely.ops import polygonize
 
 
-XY_PRECISION = 1e-7
+from ..geometry_policy import XY_PRECISION
+from ..cleaning.subdivision import canonical_boundary_graph
 
 
 class RoofAssemblyError(RuntimeError):
@@ -31,11 +31,12 @@ def _lines(geometry):
             yield from _lines(part)
 
 
-def node_interfaces(patches):
+
+def node_interfaces(patches, *, height_crossings=True, domains=None, audit=None, canonical=False):
     """Retain creases, node T junctions, and split every affine height crossing.
 
-    Coincident profiles have no isolated root. Numerical coincidence uses
-    1e-7 m independently of the physical footprint/detail scale.
+    Coincident profiles have no isolated root. Canonical source cells stay
+    fixed; candidate overlay uses the numerical grid independently of detail.
     """
     if not patches:
         return []
@@ -44,70 +45,110 @@ def node_interfaces(patches):
     # Never silently discard a collapsed patch.
     offset = np.floor(np.min([p.polygon.bounds[:2] for p in patches], axis=0))
     originals = [affinity.translate(p.polygon, *-offset) for p in patches]
-    polygons = [shapely.set_precision(p, XY_PRECISION) for p in originals]
+    polygons = originals if canonical else [shapely.set_precision(p, XY_PRECISION) for p in originals]
     for patch, before, after in zip(patches, originals, polygons):
-        if after.is_empty or after.boundary.hausdorff_distance(before.boundary) > 2*XY_PRECISION:
-            raise RoofAssemblyError('A mandatory boundary collapses at numerical noding precision', block_ids=[patch.block_id])
+        displacement = after.boundary.hausdorff_distance(before.boundary)
+        if after.is_empty or displacement > 2*XY_PRECISION:
+            raise RoofAssemblyError(f'Roof subdivision source {patch.source_key}, block {patch.block_id}, '
+                f'patch {patch.patch_id} collapses at numerical noding precision '
+                f'(boundary displacement {displacement:g} m; area {before.area:g} -> {after.area:g} m2)',
+                block_ids=[patch.block_id])
     original_tree = shapely.STRtree(originals)
     if any(p.is_empty or not p.is_valid for p in polygons):
         raise RoofAssemblyError('A roof patch collapses at numerical noding precision')
     tree = shapely.STRtree(polygons)
-    boundaries = shapely.STRtree([p.boundary for p in polygons])
-    graph = shapely.union_all([p.boundary for p in polygons], grid_size=XY_PRECISION)
-    segments = []
-    for line in _lines(graph):
-        coords = np.asarray(line.coords)
-        for a, b in zip(coords[:-1], coords[1:]):
-            length = np.linalg.norm(b - a)
-            if length <= XY_PRECISION/4:
-                raise RoofAssemblyError('Zero-length mandatory roof edge')
-            middle = Point((a + b) / 2)
-            candidates = boundaries.query(middle.buffer(XY_PRECISION/10))
-            adjacent = [i for i in candidates if polygons[i].boundary.distance(middle) <= XY_PRECISION/10]
-            roots = [0., 1.]
-            if len(adjacent) > 2:
-                raise RoofAssemblyError('More than two patches incident on a boundary interval')
-            if len(adjacent) == 2:
-                left, right = (patches[i] for i in adjacent)
-                differences = left.height(np.array([a, b])+offset) - right.height(np.array([a, b])+offset)
-                d0, d1 = differences
-                if abs(d0) > 1e-8 and abs(d1) > 1e-8 and d0 * d1 < 0:
-                    root = float(d0 / (d0 - d1))
-                    # A crossing within numerical coincidence of an existing
-                    # endpoint uses that endpoint; repeated noding stays stable.
-                    if length*min(root, 1-root) > 2*XY_PRECISION:
-                        roots.append(root)
-            roots.sort()
-            vertices = [a, *[a + root * (b-a) for root in roots[1:-1]], b]
-            for start, end in zip(vertices[:-1], vertices[1:]):
-                segments.append(LineString([start, end]))
-    # Polygonization transfers all noded vertices to both sides of each edge.
-    owned = {}
-    for polygon in polygonize(segments):
-        point = polygon.representative_point()
-        indices = tree.query(point, predicate='intersects')
+    graph = None if canonical else shapely.union_all([p.boundary for p in polygons], grid_size=XY_PRECISION)
+    local_domains = {key:affinity.translate(domain,*-offset) for key,domain in domains.items()} if domains is not None else None
+    occupied = shapely.union_all(list(local_domains.values())) if local_domains is not None else None
+    if local_domains is not None and not canonical:
+        graph = canonical_boundary_graph(graph,local_domains,audit)
+    # Establish labelled overlay cells before querying incidence. Distance from
+    # a tiny edge midpoint to independently rounded polygons is not adjacency.
+    cells = list(zip(polygons,range(len(polygons)))) if canonical else []
+    for polygon in ([] if canonical else polygonize(list(_lines(graph)))):
+        if occupied is not None and polygon.intersection(occupied).area <= .5*polygon.area:
+            continue
+        indices = tree.query(polygon.representative_point(), predicate='intersects')
         if len(indices) != 1:
-            # Ownership comes from the pre-rounding coverage. Snap rounding
-            # can put a tiny face between two independently clipped edges;
-            # it is still roof where the original labelled patch covers it.
             candidates = original_tree.query(polygon, predicate='intersects')
-            areas = [(originals[int(i)].intersection(polygon).area, int(i)) for i in candidates]
-            areas.sort(reverse=True)
+            areas = sorted(((originals[int(i)].intersection(polygon).area, int(i))
+                            for i in candidates), reverse=True)
             if not areas or areas[0][0] <= 0:
-                continue  # courtyard / outside the original coverage
-            if polygon.area > 2*XY_PRECISION*polygon.length and areas[0][0] < .5*polygon.area:
-                continue  # true courtyard; boundary intersections have zero area
-            if polygon.area > 2*XY_PRECISION*polygon.length and len(indices) > 1:
+                if occupied is None:
+                    continue
+                nearby = original_tree.query(polygon.buffer(2*XY_PRECISION))
+                candidates = sorted((originals[int(i)].distance(polygon),int(i)) for i in nearby)
+                if not candidates or candidates[0][0]>2*XY_PRECISION:
+                    raise RoofAssemblyError('Canonical occupied face has no source roof owner')
+                areas = [(polygon.area,candidates[0][1])]
+            uncertainty = 2*XY_PRECISION*polygon.length
+            if polygon.area > uncertainty and areas[0][0] < .5*polygon.area:
+                continue
+            if polygon.area > uncertainty and len(indices) > 1:
                 raise RoofAssemblyError('Overlapping roof patch ownership',
                                         block_ids=[patches[int(i)].block_id for i in indices])
             indices = [areas[0][1]]
-        owned.setdefault(int(indices[0]), []).append(polygon)
+        cells.append((polygon, int(indices[0])))
+    incident = {}
+    for polygon, owner in cells:
+        for ring in [polygon.exterior, *polygon.interiors]:
+            xy = np.asarray(ring.coords)
+            for a, b in zip(xy[:-1], xy[1:]):
+                key = tuple(sorted((tuple(a), tuple(b))))
+                if key[0] == key[1]:
+                    raise RoofAssemblyError('Zero-length mandatory roof edge')
+                incident.setdefault(key, set()).add(owner)
+    crossings = {}
+    for key, adjacent in incident.items():
+        if len(adjacent) > 2:
+            raise RoofAssemblyError('Nonmanifold labelled roof subdivision',
+                                    block_ids=[patches[i].block_id for i in adjacent])
+        if len(adjacent) != 2 or not height_crossings:
+            continue
+        a, b = np.asarray(key)
+        left, right = (patches[i] for i in sorted(adjacent))
+        d0, d1 = left.height(np.array([a,b])+offset)-right.height(np.array([a,b])+offset)
+        if abs(d0) > 1e-8 and abs(d1) > 1e-8 and d0*d1 < 0:
+            root = float(d0/(d0-d1))
+            if np.linalg.norm(b-a)*min(root, 1-root) > 2*XY_PRECISION:
+                crossings[key] = a+root*(b-a)
+    owned = {}
+    from shapely.geometry import Polygon
+    for polygon, owner in cells:
+        rings = []
+        for ring in [polygon.exterior, *polygon.interiors]:
+            xy = np.asarray(ring.coords)
+            noded = []
+            for a, b in zip(xy[:-1], xy[1:]):
+                noded.append(a)
+                crossing = crossings.get(tuple(sorted((tuple(a), tuple(b)))))
+                if crossing is not None:
+                    noded.append(crossing)
+            rings.append(noded)
+        owned.setdefault(owner, []).append(Polygon(rings[0], rings[1:]))
+    ownership_audit = []
+    for index,polygon in enumerate(originals):
+        final = shapely.union_all(owned.get(index,[]))
+        error = polygon.symmetric_difference(final).area
+        budget = 3*XY_PRECISION*polygon.length+np.pi*(3*XY_PRECISION)**2
+        if error>budget:
+            raise RoofAssemblyError(f'Canonical roof ownership changed source {patches[index].source_key}, '
+                f'patch {patches[index].patch_id} by {error:g} m2 (budget {budget:g})',
+                block_ids=[patches[index].block_id])
+        ownership_audit.append(dict(source_key=patches[index].source_key,patch_id=patches[index].patch_id,
+            before_area_m2=float(polygon.area),after_area_m2=float(final.area),
+            ownership_error_m2=float(error),ownership_budget_m2=float(budget)))
+    if {patches[i].source_key for i in owned}!={p.source_key for p in patches}:
+        raise RoofAssemblyError('Canonical roof subdivision would erase a source')
+    if audit is not None:
+        audit['ownership'] = ownership_audit
+        audit['height_crossings'] = len(crossings)
     result = []
-    from ..roofs.partition import polygon_parts
-    for index, pieces in owned.items():
-        # Remove numerical face boundaries within a single original patch.
-        merged = shapely.union_all(pieces, grid_size=XY_PRECISION)
-        for polygon in polygon_parts(merged):
+    for index, pieces in sorted(owned.items()):
+        # Retain overlay cells and their exact noded rings. Coplanar face merging
+        # belongs to the shared 3D stage; dissolving here can remove a neighbour's
+        # mandatory breakpoint and force a second geometric adjacency query.
+        for polygon in pieces:
             result.append(replace(patches[index], polygon=affinity.translate(
                 shapely.geometry.polygon.orient(polygon, sign=1.0), *offset)))
     return result

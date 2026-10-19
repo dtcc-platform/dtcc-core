@@ -268,43 +268,41 @@ def test_public_domain_clipping_and_excluded_source_preserve_mapping():
     assert audit['roof_catalogue']['assemblies'][-1]['shell']['valid']
 
 
-def test_partition_failure_gets_one_block_fallback(monkeypatch):
-    from dtcc_core.builder.meshing import catalogue_surface
-    foot = box(-10, -5, 10, 5)
-    city = city_of([building(foot, model('hip', [0., 8., .55, .6], foot))])
-    original = catalogue_surface.node_interfaces
-    calls = []
-    def reject_complex(patches):
-        calls.append(len(patches))
-        if len(patches) > 1:
-            from dtcc_core.builder.meshing.roof_interfaces import RoofAssemblyError
-            raise RoofAssemblyError('Synthetic narrow-strip conditioning failure')
-        return original(patches)
-    monkeypatch.setattr(catalogue_surface, 'node_interfaces', reject_complex)
-    audit = {}
-    builder.build_city_surface_mesh(city, lod='lod2', stage_audit=audit, report_mesh_quality=False)
-    failures = audit['roof_catalogue']['block_fallbacks']
-    assert len(failures) == 1 and 'narrow-strip' in failures[0]['reason']
-    assert audit['roof_catalogue']['assemblies'][-1]['shell']['valid']
-    assert len(calls) <= 3
-
-
-def test_failed_lod1_fallback_raises_and_retains_audit(monkeypatch):
+def test_partition_failure_has_no_flattening_retry(monkeypatch):
     from dtcc_core.builder.meshing import catalogue_surface
     from dtcc_core.builder.meshing.roof_interfaces import RoofAssemblyError
-    foot = box(-10, -5, 10, 5)
-    city = city_of([building(foot, model('gable', [0., 8., .6], foot))])
+    foot = box(-10,-5,10,5)
+    city = city_of([building(foot,model('hip',[0.,8.,.55,.6],foot))])
     calls = []
-    def reject(patches):
+    def reject(patches, bounds, **kwargs):
         calls.append(len(patches))
-        raise RoofAssemblyError('Unresolvable pinched configuration')
-    monkeypatch.setattr(catalogue_surface, 'node_interfaces', reject)
+        raise RoofAssemblyError('Synthetic narrow-strip conditioning failure',block_ids=[0])
+    monkeypatch.setattr(catalogue_surface,'local_roof_coverage',reject)
     audit = {}
-    with pytest.raises(RoofAssemblyError, match='fallback failed'):
-        builder.build_city_surface_mesh(city, lod='lod2', stage_audit=audit, report_mesh_quality=False)
-    assert len(calls) <= 3
-    assert audit['roof_catalogue']['block_fallbacks']
-    assert audit['roof_catalogue']['assemblies'][-1]['valid'] is False
+    with pytest.raises(RoofAssemblyError,match='roof_partition'):
+        builder.build_city_surface_mesh(city,lod='lod2',stage_audit=audit,report_mesh_quality=False)
+    assert len(calls)==1
+    assert not audit['roof_catalogue']['block_fallbacks']
+    assert len(audit['roof_catalogue']['assemblies'])==1
+    assert not audit['roof_catalogue']['assemblies'][0]['valid']
+
+
+def test_mesh_failure_preserves_admitted_source_fit(monkeypatch):
+    import importlib
+    compact = importlib.import_module('dtcc_core.builder.meshing.compact_surface')
+    foot = box(-10,-5,10,5)
+    city = city_of([building(foot,model('gable',[0.,8.,.6],foot))])
+    calls = []
+    def reject(*args, **kwargs):
+        calls.append(True)
+        raise ValueError('Controlled triangulation failure')
+    monkeypatch.setattr(compact,'triangulate',reject)
+    audit = {}
+    with pytest.raises(RuntimeError,match='shared_geometry_and_meshing'):
+        builder.build_city_surface_mesh(city,lod='lod2',stage_audit=audit,report_mesh_quality=False)
+    assert len(calls)==1
+    assert audit['roof_catalogue']['sources'][0]['outcome']=='accepted_fit'
+    assert not audit['roof_catalogue']['block_fallbacks']
 
 
 @pytest.mark.parametrize('buried', [False, True])
@@ -416,7 +414,7 @@ def test_generic_wall_subdivision_has_a_bounded_memory_budget():
 
 @pytest.mark.parametrize('cleaned', [False, True])
 @pytest.mark.parametrize('levels', [(8.,14.), (8.,8.2)])
-def test_forced_block_fallback_preserves_ordinary_lod1_geometry(monkeypatch, cleaned, levels):
+def test_insufficient_evidence_flat_models_match_ordinary_lod1_geometry(monkeypatch, cleaned, levels):
     from dtcc_core.builder.meshing import catalogue_surface
     a,b=box(-10,-5,0,5),box(0,-5,10,5)
     buildings=[building(a,model('gable',[0.,8.,.5],a,key='low')),
@@ -427,20 +425,14 @@ def test_forced_block_fallback_preserves_ordinary_lod1_geometry(monkeypatch, cle
     city=city_of(buildings)
     if cleaned: city=builder.clean_footprints(city)
     ordinary=builder.build_city_surface_mesh(city,report_mesh_quality=False)
-    original=catalogue_surface.validate_shell
-    calls=[]
-    def reject_once(mesh,**kwargs):
-        result=original(mesh,**kwargs)
-        calls.append(result)
-        if len(calls)==1:
-            result={**result,'valid':False,'invalid_patch_markers':[0]}
-        return result
-    monkeypatch.setattr(catalogue_surface,'validate_shell',reject_once)
+    for parent in city.buildings:
+        for source in parent.building_parts or [parent]:
+            source.add_geometry(PointCloud(points=np.empty((0,3))),GeometryType.POINT_CLOUD)
     audit={}
     fallback=builder.build_city_surface_mesh(city,lod='lod2',stage_audit=audit,report_mesh_quality=False)
-    assert len(calls)==3 and all(r['valid'] for r in calls[1:])
-    assert len(audit['roof_catalogue']['assemblies']) == 2
-    assert len(audit['roof_catalogue']['block_fallbacks'])==1
+    assert len(audit['roof_catalogue']['assemblies'])==1
+    assert not audit['roof_catalogue']['block_fallbacks']
+    assert audit['roof_catalogue']['retained_fits']==0
     # Compare the full piecewise planar surface, independent of triangulation.
     def area_volume(mesh):
         xyz=mesh.vertices[mesh.faces]
@@ -483,62 +475,43 @@ def test_unattributed_backend_error_does_not_flatten_the_city(monkeypatch):
     def fail(**kwargs): raise RuntimeError('Unknown backend failure')
     monkeypatch.setattr(meshes,'_build_ground_mesh_from_coverage',fail)
     audit={}
-    with pytest.raises(RuntimeError,match='no city-wide fallback'):
+    with pytest.raises(RuntimeError,match='terrain_attachment'):
         builder.build_city_surface_mesh(city,lod='lod2',stage_audit=audit,report_mesh_quality=False)
     assert not audit['roof_catalogue']['block_fallbacks']
 
 
-def test_coverage_native_coincidence_failure_identifies_affected_block():
+def test_coverage_retains_distinct_submicrometre_vertices():
     from dtcc_core.builder.meshing.roof_coverage import local_roof_coverage
-    from dtcc_core.builder.meshing.roof_interfaces import RoofAssemblyError
     polygon=Polygon([(0,0),(10,0),(10,1e-7),(10,10),(0,10)])
     patch=RoofPatch(polygon,np.zeros(2),np.array([0.,0.,8.]),'short-edge',0,17)
-    with pytest.raises(RoofAssemblyError,match='cannot retain both constraints') as caught:
-        local_roof_coverage([patch],(-5,-5,15,15))
-    assert caught.value.block_ids==(17,)
+    local,world,*_=local_roof_coverage([patch],(-5,-5,15,15))
+    assert len(local[0].polygon.exterior.coords)==6
+    assert len(world[0].polygon.exterior.coords)==6
 
 
 @pytest.mark.parametrize('backend', ['dtcc_mesher', 'triangle'])
 @pytest.mark.parametrize('separate', [False, True])
-def test_wall_quality_rejection_does_not_change_reconstruction(monkeypatch,backend,separate):
-    from dtcc_core.builder.meshing import wall_faces
+def test_optional_native_failure_is_explicit_and_never_flattens(monkeypatch,backend,separate):
     if backend not in available_2d_meshers():pytest.skip(f'{backend} unavailable')
+    import importlib
+    compact = importlib.import_module('dtcc_core.builder.meshing.compact_surface')
+    improvement = importlib.import_module('dtcc_core.builder.meshing.compact_improvement')
     footprint=box(-10,-5,10,5)
     city=city_of([building(footprint,model('hip',[0.,8.,.5,.6],footprint))])
-    baseline_audit={}
-    baseline=builder.build_city_surface_mesh(city,lod='lod2',mesher=backend,
-        merge_meshes=not separate,stage_audit=baseline_audit,report_mesh_quality=False)
-    def reject(*args,**kwargs):raise ValueError('forced wall-only quality budget rejection')
-    monkeypatch.setattr(wall_faces,'refine_wall_faces',reject)
+    observations=city.buildings[0].point_cloud.points.copy()
+    original=improvement.improve
+    def reject(*args,**kwargs):
+        if kwargs.get('max_added_points',0):raise RuntimeError('controlled native failure')
+        return original(*args,**kwargs)
     if backend=='dtcc_mesher':
-        from dtcc_core.builder.meshing import compact_improvement
-        original=compact_improvement.improve
-        def reject_optional(*args,**kwargs):
-            if kwargs.get('max_added_points',0):raise RuntimeError('forced optional quality rejection')
-            return original(*args,**kwargs)
-        monkeypatch.setattr(compact_improvement,'improve',reject_optional)
-    audit={}
-    result=builder.build_city_surface_mesh(city,lod='lod2',mesher=backend,
-        merge_meshes=not separate,stage_audit=audit,report_mesh_quality=False)
-    before=meshes._welded_mesh(baseline) if separate else baseline
-    after=meshes._welded_mesh(result) if separate else result
-    cat=audit['roof_catalogue'];reference=baseline_audit['roof_catalogue']
-    assert cat['retained_fits']==reference['retained_fits']==1
-    assert cat['retained_nonflat_fits']==reference['retained_nonflat_fits']==1
-    assert cat['block_fallbacks']==reference['block_fallbacks']==[]
-    assert cat['patch_markers']==reference['patch_markers']
-    if backend=='dtcc_mesher':
-        compact=cat['compact_surface']
-        assert compact['shell_accepted'] and not compact['optional_vertices']
-        assert any(s['rejection_counts'].get('unexpected native numerical failure')
-                   for s in compact['optimization']['stages'])
+        monkeypatch.setattr(improvement,'improve',reject)
     else:
-        assert not cat['wall_triangulation']['shell_accepted']
-        assert 'forced wall-only' in cat['wall_triangulation']['shell_fallback_reason']
-    assert validate_shell(after,num_patches=len(cat['patch_markers']),closure_audit=meshes._shell_closure_audit)['valid']
-    assert area_of_mesh(after)==pytest.approx(area_of_mesh(before),abs=1e-7)
-
-
-def area_of_mesh(mesh):
-    triangles=mesh.vertices[mesh.faces]
-    return np.linalg.norm(np.cross(triangles[:,1]-triangles[:,0],triangles[:,2]-triangles[:,0]),axis=1).sum()/2
+        def reject_mesh(*args,**kwargs):raise RuntimeError('controlled native failure')
+        monkeypatch.setattr(compact,'triangulate',reject_mesh)
+    audit={}
+    with pytest.raises(RuntimeError,match='controlled native failure'):
+        builder.build_city_surface_mesh(city,lod='lod2',mesher=backend,
+            merge_meshes=not separate,stage_audit=audit,report_mesh_quality=False)
+    assert not audit['roof_catalogue']['block_fallbacks']
+    assert audit['roof_catalogue']['sources'][0]['outcome']=='accepted_fit'
+    np.testing.assert_array_equal(city.buildings[0].point_cloud.points,observations)

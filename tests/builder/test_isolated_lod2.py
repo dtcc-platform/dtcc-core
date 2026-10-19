@@ -172,3 +172,52 @@ def test_skin_validation_rejects_an_open_roof_edge():
                             closure_audit=_shell_closure_audit, base_z=base)
     assert not report['valid']
     assert report['closure']['unexpected_open_edges'] > 0
+
+
+def test_roof_below_base_selects_declared_model_before_assembly(monkeypatch):
+    orchestration = importlib.import_module('dtcc_core.builder.meshing.isolated_roofs')
+    prepare = orchestration._prepare_roof_blocks
+
+    def lowered_roof(*args, **kwargs):
+        blocks, rows = prepare(*args, **kwargs)
+        for patch in blocks[0].patches:
+            patch.coefficients = patch.coefficients.copy()
+            patch.coefficients[2] -= 100.
+        return blocks, rows
+
+    monkeypatch.setattr(orchestration, '_prepare_roof_blocks', lowered_roof)
+    parts = sample().build_surface_mesh(lod='lod2', isolated=True, merge_meshes=False,
+        mesher='dtcc_mesher', report_mesh_quality=False)
+    audit = parts[0].stage_audit['roof_catalogue']
+    assert audit['block_fallbacks'] == []
+    rejected = [row for row in audit['sources'] if not row['admission']['accepted']]
+    assert len(rejected) == 1
+    assert rejected[0]['admission']['rejections'][0]['reason'] == 'transferred affine roof intersects its terrain foundation'
+    assert audit['retained_nonflat_fits'] == 1
+    for skin, local in zip(parts[1:], audit['building_assemblies']):
+        check_skin(skin, local['base_z'])
+    assert {row['final_outcome'] for row in audit['sources']} == {'lod1_fallback', 'retained_fit'}
+
+
+def test_initial_face_failure_propagates_without_flattening(monkeypatch):
+    compact = importlib.import_module('dtcc_core.builder.meshing.compact_surface')
+    triangulate = compact.triangulate
+    failed = False
+
+    def fail_once(*args, **kwargs):
+        nonlocal failed
+        if not failed:
+            failed = True
+            raise ValueError('Injected boundary-only triangulation failure')
+        return triangulate(*args, **kwargs)
+
+    monkeypatch.setattr(compact, 'triangulate', fail_once)
+    audit = {}
+    with pytest.raises(RuntimeError,match='Injected boundary-only triangulation failure'):
+        sample().build_surface_mesh(lod='lod2', isolated=True, merge_meshes=False,
+            mesher='dtcc_mesher', report_mesh_quality=False,stage_audit=audit)
+    catalogue = audit['roof_catalogue']
+    assert catalogue['block_fallbacks'] == []
+    local = catalogue['building_assemblies'][0]['roof_catalogue']
+    assert local['sources'][0]['outcome'] == 'accepted_fit'
+    assert len(local['assemblies']) == 1

@@ -5,6 +5,7 @@ from collections import Counter
 from dataclasses import dataclass
 
 import numpy as np
+import shapely
 from shapely.geometry import LineString, MultiPoint, Point, Polygon, box
 from shapely.ops import split, unary_union
 
@@ -16,7 +17,7 @@ from .buildings import build_lod1_buildings
 
 MIN_ROOF_POINTS = 24
 MIN_PLANE_INLIERS = 20
-# RANSAC may inspect richer roofs; shell assembly currently accepts one or two planes.
+# Bound plane detection and the subsequent continuous-envelope subset search.
 MAX_PLANES = 6
 RANSAC_ITERATIONS = 200
 RANSAC_SEED = 0
@@ -309,8 +310,13 @@ def _fit_plane(points: np.ndarray, inliers: np.ndarray | None = None) -> RoofPla
     else:
         inlier_indices = np.asarray(inliers, dtype=int)
         sample = np.asarray(points, dtype=float)[inlier_indices]
-    matrix = np.column_stack([sample[:, 0], sample[:, 1], np.ones(len(sample))])
-    a, b, c = np.linalg.lstsq(matrix, sample[:, 2], rcond=None)[0]
+    # Map coordinates make the intercept column numerically dependent on XY,
+    # especially for dense clouds. Solve around the sample centroid instead.
+    origin = sample.mean(axis=0)
+    centered = sample - origin
+    matrix = np.column_stack([centered[:, :2], np.ones(len(sample))])
+    a, b, c = np.linalg.lstsq(matrix, centered[:, 2], rcond=None)[0]
+    c += origin[2] - a * origin[0] - b * origin[1]
     return RoofPlane(a, b, c, inlier_indices)
 
 
@@ -412,7 +418,7 @@ def _points_on_edge(points: list[np.ndarray], start: np.ndarray, end: np.ndarray
         offset = point_xy - start
         distance = abs(edge[0] * offset[1] - edge[1] * offset[0]) / length
         parameter = _edge_parameter(point_xy, start, end)
-        if distance <= EDGE_TOLERANCE and -EDGE_TOLERANCE <= parameter <= 1.0 + EDGE_TOLERANCE:
+        if distance <= EDGE_TOLERANCE and -EDGE_TOLERANCE / length <= parameter <= 1.0 + EDGE_TOLERANCE / length:
             selected.append(point)
     selected.sort(key=lambda point: _edge_parameter(point[:2], start, end))
     unique = []
@@ -428,7 +434,7 @@ def _points_on_edge(points: list[np.ndarray], start: np.ndarray, end: np.ndarray
             continue
         previous_parameter = _edge_parameter(grouped[-1][0][:2], start, end)
         parameter = _edge_parameter(point[:2], start, end)
-        if abs(parameter - previous_parameter) <= EDGE_TOLERANCE:
+        if abs(parameter - previous_parameter) * length <= EDGE_TOLERANCE:
             grouped[-1].append(point)
         else:
             grouped.append([point])
@@ -1494,10 +1500,8 @@ def _assign_patches_to_planes(points: np.ndarray, planes: list[RoofPlane], patch
             if patch_index in used_patch_indices:
                 continue
             buffered = patch.buffer(EDGE_TOLERANCE)
-            count = sum(
-                buffered.contains(Point(x, y)) or buffered.touches(Point(x, y))
-                for x, y in points[plane.inliers][:, :2]
-            )
+            xy = points[plane.inliers, :2]
+            count = int(np.count_nonzero(shapely.intersects_xy(buffered, xy[:, 0], xy[:, 1])))
             if count > best_count:
                 best_count = count
                 best_patch_index = patch_index
@@ -1594,11 +1598,8 @@ def _record_rejection(rejections: Counter | None, reason: str) -> None:
 
 def _points_in_polygon(points: np.ndarray, polygon: Polygon) -> np.ndarray:
     buffered = polygon.buffer(EDGE_TOLERANCE)
-    selected = [
-        point for point in points
-        if buffered.contains(Point(point[0], point[1])) or buffered.touches(Point(point[0], point[1]))
-    ]
-    return np.asarray(selected, dtype=float)
+    points = np.asarray(points, dtype=float)
+    return points[shapely.intersects_xy(buffered, points[:, 0], points[:, 1])]
 
 
 def _region_roof_failure_reason(reason: str | None) -> str:
@@ -1751,13 +1752,9 @@ def _level_point_counts_in_region(
     buffered = region.buffer(EDGE_TOLERANCE)
     counts: list[int] = []
     for level in levels:
-        count = 0
-        for point_index in level.point_indices:
-            point = points[int(point_index)]
-            point_xy = Point(point[0], point[1])
-            if buffered.contains(point_xy) or buffered.touches(point_xy):
-                count += 1
-        counts.append(count)
+        xy = points[np.asarray(level.point_indices, dtype=int), :2]
+        counts.append(int(np.count_nonzero(
+            shapely.intersects_xy(buffered, xy[:, 0], xy[:, 1]))))
     return counts
 
 
@@ -2342,6 +2339,7 @@ def _candidate_lod2_from_parts(
     template_gate_counts: Counter | None = None,
     stepped_flat_counts: Counter | None = None,
     decomposition_counts: Counter | None = None,
+    plane_selection: dict | None = None,
 ) -> MultiSurface | None:
     planes = _ransac_planes(roof_points)
     if plane_counts is not None:
@@ -2370,6 +2368,23 @@ def _candidate_lod2_from_parts(
                 if shell is not None:
                     return shell
                 _record_decomposition_failure(decomposition_counts, decomposition_reason)
+        # Assemble supported continuous roofs from a subset of the detected
+        # planes. Minor residual planes need not force the whole roof to LOD1.
+        from .roof_plane_selection import envelope_candidates
+        for patches, selected, selection in envelope_candidates(
+            footprint, roof_points, planes,
+            tolerance=2 * RANSAC_DISTANCE_THRESHOLD,
+            min_points=MIN_PLANE_INLIERS, min_area=MIN_PATCH_AREA,
+        ):
+            roof_surfaces = [_surface_from_xy(patch, planes[index])
+                             for patch, index in zip(patches, selected)]
+            if any(np.min(s.vertices[:, 2]) <= ground_height for s in roof_surfaces):
+                continue
+            shell = _build_shell(footprint, roof_surfaces, ground_height)
+            if shell is not None:
+                if plane_selection is not None:
+                    plane_selection.update(selection)
+                return shell
         shell, _ = _candidate_stepped_flat_lod2(
             footprint,
             roof_points,
@@ -2507,6 +2522,7 @@ def _candidate_lod2(
     template_gate_counts: Counter | None = None,
     stepped_flat_counts: Counter | None = None,
     decomposition_counts: Counter | None = None,
+    plane_selection: dict | None = None,
 ) -> MultiSurface | None:
     footprint = _footprint_polygon(building)
     if footprint is None:
@@ -2529,6 +2545,7 @@ def _candidate_lod2(
         template_gate_counts,
         stepped_flat_counts,
         decomposition_counts,
+        plane_selection,
     )
 
 
@@ -2540,14 +2557,15 @@ def build_lod2_buildings(
     rebuild: bool = True,
     build_lod1_fallback: bool = True,
     log_rejections: bool = False,
+    lod2_method: str = 'catalogue',
 ) -> list[Building]:
     """Build LOD2 geometry with reconstructed roofs for buildings.
 
-    For each building, roof planes are fitted with RANSAC to the roof points
+    For each building, catalogue roofs (or RANSAC planes) are fitted to the roof points
     stored on ``building.point_cloud`` (see ``extract_roof_points``) and
     combined with the LOD0 footprint into a closed shell with sloped or
     stepped roofs. A building gets no LOD2 geometry when its footprint is
-    missing, invalid or has holes, when it has fewer than 24 roof points, or
+    missing, invalid or has holes, when it has insufficient roof points, or
     when its roof shape cannot be reconstructed. Such buildings can fall back
     to an LOD1 block instead.
 
@@ -2570,12 +2588,17 @@ def build_lod2_buildings(
     log_rejections : bool, optional
         Log how many buildings got LOD2 geometry and why the others were
         rejected. Default is False.
+    lod2_method : {"catalogue", "ransac"}, optional
+        Roof reconstruction method. Catalogue is the default.
 
     Returns
     -------
     list[Building]
         The same buildings, with LOD2 or fallback LOD1 geometry added.
     """
+    if lod2_method not in ('catalogue', 'ransac'):
+        raise ValueError("lod2_method must be 'catalogue' or 'ransac'")
+    info(f'Building LOD2 city model ({lod2_method} roof reconstruction).')
     rejections = Counter()
     plane_counts = Counter()
     max_plane_coplanar_pair_counts = Counter()
@@ -2594,19 +2617,25 @@ def build_lod2_buildings(
             continue
         if rebuild:
             building.remove_geometry(GeometryType.LOD2)
-        candidate = _candidate_lod2(
-            building,
-            default_ground_height,
-            always_use_default_ground,
-            rejections if log_rejections else None,
-            plane_counts if log_rejections else None,
-            max_plane_coplanar_pair_counts if log_rejections else None,
-            inlier_share_recovery_counts if log_rejections else None,
-            trailing_plane_counts if log_rejections else None,
-            template_gate_counts if log_rejections else None,
-            stepped_flat_counts if log_rejections else None,
-            decomposition_counts if log_rejections else None,
-        )
+        building.attributes.pop('roof_reconstruction', None)
+        candidate = None
+        if lod2_method == 'catalogue':
+            from .catalogue import catalogue_shell
+            candidate = catalogue_shell(building, default_ground_height, always_use_default_ground)
+        else:
+            candidate = _candidate_lod2(
+                building,
+                default_ground_height,
+                always_use_default_ground,
+                rejections if log_rejections else None,
+                plane_counts if log_rejections else None,
+                max_plane_coplanar_pair_counts if log_rejections else None,
+                inlier_share_recovery_counts if log_rejections else None,
+                trailing_plane_counts if log_rejections else None,
+                template_gate_counts if log_rejections else None,
+                stepped_flat_counts if log_rejections else None,
+                decomposition_counts if log_rejections else None,
+            )
         if candidate is not None:
             building.add_geometry(candidate, GeometryType.LOD2)
             lod2_count += 1

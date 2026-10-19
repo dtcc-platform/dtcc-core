@@ -1,0 +1,33 @@
+name: quick-lod2-benchmarks
+
+# Real provider data and up to twenty city-scale meshes: run explicitly, while
+# the offline benchmark-runner tests run on every PR in build-tests.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  central-tiles:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v10.1.0
+        with:
+          python-version: "3.11"
+          enable-cache: true
+      - run: uv sync --locked
+      - name: Catalogue and RANSAC on the ten central tiles
+        env:
+          DTCC_RUN_QUICK_BENCHMARKS: "1"
+          DTCC_PROGRESS_MODE: silent
+        run: uv run --locked pytest tests/common/test_quick_benchmarks_live.py --basetemp=benchmarks/runs/ci-quick -v
+      - name: Save inputs, logs, metrics and meshes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lod2-central-tiles
+          path: benchmarks/runs/ci-quick
+          retention-days: 14

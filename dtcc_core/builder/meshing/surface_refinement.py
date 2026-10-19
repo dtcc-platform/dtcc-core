@@ -10,6 +10,7 @@ from .shared_edges import SharedEdges,seed_corner_shells
 from .surface_faces import extract_surface_faces
 from .surface_refinement_backend import mesh_face
 from .wall_faces import _angle_constraint
+from .face_validation import validate_face_geometry
 
 
 @dataclass(frozen=True)
@@ -81,23 +82,6 @@ def _cache_matches(face, result, registry):
     expected = {tuple(sorted(e)) for e in registry.boundary(face.id)}
     return actual == expected
 
-
-def _validate_geometry(face, vertices, triangles):
-    xyz = vertices[triangles]
-    residual = float(np.max(abs((xyz-face.origin)@face.normal)))
-    if residual > 1e-7:
-        raise ValueError(f'{face.kind} plane changed by {residual:g} m')
-    ids,inverse = np.unique(triangles,return_inverse=True)
-    xy = ((vertices[ids]-face.origin)@face.basis.T)[inverse].reshape(-1,3,2)
-    polygons = shapely.polygons(xy)
-    union = shapely.union_all(polygons)
-    error = float(face.polygon.symmetric_difference(union).area)
-    overlap = max(0.,float(shapely.area(polygons).sum()-union.area))
-    tolerance = max(1e-7,face.polygon.area*1e-9)
-    if error > tolerance or overlap > tolerance:
-        raise ValueError(f'{face.kind} coverage changed: {error:g} m², overlap {overlap:g} m²')
-    return dict(plane_error_m=residual,coverage_error_m2=error,overlap_m2=overlap,
-                original_plane_error_m=face.original_plane_error)
 
 
 def refine_shared_surface(mesh, owners, options, *, building_spacing=4., terrain_spacing=8., adapter=None):
@@ -193,7 +177,7 @@ def refine_shared_surface(mesh, owners, options, *, building_spacing=4., terrain
             reverse = (xy[:,1,0]-xy[:,0,0])*(xy[:,2,1]-xy[:,0,1])-(xy[:,1,1]-xy[:,0,1])*(xy[:,2,0]-xy[:,0,0]) < 0
             triangles[reverse] = triangles[reverse][:,[0,2,1]]
             tri = global_ids[triangles]
-            geometry = _validate_geometry(face,np.asarray(vertices),tri)
+            geometry = validate_face_geometry(face,np.asarray(vertices),tri)
             triangle_arrays.append(tri)
             markers.append(np.full(len(tri),face.markers[0],dtype=np.int64))
             face_ids.append(np.full(len(tri),face.id,dtype=np.int64))

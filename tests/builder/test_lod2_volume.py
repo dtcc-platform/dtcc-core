@@ -26,6 +26,22 @@ def triangle_areas(vertices, faces):
     return np.linalg.norm(np.cross(xyz[:, 1]-xyz[:, 0], xyz[:, 2]-xyz[:, 0]), axis=1)/2
 
 
+
+def assert_roof_plane(points,patch):
+    """Use physical normal distance, consistently for every roof orientation."""
+    gradient=np.asarray(patch['coefficients'])[:2]
+    expected=(points[:,:2]-patch['origin'])@gradient+patch['coefficients'][2]
+    residual=(points[:,2]-expected)/np.sqrt(1+gradient@gradient)
+    np.testing.assert_allclose(residual,0.,atol=1e-7,rtol=0)
+
+
+def test_roof_plane_contract_uses_normal_distance_for_steep_planes():
+    patch=dict(origin=np.zeros(2),coefficients=np.array([10.,0.,0.]))
+    normal=np.array([-10.,0.,1.])/np.sqrt(101.)
+    assert_roof_plane(np.array([normal*5e-8]),patch)
+    with pytest.raises(AssertionError):assert_roof_plane(np.array([normal*2e-7]),patch)
+
+
 def assert_volume_boundary(volume, shell, plc, catalogue):
     assert np.isfinite(volume.vertices).all()
     xyz = volume.vertices[volume.cells]
@@ -49,9 +65,7 @@ def assert_volume_boundary(volume, shell, plc, catalogue):
     for patch in catalogue['patch_markers']:
         points = volume.vertices[boundary[volume.boundary_markers == patch['roof_marker']]].reshape(-1, 3)
         if len(points):
-            expected = ((points[:, :2]-patch['origin']) @ np.asarray(patch['coefficients'])[:2]
-                        + patch['coefficients'][2])
-            np.testing.assert_allclose(points[:, 2], expected, atol=1e-7, rtol=0)
+            assert_roof_plane(points,patch)
     # The tetrahedra fill exactly the closed PLC outside the buildings.
     all_faces = np.vstack([plc.shell_faces, plc.boundary_facets])
     points = plc.vertices - plc.vertices.mean(axis=0)

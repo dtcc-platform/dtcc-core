@@ -9,9 +9,10 @@ from scipy.spatial import cKDTree
 
 from .roof_interfaces import XY_PRECISION, RoofAssemblyError, node_interfaces
 from ..roofs.partition import polygon_parts
+from ..geometry_policy import COINCIDENCE
 
 
-def local_roof_coverage(patches, bounds):
+def local_roof_coverage(patches, bounds, *, height_crossings=True, domains=None, audit=None):
     """Normalize roofs and terrain together, retaining every patch constraint.
 
     Independent floating-point differences of almost coincident roof edges
@@ -19,8 +20,8 @@ def local_roof_coverage(patches, bounds):
     same local fixed-precision model before union/difference. A collapsed roof
     patch is rejected, never silently omitted.
     """
-    offset = np.asarray(bounds[:2], dtype=float)
-    local_bounds = (0., 0., bounds[2]-bounds[0], bounds[3]-bounds[1])
+    offset = np.floor(np.asarray(bounds[:2], dtype=float))
+    local_bounds = (bounds[0]-offset[0], bounds[1]-offset[1], bounds[2]-offset[0], bounds[3]-offset[1])
     local, world = [], []
     for patch in patches:
         original = affinity.translate(patch.polygon, *-offset)
@@ -34,10 +35,11 @@ def local_roof_coverage(patches, bounds):
         world.append(replace(patch, polygon=affinity.translate(polygon, *offset)))
     # Node all translated boundaries jointly before constructing the terrain.
     # This also transfers roundoff faces using original patch ownership.
-    local = node_interfaces(local)
+    local_domains = {key:affinity.translate(domain,*-offset) for key,domain in domains.items()} if domains is not None else None
+    local = node_interfaces(local, height_crossings=height_crossings, domains=local_domains, audit=audit)
     world = [replace(p, polygon=affinity.translate(p.polygon, *offset), origin=p.origin+offset) for p in local]
     # Both native backends need distinguishable constrained vertices. Pairs
-    # closer than the native 1 micrometre coincidence scale are diagnosed
+    # closer than the shared 10 nm coincidence scale are diagnosed
     # with their incident owners, rather than collapsed by a backend.
     vertices = []
     for patch in local:
@@ -45,15 +47,15 @@ def local_roof_coverage(patches, bounds):
             vertices.extend(list(ring.coords)[:-1])
     if vertices:
         points = np.unique(np.asarray(vertices), axis=0)
-        pairs = cKDTree(points).query_pairs(1e-6)
+        pairs = cKDTree(points).query_pairs(COINCIDENCE)
         if pairs:
             indices = sorted(set(v for pair in pairs for v in pair))
             probes = [Point(points[i]) for i in indices]
-            affected = {p.block_id for p in local if any(p.polygon.boundary.distance(q) <= 1e-6 for q in probes)}
+            affected = {p.block_id for p in local if any(p.polygon.boundary.distance(q) <= COINCIDENCE for q in probes)}
             distance = min(float(np.linalg.norm(points[a]-points[b])) for a,b in pairs)
             raise RoofAssemblyError(
                 f'Mandatory coverage vertices are only {distance:.6g} m apart; '
-                'the native 1e-6 m coincidence scale cannot retain both constraints', block_ids=affected)
+                'the numerical coincidence policy cannot retain both constraints', block_ids=affected)
     domain = shapely.set_precision(box(*local_bounds), XY_PRECISION)
     union = shapely.union_all([p.polygon for p in local], grid_size=XY_PRECISION)
     ground = shapely.difference(domain, union, grid_size=XY_PRECISION)

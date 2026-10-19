@@ -21,7 +21,6 @@ DATASET_DEMOS = (
 )
 
 WORKFLOW_DEMOS = (
-    "compare_lod2.py",
     "build_city_surface_mesh.py",
     "build_cityjson_surface_mesh.py",
     "build_lod1_buildings.py",

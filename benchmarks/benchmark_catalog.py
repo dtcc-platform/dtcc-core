@@ -218,12 +218,18 @@ def build_tasks(
     city: str | None = None,
     datasets: Iterable[str] | None = None,
     phase: str = "both",
+    lod: str = "lod1",
+    lod2_method: str = "catalogue",
 ) -> list[BenchmarkTask]:
+    if lod not in ("lod1", "lod2") or lod2_method not in ("catalogue", "ransac"):
+        raise ValueError("Invalid LOD or LOD2 method")
+    if lod != "lod2" and lod2_method != "catalogue":
+        raise ValueError("RANSAC requires --lod lod2")
     if suite not in SUITE_DESCRIPTIONS:
         raise ValueError(f"unknown suite: {suite}")
     if city is not None and city not in CITIES:
         raise ValueError(f"unknown city: {city}")
-    if phase not in {"both", "cleaning", "meshing"}:
+    if phase not in {"both", "cleaning", "meshing", "replay"}:
         raise ValueError(f"unknown phase: {phase}")
     selected = list(
         dict.fromkeys(
@@ -233,9 +239,11 @@ def build_tasks(
     )
     if set(selected) - set(DATASET_NAMES):
         raise ValueError("unknown dataset selection")
+    if lod == "lod2" and not set(selected) & {"city_surface_mesh", "city_volume_mesh"}:
+        raise ValueError("LOD2 requires a city surface or volume mesh dataset")
     if phase == "cleaning" and selected != ["city_footprints"]:
         raise ValueError("--phase cleaning uses city_footprints; omit --dataset")
-    if phase == "meshing" and any(
+    if phase in {"meshing", "replay"} and any(
         d in {"city_footprints", "terrain_surface_mesh"} for d in selected
     ):
         raise ValueError("--phase meshing requires a city mesh dataset")
@@ -274,9 +282,14 @@ def build_tasks(
                     )
                     parameters = {**DEFAULT_PARAMETERS, **scenario.parameters}
                     parameters.pop("bbox_size_m", None)
+                    suffix = ""
+                    if dataset in ("city_surface_mesh", "city_volume_mesh"):
+                        parameters.update(lod=lod, lod2_method=lod2_method)
+                        if lod == "lod2":
+                            suffix = f":{lod}:{lod2_method}"
                     tasks.append(
                         BenchmarkTask(
-                            id=f"{suite}:{dataset}:{resolved_case.id}:{scenario.id}",
+                            id=f"{suite}:{dataset}:{resolved_case.id}:{scenario.id}{suffix}",
                             suite=suite,
                             dataset=dataset,
                             case=resolved_case,

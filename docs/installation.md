@@ -113,33 +113,20 @@ compact path by default. Flat/LOD1 and ordinary Mesher behavior remain unchanged
 Read [the public contract](compact_mesher_interface.md) for zero-point controls,
 backend restrictions, source/group budgets and triangle-growth ceilings.
 
-The required native `improve` operation and bounded `segment_trials` result are
-currently uncommitted in the sibling Mesher checkout. Its base commit is
-`0bba17bbd0d5de4b3a65b0451c4e5db303e541ac`; that commit alone is **not** a
-compatible release. The portable Core pin remains
-`7ada8a89c98dbbedc34213387ee598bd92826f10`. No compatible revision is fabricated
-and no absolute local dependency is placed in pyproject.toml or the lockfile.
-A normal clean install at that pin cannot yet run compact catalogue meshing;
-the early capability check explains the required build instead of silently
-using an unrecorded alternative. The remaining release gate is to commit/release
-the validated Mesher changes and update the portable pin to that real revision.
-
-For this local integration, from dtcc-core with both checkouts present:
+Core pins the published Mesher revision
+`d9643e735097c719ebeab8bacc06f4ed1f9ae042`, including the generic constrained
+triangulation corrections used by the LOD2 pipeline. The manifest and lockfile
+identify the same revision. Install it through the ordinary dependency path:
 
 ```sh
-uv pip install --python .venv/bin/python --no-deps ../dtcc-mesher
+uv sync --locked
 .venv/bin/python -c 'from dtcc_core.builder.meshing.compact_surface import require_compact_mesher; require_compact_mesher()'
 ```
 
-This builds native Mesher and Python bindings together. Source hashes, actual
-loaded binary SHA-256, base revision, compiler/test commands and fixed evaluation
-inputs are recorded in `.agent/work/compact-integration/validation.json` and its
-source snapshot. A C consumer must rebuild against the matching unreleased
-improvement-result header because the bounded trial array extends its struct.
-The Core native extension is unchanged by this integration. The small native
-constraint-recovery fix skips non-flippable crossed edges before adding recovery
-points; its generic holed-polygon regression ensures a recoverable zero-refinement
-input keeps all 11 points. Existing ordinary Mesher suites remain required.
+This resolves native Mesher and Python bindings together. The generic corrections
+need no new public API or ABI. Run the native CTest and Python suites as well as
+the core surface/volume regressions. Benchmark reports must identify the actual
+source patches and loaded native binary, alongside their saved input evidence.
 
 Use `.venv/bin/python` for this unreleased local build. `uv sync` or an automatic
 sync by `uv run` can restore the portable pinned dependency; rebuild the local

@@ -41,14 +41,8 @@ def test_fresh_public_default_and_zero_optional_points(entry):
         assert compact['building_triangles']<=3*compact['T0']//2
         assert not audit['roof_catalogue']['block_fallbacks']
         for group in compact['optimization']['groups']:
-            for stage in ('A','B'):
-                if stage in group:
-                    x=group[stage]
-                    assert x['end_triangles']<=x['triangle_ceiling']
-                    assert max(x['source_charges'].values())<=(8 if stage=='A' else 4)
-                    if stage=='B':
-                        assert x['interior_points']==0
-                        assert x['end_triangles']-x['start_triangles']<=x['start_triangles']//5
+            assert group['end_triangles'] <= group['overall_triangle_ceiling']
+            assert max(group['source_charges'].values()) <= 8
         assert all(r.attributes.get('source_key') is not None for r in mesh.regions if r.attributes['kind']!='terrain')
     assert not outputs[0]['optional_vertices']
     assert outputs[0]['T0']==outputs[1]['T0']
@@ -66,8 +60,50 @@ def test_auditing_and_merged_separate_outputs_preserve_geometry_and_markers():
         results.append(signature(mesh));audits.append(a['roof_catalogue']['compact_surface'])
     assert results[0]==results[1]==results[2]==results[3]
     assert 'edges' not in audits[0]['graph'] and 'edges' in audits[1]['graph']
-    assert not any(s['initial_edge_reproducers'] for s in audits[0]['optimization']['stages'])
+    assert not any(s['native_outcomes'] for s in audits[0]['optimization']['stages'])
     assert audits[0]['optional_counts']==audits[1]['optional_counts']
+
+
+def test_refinement_reuses_unchanged_terrain_validation(monkeypatch):
+    from collections import Counter
+    compact = importlib.import_module('dtcc_core.builder.meshing.compact_surface')
+    validate = compact.validate_face_geometry
+    calls = Counter()
+
+    def counted(face, *args):
+        calls[face.id] += 1
+        return validate(face, *args)
+
+    monkeypatch.setattr(compact, 'validate_face_geometry', counted)
+    audit = {}
+    builder.build_city_surface_mesh(sample(), lod='lod2', mesher='dtcc_mesher',
+                                   report_mesh_quality=False, stage_audit=audit)
+    result = audit['roof_catalogue']['compact_surface']
+    assert result['optional_vertices']
+    assert result['topology']['valid']
+    assert result['terrain_locality']['outside_star_bitwise_preserved']
+    for face in result['faces']:
+        if face['kind'] == 'terrain':
+            assert calls[face['face_id']] == 1
+    changed = {i for point in result['optional_vertices'] for i in point['affected_faces']}
+    assert all(calls[i] > 1 for i in changed)
+
+
+def test_refinement_topology_failure_is_explicit(monkeypatch):
+    validation = importlib.import_module('dtcc_core.builder.meshing.roof_validation')
+    original = validation.validate_shell
+    calls = []
+    def reject_final(mesh, **kwargs):
+        report = original(mesh, **kwargs)
+        calls.append(True)
+        return dict(report, valid=False) if len(calls)==2 else report
+    monkeypatch.setattr(validation, 'validate_shell', reject_final)
+    audit = {}
+    with pytest.raises(RuntimeError, match='topology'):
+        builder.build_city_surface_mesh(sample(), lod='lod2', stage_audit=audit,
+                                       report_mesh_quality=False)
+    assert not audit['roof_catalogue']['block_fallbacks']
+    assert len(audit['roof_catalogue']['assemblies']) == 1
 
 
 def test_backend_and_capability_errors_precede_city_work(monkeypatch):
@@ -91,12 +127,12 @@ def test_backend_and_capability_errors_precede_city_work(monkeypatch):
         builder.build_city_surface_mesh(None,lod='lod2',mesher='dtcc_mesher')
 
 
-def test_explicit_refinement_conflicts_and_extension_bounds():
+def test_explicit_refinement_conflicts_and_fixed_bounds():
     from dtcc_core.builder.meshing.surface_refinement import SurfaceRefinementOptions
-    with pytest.raises(ValueError,match='excludes surface_refinement'):
+    with pytest.raises(TypeError,match='surface_refinement'):
         builder.build_city_surface_mesh(None,lod='lod2',compact_surface=CompactSurfaceOptions(),
                                         surface_refinement=SurfaceRefinementOptions())
-    for key,value in [('extension_source_vertices',9),('extension_group_vertices',17),('extension_source_vertices',True)]:
+    for key,value in [('max_source_vertices',9),('max_group_vertices',33),('max_face_vertices',True)]:
         with pytest.raises(ValueError):CompactSurfaceOptions(**{key:value})
 
 
@@ -142,16 +178,16 @@ def test_independent_group_budgets_and_order_do_not_starve_distant_group():
     assert results[0]==results[1]==results[2]
 
 
-def test_stage_a_baseline_identical_under_standard_and_doubled_allowances():
-    histories=[]
-    for source,group in ((0,0),(4,8),(8,16)):
-        a={}
-        builder.build_city_surface_mesh(sample(),lod='lod2',mesher='dtcc_mesher',
-            compact_surface=CompactSurfaceOptions(extension_source_vertices=source,extension_group_vertices=group),
-            report_mesh_quality=False,stage_audit=a)
-        compact=a['roof_catalogue']['compact_surface']
-        histories.append([(p['kind'],p['xyz'],p['triangle_cost']) for p in compact['optional_vertices'] if p['stage']=='A'])
-    assert histories[0]==histories[1]==histories[2]
+def test_fixed_point_budgets_preserve_initial_accepted_transaction():
+    histories = []
+    for cap in (1,2):
+        audit = {}
+        builder.build_city_surface_mesh(sample(), lod='lod2', mesher='dtcc_mesher',
+            compact_surface=CompactSurfaceOptions(max_group_vertices=cap),
+            report_mesh_quality=False, stage_audit=audit)
+        histories.append(audit['roof_catalogue']['compact_surface']['optional_vertices'])
+    assert histories[0] and histories[1]
+    assert histories[0][0] == histories[1][0]
 
 
 def test_group_order_and_distant_group_on_fixed_reference_shell(monkeypatch):
@@ -164,8 +200,7 @@ def test_group_order_and_distant_group_on_fixed_reference_shell(monkeypatch):
     reference,patches=assemble(patches,slope=.4)
     original=ci.building_groups
     results=[]
-    policy=CompactSurfaceOptions(max_source_vertices=1,max_group_vertices=1,
-                                 extension_source_vertices=0,extension_group_vertices=0)
+    policy=CompactSurfaceOptions(max_source_vertices=1,max_group_vertices=1)
     for mode in ('normal','reverse','first'):
         def selected(registry,faces):
             groups=original(registry,faces)
@@ -174,10 +209,34 @@ def test_group_order_and_distant_group_on_fixed_reference_shell(monkeypatch):
         monkeypatch.setattr(ci,'building_groups',selected)
         mesh,audit=compact_surface(reference,patches,policy)
         assert audit['topology']['valid'] and audit['terrain_locality']['outside_star_bitwise_preserved']
-        assert all(g.get('A',{}).get('source_charges',{}).get('a',0)<=1 for g in audit['optimization']['groups'])
+        assert all(g['source_charges'].get('a',0)<=1 for g in audit['optimization']['groups'])
         selected_mesh=deepcopy(mesh)
         selected_mesh.faces=mesh.faces[np.isin(mesh.markers,[0,len(patches)])]
         selected_mesh.markers=mesh.markers[np.isin(mesh.markers,[0,len(patches)])]
         results.append((signature(selected_mesh),signature(SimpleNamespace(vertices=mesh.vertices,
             faces=mesh.faces[mesh.markers<0],markers=mesh.markers[mesh.markers<0]))))
     assert results[0]==results[1]==results[2]
+
+
+@pytest.mark.parametrize('isolated', [False, True])
+def test_lod2_progress_advances_within_completed_stages(isolated, monkeypatch):
+    from dtcc_core.common.progress import ProgressTracker
+    events = []
+    with ProgressTracker(phases={'mesh': 1.}, mode='silent') as tracker:
+        original = tracker._update_phase_progress
+
+        def capture(**kwargs):
+            original(**kwargs)
+            events.append((tracker.state.overall_percent, tracker.state.message))
+
+        monkeypatch.setattr(tracker, '_update_phase_progress', capture)
+        with tracker.phase('mesh'):
+            builder.build_city_surface_mesh(sample(), lod='lod2', isolated=isolated,
+                mesher='dtcc_mesher', report_mesh_quality=False)
+            assert tracker.state.overall_percent == 100
+    percentages = [p for p, _ in events]
+    assert percentages == sorted(percentages)
+    assert len(set(p for p in percentages if 0 < p < 100)) >= 12
+    refinement = [p for p, message in events if 'Improved LOD2 building group' in message]
+    assert refinement and all(30 < p < 98 for p in refinement)
+    assert all(p < 100 for p, message in events if 'complete' not in message.lower())

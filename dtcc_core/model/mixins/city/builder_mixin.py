@@ -180,9 +180,10 @@ class CityBuilderMixin:
         rebuild: bool = True,
         calculate_heights: bool = True,
         log_rejections: bool = False,
+        lod2_method: str = 'catalogue',
     ) -> "T_City":
         """
-        Build prototype LOD2 buildings for a city.
+        Build LOD2 buildings using catalogue roofs or ``lod2_method='ransac'``.
 
         The generated LOD2 geometry is stored only when the builder validates a
         watertight shell. Buildings that cannot produce LOD2 keep or receive
@@ -226,6 +227,7 @@ class CityBuilderMixin:
             rebuild=rebuild,
             build_lod1_fallback=True,
             log_rejections=log_rejections,
+            lod2_method=lod2_method,
         )
         self.remove_buildings()
         self.add_buildings(lod2_buildings)
@@ -251,7 +253,6 @@ class CityBuilderMixin:
         *,
         lod2_method: str = "catalogue",
         roof_options=None,
-        surface_refinement=None,
         compact_surface=None,
         stage_audit=None,
         report_mesh_quality: bool = True,
@@ -295,8 +296,6 @@ class CityBuilderMixin:
             None selects bounded compact catalogue meshing with dtcc_mesher.
             CompactSurfaceOptions(budgeted=False) disables optional points.
             Mesh sizes govern reference terrain; see docs/compact_mesher_interface.md.
-        `surface_refinement` : SurfaceRefinementOptions or None, keyword-only
-            Explicit shared-edge catalogue pilot; see docs/shared_edge_pilot.md.
         `stage_audit` : dict or None, keyword-only
             Receives source, fitting, topology and fallback diagnostics.
         `show_footprints` : bool, optional
@@ -330,7 +329,6 @@ class CityBuilderMixin:
             roof_options=roof_options,
             report_mesh_quality=report_mesh_quality,
             **({"compact_surface": compact_surface} if compact_surface is not None else {}),
-            **({"surface_refinement": surface_refinement} if surface_refinement is not None else {}),
             stage_audit=stage_audit,
         )
         return surface_mesh

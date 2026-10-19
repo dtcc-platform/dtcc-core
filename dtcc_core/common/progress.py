@@ -113,6 +113,30 @@ def get_progress() -> Optional['ProgressTracker']:
     return _current_progress.get()
 
 
+_progress_range = contextvars.ContextVar('dtcc_progress_range', default=None)
+
+
+@contextmanager
+def progress_range(start: float, end: float, message: str = None):
+    """Map a child operation's 0–100 reports into part of its parent's phase.
+
+    Ranges compose when nested. Only successful completion advances to the
+    end; a new independent tracker does not inherit another tracker's range.
+    """
+    if not 0 <= start <= end <= 100:
+        raise ValueError('Progress range must satisfy 0 <= start <= end <= 100')
+    tracker = get_progress()
+    parent = _progress_range.get()
+    lo, hi = parent[1:] if parent is not None and parent[0] is tracker else (0., 100.)
+    token = _progress_range.set((tracker, lo+(hi-lo)*start/100, lo+(hi-lo)*end/100))
+    try:
+        report_progress(percent=0, message=message)
+        yield
+        report_progress(percent=100)
+    finally:
+        _progress_range.reset(token)
+
+
 def report_progress(
     percent: float = None,
     message: str = None,
@@ -150,6 +174,17 @@ def report_progress(
     # Convert current/total to percent
     if current is not None and total is not None and total > 0:
         percent = (current / total) * 100
+
+    scope = _progress_range.get()
+    if scope is not None and scope[0] is tracker:
+        lo, hi = scope[1:]
+        if percent is not None:
+            percent = lo + (hi-lo)*max(0., min(100., percent))/100
+        if increment is not None:
+            phase = tracker.state.phases.get(tracker.state.current_phase)
+            if phase is not None:
+                percent = min(hi, phase.progress*100 + increment*(hi-lo)/100)
+                increment = None
 
     tracker._update_phase_progress(percent=percent, increment=increment, message=message)
 

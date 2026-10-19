@@ -1,5 +1,6 @@
 """Canonical 3D segment identities and monotone shared-boundary discretization."""
 from collections import defaultdict
+from copy import copy, deepcopy
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -22,6 +23,7 @@ class SharedEdges:
     numerical tolerance reconcile deterministically along their actual edge.
     """
     def __init__(self, vertices, face_boundaries, *, tolerance=1e-8):
+        vertices = np.asarray(vertices, dtype=float)
         self.vertices = [np.array(v, dtype=float) for v in vertices]
         self.tolerance = float(tolerance)
         self.edges = []
@@ -36,7 +38,7 @@ class SharedEdges:
         for i, (a, b) in enumerate(segments):
             if i in seen:
                 continue
-            start, end = np.asarray(vertices)[[a,b]]
+            start, end = vertices[[a,b]]
             delta = end-start
             length2 = float(delta@delta)
             if length2 <= tolerance*tolerance:
@@ -51,14 +53,14 @@ class SharedEdges:
                     for k in incident[vertex]:
                         if k in seen:
                             continue
-                        xy = np.asarray(vertices)[list(segments[k])]-start
+                        xy = vertices[list(segments[k])]-start
                         projection = np.outer(xy@delta/length2, delta)
                         if np.max(np.linalg.norm(xy-projection, axis=1)) <= tolerance:
                             todo.append(k)
                             seen.add(k)
             for j in component:
                 x, y = segments[j]
-                p, q = np.asarray(vertices)[[x,y]]
+                p, q = vertices[[x,y]]
                 d = q-p
                 l2 = float(d@d)
                 chain = []
@@ -90,6 +92,18 @@ class SharedEdges:
     def chain(self, edge_id, forward=True):
         vertices = self.edges[edge_id].vertices
         return vertices if forward else vertices[::-1]
+
+    def copy_for_split(self, edge_id):
+        """Stage one edge split without copying unrelated city geometry.
+
+        Existing coordinates and incidence are immutable during refinement;
+        reconcile only appends a vertex and updates the requested edge.
+        """
+        staged = copy(self)
+        staged.vertices = self.vertices.copy()
+        staged.edges = self.edges.copy()
+        staged.edges[edge_id] = deepcopy(self.edges[edge_id])
+        return staged
 
     def boundary(self, face_id):
         segments = []

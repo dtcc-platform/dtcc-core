@@ -35,7 +35,7 @@ dependencies = [
     "linkml==1.11.1",
     "linkml-runtime==1.11.1",
     "rich>=13.0.0",
-    "dtcc-mesher @ git+https://github.com/dtcc-platform/dtcc-mesher.git@7ada8a89c98dbbedc34213387ee598bd92826f10",
+    "dtcc-mesher @ git+https://github.com/dtcc-platform/dtcc-mesher.git@d9643e735097c719ebeab8bacc06f4ed1f9ae042",
 ]
 
 version = "0.9.8dev"

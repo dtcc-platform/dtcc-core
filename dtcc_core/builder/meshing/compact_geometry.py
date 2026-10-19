@@ -1,34 +1,45 @@
 """Minimal source-owned planar domains and their jointly simplified edge graph."""
 from collections import defaultdict
 from dataclasses import replace
+import heapq
 
 import numpy as np
 import shapely
-from shapely.geometry import Polygon, Point
+from shapely.geometry import Polygon
 from shapely.geometry.polygon import orient
 
-from .surface_faces import SurfaceFace, extract_surface_faces, boundary_rings
+from ...common.progress import report_progress
+
+from .surface_faces import SurfaceFace, boundary_rings
 from .shared_edges import SharedEdges
+from .roof_interfaces import RoofAssemblyError
+from ..geometry_policy import COINCIDENCE, canonical_profile_heights
 
-TOLERANCE = 1e-8
+TOLERANCE = COINCIDENCE
 
 
-def planar_face(rings, *, kind, source, markers, normal, face_id=0):
+def planar_face(rings, *, kind, source, markers, normal, face_id=0, plane_origin=None):
     """Construct a planar domain and retain its canonical shared 3D ring vertices."""
     normal = np.asarray(normal, dtype=float)
     normal /= np.linalg.norm(normal)
-    origin = np.asarray(rings[0][0], dtype=float)
-    directions = np.diff(np.asarray(rings[0]), axis=0)
-    tangent = directions[np.argmax(np.linalg.norm(directions, axis=1))]
-    tangent -= normal * (normal @ tangent)
-    tangent /= np.linalg.norm(tangent)
-    basis = np.array([tangent, np.cross(normal, tangent)])
+    origin = np.asarray(rings[0][0] if plane_origin is None else plane_origin, dtype=float)
+    if kind == 'wall':
+        tangent = np.array([-normal[1], normal[0], 0.])
+        tangent /= np.linalg.norm(tangent)
+        basis = np.array([tangent, [0., 0., 1.]])
+    else:
+        directions = np.diff(np.asarray(rings[0]), axis=0)
+        tangent = directions[np.argmax(np.linalg.norm(directions, axis=1))]
+        tangent -= normal * (normal @ tangent)
+        tangent /= np.linalg.norm(tangent)
+        basis = np.array([tangent, np.cross(normal, tangent)])
     local = [(np.asarray(r)-origin) @ basis.T for r in rings]
     polygon = orient(Polygon(local[0], local[1:]), sign=1.)
     if not polygon.is_valid or polygon.area <= 1e-12:
         raise ValueError('Invalid compact planar domain')
     face = SurfaceFace(face_id, kind, source, sorted(markers), np.array([], dtype=int),
-                       origin, basis, normal, polygon, [], [], 0.)
+                       origin, basis, normal, polygon, [], [],
+                       float(max(np.max(abs((np.asarray(r)-origin)@normal)) for r in rings)))
     # Keep the canonical shared 3D endpoints; projecting a numerically reconciled
     # junction onto each incident plane independently would separate its copies.
     face._geometric_rings = [np.asarray(r).copy() for r in rings]
@@ -44,20 +55,56 @@ def face_coordinates(face):
 
 
 def merge_planar(faces):
-    """Union compatible domains under one fixed supporting plane and owner."""
+    """Union edge-connected domains under one fixed supporting plane and owner.
+
+    A point contact does not join planar faces. Overlaying such domains in an
+    oblique chart can manufacture a tiny segment at the common vertex.
+    """
     groups = []
+    by_owner = defaultdict(list)
     for face in faces:
-        for group in groups:
+        for group in by_owner[(face.kind, face.source_key)]:
             root = group[0]
-            if (root.kind == face.kind and root.source_key == face.source_key and
-                root.normal @ face.normal > 1-1e-14 and
-                max(np.max(abs((r-root.origin) @ root.normal)) for r in face_coordinates(face)) <= TOLERANCE):
+            if (root.normal @ face.normal > 1-1e-14 and
+                abs((face.origin-root.origin) @ root.normal) <= TOLERANCE and
+                all(np.max(abs((ring-root.origin) @ root.normal)) <= TOLERANCE
+                    for ring in face_coordinates(face))):
                 group.append(face)
                 break
         else:
-            groups.append([face])
-    result = []
+            group = [face]
+            groups.append(group)
+            by_owner[(face.kind, face.source_key)].append(group)
+    connected = []
     for group in groups:
+        root = group[0]
+        polygons = []
+        for f in group:
+            rings = [(r-root.origin) @ root.basis.T for r in face_coordinates(f)]
+            polygons.append(Polygon(rings[0], rings[1:]))
+        tree = shapely.STRtree(polygons)
+        adjacent = defaultdict(set)
+        for i, polygon in enumerate(polygons):
+            for j in tree.query(polygon, predicate='intersects'):
+                j = int(j)
+                if j < i and polygon.boundary.intersection(polygons[j].boundary).length > TOLERANCE:
+                    adjacent[i].add(j)
+                    adjacent[j].add(i)
+        remaining = set(range(len(group)))
+        while remaining:
+            first = min(remaining)
+            component, todo = [], [first]
+            remaining.remove(first)
+            while todo:
+                i = todo.pop()
+                component.append(group[i])
+                for j in sorted(adjacent[i]):
+                    if j in remaining:
+                        remaining.remove(j)
+                        todo.append(j)
+            connected.append(component)
+    result = []
+    for group in connected:
         root = group[0]
         if len(group) == 1:
             result.append(root)
@@ -72,13 +119,15 @@ def merge_planar(faces):
             merged = replace(root, polygon=orient(p, sign=1.), markers=sorted(set(
                 m for f in contributors for m in f.markers)))
             originals = np.concatenate([r for f in contributors for r in face_coordinates(f)])
+            original_projection = (originals-merged.origin) @ merged.basis.T
             rings = []
             for ring in [merged.polygon.exterior, *merged.polygon.interiors]:
-                xyz = merged.origin + np.asarray(ring.coords)[:-1] @ merged.basis
-                for k, x in enumerate(xyz):
-                    distances = np.linalg.norm(originals-x, axis=1)
+                uv = np.asarray(ring.coords)[:-1]
+                xyz = merged.origin + uv @ merged.basis
+                for k, x in enumerate(uv):
+                    distances = np.linalg.norm(original_projection-x, axis=1)
                     nearest = int(np.argmin(distances))
-                    if distances[nearest] <= 1e-7:
+                    if distances[nearest] <= TOLERANCE:
                         xyz[k] = originals[nearest]
                 rings.append(xyz)
             merged._geometric_rings = rings
@@ -86,20 +135,24 @@ def merge_planar(faces):
     return result
 
 
-def building_domains(patches, reference, *, allow_source_steps=False, base_z=None):
+def building_domains(patches, reference, *, allow_source_steps=False, base_z=None, block_bases=None):
     """Use fitted domains and native or explicit bases, with exposed affine intervals.
 
-    Shared edges use the same 1 micrometre height coincidence rule as the native
-    assembler. No roof tessellation or vertical strip levels enter these domains.
+    Canonical oriented roof edges supply exact incidence. No roof tessellation
+    or vertical strip levels enter these domains.
     """
     n = len(patches)
-    if base_z is not None:
+    if block_bases is not None:
+        bases = block_bases
+    elif base_z is not None:
         if not np.isfinite(base_z):
             raise ValueError('Building base must be finite')
         bases = {p.block_id: float(base_z) for p in patches}
-        if any(p.height(xy) <= base_z for p in patches
-               for ring in [p.polygon.exterior, *p.polygon.interiors] for xy in ring.coords):
-            raise ValueError('Roof must lie above the building base')
+        below_base = {p.block_id for p in patches
+                      for ring in [p.polygon.exterior, *p.polygon.interiors]
+                      if np.any(p.height(np.asarray(ring.coords)) <= base_z)}
+        if below_base:
+            raise RoofAssemblyError('Roof must lie above the building base', block_ids=below_base)
     else:
         bases = {}
         for i, patch in enumerate(patches):
@@ -107,9 +160,6 @@ def building_domains(patches, reference, *, allow_source_steps=False, base_z=Non
             if len(ids):
                 level = float(reference.vertices[ids, 2].min())
                 bases[patch.block_id] = min(bases.get(patch.block_id, level), level)
-    polygons = [p.polygon for p in patches]
-    boundaries = [p.boundary for p in polygons]
-    tree = shapely.STRtree(boundaries)
     # Heights are canonical only at common XY junctions, as in the assembler.
     at_xy = defaultdict(list)
     for i, p in enumerate(patches):
@@ -117,13 +167,13 @@ def building_domains(patches, reference, *, allow_source_steps=False, base_z=Non
             for xy in np.asarray(ring.coords)[:-1]:
                 at_xy[tuple(xy)].append((float(p.height(xy)), i))
     heights = {}
+    slopes = {i:p.coefficients[:2] for i,p in enumerate(patches)}
     for xy, values in at_xy.items():
-        values.sort()
-        canonical = values[0][0]
-        for z, i in values:
-            if z-canonical > 1e-6:
-                canonical = z
-            heights[(xy, i)] = canonical
+        try:
+            canonical = canonical_profile_heights(values, slopes)
+        except ValueError as exc:
+            raise RoofAssemblyError(str(exc),block_ids=[patches[i].block_id for z,i in values]) from exc
+        heights.update({(xy,i):z for i,z in canonical.items()})
     def height(i, xy):
         return heights.get((tuple(xy), i), float(patches[i].height(xy)))
     roofs = []
@@ -133,42 +183,50 @@ def building_domains(patches, reference, *, allow_source_steps=False, base_z=Non
             xy = np.asarray(ring.coords)[:-1]
             rings.append(np.c_[xy, [height(i, x) for x in xy]])
         roofs.append(planar_face(rings, kind='roof', source=p.source_key,
-                                 markers=[n+i], normal=[-p.coefficients[0], -p.coefficients[1], 1.]))
-    graph = shapely.union_all(boundaries)
-    lines = list(graph.geoms) if hasattr(graph, 'geoms') else [graph]
+                                 markers=[n+i], normal=[-p.coefficients[0], -p.coefficients[1], 1.],
+                                 plane_origin=[*p.origin,p.coefficients[2]]))
+    # The subdivision stage supplies fully noded oriented rings. Incidence is
+    # combinatorial: distance to a short edge midpoint is not ownership.
+    incidence = defaultdict(list)
+    for i,p in enumerate(patches):
+        for ring in [p.polygon.exterior,*p.polygon.interiors]:
+            xy = np.asarray(ring.coords)
+            for a,b in zip(xy[:-1],xy[1:]):
+                key = tuple(sorted((tuple(a),tuple(b))))
+                if key[0]==key[1]:
+                    raise RoofAssemblyError('Zero-length canonical roof edge',block_ids=[p.block_id])
+                incidence[key].append((i,a,b))
     walls = []
-    for line in lines:
-        xy = np.asarray(line.coords)
-        for a, b in zip(xy[:-1], xy[1:]):
-            midpoint = Point((a+b)/2)
-            adjacent = [int(i) for i in tree.query(midpoint.buffer(TOLERANCE))
-                        if boundaries[int(i)].distance(midpoint) <= TOLERANCE]
-            if not 1 <= len(adjacent) <= 2:
-                raise ValueError('Ambiguous compact source interface')
-            high = max(adjacent, key=lambda i: (height(i, a)+height(i, b), -i))
-            low = next((i for i in adjacent if i != high), None)
-            top = np.array([height(high, a), height(high, b)])
-            bottom = (np.full(2, bases[patches[high].block_id]) if low is None else
-                      np.array([height(low, a), height(low, b)]))
-            if low is not None:
-                if np.max(abs(top-bottom)) <= 1e-6:
-                    continue
-                if np.min(top-bottom) < -TOLERANCE:
-                    raise ValueError('Unnoded compact height crossing')
-                if patches[high].source_key == patches[low].source_key and not allow_source_steps:
-                    raise ValueError('Discontinuous compact source roof')
-            direction = b-a
-            normal = np.array([direction[1], -direction[0], 0.])
-            # Polygon orientation determines which side of the edge is exposed.
-            probe = (a+b)/2 + np.array([-direction[1], direction[0]])/np.linalg.norm(direction)*1e-6
-            if not polygons[high].covers(Point(probe)):
-                a, b = b, a
-                top, bottom = top[::-1], bottom[::-1]
-                normal = -normal
-            ring = np.array([[*a, bottom[0]], [*b, bottom[1]], [*b, top[1]], [*a, top[0]]])
-            ring = np.array([x for j, x in enumerate(ring) if np.linalg.norm(x-ring[j-1]) > TOLERANCE])
-            walls.append(planar_face([ring], kind='wall', source=patches[high].source_key,
-                                     markers=[high], normal=normal))
+    for key,incident in sorted(incidence.items()):
+        if not 1<=len(incident)<=2:
+            raise RoofAssemblyError('Nonmanifold canonical roof edge',
+                                    block_ids=[patches[i].block_id for i,a,b in incident])
+        if len(incident)==2 and np.array_equal(incident[0][1],incident[1][1]):
+            raise RoofAssemblyError('Canonical roof edge has inconsistent oriented incidence',
+                                    block_ids=[patches[i].block_id for i,a,b in incident])
+        high,a,b = max(incident,key=lambda item:(height(item[0],item[1])+height(item[0],item[2]),-item[0]))
+        low = next((i for i,_,_ in incident if i!=high),None)
+        top = np.array([height(high,a),height(high,b)])
+        bottom = (np.full(2,bases[patches[high].block_id]) if low is None else
+                  np.array([height(low,a),height(low,b)]))
+        if low is not None:
+            if np.max(abs(top-bottom))<=COINCIDENCE:
+                continue
+            if np.min(top-bottom)<-TOLERANCE:
+                raise RoofAssemblyError('Unnoded compact height crossing',block_ids=[patches[high].block_id])
+            if patches[high].source_key==patches[low].source_key and not allow_source_steps:
+                raise RoofAssemblyError(f'Discontinuous source roof {patches[high].source_key}: '
+                    f'patches {patches[high].patch_id}/{patches[low].patch_id}, '
+                    f'endpoint height differences {(top-bottom).tolist()}',
+                    block_ids=[patches[high].block_id])
+        direction = b-a
+        # Every exterior and hole ring has occupied material on its left.
+        # The exposed wall points to its right, without an offset-point probe.
+        normal = np.array([direction[1],-direction[0],0.])
+        ring = np.array([[*a,bottom[0]],[*b,bottom[1]],[*b,top[1]],[*a,top[0]]])
+        ring = np.array([x for j,x in enumerate(ring) if np.linalg.norm(x-ring[j-1])>TOLERANCE])
+        walls.append(planar_face([ring],kind='wall',source=patches[high].source_key,
+                                 markers=[high],normal=normal))
     return merge_planar(roofs + walls)
 
 
@@ -179,6 +237,7 @@ def geometric_graph(faces):
     Equal XY at different elevations remains distinct.
     """
     vertices, lookup, boundaries = [], {}, {}
+    original_edges = {}
     def vertex(p):
         key = tuple(np.rint(p/TOLERANCE).astype(np.int64))
         # Inspect neighbouring hash cells to avoid grid-boundary mismatches.
@@ -194,53 +253,103 @@ def geometric_graph(faces):
         return i
     for i, face in enumerate(faces):
         face.id = i
-        rings = [[vertex(x) for x in r] for r in face_coordinates(face)]
+        rings = []
+        for coordinates in face_coordinates(face):
+            ids = [vertex(x) for x in coordinates]
+            rings.append(ids)
+            for k,(a,b) in enumerate(zip(ids,ids[1:]+ids[:1])):
+                original_edges[(i,a,b)] = np.asarray([coordinates[k],coordinates[(k+1)%len(ids)]])
         boundaries[i] = [(a, b) for r in rings for a, b in zip(r, r[1:]+r[:1])]
-    v = np.asarray(vertices)
+    v = np.asarray(vertices, dtype=float).reshape(-1, 3)
     # Node T junctions even when the endpoint belongs to a shorter vertical edge.
+    from scipy.spatial import cKDTree
+    tree = cKDTree(v)
+    chains = {}
+    support = {}
     for i, boundary in boundaries.items():
         edges = []
         for a, b in boundary:
-            d = v[b]-v[a]
-            t = (v-v[a]) @ d / (d @ d)
-            residual = np.linalg.norm(v-(v[a]+t[:, None]*d), axis=1)
-            ids = np.flatnonzero((t >= -1e-12) & (t <= 1+1e-12) & (residual <= TOLERANCE))
-            ids = sorted(map(int, ids), key=lambda j: (t[j], j))
+            key = tuple(sorted((a, b)))
+            if a == b:
+                raise ValueError(f'Shared geometry face {i} has a zero-length boundary edge')
+            if key not in chains:
+                start, end = v[list(key)]
+                d = end-start
+                candidates = np.asarray(tree.query_ball_point((start+end)/2,
+                                        np.linalg.norm(d)/2+TOLERANCE), dtype=int)
+                t = (v[candidates]-start) @ d / (d @ d)
+                residual = np.linalg.norm(v[candidates]-(start+t[:, None]*d), axis=1)
+                selected = (t >= -1e-12) & (t <= 1+1e-12) & (residual <= TOLERANCE)
+                chains[key] = [int(j) for _, j in sorted(zip(t[selected], candidates[selected]))]
+            ids = chains[key] if a == key[0] else chains[key][::-1]
+            original_a,original_b = original_edges[(i,a,b)]
+            direction = v[b]-v[a]
+            parameters = np.clip((v[ids]-v[a])@direction/(direction@direction),0.,1.)
+            samples = original_a+parameters[:,None]*(original_b-original_a)
+            for k,(left,right) in enumerate(zip(ids[:-1],ids[1:])):
+                support[(i,left,right)] = samples[k:k+2].copy()
             edges.extend(zip(ids[:-1], ids[1:]))
         faces[i].rings = boundary_rings(edges)
         faces[i].rings.sort(key=lambda r: -Polygon((v[r]-faces[i].origin) @ faces[i].basis.T).area)
+        if (i+1) % 100 == 0 or i+1 == len(faces):
+            report_progress(percent=70*(i+1)/len(faces),
+                            message=f'Reconciled shared edges for {i+1}/{len(faces)} faces')
+    report_progress(percent=70, message='Simplifying shared LOD2 edge graph...')
     raw_count = len(vertices)
     raw_per_face = {str(f.id):sum(map(len,f.rings)) for f in faces}
     removed = []
-    while True:
-        occurrences = defaultdict(list)
-        for f in faces:
-            for r in f.rings:
-                for k, x in enumerate(r):
-                    occurrences[x].append((f.id, r, k))
-        discard = None
-        for x, uses in sorted(occurrences.items()):
-            neighbours = set()
-            removable = True
-            for _, r, k in uses:
-                a, b = r[k-1], r[(k+1)%len(r)]
-                neighbours.update((a, b))
-                d = v[b]-v[a]
-                t = (v[x]-v[a]) @ d / (d @ d)
-                if (any(getattr(faces[use[0]], '_fixed_boundary', False) for use in uses) or
-                    len(r) <= 3 or not 0 < t < 1 or
+    support_limited = set()
+    occurrences = defaultdict(list)
+    for f in faces:
+        for r in f.rings:
+            for x in r:
+                occurrences[x].append((f.id, r))
+    pending = sorted(occurrences)
+    heapq.heapify(pending)
+    queued = set(pending)
+    while pending:
+        x = heapq.heappop(pending)
+        queued.discard(x)
+        uses = occurrences.get(x, [])
+        if not uses or any(getattr(faces[i], '_fixed_boundary', False) for i, _ in uses):
+            continue
+        neighbours = set()
+        merged_support = []
+        for fi, r in uses:
+            k = r.index(x)
+            a, b = r[k-1], r[(k+1)%len(r)]
+            neighbours.update((a, b))
+            d = v[b]-v[a]
+            length2 = float(d @ d)
+            t = float((v[x]-v[a]) @ d / length2) if length2 else -1.
+            if (len(r) <= 3 or not 0 < t < 1 or
                     np.linalg.norm(v[x]-(v[a]+t*d)) > TOLERANCE):
-                    removable = False
-                    break
-            if removable and len(neighbours) == 2:
-                discard = x, uses
                 break
-        if discard is None:
-            break
-        x, uses = discard
-        for _, r, _ in uses:
-            r.remove(x)
-        removed.append(x)
+            # Bound total displacement from the original admitted boundary,
+            # including samples removed earlier. Local epsilon tests alone can
+            # accumulate into a larger change as neighbouring vertices vanish.
+            samples = np.vstack([support[(fi,a,x)],support[(fi,x,b)]])
+            parameters = np.clip((samples-v[a])@d/length2,0.,1.)
+            if np.max(np.linalg.norm(samples-(v[a]+parameters[:,None]*d),axis=1))>TOLERANCE:
+                support_limited.add(x)
+                break
+            merged_support.append((fi,a,b,samples))
+        else:
+            if len(neighbours) != 2:
+                continue
+            for fi,a,b,samples in merged_support:
+                del support[(fi,a,x)],support[(fi,x,b)]
+                support[(fi,a,b)] = samples
+            for _, r in uses:
+                r.remove(x)
+            del occurrences[x]
+            removed.append(x)
+            # Only immediate neighbours change their collinearity predicate.
+            for neighbour in sorted(neighbours):
+                if neighbour not in queued:
+                    heapq.heappush(pending, neighbour)
+                    queued.add(neighbour)
+    report_progress(percent=90, message='Registering shared LOD2 edges...')
     reasons = []
     occurrences = defaultdict(list)
     for f in faces:
@@ -270,6 +379,7 @@ def geometric_graph(faces):
                             incident_faces=[f.id for f, _, _ in uses],
                             corner_faces=corners, fixed_terrain_faces=fixed, neighbours=sorted(neighbours),
                             collinear_retained_because=('fixed outside-contact terrain triangulation' if fixed else
+                                'total original boundary displacement bound' if x in support_limited else
                                 'junction changes edge incidence' if not corners else
                                 'corner in incident faces '+str(corners))))
     for f in faces:
@@ -280,56 +390,30 @@ def geometric_graph(faces):
                           retained_vertices=reasons)
 
 
-def terrain_domains(reference, extracted):
-    """Permit retriangulation only in the original contact-vertex star.
+def terrain_domains(reference):
+    """Retain the sampled terrain triangles as immutable geometric faces.
 
-    Fixed outside triangles constrain the edge graph, even across coplanar
-    terrain. Thus a flat terrain cannot trigger a domain-wide remesh.
+    Coplanar triangles need not form a simple polygon when a contact star
+    pinches at a vertex. Keeping their original faces avoids a competing terrain
+    union and preserves every original terrain triangle outside that star.
     """
     from .surface_faces import _make_face
     markers = np.asarray(reference.markers)
-    contact = np.intersect1d(np.unique(reference.faces[markers < 0]),
-                             np.unique(reference.faces[markers >= 0]))
+    contact = getattr(reference, 'terrain_contact_vertices', None)
+    if contact is None:
+        contact = np.intersect1d(np.unique(reference.faces[markers < 0]),
+                                np.unique(reference.faces[markers >= 0]))
     local = np.any(np.isin(reference.faces, contact), axis=1)
     result = []
-    for face in extracted:
-        if face.kind != 'terrain':
-            continue
-        eligible = face.original_faces[local[face.original_faces]]
-        fixed = face.original_faces[~local[face.original_faces]]
-        if not len(eligible) or not len(fixed):
-            face._fixed_boundary = not len(eligible)
-            result.append(face)
-            continue
-        for i in fixed:
-            f = _make_face(reference, [i], face.origin, face.normal,
-                           face_id=0, kind='terrain', source_key=None)
-            f._fixed_boundary = True
-            result.append(f)
-        edges = defaultdict(list)
-        for i in eligible:
-            for a,b in zip(reference.faces[i],np.roll(reference.faces[i],-1)):
-                edges[tuple(sorted((int(a),int(b))))].append(int(i))
-        adjacent = defaultdict(set)
-        for ids in edges.values():
-            for i in ids:
-                adjacent[i].update(ids)
-        remaining = set(map(int,eligible))
-        while remaining:
-            root = min(remaining)
-            group, todo = [], [root]
-            remaining.remove(root)
-            while todo:
-                i = todo.pop()
-                group.append(i)
-                for j in sorted(adjacent[i]):
-                    if j in remaining:
-                        remaining.remove(j)
-                        todo.append(j)
-            result.append(_make_face(reference, group, face.origin, face.normal,
-                                    face_id=0, kind='terrain', source_key=None))
-    for f in result:
-        f._geometric_rings = [reference.vertices[r].copy() for r in f.rings]
+    for i in np.flatnonzero(markers < 0):
+        triangle = reference.vertices[reference.faces[i]]
+        normal = np.cross(triangle[1]-triangle[0], triangle[2]-triangle[0])
+        normal /= np.linalg.norm(normal)
+        face = _make_face(reference, [i], triangle[0], normal,
+                          face_id=0, kind='terrain', source_key=None)
+        face._fixed_boundary = not local[i]
+        face._geometric_rings = [reference.vertices[r].copy() for r in face.rings]
+        result.append(face)
     return result, dict(contact_vertices=contact.tolist(),
                         outside_star_face_ids=np.flatnonzero(~local & (markers<0)).tolist(),
                         attachment_star_triangles=int(np.sum(local & (markers<0))),

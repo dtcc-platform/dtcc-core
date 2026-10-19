@@ -130,6 +130,73 @@ def test_simple_cli_and_spatial_scopes():
     assert {t["dataset"] for t in cleaning["tasks"]} == {"city_footprints"}
 
 
+def test_cli_lod2_selection():
+    result = cli("quick", "--dataset", "city_surface_mesh", "--lod", "lod2",
+                 "--lod2-method", "ransac", "--dry-run")
+    assert result.returncode == 0, result.stderr
+    tasks = json.loads(result.stdout)["tasks"]
+    assert len(tasks) == 10
+    assert all(t["parameters"]["lod"] == "lod2" and
+               t["parameters"]["lod2_method"] == "ransac" for t in tasks)
+    assert cli("quick", "--lod2-method", "ransac", "--dry-run").returncode == 2
+
+
+def test_timeout_preserves_completed_inputs(bench, task, tmp_path, monkeypatch):
+    directory = tmp_path / "tasks" / bench._safe_task_id(task["id"])
+    clean = directory / "cleaning"
+    mesh = directory / "meshing"
+    clean.mkdir(parents=True)
+    mesh.mkdir()
+    (clean / "footprints.geojson").write_text("{}")
+    (mesh / "city.dtcc").write_bytes(b"saved input")
+    benchmark_phases.write_json(clean / "metrics.json", {"status": "success"})
+    evidence = {"source_count": 3, "extraction": "original_source_footprints_v1"}
+    benchmark_phases.write_json(mesh / "input.json", {"status": "success", "roof_evidence": evidence})
+
+    class TimedOutWorker:
+        stdout, stderr = io.StringIO(""), io.StringIO("working\n")
+        returncode = None
+
+        def wait(self, timeout=None):
+            if self.returncode is None:
+                raise subprocess.TimeoutExpired("worker", timeout)
+            return self.returncode
+
+        def send_signal(self, signal):
+            self.returncode = -signal
+
+    monkeypatch.setattr(bench.subprocess, "Popen", lambda *a, **kw: TimedOutWorker())
+    result = bench._run_task_subprocess(task, tmp_path)
+    assert result["status"] == "timeout"
+    assert "meshing" not in result["metrics"]
+    assert result["metrics"]["mesh_input"]["roof_evidence"] == evidence
+    assert set(result["artifacts"]) == {"cleaning_input", "prepared_city"}
+
+
+def test_lod2_replay_selection_requires_roof_provenance(bench, cleaning_run):
+    directory, _, result = cleaning_run
+    path = directory / "results.json"
+    payload = json.loads(path.read_text())
+    row = payload["results"][0]
+    row["dataset"] = "city_surface_mesh"
+    prepared = directory / "prepared.dtcc"
+    prepared.write_bytes(b"fixture for artifact selection")
+    row["artifacts"]["prepared_city"] = {"path": str(prepared)}
+    row["metrics"]["mesh_input"] = {}
+    benchmark_phases.write_json(path, payload)
+
+    def selected():
+        task = task_to_json(build_tasks("quick", city="lund", phase="meshing",
+                            datasets=["city_surface_mesh"], lod="lod2", lod2_method="ransac")[0])
+        bench._attach_saved_inputs([task], directory)
+        return task
+
+    assert "prepared_city" not in selected()
+    row["metrics"]["mesh_input"]["roof_evidence"] = {"source_count": 2}
+    benchmark_phases.write_json(path, payload)
+    assert selected()["prepared_city"] == str(prepared)
+
+
 def test_sweeps_are_relevant_to_phase_and_respect_volume_envelope():
     cleaning = build_tasks("sweep", city="lund", phase="cleaning")
     assert all(

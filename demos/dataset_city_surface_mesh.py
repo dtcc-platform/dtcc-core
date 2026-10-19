@@ -11,7 +11,7 @@ isolated_mesh = dtcc.datasets.city_surface_mesh(
     max_mesh_size=10.0,
     lod="lod2",
     isolated=True,
-    show_footprints=True,
+    show_footprints=False,
 )
 isolated_mesh.info()
 isolated_mesh.save("output/city_surface_mesh_isolated.vtu")
@@ -25,7 +25,7 @@ merged_mesh = dtcc.datasets.city_surface_mesh(
     max_mesh_size=10.0,
     lod="lod2",
     isolated=False,
-    show_footprints=True,
+    show_footprints=False,
 )
 merged_mesh.info()
 merged_mesh.save("output/city_surface_mesh_merged.vtu")

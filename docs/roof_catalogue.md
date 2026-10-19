@@ -7,8 +7,22 @@ builds roofs, exposed walls and terrain as one conforming surface. The default
 output representation; input footprints and observations need no LOD selection.
 `lod2_method="catalogue"` is the default LOD2 algorithm. Select
 `lod2_method="ransac"` to compare the existing RANSAC reconstructor through the
-same city surface meshing path. The standalone `build_lod2_buildings` API is
-unchanged.
+same city surface meshing path.
+
+For a city model with individual closed building geometries, use
+`datasets.city(bounds=bounds, lod="lod2")`. It uses the same catalogue fitter;
+`lod2_method="ransac"` selects RANSAC. The dataset still defaults to LOD1.
+`city.build_lod2_buildings()` and `builder.build_lod2_buildings(buildings)` also
+default to catalogue reconstruction. Individual city-model shells retain the
+original footprints, without joint cleaning or terrain attachment. Rejected
+fits remain LOD1, including footprints with holes unsupported by this shell
+builder. Catalogue outcomes are stored in `building.attributes["roof_reconstruction"]`.
+CityJSON export retains both the reconstructed LOD2 and fallback LOD1 geometries.
+
+To mesh supplied CityJSON geometry, use
+`city.flatten_geometry(GeometryType.LOD2).mesh()`. This triangulates the existing
+surfaces directly; it does not reconstruct roofs or create a joint terrain
+boundary. See `demos/build_cityjson_surface_mesh.py`.
 
 ```python
 from dtcc_core import builder
@@ -63,32 +77,53 @@ ransac = city.build_surface_mesh(lod="lod2", lod2_method="ransac")
 ```
 
 Both LOD2 methods use the source-specific observations, cleaned cells, shared
-interfaces, compact mesher and fallback validation. RANSAC uses the existing
-building reconstructor unchanged. Its planar roof domains retain their original
+interfaces, compact mesher and stage contracts. RANSAC uses the shared
+building reconstructor. Its planar roof domains retain their fitted
 planes and interior ownership. On cleaned footprint fringes, internal domain
 boundaries extend as straight lines and exterior fragments use the nearest
 original roof domain. This is a geometric extrapolation, not additional evidence.
 Stepped roofs retain distinct domain heights. Unsupported fits use explicit LOD1
-fallbacks; invalid transferred partitions use the existing block fallback.
+models; invalid transfer is rejected during roof admission. Assembly errors raise
+without flattening admitted roofs.
 The `roof_catalogue` diagnostics contain fitting and meshing results for both
 methods. The audit fields `requested_lod` and `lod2_method` identify the request.
+
+RANSAC least-squares plane refinement uses centered coordinates, so dense
+observations in large projected map coordinates retain both slope components.
+When more than two planes are detected and footprint decomposition does not
+succeed, `geometry_builders/roof_plane_selection.py` searches subsets of the
+maximum six detected planes. Lower envelopes support continuous gable/hip roofs;
+upper envelopes support valleys. Selection requires at least 80% of observations
+within 0.4 m vertically, at least 20 supporting observations and 2 m² per face,
+and at least half of each selected plane's inliers inside its assigned domain.
+Candidates minimize mean absolute residual clipped at 1 m plus 0.01 m per plane.
+The search preserves fitted planes, the footprint, and shared junctions; it
+does not introduce catalogue templates. Near-horizontal subsets remain with the
+stepped-flat path. Accepted subsets are recorded in each source's
+`diagnostics.plane_selection`, including detected/selected counts and support.
+These envelopes do not cover arbitrary combinations of intersecting or stepped
+roofs: unsupported cases still use decomposition, stepped-flat reconstruction,
+or explicit LOD1 fallback. Face-specific triangulation failures are attributed
+to their building so they cannot silently flatten the entire city.
 
 `GeometryType.LOD1` and `GeometryType.LOD2` have the same output meaning as the
 strings. The previous `lod` input selector is no longer exposed on surface/volume-mesh
 calls: migrate LOD0 and per-building selectors to the desired output `lod` and let
 source geometry resolve internally. Flat meshing still selects stored geometry.
 
-The [comparison demo](../demos/compare_lod2.py) makes two dataset requests
-for the same 200 m Gothenburg block (13 source buildings in the validation dataset)
-and saves catalogue and RANSAC surface meshes for ParaView:
+The [Höganäs comparison script](../sandbox/compare_lod2.py) reconstructs the same
+LM footprints with catalogue, RANSAC, and standalone Roofer roofs, each using
+either LM LiDAR or the supplied dense point cloud. It exports six building
+meshes and the supplied reference models to VTU. Roofer must be on `PATH` or
+configured through `ROOFER_EXECUTABLE`; see the [setup instructions](../sandbox/compare_lod2.md#roofer-setup).
+Configure `DATA_DIR` and `BOUNDS` at the top:
 
 ```bash
-python demos/compare_lod2.py
+python sandbox/compare_lod2.py
 ```
 
-Outputs are `output/lod2_catalogue.vtu` and `output/lod2_ransac.vtu`.
-It downloads footprints and LiDAR through the dataset API. A compatible local
-Mesher build is required; see [installation](installation.md).
+See [comparison setup, provenance and metrics](../sandbox/compare_lod2.md).
+A compatible local Mesher build is required; see [installation](installation.md).
 
 ## Supported catalogue
 
@@ -165,141 +200,54 @@ max(3, floor(0.01 * observation count)) inliers. Convergence, finite parameters,
 residuals, support and clearance are checked separately. Thresholds are starting
 engineering defaults, not calibrated confidence probabilities.
 
-## Geometry and validation
+## Geometry, admission and validation
 
 `RoofModel` retains source identity, parameters, local origin, planes and
-JSON-ready diagnostics. `model.patches(target)` returns `RoofPatch` objects:
-polygons with holes, affine coefficients and source/patch/block identifiers.
-The lower-envelope representation of these four families stays inside the roof
-package. Neither the native shell builder nor interface meshing knows catalogue
-shape names. No fitted callables or pickled models are stored on Buildings.
+JSON-ready fitting diagnostics. `model.patches(target)` returns polygons with
+holes, affine coefficients and source/patch/block identifiers. No fitted
+callables or pickled models are stored on Buildings.
 
-Patch boundaries form a coordinated XY segment graph. Ridge and hip edges are
-constraints. Shared boundaries receive the union of breakpoints from both
-sides, including every interior root of the difference of adjacent affine
-height profiles. Coincident intervals produce no step wall. At a crossing,
-the higher owner switches and a wall panel can collapse to a triangle. Outer
-walls descend to the existing flattened block base on terrain; internal walls
-cover only the exposed step. Continuous interfaces share 3D vertices, while
-height discontinuities retain separate Z vertices joined by walls.
+Both methods use the [shared LOD2 pipeline](lod2_pipeline.md). Source-labelled
+cleaned regions, terrain attachment, candidate roof admission, common 3D face
+boundaries, generic triangulation and bounded refinement have distinct contracts.
+Cleaned outlines are authoritative. Roof ridges, steps and affine height crossings
+are mandatory constraints; physical height steps retain separate vertices.
+Exposed walls are constructed directly from the incident affine profiles and
+block foundation. A complete intermediate building shell is not required.
 
-Both existing `dtcc_mesher` and optional `triangle` backends are supported. The
-complete partition is triangulated together; backend Steiner vertices evaluate
-the marked patch plane. Triangle containment and area coverage verify that
-creases survive triangulation. Native wall generation shares the legacy
-vertical-line reconciliation and quality-aware zipper triangulation, generalized
-to bottom/top heights at both endpoints. This supplies the validated reference
-shell. The normal dtcc_mesher path then constructs compact geometry; Triangle
-retains the connected planar-face wall method below.
+One bounded quality policy coordinates optional roof-edge samples across every
+incident roof/wall face. Its caps are 2 interior points per face, 8 points per
+source, 32 per connected group, and `floor(1.5*T0)` building triangles per group.
+Mesh-size and angle parameters govern terrain. See the [options and audit
+contract](compact_mesher_interface.md) for quality guards and stopping reasons.
 
-Numerical XY noding uses a 1e-7 m grid, independently of footprint detail and
-fit tolerances. Native shared-vertex heights within 1e-6 m are reconciled for
-roundoff. Both backend coverages use a local coordinate frame; roof and terrain
-boolean operations share one precision model. Numerical faces created by
-rounding use the original patch ownership, while real courtyards remain ground.
-Area coverage tolerances include the explicit perimeter times coordinate-grid
-roundoff bound; overlap checks retain their independent tolerance. Constraints
-closer than the native 1e-6 m coincidence scale reject the affected block before
-triangulation, rather than being silently merged. Physical
-`min_building_detail` never snaps fitted elevations. A
-collapsed patch, ambiguous very short interval, lost constraint or unsupported
-thin geometry must fall back or raise; it is never silently removed. Generic
-shell construction bounds vertical-line subdivision to 1024 levels, including
-when physical detail is zero, to bound wall-triangulation memory. Exceeding this
-budget invokes the same fallback/error policy.
+Numerical calculations use local metre coordinates, 100 nm XY overlay precision
+and 10 nm coincidence. These scales do not define physical cleaning detail.
+Plane, coverage, winding, edge pairing, vertex-link and degeneracy checks apply
+before and after meshing. The completed world-coordinate surface is checked again.
+Quality and fit accuracy are separate from topological validity.
 
-Shell validation checks interior cracks, paired-edge orientation, nonmanifold
-edges, vertex links, zero-area triangles, upward roof orientation and buried
-walls. The buried-wall audit evaluates the roof triangle plane at the probe.
-Triangle quality minima and percentiles are reported separately from validity;
-validity does not guarantee a useful observation fit or an engineering-quality
-mesh in every application. The existing surface quality contract is applied:
-zero-area triangles are errors, quality below 0.02 and extreme aspect ratios
-produce explicit warnings. These thresholds are unchanged. Audits retain the
-worst face, its vertices, edge lengths and aspect ratio. Remaining constrained
-wall faces retain explicit quality warnings; outputs are not certified for
-engineering use or volume meshing.
+## Roof admission and errors
 
-## Connected planar wall faces
+Rejected individual fits use the source's declared grouped LOD1 level. This is
+different from an accepted `flat` candidate estimated from observations. Candidate
+transfer is validated against its cleaned domain. Admission checks all affine
+extrema against the actual terrain foundation. Inadmissible candidates select
+the declared source model before shared-face construction, recording the reason;
+planes are never lifted or clamped.
 
-This section describes the legacy/Triangle wall representation. Normal compact
-catalogue meshing uses the separate bounded contract linked above.
+Accepted roofs cannot change because triangulation or assembly fails. There is
+one assembly attempt, no whole-block flat retry and no alternate recovery chain.
+Failures carry their responsible stage and available block/source/face/edge IDs.
+Invalid meshes are never returned as successful refinement stops.
 
-`meshing.wall_faces` consumes the valid exposed panels from the shared native
-shell builder, with source ownership. It has no catalogue-family dispatch.
-Edge-connected, equally oriented panels merge only within the same source and
-one plane at the existing 1e-7 m numerical tolerance. A fixed reference plane
-prevents tolerance drift. Actual corners, different owners, disconnected faces,
-courtyards, steps and required surface junctions remain constraints. Concave
-outlines and holes use their true polygon union.
-
-Only faces containing triangles below quality 0.02, and their incident faces
-when a junction is subdivided, need replacement. DTCC Mesher supplies an initial
-constrained triangulation. Interior off-centres refine it using existing SciPy
-Delaunay tessellation, accepting a result only if every boundary segment and
-the complete polygon coverage survive. Optional Triangle support is not needed
-by this wall stage, whichever backend built the roof coverage.
-
-Eave and terrain boundary discretizations remain fixed. A genuinely narrow
-face may require shorter vertical corner edges; subdivisions are made once on
-the global wall edge and used by every incident face, including across owner
-boundaries. They are allowed only on edges shared exclusively by two wall
-triangles. Proposed interior junction vertices are graded and reconciled;
-existing boundary vertices are never removed. Roof and terrain triangles stay
-unchanged. Each coupled group is a transaction: an unsupported boundary,
-quality failure or exceeded budget retains its original valid panels.
-
-The internal budgets are 32 refinement rounds, 4096 points per wall face and
-100000 added points per city shell. A replacement must meet quality 0.02,
-preserve coverage and winding, and pass the unchanged strict shell validator.
-A wall-quality rejection cannot reject a fitted roof or invoke reconstruction
-fallback. It records its reason under
-`stage_audit["roof_catalogue"]["wall_triangulation"]`, independently of source
-and block fallbacks. Face records include original and candidate quality,
-coverage error, refinement effort, contributing markers and input-angle bounds.
-A bound below the target proves a geometric limitation; other rejections are
-limitations of this bounded refinement method, not proofs of impossibility.
-
-A triangle spanning former patch seams uses a representative wall marker from
-its source. The face field `catalogue_wall_face` and semantic regions with URI
-`urn:dtcc:wall-face` map accepted replacements to their source and all contributing
-patch markers. Region attributes persist in canonical `.dtcc` files; export the
-audit alongside formats that do not preserve semantic regions. Value -1 in the
-field denotes an unchanged triangle, whose original marker remains exact.
-Separate-mesh output assigns a spanning face to its representative patch shell
-and preserves its region metadata. Its welded union is the same conforming
-surface. Roof marker semantics and default LOD1 markers are unchanged.
-
-## Rejection and bounded fallback
-
-Rejected individual fits use the ordinary grouped LOD1 levels for their source
-cells. This is different from an accepted `flat` candidate estimated from
-observations. Block fallback calls the same `_building_level_regions` policy
-as ordinary LOD1, including its level grouping and cleaner decisions, while
-retaining source ownership and step walls. A single roof is used only where
-the ordinary cleaner/LOD1 policy supplies one; an 8 m/14 m block retains both
-heights. A previously cleaned city follows the same policy.
-
-Each block receives a numerical coverage admission check. Local failures record
-its sources and reason. A city assembly failure may rebuild attributed blocks
-once with their height-preserving LOD1 coverage. There are at most two city
-assembly attempts, and each block may fall back only once. An unattributed
-backend error raises with the audit rather than flattening the city. Failure of
-a flat replacement raises `RoofAssemblyError`; invalid shells are never returned.
-Triangle catalogue calls retain all input constraints and cap refinement at
-50,000 Steiner points. Refinement budget and resulting quality are audited;
-the cap does not certify that the requested angle was achieved.
-
-`stage_audit["roof_catalogue"]` contains source outcomes and candidate scores,
-block/source mappings, partition diagnostics, assembly attempts, topology and
-quality metrics, whole-block fallback reasons, and final patch-marker mappings.
-Roof marker `N + m` refers to patch `m`. Wall marker `m` refers to that patch
-for unchanged panels and to a representative patch of the same source for
-connected-face replacements, with the explicit contributor mapping above;
-`N` is the number of meshing patch regions in this path. The mapping records
-source ownership separately: a roof patch is not a new building. Separate
-meshes are terrain followed by active patch shells, as in the existing region
-shell interface. A failed API call retains its audit but returns no mesh.
+`stage_audit["roof_catalogue"]` contains source fitting and admission outcomes,
+subdivision changes, partition diagnostics, terrain bases, assembly timings,
+strict topology checks, quality by face kind and final marker mappings. Roof
+marker `N+m` refers to patch `m`; wall marker `m` refers to its owner patch or a
+representative contributor of the same source. Shared-face semantic regions
+retain contributor markers. A patch is not a new building. Separate outputs
+retain these ownership mappings and are excluded from volume meshing.
 
 ## Volume meshing
 

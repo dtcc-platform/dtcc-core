@@ -62,6 +62,8 @@ jobs:
         run: |
           cd tests
           uv run --locked --extra volume pytest builder/test_meshing.py \
+            builder/test_lod2_volume.py \
+            'common/test_benchmark_lod2.py::test_quick_lod2_runner_and_exact_evidence_replay[city_volume_mesh]' \
             builder/test_cleaning_meshing_integration.py::test_build_city_volume_mesh_smoke \
             builder/test_cleaning_meshing_integration.py::test_build_city_volume_mesh_smoke_auto_lod_resolution \
             builder/test_cleaning_meshing_integration.py::test_city_volume_mesh_propagates_tetgen_failure \

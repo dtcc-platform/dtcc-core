@@ -41,6 +41,8 @@ def triangulate(points, segments, polygon, *, backend='dtcc_mesher'):
         raw = dm.mesh(dm.Domain(points, segments, holes), options=dm.MeshingOptions(
             refine=False, acute_protection='none'))
         output, triangles = np.asarray(raw.points), np.asarray(raw.triangles, dtype=np.int64)
+        if {tuple(sorted(map(int, edge))) for edge in raw.segments} != {tuple(sorted(map(int, edge))) for edge in segments}:
+            raise ValueError('Boundary-only triangulator changed a prescribed segment')
     elif backend == 'triangle':
         from .. import _dtcc_builder
         from .surface_faces import boundary_rings
@@ -68,6 +70,7 @@ def triangulate(points, segments, polygon, *, backend='dtcc_mesher'):
         raise ValueError('Unknown compact triangulation backend')
     if output.shape != points.shape or not np.array_equal(output, points):
         raise ValueError('Boundary-only triangulator changed or added vertices')
+    _check_replacement(polygon, points, triangles, segments)
     optimized = improve(points, triangles, segments)
     triangles, flips = np.asarray(optimized.mesh.triangles, dtype=np.int64), optimized.flips
     _check_replacement(polygon, points, triangles, segments)

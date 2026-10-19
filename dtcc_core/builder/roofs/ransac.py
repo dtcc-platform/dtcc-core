@@ -39,6 +39,7 @@ class RansacRoofModel(RoofModel):
             center = np.array([(xmin+xmax)/2, (ymin+ymax)/2])
             radius = 2*np.hypot(xmax-xmin, ymax-ymin)
             lines = [target.boundary]
+            seen_edges = set()
             for domain in self.domains:
                 for ring in (domain.exterior, *domain.interiors):
                     coords = np.asarray(ring.coords)
@@ -46,6 +47,12 @@ class RansacRoofModel(RoofModel):
                         edge = LineString([a, b])
                         if edge.length <= 1e-8 or edge.difference(source.boundary.buffer(1e-8)).length <= 1e-8:
                             continue
+                        key = tuple(sorted((tuple(np.round(a, 8)), tuple(np.round(b, 8)))))
+                        # A shared ridge belongs to two domains. Extending both
+                        # copies can introduce nearly coincident lines/slivers.
+                        if key in seen_edges:
+                            continue
+                        seen_edges.add(key)
                         direction = (b-a)/np.linalg.norm(b-a)
                         foot = a+np.dot(center-a, direction)*direction
                         lines.append(LineString([foot-radius*direction, foot+radius*direction]))
@@ -73,7 +80,7 @@ class RansacRoofModel(RoofModel):
 
 
 def fit_ransac(footprint, points, ground, *, source_key):
-    """Call the existing building reconstructor without changing its algorithm."""
+    """Fit the shared RANSAC reconstructor and retain its roof-plane domains."""
     from ..geometry_builders.lod2 import _candidate_lod2
 
     diagnostics = dict(accepted=False, method='ransac', rejection_reasons=[],
@@ -91,7 +98,11 @@ def fit_ransac(footprint, points, ground, *, source_key):
     building.add_geometry(PointCloud(points=points.copy()), GeometryType.POINT_CLOUD)
     building.attributes['ground_height'] = ground
     rejected = Counter()
-    shell = _candidate_lod2(building, ground, False, rejections=rejected)
+    selection = {}
+    shell = _candidate_lod2(building, ground, False, rejections=rejected,
+                           plane_selection=selection)
+    if selection:
+        diagnostics['plane_selection'] = selection
     if shell is None:
         diagnostics['rejection_reasons'] = list(rejected) or ['RANSAC shell reconstruction failed']
         return RoofFitResult(None, diagnostics)

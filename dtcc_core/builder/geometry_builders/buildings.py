@@ -303,7 +303,11 @@ def compute_building_heights(
                 continue
             roof = _compute_height(
                 building,
-                _footprint_vertices(footprint),
+                (
+                    _source_vertices(building)
+                    if "source_footprint" in building.attributes
+                    else _footprint_vertices(footprint)
+                ),
                 footprint.zmax,
                 terrain,
                 min_building_height,
@@ -504,7 +508,14 @@ def extract_roof_points(
                 targets.append(part)
             continue
         footprint = building.get_footprint()
-        if footprint is not None:
+        if "source_footprint" in building.attributes:
+            polygon = source_footprint(building)
+            if polygon is not None:
+                for piece in [polygon] if isinstance(polygon, Polygon) else polygon.geoms:
+                    polygons.append(_roof_point_polygon(piece))
+                    owners.append(len(targets))
+                targets.append(building)
+        elif footprint is not None:
             polygons.append(footprint.to_polygon())
             owners.append(len(targets))
             targets.append(building)

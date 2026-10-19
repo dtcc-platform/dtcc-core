@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from unittest.mock import Mock, patch
+import pytest
 
 import numpy as np
 
@@ -127,7 +128,7 @@ def test_city_filters_small_footprints_before_lod1_build(mock_city_cls):
     city.build_lod1_buildings.assert_called_once_with()
 
 
-def test_city_context_documents_terrain_lod1_lineage_and_limitations():
+def test_city_context_documents_terrain_lod_lineage_and_limitations():
     dataset = CityDataset()
     context = dataset.create_context(
         dataset.validate(
@@ -149,7 +150,7 @@ def test_city_context_documents_terrain_lod1_lineage_and_limitations():
         "OpenStreetMap": "source_provider",
         "DTCC Platform": "processor",
     }
-    assert manifest.metadata.lod.startswith("Terrain mesh plus LoD1")
+    assert manifest.metadata.lod == 'lod1'
     assert "Requires review" in manifest.metadata.license
     assert "Requires review" in manifest.metadata.collection_period
     assert {item["name"] for item in manifest.provenance.derived_from} == {
@@ -157,14 +158,30 @@ def test_city_context_documents_terrain_lod1_lineage_and_limitations():
         "building_footprints",
     }
     assert any("Build terrain" in step for step in manifest.provenance.processing_steps)
-    assert any("LoD1" in step for step in manifest.provenance.processing_steps)
-    assert manifest.presentation.headline == "Terrain and LoD1 City Model"
+    assert any("LOD2" in step for step in manifest.provenance.processing_steps)
+    assert manifest.presentation.headline == "Terrain and Buildings"
     assert manifest.presentation.legend["title"] == "City model layers"
-    assert manifest.presentation.view_hints["building_lod"] == "LoD1"
-    assert any("LoD1 block geometry" in warning for warning in manifest.presentation.warnings)
+    assert any("rejected fits remain LOD1" in warning for warning in manifest.presentation.warnings)
     assert manifest.presentation.limitations
     assert manifest.request.parameters["source"] == "LM"
     assert manifest.request.parameters["format"] == "cityjson"
+
+
+@pytest.mark.parametrize('method', ['catalogue', 'ransac'])
+@patch('dtcc_core.datasets.city.City')
+def test_city_lod2_dispatch_and_metadata(mock_city_cls, method):
+    args = CityArgs(bounds=(0., 0., 1., 1.), smallest_building_size=0.,
+                    lod='lod2', lod2_method=method)
+    dataset = CityDataset()
+    city = dataset.build(args)
+    city.build_lod2_buildings.assert_called_once_with(lod2_method=method)
+    city.build_lod1_buildings.assert_not_called()
+    assert dataset.create_context(args).manifest().metadata.lod == 'lod2'
+
+
+def test_city_rejects_ransac_for_lod1():
+    with pytest.raises(ValueError, match="requires lod='lod2'"):
+        CityArgs(bounds=(0., 0., 1., 1.), lod2_method='ransac')
 
 
 def _building_with_footprint(

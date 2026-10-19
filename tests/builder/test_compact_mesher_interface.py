@@ -132,12 +132,13 @@ def test_remote_global_minimum_is_not_an_acceptance_veto():
     assert not joint_acceptance([old],[new],100)[0]
 
 
-def test_invalid_neighbour_retessellation_rolls_back_without_geometry_fallback():
+def test_thin_neighbour_trial_never_mutates_the_original_registry():
     registry,caches,faces=fixture(neighbour_width=.01)
     before=np.array(registry.vertices)
     result,mapping=propose(registry,caches,faces)
-    with pytest.raises(ValueError):
-        edge_transaction(registry,caches,faces,faces[0],result,mapping,backend='dtcc_mesher')
+    staged, record = edge_transaction(registry,caches,faces,faces[0],result,mapping,backend='dtcc_mesher')
+    assert staged is None and not record['accepted']
+    assert 'defects regressed' in record['reason']
     assert np.array_equal(registry.vertices,before)
     assert all(e.parameters==[0.,1.] for e in registry.edges)
 
@@ -188,7 +189,7 @@ def test_triangle_ceiling_rejects_before_atomic_commit():
     start=sum(len(x['triangles']) for x in c.values())
     result,a=improve_shared(r,c,f,CompactSurfaceOptions(max_face_vertices=0),max_building_triangles=start+1)
     assert not a['optional_vertices']
-    assert any(x['reason']=='building triangle ceiling' for x in a['rejected_transactions'])
+    assert 'building_triangle_ceiling' in a['stopping']['binding_limits']
     assert np.array_equal(result.vertices,before[0].vertices)
     assert [x.rings for x in f]==before[2]
     assert all(np.array_equal(c[i]['triangles'],before[1][i]['triangles']) for i in c)
