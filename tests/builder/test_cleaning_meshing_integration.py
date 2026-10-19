@@ -2360,9 +2360,9 @@ def test_ground_mesh_raster_alignment_moves_only_the_outline_across_its_side():
     # Moved vertices stay distinct: nothing collapses onto the outline.
     assert len(np.unique(aligned[:, :2], axis=0)) == len(aligned)
     points = aligned[np.asarray(ground_mesh.faces)]
-    areas = 0.5 * np.abs(
-        np.cross(points[:, 1, :2] - points[:, 0, :2], points[:, 2, :2] - points[:, 0, :2])
-    )
+    a = points[:, 1, :2] - points[:, 0, :2]
+    b = points[:, 2, :2] - points[:, 0, :2]
+    areas = 0.5 * np.abs(a[:, 0] * b[:, 1] - a[:, 1] * b[:, 0])
     assert np.all(areas > 0.0)
 
 

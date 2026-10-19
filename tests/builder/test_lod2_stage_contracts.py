@@ -53,7 +53,14 @@ def test_source_junction_rule_bounds_changes_and_removes_nonmanifold_edge(offset
     normalized = node_interfaces([replace(patches[i],polygon=p) for p,i in canonical])
     changed, audits = regularize_roof_junctions(normalized,bases={p.block_id:0. for p in normalized},detail=.5)
     repeated, repeated_audits = regularize_roof_junctions(normalized,bases={p.block_id:0. for p in normalized},detail=.5)
-    assert audits == repeated_audits and changed == repeated
+    assert audits == repeated_audits
+    assert len(changed) == len(repeated)
+    for first, second in zip(changed, repeated):
+        assert (first.source_key, first.patch_id, first.block_id) == (
+            second.source_key, second.patch_id, second.block_id)
+        assert first.polygon.equals_exact(second.polygon, tolerance=0.)
+        np.testing.assert_array_equal(first.origin, second.origin)
+        np.testing.assert_array_equal(first.coefficients, second.coefficients)
     assert any(a['changes'] for a in audits.values())
     assert unary_union([p.polygon for p in changed]).symmetric_difference(unary_union([p.polygon for p in patches])).area <= normalization['normalization_area_budget_m2']
     assert {p.source_key for p in changed} == set(keys.values())
