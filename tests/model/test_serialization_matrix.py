@@ -27,7 +27,7 @@ VALUES = ("Bounds", "Transform", "Field", "Raster")
 UNSUPPORTED = (
     "BuildingCollection", "CalibrationGrid", "FootprintCollection",
     "TreeCollection", "FieldSlice", "StreamlineCollection", "DatasetCollection",
-    "DatasetValue",
+    "DatasetValue", "PlaceCollection",
 )
 SUPPORTED = OBJECTS + GEOMETRIES + VALUES
 
