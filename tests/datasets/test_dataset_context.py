@@ -140,9 +140,10 @@ def test_descriptor_metadata_flows_to_context_manifest():
             "url": "https://github.com/dtcc-platform/dtcc-core",
         }
     ]
-    assert manifest.presentation.summary == datasets.smoke.describe()["presentation"][
-        "summary"
-    ]
+    assert (
+        manifest.presentation.summary
+        == datasets.smoke.describe()["presentation"]["summary"]
+    )
     assert manifest.presentation.narrative
     assert manifest.presentation.legend["title"] == "Smoke speed"
     assert manifest.presentation.annotations

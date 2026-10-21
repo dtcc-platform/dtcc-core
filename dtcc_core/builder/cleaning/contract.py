@@ -28,7 +28,7 @@ import numpy as np
 import shapely
 from shapely import STRtree, distance, get_coordinates, linestrings, make_valid, points
 from shapely.affinity import translate
-from shapely.geometry import Point, Polygon, MultiPolygon
+from shapely.geometry import MultiPolygon, Point, Polygon
 from shapely.ops import unary_union
 
 # Distances below delta * (1 - SEPARATION_RELATIVE_TOLERANCE) are violations.
@@ -482,8 +482,7 @@ class FidelityBudget:
         self._occupied_local = occupied
         self.epsilon = epsilon
         self.uncertainty = (
-            epsilon * (1 / math.cos(math.pi / (4 * _FIDELITY_QUAD_SEGMENTS)) - 1)
-            + 1e-7
+            epsilon * (1 / math.cos(math.pi / (4 * _FIDELITY_QUAD_SEGMENTS)) - 1) + 1e-7
         )
         self._local_bounds = [
             (
@@ -569,9 +568,7 @@ class FidelityBudget:
         # A polygonal buffer boundary lies at least reach * cos(pi / 128) from
         # its source, so offsets by at most `upper` never see the clip edge.
         reach = upper * 1.001 + 1e-6
-        near_added = (
-            occupied.intersection(added.buffer(reach)) if check_added else None
-        )
+        near_added = occupied.intersection(added.buffer(reach)) if check_added else None
         near_lost = occupied.intersection(lost.buffer(reach)) if check_lost else None
 
         def passes(radius):
@@ -666,9 +663,7 @@ class FidelityBudget:
         if achieved:
             value = self.achieved(candidate) if status == "pass" else None
             report["achieved_epsilon"] = None if value is None else value[0]
-            report["achieved_epsilon_resolution"] = (
-                None if value is None else value[1]
-            )
+            report["achieved_epsilon_resolution"] = None if value is None else value[1]
         return report
 
 
@@ -787,7 +782,11 @@ def input_partition(raw, order):
         occupied, _ = interpret_input([raw[label]])
         part = occupied if taken is None else occupied.difference(taken)
         part = unary_union(
-            [g for g in getattr(part, "geoms", [part]) if isinstance(g, (Polygon, MultiPolygon))]
+            [
+                g
+                for g in getattr(part, "geoms", [part])
+                if isinstance(g, (Polygon, MultiPolygon))
+            ]
         )
         if not part.is_empty and part.area > 0:
             partition[label] = part
@@ -841,11 +840,15 @@ def check_labelled_contract(raw, order, region, cells, *, delta, epsilon):
         if reference.is_empty or reference.area == 0:
             continue
         own = [polygon for polygon, cell_label in cells if cell_label == label]
-        fidelity_by_label[label] = FidelityBudget([reference], epsilon).measure(own)["status"]
+        fidelity_by_label[label] = FidelityBudget([reference], epsilon).measure(own)[
+            "status"
+        ]
     unreferenced = {label for _, label in cells} - set(fidelity_by_label)
     for label in unreferenced:
         fidelity_by_label[label] = "fail"
-    cell_admissibility = admissibility(polygons, delta) if tiles else {"topology_ok": False}
+    cell_admissibility = (
+        admissibility(polygons, delta) if tiles else {"topology_ok": False}
+    )
     region_admissibility = admissibility([region], delta)
     profile = check_mesher_handoff_profile(polygons) if tiles else {"status": "fail"}
     if (

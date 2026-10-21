@@ -61,7 +61,9 @@ def wall_area_on_plane(mesh, x):
     for face, marker in zip(np.asarray(mesh.faces), np.asarray(mesh.markers)):
         points = vertices[face]
         if np.allclose(points[:, 0], x):
-            area = 0.5 * np.linalg.norm(np.cross(points[1] - points[0], points[2] - points[0]))
+            area = 0.5 * np.linalg.norm(
+                np.cross(points[1] - points[0], points[2] - points[0])
+            )
             areas[int(marker)] = areas.get(int(marker), 0.0) + area
     return areas
 
@@ -119,7 +121,9 @@ def test_terrace_and_tower_in_podium_close():
 def test_touching_buildings_share_one_base_on_sloped_terrain():
     xs = np.linspace(0, 50, 8)
     terrain = np.tile(0.2 * xs, (8, 1)) + np.linspace(0, 3, 8)[:, None]
-    mesh = shell([box(10, 10, 30, 25), box(30, 10, 40, 25)], [20.0, 40.0], terrain=terrain)
+    mesh = shell(
+        [box(10, 10, 30, 25), box(30, 10, 40, 25)], [20.0, 40.0], terrain=terrain
+    )
     is_closed, report = closed(mesh, 2)
     assert is_closed, report
     markers = np.asarray(mesh.markers)
@@ -143,8 +147,14 @@ def test_closure_audit_flags_overlapping_walls_and_cracks():
     # building 0 on x = 30 facing +x, i.e. into building 1 below its roof.
     vertices = np.array(
         [
-            [30, 10, 30], [40, 10, 30], [40, 25, 30], [30, 25, 30],  # roof of 1
-            [30, 10, 0], [30, 25, 0], [30, 10, 6], [30, 25, 6],  # wall of 0
+            [30, 10, 30],
+            [40, 10, 30],
+            [40, 25, 30],
+            [30, 25, 30],  # roof of 1
+            [30, 10, 0],
+            [30, 25, 0],
+            [30, 10, 6],
+            [30, 25, 6],  # wall of 0
         ],
         dtype=float,
     )
@@ -196,7 +206,10 @@ def test_surface_shell_contract_rejects_an_open_or_buried_shell():
 TOUCHING_VOLUME_CASES = {
     "step": ([box(10, 10, 30, 25), box(30, 10, 40, 25)], [6.0, 30.0]),
     "equal": ([box(10, 10, 30, 25), box(30, 10, 40, 25)], [12.0, 12.0]),
-    "terrace": ([box(5 + 10 * i, 10, 15 + 10 * i, 25) for i in range(4)], [9.0, 9.0, 15.0, 6.0]),
+    "terrace": (
+        [box(5 + 10 * i, 10, 15 + 10 * i, 25) for i in range(4)],
+        [9.0, 9.0, 15.0, 6.0],
+    ),
     "tower_in_podium": (
         [box(5, 5, 45, 30).difference(box(15, 10, 27, 22)), box(15, 10, 27, 22)],
         [10.0, 45.0],
@@ -210,7 +223,9 @@ def city_of_touching(polygons, heights, *, cell=2.0):
 
     xmin, ymin, xmax, ymax = unary_union(polygons).buffer(15.0, join_style=2).bounds
     raster = Raster()
-    raster.data = np.zeros((int(round((ymax - ymin) / cell)), int(round((xmax - xmin) / cell))))
+    raster.data = np.zeros(
+        (int(round((ymax - ymin) / cell)), int(round((xmax - xmin) / cell)))
+    )
     raster.set_bounds(Bounds(xmin, ymin, xmax, ymax))
     terrain = Terrain()
     terrain.add_geometry(raster, GeometryType.RASTER)

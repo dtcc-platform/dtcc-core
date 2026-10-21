@@ -1,7 +1,7 @@
 from types import ModuleType
 
-from dtcc_core.model import Point
 import dtcc_core.model.model as model_module
+from dtcc_core.model import Point
 
 
 def test_model_view_warns_when_viewer_unavailable(monkeypatch):

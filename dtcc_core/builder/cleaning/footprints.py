@@ -21,9 +21,10 @@ handles the zero-scale identity mode, and defines the result and failure types.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import math
-from typing import Any, Sequence
+from collections.abc import Sequence
+from dataclasses import dataclass
+from typing import Any
 
 from shapely.geometry import Polygon
 from shapely.geometry.base import BaseGeometry
@@ -153,7 +154,9 @@ def _validate_options(options: ConditioningOptions) -> None:
         raise TypeError("allow_residual_separation must be a boolean")
     value = options.min_feature_size
     if not math.isfinite(value) or value < 0:
-        raise ValueError(f"min_feature_size must be finite and non-negative, got {value}.")
+        raise ValueError(
+            f"min_feature_size must be finite and non-negative, got {value}."
+        )
     if options.fidelity_budget is not None and (
         not math.isfinite(options.fidelity_budget) or options.fidelity_budget < 0
     ):

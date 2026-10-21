@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from unittest.mock import ANY, Mock, patch
+
 import pytest
 
 import dtcc_core.datasets as datasets
@@ -17,12 +18,15 @@ def test_city_surface_mesh_registered_name():
     assert CitySurfaceMeshDataset().name == "city_surface_mesh"
 
 
-@pytest.mark.parametrize('kwargs',[
-    dict(lod='lod1',lod2_method='ransac'),
-])
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        dict(lod="lod1", lod2_method="ransac"),
+    ],
+)
 def test_invalid_output_lod_combinations_fail_during_request_validation(kwargs):
     with pytest.raises(ValueError):
-        CitySurfaceMeshDataset().validate(dict(bounds=(0.,0.,1.,1.),**kwargs))
+        CitySurfaceMeshDataset().validate(dict(bounds=(0.0, 0.0, 1.0, 1.0), **kwargs))
 
 
 def test_city_surface_mesh_get_dataset():
@@ -132,7 +136,9 @@ def test_city_surface_mesh_parameter_plumbing(
         stage_audit=ANY,
         isolated=False,
     )
-    assert isinstance(mock_build_city_surface_mesh.call_args.kwargs["stage_audit"], dict)
+    assert isinstance(
+        mock_build_city_surface_mesh.call_args.kwargs["stage_audit"], dict
+    )
 
 
 @patch("dtcc_core.datasets.city_surface_mesh.dtcc_core.builder.build_city_surface_mesh")
@@ -162,7 +168,9 @@ def test_city_surface_mesh_export_returns_bytes(
     mock_build_city_surface_mesh.return_value = surface_mesh
 
     dataset = CitySurfaceMeshDataset()
-    with patch.object(dataset, "export_to_bytes", return_value=b"surface-mesh") as mock_export:
+    with patch.object(
+        dataset, "export_to_bytes", return_value=b"surface-mesh"
+    ) as mock_export:
         result = dataset.build(
             CitySurfaceMeshArgs(
                 bounds=(0.0, 0.0, 1.0, 1.0),
@@ -204,12 +212,19 @@ def test_city_surface_mesh_context_documents_meshing_lineage_and_limits():
         "point_cloud",
         "building_footprints",
     }
-    assert any("flat_ground=True" in step for step in manifest.provenance.processing_steps)
+    assert any(
+        "flat_ground=True" in step for step in manifest.provenance.processing_steps
+    )
     assert any("mesh-quality" in step for step in manifest.provenance.processing_steps)
     assert manifest.presentation.headline == "Terrain and Building Surface Mesh"
     assert manifest.presentation.legend["title"] == "Surface mesh layers"
-    assert manifest.presentation.view_hints["mesh_role"] == "visualization_or_surface_preprocessing"
-    assert any("watertightness" in warning for warning in manifest.presentation.warnings)
+    assert (
+        manifest.presentation.view_hints["mesh_role"]
+        == "visualization_or_surface_preprocessing"
+    )
+    assert any(
+        "watertightness" in warning for warning in manifest.presentation.warnings
+    )
     assert manifest.presentation.limitations
     assert manifest.request.parameters["flat_ground"] is True
     assert manifest.request.parameters["stage_audit_enabled"] is True

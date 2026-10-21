@@ -487,7 +487,9 @@ def test_build_publish_idempotency_key_changes_when_file_changes(tmp_path):
     manifest_path, files, manifest = _write_package(tmp_path)
 
     first_key = _idempotency_key("smoke", manifest_path, files, manifest)
-    files[0].write_text('{"type":"FeatureCollection","features":[{}]}', encoding="utf-8")
+    files[0].write_text(
+        '{"type":"FeatureCollection","features":[{}]}', encoding="utf-8"
+    )
     second_key = _idempotency_key("smoke", manifest_path, files, manifest)
 
     assert first_key != second_key
@@ -497,7 +499,9 @@ def test_build_publish_idempotency_key_supports_v2_multi_artifact_packages(tmp_p
     manifest_path, files, manifest = _write_v2_package(tmp_path)
 
     first_key = _idempotency_key("smoke-v2", manifest_path, files, manifest)
-    second_key = _idempotency_key("smoke-v2", manifest_path, tuple(reversed(files)), manifest)
+    second_key = _idempotency_key(
+        "smoke-v2", manifest_path, tuple(reversed(files)), manifest
+    )
 
     assert first_key == second_key
     assert first_key.startswith("dtcc-publish-v2:")

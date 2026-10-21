@@ -1,40 +1,42 @@
 import json
-from pathlib import Path
 from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, List, Literal, Sequence
+from pathlib import Path
+from typing import Any, Literal
+
 import numpy as np
 import shapely
-from shapely import BufferJoinStyle
-from shapely.errors import GEOSException
-from shapely.geometry import GeometryCollection, LineString, MultiPolygon, Point, Polygon, box
+from shapely.geometry import (
+    GeometryCollection,
+    LineString,
+    MultiPolygon,
+    Point,
+    Polygon,
+    box,
+)
 from shapely.geometry.polygon import orient
 from shapely.ops import polygonize, unary_union
 
 from ...model import (
     Bounds,
     Building,
+    City,
     Field,
+    GeometryType,
     Mesh,
     Raster,
-    VolumeMesh,
-    City,
     Surface,
-    GeometryType,
+    VolumeMesh,
 )
 
 # Directive for the C++ surface builder: every building region is extruded.
 _EXTRUDE_DIRECTIVE = 1
 
-from ..model_conversion import (
-    create_builder_polygon,
-    create_builder_surface,
-    mesh_to_builder_mesh,
-    raster_to_builder_gridfield,
-)
+from dtcc_core.common.progress import progress_range, report_progress
 
 from .. import _dtcc_builder
-
+from ..cleaning.blocks import fallback_roof
 from ..cleaning.clean import (
     CleanedRegions,
     clean_footprints,
@@ -43,29 +45,32 @@ from ..cleaning.clean import (
     footprint_cells,
     regions_from_cleaned_city,
 )
-from ..cleaning.footprints import ConditioningResult
-from ..cleaning.blocks import fallback_roof
-from ..cleaning.levels import level_regions, pinched_levels
-from ..cleaning.plotting import plot_footprint_cleaning_comparison
-from ..cleaning.selection import select_footprints
 from ..cleaning.contract import (
     admissibility,
     check_mesher_handoff_profile,
     classify_candidate,
     has_only_separation_defects,
 )
-from ..cleaning.footprints import residual_separation_warning
-from ..logging import debug, info, warning, error
+from ..cleaning.footprints import ConditioningResult, residual_separation_warning
+from ..cleaning.levels import level_regions, pinched_levels
+from ..cleaning.plotting import plot_footprint_cleaning_comparison
+from ..cleaning.selection import select_footprints
+from ..logging import debug, info, warning
+from ..meshing import tetgen_utils
 from ..meshing.backends import resolve_2d_mesher
 from ..meshing.flat_mesh_backends import build_city_flat_mesh_from_coverage
 from ..meshing.tetgen import (
-    build_volume_mesh as tetgen_build_volume_mesh,
-    get_default_tetgen_switches,
     _require_tetgen,
+    get_default_tetgen_switches,
 )
-from ..meshing import tetgen_utils
-
-from dtcc_core.common.progress import report_progress, progress_range
+from ..meshing.tetgen import (
+    build_volume_mesh as tetgen_build_volume_mesh,
+)
+from ..model_conversion import (
+    create_builder_surface,
+    mesh_to_builder_mesh,
+    raster_to_builder_gridfield,
+)
 
 try:
     import dtcc_mesher
@@ -74,9 +79,7 @@ except ImportError:
 
 
 def _missing_build_city_flat_mesh(*_args, **_kwargs):
-    raise RuntimeError(
-        "This _dtcc_builder build does not expose build_city_flat_mesh."
-    )
+    raise RuntimeError("This _dtcc_builder build does not expose build_city_flat_mesh.")
 
 
 if not hasattr(_dtcc_builder, "build_city_flat_mesh"):
@@ -270,9 +273,10 @@ def _resolve_city_volume_tetgen_switch_request(
 
     preserve_surface_requested = bool(requested_switches.get("preserve_surface"))
     if tetgen_switch_overrides:
-        preserve_surface_requested = bool(
-            tetgen_switch_overrides.get("preserve_surface")
-        ) or preserve_surface_requested
+        preserve_surface_requested = (
+            bool(tetgen_switch_overrides.get("preserve_surface"))
+            or preserve_surface_requested
+        )
 
     return requested_switches, preserve_surface_requested, explicit_max_volume_requested
 
@@ -475,9 +479,7 @@ def _surface_collection_audit(
         source_map=source_map,
     )
     audit["surface_count"] = int(len(surfaces))
-    audit.update(
-        _audit_summary(np.asarray(roof_z_values, dtype=np.float64), "roof_z")
-    )
+    audit.update(_audit_summary(np.asarray(roof_z_values, dtype=np.float64), "roof_z"))
     return audit
 
 
@@ -538,7 +540,9 @@ def _stage_contract_result(
     return {
         "ok": not errors,
         "status": _stage_contract_status(errors, warnings),
-        "requirements": {str(name): bool(value) for name, value in requirements.items()},
+        "requirements": {
+            str(name): bool(value) for name, value in requirements.items()
+        },
         "errors": list(errors),
         "warnings": list(warnings),
         "metrics": _audit_json_ready(metrics or {}),
@@ -558,8 +562,10 @@ def _dedupe_stage_contract_messages(messages: Sequence[str]) -> list[str]:
 
 
 def _mesher_segment_graph_error(polygons: Sequence[Polygon]) -> str | None:
-    if not polygons or dtcc_mesher is None or not hasattr(
-        dtcc_mesher, "validate_coverage_graph"
+    if (
+        not polygons
+        or dtcc_mesher is None
+        or not hasattr(dtcc_mesher, "validate_coverage_graph")
     ):
         return None
     try:
@@ -979,7 +985,9 @@ def _triangle_mesh_contract_from_audit(
         "no_degenerate_faces": degenerate_face_count == 0,
     }
     if require_markers:
-        requirements["face_markers_present"] = num_markers == num_faces and num_faces > 0
+        requirements["face_markers_present"] = (
+            num_markers == num_faces and num_faces > 0
+        )
 
     errors: list[str] = []
     warnings: list[str] = []
@@ -990,15 +998,19 @@ def _triangle_mesh_contract_from_audit(
             f"{stage_label} contains {degenerate_face_count} degenerate triangle(s)."
         )
     if require_markers and not requirements["face_markers_present"]:
-        errors.append(
-            f"{stage_label} is missing one face marker per triangle."
-        )
+        errors.append(f"{stage_label} is missing one face marker per triangle.")
 
-    if edge_median > 0.0 and edge_min < edge_median * _STAGE_CONTRACT_MIN_EDGE_RATIO_WARNING:
+    if (
+        edge_median > 0.0
+        and edge_min < edge_median * _STAGE_CONTRACT_MIN_EDGE_RATIO_WARNING
+    ):
         warnings.append(
             f"{stage_label} contains edges that are orders of magnitude smaller than its median edge length."
         )
-    if area_median > 0.0 and area_min < area_median * _STAGE_CONTRACT_MIN_AREA_RATIO_WARNING:
+    if (
+        area_median > 0.0
+        and area_min < area_median * _STAGE_CONTRACT_MIN_AREA_RATIO_WARNING
+    ):
         warnings.append(
             f"{stage_label} contains triangles that are orders of magnitude smaller than its median triangle area."
         )
@@ -1124,7 +1136,8 @@ def _shell_closure_audit(mesh: Mesh, *, num_buildings: int) -> dict[str, Any]:
         if len(walls) and len(roofs):
             wall_points = vertices[walls]
             normals = np.cross(
-                wall_points[:, 1] - wall_points[:, 0], wall_points[:, 2] - wall_points[:, 0]
+                wall_points[:, 1] - wall_points[:, 0],
+                wall_points[:, 2] - wall_points[:, 0],
             )[:, :2]
             lengths = np.linalg.norm(normals, axis=1)
             vertical = lengths > 0.0
@@ -1133,7 +1146,9 @@ def _shell_closure_audit(mesh: Mesh, *, num_buildings: int) -> dict[str, Any]:
             # Step just outside the wall, then look for a roof above that point.
             probes = shapely.points(centers[:, :2] + 1.0e-4 * outward)
             roof_points = vertices[roofs]
-            rings = np.concatenate([roof_points[:, :, :2], roof_points[:, :1, :2]], axis=1)
+            rings = np.concatenate(
+                [roof_points[:, :, :2], roof_points[:, :1, :2]], axis=1
+            )
             tree = shapely.STRtree(shapely.polygons(rings))
             probe_index, roof_index = tree.query(probes, predicate="intersects")
             # Evaluate each sloped triangle at the XY probe. A triangle's
@@ -1143,7 +1158,9 @@ def _shell_closure_audit(mesh: Mesh, *, num_buildings: int) -> dict[str, Any]:
             dz = queried[:, 1:, 2] - queried[:, :1, 2]
             slopes = np.linalg.solve(delta, dz[..., None])[..., 0]
             probe_xy = centers[probe_index, :2] + 1.0e-4 * outward[probe_index]
-            roof_z = queried[:, 0, 2] + np.sum(slopes * (probe_xy - queried[:, 0, :2]), axis=1)
+            roof_z = queried[:, 0, 2] + np.sum(
+                slopes * (probe_xy - queried[:, 0, :2]), axis=1
+            )
             tolerance = 1.0e-9 * np.maximum(1.0, np.abs(centers[probe_index, 2]))
             buried = roof_z > centers[probe_index, 2] + tolerance
             report["buried_wall_faces"] = int(len(np.unique(probe_index[buried])))
@@ -1222,19 +1239,19 @@ def _surface_shell_contract_from_audit(
     wall_element_quality_min = float(wall_audit.get("element_quality_min", 1.0))
 
     requirements = dict(base_contract["requirements"])
-    wall_faces_within_quality_bounds = (
-        wall_face_count == 0
-        or (
-            wall_aspect_ratio_max <= _TETGEN_SHELL_WALL_CONTRACT_MAX_ASPECT_RATIO
-            and wall_element_quality_min >= _TETGEN_SHELL_WALL_CONTRACT_MIN_TRI_QUALITY
-        )
+    wall_faces_within_quality_bounds = wall_face_count == 0 or (
+        wall_aspect_ratio_max <= _TETGEN_SHELL_WALL_CONTRACT_MAX_ASPECT_RATIO
+        and wall_element_quality_min >= _TETGEN_SHELL_WALL_CONTRACT_MIN_TRI_QUALITY
     )
     requirements["wall_faces_within_quality_bounds"] = (
         True if not preserve_surface_requested else wall_faces_within_quality_bounds
     )
 
     errors = list(base_contract["errors"])
-    if preserve_surface_requested and not requirements["wall_faces_within_quality_bounds"]:
+    if (
+        preserve_surface_requested
+        and not requirements["wall_faces_within_quality_bounds"]
+    ):
         errors.append(
             "Surface shell wall faces exceed the TetGen preconditioning quality bounds."
         )
@@ -1246,10 +1263,7 @@ def _surface_shell_contract_from_audit(
         requirements["shell_closed"] = not closure_errors
         errors.extend(closure_errors)
         warnings.extend(closure_warnings)
-    if (
-        not preserve_surface_requested
-        and not wall_faces_within_quality_bounds
-    ):
+    if not preserve_surface_requested and not wall_faces_within_quality_bounds:
         warnings.append(
             "Surface shell wall faces exceed the preserve-surface quality bounds, "
             "but TetGen is allowed to retriangulate the shell."
@@ -1282,9 +1296,7 @@ def _polygon_facet_edge_lengths(
             continue
         facet_edges = np.column_stack([indices, np.roll(indices, -1)])
         facet_edges = np.unique(np.sort(facet_edges, axis=1), axis=0)
-        edge_vectors = (
-            vertices[facet_edges[:, 1], :3] - vertices[facet_edges[:, 0], :3]
-        )
+        edge_vectors = vertices[facet_edges[:, 1], :3] - vertices[facet_edges[:, 0], :3]
         edge_chunks.append(np.linalg.norm(edge_vectors, axis=1))
 
     if not edge_chunks:
@@ -1329,7 +1341,9 @@ def _tetgen_plc_audit(
             [combined_faces, np.asarray(plc.audit_boundary_triangles, dtype=np.int64)]
         )
 
-    boundary_edge_lengths = _polygon_facet_edge_lengths(plc_vertices, boundary_facets_list)
+    boundary_edge_lengths = _polygon_facet_edge_lengths(
+        plc_vertices, boundary_facets_list
+    )
     boundary_areas = _triangular_facet_areas(plc_vertices, boundary_facets_list)
     facet_vertex_counts = np.asarray(
         [float(len(facet)) for facet in boundary_facets_list],
@@ -1554,7 +1568,9 @@ def _volume_mesh_audit(volume_mesh: VolumeMesh) -> dict[str, Any]:
     return audit
 
 
-def _ensure_stage_audit_root(stage_audit: dict[str, Any] | None) -> dict[str, Any] | None:
+def _ensure_stage_audit_root(
+    stage_audit: dict[str, Any] | None,
+) -> dict[str, Any] | None:
     if stage_audit is None:
         return None
     stage_audit.setdefault("version", 1)
@@ -1685,9 +1701,7 @@ def _tetgen_volume_mesh_quality_snapshot(volume_mesh: VolumeMesh) -> dict[str, f
         axis=0,
     )
     unique_edges = np.unique(np.sort(edges, axis=1), axis=0)
-    edge_vectors = (
-        vertices[unique_edges[:, 1], :3] - vertices[unique_edges[:, 0], :3]
-    )
+    edge_vectors = vertices[unique_edges[:, 1], :3] - vertices[unique_edges[:, 0], :3]
     edge_lengths = np.linalg.norm(edge_vectors, axis=1)
     min_edge_length = float(edge_lengths.min()) if edge_lengths.size else 0.0
 
@@ -1795,7 +1809,11 @@ def _tetgen_quality_failure_report(
     worst_cells: list[dict[str, Any]] = []
     for cell_index in sorted(
         candidate_indices,
-        key=lambda idx: (-float(radius_ratio[idx]), float(element_quality[idx]), int(idx)),
+        key=lambda idx: (
+            -float(radius_ratio[idx]),
+            float(element_quality[idx]),
+            int(idx),
+        ),
     ):
         cell = cells[int(cell_index)]
         points = vertices[cell]
@@ -1878,7 +1896,9 @@ def _tetgen_shell_refinement_disabled_stats() -> dict[str, int | float | bool]:
     }
 
 
-def _tetgen_shell_transition_refinement_disabled_stats() -> dict[str, int | float | bool]:
+def _tetgen_shell_transition_refinement_disabled_stats() -> dict[
+    str, int | float | bool
+]:
     return {
         "enabled": False,
         "applied": False,
@@ -1934,7 +1954,9 @@ def _surface_shell_stage_audit(
         wall_face_mask,
     )
     if transition_refinement_stats is None:
-        transition_refinement_stats = _tetgen_shell_transition_refinement_disabled_stats()
+        transition_refinement_stats = (
+            _tetgen_shell_transition_refinement_disabled_stats()
+        )
     if wall_refinement_stats is None:
         wall_refinement_stats = _tetgen_shell_wall_refinement_disabled_stats()
     surface_shell_audit["tetgen_shell_transition_refinement"] = _audit_json_ready(
@@ -2314,10 +2336,14 @@ def _building_level_regions(
     cells = cleaned.output_cells[output] if cleaned.output_cells else []
     labels = sorted({label for _, label in cells})
     if not cells:
-        return [(polygon, cleaned.output_roof_z[output], cleaned.output_height[output])], None
+        return [
+            (polygon, cleaned.output_roof_z[output], cleaned.output_height[output])
+        ], None
     if len(labels) == 1:
         label = labels[0]
-        return [(polygon, cleaned.label_roof_z[label], cleaned.label_height[label])], None
+        return [
+            (polygon, cleaned.label_roof_z[label], cleaned.label_height[label])
+        ], None
     levels = {label: float(cleaned.label_roof_z[label]) for label in labels}
     regions = []
     shift = 0.0
@@ -2335,7 +2361,11 @@ def _building_level_regions(
 def _one_roof(cleaned: CleanedRegions, output: int) -> tuple[float, float | None]:
     """One roof level and height for a block: those of its labels as one
     footprint (:func:`.cleaning.blocks.fallback_roof`)."""
-    labels = list(cleaned.output_walls[output].get("order", [])) if cleaned.output_walls else []
+    labels = (
+        list(cleaned.output_walls[output].get("order", []))
+        if cleaned.output_walls
+        else []
+    )
     if not labels:
         labels = sorted({label for _, label in cleaned.output_cells[output]})
     if not labels:
@@ -2406,9 +2436,9 @@ def _build_ground_mesh_from_coverage(
     active_mesher = resolve_2d_mesher(mesher)
     optional = {}
     if coordinate_tolerance is not None:
-        optional['coordinate_tolerance'] = coordinate_tolerance
+        optional["coordinate_tolerance"] = coordinate_tolerance
     if max_steiner_points is not None:
-        optional['max_steiner_points'] = max_steiner_points
+        optional["max_steiner_points"] = max_steiner_points
     ground_mesh = build_city_flat_mesh_from_coverage(
         region_polygons=region_polygons,
         region_markers=region_markers,
@@ -2446,9 +2476,7 @@ def _complete_2d_mesher_handoff_contract(
     errors: list[str] = []
     valid_regions = len(polygons) == len(markers)
     if not valid_regions:
-        errors.append(
-            "region marker count does not match the complete subdivision"
-        )
+        errors.append("region marker count does not match the complete subdivision")
     invalid_indices = [
         index
         for index, polygon in enumerate(polygons)
@@ -2478,9 +2506,7 @@ def _complete_2d_mesher_handoff_contract(
             f"regions extend {outside_area:.12g} m² outside the meshing domain"
         )
     if overlap_area > area_tolerance:
-        errors.append(
-            f"region interiors overlap by {overlap_area:.12g} m²"
-        )
+        errors.append(f"region interiors overlap by {overlap_area:.12g} m²")
 
     profile = check_mesher_handoff_profile(usable)
     sectors = profile.get("incident_sectors", {})
@@ -2490,8 +2516,7 @@ def _complete_2d_mesher_handoff_contract(
         indices = [
             int(index)
             for index in witness.get("region_indices", [])
-            if isinstance(index, (int, np.integer))
-            and 0 <= int(index) < len(markers)
+            if isinstance(index, (int, np.integer)) and 0 <= int(index) < len(markers)
         ]
         witness["region_markers"] = [markers[index] for index in indices]
         witness["region_roles"] = [
@@ -2502,7 +2527,9 @@ def _complete_2d_mesher_handoff_contract(
             isinstance(vertex, list)
             and len(vertex) >= 2
             and Point(float(vertex[0]), float(vertex[1])).distance(domain.boundary)
-            <= max(np.finfo(float).eps * max(abs(value) for value in bounds) * 32, 1e-12)
+            <= max(
+                np.finfo(float).eps * max(abs(value) for value in bounds) * 32, 1e-12
+            )
         )
         sectors = dict(sectors)
         sectors["minimum_witness"] = witness
@@ -2535,8 +2562,10 @@ def _complete_2d_mesher_handoff_contract(
         )
 
     graph_error = None
-    if usable and dtcc_mesher is not None and hasattr(
-        dtcc_mesher, "validate_coverage_graph"
+    if (
+        usable
+        and dtcc_mesher is not None
+        and hasattr(dtcc_mesher, "validate_coverage_graph")
     ):
         try:
             graph = dtcc_mesher.Coverage(
@@ -2836,7 +2865,9 @@ def _split_ground_mesh_building_components(
             for local_index, centroid in enumerate(centroids):
                 if assignments[local_index] >= 0:
                     continue
-                if buffered_polygon.covers(Point(float(centroid[0]), float(centroid[1]))):
+                if buffered_polygon.covers(
+                    Point(float(centroid[0]), float(centroid[1]))
+                ):
                     assignments[local_index] = polygon_index
 
         if np.any(assignments < 0):
@@ -2851,7 +2882,9 @@ def _split_ground_mesh_building_components(
         roof_z = float(getattr(updated_surfaces[marker].bounds, "zmax", 0.0))
         primary_polygon_index = max(
             assigned_polygons,
-            key=lambda polygon_index: int(np.count_nonzero(assignments == polygon_index)),
+            key=lambda polygon_index: int(
+                np.count_nonzero(assignments == polygon_index)
+            ),
         )
         split_surface = Surface()
         split_surface.from_polygon(ordered_polygons[primary_polygon_index], roof_z)
@@ -2987,8 +3020,7 @@ def _split_weakly_pinched_shell_polygon(
         return [polygon]
 
     hole_polygons = [
-        Polygon(np.asarray(ring.coords, dtype=np.float64))
-        for ring in polygon.interiors
+        Polygon(np.asarray(ring.coords, dtype=np.float64)) for ring in polygon.interiors
     ]
     split_polygons: list[Polygon] = []
     for shell_part in shell_parts:
@@ -3163,14 +3195,16 @@ def _build_city_surface_mesh_from_ground_mesh(
     target spacing, not every strip.
     """
     builder_dem = raster_to_builder_gridfield(terrain_raster)
-    aligned_ground_mesh = _snap_ground_mesh_to_raster_bounds(ground_mesh, terrain_raster)
+    aligned_ground_mesh = _snap_ground_mesh_to_raster_bounds(
+        ground_mesh, terrain_raster
+    )
     if patch_planes is not None:
         # Backends may choose opposite winding. The generic shell requires
         # upward roof and terrain normals, independently of backend ordering.
         faces = np.array(aligned_ground_mesh.faces, copy=True)
         xy = np.asarray(aligned_ground_mesh.vertices)[faces, :2]
-        a, b = xy[:, 1]-xy[:, 0], xy[:, 2]-xy[:, 0]
-        reverse = a[:, 0]*b[:, 1] - a[:, 1]*b[:, 0] < 0
+        a, b = xy[:, 1] - xy[:, 0], xy[:, 2] - xy[:, 0]
+        reverse = a[:, 0] * b[:, 1] - a[:, 1] * b[:, 0] < 0
         faces[reverse] = faces[reverse][:, [0, 2, 1]]
         aligned_ground_mesh.faces = faces
     builder_ground_mesh = mesh_to_builder_mesh(aligned_ground_mesh)
@@ -3183,15 +3217,28 @@ def _build_city_surface_mesh_from_ground_mesh(
         terrain_mesh = terrain_builder_mesh.from_cpp()
         return terrain_mesh if merge_meshes else [terrain_mesh]
 
-    builder_surfaces = [create_builder_surface(surface) for surface in building_surfaces]
+    builder_surfaces = [
+        create_builder_surface(surface) for surface in building_surfaces
+    ]
     if patch_planes is None:
         builder_meshes = _dtcc_builder.build_city_surface_mesh_from_terrain_mesh(
-            builder_surfaces, meshing_directives, terrain_builder_mesh,
-            smoothing, merge_meshes, float(min_wall_strip))
+            builder_surfaces,
+            meshing_directives,
+            terrain_builder_mesh,
+            smoothing,
+            merge_meshes,
+            float(min_wall_strip),
+        )
     else:
         builder_meshes = _dtcc_builder.build_city_surface_mesh_from_patch_planes(
-            builder_surfaces, patch_planes, patch_owners, terrain_builder_mesh,
-            smoothing, merge_meshes, float(min_wall_strip))
+            builder_surfaces,
+            patch_planes,
+            patch_owners,
+            terrain_builder_mesh,
+            smoothing,
+            merge_meshes,
+            float(min_wall_strip),
+        )
 
     if merge_meshes:
         return builder_meshes[0].from_cpp()
@@ -3216,14 +3263,16 @@ def _build_tetgen_debug_plc_mesh(
 
     _, z_top = tetgen_utils._compute_top_plane(shell_vertices, top_height)
     bottom_loops = tetgen_utils._boundary_loops(shell_vertices, tol)
-    top_vertices, top_faces, top_loops = tetgen_utils._remesh_top_cap_from_outer_boundary(
-        shell_vertices,
-        boundary_loops=bottom_loops,
-        z_top=z_top,
-        top_cap_backend=top_cap_backend,
-        top_cap_max_mesh_size=top_cap_max_mesh_size,
-        top_cap_min_mesh_angle=top_cap_min_mesh_angle,
-        tol=tol,
+    top_vertices, top_faces, top_loops = (
+        tetgen_utils._remesh_top_cap_from_outer_boundary(
+            shell_vertices,
+            boundary_loops=bottom_loops,
+            z_top=z_top,
+            top_cap_backend=top_cap_backend,
+            top_cap_max_mesh_size=top_cap_max_mesh_size,
+            top_cap_min_mesh_angle=top_cap_min_mesh_angle,
+            tol=tol,
+        )
     )
 
     offset = shell_vertices.shape[0]
@@ -3254,7 +3303,9 @@ def _build_tetgen_debug_plc_mesh(
         closure_markers.append(_TETGEN_DEBUG_CLOSURE_MARKERS["top"])
 
     faces = np.vstack([shell_faces, np.asarray(closure_faces, dtype=np.int64)])
-    markers = np.concatenate([shell_markers, np.asarray(closure_markers, dtype=np.int64)])
+    markers = np.concatenate(
+        [shell_markers, np.asarray(closure_markers, dtype=np.int64)]
+    )
     return Mesh(vertices=vertices, faces=faces, markers=markers)
 
 
@@ -3305,7 +3356,9 @@ def _save_tetgen_quality_failure_report(
     output_path = Path(output_dir).expanduser().resolve()
     output_path.mkdir(parents=True, exist_ok=True)
     report_path = output_path / f"{stem}.tetgen-quality-failure.json"
-    report_path.write_text(json.dumps(_audit_json_ready(report), indent=2, sort_keys=True))
+    report_path.write_text(
+        json.dumps(_audit_json_ready(report), indent=2, sort_keys=True)
+    )
     return str(report_path)
 
 
@@ -3525,7 +3578,9 @@ def _refine_triangle_mesh_edges(
     return Mesh(
         vertices=vertices_full,
         faces=np.asarray(refined_faces, dtype=np.int64),
-        markers=np.asarray(refined_markers, dtype=markers.dtype if markers.size else np.int64),
+        markers=np.asarray(
+            refined_markers, dtype=markers.dtype if markers.size else np.int64
+        ),
     )
 
 
@@ -3619,7 +3674,10 @@ def _select_tetgen_transition_refinement_edges(
         for local_edge_index, (v0, v1) in enumerate(
             ((face[0], face[1]), (face[1], face[2]), (face[2], face[0]))
         ):
-            if float(edge_lengths[int(terrain_face), local_edge_index]) <= edge_threshold:
+            if (
+                float(edge_lengths[int(terrain_face), local_edge_index])
+                <= edge_threshold
+            ):
                 continue
             split_edges.add((min(int(v0), int(v1)), max(int(v0), int(v1))))
 
@@ -3655,8 +3713,7 @@ def _refine_ground_building_transition_faces_for_tetgen(
         return surface_mesh, _tetgen_shell_transition_refinement_disabled_stats()
 
     edge_threshold = (
-        float(normalized_max_mesh_size)
-        * _TETGEN_SHELL_TRANSITION_REFINEMENT_EDGE_RATIO
+        float(normalized_max_mesh_size) * _TETGEN_SHELL_TRANSITION_REFINEMENT_EDGE_RATIO
     )
     split_edges, stats = _select_tetgen_transition_refinement_edges(
         surface_mesh,
@@ -3860,9 +3917,7 @@ def _select_tetgen_shell_refinement_edges(
     roof_faces = markers >= 0
     ground_faces = markers == -2
     ground_relief_median = (
-        float(np.median(z_span[ground_faces]))
-        if np.any(ground_faces)
-        else 0.0
+        float(np.median(z_span[ground_faces])) if np.any(ground_faces) else 0.0
     )
     enable_ground_refinement = (
         ground_relief_median >= _TETGEN_SHELL_HORIZONTAL_REFINEMENT_MIN_GROUND_RELIEF
@@ -3923,8 +3978,7 @@ def _refine_near_horizontal_surface_faces_for_tetgen(
         }
 
     edge_threshold = (
-        float(normalized_max_mesh_size)
-        * _TETGEN_SHELL_HORIZONTAL_REFINEMENT_EDGE_RATIO
+        float(normalized_max_mesh_size) * _TETGEN_SHELL_HORIZONTAL_REFINEMENT_EDGE_RATIO
     )
     refined_mesh = surface_mesh
     total_candidate_faces = 0
@@ -4122,7 +4176,9 @@ def _condition_flat_mesh_coverage_regions(
         pipeline_mode=pipeline_mode,
     )
     region_polygons = [*ground_polygons, *building_polygons]
-    region_markers = [-2] * len(ground_polygons) + [int(marker) for marker in building_markers]
+    region_markers = [-2] * len(ground_polygons) + [
+        int(marker) for marker in building_markers
+    ]
     return region_polygons, region_markers
 
 
@@ -4311,7 +4367,9 @@ def build_building_shell(
         ground_markers = np.asarray(ground_mesh.markers, dtype=np.int64)
         inside = ground_markers >= 0
         floor_vertices = np.asarray(ground_mesh.vertices, dtype=np.float64)[:, :2]
-        floor_vertices = np.column_stack([floor_vertices, np.full(len(floor_vertices), base_z)])
+        floor_vertices = np.column_stack(
+            [floor_vertices, np.full(len(floor_vertices), base_z)]
+        )
         floor_faces = np.asarray(ground_mesh.faces, dtype=np.int64)[inside]
         points = floor_vertices[floor_faces]
         upward = (
@@ -4335,7 +4393,9 @@ def build_building_shell(
     )
 
 
-def _lowest_terrain(terrain_mesh: Mesh, tree, reach: float, polygon: Polygon) -> float | None:
+def _lowest_terrain(
+    terrain_mesh: Mesh, tree, reach: float, polygon: Polygon
+) -> float | None:
     """Lowest terrain under a footprint: the lowest terrain-mesh vertex within
     one terrain edge length of it, so walls down to it meet the terrain."""
     near = polygon.buffer(reach)
@@ -4363,8 +4423,12 @@ def _isolated_surface_mesh(
     mesher: str | None,
 ) -> Mesh | list[Mesh]:
     """Terrain mesh plus one shell per building cleaned in isolation (a soup)."""
-    _terrain, terrain_raster = _require_city_terrain_raster(city, max_mesh_size=max_mesh_size)
-    if cleaning_record(city, min_building_detail=min_building_detail, lod=lod, isolated=True):
+    _terrain, terrain_raster = _require_city_terrain_raster(
+        city, max_mesh_size=max_mesh_size
+    )
+    if cleaning_record(
+        city, min_building_detail=min_building_detail, lod=lod, isolated=True
+    ):
         buildings = list(city.buildings)
     else:
         buildings = clean_footprints(
@@ -4374,12 +4438,20 @@ def _isolated_surface_mesh(
             lod=lod,
         )
     terrain_mesh, tree, reach, domain = _isolated_terrain(
-        terrain_raster, max_mesh_size=max_mesh_size, min_mesh_angle=min_mesh_angle,
-        smoothing=smoothing, mesher=mesher)
+        terrain_raster,
+        max_mesh_size=max_mesh_size,
+        min_mesh_angle=min_mesh_angle,
+        smoothing=smoothing,
+        mesher=mesher,
+    )
 
     shells: list[tuple[int, Mesh]] = []
     outside = small = failed = 0
-    triangle_size = building_mesh_triangle_size if building_mesh_triangle_size > 0 else max_mesh_size
+    triangle_size = (
+        building_mesh_triangle_size
+        if building_mesh_triangle_size > 0
+        else max_mesh_size
+    )
     for index, building in enumerate(buildings):
         footprint = building.get_geometry(GeometryType.LOD0)
         polygon = footprint.to_polygon(simplify=0.0) if footprint is not None else None
@@ -4415,7 +4487,9 @@ def _isolated_surface_mesh(
     return _combine_isolated_shells(terrain_mesh, shells, merge_meshes=merge_meshes)
 
 
-def _isolated_terrain(terrain_raster, *, max_mesh_size, min_mesh_angle, smoothing, mesher):
+def _isolated_terrain(
+    terrain_raster, *, max_mesh_size, min_mesh_angle, smoothing, mesher
+):
     """Unconstrained terrain and the spatial index used to set shell bases."""
     from .terrain import build_terrain_surface_mesh
 
@@ -4429,9 +4503,10 @@ def _isolated_terrain(terrain_raster, *, max_mesh_size, min_mesh_angle, smoothin
     )
     terrain_mesh.markers = np.full(len(terrain_mesh.faces), -2, dtype=np.int64)
     points = np.asarray(terrain_mesh.vertices)
-    edges = points[np.asarray(terrain_mesh.faces)][:, [1, 2, 0], :2] - points[
-        np.asarray(terrain_mesh.faces)
-    ][:, :, :2]
+    edges = (
+        points[np.asarray(terrain_mesh.faces)][:, [1, 2, 0], :2]
+        - points[np.asarray(terrain_mesh.faces)][:, :, :2]
+    )
     reach = float(np.linalg.norm(edges, axis=2).max()) if len(edges) else 0.0
     tree = shapely.STRtree(shapely.points(points[:, :2]))
     domain = box(*_raster_bounds_tuple(terrain_raster))
@@ -4444,8 +4519,11 @@ def _combine_isolated_shells(terrain_mesh, shells, *, merge_meshes, region_count
     from ..meshing.tetgen import VOLUME_BOUNDARY_FIELD
 
     # Region m of the whole mesh: walls m, roofs N + m.
-    counts = ([(int(np.max(shell.markers)) + 1) // 2 for _, shell in shells]
-              if region_counts is None else region_counts)
+    counts = (
+        [(int(np.max(shell.markers)) + 1) // 2 for _, shell in shells]
+        if region_counts is None
+        else region_counts
+    )
     total = sum(counts)
     offset = 0
     meshes_out = []
@@ -4455,12 +4533,20 @@ def _combine_isolated_shells(terrain_mesh, shells, *, merge_meshes, region_count
         markers = np.where(roofs, total + offset + markers - count, offset + markers)
         shell.markers = markers
         shell.fields.append(
-            Field(name="building", values=np.full(len(markers), float(index)), association="face")
+            Field(
+                name="building",
+                values=np.full(len(markers), float(index)),
+                association="face",
+            )
         )
         meshes_out.append(shell)
         offset += count
     terrain_mesh.fields.append(
-        Field(name="building", values=np.full(len(terrain_mesh.faces), -1.0), association="face")
+        Field(
+            name="building",
+            values=np.full(len(terrain_mesh.faces), -1.0),
+            association="face",
+        )
     )
     parts = [terrain_mesh, *meshes_out]
     if merge_meshes:
@@ -4478,7 +4564,11 @@ def _combine_isolated_shells(terrain_mesh, shells, *, merge_meshes, region_count
             markers=np.concatenate(markers),
         )
         merged.fields.append(
-            Field(name="building", values=np.concatenate(building_index), association="face")
+            Field(
+                name="building",
+                values=np.concatenate(building_index),
+                association="face",
+            )
         )
         parts = [merged]
     description = (
@@ -4599,6 +4689,7 @@ def build_city_surface_mesh(
     if type(isolated) is not bool:
         raise TypeError("isolated must be a boolean")
     from ..meshing.output_lod import resolve_output_lod
+
     output_lod = resolve_output_lod(lod, lod2_method)
     # Stored source geometry is selected internally, independently of output LOD.
     lod = None
@@ -4606,12 +4697,14 @@ def build_city_surface_mesh(
         if lod2_method != "catalogue":
             raise ValueError("roof_options applies only to lod2_method='catalogue'")
         from ..roofs import RoofFitOptions
+
         if not isinstance(roof_options, RoofFitOptions):
             raise TypeError("roof_options must be RoofFitOptions or None")
         if output_lod != "lod2":
             raise ValueError("roof_options requires lod='lod2'")
     if compact_surface is not None:
         from ..meshing.compact_surface import CompactSurfaceOptions
+
         if not isinstance(compact_surface, CompactSurfaceOptions):
             raise TypeError("compact_surface must be CompactSurfaceOptions or None")
         if output_lod != "lod2":
@@ -4619,32 +4712,57 @@ def build_city_surface_mesh(
     _log_city_mesh_lod("surface", output_lod, lod2_method)
     if output_lod == "lod2":
         from ..meshing.backends import resolve_2d_mesher
+
         resolved = resolve_2d_mesher(mesher)
-        if compact_surface is None and resolved == 'dtcc_mesher':
+        if compact_surface is None and resolved == "dtcc_mesher":
             from ..meshing.compact_surface import CompactSurfaceOptions
+
             compact_surface = CompactSurfaceOptions()
         if compact_surface is not None:
-            if compact_surface.budgeted and compact_surface.shared_edge_points and resolved != 'dtcc_mesher':
-                raise ValueError('Shared-edge compact optimization requires resolved mesher="dtcc_mesher"')
+            if (
+                compact_surface.budgeted
+                and compact_surface.shared_edge_points
+                and resolved != "dtcc_mesher"
+            ):
+                raise ValueError(
+                    'Shared-edge compact optimization requires resolved mesher="dtcc_mesher"'
+                )
             from ..meshing.compact_surface import require_compact_mesher
+
             require_compact_mesher()
         from ..meshing.catalogue_surface import build_catalogue_surface
+
         if isolated:
             from ..meshing.isolated_roofs import build_isolated_roofs
+
             build_roofs = build_isolated_roofs
         else:
             build_roofs = build_catalogue_surface
         return build_roofs(
-            city, lod=lod, min_building_detail=min_building_detail,
+            city,
+            lod=lod,
+            min_building_detail=min_building_detail,
             min_building_area=min_building_area,
             building_mesh_triangle_size=building_mesh_triangle_size,
-            max_mesh_size=max_mesh_size, min_mesh_angle=min_mesh_angle,
-            merge_meshes=merge_meshes, smoothing=smoothing, sort_triangles=sort_triangles,
-            report_mesh_quality=report_mesh_quality, show_footprints=show_footprints,
+            max_mesh_size=max_mesh_size,
+            min_mesh_angle=min_mesh_angle,
+            merge_meshes=merge_meshes,
+            smoothing=smoothing,
+            sort_triangles=sort_triangles,
+            report_mesh_quality=report_mesh_quality,
+            show_footprints=show_footprints,
             footprint_cleaning_plot_block=footprint_cleaning_plot_block,
-            mesher=mesher, pipeline_mode=pipeline_mode, stage_audit=stage_audit,
-            roof_options=roof_options, lod2_method=lod2_method,
-            **({"compact_surface": compact_surface} if compact_surface is not None else {}))
+            mesher=mesher,
+            pipeline_mode=pipeline_mode,
+            stage_audit=stage_audit,
+            roof_options=roof_options,
+            lod2_method=lod2_method,
+            **(
+                {"compact_surface": compact_surface}
+                if compact_surface is not None
+                else {}
+            ),
+        )
     if isolated:
         mesh = _isolated_surface_mesh(
             city,
@@ -4660,8 +4778,8 @@ def build_city_surface_mesh(
         )
         if report_mesh_quality:
             from dtcc_core.model.mixins.mesh.quality import (
-                triangle_mesh_quality,
                 report_quality,
+                triangle_mesh_quality,
             )
 
             for m in [mesh] if merge_meshes else mesh:
@@ -4700,7 +4818,9 @@ def build_city_surface_mesh(
                 "conditioned_footprints",
                 _conditioned_footprints_audit(conditioned_footprints),
             )
-        _raise_stage_contract_errors("Conditioned footprints", conditioned_footprints.contract)
+        _raise_stage_contract_errors(
+            "Conditioned footprints", conditioned_footprints.contract
+        )
 
         report_progress(
             percent=10,
@@ -4805,8 +4925,8 @@ def build_city_surface_mesh(
 
         if report_mesh_quality:
             from dtcc_core.model.mixins.mesh.quality import (
-                triangle_mesh_quality,
                 report_quality,
+                triangle_mesh_quality,
             )
 
             if merge_meshes:
@@ -5031,8 +5151,8 @@ def build_city_flat_mesh(
 
         if report_mesh_quality:
             from dtcc_core.model.mixins.mesh.quality import (
-                triangle_mesh_quality,
                 report_quality,
+                triangle_mesh_quality,
             )
 
             q = triangle_mesh_quality(flat_mesh.vertices, flat_mesh.faces)
@@ -5058,8 +5178,8 @@ def build_city_volume_mesh(
     min_building_area: float = 15.0,
     smoothing: int = 0,
     boundary_face_markers: bool = True,
-    tetgen_switches: Optional[Dict[str, Any]] = None,
-    tetgen_switch_overrides: Optional[Dict[str, Any]] = None,
+    tetgen_switches: dict[str, Any] | None = None,
+    tetgen_switch_overrides: dict[str, Any] | None = None,
     *,
     lod2_method: str = "catalogue",
     roof_options=None,
@@ -5243,7 +5363,9 @@ def build_city_volume_mesh(
     from ..meshing.output_lod import resolve_output_lod
 
     output_lod = resolve_output_lod(lod, lod2_method)
-    if output_lod != "lod2" and (roof_options is not None or compact_surface is not None):
+    if output_lod != "lod2" and (
+        roof_options is not None or compact_surface is not None
+    ):
         raise ValueError("roof_options and compact_surface require lod='lod2'")
     _require_unison(isolated, "volume mesh")
     _require_tetgen()
@@ -5280,9 +5402,7 @@ def build_city_volume_mesh(
         attempt["config"]["smoothing"] = int(smoothing)
         attempt["config"]["pipeline_mode"] = pipeline_mode
         attempt["config"]["top_cap_max_mesh_size"] = (
-            None
-            if top_cap_max_mesh_size is None
-            else float(top_cap_max_mesh_size)
+            None if top_cap_max_mesh_size is None else float(top_cap_max_mesh_size)
         )
         attempt["config"]["max_volume"] = (
             None if max_volume is None else float(max_volume)
@@ -5299,18 +5419,30 @@ def build_city_volume_mesh(
             try:
                 with progress_range(30, 55):
                     surface_mesh = build_city_surface_mesh(
-                        city, lod="lod2", lod2_method=lod2_method,
-                        roof_options=roof_options, compact_surface=compact_surface,
-                        min_building_detail=min_building_detail, min_building_area=min_building_area,
-                        max_mesh_size=max_mesh_size, min_mesh_angle=min_mesh_angle,
-                        smoothing=smoothing, mesher=mesher, merge_meshes=True,
-                        report_mesh_quality=False, show_footprints=show_footprints,
+                        city,
+                        lod="lod2",
+                        lod2_method=lod2_method,
+                        roof_options=roof_options,
+                        compact_surface=compact_surface,
+                        min_building_detail=min_building_detail,
+                        min_building_area=min_building_area,
+                        max_mesh_size=max_mesh_size,
+                        min_mesh_angle=min_mesh_angle,
+                        smoothing=smoothing,
+                        mesher=mesher,
+                        merge_meshes=True,
+                        report_mesh_quality=False,
+                        show_footprints=show_footprints,
                         footprint_cleaning_plot_block=footprint_cleaning_plot_block,
-                        stage_audit=surface_audit, pipeline_mode=pipeline_mode)
+                        stage_audit=surface_audit,
+                        pipeline_mode=pipeline_mode,
+                    )
             finally:
                 if stage_audit is not None:
-                    stage_audit.update(lod2_method=lod2_method,
-                                       roof_catalogue=surface_audit.get("roof_catalogue", {}))
+                    stage_audit.update(
+                        lod2_method=lod2_method,
+                        roof_catalogue=surface_audit.get("roof_catalogue", {}),
+                    )
                 if attempt is not None:
                     _record_stage_audit_stage(attempt, "surface_shell", surface_audit)
             # PLC closure is derived from this shell's outer boundary. No
@@ -5320,20 +5452,24 @@ def build_city_volume_mesh(
             shell_backend = resolve_2d_mesher(mesher)
             if attempt is not None:
                 attempt["config"].update(
-                    effective_mesher=shell_backend, tetgen_shell_refinement_enabled=False,
+                    effective_mesher=shell_backend,
+                    tetgen_shell_refinement_enabled=False,
                     preserve_surface_requested=bool(preserve_surface_requested),
-                    closure_source="surface_shell_outer_boundary")
+                    closure_source="surface_shell_outer_boundary",
+                )
         else:
-            terrain, terrain_raster, conditioned_footprints = _prepare_city_meshing_inputs(
-                city,
-                lod=None,
-                min_building_detail=min_building_detail,
-                min_building_area=min_building_area,
-                max_mesh_size=max_mesh_size,
-                show_footprints=show_footprints,
-                footprint_cleaning_plot_block=footprint_cleaning_plot_block,
-                pipeline_mode=pipeline_mode,
-                volume=True,
+            terrain, terrain_raster, conditioned_footprints = (
+                _prepare_city_meshing_inputs(
+                    city,
+                    lod=None,
+                    min_building_detail=min_building_detail,
+                    min_building_area=min_building_area,
+                    max_mesh_size=max_mesh_size,
+                    show_footprints=show_footprints,
+                    footprint_cleaning_plot_block=footprint_cleaning_plot_block,
+                    pipeline_mode=pipeline_mode,
+                    volume=True,
+                )
             )
             building_footprints = conditioned_footprints.surfaces
             subdomain_resolution = conditioned_footprints.subdomain_resolution
@@ -5567,8 +5703,8 @@ def build_city_volume_mesh(
 
         if report_mesh_quality:
             from dtcc_core.model.mixins.mesh.quality import (
-                tetrahedron_mesh_quality,
                 report_quality,
+                tetrahedron_mesh_quality,
             )
 
             q = tetrahedron_mesh_quality(volume_mesh.vertices, volume_mesh.cells)

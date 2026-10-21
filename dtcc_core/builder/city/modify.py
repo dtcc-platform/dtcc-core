@@ -1,9 +1,10 @@
 import numpy as np
 
+from dtcc_core.model import City, GeometryType, Raster, Terrain
+
 from ..building.modify import clean_building_geometry
 from ..cleaning.clean import clean_footprints as _clean_footprints
 from ..register import register_model_method
-from dtcc_core.model import City, Terrain, GeometryType, Raster
 
 
 @register_model_method

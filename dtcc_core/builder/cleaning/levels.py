@@ -27,7 +27,7 @@ between buildings.
 
 from __future__ import annotations
 
-from typing import Mapping, Sequence
+from collections.abc import Mapping, Sequence
 
 import numpy as np
 import shapely
@@ -109,7 +109,11 @@ def level_regions(
     grouped = dict(
         zip(
             labels,
-            group_levels([levels[label] for label in labels], [areas[label] for label in labels], delta),
+            group_levels(
+                [levels[label] for label in labels],
+                [areas[label] for label in labels],
+                delta,
+            ),
         )
     )
     by_level: dict[float, list[tuple[Polygon, int]]] = {}
@@ -117,14 +121,22 @@ def level_regions(
         by_level.setdefault(grouped[label], []).append((polygon, label))
     regions = []
     for value, members in by_level.items():
-        polygons = sorted((polygon.normalize() for polygon, _ in members), key=lambda p: p.wkb)
-        union = polygons[0] if len(polygons) == 1 else shapely.coverage_union_all(polygons)
+        polygons = sorted(
+            (polygon.normalize() for polygon, _ in members), key=lambda p: p.wkb
+        )
+        union = (
+            polygons[0] if len(polygons) == 1 else shapely.coverage_union_all(polygons)
+        )
         if not union.is_valid:
             union = shapely.unary_union(polygons)
         for part in polygon_parts(union):
             part = part.normalize()
             inside = sorted(
-                {label for polygon, label in members if polygon.intersection(part).area > 0}
+                {
+                    label
+                    for polygon, label in members
+                    if polygon.intersection(part).area > 0
+                }
             )
             regions.append((part, float(value), inside))
     regions.sort(key=lambda item: (item[1], item[0].wkb))

@@ -1,7 +1,8 @@
 """Tests for RemoteDatasetDescriptor and remote service registration."""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 
 from dtcc_core.datasets.remote import RemoteDatasetDescriptor
 
@@ -97,7 +98,9 @@ class TestRemoteDatasetDescriptor:
         text = desc.info(print=False)
         assert "bounds" in text
         assert "No parameters defined" not in text
-        schema["properties"].update({f"option_{i}": {"type": "number"} for i in range(25)})
+        schema["properties"].update(
+            {f"option_{i}": {"type": "number"} for i in range(25)}
+        )
         assert "option_24" in desc.info(print=False)
 
     def test_validate_passes_through_dict(self):
@@ -208,8 +211,9 @@ def _mock_discovery_response():
 
 class TestRegisterRemoteService:
     def test_success(self):
+        from dtcc_core.datasets import list as list_datasets
+        from dtcc_core.datasets import unregister
         from dtcc_core.datasets.remote import register_remote_service
-        from dtcc_core.datasets import list as list_datasets, unregister
 
         mock_resp = MagicMock()
         mock_resp.json.return_value = _mock_discovery_response()
@@ -234,8 +238,12 @@ class TestRegisterRemoteService:
     ):
         from dtcc_core.datasets import registry, remote
 
-        monkeypatch.setattr(registry, "_datasets_by_name", dict(registry._datasets_by_name))
-        monkeypatch.setattr(registry, "_datasets_registry", list(registry._datasets_registry))
+        monkeypatch.setattr(
+            registry, "_datasets_by_name", dict(registry._datasets_by_name)
+        )
+        monkeypatch.setattr(
+            registry, "_datasets_registry", list(registry._datasets_registry)
+        )
         monkeypatch.setattr(remote, "_cached_service_discoveries", {})
         local_dataset = registry.get_dataset("point_cloud")
         registry.register("custom_local", local_dataset)
@@ -261,7 +269,10 @@ class TestRegisterRemoteService:
                 cached = remote.get_cached_discoveries()[base_url]
                 assert list(cached["datasets"]) == expected_names
                 assert list(service_info["datasets"]) == [
-                    "mock_sim_dataset", "point_cloud", "custom_local", "existing_remote"
+                    "mock_sim_dataset",
+                    "point_cloud",
+                    "custom_local",
+                    "existing_remote",
                 ]
             else:
                 remote.register_remote_descriptors_from_cache({base_url: service_info})
@@ -284,10 +295,16 @@ class TestRegisterRemoteService:
     ):
         from dtcc_core.datasets import registry, remote
 
-        monkeypatch.setattr(registry, "_datasets_by_name", dict(registry._datasets_by_name))
-        monkeypatch.setattr(registry, "_datasets_registry", list(registry._datasets_registry))
         monkeypatch.setattr(
-            remote, "_cached_service_discoveries", dict(remote._cached_service_discoveries)
+            registry, "_datasets_by_name", dict(registry._datasets_by_name)
+        )
+        monkeypatch.setattr(
+            registry, "_datasets_registry", list(registry._datasets_registry)
+        )
+        monkeypatch.setattr(
+            remote,
+            "_cached_service_discoveries",
+            dict(remote._cached_service_discoveries),
         )
         base_url = "http://discovery-test:8001"
         mock_resp = MagicMock()
@@ -311,8 +328,9 @@ class TestRegisterRemoteService:
                 assert remote.get_cached_discoveries() == cache_before
 
     def test_unreachable_returns_empty(self):
-        from dtcc_core.datasets.remote import register_remote_service
         import httpx
+
+        from dtcc_core.datasets.remote import register_remote_service
 
         with patch("httpx.get", side_effect=httpx.ConnectError("refused")):
             registered = register_remote_service("http://unreachable:9999", timeout=1)
@@ -328,13 +346,14 @@ class TestRegisterRemoteService:
         assert registered == []
 
     def test_cached_discoveries_roundtrip(self):
+        from dtcc_core.datasets import list as list_datasets
+        from dtcc_core.datasets import unregister
         from dtcc_core.datasets.remote import (
-            register_remote_service,
-            register_remote_descriptors_from_cache,
-            get_cached_discoveries,
             _cached_service_discoveries,
+            get_cached_discoveries,
+            register_remote_descriptors_from_cache,
+            register_remote_service,
         )
-        from dtcc_core.datasets import list as list_datasets, unregister
 
         # Clear cache from prior test runs
         _cached_service_discoveries.clear()
@@ -594,7 +613,9 @@ class TestSSEAndPolling:
 
         with patch("httpx.get", side_effect=mock_get):
             with patch("time.sleep"):  # don't actually sleep
-                result = desc._poll_status("http://localhost:8001/status/abc", progress_cb)
+                result = desc._poll_status(
+                    "http://localhost:8001/status/abc", progress_cb
+                )
 
         assert result == "abc.xdmf"
         assert len(progress_calls) == 2
@@ -619,8 +640,12 @@ class TestStreamStatusFallback:
 
         desc = self._make_desc()
 
-        with patch.object(desc, "_stream_sse", side_effect=SSEStreamError("stream dropped")):
-            with patch.object(desc, "_poll_status", return_value="abc.xdmf") as mock_poll:
+        with patch.object(
+            desc, "_stream_sse", side_effect=SSEStreamError("stream dropped")
+        ):
+            with patch.object(
+                desc, "_poll_status", return_value="abc.xdmf"
+            ) as mock_poll:
                 result = desc._stream_status("task-123", None)
 
         assert result == "abc.xdmf"
@@ -632,8 +657,12 @@ class TestStreamStatusFallback:
 
         desc = self._make_desc()
 
-        with patch.object(desc, "_stream_sse", side_effect=httpx.ReadError("connection reset")):
-            with patch.object(desc, "_poll_status", return_value="abc.xdmf") as mock_poll:
+        with patch.object(
+            desc, "_stream_sse", side_effect=httpx.ReadError("connection reset")
+        ):
+            with patch.object(
+                desc, "_poll_status", return_value="abc.xdmf"
+            ) as mock_poll:
                 result = desc._stream_status("task-123", None)
 
         assert result == "abc.xdmf"
@@ -645,8 +674,12 @@ class TestStreamStatusFallback:
 
         desc = self._make_desc()
 
-        with patch.object(desc, "_stream_sse", side_effect=httpx.RemoteProtocolError("peer closed")):
-            with patch.object(desc, "_poll_status", return_value="abc.xdmf") as mock_poll:
+        with patch.object(
+            desc, "_stream_sse", side_effect=httpx.RemoteProtocolError("peer closed")
+        ):
+            with patch.object(
+                desc, "_poll_status", return_value="abc.xdmf"
+            ) as mock_poll:
                 result = desc._stream_status("task-123", None)
 
         assert result == "abc.xdmf"
@@ -656,7 +689,9 @@ class TestStreamStatusFallback:
         """RuntimeError from failed/cancelled jobs should NOT fall back to polling."""
         desc = self._make_desc()
 
-        with patch.object(desc, "_stream_sse", side_effect=RuntimeError("Remote job failed: OOM")):
+        with patch.object(
+            desc, "_stream_sse", side_effect=RuntimeError("Remote job failed: OOM")
+        ):
             with patch.object(desc, "_poll_status") as mock_poll:
                 with pytest.raises(RuntimeError, match="OOM"):
                     desc._stream_status("task-123", None)
@@ -667,7 +702,9 @@ class TestStreamStatusFallback:
         """RuntimeError from cancellation should NOT fall back to polling."""
         desc = self._make_desc()
 
-        with patch.object(desc, "_stream_sse", side_effect=RuntimeError("Remote job was cancelled")):
+        with patch.object(
+            desc, "_stream_sse", side_effect=RuntimeError("Remote job was cancelled")
+        ):
             with patch.object(desc, "_poll_status") as mock_poll:
                 with pytest.raises(RuntimeError, match="cancelled"):
                     desc._stream_status("task-123", None)

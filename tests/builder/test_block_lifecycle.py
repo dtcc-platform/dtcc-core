@@ -5,8 +5,6 @@ height estimation, the lifecycle of parts, unique IDs with provenance, and
 traversal of part geometry from a city.
 """
 
-from dtcc_core.builder.cleaning import walls as walls_module
-
 import json
 from pathlib import Path
 
@@ -17,6 +15,7 @@ from shapely.geometry import box, shape
 
 from dtcc_core import io
 from dtcc_core.builder import build_lod1_buildings
+from dtcc_core.builder.cleaning import walls as walls_module
 from dtcc_core.builder.cleaning.blocks import (
     MERGED_FROM_KEY,
     SOURCE_FOOTPRINT_KEY,
@@ -29,12 +28,16 @@ from dtcc_core.builder.cleaning.blocks import (
     source_ids,
     update_walls,
 )
-from dtcc_core.builder.cleaning.clean import RECORD_KEY, cleaning_record, footprint_cells
+from dtcc_core.builder.cleaning.clean import (
+    RECORD_KEY,
+    cleaning_record,
+    footprint_cells,
+)
 from dtcc_core.builder.geometry_builders import meshes
 from dtcc_core.builder.geometry_builders.buildings import (
     compute_building_heights,
-    extrude_building,
     extract_roof_points,
+    extrude_building,
     set_building_heights_from_attribute,
 )
 from dtcc_core.model import (
@@ -54,6 +57,7 @@ DATA = Path(__file__).resolve().parents[1] / "data" / "cleaning"
 
 
 _original_xy = walls_module._WallRepair._xy
+
 
 def building(id, polygon, roof=0.0, *, height=None, ground=None):
     surface = Surface()
@@ -134,7 +138,9 @@ def test_a_tower_inside_a_low_building_survives_cleaning_before_heights():
     # Height first: the tower wins its overlap.
     height_first = raw_tower_city()
     tower_heights(height_first.buildings)
-    expected_roofs, expected_cells = cells_by_id(height_first.clean_footprints().buildings[0])
+    expected_roofs, expected_cells = cells_by_id(
+        height_first.clean_footprints().buildings[0]
+    )
     assert expected_roofs == {"low": pytest.approx(6.0), "tower": pytest.approx(30.0)}
     assert expected_cells["tower"].equals(TOWER)
 
@@ -171,7 +177,9 @@ def test_a_tower_inside_a_low_building_survives_cleaning_before_heights():
 
 
 def test_roof_levels_decide_overlaps_without_heights():
-    block = city_of(building("low", LOW, 6.0), building("tower", TOWER, 30.0)).clean_footprints()
+    block = city_of(
+        building("low", LOW, 6.0), building("tower", TOWER, 30.0)
+    ).clean_footprints()
     block = block.buildings[0]
     assert block.attributes[WALLS_KEY]["precedence"] == "roof"
     assert block.attributes[WALLS_KEY]["order"] == ["tower", "low"]
@@ -205,7 +213,9 @@ def test_parts_survive_lod1_saving_and_cleaning_again(tmp_path):
 
     def roofs(city):
         (block,) = city.buildings
-        return sorted(part.lod0.zmax for part in block.building_parts if part.lod0 is not None)
+        return sorted(
+            part.lod0.zmax for part in block.building_parts if part.lod0 is not None
+        )
 
     # After LOD1 the default footprint choice would be LOD1: a block is still
     # cleaned from its LOD0 footprint and its parts.
@@ -216,7 +226,9 @@ def test_parts_survive_lod1_saving_and_cleaning_again(tmp_path):
     assert roofs(zero) == [10.0, 20.0]
     assert all(
         polygon_of(p.lod0).equals_exact(polygon_of(q.lod0), 0.0)
-        for p, q in zip(zero.buildings[0].building_parts, cleaned.buildings[0].building_parts)
+        for p, q in zip(
+            zero.buildings[0].building_parts, cleaned.buildings[0].building_parts
+        )
     )
     # Another detail cleans again, from the source footprints.
     coarse = cleaned.clean_footprints(min_building_detail=1.0)
@@ -279,7 +291,9 @@ def test_a_source_split_over_two_blocks_has_unique_ids_and_provenance(tmp_path):
 
 def test_a_split_source_merged_with_a_neighbour():
     source, polygon = split_source()
-    neighbour = building("neighbour", box(536780, 6474050, 536790, 6474056), 12.0, height=12, ground=0)
+    neighbour = building(
+        "neighbour", box(536780, 6474050, 536790, 6474056), 12.0, height=12, ground=0
+    )
     cleaned = city_of(source, neighbour).clean_footprints()
     ids = all_ids(cleaned)
     assert len(ids) == len(set(ids))
@@ -292,7 +306,12 @@ def test_a_split_source_merged_with_a_neighbour():
 
 def test_new_block_ids_are_derived_from_their_parts():
     def block_id(*ids):
-        city = city_of(*(building(id, box(10 * i, 0, 10 * i + 10, 10), 10.0) for i, id in enumerate(ids)))
+        city = city_of(
+            *(
+                building(id, box(10 * i, 0, 10 * i + 10, 10), 10.0)
+                for i, id in enumerate(ids)
+            )
+        )
         return city.clean_footprints().buildings[0].id
 
     assert block_id("a", "b") == block_id("a", "b")
@@ -308,7 +327,9 @@ def test_a_block_read_back_without_part_attributes_is_divided_by_its_parts(tmp_p
     ).clean_footprints()
     io.save_city(cleaned, tmp_path / "cleaned.json")
     loaded = io.load_city(tmp_path / "cleaned.json")
-    assert all(SOURCE_ID_KEY not in p.attributes for p in loaded.buildings[0].building_parts)
+    assert all(
+        SOURCE_ID_KEY not in p.attributes for p in loaded.buildings[0].building_parts
+    )
     loaded.add_terrain(city_of().terrain)
     mesh = meshes.build_city_surface_mesh(loaded, report_mesh_quality=False)
     assert mesh.vertices[:, 2].max() == pytest.approx(20.0)
@@ -337,7 +358,9 @@ def test_new_roofs_keep_walls_unless_they_change_the_winner_of_an_overlap():
     assert pieces["c"].equals(box(19.5, 0, 30, 10))
 
 
-def test_small_overlap_order_change_revalidates_and_persists_cells(tmp_path, monkeypatch):
+def test_small_overlap_order_change_revalidates_and_persists_cells(
+    tmp_path, monkeypatch
+):
     from dtcc_core.builder.cleaning import blocks
     from dtcc_core.builder.cleaning.contract import check_labelled_contract
 
@@ -361,8 +384,12 @@ def test_small_overlap_order_change_revalidates_and_persists_cells(tmp_path, mon
     record = block.attributes[WALLS_KEY]
     walls = block_walls(block)
     checked = check_labelled_contract(
-        blocks.part_sources(block), walls.order, blocks.block_region(block), walls.cells,
-        delta=record["min_building_detail"], epsilon=record["fidelity_budget"],
+        blocks.part_sources(block),
+        walls.order,
+        blocks.block_region(block),
+        walls.cells,
+        delta=record["min_building_detail"],
+        epsilon=record["fidelity_budget"],
     )
     assert checked["status"] != "fail"
     assert all(value == "pass" for value in checked["fidelity"].values())
@@ -375,8 +402,7 @@ def test_small_overlap_order_change_revalidates_and_persists_cells(tmp_path, mon
 
 
 def test_meshing_reports_the_outcomes_of_recomputed_walls(monkeypatch):
-    from dtcc_core.builder.cleaning import blocks as blocks_module
-    from dtcc_core.builder.cleaning.walls import LabelledRegion, label_region
+    from dtcc_core.builder.cleaning.walls import LabelledRegion
 
     cleaned = raw_tower_city().clean_footprints()
     parts = parts_by_id(cleaned.buildings[0])
@@ -385,11 +411,17 @@ def test_meshing_reports_the_outcomes_of_recomputed_walls(monkeypatch):
 
     def warn(self):
         labelled = _original_xy(self)
-        return LabelledRegion(labelled.region, labelled.cells, "warning", labelled.report)
+        return LabelledRegion(
+            labelled.region, labelled.cells, "warning", labelled.report
+        )
 
     monkeypatch.setattr(walls_module._WallRepair, "_xy", warn)
     footprints = meshes._meshing_footprints(
-        cleaned, lod=None, min_building_detail=0.5, min_building_area=0.0, max_mesh_size=5.0
+        cleaned,
+        lod=None,
+        min_building_detail=0.5,
+        min_building_area=0.0,
+        max_mesh_size=5.0,
     )
     walls = footprints.diagnostics["walls"]
     assert cleaned.attributes[RECORD_KEY]["walls"]["warning"] == 0
@@ -404,7 +436,8 @@ def total_area(cells):
 def test_walls_follow_a_changed_region_and_changed_sources():
     def adjacent():
         return city_of(
-            building("a", box(0, 0, 10, 10), 10.0), building("b", box(10, 0, 20, 10), 20.0)
+            building("a", box(0, 0, 10, 10), 10.0),
+            building("b", box(10, 0, 20, 10), 20.0),
         ).clean_footprints()
 
     # A larger region: the old cells no longer cover it.
@@ -416,16 +449,22 @@ def test_walls_follow_a_changed_region_and_changed_sources():
         block.add_geometry(surface, GeometryType.LOD0)
         walls = block_walls(block)
         assert not walls.current
-        assert walls.outcome == "fallback" or total_area(walls.cells) == pytest.approx(region.area)
+        assert walls.outcome == "fallback" or total_area(walls.cells) == pytest.approx(
+            region.area
+        )
         again = cleaned.clean_footprints().buildings[0]
         cells, _ = footprint_cells(again)
         assert total_area(cells) == pytest.approx(region.area)
         footprints = meshes._meshing_footprints(
-            cleaned, lod=None, min_building_detail=0.5, min_building_area=0.0, max_mesh_size=5.0
+            cleaned,
+            lod=None,
+            min_building_detail=0.5,
+            min_building_area=0.0,
+            max_mesh_size=5.0,
         )
-        assert sum(s.to_polygon(simplify=0.0).area for s in footprints.surfaces) == pytest.approx(
-            region.area
-        )
+        assert sum(
+            s.to_polygon(simplify=0.0).area for s in footprints.surfaces
+        ) == pytest.approx(region.area)
 
     # A changed source footprint: the cells are made again from it.
     cleaned = city_of(
@@ -479,7 +518,6 @@ def test_lod1_follows_a_new_partition(rebuild):
 
 
 def test_lod1_follows_a_switch_to_and_from_one_footprint(monkeypatch):
-    from dtcc_core.builder.cleaning import blocks as blocks_module
 
     city, block = tower_block()
     build_lod1_buildings(city.buildings)
@@ -497,7 +535,9 @@ def test_lod1_follows_a_switch_to_and_from_one_footprint(monkeypatch):
     assert block.attributes[WALLS_KEY]["outcome"] == "fallback"
     assert all(part.lod1 is None for part in block.building_parts)
     assert block.lod1 is not None
-    assert len(city.flatten_geometry(GeometryType.LOD1).surfaces) == len(block.lod1.surfaces)
+    assert len(city.flatten_geometry(GeometryType.LOD1).surfaces) == len(
+        block.lod1.surfaces
+    )
 
     # Walls again: the parts have prisms and the block none.
     monkeypatch.setattr(walls_module._WallRepair, "_xy", real)
@@ -528,7 +568,9 @@ def test_ids_are_unique_in_the_whole_model(tmp_path):
     cleaned = city_of(source).clean_footprints()
     ids = model_ids(cleaned)
     assert len(ids) == len(set(ids))
-    copies = [c for b in cleaned.buildings for p in b.building_parts for c in p.building_parts]
+    copies = [
+        c for b in cleaned.buildings for p in b.building_parts for c in p.building_parts
+    ]
     assert [c.id for c in copies] == ["original-child#1", "original-child#2"]
     assert all(c.attributes[SOURCE_ID_KEY] == "original-child" for c in copies)
     io.save_model(cleaned, tmp_path / "nested.dtcc")
@@ -536,11 +578,18 @@ def test_ids_are_unique_in_the_whole_model(tmp_path):
     assert model_ids(cleaned.clean_footprints()) == ids
 
     # Split and merged with a neighbour.
-    neighbour = building("neighbour", box(536780, 6474050, 536790, 6474056), 12.0, height=12, ground=0)
+    neighbour = building(
+        "neighbour", box(536780, 6474050, 536790, 6474056), 12.0, height=12, ground=0
+    )
     merged = city_of(source, neighbour).clean_footprints()
     ids = model_ids(merged)
     assert len(ids) == len(set(ids))
-    assert sorted(c.id for b in merged.buildings for p in b.building_parts for c in p.building_parts) == [
+    assert sorted(
+        c.id
+        for b in merged.buildings
+        for p in b.building_parts
+        for c in p.building_parts
+    ) == [
         "original-child#1",
         "original-child#2",
     ]
@@ -554,7 +603,10 @@ def test_ids_are_unique_in_the_whole_model(tmp_path):
     cleaned = city.clean_footprints()
     ids = model_ids(cleaned)
     assert len(ids) == len(set(ids))
-    assert [p.id for b in cleaned.buildings for p in b.building_parts] == ["source#2", "source#3"]
+    assert [p.id for b in cleaned.buildings for p in b.building_parts] == [
+        "source#2",
+        "source#3",
+    ]
     io.save_model(cleaned, tmp_path / "city-id.dtcc")
 
 
@@ -566,7 +618,9 @@ def test_a_part_without_source_or_cell_keeps_the_labels_of_the_others():
     ).clean_footprints()
     block = cleaned.buildings[0]
     assert [p.lod0 is not None for p in block.building_parts] == [True, False, True]
-    expected = {p.id: polygon_of(p.lod0) for p in block.building_parts if p.lod0 is not None}
+    expected = {
+        p.id: polygon_of(p.lod0) for p in block.building_parts if p.lod0 is not None
+    }
     for part in block.building_parts:
         part.attributes.pop(SOURCE_FOOTPRINT_KEY)
     again = cleaned.clean_footprints().buildings[0]
@@ -576,7 +630,6 @@ def test_a_part_without_source_or_cell_keeps_the_labels_of_the_others():
 
 
 def test_the_cause_of_a_fallback_is_kept_with_the_block(monkeypatch, tmp_path, caplog):
-    from dtcc_core.builder.cleaning import blocks as blocks_module
 
     def failure(*args, **kwargs):
         raise shapely.errors.GEOSException("controlled construction failure")
@@ -585,7 +638,10 @@ def test_the_cause_of_a_fallback_is_kept_with_the_block(monkeypatch, tmp_path, c
     cleaned = city_of(
         building("a", box(0, 0, 10, 10), 10.0), building("b", box(10, 0, 20, 10), 20.0)
     ).clean_footprints()
-    expected = {"reason": "construction_error", "error": "controlled construction failure"}
+    expected = {
+        "reason": "construction_error",
+        "error": "controlled construction failure",
+    }
     assert cleaned.attributes[RECORD_KEY]["walls"]["fallback_reasons"] == [expected]
     assert cleaned.buildings[0].attributes[WALLS_KEY]["detail"] == expected
     monkeypatch.undo()
@@ -599,26 +655,38 @@ def test_the_cause_of_a_fallback_is_kept_with_the_block(monkeypatch, tmp_path, c
 
     caplog.clear()
     stage = meshes._meshing_footprints(
-        loaded, lod=GeometryType.LOD0, min_building_detail=0.5,
-        min_building_area=15, max_mesh_size=10,
+        loaded,
+        lod=GeometryType.LOD0,
+        min_building_detail=0.5,
+        min_building_area=15,
+        max_mesh_size=10,
     )
     assert stage.contract["status"] == "warn"
     assert all(stage.contract["requirements"].values())
-    assert any("construction_error" in message for message in stage.contract["warnings"])
-    assert stage.diagnostics["kept_wall_fallbacks"][0]["ids"] == [loaded.buildings[0].id]
+    assert any(
+        "construction_error" in message for message in stage.contract["warnings"]
+    )
+    assert stage.diagnostics["kept_wall_fallbacks"][0]["ids"] == [
+        loaded.buildings[0].id
+    ]
     assert loaded.buildings[0].id in caplog.text
     assert "wall fallback (construction_error)" in caplog.text
     caplog.clear()
     excluded = meshes._meshing_footprints(
-        loaded, lod=GeometryType.LOD0, min_building_detail=0.5,
-        min_building_area=1000, max_mesh_size=10,
+        loaded,
+        lod=GeometryType.LOD0,
+        min_building_detail=0.5,
+        min_building_area=1000,
+        max_mesh_size=10,
     )
     assert excluded.diagnostics["kept_wall_fallbacks"] == []
-    assert not any("wall fallback" in message for message in excluded.contract["warnings"])
+    assert not any(
+        "wall fallback" in message for message in excluded.contract["warnings"]
+    )
     assert "wall fallback" not in caplog.text
 
     # A strict cleaning keeps the closest wall pair of the walls it refused.
-    from dtcc_core.builder.cleaning.walls import LabelledRegion, label_region
+    from dtcc_core.builder.cleaning.walls import LabelledRegion
 
     def warn(self):
         labelled = _original_xy(self)
@@ -632,7 +700,7 @@ def test_the_cause_of_a_fallback_is_kept_with_the_block(monkeypatch, tmp_path, c
     record = cleaned.buildings[0].attributes[WALLS_KEY]
     assert record["outcome"] == "warning"
     assert record["detail"]["wall_pairs"] == 1
-    assert record["detail"]["min_wall_distance"] == .01
+    assert record["detail"]["min_wall_distance"] == 0.01
     assert record["detail"]["contact_repair"]["state"] == "unneeded"
     strict = cleaned.clean_footprints(strict=True).buildings[0].attributes[WALLS_KEY]
     assert strict["outcome"] == "fallback"
@@ -642,8 +710,9 @@ def test_the_cause_of_a_fallback_is_kept_with_the_block(monkeypatch, tmp_path, c
 @pytest.mark.parametrize("owner", ["city", "terrain"])
 def test_block_ids_avoid_surviving_model_objects(owner, tmp_path):
     def raw():
-        return city_of(building("a", box(0, 0, 10, 10), 10),
-                       building("b", box(10, 0, 20, 10), 20))
+        return city_of(
+            building("a", box(0, 0, 10, 10), 10), building("b", box(10, 0, 20, 10), 20)
+        )
 
     expected = raw().clean_footprints().buildings[0].id
     city = raw()
@@ -671,8 +740,10 @@ def test_height_only_changes_invalidate_generated_prisms_after_save_load(tmp_pat
     for part in city.buildings[0].building_parts:
         part.attributes["new_height"] = part.estimated_height + 30
     set_building_heights_from_attribute(
-        city.buildings, city.terrain.get_geometry(GeometryType.RASTER),
-        height_attribute="new_height", always_use_default_ground=True,
+        city.buildings,
+        city.terrain.get_geometry(GeometryType.RASTER),
+        height_attribute="new_height",
+        always_use_default_ground=True,
     )
     block = city.buildings[0]
     assert block_walls(block).current
@@ -694,8 +765,10 @@ def test_height_updates_preserve_caller_lod1(edited_extrusion):
     caller_geometry = obj.lod1
     obj.attributes["new_height"] = 40
     set_building_heights_from_attribute(
-        [obj], city.terrain.get_geometry(GeometryType.RASTER),
-        height_attribute="new_height", always_use_default_ground=True,
+        [obj],
+        city.terrain.get_geometry(GeometryType.RASTER),
+        height_attribute="new_height",
+        always_use_default_ground=True,
     )
     assert obj.lod1 is caller_geometry
     build_lod1_buildings([obj], rebuild=False)
@@ -708,8 +781,10 @@ def test_ground_only_changes_invalidate_a_generated_prism():
     build_lod1_buildings([obj])
     obj.attributes["next_height"] = 5
     set_building_heights_from_attribute(
-        [obj], city.terrain.get_geometry(GeometryType.RASTER),
-        height_attribute="next_height", default_ground_height=5,
+        [obj],
+        city.terrain.get_geometry(GeometryType.RASTER),
+        height_attribute="next_height",
+        default_ground_height=5,
         always_use_default_ground=True,
     )
     assert obj.lod0.zmax == 10
@@ -724,23 +799,50 @@ def test_compatible_cached_warning_cells_are_reconditioned_after_load(tmp_path):
     from dtcc_core.model.mixins.mesh.quality import tri_element_quality
 
     payload = json.loads((DATA / "orebro-007-cached-warning.geojson").read_text())
-    source_rows = [f for f in payload["features"] if f["properties"]["role"] == "source"]
-    region = next(shape(f["geometry"]) for f in payload["features"] if f["properties"]["role"] == "region")
-    city = city_of(*(building(str(f["properties"]["label"]), shape(f["geometry"]),
-                             f["properties"]["roof"], ground=0) for f in source_rows)).clean_footprints()
+    source_rows = [
+        f for f in payload["features"] if f["properties"]["role"] == "source"
+    ]
+    region = next(
+        shape(f["geometry"])
+        for f in payload["features"]
+        if f["properties"]["role"] == "region"
+    )
+    city = city_of(
+        *(
+            building(
+                str(f["properties"]["label"]),
+                shape(f["geometry"]),
+                f["properties"]["roof"],
+                ground=0,
+            )
+            for f in source_rows
+        )
+    ).clean_footprints()
     block = city.buildings[0]
     surface = Surface()
     surface.from_polygon(region, max(f["properties"]["roof"] for f in source_rows))
     block.add_geometry(surface, GeometryType.LOD0)
-    cells = [(shape(f["geometry"]), f["properties"]["label"])
-             for f in payload["features"] if f["properties"]["role"] == "cell"]
+    cells = [
+        (shape(f["geometry"]), f["properties"]["label"])
+        for f in payload["features"]
+        if f["properties"]["role"] == "cell"
+    ]
     blocks.assign_cells(block.building_parts, cells)
     block.attributes[WALLS_KEY] = blocks.walls_record(
-        block, payload["metadata"]["order"], "roof", "warning", delta=0.5,
-        epsilon=0.25, strict=False, detail={"wall_pairs": 3, "min_wall_distance": 0.00128793},
+        block,
+        payload["metadata"]["order"],
+        "roof",
+        "warning",
+        delta=0.5,
+        epsilon=0.25,
+        strict=False,
+        detail={"wall_pairs": 3, "min_wall_distance": 0.00128793},
     )
     old_mesh = meshes.build_building_shell(block, max_mesh_size=10)
-    assert np.count_nonzero(tri_element_quality(old_mesh.vertices, old_mesh.faces) < 0.02) > 0
+    assert (
+        np.count_nonzero(tri_element_quality(old_mesh.vertices, old_mesh.faces) < 0.02)
+        > 0
+    )
     build_lod1_buildings([block])
     block.attributes[WALLS_KEY].pop("repair_version")
     io.save_model(city, tmp_path / "cached-warning.dtcc")
@@ -756,16 +858,22 @@ def test_compatible_cached_warning_cells_are_reconditioned_after_load(tmp_path):
     }
 
 
-def test_failed_conditioning_upgrade_retains_valid_warning_cells_and_prisms(monkeypatch, tmp_path, caplog):
+def test_failed_conditioning_upgrade_retains_valid_warning_cells_and_prisms(
+    monkeypatch, tmp_path, caplog
+):
     from dtcc_core.builder.cleaning import blocks
 
-    city = city_of(building("a", box(0, 0, 10, 10), 10, ground=0),
-                   building("b", box(10, 0, 20, 10), 20, ground=0)).clean_footprints()
+    city = city_of(
+        building("a", box(0, 0, 10, 10), 10, ground=0),
+        building("b", box(10, 0, 20, 10), 20, ground=0),
+    ).clean_footprints()
     block = city.buildings[0]
     build_lod1_buildings([block])
     prisms = [part.lod1 for part in block.building_parts]
     record = block.attributes[WALLS_KEY]
-    record.update(outcome="warning", detail={"wall_pairs": 1, "min_wall_distance": 0.01})
+    record.update(
+        outcome="warning", detail={"wall_pairs": 1, "min_wall_distance": 0.01}
+    )
     record.pop("repair_version")
 
     def failure(*args, **kwargs):
@@ -778,21 +886,29 @@ def test_failed_conditioning_upgrade_retains_valid_warning_cells_and_prisms(monk
     assert all(part.lod1 is prism for part, prism in zip(block.building_parts, prisms))
     assert cells_by_id(block)[0] == {"a": 10, "b": 20}
     assert block.attributes[WALLS_KEY]["detail"]["repair_failure"] == {
-        "reason": "construction_error", "error": "controlled conditioning failure",
+        "reason": "construction_error",
+        "error": "controlled conditioning failure",
     }
     io.save_model(city, tmp_path / "retained-warning.dtcc")
     loaded = io.load_model(tmp_path / "retained-warning.dtcc")
-    assert loaded.buildings[0].attributes[WALLS_KEY]["detail"] == block.attributes[WALLS_KEY]["detail"]
+    assert (
+        loaded.buildings[0].attributes[WALLS_KEY]["detail"]
+        == block.attributes[WALLS_KEY]["detail"]
+    )
 
     # Retention also reports contacts in an earlier warning partition accurately.
     pinched, *_ = _two_contact_block()
-    blocks.walls_of(pinched).update(outcome="warning", detail={"wall_pairs": 1, "min_wall_distance": .01})
+    blocks.walls_of(pinched).update(
+        outcome="warning", detail={"wall_pairs": 1, "min_wall_distance": 0.01}
+    )
     result = block_walls(pinched)
     assert result.current and result.outcome == "warning"
     assert result.report["contact_repair"]["state"] == "unchanged"
     assert result.report["contact_repair"]["remaining_contacts"] == 2
     assert not update_walls(pinched)
-    assert blocks.walls_of(pinched)["detail"]["contact_repair"]["remaining_contacts"] == 2
+    assert (
+        blocks.walls_of(pinched)["detail"]["contact_repair"]["remaining_contacts"] == 2
+    )
     assert not update_walls(pinched)
 
 
@@ -807,15 +923,23 @@ def test_changed_exposed_roof_groups_repair_contacts_even_with_a_hidden_source()
     block = city.buildings[0]
     assert parts_by_id(block)["hidden"].lod0 is None
     for part in block.building_parts:
-        part.attributes["next_height"] = 29.4 if part.id.startswith("low") else part.estimated_height
+        part.attributes["next_height"] = (
+            29.4 if part.id.startswith("low") else part.estimated_height
+        )
     set_building_heights_from_attribute(
-        [block], city.terrain.get_geometry(GeometryType.RASTER),
-        height_attribute="next_height", always_use_default_ground=True,
+        [block],
+        city.terrain.get_geometry(GeometryType.RASTER),
+        height_attribute="next_height",
+        always_use_default_ground=True,
     )
     assert block_walls(block).current
     stage = meshes._meshing_footprints(
-        city, lod=None, min_building_detail=0.5, min_building_area=0,
-        max_mesh_size=5, volume=True,
+        city,
+        lod=None,
+        min_building_detail=0.5,
+        min_building_area=0,
+        max_mesh_size=5,
+        volume=True,
     )
     assert stage.diagnostics["levels"]["one_roof"] == []
     assert {surface.zmax for surface in stage.surfaces} == {29.4, 30}
@@ -826,7 +950,10 @@ def test_blocks_of_an_earlier_version_are_cleaned_again_from_their_buildings():
         building("a", box(0, 0, 10, 10), 10.0), building("b", box(10, 0, 20, 10), 20.0)
     ).clean_footprints()
     block = cleaned.buildings[0]
-    for record in ({k: v for k, v in block.attributes[WALLS_KEY].items() if k != "version"}, None):
+    for record in (
+        {k: v for k, v in block.attributes[WALLS_KEY].items() if k != "version"},
+        None,
+    ):
         if record is None:
             del block.attributes[WALLS_KEY]
         else:
@@ -837,30 +964,48 @@ def test_blocks_of_an_earlier_version_are_cleaned_again_from_their_buildings():
             block_walls(block)
 
 
-def test_compatible_warning_repairs_contacts_without_reconstructing_good_walls(tmp_path):
+def test_compatible_warning_repairs_contacts_without_reconstructing_good_walls(
+    tmp_path,
+):
     from dtcc_core.builder.cleaning import blocks
     from dtcc_core.model.mixins.mesh.quality import tri_element_quality
 
     payload = json.loads((DATA / "uppsala-048-compatible-warning.geojson").read_text())
     sources = [f for f in payload["features"] if f["properties"]["role"] == "source"]
-    region = next(shape(f["geometry"]) for f in payload["features"]
-                  if f["properties"]["role"] == "region")
-    block = Building(id="compatible", attributes={MERGED_FROM_KEY: list(map(str, range(len(sources))))})
+    region = next(
+        shape(f["geometry"])
+        for f in payload["features"]
+        if f["properties"]["role"] == "region"
+    )
+    block = Building(
+        id="compatible",
+        attributes={MERGED_FROM_KEY: list(map(str, range(len(sources))))},
+    )
     footprint = Surface()
     footprint.from_polygon(region, max(f["properties"]["roof"] for f in sources))
     block.add_geometry(footprint, GeometryType.LOD0)
     parts = []
     for feature in sources:
         part = BuildingPart(id=str(feature["properties"]["label"]))
-        set_source_footprint(part, shape(feature["geometry"]), feature["properties"]["roof"])
+        set_source_footprint(
+            part, shape(feature["geometry"]), feature["properties"]["roof"]
+        )
         parts.append(part)
     block.add_children(parts)
-    cells = [(shape(f["geometry"]), f["properties"]["label"])
-             for f in payload["features"] if f["properties"]["role"] == "cell"]
+    cells = [
+        (shape(f["geometry"]), f["properties"]["label"])
+        for f in payload["features"]
+        if f["properties"]["role"] == "cell"
+    ]
     blocks.assign_cells(parts, cells)
     block.attributes[WALLS_KEY] = blocks.walls_record(
-        block, payload["metadata"]["order"], "roof", "warning", delta=0.5,
-        epsilon=0.25, strict=False,
+        block,
+        payload["metadata"]["order"],
+        "roof",
+        "warning",
+        delta=0.5,
+        epsilon=0.25,
+        strict=False,
         detail={"wall_pairs": 4, "min_wall_distance": 0.1562256861693886},
     )
     build_lod1_buildings([block])
@@ -871,11 +1016,16 @@ def test_compatible_warning_repairs_contacts_without_reconstructing_good_walls(t
     update_walls(loaded)
     cells, _ = footprint_cells(loaded)
     from dtcc_core.builder.cleaning.contract import check_labelled_contract
+
     sources = blocks.part_sources(loaded)
     record = loaded.attributes[WALLS_KEY]
     result = check_labelled_contract(
-        sources, payload["metadata"]["order"], region, cells,
-        delta=0.5, epsilon=record["fidelity_budget"],
+        sources,
+        payload["metadata"]["order"],
+        region,
+        cells,
+        delta=0.5,
+        epsilon=record["fidelity_budget"],
     )
     assert result["status"] in ("strict", "warning")
     mesh = meshes.build_building_shell(loaded, max_mesh_size=10)
@@ -886,22 +1036,32 @@ def _multiway_sources(spokes, transformed=False):
     from shapely.affinity import rotate, translate
     from shapely.geometry import Polygon
 
-    vertices = np.column_stack([
-        10 * np.cos(np.arange(spokes) * 2 * np.pi / spokes),
-        10 * np.sin(np.arange(spokes) * 2 * np.pi / spokes),
-    ])
+    vertices = np.column_stack(
+        [
+            10 * np.cos(np.arange(spokes) * 2 * np.pi / spokes),
+            10 * np.sin(np.arange(spokes) * 2 * np.pi / spokes),
+        ]
+    )
     region = Polygon(vertices)
     sources = {
-        i: Polygon([vertices[k] * .01, vertices[k], vertices[(k + 1) % spokes],
-                    vertices[(k + 1) % spokes] * .01])
+        i: Polygon(
+            [
+                vertices[k] * 0.01,
+                vertices[k],
+                vertices[(k + 1) % spokes],
+                vertices[(k + 1) % spokes] * 0.01,
+            ]
+        )
         for i, k in enumerate(range(0, spokes, 2))
     }
     roofs = {i: 20 + 5 * i for i in sources}
     sources[len(sources)] = region
     roofs[len(sources) - 1] = 6
     if transformed:
-        sources = {i: translate(rotate(p, 23, origin=(0, 0)), 100000, 200000)
-                   for i, p in sources.items()}
+        sources = {
+            i: translate(rotate(p, 23, origin=(0, 0)), 100000, 200000)
+            for i, p in sources.items()
+        }
     return sources, roofs
 
 
@@ -909,13 +1069,20 @@ def _multiway_sources(spokes, transformed=False):
 @pytest.mark.parametrize("transformed", [False, True])
 def test_cleaning_retains_nonpinched_multiway_roofs(spokes, transformed):
     from dtcc_core.builder.cleaning import blocks
-    from dtcc_core.builder.cleaning.contract import check_labelled_contract, input_partition
+    from dtcc_core.builder.cleaning.contract import (
+        check_labelled_contract,
+        input_partition,
+    )
     from dtcc_core.builder.cleaning.levels import level_regions, pinched_levels
     from dtcc_core.model.mixins.mesh.quality import tri_element_quality
 
     sources, roofs = _multiway_sources(spokes, transformed)
-    city = city_of(*(building(str(i), p, roofs[i], height=roofs[i], ground=0)
-                     for i, p in sources.items())).clean_footprints()
+    city = city_of(
+        *(
+            building(str(i), p, roofs[i], height=roofs[i], ground=0)
+            for i, p in sources.items()
+        )
+    ).clean_footprints()
     block = city.buildings[0]
     walls = block_walls(block)
     current_sources = blocks.part_sources(block)
@@ -923,34 +1090,78 @@ def test_cleaning_retains_nonpinched_multiway_roofs(spokes, transformed):
     record = blocks.walls_of(block)
     assert walls.outcome in {"strict", "warning"}
     assert {i for _, i in walls.cells} == set(current_sources)
-    assert check_labelled_contract(current_sources, walls.order, blocks.block_region(block),
-                                   walls.cells, delta=.5, epsilon=record["fidelity_budget"])["status"] != "fail"
-    assert not pinched_levels([(p, z) for p, z, _ in level_regions(walls.cells, current_roofs, .5)])
+    assert (
+        check_labelled_contract(
+            current_sources,
+            walls.order,
+            blocks.block_region(block),
+            walls.cells,
+            delta=0.5,
+            epsilon=record["fidelity_budget"],
+        )["status"]
+        != "fail"
+    )
+    assert not pinched_levels(
+        [(p, z) for p, z, _ in level_regions(walls.cells, current_roofs, 0.5)]
+    )
     expected = input_partition(sources, sorted(sources, key=lambda i: -roofs[i]))
     original_solid = sum(p.area * roofs[i] for i, p in expected.items())
-    assert abs(sum(p.area * current_roofs[i] for p, i in walls.cells) - original_solid) < 100
+    assert (
+        abs(sum(p.area * current_roofs[i] for p, i in walls.cells) - original_solid)
+        < 100
+    )
     shell = meshes.build_building_shell(block, max_mesh_size=5)
-    assert np.all(tri_element_quality(shell.vertices, shell.faces) >= .02)
-    stage = meshes._meshing_footprints(city, lod=GeometryType.LOD0, min_building_detail=.5,
-                                      min_building_area=0, max_mesh_size=5, volume=True)
+    assert np.all(tri_element_quality(shell.vertices, shell.faces) >= 0.02)
+    stage = meshes._meshing_footprints(
+        city,
+        lod=GeometryType.LOD0,
+        min_building_detail=0.5,
+        min_building_area=0,
+        max_mesh_size=5,
+        volume=True,
+    )
     assert not stage.diagnostics["levels"]["one_roof"]
     assert {s.zmax for s in stage.surfaces} == set(roofs.values())
 
 
 def _two_contact_block(*, persisted_partial=False):
     from shapely.geometry import Polygon
+
     from dtcc_core.builder.cleaning import blocks, walls
 
-    left = [Polygon([(0, 0), (20, 0), (20, 8), (10, 10), (0, 8)]),
-            Polygon([(10, 10), (20, 8), (20, 12)]),
-            Polygon([(0, 12), (10, 10), (20, 12), (20, 20), (0, 20)]),
-            Polygon([(0, 8), (10, 10), (0, 12)])]
+    left = [
+        Polygon([(0, 0), (20, 0), (20, 8), (10, 10), (0, 8)]),
+        Polygon([(10, 10), (20, 8), (20, 12)]),
+        Polygon([(0, 12), (10, 10), (20, 12), (20, 20), (0, 20)]),
+        Polygon([(0, 8), (10, 10), (0, 12)]),
+    ]
     region = box(0, 0, 40, 20)
-    cells = list(zip(left + [box(20, 0, 30, 10), box(30, 0, 40, 10),
-                             box(30, 10, 40, 20), box(20, 10, 30, 20)], range(8)))
-    cells = walls._rebuild(region, walls._lines(shapely.union_all([p.boundary for p, _ in cells])), cells)
-    sources = dict(enumerate(left + [box(20, 0, 30.17, 10.17), box(30.17, 0, 40, 10.17),
-                                    box(30.17, 10.17, 40, 20), box(20, 10.17, 30.17, 20)]))
+    cells = list(
+        zip(
+            left
+            + [
+                box(20, 0, 30, 10),
+                box(30, 0, 40, 10),
+                box(30, 10, 40, 20),
+                box(20, 10, 30, 20),
+            ],
+            range(8),
+        )
+    )
+    cells = walls._rebuild(
+        region, walls._lines(shapely.union_all([p.boundary for p, _ in cells])), cells
+    )
+    sources = dict(
+        enumerate(
+            left
+            + [
+                box(20, 0, 30.17, 10.17),
+                box(30.17, 0, 40, 10.17),
+                box(30.17, 10.17, 40, 20),
+                box(20, 10.17, 30.17, 20),
+            ]
+        )
+    )
     roofs = {i: 20 if i % 2 == 0 else 6 for i in sources}
     order = [0, 2, 4, 6, 1, 3, 5, 7]
     block = building("two_contacts", region, 20)
@@ -963,61 +1174,109 @@ def _two_contact_block(*, persisted_partial=False):
     block.add_children(parts)
     detail = {}
     if persisted_partial:
-        result = walls.repair_roof_contacts(region, sources, order, cells, roofs,
-                                            delta=.5, epsilon=.25)
+        result = walls.repair_roof_contacts(
+            region, sources, order, cells, roofs, delta=0.5, epsilon=0.25
+        )
         cells, report = result.cells, result.report
         assert result.remaining_contacts == 1
         detail = {"contact_repair": report}
     blocks.assign_cells(parts, cells)
-    record = blocks.walls_record(block, order, "roof", "strict", delta=.5, epsilon=.25,
-                                 strict=False, detail=detail)
+    record = blocks.walls_record(
+        block,
+        order,
+        "roof",
+        "strict",
+        delta=0.5,
+        epsilon=0.25,
+        strict=False,
+        detail=detail,
+    )
     record["repair_version"] = 1 if persisted_partial else 0
     block.attributes[WALLS_KEY] = record
     return block, region, sources, order, cells, roofs
 
 
 def test_partial_contact_repair_uses_permitted_retry():
-    from dtcc_core.builder.cleaning import blocks
     from dtcc_core.builder.cleaning.contract import check_labelled_contract
 
     block, region, sources, order, cells, roofs = _two_contact_block()
-    assert check_labelled_contract(sources, order, region, cells, delta=.5, epsilon=.25)["status"] != "fail"
-    result = walls_module.condition_walls(region, sources, order, levels=roofs, delta=.5, epsilon=.25,
-                                         previous=walls_module.LabelledRegion(region, cells, "strict"))
+    assert (
+        check_labelled_contract(sources, order, region, cells, delta=0.5, epsilon=0.25)[
+            "status"
+        ]
+        != "fail"
+    )
+    result = walls_module.condition_walls(
+        region,
+        sources,
+        order,
+        levels=roofs,
+        delta=0.5,
+        epsilon=0.25,
+        previous=walls_module.LabelledRegion(region, cells, "strict"),
+    )
     assert result.contact_outcome == "complete" and result.remaining_contacts == 0
-    assert result.accepted_budget == .375
+    assert result.accepted_budget == 0.375
     assert {i for _, i in result.cells} == set(sources)
-    assert check_labelled_contract(sources, order, region, result.cells, delta=.5,
-                                   epsilon=result.accepted_budget)["status"] != "fail"
+    assert (
+        check_labelled_contract(
+            sources,
+            order,
+            region,
+            result.cells,
+            delta=0.5,
+            epsilon=result.accepted_budget,
+        )["status"]
+        != "fail"
+    )
 
 
 @pytest.mark.parametrize("failure", ["no_improvement", "geometry_error"])
 def test_failed_retry_retains_valid_partial_repair(monkeypatch, failure):
-    from dtcc_core.builder.cleaning import blocks
     from dtcc_core.builder.cleaning.contract import check_labelled_contract
 
     block, region, sources, order, cells, roofs = _two_contact_block()
     original = walls_module.repair_roof_contacts
 
     def fail_later(*args, **kwargs):
-        if kwargs["epsilon"] > .25:
+        if kwargs["epsilon"] > 0.25:
             if failure == "geometry_error":
                 raise shapely.errors.GEOSException("unusable later candidate")
-            return walls_module.LabelledRegion(args[0], args[3], "warning", {}, "unchanged", 1, kwargs["epsilon"])
+            return walls_module.LabelledRegion(
+                args[0], args[3], "warning", {}, "unchanged", 1, kwargs["epsilon"]
+            )
         return original(*args, **kwargs)
 
     monkeypatch.setattr(walls_module, "repair_roof_contacts", fail_later)
-    result = walls_module.condition_walls(region, sources, order, levels=roofs, delta=.5, epsilon=.25,
-                                         previous=walls_module.LabelledRegion(region, cells, "strict"))
+    result = walls_module.condition_walls(
+        region,
+        sources,
+        order,
+        levels=roofs,
+        delta=0.5,
+        epsilon=0.25,
+        previous=walls_module.LabelledRegion(region, cells, "strict"),
+    )
     assert result.contact_outcome == "partial" and result.remaining_contacts == 1
-    assert result.accepted_budget == .25
+    assert result.accepted_budget == 0.25
     assert result.report["contact_repair"]["changed_area"] > 0
-    assert check_labelled_contract(sources, order, region, result.cells, delta=.5,
-                                   epsilon=result.accepted_budget)["status"] != "fail"
+    assert (
+        check_labelled_contract(
+            sources,
+            order,
+            region,
+            result.cells,
+            delta=0.5,
+            epsilon=result.accepted_budget,
+        )["status"]
+        != "fail"
+    )
 
 
 @pytest.mark.parametrize("persisted_partial", [False, True])
-def test_saved_partial_records_upgrade_once_and_preserve_roofs(tmp_path, monkeypatch, persisted_partial):
+def test_saved_partial_records_upgrade_once_and_preserve_roofs(
+    tmp_path, monkeypatch, persisted_partial
+):
     from dtcc_core.builder.cleaning import blocks
 
     block, *_ = _two_contact_block(persisted_partial=persisted_partial)
@@ -1029,15 +1288,25 @@ def test_saved_partial_records_upgrade_once_and_preserve_roofs(tmp_path, monkeyp
     assert update_walls(block)
     record = blocks.walls_of(block)
     assert record["repair_version"] == blocks.WALLS_REPAIR_VERSION
-    assert record["fidelity_budget"] == .375
+    assert record["fidelity_budget"] == 0.375
     assert record["detail"]["contact_repair"]["remaining_contacts"] == 0
-    stage = meshes._meshing_footprints(city, lod=GeometryType.LOD0, min_building_detail=.5,
-                                      min_building_area=0, max_mesh_size=5, volume=True)
+    stage = meshes._meshing_footprints(
+        city,
+        lod=GeometryType.LOD0,
+        min_building_detail=0.5,
+        min_building_area=0,
+        max_mesh_size=5,
+        volume=True,
+    )
     assert not stage.diagnostics["levels"]["one_roof"]
     assert {s.zmax for s in stage.surfaces} == {6, 20}
     io.save_model(city, path)
     saved = io.load_model(path).buildings[0]
-    monkeypatch.setattr(walls_module, "repair_roof_contacts", lambda *a, **k: pytest.fail("completed record repaired again"))
+    monkeypatch.setattr(
+        walls_module,
+        "repair_roof_contacts",
+        lambda *a, **k: pytest.fail("completed record repaired again"),
+    )
     assert block_walls(saved).current
     assert not update_walls(saved)
     assert blocks.walls_of(saved) == record
@@ -1053,17 +1322,29 @@ def test_recleaning_persists_the_budget_certifying_a_contact_retry(persisted_par
     block = cleaned.buildings[0]
     record = blocks.walls_of(block)
     walls = block_walls(block)
-    assert record["fidelity_budget"] == .375
+    assert record["fidelity_budget"] == 0.375
     assert record["detail"]["contact_repair"]["remaining_contacts"] == 0
     assert walls.current
-    assert check_labelled_contract(blocks.part_sources(block), walls.order,
-                                   blocks.block_region(block), walls.cells, delta=.5,
-                                   epsilon=record["fidelity_budget"])["status"] != "fail"
+    assert (
+        check_labelled_contract(
+            blocks.part_sources(block),
+            walls.order,
+            blocks.block_region(block),
+            walls.cells,
+            delta=0.5,
+            epsilon=record["fidelity_budget"],
+        )["status"]
+        != "fail"
+    )
     assert not update_walls(block)
 
 
-@pytest.mark.parametrize("failure", ["construction_error", "contract_rejected", "unchanged"])
-def test_failed_contact_diagnostics_persist_without_reassigning_cells(tmp_path, monkeypatch, failure):
+@pytest.mark.parametrize(
+    "failure", ["construction_error", "contract_rejected", "unchanged"]
+)
+def test_failed_contact_diagnostics_persist_without_reassigning_cells(
+    tmp_path, monkeypatch, failure
+):
     """Failed/no-progress attempts update the certificate without rebuilding geometry."""
     from dtcc_core.builder.cleaning import blocks, walls
 
@@ -1071,8 +1352,18 @@ def test_failed_contact_diagnostics_persist_without_reassigning_cells(tmp_path, 
     city = city_of(block)
     # Record generated prisms before the diagnostic-only upgrade.
     for part in block.building_parts:
-        part.add_geometry(MultiSurface(surfaces=[Surface(vertices=np.array([
-            [0, 0, 0], [1, 0, 0], [0, 1, 0]], dtype=float))]), GeometryType.LOD1)
+        part.add_geometry(
+            MultiSurface(
+                surfaces=[
+                    Surface(
+                        vertices=np.array(
+                            [[0, 0, 0], [1, 0, 0], [0, 1, 0]], dtype=float
+                        )
+                    )
+                ]
+            ),
+            GeometryType.LOD1,
+        )
         blocks.record_lod1(part)
     footprints = [part.lod0 for part in block.building_parts]
     prisms = [part.lod1 for part in block.building_parts]
@@ -1084,9 +1375,19 @@ def test_failed_contact_diagnostics_persist_without_reassigning_cells(tmp_path, 
             raise shapely.errors.GEOSException("controlled geometry failure")
         if failure == "contract_rejected":
             # A claimed improvement that removes all exposed labels must be rejected.
-            return walls.LabelledRegion(region, [(region, order[0])], "strict", {},
-                                        "complete", 0, epsilon, changed=True)
-        return walls.LabelledRegion(region, cells, "strict", {}, "unchanged", 2, epsilon)
+            return walls.LabelledRegion(
+                region,
+                [(region, order[0])],
+                "strict",
+                {},
+                "complete",
+                0,
+                epsilon,
+                changed=True,
+            )
+        return walls.LabelledRegion(
+            region, cells, "strict", {}, "unchanged", 2, epsilon
+        )
 
     monkeypatch.setattr(walls, "repair_roof_contacts", failed)
     view = block_walls(block)
@@ -1094,21 +1395,32 @@ def test_failed_contact_diagnostics_persist_without_reassigning_cells(tmp_path, 
     contact = view.report["contact_repair"]
     assert contact["state"] == "unchanged" and contact["remaining_contacts"] == 2
     assert contact["changed_area"] == 0
-    assert [row["budget"] for row in contact["attempts"]] == [.25, .375]
+    assert [row["budget"] for row in contact["attempts"]] == [0.25, 0.375]
     assert [row["state"] for row in contact["attempts"]] == [failure, failure]
     if failure == "construction_error":
-        assert all(row["error"] == "controlled geometry failure" for row in contact["attempts"])
+        assert all(
+            row["error"] == "controlled geometry failure" for row in contact["attempts"]
+        )
     assert not update_walls(block)
-    assert all(part.lod0 is original for part, original in zip(block.building_parts, footprints))
-    assert all(part.lod1 is original for part, original in zip(block.building_parts, prisms))
+    assert all(
+        part.lod0 is original
+        for part, original in zip(block.building_parts, footprints)
+    )
+    assert all(
+        part.lod1 is original for part, original in zip(block.building_parts, prisms)
+    )
     record = json.loads(json.dumps(blocks.walls_of(block)))
     assert record["detail"]["contact_repair"] == contact
-    assert record["fidelity_budget"] == .25
+    assert record["fidelity_budget"] == 0.25
     path = tmp_path / "diagnostics.dtcc"
     io.save_model(city, path)
     loaded = io.load_model(path).buildings[0]
     calls = len(budgets)
-    monkeypatch.setattr(walls, "repair_roof_contacts", lambda *a, **k: pytest.fail("unchanged record repaired again"))
+    monkeypatch.setattr(
+        walls,
+        "repair_roof_contacts",
+        lambda *a, **k: pytest.fail("unchanged record repaired again"),
+    )
     for _ in range(3):
         assert block_walls(loaded).current
         assert not update_walls(loaded)
@@ -1123,8 +1435,10 @@ def test_later_success_replaces_failed_contact_diagnostics(monkeypatch):
     block, *_ = _two_contact_block()
     original = walls.repair_roof_contacts
     with monkeypatch.context() as failure:
+
         def fail(*args, **kwargs):
             raise shapely.errors.GEOSException("controlled geometry failure")
+
         failure.setattr(walls, "repair_roof_contacts", fail)
         assert not update_walls(block)
     assert blocks.walls_of(block)["detail"]["contact_repair"]["state"] == "unchanged"

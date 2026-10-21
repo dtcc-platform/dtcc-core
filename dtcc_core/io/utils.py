@@ -3,7 +3,7 @@
 
 from google.protobuf.json_format import MessageToJson
 
-from .logging import info, warning, error
+from .logging import warning
 
 
 def get_epsg(fiona_crs):

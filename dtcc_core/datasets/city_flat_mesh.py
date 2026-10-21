@@ -1,23 +1,26 @@
-import dtcc_core
-from dtcc_core.model import City, GeometryType
-from typing import Literal, Optional
+from typing import Literal
+
 from pydantic import Field
 
-from .dataset import DatasetDescriptor, DatasetBaseArgs
-from ._city_mesh_common import prepare_city_from_bounds
-from .providers import provider_entry
+import dtcc_core
 from dtcc_core.common.progress import ProgressTracker
+from dtcc_core.model import City, GeometryType
+
+from ._city_mesh_common import prepare_city_from_bounds
 from .centering import (
     CENTER_ON_ORIGIN_DESCRIPTION,
     CENTER_ON_ORIGIN_PROCESSING_STEP,
     center_result_if_requested,
     warn_if_far_from_origin,
 )
+from .dataset import DatasetBaseArgs, DatasetDescriptor
+from .providers import provider_entry
 
 
 class CityFlatMeshArgs(DatasetBaseArgs):
     """Arguments for the city flat mesh dataset."""
-    max_mesh_size: Optional[float] = Field(
+
+    max_mesh_size: float | None = Field(
         10.0, description="Maximum triangle size in meters"
     )
     min_mesh_angle: float = Field(25.0, description="Minimum triangle angle in degrees")
@@ -47,7 +50,7 @@ class CityFlatMeshArgs(DatasetBaseArgs):
         True,
         description="Whether the optional footprint cleaning plot should block until the window is closed",
     )
-    mesher: Optional[Literal["auto", "dtcc_mesher", "triangle"]] = Field(
+    mesher: Literal["auto", "dtcc_mesher", "triangle"] | None = Field(
         None,
         description="2D meshing backend to use for the flat-mesh triangulation",
     )
@@ -64,7 +67,7 @@ class CityFlatMeshArgs(DatasetBaseArgs):
         description="Meshing pipeline mode",
     )
     center_on_origin: bool = Field(False, description=CENTER_ON_ORIGIN_DESCRIPTION)
-    format: Optional[Literal["obj", "stl", "vtu"]] = Field(
+    format: Literal["obj", "stl", "vtu"] | None = Field(
         None, description="Output file format"
     )
 
@@ -77,6 +80,7 @@ class CityFlatMeshDataset(DatasetDescriptor):
 
     Call it with keyword arguments defined by ``CityFlatMeshArgs``.
     """
+
     name = "city_flat_mesh"
     title = "City Flat Mesh"
     description = (
@@ -179,8 +183,14 @@ class CityFlatMeshDataset(DatasetDescriptor):
         "title": "Flat mesh layers",
         "entries": [
             {"label": "Ground triangle", "meaning": "2D mesh element at z=0"},
-            {"label": "Building subdomain", "meaning": "conditioned LOD0 footprint area"},
-            {"label": "Subdomain boundary", "meaning": "building or coverage edge used by the mesher"},
+            {
+                "label": "Building subdomain",
+                "meaning": "conditioned LOD0 footprint area",
+            },
+            {
+                "label": "Subdomain boundary",
+                "meaning": "building or coverage edge used by the mesher",
+            },
         ],
     }
     view_hints = {

@@ -1,7 +1,5 @@
-import pytest
 import numpy as np
-import dtcc_core.builder
-from dtcc_core.model import Surface, MultiSurface, Mesh
+import pytest
 
 from dtcc_core.builder.geometry.multisurface import (
     ray_intersection as multisurface_ray_intersection,
@@ -9,6 +7,7 @@ from dtcc_core.builder.geometry.multisurface import (
 from dtcc_core.builder.geometry.surface import (
     ray_intersection as surface_ray_intersection,
 )
+from dtcc_core.model import MultiSurface, Surface
 
 
 @pytest.fixture

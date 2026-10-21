@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
-from io import BytesIO
 import os
-from pathlib import Path
 import tempfile
-from typing import Any, Callable
+from collections.abc import Callable
+from io import BytesIO
+from pathlib import Path
+from typing import Any
 
 import numpy as np
 
+from .options import RasterRenderOptions, VideoRenderOptions
+from .products import SliceProduct, StreamlineProduct
 from .style import (
     apply_dtcc_style,
     get_theme,
@@ -19,9 +22,6 @@ from .style import (
     style_colorbar,
     style_plot_extras,
 )
-
-from .options import RasterRenderOptions, VideoRenderOptions
-from .products import SliceProduct, StreamlineProduct
 
 
 def render_product_png(product: Any, options: RasterRenderOptions) -> bytes:
@@ -68,9 +68,7 @@ def render_product_mp4(
     from matplotlib.figure import Figure
 
     if not FFMpegWriter.isAvailable():
-        raise RuntimeError(
-            "MP4 video export requires ffmpeg to be available on PATH."
-        )
+        raise RuntimeError("MP4 video export requires ffmpeg to be available on PATH.")
 
     theme = get_theme(options.theme)
     background = _background_color(options, theme)
@@ -243,7 +241,9 @@ def _draw_streamlines(ax, product: StreamlineProduct, options: RasterRenderOptio
         )
         ax.add_collection(glow)
 
-    if options.streamline_color_by == product.value_name and len(values) == len(segments):
+    if options.streamline_color_by == product.value_name and len(values) == len(
+        segments
+    ):
         collection = LineCollection(
             segments,
             linewidths=options.line_width,

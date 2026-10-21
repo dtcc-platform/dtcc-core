@@ -435,7 +435,10 @@ def build_mosaic(
             planned = done[0] + _block_count(plan)
             try:
                 _composite(
-                    plan, output, arena, counter,
+                    plan,
+                    output,
+                    arena,
+                    counter,
                     None if progress is None else block_done,
                 )
             except (RasterTileLayoutError, RasterTileReadError) as error:
@@ -524,9 +527,7 @@ def _plan(tile, path, levels, bands, bounds, resolution, width, height):
     r = Fraction(resolution)
     base = levels[0]
     cols = _Axis.of(xmin - Fraction(base.transform.c), r, Fraction(base.transform.a))
-    rows = _Axis.of(
-        Fraction(base.transform.f) - ymax, r, Fraction(-base.transform.e)
-    )
+    rows = _Axis.of(Fraction(base.transform.f) - ymax, r, Fraction(-base.transform.e))
     col_span = cols.span(base.width, width)
     row_span = rows.span(base.height, height)
     if col_span[0] >= col_span[1] or row_span[0] >= row_span[1]:
@@ -615,7 +616,12 @@ def _composite(plan: _Plan, output, arena, counter, block_done=None) -> None:
         _check_unchanged(plan, source, plan.base)
         if plan.level.index is None:
             _blend(
-                plan, source, _sample_value(nodata), output, arena, counter,
+                plan,
+                source,
+                _sample_value(nodata),
+                output,
+                arena,
+                counter,
                 block_done,
             )
             return
@@ -629,7 +635,12 @@ def _composite(plan: _Plan, output, arena, counter, block_done=None) -> None:
                     "the file changed while the mosaic was built",
                 )
             _blend(
-                plan, level, _sample_value(nodata), output, arena, counter,
+                plan,
+                level,
+                _sample_value(nodata),
+                output,
+                arena,
+                counter,
                 block_done,
             )
 
@@ -675,9 +686,7 @@ def _blend(plan: _Plan, source, nodata, output, arena, counter, block_done) -> N
             window_rows = int(row_index[-1]) - row_first + 1
             np.subtract(row_index, row_first, out=row_index)
             bands = plan.bands
-            window, at = _carve(
-                arena, at, (bands, window_rows, window_cols), np.uint8
-            )
+            window, at = _carve(arena, at, (bands, window_rows, window_cols), np.uint8)
             gathered, at = _carve(arena, at, (bands, nrows, window_cols), np.uint8)
             samples, at = _carve(arena, at, (bands, nrows, ncols), np.uint8)
             valid, at = _carve(arena, at, (nrows, ncols), np.bool_)

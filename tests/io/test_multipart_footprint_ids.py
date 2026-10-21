@@ -14,14 +14,22 @@ from dtcc_core.model import Bounds, City, PointCloud, Raster
 def write_features(tmp_path):
     def write(name, features):
         path = tmp_path / name
-        path.write_text(json.dumps({
-            "type": "FeatureCollection",
-            "crs": {"type": "name", "properties": {"name": "EPSG:3006"}},
-            "features": [
-                {"type": "Feature", "properties": properties, "geometry": mapping(geometry)}
-                for geometry, properties in features
-            ],
-        }))
+        path.write_text(
+            json.dumps(
+                {
+                    "type": "FeatureCollection",
+                    "crs": {"type": "name", "properties": {"name": "EPSG:3006"}},
+                    "features": [
+                        {
+                            "type": "Feature",
+                            "properties": properties,
+                            "geometry": mapping(geometry),
+                        }
+                        for geometry, properties in features
+                    ],
+                }
+            )
+        )
         return path
 
     return write
@@ -35,13 +43,23 @@ def test_multipart_ids_are_stable_and_reserve_existing_suffixes(write_features):
     polygons = [box(0, 0, 10, 10), box(20, 0, 30, 10)]
     properties = {"uuid": "source", "name": "Original building"}
     neighbour = (box(40, 0, 50, 10), {"uuid": "source#1"})
-    first = write_features("first.geojson", [(MultiPolygon(polygons), properties), neighbour])
-    second = write_features("second.geojson", [
-        neighbour, (MultiPolygon([p.reverse() for p in reversed(polygons)]), properties),
-    ])
+    first = write_features(
+        "first.geojson", [(MultiPolygon(polygons), properties), neighbour]
+    )
+    second = write_features(
+        "second.geojson",
+        [
+            neighbour,
+            (MultiPolygon([p.reverse() for p in reversed(polygons)]), properties),
+        ],
+    )
     loaded = io.load_footprints(first, uuid_field="uuid")
-    assert identities(loaded) == identities(io.load_footprints(first, uuid_field="uuid"))
-    assert identities(loaded) == identities(io.load_footprints(second, uuid_field="uuid"))
+    assert identities(loaded) == identities(
+        io.load_footprints(first, uuid_field="uuid")
+    )
+    assert identities(loaded) == identities(
+        io.load_footprints(second, uuid_field="uuid")
+    )
     parts = [b for b in loaded if b.attributes["uuid"] == "source"]
     assert {b.id for b in parts} == {"source#2", "source#3"}
     assert all(b.attributes["source_id"] == "source" for b in parts)
@@ -78,7 +96,10 @@ def test_equal_geometries_use_attributes_to_break_ties(write_features):
 
 def test_3d_geometry_breaks_xy_ties(write_features):
     features = [
-        (Polygon([(x, y, z) for x, y in box(0, 0, 10, 10).exterior.coords]), {"id": "source"})
+        (
+            Polygon([(x, y, z) for x, y in box(0, 0, 10, 10).exterior.coords]),
+            {"id": "source"},
+        )
         for z in (8, 16)
     ]
     a = write_features("a.geojson", features)
@@ -91,46 +112,66 @@ def test_3d_geometry_breaks_xy_ties(write_features):
 
 @pytest.mark.parametrize("source_id", [None, "earlier-source"])
 def test_existing_provenance_is_preserved(write_features, source_id):
-    path = write_features("source.geojson", [
-        (MultiPolygon([box(0, 0, 10, 10), box(20, 0, 30, 10)]),
-         {"id": "source", "source_id": source_id}),
-    ])
+    path = write_features(
+        "source.geojson",
+        [
+            (
+                MultiPolygon([box(0, 0, 10, 10), box(20, 0, 30, 10)]),
+                {"id": "source", "source_id": source_id},
+            ),
+        ],
+    )
     buildings = io.load_footprints(path)
     assert len({b.id for b in buildings}) == 2
     assert all(b.attributes["source_id"] == (source_id or "source") for b in buildings)
 
 
-@pytest.mark.parametrize("gap", [0.0, 0.2, 10.0], ids=["touching", "nearby", "disconnected"])
+@pytest.mark.parametrize(
+    "gap", [0.0, 0.2, 10.0], ids=["touching", "nearby", "disconnected"]
+)
 @pytest.mark.parametrize("isolated", [True, False])
 def test_multipart_heights_and_identity_survive_cleaning_and_export(
     write_features, tmp_path, gap, isolated
 ):
     polygons = [box(0, 0, 10, 10), box(10 + gap, 0, 20 + gap, 10)]
-    path = write_features("source.geojson", [
-        (MultiPolygon(polygons), {"id": "source", "name": "One source feature"}),
-    ])
+    path = write_features(
+        "source.geojson",
+        [
+            (MultiPolygon(polygons), {"id": "source", "name": "One source feature"}),
+        ],
+    )
     city = City()
     city.add_buildings(io.load_footprints(path))
     assert len({b.id for b in city.buildings}) == 2
     # Raw import must already be serializable, before cleaning can change IDs.
     io.save_model(city, tmp_path / "raw.dtcc")
-    assert identities(io.load_model(tmp_path / "raw.dtcc").buildings) == identities(city.buildings)
+    assert identities(io.load_model(tmp_path / "raw.dtcc").buildings) == identities(
+        city.buildings
+    )
 
     points = []
     for polygon, roof in zip(polygons, [8.0, 16.0]):
-        xs, ys = np.meshgrid(np.arange(0.5, 10, 1) + polygon.bounds[0], np.arange(0.5, 10, 1))
+        xs, ys = np.meshgrid(
+            np.arange(0.5, 10, 1) + polygon.bounds[0], np.arange(0.5, 10, 1)
+        )
         points.extend(np.column_stack([xs.ravel(), ys.ravel(), np.full(xs.size, roof)]))
-    cloud = PointCloud(points=np.asarray(points), classification=np.full(len(points), 6))
+    cloud = PointCloud(
+        points=np.asarray(points), classification=np.full(len(points), 6)
+    )
     terrain = Raster(data=np.zeros((4, 4)))
     terrain.set_bounds(Bounds(-5, -5, 35, 15))
-    builder.extract_roof_points(city.buildings, cloud, statistical_outlier_remover=False)
+    builder.extract_roof_points(
+        city.buildings, cloud, statistical_outlier_remover=False
+    )
     builder.compute_building_heights(city.buildings, terrain, overwrite=True)
     assert sorted(b.estimated_height for b in city.buildings) == [8, 16]
 
     cleaned = builder.clean_footprints(city, isolated=isolated, min_building_detail=0.5)
     assert len(cleaned.buildings) == (2 if isolated or gap == 10 else 1)
     builder.build_lod1_buildings(cleaned.buildings)
-    shells = [builder.build_building_shell(b, max_mesh_size=5) for b in cleaned.buildings]
+    shells = [
+        builder.build_building_shell(b, max_mesh_size=5) for b in cleaned.buildings
+    ]
     assert all(len(shell.faces) > 0 for shell in shells)
     roof_levels = set()
     for shell in shells:
@@ -154,6 +195,10 @@ def test_multipart_heights_and_identity_survive_cleaning_and_export(
     cleaned.save(output)
     objects = json.loads(output.read_text())["CityObjects"]
     assert set(objects) == set(ids)
-    assert all(objects[id]["attributes"]["source_id"] == "source" for id in expected_ids)
-    assert all(objects[id]["attributes"]["name"] == "One source feature" for id in expected_ids)
+    assert all(
+        objects[id]["attributes"]["source_id"] == "source" for id in expected_ids
+    )
+    assert all(
+        objects[id]["attributes"]["name"] == "One source feature" for id in expected_ids
+    )
     assert all(objects[id]["geometry"] for id in expected_ids)

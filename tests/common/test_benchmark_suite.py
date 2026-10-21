@@ -85,7 +85,9 @@ def cleaning_run(task, raw_city, tmp_path):
 
 
 @pytest.mark.parametrize("min_area", [15, 199])
-def test_separation_warning_survives_meshing_and_saved_replay(task, raw_city, tmp_path, monkeypatch, min_area):
+def test_separation_warning_survives_meshing_and_saved_replay(
+    task, raw_city, tmp_path, monkeypatch, min_area
+):
     from functools import partial
 
     from dtcc_core.builder.cleaning import clean as clean_module
@@ -93,7 +95,9 @@ def test_separation_warning_survives_meshing_and_saved_replay(task, raw_city, tm
 
     # A zero fidelity budget cannot close the 0.2 m gap: a warning candidate.
     monkeypatch.setattr(
-        clean_module, "ConditioningOptions", partial(ConditioningOptions, fidelity_budget=0)
+        clean_module,
+        "ConditioningOptions",
+        partial(ConditioningOptions, fidelity_budget=0),
     )
     task["parameters"]["min_building_area"] = min_area
     task.update(dataset="city_flat_mesh", phase="both")
@@ -103,13 +107,17 @@ def test_separation_warning_survives_meshing_and_saved_replay(task, raw_city, tm
     artifact = first["artifacts"]["cleaning_input"]["path"]
     _, restored = benchmark_phases.load_cleaning(artifact, task)
     assert restored.attributes["footprint_cleaning"]["contract"]["status"] == "fail"
-    task.update(phase="meshing", cleaning_input=artifact, task_dir=str(tmp_path / "replay"))
+    task.update(
+        phase="meshing", cleaning_input=artifact, task_dir=str(tmp_path / "replay")
+    )
     replay = benchmark_datasets.run_dataset(task)
     assert replay["status"] == "warning", replay["error"]
     assert replay["metrics"]["meshing"]["num_faces"] > 0
     assert replay["metrics"]["meshing"]["degenerate_cell_count"] == 0
-    assert any("CONTRACT NOT SATISFIED" in row["message"]
-               for row in replay["metrics"]["stage_contract_warnings"])
+    assert any(
+        "CONTRACT NOT SATISFIED" in row["message"]
+        for row in replay["metrics"]["stage_contract_warnings"]
+    )
 
 
 def test_simple_cli_and_spatial_scopes():
@@ -131,13 +139,23 @@ def test_simple_cli_and_spatial_scopes():
 
 
 def test_cli_lod2_selection():
-    result = cli("quick", "--dataset", "city_surface_mesh", "--lod", "lod2",
-                 "--lod2-method", "ransac", "--dry-run")
+    result = cli(
+        "quick",
+        "--dataset",
+        "city_surface_mesh",
+        "--lod",
+        "lod2",
+        "--lod2-method",
+        "ransac",
+        "--dry-run",
+    )
     assert result.returncode == 0, result.stderr
     tasks = json.loads(result.stdout)["tasks"]
     assert len(tasks) == 10
-    assert all(t["parameters"]["lod"] == "lod2" and
-               t["parameters"]["lod2_method"] == "ransac" for t in tasks)
+    assert all(
+        t["parameters"]["lod"] == "lod2" and t["parameters"]["lod2_method"] == "ransac"
+        for t in tasks
+    )
     assert cli("quick", "--lod2-method", "ransac", "--dry-run").returncode == 2
 
 
@@ -151,7 +169,9 @@ def test_timeout_preserves_completed_inputs(bench, task, tmp_path, monkeypatch):
     (mesh / "city.dtcc").write_bytes(b"saved input")
     benchmark_phases.write_json(clean / "metrics.json", {"status": "success"})
     evidence = {"source_count": 3, "extraction": "original_source_footprints_v1"}
-    benchmark_phases.write_json(mesh / "input.json", {"status": "success", "roof_evidence": evidence})
+    benchmark_phases.write_json(
+        mesh / "input.json", {"status": "success", "roof_evidence": evidence}
+    )
 
     class TimedOutWorker:
         stdout, stderr = io.StringIO(""), io.StringIO("working\n")
@@ -186,8 +206,16 @@ def test_lod2_replay_selection_requires_roof_provenance(bench, cleaning_run):
     benchmark_phases.write_json(path, payload)
 
     def selected():
-        task = task_to_json(build_tasks("quick", city="lund", phase="meshing",
-                            datasets=["city_surface_mesh"], lod="lod2", lod2_method="ransac")[0])
+        task = task_to_json(
+            build_tasks(
+                "quick",
+                city="lund",
+                phase="meshing",
+                datasets=["city_surface_mesh"],
+                lod="lod2",
+                lod2_method="ransac",
+            )[0]
+        )
         bench._attach_saved_inputs([task], directory)
         return task
 

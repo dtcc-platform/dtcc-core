@@ -12,7 +12,15 @@ from dtcc_core.builder import (
 )
 from dtcc_core.builder.geometry_builders import meshes
 from dtcc_core.builder.meshing.tetgen import has_volume_veto
-from dtcc_core.model import Bounds, Building, City, GeometryType, Raster, Surface, Terrain
+from dtcc_core.model import (
+    Bounds,
+    Building,
+    City,
+    GeometryType,
+    Raster,
+    Surface,
+    Terrain,
+)
 
 pytest.importorskip("dtcc_mesher")
 
@@ -69,7 +77,9 @@ def test_buildings_cleaned_in_isolation_get_separate_shells_on_the_terrain():
     vertices = np.asarray(mesh.vertices)
     faces = np.asarray(mesh.faces)
     raster = city.terrain.raster
-    for index, polygon in enumerate([box(0, 0, 10, 10), box(9.8, 0, 20, 10), box(40, 0, 60, 10)]):
+    for index, polygon in enumerate(
+        [box(0, 0, 10, 10), box(9.8, 0, 20, 10), box(40, 0, 60, 10)]
+    ):
         bottom = vertices[faces[owner == index]][:, :, 2].min()
         corners = [raster.get_value(x, y) for x, y in polygon.exterior.coords]
         assert bottom <= min(corners) + 1e-9
@@ -81,7 +91,9 @@ def test_unmerged_soup_is_the_terrain_and_one_shell_per_building(tmp_path):
     )
     assert len(meshes_list) == 4
     assert all(has_volume_veto(mesh) for mesh in meshes_list)
-    assert [np.unique(field(mesh, "building").values).tolist() for mesh in meshes_list] == [
+    assert [
+        np.unique(field(mesh, "building").values).tolist() for mesh in meshes_list
+    ] == [
         [-1.0],
         [0.0],
         [1.0],
@@ -92,7 +104,9 @@ def test_unmerged_soup_is_the_terrain_and_one_shell_per_building(tmp_path):
     assert has_volume_veto(io.load_model(tmp_path / "shell.dtcc"))
 
 
-def test_a_block_gets_one_shell_with_step_walls_and_a_recorded_cleaning_is_reused(monkeypatch):
+def test_a_block_gets_one_shell_with_step_walls_and_a_recorded_cleaning_is_reused(
+    monkeypatch,
+):
     city = sloped_city(
         building("low", box(10, 10, 30, 25), 6),
         building("high", box(30, 10, 40, 25), 30),
@@ -132,6 +146,8 @@ def test_volume_meshing_refuses_a_soup():
 
     if not is_tetgen_available():
         pytest.skip("TetGen is not available")
-    mesh = build_city_surface_mesh(overlapping_city(), isolated=True, report_mesh_quality=False)
+    mesh = build_city_surface_mesh(
+        overlapping_city(), isolated=True, report_mesh_quality=False
+    )
     with pytest.raises(ValueError, match="unfit to bound a volume mesh"):
         build_volume_mesh(mesh)

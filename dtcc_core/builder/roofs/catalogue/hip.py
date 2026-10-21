@@ -2,7 +2,9 @@
 
 Ridge length follows from the rectangle and pitches; a point ridge is a limit.
 """
+
 import numpy as np
+
 from . import gable
 
 PARAMETERS = ("orientation_radians", "eave_elevation", "side_pitch", "end_pitch")
@@ -11,7 +13,7 @@ PARAMETERS = ("orientation_radians", "eave_elevation", "side_pitch", "end_pitch"
 def candidates(context):
     """Yield initial hip parameters and their lower and upper fitting bounds."""
     for initial, lower, upper in gable.candidates(context):
-        yield initial + [.5], lower + [.035], upper + [context['max_slope']]
+        yield initial + [0.5], lower + [0.035], upper + [context["max_slope"]]
 
 
 def planes(parameters, vertices):
@@ -20,5 +22,10 @@ def planes(parameters, vertices):
     angle, height, _, pitch = parameters
     u = np.array([np.cos(angle), np.sin(angle)])
     low, high = (vertices @ u).min(), (vertices @ u).max()
-    return np.vstack([sides, np.r_[pitch * u, height - pitch * low],
-                      np.r_[-pitch * u, height + pitch * high]])
+    return np.vstack(
+        [
+            sides,
+            np.r_[pitch * u, height - pitch * low],
+            np.r_[-pitch * u, height + pitch * high],
+        ]
+    )
