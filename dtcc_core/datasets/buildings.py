@@ -1,17 +1,22 @@
-from typing import Literal
-
+import dtcc_core
+from dtcc_core.model import BuildingCollection, City, GeometryType
+from typing import Literal, Optional
 from pydantic import Field
 
-import dtcc_core
-from dtcc_core.common.progress import ProgressTracker, report_progress
-from dtcc_core.model import BuildingCollection, City
-
-from .dataset import DatasetBaseArgs, DatasetDescriptor
+from .dataset import DatasetDescriptor, DatasetBaseArgs
 from .footprints import _filter_small_buildings, _provider_for_source
 from .providers import provider_entry
+from dtcc_core.common.progress import ProgressTracker, report_progress
+from .centering import (
+    CENTER_ON_ORIGIN_DESCRIPTION,
+    CENTER_ON_ORIGIN_PROCESSING_STEP,
+    center_result_if_requested,
+    warn_if_far_from_origin,
+)
 
 
 class BuildingArgs(DatasetBaseArgs):
+    """Arguments for the LoD1 buildings dataset."""
     source: Literal["OSM", "LM"] = Field(
         "LM",
         description=(
@@ -25,10 +30,20 @@ class BuildingArgs(DatasetBaseArgs):
     place_on_zero: bool = Field(
         False, description="Whether to place buildings on Z=0 plane"
     )
-    format: Literal["obj", "stl"] | None = Field(None, description="Output file format")
+    center_on_origin: bool = Field(False, description=CENTER_ON_ORIGIN_DESCRIPTION)
+    format: Optional[Literal["obj", "stl"]] = Field(
+        None, description="Output file format"
+    )
 
 
 class BuildingDataset(DatasetDescriptor):
+    """LoD1 Buildings dataset, registered as ``buildings``.
+
+    LoD1 building solids derived from source building footprints and point
+    cloud height estimates for the requested bounds.
+
+    Call it with keyword arguments defined by ``BuildingArgs``.
+    """
     name = "buildings"
     title = "LoD1 Buildings"
     description = (
@@ -80,6 +95,7 @@ class BuildingDataset(DatasetDescriptor):
         "Estimate building heights from roof points and terrain",
         "Extrude footprint geometry into LoD1 block buildings",
         "Return a BuildingCollection or serialize merged LoD1 meshes",
+        CENTER_ON_ORIGIN_PROCESSING_STEP,
     ]
     derived_from = [
         {
@@ -136,10 +152,7 @@ class BuildingDataset(DatasetDescriptor):
         "entries": [
             {"label": "Footprint", "meaning": "source building outline"},
             {"label": "Height", "meaning": "point-cloud-derived LoD1 extrusion height"},
-            {
-                "label": "Merged mesh",
-                "meaning": "OBJ/STL export artifact when requested",
-            },
+            {"label": "Merged mesh", "meaning": "OBJ/STL export artifact when requested"},
         ],
     }
     view_hints = {
@@ -228,8 +241,13 @@ class BuildingDataset(DatasetDescriptor):
                     return buildings
                 elif args.format in ("obj", "stl"):
                     report_progress(percent=20, message="Extracting building meshes...")
+                    # A cleaned block has one LOD1 prism per part.
                     building_meshes = [
-                        b.lod1.mesh(weld=True, snap=0.005) for b in buildings
+                        lod1.mesh(weld=True, snap=0.005)
+                        for lod1 in (
+                            b.flatten_geometry(GeometryType.LOD1) for b in buildings
+                        )
+                        if lod1 is not None
                     ]
                     if args.place_on_zero:
                         for b in building_meshes:
@@ -238,6 +256,8 @@ class BuildingDataset(DatasetDescriptor):
                     merged_mesh = dtcc_core.builder.meshing.merge_meshes(
                         building_meshes
                     )
+                    merged_mesh = center_result_if_requested(merged_mesh, args)
+                    warn_if_far_from_origin(merged_mesh, args.format)
                     report_progress(percent=80, message=f"Writing {args.format}...")
                     return self.export_to_bytes(merged_mesh, args.format)
 

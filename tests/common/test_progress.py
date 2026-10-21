@@ -68,3 +68,41 @@ class TestMonotonicProgress:
                         f"overall_percent went backward: {prev} -> {current}"
                     )
                     prev = current
+
+
+def test_nested_progress_ranges_restore_parent_and_bound_child():
+    from progress import progress_range
+    import pytest
+    with ProgressTracker(phases={'mesh': 1.}, mode='silent') as tracker:
+        with tracker.phase('mesh'):
+            with progress_range(20, 80):
+                report_progress(percent=50)
+                assert tracker.state.overall_percent == pytest.approx(50)
+                with progress_range(50, 75):
+                    report_progress(percent=50)
+                    assert tracker.state.overall_percent == pytest.approx(57.5)
+                    report_progress(increment=1000)
+                    assert tracker.state.overall_percent == pytest.approx(65)
+                report_progress(percent=90)
+                assert tracker.state.overall_percent == pytest.approx(74)
+            assert tracker.state.overall_percent == pytest.approx(80)
+            report_progress(percent=95)
+            assert tracker.state.overall_percent == pytest.approx(95)
+
+
+def test_progress_range_failure_does_not_complete_and_new_tracker_is_independent():
+    from progress import progress_range
+    import pytest
+    with ProgressTracker(phases={'mesh': 1.}, mode='silent') as outer:
+        with outer.phase('mesh'):
+            with pytest.raises(RuntimeError):
+                with progress_range(20, 80):
+                    report_progress(percent=25)
+                    with ProgressTracker(phases={'other': 1.}, mode='silent') as inner:
+                        with inner.phase('other'):
+                            report_progress(percent=50)
+                            assert inner.state.overall_percent == 50
+                    raise RuntimeError('controlled failure')
+            assert outer.state.overall_percent == pytest.approx(35)
+            report_progress(percent=40)
+            assert outer.state.overall_percent == pytest.approx(40)

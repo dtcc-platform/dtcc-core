@@ -5,16 +5,16 @@ Enables transparent access to datasets hosted on remote DTCC services
 (e.g., dtcc-sim running in Docker) via the Remote Dataset Protocol.
 """
 
-import json
-import logging
 import os
+import json
 import time
-from typing import Any
+import logging
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError as PydanticValidationError
 
 from .dataset import DatasetDescriptor
-from .registry import register
+from .registry import get_dataset, register
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,6 @@ class SSEStreamError(ConnectionError):
     distinct from RuntimeError which indicates a definitive job outcome
     (failed/cancelled) and should propagate immediately.
     """
-
     pass
 
 
@@ -41,7 +40,6 @@ class RemoteValidationError(ValueError):
         self.detail = detail
         self.status_code = status_code
         super().__init__(f"Remote validation error: {detail}")
-
 
 # Shared results directory for reading large results from shared volume
 SHARED_RESULTS_DIR = os.environ.get("SHARED_RESULTS_DIR", "./data/shared-results")
@@ -60,13 +58,13 @@ class RemoteDatasetDescriptor(DatasetDescriptor, register=False):
         self,
         name: str,
         description: str,
-        args_schema: dict[str, Any],
+        args_schema: Dict[str, Any],
         base_url: str,
         result_kind: str,
-        supported_formats: list[str],
+        supported_formats: List[str],
         source_service: str,
-        timeout_hint: int | None = None,
-        data_category: str | None = None,
+        timeout_hint: Optional[int] = None,
+        data_category: Optional[str] = None,
     ):
         self.name = name
         self.description = description
@@ -104,8 +102,10 @@ class RemoteDatasetDescriptor(DatasetDescriptor, register=False):
     def build(self, validated_args, progress_callback=None, remote_info_callback=None):
         """Submit job to remote service, stream progress, return result.
 
-        Returns:
-            Tuple of (data_bytes, extension, content_type)
+        Returns
+        -------
+        tuple[bytes, str, str]
+            Result data, file extension and content type.
         """
         import httpx
 
@@ -125,7 +125,8 @@ class RemoteDatasetDescriptor(DatasetDescriptor, register=False):
                 {
                     "remote_task_id": task_id,
                     "cancel_url": (
-                        f"{self.base_url}/api/v1/datasets/{self.name}/cancel/{task_id}"
+                        f"{self.base_url}/api/v1/datasets/{self.name}"
+                        f"/cancel/{task_id}"
                     ),
                 }
             )
@@ -161,7 +162,9 @@ class RemoteDatasetDescriptor(DatasetDescriptor, register=False):
             extension = "tar.gz"
             content_type = "application/gzip"
         else:
-            extension = result_file.rsplit(".", 1)[-1] if "." in result_file else "bin"
+            extension = (
+                result_file.rsplit(".", 1)[-1] if "." in result_file else "bin"
+            )
             content_type = "application/octet-stream"
 
         return data, extension, content_type
@@ -170,7 +173,9 @@ class RemoteDatasetDescriptor(DatasetDescriptor, register=False):
         """Connect to SSE status stream, return result_file on completion."""
         import httpx
 
-        status_url = f"{self.base_url}/api/v1/datasets/{self.name}/status/{task_id}"
+        status_url = (
+            f"{self.base_url}/api/v1/datasets/{self.name}/status/{task_id}"
+        )
 
         try:
             return self._stream_sse(status_url, progress_callback)
@@ -248,13 +253,34 @@ class RemoteDatasetDescriptor(DatasetDescriptor, register=False):
 
 
 # Module-level cache of discovery responses for worker bootstrap
-_cached_service_discoveries: dict[str, dict] = {}
+_cached_service_discoveries: Dict[str, Dict] = {}
 
 
-def register_remote_service(base_url: str, timeout: int = 5) -> list[str]:
+def _register_remote_descriptor(name: str, descriptor: RemoteDatasetDescriptor) -> bool:
+    """Register a remote descriptor without replacing a non-remote dataset."""
+    try:
+        existing = get_dataset(name)
+    except KeyError:
+        existing = None
+
+    if existing is not None and not isinstance(existing, RemoteDatasetDescriptor):
+        logger.warning(
+            "Skipping remote dataset '%s' from %s: name is already registered "
+            "to a non-remote dataset.",
+            name,
+            descriptor.base_url,
+        )
+        return False
+
+    register(name, descriptor)
+    return True
+
+
+def register_remote_service(base_url: str, timeout: int = 5) -> List[str]:
     """Query a remote service's discovery endpoint and register its datasets.
 
     Returns list of registered dataset names, or empty list on failure.
+    Names already registered to non-remote datasets are skipped.
     Graceful degradation: catches all errors so atlas starts regardless.
     """
     import httpx
@@ -265,12 +291,9 @@ def register_remote_service(base_url: str, timeout: int = 5) -> list[str]:
         resp.raise_for_status()
         service_info = resp.json()
 
-        # Cache for worker bootstrap (no HTTP in child processes)
-        _cached_service_discoveries[base_url] = service_info
-
-        registered = []
+        descriptors = {}
         for name, meta in service_info["datasets"].items():
-            descriptor = RemoteDatasetDescriptor(
+            descriptors[name] = RemoteDatasetDescriptor(
                 name=meta["name"],
                 description=meta["description"],
                 args_schema=meta["args_schema"],
@@ -281,18 +304,28 @@ def register_remote_service(base_url: str, timeout: int = 5) -> list[str]:
                 timeout_hint=meta.get("timeout_hint"),
                 data_category=meta.get("data_category"),
             )
-            register(name, descriptor)
-            registered.append(name)
+
+        registered = []
+        for name, descriptor in descriptors.items():
+            if _register_remote_descriptor(name, descriptor):
+                registered.append(name)
+
+        # Cache accepted discovery data for worker bootstrap.
+        _cached_service_discoveries[base_url] = {
+            **service_info,
+            "datasets": {name: service_info["datasets"][name] for name in registered},
+        }
         return registered
     except Exception as e:
         logger.warning(f"Failed to discover service at {base_url}: {e}")
         return []
 
 
-def register_remote_descriptors_from_cache(cached_discoveries: dict[str, dict]):
+def register_remote_descriptors_from_cache(cached_discoveries: Dict[str, Dict]):
     """Register remote datasets from pre-fetched discovery data.
 
     Called by worker processes to avoid HTTP calls in child processes.
+    Names already registered to non-remote datasets are skipped.
     """
     for base_url, service_info in cached_discoveries.items():
         for name, meta in service_info["datasets"].items():
@@ -307,16 +340,16 @@ def register_remote_descriptors_from_cache(cached_discoveries: dict[str, dict]):
                 timeout_hint=meta.get("timeout_hint"),
                 data_category=meta.get("data_category"),
             )
-            register(name, descriptor)
+            _register_remote_descriptor(name, descriptor)
 
 
-def get_cached_discoveries() -> dict[str, dict]:
+def get_cached_discoveries() -> Dict[str, Dict]:
     """Return cached discovery data for passing to worker processes."""
     return dict(_cached_service_discoveries)
 
 
 def _remote_data_category(
-    data_category: str | None,
+    data_category: Optional[str],
     source_service: str,
 ) -> str:
     if data_category:

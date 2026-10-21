@@ -82,6 +82,7 @@ _FORMAT_EXTENSION_MAP = {
 
 
 class DatasetBaseArgs(BaseModel):
+    """Arguments shared by all datasets: bounds and live-fetch strictness."""
     model_config = ConfigDict(extra="forbid")
 
     bounds: Sequence[float] = Field(
@@ -228,10 +229,13 @@ class DatasetDescriptor(ABC):
         """
         Auto-register dataset subclasses when they're defined.
 
-        Args:
-            register: Whether to auto-register this dataset (default: True).
-                     Set to False for abstract base classes.
-            **kwargs: Additional keyword arguments passed to super().__init_subclass__
+        Parameters
+        ----------
+        register
+            Whether to auto-register this dataset (default: True). Set to False
+            for abstract base classes.
+        **kwargs
+            Additional keyword arguments passed to super().__init_subclass__
         """
         super().__init_subclass__(**kwargs)
 
@@ -650,6 +654,14 @@ class DatasetDescriptor(ABC):
         """Return dataset-specific metadata for an exported artifact."""
         return {}
 
+    def _export_payload(self, args) -> tuple[Any, dict[str, Any]]:
+        """Return the serialized payload and extra sidecar fields for one export.
+
+        The default builds the payload and adds nothing. A dataset whose
+        manifest needs the realization's results overrides this to build once.
+        """
+        return self.build(args), {}
+
     @staticmethod
     def _sanitize_publish_filename(value: str) -> str:
         filename = str(value).strip().replace(" ", "_").replace("-", "_").lower()
@@ -722,18 +734,29 @@ class DatasetDescriptor(ABC):
     ) -> DatasetExportResult:
         """Export a serialized dataset artifact and optional manifest to disk.
 
-        Args:
-            path: Output path for the serialized dataset file.
-            format: Dataset format. If omitted, inferred from ``path``.
-            manifest: Whether to write an Atlas-style manifest sidecar.
-            manifest_path: Optional manifest output path. Defaults to
-                ``path`` with ``.manifest.json`` as suffix.
-            manifest_id: Optional manifest ``id`` value to include.
-            title: Optional manifest title override.
-            description: Optional manifest description override.
-            **kwargs: Dataset arguments passed to the dataset build call.
+        Parameters
+        ----------
+        path
+            Output path for the serialized dataset file.
+        format
+            Dataset format. If omitted, inferred from ``path``.
+        manifest
+            Whether to write an Atlas-style manifest sidecar.
+        manifest_path
+            Optional manifest output path. Defaults to ``path`` with
+            ``.manifest.json`` as suffix.
+        manifest_id
+            Optional manifest ``id`` value to include.
+        title
+            Optional manifest title override.
+        description
+            Optional manifest description override.
+        **kwargs
+            Dataset arguments passed to the dataset build call.
 
-        Returns:
+        Returns
+        -------
+        DatasetExportResult
             Paths and manifest data for the exported artifact.
         """
         output_path = Path(path)
@@ -742,7 +765,7 @@ class DatasetDescriptor(ABC):
         request_kwargs = dict(kwargs)
         request_kwargs["format"] = output_format
         args = self.validate(request_kwargs)
-        payload = self.build(args)
+        payload, manifest_extra = self._export_payload(args)
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         if isinstance(payload, str):
@@ -770,6 +793,7 @@ class DatasetDescriptor(ABC):
                 title=title,
                 description=description,
             )
+            exported_manifest.update(manifest_extra)
             exported_manifest_path.parent.mkdir(parents=True, exist_ok=True)
             exported_manifest_path.write_text(
                 json.dumps(exported_manifest, indent=2) + "\n",
@@ -928,11 +952,14 @@ class DatasetDescriptor(ABC):
     def parse_bounds(bounds: Sequence[float]) -> Bounds:
         """Convert bounds list to a Bounds object.
 
-        Args:
-            bounds: [minx, miny, maxx, maxy] or
-                   [minx, miny, minz, maxx, maxy, maxz]
+        Parameters
+        ----------
+        bounds
+            [minx, miny, maxx, maxy] or [minx, miny, minz, maxx, maxy, maxz]
 
-        Returns:
+        Returns
+        -------
+        Bounds
             Bounds object
         """
         if len(bounds) == 4:
@@ -1047,13 +1074,20 @@ class DatasetDescriptor(ABC):
     ) -> bytes:
         """Export object to bytes.
 
-        Args:
-            obj: Object with .save() method
-            format: File format extension
-            save_callable: Custom save function
-            **save_kwargs: Passed to obj.save()
+        Parameters
+        ----------
+        obj
+            Object with .save() method
+        format
+            File format extension
+        save_callable
+            Custom save function
+        **save_kwargs
+            Passed to obj.save()
 
-        Returns:
+        Returns
+        -------
+        bytes
             File contents as bytes
         """
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -1,0 +1,79 @@
+{
+  "domain_rd": [
+    83570,
+    445800,
+    85570,
+    447800
+  ],
+  "release": "v20250903",
+  "sources": [
+    {
+      "file": "9-284-552.city.json.gz",
+      "url": "https://data.3dbag.nl/v20250903/tiles/9/284/552/9-284-552.city.json.gz"
+    },
+    {
+      "file": "9-284-556.city.json.gz",
+      "url": "https://data.3dbag.nl/v20250903/tiles/9/284/556/9-284-556.city.json.gz"
+    },
+    {
+      "file": "9-280-556.city.json.gz",
+      "url": "https://data.3dbag.nl/v20250903/tiles/9/280/556/9-280-556.city.json.gz"
+    },
+    {
+      "file": "9-280-552.city.json.gz",
+      "url": "https://data.3dbag.nl/v20250903/tiles/9/280/552/9-280-552.city.json.gz"
+    },
+    {
+      "file": "9-276-552.city.json.gz",
+      "url": "https://data.3dbag.nl/v20250903/tiles/9/276/552/9-276-552.city.json.gz"
+    },
+    {
+      "file": "9-276-556.city.json.gz",
+      "url": "https://data.3dbag.nl/v20250903/tiles/9/276/556/9-276-556.city.json.gz"
+    },
+    {
+      "file": "9-276-560.city.json.gz",
+      "url": "https://data.3dbag.nl/v20250903/tiles/9/276/560/9-276-560.city.json.gz"
+    },
+    {
+      "file": "10-280-562.city.json.gz",
+      "url": "https://data.3dbag.nl/v20250903/tiles/10/280/562/10-280-562.city.json.gz"
+    },
+    {
+      "file": "10-280-560.city.json.gz",
+      "url": "https://data.3dbag.nl/v20250903/tiles/10/280/560/10-280-560.city.json.gz"
+    },
+    {
+      "file": "10-282-560.city.json.gz",
+      "url": "https://data.3dbag.nl/v20250903/tiles/10/282/560/10-282-560.city.json.gz"
+    },
+    {
+      "file": "10-284-560.city.json.gz",
+      "url": "https://data.3dbag.nl/v20250903/tiles/10/284/560/10-284-560.city.json.gz"
+    },
+    {
+      "file": "10-284-562.city.json.gz",
+      "url": "https://data.3dbag.nl/v20250903/tiles/10/284/562/10-284-562.city.json.gz"
+    },
+    {
+      "file": "10-282-562.city.json.gz",
+      "url": "https://data.3dbag.nl/v20250903/tiles/10/282/562/10-282-562.city.json.gz"
+    },
+    {
+      "file": "10-286-562.city.json.gz",
+      "url": "https://data.3dbag.nl/v20250903/tiles/10/286/562/10-286-562.city.json.gz"
+    },
+    {
+      "file": "10-286-560.city.json.gz",
+      "url": "https://data.3dbag.nl/v20250903/tiles/10/286/560/10-286-560.city.json.gz"
+    },
+    {
+      "file": "water.geojson",
+      "url": "https://api.pdok.nl/lv/bgt/ogc/v1/collections/waterdeel/items?bbox=83570%2C445800%2C85570%2C447800&bbox-crs=http%3A%2F%2Fwww.opengis.net%2Fdef%2Fcrs%2FEPSG%2F0%2F28992&crs=http%3A%2F%2Fwww.opengis.net%2Fdef%2Fcrs%2FEPSG%2F0%2F28992&f=json&limit=1000"
+    },
+    {
+      "file": "3dbag.city.json",
+      "url": "https://3d.bk.tudelft.nl/opendata/cityjson/3dcities/v2.0/9-284-556.city.json"
+    }
+  ]
+}

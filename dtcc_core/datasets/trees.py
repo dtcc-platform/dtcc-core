@@ -11,6 +11,7 @@ from dtcc_core.model import City, PointCloud, TreeCollection
 
 
 class TreeArgs(DatasetBaseArgs):
+    """Arguments for the trees dataset derived from point cloud vegetation."""
     tree_type: Literal["urban", "mixed", "dense", "arid"] = Field(
         "urban", description="Type of trees to detect"
     )
@@ -29,6 +30,13 @@ class TreeArgs(DatasetBaseArgs):
 
 
 class TreesDataset(DatasetDescriptor):
+    """Trees dataset, registered as ``trees``.
+
+    Tree locations or tree-height raster derived from vegetation returns in
+    Lantmäteriet point cloud data for the requested bounds.
+
+    Call it with keyword arguments defined by ``TreeArgs``.
+    """
     name = "trees"
     title = "Trees"
     description = (

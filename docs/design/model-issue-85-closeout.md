@@ -56,15 +56,19 @@ The closeout hardens the existing bounded reprojection path and rejects state
 whose coordinate-dependent meaning it cannot preserve. It does not claim a
 complete scene hierarchy, field-component or vertical-datum transformation engine.
 
-Horizontal reprojection is limited to bare PointCloud, Surface (including holes),
-Mesh (including connectivity/markers), MultiSurface and one non-nested object
+Horizontal reprojection supports PointCloud, Surface (including holes), Mesh and
+VolumeMesh (including connectivity/markers), MultiSurface and one non-nested object
 whose spatial state is entirely in its supported representations. A CRS change
 returns an independent copy with the target CRS and no stale derived cache; Z is
 retained. A same-CRS no-op returns the original object. An actual two-axis source
 CRS must be supplied or declared; conflicts fail unless the PointCloud override
-explicitly selects the supplied source. Fields, regions, stored normals, local
-affines, DatasetContext, nested objects, intrinsic Tree/graph coordinates and
-unmapped geometry fail before a misleading result is returned. Full vector-field,
+explicitly selects the supplied source. Following #112, fields retain their values,
+associations, units and component conventions on the copied geometry. Vector
+fields warn on a CRS change because their components are not rotated or rescaled.
+See [field-preserving reprojection](../reprojection.md) for usage and limitations.
+Regions, stored normals, local affines, DatasetContext, nested objects, intrinsic
+Tree/graph coordinates and unmapped geometry fail before a misleading result is
+returned. Full vector-field,
 vertical-datum and provenance transformation requires a separately scoped task.
 
 ## Separately scoped follow-up drafts

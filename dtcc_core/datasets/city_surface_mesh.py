@@ -1,17 +1,26 @@
-from typing import Literal
-
-from pydantic import Field
-
 import dtcc_core
-from dtcc_core.common.progress import ProgressTracker
 from dtcc_core.model import City
+from typing import Literal, Optional
+from pydantic import Field, model_validator
 
+from .dataset import DatasetDescriptor, DatasetBaseArgs
 from ._city_mesh_common import prepare_city_from_bounds
-from .dataset import DatasetBaseArgs, DatasetDescriptor
 from .providers import provider_entry
+from dtcc_core.common.progress import ProgressTracker
+from .centering import (
+    CENTER_ON_ORIGIN_DESCRIPTION,
+    CENTER_ON_ORIGIN_PROCESSING_STEP,
+    center_result_if_requested,
+    warn_if_far_from_origin,
+)
 
 
 class CitySurfaceMeshArgs(DatasetBaseArgs):
+    """Arguments for the city surface mesh dataset."""
+    lod: Literal["lod1", "lod2"] = Field("lod1", description="Requested output level of detail")
+    lod2_method: Literal["catalogue", "ransac"] = Field(
+        "catalogue", description="Roof reconstruction algorithm for LOD2 output"
+    )
     max_mesh_size: float = Field(10.0, description="Maximum triangle size in meters")
     min_mesh_angle: float = Field(25.0, description="Minimum triangle angle in degrees")
     raster_cell_size: float = Field(
@@ -32,13 +41,15 @@ class CitySurfaceMeshArgs(DatasetBaseArgs):
     min_building_area: float = Field(
         15.0, description="Smallest building footprint area to include (m²)"
     )
-    merge_buildings: bool = Field(
-        True, description="Whether to merge adjacent building footprints"
-    )
-    merge_tolerance: float = Field(
-        0.5, description="Distance tolerance for merging footprints in meters"
-    )
     smoothing: int = Field(0, description="Number of terrain smoothing iterations")
+    isolated: bool = Field(
+        False,
+        description=(
+            "Clean each building on its own and return a visualization mesh: the "
+            "terrain plus one shell per building, not welded and possibly "
+            "intersecting (not watertight; refused by volume meshing)"
+        ),
+    )
     show_footprints: bool = Field(
         False,
         description="Whether to show a live matplotlib view of raw vs conditioned footprints before meshing",
@@ -51,11 +62,11 @@ class CitySurfaceMeshArgs(DatasetBaseArgs):
         False,
         description="Whether to replace topography with a flat terrain raster",
     )
-    ground_level: float | None = Field(
+    ground_level: Optional[float] = Field(
         None,
         description="Ground level for flat terrain (defaults to minimum terrain elevation)",
     )
-    mesher: Literal["auto", "dtcc_mesher", "triangle"] | None = Field(
+    mesher: Optional[Literal["auto", "dtcc_mesher", "triangle"]] = Field(
         None,
         description="2D meshing backend to use for the ground triangulation",
     )
@@ -71,16 +82,30 @@ class CitySurfaceMeshArgs(DatasetBaseArgs):
         "strict",
         description="Meshing pipeline mode",
     )
-    format: Literal["obj", "stl", "vtu"] | None = Field(
+    center_on_origin: bool = Field(False, description=CENTER_ON_ORIGIN_DESCRIPTION)
+    format: Optional[Literal["obj", "stl", "vtu"]] = Field(
         None, description="Output file format"
     )
 
+    @model_validator(mode="after")
+    def validate_output_lod(self):
+        if self.lod == "lod1" and self.lod2_method != "catalogue":
+            raise ValueError("lod2_method='ransac' requires lod='lod2'")
+        return self
+
 
 class CitySurfaceMeshDataset(DatasetDescriptor):
+    """City Surface Mesh dataset, registered as ``city_surface_mesh``.
+
+    Triangular surface mesh of terrain and LOD1 or LOD2 buildings, prepared
+    from point cloud data and default DTCC footprint sources.
+
+    Call it with keyword arguments defined by ``CitySurfaceMeshArgs``.
+    """
     name = "city_surface_mesh"
     title = "City Surface Mesh"
     description = (
-        "Triangular surface mesh of terrain and extruded building surfaces, "
+        "Triangular surface mesh of terrain and LOD1 or LOD2 buildings, "
         "prepared from point cloud data and default DTCC footprint sources."
     )
     ArgsModel = CitySurfaceMeshArgs
@@ -112,8 +137,8 @@ class CitySurfaceMeshDataset(DatasetDescriptor):
         "provider/cache vintage, which are not currently surfaced in the result."
     )
     default_crs = "EPSG:3006"
-    lod = "Terrain surface plus extruded building surface mesh"
-    data_types = ["terrain", "buildings", "surface_mesh", "mesh", "lod1"]
+    lod = "Terrain surface plus LOD1 or reconstructed LOD2 buildings"
+    data_types = ["terrain", "buildings", "surface_mesh", "mesh", "lod1", "lod2"]
     geographic_coverage = "Sweden, constrained by requested bounds and source coverage"
     update_frequency = "derived on demand from upstream source data"
     processing_steps = [
@@ -122,9 +147,11 @@ class CitySurfaceMeshDataset(DatasetDescriptor):
         "Build a terrain raster with raster_cell_size and raster_radius",
         "Optionally replace topography with a flat terrain raster when flat_ground=True",
         "Extract roof points and compute building heights from the terrain raster",
-        "Condition footprints using min_building_detail, min_building_area, merge_buildings, merge_tolerance, and pipeline_mode",
+        "Select output lod: LOD1 extrusions or LOD2 roofs reconstructed with lod2_method (catalogue or ransac), recording fallbacks",
+        "Clean footprints with clean_footprints at min_building_detail (footprints closer than that are merged, or each building on its own when isolated=True) and drop those smaller than min_building_area",
         "Generate a terrain plus extruded-building surface mesh using max_mesh_size, min_mesh_angle, smoothing, mesher, and mesh-quality reporting settings",
         "Return the native Mesh object or serialize the requested mesh format",
+        CENTER_ON_ORIGIN_PROCESSING_STEP,
     ]
     derived_from = [
         {
@@ -176,25 +203,16 @@ class CitySurfaceMeshDataset(DatasetDescriptor):
     presentation_legend = {
         "title": "Surface mesh layers",
         "entries": [
-            {
-                "label": "Terrain triangle",
-                "meaning": "point-cloud-derived ground surface facet",
-            },
-            {
-                "label": "Building surface",
-                "meaning": "extruded and conditioned footprint boundary",
-            },
-            {
-                "label": "Conditioned footprint",
-                "meaning": "merged or simplified source footprint used for meshing",
-            },
+            {"label": "Terrain triangle", "meaning": "point-cloud-derived ground surface facet"},
+            {"label": "Building surface", "meaning": "extruded and conditioned footprint boundary"},
+            {"label": "Conditioned footprint", "meaning": "merged or simplified source footprint used for meshing"},
         ],
     }
     view_hints = {
         "preferred_geometry": "surface_mesh",
         "default_crs": "EPSG:3006",
         "mesh_role": "visualization_or_surface_preprocessing",
-        "building_lod": "generalized extruded surfaces",
+        "building_lod": "requested LOD1 or LOD2; roof reconstruction can fall back to LOD1",
     }
     presentation_warnings = [
         "Source and license terms inherit upstream point-cloud and footprint review status.",
@@ -203,7 +221,7 @@ class CitySurfaceMeshDataset(DatasetDescriptor):
     ]
     presentation_limitations = [
         "Point-cloud acquisition date, density, and footprint cache vintage are not currently surfaced in the result.",
-        "Buildings are generalized from footprints and height estimates, not detailed roof/facade reconstructions.",
+        "LOD1 uses footprint extrusions; LOD2 reconstructs roofs with explicit LOD1 fallbacks. Facades are not reconstructed.",
         "Mesh-quality reports are builder diagnostics and do not replace downstream solver validation.",
     ]
 
@@ -211,12 +229,12 @@ class CitySurfaceMeshDataset(DatasetDescriptor):
         stage_audit = {} if args.stage_audit_enabled else None
         return dtcc_core.builder.build_city_surface_mesh(
             city,
+            lod=args.lod,
+            lod2_method=args.lod2_method,
             max_mesh_size=args.max_mesh_size,
             min_mesh_angle=args.min_mesh_angle,
             min_building_detail=args.min_building_detail,
             min_building_area=args.min_building_area,
-            merge_buildings=args.merge_buildings,
-            merge_tolerance=args.merge_tolerance,
             smoothing=args.smoothing,
             show_footprints=args.show_footprints,
             footprint_cleaning_plot_block=args.footprint_cleaning_plot_block,
@@ -224,11 +242,14 @@ class CitySurfaceMeshDataset(DatasetDescriptor):
             report_mesh_quality=args.report_mesh_quality,
             pipeline_mode=args.pipeline_mode,
             stage_audit=stage_audit,
+            isolated=args.isolated,
         )
 
     def build_from_city(self, city: City, **kwargs):
         args = self.validate(kwargs)
         surface_mesh = self._build_mesh_from_city(city, args)
+        surface_mesh = center_result_if_requested(surface_mesh, args)
+        warn_if_far_from_origin(surface_mesh, args.format)
         if args.format is not None:
             return self.export_to_bytes(surface_mesh, args.format)
         return surface_mesh
@@ -269,6 +290,8 @@ class CitySurfaceMeshDataset(DatasetDescriptor):
                     else "Preparing surface mesh..."
                 ),
             ):
+                surface_mesh = center_result_if_requested(surface_mesh, args)
+                warn_if_far_from_origin(surface_mesh, args.format)
                 if args.format is not None:
                     return self.export_to_bytes(surface_mesh, args.format)
                 return surface_mesh

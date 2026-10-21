@@ -22,6 +22,8 @@ FORBIDDEN_PATTERNS = (
     "import pathlib",
     "import os",
     "import tempfile",
+    "import sys",
+    "argparse",
     "MPLCONFIGDIR",
     "MPLBACKEND",
     "os.environ",
@@ -56,10 +58,12 @@ def test_every_demo_is_intentionally_classified():
     actual = {path.name for path in DEMO_DIR.glob("*.py") if path.name != "__init__.py"}
 
     assert actual == set(DATASET_DEMOS) | set(WORKFLOW_DEMOS)
+    assert all(name.startswith("dataset_") for name in DATASET_DEMOS)
+    assert not any(name.startswith("dataset_") for name in WORKFLOW_DEMOS)
 
 
-def test_dataset_demos_are_small_and_boring():
-    for demo_name in DATASET_DEMOS:
+def test_demos_are_small_and_boring():
+    for demo_name in DATASET_DEMOS + WORKFLOW_DEMOS:
         path = DEMO_DIR / demo_name
         text = path.read_text(encoding="utf-8")
         lines = text.splitlines()
@@ -70,6 +74,7 @@ def test_dataset_demos_are_small_and_boring():
             for line in lines
             if line.startswith("import ") or line.startswith("from ")
             if line != "import dtcc_core as dtcc"
+            and not (demo_name in WORKFLOW_DEMOS and line == "from shapely.geometry import box")
         ]
         assert extra_imports == [], f"{demo_name} has extra imports: {extra_imports}"
         assert len(lines) <= 40, f"{demo_name} should stay readable in under a minute"

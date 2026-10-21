@@ -609,12 +609,24 @@ class Object(Model):
         return [c.attributes.get(attribute, default) for c in children]
 
     def flatten_geometry(self, geom_type: GeometryType, exclude=None):
-        """Returns a single geometry of the specified type, merging all the geometries of the children."""
+        """Return one geometry of the given type for the object and its descendants.
+
+        The object's own geometry is merged with that of its children, each
+        flattened in turn, so geometry stored on building parts is found from
+        a building and from a city. For every object type, a footprint (LOD0)
+        of an object covers its children's: when the object has one, theirs
+        are not added (the parts of a building lie inside its footprint, and
+        the parts of a cleaned block divide it), and without one, its
+        children's are collected. Child types in ``exclude`` are skipped at
+        every level. The object is not modified.
+        """
         if exclude is None:
             exclude = []
         root_geom = self.get_geometry(geom_type)
         if len(self.children) == 0:
             return root_geom
+        if root_geom is not None and _normalize_geometry_type(geom_type) == GeometryType.LOD0:
+            return root_geom.copy(geometry_only=True)
         if root_geom is None:
             geom = None
         else:
@@ -623,10 +635,17 @@ class Object(Model):
             if child_type in exclude:
                 continue
             for child in child_list:
-                child_geom = child.get_geometry(geom_type)
+                child_geom = child.flatten_geometry(geom_type, exclude=exclude)
                 if geom is None and child_geom is not None:
                     geom = child_geom.copy(geometry_only=True)
                 elif child_geom is not None:
+                    # Surfaces have no merge; several are a MultiSurface.
+                    if isinstance(geom, Surface):
+                        geom = MultiSurface(surfaces=[geom])
+                    if isinstance(geom, MultiSurface) and isinstance(child_geom, Surface):
+                        child_geom = MultiSurface(
+                            surfaces=[child_geom.copy(geometry_only=True)]
+                        )
                     geom.merge(child_geom)
         return geom
 
@@ -640,6 +659,8 @@ class Object(Model):
         geometries = self.get_geometries() if lod is None else [self.get_geometry(lod)]
         for geometry in geometries:
             if geometry is None:
+                continue
+            if isinstance(geometry, PointCloud) and not geometry.points.size:
                 continue
             if isinstance(geometry, Surface) and not geometry.vertices.size:
                 continue

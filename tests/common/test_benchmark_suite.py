@@ -4,6 +4,7 @@ import argparse
 import io
 import json
 import os
+import shlex
 import subprocess
 import sys
 from importlib.machinery import SourceFileLoader
@@ -83,6 +84,34 @@ def cleaning_run(task, raw_city, tmp_path):
     return tmp_path, task, result
 
 
+@pytest.mark.parametrize("min_area", [15, 199])
+def test_separation_warning_survives_meshing_and_saved_replay(task, raw_city, tmp_path, monkeypatch, min_area):
+    from functools import partial
+
+    from dtcc_core.builder.cleaning import clean as clean_module
+    from dtcc_core.builder.cleaning.footprints import ConditioningOptions
+
+    # A zero fidelity budget cannot close the 0.2 m gap: a warning candidate.
+    monkeypatch.setattr(
+        clean_module, "ConditioningOptions", partial(ConditioningOptions, fidelity_budget=0)
+    )
+    task["parameters"]["min_building_area"] = min_area
+    task.update(dataset="city_flat_mesh", phase="both")
+    first = benchmark_datasets.run_dataset(task)
+    assert first["status"] == "warning", first["error"]
+    assert first["metrics"]["cleaning"]["status"] == "warning"
+    artifact = first["artifacts"]["cleaning_input"]["path"]
+    _, restored = benchmark_phases.load_cleaning(artifact, task)
+    assert restored.attributes["footprint_cleaning"]["contract"]["status"] == "fail"
+    task.update(phase="meshing", cleaning_input=artifact, task_dir=str(tmp_path / "replay"))
+    replay = benchmark_datasets.run_dataset(task)
+    assert replay["status"] == "warning", replay["error"]
+    assert replay["metrics"]["meshing"]["num_faces"] > 0
+    assert replay["metrics"]["meshing"]["degenerate_cell_count"] == 0
+    assert any("CONTRACT NOT SATISFIED" in row["message"]
+               for row in replay["metrics"]["stage_contract_warnings"])
+
+
 def test_simple_cli_and_spatial_scopes():
     help_result = cli("--help")
     assert help_result.returncode == 0
@@ -99,6 +128,73 @@ def test_simple_cli_and_spatial_scopes():
     )
     assert cleaning["task_count"] == 100
     assert {t["dataset"] for t in cleaning["tasks"]} == {"city_footprints"}
+
+
+def test_cli_lod2_selection():
+    result = cli("quick", "--dataset", "city_surface_mesh", "--lod", "lod2",
+                 "--lod2-method", "ransac", "--dry-run")
+    assert result.returncode == 0, result.stderr
+    tasks = json.loads(result.stdout)["tasks"]
+    assert len(tasks) == 10
+    assert all(t["parameters"]["lod"] == "lod2" and
+               t["parameters"]["lod2_method"] == "ransac" for t in tasks)
+    assert cli("quick", "--lod2-method", "ransac", "--dry-run").returncode == 2
+
+
+def test_timeout_preserves_completed_inputs(bench, task, tmp_path, monkeypatch):
+    directory = tmp_path / "tasks" / bench._safe_task_id(task["id"])
+    clean = directory / "cleaning"
+    mesh = directory / "meshing"
+    clean.mkdir(parents=True)
+    mesh.mkdir()
+    (clean / "footprints.geojson").write_text("{}")
+    (mesh / "city.dtcc").write_bytes(b"saved input")
+    benchmark_phases.write_json(clean / "metrics.json", {"status": "success"})
+    evidence = {"source_count": 3, "extraction": "original_source_footprints_v1"}
+    benchmark_phases.write_json(mesh / "input.json", {"status": "success", "roof_evidence": evidence})
+
+    class TimedOutWorker:
+        stdout, stderr = io.StringIO(""), io.StringIO("working\n")
+        returncode = None
+
+        def wait(self, timeout=None):
+            if self.returncode is None:
+                raise subprocess.TimeoutExpired("worker", timeout)
+            return self.returncode
+
+        def send_signal(self, signal):
+            self.returncode = -signal
+
+    monkeypatch.setattr(bench.subprocess, "Popen", lambda *a, **kw: TimedOutWorker())
+    result = bench._run_task_subprocess(task, tmp_path)
+    assert result["status"] == "timeout"
+    assert "meshing" not in result["metrics"]
+    assert result["metrics"]["mesh_input"]["roof_evidence"] == evidence
+    assert set(result["artifacts"]) == {"cleaning_input", "prepared_city"}
+
+
+def test_lod2_replay_selection_requires_roof_provenance(bench, cleaning_run):
+    directory, _, result = cleaning_run
+    path = directory / "results.json"
+    payload = json.loads(path.read_text())
+    row = payload["results"][0]
+    row["dataset"] = "city_surface_mesh"
+    prepared = directory / "prepared.dtcc"
+    prepared.write_bytes(b"fixture for artifact selection")
+    row["artifacts"]["prepared_city"] = {"path": str(prepared)}
+    row["metrics"]["mesh_input"] = {}
+    benchmark_phases.write_json(path, payload)
+
+    def selected():
+        task = task_to_json(build_tasks("quick", city="lund", phase="meshing",
+                            datasets=["city_surface_mesh"], lod="lod2", lod2_method="ransac")[0])
+        bench._attach_saved_inputs([task], directory)
+        return task
+
+    assert "prepared_city" not in selected()
+    row["metrics"]["mesh_input"]["roof_evidence"] = {"source_count": 2}
+    benchmark_phases.write_json(path, payload)
+    assert selected()["prepared_city"] == str(prepared)
 
 
 def test_sweeps_are_relevant_to_phase_and_respect_volume_envelope():
@@ -151,9 +247,10 @@ def test_cleaning_is_independent_and_measures_fidelity(cleaning_run, raw_city):
     assert metrics["unrepresented_source_count"] == 0
     assert "mesh_input" not in result["metrics"]
     saved = Path(result["artifacts"]["cleaning_input"]["path"])
-    city, conditioned = benchmark_phases.load_cleaning(saved, task)
-    assert [b.id for b in city.buildings] == ["raw-0", "raw-1"]
-    assert conditioned.source_map == [[0, 1]]
+    raw, cleaned = benchmark_phases.load_cleaning(saved, task)
+    assert [b.id for b in raw.buildings] == ["raw-0", "raw-1"]
+    assert len(cleaned.buildings) == 1
+    assert [p.id for p in cleaned.buildings[0].building_parts] == ["raw-0", "raw-1"]
     assert (saved.parent / "metrics.json").exists()
 
 
@@ -173,8 +270,7 @@ def test_meshing_replays_cleaned_geometry_without_cleaner(
     def forbidden(*args, **kwargs):
         raise AssertionError("Cleaner or footprint download called during meshing")
 
-    monkeypatch.setattr(meshes, "condition_polygon_coverage", forbidden)
-    monkeypatch.setattr(meshes, "build_conditioned_footprints", forbidden)
+    monkeypatch.setattr(meshes, "clean_regions", forbidden)
     monkeypatch.setattr(
         benchmark_phases, "prepare_footprint_city_from_bounds", forbidden
     )
@@ -233,6 +329,15 @@ def _replay_args(directory, output):
 @pytest.mark.parametrize("encoding", [None, "cp1252"])
 def test_cli_saved_run_replay_report_compare_and_no_overwrite(cleaning_run, encoding):
     directory, task, result = cleaning_run
+    contract = result["metrics"]["cleaning"]["geometric_contract"]
+    assert contract["admissibility"]["admissible"]
+    assert contract["fidelity"]["status"] == "pass"
+    before = result["metrics"]["cleaning"]["before_selection_contract"]
+    assert before["fidelity"]["achieved_epsilon"] is not None
+    report = cli("report", directory, encoding=encoding)
+    assert report.returncode == 0, report.stderr
+    assert "Admissible" in report.stdout and "Fidelity" in report.stdout
+    assert "Achieved m" in report.stdout
     output = directory / "replay"
     args = _replay_args(directory, output)
     completed = cli(*args, encoding=encoding)
@@ -240,6 +345,10 @@ def test_cli_saved_run_replay_report_compare_and_no_overwrite(cleaning_run, enco
     assert "Logging error" not in completed.stderr
     if encoding == "cp1252":
         assert "[OK] success" in completed.stdout
+    plot_command = shlex.join(["bench", "plot", str(output)])
+    assert completed.stdout.endswith(
+        f"\nTo generate plots, run the command\n\n    {plot_command}\n\n"
+    )
     payload = json.loads((output / "results.json").read_text())
     assert payload["results"][0]["metrics"]["cleaning"]["status"] == "reused"
     assert payload["manifest"]["elapsed_seconds"] > 0
@@ -389,15 +498,25 @@ def test_cli_plots_saved_cleaning_and_rejects_empty_selection(cleaning_run):
     assert "No saved tasks match" in missing.stderr
 
 
-@pytest.mark.parametrize("corruption", ["crs", "sources", "bounds"])
+@pytest.mark.parametrize(
+    "corruption", ["crs", "building", "geometry", "bounds", "parameters", "record"]
+)
 def test_corrupt_cleaning_artifact_fails_clearly(cleaning_run, corruption):
     _, task, result = cleaning_run
     path = Path(result["artifacts"]["cleaning_input"]["path"])
     payload = json.loads(path.read_text())
     if corruption == "crs":
         payload["metadata"]["crs"] = "EPSG:4326"
-    elif corruption == "sources":
-        payload["features"][0]["properties"]["source_indices"] = [999]
+    elif corruption == "building":
+        payload["features"][0]["properties"]["building_index"] = 999
+    elif corruption == "geometry":
+        ring = payload["features"][0]["geometry"]["coordinates"][0]
+        ring[0][0] += 1
+        ring[-1][0] += 1
+    elif corruption == "parameters":
+        payload["metadata"]["parameters"]["min_building_area"] += 1
+    elif corruption == "record":
+        payload["metadata"]["cleaning"]["fingerprint"] = "0" * 40
     else:
         payload["metadata"]["bounds"][0] += 1
     path.write_text(json.dumps(payload))
@@ -566,9 +685,16 @@ def test_benchmark_failure_classification_separates_data_from_geometry() -> None
     assert (
         benchmark_datasets.classify_failure(
             "RuntimeError",
-            "Conditioned footprints contract failed: short_edge_count=2",
+            "Conditioned footprints contract failed: subscale_pairs=2",
         )
         == "conditioned_footprint_contract"
+    )
+    assert (
+        benchmark_datasets.classify_failure(
+            "MesherHandoffError",
+            "Complete 2D mesher handoff failed: incident sector profile failed",
+        )
+        == "mesher_handoff"
     )
 
 
@@ -596,3 +722,24 @@ def test_data_coverage_and_cache_failures_are_warning_statuses() -> None:
         == "warning"
     )
     assert benchmark_datasets.result_status_for_failure("pipeline") == "failed"
+
+
+def test_cleaning_fidelity_is_separate_from_explicit_area_selection(task, raw_city):
+    small = Building(id="selected-out")
+    small.add_geometry(
+        Surface().from_polygon(box(386330, 6174680, 386333, 6174683)), GeometryType.LOD0
+    )
+    raw_city.add_building(small)
+    result = benchmark_datasets.run_dataset(task)
+    assert result["status"] == "success", result["error"]
+    metrics = result["metrics"]["cleaning"]
+    assert metrics["before_selection_contract"]["status"] == "pass"
+    assert metrics["geometric_contract"]["fidelity"]["status"] == "fail"
+    assert metrics["selection"]["removed_count"] == 1
+    assert metrics["selection"]["removed_area"] == pytest.approx(9.0)
+    # Indices of cleaned buildings: the merged block, then the small one.
+    assert metrics["selection"]["unrepresented_source_indices"] == [1]
+    payload = json.loads(
+        Path(result["artifacts"]["cleaning_input"]["path"]).read_text()
+    )
+    assert payload["metadata"]["selection"] == metrics["selection"]

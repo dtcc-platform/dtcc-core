@@ -216,6 +216,23 @@ def _relativize_artifacts(artifacts: dict[str, Any], run_dir: Path) -> dict[str,
     return relativized
 
 
+def _completed_phase_results(task_dir):
+    """Keep completed input work when a meshing worker times out or crashes."""
+    metrics, artifacts = {}, {}
+    for phase, relative in (("cleaning", "cleaning/metrics.json"),
+                            ("mesh_input", "meshing/input.json"),
+                            ("meshing", "meshing/metrics.json")):
+        path = task_dir / relative
+        if path.is_file():
+            metrics[phase] = json.loads(path.read_text())
+    for name, relative, format in (("cleaning_input", "cleaning/footprints.geojson", "geojson"),
+                                   ("prepared_city", "meshing/city.dtcc", "dtcc")):
+        path = task_dir / relative
+        if path.is_file():
+            artifacts[name] = {"format": format, "path": str(path.resolve())}
+    return metrics, artifacts
+
+
 def _run_task_subprocess(
     task: dict[str, Any],
     run_dir: Path,
@@ -317,6 +334,7 @@ def _run_task_subprocess(
     if signal_used == "none":
         status = "failed"
     failure_class = "timeout" if status in {"timeout", "hang"} else "pipeline"
+    metrics, artifacts = _completed_phase_results(task_dir)
     return {
         "task_id": task["id"],
         "dataset": task["dataset"],
@@ -326,8 +344,8 @@ def _run_task_subprocess(
         "elapsed_seconds": round(elapsed, 3),
         "bounds": task["case"]["bounds"],
         "parameters": task["parameters"],
-        "metrics": {},
-        "artifacts": {},
+        "metrics": metrics,
+        "artifacts": _relativize_artifacts(artifacts, run_dir),
         "error": {
             "type": "SubprocessError",
             "message": f"worker exited without BENCHMARK_RESULT, rc={process.returncode}, signal={signal_used}",
@@ -591,15 +609,27 @@ def _result_quality_summary(result: dict[str, Any]) -> str:
     cleaning = metrics.get("cleaning", {})
     if cleaning:
         parts.append(f"cleaning={cleaning.get('status', '-')}")
-        for key in (
-            "seconds",
-            "removed_area",
-            "added_area",
-            "short_edge_count",
-            "min_clearance",
-        ):
+        geometric = cleaning.get("before_selection_contract") or cleaning.get(
+            "geometric_contract", {}
+        )
+        if geometric:
+            parts.append(f"cleaning_contract={geometric.get('status', '-')}")
+        selection = cleaning.get("selection")
+        if selection:
+            parts.append(f"selected_out={selection['removed_count']}")
+        for key in ("seconds", "removed_area", "added_area"):
             if cleaning.get(key) is not None:
                 parts.append(f"clean_{key}={_format_number(cleaning[key])}")
+        for label, value in (
+            ("clean_mfs", geometric.get("admissibility", {}).get("mfs_capped_at_delta")),
+            ("clean_epsilon", geometric.get("epsilon")),
+            (
+                "clean_achieved_epsilon",
+                geometric.get("fidelity", {}).get("achieved_epsilon"),
+            ),
+        ):
+            if value is not None:
+                parts.append(f"{label}={_format_number(value)}")
     meshing = metrics.get("meshing", {})
     if meshing:
         parts.append(f"meshing={meshing.get('status', '-')}")
@@ -743,7 +773,7 @@ def _emit_table(
 
 
 def _phase_tables(results, symbols=UNICODE_SYMBOLS):
-    cleaning, meshing = [], []
+    cleaning, meshing, roofs = [], [], []
     for result in results:
         label = (
             result["case"]["id"].removeprefix("city_grid:").removeprefix("city_center:")
@@ -753,6 +783,12 @@ def _phase_tables(results, symbols=UNICODE_SYMBOLS):
         metrics = result.get("metrics", {})
         c = metrics.get("cleaning")
         if c:
+            geometric = c.get("before_selection_contract") or c.get(
+                "geometric_contract", {}
+            )
+            observed = geometric.get("admissibility", {})
+            admissible = observed.get("admissible")
+            fidelity = geometric.get("fidelity", {})
             cleaning.append(
                 [
                     label,
@@ -762,10 +798,27 @@ def _phase_tables(results, symbols=UNICODE_SYMBOLS):
                     f"{c.get('output_count', '-')}",
                     _format_number(c.get("removed_area")),
                     _format_number(c.get("added_area")),
-                    _format_number(c.get("short_edge_count")),
+                    "-" if admissible is None else "yes" if admissible else "no",
+                    _format_number(observed.get("mfs_capped_at_delta")),
+                    fidelity.get("status", "-"),
+                    _format_number(geometric.get("epsilon")),
+                    _format_number(fidelity.get("achieved_epsilon")),
+                    (c.get("selection") or {}).get("removed_count", "-"),
                 ]
             )
         m = metrics.get("meshing")
+        if result.get("parameters", {}).get("lod") == "lod2":
+            evidence = metrics.get("mesh_input", {}).get("roof_evidence", {})
+            fitted = (m or {}).get("lod2", {})
+            fallbacks = fitted.get("block_fallbacks")
+            roofs.append([
+                label,
+                result["parameters"]["lod2_method"],
+                evidence.get("source_count", "-"),
+                fitted.get("source_count", "-"),
+                fitted.get("retained_nonflat_fits", "-"),
+                len(fallbacks) if fallbacks is not None else "-",
+            ])
         if m:
             quality = m.get("quality", {})
             meshing.append(
@@ -789,7 +842,12 @@ def _phase_tables(results, symbols=UNICODE_SYMBOLS):
                 f"In {symbols['arrow']} out",
                 f"Removed m{symbols['squared']}",
                 f"Added m{symbols['squared']}",
-                "Short edges",
+                "Admissible",
+                "mfs m",
+                "Fidelity",
+                "Budget m",
+                "Achieved m",
+                "Selected out",
             ],
             cleaning,
         ),
@@ -797,6 +855,11 @@ def _phase_tables(results, symbols=UNICODE_SYMBOLS):
             "Meshing",
             ["Case", "Mesh", "Status", "Time", "Elements", "Q min", "Q p01"],
             meshing,
+        ),
+        (
+            "LOD2 roofs",
+            ["Case", "Method", "Input sources", "Sources fitted", "Nonflat retained", "Block fallbacks"],
+            roofs,
         ),
     ]
 
@@ -889,10 +952,10 @@ def _summary_markdown(
 
 
 def command_run(args: argparse.Namespace) -> int:
-    if args.phase == "meshing" and args.input is None:
-        raise ValueError("--phase meshing requires --input <saved-run>")
-    if args.input is not None and args.phase != "meshing":
-        raise ValueError("--input is only used with --phase meshing")
+    if args.phase in ("meshing", "replay") and args.input is None:
+        raise ValueError(f"--phase {args.phase} requires --input <saved-run>")
+    if args.input is not None and args.phase not in ("meshing", "replay"):
+        raise ValueError("--input is only used with --phase meshing or replay")
     tasks = [
         task_to_json(task)
         for task in build_tasks(
@@ -900,6 +963,8 @@ def command_run(args: argparse.Namespace) -> int:
             city=args.city,
             datasets=args.dataset,
             phase=args.phase,
+            lod=args.lod,
+            lod2_method=args.lod2_method,
         )
     ]
     for task in tasks:
@@ -986,10 +1051,8 @@ def _execute_tasks(tasks, args):
     print(f"Total time: {_format_duration(manifest['elapsed_seconds'])}")
     print(f"Run directory: {run_dir}")
     if any(result.get("artifacts", {}).get("cleaning_input") for result in results):
-        plot_command = shlex.join(
-            [sys.executable, str(Path(__file__).resolve()), "plot", str(run_dir)]
-        )
-        print(f"Generate footprint comparison plots with:\n  {plot_command}")
+        plot_command = shlex.join(["bench", "plot", str(run_dir)])
+        print(f"\nTo generate plots, run the command\n\n    {plot_command}\n")
     return 0 if all(not _is_hard_failure(result["status"]) for result in results) else 1
 
 
@@ -1031,15 +1094,17 @@ def command_plot(args: argparse.Namespace) -> int:
         if path is None:
             print(f"Skipping {result['task_id']}: no saved cleaning result")
             continue
-        city, conditioned = load_cleaning(path, result)
-        raw = [
-            polygon
-            for building in city.buildings
-            if (geometry := building.flatten_geometry(GeometryType.LOD0)) is not None
-            if (polygon := geometry.to_polygon(simplify=0.0)) is not None
-            and not polygon.is_empty
+        raw_city, cleaned_city = load_cleaning(path, result)
+        raw, cleaned = [
+            [
+                polygon
+                for building in city.buildings
+                if (geometry := building.get_geometry(GeometryType.LOD0)) is not None
+                if (polygon := geometry.to_polygon(simplify=0.0)) is not None
+                and not polygon.is_empty
+            ]
+            for city in (raw_city, cleaned_city)
         ]
-        cleaned = [surface.to_polygon(simplify=0.0) for surface in conditioned.surfaces]
         fig, _ = plot_footprint_cleaning_comparison(
             raw,
             cleaned,
@@ -1084,11 +1149,13 @@ def command_compare(args: argparse.Namespace) -> int:
         ("cleaning", "removed_area"),
         ("cleaning", "added_area"),
         ("cleaning", "boundary_displacement_max"),
-        ("cleaning", "short_edge_count"),
+        ("cleaning", "before_selection_contract", "admissibility", "mfs_capped_at_delta"),
+        ("cleaning", "before_selection_contract", "fidelity", "achieved_epsilon"),
         ("meshing", "seconds"),
         ("meshing", "element_quality_p01"),
         ("meshing", "num_faces"),
         ("meshing", "num_cells"),
+        ("meshing", "lod2", "retained_nonflat_fits"),
         ("meshing", "quality", "element_quality", "min"),
         ("meshing", "quality", "element_quality", "mean"),
         ("meshing", "quality", "aspect_ratio", "max"),
@@ -1159,6 +1226,10 @@ def _attach_saved_inputs(tasks, run_dir):
         if (
             prepared
             and result["dataset"] == task["dataset"]
+            and (
+                task["parameters"].get("lod") != "lod2"
+                or result.get("metrics", {}).get("mesh_input", {}).get("roof_evidence")
+            )
             and all(
                 result["parameters"].get(k) == task["parameters"][k]
                 for k in PREPARATION_PARAMETERS
@@ -1252,10 +1323,18 @@ def build_parser() -> argparse.ArgumentParser:
             help="Output to test; repeat to select several (default: flat and surface).",
         )
         command.add_argument(
+            "--lod", choices=("lod1", "lod2"), default="lod1",
+            help="Building output LOD for surface/volume meshes (default: lod1).",
+        )
+        command.add_argument(
+            "--lod2-method", choices=("catalogue", "ransac"), default="catalogue",
+            help="Roof reconstruction for LOD2 (default: catalogue).",
+        )
+        command.add_argument(
             "--phase",
-            choices=("both", "cleaning", "meshing"),
+            choices=("both", "cleaning", "meshing", "replay"),
             default="both",
-            help="Cleaning alone, meshing saved input, or both (default).",
+            help="Cleaning, saved meshing, both, or replay cleaning from saved raw inputs.",
         )
         command.add_argument(
             "--input",

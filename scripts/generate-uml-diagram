@@ -11,7 +11,5 @@ mv classes.puml uml_diagram_geometry.puml
 rm -f packages.puml
 
 echo ""
-echo "For further instructions, visit"
-echo ""
-echo "  https://platform.dtcc.chalmers.se/development.html#generating-the-uml-class-diagram"
+echo "UML diagram generation complete (uml_diagram_*.puml)."
 echo ""

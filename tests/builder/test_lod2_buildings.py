@@ -631,7 +631,7 @@ def _decomposition_summary_values(messages):
 def test_build_lod2_buildings_creates_watertight_flat_roof():
     building = _building_with_footprint(_flat_roof_points())
 
-    result = build_lod2_buildings([building], build_lod1_fallback=False)
+    result = build_lod2_buildings([building], lod2_method="ransac", build_lod1_fallback=False)
 
     assert result[0].lod2 is not None
     assert is_watertight(result[0].lod2)
@@ -641,7 +641,7 @@ def test_build_lod2_buildings_creates_watertight_flat_roof():
 def test_build_lod2_buildings_skips_sparse_roof_points():
     building = _building_with_footprint(_flat_roof_points()[:6])
 
-    result = build_lod2_buildings([building], build_lod1_fallback=False)
+    result = build_lod2_buildings([building], lod2_method="ransac", build_lod1_fallback=False)
 
     assert result[0].lod2 is None
 
@@ -651,7 +651,7 @@ def test_build_lod2_buildings_does_not_log_rejection_summary_by_default(monkeypa
     monkeypatch.setattr(lod2_module, "info", messages.append, raising=False)
     building = _building_with_footprint(_flat_roof_points()[:6])
 
-    build_lod2_buildings([building])
+    build_lod2_buildings([building], lod2_method="ransac")
 
     assert not any(message.startswith("LOD2 build summary:") for message in messages)
     assert not any(
@@ -961,7 +961,7 @@ def _edge_keys_for_surface(surface, tolerance=1e-3):
 def test_build_lod2_buildings_creates_watertight_gable_with_shared_ridge():
     building = _building_with_footprint(_gable_roof_points())
 
-    result = build_lod2_buildings([building], build_lod1_fallback=False)
+    result = build_lod2_buildings([building], lod2_method="ransac", build_lod1_fallback=False)
 
     assert result[0].lod2 is not None
     roof_surfaces = result[0].lod2.surfaces[:2]
@@ -1021,7 +1021,7 @@ def test_build_lod2_buildings_creates_watertight_stepped_flat_roof():
         Polygon([(0, 0), (30, 0), (30, 10), (0, 10)]),
     )
 
-    result = build_lod2_buildings([building], build_lod1_fallback=False)
+    result = build_lod2_buildings([building], lod2_method="ransac", build_lod1_fallback=False)
 
     assert result[0].lod2 is not None
     assert is_watertight(result[0].lod2)
@@ -1037,7 +1037,7 @@ def test_build_lod2_buildings_creates_corner_region_stepped_flat_roof(monkeypatc
     monkeypatch.setattr(lod2_module, "_ransac_planes", lambda roof_points: planes)
     building = _building_with_polygon(points, footprint)
 
-    result = build_lod2_buildings([building], build_lod1_fallback=False)
+    result = build_lod2_buildings([building], lod2_method="ransac", build_lod1_fallback=False)
 
     assert result[0].lod2 is not None
     assert is_watertight(result[0].lod2)
@@ -1058,7 +1058,7 @@ def test_build_lod2_buildings_rejects_scattered_region_stepped_flat_roof(monkeyp
     monkeypatch.setattr(lod2_module, "_ransac_planes", lambda roof_points: planes)
     building = _building_with_polygon(points, footprint)
 
-    result = build_lod2_buildings([building], build_lod1_fallback=False)
+    result = build_lod2_buildings([building], lod2_method="ransac", build_lod1_fallback=False)
 
     assert result[0].lod2 is None
 
@@ -1069,7 +1069,7 @@ def test_build_lod2_buildings_drops_minor_noise_for_stepped_flat_roof():
         Polygon([(0, 0), (30, 0), (30, 10), (0, 10)]),
     )
 
-    result = build_lod2_buildings([building], build_lod1_fallback=False)
+    result = build_lod2_buildings([building], lod2_method="ransac", build_lod1_fallback=False)
 
     assert result[0].lod2 is not None
     assert is_watertight(result[0].lod2)
@@ -1088,7 +1088,7 @@ def test_build_lod2_buildings_flat_collapses_dominant_level_with_noise(monkeypat
         Polygon([(0, 0), (30, 0), (30, 12), (0, 12)]),
     )
 
-    result = build_lod2_buildings([building], build_lod1_fallback=False)
+    result = build_lod2_buildings([building], lod2_method="ransac", build_lod1_fallback=False)
 
     assert result[0].lod2 is not None
     assert is_watertight(result[0].lod2)
@@ -1118,7 +1118,7 @@ def test_build_lod2_buildings_does_not_flat_collapse_real_step(monkeypatch):
         Polygon([(0, 0), (20, 0), (20, 10), (0, 10)]),
     )
 
-    result = build_lod2_buildings([building], build_lod1_fallback=False)
+    result = build_lod2_buildings([building], lod2_method="ransac", build_lod1_fallback=False)
 
     assert result[0].lod2 is not None
     assert is_watertight(result[0].lod2)
@@ -1131,7 +1131,7 @@ def test_build_lod2_buildings_rejects_unstriped_stepped_flat_points():
         Polygon([(0, 0), (10, 0), (10, 10), (0, 10)]),
     )
 
-    result = build_lod2_buildings([building], build_lod1_fallback=False)
+    result = build_lod2_buildings([building], lod2_method="ransac", build_lod1_fallback=False)
 
     assert result[0].lod2 is None
 
@@ -1153,7 +1153,7 @@ def test_build_lod2_buildings_decomposes_l_shape_flat_regions(monkeypatch):
         ),
     )
 
-    result = build_lod2_buildings([building], build_lod1_fallback=False)
+    result = build_lod2_buildings([building], lod2_method="ransac", build_lod1_fallback=False)
 
     assert result[0].lod2 is not None
     assert is_watertight(result[0].lod2)
@@ -1178,7 +1178,7 @@ def test_build_lod2_buildings_decomposes_u_shape_flat_regions(monkeypatch):
         ),
     )
 
-    result = build_lod2_buildings([building], build_lod1_fallback=False)
+    result = build_lod2_buildings([building], lod2_method="ransac", build_lod1_fallback=False)
 
     assert result[0].lod2 is not None
     assert is_watertight(result[0].lod2)
@@ -1201,7 +1201,7 @@ def test_split_failed_irregular_footprint_attempts_decomposition(monkeypatch):
         ),
     )
 
-    build_lod2_buildings([building], build_lod1_fallback=False, log_rejections=True)
+    build_lod2_buildings([building], lod2_method="ransac", build_lod1_fallback=False, log_rejections=True)
 
     assert building.lod2 is not None
     assert any("decomposition_candidate=1" in message for message in messages)
@@ -1214,7 +1214,7 @@ def test_irregular_flat_levels_use_decomposition_not_stepped_flat(monkeypatch):
     l_shape = Polygon([(0, 0), (10, 0), (10, 4), (4, 4), (4, 10), (0, 10)])
     building = _building_with_polygon(_l_shape_flat_points(), l_shape)
 
-    build_lod2_buildings([building], build_lod1_fallback=False, log_rejections=True)
+    build_lod2_buildings([building], lod2_method="ransac", build_lod1_fallback=False, log_rejections=True)
 
     assert building.lod2 is not None
     assert is_watertight(building.lod2)
@@ -1249,7 +1249,7 @@ def test_decomposition_counter_invariant(monkeypatch):
     monkeypatch.setattr(lod2_module, "_ransac_planes", lambda points: planes)
 
     build_lod2_buildings(
-        [_building_with_polygon(_flat_roof_points(), unsupported_shape)],
+        [_building_with_polygon(_flat_roof_points(), unsupported_shape)], lod2_method="ransac",
         build_lod1_fallback=False,
         log_rejections=True,
     )
@@ -1284,7 +1284,7 @@ def test_decomposition_region_rejections_are_counted(monkeypatch):
     ]
     monkeypatch.setattr(lod2_module, "_ransac_planes", lambda points: planes)
 
-    build_lod2_buildings([building], build_lod1_fallback=False, log_rejections=True)
+    build_lod2_buildings([building], lod2_method="ransac", build_lod1_fallback=False, log_rejections=True)
 
     summary = next(
         message
@@ -1307,7 +1307,7 @@ def test_decomposition_no_valid_slices_logs_axis_misaligned_subcounter(monkeypat
     monkeypatch.setattr(lod2_module, "_ransac_planes", lambda points: planes)
 
     build_lod2_buildings(
-        [_building_with_polygon(_flat_roof_points(), skewed)],
+        [_building_with_polygon(_flat_roof_points(), skewed)], lod2_method="ransac",
         build_lod1_fallback=False,
         log_rejections=True,
     )
@@ -1336,7 +1336,7 @@ def test_decomposition_axis_misalignment_logs_angle_histogram(monkeypatch):
         [
             _building_with_polygon(_flat_roof_points(), mostly_aligned),
             _building_with_polygon(_flat_roof_points(), strongly_misaligned),
-        ],
+        ], lod2_method="ransac",
         build_lod1_fallback=False,
         log_rejections=True,
     )
@@ -1362,7 +1362,7 @@ def test_decomposition_region_roof_failure_logs_subcounter(monkeypatch):
     ]
     monkeypatch.setattr(lod2_module, "_ransac_planes", lambda points: planes)
 
-    build_lod2_buildings([building], build_lod1_fallback=False, log_rejections=True)
+    build_lod2_buildings([building], lod2_method="ransac", build_lod1_fallback=False, log_rejections=True)
 
     values = _decomposition_summary_values(messages)
     assert values["decomposition_region_roof_failed"] == 1
@@ -1380,7 +1380,7 @@ def test_decomposition_region_dropped_too_many_preserves_counter_invariant(monke
     monkeypatch.setattr(lod2_module, "_ransac_planes", lambda points: planes)
 
     build_lod2_buildings(
-        [_building_with_polygon(_l_shape_flat_points(), l_shape)],
+        [_building_with_polygon(_l_shape_flat_points(), l_shape)], lod2_method="ransac",
         build_lod1_fallback=False,
         log_rejections=True,
     )
@@ -1531,7 +1531,7 @@ def test_decomposition_watertight_failure_preserves_counter_invariant(monkeypatc
     monkeypatch.setattr(lod2_module, "_build_decomposed_shell", build_failed_shell)
 
     build_lod2_buildings(
-        [_building_with_polygon(_l_shape_flat_points(), l_shape)],
+        [_building_with_polygon(_l_shape_flat_points(), l_shape)], lod2_method="ransac",
         build_lod1_fallback=False,
         log_rejections=True,
     )
@@ -1797,7 +1797,7 @@ def test_rebuild_false_preserves_existing_lod2():
     existing = _closed_box()
     building.add_geometry(existing, GeometryType.LOD2)
 
-    build_lod2_buildings([building], rebuild=False, build_lod1_fallback=False)
+    build_lod2_buildings([building], lod2_method="ransac", rebuild=False, build_lod1_fallback=False)
 
     assert building.lod2 is existing
 
@@ -1807,7 +1807,7 @@ def test_rebuild_true_replaces_existing_lod2_when_reconstruction_succeeds():
     existing = _closed_box()
     building.add_geometry(existing, GeometryType.LOD2)
 
-    build_lod2_buildings([building], rebuild=True, build_lod1_fallback=False)
+    build_lod2_buildings([building], lod2_method="ransac", rebuild=True, build_lod1_fallback=False)
 
     assert building.lod2 is not existing
     assert is_watertight(building.lod2)
@@ -1817,7 +1817,7 @@ def test_rebuild_true_removes_existing_lod2_when_reconstruction_fails():
     building = _building_with_footprint(_flat_roof_points()[:6])
     building.add_geometry(_closed_box(), GeometryType.LOD2)
 
-    build_lod2_buildings([building], rebuild=True, build_lod1_fallback=False)
+    build_lod2_buildings([building], lod2_method="ransac", rebuild=True, build_lod1_fallback=False)
 
     assert building.lod2 is None
 
@@ -1839,7 +1839,7 @@ def test_hole_footprint_skips_lod2_and_builds_lod1_fallback():
     )
     building.attributes["ground_height"] = 0.0
 
-    build_lod2_buildings([building], build_lod1_fallback=True)
+    build_lod2_buildings([building], lod2_method="ransac", build_lod1_fallback=True)
 
     assert building.lod2 is None
     assert building.lod1 is not None
@@ -1850,7 +1850,7 @@ def test_build_lod2_buildings_preserves_existing_lod1_fallback():
     existing_lod1 = _closed_box()
     building.add_geometry(existing_lod1, GeometryType.LOD1)
 
-    build_lod2_buildings([building], build_lod1_fallback=True)
+    build_lod2_buildings([building], lod2_method="ransac", build_lod1_fallback=True)
 
     assert building.lod2 is None
     assert building.lod1 is existing_lod1
@@ -1880,7 +1880,7 @@ def test_city_build_lod2_buildings_logs_rejection_summary_when_requested(monkeyp
     city.add_building(_building_with_footprint(_flat_roof_points()))
     city.add_building(_building_with_footprint(_flat_roof_points()[:6]))
 
-    city.build_lod2_buildings(calculate_heights=False, log_rejections=True)
+    city.build_lod2_buildings(calculate_heights=False, log_rejections=True, lod2_method="ransac")
 
     assert any(
         message == "LOD2 build summary: total=2 lod2=1 fallback=1 skipped_existing=0"
@@ -1900,7 +1900,7 @@ def test_build_lod2_buildings_logs_plane_count_summary_when_requested(monkeypatc
         _building_with_footprint(_gable_roof_points()),
     ]
 
-    build_lod2_buildings(buildings, build_lod1_fallback=False, log_rejections=True)
+    build_lod2_buildings(buildings, lod2_method="ransac", build_lod1_fallback=False, log_rejections=True)
 
     assert any(
         message == "LOD2 plane count summary: planes_1=1 planes_2=1"
@@ -1918,7 +1918,7 @@ def test_build_lod2_buildings_logs_shell_rejection_sub_reason(monkeypatch):
     monkeypatch.setattr(lod2_module, "_ransac_planes", lambda points: planes)
     building = _building_with_footprint(_flat_roof_points())
 
-    build_lod2_buildings([building], build_lod1_fallback=False, log_rejections=True)
+    build_lod2_buildings([building], lod2_method="ransac", build_lod1_fallback=False, log_rejections=True)
 
     assert any(
         message == "LOD2 rejection summary: split_failed=1" for message in messages
@@ -1933,7 +1933,7 @@ def test_stepped_flat_success_is_logged_when_rejections_enabled(monkeypatch):
         Polygon([(0, 0), (30, 0), (30, 10), (0, 10)]),
     )
 
-    build_lod2_buildings([building], build_lod1_fallback=False, log_rejections=True)
+    build_lod2_buildings([building], lod2_method="ransac", build_lod1_fallback=False, log_rejections=True)
 
     assert building.lod2 is not None
     assert any(
@@ -1957,7 +1957,7 @@ def test_build_lod2_buildings_logs_max_plane_coplanar_pair_summary(monkeypatch):
     monkeypatch.setattr(lod2_module, "_ransac_planes", lambda points: planes)
     building = _building_with_footprint(_flat_roof_points())
 
-    build_lod2_buildings([building], build_lod1_fallback=False, log_rejections=True)
+    build_lod2_buildings([building], lod2_method="ransac", build_lod1_fallback=False, log_rejections=True)
 
     assert any(
         message == "LOD2 max-plane coplanar pair summary: coplanar_pairs_1=1"
@@ -1977,7 +1977,7 @@ def test_build_lod2_buildings_logs_inlier_share_recovery_simulation(monkeypatch)
     monkeypatch.setattr(lod2_module, "_ransac_planes", lambda points: planes)
     building = _building_with_footprint(_flat_roof_points())
 
-    build_lod2_buildings([building], build_lod1_fallback=False, log_rejections=True)
+    build_lod2_buildings([building], lod2_method="ransac", build_lod1_fallback=False, log_rejections=True)
 
     assert any(
         message
@@ -2017,7 +2017,7 @@ def test_build_lod2_buildings_logs_template_gate_summary(monkeypatch):
         _building_with_footprint(rectangular_few_dominant_points),
     ]
 
-    build_lod2_buildings(buildings, build_lod1_fallback=False, log_rejections=True)
+    build_lod2_buildings(buildings, lod2_method="ransac", build_lod1_fallback=False, log_rejections=True)
 
     summary_lines = [
         message
@@ -2044,7 +2044,7 @@ def test_build_lod2_buildings_logs_decomposition_summary_when_requested(monkeypa
     l_shape = Polygon([(0, 0), (10, 0), (10, 4), (4, 4), (4, 10), (0, 10)])
     building = _building_with_polygon(_flat_roof_points(), l_shape)
 
-    build_lod2_buildings([building], build_lod1_fallback=False, log_rejections=True)
+    build_lod2_buildings([building], lod2_method="ransac", build_lod1_fallback=False, log_rejections=True)
 
     summary_lines = [
         message

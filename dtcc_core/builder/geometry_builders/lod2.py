@@ -5,6 +5,7 @@ from collections import Counter
 from dataclasses import dataclass
 
 import numpy as np
+import shapely
 from shapely.geometry import LineString, MultiPoint, Point, Polygon, box
 from shapely.ops import split, unary_union
 
@@ -13,9 +14,10 @@ from dtcc_core.logging import info
 from ...model import Building, GeometryType, MultiSurface, Surface
 from .buildings import build_lod1_buildings
 
+
 MIN_ROOF_POINTS = 24
 MIN_PLANE_INLIERS = 20
-# RANSAC may inspect richer roofs; shell assembly currently accepts one or two planes.
+# Bound plane detection and the subsequent continuous-envelope subset search.
 MAX_PLANES = 6
 RANSAC_ITERATIONS = 200
 RANSAC_SEED = 0
@@ -104,9 +106,7 @@ WATERTIGHT_UNPAIRED_RIDGE_ON_SLICE = "watertight_unpaired_ridge_on_slice"
 WATERTIGHT_EDGE_COUNT_MISMATCH = "watertight_edge_count_mismatch"
 WATERTIGHT_OTHER = "watertight_other"
 EDGE_COUNT_UNMATCHED_ON_SLICE = "edge_count_unmatched_on_slice"
-EDGE_COUNT_UNMATCHED_ON_FOOTPRINT_EXTERIOR = (
-    "edge_count_unmatched_on_footprint_exterior"
-)
+EDGE_COUNT_UNMATCHED_ON_FOOTPRINT_EXTERIOR = "edge_count_unmatched_on_footprint_exterior"
 EDGE_COUNT_UNMATCHED_INTERIOR = "edge_count_unmatched_interior"
 EDGE_COUNT_EXCESS_COUNT = "edge_count_excess_count"
 EDGE_COUNT_OTHER = "edge_count_other"
@@ -222,6 +222,17 @@ REJECTION_REASONS = (
 
 
 class RoofPlane:
+    """A roof plane ``z = a * x + b * y + c`` fitted to roof points.
+
+    Parameters
+    ----------
+    a, b : float
+        Slopes of the plane in the x and y directions.
+    c : float
+        Height of the plane at ``x = y = 0``.
+    inliers : np.ndarray
+        Indices of the roof points that lie on the plane.
+    """
     def __init__(self, a: float, b: float, c: float, inliers: np.ndarray):
         self.a = float(a)
         self.b = float(b)
@@ -238,13 +249,24 @@ class RoofPlane:
 
     def distances(self, points: np.ndarray) -> np.ndarray:
         predicted = self.a * points[:, 0] + self.b * points[:, 1] + self.c
-        return np.abs(points[:, 2] - predicted) / np.linalg.norm(
-            [-self.a, -self.b, 1.0]
-        )
+        return np.abs(points[:, 2] - predicted) / np.linalg.norm([-self.a, -self.b, 1.0])
 
 
 @dataclass(frozen=True)
 class FootprintDecomposition:
+    """An irregular building footprint split into simpler pieces.
+
+    Attributes
+    ----------
+    pieces : list[Polygon]
+        Footprint pieces.
+    slice_lines : list[LineString]
+        Lines along which the footprint was cut.
+    family_reason : str
+        Code for the footprint shape family that selected the decomposition.
+    concave_vertex_count : int
+        Number of concave corners in the original footprint.
+    """
     pieces: list[Polygon]
     slice_lines: list[LineString]
     family_reason: str
@@ -253,12 +275,30 @@ class FootprintDecomposition:
 
 @dataclass(frozen=True)
 class SteppedFlatLevel:
+    """One flat level of a stepped flat roof.
+
+    Attributes
+    ----------
+    plane : RoofPlane
+        Plane fitted to the level.
+    point_indices : np.ndarray
+        Indices of the roof points assigned to the level.
+    """
     plane: RoofPlane
     point_indices: np.ndarray
 
 
 @dataclass(frozen=True)
 class AssignedSteppedFlatRegion:
+    """Part of a footprint assigned to one level of a stepped flat roof.
+
+    Attributes
+    ----------
+    polygon : Polygon
+        Footprint region.
+    level_index : int
+        Index of the ``SteppedFlatLevel`` the region belongs to.
+    """
     polygon: Polygon
     level_index: int
 
@@ -270,8 +310,13 @@ def _fit_plane(points: np.ndarray, inliers: np.ndarray | None = None) -> RoofPla
     else:
         inlier_indices = np.asarray(inliers, dtype=int)
         sample = np.asarray(points, dtype=float)[inlier_indices]
-    matrix = np.column_stack([sample[:, 0], sample[:, 1], np.ones(len(sample))])
-    a, b, c = np.linalg.lstsq(matrix, sample[:, 2], rcond=None)[0]
+    # Map coordinates make the intercept column numerically dependent on XY,
+    # especially for dense clouds. Solve around the sample centroid instead.
+    origin = sample.mean(axis=0)
+    centered = sample - origin
+    matrix = np.column_stack([centered[:, :2], np.ones(len(sample))])
+    a, b, c = np.linalg.lstsq(matrix, centered[:, 2], rcond=None)[0]
+    c += origin[2] - a * origin[0] - b * origin[1]
     return RoofPlane(a, b, c, inlier_indices)
 
 
@@ -318,9 +363,7 @@ def _ransac_planes(
         refined = _fit_plane(points, best_inliers)
         planes.append(refined)
         remaining_set = set(best_inliers)
-        remaining = np.array(
-            [idx for idx in remaining if idx not in remaining_set], dtype=int
-        )
+        remaining = np.array([idx for idx in remaining if idx not in remaining_set], dtype=int)
 
     return planes
 
@@ -346,17 +389,13 @@ def _roof_points(building: Building) -> np.ndarray | None:
 
 def _surface_from_xy(poly: Polygon, plane: RoofPlane) -> Surface:
     coords = np.array(poly.exterior.coords[:-1], dtype=float)
-    vertices = np.column_stack(
-        [coords[:, 0], coords[:, 1], [plane.z_at(x, y) for x, y in coords]]
-    )
+    vertices = np.column_stack([coords[:, 0], coords[:, 1], [plane.z_at(x, y) for x, y in coords]])
     return Surface(vertices=vertices)
 
 
 def _ground_surface(footprint: Polygon, ground_height: float) -> Surface:
     coords = np.array(footprint.exterior.coords[:-1], dtype=float)[::-1]
-    vertices = np.column_stack(
-        [coords[:, 0], coords[:, 1], np.full(len(coords), ground_height)]
-    )
+    vertices = np.column_stack([coords[:, 0], coords[:, 1], np.full(len(coords), ground_height)])
     return Surface(vertices=vertices)
 
 
@@ -368,13 +407,7 @@ def _edge_parameter(point: np.ndarray, start: np.ndarray, end: np.ndarray) -> fl
     return float(np.dot(point - start, direction) / denom)
 
 
-def _points_on_edge(
-    points: list[np.ndarray],
-    start: np.ndarray,
-    end: np.ndarray,
-    *,
-    for_wall: bool = False,
-) -> list[np.ndarray]:
+def _points_on_edge(points: list[np.ndarray], start: np.ndarray, end: np.ndarray, *, for_wall: bool = False) -> list[np.ndarray]:
     edge = end - start
     length = np.linalg.norm(edge)
     if length == 0:
@@ -385,10 +418,7 @@ def _points_on_edge(
         offset = point_xy - start
         distance = abs(edge[0] * offset[1] - edge[1] * offset[0]) / length
         parameter = _edge_parameter(point_xy, start, end)
-        if (
-            distance <= EDGE_TOLERANCE
-            and -EDGE_TOLERANCE <= parameter <= 1.0 + EDGE_TOLERANCE
-        ):
+        if distance <= EDGE_TOLERANCE and -EDGE_TOLERANCE / length <= parameter <= 1.0 + EDGE_TOLERANCE / length:
             selected.append(point)
     selected.sort(key=lambda point: _edge_parameter(point[:2], start, end))
     unique = []
@@ -404,7 +434,7 @@ def _points_on_edge(
             continue
         previous_parameter = _edge_parameter(grouped[-1][0][:2], start, end)
         parameter = _edge_parameter(point[:2], start, end)
-        if abs(parameter - previous_parameter) <= EDGE_TOLERANCE:
+        if abs(parameter - previous_parameter) * length <= EDGE_TOLERANCE:
             grouped[-1].append(point)
         else:
             grouped.append([point])
@@ -420,22 +450,14 @@ def _points_on_edge(
         elif index == len(grouped) - 1 and ordered:
             target_z = ordered[-1][2]
             closest = min(group, key=lambda point: abs(point[2] - target_z))
-            remaining = [
-                point
-                for point in group
-                if np.linalg.norm(point - closest) > EDGE_TOLERANCE
-            ]
+            remaining = [point for point in group if np.linalg.norm(point - closest) > EDGE_TOLERANCE]
             remaining.sort(key=lambda point: abs(point[2] - target_z))
             ordered.extend([closest, *remaining])
         else:
             if ordered:
                 target_z = ordered[-1][2]
                 closest = min(group, key=lambda point: abs(point[2] - target_z))
-                remaining = [
-                    point
-                    for point in group
-                    if np.linalg.norm(point - closest) > EDGE_TOLERANCE
-                ]
+                remaining = [point for point in group if np.linalg.norm(point - closest) > EDGE_TOLERANCE]
                 remaining.sort(key=lambda point: point[2])
                 ordered.extend([closest, *remaining])
             else:
@@ -443,9 +465,7 @@ def _points_on_edge(
     return ordered
 
 
-def _wall_surfaces(
-    footprint: Polygon, roof_surfaces: list[Surface], ground_height: float
-) -> list[Surface]:
+def _wall_surfaces(footprint: Polygon, roof_surfaces: list[Surface], ground_height: float) -> list[Surface]:
     roof_vertices = [vertex for surface in roof_surfaces for vertex in surface.vertices]
     coords = np.array(footprint.exterior.coords[:-1], dtype=float)
     walls = []
@@ -460,15 +480,11 @@ def _wall_surfaces(
     return walls
 
 
-def _build_shell(
-    footprint: Polygon, roof_surfaces: list[Surface], ground_height: float
-) -> MultiSurface | None:
+def _build_shell(footprint: Polygon, roof_surfaces: list[Surface], ground_height: float) -> MultiSurface | None:
     walls = _wall_surfaces(footprint, roof_surfaces, ground_height)
     if len(walls) == 0:
         return None
-    shell = MultiSurface(
-        surfaces=[*roof_surfaces, *walls, _ground_surface(footprint, ground_height)]
-    )
+    shell = MultiSurface(surfaces=[*roof_surfaces, *walls, _ground_surface(footprint, ground_height)])
     if not is_watertight(shell):
         return None
     return shell
@@ -500,14 +516,10 @@ def _internal_junction_surfaces(
         coords = np.asarray(line.coords, dtype=float)
         start = coords[0]
         end = coords[-1]
-        line_key = tuple(
-            sorted(
-                (
-                    tuple(np.round(start / EDGE_TOLERANCE).astype(int)),
-                    tuple(np.round(end / EDGE_TOLERANCE).astype(int)),
-                )
-            )
-        )
+        line_key = tuple(sorted((
+            tuple(np.round(start / EDGE_TOLERANCE).astype(int)),
+            tuple(np.round(end / EDGE_TOLERANCE).astype(int)),
+        )))
         if line_key in handled_lines:
             continue
         handled_lines.add(line_key)
@@ -520,9 +532,7 @@ def _internal_junction_surfaces(
             midpoint = 0.5 * (first_xy + second_xy)
             if footprint.boundary.distance(Point(midpoint)) <= EDGE_TOLERANCE:
                 continue
-            if not footprint.buffer(EDGE_TOLERANCE).covers(
-                LineString([first_xy, second_xy])
-            ):
+            if not footprint.buffer(EDGE_TOLERANCE).covers(LineString([first_xy, second_xy])):
                 continue
             edges = _slice_line_surface_edges(roof_surfaces, first_xy, second_xy)
             if len(edges) < 2:
@@ -589,8 +599,7 @@ def _snap_crossing_vertex_heights(
         index = next(
             index
             for index, vertex in enumerate(surface.vertices)
-            if np.linalg.norm(np.asarray(vertex[:2], dtype=float) - xy)
-            <= EDGE_TOLERANCE
+            if np.linalg.norm(np.asarray(vertex[:2], dtype=float) - xy) <= EDGE_TOLERANCE
         )
         indices.append(index)
     mean_z = 0.5 * (
@@ -635,13 +644,8 @@ def _split_crossing_junction_edges(
                 continue
             crossing_xy = first_xy + parameter * (second_xy - first_xy)
             first_split = _insert_xy_on_surface_edge(surfaces[first_owner], crossing_xy)
-            second_split = _insert_xy_on_surface_edge(
-                surfaces[second_owner], crossing_xy
-            )
-            if (
-                first_split is surfaces[first_owner]
-                or second_split is surfaces[second_owner]
-            ):
+            second_split = _insert_xy_on_surface_edge(surfaces[second_owner], crossing_xy)
+            if first_split is surfaces[first_owner] or second_split is surfaces[second_owner]:
                 continue
             _snap_crossing_vertex_heights(first_split, second_split, crossing_xy)
             surfaces[first_owner] = first_split
@@ -652,9 +656,7 @@ def _split_crossing_junction_edges(
 def _slice_line_vertex_groups(
     roof_surfaces: list[Surface],
     line: LineString,
-) -> tuple[
-    list[np.ndarray], list[list[np.ndarray]], list[tuple[np.ndarray, np.ndarray]]
-]:
+) -> tuple[list[np.ndarray], list[list[np.ndarray]], list[tuple[np.ndarray, np.ndarray]]]:
     coords = np.asarray(line.coords, dtype=float)
     start = coords[0]
     end = coords[-1]
@@ -696,9 +698,7 @@ def _decomposed_watertight_failure_reason(
     return WATERTIGHT_OTHER
 
 
-def _edge_xy_midpoint(
-    edge: tuple[tuple[int, int, int], tuple[int, int, int]],
-) -> np.ndarray:
+def _edge_xy_midpoint(edge: tuple[tuple[int, int, int], tuple[int, int, int]]) -> np.ndarray:
     start, end = edge
     return np.array(
         [
@@ -715,7 +715,9 @@ def _edge_count_mismatch_reason(
     shell: MultiSurface,
 ) -> str:
     bad_edges = [
-        (edge, count) for edge, count in _edge_counts(shell).items() if count != 2
+        (edge, count)
+        for edge, count in _edge_counts(shell).items()
+        if count != 2
     ]
     if any(count > 2 for _, count in bad_edges):
         return EDGE_COUNT_EXCESS_COUNT
@@ -767,9 +769,7 @@ def _slice_line_surface_edges(
 
 
 def _surface_has_xy(surface: Surface, xy: np.ndarray) -> bool:
-    return any(
-        np.linalg.norm(vertex[:2] - xy) <= EDGE_TOLERANCE for vertex in surface.vertices
-    )
+    return any(np.linalg.norm(vertex[:2] - xy) <= EDGE_TOLERANCE for vertex in surface.vertices)
 
 
 def _edge_contains_xy(xy: np.ndarray, start: np.ndarray, end: np.ndarray) -> bool:
@@ -780,9 +780,7 @@ def _edge_contains_xy(xy: np.ndarray, start: np.ndarray, end: np.ndarray) -> boo
     offset = xy - start[:2]
     distance = abs(edge[0] * offset[1] - edge[1] * offset[0]) / length
     parameter = _edge_parameter(xy, start[:2], end[:2])
-    return (
-        distance <= EDGE_TOLERANCE and EDGE_TOLERANCE < parameter < 1.0 - EDGE_TOLERANCE
-    )
+    return distance <= EDGE_TOLERANCE and EDGE_TOLERANCE < parameter < 1.0 - EDGE_TOLERANCE
 
 
 def _insert_xy_on_surface_edge(surface: Surface, xy: np.ndarray) -> Surface:
@@ -802,10 +800,7 @@ def _insert_xy_on_surface_edge(surface: Surface, xy: np.ndarray) -> Surface:
 
 
 def _surface_has_vertex(surface: Surface, vertex: np.ndarray) -> bool:
-    return any(
-        np.linalg.norm(existing - vertex) <= EDGE_TOLERANCE
-        for existing in surface.vertices
-    )
+    return any(np.linalg.norm(existing - vertex) <= EDGE_TOLERANCE for existing in surface.vertices)
 
 
 def _insert_vertex_on_surface_edge(surface: Surface, vertex: np.ndarray) -> Surface:
@@ -822,9 +817,7 @@ def _insert_vertex_on_surface_edge(surface: Surface, vertex: np.ndarray) -> Surf
         if abs(z - vertex[2]) > EDGE_TOLERANCE:
             continue
         inserted = np.array([xy[0], xy[1], z], dtype=float)
-        new_vertices = np.vstack(
-            [vertices[: index + 1], inserted, vertices[index + 1 :]]
-        )
+        new_vertices = np.vstack([vertices[: index + 1], inserted, vertices[index + 1 :]])
         return Surface(vertices=new_vertices)
     return surface
 
@@ -844,9 +837,7 @@ def _reconcile_slice_line_vertices(
             xy = vertices[0][:2]
             if footprint.boundary.distance(Point(xy)) <= EDGE_TOLERANCE:
                 continue
-            reconciled = [
-                _insert_xy_on_surface_edge(surface, xy) for surface in reconciled
-            ]
+            reconciled = [_insert_xy_on_surface_edge(surface, xy) for surface in reconciled]
     return reconciled
 
 
@@ -907,26 +898,18 @@ def _reconcile_shell_edge_vertices(surfaces: list[Surface]) -> list[Surface]:
             seen.add(key)
             vertices.append(vertex)
     for vertex in vertices:
-        reconciled = [
-            _insert_vertex_on_surface_edge(surface, vertex) for surface in reconciled
-        ]
+        reconciled = [_insert_vertex_on_surface_edge(surface, vertex) for surface in reconciled]
     return reconciled
 
 
 def _planes_are_coplanar(first: RoofPlane, second: RoofPlane) -> bool:
-    normals_close = (
-        abs(1.0 - abs(float(np.dot(first.normal, second.normal))))
-        <= COPLANAR_NORMAL_TOLERANCE
-    )
+    normals_close = abs(1.0 - abs(float(np.dot(first.normal, second.normal)))) <= COPLANAR_NORMAL_TOLERANCE
     offset_close = abs(first.c - second.c) <= COPLANAR_OFFSET_TOLERANCE
     return normals_close and offset_close
 
 
 def _planes_are_near_parallel(first: RoofPlane, second: RoofPlane) -> bool:
-    return (
-        abs(1.0 - abs(float(np.dot(first.normal, second.normal))))
-        <= NEAR_PARALLEL_NORMAL_TOLERANCE
-    )
+    return abs(1.0 - abs(float(np.dot(first.normal, second.normal)))) <= NEAR_PARALLEL_NORMAL_TOLERANCE
 
 
 def _coplanar_pair_count(planes: list[RoofPlane]) -> int:
@@ -965,13 +948,9 @@ def _record_inlier_share_diagnostics(
             recovery_counts[threshold] += 1
 
 
-def _minimum_rotated_rectangle_metrics(
-    footprint: Polygon,
-) -> tuple[float, float] | None:
+def _minimum_rotated_rectangle_metrics(footprint: Polygon) -> tuple[float, float] | None:
     with warnings.catch_warnings():
-        warnings.filterwarnings(
-            "ignore", category=RuntimeWarning, module="shapely.constructive"
-        )
+        warnings.filterwarnings("ignore", category=RuntimeWarning, module="shapely.constructive")
         rectangle = footprint.minimum_rotated_rectangle
     if rectangle.is_empty or rectangle.area <= 0:
         return None
@@ -993,9 +972,7 @@ def _minimum_rotated_rectangle_metrics(
 
 def _signed_area(coords: np.ndarray) -> float:
     shifted = np.roll(coords, -1, axis=0)
-    return 0.5 * float(
-        np.sum(coords[:, 0] * shifted[:, 1] - shifted[:, 0] * coords[:, 1])
-    )
+    return 0.5 * float(np.sum(coords[:, 0] * shifted[:, 1] - shifted[:, 0] * coords[:, 1]))
 
 
 def _concave_vertex_indices(footprint: Polygon) -> list[int]:
@@ -1026,12 +1003,7 @@ def _simplified_footprint_for_decomposition(footprint: Polygon) -> Polygon | Non
         FOOTPRINT_DECOMPOSITION_SIMPLIFY_TOLERANCE,
         preserve_topology=True,
     )
-    if (
-        simplified.geom_type != "Polygon"
-        or simplified.is_empty
-        or not simplified.is_valid
-        or simplified.area <= 0
-    ):
+    if simplified.geom_type != "Polygon" or simplified.is_empty or not simplified.is_valid or simplified.area <= 0:
         return None
     return simplified
 
@@ -1048,13 +1020,9 @@ def _decomposition_shape_reason(footprint: Polygon) -> str:
     return DECOMPOSITION_OTHER_SHAPE
 
 
-def _minimum_rotated_rectangle_axes(
-    footprint: Polygon,
-) -> tuple[np.ndarray, np.ndarray] | None:
+def _minimum_rotated_rectangle_axes(footprint: Polygon) -> tuple[np.ndarray, np.ndarray] | None:
     with warnings.catch_warnings():
-        warnings.filterwarnings(
-            "ignore", category=RuntimeWarning, module="shapely.constructive"
-        )
+        warnings.filterwarnings("ignore", category=RuntimeWarning, module="shapely.constructive")
         rectangle = footprint.minimum_rotated_rectangle
     coords = np.asarray(rectangle.exterior.coords[:-1], dtype=float)
     if coords.shape != (4, 2):
@@ -1069,16 +1037,12 @@ def _minimum_rotated_rectangle_axes(
     return u, v
 
 
-def _angle_to_axis_degrees(
-    vector: np.ndarray, axes: tuple[np.ndarray, np.ndarray]
-) -> float:
+def _angle_to_axis_degrees(vector: np.ndarray, axes: tuple[np.ndarray, np.ndarray]) -> float:
     norm = float(np.linalg.norm(vector))
     if norm == 0.0:
         return 90.0
     direction = vector / norm
-    best_alignment = max(
-        abs(float(np.dot(direction, axes[0]))), abs(float(np.dot(direction, axes[1])))
-    )
+    best_alignment = max(abs(float(np.dot(direction, axes[0]))), abs(float(np.dot(direction, axes[1]))))
     best_alignment = min(1.0, max(-1.0, best_alignment))
     return float(np.degrees(np.arccos(best_alignment)))
 
@@ -1099,9 +1063,7 @@ def _axis_misalignment_angle_reason(angle: float) -> str:
     return AXIS_MISALIGNED_ANGLE_OVER_45
 
 
-def _max_concave_edge_angle_to_axes(
-    footprint: Polygon, concave_indices: list[int], axes: tuple[np.ndarray, np.ndarray]
-) -> float:
+def _max_concave_edge_angle_to_axes(footprint: Polygon, concave_indices: list[int], axes: tuple[np.ndarray, np.ndarray]) -> float:
     coords = np.asarray(footprint.exterior.coords[:-1], dtype=float)
     max_angle = 0.0
     for index in concave_indices:
@@ -1115,29 +1077,20 @@ def _max_concave_edge_angle_to_axes(
     return max_angle
 
 
-def _concave_edges_align_to_axes(
-    footprint: Polygon, concave_indices: list[int], axes: tuple[np.ndarray, np.ndarray]
-) -> bool:
-    return (
-        _max_concave_edge_angle_to_axes(
-            footprint,
-            concave_indices,
-            axes,
-        )
-        <= DECOMPOSITION_AXIS_ANGLE_TOLERANCE
-    )
+def _concave_edges_align_to_axes(footprint: Polygon, concave_indices: list[int], axes: tuple[np.ndarray, np.ndarray]) -> bool:
+    return _max_concave_edge_angle_to_axes(
+        footprint,
+        concave_indices,
+        axes,
+    ) <= DECOMPOSITION_AXIS_ANGLE_TOLERANCE
 
 
-def _slice_line_through(
-    point: np.ndarray, direction: np.ndarray, footprint: Polygon
-) -> LineString:
+def _slice_line_through(point: np.ndarray, direction: np.ndarray, footprint: Polygon) -> LineString:
     xmin, ymin, xmax, ymax = footprint.bounds
     span = max(xmax - xmin, ymax - ymin) * 4.0
     start = point - direction * span
     end = point + direction * span
-    return LineString(
-        [(float(start[0]), float(start[1])), (float(end[0]), float(end[1]))]
-    )
+    return LineString([(float(start[0]), float(start[1])), (float(end[0]), float(end[1]))])
 
 
 def _flatten_polygons(geometry) -> list[Polygon]:
@@ -1151,9 +1104,7 @@ def _flatten_polygons(geometry) -> list[Polygon]:
     return []
 
 
-def _split_by_slice_lines(
-    footprint: Polygon, lines: list[LineString], *, filter_small: bool = True
-) -> list[Polygon]:
+def _split_by_slice_lines(footprint: Polygon, lines: list[LineString], *, filter_small: bool = True) -> list[Polygon]:
     pieces = [footprint]
     for line in lines:
         next_pieces: list[Polygon] = []
@@ -1162,8 +1113,7 @@ def _split_by_slice_lines(
             split_polygons = _flatten_polygons(split_result)
             if filter_small:
                 split_polygons = [
-                    polygon
-                    for polygon in split_polygons
+                    polygon for polygon in split_polygons
                     if polygon.area >= MIN_DECOMPOSITION_REGION_AREA
                 ]
             if len(split_polygons) == 0:
@@ -1171,13 +1121,7 @@ def _split_by_slice_lines(
             else:
                 next_pieces.extend(split_polygons)
         pieces = next_pieces
-    pieces.sort(
-        key=lambda polygon: (
-            round(polygon.bounds[0], 6),
-            round(polygon.bounds[1], 6),
-            round(polygon.area, 6),
-        )
-    )
+    pieces.sort(key=lambda polygon: (round(polygon.bounds[0], 6), round(polygon.bounds[1], 6), round(polygon.area, 6)))
     return pieces
 
 
@@ -1189,9 +1133,7 @@ def _piece_rectangularity(piece: Polygon) -> float:
     return rectangularity
 
 
-def _decomposition_score(
-    footprint: Polygon, pieces: list[Polygon]
-) -> tuple[int, float, float, float]:
+def _decomposition_score(footprint: Polygon, pieces: list[Polygon]) -> tuple[int, float, float, float]:
     min_rectangularity = min(_piece_rectangularity(piece) for piece in pieces)
     uncovered_fraction = footprint.difference(unary_union(pieces)).area / footprint.area
     areas = [piece.area for piece in pieces]
@@ -1199,19 +1141,14 @@ def _decomposition_score(
     return (len(pieces), -min_rectangularity, uncovered_fraction, area_imbalance)
 
 
-def _decomposition_piece_failure_reason(
-    footprint: Polygon, pieces: list[Polygon], expected_count: int
-) -> str | None:
+def _decomposition_piece_failure_reason(footprint: Polygon, pieces: list[Polygon], expected_count: int) -> str | None:
     if len(pieces) != expected_count:
         return NO_VALID_SLICES_OTHER
     if any(piece.area < MIN_DECOMPOSITION_REGION_AREA for piece in pieces):
         return NO_VALID_SLICES_PIECE_TOO_SMALL
     if not _patches_cover_footprint(footprint, pieces):
         return NO_VALID_SLICES_COVERAGE_FAILED
-    if any(
-        _piece_rectangularity(piece) < DECOMPOSITION_RECTANGULARITY_MIN_RATIO
-        for piece in pieces
-    ):
+    if any(_piece_rectangularity(piece) < DECOMPOSITION_RECTANGULARITY_MIN_RATIO for piece in pieces):
         return NO_VALID_SLICES_PIECE_NOT_RECTANGULAR
     return None
 
@@ -1241,9 +1178,7 @@ def _decompose_footprint(
         _record_decomposition_subreason(decomposition_counts, NO_VALID_SLICES_OTHER)
         return None
     if not _concave_edges_align_to_axes(simplified, concave_indices, axes):
-        _record_decomposition_subreason(
-            decomposition_counts, NO_VALID_SLICES_AXIS_MISALIGNED
-        )
+        _record_decomposition_subreason(decomposition_counts, NO_VALID_SLICES_AXIS_MISALIGNED)
         _record_decomposition_subreason(
             decomposition_counts,
             _axis_misalignment_angle_reason(
@@ -1251,9 +1186,7 @@ def _decompose_footprint(
             ),
         )
         return None
-    family_reason = (
-        DECOMPOSITION_L_LIKE if concave_count == 1 else DECOMPOSITION_T_OR_U_LIKE
-    )
+    family_reason = DECOMPOSITION_L_LIKE if concave_count == 1 else DECOMPOSITION_T_OR_U_LIKE
     expected_count = concave_count + 1
     coords = np.asarray(simplified.exterior.coords[:-1], dtype=float)
     candidate_lines: list[LineString] = []
@@ -1262,28 +1195,22 @@ def _decompose_footprint(
         for direction in axes:
             candidate_lines.append(_slice_line_through(point, direction, footprint))
             candidate_lines.append(_slice_line_through(point, -direction, footprint))
-    candidates: list[
-        tuple[tuple[int, float, float, float], list[Polygon], list[LineString]]
-    ] = []
+    candidates: list[tuple[tuple[int, float, float, float], list[Polygon], list[LineString]]] = []
     if concave_count == 1:
         line_sets = [[line] for line in candidate_lines]
     else:
         line_sets = [
             [first, second]
             for first_index, first in enumerate(candidate_lines)
-            for second in candidate_lines[first_index + 1 :]
+            for second in candidate_lines[first_index + 1:]
         ]
     failure_reasons = Counter()
     for lines in line_sets:
         pieces = _split_by_slice_lines(footprint, lines)
-        failure_reason = _decomposition_piece_failure_reason(
-            footprint, pieces, expected_count
-        )
+        failure_reason = _decomposition_piece_failure_reason(footprint, pieces, expected_count)
         if failure_reason == NO_VALID_SLICES_OTHER:
             raw_pieces = _split_by_slice_lines(footprint, lines, filter_small=False)
-            raw_failure_reason = _decomposition_piece_failure_reason(
-                footprint, raw_pieces, expected_count
-            )
+            raw_failure_reason = _decomposition_piece_failure_reason(footprint, raw_pieces, expected_count)
             if raw_failure_reason == NO_VALID_SLICES_PIECE_TOO_SMALL:
                 failure_reason = raw_failure_reason
         if failure_reason is not None:
@@ -1293,9 +1220,7 @@ def _decompose_footprint(
     if not candidates:
         _record_decomposition_subreason(
             decomposition_counts,
-            _most_common_no_valid_slice_reason(failure_reasons)
-            if failure_reasons
-            else NO_VALID_SLICES_OTHER,
+            _most_common_no_valid_slice_reason(failure_reasons) if failure_reasons else NO_VALID_SLICES_OTHER,
         )
         return None
     candidates.sort(key=lambda item: item[0])
@@ -1308,9 +1233,7 @@ def _decompose_footprint(
     )
 
 
-def _dominant_plane_count(
-    planes: list[RoofPlane], inlier_share: float = HIP_PLANE_INLIER_SHARE
-) -> int:
+def _dominant_plane_count(planes: list[RoofPlane], inlier_share: float = HIP_PLANE_INLIER_SHARE) -> int:
     if not planes:
         return 0
     inlier_counts = np.asarray([len(plane.inliers) for plane in planes], dtype=float)
@@ -1343,10 +1266,7 @@ def _record_template_gate_diagnostics(
         template_gate_counts[UNSUPPORTED_RECT_FEW_DOMINANT] += 1
         return
     template_gate_counts[UNSUPPORTED_RECT_4PLANE] += 1
-    if (
-        side_ratio >= NEAR_SQUARE_SIDE_RATIO
-        and footprint.area <= MAX_PYRAMID_FOOTPRINT_AREA
-    ):
+    if side_ratio >= NEAR_SQUARE_SIDE_RATIO and footprint.area <= MAX_PYRAMID_FOOTPRINT_AREA:
         template_gate_counts[UNSUPPORTED_NEAR_SQUARE_4PLANE] += 1
 
 
@@ -1358,34 +1278,26 @@ def _is_irregular_footprint(footprint: Polygon) -> bool:
     return rectangularity < RECTANGULAR_FOOTPRINT_MIN_RATIO
 
 
-def _record_decomposition_candidate(
-    decomposition_counts: Counter | None, family_reason: str
-) -> None:
+def _record_decomposition_candidate(decomposition_counts: Counter | None, family_reason: str) -> None:
     if decomposition_counts is None:
         return
     decomposition_counts[DECOMPOSITION_CANDIDATE] += 1
     decomposition_counts[family_reason] += 1
 
 
-def _record_decomposition_failure(
-    decomposition_counts: Counter | None, reason: str
-) -> None:
+def _record_decomposition_failure(decomposition_counts: Counter | None, reason: str) -> None:
     if decomposition_counts is not None:
         if reason not in DECOMPOSITION_FAILURE_REASONS:
             reason = DECOMPOSITION_REGION_ROOF_FAILED
         decomposition_counts[reason] += 1
 
 
-def _record_decomposition_subreason(
-    decomposition_counts: Counter | None, reason: str
-) -> None:
+def _record_decomposition_subreason(decomposition_counts: Counter | None, reason: str) -> None:
     if decomposition_counts is not None:
         decomposition_counts[reason] += 1
 
 
-def _record_stepped_flat_reason(
-    stepped_flat_counts: Counter | None, reason: str
-) -> None:
+def _record_stepped_flat_reason(stepped_flat_counts: Counter | None, reason: str) -> None:
     if stepped_flat_counts is not None:
         stepped_flat_counts[reason] += 1
 
@@ -1478,9 +1390,7 @@ def _stepped_flat_height_levels(
     return levels, None
 
 
-def _dominant_height_band(
-    heights: np.ndarray, tolerance: float
-) -> tuple[float, np.ndarray]:
+def _dominant_height_band(heights: np.ndarray, tolerance: float) -> tuple[float, np.ndarray]:
     order = np.argsort(heights)
     sorted_heights = heights[order]
     best_start = 0
@@ -1501,9 +1411,7 @@ def _dominant_height_band(
     return level_z, band_mask
 
 
-def _flat_collapse_plane(
-    points: np.ndarray, planes: list[RoofPlane]
-) -> RoofPlane | None:
+def _flat_collapse_plane(points: np.ndarray, planes: list[RoofPlane]) -> RoofPlane | None:
     points = np.asarray(points, dtype=float)
     evidence_indices = _stepped_flat_evidence_indices(planes)
     if evidence_indices is None:
@@ -1535,9 +1443,7 @@ def _patches_cover_footprint(footprint: Polygon, patches: list[Polygon]) -> bool
     return missing.area / footprint.area <= MAX_UNCOVERED_FOOTPRINT_FRACTION
 
 
-def _roof_surfaces_cover_footprint(
-    footprint: Polygon, roof_surfaces: list[Surface]
-) -> bool:
+def _roof_surfaces_cover_footprint(footprint: Polygon, roof_surfaces: list[Surface]) -> bool:
     projected_patches = []
     for surface in roof_surfaces:
         if len(surface.vertices) < 3:
@@ -1550,9 +1456,7 @@ def _roof_surfaces_cover_footprint(
     return _patches_cover_footprint(footprint, projected_patches)
 
 
-def _plane_equality_line(
-    first: RoofPlane, second: RoofPlane, footprint: Polygon
-) -> LineString | None:
+def _plane_equality_line(first: RoofPlane, second: RoofPlane, footprint: Polygon) -> LineString | None:
     a = first.a - second.a
     b = first.b - second.b
     c = first.c - second.c
@@ -1575,9 +1479,7 @@ def _plane_equality_line(
     return LineString([(x0, y0), (x1, y1)])
 
 
-def _split_footprint_for_two_planes(
-    footprint: Polygon, first: RoofPlane, second: RoofPlane
-) -> list[Polygon] | None:
+def _split_footprint_for_two_planes(footprint: Polygon, first: RoofPlane, second: RoofPlane) -> list[Polygon] | None:
     line = _plane_equality_line(first, second, footprint)
     if line is None:
         return None
@@ -1588,9 +1490,7 @@ def _split_footprint_for_two_planes(
     return polygons
 
 
-def _assign_patches_to_planes(
-    points: np.ndarray, planes: list[RoofPlane], patches: list[Polygon]
-) -> list[Polygon] | None:
+def _assign_patches_to_planes(points: np.ndarray, planes: list[RoofPlane], patches: list[Polygon]) -> list[Polygon] | None:
     assigned: list[Polygon | None] = [None] * len(planes)
     used_patch_indices: set[int] = set()
     for plane_index, plane in enumerate(planes):
@@ -1600,10 +1500,8 @@ def _assign_patches_to_planes(
             if patch_index in used_patch_indices:
                 continue
             buffered = patch.buffer(EDGE_TOLERANCE)
-            count = sum(
-                buffered.contains(Point(x, y)) or buffered.touches(Point(x, y))
-                for x, y in points[plane.inliers][:, :2]
-            )
+            xy = points[plane.inliers, :2]
+            count = int(np.count_nonzero(shapely.intersects_xy(buffered, xy[:, 0], xy[:, 1])))
             if count > best_count:
                 best_count = count
                 best_patch_index = patch_index
@@ -1661,9 +1559,7 @@ def _multi_plane_roof_surfaces(
     if len(patches) < 2 or not _patches_cover_footprint(footprint, patches):
         return None, PATCH_COVERAGE_FAILED
 
-    shared_vertices_by_patch: list[dict[tuple[float, float], np.ndarray]] = [
-        dict() for _ in patches
-    ]
+    shared_vertices_by_patch: list[dict[tuple[float, float], np.ndarray]] = [dict() for _ in patches]
     for i in range(len(patches)):
         for j in range(i + 1, len(patches)):
             if _planes_are_coplanar(kept_planes[i], kept_planes[j]):
@@ -1702,13 +1598,8 @@ def _record_rejection(rejections: Counter | None, reason: str) -> None:
 
 def _points_in_polygon(points: np.ndarray, polygon: Polygon) -> np.ndarray:
     buffered = polygon.buffer(EDGE_TOLERANCE)
-    selected = [
-        point
-        for point in points
-        if buffered.contains(Point(point[0], point[1]))
-        or buffered.touches(Point(point[0], point[1]))
-    ]
-    return np.asarray(selected, dtype=float)
+    points = np.asarray(points, dtype=float)
+    return points[shapely.intersects_xy(buffered, points[:, 0], points[:, 1])]
 
 
 def _region_roof_failure_reason(reason: str | None) -> str:
@@ -1723,20 +1614,13 @@ def _region_roof_failure_reason(reason: str | None) -> str:
     return REGION_ROOF_OTHER
 
 
-def _cap_region_roof_planes(
-    planes: list[RoofPlane],
-) -> tuple[list[RoofPlane], str | None]:
+def _cap_region_roof_planes(planes: list[RoofPlane]) -> tuple[list[RoofPlane], str | None]:
     if len(planes) <= 2:
         return planes, None
-    planes_by_inliers = sorted(
-        planes, key=lambda plane: len(plane.inliers), reverse=True
-    )
+    planes_by_inliers = sorted(planes, key=lambda plane: len(plane.inliers), reverse=True)
     total_inliers = sum(len(plane.inliers) for plane in planes_by_inliers)
     dropped_inliers = sum(len(plane.inliers) for plane in planes_by_inliers[2:])
-    if (
-        total_inliers > 0
-        and dropped_inliers / total_inliers > MAX_TEMPLATE_DROPPED_INLIER_SHARE
-    ):
+    if total_inliers > 0 and dropped_inliers / total_inliers > MAX_TEMPLATE_DROPPED_INLIER_SHARE:
         return [], REGION_ROOF_DROPPED_TOO_MANY
     return planes_by_inliers[:2], None
 
@@ -1857,10 +1741,7 @@ def _level_patch_support_is_clean(
         _region_grid_cell_size(patch),
     ):
         return False
-    return (
-        contamination_count / accepted_patch_count
-        <= STEPPED_FLAT_MAX_PATCH_CONTAMINATION_SHARE
-    )
+    return contamination_count / accepted_patch_count <= STEPPED_FLAT_MAX_PATCH_CONTAMINATION_SHARE
 
 
 def _level_point_counts_in_region(
@@ -1871,13 +1752,9 @@ def _level_point_counts_in_region(
     buffered = region.buffer(EDGE_TOLERANCE)
     counts: list[int] = []
     for level in levels:
-        count = 0
-        for point_index in level.point_indices:
-            point = points[int(point_index)]
-            point_xy = Point(point[0], point[1])
-            if buffered.contains(point_xy) or buffered.touches(point_xy):
-                count += 1
-        counts.append(count)
+        xy = points[np.asarray(level.point_indices, dtype=int), :2]
+        counts.append(int(np.count_nonzero(
+            shapely.intersects_xy(buffered, xy[:, 0], xy[:, 1]))))
     return counts
 
 
@@ -1905,7 +1782,9 @@ def _assign_candidate_regions_to_levels(
         assignments.append(AssignedSteppedFlatRegion(region, level_index))
 
     all_level_indices = {
-        int(index) for level in levels for index in level.point_indices
+        int(index)
+        for level in levels
+        for index in level.point_indices
     }
     patches_by_level: list[Polygon] = []
     for level_index, level in enumerate(levels):
@@ -1920,9 +1799,7 @@ def _assign_candidate_regions_to_levels(
         polygons = [
             polygon
             for polygon in _flatten_polygons(merged)
-            if not polygon.is_empty
-            and polygon.is_valid
-            and polygon.area >= MIN_PATCH_AREA
+            if not polygon.is_empty and polygon.is_valid and polygon.area >= MIN_PATCH_AREA
         ]
         if len(polygons) != STEPPED_FLAT_REGION_MAX_MULTIPART:
             return None
@@ -2013,7 +1890,10 @@ def _region_area_has_level_support_extent(
     extent_area = _level_support_extent_area(points, level, buffer_distance)
     if extent_area is None:
         return False
-    return region.area / extent_area <= STEPPED_FLAT_REGION_MAX_PATCH_SUPPORT_AREA_RATIO
+    return (
+        region.area / extent_area
+        <= STEPPED_FLAT_REGION_MAX_PATCH_SUPPORT_AREA_RATIO
+    )
 
 
 def _grid_candidate_regions(
@@ -2029,7 +1909,8 @@ def _grid_candidate_regions(
         return None
 
     cells_by_level: dict[int, list[Polygon]] = {
-        index: [] for index in range(len(levels))
+        index: []
+        for index in range(len(levels))
     }
     for x in x_values:
         for y in y_values:
@@ -2068,9 +1949,7 @@ def _grid_candidate_regions(
         polygons = [
             polygon
             for polygon in _flatten_polygons(merged)
-            if not polygon.is_empty
-            and polygon.is_valid
-            and polygon.area >= MIN_PATCH_AREA
+            if not polygon.is_empty and polygon.is_valid and polygon.area >= MIN_PATCH_AREA
         ]
         if len(polygons) != STEPPED_FLAT_REGION_MAX_MULTIPART:
             return None
@@ -2094,10 +1973,7 @@ def _stepped_flat_strip_level_patches(
     if levels is None or len(levels) < STEPPED_FLAT_MIN_LEVELS:
         return None, STEPPED_FLAT_INSUFFICIENT_LEVELS
     footprint_metrics = _minimum_rotated_rectangle_metrics(footprint)
-    if (
-        footprint_metrics is None
-        or footprint_metrics[0] < RECTANGULAR_FOOTPRINT_MIN_RATIO
-    ):
+    if footprint_metrics is None or footprint_metrics[0] < RECTANGULAR_FOOTPRINT_MIN_RATIO:
         return None, STEPPED_FLAT_PATCH_FAILED
     axes = _minimum_rotated_rectangle_axes(footprint)
     if axes is None:
@@ -2110,7 +1986,10 @@ def _stepped_flat_strip_level_patches(
     )
     points_local = _project_xy_to_axes(points[:, :2], axes)
     level_centers = np.asarray(
-        [np.mean(points_local[level.point_indices], axis=0) for level in levels],
+        [
+            np.mean(points_local[level.point_indices], axis=0)
+            for level in levels
+        ],
         dtype=float,
     )
     strip_axis = int(np.argmax(np.ptp(level_centers, axis=0)))
@@ -2138,7 +2017,9 @@ def _stepped_flat_strip_level_patches(
     cross_max = float(np.max(footprint_local[:, cross_axis])) + EDGE_TOLERANCE
 
     all_level_indices = {
-        int(index) for level in levels for index in level.point_indices
+        int(index)
+        for level in levels
+        for index in level.point_indices
     }
     patches_by_level: list[Polygon | None] = [None] * len(levels)
     for ordered_index, (level_index, level) in enumerate(ordered):
@@ -2158,10 +2039,7 @@ def _stepped_flat_strip_level_patches(
         if patch is None:
             return None, STEPPED_FLAT_PATCH_FAILED
         patch_metrics = _minimum_rotated_rectangle_metrics(patch)
-        if (
-            patch_metrics is None
-            or patch_metrics[0] < DECOMPOSITION_RECTANGULARITY_MIN_RATIO
-        ):
+        if patch_metrics is None or patch_metrics[0] < DECOMPOSITION_RECTANGULARITY_MIN_RATIO:
             return None, STEPPED_FLAT_PATCH_FAILED
         if not _level_patch_support_is_clean(points, patch, level, all_level_indices):
             return None, STEPPED_FLAT_PATCH_FAILED
@@ -2241,9 +2119,7 @@ def _build_decomposed_shell(
         return None, DECOMPOSITION_NO_VALID_SLICES
     roof_surfaces: list[Surface] = []
     for region in decomposition.pieces:
-        region_surfaces, reason = _region_roof_surfaces(
-            roof_points, region, decomposition_counts
-        )
+        region_surfaces, reason = _region_roof_surfaces(roof_points, region, decomposition_counts)
         if region_surfaces is None:
             return None, reason or DECOMPOSITION_REGION_ROOF_FAILED
         roof_surfaces.extend(region_surfaces)
@@ -2259,26 +2135,15 @@ def _build_decomposed_shell(
         roof_surfaces,
         decomposition.slice_lines,
     )
-    roof_surfaces = _split_crossing_junction_edges(
-        roof_surfaces, decomposition.slice_lines
-    )
-    junctions = _internal_junction_surfaces(
-        footprint, roof_surfaces, decomposition.slice_lines
-    )
+    roof_surfaces = _split_crossing_junction_edges(roof_surfaces, decomposition.slice_lines)
+    junctions = _internal_junction_surfaces(footprint, roof_surfaces, decomposition.slice_lines)
     if junctions is None:
         return None, DECOMPOSITION_JUNCTION_FAILED
     walls = _wall_surfaces(footprint, roof_surfaces, ground_height)
     if len(walls) == 0:
         _record_decomposition_subreason(decomposition_counts, WATERTIGHT_OTHER)
         return None, DECOMPOSITION_WATERTIGHT_FAILED
-    shell = MultiSurface(
-        surfaces=[
-            *roof_surfaces,
-            *junctions,
-            *walls,
-            _ground_surface(footprint, ground_height),
-        ]
-    )
+    shell = MultiSurface(surfaces=[*roof_surfaces, *junctions, *walls, _ground_surface(footprint, ground_height)])
     if not is_watertight(shell):
         watertight_reason = _decomposed_watertight_failure_reason(
             footprint,
@@ -2290,9 +2155,7 @@ def _build_decomposed_shell(
         if watertight_reason == WATERTIGHT_EDGE_COUNT_MISMATCH:
             _record_decomposition_subreason(
                 decomposition_counts,
-                _edge_count_mismatch_reason(
-                    footprint, decomposition.slice_lines, shell
-                ),
+                _edge_count_mismatch_reason(footprint, decomposition.slice_lines, shell),
             )
         return None, DECOMPOSITION_WATERTIGHT_FAILED
     if decomposition_counts is not None:
@@ -2329,14 +2192,10 @@ def _stepped_flat_slice_lines(patches: list[Polygon]) -> list[LineString]:
                 coords = np.asarray(line.coords, dtype=float)
                 start = coords[0]
                 end = coords[-1]
-                line_key = tuple(
-                    sorted(
-                        (
-                            tuple(np.round(start / EDGE_TOLERANCE).astype(int)),
-                            tuple(np.round(end / EDGE_TOLERANCE).astype(int)),
-                        )
-                    )
-                )
+                line_key = tuple(sorted((
+                    tuple(np.round(start / EDGE_TOLERANCE).astype(int)),
+                    tuple(np.round(end / EDGE_TOLERANCE).astype(int)),
+                )))
                 if line_key in handled_lines:
                     continue
                 handled_lines.add(line_key)
@@ -2397,21 +2256,15 @@ def _build_stepped_flat_shell(
     levels: list[SteppedFlatLevel] | None,
     ground_height: float,
 ) -> tuple[MultiSurface | None, str]:
-    if (
-        patches is None
-        or levels is None
-        or len(patches) == 0
-        or len(patches) != len(levels)
-    ):
+    if patches is None or levels is None or len(patches) == 0 or len(patches) != len(levels):
         return None, STEPPED_FLAT_PATCH_FAILED
 
     roof_surfaces = [
-        _surface_from_xy(patch, level.plane) for patch, level in zip(patches, levels)
+        _surface_from_xy(patch, level.plane)
+        for patch, level in zip(patches, levels)
     ]
     slice_lines = _stepped_flat_slice_lines(patches)
-    roof_surfaces = _node_stepped_flat_roof_surfaces(
-        footprint, roof_surfaces, slice_lines
-    )
+    roof_surfaces = _node_stepped_flat_roof_surfaces(footprint, roof_surfaces, slice_lines)
     if _has_multi_height_slice_endpoint(footprint, roof_surfaces, slice_lines):
         return None, STEPPED_FLAT_STEP_WALL_FAILED
     junctions = _internal_junction_surfaces(footprint, roof_surfaces, slice_lines)
@@ -2486,6 +2339,7 @@ def _candidate_lod2_from_parts(
     template_gate_counts: Counter | None = None,
     stepped_flat_counts: Counter | None = None,
     decomposition_counts: Counter | None = None,
+    plane_selection: dict | None = None,
 ) -> MultiSurface | None:
     planes = _ransac_planes(roof_points)
     if plane_counts is not None:
@@ -2503,9 +2357,7 @@ def _candidate_lod2_from_parts(
             family_reason = _decomposition_shape_reason(footprint)
             _record_decomposition_candidate(decomposition_counts, family_reason)
             if family_reason == DECOMPOSITION_OTHER_SHAPE:
-                _record_decomposition_failure(
-                    decomposition_counts, DECOMPOSITION_UNSUPPORTED_SHAPE
-                )
+                _record_decomposition_failure(decomposition_counts, DECOMPOSITION_UNSUPPORTED_SHAPE)
             else:
                 shell, decomposition_reason = _build_decomposed_shell(
                     footprint,
@@ -2515,9 +2367,24 @@ def _candidate_lod2_from_parts(
                 )
                 if shell is not None:
                     return shell
-                _record_decomposition_failure(
-                    decomposition_counts, decomposition_reason
-                )
+                _record_decomposition_failure(decomposition_counts, decomposition_reason)
+        # Assemble supported continuous roofs from a subset of the detected
+        # planes. Minor residual planes need not force the whole roof to LOD1.
+        from .roof_plane_selection import envelope_candidates
+        for patches, selected, selection in envelope_candidates(
+            footprint, roof_points, planes,
+            tolerance=2 * RANSAC_DISTANCE_THRESHOLD,
+            min_points=MIN_PLANE_INLIERS, min_area=MIN_PATCH_AREA,
+        ):
+            roof_surfaces = [_surface_from_xy(patch, planes[index])
+                             for patch, index in zip(patches, selected)]
+            if any(np.min(s.vertices[:, 2]) <= ground_height for s in roof_surfaces):
+                continue
+            shell = _build_shell(footprint, roof_surfaces, ground_height)
+            if shell is not None:
+                if plane_selection is not None:
+                    plane_selection.update(selection)
+                return shell
         shell, _ = _candidate_stepped_flat_lod2(
             footprint,
             roof_points,
@@ -2530,18 +2397,14 @@ def _candidate_lod2_from_parts(
         _record_rejection(rejections, UNSUPPORTED_PLANE_COUNT)
         return None
 
-    roof_surfaces, rejection_reason = _roof_surfaces_for_planes(
-        roof_points, footprint, planes
-    )
+    roof_surfaces, rejection_reason = _roof_surfaces_for_planes(roof_points, footprint, planes)
     if roof_surfaces is None:
         if rejection_reason == SPLIT_FAILED:
             if _is_irregular_footprint(footprint):
                 family_reason = _decomposition_shape_reason(footprint)
                 _record_decomposition_candidate(decomposition_counts, family_reason)
                 if family_reason == DECOMPOSITION_OTHER_SHAPE:
-                    _record_decomposition_failure(
-                        decomposition_counts, DECOMPOSITION_UNSUPPORTED_SHAPE
-                    )
+                    _record_decomposition_failure(decomposition_counts, DECOMPOSITION_UNSUPPORTED_SHAPE)
                 else:
                     shell, decomposition_reason = _build_decomposed_shell(
                         footprint,
@@ -2551,9 +2414,7 @@ def _candidate_lod2_from_parts(
                     )
                     if shell is not None:
                         return shell
-                    _record_decomposition_failure(
-                        decomposition_counts, decomposition_reason
-                    )
+                    _record_decomposition_failure(decomposition_counts, decomposition_reason)
             shell, _ = _candidate_stepped_flat_lod2(
                 footprint,
                 roof_points,
@@ -2661,6 +2522,7 @@ def _candidate_lod2(
     template_gate_counts: Counter | None = None,
     stepped_flat_counts: Counter | None = None,
     decomposition_counts: Counter | None = None,
+    plane_selection: dict | None = None,
 ) -> MultiSurface | None:
     footprint = _footprint_polygon(building)
     if footprint is None:
@@ -2670,11 +2532,7 @@ def _candidate_lod2(
     if roof_points is None:
         _record_rejection(rejections, INSUFFICIENT_ROOF_POINTS)
         return None
-    ground_height = (
-        default_ground_height
-        if always_use_default_ground
-        else building.attributes.get("ground_height", default_ground_height)
-    )
+    ground_height = default_ground_height if always_use_default_ground else building.attributes.get("ground_height", default_ground_height)
     return _candidate_lod2_from_parts(
         footprint,
         roof_points,
@@ -2687,6 +2545,7 @@ def _candidate_lod2(
         template_gate_counts,
         stepped_flat_counts,
         decomposition_counts,
+        plane_selection,
     )
 
 
@@ -2698,7 +2557,48 @@ def build_lod2_buildings(
     rebuild: bool = True,
     build_lod1_fallback: bool = True,
     log_rejections: bool = False,
+    lod2_method: str = 'catalogue',
 ) -> list[Building]:
+    """Build LOD2 geometry with reconstructed roofs for buildings.
+
+    For each building, catalogue roofs (or RANSAC planes) are fitted to the roof points
+    stored on ``building.point_cloud`` (see ``extract_roof_points``) and
+    combined with the LOD0 footprint into a closed shell with sloped or
+    stepped roofs. A building gets no LOD2 geometry when its footprint is
+    missing, invalid or has holes, when it has insufficient roof points, or
+    when its roof shape cannot be reconstructed. Such buildings can fall back
+    to an LOD1 block instead.
+
+    Parameters
+    ----------
+    buildings : list[Building]
+        Buildings with LOD0 footprints and roof points. Modified in place.
+    default_ground_height : float, optional
+        Ground height used when a building has no ``ground_height``
+        attribute. Default is 0.0.
+    always_use_default_ground : bool, optional
+        Use ``default_ground_height`` for every building, ignoring any
+        ``ground_height`` attribute. Default is False.
+    rebuild : bool, optional
+        Remove and rebuild existing LOD2 geometry. When False, buildings that
+        already have LOD2 geometry are skipped. Default is True.
+    build_lod1_fallback : bool, optional
+        Build an LOD1 block for buildings whose roof could not be
+        reconstructed and that have no LOD1 geometry yet. Default is True.
+    log_rejections : bool, optional
+        Log how many buildings got LOD2 geometry and why the others were
+        rejected. Default is False.
+    lod2_method : {"catalogue", "ransac"}, optional
+        Roof reconstruction method. Catalogue is the default.
+
+    Returns
+    -------
+    list[Building]
+        The same buildings, with LOD2 or fallback LOD1 geometry added.
+    """
+    if lod2_method not in ('catalogue', 'ransac'):
+        raise ValueError("lod2_method must be 'catalogue' or 'ransac'")
+    info(f'Building LOD2 city model ({lod2_method} roof reconstruction).')
     rejections = Counter()
     plane_counts = Counter()
     max_plane_coplanar_pair_counts = Counter()
@@ -2717,19 +2617,25 @@ def build_lod2_buildings(
             continue
         if rebuild:
             building.remove_geometry(GeometryType.LOD2)
-        candidate = _candidate_lod2(
-            building,
-            default_ground_height,
-            always_use_default_ground,
-            rejections if log_rejections else None,
-            plane_counts if log_rejections else None,
-            max_plane_coplanar_pair_counts if log_rejections else None,
-            inlier_share_recovery_counts if log_rejections else None,
-            trailing_plane_counts if log_rejections else None,
-            template_gate_counts if log_rejections else None,
-            stepped_flat_counts if log_rejections else None,
-            decomposition_counts if log_rejections else None,
-        )
+        building.attributes.pop('roof_reconstruction', None)
+        candidate = None
+        if lod2_method == 'catalogue':
+            from .catalogue import catalogue_shell
+            candidate = catalogue_shell(building, default_ground_height, always_use_default_ground)
+        else:
+            candidate = _candidate_lod2(
+                building,
+                default_ground_height,
+                always_use_default_ground,
+                rejections if log_rejections else None,
+                plane_counts if log_rejections else None,
+                max_plane_coplanar_pair_counts if log_rejections else None,
+                inlier_share_recovery_counts if log_rejections else None,
+                trailing_plane_counts if log_rejections else None,
+                template_gate_counts if log_rejections else None,
+                stepped_flat_counts if log_rejections else None,
+                decomposition_counts if log_rejections else None,
+            )
         if candidate is not None:
             building.add_geometry(candidate, GeometryType.LOD2)
             lod2_count += 1
@@ -2760,9 +2666,7 @@ def build_lod2_buildings(
     return buildings
 
 
-def _vertex_key(
-    vertex: np.ndarray, tolerance: float = EDGE_TOLERANCE
-) -> tuple[int, int, int]:
+def _vertex_key(vertex: np.ndarray, tolerance: float = EDGE_TOLERANCE) -> tuple[int, int, int]:
     return tuple(np.round(np.asarray(vertex, dtype=float) / tolerance).astype(int))
 
 
@@ -2776,18 +2680,33 @@ def _surface_edges(surface: Surface, tolerance: float = EDGE_TOLERANCE):
         yield tuple(sorted((start, end)))
 
 
-def _edge_counts(
-    multisurface: MultiSurface, tolerance: float = EDGE_TOLERANCE
-) -> Counter:
+def _edge_counts(multisurface: MultiSurface, tolerance: float = EDGE_TOLERANCE) -> Counter:
     counts = Counter()
     for surface in multisurface.surfaces:
         counts.update(_surface_edges(surface, tolerance))
     return counts
 
 
-def is_watertight(
-    multisurface: MultiSurface, tolerance: float = EDGE_TOLERANCE
-) -> bool:
+def is_watertight(multisurface: MultiSurface, tolerance: float = EDGE_TOLERANCE) -> bool:
+    """Check whether a multisurface forms a closed shell.
+
+    A shell is closed when every edge is shared by exactly two surfaces. Vertex
+    coordinates are rounded to multiples of ``tolerance`` before edges are
+    compared.
+
+    Parameters
+    ----------
+    multisurface : MultiSurface
+        Surfaces to check.
+    tolerance : float, optional
+        Distance used to match vertices. Default is 1e-3.
+
+    Returns
+    -------
+    bool
+        True if the surfaces form a closed shell. False for anything that is
+        not a non-empty MultiSurface.
+    """
     if not isinstance(multisurface, MultiSurface) or len(multisurface.surfaces) == 0:
         return False
     counts = _edge_counts(multisurface, tolerance)

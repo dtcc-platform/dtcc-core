@@ -8,6 +8,24 @@ from ..values import Raster
 
 @dataclass
 class GeometryRepresentation:
+    """A geometry attached to an object, with an optional LOD and role.
+
+    Attributes
+    ----------
+    geometry : Geometry or Raster or Bounds
+        The attached geometry.
+    lod : str or None
+        Level of detail label.
+    role : str or None
+        Role of the geometry for the object.
+
+    Raises
+    ------
+    TypeError
+        If ``geometry`` is not a native geometry, Raster or Bounds.
+    ValueError
+        If ``lod`` or ``role`` is given but is not a non-empty string.
+    """
     geometry: Geometry | Raster | Bounds
     lod: str | None = None
     role: str | None = None

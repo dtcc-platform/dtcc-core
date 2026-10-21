@@ -30,26 +30,25 @@ def test_split_footprint_walls_preserves_shape_height_and_source():
         builder.split_footprint_walls([original], max_wall_length=[])
 
 
-def test_merge_buildings_joins_nearby_footprints_without_mutating_city():
+def test_clean_footprints_merges_nearby_footprints_without_mutating_city():
     city = City()
     city.add_building(building(box(0, 0, 4, 4), "left"))
     city.add_building(building(box(4.1, 0, 8.1, 4), "right"))
-    result = builder.merge_buildings(city, max_distance=0.2, min_area=0, simplify=False)
+    result = builder.clean_footprints(city, min_building_detail=0.2)
     assert len(result.buildings) == 1
     merged = result.buildings[0].lod0.to_polygon()
     assert merged.is_valid and merged.area >= 32
+    assert [part.id for part in result.buildings[0].building_parts] == ["left", "right"]
     assert len(city.buildings) == 2
     assert [b.lod0.to_polygon().area for b in city.buildings] == [16, 16]
 
 
-def test_fix_building_clearance_removes_small_footprint_defect():
+def test_clean_footprint_removes_small_footprint_defect():
     polygon = Polygon([(0, 0), (4, 0), (4, 4), (2.01, 4), (2, 3.99), (0, 4)])
-    city = City()
-    city.add_building(building(polygon))
-    result = builder.fix_building_clearance(city, target_clearance=0.2, min_angle=20)
-    fixed = result.buildings[0].lod0.to_polygon(simplify=0)
+    original = building(polygon)
+    fixed = original.clean_footprint(min_building_detail=0.2).lod0.to_polygon(simplify=0)
     assert fixed.is_valid and fixed.minimum_clearance >= 0.18
-    assert city.buildings[0].lod0.to_polygon(simplify=0).equals(polygon)
+    assert original.lod0.to_polygon(simplify=0).equals(polygon)
 
 
 def test_clean_building_surfaces_removes_redundant_vertices():

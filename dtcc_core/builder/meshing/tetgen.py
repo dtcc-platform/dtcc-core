@@ -58,6 +58,25 @@ def get_default_tetgen_switches() -> dict[str, Any]:
     return _tetgen_switch_module.tetgen_defaults()
 
 
+VOLUME_BOUNDARY_FIELD = "volume_boundary"
+
+
+def has_volume_veto(mesh: Mesh) -> bool:
+    """Whether a surface mesh is marked as unfit to bound a volume mesh.
+
+    The mark is a geometry field ``volume_boundary`` with value 0, as on the
+    surface mesh of buildings cleaned in isolation or a separated shell. It is
+    metadata, not a geometric check: a mesh without it is still audited as a boundary (PLC)
+    before volume meshing.
+    """
+    for field in getattr(mesh, "fields", []) or []:
+        if field.name == VOLUME_BOUNDARY_FIELD and field.association == "geometry":
+            values = np.asarray(field.values).reshape(-1)
+            if len(values) and values[0] == 0:
+                return True
+    return False
+
+
 def build_volume_mesh(
     mesh: Mesh,
     build_top_sidewalls: bool = True,
@@ -85,10 +104,9 @@ def build_volume_mesh(
     return_boundary_faces : bool, optional
         Request TetGen to return boundary faces; stored on the resulting VolumeMesh.
     closure_mesh : Mesh, optional
-        Optional flat closure mesh used to source the outer-domain top-cap and
-        sidewall boundary loops when ``prebuilt_plc`` is not supplied. The live
-        PLC is rebuilt from the shell/closure geometry rather than by copying a
-        pre-existing boundary-facet list directly.
+        Closure reference when ``prebuilt_plc`` is not supplied. Its vertex
+        array shape is checked; top-cap and sidewall loops come from ``mesh``.
+        The shell itself can be used as this reference.
     top_cap_backend : str, optional
         2D backend used when re-triangulating the top cap from the shell's
         outer-domain boundary. Defaults to ``"auto"``.
@@ -124,7 +142,9 @@ def build_volume_mesh(
     TypeError
         If ``mesh`` is not a ``Mesh`` instance.
     ValueError
-        If the input mesh lacks faces, face markers, or required boundary facets.
+        If the input mesh lacks faces, face markers, or required boundary
+        facets, or is marked as unfit to bound a volume mesh (see
+        :func:`has_volume_veto`).
     """
     _require_tetgen()
     if not isinstance(mesh, Mesh):
@@ -137,6 +157,13 @@ def build_volume_mesh(
         raise ValueError("Input mesh must have face markers defined.")
     if len(mesh.markers) != len(mesh.faces):
         raise ValueError("Input mesh must have one face marker per face.")
+    if has_volume_veto(mesh):
+        raise ValueError(
+            "Input mesh is marked as unfit to bound a volume mesh (for example a "
+            "separated surface mesh or buildings cleaned in isolation). "
+            "Build the volume mesh from "
+            "the city with buildings cleaned in unison."
+        )
 
     b_facets = None
     boundary_facet_markers = None

@@ -186,6 +186,11 @@ tetgen_fail*
 tetgen-tmpfile_skipped*
 benchmarks/__pycache__/
 benchmarks/output*/
+benchmarks/runs/
 
 # Generated CityJSON smoke outputs
 sandbox/*.city.json
+
+# Local agent plans and working documents
+/.agent/plans/
+/.agent/work/

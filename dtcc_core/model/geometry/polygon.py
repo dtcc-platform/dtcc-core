@@ -8,6 +8,13 @@ from .geometry import Geometry
 
 @dataclass(repr=False)
 class Polygon(Geometry):
+    """A polygon geometry backed by a Shapely polygon.
+
+    Attributes
+    ----------
+    geom : shapely.geometry.Polygon
+        The underlying polygon, also available as ``shapely``.
+    """
     geom: ShapelyPolygon = field(default_factory=ShapelyPolygon)
 
     @property

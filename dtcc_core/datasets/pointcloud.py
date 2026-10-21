@@ -1,13 +1,12 @@
-from typing import Literal
-
+import dtcc_core
+from dtcc_core.model import PointCloud
+from typing import Literal, Optional, List, Union
 from pydantic import Field, field_validator
 
-import dtcc_core
-from dtcc_core.common.progress import ProgressTracker, report_progress
-from dtcc_core.model import PointCloud
-
-from .dataset import DatasetBaseArgs, DatasetDescriptor
+from .dataset import DatasetDescriptor, DatasetBaseArgs
 from .providers import provider_display_name, provider_entry
+from dtcc_core.common.progress import ProgressTracker, report_progress
+
 
 CLASSIFICATION_PRESETS = {
     "terrain": [2, 8],
@@ -17,9 +16,10 @@ CLASSIFICATION_PRESETS = {
 
 
 class PointCloudArgs(DatasetBaseArgs):
-    classifications: (
-        int | list[int] | Literal["all", "terrain", "buildings", "vegetation"]
-    ) = Field(
+    """Arguments for the Lantmäteriet point cloud dataset."""
+    classifications: Union[
+        int, list[int], Literal["all", "terrain", "buildings", "vegetation"]
+    ] = Field(
         "all",
         description="Which classifications to include (e.g., [2, 9] for ground and water, or 'vegetation' for all vegetation classes). 'all' includes all points.",
     )
@@ -29,7 +29,7 @@ class PointCloudArgs(DatasetBaseArgs):
             "Data source. LM uses the DTCC/Lantmäteriet point cloud backend/cache."
         ),
     )
-    format: Literal["copc", "las", "laz"] | None = Field(
+    format: Optional[Literal["copc", "las", "laz"]] = Field(
         None, description="Output file format"
     )
     remove_outliers: bool = Field(
@@ -39,7 +39,7 @@ class PointCloudArgs(DatasetBaseArgs):
         3.0, description="Threshold for outlier removal"
     )
 
-    crs: str | None = Field(
+    crs: Optional[str] = Field(
         None,
         description=(
             "Coordinate reference system for context/export. Point cloud "
@@ -71,6 +71,14 @@ class PointCloudArgs(DatasetBaseArgs):
 
 
 class PointCloudDataset(DatasetDescriptor):
+    """Point Cloud dataset, registered as ``point_cloud``.
+
+    Lantmäteriet point cloud tiles for the requested bounds, accessed through
+    the DTCC backend/cache with optional classification filtering and global
+    outlier removal.
+
+    Call it with keyword arguments defined by ``PointCloudArgs``.
+    """
     name = "point_cloud"
     title = "Point Cloud"
     description = (
@@ -186,7 +194,7 @@ class PointCloudDataset(DatasetDescriptor):
     ]
 
     @staticmethod
-    def _resolve_classifications(classifications) -> list[int]:
+    def _resolve_classifications(classifications) -> List[int]:
         """Resolve classification parameter to a list of class IDs."""
         if isinstance(classifications, int):
             return [classifications]

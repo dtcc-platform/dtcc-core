@@ -16,6 +16,11 @@ if TYPE_CHECKING:
 
 
 class CityBuilderMixin:
+    """Methods for building city geometry, mixed into ``City``.
+
+    Covers terrain, LOD1 and LOD2 buildings, flat, surface and volume meshes,
+    and trees from the point cloud.
+    """
     def build_terrain(
         self: "T_City",
         pc: PointCloud = None,
@@ -28,13 +33,19 @@ class CityBuilderMixin:
         """
         Build terrain for a city using a point cloud.
 
-        Args:
-            self (City): The city object to build terrain for.
-            pc (PointCloud): The point cloud to use for building the terrain.
-            cell_size (float): The size of the cells in the raster (default is 2).
+        Parameters
+        ----------
+        self : City
+            The city object to build terrain for.
+        pc : PointCloud
+            The point cloud to use for building the terrain.
+        cell_size : float
+            The size of the cells in the raster (default is 2).
 
-        Returns:
-            City: The city object with the terrain added.
+        Returns
+        -------
+        City
+            The city object with the terrain added.
         """
         from dtcc_core.builder import build_terrain_raster, build_terrain_surface_mesh
 
@@ -85,17 +96,28 @@ class CityBuilderMixin:
         as estimated_height; measured_height is preserved. With attribute input,
         missing or smaller heights use min_building_height for geometry.
 
-        Args:
-            self (City): The city object to build LOD1 buildings for.
-            default_ground_height (float): The default ground height to use if no terrain is available.
-            always_use_default (bool): Whether to always use the default ground height or use the ground_height from
-            the terrain if available.
-            rebuild (bool): Whether to rebuild the LOD1 buildings if they already exist.
-            calculate_heights (bool): Whether to calculate building heights from the point cloud or get it from an attribute.
-            building_height_attribute (str): The attribute to use for building heights if calculate_heights is False.
+        Parameters
+        ----------
+        self : City
+            The city object to build LOD1 buildings for.
+        default_ground_height : float
+            The default ground height to use if no terrain is available.
+        always_use_default : bool
+            Whether to always use the default ground height or use the
+            ground_height from the terrain if available.
+        rebuild : bool
+            Whether to rebuild the LOD1 buildings if they already exist.
+        calculate_heights : bool
+            Whether to calculate building heights from the point cloud or get
+            it from an attribute.
+        building_height_attribute : str
+            The attribute to use for building heights if calculate_heights is
+            False.
 
-        Returns:
-            City: The city object with LOD1 buildings added.
+        Returns
+        -------
+        City
+            The city object with LOD1 buildings added.
         """
         from dtcc_core.builder import (
             build_lod1_buildings,
@@ -155,9 +177,10 @@ class CityBuilderMixin:
         rebuild: bool = True,
         calculate_heights: bool = True,
         log_rejections: bool = False,
+        lod2_method: str = 'catalogue',
     ) -> "T_City":
         """
-        Build prototype LOD2 buildings for a city.
+        Build LOD2 buildings using catalogue roofs or ``lod2_method='ransac'``.
 
         The generated LOD2 geometry is stored only when the builder validates a
         watertight shell. Buildings that cannot produce LOD2 keep or receive
@@ -201,6 +224,7 @@ class CityBuilderMixin:
             rebuild=rebuild,
             build_lod1_fallback=True,
             log_rejections=log_rejections,
+            lod2_method=lod2_method,
         )
         self.remove_buildings()
         self.add_buildings(lod2_buildings)
@@ -209,53 +233,76 @@ class CityBuilderMixin:
 
     def build_surface_mesh(
         self: "T_City",
-        lod: GeometryType | list[GeometryType] | None = None,
+        lod: str | GeometryType = "lod1",
         min_building_detail: float = 0.5,
         min_building_area: float = 15.0,
-        merge_buildings: bool = True,
-        merge_tolerance: float = 0.5,
         building_mesh_triangle_size: float = 5.0,
         max_mesh_size: float = 10.0,
         min_mesh_angle: float = 25.0,
         merge_meshes: bool = True,
         smoothing: int = 0,
         sort_triangles: bool = False,
-        treat_lod0_as_holes: bool = False,
         show_footprints: bool = False,
         footprint_cleaning_plot_block: bool = True,
         mesher: str | None = None,
         pipeline_mode: str = "strict",
+        isolated: bool = False,
+        *,
+        lod2_method: str = "catalogue",
+        roof_options=None,
+        compact_surface=None,
+        stage_audit=None,
+        report_mesh_quality: bool = True,
     ) -> Mesh:
         """
-            Build a city surface mesh from the buildings and terrain.
+        Build a city surface mesh from the buildings and terrain.
 
-             Parameters
+        Building footprints are cleaned in unison with ``clean_footprints``
+        unless the city was already cleaned at ``min_building_detail``. With
+        ``isolated=True`` each building is cleaned on its own and the result
+        is a mesh for visualization: the terrain plus one shell per building,
+        not welded and possibly intersecting (see
+        :func:`dtcc_core.builder.build_city_surface_mesh`).
+
+        Parameters
         ----------
         `min_building_detail` : float, optional
-            The minimum detail of the buildin to resolve, by default 0.5.
+            The scale of footprint cleaning (minimum feature size, fidelity
+            and merge distance), by default 0.5.
         `min_building_area` : float, optional
-            The smallest building to include, by default 15.0.
-        `merge_buildings` : bool, optional
-            merge building footprints, by default True.
+            The smallest cleaned building to include, by default 15.0.
         `max_mesh_size` : float, optional
-            The maximum size of the mesh, by default 1.0.
+            The maximum size of the mesh, by default 10.0.
         `min_mesh_angle` : float, optional
-            The minimum angle of the mesh, by default 30.0.
+            The minimum angle of the mesh, by default 25.0.
         `merge_meshes` : bool, optional
             Whether to merge the meshes to a single mesh, by default True.
-
-        `smoothing` : float, optional
-            The smoothing of the mesh, by default 0.0.
+        `smoothing` : int, optional
+            The smoothing of the mesh, by default 0.
         `mesher` : {"auto", "dtcc_mesher", "triangle"}, optional
             Select the 2D meshing backend used to triangulate the ground and
             surface shell.
+        `lod` : {"lod1", "lod2"} or GeometryType, optional
+            Requested output level, default "lod1". LOD2 reconstructs roofs from
+            observations in either isolation mode; it does not support volumes.
+        `lod2_method` : {"catalogue", "ransac"}, keyword-only
+            LOD2 reconstruction algorithm, default "catalogue".
+        `roof_options` : RoofFitOptions or None, keyword-only
+            Catalogue shapes and fit thresholds (see builder.roofs).
+        `compact_surface` : CompactSurfaceOptions or None, keyword-only
+            None selects bounded compact catalogue meshing with dtcc_mesher.
+            CompactSurfaceOptions(budgeted=False) disables optional points.
+            Mesh sizes govern reference terrain; see docs/compact_mesher_interface.md.
+        `stage_audit` : dict or None, keyword-only
+            Receives source, fitting, topology and fallback diagnostics.
         `show_footprints` : bool, optional
             Show a live Matplotlib comparison of raw and conditioned
             footprints before meshing.
 
         Returns
         -------
-        `Mesh` : The city surface mesh.
+        Mesh
+            The city surface mesh.
         """
         from dtcc_core.builder import build_city_surface_mesh
 
@@ -264,19 +311,22 @@ class CityBuilderMixin:
             lod=lod,
             min_building_detail=min_building_detail,
             min_building_area=min_building_area,
-            merge_buildings=merge_buildings,
-            merge_tolerance=merge_tolerance,
             building_mesh_triangle_size=building_mesh_triangle_size,
             max_mesh_size=max_mesh_size,
             min_mesh_angle=min_mesh_angle,
             merge_meshes=merge_meshes,
             smoothing=smoothing,
             sort_triangles=sort_triangles,
-            treat_lod0_as_holes=treat_lod0_as_holes,
             show_footprints=show_footprints,
             footprint_cleaning_plot_block=footprint_cleaning_plot_block,
             mesher=mesher,
             pipeline_mode=pipeline_mode,
+            isolated=isolated,
+            lod2_method=lod2_method,
+            roof_options=roof_options,
+            report_mesh_quality=report_mesh_quality,
+            **({"compact_surface": compact_surface} if compact_surface is not None else {}),
+            stage_audit=stage_audit,
         )
         return surface_mesh
 
@@ -285,14 +335,13 @@ class CityBuilderMixin:
         lod: GeometryType | None = None,
         max_mesh_size: float | None = 10.0,
         min_mesh_angle: float = 25.0,
-        merge_buildings: bool = True,
         min_building_detail: float = 0.5,
         min_building_area: float = 15.0,
-        merge_tolerance: float = 0.5,
         show_footprints: bool = False,
         footprint_cleaning_plot_block: bool = True,
         mesher: str | None = None,
         pipeline_mode: str = "strict",
+        isolated: bool = False,
     ) -> Mesh:
         """Build a flat 2D triangular mesh of the city with building markers.
 
@@ -315,19 +364,17 @@ class CityBuilderMixin:
             ``min_mesh_angle`` drive refinement.
         min_mesh_angle : float, optional
             Minimum angle quality constraint (default 25.0).
-        merge_buildings : bool, optional
-            Merge adjacent building footprints (default True).
         min_building_detail : float, optional
-            Minimum feature size to resolve (default 0.5).
+            Scale of footprint cleaning (default 0.5).
         min_building_area : float, optional
-            Minimum footprint area threshold (default 15.0).
-        merge_tolerance : float, optional
-            Distance tolerance for merging (default 0.5).
+            Minimum cleaned footprint area (default 15.0).
         mesher : {"auto", "dtcc_mesher", "triangle"}, optional
             Select the 2D meshing backend.
         show_footprints : bool, optional
             Show a live Matplotlib comparison of raw and conditioned
             footprints before meshing.
+        isolated : bool, optional
+            Must be False: a flat mesh needs the buildings cleaned in unison.
 
         Returns
         -------
@@ -341,38 +388,39 @@ class CityBuilderMixin:
             lod=lod,
             max_mesh_size=max_mesh_size,
             min_mesh_angle=min_mesh_angle,
-            merge_buildings=merge_buildings,
             min_building_detail=min_building_detail,
             min_building_area=min_building_area,
-            merge_tolerance=merge_tolerance,
             show_footprints=show_footprints,
             footprint_cleaning_plot_block=footprint_cleaning_plot_block,
             mesher=mesher,
             pipeline_mode=pipeline_mode,
+            isolated=isolated,
         )
         return flat_mesh
 
     def build_volume_mesh(
         self: "T_City",
-        lod: GeometryType | None = None,
+        lod: str | GeometryType = "lod1",
         domain_height: float = 100.0,
         max_mesh_size: float = 10.0,
         min_mesh_angle: float = 25.0,
-        merge_buildings: bool = True,
         min_building_detail: float = 0.5,
         min_building_area: float = 15.0,
-        merge_tolerance: float = 0.5,
         smoothing: int = 0,
         boundary_face_markers: bool = True,
         tetgen_switches=None,
         tetgen_switch_overrides=None,
         *,
+        lod2_method: str = "catalogue",
+        roof_options=None,
+        compact_surface=None,
         show_footprints: bool = False,
         footprint_cleaning_plot_block: bool = True,
         mesher: str | None = None,
         pipeline_mode: str = "strict",
         top_cap_max_mesh_size: float | None = None,
         max_volume: float | None = None,
+        isolated: bool = False,
     ) -> VolumeMesh:
         """Build a 3D tetrahedral volume mesh for the city.
 
@@ -381,10 +429,13 @@ class CityBuilderMixin:
 
         Parameters
         ----------
-        lod : GeometryType, optional
-            Level-of-Detail directive for building footprints. When omitted,
-            each building resolves the first available geometry in the order
-            ``LOD1 -> LOD2 -> LOD3 -> LOD0``.
+        lod : {"lod1", "lod2"}, optional
+            Requested output detail, default "lod1". LOD2 uses the joint fitted
+            surface pipeline and catalogue roofs by default.
+        lod2_method : {"catalogue", "ransac"}, optional
+            Select the LOD2 roof reconstruction method.
+        roof_options, compact_surface : optional
+            LOD2 fitting and triangulation options, as in build_surface_mesh.
         domain_height : float, optional
             Height of the volume domain above terrain (default 100.0).
         max_mesh_size : float, optional
@@ -394,14 +445,10 @@ class CityBuilderMixin:
             Optional maximum edge length for the lifted top cap triangulation.
         min_mesh_angle : float, optional
             Minimum mesh angle quality constraint (default 25.0).
-        merge_buildings : bool, optional
-            Merge adjacent building footprints (default True).
         min_building_detail : float, optional
-            Minimum feature size to resolve in footprints (default 0.5).
+            Scale of footprint cleaning (default 0.5).
         min_building_area : float, optional
-            Minimum footprint area threshold (default 15.0).
-        merge_tolerance : float, optional
-            Distance tolerance for merging footprints (default 0.5).
+            Minimum cleaned footprint area (default 15.0).
         smoothing : int, optional
             Number of smoothing iterations (default 0).
         boundary_face_markers : bool, optional
@@ -421,6 +468,9 @@ class CityBuilderMixin:
         show_footprints : bool, optional
             Show a live Matplotlib comparison of raw and conditioned
             footprints before meshing.
+        isolated : bool, optional
+            Must be False: a volume mesh needs the buildings cleaned in
+            unison.
 
         Returns
         -------
@@ -432,14 +482,15 @@ class CityBuilderMixin:
         volume_mesh = build_city_volume_mesh(
             self,
             lod=lod,
+            lod2_method=lod2_method,
+            roof_options=roof_options,
+            compact_surface=compact_surface,
             domain_height=domain_height,
             max_mesh_size=max_mesh_size,
             top_cap_max_mesh_size=top_cap_max_mesh_size,
             min_mesh_angle=min_mesh_angle,
-            merge_buildings=merge_buildings,
             min_building_detail=min_building_detail,
             min_building_area=min_building_area,
-            merge_tolerance=merge_tolerance,
             smoothing=smoothing,
             boundary_face_markers=boundary_face_markers,
             max_volume=max_volume,
@@ -449,6 +500,7 @@ class CityBuilderMixin:
             footprint_cleaning_plot_block=footprint_cleaning_plot_block,
             mesher=mesher,
             pipeline_mode=pipeline_mode,
+            isolated=isolated,
         )
         return volume_mesh
 

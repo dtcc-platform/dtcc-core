@@ -15,8 +15,65 @@ Use one runner from the dtcc-core checkout:
 | `sweep` | Quality and cost when one parameter changes | Central tiles, baseline plus parameter variations |
 
 Defaults are **flat and surface city meshes**: quick has 20 tasks, survey has
-2,000. Survey does not contain parameter sweeps. These are development tools,
-not normal CI tests. Start with `--city lund` for a bounded first run.
+2,000. Surface and volume meshes default to **LOD1**. Survey does not contain
+parameter sweeps. Start with `--city lund` for a bounded first run.
+
+## LOD2 and roof evidence
+
+Select `--lod lod2` for surface or volume meshes. Catalogue is the default roof
+method; `--lod2-method ransac` selects the alternative. Flat and terrain-only
+meshes have no building LOD selection.
+
+```sh
+# All ten central tiles, catalogue roofs, with VTU surface meshes.
+.venv/bin/python benchmarks/bench quick --dataset city_surface_mesh --lod lod2 --save-artifacts --output /tmp/lod2-catalogue
+
+# The identical cleaned buildings, terrain and individual roof observations.
+.venv/bin/python benchmarks/bench quick --dataset city_surface_mesh --lod lod2 --lod2-method ransac --phase meshing --input /tmp/lod2-catalogue --save-artifacts --output /tmp/lod2-ransac
+
+.venv/bin/python benchmarks/bench compare /tmp/lod2-catalogue /tmp/lod2-ransac
+```
+
+Cleaning retains each source building's original footprint. Roof-point
+extraction uses those original polygons for both isolated buildings and parts
+of merged groups; the cleaned outlines define the meshing domain. Each part
+keeps its own points, ground level and height. A merged parent cloud does not
+replace its parts' evidence. Empty source clouds are recorded explicitly.
+
+`metrics.mesh_input.roof_evidence` records source IDs, point counts, ground
+levels and SHA-256 fingerprints of the original polygons and point arrays.
+The prepared `city.dtcc` retains these observations. Saved LOD2 replay verifies
+the fingerprints before fitting; altered or incomplete evidence fails clearly.
+Prepared artifacts without this provenance are not reused for LOD2:
+the saved cleaning is reused and observations are acquired again. Meshing
+metrics include retained nonflat fits and block fallbacks. Builder exceptions
+retain detailed fitting and fallback reasons in `stage_audit`; worker timeouts
+retain completed input phases.
+
+## Automated checks
+
+Ordinary `pytest` runs offline acceptance tests through
+`benchmark_datasets.run_dataset`, the same task entry point used by `bench`.
+They exercise actual cleaning, roof extraction, catalogue and RANSAC meshing,
+and exact saved-evidence replay on a small hip/gable group and isolated shed.
+Only input acquisition is replaced with a deterministic fixture. CI also runs
+the volume version and the LOD2 boundary/tetrahedron tests after installing
+the volume extra and requiring TetGen to be available.
+
+The real ten-city suite needs provider/cache access and can take many minutes
+(each task has a 420-second timeout), so it is opt-in rather than part of every
+ordinary test run:
+
+```sh
+DTCC_RUN_QUICK_BENCHMARKS=1 .venv/bin/python -m pytest tests/common/test_quick_benchmarks_live.py -v
+```
+
+This wrapper calls `bench quick` for catalogue and then RANSAC with saved-input
+replay. It requires a nondegenerate mesh with retained nonflat roofs for every
+tile and identical roof evidence between methods. All task logs and metrics
+remain in pytest's temporary directory. The manually dispatched
+`quick-lod2-benchmarks` GitHub Actions workflow runs the same wrapper and uploads
+the inputs, logs, metrics and meshes, including when it fails.
 
 ## Two phases
 
@@ -41,17 +98,19 @@ there is no implicit fallback to downloading new footprints or cleaning again.
 The selected tasks must have matching bounds and cleaning parameters in the
 saved run. Missing or ambiguous inputs fail clearly before execution.
 
-Flat meshing needs only the requested domain bounds and cleaned footprints.
+The cleaning phase saves the raw city, the cleaned city returned by
+`City.clean_footprints` (with its cleaning record) and the cleaned footprints.
+Flat meshing needs only the requested domain bounds and the cleaned city.
 Surface/volume meshing also needs terrain and building heights. These are
-prepared separately from the **saved source buildings**, preserving source
-indices, and saved as a city artifact. A later meshing run reuses that artifact
+prepared separately for the **saved cleaned buildings**, preserving their IDs
+and order, and saved as a city artifact. A later meshing run reuses that artifact
 when the dataset and preparation parameters match. Otherwise it acquires the
 additional LiDAR inputs and records that fact. Input preparation has its own
 status and time; its failure does not erase completed cleaning results.
 
-The cleaning handoff is the final mesher-ready footprint stage, including its
-existing normalization, not an earlier intermediate. Mesh builders validate
-and consume it without footprint repair. Height attachment, domain clipping,
+The cleaning handoff is the cleaned city. Its cleaning record (scale and a
+fingerprint of building IDs and footprints) lets the mesh builders validate and
+consume it without cleaning again; setting heights does not invalidate it. Height attachment, domain clipping,
 ground-region construction and meshing remain downstream operations. Existing
 mesh datasets compose the same builder stages automatically.
 
@@ -100,23 +159,27 @@ stdout.log
 stderr.log
 cleaning/
     raw.dtcc              # Original source buildings and IDs
-    footprints.geojson    # Cleaned polygons and many-to-many source mapping
+    cleaned.dtcc          # Cleaned city: blocks with the original buildings as parts
+    footprints.geojson    # Regions handed to meshing (a block per roof level) with building index, ID, roof
     metrics.json
 meshing/
-    city.dtcc             # Source buildings with prepared terrain/heights
+    city.dtcc             # Cleaned buildings with prepared terrain/heights
+    input.json            # Preparation metrics and LOD2 source-evidence fingerprints
     metrics.json
 artifacts/                # Optional exported mesh
 ```
 
 The footprint artifact explicitly records **EPSG:3006, metre coordinates** in
 its metadata; do not interpret it as WGS84 GeoJSON. Loading checks its version,
-CRS, bounds, cleaning parameters, polygon geometry and source indices. Mesher
+CRS, bounds and cleaning parameters, that the cleaned city's cleaning record
+is valid, and that the saved footprints match the cleaned buildings. Mesher
 input validation remains active. Results from before phase separation do not
-contain this handoff and cannot be used for meshing-only runs.
+contain this handoff and cannot be used for meshing-only runs, and artifacts of
+another format version are rejected; rerun their cleaning phase.
 
 | Phase | Measurements |
 | --- | --- |
-| Cleaning | Input/output/vertex/hole counts, invalid input/output counts, unrepresented sources, added/removed area, maximum boundary displacement, overlap, minimum clearance, short edges, stage contract, cleaning time |
+| Cleaning | Input/output/vertex/hole counts, invalid input/output counts, unrepresented sources, added/removed area, maximum boundary displacement, overlap, admissibility, minimum feature size, fidelity, budget and achieved budget, stage contract, cleaning time |
 | Meshing | Vertex/element/region counts; min/mean/max element quality, aspect ratio, radius ratio, edge ratio and skewness; 1st-percentile element quality; counts below quality 0.02 and of degenerate cells; stage contracts; meshing time |
 
 Area and displacement compare coverage unions, so overlapping raw polygons do
@@ -125,9 +188,38 @@ measurements; the original raw geometry and invalid-input count are retained.
 Unrepresented sources and changes in holes/area are observations, not automatic
 failures: declared scale rules intentionally remove some geometry.
 
+Cleaning metrics include independent
+[contract checks](../dtcc_core/builder/cleaning/contract.py). The columns
+`Admissible`, `mfs m`, `Fidelity`, `Budget m` and `Achieved m` describe the final
+cleaned geometry **before area selection**, in the terms of the
+[contract](../docs/design/footprint-cleaning-contract.md): membership in
+`A_delta` under the union topology profile, the minimum feature size of the
+essential boundary graph (capped at delta, so an admissible result shows delta),
+the fidelity status, the fidelity budget used (scale / 2 by default, or the
+retry budget 3 scale / 4 when a merge group needed it) and the achieved budget,
+the smallest epsilon the result would also satisfy.
+`Selected out` counts regions excluded afterward by `min_building_area`.
+
+JSON separates `before_selection_contract`, `selection`, and the selected
+handoff's `geometric_contract`. The usual counts and added/removed areas still
+compare raw inputs with that selected handoff. Selection reports excluded area
+and cleaned-building indices explicitly; it never changes the cleaning
+reference. Dataset and benchmark `min_building_area` parameters apply after
+cleaning, as in the mesh builders.
+
+A `borderline` fidelity result is inconclusive, not a pass. By default, residual
+separation defects alone produce a prominent warning and allow meshing to be
+attempted; topology, fidelity, source attribution and mesher-input safety remain
+mandatory. `Admissible` remains `no` and the geometric contract remains `fail`;
+the pipeline reports `warning`, not geometric conformance. Smaller elements and
+greater mesh cost are possible. Warnings survive selection and saved-stage
+replay. Older reports are not relabeled and show `-` for missing observations.
+
 Replayed cleaning is marked `reused`, without a new cleaning time or claimed
 new cleaning measurements. Consult its source run for those measurements.
 Meshing input preparation records `bounds`, `saved`, or `provider/cache`.
+Completed input artifacts and phase metrics survive worker timeouts or crashes,
+so another method can still use the same prepared observations.
 
 Geometry/pipeline failures and quality-evaluation failures fail the task.
 Stage quality warnings and degenerate final cells are explicit warnings; data
@@ -165,6 +257,22 @@ clearly. A combined flat/surface run has one image per dataset task.
 
 `compare` reports phase timing and quality deltas, not just overall runtime.
 Use matching input geometry and settings for meaningful before/after comparison.
+For LOD2, compare exported roof/wall/terrain quality against both saved production
+baselines, separately from the current minimal geometry:
+
+```sh
+.venv/bin/python -m benchmarks.lod2_comparison NEW_RUN \
+  --production benchmarks/runs/lod2-principled-comparison-20261018-v7 \
+  --original-catalogue benchmarks/runs/lod2-central-catalogue-20261018 \
+  --original-ransac benchmarks/runs/lod2-central-ransac-20261018
+```
+
+This writes `NEW_RUN/comparison/report.md`, explicit historical acceptance
+targets, quality CSV, per-source geometry attribution, and matched junction
+neighborhood measurements. A minimal-to-refined gain cannot clear a historical
+regression. Source evidence and group triangle/point budgets are independent
+checks.
+
 `rerun` selects failed/incomplete tasks by default; `--task` selects an exact ID,
 including a warning or successful case. Every rerun writes a new run directory.
 A meshing-only rerun uses the saved handoff; a full/cleaning rerun reacquires raw

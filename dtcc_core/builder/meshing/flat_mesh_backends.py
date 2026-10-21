@@ -49,7 +49,39 @@ def build_city_flat_mesh_with_builder_backend(
     backend: str,
     sort_triangles: bool = True,
     region_triangle_sizes: dict[int, float] | None = None,
+    max_steiner_points: int | None = None,
 ) -> Mesh:
+    """Mesh a flat polygon coverage at z=0 with the C++ builder mesher.
+
+    Regions with non-negative markers become subdomains of a mesh covering the
+    rectangle ``bounds``; regions with negative markers are ignored. Triangle
+    markers are mapped back to the region markers.
+
+    Parameters
+    ----------
+    region_polygons : list[Polygon]
+        Region polygons forming the coverage.
+    region_markers : list[int]
+        Marker for each region polygon.
+    bounds : tuple[float, float, float, float]
+        Meshed rectangle as ``(xmin, ymin, xmax, ymax)``.
+    max_mesh_size : float or None
+        Maximum mesh size. ``None`` leaves it unconstrained.
+    min_mesh_angle : float
+        Minimum triangle angle in degrees.
+    backend : str
+        Builder mesher name, such as ``"triangle"``.
+    sort_triangles : bool, optional
+        Sort the output triangles. Default is True.
+    region_triangle_sizes : dict[int, float], optional
+        Maximum triangle size per region marker. Ignored unless every meshed
+        region has an entry.
+
+    Returns
+    -------
+    Mesh
+        Flat triangle mesh with per-triangle markers.
+    """
     builder_polygons, builder_markers = _coverage_regions_for_builder(
         region_polygons=region_polygons,
         region_markers=region_markers,
@@ -62,7 +94,10 @@ def build_city_flat_mesh_with_builder_backend(
     if len(builder_region_sizes) != len(builder_polygons):
         builder_region_sizes = []
 
-    raw_mesh = _dtcc_builder.build_city_flat_mesh(
+    build = (_dtcc_builder.build_city_flat_mesh if max_steiner_points is None
+             else _dtcc_builder.build_city_flat_mesh_bounded)
+    limit = [] if max_steiner_points is None else [int(max_steiner_points)]
+    raw_mesh = build(
         builder_polygons,
         [],
         builder_region_sizes,
@@ -74,6 +109,7 @@ def build_city_flat_mesh_with_builder_backend(
         min_mesh_angle,
         sort_triangles,
         backend,
+        *limit,
     )
     mesh = raw_mesh.from_cpp()
     return _remap_builder_markers(mesh, builder_markers)
@@ -90,7 +126,23 @@ def build_city_flat_mesh_from_coverage(
     backend: str,
     sort_triangles: bool = True,
     region_triangle_sizes: dict[int, float] | None = None,
+    coordinate_tolerance: float | None = None,
+    max_steiner_points: int | None = None,
 ) -> Mesh:
+    """Mesh a flat polygon coverage at z=0 with the chosen backend.
+
+    With ``backend="dtcc_mesher"`` the coverage is meshed by
+    :func:`build_city_flat_mesh_with_dtcc_mesher`, otherwise by
+    :func:`build_city_flat_mesh_with_builder_backend`. Arguments a backend does
+    not use are ignored: ``region_points`` only applies to dtcc_mesher, and
+    ``bounds``, ``sort_triangles`` and ``region_triangle_sizes`` only to the
+    builder backend.
+
+    Returns
+    -------
+    Mesh
+        Flat triangle mesh with per-triangle region markers.
+    """
     if backend == "dtcc_mesher":
         return build_city_flat_mesh_with_dtcc_mesher(
             region_polygons=region_polygons,
@@ -98,6 +150,7 @@ def build_city_flat_mesh_from_coverage(
             region_points=region_points,
             max_mesh_size=max_mesh_size,
             min_mesh_angle=min_mesh_angle,
+            coordinate_tolerance=coordinate_tolerance,
         )
 
     return build_city_flat_mesh_with_builder_backend(
@@ -109,4 +162,5 @@ def build_city_flat_mesh_from_coverage(
         backend=backend,
         sort_triangles=sort_triangles,
         region_triangle_sizes=region_triangle_sizes,
+        max_steiner_points=max_steiner_points,
     )

@@ -1,87 +1,922 @@
 # Footprint cleaning contract
 
-Status: working draft, 17 September 2026. The organising principle below was
-agreed in the issue #104 discussion. The mathematical definitions remain open;
-this document does not yet establish new acceptance thresholds.
+This document specifies what footprint cleaning must deliver. It follows the
+research note *Footprint conditioning: manifold topology, minimum feature size,
+fidelity, and heights* (revision 4); "conditioning" in the note and "cleaning"
+here name the same operation. The independent checks live in
+`dtcc_core/builder/cleaning/contract.py`. The bounded constructors that search
+for a conforming result live in `dtcc_core/builder/cleaning/construction.py`
+(occupancy) and `dtcc_core/builder/cleaning/walls.py` (walls between merged
+buildings). The entry point is `clean_footprints` (`dtcc_core.builder`, with
+the shortcuts `City.clean_footprints()` and `Building.clean_footprint()`); the
+mesh builders use it too.
+
+One scale, `min_building_detail` = delta, sets:
+
+- the minimum feature size delta;
+- the fidelity budget epsilon = delta / 2, retried once at 3 delta / 4;
+- the merge distance delta;
+- the vertical resolution delta, within which the roof levels of a block are
+  grouped, each moving by at most delta / 2.
+
+The default delta = 0.5 m is an operating choice, not a value derived from a
+meshing theorem.
 
 ## Principle
 
-Cleaning finds a nearby approximation of the input that is geometrically
-resolved at a declared scale.
+**Cleaning finds a nearby approximation of the input that is geometrically
+resolved at a declared scale, and keeps buildings of different heights
+apart.**
 
-For input coverage P and output coverage Q, the two obligations are:
+For the interpreted input occupied set P, an output subdivision Q with occupied
+union U(Q), a resolution delta and a fidelity budget epsilon, cleaning solves
+the feasibility problem
 
 ```text
-Admissibility: Q belongs to A_delta.
-Fidelity:     d(P, Q) <= epsilon.
+find Q in A_{delta,theta}  such that  P^{-epsilon} ⊆ U(Q) ⊆ P^{+epsilon},     (2)
 ```
 
-`A_delta` is the class of admissible geometries resolved at scale `delta`.
-`d` measures alteration and `epsilon` is its permitted budget. This notation
-does not yet select a distance function or assert that one scalar budget is
-sufficient. Numerical precision and requested mesh spacing are separate from
-geometric resolution and permitted alteration.
+under the merge-eligibility and attribution constraints below. It then divides
+every merged region into cells, one set per building, that satisfy the identity
+fidelity condition (2L) (see Walls between merged buildings). Admissibility
+(membership in A_{delta,theta}) and fidelity are separate obligations.
+Admissibility prevents unresolved output; fidelity prevents obtaining
+admissibility by destroying useful input.
 
-Return a conforming result, or explicitly report that the requirements could
-not be satisfied. Arbitrary input cannot always be made admissible under an
-arbitrarily small fidelity budget. Finding the globally closest admissible
-geometry is not a requirement of this formulation.
+Heights enter through the note's level-set fidelity (2H). For every height t,
+the part of the output at least t high must lie between the erosion and the
+dilation of the part of the input at least t high. (2) is the bottom level of
+(2H). (2H) rules out giving one height to a region that contains the cores of
+buildings of different heights. Cleaning does not check (2H) directly. It
+follows from (2) and (2L), except on parts of the erosion that have no area,
+provided overlaps between buildings went to the taller one (note, Section 5).
+The roof grouping at meshing keeps it within the vertical budget delta / 2.
 
-## Define admissibility once
+The cleaner is a bounded heuristic, not an optimizer: it does not minimize the
+budget, the changed area or the vertex count. It returns a conforming result or
+explicitly reports that it found none, which does not prove that none exists.
+By default it tries one larger budget, 3 delta / 4, for merge groups that do
+not conform at delta / 2, and reports the budget it used (see Construction and
+outcomes).
 
-Describe the planar subdivision formed by footprint boundaries, including
-building interiors, courtyards and intervening ground. Shared boundaries are
-shared features; accidental near contacts are not.
+Fidelity bounds where occupied and unoccupied space may change. It is not a
+Hausdorff-distance bound on boundaries: removing a tiny hole can legitimately
+remove its entire boundary.
 
-The next specification step is to define "resolved at scale delta" in terms
-of this subdivision, rather than enumerating defects found by repair operators.
-It must state precisely which features require separation and how incidence,
-holes, junctions and shared boundaries are treated. Small edges, narrow passages
-and near-touching buildings then become examples of the definition.
+## Objects and parameters
 
-Resolve the treatment of genuine sharp corners explicitly. Spatial resolution
-alone does not imply a lower bound on triangle angles. The current proposal is
-to preserve resolved sharp corners and let the mesher handle their constraints;
-it is not to erase every corner that limits mesh quality.
+Work in a declared planar coordinate system with distance units.
 
-## Define fidelity against the input
+- A footprint coverage is a finite collection of polygonal regions, with holes,
+  one or more per building; the parts of a building may have their own
+  footprints.
+- Its occupied set is their union. Its complement is open ground, including
+  courtyards.
+- The contract concerns this occupancy, its division into cells per building,
+  and the roof level of each cell. Terrain is out of scope.
 
-Specify the interpretation of invalid input before defining the comparison.
-Choose how boundary movement and coverage change constrain admissible results,
-including intentional merges, splits, and removal of subscale components or
-holes. A global area percentage alone can hide deletion of an individual
-building. Do not select a distance merely because an existing benchmark already
-reports it.
+| Parameter | Meaning |
+| --- | --- |
+| delta > 0 | Required minimum feature size of the output; also the merge distance and the vertical resolution |
+| epsilon >= 0 | Fidelity budget: the thickness of the band around the input boundary where occupancy may change. `clean_footprints` uses delta / 2, retried once at 1.5 epsilon |
+| theta | Minimum incident-sector angle handed to meshing, 1 degree |
+| h_k | Modelling height of building k: `estimated_height`, else `measured_height`. It decides which building keeps an overlap |
+| tolerances | Fixed numerical tolerances, small relative to delta (see Numerical conventions). They are not parameters and do not permit physical alteration |
+| `max_mesh_size` | Mesh size, owned by meshing rather than cleaning |
 
-The current benchmark reports added/removed union area and maximum boundary
-displacement, using `make_valid` to interpret invalid raw polygons for those
-measurements. These are evidence for choosing the fidelity rule, not its final
+Delta and epsilon are independent in the contract. `clean_footprints` fixes
+epsilon = delta / 2. The retry factor is the internal
+`ConditioningOptions.fidelity_retry_factor`. Increasing mesh refinement must
+not silently change either value. A requested pair of values may be
+infeasible. Numerical tolerance is fixed before cleaning, not inferred from
+which repairs happened to run.
+
+The contract begins with an interpreted occupied set P. For valid raw polygons,
+P is their union. Invalid polygonal data is interpreted with GEOS `make_valid`:
+its polygonal parts are kept, and the report counts the non-area remnants and
+the inputs that needed this interpretation. Unsupported and nonfinite input
+fails clearly. This convention does not recover the unknown intended meaning
+of arbitrary self-intersecting rings.
+
+## Admissibility: topology and minimum feature size
+
+**Topology profile.** Q has pairwise interior-disjoint valid polygonal regions,
+each a 2-manifold with boundary. The note distinguishes two profiles:
+
+- *parts* requires this of each region;
+- *union* also requires it of the occupied union U(Q).
+
+DTCC implements the **union profile** for the regions of the first stage: the
+boundary of occupied space consists of disjoint simple closed curves.
+
+- It permits shared building walls and ordinary parcel junctions.
+- It excludes occupied components touching at a single point, and courtyard
+  boundaries touching exterior boundaries.
+- It is the adopted policy for buildings, not a claim that every planar
+  triangulator must reject a point contact.
+- Reports name the profile as `topology_profile: "union"`.
+
+With heights, the note's *level-union profile* requires every level set Q_t to
+be a 2-manifold with boundary. Q_t is the union of the cells with roofs at or
+above t. The profile holds exactly when the extruded cells form a 3-manifold
+with boundary. It is checked and reported at meshing, not enforced (see Roof
+levels at meshing).
+
+**Essential boundary graph.** Form the graph G_Q of all region boundaries:
+
+1. Node the boundaries: split segments at endpoints and intersections, and
+   represent shared pieces once.
+2. Suppress every vertex of degree two whose edges continue along the same
+   straight line in opposite directions. This changes the representation, not
+   the regions.
+3. The remaining vertices are exactly the bends and junctions; the edges are
+   nonzero straight segments that meet only at common endpoints.
+
+The graph includes internal walls, so it is determined by the subdivision, not
+by the occupied union alone. Which walls it contains depends on the step:
+
+- The first stage returns regions without walls: each merge group's output is
+  a union.
+- The second stage adds walls between buildings.
+- Meshing dissolves walls between cells of equal roof level. At the mesher
+  handoff, G_Q is therefore the region boundaries plus the walls between
+  different roof levels.
+
+Suppression uses exact floating-point collinearity: dense collinear sampling is
+not a feature, but a nearly collinear bend is.
+
+**Minimum feature size.** A vertex and an edge are nonincident when the vertex is
+not an endpoint of the edge. Then
+
+```text
+mfs(G) = min distance(v, e) over vertices v and edges e not incident to v,
+         with the minimum over no pairs equal to +infinity.
+
+A_delta = { Q with the union topology profile : mfs(G_Q) >= delta }.
+```
+
+This is the standard minimum feature size of a planar straight-line drawing.
+The distance is to the whole closed segment. Empty output is admissible, but is
+still subject to fidelity.
+
+Two further rules would be redundant:
+
+- **Vertex-vertex.** Every vertex of G_Q has degree at least two, so the
+  distance between two distinct vertices is never below mfs(G_Q) (the note's
+  Observation 1). A separate vertex-vertex rule would not change A_delta, and
+  every essential edge of an admissible subdivision is at least delta long.
+- **Edge-edge.** The closest points of two disjoint segments include an
+  endpoint.
+
+This single rule covers short essential edges, close boundaries, small holes and
+narrow passages. Exact shared features are incident, not arbitrarily small gaps.
+Distances between incident edges near their common vertex are excluded: they
+tend to zero even at an ordinary square corner. Thus mfs is a finite-feature
+separation, **not a claim that every local wedge has width delta**, and it does
+not impose an angular bound. A long sharp triangle can be admissible. The
+incident-sector profile below handles angles.
+
+The admissibility report gives:
+
+- `admissible` and `topology_ok`;
+- the interior overlap and nonmanifold union-boundary counts;
+- `essential_vertex_count`;
+- `subscale_pairs`: nonincident vertex-edge pairs closer than delta;
+- `mfs_capped_at_delta`: min(mfs, delta). The search only seeks pairs closer
+  than delta. Because of the relative tolerance, an admissible result may
+  report slightly less than delta;
+- a witness `closest_pair`.
+
+## Fidelity: preserve occupied and open cores
+
+Let B_epsilon be the closed disk of radius epsilon. Erosion and dilation give
+an explicit spatial budget:
+
+```text
+P^{-epsilon} = { x : B_epsilon(x) ⊆ P }      (erosion)
+P^{+epsilon} = { x : B_epsilon(x) meets P }  (dilation)
+
+P^{-epsilon} ⊆ U(Q) ⊆ P^{+epsilon}.
+```
+
+Equivalently, away from the epsilon-neighborhood of the original boundary,
+occupied space must stay occupied and open space must stay open. The erosion is
+of the union: adjoining narrow sources can jointly contain protected interior.
+
+This protects both a building's interior and a courtyard's interior:
+
+- A narrow passage may close if it has no protected open core. A substantial
+  courtyard behind that passage must remain open.
+- A component without a protected occupied core may disappear.
+- Deleting an isolated 3 × 3 m building at epsilon = 0.25 m is forbidden,
+  however small its area is relative to the whole city.
+
+The budget does not mandate a particular repair. Bridging a narrow gap, moving
+boundaries apart or retaining a shared boundary must all be assessed against
+admissibility and fidelity together. If none can meet both, report failure.
+Prefer retaining already admissible input rather than making gratuitous changes;
+there is no requirement to solve a global minimum-change optimisation problem.
+
+**One reference set.** The budget is built from the interpreted original input,
+never from an intermediate repair, so a sequence of small changes cannot
+accumulate drift. The constructor builds a budget per merge group. When groups
+are at least 2 epsilon apart, this is the same as the single P^{±epsilon}
+above. Otherwise only the final check of the assembled coverage, which always
+uses the whole input, establishes fidelity.
+
+**Achieved budget.** A result that passes also reports `achieved_epsilon`, the
+smallest epsilon it would satisfy (epsilon_Q in the note), rounded up to the
+bracket resolution. It is a witnessed
+upper bound on the least feasible budget, and shows how much of the budget a
+result uses.
+
+An area filter is not part of this contract. Removing otherwise resolved
+buildings is an explicit selection policy, accounted for separately (see
+Selection and handoff). Repair failure is not permission to drop geometry.
+
+## Mesher-input incident-sector profile
+
+Flat and surface meshing additionally require a **mesher-input profile**,
+checked by the same independent geometry module. With theta it refines the
+admissible class to
+
+```text
+A_{delta,theta} = { Q in A_delta : alpha_min(Q) >= theta },
+```
+
+where alpha_min(Q) is the smallest incident sector of G_Q. It is a handoff
+requirement, not a triangle-angle guarantee.
+
+For each vertex of G_Q, sort the rays of its incident edges by polar angle.
+Consecutive rays, including the cyclic last/first pair, bound the incident
+sectors. Their angles are in degrees in `(0, 360]`. Each sector is classified
+from the labelled subdivision as occupied or open. A shared source wall
+therefore keeps both adjacent labelled sectors, even when both are occupied.
+Holes, exterior boundaries, junctions and shared walls use this same
 definition.
 
-## Responsibility and verification
+The city-meshing profile rejects a sector below **theta = 1 degree**, with a
+fixed `1e-6` degree comparison tolerance. It reports the minimum sector and a
+bounded witness. Construction also uses **3 degrees**:
 
-The cleaner owns admissibility and fidelity. The mesher owns consuming admissible
-geometry and reporting mesh quality under declared size and corner policies.
-Domain clipping must validate the geometry it creates. Terrain, heights and
-volume construction introduce additional requirements outside this 2D contract.
+- as a thresholded preference when ranking conforming candidates;
+- afterwards, to remove up to 16 vertices at sectors below 3 degrees when the
+  contract still passes.
 
-Validate the contract from input, output and declared parameters, independently
-of repair traces. Source attribution and explicit reporting of removed geometry
-belong to the result's data contract. Determinism belongs to reproducibility.
+It does not optimize angles above that target. Neither value is the requested
+mesh-triangle angle, and neither promises that generated triangles attain it.
 
-Once the definitions above are resolved, implement one authoritative geometric
-checker in `dtcc_core/builder/cleaning/contract.py`, shared by the cleaner and
-benchmark. That module is proposed, not yet implemented. Keep mesher input
-validation at its boundary. Tests should give small geometric examples and
-counterexamples to the definitions; city benchmarks should test generality,
-fidelity, downstream quality and cost on fixed raw inputs.
+The profile is checked again before triangulation:
 
-## Document ownership
+- on the regions actually handed on, after selection and domain clipping;
+- on the complete building/ground/domain subdivision;
+- when `dtcc_mesher` is installed, by checking that the regions form a valid
+  segment graph for it.
 
-This document is the proposed home of the mathematical and behavioural contract.
-The [review](footprint-cleaning-review.md) records implementation/history evidence;
-the [implementation plan](../../.agent/plans/2026-09-17-footprint-cleaning-consolidation.md)
-tracks work; the [benchmark guide](../../benchmarks/README.md) explains operation.
-Those documents should reference this specification instead of maintaining
-competing definitions. Until this draft is completed, the existing checks remain
-the executable acceptance rule.
+Geometry created at the domain boundary gets no new fidelity budget. An
+uncertain or sub-threshold sector is a failed handoff, never a warning that is
+silently meshed.
+
+**Buildings without a core.** A building without an occupied core after
+erosion by the unchanged epsilon may be removed: the occupancy contract permits
+it. Construction removes such buildings in two ways:
+
+- a repair drops the building;
+- a whole merge group without a core is removed (`empty_protected_core`).
+
+Removal cannot touch another part of a source that intersects the protected
+occupied core, and it cannot hide a protected open core. Every building that
+has a footprint but no cleaned region is listed by ID in the cleaning record,
+with the reason:
+
+- `minimum_area`: excluded by selection;
+- `empty_protected_core`: removed with its merge group;
+- `no_protected_core`: removed by a repair.
+
+## What this promises to the mesher
+
+The contract provides a well-defined planar subdivision with:
+
+- a declared minimum feature size between nonincident features;
+- a minimum incident sector;
+- a roof level per region, with roof levels in a block at least delta apart.
+
+Source IDs and attribution remain part of the result.
+
+This is not a universal triangle-angle or tetrahedron-quality guarantee.
+Preserved sharp corners, domain clipping, terrain slopes and roof heights impose
+additional constraints. The mesher owns refinement and quality reporting;
+clipping owns validation of the new geometry it creates. A poor mesh of
+admissible input is evidence to investigate the mesher or the sufficiency of its
+declared preconditions, rather than a reason to add another cleaning operator.
+
+## Numerical conventions
+
+**First stage.**
+
+- Distances are compared with `delta - delta * 1e-6`.
+- Exact collinearity is evaluated in floating-point arithmetic.
+- Fidelity uses circular buffers with 32 segments per quadrant. It reports
+  `borderline` when a band wider than the chord error cannot distinguish pass
+  from fail. The band is `epsilon * (sec(pi / 128) - 1) + 1e-7` in coordinate
+  units. A borderline result is not a pass.
+- Residual difference areas up to `1e-10` square units count as numerical
+  noise.
+- The achieved budget uses the same buffered test on the neighbourhood of the
+  changed area. It starts from the largest distance of a vertex of the changed
+  area to the input boundary, is bracketed to 1/128 of the budget checked, and
+  is rounded up. It is reported only for results that pass.
+
+These are disclosed measurement conventions, not an exact-arithmetic
+certificate.
+
+Fidelity buffers and area operations use a fixed local coordinate frame. Its
+origin is the lower bounding-box corner of the interpreted original occupied
+union (zero for empty input). Candidates use that same frame throughout, so
+thin area differences are not lost at large map coordinates. The constructor
+may propose a precision edit on a delta / 16 grid. Such an edit is judged like
+any other; the grid is never a checker tolerance.
+
+**Second stage.**
+
+- It works in a local frame at the lower-left corner of each region, on a
+  fixed `1e-6` coordinate grid.
+- Points within `5e-6` of the region boundary count as on it.
+- Back in map coordinates, cell vertices within `4e-6` of a region vertex get
+  its exact coordinates. Wall ends that close to an edge are projected onto it.
+  The cells therefore tile the region up to rounding, checked at `1e-6`
+  relative area.
+- Material added by the first stage is labelled from samples of the input
+  boundaries at spacing epsilon / 8.
+
+## Construction and outcomes
+
+The constructor follows the four steps of the note's Section 7. Sources are
+first grouped by merge eligibility: two interpreted source atoms may be merged
+when their source IDs intersect or their distance on the original input is at
+most delta. Eligibility is inclusive and transitive, and later motion does not
+enlarge it. The first stage returns input that already conforms unchanged,
+apart from dissolving walls inside merge groups; the second stage restores
+them as cells. Buildings cleaned in isolation
+(`clean_footprints(..., isolated=True)`) are each cleaned on their own and may
+overlap or come closer than delta; no joint contract applies to them.
+
+Otherwise each group is constructed with a fixed set of preprocessing attempts
+followed by bounded local repairs: removing or collapsing vertices, moving
+features apart, notching, closing gaps and cutting material.
+
+- Every accepted edit must pass the group's progress guard and the original
+  fidelity budget.
+- The progress guard also counts vertex-vertex pairs. This gives it a finer
+  measure without changing what is admissible.
+
+At each repair site, at most 64 proposals are built in a fixed order. They are
+filtered on a clip around the site and ranked by the local defect counts. The
+best one that passes the guard and the budget on the whole group is accepted.
+
+- Ranking every proposal matters. Accepting the first admissible one, or
+  stopping at the first kind of edit that works, leaves more defects or more
+  drift.
+- Cuts remove the most material. When separating gaps (the separation and
+  combined stages), they are built only if no other proposal at the site is
+  accepted.
+
+The attempts run in order: full simplification ladder, shorter ladder, none.
+The search **stops at the first conforming result that meets the 3 degree
+preference**.
+
+- When all attempts start from the same preprocessed geometry, the attempts
+  after the first conforming one are skipped.
+- If no attempt meets the preference, the conforming results are ranked by
+  that preference, then by symmetric-difference drift from the input, then by
+  canonical geometry.
+
+Stopping early trades some drift for time: less simplification often gives a
+result closer to the input, but the first attempt usually conforms already.
+
+**Budget retry.** A group that does not conform at the fidelity budget epsilon
+is constructed once more at a larger budget, 1.5 epsilon (3 delta / 4).
+
+- The retry is kept when it conforms, or when it gives a warning candidate for
+  a group that had none.
+- By the note's Observation 2, a result within epsilon is also within the
+  larger budget. The assembled coverage is therefore checked once at the
+  largest budget used. That budget is reported as `fidelity_budget_used` and
+  as the contract's `epsilon`.
+- The result is then a feasible witness at that budget, not at epsilon.
+
+Groups are not repaired jointly: separation between different merge groups is
+only checked, in the assembled coverage.
+
+- Suppose the only defects of the assembled coverage are separation defects,
+  and they involve groups whose search stopped at the first preferred
+  candidate. Those groups are constructed again, ranking every attempt, and
+  the new coverage is kept only if it conforms (`cross_group_rebuild` in the
+  report).
+- Each output region is attributed to the sources that support it with
+  positive area.
+- The assembled coverage is checked again as a whole.
+
+The public outcome is one of the note's three outcomes, or the zero-scale mode:
+
+| Outcome | Note | Geometric contract | Behaviour |
+| --- | --- | --- | --- |
+| `unchanged` / `conforming` | Strictly conforming candidate | Pass, at `fidelity_budget_used` | Return geometry |
+| `warning` | Warning candidate | Fail: minimum feature size only; topology, fidelity, attribution and the profile pass | Return geometry with a prominent warning (default) |
+| unresolved | No candidate found | No acceptable result found | Raise `UnresolvedFootprintCleaningError`; no partial coverage |
+| `unscaled_identity` | - | Checked only at the numerical scale `1e-9` (delta = 0) | Return each source's interpreted polygons; overlaps are kept |
+
+`clean_footprints(..., strict=True)` turns warnings into unresolved results.
+Unresolved means that the bounded search was exhausted, not that the problem is
+infeasible. Warning results keep the failed contract report; smaller mesh
+elements and higher mesh cost are possible.
+
+## Walls between merged buildings
+
+A second stage (`dtcc_core/builder/cleaning/walls.py`) divides every region
+with several labels into cells, one set per label, by walls along the
+boundaries between the labels. The region boundary from the first stage never
+moves. The labels are either:
+
+- the buildings of the region, with their footprints, or
+- the parts of a cleaned block, with the footprints of their sources
+  (`dtcc_core/builder/cleaning/blocks.py`).
+
+**Precedence.** Where labels overlap, the order of the region's labels is
+decided by the most specific quantity that all of them have:
+
+1. the higher roof level (the z of the footprint, the DTCC convention; zero
+   means unknown), when every label has one;
+2. else the larger modelling height, when every label has one;
+3. else the larger footprint;
+
+ties go to the larger footprint, then to the first. Absolute roof levels
+decide on sloping ground, where a taller building can have the lower roof,
+and they are what the roof level sets of (2H) are made of.
+
+**Heights after cleaning.** Heights are often estimated after cleaning, when
+footprint area decides. Ownership then waits for the heights:
+
+- every part keeps the footprint of its source, and heights and roof points
+  are taken on it, so a part that lost an overlap keeps its height;
+- each block records the order its walls were made with
+  (`attributes["footprint_walls"]`);
+- where new roofs change the winner of an overlap, the height builders
+  check the existing cells against the full labelled contract under the new
+  order, including exposed source membership and roof-level contacts. Cells
+  that fail are recomputed from the source footprints with the recorded
+  parameters (`blocks.update_walls`); so do the next cleaning and meshing,
+  and `build_lod1_buildings`, for a block whose walls are not current (roofs
+  set by hand, say). Only overlaps depend on the order: with the same winner
+  of every overlap, every V_c is the same.
+
+Cleaning before or after height estimation preserves the same source-cell
+membership and roofs. The local XY geometry may differ because a repeated
+repair starts from the recorded cleaned occupancy and fidelity budget.
+
+`build_lod1_buildings` records the inputs and geometry digest of its
+extrusions. Height builders invalidate these prisms when their roof or
+ground changes, even when cell ownership stays the same; a subsequent
+`build_lod1_buildings(rebuild=False)` reconstructs missing prisms.
+Caller-provided or edited LOD1 geometry is preserved by height-only updates.
+Unmarked existing prisms require an explicit `rebuild=True` to replace them;
+they are treated as caller-provided geometry.
+Changes to the cell partition still remove all affected LOD1 geometry.
+
+The meshing handoff reports a warning for every stage-2 wall fallback kept
+after area selection, with its affected IDs and detailed cause in
+`diagnostics.kept_wall_fallbacks`. Passing the XY coverage checks does not
+imply that different source roof heights survived a one-roof fallback.
+
+V_c is the closure of the interior of the part of label c that no earlier
+label covers. The cells Q^(c) of label c must satisfy the identity fidelity
+condition
+
+```text
+V_c^{-epsilon} ⊆ Q^(c) ⊆ V_c^{+epsilon}        (2L)
+```
+
+- **Budget.** The budget is that of the region's merge group. V_c is clipped
+  to within 2 epsilon of the region; labels whose V_c lies farther away take
+  no part.
+- **Lost cells.** A label may lose its cell only if V_c^{-epsilon} is empty.
+- **Sectors.** The cells must keep the incident-sector profile at the vertices
+  the walls add or change.
+- **Separation.** The walls must not add a feature pair closer than delta:
+  every such pair of the labelled subdivision must be a pair of the region
+  boundary alone.
+- **Independent check.** `check_labelled_contract` in `contract.py` checks a
+  result independently: tiling, (2L) per label, the profile, and the number of
+  pairs closer than delta compared with the region alone. Cleaning decides
+  with the stage's own checks, which identify the pairs.
+
+Construction runs as follows.
+
+1. **Exact labelling.** Each point of the input gets the label of its V_c, and
+   material added by the first stage gets the nearest label. The exact
+   labelling is kept if the first stage added no material and it conforms.
+2. **Start.** Otherwise the walls are simplified with the region boundary
+   fixed, at delta, delta / 2, delta / 4, delta / 10 and 0 (the exact
+   labelling). The first that satisfies (2L) is the start.
+3. **Repair.** At most 6 rounds of repairs follow:
+   - local edits at each defect site: collapsing short wall edges,
+     contracting a wall shorter than delta between two junctions into one,
+     moving junctions along the region boundary, moving a junction of walls
+     closer than delta to the boundary onto it, routing a wall through a
+     region vertex closer than delta to it, projecting wall vertices onto
+     the boundary, dropping vertices;
+   - giving a *thin piece* to a neighbour: a piece of a label's cells in
+     which no disk of diameter delta fits, beside another piece of the same
+     label (a feature below the minimum feature size that the label can lose
+     without losing its cell), also right after a local edit that cuts it off;
+   - whole-region edits, each followed by simplification at delta;
+   - giving a cell without a protected core to its neighbour.
+
+   Each edit must keep (2L) and reduce the defects. Defects are compared in
+   this order: sectors below 1 degree at vertices the walls add or change,
+   then pairs closer than delta / 10, then all wall pairs closer than delta,
+   then their total deficit. This ranking removes very short wall features
+   before reducing the count of moderate residual features; it does not
+   change the fidelity, separation or angle requirements.
+4. **Retry.** If the result is not strict, the repair is retried once at
+   3 delta / 4, unless the region's merge group already used that budget. The
+   better result is kept: a strict one, else fewer pairs closer than delta / 10,
+   then fewer wall pairs, then less deficit. The record reports the accepted
+   budget, including a successful retry.
+
+| Outcome | Result |
+| --- | --- |
+| `strict` | The walls add no defect; every label with a protected core keeps a cell |
+| `single` | Only one label has material in the region, and the region is its cell; the record counts it as strict |
+| `warning` | Only wall pairs closer than delta remain; cells are kept and a warning is logged |
+| `fallback` | No acceptable walls: no start satisfies (2L), small sectors remain, or the cells cannot be mapped back. The block keeps one footprint and a warning is logged |
+
+With `strict=True`, a wall warning becomes a fallback (reason `strict`). Walls
+with a pair closer than 0.1 mm are numerical artifacts, not building features,
+and meshers do not resolve them robustly: they also leave the block one
+footprint (reason `degenerate_walls`). A geometry failure in the construction
+of one block's walls does the same (reason `construction_error`). Without an
+acceptable start or with small sectors, the reasons are `no_faithful_start`
+and `small_sectors`. Cleaning never fails because of walls.
+
+The thin-piece, contraction, junction and routing edits were added for real
+blocks of the surface survey whose warnings left pieces of about a square
+millimetre, junctions 0.18 mm apart, walls millimetres from the region
+boundary, or walls a few centimetres from region vertices: the 2D mesher
+failed on two (coverage seed conflicts), refined one into tens of thousands
+of slivers, and made tiny ground triangles next to the others, which steep
+terrain lifts into slivers. They are test fixtures in `tests/data/cleaning`.
+Roof-level sets are checked after wall repair and when the exposed roof
+groups change. A wall touching the outer boundary can be moved inward or
+across it to open separate boundary junctions; the linework is clipped to
+the fixed region. Directions aligned with the adjoining walls permit
+source ownership at tight fidelity limits. An interior four-way junction can be split into two three-way
+junctions. These finite local offers keep the occupied region and source
+roof elevations fixed. Each must satisfy (2L), avoid small incident sectors,
+and remove contact points without introducing contacts elsewhere. The existing
+fidelity retry remains available after partial progress; panels narrower than
+the shell builder's subdivision floor
+are refused. After a contact opens, the existing wall offers can resolve
+severe residual features, provided they introduce no new roof-level pinch.
+Short boundary intervals are noded after restoring exact boundary coordinates.
+Surface and volume meshes consume the resulting common cells.
+If contacts remain, a nonpinched input ownership partition can be retained
+when it independently passes the same labelled contract, coverage and sector
+checks and preserves all exposed labels. Its exact source coordinates are
+kept. Warning status in XY does not prevent retaining useful roof regions.
+Remaining contacts after these bounded alternatives stay visible in the
+diagnostics and use the documented volume fallback below.
+
+Contact outcomes distinguish no repair needed, no accepted improvement,
+partial progress and completion. A partial result seeds the permitted retry,
+whose fidelity target remains the original sources and fixed region. The
+best valid result survives a failed or worse retry. The record stores the
+accepted budget, final contact count and attempted budgets; XY status is
+independent of roof-contact completion and numerical mesh quality.
+
+The geometry-layer coordinator in `walls.py` owns permitted budgets, XY and
+contact progress selection, independent contact-candidate acceptance and retention
+of an earlier valid partition. Its `LabelledRegion` result carries cells, the XY
+outcome, contact outcome and remaining count, accepted budget and compact attempts.
+The contact operator returns the same explicit result; absence of progress is an
+`unchanged` outcome rather than an empty or absent report. Final changed ownership
+area is calculated once, relative to the cells entering contact repair; all
+fidelity checks still use the original sources and fixed occupied region.
+`blocks.py` checks freshness, assigns changed cells, invalidates derived geometry
+and persists diagnostics. It does not choose repair candidates or retry budgets.
+
+Construction errors (with truncated causes), independent contract rejection and
+ordinary no-progress attempts retain their attempted budgets, including when all
+attempts fail. A diagnostic-only update preserves LOD0/LOD1 objects and reports
+no reconstruction. Saving and reusing the certificate preserves the current
+contact outcome without repeating attempts or appending duplicate history. A new
+roof grouping starts a fresh contact report, replacing obsolete failure outcomes.
+
+**Walls record.** `attributes["footprint_walls"]` of a block (version 2)
+holds:
+
+- the order (part IDs) and the precedence rule used;
+- the outcome and its `detail`: the reason of a fallback (with the message of
+  a construction error), and the number of wall pairs closer than delta and
+  the closest distance of a warning;
+- the detail, budget and strictness the walls were made with;
+- the bounded-repair recipe version (`repair_version`), distinct from the
+  record schema version;
+- the ordered groups of exposed source IDs at the roof resolution, and any
+  local contact-repair operations and changed ownership area;
+- a digest of the inputs of the cells, the XY of the block's region and of
+  its parts' source footprints, and a digest of the cells (the parts' LOD0).
+
+The walls are *current* when both digests match, the cells cover the region,
+and every pair of overlapping sources keeps its recorded order. A changed
+order can retain cells after the full labelled contract passes at the recorded
+budget, all exposed sources retain cells, and roof contacts are absent or
+repaired locally within the existing repair budgets. The stored order is
+then refreshed. Walls that fail these checks are made again with the recorded
+parameters: a changed region or source is never covered by stale cells. The
+detail is kept when walls are reused and replaced when they are made again,
+and the city record lists the reasons of its fallback blocks. A record of
+another version is an error that asks to clean the buildings the block was
+made from again: a block made by an earlier development version may lack its
+source footprints, which cannot be recovered.
+
+Compatible warning records predating wall-feature conditioning are conditioned
+again from their retained sources when they contain severe short features
+(pairs closer than delta / 10), or lack the distance diagnostic. Other
+compatible cells retain their geometry and receive the local roof-contact
+check. This includes saved cells with short boundary artifacts. Recipe 2 also revisits
+saved partial contact repairs, including recipe-1 records whose other inputs
+are current. Completed records are then reused without repeating repair.
+If an optional conditioning upgrade fails, still-current source
+ownership is retained with its warning and a `detail.repair_failure` cause;
+it is not replaced by a new one-roof approximation. A successful cell change
+invalidates the affected LOD1 prisms.
+
+## Roof levels at meshing
+
+The mesh builders mesh each block per part, at the parts' roofs, with walls
+current for those roofs. A part's roof is the z of its source footprint (and
+of its cell): set at cleaning from the building's roof, and updated when
+heights are set per part.
+
+**Grouping.** The roof levels of each block are first grouped at the vertical
+resolution delta (`dtcc_core/builder/cleaning/levels.py`). A difference below
+delta would give a step wall lower than the resolution, and it is below the
+accuracy of the height estimates. Within a block, the levels are sorted and
+grouped greedily from the lowest, each group spanning less than delta. The
+groups get, in increasing order,
+
+```text
+eta_c = max(clamp(w_c, [max_c - delta/2, min_c + delta/2]), eta_{c-1} + delta),
+```
+
+with w_c the mean of group c weighted by cell area. Then:
+
+- every roof moves by at most delta / 2;
+- the order of the roofs is kept;
+- distinct roofs end up at least delta apart;
+- roofs at least delta apart are never unified.
+
+**Dissolving and step walls.**
+
+- Walls between cells of the same level are dissolved. This never adds a
+  feature pair or a small sector. The resulting level sets are checked for
+  pinches; the extruded solid depends on these level sets.
+- Each connected region of one level is handed to the mesher with its roof.
+- Between regions of different levels, the building shell gets a step wall
+  from the lower roof to the higher.
+- Every vertical line of the walls (a footprint vertex) has its own levels:
+  the bottoms and tops of the walls on it, and between them the fewest equal
+  strips no taller than max(5 w, delta), where w is its narrowest wall panel.
+  Delta bounds this target spacing, not every strip: an interval of 0.7 m at
+  delta = 0.5 m gets two strips of 0.35 m. A panel narrower than delta / 50
+  is left whole. Each panel is triangulated between the levels of its two
+  lines by the zipper (a monotone path through the levels of both lines)
+  whose smallest triangle quality is largest, so walls meeting at a vertical
+  line share their vertices and the shell is conforming, a short edge refines
+  only the walls at its ends, and the fine levels of one line are not fanned
+  from a far level of the other.
+
+A block that keeps one footprint is meshed with one roof. At cleaning, that
+roof is the area-weighted mean of its sources' roofs, or the highest roof when
+they span more than 2 m. Heights set afterwards replace it.
+
+**Level-union profile.** The union of the extruded regions is a 3-manifold
+with boundary if and only if every level set Q_t is a 2-manifold with
+boundary. Q_t is the union of the regions with roofs at or above t.
+
+- Where regions of a level set touch at a point only (a pinch), the shell has
+  a vertical line contact: an edge with four faces. A pinch can exist in the
+  sources or remain after bounded wall repair; passing the XY contract
+  alone does not establish the level-union profile.
+- Surface and flat meshes keep the step walls. The mesh builders report such
+  level sets in `levels.pinched_level_sets` and as a warning of the stage
+  contract; `build_building_shell` warns in the same words.
+- A volume mesh cannot have such edges. `build_city_volume_mesh` meshes a
+  block with a pinch with one roof, as a block that keeps one footprint (see
+  below), before any surface is built. This removes the steps of that block:
+  it is a deliberate loss of height fidelity, not height preservation. The
+  block is listed with the IDs of its buildings in `levels.one_roof` of the
+  conditioned footprints' diagnostics (in `stage_audit`), and the stage
+  contract and the log warn.
+
+**Volume quality controls.** TetGen refinement is separate from footprint and
+roof preservation. The default retains `quality=None`. Request bare `-q`
+explicitly with `tetgen_switch_overrides={"quality": True}`, or `-q2/5` with
+`{"quality": [2.0, 5.0]}`. Trials on corrected city PLCs substantially reduced
+the number of tetrahedra below quality 0.02, with more cells, runtime and
+memory. Neither setting guarantees that threshold. Some otherwise accepted
+PLCs return a TetGen internal error under refinement, so this is a measured
+opt-in choice per input, without a global default change. Compare signed
+volumes and roof regions as well as the quality statistic when selecting it.
+
+**Buildings cleaned in isolation.** These have no joint contract, so only
+`build_city_surface_mesh(..., isolated=True)` meshes them, for visualization.
+It reuses a record of a city cleaned in isolation at the same scale, or cleans
+each building on its own.
+
+- **Terrain.** The mesh is the terrain surface mesh, not conforming to the
+  footprints, with markers -2.
+- **Shells.** One shell per building is added: `build_building_shell` without
+  a floor, with its base at the lowest terrain-mesh vertex within one terrain
+  edge length of the footprint.
+- **Markers.** For region m of N over all shells, walls get m and roofs N + m.
+- **Left out.** Buildings below `min_building_area`, outside the terrain
+  domain, or whose shell fails, are left out with a warning.
+- **No welding.** Shells are not welded to each other or to the terrain, and
+  may intersect them.
+- **Fields.** The mesh carries a face field `building` (the building's index,
+  -1 for terrain) and a geometry field `volume_boundary` = 0, a veto that
+  volume meshing honours (`has_volume_veto`). The veto is metadata: a mesh
+  without it is still audited as a boundary before volume meshing.
+
+The flat and volume mesh builders raise an error with `isolated=True`.
+
+## Selection and handoff
+
+Cleaning returns buildings, one per cleaned region:
+
+```python
+city = city.clean_footprints(min_building_detail=0.5, min_area=15.0)
+```
+
+**Single buildings and blocks.**
+
+- A region that is the only cleaned region of exactly one building is that
+  building, with its new LOD0 footprint. Its ID, attributes, heights and
+  children are kept.
+- Any other region is a new block. Its `BuildingPart` children are copies of
+  the buildings that support it.
+- When a block is merged again, its parts are lifted into the new block, not
+  nested.
+- A building split into several regions becomes several blocks, each with a
+  copy of it as its part. The parts of a block split into several regions go
+  to the regions where they have cells (a part without a cell to the regions
+  its source overlaps).
+
+**Identity and provenance.** Every object of the model has a unique ID.
+
+- A part that occurs once keeps the ID of its source; the occurrences of a
+  source in several blocks get `<id>#<n>`, in output order, with the first n
+  that no object of the input model has (the city and every descendant).
+- The descendants of such an occurrence get IDs the same way, and keep the
+  ID of what they copy in `attributes["source_id"]`.
+- `attributes["source_id"]` of a part is the ID of its source, and
+  `attributes["merged_from"]` of a block the source IDs of its parts.
+  `blocks.source_ids(building)` gives the source IDs of any cleaned building.
+- The ID of a new block is derived from its parts' IDs (a UUID 5), so
+  cleaning the same buildings gives the same IDs. This ID is also reserved
+  against surviving model objects; a collision uses the first available
+  `<uuid>#<n>`. Replaced block containers release their IDs, and a block
+  copied unchanged keeps its ID when cleaned again.
+
+**Footprints and heights.**
+
+- **Block.** Its LOD0 is its region, at the highest roof of its parts that have
+  a cell; a fallback block's LOD0 is at its fallback roof. Its
+  `estimated_height` is that of the highest such part, and its `ground_height`
+  is the lowest of its parts.
+- **Part.** Its LOD0 is its cell at the part's own roof, a `MultiSurface` if
+  the cell has several pieces. A part without a cell, and every part of a
+  fallback block, has no LOD0. `attributes["source_footprint"]` is the
+  footprint of its source before cleaning, a GeoJSON Polygon or MultiPolygon
+  at the part's roof. A part read from a file that drops attributes uses its
+  cell instead.
+- **Cells.** The cells tile the region. Where a wall ends on the region
+  boundary, the cells have a vertex that the block's outline does not.
+- **Other geometry.** LOD1-LOD3 geometry is removed because it no longer
+  matches the footprint. Whenever the cells of a block change later, the LOD1
+  geometry of the block and of all its parts is removed as well.
+
+**Cleaning again.** A cleaned block is cleaned again from its LOD0 footprint
+and its parts, whatever `lod` and `min_building_detail` (also after LOD1 and
+at zero detail).
+
+- If the first stage leaves the block's footprint as it is and its walls were
+  made at a detail of at least the requested one, the walls stay as they are
+  while current; cleaning a cleaned city therefore changes nothing.
+- Otherwise the region is divided by the parts' source footprints, with the
+  budget of the earlier cleaning added to that of this one (the larger of the
+  two when the footprint is unchanged).
+- Other results with warnings are constructed again, with the cleaned
+  footprints as the new input.
+
+**Model operations on cleaned blocks.**
+
+- **Heights.** Heights can be computed per part afterwards:
+  `extract_roof_points`, `compute_building_heights` and
+  `set_building_heights_from_attribute` work on the parts of cleaned blocks,
+  on the footprints of their sources. They set the roofs and then bring the
+  walls up to date (`blocks.update_walls`), so the parts' LOD0 is the current
+  partition and later meshing does not recompute it.
+- **LOD1.** `build_lod1_buildings` first brings the walls of a block up to
+  date, then gives each part with a cell its own LOD1 prism, from its own
+  ground to its own roof, and the block and its parts without a cell none, as
+  for building parts in CityGML. A fallback block gets one prism, and its
+  parts none. Prisms of a block whose walls change are rebuilt also with
+  `rebuild=False`. Height-only updates also invalidate unchanged
+  builder-produced extrusions whose roof or ground changed; edited or
+  caller-provided geometry is preserved. No generated prism outlives its
+  recorded inputs.
+- **Traversal.** `flatten_geometry` merges an object's own geometry with that
+  of its descendants, so a city finds the LOD1 prisms of parts. For every
+  object type, a footprint (LOD0) covers its children's: an object with one
+  does not add theirs, and without one it collects them.
+- **Shell.** `build_building_shell` gives one triangle shell of a building:
+  - the parts at their grouped roofs, with step walls between them;
+  - walls down to `base_z`, by default `ground_height`, else 0;
+  - closed with a floor, the default;
+  - it raises if a roof is at or below the base.
+
+**Area selection.** Selection (`min_area`) is an explicit operation after the
+first stage and before the walls.
+
+- It keeps regions of at least `min_area` without moving them, so a block is
+  kept or dropped whole.
+- It reports the excluded buildings by ID.
+- The mesh builders always clean with `min_area` = 0 and `strict=False`. They
+  then apply `min_building_area` per cleaned building, before roof levels are
+  grouped.
+- With a reused record, `min_building_area` applies on top of the record's
+  `min_area`.
+- The isolated surface mesh selects per building footprint.
+
+**Record.** A cleaned city records the cleaning in
+`city.attributes["footprint_cleaning"]` (version 4):
+
+- the scale, mode, `min_area`, `lod` and `strict`;
+- the outcome, and the budgets of the first stage (`fidelity_budget`,
+  `fidelity_budget_used`);
+- the compact contract report before selection (admissibility, fidelity and
+  budget) and the mesher-input profile status;
+- the wall outcomes: counts, the label IDs of each warning and fallback block,
+  the reason of each fallback (`fallback_reasons`), and the budget used;
+- input, output and merged counts;
+- the buildings without footprints (`missing_footprint_ids`);
+- every other building without a cleaned region, with its reason
+  (`excluded`);
+- a fingerprint of the occupancy: the building and part IDs and the XY
+  footprints of the buildings (the parts' cells are checked by the walls
+  records of their blocks);
+- in isolation mode, the outcome counts.
+
+The mesh builders reuse a valid record instead of cleaning again. A valid
+record has the same version, scale and mode, takes its footprints from LOD0
+or the default choice, and has an unchanged fingerprint. Setting heights does
+not invalidate it; walls that the new heights make out of date are recomputed
+per block.
+
+**Mesh builder reports.** The mesh builders keep two reports:
+
+1. `before_selection_contract` is the record's compact contract, plus the
+   profile status and the number of wall warnings (`wall_warnings`). Its
+   `epsilon` is the budget used. This is the cleaning result, the one the
+   note's outcomes classify.
+2. `selection` lists every excluded region with the index of its cleaned
+   building, its area and the reason.
+
+**One admission rule** decides what is handed on, in the stage audit of the
+cleaned footprints and again in the mesh builders:
+
+- The cleaning result before selection must be a strictly conforming or a
+  warning candidate. Without a pre-selection status, the regions must be
+  strictly admissible.
+- The regions actually handed on must satisfy the topology profile and the
+  incident-sector profile. These are the roof-level regions, after selection
+  and, in the mesh builders, after domain clipping.
+- When `dtcc_mesher` is installed, the regions must form a valid segment graph
+  for it.
+- Their minimum feature size must be at least delta. Separation defects are
+  accepted, with a warning, when the cleaning result is itself a warning
+  candidate or declares walls closer than delta (wall warnings in the record,
+  or in the current walls when new roofs made the mesh builders recompute
+  them).
+
+Selection therefore cannot hide a topology defect of the cleaning result, and
+clipping cannot add separation defects to a result without warnings. Flat and
+surface mesh builders both validate after clipping and before triangulation;
+they may reject but never repair. Saved benchmark handoffs store the cleaned
+city and validate its record.
+
+The [benchmark guide](../../benchmarks/README.md) explains how these reports
+appear in benchmark runs.

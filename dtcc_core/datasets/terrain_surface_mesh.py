@@ -1,15 +1,20 @@
-from typing import Literal
-
+import dtcc_core
+from typing import Literal, Optional
 from pydantic import Field
 
-import dtcc_core
-from dtcc_core.common.progress import ProgressTracker
-
-from .dataset import DatasetBaseArgs, DatasetDescriptor
+from .dataset import DatasetDescriptor, DatasetBaseArgs
 from .providers import provider_entry
+from dtcc_core.common.progress import ProgressTracker
+from .centering import (
+    CENTER_ON_ORIGIN_DESCRIPTION,
+    CENTER_ON_ORIGIN_PROCESSING_STEP,
+    center_result_if_requested,
+    warn_if_far_from_origin,
+)
 
 
 class TerrainSurfaceMeshArgs(DatasetBaseArgs):
+    """Arguments for the terrain surface mesh dataset."""
     raster_resolution: float = Field(
         2, description="Resolution of the terrain raster in meters"
     )
@@ -30,7 +35,7 @@ class TerrainSurfaceMeshArgs(DatasetBaseArgs):
     smoothing: int = Field(
         3, description="Number of smoothing iterations to apply to the terrain mesh"
     )
-    mesher: Literal["auto", "dtcc_mesher", "triangle"] | None = Field(
+    mesher: Optional[Literal["auto", "dtcc_mesher", "triangle"]] = Field(
         None,
         description="2D meshing backend to use for the terrain triangulation",
     )
@@ -41,12 +46,20 @@ class TerrainSurfaceMeshArgs(DatasetBaseArgs):
     remove_outlier_threshold: float = Field(
         3.0, description="Threshold for outlier removal"
     )
-    format: Literal["tif", "obj", "stl"] | None = Field(
+    center_on_origin: bool = Field(False, description=CENTER_ON_ORIGIN_DESCRIPTION)
+    format: Optional[Literal["tif", "obj", "stl"]] = Field(
         None, description="Output file format"
     )
 
 
 class TerrainSurfaceMeshDataset(DatasetDescriptor):
+    """Terrain Surface Mesh dataset, registered as ``terrain_surface_mesh``.
+
+    Terrain raster or triangular surface mesh derived from point cloud ground
+    data for the requested bounds.
+
+    Call it with keyword arguments defined by ``TerrainSurfaceMeshArgs``.
+    """
     name = "terrain_surface_mesh"
     title = "Terrain Surface Mesh"
     description = (
@@ -88,6 +101,7 @@ class TerrainSurfaceMeshDataset(DatasetDescriptor):
         "For adaptive_mesh=True, build an adaptive terrain mesh using error_threshold and raster_resolution",
         "Otherwise build a terrain surface mesh using max_mesh_size, smoothing, and the selected mesher backend",
         "Return the native mesh/raster object or serialize the requested terrain format",
+        CENTER_ON_ORIGIN_PROCESSING_STEP,
     ]
     derived_from = [
         {
@@ -219,6 +233,8 @@ class TerrainSurfaceMeshDataset(DatasetDescriptor):
                     else "Preparing terrain result..."
                 ),
             ):
+                result = center_result_if_requested(result, args)
+                warn_if_far_from_origin(result, args.format)
                 if args.format == "tif":
                     return self.export_to_bytes(result, "tif")
                 elif args.format is None:

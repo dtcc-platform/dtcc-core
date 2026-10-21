@@ -1,16 +1,15 @@
-from typing import Literal
-
-from pydantic import Field
-
-from dtcc_core.common.progress import ProgressTracker
 from dtcc_core.model import City
+from typing import Literal, Optional
+from pydantic import Field, model_validator
 
-from .dataset import DatasetBaseArgs, DatasetDescriptor
+from .dataset import DatasetDescriptor, DatasetBaseArgs
 from .footprints import _filter_small_buildings, _provider_for_source
 from .providers import provider_entry
+from dtcc_core.common.progress import ProgressTracker
 
 
 class CityArgs(DatasetBaseArgs):
+    """Arguments for a city model with terrain and LOD1 or LOD2 buildings."""
     source: Literal["OSM", "LM"] = Field(
         "LM",
         description=(
@@ -21,16 +20,32 @@ class CityArgs(DatasetBaseArgs):
     smallest_building_size: float = Field(
         15.0, description="Smallest building size to include (in square meters)"
     )
-    format: Literal["cityjson", "json"] | None = Field(
+    format: Optional[Literal["cityjson", "json"]] = Field(
         None, description="Output file format"
     )
+    lod: Literal['lod1', 'lod2'] = Field('lod1', description='Requested output level of detail')
+    lod2_method: Literal['catalogue', 'ransac'] = Field(
+        'catalogue', description='Roof reconstruction method for LOD2 buildings')
+
+    @model_validator(mode='after')
+    def validate_lod_method(self):
+        if self.lod == 'lod1' and self.lod2_method != 'catalogue':
+            raise ValueError("lod2_method='ransac' requires lod='lod2'")
+        return self
 
 
 class CityDataset(DatasetDescriptor):
+    """City dataset, registered as ``city``.
+
+    DTCC city model with terrain and LOD1 or LOD2 buildings derived from point cloud
+    data and selected building footprints for the requested bounds.
+
+    Call it with keyword arguments defined by ``CityArgs``.
+    """
     name = "city"
     title = "City"
     description = (
-        "DTCC city model with terrain and LoD1 buildings derived from point cloud "
+        "DTCC city model with terrain and LOD1 or LOD2 buildings derived from point cloud "
         "data and selected building footprints for the requested bounds."
     )
     ArgsModel = CityArgs
@@ -64,8 +79,8 @@ class CityDataset(DatasetDescriptor):
         "provider/cache vintage, which are not currently surfaced in the result."
     )
     default_crs = "EPSG:3006"
-    lod = "Terrain mesh plus LoD1 block buildings"
-    data_types = ["city_model", "terrain", "buildings", "lod1", "mesh"]
+    lod = "Terrain mesh plus LOD1 or LOD2 buildings"
+    data_types = ["city_model", "terrain", "buildings", "lod1", "lod2", "mesh"]
     geographic_coverage = "Sweden, constrained by requested bounds and source coverage"
     update_frequency = "derived on demand from upstream source data"
     processing_steps = [
@@ -73,7 +88,7 @@ class CityDataset(DatasetDescriptor):
         "Download selected building footprints for the requested bounds",
         "Filter footprints below smallest_building_size when requested",
         "Build terrain raster and terrain mesh from point cloud data",
-        "Estimate building heights and extrude LoD1 building geometry",
+        "Estimate building heights and build LOD1 extrusions or fit LOD2 roofs",
         "Return a City object or serialize CityJSON-compatible JSON bytes",
     ]
     derived_from = [
@@ -88,18 +103,18 @@ class CityDataset(DatasetDescriptor):
             "source_terms_status": "requires_review",
         },
     ]
-    presentation_headline = "Terrain and LoD1 City Model"
+    presentation_headline = "Terrain and Buildings"
     presentation_summary = (
         "A DTCC city model that combines terrain from point cloud data with "
-        "generalized LoD1 building solids."
+        "LOD1 building extrusions or reconstructed LOD2 roofs."
     )
     presentation_narrative = [
         {
             "heading": "What you are seeing",
             "body": (
-                "The result is a city container with terrain geometry and LoD1 "
-                "buildings. Buildings are block extrusions, not detailed roof or "
-                "facade reconstructions."
+                "The result is a city container with terrain and buildings at "
+                "the requested output LOD. LOD2 uses catalogue roofs by default; "
+                "RANSAC is selectable. Rejected fits retain LOD1 fallback geometry."
             ),
         },
         {
@@ -122,7 +137,7 @@ class CityDataset(DatasetDescriptor):
     key_points = [
         "source='LM' uses the DTCC/Lantmäteriet footprint backend/cache",
         "source='OSM' uses OpenStreetMap/Overpass footprints",
-        "Terrain and LoD1 buildings are derived on demand",
+        "Terrain and LOD1 or LOD2 buildings are derived on demand; LOD1 is the default",
         "smallest_building_size filters footprints before terrain/building assembly",
         "cityjson and json currently use the same JSON byte export path",
     ]
@@ -130,25 +145,18 @@ class CityDataset(DatasetDescriptor):
         "title": "City model layers",
         "entries": [
             {"label": "Terrain", "meaning": "point-cloud-derived terrain raster/mesh"},
-            {
-                "label": "LoD1 building",
-                "meaning": "extruded footprint with estimated height",
-            },
-            {
-                "label": "City JSON",
-                "meaning": "serialized city-model package when requested",
-            },
+            {"label": "Building", "meaning": "LOD1 extrusion or reconstructed LOD2 shell"},
+            {"label": "City JSON", "meaning": "serialized city-model package when requested"},
         ],
     }
     view_hints = {
         "preferred_geometry": "city_model",
         "default_crs": "EPSG:3006",
         "terrain": "point_cloud_derived",
-        "building_lod": "LoD1",
     }
     presentation_warnings = [
         "Source and license terms inherit upstream point cloud and footprint review status.",
-        "City buildings are LoD1 block geometry and do not include detailed roofs or facades.",
+        "LOD2 roofs are simplified reconstructions; rejected fits remain LOD1 and facades are not reconstructed.",
         "Terrain and building quality depend on source coverage, classification quality, and cache vintage.",
     ]
     presentation_limitations = [
@@ -161,7 +169,7 @@ class CityDataset(DatasetDescriptor):
         progress_phases = {
             "download_pointcloud": 0.30,
             "download_footprints": 0.30,
-            "build_lod1": 0.15,
+            "build_buildings": 0.15,
             "build_terrain": 0.10,
             "export": 0.15,
         }
@@ -190,8 +198,11 @@ class CityDataset(DatasetDescriptor):
             with progress.phase("build_terrain", "Building terrain mesh..."):
                 city.build_terrain(build_mesh=True)
 
-            with progress.phase("build_lod1", "Building LOD1 city model..."):
-                city.build_lod1_buildings()
+            with progress.phase("build_buildings", f"Building {args.lod.upper()} city model..."):
+                if args.lod == 'lod2':
+                    city.build_lod2_buildings(lod2_method=args.lod2_method)
+                else:
+                    city.build_lod1_buildings()
 
             with progress.phase("export", "Exporting city model..."):
                 if args.format is None:

@@ -197,7 +197,8 @@ public:
                             const std::vector<double> &subdomain_triangle_size,
                             double max_mesh_size, 
                             double min_mesh_angle, 
-                            bool sort_triangles = false)
+                            bool sort_triangles = false, size_t max_steiner_points = 0,
+                            double coordinate_tolerance = 1e-6)
   {
     Timer timer("call_triangle");
 
@@ -215,6 +216,10 @@ public:
 
     debug("Triangle switches: " + triswitches);
 
+    // A bounded refinement request still retains every input constraint.
+    if (max_steiner_points > 0)
+      triswitches += "S" + std::to_string(max_steiner_points);
+
     // Convert to C-style string
     char *triswitches_c = new char[triswitches.length() + 1];
     std::strcpy(triswitches_c, triswitches.c_str());
@@ -231,7 +236,7 @@ public:
     // Create input data structure for Triangle
     struct triangulateio in = create_triangle_io();
 
-    const auto sanitized_boundary = sanitize_triangle_loop(boundary);
+    const auto sanitized_boundary = sanitize_triangle_loop(boundary, coordinate_tolerance);
     if (sanitized_boundary.size() < 3)
     {
       delete[] triswitches_c;
@@ -246,7 +251,7 @@ public:
 
     for (size_t i = 0; i < sub_domains.size(); ++i)
     {
-      auto polygon = sanitize_triangle_loop(sub_domains[i]);
+      auto polygon = sanitize_triangle_loop(sub_domains[i], coordinate_tolerance);
       if (polygon.size() < 3)
         continue;
       sanitized_sub_domains.push_back(std::move(polygon));
@@ -263,7 +268,7 @@ public:
     sanitized_holes.reserve(holes.size());
     for (const auto &polygon : holes)
     {
-      auto loop = sanitize_triangle_loop(polygon);
+      auto loop = sanitize_triangle_loop(polygon, coordinate_tolerance);
       if (loop.size() >= 3)
         sanitized_holes.push_back(std::move(loop));
     }
@@ -271,20 +276,20 @@ public:
     std::vector<Vector2D> shared_points;
     std::map<std::pair<long long, long long>, std::vector<int>> point_buckets;
     const auto boundary_indices =
-        shared_triangle_loop_indices(sanitized_boundary, shared_points, point_buckets);
+        shared_triangle_loop_indices(sanitized_boundary, shared_points, point_buckets, coordinate_tolerance);
     std::vector<std::vector<int>> subdomain_indices;
     subdomain_indices.reserve(sanitized_sub_domains.size());
     for (const auto &inner_polygon : sanitized_sub_domains)
     {
       subdomain_indices.push_back(
-          shared_triangle_loop_indices(inner_polygon, shared_points, point_buckets));
+          shared_triangle_loop_indices(inner_polygon, shared_points, point_buckets, coordinate_tolerance));
     }
     std::vector<std::vector<int>> hole_indices;
     hole_indices.reserve(sanitized_holes.size());
     for (const auto &hole_polygon : sanitized_holes)
     {
       hole_indices.push_back(
-          shared_triangle_loop_indices(hole_polygon, shared_points, point_buckets));
+          shared_triangle_loop_indices(hole_polygon, shared_points, point_buckets, coordinate_tolerance));
     }
 
     in.numberofpoints = shared_points.size();
@@ -383,6 +388,17 @@ public:
     struct triangulateio out = create_triangle_io();
     struct triangulateio vorout = create_triangle_io();
     //    print_triangle_io(in);
+    // Triangle owns output arrays except hole and region seeds, which alias input.
+    struct OutputCleanup {
+      triangulateio &data;
+      ~OutputCleanup() {
+        trifree(reinterpret_cast<int *>(data.pointlist)); trifree(reinterpret_cast<int *>(data.pointattributelist)); trifree(reinterpret_cast<int *>(data.pointmarkerlist));
+        trifree(reinterpret_cast<int *>(data.trianglelist)); trifree(reinterpret_cast<int *>(data.triangleattributelist));
+        trifree(reinterpret_cast<int *>(data.trianglearealist)); trifree(reinterpret_cast<int *>(data.neighborlist));
+        trifree(reinterpret_cast<int *>(data.segmentlist)); trifree(reinterpret_cast<int *>(data.segmentmarkerlist));
+        trifree(reinterpret_cast<int *>(data.edgelist)); trifree(reinterpret_cast<int *>(data.edgemarkerlist)); trifree(reinterpret_cast<int *>(data.normlist));
+      }
+    } cleanup{out}, voronoi_cleanup{vorout};
     // Call Triangle
     triangulate(triswitches_c, &in, &out, &vorout);
     delete[] triswitches_c;
@@ -433,7 +449,7 @@ public:
                             const std::vector<double> &,
                             double,
                             double,
-                            bool = false)
+                            bool = false, size_t = 0, double = 1e-6)
   {
     throw std::runtime_error(
         "Triangle support not built; reinstall with -DDTCC_USE_TRIANGLE=ON "
@@ -495,18 +511,18 @@ private:
 
   // Create and reset Triangle I/O data structure
 #ifdef DTCC_HAVE_TRIANGLE
-  static std::vector<Vector2D> sanitize_triangle_loop(const std::vector<Vector2D> &polygon)
+  static std::vector<Vector2D> sanitize_triangle_loop(const std::vector<Vector2D> &polygon, double tolerance)
   {
     std::vector<Vector2D> sanitized;
     sanitized.reserve(polygon.size());
 
     for (const auto &p : polygon)
     {
-      if (sanitized.empty() || !p.close_to(sanitized.back()))
+      if (sanitized.empty() || !p.close_to(sanitized.back(), tolerance))
         sanitized.push_back(p);
     }
 
-    while (sanitized.size() >= 2 && sanitized.front().close_to(sanitized.back()))
+    while (sanitized.size() >= 2 && sanitized.front().close_to(sanitized.back(), tolerance))
       sanitized.pop_back();
 
     if (sanitized.size() < 3)
@@ -518,11 +534,11 @@ private:
   static std::vector<int> shared_triangle_loop_indices(
       const std::vector<Vector2D> &polygon,
       std::vector<Vector2D> &shared_points,
-      std::map<std::pair<long long, long long>, std::vector<int>> &point_buckets)
+      std::map<std::pair<long long, long long>, std::vector<int>> &point_buckets,
+      double point_tolerance)
   {
-    static constexpr double point_tolerance = 1e-6;
 
-    auto quantize = [](const Vector2D &point) {
+    auto quantize = [point_tolerance](const Vector2D &point) {
       return std::make_pair(
           static_cast<long long>(std::llround(point.x / point_tolerance)),
           static_cast<long long>(std::llround(point.y / point_tolerance)));
@@ -572,7 +588,7 @@ private:
 
   static struct triangulateio create_triangle_io()
   {
-    struct triangulateio io;
+    struct triangulateio io{};
 
     io.pointlist = nullptr;
     io.pointmarkerlist = nullptr;

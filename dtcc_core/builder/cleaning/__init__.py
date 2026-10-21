@@ -1,17 +1,15 @@
-"""Deterministic Shapely-based footprint conditioning helpers."""
+"""Footprint cleaning.
 
-from .buildings import condition_building_footprints
-from .footprints import (
-    ConditioningOptions,
-    ConditioningResult,
-    condition_polygon_coverage,
-)
+:func:`clean_footprints` is the single entry point; the other modules are
+internal building blocks.
+"""
+
+from .clean import clean_footprints
+from .footprints import UnresolvedFootprintCleaningError
 from .plotting import plot_footprint_cleaning_comparison
 
 __all__ = [
-    "ConditioningOptions",
-    "ConditioningResult",
-    "condition_polygon_coverage",
-    "condition_building_footprints",
+    "clean_footprints",
+    "UnresolvedFootprintCleaningError",
     "plot_footprint_cleaning_comparison",
 ]

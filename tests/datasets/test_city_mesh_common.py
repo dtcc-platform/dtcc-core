@@ -4,19 +4,14 @@ from unittest.mock import ANY, Mock, patch
 
 import numpy as np
 
-from dtcc_core.builder.geometry_builders import meshes as meshes_module
 from dtcc_core.datasets._city_mesh_common import (
-    CityMeshingFootprints,
-    condition_city_meshing_footprints,
     prepare_city_from_bounds,
     prepare_footprint_city_from_bounds,
 )
 from dtcc_core.model import Bounds
 
 
-@patch(
-    "dtcc_core.datasets._city_mesh_common.dtcc_core.builder.compute_building_heights"
-)
+@patch("dtcc_core.datasets._city_mesh_common.dtcc_core.builder.compute_building_heights")
 @patch("dtcc_core.datasets._city_mesh_common.dtcc_core.builder.extract_roof_points")
 @patch("dtcc_core.datasets._city_mesh_common.dtcc_core.builder.build_terrain_raster")
 @patch("dtcc_core.datasets._city_mesh_common.dtcc_core.io.data.download_footprints")
@@ -77,9 +72,7 @@ def test_prepare_city_from_bounds_default_path(
     )
 
 
-@patch(
-    "dtcc_core.datasets._city_mesh_common.dtcc_core.builder.compute_building_heights"
-)
+@patch("dtcc_core.datasets._city_mesh_common.dtcc_core.builder.compute_building_heights")
 @patch("dtcc_core.datasets._city_mesh_common.dtcc_core.builder.extract_roof_points")
 @patch("dtcc_core.datasets._city_mesh_common.dtcc_core.builder.build_terrain_raster")
 @patch("dtcc_core.datasets._city_mesh_common.dtcc_core.io.data.download_footprints")
@@ -118,13 +111,9 @@ def test_prepare_city_from_bounds_skips_outlier_removal_when_disabled(
     )
 
 
-@patch(
-    "dtcc_core.datasets._city_mesh_common.dtcc_core.builder.set_building_heights_from_attribute"
-)
+@patch("dtcc_core.datasets._city_mesh_common.dtcc_core.builder.set_building_heights_from_attribute")
 @patch("dtcc_core.datasets._city_mesh_common.dtcc_core.builder.flatten_terrain_raster")
-@patch(
-    "dtcc_core.datasets._city_mesh_common.dtcc_core.builder.compute_building_heights"
-)
+@patch("dtcc_core.datasets._city_mesh_common.dtcc_core.builder.compute_building_heights")
 @patch("dtcc_core.datasets._city_mesh_common.dtcc_core.builder.extract_roof_points")
 @patch("dtcc_core.datasets._city_mesh_common.dtcc_core.builder.build_terrain_raster")
 @patch("dtcc_core.datasets._city_mesh_common.dtcc_core.io.data.download_footprints")
@@ -205,67 +194,3 @@ def test_prepare_footprint_city_from_bounds_downloads_only_footprints(
     assert result is city
     mock_download_footprints.assert_called_once_with(bounds=ANY)
     city.add_buildings.assert_called_once_with(buildings)
-
-
-@patch(
-    "dtcc_core.datasets._city_mesh_common.dtcc_core.builder.build_conditioned_footprints"
-)
-def test_condition_city_meshing_footprints_uses_shared_conditioning_stage(
-    mock_build_conditioned_footprints,
-):
-    city = Mock(name="city")
-    city.buildings = [Mock(name="building")]
-    terrain = Mock(name="terrain")
-    terrain_raster = Mock(name="terrain_raster")
-    terrain.raster = terrain_raster
-    city.terrain = terrain
-    footprint = Mock(name="footprint_surface")
-    polygon = Mock(name="footprint_polygon")
-    footprint.to_polygon.return_value = polygon
-    diagnostics = {"output_grid": 0.03125}
-    contract = {"requirements": {"scale_contract_satisfied": True}}
-    conditioned = meshes_module.ConditionedFootprints(
-        surfaces=[footprint],
-        source_map=[[1, 2]],
-        subdomain_resolution=[7.5],
-        diagnostics=diagnostics,
-        declared_scale=0.5,
-        contract=contract,
-    )
-
-    mock_build_conditioned_footprints.return_value = conditioned
-
-    result = condition_city_meshing_footprints(
-        city,
-        min_building_detail=0.5,
-        min_building_area=15.0,
-        merge_tolerance=0.5,
-        merge_buildings=True,
-        max_mesh_size=10.0,
-        cleaning_diagnostics=True,
-    )
-
-    assert isinstance(result, CityMeshingFootprints)
-    assert result.terrain is terrain
-    assert result.terrain_raster is terrain_raster
-    assert result.footprints == [footprint]
-    assert result.source_map == [[1, 2]]
-    assert result.subdomain_resolution == [7.5]
-    assert result.diagnostics is diagnostics
-    assert result.declared_scale == 0.5
-    assert result.contract is contract
-    assert result.polygons == [polygon]
-
-    mock_build_conditioned_footprints.assert_called_once_with(
-        city.buildings,
-        lod=None,
-        min_building_detail=0.5,
-        min_building_area=15.0,
-        merge_tolerance=0.5,
-        merge_buildings=True,
-        max_mesh_size=10.0,
-        cleaning_diagnostics=True,
-        show_footprints=False,
-        footprint_cleaning_plot_block=True,
-        pipeline_mode="strict",
-    )

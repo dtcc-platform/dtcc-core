@@ -44,6 +44,13 @@ class CalibrationGridArgs(DatasetBaseArgs):
 
 
 class CalibrationGridDataset(DatasetDescriptor):
+    """Calibration Grid dataset, registered as ``calibration_grid``.
+
+    Deterministic synthetic line grid spanning the requested bounds, used to
+    check tangible-table projector alignment against known map coordinates.
+
+    Call it with keyword arguments defined by ``CalibrationGridArgs``.
+    """
     name = "calibration_grid"
     title = "Calibration Grid"
     description = (

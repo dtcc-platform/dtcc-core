@@ -140,8 +140,8 @@ def test_buildings_obj_export_returns_bytes(
     building_mesh_2 = Mock(name="building_mesh_2")
     lod1_building_1 = Mock(name="lod1_building_1")
     lod1_building_2 = Mock(name="lod1_building_2")
-    lod1_building_1.lod1.mesh.return_value = building_mesh_1
-    lod1_building_2.lod1.mesh.return_value = building_mesh_2
+    lod1_building_1.flatten_geometry.return_value.mesh.return_value = building_mesh_1
+    lod1_building_2.flatten_geometry.return_value.mesh.return_value = building_mesh_2
     mock_build_lod1_buildings.return_value = [lod1_building_1, lod1_building_2]
 
     city = Mock(name="city")
@@ -163,8 +163,11 @@ def test_buildings_obj_export_returns_bytes(
         )
 
     assert result == b"obj-bytes"
-    lod1_building_1.lod1.mesh.assert_called_once_with(weld=True, snap=0.005)
-    lod1_building_2.lod1.mesh.assert_called_once_with(weld=True, snap=0.005)
+    for lod1_building in (lod1_building_1, lod1_building_2):
+        lod1_building.flatten_geometry.assert_called_once_with(GeometryType.LOD1)
+        lod1_building.flatten_geometry.return_value.mesh.assert_called_once_with(
+            weld=True, snap=0.005
+        )
     mock_merge_meshes.assert_called_once_with([building_mesh_1, building_mesh_2])
     mock_export.assert_called_once_with(merged_mesh, "obj")
 
@@ -198,8 +201,8 @@ def test_buildings_place_on_zero_offsets_meshes_before_merge(
     building_mesh_2.bounds = SimpleNamespace(zmin=-1.0)
     lod1_building_1 = Mock(name="lod1_building_1")
     lod1_building_2 = Mock(name="lod1_building_2")
-    lod1_building_1.lod1.mesh.return_value = building_mesh_1
-    lod1_building_2.lod1.mesh.return_value = building_mesh_2
+    lod1_building_1.flatten_geometry.return_value.mesh.return_value = building_mesh_1
+    lod1_building_2.flatten_geometry.return_value.mesh.return_value = building_mesh_2
     mock_build_lod1_buildings.return_value = [lod1_building_1, lod1_building_2]
 
     city = Mock(name="city")
