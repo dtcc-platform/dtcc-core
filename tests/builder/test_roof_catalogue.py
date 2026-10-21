@@ -587,7 +587,6 @@ def test_generic_wall_subdivision_has_a_bounded_memory_budget():
 def test_insufficient_evidence_flat_models_match_ordinary_lod1_geometry(
     monkeypatch, cleaned, levels
 ):
-    from dtcc_core.builder.meshing import catalogue_surface
 
     a, b = box(-10, -5, 0, 5), box(0, -5, 10, 5)
     buildings = [

@@ -17,7 +17,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from ..common import warning
-from ..io.meshes import bounds_center_offset, centered_copy
+from ..io.meshes import bounds_center_offset, centered_copy  # noqa: F401  (re-export)
 
 CENTER_ON_ORIGIN_DESCRIPTION = (
     "Translate exported geometry so the centre of the requested bounds sits at "

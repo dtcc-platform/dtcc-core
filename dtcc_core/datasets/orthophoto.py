@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 from pydantic import Field, field_validator, model_validator
 

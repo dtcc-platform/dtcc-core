@@ -12,7 +12,7 @@ from dtcc_core.builder.roofs.ransac import RansacRoofModel, fit_ransac
 from dtcc_core.model import GeometryType
 
 from .test_compact_integration import sample
-from .test_roof_catalogue import building, cloud, model
+from .test_roof_catalogue import building, model
 
 
 def arrays(mesh):

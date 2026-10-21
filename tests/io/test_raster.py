@@ -93,7 +93,6 @@ def test_load_multiple(data_dir, test_raster_paths):
 
 # GeoTIFF writer
 
-import math
 import tracemalloc
 
 import rasterio

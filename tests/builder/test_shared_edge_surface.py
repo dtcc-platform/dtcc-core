@@ -11,7 +11,6 @@ from shapely.geometry import Polygon
 from dtcc_core.builder.geometry_builders import meshes
 from dtcc_core.builder.meshing.roof_validation import validate_shell
 from dtcc_core.builder.meshing.shared_edges import SharedEdges
-from dtcc_core.builder.meshing.surface_faces import extract_surface_faces
 from dtcc_core.builder.meshing.surface_refinement import (
     SurfaceRefinementOptions,
     refine_shared_surface,

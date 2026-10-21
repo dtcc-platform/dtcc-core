@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING, TypeVar
 
-from dtcc_core.logging import error, info, warning
+from dtcc_core.logging import info
 
 if TYPE_CHECKING:
     from ....model.object import City

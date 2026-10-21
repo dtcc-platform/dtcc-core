@@ -1,11 +1,10 @@
 from pathlib import Path
-from typing import TYPE_CHECKING, TypeVar, Union
+from typing import TYPE_CHECKING, TypeVar
 
 from dtcc_core.logging import error, info, warning
 
-from ....model.geometry import Bounds, PointCloud
+from ....model.geometry import Bounds
 from ....model.object import GeometryType
-from ....model.values import Raster
 
 if TYPE_CHECKING:
     from ....model.object import City

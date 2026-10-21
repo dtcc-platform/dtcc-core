@@ -9,7 +9,7 @@ import pytest
 from dtcc_core import builder
 from dtcc_core.builder import CompactSurfaceOptions
 
-from .test_compact_integration import sample, two_groups
+from .test_compact_integration import sample
 from .test_compact_mesher_interface import fixture
 
 ci = importlib.import_module("dtcc_core.builder.meshing.compact_improvement")

@@ -12,7 +12,6 @@ from dtcc_core.builder.meshing.compact_improvement import (
     improve_shared,
     joint_acceptance,
     permitted_segments,
-    quality,
 )
 from dtcc_core.builder.meshing.compact_surface import CompactSurfaceOptions
 from dtcc_core.builder.meshing.compact_triangulation import improve, triangulate

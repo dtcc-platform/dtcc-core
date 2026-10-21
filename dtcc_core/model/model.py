@@ -5,8 +5,8 @@ import builtins
 import importlib
 from abc import ABC
 from copy import deepcopy
-from dataclasses import dataclass, field
-from inspect import getmembers, isfunction, ismethod, ismodule
+from dataclasses import dataclass
+from inspect import getmembers, isfunction, ismodule
 
 from google.protobuf.json_format import MessageToJson
 

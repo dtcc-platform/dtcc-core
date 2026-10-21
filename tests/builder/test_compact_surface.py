@@ -1,7 +1,5 @@
 """Compact geometry, shared simplification and conservative quality budgets."""
 
-from dataclasses import replace
-
 import numpy as np
 import pytest
 import shapely

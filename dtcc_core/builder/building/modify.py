@@ -1,5 +1,3 @@
-from typing import List, Union
-
 from shapely.ops import unary_union
 
 from ...model import Building, GeometryType, MultiSurface, Surface

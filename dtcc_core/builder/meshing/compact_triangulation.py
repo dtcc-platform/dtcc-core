@@ -3,7 +3,7 @@
 import numpy as np
 import shapely
 
-from .wall_faces import _check_replacement, triangle_quality
+from .wall_faces import _check_replacement
 
 
 def orient_triangles(points, triangles):

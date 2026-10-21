@@ -11,7 +11,7 @@ from collections import defaultdict
 
 import numpy as np
 import shapely
-from shapely.geometry import Point, Polygon
+from shapely.geometry import Point
 from shapely.geometry.polygon import orient
 
 from ...model import Field, Mesh, SemanticRegion

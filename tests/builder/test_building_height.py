@@ -1,7 +1,6 @@
 """Public height workflows preserve measurements while modelling geometry."""
 
 import numpy as np
-import pytest
 from shapely.geometry import box
 
 from dtcc_core import io

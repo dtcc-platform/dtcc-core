@@ -1,7 +1,6 @@
 """Area allowance follows measured boundary coincidence, not an arbitrary epsilon."""
 
 import json
-from dataclasses import replace
 from pathlib import Path
 
 import numpy as np

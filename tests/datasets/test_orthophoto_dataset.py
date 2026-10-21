@@ -8,7 +8,7 @@ import traceback
 import warnings
 import weakref
 import zipfile
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
 

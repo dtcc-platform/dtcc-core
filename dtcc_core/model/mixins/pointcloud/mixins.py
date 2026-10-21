@@ -1,6 +1,4 @@
-from typing import TYPE_CHECKING, List, TypeVar, Union
-
-from dtcc_core.logging import error, info, warning
+from typing import TYPE_CHECKING, TypeVar
 
 from ....model.geometry import Bounds
 
@@ -83,7 +81,6 @@ class PointcloudFilterMixin:
             A new pointcloud with the outliers removed.
         """
         from dtcc_core.builder.pointcloud.filter import (
-            find_global_outliers,
             remove_global_outliers,
         )
 
@@ -109,7 +106,6 @@ class PointcloudFilterMixin:
             A new point cloud with the outliers removed.
         """
         from dtcc_core.builder.pointcloud.filter import (
-            find_statistical_outliers,
             statistical_outlier_filter,
         )
 
@@ -138,7 +134,6 @@ class PointcloudFilterMixin:
         """
         from dtcc_core.builder.pointcloud.filter import (
             classification_filter,
-            find_classification,
         )
 
         return classification_filter(self, classes, keep)
@@ -158,7 +153,7 @@ class PointcloudFilterMixin:
         T_Pointcloud
             A new point cloud cropped to the specified bounds.
         """
-        from dtcc_core.builder.pointcloud.filter import crop, pts_in_bounds
+        from dtcc_core.builder.pointcloud.filter import crop
 
         return crop(self, bounds)
 

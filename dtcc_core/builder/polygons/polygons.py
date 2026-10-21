@@ -1,7 +1,5 @@
 """Polygon merging helpers used by surface and multisurface processing."""
 
-from typing import List
-
 import numpy as np
 import shapely
 import shapely.affinity

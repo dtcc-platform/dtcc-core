@@ -1,5 +1,3 @@
-from typing import List, Tuple
-
 import numpy as np
 from shapely.geometry import Polygon
 
@@ -17,7 +15,7 @@ from ..cleaning.blocks import (
     source_footprint,
     update_walls,
 )
-from ..logging import debug, error, info, warning
+from ..logging import error, info, warning
 from ..model_conversion import create_builder_polygon
 from .surface import extrude_surface
 from .terrain import build_terrain_raster

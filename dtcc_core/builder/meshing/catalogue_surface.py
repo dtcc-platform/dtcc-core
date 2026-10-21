@@ -150,7 +150,6 @@ def _prepare_roof_blocks(
     isolated=False,
 ):
     """Clean once and fit original source observations for either surface layout."""
-    from ..geometry_builders import meshes as pipeline
 
     domain = box(*bounds)
     clock = time.perf_counter()

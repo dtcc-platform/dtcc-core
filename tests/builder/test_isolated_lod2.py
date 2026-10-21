@@ -9,7 +9,6 @@ from shapely.geometry import box
 from dtcc_core import builder, datasets
 from dtcc_core.builder.meshing.roof_validation import vertex_link_audit
 from dtcc_core.builder.meshing.tetgen import has_volume_veto
-from dtcc_core.model import GeometryType
 
 from .test_roof_catalogue import building, city_of, model
 

@@ -13,7 +13,7 @@ import gzip
 import hashlib
 import json
 from collections import Counter
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from time import perf_counter
 
@@ -24,7 +24,6 @@ from dtcc_core.datasets import load_model_package
 from dtcc_core.datasets.schema import DatasetContext
 from dtcc_core.model import (
     Bounds,
-    Building,
     City,
     Field,
     Grid,

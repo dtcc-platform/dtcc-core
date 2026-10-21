@@ -402,8 +402,7 @@ def test_small_overlap_order_change_revalidates_and_persists_cells(
 
 
 def test_meshing_reports_the_outcomes_of_recomputed_walls(monkeypatch):
-    from dtcc_core.builder.cleaning import blocks as blocks_module
-    from dtcc_core.builder.cleaning.walls import LabelledRegion, label_region
+    from dtcc_core.builder.cleaning.walls import LabelledRegion
 
     cleaned = raw_tower_city().clean_footprints()
     parts = parts_by_id(cleaned.buildings[0])
@@ -519,7 +518,6 @@ def test_lod1_follows_a_new_partition(rebuild):
 
 
 def test_lod1_follows_a_switch_to_and_from_one_footprint(monkeypatch):
-    from dtcc_core.builder.cleaning import blocks as blocks_module
 
     city, block = tower_block()
     build_lod1_buildings(city.buildings)
@@ -632,7 +630,6 @@ def test_a_part_without_source_or_cell_keeps_the_labels_of_the_others():
 
 
 def test_the_cause_of_a_fallback_is_kept_with_the_block(monkeypatch, tmp_path, caplog):
-    from dtcc_core.builder.cleaning import blocks as blocks_module
 
     def failure(*args, **kwargs):
         raise shapely.errors.GEOSException("controlled construction failure")
@@ -689,7 +686,7 @@ def test_the_cause_of_a_fallback_is_kept_with_the_block(monkeypatch, tmp_path, c
     assert "wall fallback" not in caplog.text
 
     # A strict cleaning keeps the closest wall pair of the walls it refused.
-    from dtcc_core.builder.cleaning.walls import LabelledRegion, label_region
+    from dtcc_core.builder.cleaning.walls import LabelledRegion
 
     def warn(self):
         labelled = _original_xy(self)
@@ -1200,7 +1197,6 @@ def _two_contact_block(*, persisted_partial=False):
 
 
 def test_partial_contact_repair_uses_permitted_retry():
-    from dtcc_core.builder.cleaning import blocks
     from dtcc_core.builder.cleaning.contract import check_labelled_contract
 
     block, region, sources, order, cells, roofs = _two_contact_block()
@@ -1237,7 +1233,6 @@ def test_partial_contact_repair_uses_permitted_retry():
 
 @pytest.mark.parametrize("failure", ["no_improvement", "geometry_error"])
 def test_failed_retry_retains_valid_partial_repair(monkeypatch, failure):
-    from dtcc_core.builder.cleaning import blocks
     from dtcc_core.builder.cleaning.contract import check_labelled_contract
 
     block, region, sources, order, cells, roofs = _two_contact_block()

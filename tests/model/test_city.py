@@ -6,7 +6,6 @@ from dtcc_core.model import (
     Building,
     City,
     GeometryType,
-    Object,
     PointCloud,
     Raster,
     Surface,

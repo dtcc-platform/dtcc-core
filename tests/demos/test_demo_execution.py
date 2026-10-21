@@ -28,7 +28,7 @@ def preview_without_windows(monkeypatch, tmp_path):
     monkeypatch.setattr(plt, "show", lambda *args, **kwargs: None)
     monkeypatch.chdir(REPO_ROOT)
     # IO registers concrete save methods lazily; capture them before patching.
-    import dtcc_core.io
+    import dtcc_core.io  # noqa: F401  (side effect: registers save methods)
 
     for cls in (City, Mesh, VolumeMesh, PointCloud, Raster):
         save = cls.save
