@@ -27,6 +27,13 @@ class SpaceSyntaxArgs(DatasetBaseArgs):
     """Arguments for the road-network space syntax dataset."""
 
     source: Literal["OSM"] = Field("OSM", description="Road data source")
+    network: Literal["all", "drive", "walk", "bike"] = Field(
+        "all",
+        description=(
+            "Travel mode of the analysed network, passed to the roads dataset. "
+            "'walk' or 'bike' analyses the pedestrian or cycle network."
+        ),
+    )
     cost: SpaceSyntaxCost = Field(
         "topological",
         description=(
@@ -144,7 +151,10 @@ class SpaceSyntaxDataset(DatasetDescriptor):
     )
     update_frequency = "derived on demand from OpenStreetMap source data"
     processing_steps = [
-        "Fetch the upstream roads dataset for the requested bounds and source",
+        (
+            "Fetch the upstream roads dataset for the requested bounds, source "
+            "and travel-mode network"
+        ),
         "Treat each road segment as a node in a dual segment graph",
         "Connect segment-nodes when their road segments share an endpoint",
         (
@@ -277,7 +287,9 @@ class SpaceSyntaxDataset(DatasetDescriptor):
         import dtcc_core.datasets as datasets
 
         bounds = self.parse_bounds(args.bounds)
-        roads = datasets.roads(bounds=bounds, source=args.source)
+        roads = datasets.roads(
+            bounds=bounds, source=args.source, network=args.network
+        )
         result = analyze_space_syntax(
             roads,
             cost=args.cost,
