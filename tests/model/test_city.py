@@ -1,11 +1,12 @@
-import pytest
 import numpy as np
+import pytest
 from affine import Affine
+
 from dtcc_core.model import (
-    Object,
-    City,
     Building,
+    City,
     GeometryType,
+    Object,
     PointCloud,
     Raster,
     Surface,

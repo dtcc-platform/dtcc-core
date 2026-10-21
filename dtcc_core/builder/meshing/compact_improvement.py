@@ -1,16 +1,16 @@
 """Bounded source-budgeted transactions on the compact 3D face graph."""
 
+import time
 from collections import Counter, defaultdict
 from copy import deepcopy
 from types import SimpleNamespace
-import time
 
 import numpy as np
 from shapely.geometry import Polygon
 
 from .compact_triangulation import improve, triangulate
-from .surface_faces import boundary_rings
 from .face_validation import validate_face_geometry
+from .surface_faces import boundary_rings
 
 MAX_NATIVE_REQUESTS = 512
 MAX_JOINT_TRIALS = 256

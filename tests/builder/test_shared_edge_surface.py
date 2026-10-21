@@ -8,7 +8,8 @@ import pytest
 import shapely
 from shapely.geometry import Polygon
 
-from dtcc_core.model import Mesh
+from dtcc_core.builder.geometry_builders import meshes
+from dtcc_core.builder.meshing.roof_validation import validate_shell
 from dtcc_core.builder.meshing.shared_edges import SharedEdges
 from dtcc_core.builder.meshing.surface_faces import extract_surface_faces
 from dtcc_core.builder.meshing.surface_refinement import (
@@ -16,8 +17,7 @@ from dtcc_core.builder.meshing.surface_refinement import (
     refine_shared_surface,
 )
 from dtcc_core.builder.meshing.surface_refinement_backend import mesh_face
-from dtcc_core.builder.meshing.roof_validation import validate_shell
-from dtcc_core.builder.geometry_builders import meshes
+from dtcc_core.model import Mesh
 
 
 def require_pilot_mesher():
@@ -199,8 +199,9 @@ def test_superseded_pilot_is_not_a_public_assembly_route():
 @pytest.mark.parametrize("configuration", ["step", "crossing", "acute"])
 def test_generic_patch_interfaces_preserve_exposed_geometry(configuration):
     require_pilot_mesher()
-    from tests.builder.test_roof_catalogue import model, assemble
     from shapely.geometry import box
+
+    from tests.builder.test_roof_catalogue import assemble, model
 
     if configuration == "acute":
         foot = Polygon([(0.0, 0.0), (10.0, 0.0), (10.0, 0.4)])
@@ -239,6 +240,7 @@ def test_generic_patch_interfaces_preserve_exposed_geometry(configuration):
 
 def test_corner_spacing_is_shared_across_all_incident_planes():
     from types import SimpleNamespace
+
     from dtcc_core.builder.meshing.shared_edges import seed_corner_shells
 
     v = np.array([[0.0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 0, 4]])
@@ -298,6 +300,7 @@ def test_synchronization_budget_retains_whole_shell_without_blame_on_last_face()
 
 def test_missing_pilot_backend_extension_is_explicit_and_transactional(monkeypatch):
     from types import SimpleNamespace
+
     import dtcc_core.builder.meshing.surface_refinement_backend as backend
 
     monkeypatch.setattr(

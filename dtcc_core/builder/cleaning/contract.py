@@ -28,7 +28,7 @@ import numpy as np
 import shapely
 from shapely import STRtree, distance, get_coordinates, linestrings, make_valid, points
 from shapely.affinity import translate
-from shapely.geometry import Point, Polygon, MultiPolygon
+from shapely.geometry import MultiPolygon, Point, Polygon
 from shapely.ops import unary_union
 
 # Distances below delta * (1 - SEPARATION_RELATIVE_TOLERANCE) are violations.

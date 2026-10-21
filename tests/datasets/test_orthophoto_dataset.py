@@ -1,15 +1,15 @@
+import dataclasses
 import gc
 import importlib
 import json
 import math
-import dataclasses
 import struct
-from functools import partial
 import traceback
 import warnings
 import weakref
 import zipfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
+from functools import partial
 from pathlib import Path
 
 import numpy as np
@@ -23,14 +23,15 @@ from rasterio.io import MemoryFile
 from requests.structures import CaseInsensitiveDict
 
 import dtcc_core.datasets as datasets
-from dtcc_core.datasets import attach_dataset_context
 import dtcc_core.io as dtcc_io
+import tests.datasets.live.test_orthophoto_live as live
 from dtcc_core.common import progress as progress_module
+from dtcc_core.datasets import attach_dataset_context
 from dtcc_core.datasets.dataset import DatasetDescriptor, DatasetUpstreamError
+from dtcc_core.datasets.orthophoto import OrthophotoArgs, OrthophotoDataset
 from dtcc_core.datasets.package import export_model_package, load_model_package
 from dtcc_core.datasets.publish import _validate_upload_package
 from dtcc_core.datasets.schema import DatasetContext
-from dtcc_core.datasets.orthophoto import OrthophotoArgs, OrthophotoDataset
 from dtcc_core.io import raster as raster_io
 from dtcc_core.io import raster_tiles
 from dtcc_core.io.data import cache as data_cache
@@ -38,7 +39,6 @@ from dtcc_core.io.data import orthophoto as client
 from dtcc_core.io.raster_tiles import READ_OVERHEAD_BYTES, WorkingMemoryError
 from dtcc_core.model import Bounds, Raster, exchange
 from dtcc_core.model.values.raster_tiles import RasterTileCollection
-import tests.datasets.live.test_orthophoto_live as live
 from tests.datasets.test_dataset_publish import RecordingUploader
 
 # The package attribute is the registered dataset; the module is imported directly.
@@ -1832,7 +1832,7 @@ def listed_item(collection, item_id):
         id=item_id,
         collection=collection,
         bbox=cell(0),
-        datetime=datetime(2025, 6, 1, tzinfo=timezone.utc),
+        datetime=datetime(2025, 6, 1, tzinfo=UTC),
         spektraltyp="rgbi",
         href=f"/files/{collection}/{item_id}.tif",
         resolution=0.16,

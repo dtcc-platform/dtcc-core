@@ -71,8 +71,8 @@ class TestMonotonicProgress:
 
 
 def test_nested_progress_ranges_restore_parent_and_bound_child():
-    from progress import progress_range
     import pytest
+    from progress import progress_range
 
     with ProgressTracker(phases={"mesh": 1.0}, mode="silent") as tracker:
         with tracker.phase("mesh"):
@@ -92,8 +92,8 @@ def test_nested_progress_ranges_restore_parent_and_bound_child():
 
 
 def test_progress_range_failure_does_not_complete_and_new_tracker_is_independent():
-    from progress import progress_range
     import pytest
+    from progress import progress_range
 
     with ProgressTracker(phases={"mesh": 1.0}, mode="silent") as outer:
         with outer.phase("mesh"):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from unittest.mock import ANY, Mock, patch
+
 import pytest
 
 import dtcc_core.datasets as datasets

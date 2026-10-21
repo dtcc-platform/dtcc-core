@@ -1,12 +1,12 @@
 """Resolve source-labelled cleaned cells and transfer ephemeral fitted roofs."""
 
-from dataclasses import dataclass, field
 import time
+from dataclasses import dataclass, field
 
 import numpy as np
 
-from ...model import GeometryType
 from ...common.progress import report_progress
+from ...model import GeometryType
 from ..cleaning.blocks import source_footprint, source_id
 from ..roofs import RoofFitResult, RoofPatch, fit_roof
 from ..roofs.partition import polygon_parts
@@ -257,6 +257,7 @@ def admit_roofs(patches, blocks, rows, bases):
     this decision.
     """
     from dataclasses import replace
+
     from .roof_interfaces import RoofAssemblyError
 
     rejected = {}

@@ -8,17 +8,17 @@ import shapely
 from shapely import affinity
 from shapely.geometry import box
 
-from dtcc_core.builder.roofs import RoofPatch
+from dtcc_core.builder.meshing.compact_surface import (
+    CompactSurfaceOptions,
+    compact_surface,
+)
 from dtcc_core.builder.meshing.roof_interfaces import node_interfaces
 from dtcc_core.builder.meshing.roof_junctions import (
     height_interval_topology,
     junction_half_widths,
     regularize_roof_junctions,
 )
-from dtcc_core.builder.meshing.compact_surface import (
-    compact_surface,
-    CompactSurfaceOptions,
-)
+from dtcc_core.builder.roofs import RoofPatch
 
 
 def quadrants(heights, offset=(0.0, 0.0), slopes=None):

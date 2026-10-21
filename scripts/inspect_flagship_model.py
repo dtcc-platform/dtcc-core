@@ -65,8 +65,8 @@ def credit(figure):
 
 def footprint_patches(city, origin, *, water=False):
     """Compound paths preserve islands/courtyards in the plan views."""
-    from matplotlib.path import Path as MplPath
     from matplotlib.patches import PathPatch
+    from matplotlib.path import Path as MplPath
     from shapely import Polygon
     from shapely.geometry.polygon import orient
 

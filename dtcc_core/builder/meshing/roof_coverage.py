@@ -4,13 +4,13 @@ from dataclasses import replace
 
 import numpy as np
 import shapely
-from shapely import affinity
-from shapely.geometry import box, Point
 from scipy.spatial import cKDTree
+from shapely import affinity
+from shapely.geometry import Point, box
 
-from .roof_interfaces import XY_PRECISION, RoofAssemblyError, node_interfaces
-from ..roofs.partition import polygon_parts
 from ..geometry_policy import COINCIDENCE
+from ..roofs.partition import polygon_parts
+from .roof_interfaces import XY_PRECISION, RoofAssemblyError, node_interfaces
 
 
 def local_roof_coverage(

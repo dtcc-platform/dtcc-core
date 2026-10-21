@@ -15,16 +15,15 @@ from dtcc_core.builder.cleaning import walls as walls_module
 from dtcc_core.builder.cleaning.blocks import WALLS_KEY, set_part_roof
 from dtcc_core.builder.cleaning.clean import MERGED_FROM_KEY, RECORD_KEY, clean_regions
 from dtcc_core.builder.cleaning.contract import check_labelled_contract
-from dtcc_core.builder.cleaning.walls import LabelledRegion, label_region
 from dtcc_core.builder.cleaning.levels import level_regions, pinched_levels
-from dtcc_core.builder.geometry_builders.meshes import (
-    build_city_flat_mesh_from_coverage,
-)
-from dtcc_core.model.mixins.mesh.quality import tri_element_quality
+from dtcc_core.builder.cleaning.walls import LabelledRegion, label_region
 from dtcc_core.builder.geometry_builders.buildings import (
     compute_building_heights,
     extract_roof_points,
     set_building_heights_from_attribute,
+)
+from dtcc_core.builder.geometry_builders.meshes import (
+    build_city_flat_mesh_from_coverage,
 )
 from dtcc_core.model import (
     Bounds,
@@ -36,6 +35,7 @@ from dtcc_core.model import (
     Raster,
     Surface,
 )
+from dtcc_core.model.mixins.mesh.quality import tri_element_quality
 
 DATA = Path(__file__).resolve().parents[1] / "data" / "cleaning"
 
@@ -784,13 +784,13 @@ def test_walls_closer_than_a_tenth_of_a_millimetre_fall_back(monkeypatch):
 
 
 def test_short_boundary_intervals_are_noded_before_unknown_roofs_are_set(monkeypatch):
-    from dtcc_core.builder.cleaning.clean import footprint_cells
     from dtcc_core.builder.cleaning.blocks import (
         assign_cells,
         set_source_footprint,
-        walls_record,
         update_walls,
+        walls_record,
     )
+    from dtcc_core.builder.cleaning.clean import footprint_cells
     from dtcc_core.builder.geometry_builders.meshes import build_building_shell
     from dtcc_core.model import BuildingPart
 

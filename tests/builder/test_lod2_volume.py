@@ -5,14 +5,15 @@ import pytest
 from shapely.geometry import box
 
 from dtcc_core import builder
-from dtcc_core.model import GeometryType
 from dtcc_core.builder.geometry_builders import meshes as pipeline
-from dtcc_core.builder.meshing.tetgen import is_tetgen_available, has_volume_veto
 from dtcc_core.builder.meshing import tetgen_utils
+from dtcc_core.builder.meshing.tetgen import has_volume_veto, is_tetgen_available
 from dtcc_core.datasets.city_volume_mesh import (
-    CityVolumeMeshDataset,
     CityVolumeMeshArgs,
+    CityVolumeMeshDataset,
 )
+from dtcc_core.model import GeometryType
+
 from .test_roof_catalogue import building, city_of, model
 
 

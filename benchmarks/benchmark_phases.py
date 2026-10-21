@@ -11,8 +11,8 @@ from __future__ import annotations
 import hashlib
 import json
 import time
-from pathlib import Path
 from copy import deepcopy
+from pathlib import Path
 
 import numpy as np
 from affine import Affine
@@ -20,8 +20,7 @@ from shapely import make_valid
 from shapely.geometry import mapping, shape
 from shapely.ops import unary_union
 
-from dtcc_core.model import Bounds, City, GeometryType, Raster
-from dtcc_core.io.model import load_model, save_model
+from benchmarks.benchmark_catalog import CLEANING_PARAMETERS
 from dtcc_core.builder.cleaning.blocks import source_footprint, source_id, source_ids
 from dtcc_core.builder.cleaning.clean import RECORD_KEY, cleaning_record
 from dtcc_core.builder.geometry_builders import meshes
@@ -29,7 +28,8 @@ from dtcc_core.datasets._city_mesh_common import (
     prepare_city_from_bounds,
     prepare_footprint_city_from_bounds,
 )
-from benchmarks.benchmark_catalog import CLEANING_PARAMETERS
+from dtcc_core.io.model import load_model, save_model
+from dtcc_core.model import Bounds, City, GeometryType, Raster
 
 # Format version of saved cleaning artifacts; loading rejects any other.
 ARTIFACT_VERSION = 4

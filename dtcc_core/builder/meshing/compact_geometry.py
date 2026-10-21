@@ -1,8 +1,8 @@
 """Minimal source-owned planar domains and their jointly simplified edge graph."""
 
+import heapq
 from collections import defaultdict
 from dataclasses import replace
-import heapq
 
 import numpy as np
 import shapely
@@ -10,11 +10,10 @@ from shapely.geometry import Polygon
 from shapely.geometry.polygon import orient
 
 from ...common.progress import report_progress
-
-from .surface_faces import SurfaceFace, boundary_rings
-from .shared_edges import SharedEdges
-from .roof_interfaces import RoofAssemblyError
 from ..geometry_policy import COINCIDENCE, canonical_profile_heights
+from .roof_interfaces import RoofAssemblyError
+from .shared_edges import SharedEdges
+from .surface_faces import SurfaceFace, boundary_rings
 
 TOLERANCE = COINCIDENCE
 

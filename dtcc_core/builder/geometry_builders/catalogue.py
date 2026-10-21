@@ -14,7 +14,7 @@ def catalogue_shell(building, default_ground_height, always_use_default_ground):
     the surface pipeline. It retains the original footprint, without cleaning
     or merging independent buildings.
     """
-    from .lod2 import _footprint_polygon, _build_shell
+    from .lod2 import _build_shell, _footprint_polygon
 
     footprint = _footprint_polygon(building)
     if footprint is None:

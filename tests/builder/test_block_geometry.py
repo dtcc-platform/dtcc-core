@@ -1,7 +1,7 @@
 """LOD1 per part and closed shells of cleaned blocks."""
 
-from collections import Counter
 import math
+from collections import Counter
 
 import numpy as np
 import pytest

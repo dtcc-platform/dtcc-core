@@ -1,16 +1,18 @@
-import dtcc_core
 from typing import Literal, Optional
+
 from pydantic import Field
 
-from .dataset import DatasetDescriptor, DatasetBaseArgs
-from .providers import provider_entry
+import dtcc_core
 from dtcc_core.common.progress import ProgressTracker
+
 from .centering import (
     CENTER_ON_ORIGIN_DESCRIPTION,
     CENTER_ON_ORIGIN_PROCESSING_STEP,
     center_result_if_requested,
     warn_if_far_from_origin,
 )
+from .dataset import DatasetBaseArgs, DatasetDescriptor
+from .providers import provider_entry
 
 
 class TerrainSurfaceMeshArgs(DatasetBaseArgs):
@@ -36,7 +38,7 @@ class TerrainSurfaceMeshArgs(DatasetBaseArgs):
     smoothing: int = Field(
         3, description="Number of smoothing iterations to apply to the terrain mesh"
     )
-    mesher: Optional[Literal["auto", "dtcc_mesher", "triangle"]] = Field(
+    mesher: Literal["auto", "dtcc_mesher", "triangle"] | None = Field(
         None,
         description="2D meshing backend to use for the terrain triangulation",
     )
@@ -48,7 +50,7 @@ class TerrainSurfaceMeshArgs(DatasetBaseArgs):
         3.0, description="Threshold for outlier removal"
     )
     center_on_origin: bool = Field(False, description=CENTER_ON_ORIGIN_DESCRIPTION)
-    format: Optional[Literal["tif", "obj", "stl"]] = Field(
+    format: Literal["tif", "obj", "stl"] | None = Field(
         None, description="Output file format"
     )
 

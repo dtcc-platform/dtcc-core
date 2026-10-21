@@ -1,17 +1,17 @@
 """Selectable shared-edge quality-refinement pilot for catalogue surfaces."""
 
-from dataclasses import dataclass, asdict
 import time
+from dataclasses import asdict, dataclass
 
 import numpy as np
 import shapely
 
 from ...model import Field, Mesh, SemanticRegion
+from .face_validation import validate_face_geometry
 from .shared_edges import SharedEdges, seed_corner_shells
 from .surface_faces import extract_surface_faces
 from .surface_refinement_backend import mesh_face
 from .wall_faces import _angle_constraint
-from .face_validation import validate_face_geometry
 
 
 @dataclass(frozen=True)
@@ -349,8 +349,8 @@ def refine_shared_surface(
             raise ValueError(
                 f"{mismatches} faces have inconsistent shared edge sequences"
             )
-        from .roof_validation import validate_shell
         from ..geometry_builders.meshes import _shell_closure_audit
+        from .roof_validation import validate_shell
 
         audit["topology"] = validate_shell(
             candidate, num_patches=len(owners), closure_audit=_shell_closure_audit

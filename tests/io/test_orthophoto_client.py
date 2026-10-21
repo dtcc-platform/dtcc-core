@@ -1,12 +1,12 @@
 import gc
 import hashlib
-from dataclasses import replace
 import json
 import math
 import os
 import traceback
 import weakref
-from datetime import datetime, timedelta, timezone
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 import numpy as np
@@ -16,8 +16,6 @@ import requests
 from affine import Affine
 from rasterio.transform import from_bounds
 from requests.structures import CaseInsensitiveDict
-
-from dtcc_core.model.values.raster_tiles import RasterTileCollection
 
 from dtcc_core.io.data import orthophoto
 from dtcc_core.io.data.orthophoto import (
@@ -30,6 +28,7 @@ from dtcc_core.io.data.orthophoto import (
     file_url,
     resolve_server_url,
 )
+from dtcc_core.model.values.raster_tiles import RasterTileCollection
 
 BASE = "http://tiles.test:8000"
 BOUNDS = (673000.0, 6578000.0, 674000.0, 6581000.0)
@@ -384,7 +383,7 @@ def test_valid_item_is_parsed(monkeypatch):
             id="o65775_6725_25_mr25",
             collection="orto-o2-2025",
             bbox=(672500.0, 6577500.0, 675000.0, 6580000.0),
-            datetime=datetime(2025, 5, 31, 8, 10, 56, tzinfo=timezone.utc),
+            datetime=datetime(2025, 5, 31, 8, 10, 56, tzinfo=UTC),
             spektraltyp="rgbi",
             href="/files/orto-o2-2025/o65775_6725_25_mr25.tif",
             resolution=0.16,
@@ -422,14 +421,14 @@ def test_several_items_in_one_cell_are_distinct_and_keep_manifest_order(
 @pytest.mark.parametrize(
     "text, expected",
     [
-        ("2025-05-31T08:10:56Z", datetime(2025, 5, 31, 8, 10, 56, tzinfo=timezone.utc)),
+        ("2025-05-31T08:10:56Z", datetime(2025, 5, 31, 8, 10, 56, tzinfo=UTC)),
         (
             "2025-05-31T08:10:56.250Z",
-            datetime(2025, 5, 31, 8, 10, 56, 250000, tzinfo=timezone.utc),
+            datetime(2025, 5, 31, 8, 10, 56, 250000, tzinfo=UTC),
         ),
         (
             "2025-05-31T10:10:56+02:00",
-            datetime(2025, 5, 31, 8, 10, 56, tzinfo=timezone.utc),
+            datetime(2025, 5, 31, 8, 10, 56, tzinfo=UTC),
         ),
     ],
 )
@@ -761,7 +760,7 @@ ITEM = OrthophotoItem(
     id="o65775_6725_25_mr25",
     collection="orto-o2-2025",
     bbox=CELL,
-    datetime=datetime(2025, 5, 31, 8, 10, 56, tzinfo=timezone.utc),
+    datetime=datetime(2025, 5, 31, 8, 10, 56, tzinfo=UTC),
     spektraltyp="rgbi",
     href="/files/orto-o2-2025/o65775_6725_25_mr25.tif",
     resolution=0.5,
@@ -1295,8 +1294,8 @@ def test_acquire_tiles_returns_records_in_manifest_order(monkeypatch, tmp_path):
         "orto-o2-2025",
         "rgbi",
     )
-    assert newer.datetime == datetime(2025, 5, 31, 8, 10, 56, tzinfo=timezone.utc)
-    assert older.datetime == datetime(2017, 6, 1, 8, 0, tzinfo=timezone.utc)
+    assert newer.datetime == datetime(2025, 5, 31, 8, 10, 56, tzinfo=UTC)
+    assert older.datetime == datetime(2017, 6, 1, 8, 0, tzinfo=UTC)
     assert newer.extent.tuple == older.extent.tuple == CELL
     assert newer.crs == older.crs == "EPSG:3006"
     assert (newer.resolution, newer.size_bytes) == (0.5, None)

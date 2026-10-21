@@ -7,6 +7,7 @@ import shapely
 from shapely import affinity
 from shapely.geometry import LineString, Point
 from shapely.ops import polygonize
+
 from ..geometry_policy import XY_PRECISION
 
 

@@ -61,10 +61,11 @@ Derived geometry
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import hashlib
 import math
-from typing import Any, Sequence
+from collections.abc import Sequence
+from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 import shapely

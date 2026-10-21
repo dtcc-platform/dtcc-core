@@ -11,15 +11,14 @@ See docs/synthetic-fields.md for the field construction and time encoding.
 
 import argparse
 import json
-from pathlib import Path
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 import meshio
 import numpy as np
 
 from dtcc_core import io
 from dtcc_core.model import City, Field, VolumeGrid, VolumeMesh, exchange
-
 
 DEFAULT_NX = 128
 DEFAULT_NY = 128

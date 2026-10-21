@@ -14,7 +14,7 @@ datasets requested for the same bounds stay aligned with each other.
 
 from __future__ import annotations
 
-from typing import Sequence
+from collections.abc import Sequence
 
 from ..common import warning
 from ..io.meshes import bounds_center_offset, centered_copy

@@ -8,9 +8,9 @@ No benchmark execution or source geometry is modified by this reporting tool.
 from __future__ import annotations
 
 import argparse
-from collections import Counter
 import csv
 import json
+from collections import Counter
 from pathlib import Path
 
 import meshio
@@ -19,7 +19,6 @@ import shapely
 
 from dtcc_core.builder.meshing.compact_surface import quality_by_kind
 from dtcc_core.model import Field, Mesh
-
 
 OREBRO_TARGETS = {
     "catalogue": dict(q_p01=0.0928, below_q_0_02=1),

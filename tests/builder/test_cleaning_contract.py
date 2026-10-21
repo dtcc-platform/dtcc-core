@@ -5,9 +5,11 @@ from pathlib import Path
 
 import pytest
 from shapely.affinity import translate
-from shapely.geometry import Polygon, Point, box, shape
+from shapely.geometry import Point, Polygon, box, shape
 from shapely.ops import unary_union
 
+from dtcc_core.builder import clean_footprints
+from dtcc_core.builder.cleaning.construction import construct
 from dtcc_core.builder.cleaning.contract import (
     admissibility,
     check_cleaning_contract,
@@ -16,8 +18,6 @@ from dtcc_core.builder.cleaning.contract import (
     fidelity,
     incident_sectors,
 )
-from dtcc_core.builder.cleaning.construction import construct
-from dtcc_core.builder import clean_footprints
 from dtcc_core.model import Building, GeometryType, Surface
 from tests.builder.cleaning_fixtures import survey_merge_group
 

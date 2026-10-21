@@ -16,7 +16,6 @@ from shapely.ops import unary_union
 
 from ..roofs.partition import clip_halfplane, polygon_parts
 
-
 MIN_EXPLAINED_SHARE = 0.80
 MIN_PLANE_SUPPORT_SHARE = 0.50
 PLANE_COST = 0.01  # Metres of clipped absolute residual per additional plane.

@@ -1,23 +1,23 @@
 """Minimal catalogue skins and bounded improvement on connected building groups."""
 
-from dataclasses import dataclass, asdict, replace
 import time
+from dataclasses import asdict, dataclass, replace
 
 import numpy as np
 
-from ...model import Field, Mesh, SemanticRegion
 from ...common import info
-from ...common.progress import report_progress, progress_range
+from ...common.progress import progress_range, report_progress
+from ...model import Field, Mesh, SemanticRegion
 from .compact_geometry import (
     building_domains,
-    geometric_graph,
     face_coordinates,
+    geometric_graph,
     terrain_domains,
 )
 from .compact_triangulation import triangulate
 from .face_validation import validate_face_geometry
-from .wall_faces import _angle_constraint
 from .roof_interfaces import RoofAssemblyError
+from .wall_faces import _angle_constraint
 
 
 def quality_by_kind(mesh, kinds):
@@ -417,8 +417,8 @@ def compact_surface(
                         ),
                     )
                 )
-        from .roof_validation import validate_shell
         from ..geometry_builders.meshes import _shell_closure_audit
+        from .roof_validation import validate_shell
 
         topology = validate_shell(
             result,

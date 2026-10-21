@@ -4,6 +4,7 @@ Ridge length follows from the rectangle and pitches; a point ridge is a limit.
 """
 
 import numpy as np
+
 from . import gable
 
 PARAMETERS = ("orientation_radians", "eave_elevation", "side_pitch", "end_pitch")

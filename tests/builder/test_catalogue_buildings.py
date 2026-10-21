@@ -1,15 +1,17 @@
 """Catalogue city-model shells and CityJSON export preserve reconstructed roofs."""
 
-import numpy as np
 from collections import Counter
+
+import numpy as np
 import pytest
 from shapely import affinity
 from shapely.geometry import box
 
 from dtcc_core import builder, io
-from dtcc_core.model import GeometryType
 from dtcc_core.builder.geometry_builders.lod2 import is_watertight
-from .test_roof_catalogue import SHAPES, building, model, city_of
+from dtcc_core.model import GeometryType
+
+from .test_roof_catalogue import SHAPES, building, city_of, model
 
 
 @pytest.mark.parametrize("shape,parameters", SHAPES)

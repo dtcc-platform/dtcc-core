@@ -14,7 +14,6 @@ from dtcc_core.logging import info
 from ...model import Building, GeometryType, MultiSurface, Surface
 from .buildings import build_lod1_buildings
 
-
 MIN_ROOF_POINTS = 24
 MIN_PLANE_INLIERS = 20
 # Bound plane detection and the subsequent continuous-envelope subset search.

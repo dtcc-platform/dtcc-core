@@ -1,7 +1,8 @@
 """Build LOD1 geometry and a stepped shell from three merged buildings (offline)."""
 
-import dtcc_core as dtcc
 from shapely.geometry import box
+
+import dtcc_core as dtcc
 
 # Three 10 m squares, separated by 0.2 m, with roofs at 8, 16 and 12 m.
 city = dtcc.model.City()

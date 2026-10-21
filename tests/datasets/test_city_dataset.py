@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from unittest.mock import Mock, patch
-import pytest
 
 import numpy as np
+import pytest
 
 import dtcc_core.datasets as datasets
 from dtcc_core.datasets import get_dataset

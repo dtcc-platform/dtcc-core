@@ -7,10 +7,10 @@ from shapely.geometry import box
 
 from dtcc_core.builder.geometry_builders.lod2 import (
     RoofPlane,
-    _fit_plane,
     _candidate_lod2_from_parts,
-    is_watertight,
+    _fit_plane,
     _points_on_edge,
+    is_watertight,
 )
 from dtcc_core.builder.geometry_builders.roof_plane_selection import envelope_candidates
 from dtcc_core.builder.roofs.ransac import fit_ransac

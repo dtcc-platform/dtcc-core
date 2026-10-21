@@ -10,6 +10,7 @@ from dtcc_core import builder, datasets
 from dtcc_core.builder.meshing.roof_validation import vertex_link_audit
 from dtcc_core.builder.meshing.tetgen import has_volume_veto
 from dtcc_core.model import GeometryType
+
 from .test_roof_catalogue import building, city_of, model
 
 
@@ -233,8 +234,8 @@ def test_coplanar_patch_merging_keeps_global_marker_mapping(monkeypatch):
 
 
 def test_skin_validation_rejects_an_open_roof_edge():
-    from dtcc_core.builder.meshing.roof_validation import validate_shell
     from dtcc_core.builder.geometry_builders.meshes import _shell_closure_audit
+    from dtcc_core.builder.meshing.roof_validation import validate_shell
 
     parts = sample().build_surface_mesh(
         lod="lod2",

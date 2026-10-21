@@ -2,10 +2,10 @@
 
 import importlib.util
 import json
-from pathlib import Path
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 import meshio
 import numpy as np
@@ -13,7 +13,6 @@ import pytest
 
 from dtcc_core import io
 from dtcc_core.model import Bounds, City, VolumeGrid, VolumeMesh
-
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "generate_fields.py"
 

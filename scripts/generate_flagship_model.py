@@ -8,14 +8,14 @@ See docs/flagship-model.md for the sources, attribution and Python recipes.
 """
 
 import argparse
-from collections import Counter
 import copy
-import hashlib
 import gzip
+import hashlib
 import json
+from collections import Counter
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from time import perf_counter
-from datetime import datetime, timedelta, timezone
 
 import numpy as np
 
@@ -72,7 +72,7 @@ LANDMARKS = {
 
 def timestamp(seconds):
     return (
-        (datetime(2026, 9, 13, 12, tzinfo=timezone.utc) + timedelta(seconds=seconds))
+        (datetime(2026, 9, 13, 12, tzinfo=UTC) + timedelta(seconds=seconds))
         .isoformat()
         .replace("+00:00", "Z")
     )
@@ -1013,7 +1013,7 @@ def load_sources(directory):
 
 def add_water(city, document, bounds):
     """Real BGT plan outlines; explicitly synthetic NAP elevation and temperature."""
-    from shapely.geometry import shape, box
+    from shapely.geometry import box, shape
 
     domain = box(bounds.xmin, bounds.ymin, bounds.xmax, bounds.ymax)
     if any(link["rel"] == "next" for link in document.get("links", [])):
@@ -1142,8 +1142,8 @@ def preview(city, path):
     import matplotlib
 
     matplotlib.use("Agg")
-    from inspect_flagship_model import dashboard
     import matplotlib.pyplot as plt
+    from inspect_flagship_model import dashboard
 
     figure = dashboard(city, interactive=False)
     figure.savefig(path, dpi=150)

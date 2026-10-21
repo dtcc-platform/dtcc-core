@@ -14,8 +14,8 @@ from dtcc_core.builder.meshing.backends import available_2d_meshers
 from dtcc_core.builder.meshing.roof_interfaces import node_interfaces
 from dtcc_core.builder.meshing.roof_validation import (
     validate_partition,
-    validate_triangulation,
     validate_shell,
+    validate_triangulation,
     vertex_link_audit,
 )
 from dtcc_core.builder.meshing.tetgen import has_volume_veto
@@ -38,7 +38,6 @@ from dtcc_core.model import (
     Surface,
     Terrain,
 )
-
 
 SHAPES = [
     ("flat", [8.0]),
@@ -644,7 +643,9 @@ def test_insufficient_evidence_flat_models_match_ordinary_lod1_geometry(
 def test_lund_coverage_roundoff_regression_keeps_roofs_and_courtyards(backend):
     """Reduced coverage with unequal roundoff along a shared sloping boundary."""
     from pathlib import Path
+
     from shapely.geometry import shape
+
     from dtcc_core.builder.meshing.roof_coverage import local_roof_coverage
 
     if backend not in available_2d_meshers():

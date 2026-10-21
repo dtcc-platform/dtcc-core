@@ -1,8 +1,10 @@
 import json
-from pathlib import Path
 from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, List, Literal, Sequence
+from pathlib import Path
+from typing import Any, Dict, List, Literal, Optional
+
 import numpy as np
 import shapely
 from shapely import BufferJoinStyle
@@ -21,27 +23,22 @@ from shapely.ops import polygonize, unary_union
 from ...model import (
     Bounds,
     Building,
+    City,
     Field,
+    GeometryType,
     Mesh,
     Raster,
-    VolumeMesh,
-    City,
     Surface,
-    GeometryType,
+    VolumeMesh,
 )
 
 # Directive for the C++ surface builder: every building region is extruded.
 _EXTRUDE_DIRECTIVE = 1
 
-from ..model_conversion import (
-    create_builder_polygon,
-    create_builder_surface,
-    mesh_to_builder_mesh,
-    raster_to_builder_gridfield,
-)
+from dtcc_core.common.progress import progress_range, report_progress
 
 from .. import _dtcc_builder
-
+from ..cleaning.blocks import fallback_roof
 from ..cleaning.clean import (
     CleanedRegions,
     clean_footprints,
@@ -50,29 +47,33 @@ from ..cleaning.clean import (
     footprint_cells,
     regions_from_cleaned_city,
 )
-from ..cleaning.footprints import ConditioningResult
-from ..cleaning.blocks import fallback_roof
-from ..cleaning.levels import level_regions, pinched_levels
-from ..cleaning.plotting import plot_footprint_cleaning_comparison
-from ..cleaning.selection import select_footprints
 from ..cleaning.contract import (
     admissibility,
     check_mesher_handoff_profile,
     classify_candidate,
     has_only_separation_defects,
 )
-from ..cleaning.footprints import residual_separation_warning
-from ..logging import debug, info, warning, error
+from ..cleaning.footprints import ConditioningResult, residual_separation_warning
+from ..cleaning.levels import level_regions, pinched_levels
+from ..cleaning.plotting import plot_footprint_cleaning_comparison
+from ..cleaning.selection import select_footprints
+from ..logging import debug, error, info, warning
+from ..meshing import tetgen_utils
 from ..meshing.backends import resolve_2d_mesher
 from ..meshing.flat_mesh_backends import build_city_flat_mesh_from_coverage
 from ..meshing.tetgen import (
-    build_volume_mesh as tetgen_build_volume_mesh,
-    get_default_tetgen_switches,
     _require_tetgen,
+    get_default_tetgen_switches,
 )
-from ..meshing import tetgen_utils
-
-from dtcc_core.common.progress import report_progress, progress_range
+from ..meshing.tetgen import (
+    build_volume_mesh as tetgen_build_volume_mesh,
+)
+from ..model_conversion import (
+    create_builder_polygon,
+    create_builder_surface,
+    mesh_to_builder_mesh,
+    raster_to_builder_gridfield,
+)
 
 try:
     import dtcc_mesher
@@ -4780,8 +4781,8 @@ def build_city_surface_mesh(
         )
         if report_mesh_quality:
             from dtcc_core.model.mixins.mesh.quality import (
-                triangle_mesh_quality,
                 report_quality,
+                triangle_mesh_quality,
             )
 
             for m in [mesh] if merge_meshes else mesh:
@@ -4927,8 +4928,8 @@ def build_city_surface_mesh(
 
         if report_mesh_quality:
             from dtcc_core.model.mixins.mesh.quality import (
-                triangle_mesh_quality,
                 report_quality,
+                triangle_mesh_quality,
             )
 
             if merge_meshes:
@@ -5153,8 +5154,8 @@ def build_city_flat_mesh(
 
         if report_mesh_quality:
             from dtcc_core.model.mixins.mesh.quality import (
-                triangle_mesh_quality,
                 report_quality,
+                triangle_mesh_quality,
             )
 
             q = triangle_mesh_quality(flat_mesh.vertices, flat_mesh.faces)
@@ -5180,8 +5181,8 @@ def build_city_volume_mesh(
     min_building_area: float = 15.0,
     smoothing: int = 0,
     boundary_face_markers: bool = True,
-    tetgen_switches: Optional[Dict[str, Any]] = None,
-    tetgen_switch_overrides: Optional[Dict[str, Any]] = None,
+    tetgen_switches: dict[str, Any] | None = None,
+    tetgen_switch_overrides: dict[str, Any] | None = None,
     *,
     lod2_method: str = "catalogue",
     roof_options=None,
@@ -5705,8 +5706,8 @@ def build_city_volume_mesh(
 
         if report_mesh_quality:
             from dtcc_core.model.mixins.mesh.quality import (
-                tetrahedron_mesh_quality,
                 report_quality,
+                tetrahedron_mesh_quality,
             )
 
             q = tetrahedron_mesh_quality(volume_mesh.vertices, volume_mesh.cells)

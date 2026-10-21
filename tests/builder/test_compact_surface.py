@@ -1,20 +1,21 @@
 """Compact geometry, shared simplification and conservative quality budgets."""
 
 from dataclasses import replace
+
 import numpy as np
 import pytest
 import shapely
 from shapely.geometry import Polygon
 
-from dtcc_core.model import Mesh
-from dtcc_core.builder.roofs import RoofPatch
 from dtcc_core.builder.meshing.compact_geometry import (
-    planar_face,
-    geometric_graph,
     building_domains,
+    geometric_graph,
+    planar_face,
 )
-from dtcc_core.builder.meshing.compact_triangulation import triangulate, point_trial
 from dtcc_core.builder.meshing.compact_surface import CompactSurfaceOptions
+from dtcc_core.builder.meshing.compact_triangulation import point_trial, triangulate
+from dtcc_core.builder.roofs import RoofPatch
+from dtcc_core.model import Mesh
 
 
 def plane(points, source="a", kind="roof", normal=(0, 0, 1)):
@@ -237,12 +238,15 @@ def test_explicit_mode_validation():
 @pytest.mark.parametrize("slope", [0.0, 2.0])
 @pytest.mark.parametrize("budgeted", [False, True])
 def test_compact_shell_terrain_ownership_and_separate_round_trip(slope, budgeted):
-    from .test_roof_catalogue import assemble
+    from dtcc_core.builder.geometry_builders.meshes import (
+        _shell_closure_audit,
+        _welded_mesh,
+    )
     from dtcc_core.builder.meshing.compact_surface import compact_surface
-    from dtcc_core.builder.meshing.wall_faces import separate_wall_mesh
-    from dtcc_core.builder.geometry_builders.meshes import _welded_mesh
     from dtcc_core.builder.meshing.roof_validation import validate_shell
-    from dtcc_core.builder.geometry_builders.meshes import _shell_closure_audit
+    from dtcc_core.builder.meshing.wall_faces import separate_wall_mesh
+
+    from .test_roof_catalogue import assemble
 
     patches = [
         patch([(0, 0), (8, 0), (8, 6), (0, 6)], [0, 0.1, 4]),
@@ -278,8 +282,9 @@ def test_compact_shell_terrain_ownership_and_separate_round_trip(slope, budgeted
 
 
 def test_courtyard_is_preserved_by_direct_domain_construction():
-    from .test_roof_catalogue import assemble
     from dtcc_core.builder.meshing.compact_surface import compact_surface
+
+    from .test_roof_catalogue import assemble
 
     p = RoofPatch(
         Polygon(

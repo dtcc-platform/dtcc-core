@@ -63,10 +63,11 @@ coordinates, and wall ends on its edges are projected onto them.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, fields, replace
 import math
 import time
-from typing import Any, Mapping, Sequence
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field, fields, replace
+from typing import Any
 
 import numpy as np
 import shapely
@@ -75,9 +76,8 @@ from shapely.affinity import translate
 from shapely.geometry import LineString, MultiPoint, Point, Polygon
 from shapely.ops import polygonize
 
-from .construction import polygon_parts
-from .footprints import ConditioningOptions
 from ..logging import warning
+from .construction import polygon_parts
 from .contract import (
     DEFAULT_MINIMUM_INCIDENT_SECTOR_DEGREES,
     SEPARATION_RELATIVE_TOLERANCE,
@@ -85,6 +85,7 @@ from .contract import (
     essential_boundary_graph,
     interpret_input,
 )
+from .footprints import ConditioningOptions
 
 # Precision grid of the local frame (metres).
 GRID = 1.0e-6

@@ -6,8 +6,8 @@ are immutable; subdivision of vertical junction edges is shared by every
 incident wall face. No roof-family information is used.
 """
 
-from collections import defaultdict
 import time
+from collections import defaultdict
 
 import numpy as np
 import shapely
@@ -17,7 +17,6 @@ from shapely.geometry.polygon import orient
 from ...model import Field, Mesh, SemanticRegion
 from .dtcc_mesher_backend import _load_dtcc_mesher
 from .roof_interfaces import XY_PRECISION
-
 
 QUALITY_TARGET = 0.02
 _MAX_ROUNDS = 32

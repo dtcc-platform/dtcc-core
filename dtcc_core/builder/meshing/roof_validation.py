@@ -4,8 +4,8 @@ import numpy as np
 import shapely
 from shapely.ops import unary_union
 
-from .roof_interfaces import RoofAssemblyError, XY_PRECISION
 from ..geometry_policy import COINCIDENCE
+from .roof_interfaces import XY_PRECISION, RoofAssemblyError
 
 
 def validate_terrain_coverage(mesh, polygons):

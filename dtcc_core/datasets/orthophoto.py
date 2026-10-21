@@ -4,10 +4,11 @@ import math
 import re
 import sys
 import tempfile
+from collections.abc import Sequence
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal, Optional, Sequence
+from typing import Any, Literal, Optional
 
 from pydantic import Field, field_validator, model_validator
 
@@ -58,16 +59,16 @@ class OrthophotoArgs(DatasetBaseArgs):
             "GeoTIFFs as a file-backed collection"
         ),
     )
-    year: Optional[int] = Field(None, description="Acquisition year filter")
-    collection: Optional[str] = Field(None, description="STAC collection filter")
-    spektraltyp: Optional[list[Literal["rgb", "rgbi", "cir", "pan"]]] = Field(
+    year: int | None = Field(None, description="Acquisition year filter")
+    collection: str | None = Field(None, description="STAC collection filter")
+    spektraltyp: list[Literal["rgb", "rgbi", "cir", "pan"]] | None = Field(
         None, description="Spectral types; default rgb and rgbi"
     )
-    resolution: Optional[float] = Field(
+    resolution: float | None = Field(
         None,
         description="Mosaic resolution in metres; default the finest source",
     )
-    server_url: Optional[str] = Field(
+    server_url: str | None = Field(
         None,
         description=(
             "Tile server root; default the DTCC_ORTHOPHOTO_URL variable. The "
@@ -75,14 +76,14 @@ class OrthophotoArgs(DatasetBaseArgs):
             f"or VPN only; ask {CONTACT} for the address."
         ),
     )
-    max_memory_bytes: Optional[int] = Field(
+    max_memory_bytes: int | None = Field(
         None, description="Mosaic working-memory budget in bytes; default 2 GiB"
     )
     connect_timeout: float = Field(10.0, description="Connect timeout in seconds")
     read_timeout: float = Field(
         150.0, description="Timeout in seconds for each wait for response bytes"
     )
-    format: Optional[Literal["tif"]] = Field(
+    format: Literal["tif"] | None = Field(
         None, description="Serialize the mosaic as a GeoTIFF with alpha"
     )
 
@@ -184,7 +185,7 @@ class _Report:
     errors: list = field(default_factory=list)
     failed_items: list = field(default_factory=list)
     sources: list = field(default_factory=list)
-    grid: Optional[dict[str, Any]] = None
+    grid: dict[str, Any] | None = None
 
 
 class OrthophotoDataset(DatasetDescriptor):

@@ -1,21 +1,22 @@
 """City orchestration for admitted planar roofs and conforming shared shells."""
 
 import time
+
 import numpy as np
 from shapely.geometry import box
 from shapely.ops import unary_union
 
-from ...model import Field
 from ...common.progress import progress_range, report_progress
+from ...model import Field
 from ..cleaning.clean import clean_regions, cleaning_record, regions_from_cleaned_city
 from ..roofs import RoofFitOptions
 from .roof_coverage import local_roof_coverage
-from .roof_regions import source_roofs
 from .roof_interfaces import RoofAssemblyError, node_interfaces
+from .roof_regions import source_roofs
 from .roof_validation import (
     validate_partition,
-    validate_terrain_coverage,
     validate_shell,
+    validate_terrain_coverage,
 )
 
 
@@ -117,8 +118,8 @@ def build_catalogue_surface(
             mesh.stage_audit = audit
         if report_mesh_quality:
             from ...model.mixins.mesh.quality import (
-                triangle_mesh_quality,
                 report_quality,
+                triangle_mesh_quality,
             )
 
             for mesh in [result] if merge_meshes else result:
@@ -231,13 +232,14 @@ def _mesh_roof_blocks(
     base_z=None,
 ):
     """Assemble and validate fitted blocks against a terrain surface."""
-    from ..geometry_builders import meshes as pipeline
-
-    from dataclasses import replace
     import time
-    from .compact_surface import compact_surface as build_compact, CompactSurfaceOptions
-    from .terrain_attachment import terrain_attachment
+    from dataclasses import replace
+
+    from ..geometry_builders import meshes as pipeline
+    from .compact_surface import CompactSurfaceOptions
+    from .compact_surface import compact_surface as build_compact
     from .roof_regions import admit_roofs
+    from .terrain_attachment import terrain_attachment
     from .wall_faces import separate_wall_mesh
 
     if compact_surface is None:
@@ -267,8 +269,9 @@ def _mesh_roof_blocks(
         )
         # Terrain sees only the cleaned occupied boundary. Roof ridges and
         # source interfaces enter the shared face graph after roof admission.
-        from shapely import affinity
         import shapely
+        from shapely import affinity
+
         from ..roofs.partition import polygon_parts
 
         local_target = affinity.translate(target, *-offset)

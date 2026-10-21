@@ -10,7 +10,6 @@ import re
 import textwrap
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = REPO_ROOT / "dtcc_core"
 

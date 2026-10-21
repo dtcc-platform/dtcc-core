@@ -2,6 +2,7 @@
 
 from typing import List
 
+import numpy as np
 import shapely
 import shapely.affinity
 import shapely.ops
@@ -12,7 +13,6 @@ from shapely.geometry import (
     Polygon,
 )
 from shapely.validation import make_valid
-import numpy as np
 
 from ..logging import info, warning
 
@@ -215,7 +215,7 @@ def merge_multipolygon(multipolygon, tol=0.1):
     return m
 
 
-def merge_list_of_polygons(mcp: List[Polygon], tolerance=1e-2) -> Polygon:
+def merge_list_of_polygons(mcp: list[Polygon], tolerance=1e-2) -> Polygon:
     """
     Merge a list of polygons into a single polygon.
 

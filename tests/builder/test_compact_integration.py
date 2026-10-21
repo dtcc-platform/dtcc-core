@@ -1,8 +1,9 @@
 """Public compact catalogue routing, group isolation and two-stage accounting."""
 
+import importlib
 from copy import deepcopy
 from types import SimpleNamespace
-import importlib
+
 import numpy as np
 import pytest
 from shapely.geometry import box
@@ -15,6 +16,7 @@ from dtcc_core.builder.meshing.compact_improvement import (
     improve_shared,
 )
 from dtcc_core.builder.meshing.shared_edges import SharedEdges
+
 from .test_compact_mesher_interface import fixture
 from .test_roof_catalogue import building, city_of, model
 
@@ -302,9 +304,10 @@ def test_fixed_point_budgets_preserve_initial_accepted_transaction():
 
 
 def test_group_order_and_distant_group_on_fixed_reference_shell(monkeypatch):
-    from .test_roof_catalogue import assemble
-    from dtcc_core.builder.roofs import RoofPatch
     from dtcc_core.builder.meshing.compact_surface import compact_surface
+    from dtcc_core.builder.roofs import RoofPatch
+
+    from .test_roof_catalogue import assemble
 
     ci = importlib.import_module("dtcc_core.builder.meshing.compact_improvement")
     patches = [

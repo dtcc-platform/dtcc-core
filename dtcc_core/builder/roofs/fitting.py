@@ -1,8 +1,9 @@
 """Shared bounded robust optimization, spatial validation and face support."""
 
 import numpy as np
-from .partition import polygon_parts
+
 from .catalogue import REGISTRY
+from .partition import polygon_parts
 from .types import RoofFitOptions, RoofFitResult, RoofModel
 
 

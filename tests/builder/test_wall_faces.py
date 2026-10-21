@@ -8,10 +8,10 @@ import pytest
 import shapely
 from shapely.geometry import Polygon
 
-from dtcc_core.model import Mesh
 from dtcc_core.builder.geometry_builders import meshes
 from dtcc_core.builder.meshing import wall_faces as wf
 from dtcc_core.builder.meshing.roof_validation import vertex_link_audit
+from dtcc_core.model import Mesh
 
 
 def panel_ring(*, angle=0.0, offset=(0.0, 0.0, 0.0), distinct_owner=False):

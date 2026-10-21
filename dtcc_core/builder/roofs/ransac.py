@@ -9,8 +9,8 @@ from shapely.geometry import LineString, Polygon
 from shapely.ops import polygonize, unary_union
 
 from ...model import Building, GeometryType, PointCloud, Surface
-from .types import RoofFitResult, RoofModel, RoofPatch
 from .partition import polygon_parts
+from .types import RoofFitResult, RoofModel, RoofPatch
 
 
 @dataclass

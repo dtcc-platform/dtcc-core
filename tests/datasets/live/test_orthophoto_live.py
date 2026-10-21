@@ -26,7 +26,6 @@ from dtcc_core.io.data import orthophoto as client
 from dtcc_core.model import Raster
 from dtcc_core.model.values.raster_tiles import RasterTileCollection
 
-
 pytestmark = pytest.mark.live
 
 # 100 m inside one fully imaged 2025 cell.

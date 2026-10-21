@@ -134,6 +134,7 @@ def test_reference_retraced_spur_does_not_drop_roof_area():
 
 def test_ground_alignment_keeps_vertical_bias_visible():
     from affine import Affine
+
     from dtcc_core.model import PointCloud, Raster
 
     cloud = PointCloud(
@@ -236,6 +237,7 @@ def test_roofer_unavailable_fails_before_output_changes(tmp_path, monkeypatch):
 def test_roofer_process_failure_is_audited_without_dtcc_fallback(tmp_path, monkeypatch):
     import json
     import subprocess
+
     from dtcc_core.model import City, PointCloud
 
     monkeypatch.setattr(comparison, "OUTPUT_DIR", tmp_path)
@@ -332,7 +334,9 @@ def test_default_run_dispatches_all_six_variants(tmp_path, monkeypatch):
 def test_roofer_success_preserves_coordinates_and_open_skin(tmp_path, monkeypatch):
     import json
     import subprocess
+
     import meshio
+
     from dtcc_core.model import City, PointCloud
 
     monkeypatch.setattr(comparison, "OUTPUT_DIR", tmp_path)

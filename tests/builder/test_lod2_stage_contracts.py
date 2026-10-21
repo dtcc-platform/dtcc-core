@@ -8,11 +8,11 @@ import pytest
 import shapely
 from shapely import affinity
 
-from dtcc_core.builder.roofs import RoofPatch
 from dtcc_core.builder.meshing.compact_geometry import (
     building_domains,
     face_coordinates,
 )
+from dtcc_core.builder.roofs import RoofPatch
 
 
 @pytest.mark.parametrize("offset", [(0.0, 0.0), (386000.0, 6174000.0)])
@@ -47,14 +47,16 @@ def test_coplanar_point_contact_does_not_create_zero_length_edges(offset):
 @pytest.mark.parametrize("offset", [(0.0, 0.0), (647700.0, 6638400.0)])
 def test_source_junction_rule_bounds_changes_and_removes_nonmanifold_edge(offset):
     from dataclasses import replace
+
     from shapely.ops import unary_union
+
     from dtcc_core.builder.cleaning.subdivision import canonical_source_subdivision
-    from dtcc_core.builder.meshing.roof_junctions import regularize_roof_junctions
     from dtcc_core.builder.meshing.compact_surface import (
-        compact_surface,
         CompactSurfaceOptions,
+        compact_surface,
     )
     from dtcc_core.builder.meshing.roof_interfaces import node_interfaces
+    from dtcc_core.builder.meshing.roof_junctions import regularize_roof_junctions
 
     evidence = json.loads(
         (
@@ -131,11 +133,11 @@ def test_source_junction_rule_bounds_changes_and_removes_nonmanifold_edge(offset
 
 @pytest.mark.parametrize("offset", [(0.0, 0.0), (647500.0, 6638200.0)])
 def test_rounded_gable_outline_does_not_create_a_false_roof_step(offset):
-    from dtcc_core.builder.meshing.roof_interfaces import node_interfaces
     from dtcc_core.builder.meshing.compact_surface import (
-        compact_surface,
         CompactSurfaceOptions,
+        compact_surface,
     )
+    from dtcc_core.builder.meshing.roof_interfaces import node_interfaces
 
     evidence = json.loads(
         (Path(__file__).parents[1] / "data/lod2/rounded_gable_outline.json").read_text()

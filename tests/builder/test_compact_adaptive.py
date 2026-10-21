@@ -1,15 +1,16 @@
 """Fixed refinement budgets, conforming transactions and explicit failures."""
 
-from copy import deepcopy
 import importlib
+from copy import deepcopy
 
 import numpy as np
 import pytest
 
-from .test_compact_mesher_interface import fixture
-from .test_compact_integration import two_groups, sample
 from dtcc_core import builder
 from dtcc_core.builder import CompactSurfaceOptions
+
+from .test_compact_integration import sample, two_groups
+from .test_compact_mesher_interface import fixture
 
 ci = importlib.import_module("dtcc_core.builder.meshing.compact_improvement")
 
@@ -220,9 +221,11 @@ def test_shell_validation_count_is_independent_of_refinement_groups(
     monkeypatch, group_count, enabled
 ):
     from shapely.geometry import box
-    from .test_roof_catalogue import assemble
-    from dtcc_core.builder.roofs import RoofPatch
+
     from dtcc_core.builder.meshing.compact_surface import compact_surface
+    from dtcc_core.builder.roofs import RoofPatch
+
+    from .test_roof_catalogue import assemble
 
     validation = importlib.import_module("dtcc_core.builder.meshing.roof_validation")
     patches = [

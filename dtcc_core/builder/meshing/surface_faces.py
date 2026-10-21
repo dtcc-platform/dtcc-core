@@ -7,7 +7,7 @@ import numpy as np
 import shapely
 from shapely.geometry import Polygon
 
-from .wall_faces import _wall_groups, _face_geometry
+from .wall_faces import _face_geometry, _wall_groups
 
 
 @dataclass

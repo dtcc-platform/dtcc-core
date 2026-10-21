@@ -1,20 +1,21 @@
 """Canonical roof-edge transactions and incident-face quality/ownership guards."""
 
 from copy import deepcopy
+
 import numpy as np
 import pytest
 from shapely.geometry import Polygon
 
-from dtcc_core.builder.meshing.compact_geometry import planar_face, geometric_graph
-from dtcc_core.builder.meshing.compact_triangulation import improve, triangulate
+from dtcc_core.builder.meshing.compact_geometry import geometric_graph, planar_face
 from dtcc_core.builder.meshing.compact_improvement import (
-    permitted_segments,
     edge_transaction,
     improve_shared,
     joint_acceptance,
+    permitted_segments,
     quality,
 )
 from dtcc_core.builder.meshing.compact_surface import CompactSurfaceOptions
+from dtcc_core.builder.meshing.compact_triangulation import improve, triangulate
 
 
 @pytest.mark.parametrize("backend", ["geos", "triangle"])
@@ -304,8 +305,9 @@ def test_triangle_ceiling_rejects_before_atomic_commit():
 def test_joint_hip_trial_can_use_native_alternative_without_loosening_guards():
     import json
     from pathlib import Path
-    from dtcc_core.builder.meshing.surface_faces import SurfaceFace
+
     from dtcc_core.builder.meshing.shared_edges import SharedEdges
+    from dtcc_core.builder.meshing.surface_faces import SurfaceFace
 
     data = json.loads(
         (Path(__file__).parent / "data/compact_hip_joint_trial.json").read_text()

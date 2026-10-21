@@ -11,12 +11,12 @@ from shapely.ops import unary_union
 import dtcc_core.builder.cleaning as cleaning_package
 from dtcc_core.builder.cleaning import construction
 from dtcc_core.builder.cleaning import footprints as cleaning
-from dtcc_core.builder.cleaning.plotting import plot_footprint_cleaning_comparison
-from dtcc_core.builder.cleaning.selection import select_footprints
 from dtcc_core.builder.cleaning.contract import (
     check_cleaning_contract,
     check_mesher_handoff_profile,
 )
+from dtcc_core.builder.cleaning.plotting import plot_footprint_cleaning_comparison
+from dtcc_core.builder.cleaning.selection import select_footprints
 from dtcc_core.plotting.style import DTCC_THEMES
 
 

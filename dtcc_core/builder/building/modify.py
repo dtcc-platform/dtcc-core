@@ -1,14 +1,13 @@
-from ...model import Building, GeometryType, MultiSurface, Surface
-from ..polygons.polygons import split_polygon_sides
-from ..cleaning import clean_footprints
-
-from ..polygons.surface import clean_multisurface, clean_surface
-
-from ..register import register_model_method
-from shapely.ops import unary_union
-from ..logging import warning, error
-
 from typing import List, Union
+
+from shapely.ops import unary_union
+
+from ...model import Building, GeometryType, MultiSurface, Surface
+from ..cleaning import clean_footprints
+from ..logging import error, warning
+from ..polygons.polygons import split_polygon_sides
+from ..polygons.surface import clean_multisurface, clean_surface
+from ..register import register_model_method
 
 
 @register_model_method
@@ -110,8 +109,8 @@ def clean_footprint(
 
 
 def split_footprint_walls(
-    buildings: List[Building], max_wall_length: Union[float, List[float]] = 10.0
-) -> List[Building]:
+    buildings: list[Building], max_wall_length: float | list[float] = 10.0
+) -> list[Building]:
     """
     Split long walls in building footprints into shorter segments.
 

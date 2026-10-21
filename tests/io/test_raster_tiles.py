@@ -3,10 +3,10 @@ import math
 import os
 import struct
 import sys
-import warnings
 import tracemalloc
+import warnings
 import weakref
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from fractions import Fraction
 from pathlib import Path
 
@@ -36,8 +36,7 @@ from dtcc_core.io.raster_tiles import (
     mosaic_minimum_bytes,
     without_tracebacks,
 )
-from dtcc_core.model import Bounds
-from dtcc_core.model import exchange
+from dtcc_core.model import Bounds, exchange
 from dtcc_core.model.values.raster_tiles import RasterTile
 
 CELL = (672500.0, 6577500.0, 672502.0, 6577502.0)
@@ -144,7 +143,7 @@ def make_tile(
         path=path,
         id="o65775_6725_25_mr25",
         collection="orto-o2-2025",
-        datetime=datetime(2025, 5, 31, 8, 10, 56, tzinfo=timezone.utc),
+        datetime=datetime(2025, 5, 31, 8, 10, 56, tzinfo=UTC),
         extent=Bounds(*extent),
         crs=crs,
         spektraltyp=spektraltyp,
@@ -681,7 +680,7 @@ def tile_at(path, spektraltyp="rgb", year=2020, **fields):
         path,
         spektraltyp,
         extent=extent,
-        datetime=datetime(year, 6, 1, tzinfo=timezone.utc),
+        datetime=datetime(year, 6, 1, tzinfo=UTC),
         **fields,
     )
 

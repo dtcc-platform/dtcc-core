@@ -1,17 +1,17 @@
 """Independent fitted building skins above an unconstrained terrain mesh."""
 
-from copy import deepcopy
 import time
+from copy import deepcopy
 
 import numpy as np
 
-from ...model import Mesh
 from ...common import info
-from ...common.progress import report_progress, progress_range
+from ...common.progress import progress_range, report_progress
+from ...model import Mesh
 from ..roofs import RoofFitOptions
 from .catalogue_surface import (
-    _prepare_roof_blocks,
     _mesh_roof_blocks,
+    _prepare_roof_blocks,
     _summarize_roof_outcomes,
 )
 
@@ -189,8 +189,8 @@ def build_isolated_roofs(
             mesh.stage_audit = audit
             if report_mesh_quality:
                 from ...model.mixins.mesh.quality import (
-                    triangle_mesh_quality,
                     report_quality,
+                    triangle_mesh_quality,
                 )
 
                 report_quality(

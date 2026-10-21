@@ -4,17 +4,17 @@ import numpy as np
 import pytest
 import shapely
 from affine import Affine
-from shapely.geometry import Polygon, box
 from shapely import affinity
+from shapely.geometry import Polygon, box
 
-from dtcc_core.model import Raster
-from dtcc_core.builder.meshing.terrain_attachment import minimum_dem
-from dtcc_core.builder.meshing.roof_interfaces import node_interfaces
 from dtcc_core.builder.meshing.compact_surface import (
     CompactSurfaceOptions,
     compact_surface,
 )
+from dtcc_core.builder.meshing.roof_interfaces import node_interfaces
+from dtcc_core.builder.meshing.terrain_attachment import minimum_dem
 from dtcc_core.builder.roofs import RoofPatch
+from dtcc_core.model import Raster
 
 
 @pytest.mark.parametrize("offset", [(0.0, 0.0), (647700.0, 6638400.0)])
@@ -70,6 +70,7 @@ def test_projected_outline_samples_share_one_canonical_breakpoint(offset):
     from scipy.spatial import distance
     from shapely import affinity
     from shapely.geometry import LineString
+
     from dtcc_core.builder.cleaning.subdivision import canonical_boundary_graph
 
     domain = Polygon([(0, 0), (10, 1), (10, 10), (0, 10)])
@@ -122,11 +123,13 @@ def test_shared_steep_roof_junction_minimizes_normal_plane_error():
 @pytest.mark.parametrize("offset", [(0.0, 0.0), (647700.0, 6638400.0)])
 def test_vectorized_evidence_predicate_matches_scalar_selection(offset):
     from types import SimpleNamespace
+
     from shapely import affinity
     from shapely.geometry import Point
+
     from dtcc_core.builder.geometry_builders.lod2 import (
-        _level_point_counts_in_region,
         EDGE_TOLERANCE,
+        _level_point_counts_in_region,
     )
 
     polygon = affinity.translate(
@@ -181,7 +184,7 @@ def test_wall_winding_uses_oriented_incidence_at_a_thin_roof_tip(offset):
 
 
 def test_repeated_collinear_removals_bound_total_original_boundary_error():
-    from dtcc_core.builder.meshing.compact_geometry import planar_face, geometric_graph
+    from dtcc_core.builder.meshing.compact_geometry import geometric_graph, planar_face
 
     # Removing the 18 nm peak looks locally like a 9 nm change. Removing both
     # neighbouring 9 nm samples afterwards must not erase the entire wave.

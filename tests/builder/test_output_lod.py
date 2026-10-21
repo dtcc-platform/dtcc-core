@@ -7,11 +7,12 @@ import pytest
 from shapely.geometry import box
 
 from dtcc_core import builder
-from dtcc_core.model import GeometryType
-from dtcc_core.builder.roofs.ransac import fit_ransac, RansacRoofModel
 from dtcc_core.builder.meshing.roof_validation import validate_partition
+from dtcc_core.builder.roofs.ransac import RansacRoofModel, fit_ransac
+from dtcc_core.model import GeometryType
+
 from .test_compact_integration import sample
-from .test_roof_catalogue import model, cloud, building
+from .test_roof_catalogue import building, cloud, model
 
 
 def arrays(mesh):

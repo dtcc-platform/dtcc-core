@@ -6,12 +6,12 @@ synthetic height example also runs offline in the ordinary suite.
 
 import runpy
 from pathlib import Path
-import numpy as np
 
+import numpy as np
 import pytest
 
+from dtcc_core.model import City, Mesh, PointCloud, Raster, VolumeMesh
 from dtcc_core.model.model import Model
-from dtcc_core.model import City, Mesh, VolumeMesh, PointCloud, Raster
 from tests.demos.demo_inventory import WORKFLOW_DEMOS
 
 REPO_ROOT = Path(__file__).resolve().parents[2]

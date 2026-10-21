@@ -5,8 +5,6 @@ height estimation, the lifecycle of parts, unique IDs with provenance, and
 traversal of part geometry from a city.
 """
 
-from dtcc_core.builder.cleaning import walls as walls_module
-
 import json
 from pathlib import Path
 
@@ -17,6 +15,7 @@ from shapely.geometry import box, shape
 
 from dtcc_core import io
 from dtcc_core.builder import build_lod1_buildings
+from dtcc_core.builder.cleaning import walls as walls_module
 from dtcc_core.builder.cleaning.blocks import (
     MERGED_FROM_KEY,
     SOURCE_FOOTPRINT_KEY,
@@ -37,8 +36,8 @@ from dtcc_core.builder.cleaning.clean import (
 from dtcc_core.builder.geometry_builders import meshes
 from dtcc_core.builder.geometry_builders.buildings import (
     compute_building_heights,
-    extrude_building,
     extract_roof_points,
+    extrude_building,
     set_building_heights_from_attribute,
 )
 from dtcc_core.model import (
@@ -1130,6 +1129,7 @@ def test_cleaning_retains_nonpinched_multiway_roofs(spokes, transformed):
 
 def _two_contact_block(*, persisted_partial=False):
     from shapely.geometry import Polygon
+
     from dtcc_core.builder.cleaning import blocks, walls
 
     left = [

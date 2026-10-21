@@ -1,10 +1,10 @@
 """Centring exported geometry on the origin (issue #41)."""
 
-import numpy as np
-import meshio
-import pytest
-
 from unittest.mock import Mock, patch
+
+import meshio
+import numpy as np
+import pytest
 
 from dtcc_core.datasets.buildings import BuildingArgs, BuildingDataset
 from dtcc_core.datasets.centering import (

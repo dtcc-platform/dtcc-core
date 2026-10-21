@@ -1,15 +1,17 @@
-import pytest
-import tempfile
 import json
+import tempfile
 from pathlib import Path
+
 import fiona
+import pytest
 from pyproj import Transformer
 from shapely.geometry import MultiPolygon, Polygon, box, mapping
 from shapely.ops import transform
+
 from dtcc_core import io
-from dtcc_core.model import Building, Bounds, GeometryType
 from dtcc_core.datasets.footprints import _filter_small_buildings
 from dtcc_core.io.vector_utils import create_bounds_filter
+from dtcc_core.model import Bounds, Building, GeometryType
 
 
 @pytest.fixture

@@ -11,9 +11,8 @@ import shapely
 from shapely import affinity
 from shapely.ops import polygonize
 
-
-from ..geometry_policy import XY_PRECISION
 from ..cleaning.subdivision import canonical_boundary_graph
+from ..geometry_policy import XY_PRECISION
 
 
 class RoofAssemblyError(RuntimeError):

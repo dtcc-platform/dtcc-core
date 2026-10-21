@@ -64,12 +64,13 @@ more than 2 m (:func:`.blocks.fallback_roof`).
 
 from __future__ import annotations
 
-from copy import deepcopy
-from dataclasses import dataclass, field, fields
 import hashlib
 import math
-from typing import Any, Sequence
 import uuid
+from collections.abc import Sequence
+from copy import deepcopy
+from dataclasses import dataclass, field, fields
+from typing import Any
 
 import numpy as np
 from shapely.geometry import MultiPolygon, Polygon
@@ -100,8 +101,8 @@ from .blocks import (
     modelling_height,
     part_key,
     part_roof,
-    precedence,
     part_sources,
+    precedence,
     set_source_footprint,
     source_id,
     wall_cells,

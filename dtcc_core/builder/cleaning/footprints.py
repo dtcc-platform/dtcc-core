@@ -21,9 +21,10 @@ handles the zero-scale identity mode, and defines the result and failure types.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import math
-from typing import Any, Sequence
+from collections.abc import Sequence
+from dataclasses import dataclass
+from typing import Any
 
 from shapely.geometry import Polygon
 from shapely.geometry.base import BaseGeometry
