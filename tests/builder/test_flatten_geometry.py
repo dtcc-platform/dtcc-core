@@ -94,7 +94,12 @@ def test_flatten_root_and_child(building3):
 def _square(x0, y0, size, z=0.0):
     return Surface(
         vertices=np.array(
-            [[x0, y0, z], [x0 + size, y0, z], [x0 + size, y0 + size, z], [x0, y0 + size, z]],
+            [
+                [x0, y0, z],
+                [x0 + size, y0, z],
+                [x0 + size, y0 + size, z],
+                [x0, y0 + size, z],
+            ],
             dtype=float,
         )
     )
@@ -133,7 +138,9 @@ def test_other_geometry_of_a_parent_and_its_children_is_combined(walls, floor_ro
     part = BuildingPart()
     part.add_geometry(floor_roof, GeometryType.LOD1)
     inner = BuildingPart()
-    inner.add_geometry(MultiSurface(surfaces=[_square(0, 0, 1, 2.0)]), GeometryType.LOD1)
+    inner.add_geometry(
+        MultiSurface(surfaces=[_square(0, 0, 1, 2.0)]), GeometryType.LOD1
+    )
     part.add_child(inner)
     building.add_child(part)
     assert len(building.flatten_geometry(GeometryType.LOD1).surfaces) == 4 + 2 + 1

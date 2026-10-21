@@ -8,7 +8,16 @@ from shapely.geometry import box
 
 from dtcc_core.builder import build_building_shell
 from dtcc_core.builder.geometry_builders import meshes
-from dtcc_core.model import Bounds, Building, BuildingPart, City, GeometryType, Raster, Surface, Terrain
+from dtcc_core.model import (
+    Bounds,
+    Building,
+    BuildingPart,
+    City,
+    GeometryType,
+    Raster,
+    Surface,
+    Terrain,
+)
 
 CHECKERBOARD = [
     (box(0, 0, 10, 10), 30.0),
@@ -65,12 +74,25 @@ def locked_checkerboard_city():
     block.add_children(parts)
     cells = [(polygon, i) for i, (polygon, _) in enumerate(CHECKERBOARD)]
     blocks.assign_cells(parts, cells)
-    assert check_labelled_contract(
-        dict((i, p) for p, i in cells), [0, 1, 2, 3], region, cells,
-        delta=0.5, epsilon=0,
-    )["status"] == "strict"
+    assert (
+        check_labelled_contract(
+            dict((i, p) for p, i in cells),
+            [0, 1, 2, 3],
+            region,
+            cells,
+            delta=0.5,
+            epsilon=0,
+        )["status"]
+        == "strict"
+    )
     block.attributes[blocks.WALLS_KEY] = blocks.walls_record(
-        block, [0, 1, 2, 3], "roof", "strict", delta=0.5, epsilon=0, strict=False,
+        block,
+        [0, 1, 2, 3],
+        "roof",
+        "strict",
+        delta=0.5,
+        epsilon=0,
+        strict=False,
     )
     city.add_building(block)
     return city
@@ -85,10 +107,17 @@ def test_shells_of_a_pinched_block_are_reported_by_both_builders(caplog):
     assert "touch at a point only" in caplog.text
     caplog.clear()
     footprints = meshes._meshing_footprints(
-        cleaned, lod=None, min_building_detail=0.5, min_building_area=0.0, max_mesh_size=5.0
+        cleaned,
+        lod=None,
+        min_building_detail=0.5,
+        min_building_area=0.0,
+        max_mesh_size=5.0,
     )
     assert footprints.diagnostics["levels"]["pinched_level_sets"]
-    assert any("touch at a point only" in message for message in footprints.contract["warnings"])
+    assert any(
+        "touch at a point only" in message
+        for message in footprints.contract["warnings"]
+    )
     assert len({surface.zmax for surface in footprints.surfaces}) == 2
 
 
@@ -117,17 +146,25 @@ def test_a_volume_mesh_gives_a_pinched_block_one_roof(caplog):
 
 
 @pytest.mark.parametrize("locked", [False, True])
-def test_volume_mesh_preserves_repairable_roofs_and_reports_unavoidable_contacts(locked):
+def test_volume_mesh_preserves_repairable_roofs_and_reports_unavoidable_contacts(
+    locked,
+):
     from dtcc_core.builder import build_city_volume_mesh
     from dtcc_core.builder.meshing.tetgen import is_tetgen_available
 
     if not is_tetgen_available():
         pytest.skip("TetGen is not available")
     pytest.importorskip("dtcc_mesher")
-    city = (locked_checkerboard_city() if locked else checkerboard_city()).clean_footprints()
+    city = (
+        locked_checkerboard_city() if locked else checkerboard_city()
+    ).clean_footprints()
     footprints = meshes._meshing_footprints(
-        city, lod=None, min_building_detail=0.5, min_building_area=0,
-        max_mesh_size=5, volume=True,
+        city,
+        lod=None,
+        min_building_detail=0.5,
+        min_building_area=0,
+        max_mesh_size=5,
+        volume=True,
     )
     if not locked:
         assert footprints.diagnostics["levels"]["one_roof"] == []
@@ -135,8 +172,10 @@ def test_volume_mesh_preserves_repairable_roofs_and_reports_unavoidable_contacts
         assert edges_with_four_faces(build_building_shell(city.buildings[0])) == 0
     else:
         assert len(footprints.diagnostics["levels"]["one_roof"]) == 1
-    building_volume = sum(surface.to_polygon(simplify=0).area * surface.zmax
-                          for surface in footprints.surfaces)
+    building_volume = sum(
+        surface.to_polygon(simplify=0).area * surface.zmax
+        for surface in footprints.surfaces
+    )
     mesh = build_city_volume_mesh(
         city,
         min_building_detail=0.5,

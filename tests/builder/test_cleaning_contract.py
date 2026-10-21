@@ -95,7 +95,9 @@ def test_achieved_budget_is_the_least_epsilon_the_output_satisfies():
     assert unchanged["achieved_epsilon"] == 0.0
     failing = fidelity([box(0, 0, 10, 10)], [box(1, 0, 10, 10)], 0.25, achieved=True)
     assert failing["status"] == "fail" and failing["achieved_epsilon"] is None
-    assert "achieved_epsilon" not in fidelity([box(0, 0, 1, 1)], [box(0, 0, 1, 1)], 0.25)
+    assert "achieved_epsilon" not in fidelity(
+        [box(0, 0, 1, 1)], [box(0, 0, 1, 1)], 0.25
+    )
 
 
 def test_candidates_are_classified_as_strict_warning_or_failed():
@@ -111,10 +113,13 @@ def test_candidates_are_classified_as_strict_warning_or_failed():
     assert classify(raw) == "warning"
     assert classify([]) == "fail"
     touching = [box(0, 0, 5, 5), box(5, 5, 10, 10)]
-    assert classify_candidate(
-        check_cleaning_contract(touching, touching, delta=0.5),
-        check_mesher_handoff_profile(touching),
-    ) == "fail"
+    assert (
+        classify_candidate(
+            check_cleaning_contract(touching, touching, delta=0.5),
+            check_mesher_handoff_profile(touching),
+        )
+        == "fail"
+    )
 
 
 def test_fidelity_protects_both_occupied_and_open_cores():
@@ -172,9 +177,9 @@ def test_full_survey_cusps_are_repaired_or_explicitly_removed_for_handoff():
         assert construction["mesher_profile"]["operations"]
         if case_id == "city_grid:gothenburg:006":
             assert output == []
-            assert construction["mesher_profile"][
-                "empty_protected_core_removal"
-            ] is True
+            assert (
+                construction["mesher_profile"]["empty_protected_core_removal"] is True
+            )
         else:
             assert output
 
@@ -262,6 +267,7 @@ def test_public_cleaning_reports_fidelity_against_the_original_input():
         ConditioningOptions,
         condition_polygon_coverage,
     )
+
     raw = box(0, 0, 10, 10)
     result = condition_polygon_coverage(
         [raw],

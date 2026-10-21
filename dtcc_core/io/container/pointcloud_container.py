@@ -19,6 +19,7 @@ class PointCloudContainerType(Enum):
 
     ``FILESYSTEM``, a directory of point cloud files, is the only kind.
     """
+
     FILESYSTEM = auto()
 
 

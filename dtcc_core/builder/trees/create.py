@@ -34,6 +34,7 @@ class TreeType:
         Intended minimum crown radius in metres. ``find_tree_tops`` currently
         ignores it and uses 0.6.
     """
+
     min_height: float
     smoothing_sigma: float
     peak_footprint: int

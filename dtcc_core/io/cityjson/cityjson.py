@@ -10,11 +10,11 @@ import zipfile
 from .attributes import _AttributeNameError
 
 
-
 def _read_json(stream, strict, max_bytes):
     data = stream.read() if max_bytes is None else stream.read(max_bytes + 1)
     if max_bytes is not None and len(data) > max_bytes:
         raise ValueError(f"CityJSON input exceeds max_bytes={max_bytes}")
+
     def unique_pairs(pairs):
         result = {}
         for key, value in pairs:
@@ -22,6 +22,7 @@ def _read_json(stream, strict, max_bytes):
                 raise ValueError(f"Duplicate CityJSON key {key!r}")
             result[key] = value
         return result
+
     return json.loads(data, object_pairs_hook=unique_pairs if strict else None)
 
 
@@ -77,8 +78,14 @@ def setup_city(cj_obj: dict):
     return city, verts
 
 
-def load(cityjson_path: str | dict, *, strict=False, extent_policy='validate',
-         validate_schema=None, max_bytes=None) -> City:
+def load(
+    cityjson_path: str | dict,
+    *,
+    strict=False,
+    extent_policy="validate",
+    validate_schema=None,
+    max_bytes=None,
+) -> City:
     """Load CityJSON; strict mode evaluates the default standard schema.
 
     validate_schema=False bypasses semantics only. Omission follows strict mode;
@@ -88,13 +95,14 @@ def load(cityjson_path: str | dict, *, strict=False, extent_policy='validate',
     either mode. The default has no byte cap. It applies only to file inputs.
     """
     from .admission import schema_validation
+
     validate_schema = schema_validation(strict, validate_schema)
     if max_bytes is not None and (type(max_bytes) is not int or max_bytes < 1):
-        raise ValueError('max_bytes must be a positive integer or None')
+        raise ValueError("max_bytes must be a positive integer or None")
     if max_bytes is not None and isinstance(cityjson_path, dict):
-        raise ValueError('max_bytes applies only to CityJSON file inputs')
-    if not strict and extent_policy != 'validate':
-        raise ValueError('extent_policy requires strict CityJSON import')
+        raise ValueError("max_bytes applies only to CityJSON file inputs")
+    if not strict and extent_policy != "validate":
+        raise ValueError("extent_policy requires strict CityJSON import")
     try:
         if isinstance(cityjson_path, dict):
             cj = cityjson_path
@@ -107,7 +115,9 @@ def load(cityjson_path: str | dict, *, strict=False, extent_policy='validate',
                 with zipfile.ZipFile(cityjson_path, "r") as z:
                     files = z.namelist()
                     if len(files) != 1 or not files[0].endswith(".json"):
-                        raise ValueError("Invalid CityJSON zip file: must contain exactly one .json file")
+                        raise ValueError(
+                            "Invalid CityJSON zip file: must contain exactly one .json file"
+                        )
                     with z.open(files[0]) as f:
                         cj = _read_json(f, strict, max_bytes)
             else:
@@ -118,6 +128,7 @@ def load(cityjson_path: str | dict, *, strict=False, extent_policy='validate',
             from .admission import load_city
             from ...model.exchange import _schema_for_model
             from ...model._standard_schema import validate_admitted
+
             city = load_city(cj, extent_policy=extent_policy)
             schema_id, schema_version = _schema_for_model(city)
             if validate_schema:
@@ -129,7 +140,9 @@ def load(cityjson_path: str | dict, *, strict=False, extent_policy='validate',
         if not isinstance(cj, dict):
             raise ValueError("Invalid CityJSON: root must be a dictionary")
         if cj.get("type") != "CityJSON":
-            raise ValueError("Not a valid CityJSON file: missing or incorrect 'type' field")
+            raise ValueError(
+                "Not a valid CityJSON file: missing or incorrect 'type' field"
+            )
         if "CityObjects" not in cj:
             raise ValueError("Invalid CityJSON: missing 'CityObjects' field")
         if "vertices" not in cj:
@@ -164,7 +177,9 @@ def load(cityjson_path: str | dict, *, strict=False, extent_policy='validate',
         supported_types = {"Building", "TINRelief"}
         for obj_type, objects in root_objects.items():
             if obj_type not in supported_types:
-                print(f"Warning: Object type '{obj_type}' not yet supported ({len(objects)} objects)")
+                print(
+                    f"Warning: Object type '{obj_type}' not yet supported ({len(objects)} objects)"
+                )
 
         return city
 

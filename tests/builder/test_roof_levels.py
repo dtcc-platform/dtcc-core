@@ -4,9 +4,21 @@ import numpy as np
 import pytest
 from shapely.geometry import box
 
-from dtcc_core.builder.cleaning.levels import group_levels, level_regions, pinched_levels
+from dtcc_core.builder.cleaning.levels import (
+    group_levels,
+    level_regions,
+    pinched_levels,
+)
 from dtcc_core.builder.geometry_builders import meshes
-from dtcc_core.model import Bounds, Building, City, GeometryType, Raster, Surface, Terrain
+from dtcc_core.model import (
+    Bounds,
+    Building,
+    City,
+    GeometryType,
+    Raster,
+    Surface,
+    Terrain,
+)
 
 
 def test_grouped_levels_move_at_most_half_the_resolution_and_keep_their_order():
@@ -90,17 +102,28 @@ def city_of(polygons, roofs):
 
 def test_repairable_point_contacts_keep_the_two_roofs_in_meshing_footprints():
     city = city_of(
-        [box(0, 0, 10, 10), box(10, 10, 20, 20), box(10, 0, 20, 10), box(0, 10, 10, 20)],
+        [
+            box(0, 0, 10, 10),
+            box(10, 10, 20, 20),
+            box(10, 0, 20, 10),
+            box(0, 10, 10, 20),
+        ],
         [30.0, 30.0, 9.0, 9.0],
     )
     footprints = meshes._meshing_footprints(
-        city, lod=None, min_building_detail=0.5, min_building_area=1.0, max_mesh_size=5.0
+        city,
+        lod=None,
+        min_building_detail=0.5,
+        min_building_area=1.0,
+        max_mesh_size=5.0,
     )
     assert {surface.zmax for surface in footprints.surfaces} == {9, 30}
     assert footprints.diagnostics["levels"]["pinched_level_sets"] == []
     assert footprints.diagnostics["levels"]["one_roof"] == []
     assert footprints.contract["errors"] == []
-    assert not any("vertical line contacts" in w for w in footprints.contract["warnings"])
+    assert not any(
+        "vertical line contacts" in w for w in footprints.contract["warnings"]
+    )
 
 
 def test_reused_cleaning_meshes_parts_exactly_as_a_new_cleaning():
@@ -110,14 +133,21 @@ def test_reused_cleaning_meshes_parts_exactly_as_a_new_cleaning():
         [9.0, 21.0, 21.2, 12.0],
     )
     cleaned = city.clean_footprints()
-    fresh = meshes.build_city_surface_mesh(city, report_mesh_quality=False, mesher="dtcc_mesher")
-    reused = meshes.build_city_surface_mesh(cleaned, report_mesh_quality=False, mesher="dtcc_mesher")
+    fresh = meshes.build_city_surface_mesh(
+        city, report_mesh_quality=False, mesher="dtcc_mesher"
+    )
+    reused = meshes.build_city_surface_mesh(
+        cleaned, report_mesh_quality=False, mesher="dtcc_mesher"
+    )
     assert np.array_equal(fresh.vertices, reused.vertices)
     assert np.array_equal(fresh.faces, reused.faces)
     assert np.array_equal(fresh.markers, reused.markers)
     # Roofs: 9 and 12 m, and 21 and 21.2 m grouped at their area-weighted mean.
     block = cleaned.buildings[0]
-    areas = [p.get_geometry(GeometryType.LOD0).to_polygon(simplify=0.0).area for p in block.building_parts]
+    areas = [
+        p.get_geometry(GeometryType.LOD0).to_polygon(simplify=0.0).area
+        for p in block.building_parts
+    ]
     grouped = (21.0 * areas[1] + 21.2 * areas[2]) / (areas[1] + areas[2])
     z = fresh.vertices[fresh.faces][:, :, 2]
     flat = (z.max(axis=1) == z.min(axis=1)) & (z[:, 0] > 0)

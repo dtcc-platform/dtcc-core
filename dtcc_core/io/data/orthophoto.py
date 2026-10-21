@@ -243,8 +243,7 @@ def download_tile(
         _check_status(response, fail)
         if "Content-Encoding" in response.headers:
             raise fail(
-                f"Unexpected Content-Encoding "
-                f"{response.headers['Content-Encoding']!r}",
+                f"Unexpected Content-Encoding {response.headers['Content-Encoding']!r}",
                 "invalid_payload",
                 status_code=200,
             )
@@ -495,9 +494,10 @@ def _check_geotiff(path: Path, item: OrthophotoItem, fail) -> None:
     files beside it (.msk, .ovr, .aux.xml) are not read.
     """
     try:
-        with rasterio.Env(GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR"), rasterio.open(
-            path, driver="GTiff"
-        ) as source:
+        with (
+            rasterio.Env(GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR"),
+            rasterio.open(path, driver="GTiff") as source,
+        ):
             shape = (source.width, source.height, source.count)
             epsg = source.crs.to_epsg() if source.crs is not None else None
             bounds = tuple(source.bounds)

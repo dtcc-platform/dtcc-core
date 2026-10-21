@@ -1,4 +1,5 @@
 """A shared numerical frame and precision model for the entire roof coverage."""
+
 from dataclasses import replace
 
 import numpy as np
@@ -12,7 +13,9 @@ from ..roofs.partition import polygon_parts
 from ..geometry_policy import COINCIDENCE
 
 
-def local_roof_coverage(patches, bounds, *, height_crossings=True, domains=None, audit=None):
+def local_roof_coverage(
+    patches, bounds, *, height_crossings=True, domains=None, audit=None
+):
     """Normalize roofs and terrain together, retaining every patch constraint.
 
     Independent floating-point differences of almost coincident roof edges
@@ -21,23 +24,44 @@ def local_roof_coverage(patches, bounds, *, height_crossings=True, domains=None,
     patch is rejected, never silently omitted.
     """
     offset = np.floor(np.asarray(bounds[:2], dtype=float))
-    local_bounds = (bounds[0]-offset[0], bounds[1]-offset[1], bounds[2]-offset[0], bounds[3]-offset[1])
+    local_bounds = (
+        bounds[0] - offset[0],
+        bounds[1] - offset[1],
+        bounds[2] - offset[0],
+        bounds[3] - offset[1],
+    )
     local, world = [], []
     for patch in patches:
         original = affinity.translate(patch.polygon, *-offset)
         polygon = original
-        if polygon.is_empty or polygon.geom_type != 'Polygon':
-            raise RoofAssemblyError(f'Patch {patch.patch_id} collapses or splits at numerical coverage precision',
-                                    block_ids=[patch.block_id])
-        if polygon.boundary.hausdorff_distance(original.boundary) > 2*XY_PRECISION:
-            raise RoofAssemblyError('Coverage normalization changed a mandatory roof boundary', block_ids=[patch.block_id])
-        local.append(replace(patch, polygon=polygon, origin=patch.origin-offset))
+        if polygon.is_empty or polygon.geom_type != "Polygon":
+            raise RoofAssemblyError(
+                f"Patch {patch.patch_id} collapses or splits at numerical coverage precision",
+                block_ids=[patch.block_id],
+            )
+        if polygon.boundary.hausdorff_distance(original.boundary) > 2 * XY_PRECISION:
+            raise RoofAssemblyError(
+                "Coverage normalization changed a mandatory roof boundary",
+                block_ids=[patch.block_id],
+            )
+        local.append(replace(patch, polygon=polygon, origin=patch.origin - offset))
         world.append(replace(patch, polygon=affinity.translate(polygon, *offset)))
     # Node all translated boundaries jointly before constructing the terrain.
     # This also transfers roundoff faces using original patch ownership.
-    local_domains = {key:affinity.translate(domain,*-offset) for key,domain in domains.items()} if domains is not None else None
-    local = node_interfaces(local, height_crossings=height_crossings, domains=local_domains, audit=audit)
-    world = [replace(p, polygon=affinity.translate(p.polygon, *offset), origin=p.origin+offset) for p in local]
+    local_domains = (
+        {key: affinity.translate(domain, *-offset) for key, domain in domains.items()}
+        if domains is not None
+        else None
+    )
+    local = node_interfaces(
+        local, height_crossings=height_crossings, domains=local_domains, audit=audit
+    )
+    world = [
+        replace(
+            p, polygon=affinity.translate(p.polygon, *offset), origin=p.origin + offset
+        )
+        for p in local
+    ]
     # Both native backends need distinguishable constrained vertices. Pairs
     # closer than the shared 10 nm coincidence scale are diagnosed
     # with their incident owners, rather than collapsed by a backend.
@@ -51,11 +75,19 @@ def local_roof_coverage(patches, bounds, *, height_crossings=True, domains=None,
         if pairs:
             indices = sorted(set(v for pair in pairs for v in pair))
             probes = [Point(points[i]) for i in indices]
-            affected = {p.block_id for p in local if any(p.polygon.boundary.distance(q) <= COINCIDENCE for q in probes)}
-            distance = min(float(np.linalg.norm(points[a]-points[b])) for a,b in pairs)
+            affected = {
+                p.block_id
+                for p in local
+                if any(p.polygon.boundary.distance(q) <= COINCIDENCE for q in probes)
+            }
+            distance = min(
+                float(np.linalg.norm(points[a] - points[b])) for a, b in pairs
+            )
             raise RoofAssemblyError(
-                f'Mandatory coverage vertices are only {distance:.6g} m apart; '
-                'the numerical coincidence policy cannot retain both constraints', block_ids=affected)
+                f"Mandatory coverage vertices are only {distance:.6g} m apart; "
+                "the numerical coincidence policy cannot retain both constraints",
+                block_ids=affected,
+            )
     domain = shapely.set_precision(box(*local_bounds), XY_PRECISION)
     union = shapely.union_all([p.polygon for p in local], grid_size=XY_PRECISION)
     ground = shapely.difference(domain, union, grid_size=XY_PRECISION)

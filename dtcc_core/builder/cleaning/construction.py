@@ -35,7 +35,15 @@ from __future__ import annotations
 import time
 
 import numpy as np
-from shapely import STRtree, box, distance, linestrings, make_valid, points, set_precision
+from shapely import (
+    STRtree,
+    box,
+    distance,
+    linestrings,
+    make_valid,
+    points,
+    set_precision,
+)
 from shapely import simplify as shapely_simplify
 from shapely.errors import GEOSException
 from shapely.geometry import LineString, Point, Polygon
@@ -63,7 +71,9 @@ def polygon_parts(geometry):
         return []
     if isinstance(geometry, Polygon):
         return [geometry]
-    return [part for item in getattr(geometry, "geoms", ()) for part in polygon_parts(item)]
+    return [
+        part for item in getattr(geometry, "geoms", ()) for part in polygon_parts(item)
+    ]
 
 
 def _geometry_key(polygon):
@@ -78,12 +88,14 @@ def _attribute_sources(output, raw, source_map):
     """
     tree = STRtree(raw)
     return [
-        sorted({
-            source
-            for index in tree.query(polygon, predicate="intersects")
-            if polygon.intersection(raw[int(index)]).area > 0.0
-            for source in source_map[int(index)]
-        })
+        sorted(
+            {
+                source
+                for index in tree.query(polygon, predicate="intersects")
+                if polygon.intersection(raw[int(index)]).area > 0.0
+                for source in source_map[int(index)]
+            }
+        )
         for polygon in output
     ]
 
@@ -121,16 +133,19 @@ def _merge_eligibility_groups(polygons, source_map, *, merge_distance):
                 for candidate in pending
                 if set(source_map[index]).intersection(source_map[candidate])
             }
-            within_distance = set(
-                map(
-                    int,
-                    tree.query(
-                        polygons[index],
-                        predicate="dwithin",
-                        distance=float(merge_distance) + inclusive_tolerance,
-                    ),
+            within_distance = (
+                set(
+                    map(
+                        int,
+                        tree.query(
+                            polygons[index],
+                            predicate="dwithin",
+                            distance=float(merge_distance) + inclusive_tolerance,
+                        ),
+                    )
                 )
-            ) & pending
+                & pending
+            )
             nearby = same_source | within_distance
             pending.difference_update(nearby)
             stack.extend(sorted(nearby))
@@ -184,7 +199,10 @@ def _construct_group(
                 "total_work": attempt_report.get("total_work", {}),
                 "seconds": attempt_report.get("seconds", 0.0),
             }
-            for value, attempt_report in ((epsilon, report), (retry_epsilon, retry_report))
+            for value, attempt_report in (
+                (epsilon, report),
+                (retry_epsilon, retry_report),
+            )
         ]
         if retry_report["outcome"] in ("unchanged", "conforming") or (
             output is None and retry_output is not None
@@ -402,9 +420,7 @@ def construct_coverage(
                     "seconds": time.perf_counter() - started,
                     "input_interpretation": interpretations,
                     "merge_distance": float(merge_distance),
-                    "merge_eligibility_groups": [
-                        list(group) for group in merge_groups
-                    ],
+                    "merge_eligibility_groups": [list(group) for group in merge_groups],
                 },
             )
 
@@ -431,20 +447,24 @@ def construct_coverage(
         built[group_index] = result
 
     if unresolved:
-        return None, None, {
-            "outcome": "unresolved",
-            "groups": len(groups),
-            "unresolved_groups": unresolved,
-            "group_reports": _group_reports(built, groups, unresolved_reports),
-            "policy_exclusions": _policy_exclusions(built),
-            "fidelity_budget_used": max(
-                [epsilon, *(result["epsilon"] for result in built.values())]
-            ),
-            "seconds": time.perf_counter() - started,
-            "input_interpretation": interpretations,
-            "merge_distance": float(merge_distance),
-            "merge_eligibility_groups": [list(group) for group in merge_groups],
-        }
+        return (
+            None,
+            None,
+            {
+                "outcome": "unresolved",
+                "groups": len(groups),
+                "unresolved_groups": unresolved,
+                "group_reports": _group_reports(built, groups, unresolved_reports),
+                "policy_exclusions": _policy_exclusions(built),
+                "fidelity_budget_used": max(
+                    [epsilon, *(result["epsilon"] for result in built.values())]
+                ),
+                "seconds": time.perf_counter() - started,
+                "input_interpretation": interpretations,
+                "merge_distance": float(merge_distance),
+                "merge_eligibility_groups": [list(group) for group in merge_groups],
+            },
+        )
 
     def assemble(results):
         pairs = sorted(
@@ -530,49 +550,58 @@ def construct_coverage(
         and has_only_separation_defects(contract["admissibility"])
         and contract["fidelity"]["status"] == "pass"
     )
-    if (
-        contract["status"] != "pass" and not separation_warning
-    ) or profile["status"] != "pass":
-        return None, None, {
-            "outcome": "unresolved",
+    if (contract["status"] != "pass" and not separation_warning) or profile[
+        "status"
+    ] != "pass":
+        return (
+            None,
+            None,
+            {
+                "outcome": "unresolved",
+                "groups": len(groups),
+                "unresolved_groups": [
+                    {
+                        "group": None,
+                        "source_indices": sorted(
+                            {source for indices in atom_sources for source in indices}
+                        ),
+                        "reason": "assembled_contract"
+                        if contract["status"] != "pass"
+                        else "assembled_mesher_profile",
+                        "contract": contract,
+                        "mesher_profile": profile,
+                    }
+                ],
+                "group_reports": group_reports,
+                "policy_exclusions": policy_exclusions,
+                "fidelity_budget_used": budget_used,
+                "cross_group_rebuild": cross_group,
+                "seconds": time.perf_counter() - started,
+                "input_interpretation": interpretations,
+                "merge_distance": float(merge_distance),
+                "merge_eligibility_groups": [list(group) for group in merge_groups],
+            },
+        )
+    contract["mesher_profile"] = profile
+    return (
+        output_polygons,
+        output_sources,
+        {
+            "outcome": "warning" if separation_warning else "conforming",
             "groups": len(groups),
-            "unresolved_groups": [
-                {
-                    "group": None,
-                    "source_indices": sorted(
-                        {source for indices in atom_sources for source in indices}
-                    ),
-                    "reason": "assembled_contract"
-                    if contract["status"] != "pass"
-                    else "assembled_mesher_profile",
-                    "contract": contract,
-                    "mesher_profile": profile,
-                }
-            ],
             "group_reports": group_reports,
             "policy_exclusions": policy_exclusions,
             "fidelity_budget_used": budget_used,
             "cross_group_rebuild": cross_group,
+            "before_selection_contract": contract,
+            "mesher_profile": profile,
             "seconds": time.perf_counter() - started,
             "input_interpretation": interpretations,
             "merge_distance": float(merge_distance),
             "merge_eligibility_groups": [list(group) for group in merge_groups],
-        }
-    contract["mesher_profile"] = profile
-    return output_polygons, output_sources, {
-        "outcome": "warning" if separation_warning else "conforming",
-        "groups": len(groups),
-        "group_reports": group_reports,
-        "policy_exclusions": policy_exclusions,
-        "fidelity_budget_used": budget_used,
-        "cross_group_rebuild": cross_group,
-        "before_selection_contract": contract,
-        "mesher_profile": profile,
-        "seconds": time.perf_counter() - started,
-        "input_interpretation": interpretations,
-        "merge_distance": float(merge_distance),
-        "merge_eligibility_groups": [list(group) for group in merge_groups],
-    }
+        },
+    )
+
 
 # Tolerances for the dense-sampling stage, tried largest first and kept only if
 # the reserved fidelity budget admits the result. Topology preservation does
@@ -812,7 +841,10 @@ class LocalJudge:
         return window.buffer(WINDOW_MARGIN * self.delta, join_style="mitre")
 
     def state(self, occupied, clip):
-        if self.evaluation_limit is not None and self.evaluations >= self.evaluation_limit:
+        if (
+            self.evaluation_limit is not None
+            and self.evaluations >= self.evaluation_limit
+        ):
             self.rejections["work_limit"] += 1
             raise _WorkLimit("candidate evaluation limit reached")
         started = time.perf_counter()
@@ -893,9 +925,7 @@ class _Rebuilder:
                 tuple(tuple(c[:2]) for c in ring.coords[:-1])
                 for ring in (part.exterior, *part.interiors)
             )
-            coordinates = frozenset(
-                coordinate for ring in rings for coordinate in ring
-            )
+            coordinates = frozenset(coordinate for ring in rings for coordinate in ring)
             edges = frozenset(
                 (coordinate, ring[(position + 1) % len(ring)])
                 for ring in rings
@@ -907,9 +937,7 @@ class _Rebuilder:
     @staticmethod
     def _key(replace, insert):
         replacements = tuple(sorted(replace.items(), key=lambda item: item[0]))
-        insertions = tuple(
-            sorted((insert or {}).items(), key=lambda item: item[0])
-        )
+        insertions = tuple(sorted((insert or {}).items(), key=lambda item: item[0]))
         return replacements, insertions
 
     def rebuild(self, replace, insert=None):
@@ -1090,13 +1118,16 @@ def cut_shapes(centre, radius):
     original boundary.
     """
     x, y = centre
-    yield "diamond", Polygon(
-        [
-            (x - radius, y),
-            (x, y - radius),
-            (x + radius, y),
-            (x, y + radius),
-        ]
+    yield (
+        "diamond",
+        Polygon(
+            [
+                (x - radius, y),
+                (x, y - radius),
+                (x + radius, y),
+                (x, y + radius),
+            ]
+        ),
     )
     yield "square", box(x - radius / 2, y - radius / 2, x + radius / 2, y + radius / 2)
 
@@ -1379,20 +1410,13 @@ def _fallback_preprocessing_is_equivalent(raw, delta, epsilon):
             snap_grid = delta * STRUCTURAL_SNAP_GRID_FACTOR
             if (
                 attempt_index == 0
-                and state["nonmanifold_boundary_vertices"]
-                + _subscale_count(state)
+                and state["nonmanifold_boundary_vertices"] + _subscale_count(state)
                 <= 64
                 and state["mfs_capped_at_delta"] < 2 * snap_grid
             ):
-                occupied, state, _ = _structural_snap(
-                    occupied, budget, delta, state
-                )
-            occupied, _, _ = _bulk_simplify(
-                occupied, budget, delta, epsilon, state
-            )
-            occupied, _ = dense_sampling_stage(
-                raw, occupied, delta, epsilon, ladder
-            )
+                occupied, state, _ = _structural_snap(occupied, budget, delta, state)
+            occupied, _, _ = _bulk_simplify(occupied, budget, delta, epsilon, state)
+            occupied, _ = dense_sampling_stage(raw, occupied, delta, epsilon, ladder)
             keys.add(_canonical_output_key(polygon_parts(occupied)))
         return len(keys) == 1
     except GEOSException:
@@ -1418,11 +1442,15 @@ def _structural_snap(occupied, budget, delta, before):
         return occupied, before, {"applied": False, "reason": "no_progress"}
     if not budget.accepts_union(candidate):
         return occupied, before, {"applied": False, "reason": "global_fidelity"}
-    return candidate, state, {
-        "applied": True,
-        "grid": grid,
-        "state": defect_tuple(state),
-    }
+    return (
+        candidate,
+        state,
+        {
+            "applied": True,
+            "grid": grid,
+            "state": defect_tuple(state),
+        },
+    )
 
 
 def _bulk_simplify(occupied, budget, delta, epsilon, before):
@@ -1432,11 +1460,15 @@ def _bulk_simplify(occupied, budget, delta, epsilon, before):
         before["nonmanifold_boundary_vertices"] + _subscale_count(before)
     ) / vertices
     if defect_density <= BULK_SIMPLIFY_DEFECTS_PER_VERTEX or epsilon <= 0:
-        return occupied, before, {
-            "applied": False,
-            "reason": "below_density_threshold",
-            "defects_per_vertex": defect_density,
-        }
+        return (
+            occupied,
+            before,
+            {
+                "applied": False,
+                "reason": "below_density_threshold",
+                "defects_per_vertex": defect_density,
+            },
+        )
     try:
         local = budget.to_local(occupied)
         candidate = shapely_simplify(local, epsilon, preserve_topology=True)
@@ -1444,33 +1476,49 @@ def _bulk_simplify(occupied, budget, delta, epsilon, before):
         candidate = unary_union(polygon_parts(candidate))
         state = safe_state(polygon_parts(candidate), delta)
     except GEOSException:
-        return occupied, before, {
-            "applied": False,
-            "reason": "geometry_operation",
-            "defects_per_vertex": defect_density,
-        }
+        return (
+            occupied,
+            before,
+            {
+                "applied": False,
+                "reason": "geometry_operation",
+                "defects_per_vertex": defect_density,
+            },
+        )
     if (
         candidate.is_empty
         or "essential_vertex_count" not in state
         or progress_measure(state) >= progress_measure(before)
     ):
-        return occupied, before, {
-            "applied": False,
-            "reason": "no_progress",
-            "defects_per_vertex": defect_density,
-        }
+        return (
+            occupied,
+            before,
+            {
+                "applied": False,
+                "reason": "no_progress",
+                "defects_per_vertex": defect_density,
+            },
+        )
     if not budget.accepts_union(candidate):
-        return occupied, before, {
-            "applied": False,
-            "reason": "global_fidelity",
+        return (
+            occupied,
+            before,
+            {
+                "applied": False,
+                "reason": "global_fidelity",
+                "defects_per_vertex": defect_density,
+            },
+        )
+    return (
+        candidate,
+        state,
+        {
+            "applied": True,
+            "tolerance": epsilon,
             "defects_per_vertex": defect_density,
-        }
-    return candidate, state, {
-        "applied": True,
-        "tolerance": epsilon,
-        "defects_per_vertex": defect_density,
-        "state": defect_tuple(state),
-    }
+            "state": defect_tuple(state),
+        },
+    )
 
 
 def _profile_angle(profile):
@@ -1496,9 +1544,7 @@ def _finish_mesher_profile(raw, output, *, delta, epsilon):
         vertex = tuple(witness["vertex"])
         rebuilt = rebuild(unary_union(output), {vertex: None})
         candidate = [] if rebuilt is None else polygon_parts(rebuilt)
-        contract = check_cleaning_contract(
-            raw, candidate, delta=delta, epsilon=epsilon
-        )
+        contract = check_cleaning_contract(raw, candidate, delta=delta, epsilon=epsilon)
         candidate_profile = check_mesher_handoff_profile(
             candidate,
             minimum_sector_degrees=DEFAULT_PREFERRED_INCIDENT_SECTOR_DEGREES,
@@ -1748,20 +1794,22 @@ def construct(
         report["reason"] = "residual_separation"
     else:
         output = None
-        report = min(
-            attempt_reports,
-            key=lambda item: item.get("final") or (float("inf"),) * 3,
-        ) if attempt_reports else {
-            "outcome": "unresolved",
-            "reason": "no_attempt",
-            "stages": {},
-        }
+        report = (
+            min(
+                attempt_reports,
+                key=lambda item: item.get("final") or (float("inf"),) * 3,
+            )
+            if attempt_reports
+            else {
+                "outcome": "unresolved",
+                "reason": "no_attempt",
+                "stages": {},
+            }
+        )
         report["outcome"] = "unresolved"
         report["reason"] = "no_fixed_fallback_satisfied_handoff"
         report["mesher_profile"] = identity_profile
-    report["selected_attempt_work"] = {
-        key: report.get(key, 0) for key in totals
-    }
+    report["selected_attempt_work"] = {key: report.get(key, 0) for key in totals}
     report["total_work"] = totals
     report.update(totals)
     report["sampling_attempts"] = sampling_attempts
@@ -1839,9 +1887,7 @@ def attempt(
         and state["nonmanifold_boundary_vertices"] + _subscale_count(state) <= 64
         and state["mfs_capped_at_delta"] < 2 * snap_grid
     ):
-        occupied, state, snap_report = _structural_snap(
-            occupied, budget, delta, state
-        )
+        occupied, state, snap_report = _structural_snap(occupied, budget, delta, state)
     else:
         snap_report = {"applied": False, "reason": "dense_group"}
     report["stages"]["structural_snap"] = snap_report
@@ -1891,10 +1937,10 @@ def attempt(
                 # repair remakes the junction - the two are one problem and are
                 # settled as one, on the measure that ends the pass.
                 "combined",
-                lambda parts: [
-                    (xy, 0.0, np.atleast_2d(xy)) for xy in nonmanifold_points(parts)
-                ]
-                + conflicts(parts, delta),
+                lambda parts: (
+                    [(xy, 0.0, np.atleast_2d(xy)) for xy in nonmanifold_points(parts)]
+                    + conflicts(parts, delta)
+                ),
                 combined_guard,
                 ("combinatorial", "close", "motion"),
                 ("cut",),

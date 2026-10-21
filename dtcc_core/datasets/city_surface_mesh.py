@@ -17,7 +17,10 @@ from .centering import (
 
 class CitySurfaceMeshArgs(DatasetBaseArgs):
     """Arguments for the city surface mesh dataset."""
-    lod: Literal["lod1", "lod2"] = Field("lod1", description="Requested output level of detail")
+
+    lod: Literal["lod1", "lod2"] = Field(
+        "lod1", description="Requested output level of detail"
+    )
     lod2_method: Literal["catalogue", "ransac"] = Field(
         "catalogue", description="Roof reconstruction algorithm for LOD2 output"
     )
@@ -102,6 +105,7 @@ class CitySurfaceMeshDataset(DatasetDescriptor):
 
     Call it with keyword arguments defined by ``CitySurfaceMeshArgs``.
     """
+
     name = "city_surface_mesh"
     title = "City Surface Mesh"
     description = (
@@ -203,9 +207,18 @@ class CitySurfaceMeshDataset(DatasetDescriptor):
     presentation_legend = {
         "title": "Surface mesh layers",
         "entries": [
-            {"label": "Terrain triangle", "meaning": "point-cloud-derived ground surface facet"},
-            {"label": "Building surface", "meaning": "extruded and conditioned footprint boundary"},
-            {"label": "Conditioned footprint", "meaning": "merged or simplified source footprint used for meshing"},
+            {
+                "label": "Terrain triangle",
+                "meaning": "point-cloud-derived ground surface facet",
+            },
+            {
+                "label": "Building surface",
+                "meaning": "extruded and conditioned footprint boundary",
+            },
+            {
+                "label": "Conditioned footprint",
+                "meaning": "merged or simplified source footprint used for meshing",
+            },
         ],
     }
     view_hints = {

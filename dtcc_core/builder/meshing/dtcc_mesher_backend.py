@@ -248,7 +248,9 @@ def build_city_flat_mesh_with_dtcc_mesher(
     if not valid_polygons:
         return Mesh()
 
-    geometry = dtcc_mesher.Coverage(valid_polygons, valid_markers, tolerance=coordinate_tolerance)
+    geometry = dtcc_mesher.Coverage(
+        valid_polygons, valid_markers, tolerance=coordinate_tolerance
+    )
     if region_points is not None:
         coverage_graph = geometry.graph(max_edge_length=max_edge_length)
         geometry = dtcc_mesher.CoverageGraph(

@@ -231,7 +231,9 @@ def test_record_tracks_footprints_but_not_heights(tmp_path):
     assert record is not None
     assert record["fingerprint"] == footprint_fingerprint(cleaned.buildings)
     assert cleaning_record(cleaned, min_building_detail=1.0) is None
-    assert cleaning_record(cleaned, min_building_detail=0.5, lod=GeometryType.LOD1) is None
+    assert (
+        cleaning_record(cleaned, min_building_detail=0.5, lod=GeometryType.LOD1) is None
+    )
 
     cleaned.buildings[0].get_geometry(GeometryType.LOD0).set_z(42.0)
     assert cleaning_record(cleaned, min_building_detail=0.5) is not None
@@ -253,8 +255,10 @@ def test_record_tracks_footprints_but_not_heights(tmp_path):
     assert cleaning_record(moved, min_building_detail=0.5) is not None
     walls = block_walls(block)
     assert not walls.current
-    assert [cell.equals(box(0, 0, 10, 10) if part == 0 else box(10, 0, 20, 10))
-            for cell, part in walls.cells] == [True, True]
+    assert [
+        cell.equals(box(0, 0, 10, 10) if part == 0 else box(10, 0, 20, 10))
+        for cell, part in walls.cells
+    ] == [True, True]
 
 
 def test_strict_cleaning_does_not_accept_residual_separation(monkeypatch):

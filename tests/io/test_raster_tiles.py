@@ -566,8 +566,13 @@ def test_unexpected_read_exception_propagates(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize(
     "budget, error",
-    [(True, TypeError), (1.5, TypeError), ("2", TypeError), (0, ValueError),
-     (-1, ValueError)],
+    [
+        (True, TypeError),
+        (1.5, TypeError),
+        ("2", TypeError),
+        (0, ValueError),
+        (-1, ValueError),
+    ],
 )
 def test_invalid_budget_is_rejected_before_file_access(tmp_path, opened, budget, error):
     with pytest.raises(error):
@@ -735,9 +740,7 @@ def reference(tiles, bounds, resolution, level=None):
 
 
 def mosaic(tiles, bounds, resolution=None, budget=DEFAULT_MAX_MEMORY_BYTES):
-    return build_mosaic(
-        tiles, bounds, resolution=resolution, max_memory_bytes=budget
-    )
+    return build_mosaic(tiles, bounds, resolution=resolution, max_memory_bytes=budget)
 
 
 def extent_of(tile):
@@ -850,8 +853,14 @@ def test_invalid_bounds_are_rejected_before_file_access(tmp_path, opened, case):
 
 @pytest.mark.parametrize(
     "resolution, error",
-    [(True, TypeError), ("1", TypeError), (0, ValueError), (-1.0, ValueError),
-     (math.nan, ValueError), (math.inf, ValueError)],
+    [
+        (True, TypeError),
+        ("1", TypeError),
+        (0, ValueError),
+        (-1.0, ValueError),
+        (math.nan, ValueError),
+        (math.inf, ValueError),
+    ],
 )
 def test_invalid_resolution_is_rejected_before_file_access(
     tmp_path, opened, resolution, error
@@ -863,8 +872,13 @@ def test_invalid_resolution_is_rejected_before_file_access(
 
 @pytest.mark.parametrize(
     "budget, error",
-    [(True, TypeError), (1.5, TypeError), ("2", TypeError), (0, ValueError),
-     (-1, ValueError)],
+    [
+        (True, TypeError),
+        (1.5, TypeError),
+        ("2", TypeError),
+        (0, ValueError),
+        (-1, ValueError),
+    ],
 )
 def test_invalid_mosaic_budget_is_rejected_before_file_access(
     tmp_path, opened, budget, error
@@ -946,7 +960,10 @@ def test_result_records_requested_and_actual_grid(tmp_path):
     width, height, transform = mosaic_grid(bounds, 0.5)
     assert result.requested_bounds == bounds
     assert result.bounds == (
-        bounds[0], bounds[3] - height * 0.5, bounds[0] + width * 0.5, bounds[3]
+        bounds[0],
+        bounds[3] - height * 0.5,
+        bounds[0] + width * 0.5,
+        bounds[3],
     )
     assert result.resolution == 0.5
     assert result.raster.data.shape == (height, width, 4)
@@ -997,9 +1014,7 @@ def level_spacing(path, level):
         (10.0, 2),
     ],
 )
-def test_level_is_the_coarsest_not_coarser_than_the_output(
-    tmp_path, resolution, level
-):
+def test_level_is_the_coarsest_not_coarser_than_the_output(tmp_path, resolution, level):
     path = overview_fixture(tmp_path / "t.tif", 50, 50, 0.4, [2, 4, 8])
     if isinstance(resolution, str):
         resolution = level_spacing(path, int(resolution[-1]))[0]
@@ -1132,8 +1147,15 @@ def test_numpy_and_python_memory_stays_within_the_estimate(tmp_path):
 def test_recorded_failures_keep_no_mosaic_buffer_alive(tmp_path, monkeypatch, case):
     older = tile_at(grid_tiff(tmp_path / "old.tif", 40, 40, 0.4, tag=1), year=2010)
     path = grid_tiff(
-        tmp_path / "new.tif", 40, 40, 0.4, tag=2, tiled=True, blockxsize=16,
-        blockysize=16, compress="deflate",
+        tmp_path / "new.tif",
+        40,
+        40,
+        0.4,
+        tag=2,
+        tiled=True,
+        blockxsize=16,
+        blockysize=16,
+        compress="deflate",
     )
     if case == "mid-read":
         damage_block(path, -1)
@@ -1203,8 +1225,9 @@ def test_validity_uses_every_band_and_nir_never_drives_opacity(tmp_path):
         dtype=np.uint8,
     ).transpose(2, 0, 1)
     # 0.5 m pixels keep the file's float extent an exact number of pixels.
-    tile = tile_at(grid_tiff(tmp_path / "t.tif", 2, 2, 0.5, data=data, nodata=0),
-                   "rgbi")
+    tile = tile_at(
+        grid_tiff(tmp_path / "t.tif", 2, 2, 0.5, data=data, nodata=0), "rgbi"
+    )
     result = mosaic([tile], extent_of(tile))
     expected = [
         [(0, 0, 0, 255), (10, 20, 30, 255)],
@@ -1232,7 +1255,12 @@ def same_cell(tmp_path, specs):
     tiles = []
     for name, year, collection, tag, *data in specs:
         path = grid_tiff(
-            tmp_path / f"{name}.tif", 10, 10, 0.4, tag=tag, nodata=0,
+            tmp_path / f"{name}.tif",
+            10,
+            10,
+            0.4,
+            tag=tag,
+            nodata=0,
             data=data[0] if data else None,
         )
         tiles.append(tile_at(path, year=year, collection=collection, id=name))
@@ -1328,7 +1356,13 @@ def test_only_failing_headers_give_the_empty_result(tmp_path):
 
 def test_failed_reads_give_the_empty_result(tmp_path):
     path = grid_tiff(
-        tmp_path / "t.tif", 32, 32, 0.4, tiled=True, blockxsize=16, blockysize=16,
+        tmp_path / "t.tif",
+        32,
+        32,
+        0.4,
+        tiled=True,
+        blockxsize=16,
+        blockysize=16,
         compress="deflate",
     )
     damage_block(path)
@@ -1388,22 +1422,31 @@ def bad_tile(tmp_path, kind, good):
         return tile_at(grid_tiff(path, 10, 10, 0.4, data=data))
     if kind == "alpha band":
         colors = LM_COLORS + [ColorInterp.alpha]
-        return tile_at(grid_tiff(path, 10, 10, 0.4, bands=4, colorinterp=colors),
-                       "rgbi")
+        return tile_at(
+            grid_tiff(path, 10, 10, 0.4, bands=4, colorinterp=colors), "rgbi"
+        )
     if kind == "internal mask":
         return tile_at(grid_tiff(path, 10, 10, 0.4, mask=True))
     if kind == "other CRS":
         return tile_at(grid_tiff(path, 10, 10, 0.4, crs="EPSG:3021"))
     if kind == "wrong cell":
         tile = tile_at(grid_tiff(path, 10, 10, 0.4))
-        return make_tile(path, extent=extent_of(good), id="bad",
-                         datetime=tile.datetime)
+        return make_tile(path, extent=extent_of(good), id="bad", datetime=tile.datetime)
     raise AssertionError(kind)
 
 
 BAD_KINDS = [
-    "cir", "pan", "non-raster", "VRT", "rotated", "non-square pixels", "uint16",
-    "alpha band", "internal mask", "other CRS", "wrong cell",
+    "cir",
+    "pan",
+    "non-raster",
+    "VRT",
+    "rotated",
+    "non-square pixels",
+    "uint16",
+    "alpha band",
+    "internal mask",
+    "other CRS",
+    "wrong cell",
 ]
 
 
@@ -1421,9 +1464,7 @@ def test_source_failures_are_recorded_and_the_rest_still_mosaics(tmp_path, kind)
     assert failure.tile == bad and failure.pixels == 0
     assert isinstance(failure.error, (RasterTileLayoutError, RasterTileReadError))
     assert str(bad.path) in str(failure.error)
-    np.testing.assert_array_equal(
-        result.raster.data, reference([good], bounds, 0.4)
-    )
+    np.testing.assert_array_equal(result.raster.data, reference([good], bounds, 0.4))
     assert result.sources == ((good, 100),)
 
 
@@ -1440,8 +1481,15 @@ def test_transform_refusals_name_the_reason(tmp_path, kind, reason):
 def test_failure_mid_read_keeps_composited_blocks(tmp_path, monkeypatch):
     older = tile_at(grid_tiff(tmp_path / "old.tif", 40, 40, 0.4, tag=1), year=2010)
     path = grid_tiff(
-        tmp_path / "new.tif", 40, 40, 0.4, tag=2, tiled=True, blockxsize=16,
-        blockysize=16, compress="deflate",
+        tmp_path / "new.tif",
+        40,
+        40,
+        0.4,
+        tag=2,
+        tiled=True,
+        blockxsize=16,
+        blockysize=16,
+        compress="deflate",
     )
     damage_block(path, -1)  # the bottom-right 16 x 16 block
     newer = tile_at(path, year=2020)
@@ -1555,7 +1603,12 @@ def test_overview_from_a_replaced_file_is_admitted_before_reading(
             if len(level_opens) == 4:
                 # Same geometry, bands and overview sizes; another CRS.
                 grid_tiff(
-                    newer.path, 50, 50, 0.4, tag=2, overviews=[2, 4, 8],
+                    newer.path,
+                    50,
+                    50,
+                    0.4,
+                    tag=2,
+                    overviews=[2, 4, 8],
                     crs="EPSG:3021",
                 )
         return RASTERIO_OPEN(path, *args, **kwargs)
@@ -1578,10 +1631,13 @@ def non_square_with_the_same_overview(path):
     grid_tiff(path, 49, 50, 0.4, tag=3, overviews=[2], transform=transform)
 
 
-@pytest.mark.parametrize("moment", [
-    "before the full resolution",
-    pytest.param("before the level", marks=SKIP_IF_OPEN_FILES_LOCKED),
-])
+@pytest.mark.parametrize(
+    "moment",
+    [
+        "before the full resolution",
+        pytest.param("before the level", marks=SKIP_IF_OPEN_FILES_LOCKED),
+    ],
+)
 def test_overview_plans_read_one_admitted_file(tmp_path, monkeypatch, moment):
     older = tile_at(grid_tiff(tmp_path / "old.tif", 50, 50, 0.4, tag=1), year=2010)
     path = grid_tiff(tmp_path / "new.tif", 50, 50, 0.4, tag=2, overviews=[2])
@@ -1594,9 +1650,13 @@ def test_overview_plans_read_one_admitted_file(tmp_path, monkeypatch, moment):
         if Path(path) == newer.path:
             opens = level_opens if "overview_level" in kwargs else base_opens
             opens.append(path)
-            if (moment == "before the full resolution" and opens is base_opens
-                    and len(base_opens) == 2) or (
-                moment == "before the level" and opens is level_opens
+            if (
+                moment == "before the full resolution"
+                and opens is base_opens
+                and len(base_opens) == 2
+            ) or (
+                moment == "before the level"
+                and opens is level_opens
                 and len(level_opens) == 2
             ):
                 non_square_with_the_same_overview(newer.path)
@@ -1617,10 +1677,13 @@ def test_overview_plans_read_one_admitted_file(tmp_path, monkeypatch, moment):
     assert set(np.unique(result.raster.data[..., 2][opaque])) == {1}
 
 
-@pytest.mark.parametrize("change", [
-    pytest.param("replaced, same size and mtime", marks=SKIP_IF_OPEN_FILES_LOCKED),
-    "rewritten",
-])
+@pytest.mark.parametrize(
+    "change",
+    [
+        pytest.param("replaced, same size and mtime", marks=SKIP_IF_OPEN_FILES_LOCKED),
+        "rewritten",
+    ],
+)
 def test_file_identity_covers_replacement_and_rewriting(tmp_path, monkeypatch, change):
     older = tile_at(grid_tiff(tmp_path / "old.tif", 50, 50, 0.4, tag=1), year=2010)
     path = grid_tiff(tmp_path / "new.tif", 50, 50, 0.4, tag=2, overviews=[2])
@@ -1662,8 +1725,9 @@ def test_overview_of_a_file_with_declared_nodata_keeps_its_gaps(tmp_path):
     cols, rows = np.meshgrid(np.arange(40), np.arange(40))
     data = np.stack([cols, rows, np.full_like(cols, 5)]).astype(np.uint8)
     data[:, :, :20] = 0
-    path = grid_tiff(tmp_path / "t.tif", 40, 40, 0.4, data=data, nodata=0,
-                     overviews=[2])
+    path = grid_tiff(
+        tmp_path / "t.tif", 40, 40, 0.4, data=data, nodata=0, overviews=[2]
+    )
     tile = tile_at(path)
     result = mosaic([tile], extent_of(tile), 0.8)
     assert result.failures == ()
@@ -1792,9 +1856,19 @@ def test_budget_equal_to_the_mosaic_estimate_is_accepted(tmp_path):
 def test_small_request_in_a_large_tile_reads_small_windows(tmp_path, reads, opened):
     path = tmp_path / "full.tif"
     with RASTERIO_OPEN(
-        path, "w", driver="GTiff", width=15625, height=15625, count=4, dtype="uint8",
-        crs="EPSG:3006", transform=from_bounds(*FULL_CELL, 15625, 15625),
-        tiled=True, blockxsize=512, blockysize=512, sparse_ok=True,
+        path,
+        "w",
+        driver="GTiff",
+        width=15625,
+        height=15625,
+        count=4,
+        dtype="uint8",
+        crs="EPSG:3006",
+        transform=from_bounds(*FULL_CELL, 15625, 15625),
+        tiled=True,
+        blockxsize=512,
+        blockysize=512,
+        sparse_ok=True,
         alpha="unspecified",
     ) as dst:
         dst.colorinterp = LM_COLORS + [ColorInterp.undefined]
@@ -1838,8 +1912,15 @@ def test_reads_reuse_one_arena_and_restore_gdal_settings(
 
 def test_mosaic_ignores_sidecar_overviews(tmp_path):
     tile = tile_at(grid_tiff(tmp_path / "t.tif", 40, 40, 0.4))
-    with RASTERIO_OPEN(f"{tile.path}.ovr", "w", driver="GTiff", width=20, height=20,
-                       count=3, dtype="uint8") as dst:
+    with RASTERIO_OPEN(
+        f"{tile.path}.ovr",
+        "w",
+        driver="GTiff",
+        width=20,
+        height=20,
+        count=3,
+        dtype="uint8",
+    ) as dst:
         dst.write(np.full((3, 20, 20), 99, dtype=np.uint8))
     with RASTERIO_OPEN(tile.path) as src:
         assert src.overviews(1) == [2]
@@ -1868,8 +1949,11 @@ def test_mosaic_is_local_and_leaves_files_unchanged(tmp_path, monkeypatch):
 
 def mosaic_reporting(tiles, bounds, progress, resolution=None):
     return build_mosaic(
-        tiles, bounds, resolution=resolution,
-        max_memory_bytes=DEFAULT_MAX_MEMORY_BYTES, progress=progress,
+        tiles,
+        bounds,
+        resolution=resolution,
+        max_memory_bytes=DEFAULT_MAX_MEMORY_BYTES,
+        progress=progress,
     )
 
 
@@ -1877,8 +1961,9 @@ def test_header_progress_counts_only_candidates(tmp_path):
     older = tile_at(grid_tiff(tmp_path / "old.tif", 40, 40, 0.4, tag=1), year=2010)
     newer = tile_at(grid_tiff(tmp_path / "new.tif", 40, 40, 0.4, tag=2), year=2020)
     away = tile_at(
-        grid_tiff(tmp_path / "away.tif", 10, 10, 0.4,
-                  origin=(ORIGIN[0] + 1000.0, ORIGIN[1])),
+        grid_tiff(
+            tmp_path / "away.tif", 10, 10, 0.4, origin=(ORIGIN[0] + 1000.0, ORIGIN[1])
+        ),
         year=2015,
     )
     tiles = [older, newer, bad_tile(tmp_path, "cir", older), away]
@@ -1912,15 +1997,23 @@ def test_mosaic_progress_reports_each_planned_block_after_its_read(
     assert total > 2
     assert blocks == [("mosaic", done, total) for done in range(total + 1)]
     after_start = log[log.index(blocks[0]) + 1 :]
-    assert after_start == [entry for pair in zip(["read"] * total, blocks[1:])
-                           for entry in pair]
+    assert after_start == [
+        entry for pair in zip(["read"] * total, blocks[1:]) for entry in pair
+    ]
 
 
 def test_mosaic_progress_skips_a_failed_tiles_remaining_blocks(tmp_path, monkeypatch):
     older = tile_at(grid_tiff(tmp_path / "old.tif", 40, 40, 0.4, tag=1), year=2010)
     path = grid_tiff(
-        tmp_path / "new.tif", 40, 40, 0.4, tag=2, tiled=True, blockxsize=16,
-        blockysize=16, compress="deflate",
+        tmp_path / "new.tif",
+        40,
+        40,
+        0.4,
+        tag=2,
+        tiled=True,
+        blockxsize=16,
+        blockysize=16,
+        compress="deflate",
     )
     damage_block(path, 0)  # read first, so the tile's later blocks are skipped
     newer = tile_at(path, year=2020)
@@ -1934,8 +2027,9 @@ def test_mosaic_progress_skips_a_failed_tiles_remaining_blocks(tmp_path, monkeyp
 
     monkeypatch.setattr(rasterio.io.DatasetReader, "read", counting_read)
     events = []
-    result = mosaic_reporting([older, newer], extent_of(older),
-                              lambda *event: events.append(event))
+    result = mosaic_reporting(
+        [older, newer], extent_of(older), lambda *event: events.append(event)
+    )
     assert len(result.failures) == 1
     done = [event[1] for event in events if event[0] == "mosaic"]
     total = events[-1][2]
@@ -1946,8 +2040,9 @@ def test_mosaic_progress_skips_a_failed_tiles_remaining_blocks(tmp_path, monkeyp
 def test_no_admitted_tile_reports_headers_only(tmp_path):
     refused = bad_tile(tmp_path, "cir", None)
     events = []
-    result = mosaic_reporting([refused], extent_of(refused),
-                              lambda *event: events.append(event))
+    result = mosaic_reporting(
+        [refused], extent_of(refused), lambda *event: events.append(event)
+    )
     assert result.valid_pixels == 0
     assert events == [("headers", 1, 1)]
 

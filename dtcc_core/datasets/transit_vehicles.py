@@ -371,6 +371,7 @@ class BusesDataset(TransitVehiclesDataset):
 
     Call it with keyword arguments defined by ``TransitVehiclesArgs``.
     """
+
     name = "buses"
     title = "Buses"
     description = (
@@ -393,6 +394,7 @@ class TramsDataset(TransitVehiclesDataset):
 
     Call it with keyword arguments defined by ``TransitVehiclesArgs``.
     """
+
     name = "trams"
     title = "Trams"
     description = (
@@ -414,6 +416,7 @@ class TrainsDataset(TransitVehiclesDataset):
 
     Call it with keyword arguments defined by ``TransitVehiclesArgs``.
     """
+
     name = "trains"
     title = "Trains"
     description = (
@@ -435,6 +438,7 @@ class MetrosDataset(TransitVehiclesDataset):
 
     Call it with keyword arguments defined by ``TransitVehiclesArgs``.
     """
+
     name = "metros"
     title = "Metros"
     description = (
@@ -456,6 +460,7 @@ class FerriesDataset(TransitVehiclesDataset):
 
     Call it with keyword arguments defined by ``TransitVehiclesArgs``.
     """
+
     name = "ferries"
     title = "Ferries"
     description = (

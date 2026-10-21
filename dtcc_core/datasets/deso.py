@@ -13,6 +13,7 @@ from .providers import provider_entry
 
 class DeSOArgs(DatasetBaseArgs):
     """Arguments for the DeSO statistical area boundaries dataset."""
+
     source: Literal["SCB"] = Field("SCB", description="Data source")
     year: Literal[2018, 2025] = Field(2025, description="DeSO geometry vintage")
     statistics: (
@@ -42,6 +43,7 @@ class DeSODataset(DatasetDescriptor):
 
     Call it with keyword arguments defined by ``DeSOArgs``.
     """
+
     name = "deso"
     title = "DeSO"
     description = (

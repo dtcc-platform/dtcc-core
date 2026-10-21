@@ -94,8 +94,11 @@ def build_city_flat_mesh_with_builder_backend(
     if len(builder_region_sizes) != len(builder_polygons):
         builder_region_sizes = []
 
-    build = (_dtcc_builder.build_city_flat_mesh if max_steiner_points is None
-             else _dtcc_builder.build_city_flat_mesh_bounded)
+    build = (
+        _dtcc_builder.build_city_flat_mesh
+        if max_steiner_points is None
+        else _dtcc_builder.build_city_flat_mesh_bounded
+    )
     limit = [] if max_steiner_points is None else [int(max_steiner_points)]
     raw_mesh = build(
         builder_polygons,

@@ -53,13 +53,13 @@ TABLE_DEMO_MAPPING = {
     "transit_vehicles_buses": "demos/dataset_transit_vehicles.py",
     "trees": "demos/dataset_trees.py",
     "terrain_surface_mesh": "demos/dataset_terrain_surface_mesh.py",
-    "city_surface_mesh": "demos/dataset_city_surface_mesh.py"
+    "city_surface_mesh": "demos/dataset_city_surface_mesh.py",
 }
 
 NO_DEMO_REASONS = {
     "traffic_simulation_pb": "Simulation examples belong in dtcc-sim; table generation can skip this entry loudly when dtcc-sim is unavailable.",
     "urban_heat_simulation_xdmf": "Expensive FEniCS simulation examples belong in dtcc-sim and require an explicit solver environment.",
-    "urban_wind_simulation_pb": "Expensive CFD examples belong in dtcc-sim and require an explicit FEniCS solver environment."
+    "urban_wind_simulation_pb": "Expensive CFD examples belong in dtcc-sim and require an explicit FEniCS solver environment.",
 }
 
 DTCC_DEMO_DISPOSITION = {
@@ -84,7 +84,7 @@ DTCC_DEMO_DISPOSITION = {
     "fetch_weather.py": "replaced",
     "simplify_building_footprints.py": "migrated",
     "view_cityjson.py": "migrated",
-    "view_pointcloud.py": "migrated"
+    "view_pointcloud.py": "migrated",
 }
 
 MIGRATED_FROM_DTCC = {
@@ -97,7 +97,7 @@ MIGRATED_FROM_DTCC = {
     "create_cityjson.py": "demos/create_cityjson.py",
     "simplify_building_footprints.py": "demos/clean_building_footprints.py",
     "view_cityjson.py": "demos/view_cityjson.py",
-    "view_pointcloud.py": "demos/view_pointcloud.py"
+    "view_pointcloud.py": "demos/view_pointcloud.py",
 }
 
 REPLACED_BY = {
@@ -110,10 +110,10 @@ REPLACED_BY = {
     "fetch_weather.py": "demos/dataset_weather.py",
     "build_city.py": "demos/dataset_city.py",
     "build_city_flat_mesh.py": "demos/dataset_city_flat_mesh.py",
-    "build_city_volume_mesh.py": "demos/dataset_city_volume_mesh.py"
+    "build_city_volume_mesh.py": "demos/dataset_city_volume_mesh.py",
 }
 
 RETIRED_DEMOS = {
     "build_dem.py": "Niche GeoTIFF-to-raster workflow.  The builder-level build_terrain_raster() call is demonstrated by the new build_terrain_raster.py demo; DEM loading from .tif is an I/O convenience not warranting its own demo.",
-    "create_tiled_city_mesh.py": "The .tile() and .create_printable_solid() APIs are experimental and not part of the stable public API in dtcc-core.  Tiling/printable mesh support may be revived in a future release or a separate package."
+    "create_tiled_city_mesh.py": "The .tile() and .create_printable_solid() APIs are experimental and not part of the stable public API in dtcc-core.  Tiling/printable mesh support may be revived in a future release or a separate package.",
 }

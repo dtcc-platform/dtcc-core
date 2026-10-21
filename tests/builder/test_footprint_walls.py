@@ -17,7 +17,9 @@ from dtcc_core.builder.cleaning.clean import MERGED_FROM_KEY, RECORD_KEY, clean_
 from dtcc_core.builder.cleaning.contract import check_labelled_contract
 from dtcc_core.builder.cleaning.walls import LabelledRegion, label_region
 from dtcc_core.builder.cleaning.levels import level_regions, pinched_levels
-from dtcc_core.builder.geometry_builders.meshes import build_city_flat_mesh_from_coverage
+from dtcc_core.builder.geometry_builders.meshes import (
+    build_city_flat_mesh_from_coverage,
+)
 from dtcc_core.model.mixins.mesh.quality import tri_element_quality
 from dtcc_core.builder.geometry_builders.buildings import (
     compute_building_heights,
@@ -39,6 +41,7 @@ DATA = Path(__file__).resolve().parents[1] / "data" / "cleaning"
 
 
 _original_xy = walls_module._WallRepair._xy
+
 
 def building(id, polygon, height, **attributes):
     surface = Surface()
@@ -69,7 +72,9 @@ def parts_by_id(block):
 
 
 def assert_parts_tile_block(block):
-    pieces = [footprint(p) for p in block.building_parts if p.get_geometry(GeometryType.LOD0)]
+    pieces = [
+        footprint(p) for p in block.building_parts if p.get_geometry(GeometryType.LOD0)
+    ]
     outline = footprint(block)
     assert sum(p.area for p in pieces) == pytest.approx(outline.area, rel=1e-12)
     assert unary_union(pieces).symmetric_difference(outline).area < 1e-9
@@ -77,12 +82,16 @@ def assert_parts_tile_block(block):
 
 def test_simplification_keeps_coordinate_changes_when_occupancy_is_equal():
     x = 10.1234567  # Compaction must also preserve coordinates off the local grid.
-    left = shapely.Polygon([(0, 0), (x, 0), *[(x, y) for y in np.linspace(0, 10, 321)[1:]], (0, 10)])
+    left = shapely.Polygon(
+        [(0, 0), (x, 0), *[(x, y) for y in np.linspace(0, 10, 321)[1:]], (0, 10)]
+    )
     right = box(0, 0, 20, 10).difference(left)
     cells = [(left, 0), (right, 1)]
     simplified = walls_module._simplify_walls(box(0, 0, 20, 10), cells, 0.5)
     assert sorted(label for _, label in simplified) == [0, 1]
-    for (original, _), (compact, _) in zip(cells, sorted(simplified, key=lambda item: item[1])):
+    for (original, _), (compact, _) in zip(
+        cells, sorted(simplified, key=lambda item: item[1])
+    ):
         assert original.equals(compact)
         assert len(compact.exterior.coords) == 5
 
@@ -90,7 +99,9 @@ def test_simplification_keeps_coordinate_changes_when_occupancy_is_equal():
 @pytest.mark.parametrize("junction", [False, True])
 def test_exact_labelling_compacts_straight_walls_and_keeps_junctions(junction):
     region = box(0, 0, 20, 10)
-    left = shapely.Polygon([(0, 0), (10, 0), *[(10, y) for y in np.linspace(0, 10, 321)[1:]], (0, 10)])
+    left = shapely.Polygon(
+        [(0, 0), (10, 0), *[(10, y) for y in np.linspace(0, 10, 321)[1:]], (0, 10)]
+    )
     sources = {0: left, 1: region.difference(left)}
     if junction:
         sources[1] = sources[1].intersection(box(10, 0, 20, 5))
@@ -104,7 +115,9 @@ def test_exact_labelling_compacts_straight_walls_and_keeps_junctions(junction):
         assert len(polygon.exterior.coords) <= 6
         if junction:
             assert (10, 5) in polygon.exterior.coords
-    report = check_labelled_contract(sources, list(sources), region, result.cells, delta=0.5, epsilon=0.25)
+    report = check_labelled_contract(
+        sources, list(sources), region, result.cells, delta=0.5, epsilon=0.25
+    )
     assert report["status"] == "strict", report
 
 
@@ -123,7 +136,9 @@ def test_canonical_walls_keep_genuine_small_bends():
 def test_canonical_walls_preserve_holes_and_disconnected_label_pieces():
     region = shapely.Polygon(box(0, 0, 30, 20).exterior, [box(12, 8, 18, 12).exterior])
     pieces = [region.intersection(box(x, 0, x + 10, 20)) for x in (0, 10, 20)]
-    cells = [(shapely.segmentize(p, 0.125), label) for p, label in zip(pieces, (0, 1, 0))]
+    cells = [
+        (shapely.segmentize(p, 0.125), label) for p, label in zip(pieces, (0, 1, 0))
+    ]
     compact = walls_module._canonical(region, cells)
     assert shapely.coverage_is_valid([p for p, _ in compact])
     assert unary_union([p for p, _ in compact]).equals(region)
@@ -155,16 +170,23 @@ def test_overlap_goes_to_the_taller_building_then_the_larger():
 
 def test_a_four_way_roof_contact_is_split_within_source_fidelity():
     sources = {
-        0: box(0, 0, 10, 10), 1: box(10, 0, 20, 10),
-        2: box(10, 10, 20, 20), 3: box(0, 10, 10, 20),
+        0: box(0, 0, 10, 10),
+        1: box(10, 0, 20, 10),
+        2: box(10, 10, 20, 20),
+        3: box(0, 10, 10, 20),
     }
     levels = {0: 20, 1: 6, 2: 12, 3: 6}
     order = [0, 2, 1, 3]
     region = box(0, 0, 20, 20)
     assert pinched_levels([(p, levels[i]) for i, p in sources.items()])
     result = blocks_module.wall_cells(
-        region, sources, order, delta=0.5, epsilon=0.25,
-        strict=False, levels=levels,
+        region,
+        sources,
+        order,
+        delta=0.5,
+        epsilon=0.25,
+        strict=False,
+        levels=levels,
     )
     assert result.outcome in ("strict", "warning")
     assert result.report["contact_repair"]["remaining_contacts"] == 0
@@ -174,7 +196,11 @@ def test_a_four_way_roof_contact_is_split_within_source_fidelity():
     assert {z for _, z, _ in roofs} == {6, 12, 20}
     assert {label for _, label in result.cells} == set(sources)
     contract = check_labelled_contract(
-        sources, order, region, result.cells, delta=0.5,
+        sources,
+        order,
+        region,
+        result.cells,
+        delta=0.5,
         epsilon=result.report["fidelity_budget"],
     )
     assert contract["status"] in ("strict", "warning"), contract
@@ -192,9 +218,12 @@ def test_gap_between_merged_buildings_is_divided_within_the_budget():
         assert cell.difference(raw.buffer(0.25)).area < 1e-9
         assert raw.buffer(-0.25).difference(cell).area < 1e-9
     report = check_labelled_contract(
-        {0: a, 1: b}, [1, 0], footprint(block),
+        {0: a, 1: b},
+        [1, 0],
+        footprint(block),
         [(footprint(parts["a"]), 0), (footprint(parts["b"]), 1)],
-        delta=0.5, epsilon=0.25,
+        delta=0.5,
+        epsilon=0.25,
     )
     assert report["status"] == "strict", report
     assert cleaned.attributes[RECORD_KEY]["walls"]["strict"] == 1
@@ -221,7 +250,8 @@ def test_a_part_split_by_a_taller_building_has_a_multisurface_footprint(tmp_path
     from dtcc_core.builder.cleaning.clean import cleaning_record
 
     cleaned = city_of(
-        building("long", box(0, 0, 40, 10), 6), building("tower", box(15, -5, 25, 15), 30)
+        building("long", box(0, 0, 40, 10), 6),
+        building("tower", box(15, -5, 25, 15), 30),
     ).clean_footprints()
     block = cleaned.buildings[0]
     parts = parts_by_id(block)
@@ -232,12 +262,15 @@ def test_a_part_split_by_a_taller_building_has_a_multisurface_footprint(tmp_path
 
     again = cleaned.clean_footprints()
     assert again.attributes[RECORD_KEY]["outcome"] == "unchanged"
-    assert footprint(parts_by_id(again.buildings[0])["long"]).equals(footprint(parts["long"]))
+    assert footprint(parts_by_id(again.buildings[0])["long"]).equals(
+        footprint(parts["long"])
+    )
 
     io.save_model(cleaned, tmp_path / "block.dtcc")
     loaded = io.load_model(tmp_path / "block.dtcc")
     assert isinstance(
-        parts_by_id(loaded.buildings[0])["long"].get_geometry(GeometryType.LOD0), MultiSurface
+        parts_by_id(loaded.buildings[0])["long"].get_geometry(GeometryType.LOD0),
+        MultiSurface,
     )
     assert cleaning_record(loaded, min_building_detail=0.5) is not None
 
@@ -256,14 +289,21 @@ def test_cleaning_a_cleaned_block_with_walls_changes_nothing():
         assert [p.id for p in x.building_parts] == [p.id for p in y.building_parts]
         for p, q in zip(x.building_parts, y.building_parts):
             assert footprint(p).equals_exact(footprint(q), 0.0)
-            assert p.get_geometry(GeometryType.LOD0).zmax == q.get_geometry(GeometryType.LOD0).zmax
+            assert (
+                p.get_geometry(GeometryType.LOD0).zmax
+                == q.get_geometry(GeometryType.LOD0).zmax
+            )
         assert x.estimated_height == y.estimated_height
 
 
 def test_a_block_cleaned_on_its_own_keeps_its_parts_footprints():
-    block = city_of(
-        building("a", box(0, 0, 10, 10), 10), building("b", box(10, 0, 20, 10), 20)
-    ).clean_footprints().buildings[0]
+    block = (
+        city_of(
+            building("a", box(0, 0, 10, 10), 10), building("b", box(10, 0, 20, 10), 20)
+        )
+        .clean_footprints()
+        .buildings[0]
+    )
     again = block.clean_footprint()
     assert again.id == block.id
     assert [footprint(p) for p in again.building_parts] == [
@@ -312,10 +352,14 @@ def test_failed_walls_fall_back_to_one_footprint(monkeypatch, caplog):
 def test_strict_cleaning_falls_back_instead_of_wall_warnings(monkeypatch):
     def warn(self):
         labelled = _original_xy(self)
-        return LabelledRegion(labelled.region, labelled.cells, "warning", labelled.report)
+        return LabelledRegion(
+            labelled.region, labelled.cells, "warning", labelled.report
+        )
 
     monkeypatch.setattr(walls_module._WallRepair, "_xy", warn)
-    city = city_of(building("a", box(0, 0, 10, 10), 10), building("b", box(10, 0, 20, 10), 20))
+    city = city_of(
+        building("a", box(0, 0, 10, 10), 10), building("b", box(10, 0, 20, 10), 20)
+    )
     assert city.clean_footprints().attributes[RECORD_KEY]["walls"]["warning"] == 1
     walls = city.clean_footprints(strict=True).attributes[RECORD_KEY]["walls"]
     assert walls["warning"] == 0 and walls["fallback"] == 1
@@ -353,7 +397,9 @@ def test_walls_of_a_block_with_near_coincident_samples():
     payload = json.loads((DATA / "helsingborg-wall-construction.geojson").read_text())
     meta = payload["metadata"]
     region = next(
-        shape(f["geometry"]) for f in payload["features"] if f["properties"]["role"] == "region"
+        shape(f["geometry"])
+        for f in payload["features"]
+        if f["properties"]["role"] == "region"
     )
     sources = {
         f["properties"]["label"]: shape(f["geometry"])
@@ -377,7 +423,9 @@ def test_walls_of_a_block_with_near_coincident_samples():
 def _fixture(name):
     payload = json.loads((DATA / name).read_text())
     region = next(
-        shape(f["geometry"]) for f in payload["features"] if f["properties"]["role"] == "region"
+        shape(f["geometry"])
+        for f in payload["features"]
+        if f["properties"]["role"] == "region"
     )
     sources = {
         f["properties"]["label"]: shape(f["geometry"])
@@ -387,52 +435,87 @@ def _fixture(name):
     return payload["metadata"], region, sources
 
 
-@pytest.mark.parametrize("name,from_sources", [
-    ("orebro-007-boundary-junction.geojson", False),
-    ("vasteras-057-boundary-junction.geojson", False),
-    ("lund-056-boundary-contact.geojson", False),
-    ("lund-003-boundary-opening.geojson", False),
-    ("gothenburg-054-aligned-contact.geojson", False),
-    ("uppsala-048-compatible-warning.geojson", True),
-])
-def test_local_wall_repairs_keep_stepped_roofs_and_good_closed_shells(name, from_sources):
+@pytest.mark.parametrize(
+    "name,from_sources",
+    [
+        ("orebro-007-boundary-junction.geojson", False),
+        ("vasteras-057-boundary-junction.geojson", False),
+        ("lund-056-boundary-contact.geojson", False),
+        ("lund-003-boundary-opening.geojson", False),
+        ("gothenburg-054-aligned-contact.geojson", False),
+        ("uppsala-048-compatible-warning.geojson", True),
+    ],
+)
+def test_local_wall_repairs_keep_stepped_roofs_and_good_closed_shells(
+    name, from_sources
+):
     from dtcc_core.builder.cleaning.blocks import (
-        assign_cells, set_source_footprint, walls_detail, walls_record,
+        assign_cells,
+        set_source_footprint,
+        walls_detail,
+        walls_record,
     )
     from dtcc_core.builder.geometry_builders.meshes import build_building_shell
     from dtcc_core.model import BuildingPart
 
     meta, region, sources = _fixture(name)
     payload = json.loads((DATA / name).read_text())
-    roofs = {f["properties"]["label"]: f["properties"]["roof"]
-             for f in payload["features"] if f["properties"]["role"] == "source"}
-    initial = [(shape(f["geometry"]), f["properties"]["label"])
-               for f in payload["features"] if f["properties"]["role"] == "cell"]
+    roofs = {
+        f["properties"]["label"]: f["properties"]["roof"]
+        for f in payload["features"]
+        if f["properties"]["role"] == "source"
+    }
+    initial = [
+        (shape(f["geometry"]), f["properties"]["label"])
+        for f in payload["features"]
+        if f["properties"]["role"] == "cell"
+    ]
     if from_sources:
         initial = []
     if initial:
-        assert pinched_levels([(p, z) for p, z, _ in level_regions(initial, roofs, meta["delta"])])
+        assert pinched_levels(
+            [(p, z) for p, z, _ in level_regions(initial, roofs, meta["delta"])]
+        )
         repair = walls_module.condition_walls(
-            region, sources, meta["order"], levels=roofs,
-            delta=meta["delta"], epsilon=meta["epsilon"],
+            region,
+            sources,
+            meta["order"],
+            levels=roofs,
+            delta=meta["delta"],
+            epsilon=meta["epsilon"],
             previous=LabelledRegion(region, initial, "warning"),
         )
         assert repair.contact_outcome == "complete" and repair.remaining_contacts == 0
         result = repair
-        expected_area = sum(
-            shapely.union_all([p for p, i in initial if i == label]).symmetric_difference(
-                shapely.union_all([p for p, i in result.cells if i == label])
-            ).area for label in sources
-        ) / 2
+        expected_area = (
+            sum(
+                shapely.union_all([p for p, i in initial if i == label])
+                .symmetric_difference(
+                    shapely.union_all([p for p, i in result.cells if i == label])
+                )
+                .area
+                for label in sources
+            )
+            / 2
+        )
         assert result.report["contact_repair"]["changed_area"] == expected_area
     else:
         result = blocks_module.wall_cells(
-            region, sources, meta["order"], delta=meta["delta"],
-            epsilon=meta["epsilon"], strict=False, levels=roofs,
+            region,
+            sources,
+            meta["order"],
+            delta=meta["delta"],
+            epsilon=meta["epsilon"],
+            strict=False,
+            levels=roofs,
         )
     assert result.outcome in ("strict", "warning")
     contract = check_labelled_contract(
-        sources, meta["order"], region, result.cells, delta=meta["delta"],
+        sources,
+        meta["order"],
+        region,
+        result.cells,
+        delta=meta["delta"],
         epsilon=result.report["fidelity_budget"],
     )
     assert contract["status"] in ("strict", "warning"), contract
@@ -451,18 +534,28 @@ def test_local_wall_repairs_keep_stepped_roofs_and_good_closed_shells(name, from
     block.add_children(parts)
     assign_cells(parts, result.cells)
     block.attributes[WALLS_KEY] = walls_record(
-        block, meta["order"], "roof", result.outcome, delta=meta["delta"],
-        epsilon=result.report["fidelity_budget"], strict=False,
+        block,
+        meta["order"],
+        "roof",
+        result.outcome,
+        delta=meta["delta"],
+        epsilon=result.report["fidelity_budget"],
+        strict=False,
         detail=walls_detail(result.outcome, result.report),
     )
     mesh = build_building_shell(block, max_mesh_size=10)
     quality = tri_element_quality(mesh.vertices, mesh.faces)
     assert np.count_nonzero(quality < 0.02) == 0
-    edges = np.concatenate([mesh.faces[:, [0, 1]], mesh.faces[:, [1, 2]], mesh.faces[:, [2, 0]]])
+    edges = np.concatenate(
+        [mesh.faces[:, [0, 1]], mesh.faces[:, [1, 2]], mesh.faces[:, [2, 0]]]
+    )
     _, counts = np.unique(np.sort(edges, axis=1), axis=0, return_counts=True)
     assert np.all(counts == 2)
     points = mesh.vertices[mesh.faces]
-    volume = np.einsum("ij,ij->i", points[:, 0], np.cross(points[:, 1], points[:, 2])).sum() / 6
+    volume = (
+        np.einsum("ij,ij->i", points[:, 0], np.cross(points[:, 1], points[:, 2])).sum()
+        / 6
+    )
     assert volume == pytest.approx(sum(p.area * z for p, z, _ in regions), rel=1e-8)
 
 
@@ -489,7 +582,12 @@ def test_walls_of_real_blocks_have_no_sub_delta_defects(name):
     # routed through region vertices next to them.
     meta, region, sources = _fixture(name)
     labelled = blocks_module.wall_cells(
-        region, sources, meta["order"], delta=meta["delta"], epsilon=meta["epsilon"], strict=False
+        region,
+        sources,
+        meta["order"],
+        delta=meta["delta"],
+        epsilon=meta["epsilon"],
+        strict=False,
     )
     assert labelled.outcome == "strict"
     labels = [label for _, label in labelled.cells]
@@ -532,7 +630,9 @@ def test_site_offers_without_dispensable_labels_build_no_reach(monkeypatch):
     calls = []
     multipoint = walls_module.MultiPoint
     monkeypatch.setattr(
-        walls_module, "MultiPoint", lambda points: calls.append(points) or multipoint(points)
+        walls_module,
+        "MultiPoint",
+        lambda points: calls.append(points) or multipoint(points),
     )
     list(walls_module._site_offers(region, cells, [(10.0, 5.0)], 0.5, {1}))
     assert calls
@@ -548,7 +648,10 @@ def _greedy_sites(evaluation, radius):
     sites = []
     for group in groups:
         for site in sites:
-            if min(math.hypot(p[0] - q[0], p[1] - q[1]) for p in group for q in site) <= radius:
+            if (
+                min(math.hypot(p[0] - q[0], p[1] - q[1]) for p in group for q in site)
+                <= radius
+            ):
                 site.extend(group)
                 break
         else:
@@ -652,7 +755,9 @@ def test_heights_per_part_from_attribute():
     terrain = Raster()
     terrain.data = np.zeros((4, 4))
     terrain.set_bounds(Bounds(-10, -10, 40, 20))
-    set_building_heights_from_attribute([block], terrain, height_attribute="storey_height")
+    set_building_heights_from_attribute(
+        [block], terrain, height_attribute="storey_height"
+    )
     parts = parts_by_id(block)
     assert [parts["a"].estimated_height, parts["b"].estimated_height] == [9.0, 10.0]
     assert block.estimated_height == 10.0
@@ -663,7 +768,10 @@ def test_walls_closer_than_a_tenth_of_a_millimetre_fall_back(monkeypatch):
     def degenerate(self):
         labelled = _original_xy(self)
         return LabelledRegion(
-            labelled.region, labelled.cells, "warning", {**labelled.report, "min_wall_distance": 5e-5}
+            labelled.region,
+            labelled.cells,
+            "warning",
+            {**labelled.report, "min_wall_distance": 5e-5},
         )
 
     monkeypatch.setattr(walls_module._WallRepair, "_xy", degenerate)
@@ -678,7 +786,10 @@ def test_walls_closer_than_a_tenth_of_a_millimetre_fall_back(monkeypatch):
 def test_short_boundary_intervals_are_noded_before_unknown_roofs_are_set(monkeypatch):
     from dtcc_core.builder.cleaning.clean import footprint_cells
     from dtcc_core.builder.cleaning.blocks import (
-        assign_cells, set_source_footprint, walls_record, update_walls,
+        assign_cells,
+        set_source_footprint,
+        walls_record,
+        update_walls,
     )
     from dtcc_core.builder.geometry_builders.meshes import build_building_shell
     from dtcc_core.model import BuildingPart
@@ -686,28 +797,52 @@ def test_short_boundary_intervals_are_noded_before_unknown_roofs_are_set(monkeyp
     name = "vasteras-053-world-noding.geojson"
     meta, region, sources = _fixture(name)
     payload = json.loads((DATA / name).read_text())
-    roofs = {f["properties"]["label"]: f["properties"]["roof"]
-             for f in payload["features"] if f["properties"]["role"] == "source"}
-    recorded = [(shape(f["geometry"]), f["properties"]["label"])
-                for f in payload["features"] if f["properties"]["role"] == "cell"]
-    assert check_labelled_contract(
-        sources, meta["order"], region, recorded, delta=meta["delta"],
-        epsilon=meta["epsilon"],
-    )["status"] == "strict"
+    roofs = {
+        f["properties"]["label"]: f["properties"]["roof"]
+        for f in payload["features"]
+        if f["properties"]["role"] == "source"
+    }
+    recorded = [
+        (shape(f["geometry"]), f["properties"]["label"])
+        for f in payload["features"]
+        if f["properties"]["role"] == "cell"
+    ]
+    assert (
+        check_labelled_contract(
+            sources,
+            meta["order"],
+            region,
+            recorded,
+            delta=meta["delta"],
+            epsilon=meta["epsilon"],
+        )["status"]
+        == "strict"
+    )
     from dtcc_core.builder.cleaning import walls
+
     origin = region.bounds[:2]
 
     def recorded_construction(*args, **kwargs):
         # Retain the recorded arrangement to test world-coordinate noding
         # independently of which equivalent construction is selected.
         cells = [(walls._to_local(p, origin), label) for p, label in recorded]
-        return cells, {"outcome": "strict", "small_sectors": 0,
-                       "severe_wall_pairs": 0, "wall_pairs": 0, "wall_deficit": 0}
+        return cells, {
+            "outcome": "strict",
+            "small_sectors": 0,
+            "severe_wall_pairs": 0,
+            "wall_pairs": 0,
+            "wall_deficit": 0,
+        }
 
     monkeypatch.setattr(walls, "_repair", recorded_construction)
     result = blocks_module.wall_cells(
-        region, sources, meta["order"], delta=meta["delta"],
-        epsilon=meta["epsilon"], strict=False, levels=dict.fromkeys(sources, 0),
+        region,
+        sources,
+        meta["order"],
+        delta=meta["delta"],
+        epsilon=meta["epsilon"],
+        strict=False,
+        levels=dict.fromkeys(sources, 0),
     )
     assert result.cells
     block = Building(id="block", attributes={MERGED_FROM_KEY: list(map(str, sources))})
@@ -722,8 +857,13 @@ def test_short_boundary_intervals_are_noded_before_unknown_roofs_are_set(monkeyp
     block.add_children(parts)
     assign_cells(parts, result.cells)
     block.attributes[WALLS_KEY] = walls_record(
-        block, meta["order"], "area", result.outcome, delta=meta["delta"],
-        epsilon=result.report["fidelity_budget"], strict=False,
+        block,
+        meta["order"],
+        "area",
+        result.outcome,
+        delta=meta["delta"],
+        epsilon=result.report["fidelity_budget"],
+        strict=False,
     )
     for label, part in enumerate(parts):
         set_part_roof(part, roofs[label])
@@ -731,7 +871,11 @@ def test_short_boundary_intervals_are_noded_before_unknown_roofs_are_set(monkeyp
     cells, _ = footprint_cells(block)
     order = sorted(sources, key=lambda label: -roofs[label])
     contract = check_labelled_contract(
-        sources, order, region, cells, delta=meta["delta"],
+        sources,
+        order,
+        region,
+        cells,
+        delta=meta["delta"],
         epsilon=result.report["fidelity_budget"],
     )
     assert contract["status"] in ("strict", "warning"), contract
@@ -754,16 +898,26 @@ def test_failed_xy_retry_retains_the_valid_earlier_partition(monkeypatch):
         return cells, {**report, "outcome": "warning", "wall_pairs": 1}
 
     monkeypatch.setattr(walls_module, "_repair", failed_retry)
-    result = label_region(region, sources, [1, 0], delta=.5, epsilon=.25, retry_epsilon=.375)
+    result = label_region(
+        region, sources, [1, 0], delta=0.5, epsilon=0.25, retry_epsilon=0.375
+    )
     assert result.outcome == "warning"
-    assert result.accepted_budget == .25
+    assert result.accepted_budget == 0.25
     assert len(result.cells) == 2
     assert result.attempts[-1]["outcome"] == "construction_error"
     assert result.attempts[-1]["error"] == "controlled later XY failure"
-    assert check_labelled_contract(sources, [1, 0], region, result.cells,
-                                   delta=.5, epsilon=.25)["status"] == "strict"
+    assert (
+        check_labelled_contract(
+            sources, [1, 0], region, result.cells, delta=0.5, epsilon=0.25
+        )["status"]
+        == "strict"
+    )
     calls.append(None)
-    failed = label_region(region, sources, [1, 0], delta=.5, epsilon=.25, retry_epsilon=.375)
-    assert failed.outcome == "fallback" and failed.report["reason"] == "construction_error"
+    failed = label_region(
+        region, sources, [1, 0], delta=0.5, epsilon=0.25, retry_epsilon=0.375
+    )
+    assert (
+        failed.outcome == "fallback" and failed.report["reason"] == "construction_error"
+    )
     assert failed.report["error"] == "controlled later XY failure"
-    assert [a["fidelity_budget"] for a in failed.report["attempts"]] == [.25, .375]
+    assert [a["fidelity_budget"] for a in failed.report["attempts"]] == [0.25, 0.375]

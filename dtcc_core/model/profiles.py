@@ -31,6 +31,7 @@ class ValidationIssue:
     message : str
         Human-readable description.
     """
+
     path: str
     rule: str
     message: str
@@ -51,6 +52,7 @@ class ValidationReport:
     issues : tuple[ValidationIssue, ...]
         Problems found.
     """
+
     profile_id: str
     profile_version: str
     issues: tuple[ValidationIssue, ...]

@@ -17,6 +17,7 @@ _SOURCE_TO_PROVIDER = {
 
 class FootprintsArgs(DatasetBaseArgs):
     """Arguments for the building footprints dataset."""
+
     source: Literal["OSM", "LM"] = Field(
         "LM",
         description=(
@@ -51,6 +52,7 @@ class FootprintsDataset(DatasetDescriptor):
 
     Call it with keyword arguments defined by ``FootprintsArgs``.
     """
+
     name = "building_footprints"
     title = "Building Footprints"
     description = (

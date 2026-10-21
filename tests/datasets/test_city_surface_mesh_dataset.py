@@ -17,12 +17,15 @@ def test_city_surface_mesh_registered_name():
     assert CitySurfaceMeshDataset().name == "city_surface_mesh"
 
 
-@pytest.mark.parametrize('kwargs',[
-    dict(lod='lod1',lod2_method='ransac'),
-])
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        dict(lod="lod1", lod2_method="ransac"),
+    ],
+)
 def test_invalid_output_lod_combinations_fail_during_request_validation(kwargs):
     with pytest.raises(ValueError):
-        CitySurfaceMeshDataset().validate(dict(bounds=(0.,0.,1.,1.),**kwargs))
+        CitySurfaceMeshDataset().validate(dict(bounds=(0.0, 0.0, 1.0, 1.0), **kwargs))
 
 
 def test_city_surface_mesh_get_dataset():

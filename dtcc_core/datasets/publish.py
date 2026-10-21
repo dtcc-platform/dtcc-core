@@ -60,6 +60,7 @@ class PublishedFile:
     raw : Mapping[str, Any]
         Service response the file was read from.
     """
+
     path: str
     original_filename: str | None
     size: int
@@ -116,6 +117,7 @@ class DatasetPublication:
     raw : Mapping[str, Any]
         Service response the publication was read from.
     """
+
     dataset_key: str
     version_id: str
     version_number: int
@@ -166,6 +168,7 @@ class DatasetPublishError(Exception):
     retry_after : float or None
         Seconds to wait before retrying, when the service says so.
     """
+
     def __init__(
         self,
         message: str,
@@ -263,6 +266,7 @@ class DatasetUploadClient:
     session : requests.Session, optional
         HTTP session to use. A new session is created when omitted.
     """
+
     def __init__(
         self,
         base_url: str,

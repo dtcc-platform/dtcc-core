@@ -10,8 +10,8 @@ if TYPE_CHECKING:
 
 
 class CityModifyingMixin:
-
     """Methods that update a City's buildings, such as heights from points."""
+
     def building_heights_from_pointcloud(
         self: "T_City",
         statistical_outlier_removal: bool = True,

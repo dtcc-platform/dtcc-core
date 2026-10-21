@@ -17,6 +17,7 @@ CLASSIFICATION_PRESETS = {
 
 class PointCloudArgs(DatasetBaseArgs):
     """Arguments for the Lantmäteriet point cloud dataset."""
+
     classifications: Union[
         int, list[int], Literal["all", "terrain", "buildings", "vegetation"]
     ] = Field(
@@ -79,6 +80,7 @@ class PointCloudDataset(DatasetDescriptor):
 
     Call it with keyword arguments defined by ``PointCloudArgs``.
     """
+
     name = "point_cloud"
     title = "Point Cloud"
     description = (

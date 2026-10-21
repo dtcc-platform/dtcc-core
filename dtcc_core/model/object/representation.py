@@ -26,6 +26,7 @@ class GeometryRepresentation:
     ValueError
         If ``lod`` or ``role`` is given but is not a non-empty string.
     """
+
     geometry: Geometry | Raster | Bounds
     lod: str | None = None
     role: str | None = None

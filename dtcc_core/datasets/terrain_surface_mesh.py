@@ -15,6 +15,7 @@ from .centering import (
 
 class TerrainSurfaceMeshArgs(DatasetBaseArgs):
     """Arguments for the terrain surface mesh dataset."""
+
     raster_resolution: float = Field(
         2, description="Resolution of the terrain raster in meters"
     )
@@ -60,6 +61,7 @@ class TerrainSurfaceMeshDataset(DatasetDescriptor):
 
     Call it with keyword arguments defined by ``TerrainSurfaceMeshArgs``.
     """
+
     name = "terrain_surface_mesh"
     title = "Terrain Surface Mesh"
     description = (

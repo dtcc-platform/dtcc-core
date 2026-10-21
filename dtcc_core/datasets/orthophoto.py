@@ -32,9 +32,7 @@ CONTACT = "the DTCC development team at Chalmers"
 MAX_MESSAGE_CHARS = 1024
 _LM = provider_display_name("lantmateriet")
 _IDENTIFIER = re.compile(r"[a-z0-9_-]+")
-_TOO_LARGE = (
-    'Use a coarser resolution, product="tiles", or a larger max_memory_bytes.'
-)
+_TOO_LARGE = 'Use a coarser resolution, product="tiles", or a larger max_memory_bytes.'
 
 
 class OrthophotoArgs(DatasetBaseArgs):
@@ -171,7 +169,7 @@ class OrthophotoArgs(DatasetBaseArgs):
             if unsupported:
                 raise ValueError(
                     f'product="raster" takes rgb and rgbi sources, not '
-                    f"{sorted(unsupported)}; use product=\"tiles\""
+                    f'{sorted(unsupported)}; use product="tiles"'
                 )
         return self
 
@@ -223,9 +221,7 @@ class OrthophotoDataset(DatasetDescriptor):
             "source_terms_status": "requires_review",
         }
     ]
-    license = (
-        f"Requires review: verify {_LM} orthophoto terms before redistribution."
-    )
+    license = f"Requires review: verify {_LM} orthophoto terms before redistribution."
     data_types = ["raster", "orthophoto"]
     geographic_coverage = "Sweden"
     update_frequency = f"varies by {_LM} acquisition year and area"
@@ -292,8 +288,12 @@ class OrthophotoDataset(DatasetDescriptor):
         if args.product == "tiles":
             phases = {"discovery": 0.05, "transfer": 0.95}
         else:
-            phases = {"discovery": 0.05, "transfer": 0.6, "headers": 0.05,
-                      "mosaic": 0.25}
+            phases = {
+                "discovery": 0.05,
+                "transfer": 0.6,
+                "headers": 0.05,
+                "mosaic": 0.25,
+            }
             if args.format is not None:
                 phases["export"] = 0.05
         with ProgressTracker(phases=phases) as tracker:
@@ -457,8 +457,7 @@ class OrthophotoDataset(DatasetDescriptor):
         steps = list(context.provenance.processing_steps)
         if report.grid and report.grid.get("resolution") is not None:
             steps.append(
-                f"Mosaic grid {report.grid['bounds']} at "
-                f"{report.grid['resolution']} m"
+                f"Mosaic grid {report.grid['bounds']} at {report.grid['resolution']} m"
             )
         return context.model_copy(
             update={
@@ -472,9 +471,7 @@ class OrthophotoDataset(DatasetDescriptor):
                     }
                 ),
                 "presentation": context.presentation.model_copy(
-                    update={
-                        "warnings": list(context.presentation.warnings) + warnings
-                    }
+                    update={"warnings": list(context.presentation.warnings) + warnings}
                 ),
                 "health": health,
                 "warnings": warnings,
@@ -596,8 +593,7 @@ def _source_error(failure) -> DatasetUpstreamError:
     else:
         reason = "the file could not be decoded"
     message = (
-        f"{target}: {reason}; {failure.pixels} pixels were used before the "
-        "failure"
+        f"{target}: {reason}; {failure.pixels} pixels were used before the failure"
     )
     return DatasetUpstreamError(
         dataset="orthophoto",
@@ -636,9 +632,7 @@ def _source_entry(tile, pixels) -> dict[str, Any]:
 
 
 def _overlaps(a, b) -> bool:
-    return (
-        a.xmin < b.xmax and b.xmin < a.xmax and a.ymin < b.ymax and b.ymin < a.ymax
-    )
+    return a.xmin < b.xmax and b.xmin < a.xmax and a.ymin < b.ymax and b.ymin < a.ymax
 
 
 def _warnings(report: _Report, health) -> list[str]:

@@ -284,6 +284,7 @@ class SmokeDataset(DatasetDescriptor):
 
     Call it with keyword arguments defined by ``SmokeArgs``.
     """
+
     name = "smoke"
     description = (
         "Synthetic analytical smoke-flow fixture for testing DTCC city digital "

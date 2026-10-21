@@ -15,6 +15,7 @@ class Polygon(Geometry):
     geom : shapely.geometry.Polygon
         The underlying polygon, also available as ``shapely``.
     """
+
     geom: ShapelyPolygon = field(default_factory=ShapelyPolygon)
 
     @property

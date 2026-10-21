@@ -238,8 +238,12 @@ class TestRegisterRemoteService:
     ):
         from dtcc_core.datasets import registry, remote
 
-        monkeypatch.setattr(registry, "_datasets_by_name", dict(registry._datasets_by_name))
-        monkeypatch.setattr(registry, "_datasets_registry", list(registry._datasets_registry))
+        monkeypatch.setattr(
+            registry, "_datasets_by_name", dict(registry._datasets_by_name)
+        )
+        monkeypatch.setattr(
+            registry, "_datasets_registry", list(registry._datasets_registry)
+        )
         monkeypatch.setattr(remote, "_cached_service_discoveries", {})
         local_dataset = registry.get_dataset("point_cloud")
         registry.register("custom_local", local_dataset)
@@ -265,7 +269,10 @@ class TestRegisterRemoteService:
                 cached = remote.get_cached_discoveries()[base_url]
                 assert list(cached["datasets"]) == expected_names
                 assert list(service_info["datasets"]) == [
-                    "mock_sim_dataset", "point_cloud", "custom_local", "existing_remote"
+                    "mock_sim_dataset",
+                    "point_cloud",
+                    "custom_local",
+                    "existing_remote",
                 ]
             else:
                 remote.register_remote_descriptors_from_cache({base_url: service_info})
@@ -288,10 +295,16 @@ class TestRegisterRemoteService:
     ):
         from dtcc_core.datasets import registry, remote
 
-        monkeypatch.setattr(registry, "_datasets_by_name", dict(registry._datasets_by_name))
-        monkeypatch.setattr(registry, "_datasets_registry", list(registry._datasets_registry))
         monkeypatch.setattr(
-            remote, "_cached_service_discoveries", dict(remote._cached_service_discoveries)
+            registry, "_datasets_by_name", dict(registry._datasets_by_name)
+        )
+        monkeypatch.setattr(
+            registry, "_datasets_registry", list(registry._datasets_registry)
+        )
+        monkeypatch.setattr(
+            remote,
+            "_cached_service_discoveries",
+            dict(remote._cached_service_discoveries),
         )
         base_url = "http://discovery-test:8001"
         mock_resp = MagicMock()

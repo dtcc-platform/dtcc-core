@@ -625,7 +625,10 @@ class Object(Model):
         root_geom = self.get_geometry(geom_type)
         if len(self.children) == 0:
             return root_geom
-        if root_geom is not None and _normalize_geometry_type(geom_type) == GeometryType.LOD0:
+        if (
+            root_geom is not None
+            and _normalize_geometry_type(geom_type) == GeometryType.LOD0
+        ):
             return root_geom.copy(geometry_only=True)
         if root_geom is None:
             geom = None
@@ -642,7 +645,9 @@ class Object(Model):
                     # Surfaces have no merge; several are a MultiSurface.
                     if isinstance(geom, Surface):
                         geom = MultiSurface(surfaces=[geom])
-                    if isinstance(geom, MultiSurface) and isinstance(child_geom, Surface):
+                    if isinstance(geom, MultiSurface) and isinstance(
+                        child_geom, Surface
+                    ):
                         child_geom = MultiSurface(
                             surfaces=[child_geom.copy(geometry_only=True)]
                         )

@@ -49,6 +49,7 @@ class TrafiklabOperator:
         It selects which operators to query for the requested bounds; it does
         not filter vehicles.
     """
+
     code: str
     name: str
     bbox: tuple[float, float, float, float]

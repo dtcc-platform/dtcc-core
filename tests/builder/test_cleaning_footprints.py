@@ -94,14 +94,18 @@ def test_positive_scale_uses_authoritative_constructor_and_reports_contract(
     ):
         assert allow_residual_separation is True
         calls.append((raw, source_map, delta, epsilon, retry_epsilon))
-        return [polygon], [[4]], {
-            "outcome": "unchanged",
-            "before_selection_contract": {
-                "status": "pass",
-                "fidelity": {"status": "pass"},
+        return (
+            [polygon],
+            [[4]],
+            {
+                "outcome": "unchanged",
+                "before_selection_contract": {
+                    "status": "pass",
+                    "fidelity": {"status": "pass"},
+                },
+                "mesher_profile": {"status": "pass"},
             },
-            "mesher_profile": {"status": "pass"},
-        }
+        )
 
     monkeypatch.setattr(construction, "construct_coverage", fake_construct)
     result = cleaning.condition_polygon_coverage(
@@ -177,14 +181,18 @@ def test_warning_policy_does_not_admit_other_contract_failures(monkeypatch, fail
         def failed_fidelity(*args, **kwargs):
             report = original(*args, **kwargs)
             report["status"] = "fail"
-            report["fidelity"]["status"] = "fail" if failure == "fidelity" else "borderline"
+            report["fidelity"]["status"] = (
+                "fail" if failure == "fidelity" else "borderline"
+            )
             return report
 
         monkeypatch.setattr(construction, "check_cleaning_contract", failed_fidelity)
     with pytest.raises(cleaning.UnresolvedFootprintCleaningError):
         cleaning.condition_polygon_coverage(
-            raw, options=cleaning.ConditioningOptions(
-                fidelity_budget=0, enable_logging=False,
+            raw,
+            options=cleaning.ConditioningOptions(
+                fidelity_budget=0,
+                enable_logging=False,
             ),
         )
 
@@ -303,21 +311,25 @@ def test_merge_eligibility_does_not_assign_disconnected_sources():
     # The 1 m gap equals the scale: the sources are eligible (inclusive) and
     # already conforming, so they stay separate regions.
     result = cleaning.condition_polygon_coverage(
-        raw, source_map=[[3], [7]],
+        raw,
+        source_map=[[3], [7]],
         options=cleaning.ConditioningOptions(min_feature_size=1, enable_logging=False),
     )
     assert result.diagnostics["outcome"] == "unchanged"
     assert result.diagnostics["groups"] == 1
-    assert {polygon.bounds: owners for polygon, owners in zip(
-        result.polygons, result.source_map
-    )} == {raw[0].bounds: [3], raw[1].bounds: [7]}
+    assert {
+        polygon.bounds: owners
+        for polygon, owners in zip(result.polygons, result.source_map)
+    } == {raw[0].bounds: [3], raw[1].bounds: [7]}
 
 
 def test_source_attribution_retains_resolved_small_scale_input():
     result = cleaning.condition_polygon_coverage(
-        [box(0, 0, 1e-6, 1e-6)], source_map=[[7]],
+        [box(0, 0, 1e-6, 1e-6)],
+        source_map=[[7]],
         options=cleaning.ConditioningOptions(
-            min_feature_size=1e-7, enable_logging=False,
+            min_feature_size=1e-7,
+            enable_logging=False,
         ),
     )
     assert result.source_map == [[7]]

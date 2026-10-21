@@ -51,6 +51,7 @@ class CalibrationGridDataset(DatasetDescriptor):
 
     Call it with keyword arguments defined by ``CalibrationGridArgs``.
     """
+
     name = "calibration_grid"
     title = "Calibration Grid"
     description = (

@@ -59,13 +59,13 @@ def documented_parameters(docstring):
             continue
         if set(lines[index + 1].strip()) != {"-"}:
             continue
-        entries = [entry for entry in lines[index + 2:] if entry.strip()]
+        entries = [entry for entry in lines[index + 2 :] if entry.strip()]
         if not entries:
             continue
         # Take the indentation from the entries: a misindented header must not
         # hide a parameter list from this check.
         base = len(entries[0]) - len(entries[0].lstrip())
-        for entry in lines[index + 2:]:
+        for entry in lines[index + 2 :]:
             if not entry.strip():
                 continue
             indent = len(entry) - len(entry.lstrip())
@@ -101,7 +101,9 @@ def unknown_documented_parameters(source):
         if args.vararg is not None:
             accepted.add(args.vararg.arg)
         accepted.update(("self", "cls"))
-        unknown = [name for name in documented_parameters(docstring) if name not in accepted]
+        unknown = [
+            name for name in documented_parameters(docstring) if name not in accepted
+        ]
         if unknown:
             problems.append((node.lineno, node.name, unknown))
     return problems
@@ -118,7 +120,9 @@ def non_numpy_docstrings(source):
             continue
         docstring = ast.get_docstring(node)
         if docstring and NON_NUMPY_SECTION.search(docstring):
-            problems.append((getattr(node, "lineno", 1), getattr(node, "name", "<module>")))
+            problems.append(
+                (getattr(node, "lineno", 1), getattr(node, "name", "<module>"))
+            )
     return problems
 
 
@@ -199,7 +203,6 @@ def test_checks_detect_problems_in_sample_source():
     assert [name for _, name in non_numpy_docstrings(sample)] == ["GoogleStyle"]
 
 
-
 def test_check_reads_parameters_under_a_misindented_header():
     """A header indented differently from its entries must still be checked."""
     sample = textwrap.dedent(
@@ -218,6 +221,7 @@ def test_check_reads_parameters_under_a_misindented_header():
     )
 
     assert unknown_documented_parameters(sample) == [(2, "misindented", ["ghost"])]
+
 
 def test_private_modules_are_exempt_from_the_docstring_requirement():
     assert _is_private_module(PACKAGE / "model" / "_display.py")

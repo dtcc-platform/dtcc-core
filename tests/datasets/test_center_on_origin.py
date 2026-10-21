@@ -82,7 +82,9 @@ def test_centering_uses_requested_bounds_so_datasets_stay_aligned():
 def _stl_roundtrip_error(mesh, path, expected=None, **save_kwargs):
     mesh.save(path, **save_kwargs)
     written = np.asarray(meshio.read(path).points, dtype=float)
-    original = np.asarray((expected if expected is not None else mesh).vertices, dtype=float)
+    original = np.asarray(
+        (expected if expected is not None else mesh).vertices, dtype=float
+    )
     original = original[np.lexsort(original.T)]
     written = written[np.lexsort(written.T)]
     return float(np.abs(original - written).max())
@@ -125,7 +127,9 @@ def test_center_result_if_requested_is_a_no_op_when_not_asked():
 
 def test_center_result_if_requested_leaves_non_geometry_alone():
     raster = object()
-    args = TerrainSurfaceMeshArgs(bounds=GBG_BOUNDS, center_on_origin=True, format="tif")
+    args = TerrainSurfaceMeshArgs(
+        bounds=GBG_BOUNDS, center_on_origin=True, format="tif"
+    )
     assert center_result_if_requested(raster, args) is raster
 
 
@@ -173,7 +177,9 @@ def test_buildings_export_centres_the_merged_mesh(
 ):
     """center_on_origin=True should export a centred copy of the merged mesh."""
     raw_pointcloud = Mock(name="raw_pointcloud")
-    raw_pointcloud.remove_global_outliers.return_value = Mock(name="filtered_pointcloud")
+    raw_pointcloud.remove_global_outliers.return_value = Mock(
+        name="filtered_pointcloud"
+    )
     mock_build_terrain_raster.return_value = Mock(name="terrain_raster")
     mock_extract_roof_points.return_value = Mock(name="roof_buildings")
     mock_compute_building_heights.return_value = Mock(name="heighted_buildings")
@@ -193,7 +199,9 @@ def test_buildings_export_centres_the_merged_mesh(
     mock_city_cls.return_value = city
 
     dataset = BuildingDataset()
-    with patch.object(dataset, "export_to_bytes", return_value=b"stl-bytes") as mock_export:
+    with patch.object(
+        dataset, "export_to_bytes", return_value=b"stl-bytes"
+    ) as mock_export:
         dataset.build(
             BuildingArgs(
                 bounds=GBG_BOUNDS,

@@ -17,6 +17,7 @@ from .centering import (
 
 class CityFlatMeshArgs(DatasetBaseArgs):
     """Arguments for the city flat mesh dataset."""
+
     max_mesh_size: Optional[float] = Field(
         10.0, description="Maximum triangle size in meters"
     )
@@ -77,6 +78,7 @@ class CityFlatMeshDataset(DatasetDescriptor):
 
     Call it with keyword arguments defined by ``CityFlatMeshArgs``.
     """
+
     name = "city_flat_mesh"
     title = "City Flat Mesh"
     description = (
@@ -179,8 +181,14 @@ class CityFlatMeshDataset(DatasetDescriptor):
         "title": "Flat mesh layers",
         "entries": [
             {"label": "Ground triangle", "meaning": "2D mesh element at z=0"},
-            {"label": "Building subdomain", "meaning": "conditioned LOD0 footprint area"},
-            {"label": "Subdomain boundary", "meaning": "building or coverage edge used by the mesher"},
+            {
+                "label": "Building subdomain",
+                "meaning": "conditioned LOD0 footprint area",
+            },
+            {
+                "label": "Subdomain boundary",
+                "meaning": "building or coverage edge used by the mesher",
+            },
         ],
     }
     view_hints = {

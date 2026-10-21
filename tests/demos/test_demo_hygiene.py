@@ -74,7 +74,10 @@ def test_demos_are_small_and_boring():
             for line in lines
             if line.startswith("import ") or line.startswith("from ")
             if line != "import dtcc_core as dtcc"
-            and not (demo_name in WORKFLOW_DEMOS and line == "from shapely.geometry import box")
+            and not (
+                demo_name in WORKFLOW_DEMOS
+                and line == "from shapely.geometry import box"
+            )
         ]
         assert extra_imports == [], f"{demo_name} has extra imports: {extra_imports}"
         assert len(lines) <= 40, f"{demo_name} should stay readable in under a minute"

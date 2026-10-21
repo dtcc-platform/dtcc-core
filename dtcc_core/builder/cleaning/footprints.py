@@ -153,7 +153,9 @@ def _validate_options(options: ConditioningOptions) -> None:
         raise TypeError("allow_residual_separation must be a boolean")
     value = options.min_feature_size
     if not math.isfinite(value) or value < 0:
-        raise ValueError(f"min_feature_size must be finite and non-negative, got {value}.")
+        raise ValueError(
+            f"min_feature_size must be finite and non-negative, got {value}."
+        )
     if options.fidelity_budget is not None and (
         not math.isfinite(options.fidelity_budget) or options.fidelity_budget < 0
     ):

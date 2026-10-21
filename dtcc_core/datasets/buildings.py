@@ -17,6 +17,7 @@ from .centering import (
 
 class BuildingArgs(DatasetBaseArgs):
     """Arguments for the LoD1 buildings dataset."""
+
     source: Literal["OSM", "LM"] = Field(
         "LM",
         description=(
@@ -44,6 +45,7 @@ class BuildingDataset(DatasetDescriptor):
 
     Call it with keyword arguments defined by ``BuildingArgs``.
     """
+
     name = "buildings"
     title = "LoD1 Buildings"
     description = (
@@ -152,7 +154,10 @@ class BuildingDataset(DatasetDescriptor):
         "entries": [
             {"label": "Footprint", "meaning": "source building outline"},
             {"label": "Height", "meaning": "point-cloud-derived LoD1 extrusion height"},
-            {"label": "Merged mesh", "meaning": "OBJ/STL export artifact when requested"},
+            {
+                "label": "Merged mesh",
+                "meaning": "OBJ/STL export artifact when requested",
+            },
         ],
     }
     view_hints = {

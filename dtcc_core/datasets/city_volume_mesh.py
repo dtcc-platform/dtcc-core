@@ -17,6 +17,7 @@ def _regular_tet_volume(edge_length: float) -> float:
 
 class CityVolumeMeshArgs(DatasetBaseArgs):
     """Arguments for the city volume mesh dataset."""
+
     max_mesh_size: float = Field(
         25.0,
         description="Maximum target edge size for the 2D ground and shell meshing stages in meters",
@@ -28,7 +29,9 @@ class CityVolumeMeshArgs(DatasetBaseArgs):
     domain_height: float = Field(
         80.0, description="Height of the computational domain (H parameter) in meters"
     )
-    lod: Literal["lod1", "lod2"] = Field("lod1", description="Requested output level of detail")
+    lod: Literal["lod1", "lod2"] = Field(
+        "lod1", description="Requested output level of detail"
+    )
     lod2_method: Literal["catalogue", "ransac"] = Field(
         "catalogue", description="Roof reconstruction algorithm for LOD2 output"
     )
@@ -131,7 +134,6 @@ class CityVolumeMeshArgs(DatasetBaseArgs):
         None, description="Output file format"
     )
 
-
     @model_validator(mode="after")
     def validate_output_lod(self):
         if self.lod == "lod1" and self.lod2_method != "catalogue":
@@ -147,6 +149,7 @@ class CityVolumeMeshDataset(DatasetDescriptor):
 
     Call it with keyword arguments defined by ``CityVolumeMeshArgs``.
     """
+
     name = "city_volume_mesh"
     title = "City Volume Mesh"
     description = (
@@ -262,9 +265,18 @@ class CityVolumeMeshDataset(DatasetDescriptor):
         "entries": [
             {"label": "-1 ground", "meaning": "terrain boundary face marker"},
             {"label": "-2 top", "meaning": "top cap boundary face marker"},
-            {"label": "-3 west / -4 east", "meaning": "xmin/xmax side boundary markers"},
-            {"label": "-5 south / -6 north", "meaning": "ymin/ymax side boundary markers"},
-            {"label": "Tetrahedron", "meaning": "interior computational volume element"},
+            {
+                "label": "-3 west / -4 east",
+                "meaning": "xmin/xmax side boundary markers",
+            },
+            {
+                "label": "-5 south / -6 north",
+                "meaning": "ymin/ymax side boundary markers",
+            },
+            {
+                "label": "Tetrahedron",
+                "meaning": "interior computational volume element",
+            },
         ],
     }
     view_hints = {

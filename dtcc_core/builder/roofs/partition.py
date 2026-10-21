@@ -1,8 +1,10 @@
 """Clip fitted plane domains to target cells, preserving holes and all pieces."""
+
 import numpy as np
 from shapely import affinity
 from shapely.geometry import Polygon
 from .types import RoofPatch
+
 
 def polygon_parts(geometry):
     """Extract nonempty polygon components recursively from a geometry."""
@@ -29,8 +31,14 @@ def planar_patches(model, target, *, block_id=0):
     """Clip a roof model's lower-envelope plane domains to the target polygon."""
     local = affinity.translate(target, -model.origin[0], -model.origin[1])
     xmin, ymin, xmax, ymax = local.bounds
-    box = np.array([[xmin-1, ymin-1], [xmax+1, ymin-1],
-                    [xmax+1, ymax+1], [xmin-1, ymax+1]])
+    box = np.array(
+        [
+            [xmin - 1, ymin - 1],
+            [xmax + 1, ymin - 1],
+            [xmax + 1, ymax + 1],
+            [xmin - 1, ymax + 1],
+        ]
+    )
     output = []
     for i, plane in enumerate(model.planes):
         cell = box.copy()
@@ -44,6 +52,14 @@ def planar_patches(model, target, *, block_id=0):
             continue
         for part in polygon_parts(local.intersection(Polygon(cell))):
             world = affinity.translate(part, *model.origin)
-            output.append(RoofPatch(world, model.origin.copy(), plane.copy(),
-                                    model.source_key, i, block_id))
+            output.append(
+                RoofPatch(
+                    world,
+                    model.origin.copy(),
+                    plane.copy(),
+                    model.source_key,
+                    i,
+                    block_id,
+                )
+            )
     return output

@@ -37,9 +37,7 @@ TIMEOUT = (10.0, 150.0)
 
 
 class FakeResponse:
-    def __init__(
-        self, status_code=200, body=b"", headers=None, exc=None, during=None
-    ):
+    def __init__(self, status_code=200, body=b"", headers=None, exc=None, during=None):
         self.status_code = status_code
         self.body = body if isinstance(body, bytes) else body.encode()
         self.headers = CaseInsensitiveDict(headers or {})
@@ -259,9 +257,7 @@ def test_invalid_server_url_is_rejected_without_echo(
 
 
 @pytest.mark.parametrize("url", ["http://user:secret", "http://tiles.test:99999"])
-def test_server_url_with_invalid_port_is_rejected_before_any_request(
-    monkeypatch, url
-):
+def test_server_url_with_invalid_port_is_rejected_before_any_request(monkeypatch, url):
     fake = install(monkeypatch)
     # The first is a user name and password with the "@host" part missing.
     with pytest.raises(ValueError) as info:
@@ -350,15 +346,11 @@ def test_manifest_request_sends_bbox_filters_and_timeout(monkeypatch):
 def test_manifest_request_omits_unset_filters(monkeypatch):
     fake = install(monkeypatch, manifest_response([]))
     fetch()
-    assert fake.calls[0]["params"] == {
-        "bbox": "673000.0,6578000.0,674000.0,6581000.0"
-    }
+    assert fake.calls[0]["params"] == {"bbox": "673000.0,6578000.0,674000.0,6581000.0"}
 
 
 def test_each_call_fetches_a_fresh_manifest(monkeypatch):
-    fake = install(
-        monkeypatch, manifest_response([]), manifest_response([item_json()])
-    )
+    fake = install(monkeypatch, manifest_response([]), manifest_response([item_json()]))
     assert fetch() == []
     assert len(fetch()) == 1
     assert len(fake.calls) == 2
@@ -606,8 +598,9 @@ def test_missing_server_url_says_where_to_get_one(monkeypatch):
     assert "Chalmers network or VPN" in message and CONTACT in message
 
 
-@pytest.mark.parametrize("url", ["", "ftp://tiles.test", "tiles.test:8000",
-                                 "http://:8000"])
+@pytest.mark.parametrize(
+    "url", ["", "ftp://tiles.test", "tiles.test:8000", "http://:8000"]
+)
 def test_malformed_server_url_shows_the_expected_form(url):
     with pytest.raises(ValueError) as info:
         resolve_server_url(url)
@@ -624,8 +617,7 @@ def test_malformed_server_url_shows_the_expected_form(url):
         (requests.ConnectionError("refused"), "Connection failed"),
     ],
 )
-def test_transport_failures_suggest_checks_before_the_details(monkeypatch, exc,
-                                                               prefix):
+def test_transport_failures_suggest_checks_before_the_details(monkeypatch, exc, prefix):
     message = str(fetch_error(monkeypatch, exc))
     # The suggestion comes before the library's text, which can be long, and
     # names no single cause.
@@ -876,9 +868,7 @@ def test_service_namespace_includes_prefix_and_ignores_trailing_slash(
     assert len({paths[1], paths[2], paths[3]}) == 3
 
 
-def test_published_file_is_reused_without_request_or_header_read(
-    monkeypatch, tmp_path
-):
+def test_published_file_is_reused_without_request_or_header_read(monkeypatch, tmp_path):
     body = tiff_bytes(tmp_path)
     cache_root = tmp_path / "cache"
     install(monkeypatch, tile_response(body))
@@ -946,18 +936,14 @@ def test_download_transport_failures_are_classified(
 
 
 def test_encoded_response_is_invalid_payload(monkeypatch, tmp_path):
-    response = tile_response(
-        tiff_bytes(tmp_path), headers={"Content-Encoding": "gzip"}
-    )
+    response = tile_response(tiff_bytes(tmp_path), headers={"Content-Encoding": "gzip"})
     error = download_error(monkeypatch, tmp_path / "cache", response)
     assert error.failure_class == "invalid_payload"
     assert error.status_code == 200
     assert response.closed
 
 
-def test_body_shorter_than_content_length_is_connection_failure(
-    monkeypatch, tmp_path
-):
+def test_body_shorter_than_content_length_is_connection_failure(monkeypatch, tmp_path):
     body = tiff_bytes(tmp_path)
     response = tile_response(body, length=str(len(body) + 100))
     error = download_error(monkeypatch, tmp_path / "cache", response)
@@ -1167,9 +1153,7 @@ def test_failed_replace_propagates_and_removes_temporary_file(monkeypatch, tmp_p
 
 
 @pytest.mark.parametrize("exc", [RuntimeError("boom"), KeyboardInterrupt()])
-def test_unexpected_errors_propagate_unchanged_and_clean_up(
-    monkeypatch, tmp_path, exc
-):
+def test_unexpected_errors_propagate_unchanged_and_clean_up(monkeypatch, tmp_path, exc):
     body = tiff_bytes(tmp_path)
     response = tile_response(body[:200], length=str(len(body)), exc=exc)
     install(monkeypatch, response)
@@ -1226,9 +1210,7 @@ def test_failed_download_leaves_competing_writer_files_intact(monkeypatch, tmp_p
         competitor["published"].write_bytes(b"competitor original")
         competitor["temporary"].write_bytes(b"competitor in progress")
 
-    response = tile_response(
-        body[:200], length=str(len(body)), during=competing_writer
-    )
+    response = tile_response(body[:200], length=str(len(body)), during=competing_writer)
     install(monkeypatch, response)
     with pytest.raises(OrthophotoClientError) as info:
         download(cache_root)
@@ -1498,13 +1480,18 @@ def test_download_items_returns_tile_records_without_a_manifest(monkeypatch, tmp
     (tile,) = download_listed(tmp_path / "cache", [ITEM])
     assert all("/items" not in call["url"] for call in fake.calls)
     assert (tile.id, tile.collection, tile.datetime) == (
-        ITEM.id, ITEM.collection, ITEM.datetime
+        ITEM.id,
+        ITEM.collection,
+        ITEM.datetime,
     )
     assert (tile.extent.xmin, tile.extent.ymin, tile.extent.xmax, tile.extent.ymax) == (
         ITEM.bbox
     )
     assert (tile.crs, tile.spektraltyp, tile.resolution, tile.size_bytes) == (
-        "EPSG:3006", ITEM.spektraltyp, ITEM.resolution, ITEM.size_bytes
+        "EPSG:3006",
+        ITEM.spektraltyp,
+        ITEM.resolution,
+        ITEM.size_bytes,
     )
 
 
@@ -1542,8 +1529,13 @@ def test_download_reports_bytes_against_content_length(monkeypatch, tmp_path):
     body = tiff_bytes(tmp_path)
     install(monkeypatch, Chunked(200, body, {"Content-Length": str(len(body))}))
     events, progress = recorder()
-    download_tile(ITEM, server_url=BASE, timeout=TIMEOUT,
-                  cache_root=tmp_path / "cache", progress=progress)
+    download_tile(
+        ITEM,
+        server_url=BASE,
+        timeout=TIMEOUT,
+        cache_root=tmp_path / "cache",
+        progress=progress,
+    )
     assert len(events) > 3
     assert events[0] == (0, len(body)) and events[-1] == (len(body), len(body))
     written = [event[0] for event in events]
@@ -1555,8 +1547,13 @@ def test_download_without_content_length_reports_bytes_only(monkeypatch, tmp_pat
     body = tiff_bytes(tmp_path)
     install(monkeypatch, Chunked(200, body))
     events, progress = recorder()
-    download_tile(ITEM, server_url=BASE, timeout=TIMEOUT,
-                  cache_root=tmp_path / "cache", progress=progress)
+    download_tile(
+        ITEM,
+        server_url=BASE,
+        timeout=TIMEOUT,
+        cache_root=tmp_path / "cache",
+        progress=progress,
+    )
     assert {event[1] for event in events} == {None}
     assert events[-1][0] == len(body)
 
@@ -1567,8 +1564,13 @@ def test_short_body_reports_what_arrived_and_publishes_nothing(monkeypatch, tmp_
     install(monkeypatch, Chunked(200, body, {"Content-Length": str(expected)}))
     events, progress = recorder()
     with pytest.raises(OrthophotoClientError) as info:
-        download_tile(ITEM, server_url=BASE, timeout=TIMEOUT,
-                      cache_root=tmp_path / "cache", progress=progress)
+        download_tile(
+            ITEM,
+            server_url=BASE,
+            timeout=TIMEOUT,
+            cache_root=tmp_path / "cache",
+            progress=progress,
+        )
     assert info.value.failure_class == "connection"
     assert events[-1] == (len(body), expected)
     assert published(tmp_path / "cache") == []
@@ -1577,16 +1579,23 @@ def test_short_body_reports_what_arrived_and_publishes_nothing(monkeypatch, tmp_
 
 @pytest.mark.parametrize(
     "response",
-    [FakeResponse(404, b"missing"),
-     FakeResponse(200, b"x", {"Content-Encoding": "gzip"})],
+    [
+        FakeResponse(404, b"missing"),
+        FakeResponse(200, b"x", {"Content-Encoding": "gzip"}),
+    ],
     ids=["404", "encoded"],
 )
 def test_refused_responses_report_no_bytes(monkeypatch, tmp_path, response):
     install(monkeypatch, response)
     events, progress = recorder()
     with pytest.raises(OrthophotoClientError):
-        download_tile(ITEM, server_url=BASE, timeout=TIMEOUT,
-                      cache_root=tmp_path / "cache", progress=progress)
+        download_tile(
+            ITEM,
+            server_url=BASE,
+            timeout=TIMEOUT,
+            cache_root=tmp_path / "cache",
+            progress=progress,
+        )
     assert events == []
 
 
@@ -1596,9 +1605,14 @@ def test_zero_content_length_is_reported_and_recorded_as_a_failure(
     install(monkeypatch, Chunked(200, b"", {"Content-Length": "0"}))
     events, progress = recorder()
     failures = []
-    download_items([ITEM], server_url=BASE, timeout=TIMEOUT,
-                   cache_root=tmp_path / "cache", failures=failures,
-                   progress=progress)
+    download_items(
+        [ITEM],
+        server_url=BASE,
+        timeout=TIMEOUT,
+        cache_root=tmp_path / "cache",
+        failures=failures,
+        progress=progress,
+    )
     assert events == [(0, 1, 0, None), (0, 1, 0, 0), (1, 1, 0, None)]
     ((_, error),) = failures
     assert error.failure_class == "invalid_payload"
@@ -1610,21 +1624,34 @@ def test_cached_item_reports_start_and_end_without_a_request(monkeypatch, tmp_pa
     download_listed(tmp_path / "cache", [ITEM])
     fake = install(monkeypatch)
     events, progress = recorder()
-    download_items([ITEM], server_url=BASE, timeout=TIMEOUT,
-                   cache_root=tmp_path / "cache", progress=progress)
+    download_items(
+        [ITEM],
+        server_url=BASE,
+        timeout=TIMEOUT,
+        cache_root=tmp_path / "cache",
+        progress=progress,
+    )
     assert events == [(0, 1, 0, None), (1, 1, 0, None)]
     assert fake.calls == []
 
 
 def test_item_indexes_advance_past_a_recorded_failure(monkeypatch, tmp_path):
     body = tiff_bytes(tmp_path)
-    install(monkeypatch, FakeResponse(404, b"missing"),
-            Chunked(200, body, {"Content-Length": str(len(body))}))
+    install(
+        monkeypatch,
+        FakeResponse(404, b"missing"),
+        Chunked(200, body, {"Content-Length": str(len(body))}),
+    )
     events, progress = recorder()
     failures = []
-    download_items([listed("a"), listed("b")], server_url=BASE, timeout=TIMEOUT,
-                   cache_root=tmp_path / "cache", failures=failures,
-                   progress=progress)
+    download_items(
+        [listed("a"), listed("b")],
+        server_url=BASE,
+        timeout=TIMEOUT,
+        cache_root=tmp_path / "cache",
+        failures=failures,
+        progress=progress,
+    )
     assert len(failures) == 1
     items = [event for event in events if event[2:] == (0, None)]
     assert items == [(0, 2, 0, None), (1, 2, 0, None), (2, 2, 0, None)]
@@ -1637,10 +1664,20 @@ def test_separate_calls_report_only_their_own_events(monkeypatch, tmp_path):
     install(monkeypatch, tile_response(body), tile_response(body))
     first, first_progress = recorder()
     second, second_progress = recorder()
-    download_items([listed("a")], server_url=BASE, timeout=TIMEOUT,
-                   cache_root=tmp_path / "cache", progress=first_progress)
-    download_items([listed("b")], server_url=BASE, timeout=TIMEOUT,
-                   cache_root=tmp_path / "cache", progress=second_progress)
+    download_items(
+        [listed("a")],
+        server_url=BASE,
+        timeout=TIMEOUT,
+        cache_root=tmp_path / "cache",
+        progress=first_progress,
+    )
+    download_items(
+        [listed("b")],
+        server_url=BASE,
+        timeout=TIMEOUT,
+        cache_root=tmp_path / "cache",
+        progress=second_progress,
+    )
     assert first[0] == second[0] == (0, 1, 0, None)
     assert first[-1] == second[-1] == (1, 1, 0, None)
 
@@ -1660,8 +1697,11 @@ def test_subscriber_error_during_a_chunk_propagates_unchanged(
     monkeypatch, tmp_path, kind, collect
 ):
     body = tiff_bytes(tmp_path)
-    fake = install(monkeypatch, Chunked(200, body, {"Content-Length": str(len(body))}),
-                   tile_response(body))
+    fake = install(
+        monkeypatch,
+        Chunked(200, body, {"Content-Length": str(len(body))}),
+        tile_response(body),
+    )
     error = SUBSCRIBER_ERRORS[kind]()
 
     def progress(index, count, written, expected):
@@ -1670,9 +1710,14 @@ def test_subscriber_error_during_a_chunk_propagates_unchanged(
 
     failures = [] if collect else None
     with pytest.raises(type(error)) as info:
-        download_items([listed("a"), listed("b")], server_url=BASE, timeout=TIMEOUT,
-                       cache_root=tmp_path / "cache", failures=failures,
-                       progress=progress)
+        download_items(
+            [listed("a"), listed("b")],
+            server_url=BASE,
+            timeout=TIMEOUT,
+            cache_root=tmp_path / "cache",
+            failures=failures,
+            progress=progress,
+        )
     assert info.value is error
     assert failures in (None, [])
     assert published(tmp_path / "cache") == []
@@ -1692,8 +1737,14 @@ def test_subscriber_error_after_publication_keeps_the_published_file(
             raise error
 
     with pytest.raises(RuntimeError) as info:
-        download_items([listed("a"), listed("b")], server_url=BASE, timeout=TIMEOUT,
-                       cache_root=tmp_path / "cache", failures=[], progress=progress)
+        download_items(
+            [listed("a"), listed("b")],
+            server_url=BASE,
+            timeout=TIMEOUT,
+            cache_root=tmp_path / "cache",
+            failures=[],
+            progress=progress,
+        )
     assert info.value is error
     assert [Path(name).name for name in published(tmp_path / "cache")] == ["a.tif"]
     assert no_partial_files(tmp_path / "cache")

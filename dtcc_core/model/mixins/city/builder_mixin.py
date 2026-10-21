@@ -21,6 +21,7 @@ class CityBuilderMixin:
     Covers terrain, LOD1 and LOD2 buildings, flat, surface and volume meshes,
     and trees from the point cloud.
     """
+
     def build_terrain(
         self: "T_City",
         pc: PointCloud = None,
@@ -177,7 +178,7 @@ class CityBuilderMixin:
         rebuild: bool = True,
         calculate_heights: bool = True,
         log_rejections: bool = False,
-        lod2_method: str = 'catalogue',
+        lod2_method: str = "catalogue",
     ) -> "T_City":
         """
         Build LOD2 buildings using catalogue roofs or ``lod2_method='ransac'``.
@@ -325,7 +326,11 @@ class CityBuilderMixin:
             lod2_method=lod2_method,
             roof_options=roof_options,
             report_mesh_quality=report_mesh_quality,
-            **({"compact_surface": compact_surface} if compact_surface is not None else {}),
+            **(
+                {"compact_surface": compact_surface}
+                if compact_surface is not None
+                else {}
+            ),
             stage_audit=stage_audit,
         )
         return surface_mesh

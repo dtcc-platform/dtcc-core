@@ -20,17 +20,17 @@ from ..logging import info, warning
 def merge_polygons_convexhull(p1, p2):
     """
     Merge two polygons by taking their convex hull.
-    
+
     This function creates a convex hull around two polygons as a fallback
     method when other merge approaches fail.
-    
+
     Parameters
     ----------
     p1 : Polygon
         First polygon to merge.
     p2 : Polygon
         Second polygon to merge.
-        
+
     Returns
     -------
     Polygon
@@ -43,17 +43,17 @@ def merge_polygons_convexhull(p1, p2):
 def merge_polygon_hulls(p1, p2):
     """
     Merge two polygons by unioning their convex hulls.
-    
+
     This function attempts to merge polygons by first creating convex hulls
     and then performing a union operation.
-    
+
     Parameters
     ----------
     p1 : Polygon
         First polygon to merge.
     p2 : Polygon
         Second polygon to merge.
-        
+
     Returns
     -------
     Polygon or None
@@ -72,10 +72,10 @@ def merge_polygon_hulls(p1, p2):
 def merge_polygons_buffering(p1, p2, tol):
     """
     Merge two polygons using buffering technique.
-    
+
     This function buffers both polygons by a tolerance distance, unions them,
     then shrinks the result back to attempt a clean merge.
-    
+
     Parameters
     ----------
     p1 : Polygon
@@ -84,7 +84,7 @@ def merge_polygons_buffering(p1, p2, tol):
         Second polygon to merge.
     tol : float
         Tolerance distance for buffering operations.
-        
+
     Returns
     -------
     Polygon or None
@@ -104,10 +104,10 @@ def merge_polygons_buffering(p1, p2, tol):
 def merge_polygons(p1, p2, tol):
     """
     Merge two polygons using multiple fallback strategies.
-    
+
     This function attempts to merge polygons using various approaches:
     union, buffering, hull merging, and convex hull as fallbacks.
-    
+
     Parameters
     ----------
     p1 : Polygon
@@ -116,7 +116,7 @@ def merge_polygons(p1, p2, tol):
         Second polygon to merge.
     tol : float
         Tolerance for merge operations.
-        
+
     Returns
     -------
     Polygon
@@ -140,17 +140,17 @@ def merge_polygons(p1, p2, tol):
 def remove_slivers(p: Polygon, tol):
     """
     Remove thin sliver areas from a polygon.
-    
+
     This function uses buffering operations to remove narrow features
     that are considered slivers based on the tolerance.
-    
+
     Parameters
     ----------
     p : Polygon
         Polygon to process.
     tol : float
         Tolerance for sliver removal.
-        
+
     Returns
     -------
     Polygon
@@ -171,17 +171,17 @@ def remove_slivers(p: Polygon, tol):
 def merge_multipolygon(multipolygon, tol=0.1):
     """
     Merge a multipolygon into a single polygon.
-    
+
     This function attempts to merge multiple polygon geometries into
     a single polygon by finding intersecting parts and merging them.
-    
+
     Parameters
     ----------
     multipolygon : MultiPolygon
         MultiPolygon to merge.
     tol : float, default 0.1
         Tolerance for merge operations.
-        
+
     Returns
     -------
     Polygon
@@ -203,7 +203,6 @@ def merge_multipolygon(multipolygon, tol=0.1):
                 try:
                     p.intersects(p2.buffer(tol))
                 except shapely.errors.GEOSException:
-
                     print(f"Failed to merge polygons {p} and {p2}")
                     print(f"p1: {p.is_valid}, p2: {p2.is_valid}")
                 if p.intersects(p2.buffer(tol)):
@@ -219,17 +218,17 @@ def merge_multipolygon(multipolygon, tol=0.1):
 def merge_list_of_polygons(mcp: List[Polygon], tolerance=1e-2) -> Polygon:
     """
     Merge a list of polygons into a single polygon.
-    
+
     This function takes a list of polygons and attempts to merge them
     into a single polygon using union operations and fallback strategies.
-    
+
     Parameters
     ----------
     mcp : List[Polygon]
         List of polygons to merge.
     tolerance : float, default 1e-2
         Tolerance for merge operations.
-        
+
     Returns
     -------
     Polygon
@@ -301,17 +300,17 @@ def _split_boundary(boundary, max_length):
 def split_polygon_sides(polygon, max_length):
     """
     Split long polygon sides into shorter segments.
-    
+
     This function divides polygon edges that are longer than the maximum
     length into multiple shorter segments while preserving the overall shape.
-    
+
     Parameters
     ----------
     polygon : Polygon
         Polygon to split sides for.
     max_length : float
         Maximum allowed edge length.
-        
+
     Returns
     -------
     Polygon

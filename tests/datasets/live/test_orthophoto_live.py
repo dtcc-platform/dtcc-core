@@ -58,9 +58,7 @@ def _skip_if_transient(error: DatasetUpstreamError):
 def _strict_call(**kwargs):
     """A strict call for the test's bounds and year, skipping on transient failures."""
     try:
-        return datasets.orthophoto(
-            bounds=BOUNDS, year=YEAR, strict_live=True, **kwargs
-        )
+        return datasets.orthophoto(bounds=BOUNDS, year=YEAR, strict_live=True, **kwargs)
     except DatasetUpstreamError as error:
         _skip_if_transient(error)
 
@@ -100,10 +98,14 @@ def check_mosaic(raster, bounds, cache_root) -> None:
     step = health["resolution"]
     assert (grid[0], grid[3]) == (xmin, ymax)
     assert 0 <= grid[2] - xmax < step and 0 <= ymin - grid[1] < step
-    sources = [source for source in context.provenance.sources
-               if isinstance(source, dict) and source.get("role") == "source_item"]
-    known = [source["resolution"] for source in sources
-             if source["resolution"] is not None]
+    sources = [
+        source
+        for source in context.provenance.sources
+        if isinstance(source, dict) and source.get("role") == "source_item"
+    ]
+    known = [
+        source["resolution"] for source in sources if source["resolution"] is not None
+    ]
     assert sources and (not known or step <= min(known))
     assert context.metadata.collection_period is not None
     # JSON escapes the path's backslashes on Windows, so search for its JSON form.

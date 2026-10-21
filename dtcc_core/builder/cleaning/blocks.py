@@ -142,9 +142,16 @@ def part_roof(part) -> float:
     without one), or 0."""
     value = part.attributes.get(SOURCE_FOOTPRINT_KEY)
     if isinstance(value, dict):
-        ring = value["coordinates"][0] if value["type"] == "Polygon" else value["coordinates"][0][0]
+        ring = (
+            value["coordinates"][0]
+            if value["type"] == "Polygon"
+            else value["coordinates"][0][0]
+        )
         return float(ring[0][2]) if len(ring[0]) > 2 else 0.0
-    levels = [float(surface.zmax) for surface in _surfaces(part.get_geometry(GeometryType.LOD0))]
+    levels = [
+        float(surface.zmax)
+        for surface in _surfaces(part.get_geometry(GeometryType.LOD0))
+    ]
     return max(levels) if levels else 0.0
 
 
@@ -152,10 +159,7 @@ def set_source_footprint(part, polygon: Polygon | MultiPolygon, roof_z: float) -
     """Store the footprint of a part's source at its roof level."""
     polygons = [polygon] if isinstance(polygon, Polygon) else list(polygon.geoms)
     coordinates = [
-        [
-            _ring(ring, roof_z)
-            for ring in [piece.exterior, *piece.interiors]
-        ]
+        [_ring(ring, roof_z) for ring in [piece.exterior, *piece.interiors]]
         for piece in polygons
     ]
     part.attributes[SOURCE_FOOTPRINT_KEY] = (
@@ -170,7 +174,11 @@ def set_part_roof(part, roof_z: float) -> None:
     roof_z = float(roof_z)
     value = part.attributes.get(SOURCE_FOOTPRINT_KEY)
     if isinstance(value, dict):
-        polygons = [value["coordinates"]] if value["type"] == "Polygon" else value["coordinates"]
+        polygons = (
+            [value["coordinates"]]
+            if value["type"] == "Polygon"
+            else value["coordinates"]
+        )
         for rings in polygons:
             for ring in rings:
                 for position in ring:
@@ -232,7 +240,9 @@ def modelling_height(obj) -> float | None:
     return height if height > 0 else None
 
 
-def precedence(keys: Sequence[tuple[float, float | None, float]]) -> tuple[list[int], str]:
+def precedence(
+    keys: Sequence[tuple[float, float | None, float]],
+) -> tuple[list[int], str]:
     """The order in which overlapping sources win, and the quantity used.
 
     Parameters
@@ -276,8 +286,15 @@ def wall_cells(
     levels: dict[int, float] | None = None,
 ) -> LabelledRegion:
     """Condition one region through the geometry-layer repair coordinator."""
-    return condition_walls(region, polygons, order, delta=delta, epsilon=epsilon,
-                           strict=strict, levels=levels)
+    return condition_walls(
+        region,
+        polygons,
+        order,
+        delta=delta,
+        epsilon=epsilon,
+        strict=strict,
+        levels=levels,
+    )
 
 
 def walls_digest(parts) -> str:
@@ -304,7 +321,11 @@ def inputs_digest(building: Building) -> str:
         if not isinstance(value, dict):
             digest.update(b"-")
             continue
-        polygons = [value["coordinates"]] if value["type"] == "Polygon" else value["coordinates"]
+        polygons = (
+            [value["coordinates"]]
+            if value["type"] == "Polygon"
+            else value["coordinates"]
+        )
         for rings in polygons:
             digest.update(b"[")
             for ring in rings:
@@ -328,7 +349,11 @@ def walls_detail(outcome: str, report: dict[str, Any]) -> dict[str, Any]:
         detail["reason"] = str(report.get("reason", "unknown"))
         if report.get("error"):
             detail["error"] = str(report["error"])[:_DETAIL_MESSAGE]
-    for key, kind in (("wall_pairs", int), ("min_wall_distance", float), ("small_sectors", int)):
+    for key, kind in (
+        ("wall_pairs", int),
+        ("min_wall_distance", float),
+        ("small_sectors", int),
+    ):
         value = report.get(key)
         if value:
             detail[key] = kind(value)
@@ -349,7 +374,9 @@ def _roof_groups(building, delta):
 
     sources = part_sources(building)
     parts = building.building_parts
-    labels = [i for i in sources if parts[i].get_geometry(GeometryType.LOD0) is not None]
+    labels = [
+        i for i in sources if parts[i].get_geometry(GeometryType.LOD0) is not None
+    ]
     grouped = group_levels(
         [part_roof(parts[i]) for i in labels], [sources[i].area for i in labels], delta
     )
@@ -399,8 +426,10 @@ def walls_of(building: Building) -> dict[str, Any]:
     """
     record = building.attributes.get(WALLS_KEY)
     if not isinstance(record, dict) or record.get("version") != WALLS_VERSION:
-        found = "no walls record" if not isinstance(record, dict) else (
-            f"a walls record of version {record.get('version', 1)}"
+        found = (
+            "no walls record"
+            if not isinstance(record, dict)
+            else (f"a walls record of version {record.get('version', 1)}")
         )
         raise ValueError(
             f"Block {building.id} has {found}, not version {WALLS_VERSION}: it was made by an "
@@ -461,38 +490,61 @@ def block_walls(building: Building) -> BlockWalls:
     order = [labels[position] for position in positions]
     region = block_region(building)
     repair_current = record.get("repair_version") == WALLS_REPAIR_VERSION
-    if record.get("inputs") == inputs_digest(building) and record.get("cells") == walls_digest(
-        parts
-    ):
+    if record.get("inputs") == inputs_digest(building) and record.get(
+        "cells"
+    ) == walls_digest(parts):
         cells = [
             (piece, index)
             for index, part in enumerate(parts)
             for piece in footprint_pieces(part.get_geometry(GeometryType.LOD0))
         ]
         covered = not cells or math.isclose(
-            sum(piece.area for piece, _ in cells), region.area, rel_tol=1e-9, abs_tol=1e-6
+            sum(piece.area for piece, _ in cells),
+            region.area,
+            rel_tol=1e-9,
+            abs_tol=1e-6,
         )
         ids = [str(parts[i].id) for i in order]
         ownership_current = covered and _same_overlaps(
             record.get("order"), ids, {str(parts[i].id): sources[i] for i in labels}
         )
         upgrade = record.get("repair_version", 0) < 1
-        revalidate = covered and bool(cells) and repair_current and not ownership_current
+        revalidate = (
+            covered and bool(cells) and repair_current and not ownership_current
+        )
         if ownership_current or revalidate:
             outcome = str(record.get("outcome"))
-            if cells and (revalidate or not repair_current
-                          or record.get("roof_groups") != _roof_groups(
-                              building, float(record["min_building_detail"]))):
+            if cells and (
+                revalidate
+                or not repair_current
+                or record.get("roof_groups")
+                != _roof_groups(building, float(record["min_building_detail"]))
+            ):
                 labelled = condition_walls(
-                    region, sources, order, delta=float(record["min_building_detail"]),
-                    epsilon=float(record["fidelity_budget"]), strict=bool(record.get("strict", False)),
+                    region,
+                    sources,
+                    order,
+                    delta=float(record["min_building_detail"]),
+                    epsilon=float(record["fidelity_budget"]),
+                    strict=bool(record.get("strict", False)),
                     levels={i: part_roof(parts[i]) for i in labels},
-                    previous=LabelledRegion(region, cells, outcome, dict(record.get("detail", {}))),
-                    revalidate=revalidate, recondition=upgrade,
+                    previous=LabelledRegion(
+                        region, cells, outcome, dict(record.get("detail", {}))
+                    ),
+                    revalidate=revalidate,
+                    recondition=upgrade,
                 )
-                return BlockWalls(labelled.cells, labelled.outcome, order, rule,
-                                  not labelled.changed, labelled.report)
-            return BlockWalls(cells, outcome, order, rule, True, dict(record.get("detail", {})))
+                return BlockWalls(
+                    labelled.cells,
+                    labelled.outcome,
+                    order,
+                    rule,
+                    not labelled.changed,
+                    labelled.report,
+                )
+            return BlockWalls(
+                cells, outcome, order, rule, True, dict(record.get("detail", {}))
+            )
     labelled = wall_cells(
         region,
         sources,
@@ -503,7 +555,12 @@ def block_walls(building: Building) -> BlockWalls:
         levels={i: part_roof(parts[i]) for i in labels},
     )
     return BlockWalls(
-        list(labelled.cells), labelled.outcome, order, rule, False, dict(labelled.report)
+        list(labelled.cells),
+        labelled.outcome,
+        order,
+        rule,
+        False,
+        dict(labelled.report),
     )
 
 
@@ -545,7 +602,9 @@ def update_walls(building: Building) -> bool:
         record = walls_of(building)
         record["order"] = [str(building.building_parts[i].id) for i in walls.order]
         record["precedence"] = walls.rule
-        record["roof_groups"] = _roof_groups(building, float(record["min_building_detail"]))
+        record["roof_groups"] = _roof_groups(
+            building, float(record["min_building_detail"])
+        )
         record["repair_version"] = WALLS_REPAIR_VERSION
         record["detail"] = walls.detail
         return False
@@ -584,7 +643,9 @@ def assign_cells(parts, cells: Sequence[tuple[Polygon, int]]) -> None:
             surface = Surface()
             surface.from_polygon(polygon, roof_z)
             surfaces.append(surface)
-        footprint = surfaces[0] if len(surfaces) == 1 else MultiSurface(surfaces=surfaces)
+        footprint = (
+            surfaces[0] if len(surfaces) == 1 else MultiSurface(surfaces=surfaces)
+        )
         part.add_geometry(footprint, GeometryType.LOD0)
 
 
@@ -592,7 +653,9 @@ def block_roof(building: Building) -> tuple[float, float | None]:
     """Roof level and height of a block as one footprint: the area-weighted
     mean of its parts' sources, or the highest when they span more than 2 m."""
     parts = building.building_parts
-    keys = [part_key(parts[i], polygon) for i, polygon in part_sources(building).items()]
+    keys = [
+        part_key(parts[i], polygon) for i, polygon in part_sources(building).items()
+    ]
     return fallback_roof(
         list(range(len(keys))),
         [area for area, _, _ in keys],
@@ -618,7 +681,9 @@ def set_block_roof(building: Building) -> None:
     if any(part.get_geometry(GeometryType.LOD0) is not None for part in parts):
         labelled = [parts[i] for i in part_sources(building)]
         roof_z = max(part_roof(part) for part in labelled)
-        heights = [h for h in (modelling_height(part) for part in labelled) if h is not None]
+        heights = [
+            h for h in (modelling_height(part) for part in labelled) if h is not None
+        ]
         height = max(heights) if heights else None
     else:
         roof_z, height = block_roof(building)
@@ -633,7 +698,9 @@ def set_block_roof(building: Building) -> None:
 def block_region(building: Building) -> Polygon:
     """The LOD0 footprint of a block, its cleaned region."""
     pieces = footprint_pieces(building.get_geometry(GeometryType.LOD0))
-    polygon = pieces[0] if len(pieces) == 1 else shapely.union_all(pieces) if pieces else None
+    polygon = (
+        pieces[0] if len(pieces) == 1 else shapely.union_all(pieces) if pieces else None
+    )
     if not isinstance(polygon, Polygon) or polygon.is_empty:
         raise ValueError(f"Block {building.id} has no LOD0 footprint of one polygon.")
     return polygon
@@ -653,7 +720,9 @@ def fallback_roof(indices, areas, roofs, heights):
     levels = [float(roofs[index]) for index in indices]
     if max(levels) - min(levels) <= FALLBACK_ROOF_SPAN_LIMIT:
         return roof_z, height
-    candidates = [float(heights[index]) for index in indices if heights[index] is not None]
+    candidates = [
+        float(heights[index]) for index in indices if heights[index] is not None
+    ]
     if candidates:
         height = max(candidates)
     return max(levels), height

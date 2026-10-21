@@ -1,7 +1,15 @@
 import pytest
 import numpy as np
 from affine import Affine
-from dtcc_core.model import Object, City, Building, GeometryType, PointCloud, Raster, Surface
+from dtcc_core.model import (
+    Object,
+    City,
+    Building,
+    GeometryType,
+    PointCloud,
+    Raster,
+    Surface,
+)
 
 
 def test_set_attributes():

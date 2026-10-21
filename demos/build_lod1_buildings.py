@@ -16,7 +16,7 @@ for x, height in [(0, 8), (10.2, 16), (20.4, 12)]:
 
 # Merge into one block and extrude each part at its own height.
 cleaned = dtcc.builder.clean_footprints(
-    city, min_building_detail=0.5, isolated=False, show=True,
+    city, min_building_detail=0.5, isolated=False, show=True
 )
 buildings = dtcc.builder.build_lod1_buildings(cleaned.buildings)
 cleaned.replace_buildings(buildings)

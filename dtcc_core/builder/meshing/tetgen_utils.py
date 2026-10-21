@@ -399,6 +399,7 @@ class TetgenPLCDiagnostics:
     warnings : list[str]
         Problems that do not stop meshing.
     """
+
     num_vertices: int
     num_faces: int
     num_boundary_facets: int
@@ -442,6 +443,7 @@ class TetgenPLC:
     diagnostics : TetgenPLCDiagnostics
         Checks run on the PLC.
     """
+
     vertices: np.ndarray
     shell_faces: np.ndarray
     boundary_facets: list[list[int]]
@@ -1157,8 +1159,12 @@ def _remesh_top_cap_from_outer_boundary(
             interior[boundary_indices] = False
             domain = dtcc_mesher.Domain.from_loops(ring_xy, [])
             domain.points = np.vstack([domain.points, top_vertices_xy[interior]])
-            raw_mesh = dtcc_mesher.mesh(domain, options=dtcc_mesher.MeshingOptions(
-                refine=False, acute_protection="none"))
+            raw_mesh = dtcc_mesher.mesh(
+                domain,
+                options=dtcc_mesher.MeshingOptions(
+                    refine=False, acute_protection="none"
+                ),
+            )
             top_vertices_xy = np.asarray(raw_mesh.points, dtype=np.float64)
             top_faces = np.asarray(raw_mesh.triangles, dtype=np.int64)
     else:

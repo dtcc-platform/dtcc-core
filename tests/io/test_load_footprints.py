@@ -96,10 +96,12 @@ def write_footprint(tmp_path):
                 "properties": {"id": "str", "source_bounds": "str"},
             },
         ) as dst:
-            dst.write({
-                "geometry": mapping(geometry),
-                "properties": {"id": "source-feature", "source_bounds": "obsolete"},
-            })
+            dst.write(
+                {
+                    "geometry": mapping(geometry),
+                    "properties": {"id": "source-feature", "source_bounds": "obsolete"},
+                }
+            )
         return path
 
     return write
@@ -133,10 +135,18 @@ def test_source_bounds_in_load_crs_roundtrip(write_footprint, multipart, target_
     "geometry",
     [
         MultiPolygon([box(10, 10, 20, 20), box(35, 10, 37, 12)]),
-        Polygon([
-            (10, 10), (20, 10), (20, 15), (29, 15),
-            (20, 15), (20, 20), (10, 20), (10, 10),
-        ]),
+        Polygon(
+            [
+                (10, 10),
+                (20, 10),
+                (20, 15),
+                (29, 15),
+                (20, 15),
+                (20, 20),
+                (10, 20),
+                (10, 10),
+            ]
+        ),
     ],
     ids=["multipart-with-tiny-sibling", "invalid-polygon-with-spike"],
 )
@@ -159,7 +169,8 @@ def test_source_bounds_match_fresh_subarea_selection(
     assert query.contains(cached[0].footprint().to_polygon(simplify=0.0))
     assert cached[0].attributes["source_bounds"] == list(geometry.bounds)
     selected = [
-        building for building in cached
+        building
+        for building in cached
         if query.contains(box(*building.attributes["source_bounds"]))
     ]
     assert len(selected) == len(fresh) == expected_count

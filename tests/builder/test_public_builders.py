@@ -46,7 +46,9 @@ def test_clean_footprints_merges_nearby_footprints_without_mutating_city():
 def test_clean_footprint_removes_small_footprint_defect():
     polygon = Polygon([(0, 0), (4, 0), (4, 4), (2.01, 4), (2, 3.99), (0, 4)])
     original = building(polygon)
-    fixed = original.clean_footprint(min_building_detail=0.2).lod0.to_polygon(simplify=0)
+    fixed = original.clean_footprint(min_building_detail=0.2).lod0.to_polygon(
+        simplify=0
+    )
     assert fixed.is_valid and fixed.minimum_clearance >= 0.18
     assert original.lod0.to_polygon(simplify=0).equals(polygon)
 

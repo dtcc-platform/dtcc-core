@@ -46,14 +46,6 @@ def has_assimp():
     return HAS_ASSIMP
 
 
-
-
-
-
-
-
-
-
 def _load_meshio_mesh(path):
     mesh = meshio.read(path)
     vertices = mesh.points[:, :3]
@@ -332,9 +324,7 @@ def _normalize_xdmf_field(field, index, vertex_count, cell_count, used_dataset_n
         )
 
     number_type, precision = _xdmf_number_type_and_precision(values.dtype)
-    dataset_name = _sanitize_hdf5_field_name(
-        field_name, index, used_dataset_names
-    )
+    dataset_name = _sanitize_hdf5_field_name(field_name, index, used_dataset_names)
 
     return {
         "name": str(field_name),
@@ -820,7 +810,9 @@ def centered_copy(mesh, center_on_origin=True):
 
     shifted = _shallow_copy(mesh)
     # An empty mesh has no vertex rows to shift.
-    shifted.vertices = vertices + np.asarray(offset) if len(vertices) else vertices.copy()
+    shifted.vertices = (
+        vertices + np.asarray(offset) if len(vertices) else vertices.copy()
+    )
     shifted._bounds = None
     # The copy maps its local coordinates back to the original frame: undo the
     # shift, then apply whatever transform the original had. A new Transform

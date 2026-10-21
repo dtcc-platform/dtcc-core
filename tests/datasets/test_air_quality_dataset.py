@@ -226,7 +226,9 @@ def test_air_quality_distinguishes_missing_elevation_from_supplied_zero():
     stations[0]["geometry"]["coordinates"] = stations[0]["geometry"]["coordinates"][:2]
     result = _build_dataset(payloads={f"{BASE_URL}/stations": stations})
     restored = exchange.loads(exchange.dumps(result))
-    assert [station.attributes["elevation_source"] for station in restored.stations()] == [
+    assert [
+        station.attributes["elevation_source"] for station in restored.stations()
+    ] == [
         "missing",
         "upstream",
     ]

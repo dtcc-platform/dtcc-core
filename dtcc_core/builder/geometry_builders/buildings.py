@@ -277,7 +277,9 @@ def compute_building_heights(
     """
     total_buildings = len(buildings)
     info("Computing building heights...")
-    report_progress(percent=0, message=f"Computing heights for {total_buildings} buildings...")
+    report_progress(
+        percent=0, message=f"Computing heights for {total_buildings} buildings..."
+    )
     for i, building in enumerate(buildings):
         if is_block(building):
             # A cleaned block: each part on the footprint of its source, with
@@ -403,7 +405,9 @@ def build_lod1_buildings(
     """
     total_buildings = len(buildings)
     info(f"Building LOD1 representations of {total_buildings} buildings...")
-    report_progress(percent=0, message=f"Building LOD1 for {total_buildings} buildings...")
+    report_progress(
+        percent=0, message=f"Building LOD1 for {total_buildings} buildings..."
+    )
 
     for i, building in enumerate(buildings):
         parts = []
@@ -445,7 +449,7 @@ def build_lod1_buildings(
             report_progress(
                 current=i + 1,
                 total=total_buildings,
-                message=f"Building LOD1 ({i + 1}/{total_buildings})..."
+                message=f"Building LOD1 ({i + 1}/{total_buildings})...",
             )
 
     return buildings
@@ -502,7 +506,9 @@ def extract_roof_points(
                 polygon = source_footprint(part)
                 if polygon is None:
                     continue
-                for piece in [polygon] if isinstance(polygon, Polygon) else polygon.geoms:
+                for piece in (
+                    [polygon] if isinstance(polygon, Polygon) else polygon.geoms
+                ):
                     polygons.append(_roof_point_polygon(piece))
                     owners.append(len(targets))
                 targets.append(part)
@@ -511,7 +517,9 @@ def extract_roof_points(
         if "source_footprint" in building.attributes:
             polygon = source_footprint(building)
             if polygon is not None:
-                for piece in [polygon] if isinstance(polygon, Polygon) else polygon.geoms:
+                for piece in (
+                    [polygon] if isinstance(polygon, Polygon) else polygon.geoms
+                ):
                     polygons.append(_roof_point_polygon(piece))
                     owners.append(len(targets))
                 targets.append(building)
@@ -593,7 +601,9 @@ def building_heights_from_pointcloud(
 
     if terrain_raster is None:
         info("No terrain raster provided, building terrain raster from point cloud.")
-        terrain_raster = build_terrain_raster(pointcloud, cell_size=2, ground_only=True, _report_progress=False)
+        terrain_raster = build_terrain_raster(
+            pointcloud, cell_size=2, ground_only=True, _report_progress=False
+        )
 
     buildings = extract_roof_points(
         buildings,
