@@ -403,7 +403,7 @@ def _normalize_server_url(server_url: str) -> str:
         )
     try:
         parts = urlsplit(server_url)
-        parts.port  # raises ValueError unless the port is a number in range
+        _ = parts.port  # raises ValueError unless the port is a number in range
     except ValueError:
         parts = None
     if parts is not None and "@" in parts.netloc:
