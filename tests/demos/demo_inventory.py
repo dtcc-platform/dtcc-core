@@ -3,6 +3,7 @@
 DATASET_DEMOS = (
     "dataset_air_quality.py",
     "dataset_building_footprints.py",
+    "dataset_buses.py",
     "dataset_calibration_grid.py",
     "dataset_city.py",
     "dataset_city_flat_mesh.py",

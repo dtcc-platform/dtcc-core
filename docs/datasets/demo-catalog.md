@@ -23,6 +23,7 @@ weather, air-quality, hydrology, ocean, and transit layers.
 | `demos/dataset_air_quality.py` | SMHI air-quality stations | `air_quality.plot("NO2")` |
 | `demos/dataset_hydrology.py` | SMHI hydrology stations | `hydrology.plot("discharge_daily")` |
 | `demos/dataset_ocean.py` | SMHI ocean stations | `ocean.plot("sea_level")` |
+| `demos/dataset_buses.py` | Live buses over streets in a 2 km area around Poseidon | `LiveVehiclePlot.run()` |
 | `demos/dataset_transit_vehicles.py` | Live bus positions | `vehicles.plot()` |
 | `demos/dataset_trees.py` | Point-cloud-derived trees | `trees.plot()` |
 | `demos/dataset_terrain_surface_mesh.py` | Terrain surface mesh | `terrain.plot()` / `.view()` |
@@ -108,6 +109,13 @@ illustrate the dataset; setup, export plumbing and CLI switches belong elsewhere
 The smoke example shows two products in separate, explicit calls. The cleaning
 and surface-mesh examples similarly show both isolation modes in sequence.
 No example loops over modes.
+
+Run `python demos/dataset_buses.py` for the live bus animation. It fetches
+the roads once and polls bus positions every second, drawing vehicle trails.
+Set `VASTTRAFIK_AUTHENTICATION_KEY` to your Västtrafik application’s
+Autentiseringsnyckel and use an interactive Matplotlib display. The demo uses
+`strict_live=True` so provider or credential failures raise an error. Close the
+window or press Ctrl+C to stop.
 
 Normal CI checks every script and executes the small synthetic height example.
 `pytest tests/demos --run-demos` additionally runs the workflow scripts and the
