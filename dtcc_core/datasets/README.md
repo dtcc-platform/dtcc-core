@@ -146,6 +146,7 @@ Current Built-In Datasets
 | `orthophoto` | raw | `Raster` (RGBA); `RasterTileCollection` with `product="tiles"` | `tif` | Lantmäteriet orthophotos through the DTCC LM tile server; needs `server_url` or `DTCC_ORTHOPHOTO_URL`. See [the orthophoto guide](../../docs/datasets/orthophoto.md). |
 | `building_footprints` | raw | `FootprintCollection` | `geojson`, `gpkg`, `shp.zip` | Provider/cache footprints for context and table alignment; use `crs="EPSG:3006"` for table GeoJSON. |
 | `buildings` | derived | `BuildingCollection` | `obj`, `stl` | LoD1 block buildings from selected footprints and point-cloud-derived heights. |
+| `built_up` | raw | `Raster` | `tif` | GHSL GHS-BUILT-S R2023A built-up surface in m² per 100 m cell for any epoch 1975-2030 (2025/2030 projected), total or non-residential; reprojection preserves area totals. |
 | `city` | derived | `City` | `cityjson`, `json` | Terrain plus LoD1 buildings; both serialized paths currently produce CityJSON-compatible JSON bytes. |
 | `terrain_surface_mesh` | derived | `Mesh` or `Raster` | `tif`, `obj`, `stl` | Point-cloud-derived terrain raster or mesh with outlier, adaptive meshing, smoothing, and mesher controls. |
 | `city_flat_mesh` | derived | `Mesh` | `obj`, `stl`, `vtu` | Flat z=0 2D mesh with conditioned LOD0 building subdomains. |
@@ -154,6 +155,7 @@ Current Built-In Datasets
 | `trees` | derived | `TreeCollection` | `tif`, `gpkg`, `geojson` | Tree points or canopy-height raster derived from point-cloud vegetation returns. |
 | `roads` | raw | `RoadNetwork` | `pb` | OpenStreetMap/Overpass road network in EPSG:3006 with highway-tag semantics, cache/live source caveats, and ODbL review status. |
 | `space_syntax` | derived | `RoadNetwork` | `pb` | RoadNetwork enriched with dual-segment graph measures: connectivity, reach, mean depth, integration, choice, radius/cost metadata, and component labels. |
+| `settlement_class` | raw | `Raster` | `tif` | GHSL GHS-SMOD R2023A Degree of Urbanisation class per 1 km cell (30 urban centre ... 11 very low density rural, 10 water) for any epoch 1975-2030 (2025/2030 projected). |
 | `transit_vehicles` | raw | `VehicleCollection` | `pb` | Live Trafiklab/Västtrafik vehicle snapshot with provider metadata, credential guidance, mode filtering, timestamps, speed/bearing fields, and partial-result health. |
 | `buses` | raw | `VehicleCollection` | `pb` | Mode-preset shortcut for `transit_vehicles(..., modes=("bus",))`. |
 | `trams` | raw | `VehicleCollection` | `pb` | Mode-preset shortcut for `transit_vehicles(..., modes=("tram",))`. |
