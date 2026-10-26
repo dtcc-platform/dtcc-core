@@ -341,8 +341,12 @@ def add_categorical_legend(
     linewidth: float = 2.0,
     marker: str = "line",
     theme: str | Mapping[str, str] | None = "dark",
+    **legend_kwargs,
 ):
-    """Add a compact DTCC-styled categorical legend to an axes."""
+    """Add a compact DTCC-styled categorical legend to an axes.
+
+    Extra keyword arguments, such as ``loc`` or ``ncol``, go to ``Axes.legend``.
+    """
     theme_values = get_theme(theme)
     if marker == "patch":
         from matplotlib.patches import Patch
@@ -364,7 +368,7 @@ def add_categorical_legend(
             for category, color in color_lookup.items()
         ]
 
-    legend = ax.legend(handles=handles, title=title, frameon=False)
+    legend = ax.legend(handles=handles, title=title, frameon=False, **legend_kwargs)
     if legend.get_title() is not None:
         legend.get_title().set_color(theme_values["text"])
     for text in legend.get_texts():

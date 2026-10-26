@@ -38,6 +38,62 @@ def test_overpass_failover_does_not_warn_when_fallback_succeeds(monkeypatch):
     assert warnings == []
 
 
+@pytest.mark.parametrize(
+    "bad_payload",
+    [
+        {"elements": [], "remark": "runtime error: Query timed out in \"query\" at line 1 after 26 seconds."},
+        {"version": 0.6},
+        [],
+    ],
+)
+def test_overpass_fails_over_on_incomplete_payload(monkeypatch, bad_payload):
+    class Response:
+        status_code = 200
+
+        def __init__(self, payload):
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    responses = [Response(bad_payload), Response({"elements": [{"type": "node", "id": 1}]})]
+
+    class Session:
+        def post(self, endpoint, data, timeout):
+            return responses.pop(0)
+
+    monkeypatch.setattr(overpass, "OVERPASS_ENDPOINTS", ["endpoint-1", "endpoint-2"])
+    monkeypatch.setattr(overpass, "create_retry_session", lambda: Session())
+
+    data = overpass.query_overpass_with_failover("[out:json];")
+
+    assert data["elements"] == [{"type": "node", "id": 1}]
+    assert data[overpass.OVERPASS_ENDPOINT_METADATA_KEY] == "endpoint-2"
+
+
+def test_overpass_raises_when_every_payload_is_incomplete(monkeypatch):
+    class Response:
+        status_code = 200
+
+        def json(self):
+            return {"elements": [], "remark": "runtime error: Query timed out."}
+
+    class Session:
+        def post(self, endpoint, data, timeout):
+            return Response()
+
+    monkeypatch.setattr(overpass, "OVERPASS_ENDPOINTS", ["endpoint-1"])
+    monkeypatch.setattr(overpass, "create_retry_session", lambda: Session())
+
+    with pytest.raises(RuntimeError, match="runtime error: Query timed out"):
+        overpass.query_overpass_with_failover("[out:json];")
+
+
+def test_overpass_accepts_informational_remark():
+    payload = {"elements": [], "remark": "runtime remark: Timeout is 25 and maxsize is 536870912."}
+    assert overpass.overpass_payload_problem(payload) is None
+
+
 def test_overpass_uses_bounded_connect_and_read_timeouts(monkeypatch):
     timeouts = []
 

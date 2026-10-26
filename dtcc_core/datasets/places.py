@@ -6,6 +6,8 @@ import dtcc_core
 from dtcc_core.model import PlaceCollection
 from pydantic import Field
 
+from ..common import warning
+
 from .dataset import DatasetBaseArgs, DatasetDescriptor
 from .providers import provider_entry
 
@@ -21,6 +23,14 @@ class PlacesArgs(DatasetBaseArgs):
 
     categories: Optional[List[Category]] = Field(
         None, description="Keep only these place categories; all categories by default."
+    )
+    roads: bool = Field(
+        True,
+        description=(
+            "Also download OpenStreetMap roads for the same bounds and keep them "
+            "as context_roads, drawn underneath the places by plot(). Ignored for "
+            "geojson/gpkg output."
+        ),
     )
     format: Optional[Literal["geojson", "gpkg"]] = Field(
         None, description="Output format (geojson/gpkg for point vector bytes)"
@@ -76,6 +86,7 @@ class PlacesDataset(DatasetDescriptor):
         "Drop street furniture such as benches, post boxes and parking spaces",
         "Place ways and relations at their centre and keep features inside the bounds",
         "Assign a coarse category from the OSM key and value",
+        "Download OpenStreetMap roads for the same bounds as plot context, unless roads=False",
         "Return a PlaceCollection or serialize GeoJSON/GeoPackage bytes",
     ]
     presentation_headline = "Places of Interest"
@@ -146,6 +157,13 @@ class PlacesDataset(DatasetDescriptor):
         places: PlaceCollection = dtcc_core.io.data.download_places(
             bounds=bounds, categories=args.categories
         )
+        if args.roads:
+            try:
+                places.context_roads = dtcc_core.io.data.download_roadnetwork(
+                    bounds=bounds, provider="OSM", epsg="3006"
+                )
+            except Exception as e:
+                warning(f"Could not download context roads for places; plotting without them: {e}")
         return places
 
     @staticmethod

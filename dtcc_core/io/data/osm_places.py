@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 from pathlib import Path
 
@@ -10,7 +11,7 @@ from ...model.geometry import Point
 from ..vector_utils import set_geometry_crs
 from .cache import cache_dir
 from .logging import info, warning
-from .overpass import query_overpass_with_failover
+from .overpass import overpass_payload_problem, query_overpass_with_failover
 
 try:
     import geopandas as gpd
@@ -21,7 +22,7 @@ except ImportError:
     HAS_GEOPANDAS = False
 
 
-PLACES_CACHE_VERSION = 1
+PLACES_CACHE_VERSION = 2
 # Place queries cover several keys and take longer than road or building
 # queries, so they get a longer server timeout and read timeout.
 PLACES_OVERPASS_TIMEOUT_SECONDS = int(os.environ.get("DTCC_PLACES_OVERPASS_TIMEOUT", "90"))
@@ -140,17 +141,28 @@ def download_places(
         One child object per place with a point geometry in EPSG:3006 and
         attributes ``osm_id``, ``osm_type``, ``name``, ``category``,
         ``osm_key``, ``osm_value`` and selected OSM tags. Ways and relations
-        are placed at their centre.
+        are placed at their centre. The collection's bounds and its
+        ``requested_bounds`` attribute are ``bounds``.
+
+    Raises
+    ------
+    RuntimeError
+        If no Overpass endpoint returns a complete response.
     """
+    bounds = _ensure_bounds(bounds)
     gdf = download_places_geodataframe(bounds, categories=categories, use_cache=use_cache)
-    return places_from_geodataframe(gdf)
+    places = places_from_geodataframe(gdf)
+    places.attributes["requested_bounds"] = list(bounds.tuple)
+    places.bounds = Bounds(*bounds.tuple)
+    return places
 
 
 def download_places_geodataframe(bounds: Bounds, categories=None, use_cache: bool = True):
     """Download named OpenStreetMap places for ``bounds`` as a GeoDataFrame.
 
     The result is in EPSG:3006 with one point row per place and the columns
-    listed in :data:`PLACE_COLUMNS`.
+    listed in :data:`PLACE_COLUMNS`. Only complete Overpass responses are
+    cached, keyed by the exact bounds.
     """
     if not HAS_GEOPANDAS:
         raise ImportError("GeoPandas is required to download places.")
@@ -214,11 +226,35 @@ def _query_places(bounds: Bounds) -> list:
     min_lon, min_lat, max_lon, max_lat = bounds_to_wgs84(bounds.tuple, "EPSG:3006")
     box = f"({min_lat},{min_lon},{max_lat},{max_lon})"
     statements = "".join(f'nwr["{key}"]["name"]{box};' for key in PLACE_KEYS)
-    query = f"[out:json][timeout:{PLACES_OVERPASS_TIMEOUT_SECONDS}];({statements});out tags center;"
-    payload = query_overpass_with_failover(
-        query, read_timeout=PLACES_OVERPASS_TIMEOUT_SECONDS + 10
+    # "body" keeps node coordinates; "center" adds a position to ways and relations.
+    query = f"[out:json][timeout:{PLACES_OVERPASS_TIMEOUT_SECONDS}];({statements});out body center;"
+    hint = (
+        "Try smaller bounds, raise DTCC_PLACES_OVERPASS_TIMEOUT "
+        f"(currently {PLACES_OVERPASS_TIMEOUT_SECONDS} s) or retry later."
     )
-    return payload.get("elements", [])
+    try:
+        payload = query_overpass_with_failover(
+            query, read_timeout=PLACES_OVERPASS_TIMEOUT_SECONDS + 10
+        )
+    except RuntimeError as e:
+        raise RuntimeError(f"Could not download OSM places for {bounds.tuple}: {e}. {hint}") from e
+    problem = overpass_payload_problem(payload) or _elements_problem(payload["elements"])
+    if problem is not None:
+        raise RuntimeError(f"Incomplete OSM places response for {bounds.tuple}: {problem}. {hint}")
+    return payload["elements"]
+
+
+def _elements_problem(elements: list):
+    for index, element in enumerate(elements):
+        if not isinstance(element, dict):
+            return f"element {index} is not an object"
+        if element.get("type") not in ("node", "way", "relation"):
+            return f"element {index} has no valid OSM type"
+        if not isinstance(element.get("id"), int) or isinstance(element.get("id"), bool):
+            return f"element {index} has no integer OSM id"
+        if not isinstance(element.get("tags", {}), dict):
+            return f"element {index} has tags that are not an object"
+    return None
 
 
 def _places_from_elements(elements: list, bounds: Bounds):
@@ -226,14 +262,18 @@ def _places_from_elements(elements: list, bounds: Bounds):
 
     to_3006 = Transformer.from_crs("EPSG:4326", "EPSG:3006", always_xy=True)
     rows, geometries, seen = [], [], set()
+    unplaced = 0
     for element in elements:
         tags = element.get("tags") or {}
         key = (element.get("type"), element.get("id"))
-        position = element.get("center") or element
-        if key in seen or not tags.get("name") or "lat" not in position:
+        if key in seen or not tags.get("name"):
             continue
         classified = place_category(tags)
         if classified is None:
+            continue
+        position = element.get("center") or element
+        if "lat" not in position or "lon" not in position:
+            unplaced += 1
             continue
         x, y = to_3006.transform(position["lon"], position["lat"])
         if not (bounds.xmin <= x <= bounds.xmax and bounds.ymin <= y <= bounds.ymax):
@@ -252,6 +292,8 @@ def _places_from_elements(elements: list, bounds: Bounds):
             row[attribute] = tags.get(tag)
         rows.append(row)
         geometries.append(ShapelyPoint(x, y))
+    if unplaced:
+        warning(f"Skipped {unplaced} OSM places without coordinates in the Overpass response.")
     return gpd.GeoDataFrame(rows, columns=list(PLACE_COLUMNS), geometry=geometries, crs="EPSG:3006")
 
 
@@ -284,11 +326,12 @@ def _ensure_bounds(bounds) -> Bounds:
 
 
 def _cache_path(bounds: Bounds) -> Path:
-    xmin, ymin, xmax, ymax = (round(value) for value in bounds.tuple)
+    exact = ",".join(repr(float(value)) for value in bounds.tuple)
+    digest = hashlib.sha256(exact.encode("ascii")).hexdigest()[:16]
     return (
         Path(cache_dir)
         / "downloaded_osm_places"
-        / f"places_v{PLACES_CACHE_VERSION}_{xmin}_{ymin}_{xmax}_{ymax}.gpkg"
+        / f"places_v{PLACES_CACHE_VERSION}_{digest}.gpkg"
     )
 
 
