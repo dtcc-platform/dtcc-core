@@ -72,6 +72,7 @@ def clean_footprint(
     min_building_detail: float = 0.5,
     lod: GeometryType | None = None,
     strict: bool = False,
+    remove_holes: bool = False,
 ) -> Building:
     """
     Clean the footprint of one building on its own.
@@ -92,6 +93,9 @@ def clean_footprint(
         LOD2, LOD3 and LOD0 that the building has.
     strict : bool, default False
         Raise instead of accepting residual separation below the scale.
+    remove_holes : bool, default False
+        Fill all holes and discard polygon components wholly inside holes
+        of other components.
 
     Returns
     -------
@@ -103,6 +107,7 @@ def clean_footprint(
         min_building_detail=min_building_detail,
         lod=lod,
         strict=strict,
+        remove_holes=remove_holes,
     )
 
 

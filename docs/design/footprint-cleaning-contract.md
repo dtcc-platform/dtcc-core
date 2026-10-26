@@ -11,6 +11,18 @@ buildings). The entry point is `clean_footprints` (`dtcc_core.builder`, with
 the shortcuts `City.clean_footprints()` and `Building.clean_footprint()`); the
 mesh builders use it too.
 
+With `remove_holes=True` (default `False`), the entry point first discards
+polygon components wholly covered by another component's hole, then fills all
+remaining holes. This includes components of the same multipart footprint and
+applies in isolation and at zero detail. The policy also applies to regions
+formed by cleaning, so merging cannot leave new holes or islands within them.
+Geometric cleaning uses the filled input as its reference. Filling newly formed
+holes is an explicit policy outside the fidelity bound; when it changes the
+result, the final contract is recorded as unchecked and the earlier check is
+kept in diagnostics. Minimum-area selection uses the filled areas. The cleaning
+record stores `remove_holes` and lists discarded components with reason
+`inside_hole`.
+
 One scale, `min_building_detail` = delta, sets:
 
 - the minimum feature size delta;

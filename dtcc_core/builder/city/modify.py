@@ -16,6 +16,7 @@ def clean_footprints(
     lod: GeometryType | None = None,
     strict: bool = False,
     show: bool = False,
+    remove_holes: bool = False,
 ) -> City:
     """
     Clean the building footprints of a city.
@@ -44,6 +45,9 @@ def clean_footprints(
         Raise instead of accepting residual separation below the scale.
     show : bool, default False
         Plot the input and cleaned footprints.
+    remove_holes : bool, default False
+        Fill all holes and discard polygon components wholly inside holes
+        of other components, even when cleaning in isolation.
 
     Returns
     -------
@@ -59,6 +63,7 @@ def clean_footprints(
         lod=lod,
         strict=strict,
         show=show,
+        remove_holes=remove_holes,
     )
 
 

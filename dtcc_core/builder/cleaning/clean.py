@@ -73,6 +73,7 @@ from dataclasses import dataclass, field, fields
 from typing import Any
 
 import numpy as np
+from shapely import STRtree, union_all
 from shapely.geometry import MultiPolygon, Polygon
 
 from dtcc_core.model import (
@@ -251,6 +252,7 @@ def clean_footprints(
     lod: GeometryType | Sequence[GeometryType] | None = None,
     strict: bool = False,
     show: bool = False,
+    remove_holes: bool = False,
 ):
     """Clean building footprints at the minimum building detail.
 
@@ -263,7 +265,7 @@ def clean_footprints(
         The scale delta in metres (default 0.5). Cleaned footprints have no
         feature smaller than delta, stay within delta / 2 of the input
         (3 delta / 4 when a merge group needs the retry), and footprints
-        closer than delta are merged. Zero leaves the footprints unchanged.
+        closer than delta are merged. Zero disables geometric cleaning.
     isolated : bool, optional
         Clean each building on its own, so nothing is merged and buildings may
         overlap or come closer than delta. By default the whole collection is
@@ -281,6 +283,13 @@ def clean_footprints(
         a block one footprint instead of walls closer than delta.
     show : bool, optional
         Plot the input and cleaned footprints.
+    remove_holes : bool, optional
+        Fill all footprint holes and discard polygon components wholly inside
+        another component's hole, including components of the same building
+        (default False). Applied before cleaning and to its resulting regions,
+        also in isolation and at zero detail. Geometric cleaning uses the
+        filled input as its reference; final hole filling is an explicit
+        policy outside the fidelity bound. Area selection uses the filled area.
 
     Returns
     -------
@@ -309,6 +318,7 @@ def clean_footprints(
             lod=lod,
             strict=strict,
             show=show,
+            remove_holes=remove_holes,
         )
         cleaned = cleaned_buildings(
             target.buildings, regions, reserved=_model_ids(target)
@@ -328,6 +338,7 @@ def clean_footprints(
             lod=lod,
             strict=strict,
             show=show,
+            remove_holes=remove_holes,
         )
         if len(regions.polygons) > 1:
             raise ValueError(
@@ -347,6 +358,7 @@ def clean_footprints(
         lod=lod,
         strict=strict,
         show=show,
+        remove_holes=remove_holes,
     )
     return cleaned_buildings(buildings, regions)
 
@@ -362,6 +374,7 @@ def clean_regions(
     show: bool = False,
     plot_block: bool = True,
     enable_logging: bool = True,
+    remove_holes: bool = False,
 ) -> CleanedRegions:
     """Clean the footprints of buildings without building model objects.
 
@@ -375,10 +388,29 @@ def clean_regions(
         raise ValueError("min_area must be finite and non-negative")
     if type(isolated) is not bool or type(strict) is not bool:
         raise TypeError("isolated and strict must be booleans")
+    if type(remove_holes) is not bool:
+        raise TypeError("remove_holes must be a boolean")
     buildings = list(buildings)
     lods = _resolve_lods(buildings, lod)
-    sources, labels, missing = _extract_sources(buildings, lods)
+    sources, labels, missing = _extract_sources(
+        buildings, lods, preserve_components=remove_holes
+    )
     raw = [source.polygon for source in sources]
+    reference = raw
+    hole_exclusions = []
+    if remove_holes:
+        reference, hole_exclusions = _remove_polygon_holes(raw)
+        for source, polygon in zip(sources, reference):
+            source.polygon = polygon
+            source.area = float(polygon.area)
+            for index in source.labels:
+                label = labels[index]
+                label.polygon = (
+                    polygon
+                    if label.part is None
+                    else _fill_polygon_holes(label.polygon).intersection(polygon)
+                )
+                label.area = float(label.polygon.area)
 
     options = ConditioningOptions(
         min_feature_size=delta,
@@ -386,13 +418,47 @@ def clean_regions(
         allow_residual_separation=not strict,
     )
     if isolated:
-        result = _clean_isolated(raw, options)
+        result = _clean_isolated(reference, options)
     else:
         result = condition_polygon_coverage(
-            raw, source_map=[[index] for index in range(len(raw))], options=options
+            reference,
+            source_map=[[index] for index in range(len(reference))],
+            options=options,
         )
         if delta == 0:
-            _check_unscaled(raw, result)
+            _check_unscaled(reference, result)
+    if remove_holes:
+        filled, exclusions = _remove_polygon_holes(result.polygons)
+        if any(
+            not polygon.equals(filled[index])
+            for index, polygon in enumerate(result.polygons)
+        ):
+            result.diagnostics["before_hole_removal_contract"] = result.diagnostics.get(
+                "before_selection_contract", {}
+            )
+            result.diagnostics["before_selection_contract"] = {
+                "status": "not_checked",
+                "reason": "Final hole removal is outside the fidelity bound",
+            }
+            result.diagnostics["mesher_profile"] = check_mesher_handoff_profile(
+                [polygon for polygon in filled if not polygon.is_empty]
+            )
+        hole_exclusions.extend(
+            {**row, "source_indices": result.source_map[row["source_indices"][0]]}
+            for row in exclusions
+        )
+        kept = [index for index, polygon in enumerate(filled) if not polygon.is_empty]
+        result = ConditioningResult(
+            polygons=[filled[index] for index in kept],
+            source_map=[result.source_map[index] for index in kept],
+            diagnostics={
+                **result.diagnostics,
+                "policy_exclusions": [
+                    *result.diagnostics.get("policy_exclusions", []),
+                    *hole_exclusions,
+                ],
+            },
+        )
     selected = select_footprints(result, min_area=min_area)
     polygons = list(selected.polygons)
     region_sources = [list(indices) for indices in selected.source_map]
@@ -462,6 +528,7 @@ def clean_regions(
         "min_building_detail": delta,
         "isolated": isolated,
         "min_area": float(min_area),
+        "remove_holes": remove_holes,
         "lod": _lod_label(lod),
         "strict": strict,
         "outcome": diagnostics.get("outcome"),
@@ -853,14 +920,20 @@ def _lod_label(lod) -> str:
     return "per_building"
 
 
-def _extract_source(building: Building, lod: GeometryType):
+def _extract_source(
+    building: Building, lod: GeometryType, *, preserve_components: bool = False
+):
     """Footprint polygon, its area, modelling height and roof level."""
     geometry = building.get_geometry(lod) if lod == GeometryType.LOD0 else None
     if geometry is None:
         geometry = building.flatten_geometry(lod)
     if geometry is None:
         return None, 0.0, None, 0.0
-    polygon = geometry.to_polygon(simplify=0.0)
+    polygon = (
+        union_all(footprint_pieces(geometry))
+        if preserve_components and isinstance(geometry, MultiSurface)
+        else geometry.to_polygon(simplify=0.0)
+    )
     if polygon is None or polygon.is_empty:
         return None, 0.0, None, 0.0
     try:
@@ -885,7 +958,7 @@ def _footprint_roof(obj) -> float | None:
     return None
 
 
-def _extract_sources(buildings, lods):
+def _extract_sources(buildings, lods, *, preserve_components=False):
     """The footprints to clean (one per building) and the labels for walls.
 
     A cleaned block is cleaned from its LOD0 footprint, whatever the LOD
@@ -921,7 +994,9 @@ def _extract_sources(buildings, lods):
             )
             labels.extend(parts)
             continue
-        polygon, area, height, roof_z = _extract_source(building, lod)
+        polygon, area, height, roof_z = _extract_source(
+            building, lod, preserve_components=preserve_components
+        )
         if polygon is None:
             missing.append(index)
             continue
@@ -941,6 +1016,45 @@ def _extract_sources(buildings, lods):
 
 def _region_labels(indices, sources) -> list[int]:
     return [label for index in indices for label in sources[index].labels]
+
+
+def _fill_polygon_holes(polygon):
+    """Fill the interior rings of a Polygon or MultiPolygon."""
+    if isinstance(polygon, Polygon):
+        return Polygon(polygon.exterior)
+    return union_all([Polygon(piece.exterior) for piece in polygon.geoms])
+
+
+def _remove_polygon_holes(polygons):
+    """Fill holes after dropping components covered by any other hole.
+
+    Keep the input index space, using empty polygons for removed geometries.
+    Containment is checked against all original holes before filling any.
+    """
+    pieces = [
+        (index, piece)
+        for index, polygon in enumerate(polygons)
+        for piece in ([polygon] if isinstance(polygon, Polygon) else polygon.geoms)
+        if not piece.is_empty
+    ]
+    holes = [Polygon(ring) for _, piece in pieces for ring in piece.interiors]
+    tree = STRtree(holes)
+    kept = [[] for _ in polygons]
+    exclusions = []
+    for index, piece in pieces:
+        if len(tree.query(piece, predicate="covered_by")):
+            exclusions.append(
+                {
+                    "source_indices": [index],
+                    "area": float(piece.area),
+                    "reason": "inside_hole",
+                }
+            )
+        else:
+            kept[index].append(Polygon(piece.exterior))
+    return [
+        pieces[0] if len(pieces) == 1 else MultiPolygon(pieces) for pieces in kept
+    ], exclusions
 
 
 def _source_budgets(diagnostics) -> dict[int, float]:
@@ -971,6 +1085,7 @@ def _label(
         len(indices) == 1
         and labels[source.labels[0]].part is not None
         and polygon.equals(source.polygon)
+        and polygon.equals(block_region(buildings[source.building]))
     )
     if unchanged:
         building = buildings[source.building]

@@ -2,7 +2,7 @@
 
 import numpy as np
 import pytest
-from shapely.geometry import box
+from shapely.geometry import Polygon, box
 
 from dtcc_core import io
 from dtcc_core.builder import clean_footprints
@@ -21,6 +21,7 @@ from dtcc_core.model import (
     BuildingPart,
     City,
     GeometryType,
+    MultiSurface,
     PointCloud,
     Raster,
     Surface,
@@ -220,6 +221,140 @@ def test_building_shortcut_cleans_one_building_in_isolation():
     assert cleaned.id == "one" and cleaned is not value
     assert footprint(cleaned).equals(box(0, 0, 10, 10))
     assert clean_footprints(value, min_area=200) is None
+
+
+def test_holes_and_courtyard_buildings_are_preserved_by_default():
+    courtyard = box(0, 0, 20, 20).difference(box(5, 5, 15, 15))
+    values = [
+        building("outer", courtyard, 10),
+        building("inner", box(8, 8, 12, 12), 30),
+    ]
+
+    cleaned = clean_footprints(values)
+
+    assert [value.id for value in cleaned] == ["outer", "inner"]
+    assert footprint(cleaned[0]).equals(courtyard)
+
+
+@pytest.mark.parametrize("delta", [0.0, 0.5])
+@pytest.mark.parametrize("isolated", [False, True])
+@pytest.mark.parametrize("as_city", [False, True])
+def test_remove_holes_drops_nested_polygons_before_merging(delta, isolated, as_city):
+    outer = Polygon(
+        box(0, 0, 30, 20).exterior,
+        [box(5, 5, 15, 15).exterior, box(20, 5, 25, 15).exterior],
+    )
+    middle = box(5.1, 5.1, 14.9, 14.9).difference(box(8, 8, 12, 12))
+    values = [
+        building("nested", box(9, 9, 11, 11), 50),
+        building("other_hole", box(21, 6, 24, 14), 40),
+        building("outside", box(40, 0, 50, 10), 20),
+        building("middle", middle, 30),
+        building("outer", outer, 10),
+    ]
+    target = city_of(*values) if as_city else values
+    options = dict(min_building_detail=delta, isolated=isolated, remove_holes=True)
+
+    result = (
+        target.clean_footprints(**options)
+        if as_city
+        else clean_footprints(target, **options)
+    )
+    cleaned = result.buildings if as_city else result
+
+    assert [value.id for value in cleaned] == ["outside", "outer"]
+    assert footprint(cleaned[1]).equals(box(0, 0, 30, 20))
+    assert cleaned[1].estimated_height == 10
+    assert not cleaned[1].building_parts
+    assert footprint(values[4]).equals(outer)
+    assert footprint(values[3]).equals(middle)
+    if as_city:
+        record = result.attributes[RECORD_KEY]
+        assert record["remove_holes"] is True
+        assert {row["ids"][0] for row in record["excluded"]} == {
+            "nested",
+            "other_hole",
+            "middle",
+        }
+        assert all(row["reason"] == "inside_hole" for row in record["excluded"])
+
+
+def test_remove_holes_building_shortcut_uses_filled_area_for_selection():
+    polygon = box(0, 0, 20, 20).difference(box(2, 2, 18, 18))
+    value = building("courtyard", polygon, 10)
+
+    cleaned = value.clean_footprint(remove_holes=True)
+    selected = clean_footprints(value, remove_holes=True, min_area=300)
+
+    assert footprint(cleaned).equals(box(0, 0, 20, 20))
+    assert footprint(selected).equals(box(0, 0, 20, 20))
+    assert clean_footprints(value, min_area=300) is None
+    assert footprint(value).equals(polygon)
+
+
+def test_remove_holes_preserves_components_outside_a_hole():
+    polygon = box(0, 0, 20, 20).difference(box(5, 5, 15, 15))
+    value = Building(id="multipart")
+    surfaces = []
+    for piece in [polygon, box(7, 7, 10, 10), box(30, 0, 40, 10)]:
+        surface = Surface()
+        surface.from_polygon(piece, 10)
+        surfaces.append(surface)
+    value.add_geometry(MultiSurface(surfaces=surfaces), GeometryType.LOD0)
+
+    cleaned = clean_footprints([value], remove_holes=True, min_building_detail=0)
+
+    assert len(cleaned) == 2
+    assert all(not footprint(item).interiors for item in cleaned)
+    assert sum(footprint(item).area for item in cleaned) == pytest.approx(500)
+    assert len(value.get_geometry(GeometryType.LOD0).surfaces) == 3
+
+
+def test_remove_holes_keeps_polygon_crossing_hole_boundary_in_isolation():
+    polygon = box(0, 0, 20, 20).difference(box(5, 5, 15, 15))
+    values = [
+        building("outer", polygon, 10),
+        building("crossing", box(10, 7, 17, 13), 20),
+    ]
+
+    cleaned = clean_footprints(values, remove_holes=True, isolated=True)
+
+    assert [value.id for value in cleaned] == ["outer", "crossing"]
+    assert footprint(cleaned[1]).equals(box(10, 7, 17, 13))
+
+
+@pytest.mark.parametrize("preclean", [False, True])
+def test_remove_holes_fills_holes_formed_by_merging_and_drops_their_islands(preclean):
+    values = [
+        building("bottom", box(0, 0, 20, 5), 10),
+        building("top", box(0, 15, 20, 20), 10),
+        building("left", box(0, 5, 5, 15), 10),
+        building("right", box(15, 5, 20, 15), 10),
+        building("island", box(8, 8, 12, 12), 40),
+    ]
+
+    if preclean:
+        values = clean_footprints(values)
+    result = city_of(*values).clean_footprints(remove_holes=True)
+    cleaned = result.buildings
+
+    assert len(cleaned) == 1
+    assert footprint(cleaned[0]).equals(box(0, 0, 20, 20))
+    assert "island" not in cleaned[0].attributes[MERGED_FROM_KEY]
+    assert result.attributes[RECORD_KEY]["excluded"] == [
+        {"ids": ["island"], "area": 16.0, "reason": "inside_hole"}
+    ]
+    assert all(
+        not footprint(part).interiors
+        for part in cleaned[0].building_parts
+        if part.get_geometry(GeometryType.LOD0) is not None
+    )
+
+
+@pytest.mark.parametrize("value", [None, 0, 1, "yes"])
+def test_remove_holes_requires_a_boolean(value):
+    with pytest.raises(TypeError, match="remove_holes must be a boolean"):
+        clean_footprints([], remove_holes=value)
 
 
 def test_record_tracks_footprints_but_not_heights(tmp_path):
