@@ -63,9 +63,7 @@ def test_default_divisions_40_gives_41_lines_per_axis():
 
     features = result["features"]
     vertical = [f for f in features if f["properties"]["orientation"] == "vertical"]
-    horizontal = [
-        f for f in features if f["properties"]["orientation"] == "horizontal"
-    ]
+    horizontal = [f for f in features if f["properties"]["orientation"] == "horizontal"]
     assert len(vertical) == 41
     assert len(horizontal) == 41
     assert len(features) == 82
@@ -150,13 +148,13 @@ def test_dataset_context_marks_calibration_grid_table_ready_synthetic_fixture():
 
     presentation = context.presentation
     assert presentation.headline == "Table Calibration Grid"
-    assert "What you are seeing" in {
-        item["heading"] for item in presentation.narrative
-    }
+    assert "What you are seeing" in {item["heading"] for item in presentation.narrative}
     assert presentation.legend["title"] == "Calibration grid"
     assert presentation.view_hints["table_role"] == "alignment"
     assert presentation.warnings
-    assert any("not a surveyed control network" in item for item in presentation.limitations)
+    assert any(
+        "not a surveyed control network" in item for item in presentation.limitations
+    )
 
 
 def test_crs_none_omits_crs_member():

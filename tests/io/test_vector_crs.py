@@ -3,21 +3,22 @@
 
 """Tests for CRS handling in vector I/O."""
 
-import pytest
-import numpy as np
 import tempfile
-import fiona
-import shapely.geometry
 from pathlib import Path
 
+import fiona
+import numpy as np
+import pytest
+import shapely.geometry
+
 from dtcc_core.io.vector_utils import (
-    validate_crs,
     get_format_required_crs,
-    reproject_shapely_geometry,
     get_geometry_crs,
+    reproject_shapely_geometry,
     set_geometry_crs,
+    validate_crs,
 )
-from dtcc_core.model import Building, City, Tree, GeometryType
+from dtcc_core.model import Building, City, GeometryType, Tree
 from dtcc_core.model.geometry import Surface
 
 
@@ -86,9 +87,7 @@ class TestReprojectShapelyGeometry:
         """Test reprojecting a point from WGS84 to SWEREF99 TM."""
         # Gothenburg approximate location
         point_wgs84 = shapely.geometry.Point(11.9746, 57.7089)
-        point_sweref = reproject_shapely_geometry(
-            point_wgs84, "EPSG:4326", "EPSG:3006"
-        )
+        point_sweref = reproject_shapely_geometry(point_wgs84, "EPSG:4326", "EPSG:3006")
 
         # Expected approximate coordinates in SWEREF99 TM
         # (these are approximate, so we use larger tolerance)
@@ -98,9 +97,7 @@ class TestReprojectShapelyGeometry:
     def test_reproject_point_sweref99_to_wgs84(self):
         """Test reprojecting a point from SWEREF99 TM to WGS84."""
         point_sweref = shapely.geometry.Point(319180, 6399862)
-        point_wgs84 = reproject_shapely_geometry(
-            point_sweref, "EPSG:3006", "EPSG:4326"
-        )
+        point_wgs84 = reproject_shapely_geometry(point_sweref, "EPSG:3006", "EPSG:4326")
 
         # Expected approximate coordinates in WGS84
         assert abs(point_wgs84.x - 11.9746) < 0.01
@@ -122,14 +119,10 @@ class TestReprojectShapelyGeometry:
 
     def test_reproject_linestring(self):
         """Test reprojecting a linestring geometry."""
-        line_wgs84 = shapely.geometry.LineString([
-            (11.97, 57.70),
-            (11.98, 57.71),
-            (11.99, 57.72)
-        ])
-        line_sweref = reproject_shapely_geometry(
-            line_wgs84, "EPSG:4326", "EPSG:3006"
+        line_wgs84 = shapely.geometry.LineString(
+            [(11.97, 57.70), (11.98, 57.71), (11.99, 57.72)]
         )
+        line_sweref = reproject_shapely_geometry(line_wgs84, "EPSG:4326", "EPSG:3006")
 
         assert line_sweref.geom_type == "LineString"
         assert len(list(line_sweref.coords)) == 3
@@ -257,10 +250,7 @@ class TestLoadWithTargetCrs:
 
     def create_test_shapefile(self, filepath, crs="EPSG:3006"):
         """Helper to create a test shapefile."""
-        schema = {
-            "geometry": "Polygon",
-            "properties": {"id": "str", "name": "str"}
-        }
+        schema = {"geometry": "Polygon", "properties": {"id": "str", "name": "str"}}
 
         # Create a simple polygon in the specified CRS
         if crs == "EPSG:3006":
@@ -273,10 +263,12 @@ class TestLoadWithTargetCrs:
         with fiona.open(
             filepath, "w", driver="ESRI Shapefile", crs=crs, schema=schema
         ) as dst:
-            dst.write({
-                "geometry": shapely.geometry.mapping(polygon),
-                "properties": {"id": "test1", "name": "Test Building"}
-            })
+            dst.write(
+                {
+                    "geometry": shapely.geometry.mapping(polygon),
+                    "properties": {"id": "test1", "name": "Test Building"},
+                }
+            )
 
     def test_load_footprints_native_crs(self):
         """Test loading footprints without CRS conversion."""
@@ -314,7 +306,7 @@ class TestLoadWithTargetCrs:
             surface = buildings[0].get_geometry(GeometryType.LOD0)
             coords = surface.vertices
             assert np.all(np.abs(coords[:, 0]) < 180)  # Longitude
-            assert np.all(np.abs(coords[:, 1]) < 90)   # Latitude
+            assert np.all(np.abs(coords[:, 1]) < 90)  # Latitude
 
 
 class TestSaveWithOutputCrs:
@@ -327,12 +319,14 @@ class TestSaveWithOutputCrs:
         # Create a building in SWEREF99 TM
         building = Building()
         surface = Surface()
-        surface.vertices = np.array([
-            [319000, 6399000, 0],
-            [319100, 6399000, 0],
-            [319100, 6399100, 0],
-            [319000, 6399100, 0],
-        ])
+        surface.vertices = np.array(
+            [
+                [319000, 6399000, 0],
+                [319100, 6399000, 0],
+                [319100, 6399100, 0],
+                [319000, 6399100, 0],
+            ]
+        )
         surface.transform.srs = "EPSG:3006"
         building.add_geometry(surface, GeometryType.LOD0)
         building.id = "test1"
@@ -366,12 +360,14 @@ class TestSaveWithOutputCrs:
         # Create a building in SWEREF99 TM
         building = Building()
         surface = Surface()
-        surface.vertices = np.array([
-            [319000, 6399000, 0],
-            [319100, 6399000, 0],
-            [319100, 6399100, 0],
-            [319000, 6399100, 0],
-        ])
+        surface.vertices = np.array(
+            [
+                [319000, 6399000, 0],
+                [319100, 6399000, 0],
+                [319100, 6399100, 0],
+                [319000, 6399100, 0],
+            ]
+        )
         surface.transform.srs = "EPSG:3006"
         building.add_geometry(surface, GeometryType.LOD0)
         building.id = "test1"
@@ -397,12 +393,14 @@ class TestSaveWithOutputCrs:
         # Create a building in SWEREF99 TM
         building = Building()
         surface = Surface()
-        surface.vertices = np.array([
-            [319000, 6399000, 0],
-            [319100, 6399000, 0],
-            [319100, 6399100, 0],
-            [319000, 6399100, 0],
-        ])
+        surface.vertices = np.array(
+            [
+                [319000, 6399000, 0],
+                [319100, 6399000, 0],
+                [319100, 6399100, 0],
+                [319000, 6399100, 0],
+            ]
+        )
         surface.transform.srs = "EPSG:3006"
         building.add_geometry(surface, GeometryType.LOD0)
         building.id = "test1"
@@ -436,20 +434,22 @@ class TestRoundtrip:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create original file in SWEREF99
             original_file = Path(tmpdir) / "original.shp"
-            schema = {
-                "geometry": "Polygon",
-                "properties": {"id": "str"}
-            }
+            schema = {"geometry": "Polygon", "properties": {"id": "str"}}
             polygon = shapely.geometry.box(319000, 6399000, 319100, 6399100)
 
             with fiona.open(
-                original_file, "w", driver="ESRI Shapefile",
-                crs="EPSG:3006", schema=schema
+                original_file,
+                "w",
+                driver="ESRI Shapefile",
+                crs="EPSG:3006",
+                schema=schema,
             ) as dst:
-                dst.write({
-                    "geometry": shapely.geometry.mapping(polygon),
-                    "properties": {"id": "test1"}
-                })
+                dst.write(
+                    {
+                        "geometry": shapely.geometry.mapping(polygon),
+                        "properties": {"id": "test1"},
+                    }
+                )
 
             # Load original in native CRS for comparison
             buildings_original = load(original_file)

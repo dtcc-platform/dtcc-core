@@ -51,7 +51,9 @@ def test_deso_dataset_returns_deso(monkeypatch):
 def test_deso_info_uses_dataset_tables(monkeypatch):
     expected = _deso()
 
-    monkeypatch.setattr("dtcc_core.io.data.download_deso", lambda *args, **kwargs: expected)
+    monkeypatch.setattr(
+        "dtcc_core.io.data.download_deso", lambda *args, **kwargs: expected
+    )
 
     deso = datasets.deso(bounds=(0.0, 0.0, 2.0, 1.0))
     text = deso.info(print=False)
@@ -92,12 +94,16 @@ def test_deso_context_documents_scb_vintages_statistics_and_limits():
     assert "Requires review" in manifest.metadata.license
     assert "2018 and 2025" in manifest.metadata.collection_period
     assert any("SCB WFS" in step for step in manifest.provenance.processing_steps)
-    assert any("Statistikdatabasen" in step for step in manifest.provenance.processing_steps)
+    assert any(
+        "Statistikdatabasen" in step for step in manifest.provenance.processing_steps
+    )
     assert manifest.provenance.derived_from[0]["name"] == "SCB DeSO boundary dataset"
     assert manifest.presentation.legend["title"] == "DeSO areas"
     assert manifest.presentation.view_hints["geometry_years"] == [2018, 2025]
     assert "employment" in manifest.presentation.view_hints["statistics_topics"]
-    assert any("not building-level" in warning for warning in manifest.presentation.warnings)
+    assert any(
+        "not building-level" in warning for warning in manifest.presentation.warnings
+    )
     assert manifest.presentation.limitations
     assert manifest.request.parameters["statistics"] == ["population", "employment"]
     assert manifest.request.parameters["statistics_year"] == 2024
@@ -108,11 +114,9 @@ def test_deso_dataset_protobuf_format(monkeypatch):
 
     monkeypatch.setattr(
         "dtcc_core.io.data.download_deso",
-        lambda bounds,
-        year=2025,
-        source="SCB",
-        statistics=None,
-        statistics_year=None: expected,
+        lambda bounds, year=2025, source="SCB", statistics=None, statistics_year=None: (
+            expected
+        ),
     )
 
     payload = datasets.deso(bounds=(0.0, 0.0, 2.0, 1.0), format="pb")

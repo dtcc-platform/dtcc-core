@@ -5,8 +5,8 @@ Run with ``DTCC_LIVE_DATASET_TESTS=1 pytest tests/datasets/live``.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import random
+from dataclasses import dataclass
 
 import pytest
 
@@ -17,7 +17,6 @@ from dtcc_core.datasets.ocean import OceanDataset, OceanDatasetArgs
 from dtcc_core.datasets.weather import WeatherDataset, WeatherDatasetArgs
 from dtcc_core.model.geometry import Point
 from dtcc_core.model.object import SensorCollection
-
 
 SEED = 42
 JITTER_M = 10_000.0

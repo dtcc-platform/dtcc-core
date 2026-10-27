@@ -1,13 +1,17 @@
 """Cleaning handoff and phase measurements for the city benchmark.
 
-Saved coordinates are in EPSG:3006 (metres), never GeoJSON's implied WGS84.
-The mesh builders remain the authority for consuming conditioned footprints.
+The cleaning phase saves the raw city, the cleaned city (``clean_footprints``)
+and the cleaned footprints. The meshing phase meshes the cleaned city, whose
+cleaning record lets the mesh builders skip cleaning. Saved coordinates are in
+EPSG:3006 (metres), never GeoJSON's implied WGS84.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import time
+from copy import deepcopy
 from pathlib import Path
 
 import numpy as np
@@ -16,17 +20,19 @@ from shapely import make_valid
 from shapely.geometry import mapping, shape
 from shapely.ops import unary_union
 
-from dtcc_core.model import Bounds, City, GeometryType, Raster, Surface
-from dtcc_core.io.model import load_model, save_model
+from benchmarks.benchmark_catalog import CLEANING_PARAMETERS
+from dtcc_core.builder.cleaning.blocks import source_footprint, source_id, source_ids
+from dtcc_core.builder.cleaning.clean import RECORD_KEY, cleaning_record
 from dtcc_core.builder.geometry_builders import meshes
 from dtcc_core.datasets._city_mesh_common import (
     prepare_city_from_bounds,
     prepare_footprint_city_from_bounds,
 )
-from benchmarks.benchmark_catalog import CLEANING_PARAMETERS
+from dtcc_core.io.model import load_model, save_model
+from dtcc_core.model import Bounds, City, GeometryType, Raster
 
 # Format version of saved cleaning artifacts; loading rejects any other.
-ARTIFACT_VERSION = 2
+ARTIFACT_VERSION = 4
 PREPARATION_PARAMETERS = (
     "raster_cell_size",
     "raster_radius",
@@ -93,9 +99,27 @@ def footprint_metrics(raw, cleaned, source_map, scale, *, epsilon=None):
     }
 
 
-def save_cleaning(directory, city, conditioned, task):
+def _footprint_polygon(building):
+    footprint = building.get_geometry(GeometryType.LOD0)
+    return None if footprint is None else footprint.to_polygon(simplify=0.0)
+
+
+def _raw_source_map(raw_city, cleaned_city, kept):
+    """Raw building indices behind each kept cleaned building."""
+    index = {building.id: i for i, building in enumerate(raw_city.buildings)}
+    source_map = []
+    for position in kept:
+        building = cleaned_city.buildings[position]
+        ids = source_ids(building)
+        source_map.append(sorted({index[i] for i in ids if i in index}))
+    return source_map
+
+
+def save_cleaning(directory, raw_city, cleaned_city, footprints, task):
+    """Save the raw and cleaned cities and the cleaning stage metadata."""
     directory.mkdir(parents=True, exist_ok=True)
-    save_model(city, directory / "raw.dtcc")
+    save_model(raw_city, directory / "raw.dtcc")
+    save_model(cleaned_city, directory / "cleaned.dtcc")
     payload = {
         "type": "FeatureCollection",
         "metadata": {
@@ -103,25 +127,24 @@ def save_cleaning(directory, city, conditioned, task):
             "crs": "EPSG:3006",
             "bounds": task["case"]["bounds"],
             "parameters": {k: task["parameters"][k] for k in CLEANING_PARAMETERS},
-            "declared_scale": conditioned.declared_scale,
-            "before_selection_contract": conditioned.diagnostics.get(
+            "declared_scale": footprints.declared_scale,
+            "cleaning": cleaned_city.attributes[RECORD_KEY],
+            "before_selection_contract": footprints.diagnostics.get(
                 "before_selection_contract"
             ),
-            "selection": conditioned.diagnostics.get("selection"),
-            "final_handoff_contract": conditioned.diagnostics.get(
-                "final_handoff_contract"
-            ),
-            "policy_exclusions": conditioned.diagnostics.get(
-                "policy_exclusions", []
-            ),
+            "selection": footprints.diagnostics.get("selection"),
         },
         "features": [
             {
                 "type": "Feature",
                 "geometry": mapping(surface.to_polygon(simplify=0.0)),
-                "properties": {"source_indices": indices},
+                "properties": {
+                    "building_index": indices[0],
+                    "building_id": cleaned_city.buildings[indices[0]].id,
+                    "roof_z": float(surface.zmax),
+                },
             }
-            for surface, indices in zip(conditioned.surfaces, conditioned.source_map)
+            for surface, indices in zip(footprints.surfaces, footprints.source_map)
         ],
     }
     path = directory / "footprints.geojson"
@@ -130,7 +153,11 @@ def save_cleaning(directory, city, conditioned, task):
 
 
 def load_cleaning(path, task):
-    """Admit a persisted handoff; never silently fix its geometry or identity."""
+    """Admit a saved cleaning; never silently fix its geometry or identity.
+
+    Returns the raw city and the cleaned city. The cleaned city must carry a
+    cleaning record that is valid for its buildings, so meshing reuses it.
+    """
     path = Path(path)
     try:
         payload = json.loads(path.read_text())
@@ -143,134 +170,57 @@ def load_cleaning(path, task):
             raise ValueError("unsupported cleaning artifact format or CRS")
         if metadata["bounds"] != list(task["case"]["bounds"]):
             raise ValueError("cleaning artifact bounds do not match the selected case")
-        if metadata["parameters"] != {
-            k: task["parameters"][k] for k in CLEANING_PARAMETERS
-        }:
+        parameters = {k: task["parameters"][k] for k in CLEANING_PARAMETERS}
+        if metadata["parameters"] != parameters:
             raise ValueError(
                 "cleaning artifact parameters do not match the selected case"
             )
-        scale = float(metadata["declared_scale"])
-        if not np.isfinite(scale) or scale <= 0:
-            raise ValueError("invalid declared scale")
-        before_selection_contract = metadata.get("before_selection_contract")
-        selection = metadata.get("selection")
-        final_handoff_contract = metadata.get("final_handoff_contract")
-        policy_exclusions = metadata.get("policy_exclusions", [])
-        if not isinstance(before_selection_contract, dict):
-            raise ValueError("missing before-selection contract")
-        if not isinstance(selection, dict):
-            raise ValueError("missing selection metadata")
-        if final_handoff_contract is not None and not isinstance(
-            final_handoff_contract, dict
-        ):
-            raise ValueError("invalid final handoff contract")
-        if not isinstance(policy_exclusions, list):
-            raise ValueError("invalid policy exclusions")
-        city = load_model(path.parent / "raw.dtcc", expected_type=City)
-        surfaces, source_map = [], []
+        raw_city = load_model(path.parent / "raw.dtcc", expected_type=City)
+        cleaned_city = load_model(path.parent / "cleaned.dtcc", expected_type=City)
+        record = cleaning_record(
+            cleaned_city, min_building_detail=parameters["min_building_detail"]
+        )
+        if record is None:
+            raise ValueError(
+                "cleaned city has no valid cleaning record for these parameters"
+            )
+        if metadata.get("cleaning") != record:
+            raise ValueError("cleaning metadata does not match the cleaned city")
+        buildings = cleaned_city.buildings
+        regions: dict[int, list] = {}
         for feature in payload["features"]:
-            polygon = shape(feature["geometry"])
-            indices = feature["properties"]["source_indices"]
+            properties = feature["properties"]
+            index = properties["building_index"]
+            if type(index) is not int or not 0 <= index < len(buildings):
+                raise ValueError("invalid building index")
+            if properties["building_id"] != buildings[index].id:
+                raise ValueError("saved footprints do not match the cleaned city")
+            regions.setdefault(index, []).append(shape(feature["geometry"]))
+        # The regions of a building (one per roof level of a block) tile its
+        # footprint.
+        for index, polygons in regions.items():
+            footprint = _footprint_polygon(buildings[index])
+            union = unary_union(polygons)
+            tolerance = 1e-9 * max(1.0, footprint.area)
             if (
-                polygon.geom_type != "Polygon"
-                or polygon.is_empty
-                or not polygon.is_valid
+                abs(sum(polygon.area for polygon in polygons) - union.area) > tolerance
+                or union.symmetric_difference(footprint).area > tolerance
             ):
-                raise ValueError("invalid cleaned polygon")
-            if not all(
-                np.isfinite(np.asarray(r.coords)).all()
-                for r in [polygon.exterior, *polygon.interiors]
-            ):
-                raise ValueError("nonfinite cleaned coordinates")
-            if (
-                not isinstance(indices, list)
-                or not indices
-                or any(
-                    type(i) is not int or not 0 <= i < len(city.buildings)
-                    for i in indices
-                )
-                or indices != sorted(set(indices))
-            ):
-                raise ValueError("invalid source indices")
-            surface = Surface()
-            surface.from_polygon(polygon)
-            surfaces.append(surface)
-            source_map.append(indices)
-        required_selection_counts = (
-            "input_count",
-            "output_count",
-            "removed_count",
-        )
-        if any(
-            type(selection.get(key)) is not int or selection[key] < 0
-            for key in required_selection_counts
-        ):
-            raise ValueError("invalid selection counts")
-        if (
-            selection["output_count"] != len(surfaces)
-            or selection["input_count"]
-            != selection["output_count"] + selection["removed_count"]
-        ):
-            raise ValueError("selection counts do not match saved geometry")
-        for field in ("excluded_regions",):
-            if not isinstance(selection.get(field), list):
-                raise ValueError(f"invalid selection {field}")
-        for exclusion in [*selection["excluded_regions"], *policy_exclusions]:
-            if not isinstance(exclusion, dict):
-                raise ValueError("invalid selection or policy exclusion")
-            indices = exclusion.get("source_indices")
-            area = exclusion.get("area")
-            reason = exclusion.get("reason")
-            if (
-                not isinstance(indices, list)
-                or indices != sorted(set(indices))
-                or any(
-                    type(index) is not int or not 0 <= index < len(city.buildings)
-                    for index in indices
-                )
-                or type(area) not in (float, int)
-                or not np.isfinite(area)
-                or area < 0
-                or not isinstance(reason, str)
-                or not reason
-            ):
-                raise ValueError("invalid selection or policy exclusion")
-        for field in (
-            "represented_source_indices",
-            "unrepresented_source_indices",
-        ):
-            indices = selection.get(field)
-            if (
-                not isinstance(indices, list)
-                or indices != sorted(set(indices))
-                or any(
-                    type(index) is not int or not 0 <= index < len(city.buildings)
-                    for index in indices
-                )
-            ):
-                raise ValueError(f"invalid selection {field}")
-        represented = sorted({index for indices in source_map for index in indices})
-        if selection["represented_source_indices"] != represented:
-            raise ValueError("selection represented sources do not match geometry")
-        diagnostics = {
-            "before_selection_contract": before_selection_contract,
-            "selection": selection,
-            "policy_exclusions": policy_exclusions,
-        }
-        if final_handoff_contract is not None:
-            diagnostics["final_handoff_contract"] = final_handoff_contract
-        conditioned = meshes.ConditionedFootprints(
-            surfaces,
-            source_map,
-            [],
-            diagnostics,
-            scale,
-            {},
-        )
-        # Graph and scale validation happens at the mesh-builder input boundary.
-        return city, conditioned
+                raise ValueError("saved footprints do not match the cleaned city")
+        return raw_city, cleaned_city
     except (KeyError, TypeError, OSError, ValueError) as exc:
         raise ValueError(f"Invalid cleaning artifact {path}: {exc}") from exc
+
+
+def _cleaning_stage(cleaned_city, parameters):
+    """The footprint stage the mesh builders will use, from the record."""
+    return meshes._meshing_footprints(
+        cleaned_city,
+        lod=None,
+        min_building_detail=parameters["min_building_detail"],
+        min_building_area=parameters["min_building_area"],
+        max_mesh_size=parameters["max_mesh_size"],
+    )
 
 
 def _flat_city(city, bounds):
@@ -287,6 +237,48 @@ def _flat_city(city, bounds):
     )
     city.add_terrain(raster)
     return city
+
+
+def roof_evidence(city):
+    """Fingerprint source-owned observations, including legitimate empty clouds.
+
+    A merged parent cloud cannot substitute for its parts' observations.
+    Cleaned outlines remain meshing domains; original outlines define fitting.
+    """
+    sources = []
+    for building in city.buildings:
+        for source in building.building_parts or [building]:
+            if not isinstance(source.attributes.get("source_footprint"), dict):
+                raise ValueError(f"Missing original roof footprint for {source.id}")
+            polygon = source_footprint(source)
+            cloud = source.get_geometry(GeometryType.POINT_CLOUD)
+            if polygon is None or cloud is None:
+                raise ValueError(f"Missing source roof evidence for {source.id}")
+            points = np.asarray(cloud.points, dtype="<f8").reshape(-1, 3)
+            if not np.isfinite(points).all():
+                raise ValueError(f"Nonfinite source roof points for {source.id}")
+            ground = source.attributes.get("ground_height")
+            sources.append(
+                {
+                    "source_id": source_id(source),
+                    "occurrence_id": str(source.id),
+                    "points": len(points),
+                    "footprint_sha256": hashlib.sha256(polygon.wkb).hexdigest(),
+                    "points_sha256": hashlib.sha256(points.tobytes()).hexdigest(),
+                    "ground_height": (
+                        float(ground)
+                        if ground is not None and np.isfinite(ground)
+                        else None
+                    ),
+                }
+            )
+    return {
+        "extraction": "original_source_footprints_v1",
+        "sources": sources,
+        "source_count": len(sources),
+        "sources_with_points": sum(s["points"] > 0 for s in sources),
+        "point_count": sum(s["points"] for s in sources),
+    }
 
 
 def execute_phases(task, metrics, artifacts):
@@ -307,37 +299,51 @@ def execute_phases(task, metrics, artifacts):
     metrics["active_phase"] = "input"
     if phase == "meshing":
         source_path = Path(task["cleaning_input"])
-        city, conditioned = load_cleaning(source_path, task)
-        metrics["cleaning"] = {"status": "reused", "input": str(source_path)}
+        raw_city, cleaned_city = load_cleaning(source_path, task)
+        stage = _cleaning_stage(cleaned_city, parameters)
+        metrics["cleaning"] = {
+            "status": "reused",
+            "input": str(source_path),
+            "contract": stage.contract,
+        }
         # Make the new result self-contained for another replay.
-        path = save_cleaning(cleaning_dir, city, conditioned, task)
+        path = save_cleaning(
+            cleaning_dir,
+            raw_city,
+            cleaned_city,
+            stage,
+            task,
+        )
     else:
-        city = prepare_footprint_city_from_bounds(bounds)
+        if phase == "replay":
+            raw_city = load_model(
+                Path(task["cleaning_input"]).parent / "raw.dtcc", expected_type=City
+            )
+        else:
+            raw_city = prepare_footprint_city_from_bounds(bounds)
         metrics["input"] = {
             "status": "success",
             "seconds": time.perf_counter() - started,
-            "source": "provider/cache",
+            "source": "saved raw" if phase == "replay" else "provider/cache",
         }
         raw = [
             polygon
-            for b in city.buildings
+            for b in raw_city.buildings
             if (geometry := b.flatten_geometry(GeometryType.LOD0)) is not None
             if (polygon := geometry.to_polygon(simplify=0.0)) is not None
             and not polygon.is_empty
         ]
         metrics["active_phase"] = "cleaning"
         started = time.perf_counter()
-        conditioned = meshes.build_conditioned_footprints(
-            city.buildings,
+        cleaned_city = raw_city.clean_footprints(
+            min_building_detail=parameters["min_building_detail"],
             lod=GeometryType.LOD0,
-            **{k: parameters[k] for k in CLEANING_PARAMETERS},
-            max_mesh_size=parameters["max_mesh_size"],
-            cleaning_diagnostics=False,
         )
+        stage = _cleaning_stage(cleaned_city, parameters)
         seconds = time.perf_counter() - started
-        cleaned = [s.to_polygon(simplify=0.0) for s in conditioned.surfaces]
+        cleaned = [s.to_polygon(simplify=0.0) for s in stage.surfaces]
         cleaning_warnings, _ = _split_contract_warnings(
-            _metric_contract_warnings({"contract": conditioned.contract})
+            _metric_contract_warnings({"contract": stage.contract})
         )
         metrics["cleaning"] = {
             "status": "warning" if cleaning_warnings else "success",
@@ -345,17 +351,19 @@ def execute_phases(task, metrics, artifacts):
             **footprint_metrics(
                 raw,
                 cleaned,
-                conditioned.source_map,
-                conditioned.declared_scale,
-                epsilon=conditioned.diagnostics.get("fidelity_budget_used"),
+                _raw_source_map(
+                    raw_city, cleaned_city, [i for (i,) in stage.source_map]
+                ),
+                stage.declared_scale,
+                epsilon=stage.diagnostics.get("fidelity_budget_used"),
             ),
-            "contract": conditioned.contract,
-            "before_selection_contract": conditioned.diagnostics.get(
+            "contract": stage.contract,
+            "before_selection_contract": stage.diagnostics.get(
                 "before_selection_contract"
             ),
-            "selection": conditioned.diagnostics.get("selection"),
+            "selection": stage.diagnostics.get("selection"),
         }
-        path = save_cleaning(cleaning_dir, city, conditioned, task)
+        path = save_cleaning(cleaning_dir, raw_city, cleaned_city, stage, task)
     artifacts["cleaning_input"] = {"format": "geojson", "path": str(path)}
     write_json(cleaning_dir / "metrics.json", metrics["cleaning"])
     if phase == "cleaning" or dataset == "city_footprints":
@@ -369,25 +377,44 @@ def execute_phases(task, metrics, artifacts):
     preparation = {k: parameters[k] for k in PREPARATION_PARAMETERS}
     saved_city = task.get("prepared_city")
     if dataset == "city_flat_mesh":
-        city = _flat_city(city, bounds)
+        city = _flat_city(cleaned_city, bounds)
         source = "bounds"
     elif saved_city:
         prepared = load_model(saved_city, expected_type=City)
-        if len(prepared.buildings) != len(city.buildings) or any(
-            original.id != enriched.id
-            or not original.footprint()
-            .to_polygon(simplify=0.0)
-            .equals_exact(enriched.footprint().to_polygon(simplify=0.0), 0.0)
-            for original, enriched in zip(city.buildings, prepared.buildings)
-        ):
-            raise ValueError(
-                "Saved mesh input does not match the cleaning source buildings"
+        if phase == "replay":
+            city = _restore_source_evidence(cleaned_city, prepared)
+            source = "saved evidence after raw cleaning replay"
+        else:
+            city = prepared
+            source = "saved"
+        if phase != "replay" and (
+            len(prepared.buildings) != len(cleaned_city.buildings)
+            or any(
+                original.id != enriched.id
+                or not _footprint_polygon(original).equals_exact(
+                    _footprint_polygon(enriched), 0.0
+                )
+                for original, enriched in zip(
+                    cleaned_city.buildings, prepared.buildings
+                )
             )
-        city = prepared
-        source = "saved"
+        ):
+            raise ValueError("Saved mesh input does not match the cleaned buildings")
     else:
-        city = prepare_city_from_bounds(bounds, buildings=city.buildings, **preparation)
+        city = prepare_city_from_bounds(
+            bounds, buildings=cleaned_city.buildings, **preparation
+        )
+        # Heights change only z, so the cleaning record stays valid.
+        city.attributes[RECORD_KEY] = cleaned_city.attributes[RECORD_KEY]
         source = "provider/cache"
+    evidence = None
+    if parameters.get("lod") == "lod2":
+        evidence = roof_evidence(city)
+        if saved_city and city.attributes.get("benchmark_roof_evidence") != evidence:
+            raise ValueError(
+                "Saved LOD2 input lacks matching source roof evidence; prepare it again"
+            )
+        city.attributes["benchmark_roof_evidence"] = evidence
     city_path = mesh_dir / "city.dtcc"
     save_model(city, city_path)
     artifacts["prepared_city"] = {"format": "dtcc", "path": str(city_path)}
@@ -397,6 +424,9 @@ def execute_phases(task, metrics, artifacts):
         "source": source,
         "parameters": preparation,
     }
+    if evidence is not None:
+        metrics["mesh_input"]["roof_evidence"] = evidence
+    write_json(mesh_dir / "input.json", metrics["mesh_input"])
     metrics["active_phase"] = "meshing"
     started = time.perf_counter()
     build = getattr(meshes, "build_" + dataset)
@@ -404,23 +434,107 @@ def execute_phases(task, metrics, artifacts):
         k: parameters[k]
         for k in ("max_mesh_size", "min_mesh_angle", *CLEANING_PARAMETERS)
     }
+    if dataset in ("city_surface_mesh", "city_volume_mesh"):
+        kwargs.update(
+            lod=parameters.get("lod", "lod1"),
+            lod2_method=parameters.get("lod2_method", "catalogue"),
+        )
     if dataset == "city_volume_mesh":
         kwargs["domain_height"] = parameters["domain_height"]
-    mesh = build(
-        city,
-        lod=GeometryType.LOD0,
-        conditioned_footprints=conditioned,
-        report_mesh_quality=False,
-        cleaning_diagnostics=False,
-        stage_audit={},
-        **kwargs,
-    )
+    audit = {}
+    try:
+        mesh = build(
+            city,
+            report_mesh_quality=False,
+            stage_audit=audit,
+            **kwargs,
+        )
+    except Exception:
+        metrics["stage_audit"] = audit
+        metrics["meshing"] = {
+            "status": "failed",
+            "seconds": time.perf_counter() - started,
+            "stage_audit": audit,
+        }
+        write_json(mesh_dir / "metrics.json", metrics["meshing"])
+        raise
     seconds = time.perf_counter() - started
     metrics["active_phase"] = "meshing"
     mesh_metrics = _mesh_metrics(mesh)
+    if "roof_catalogue" in audit:
+        roofs = audit["roof_catalogue"]
+        mesh_metrics["lod2"] = {
+            "method": parameters["lod2_method"],
+            "source_count": len(roofs["sources"]),
+            "retained_fits": roofs.get("retained_fits", 0),
+            "retained_nonflat_fits": roofs.get("retained_nonflat_fits", 0),
+            "block_fallbacks": roofs["block_fallbacks"],
+        }
     metrics["meshing"] = {"status": "success", "seconds": seconds, **mesh_metrics}
     # Preserve the existing report's mesh columns and contract-warning handling.
     metrics.update(mesh_metrics)
     write_json(mesh_dir / "metrics.json", metrics["meshing"])
     metrics.pop("active_phase", None)
     return mesh
+
+
+def _restore_source_evidence(cleaned, prepared):
+    """Attach immutable saved source observations to a freshly cleaned raw city."""
+    from dtcc_core.builder.cleaning.blocks import part_roof, update_walls
+
+    expected = roof_evidence(prepared)
+    if prepared.attributes.get("benchmark_roof_evidence") != expected:
+        raise ValueError("Raw replay needs matching saved source roof evidence")
+    sources = {}
+    for building in prepared.buildings:
+        for source in building.building_parts or [building]:
+            key = source_id(source)
+            if key in sources:
+                previous = sources[key]
+                if source_footprint(previous).wkb != source_footprint(
+                    source
+                ).wkb or not np.array_equal(
+                    previous.point_cloud.points, source.point_cloud.points
+                ):
+                    raise ValueError(f"Conflicting saved evidence for source {key}")
+            sources[key] = source
+    for building in cleaned.buildings:
+        for source in building.building_parts or [building]:
+            key = source_id(source)
+            if key not in sources:
+                raise ValueError(f"Raw replay lacks evidence for source {key}")
+            saved = sources[key]
+            for name in (
+                "source_footprint",
+                "ground_height",
+                "estimated_height",
+                "height",
+            ):
+                if name in saved.attributes:
+                    source.attributes[name] = deepcopy(saved.attributes[name])
+            source.add_geometry(deepcopy(saved.point_cloud), GeometryType.POINT_CLOUD)
+            if source.lod0 is not None:
+                source.lod0.set_z(
+                    saved.lod0.zmax if saved.lod0 is not None else part_roof(saved)
+                )
+        if building.building_parts:
+            building.lod0.set_z(
+                max(part_roof(part) for part in building.building_parts)
+            )
+            building.attributes["ground_height"] = min(
+                part.attributes["ground_height"] for part in building.building_parts
+            )
+            building.attributes["estimated_height"] = (
+                building.lod0.zmax - building.attributes["ground_height"]
+            )
+            update_walls(building)
+    cleaned.add_terrain(deepcopy(prepared.terrain))
+    actual = roof_evidence(cleaned)
+    signatures = lambda evidence: sorted(
+        (s["source_id"], s["points_sha256"], s["footprint_sha256"], s["ground_height"])
+        for s in evidence["sources"]
+    )
+    if signatures(actual) != signatures(expected):
+        raise ValueError("Raw replay changed the source roof evidence inventory")
+    cleaned.attributes["benchmark_roof_evidence"] = actual
+    return cleaned

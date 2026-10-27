@@ -10,6 +10,26 @@ permissions:
   contents: read
 
 jobs:
+  # Ruff runs standalone: style and lint checks do not need the compiled
+  # extension, so this job gives feedback in seconds.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.1.0
+        with:
+          python-version: "3.11"
+          enable-cache: true
+
+      - name: Check lint rules
+        run: uvx ruff@0.16.8 check .
+
+      - name: Check formatting
+        run: uvx ruff@0.16.8 format --check .
+
   build-and-test:
     strategy:
       matrix:
@@ -62,6 +82,8 @@ jobs:
         run: |
           cd tests
           uv run --locked --extra volume pytest builder/test_meshing.py \
+            builder/test_lod2_volume.py \
+            'common/test_benchmark_lod2.py::test_quick_lod2_runner_and_exact_evidence_replay[city_volume_mesh]' \
             builder/test_cleaning_meshing_integration.py::test_build_city_volume_mesh_smoke \
             builder/test_cleaning_meshing_integration.py::test_build_city_volume_mesh_smoke_auto_lod_resolution \
             builder/test_cleaning_meshing_integration.py::test_city_volume_mesh_propagates_tetgen_failure \

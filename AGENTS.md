@@ -1,5 +1,16 @@
 # Agent instructions
 
+Use the repository's configured human Git identity for commits. Check
+`git var GIT_AUTHOR_IDENT` and `git var GIT_COMMITTER_IDENT` before committing;
+both must resolve to the intended human identity from `git config user.name`
+and `git config user.email`. Do not override them with an agent identity via
+`--author`, `git -c`, Git configuration, or author/committer environment variables.
+Never use Claude, Anthropic, Codex, OpenAI, or another agent as author,
+committer, or `Co-authored-by`. Do not add generated-by attribution trailers.
+If the human identity is missing or ambiguous, ask before committing. Preserve
+other contributors' attribution; rewrite existing attribution only when explicitly
+requested by the user.
+
 Do not commit implementation plans or temporary working documents, such as
 scratch notes, progress logs, review notes, or drafts.
 

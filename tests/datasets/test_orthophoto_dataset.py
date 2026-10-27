@@ -1,15 +1,15 @@
+import dataclasses
 import gc
 import importlib
 import json
 import math
-import dataclasses
 import struct
-from functools import partial
 import traceback
 import warnings
 import weakref
 import zipfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 
 import numpy as np
@@ -23,14 +23,15 @@ from rasterio.io import MemoryFile
 from requests.structures import CaseInsensitiveDict
 
 import dtcc_core.datasets as datasets
-from dtcc_core.datasets import attach_dataset_context
 import dtcc_core.io as dtcc_io
+import tests.datasets.live.test_orthophoto_live as live
 from dtcc_core.common import progress as progress_module
+from dtcc_core.datasets import attach_dataset_context
 from dtcc_core.datasets.dataset import DatasetDescriptor, DatasetUpstreamError
+from dtcc_core.datasets.orthophoto import OrthophotoArgs, OrthophotoDataset
 from dtcc_core.datasets.package import export_model_package, load_model_package
 from dtcc_core.datasets.publish import _validate_upload_package
 from dtcc_core.datasets.schema import DatasetContext
-from dtcc_core.datasets.orthophoto import OrthophotoArgs, OrthophotoDataset
 from dtcc_core.io import raster as raster_io
 from dtcc_core.io import raster_tiles
 from dtcc_core.io.data import cache as data_cache
@@ -38,7 +39,6 @@ from dtcc_core.io.data import orthophoto as client
 from dtcc_core.io.raster_tiles import READ_OVERHEAD_BYTES, WorkingMemoryError
 from dtcc_core.model import Bounds, Raster, exchange
 from dtcc_core.model.values.raster_tiles import RasterTileCollection
-import tests.datasets.live.test_orthophoto_live as live
 from tests.datasets.test_dataset_publish import RecordingUploader
 
 # The package attribute is the registered dataset; the module is imported directly.
@@ -89,8 +89,17 @@ class Server:
         self.chunk = None
         self.without_length = set()
 
-    def add(self, name, bounds, body, *, year=2020, spektraltyp="rgbi",
-            resolution=0.5, collection=None):
+    def add(
+        self,
+        name,
+        bounds,
+        body,
+        *,
+        year=2020,
+        spektraltyp="rgbi",
+        resolution=0.5,
+        collection=None,
+    ):
         collection = collection or f"orto-{year}"
         href = f"/files/{collection}/{name}.tif"
         self.items.append(
@@ -112,7 +121,7 @@ class Server:
         self.calls.append(url)
         if self.before is not None:
             self.before(url)
-        path = url[len(BASE):]
+        path = url[len(BASE) :]
         if path == "/items":
             if isinstance(self.manifest_failure, BaseException):
                 raise self.manifest_failure
@@ -123,9 +132,9 @@ class Server:
         if path in self.file_failures:
             return self.file_failures[path]
         body = self.files[path]
-        headers = {} if path in self.without_length else {
-            "Content-Length": str(len(body))
-        }
+        headers = (
+            {} if path in self.without_length else {"Content-Length": str(len(body))}
+        )
         return FakeResponse(200, body, headers, chunk=self.chunk)
 
     def file_calls(self):
@@ -152,8 +161,17 @@ def no_http(monkeypatch):
     monkeypatch.setattr(client.requests, "get", forbidden)
 
 
-def tiff(tmp_path, bounds, *, bands=4, tag=1, pixel=0.5, nodata=None, data=None,
-         damaged_block=None):
+def tiff(
+    tmp_path,
+    bounds,
+    *,
+    bands=4,
+    tag=1,
+    pixel=0.5,
+    nodata=None,
+    data=None,
+    damaged_block=None,
+):
     """GeoTIFF bytes: band 1 a tag, bands 2-3 column and row, band 4 constant."""
     width = int(round((bounds[2] - bounds[0]) / pixel))
     height = int(round((bounds[3] - bounds[1]) / pixel))
@@ -170,9 +188,17 @@ def tiff(tmp_path, bounds, *, bands=4, tag=1, pixel=0.5, nodata=None, data=None,
     if bands > 3:
         profile["alpha"] = "unspecified"
     with rasterio.open(
-        path, "w", driver="GTiff", width=width, height=height, count=bands,
-        dtype="uint8", crs="EPSG:3006", nodata=nodata,
-        transform=Affine(pixel, 0.0, bounds[0], 0.0, -pixel, bounds[3]), **profile,
+        path,
+        "w",
+        driver="GTiff",
+        width=width,
+        height=height,
+        count=bands,
+        dtype="uint8",
+        crs="EPSG:3006",
+        nodata=nodata,
+        transform=Affine(pixel, 0.0, bounds[0], 0.0, -pixel, bounds[3]),
+        **profile,
     ) as dst:
         dst.write(data)
     body = bytearray(path.read_bytes())
@@ -256,11 +282,16 @@ def test_invalid_arguments_are_rejected_before_any_request(no_http, case):
 def test_valid_argument_forms():
     six = OrthophotoArgs(bounds=[0.0, 0.0, 5.0, 1.0, 1.0, 5.0])
     assert list(six.bounds) == [0.0, 0.0, 5.0, 1.0, 1.0, 5.0]
-    tiles = OrthophotoArgs(bounds=[0, 0, 1, 1], product="tiles",
-                           spektraltyp=["cir", "pan", "cir"])
+    tiles = OrthophotoArgs(
+        bounds=[0, 0, 1, 1], product="tiles", spektraltyp=["cir", "pan", "cir"]
+    )
     assert tiles.spektraltyp == ["cir", "pan"]
-    assert OrthophotoArgs(bounds=[0, 0, 1, 1], collection="orto-o2-2025",
-                          year=2025, resolution=0.5).collection == "orto-o2-2025"
+    assert (
+        OrthophotoArgs(
+            bounds=[0, 0, 1, 1], collection="orto-o2-2025", year=2025, resolution=0.5
+        ).collection
+        == "orto-o2-2025"
+    )
 
 
 def test_bounds_object_with_nan_z_is_rejected(no_http):
@@ -334,9 +365,15 @@ def test_describe_is_deterministic_and_has_no_url(monkeypatch):
 def test_discovery_metadata_states_access_and_setup():
     described = datasets.orthophoto.describe()
     description = described["description"]
-    for phrase in ("internal to Chalmers", "Chalmers network or VPN",
-                   "no public default URL", CONTACT, "DTCC_ORTHOPHOTO_URL",
-                   "server_url", "strict_live=True"):
+    for phrase in (
+        "internal to Chalmers",
+        "Chalmers network or VPN",
+        "no public default URL",
+        CONTACT,
+        "DTCC_ORTHOPHOTO_URL",
+        "server_url",
+        "strict_live=True",
+    ):
         assert phrase in description, phrase
     server_url = described["args_schema"]["properties"]["server_url"]
     assert "Chalmers network or VPN" in server_url["description"]
@@ -360,8 +397,12 @@ def test_one_manifest_per_call_drives_every_step(server, tmp_path):
 
 def test_explicit_resolution_over_budget_is_refused_before_any_request(no_http):
     with pytest.raises(WorkingMemoryError):
-        datasets.orthophoto(bounds=(0.0, 0.0, 1000.0, 1000.0), server_url=BASE,
-                            resolution=0.1, max_memory_bytes=READ_OVERHEAD_BYTES)
+        datasets.orthophoto(
+            bounds=(0.0, 0.0, 1000.0, 1000.0),
+            server_url=BASE,
+            resolution=0.1,
+            max_memory_bytes=READ_OVERHEAD_BYTES,
+        )
 
 
 def test_known_manifest_resolutions_over_budget_are_refused_before_downloads(
@@ -398,16 +439,17 @@ def test_default_product_is_an_rgba_mosaic(server, tmp_path):
 
 def test_orthophoto_mosaic_plots_as_an_image(server, tmp_path):
     import matplotlib
-    matplotlib.use('Agg', force=True)
+
+    matplotlib.use("Agg", force=True)
     import matplotlib.pyplot as plt
 
     server.add("a", cell(0), tiff(tmp_path, cell(0), tag=9))
     raster = call()
     ax = raster.plot(show=False)
     try:
-        assert ax.name == 'rectilinear'
+        assert ax.name == "rectilinear"
         np.testing.assert_array_equal(ax.images[0].get_array(), raster.data)
-        assert raster.dataset_context.health['status'] == 'complete'
+        assert raster.dataset_context.health["status"] == "complete"
         ax.figure.canvas.draw()
     finally:
         plt.close(ax.figure)
@@ -472,9 +514,7 @@ def test_tif_write_is_refused_when_output_and_strip_exceed_the_budget(
     )
 
 
-def test_tif_file_size_does_not_depend_on_the_gdal_cache(
-    server, tmp_path, monkeypatch
-):
+def test_tif_file_size_does_not_depend_on_the_gdal_cache(server, tmp_path, monkeypatch):
     big = cell(0, size=256.0)
     data = np.random.default_rng(0).integers(1, 255, (4, 512, 512), dtype=np.uint8)
     server.add("a", big, tiff(tmp_path, big, data=data))
@@ -508,9 +548,7 @@ def test_tif_read_is_refused_when_the_file_exceeds_the_budget(
     assert info.value.estimate_bytes == 10**12
 
 
-def test_tif_bytes_are_read_after_the_mosaic_is_released(
-    server, tmp_path, monkeypatch
-):
+def test_tif_bytes_are_read_after_the_mosaic_is_released(server, tmp_path, monkeypatch):
     server.add("a", cell(0), tiff(tmp_path, cell(0)))
     references = []
     real_build = orthophoto_module.build_mosaic
@@ -535,8 +573,9 @@ def test_tif_bytes_are_read_after_a_partial_mosaic_is_released(
 ):
     big = cell(0, size=4.0)
     server.add("old", big, tiff(tmp_path, big, tag=1, pixel=0.125), year=2010)
-    server.add("new", big, tiff(tmp_path, big, tag=2, pixel=0.125, damaged_block=-1),
-               year=2020)
+    server.add(
+        "new", big, tiff(tmp_path, big, tag=2, pixel=0.125, damaged_block=-1), year=2020
+    )
     # Small blocks: the damaged block fails after earlier blocks are composited.
     monkeypatch.setattr(raster_tiles, "STRIP_BYTES", 3000)
     references = []
@@ -591,23 +630,21 @@ NETWORK_HINT = "check the server URL, your network and VPN connection"
 
 
 @pytest.mark.parametrize("path", ["call", "export"])
-def test_tif_after_a_failed_listing_raises_the_upstream_failure(
-    server, tmp_path, path
-):
+def test_tif_after_a_failed_listing_raises_the_upstream_failure(server, tmp_path, path):
     server.manifest_failure = requests.ConnectionError("down")
     with pytest.raises(DatasetUpstreamError) as info:
         if path == "call":
             call(format="tif")
         else:
-            datasets.orthophoto.export(tmp_path / "o.tif", bounds=cell(0),
-                                       server_url=BASE)
+            datasets.orthophoto.export(
+                tmp_path / "o.tif", bounds=cell(0), server_url=BASE
+            )
     assert info.value.failure_class == "connection"
     assert NETWORK_HINT in str(info.value)
     assert list(tmp_path.iterdir()) == []
 
 
-def test_tif_after_failed_downloads_keeps_the_upstream_explanation(server,
-                                                                   tmp_path):
+def test_tif_after_failed_downloads_keeps_the_upstream_explanation(server, tmp_path):
     href = server.add("a", cell(0), tiff(tmp_path, cell(0)))
     server.file_failures[href] = FakeResponse(
         503, json.dumps({"detail": "LM credentials not configured"})
@@ -728,8 +765,9 @@ def test_local_errors_raise_in_both_modes(server, tmp_path, monkeypatch, strict)
 def test_tile_failing_after_contributing_stays_a_source(server, tmp_path, monkeypatch):
     big = cell(0, size=4.0)
     server.add("old", big, tiff(tmp_path, big, tag=1, pixel=0.125), year=2010)
-    server.add("new", big, tiff(tmp_path, big, tag=2, pixel=0.125, damaged_block=-1),
-               year=2020)
+    server.add(
+        "new", big, tiff(tmp_path, big, tag=2, pixel=0.125, damaged_block=-1), year=2020
+    )
     # Small blocks: the rows above the damaged bottom-right block come first.
     monkeypatch.setattr(raster_tiles, "STRIP_BYTES", 3000)
     raster = call(bounds=big)
@@ -739,8 +777,11 @@ def test_tile_failing_after_contributing_stays_a_source(server, tmp_path, monkey
     assert new_pixels > 0
     assert health["status"] == "partial" and health["coverage_complete"] is True
     assert health["items_used"] == 2
-    items = {source["id"]: source for source in context.provenance.sources
-             if isinstance(source, dict) and source.get("role") == "source_item"}
+    items = {
+        source["id"]: source
+        for source in context.provenance.sources
+        if isinstance(source, dict) and source.get("role") == "source_item"
+    }
     assert items["new"]["pixels"] == new_pixels
     assert items["new"]["pixels"] + items["old"]["pixels"] == 32 * 32
     assert "Older imagery (old) overlaps new, which failed." in context.warnings
@@ -780,8 +821,7 @@ def test_tiles_fallback_warning_states_overlap_only(server, tmp_path):
     href = server.add("new", cell(0), tiff(tmp_path, cell(0), tag=2), year=2020)
     # The older tile holds only declared nodata: it overlaps but fills nothing.
     empty = np.zeros((4, 4, 4), dtype=np.uint8)
-    server.add("old", cell(0), tiff(tmp_path, cell(0), nodata=0, data=empty),
-               year=2010)
+    server.add("old", cell(0), tiff(tmp_path, cell(0), nodata=0, data=empty), year=2010)
     server.file_failures[href] = FakeResponse(404, "missing")
     warnings = call(product="tiles").dataset_context.warnings
     assert "Older imagery (old) overlaps new, which failed." in warnings
@@ -809,10 +849,13 @@ def test_raster_fallback_warning_states_overlap_without_filling(server, tmp_path
 def test_context_carries_no_cache_paths(server, tmp_path):
     server.add("a", cell(0), tiff(tmp_path, cell(0), tag=1), year=2010)
     server.add("bad", cell(0), tiff(tmp_path, cell(0), bands=3), year=2020)
-    server.add("broken", cell(0, size=4.0),
-               # Block 2 is the bottom-left one, under the requested cell.
-               tiff(tmp_path, cell(0, size=4.0), pixel=0.125, damaged_block=2),
-               year=2021)
+    server.add(
+        "broken",
+        cell(0, size=4.0),
+        # Block 2 is the bottom-left one, under the requested cell.
+        tiff(tmp_path, cell(0, size=4.0), pixel=0.125, damaged_block=2),
+        year=2021,
+    )
     href = server.add("html", cell(0), b"<html>bad gateway</html>", year=2022)
     raster = call()
     context = raster.dataset_context
@@ -827,8 +870,11 @@ def test_context_carries_no_cache_paths(server, tmp_path):
 
 
 def item_sources(context):
-    return [source for source in context.provenance.sources
-            if isinstance(source, dict) and source.get("role") == "source_item"]
+    return [
+        source
+        for source in context.provenance.sources
+        if isinstance(source, dict) and source.get("role") == "source_item"
+    ]
 
 
 def test_context_records_sources_dates_grid_and_health(server, tmp_path):
@@ -862,8 +908,11 @@ def test_successive_and_nested_calls_have_independent_contexts(server, tmp_path)
     server.before = call_inside
     second = call()
     server.before = None
-    contexts = [first.dataset_context, second.dataset_context,
-                nested[0].dataset_context]
+    contexts = [
+        first.dataset_context,
+        second.dataset_context,
+        nested[0].dataset_context,
+    ]
     assert len({id(context) for context in contexts}) == 3
     assert contexts[0].health["coverage_complete"] is True
     assert contexts[2].health["coverage_complete"] is False
@@ -912,9 +961,12 @@ def test_export_sidecar_carries_this_calls_context(server, tmp_path):
 def test_export_sidecar_has_no_cache_paths(server, tmp_path):
     server.add("a", cell(0), tiff(tmp_path, cell(0), tag=1), year=2010)
     server.add("bad", cell(0), tiff(tmp_path, cell(0), bands=3), year=2020)
-    server.add("broken", cell(0, size=4.0),
-               tiff(tmp_path, cell(0, size=4.0), pixel=0.125, damaged_block=2),
-               year=2021)
+    server.add(
+        "broken",
+        cell(0, size=4.0),
+        tiff(tmp_path, cell(0, size=4.0), pixel=0.125, damaged_block=2),
+        year=2021,
+    )
     server.add("html", cell(0), b"<html>bad gateway</html>", year=2022)
     result = export(tmp_path / "out" / "o.tif")
     text = result.manifest_path.read_text()
@@ -933,14 +985,16 @@ def test_nested_exports_have_independent_sidecars(server, tmp_path):
     def export_inside(url):
         if url.endswith("/items") and server.before is not None:
             server.before = None
-            nested.append(export(tmp_path / "inner.tif",
-                                 bounds=(X0, Y0, X0 + 4.0, Y0 + 2.0)))
+            nested.append(
+                export(tmp_path / "inner.tif", bounds=(X0, Y0, X0 + 4.0, Y0 + 2.0))
+            )
 
     server.before = export_inside
     outer = export(tmp_path / "outer.tif")
     server.before = None
-    health = [result.manifest["dataset_context"]["health"]
-              for result in (outer, nested[0])]
+    health = [
+        result.manifest["dataset_context"]["health"] for result in (outer, nested[0])
+    ]
     assert health[0]["coverage_complete"] is True
     assert health[1]["coverage_complete"] is False
     assert dict(vars(descriptor)) == before
@@ -950,8 +1004,12 @@ def test_publish_uploads_a_sidecar_with_context(server, tmp_path):
     serve_partial(server, tmp_path)
     uploader = RecordingUploader()
     datasets.orthophoto.publish(
-        dataset_key="orthophoto-test", format="tif", bounds=cell(0),
-        server_url=BASE, output_dir=tmp_path / "package", keep_export=True,
+        dataset_key="orthophoto-test",
+        format="tif",
+        bounds=cell(0),
+        server_url=BASE,
+        output_dir=tmp_path / "package",
+        keep_export=True,
         uploader=uploader,
     )
     (upload,) = uploader.calls
@@ -983,15 +1041,14 @@ class PackageRecorder:
     def __init__(self):
         self.calls = []
 
-    def upload_package(self, *, dataset_key, manifest_path, files, manifest,
-                       idempotency_key=None):
+    def upload_package(
+        self, *, dataset_key, manifest_path, files, manifest, idempotency_key=None
+    ):
         self.calls.append(manifest)
         return {"published": dataset_key}
 
 
-def test_legacy_package_of_a_partial_mosaic_warns_and_keeps_warnings(
-    server, tmp_path
-):
+def test_legacy_package_of_a_partial_mosaic_warns_and_keeps_warnings(server, tmp_path):
     serve_partial(server, tmp_path)
     raster = call()
     uploader = PackageRecorder()
@@ -1004,8 +1061,11 @@ def test_legacy_package_of_a_partial_mosaic_warns_and_keeps_warnings(
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             export_package()
-        messages = [str(warning.message) for warning in caught
-                    if issubclass(warning.category, UserWarning)]
+        messages = [
+            str(warning.message)
+            for warning in caught
+            if issubclass(warning.category, UserWarning)
+        ]
         assert len(messages) == 1
         assert "'partial'" in messages[0] and "canonical=True" in messages[0]
     manifest = json.loads(
@@ -1013,8 +1073,9 @@ def test_legacy_package_of_a_partial_mosaic_warns_and_keeps_warnings(
     )
     with zipfile.ZipFile(tmp_path / "pkg.dtccpkg") as archive:
         assert json.loads(archive.read("manifest.json")) == manifest
-    assert "Older imagery (a) overlaps b, which failed." in (
-        manifest["presentation"]["warnings"]
+    assert (
+        "Older imagery (a) overlaps b, which failed."
+        in (manifest["presentation"]["warnings"])
     )
     assert "health" not in manifest
     assert uploader.calls[0]["presentation"] == manifest["presentation"]
@@ -1059,27 +1120,33 @@ def extracted_tiff(archive_path, directory):
 
 TIFF_PATHS = {
     "format tif": lambda raster, out: (
-        out.mkdir(),
-        (out / "o.tif").write_bytes(call(bounds=TWO_CELLS, format="tif")),
-    )
-    and out / "o.tif",
-    "descriptor export": lambda raster, out: export(
-        out / "o.tif", bounds=TWO_CELLS
-    ).path,
+        (
+            out.mkdir(),
+            (out / "o.tif").write_bytes(call(bounds=TWO_CELLS, format="tif")),
+        )
+        and out / "o.tif"
+    ),
+    "descriptor export": lambda raster, out: (
+        export(out / "o.tif", bounds=TWO_CELLS).path
+    ),
     "descriptor publish": lambda raster, out: written_tiff(
         datasets.orthophoto.publish(
-            dataset_key="orthophoto-test", format="tif", bounds=TWO_CELLS,
-            server_url=BASE, output_dir=out, keep_export=True,
+            dataset_key="orthophoto-test",
+            format="tif",
+            bounds=TWO_CELLS,
+            server_url=BASE,
+            output_dir=out,
+            keep_export=True,
             uploader=RecordingUploader(),
         )
         and out
     ),
     "save with alpha": lambda raster, out: (
-        out.mkdir(), raster.save(out / "o.tif", alpha=True)
-    )
-    and out / "o.tif",
-    "save": lambda raster, out: (out.mkdir(), raster.save(out / "o.tif"))
-    and out / "o.tif",
+        (out.mkdir(), raster.save(out / "o.tif", alpha=True)) and out / "o.tif"
+    ),
+    "save": lambda raster, out: (
+        (out.mkdir(), raster.save(out / "o.tif")) and out / "o.tif"
+    ),
     "legacy package directory": lambda raster, out: written_tiff(
         raster.export(out / "pkg").path
     ),
@@ -1090,8 +1157,12 @@ TIFF_PATHS = {
         raster.export(out / "pkg", canonical=True, format="tif").path
     ),
 }
-LABELLED_ALPHA = {"format tif", "descriptor export", "descriptor publish",
-                  "save with alpha"}
+LABELLED_ALPHA = {
+    "format tif",
+    "descriptor export",
+    "descriptor publish",
+    "save with alpha",
+}
 
 
 @pytest.mark.parametrize("name", TIFF_PATHS, ids=list(TIFF_PATHS))
@@ -1167,8 +1238,10 @@ def test_canonical_packages_of_two_results_keep_their_own_health(server, tmp_pat
     with_gap = call(bounds=TWO_CELLS)
     with_gap.export(tmp_path / "with_gap", canonical=True)
     whole.export(tmp_path / "whole", canonical=True)
-    health = [load_model_package(tmp_path / name).dataset_context.health
-              for name in ("whole", "with_gap")]
+    health = [
+        load_model_package(tmp_path / name).dataset_context.health
+        for name in ("whole", "with_gap")
+    ]
     assert [item["coverage_complete"] for item in health] == [True, False]
 
 
@@ -1223,8 +1296,11 @@ def test_tiff_after_a_manifest_failure_is_refused(server, tmp_path, path):
             export(out / "o.tif")
         else:
             datasets.orthophoto.publish(
-                dataset_key="orthophoto-test", format="tif", bounds=cell(0),
-                server_url=BASE, uploader=ForbiddenUploader(),
+                dataset_key="orthophoto-test",
+                format="tif",
+                bounds=cell(0),
+                server_url=BASE,
+                uploader=ForbiddenUploader(),
             )
     assert not out.exists()
 
@@ -1235,8 +1311,10 @@ def test_tile_export_is_refused_before_any_request(no_http, tmp_path):
         datasets.orthophoto.export(tmp_path / "t.tif", **kwargs)
     with pytest.raises(ValidationError, match='product="tiles"'):
         datasets.orthophoto.publish(
-            dataset_key="orthophoto-test", format="tif",
-            uploader=ForbiddenUploader(), **kwargs,
+            dataset_key="orthophoto-test",
+            format="tif",
+            uploader=ForbiddenUploader(),
+            **kwargs,
         )
     assert list(tmp_path.iterdir()) == []
 
@@ -1248,31 +1326,38 @@ NOT_CANONICAL = "Canonical object RasterTileCollection is unsupported"
 TILE_EXPORTS = {
     "package": (
         lambda tiles, out: export_model_package(tiles, out / "pkg"),
-        ValueError, "Cannot infer a safe export format for RasterTileCollection",
+        ValueError,
+        "Cannot infer a safe export format for RasterTileCollection",
     ),
     "package as tif": (
         lambda tiles, out: export_model_package(tiles, out / "pkg", format="tif"),
-        ValueError, f"Could not export RasterTileCollection as 'tif': {NO_SAVER}",
+        ValueError,
+        f"Could not export RasterTileCollection as 'tif': {NO_SAVER}",
     ),
     "package as json": (
         lambda tiles, out: export_model_package(tiles, out / "pkg", format="json"),
-        ValueError, f"Could not export RasterTileCollection as 'json': {NO_SAVER}",
+        ValueError,
+        f"Could not export RasterTileCollection as 'json': {NO_SAVER}",
     ),
     "canonical package": (
         lambda tiles, out: export_model_package(tiles, out / "pkg", canonical=True),
-        NotImplementedError, NOT_CANONICAL,
+        NotImplementedError,
+        NOT_CANONICAL,
     ),
     "canonical encoding": (
-        lambda tiles, out: exchange.dumps(tiles), NotImplementedError, NOT_CANONICAL,
+        lambda tiles, out: exchange.dumps(tiles),
+        NotImplementedError,
+        NOT_CANONICAL,
     ),
     "bytes": (
         lambda tiles, out: DatasetDescriptor.export_to_bytes(tiles, "tif"),
-        AttributeError, NO_SAVER,
+        AttributeError,
+        NO_SAVER,
     ),
     "save_raster": (
         lambda tiles, out: dtcc_io.save_raster(tiles, out / "t.tif"),
-        RuntimeError, "Unable to save raster; type .*RasterTileCollection.* not "
-        "supported",
+        RuntimeError,
+        "Unable to save raster; type .*RasterTileCollection.* not supported",
     ),
 }
 
@@ -1302,18 +1387,28 @@ def events(monkeypatch):
     """Every progress state the call reports, unthrottled."""
     recorded = []
     monkeypatch.setattr(
-        orthophoto_module, "ProgressTracker",
-        partial(progress_module.ProgressTracker, callback=recorded.append,
-                mode="callback", min_update_interval=0),
+        orthophoto_module,
+        "ProgressTracker",
+        partial(
+            progress_module.ProgressTracker,
+            callback=recorded.append,
+            mode="callback",
+            min_update_interval=0,
+        ),
     )
     return recorded
 
 
 def subscribe(monkeypatch, subscriber):
     monkeypatch.setattr(
-        orthophoto_module, "ProgressTracker",
-        partial(progress_module.ProgressTracker, callback=subscriber,
-                mode="callback", min_update_interval=0),
+        orthophoto_module,
+        "ProgressTracker",
+        partial(
+            progress_module.ProgressTracker,
+            callback=subscriber,
+            mode="callback",
+            min_update_interval=0,
+        ),
     )
 
 
@@ -1332,8 +1427,7 @@ def transfer_states(events):
 def random_tile(tmp_path, bounds, pixel=0.125):
     width = int(round((bounds[2] - bounds[0]) / pixel))
     height = int(round((bounds[3] - bounds[1]) / pixel))
-    data = np.random.default_rng(0).integers(1, 255, (4, height, width),
-                                             dtype=np.uint8)
+    data = np.random.default_rng(0).integers(1, 255, (4, height, width), dtype=np.uint8)
     return tiff(tmp_path, bounds, data=data, pixel=pixel)
 
 
@@ -1346,8 +1440,9 @@ def random_tile(tmp_path, bounds, pixel=0.125):
     ],
     ids=["raster", "tif", "tiles"],
 )
-def test_progress_phases_run_in_order_to_100(server, tmp_path, events, kwargs,
-                                             expected):
+def test_progress_phases_run_in_order_to_100(
+    server, tmp_path, events, kwargs, expected
+):
     server.add("a", cell(0), tiff(tmp_path, cell(0)))
     call(**kwargs)
     assert phases_seen(events) == expected
@@ -1361,8 +1456,9 @@ def test_transfer_progress_follows_content_length(server, tmp_path, events):
     server.add("a", big, random_tile(tmp_path, big))
     server.chunk = 256
     call(bounds=big)
-    within = [state["phases"]["transfer"]["progress"]
-              for state in transfer_states(events)]
+    within = [
+        state["phases"]["transfer"]["progress"] for state in transfer_states(events)
+    ]
     assert len([value for value in within if 0 < value < 100]) > 5
 
 
@@ -1378,8 +1474,11 @@ def test_transfer_without_content_length_reports_bytes_only(
     call(bounds=(first[0], first[1], second[2], second[3]))
     # One report per BYTES_MESSAGE_STEP received, each naming the item; the
     # phase holds at the item's start while the length is unknown.
-    reports = [state for state in transfer_states(events)
-               if "orto-2020/a" in (state["message"] or "")]
+    reports = [
+        state
+        for state in transfer_states(events)
+        if "orto-2020/a" in (state["message"] or "")
+    ]
     assert len(reports) > 2 and all("MiB" in state["message"] for state in reports)
     assert {state["phases"]["transfer"]["progress"] for state in reports} == {0.0}
 
@@ -1392,8 +1491,11 @@ def test_mosaic_progress_moves_within_the_mosaic_phase(
     # Small blocks: the 32 x 32 output is composited in many steps.
     monkeypatch.setattr(raster_tiles, "STRIP_BYTES", 3000)
     call(bounds=big)
-    within = [state["phases"]["mosaic"]["progress"] for state in events
-              if state["phase"] == "mosaic"]
+    within = [
+        state["phases"]["mosaic"]["progress"]
+        for state in events
+        if state["phase"] == "mosaic"
+    ]
     assert len([value for value in within if 0 < value < 100]) > 2
 
 
@@ -1423,7 +1525,9 @@ def drive_transfer(sizes, step, with_length=True):
 
     items = [listed_item("orto-2025", f"t{index}") for index in range(len(sizes))]
     with progress_module.ProgressTracker(
-        phases=RASTER_PHASES, callback=record, mode="callback",
+        phases=RASTER_PHASES,
+        callback=record,
+        mode="callback",
         min_update_interval=0,
     ) as tracker:
         with tracker.phase("discovery"):
@@ -1469,7 +1573,9 @@ def test_transfer_reports_once_per_whole_percent_of_the_call(sizes, step):
 def test_a_report_starts_each_whole_percent_of_the_call():
     recorded = []
     with progress_module.ProgressTracker(
-        phases=RASTER_PHASES, callback=recorded.append, mode="callback",
+        phases=RASTER_PHASES,
+        callback=recorded.append,
+        mode="callback",
         min_update_interval=0,
     ) as tracker:
         with tracker.phase("discovery"):
@@ -1516,8 +1622,7 @@ def test_transfer_completion_counts_only_ready_originals(server, tmp_path, event
     )
 
 
-def test_cached_call_completes_the_transfer_without_requests(server, tmp_path,
-                                                             events):
+def test_cached_call_completes_the_transfer_without_requests(server, tmp_path, events):
     server.add("a", cell(0), tiff(tmp_path, cell(0)))
     call()
     events.clear()
@@ -1549,9 +1654,11 @@ def test_overlong_body_never_advances_past_its_item(server, tmp_path, events):
         200, body + b"x" * 4096, {"Content-Length": str(len(body))}, chunk=64
     )
     call(bounds=TWO_CELLS)
-    first = [state["phases"]["transfer"]["progress"]
-             for state in transfer_states(events)
-             if "orto-2020/a" in (state["message"] or "")]
+    first = [
+        state["phases"]["transfer"]["progress"]
+        for state in transfer_states(events)
+        if "orto-2020/a" in (state["message"] or "")
+    ]
     assert first and max(first) <= 50.0
 
 
@@ -1590,8 +1697,9 @@ def test_all_refused_headers_still_end_at_100(server, tmp_path, events):
     assert events[-1]["percent"] == 100.0
 
 
-@pytest.mark.parametrize("phase", ["discovery", "transfer", "headers", "mosaic",
-                                   "export"])
+@pytest.mark.parametrize(
+    "phase", ["discovery", "transfer", "headers", "mosaic", "export"]
+)
 def test_the_first_subscriber_error_propagates_from_every_phase(
     server, tmp_path, monkeypatch, phase
 ):
@@ -1688,8 +1796,12 @@ def test_live_test_runs_with_a_server_url(monkeypatch):
 
 def upstream_error(failure_class):
     return DatasetUpstreamError(
-        dataset="orthophoto", operation="list", target="x",
-        failure_class=failure_class, status_code=None, message="m",
+        dataset="orthophoto",
+        operation="list",
+        target="x",
+        failure_class=failure_class,
+        status_code=None,
+        message="m",
     )
 
 
@@ -1699,8 +1811,9 @@ def test_live_test_skips_transient_failures(failure_class):
         live._skip_if_transient(upstream_error(failure_class))
 
 
-@pytest.mark.parametrize("failure_class",
-                         ["http_4xx", "invalid_payload", "configuration"])
+@pytest.mark.parametrize(
+    "failure_class", ["http_4xx", "invalid_payload", "configuration"]
+)
 def test_live_test_fails_on_other_failures(failure_class):
     error = upstream_error(failure_class)
     # pytest.raises does not catch a skip, so a skip would pass silently.
@@ -1716,9 +1829,14 @@ def test_live_test_fails_on_other_failures(failure_class):
 
 def listed_item(collection, item_id):
     return client.OrthophotoItem(
-        id=item_id, collection=collection, bbox=cell(0),
-        datetime=datetime(2025, 6, 1, tzinfo=timezone.utc), spektraltyp="rgbi",
-        href=f"/files/{collection}/{item_id}.tif", resolution=0.16, size_bytes=None,
+        id=item_id,
+        collection=collection,
+        bbox=cell(0),
+        datetime=datetime(2025, 6, 1, tzinfo=UTC),
+        spektraltyp="rgbi",
+        href=f"/files/{collection}/{item_id}.tif",
+        resolution=0.16,
+        size_bytes=None,
     )
 
 
@@ -1726,8 +1844,13 @@ def listed_item(collection, item_id):
     "items, allowed",
     [
         ([("orto-o2-2025", "o65775_6725_25_mr25")], True),
-        ([("orto-o2-2025", "o65775_6725_25_mr25"), ("orto-e-2008", "o65750_6700_50")],
-         False),
+        (
+            [
+                ("orto-o2-2025", "o65775_6725_25_mr25"),
+                ("orto-e-2008", "o65750_6700_50"),
+            ],
+            False,
+        ),
         ([("orto-o2-2025", "o65775_6725_25_mr26")], False),
         ([("orto-o2-2024", "o65775_6725_25_mr25")], False),
     ],
@@ -1753,8 +1876,9 @@ THREE_CELLS = (X0, Y0, X0 + 6.0, Y0 + 2.0)
 def live_like(server, tmp_path):
     """A strict mosaic with mixed 0.5 and 0.25 m sources and a gap, and tiles."""
     server.add("a", cell(0), tiff(tmp_path, cell(0), tag=1))
-    server.add("b", cell(1), tiff(tmp_path, cell(1), tag=2, pixel=0.25),
-               resolution=0.25)
+    server.add(
+        "b", cell(1), tiff(tmp_path, cell(1), tag=2, pixel=0.25), resolution=0.25
+    )
     raster = call(bounds=THREE_CELLS, strict_live=True)
     server.calls.clear()
     tiles = call(bounds=THREE_CELLS, product="tiles", strict_live=True)
@@ -1764,8 +1888,10 @@ def live_like(server, tmp_path):
 def with_changes(raster, data=None, **health):
     context = raster.dataset_context
     changed = Raster(
-        data=raster.data.copy() if data is None else data, georef=raster.georef,
-        crs=raster.crs, nodata=raster.nodata,
+        data=raster.data.copy() if data is None else data,
+        georef=raster.georef,
+        crs=raster.crs,
+        nodata=raster.nodata,
     )
     return attach_dataset_context(
         changed,
@@ -1793,18 +1919,25 @@ def broken_mosaics(raster):
     step = health["resolution"]
     context = raster.dataset_context
     leaked = attach_dataset_context(
-        Raster(data=raster.data.copy(), georef=raster.georef, crs=raster.crs,
-               nodata=raster.nodata),
-        context.model_copy(update={"warnings": context.warnings
-                                   + [str(data_cache.cache_dir)]}),
+        Raster(
+            data=raster.data.copy(),
+            georef=raster.georef,
+            crs=raster.crs,
+            nodata=raster.nodata,
+        ),
+        context.model_copy(
+            update={"warnings": context.warnings + [str(data_cache.cache_dir)]}
+        ),
     )
     return {
         "alpha 128": with_changes(raster, data=alpha),
         "colour under alpha 0": with_changes(raster, data=colour),
-        "valid pixels off": with_changes(raster,
-                                         valid_pixels=health["valid_pixels"] + 1),
-        "total pixels off": with_changes(raster,
-                                         total_pixels=health["total_pixels"] + 1),
+        "valid pixels off": with_changes(
+            raster, valid_pixels=health["valid_pixels"] + 1
+        ),
+        "total pixels off": with_changes(
+            raster, total_pixels=health["total_pixels"] + 1
+        ),
         "grid shifted": with_changes(
             raster, bounds=[xmin + step, ymin, xmax + step, ymax]
         ),
@@ -1813,19 +1946,29 @@ def broken_mosaics(raster):
     }
 
 
-@pytest.mark.parametrize("case", ["alpha 128", "colour under alpha 0",
-                                  "valid pixels off", "total pixels off",
-                                  "grid shifted", "partial",
-                                  "cache path in warnings"])
+@pytest.mark.parametrize(
+    "case",
+    [
+        "alpha 128",
+        "colour under alpha 0",
+        "valid pixels off",
+        "total pixels off",
+        "grid shifted",
+        "partial",
+        "cache path in warnings",
+    ],
+)
 def test_live_mosaic_check_rejects_broken_results(live_like, case):
     raster, _, _ = live_like
     with pytest.raises(AssertionError):
-        live.check_mosaic(broken_mosaics(raster)[case], THREE_CELLS,
-                          data_cache.cache_dir)
+        live.check_mosaic(
+            broken_mosaics(raster)[case], THREE_CELLS, data_cache.cache_dir
+        )
 
 
-@pytest.mark.parametrize("case", ["missing file", "wrong size", "file request",
-                                  "second manifest"])
+@pytest.mark.parametrize(
+    "case", ["missing file", "wrong size", "file request", "second manifest"]
+)
 def test_live_tiles_check_rejects_broken_results(live_like, case):
     _, tiles, requests_made = live_like
     if case == "missing file":
@@ -1849,8 +1992,14 @@ def live_server(server, tmp_path, monkeypatch):
     """The fake server listing only the live test's pinned item."""
     monkeypatch.setenv("DTCC_ORTHOPHOTO_URL", BASE)
     ((collection, item_id),) = live.PINNED
-    server.add(item_id, live.BOUNDS, tiff(tmp_path, live.BOUNDS, pixel=5.0),
-               year=live.YEAR, collection=collection, resolution=5.0)
+    server.add(
+        item_id,
+        live.BOUNDS,
+        tiff(tmp_path, live.BOUNDS, pixel=5.0),
+        year=live.YEAR,
+        collection=collection,
+        resolution=5.0,
+    )
     return server
 
 

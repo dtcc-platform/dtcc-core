@@ -1,4 +1,5 @@
 import numpy as np
+
 from ...model import Raster
 from ..register import register_model_method
 
@@ -7,15 +8,15 @@ from ..register import register_model_method
 def slope_aspect(dem: Raster) -> tuple[Raster, Raster]:
     """
     Compute slope and aspect from a digital elevation model (DEM).
-    
+
     This function calculates the slope (gradient magnitude) and aspect (gradient direction)
     of terrain from a DEM using Sobel operators for spatial differentiation.
-    
+
     Parameters
     ----------
     dem : Raster
         Digital elevation model raster data.
-        
+
     Returns
     -------
     tuple[Raster, Raster]

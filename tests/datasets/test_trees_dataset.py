@@ -115,7 +115,9 @@ def test_trees_tif_export_uses_raster_builder(mock_download, mock_tree_raster):
     mock_tree_raster.return_value = raster
 
     dataset = TreesDataset()
-    with patch.object(dataset, "export_to_bytes", return_value=b"tree-raster") as mock_export:
+    with patch.object(
+        dataset, "export_to_bytes", return_value=b"tree-raster"
+    ) as mock_export:
         result = dataset.build(
             TreeArgs(
                 bounds=(0.0, 0.0, 1.0, 1.0),
@@ -147,7 +149,9 @@ def test_trees_geojson_export_normalizes_to_json(mock_download, mock_city_cls):
     mock_city_cls.return_value = city
 
     dataset = TreesDataset()
-    with patch.object(dataset, "export_to_bytes", return_value=b"trees-json") as mock_export:
+    with patch.object(
+        dataset, "export_to_bytes", return_value=b"trees-json"
+    ) as mock_export:
         result = dataset.build(
             TreeArgs(
                 bounds=(0.0, 0.0, 1.0, 1.0),
@@ -175,7 +179,9 @@ def test_trees_circle_export_passes_as_circles(mock_download, mock_city_cls):
     mock_city_cls.return_value = city
 
     dataset = TreesDataset()
-    with patch.object(dataset, "export_to_bytes", return_value=b"trees-gpkg") as mock_export:
+    with patch.object(
+        dataset, "export_to_bytes", return_value=b"trees-gpkg"
+    ) as mock_export:
         result = dataset.build(
             TreeArgs(
                 bounds=(0.0, 0.0, 1.0, 1.0),

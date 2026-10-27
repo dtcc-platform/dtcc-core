@@ -1,0 +1,149 @@
+{
+ "type": "FeatureCollection",
+ "metadata": {
+  "description": "Gothenburg 008: a straight wall across the gap between two buildings, 0.10 m from two reflex corners of the region (terrain slivers in the surface mesh).",
+  "order": [
+   0,
+   1
+  ],
+  "precedence": "roof",
+  "delta": 0.5,
+  "epsilon": 0.25,
+  "retry_epsilon": 0.375
+ },
+ "features": [
+  {
+   "type": "Feature",
+   "properties": {
+    "role": "region"
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       320845.896,
+       6397814.19
+      ],
+      [
+       320842.977,
+       6397813.473
+      ],
+      [
+       320849.825,
+       6397785.71
+      ],
+      [
+       320842.582,
+       6397783.921
+      ],
+      [
+       320835.643,
+       6397812.046
+      ],
+      [
+       320838.607,
+       6397812.775
+      ],
+      [
+       320831.785,
+       6397840.447
+      ],
+      [
+       320838.982,
+       6397842.222
+      ],
+      [
+       320845.896,
+       6397814.19
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "role": "source",
+    "label": 0
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       320838.607,
+       6397812.775
+      ],
+      [
+       320835.643,
+       6397812.046
+      ],
+      [
+       320835.721,
+       6397811.726
+      ],
+      [
+       320845.879,
+       6397814.251
+      ],
+      [
+       320838.982,
+       6397842.222
+      ],
+      [
+       320831.785,
+       6397840.447
+      ],
+      [
+       320838.607,
+       6397812.775
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "role": "source",
+    "label": 1
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       320845.896,
+       6397814.19
+      ],
+      [
+       320845.879,
+       6397814.251
+      ],
+      [
+       320835.721,
+       6397811.726
+      ],
+      [
+       320842.582,
+       6397783.921
+      ],
+      [
+       320849.825,
+       6397785.71
+      ],
+      [
+       320842.977,
+       6397813.473
+      ],
+      [
+       320845.896,
+       6397814.19
+      ]
+     ]
+    ]
+   }
+  }
+ ]
+}

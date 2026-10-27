@@ -4,10 +4,11 @@ import math
 import re
 import sys
 import tempfile
+from collections.abc import Sequence
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal, Optional, Sequence
+from typing import Any, Literal
 
 from pydantic import Field, field_validator, model_validator
 
@@ -32,9 +33,7 @@ CONTACT = "the DTCC development team at Chalmers"
 MAX_MESSAGE_CHARS = 1024
 _LM = provider_display_name("lantmateriet")
 _IDENTIFIER = re.compile(r"[a-z0-9_-]+")
-_TOO_LARGE = (
-    'Use a coarser resolution, product="tiles", or a larger max_memory_bytes.'
-)
+_TOO_LARGE = 'Use a coarser resolution, product="tiles", or a larger max_memory_bytes.'
 
 
 class OrthophotoArgs(DatasetBaseArgs):
@@ -60,16 +59,16 @@ class OrthophotoArgs(DatasetBaseArgs):
             "GeoTIFFs as a file-backed collection"
         ),
     )
-    year: Optional[int] = Field(None, description="Acquisition year filter")
-    collection: Optional[str] = Field(None, description="STAC collection filter")
-    spektraltyp: Optional[list[Literal["rgb", "rgbi", "cir", "pan"]]] = Field(
+    year: int | None = Field(None, description="Acquisition year filter")
+    collection: str | None = Field(None, description="STAC collection filter")
+    spektraltyp: list[Literal["rgb", "rgbi", "cir", "pan"]] | None = Field(
         None, description="Spectral types; default rgb and rgbi"
     )
-    resolution: Optional[float] = Field(
+    resolution: float | None = Field(
         None,
         description="Mosaic resolution in metres; default the finest source",
     )
-    server_url: Optional[str] = Field(
+    server_url: str | None = Field(
         None,
         description=(
             "Tile server root; default the DTCC_ORTHOPHOTO_URL variable. The "
@@ -77,14 +76,14 @@ class OrthophotoArgs(DatasetBaseArgs):
             f"or VPN only; ask {CONTACT} for the address."
         ),
     )
-    max_memory_bytes: Optional[int] = Field(
+    max_memory_bytes: int | None = Field(
         None, description="Mosaic working-memory budget in bytes; default 2 GiB"
     )
     connect_timeout: float = Field(10.0, description="Connect timeout in seconds")
     read_timeout: float = Field(
         150.0, description="Timeout in seconds for each wait for response bytes"
     )
-    format: Optional[Literal["tif"]] = Field(
+    format: Literal["tif"] | None = Field(
         None, description="Serialize the mosaic as a GeoTIFF with alpha"
     )
 
@@ -171,7 +170,7 @@ class OrthophotoArgs(DatasetBaseArgs):
             if unsupported:
                 raise ValueError(
                     f'product="raster" takes rgb and rgbi sources, not '
-                    f"{sorted(unsupported)}; use product=\"tiles\""
+                    f'{sorted(unsupported)}; use product="tiles"'
                 )
         return self
 
@@ -186,7 +185,7 @@ class _Report:
     errors: list = field(default_factory=list)
     failed_items: list = field(default_factory=list)
     sources: list = field(default_factory=list)
-    grid: Optional[dict[str, Any]] = None
+    grid: dict[str, Any] | None = None
 
 
 class OrthophotoDataset(DatasetDescriptor):
@@ -223,9 +222,7 @@ class OrthophotoDataset(DatasetDescriptor):
             "source_terms_status": "requires_review",
         }
     ]
-    license = (
-        f"Requires review: verify {_LM} orthophoto terms before redistribution."
-    )
+    license = f"Requires review: verify {_LM} orthophoto terms before redistribution."
     data_types = ["raster", "orthophoto"]
     geographic_coverage = "Sweden"
     update_frequency = f"varies by {_LM} acquisition year and area"
@@ -292,8 +289,12 @@ class OrthophotoDataset(DatasetDescriptor):
         if args.product == "tiles":
             phases = {"discovery": 0.05, "transfer": 0.95}
         else:
-            phases = {"discovery": 0.05, "transfer": 0.6, "headers": 0.05,
-                      "mosaic": 0.25}
+            phases = {
+                "discovery": 0.05,
+                "transfer": 0.6,
+                "headers": 0.05,
+                "mosaic": 0.25,
+            }
             if args.format is not None:
                 phases["export"] = 0.05
         with ProgressTracker(phases=phases) as tracker:
@@ -457,8 +458,7 @@ class OrthophotoDataset(DatasetDescriptor):
         steps = list(context.provenance.processing_steps)
         if report.grid and report.grid.get("resolution") is not None:
             steps.append(
-                f"Mosaic grid {report.grid['bounds']} at "
-                f"{report.grid['resolution']} m"
+                f"Mosaic grid {report.grid['bounds']} at {report.grid['resolution']} m"
             )
         return context.model_copy(
             update={
@@ -472,9 +472,7 @@ class OrthophotoDataset(DatasetDescriptor):
                     }
                 ),
                 "presentation": context.presentation.model_copy(
-                    update={
-                        "warnings": list(context.presentation.warnings) + warnings
-                    }
+                    update={"warnings": list(context.presentation.warnings) + warnings}
                 ),
                 "health": health,
                 "warnings": warnings,
@@ -596,8 +594,7 @@ def _source_error(failure) -> DatasetUpstreamError:
     else:
         reason = "the file could not be decoded"
     message = (
-        f"{target}: {reason}; {failure.pixels} pixels were used before the "
-        "failure"
+        f"{target}: {reason}; {failure.pixels} pixels were used before the failure"
     )
     return DatasetUpstreamError(
         dataset="orthophoto",
@@ -636,9 +633,7 @@ def _source_entry(tile, pixels) -> dict[str, Any]:
 
 
 def _overlaps(a, b) -> bool:
-    return (
-        a.xmin < b.xmax and b.xmin < a.xmax and a.ymin < b.ymax and b.ymin < a.ymax
-    )
+    return a.xmin < b.xmax and b.xmin < a.xmax and a.ymin < b.ymax and b.ymin < a.ymax
 
 
 def _warnings(report: _Report, health) -> list[str]:

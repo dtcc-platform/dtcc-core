@@ -1,9 +1,9 @@
-import numpy as np
 from collections import defaultdict
+
+import numpy as np
 from tqdm import tqdm
 
-from ...model import Mesh, MultiSurface, Surface, Solid, Building, City
-from ...model.object.city import CityObject
+from ...model import Building, City, Mesh, MultiSurface, Solid, Surface
 from ...model.object.building import BuildingPart
 from ...model.object.object import GeometryType
 
@@ -38,7 +38,9 @@ def tin_geom_to_mesh(tin_geom_pair: tuple, verts) -> Mesh:
 
     # Build mesh - ensure JSON serializable types
     mesh.vertices = np.array([vertex for _, vertex in fv_map])
-    mesh.faces = np.array([[int(vert_map[vertex_idx]) for vertex_idx in face] for face in faces])
+    mesh.faces = np.array(
+        [[int(vert_map[vertex_idx]) for vertex_idx in face] for face in faces]
+    )
 
     return mesh
 
@@ -79,9 +81,14 @@ def build_multisurface(geom, verts, *, strict=False):
             if not isinstance(surface_boundaries, list) or not surface_boundaries:
                 raise ValueError("CityJSON surface must have an exterior ring")
             for ring in surface_boundaries:
-                if (not isinstance(ring, list) or len(ring) < 3
-                        or any(type(i) is not int or not 0 <= i < len(verts) for i in ring)):
-                    raise ValueError("CityJSON ring requires at least three valid vertex indices")
+                if (
+                    not isinstance(ring, list)
+                    or len(ring) < 3
+                    or any(type(i) is not int or not 0 <= i < len(verts) for i in ring)
+                ):
+                    raise ValueError(
+                        "CityJSON ring requires at least three valid vertex indices"
+                    )
         if not surface_boundaries:
             continue
 
@@ -97,31 +104,41 @@ def build_multisurface(geom, verts, *, strict=False):
 
         ms.surfaces.append(s)
 
-    if strict and 'semantics' in geom:
+    if strict and "semantics" in geom:
         from .semantics import read_regions
-        ms.regions = read_regions(geom['semantics'], len(ms.surfaces))
+
+        ms.regions = read_regions(geom["semantics"], len(ms.surfaces))
     return ms
 
 
 def build_tin(geometry, vertices):
     """Read the strict triangular TIN subset, preserving source index sharing."""
-    if geometry.get('type') != 'CompositeSurface':
-        raise NotImplementedError('Strict TINRelief requires triangular CompositeSurface')
-    if 'semantics' in geometry:
-        raise NotImplementedError('TINRelief semantics require an explicit external mapping')
-    boundaries = geometry.get('boundaries')
+    if geometry.get("type") != "CompositeSurface":
+        raise NotImplementedError(
+            "Strict TINRelief requires triangular CompositeSurface"
+        )
+    if "semantics" in geometry:
+        raise NotImplementedError(
+            "TINRelief semantics require an explicit external mapping"
+        )
+    boundaries = geometry.get("boundaries")
     if not isinstance(boundaries, list) or not boundaries:
-        raise ValueError('TINRelief requires nonempty triangle boundaries')
+        raise ValueError("TINRelief requires nonempty triangle boundaries")
     lookup, source_indices, faces = {}, [], []
     for polygon in boundaries:
         if not isinstance(polygon, list) or len(polygon) != 1:
-            raise ValueError('TINRelief requires one triangle ring without holes')
+            raise ValueError("TINRelief requires one triangle ring without holes")
         ring = polygon[0]
-        if (not isinstance(ring, list) or len(ring) != 3
-                or any(type(i) is not int or not 0 <= i < len(vertices) for i in ring)):
-            raise ValueError('TINRelief requires three valid vertex indices per triangle')
+        if (
+            not isinstance(ring, list)
+            or len(ring) != 3
+            or any(type(i) is not int or not 0 <= i < len(vertices) for i in ring)
+        ):
+            raise ValueError(
+                "TINRelief requires three valid vertex indices per triangle"
+            )
         if len(set(ring)) != 3 or len(np.unique(vertices[ring], axis=0)) != 3:
-            raise ValueError('TINRelief triangle requires three distinct vertices')
+            raise ValueError("TINRelief triangle requires three distinct vertices")
         face = []
         for index in ring:
             if index not in lookup:
@@ -129,60 +146,94 @@ def build_tin(geometry, vertices):
                 source_indices.append(index)
             face.append(lookup[index])
         faces.append(face)
-    return Mesh(vertices=vertices[source_indices].copy(), faces=np.asarray(faces, dtype=np.int64))
+    return Mesh(
+        vertices=vertices[source_indices].copy(),
+        faces=np.asarray(faces, dtype=np.int64),
+    )
 
 
 def build_geometry(geometry, vertices):
     """Admit polygon shells/regions or a singleton point without guessing semantics."""
-    if geometry.get('type') == 'MultiPoint':
+    if geometry.get("type") == "MultiPoint":
         from ...model import Point
-        indices = geometry.get('boundaries')
+
+        indices = geometry.get("boundaries")
         if not isinstance(indices, list) or len(indices) != 1:
-            raise NotImplementedError('Strict MultiPoint currently requires exactly one point')
+            raise NotImplementedError(
+                "Strict MultiPoint currently requires exactly one point"
+            )
         index = indices[0]
         if type(index) is not int or not 0 <= index < len(vertices):
-            raise ValueError('CityJSON point index is out of range')
-        if 'semantics' in geometry:
-            raise NotImplementedError('Point semantics require a native point-region mapping')
+            raise ValueError("CityJSON point index is out of range")
+        if "semantics" in geometry:
+            raise NotImplementedError(
+                "Point semantics require a native point-region mapping"
+            )
         return Point(x=vertices[index][0], y=vertices[index][1], z=vertices[index][2])
-    if geometry.get('type') == 'MultiLineString':
+    if geometry.get("type") == "MultiLineString":
         from ...model import LineString, MultiLineString
-        if 'semantics' in geometry:
-            raise NotImplementedError('CityJSON MultiLineString does not support surface semantics')
-        boundaries = geometry.get('boundaries')
+
+        if "semantics" in geometry:
+            raise NotImplementedError(
+                "CityJSON MultiLineString does not support surface semantics"
+            )
+        boundaries = geometry.get("boundaries")
         if not isinstance(boundaries, list) or not boundaries:
-            raise ValueError('CityJSON MultiLineString requires nonempty lines')
+            raise ValueError("CityJSON MultiLineString requires nonempty lines")
         lines = []
         for line in boundaries:
-            if (not isinstance(line, list) or len(line) < 2
-                    or any(type(i) is not int or not 0 <= i < len(vertices) for i in line)):
-                raise ValueError('CityJSON line requires at least two valid vertex indices')
+            if (
+                not isinstance(line, list)
+                or len(line) < 2
+                or any(type(i) is not int or not 0 <= i < len(vertices) for i in line)
+            ):
+                raise ValueError(
+                    "CityJSON line requires at least two valid vertex indices"
+                )
             lines.append(LineString(vertices=vertices[line].copy()))
         return MultiLineString(linestrings=lines)
-    if geometry.get('type') in ('MultiSurface', 'CompositeSurface'):
+    if geometry.get("type") in ("MultiSurface", "CompositeSurface"):
         return build_multisurface(geometry, vertices, strict=True)
-    if geometry.get('type') != 'Solid':
-        raise NotImplementedError('Strict import supports polygon surfaces, Solid, MultiLineString and singleton MultiPoint geometry')
-    shells = geometry.get('boundaries')
+    if geometry.get("type") != "Solid":
+        raise NotImplementedError(
+            "Strict import supports polygon surfaces, Solid, MultiLineString and singleton MultiPoint geometry"
+        )
+    shells = geometry.get("boundaries")
     if not isinstance(shells, list) or not shells:
-        raise ValueError('CityJSON Solid requires nonempty shells')
+        raise ValueError("CityJSON Solid requires nonempty shells")
     solid = Solid()
     for shell in shells:
-        surfaces = build_multisurface({'type': 'MultiSurface', 'boundaries': shell}, vertices, strict=True).surfaces
+        surfaces = build_multisurface(
+            {"type": "MultiSurface", "boundaries": shell}, vertices, strict=True
+        ).surfaces
         offset = len(solid.surfaces)
         solid.shells.append(np.arange(offset, offset + len(surfaces), dtype=np.int64))
         solid.surfaces.extend(surfaces)
-    if 'semantics' in geometry:
+    if "semantics" in geometry:
         from .semantics import read_regions
-        semantics = geometry['semantics']
-        if not isinstance(semantics, dict) or set(semantics) != {'surfaces', 'values'}:
-            raise ValueError('CityJSON Solid semantics requires surfaces and values')
-        values = semantics['values']
-        if (not isinstance(values, list) or len(values) != len(shells)
-                or any(not isinstance(v, list) or len(v) != len(shell) for v, shell in zip(values, shells))):
-            raise ValueError('CityJSON Solid semantic assignments must match each shell')
-        solid.regions = read_regions({'surfaces': semantics['surfaces'],
-                                     'values': [v for shell in values for v in shell]}, len(solid.surfaces))
+
+        semantics = geometry["semantics"]
+        if not isinstance(semantics, dict) or set(semantics) != {"surfaces", "values"}:
+            raise ValueError("CityJSON Solid semantics requires surfaces and values")
+        values = semantics["values"]
+        if (
+            not isinstance(values, list)
+            or len(values) != len(shells)
+            or any(
+                not isinstance(v, list) or len(v) != len(shell)
+                for v, shell in zip(values, shells)
+            )
+        ):
+            raise ValueError(
+                "CityJSON Solid semantic assignments must match each shell"
+            )
+        solid.regions = read_regions(
+            {
+                "surfaces": semantics["surfaces"],
+                "values": [v for shell in values for v in shell],
+            },
+            len(solid.surfaces),
+        )
     return solid
 
 
@@ -294,7 +345,10 @@ def build_dtcc_building(cj_obj, uuid, cj_building, verts, parent_city, lod=2):
 
     building.id = uuid
     from .attributes import read_attributes
-    building.attributes = read_attributes(cj_building.get("attributes", {}), cj_building.get('type', 'Building'))
+
+    building.attributes = read_attributes(
+        cj_building.get("attributes", {}), cj_building.get("type", "Building")
+    )
 
     building_root_geom, building_children = get_building_geometry(
         cj_obj, cj_building, verts, lod=lod
