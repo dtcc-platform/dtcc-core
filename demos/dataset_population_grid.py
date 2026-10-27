@@ -10,5 +10,7 @@ print("Persons per cell, north row first:")
 print(population.data)
 population.plot()
 
-young_adults = dtcc.datasets.population_grid(bounds=bounds, year=2020, variable="age_20_24")
+young_adults = dtcc.datasets.population_grid(
+    bounds=bounds, year=2020, variable="age_20_24"
+)
 young_adults.plot()

@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 
@@ -34,9 +34,9 @@ class PopulationGrid(Raster):
         :meth:`plot` for geographic context.
     """
 
-    year: Optional[int] = field(default=None, kw_only=True)
+    year: int | None = field(default=None, kw_only=True)
     variable: str = field(default="total", kw_only=True)
-    requested_bounds: Optional[Bounds] = field(default=None, kw_only=True)
+    requested_bounds: Bounds | None = field(default=None, kw_only=True)
     area_boundaries: Any = field(default=None, kw_only=True)
 
     def _info_sections(self):
@@ -104,109 +104,35 @@ class PopulationGrid(Raster):
         matplotlib.axes.Axes
             Axes containing the map.
         """
-        from matplotlib.colors import ListedColormap
-        from matplotlib.lines import Line2D
-        from matplotlib.patches import Patch, Rectangle
-
         from dtcc_core.datasets.presentation import (
             finalize_presentation_plot,
             presentation_plot_axes,
         )
-        from dtcc_core.plotting.style import (
-            apply_dtcc_style,
-            get_theme,
-            style_colorbar,
-        )
+        from dtcc_core.plotting.style import apply_dtcc_style, get_theme
 
         context = self.dataset_context
         presentation_enabled = presentation and context is not None
         own_figure = ax is None
         ax, panel_ax = presentation_plot_axes(context, ax=ax, presentation=presentation)
-        theme_values = get_theme(theme)
+        colors = get_theme(theme)
 
         data = np.asarray(self.data, dtype=float)
         if data.ndim != 2 or data.size == 0:
             raise ValueError("PopulationGrid.plot requires a 2D grid of cells")
-        height, width = data.shape
-        bounds = self.bounds
-        extent = (bounds.xmin, bounds.xmax, bounds.ymin, bounds.ymax)
-        cell = abs(self.georef.a)
-        outside = np.isnan(data)
-        inhabited = data > 0
-
-        vmax = float(np.max(data[inhabited])) if inhabited.any() else 1.0
-        # Masked cells are transparent, leaving zero and nodata cells to their own layers.
-        image = ax.imshow(
-            np.ma.masked_where(~inhabited, data), cmap=cmap, vmin=0.0, vmax=vmax,
-            extent=extent, origin="upper", interpolation="nearest", zorder=1,
-        )
-        zero = np.where(~inhabited & ~outside, 1.0, np.nan)
-        ax.imshow(
-            np.ma.masked_invalid(zero), cmap=ListedColormap([ZERO_COLOR]), vmin=0, vmax=1,
-            extent=extent, origin="upper", interpolation="nearest", zorder=1,
-        )
-        for row, col in zip(*np.nonzero(outside)):
-            x = bounds.xmin + col * cell
-            y = bounds.ymax - (row + 1) * cell
-            ax.add_patch(
-                Rectangle(
-                    (x, y), cell, cell, facecolor="none", edgecolor=theme_values["muted"],
-                    hatch="///", linewidth=0.0, zorder=1,
-                )
-            )
-
-        # Cell grid lines make the 1 km cells explicit.
-        for x in np.linspace(bounds.xmin, bounds.xmax, width + 1):
-            ax.axvline(x, color=theme_values["axes"], linewidth=0.5, zorder=2)
-        for y in np.linspace(bounds.ymin, bounds.ymax, height + 1):
-            ax.axhline(y, color=theme_values["axes"], linewidth=0.5, zorder=2)
-
-        if self.area_boundaries is not None and not self.area_boundaries.is_empty:
-            for line in getattr(self.area_boundaries, "geoms", [self.area_boundaries]):
-                if hasattr(line, "xy"):
-                    xs, ys = line.xy
-                    ax.plot(xs, ys, color=theme_values["text"], linewidth=0.4, alpha=0.35, zorder=3)
-
-        if self.requested_bounds is not None:
-            r = self.requested_bounds
-            ax.plot(
-                [r.xmin, r.xmax, r.xmax, r.xmin, r.xmin], [r.ymin, r.ymin, r.ymax, r.ymax, r.ymin],
-                color=theme_values["text"], linewidth=1.2, linestyle="--", zorder=4,
-            )
-
+        image = self._draw_cells(ax, data, cmap, colors)
+        self._draw_context(ax, data.shape, colors)
         if labels and data.size <= MAX_LABELLED_CELLS:
-            import matplotlib.patheffects as patheffects
-
-            outline = [patheffects.withStroke(linewidth=2.2, foreground=theme_values["axes"])]
-            for row in range(height):
-                for col in range(width):
-                    if outside[row, col]:
-                        continue
-                    ax.text(
-                        bounds.xmin + (col + 0.5) * cell, bounds.ymax - (row + 0.5) * cell,
-                        f"{data[row, col]:,.0f}", ha="center", va="center", fontsize=8,
-                        color=theme_values["text"], path_effects=outline, zorder=5,
-                    )
-
-        if inhabited.any():
-            colorbar = ax.figure.colorbar(image, cax=ax.inset_axes([1.03, 0.1, 0.035, 0.8]))
-            colorbar.set_label(POPULATION_GRID_UNIT)
-            style_colorbar(colorbar, theme=theme)
-
-        handles = [
-            Patch(facecolor=ZERO_COLOR, edgecolor=theme_values["text"], linewidth=0.6,
-                  label="No registered residents (0)"),
-            Patch(facecolor="none", edgecolor=theme_values["muted"], hatch="///",
-                  label="Outside Sweden (no data)"),
-            Line2D([0], [0], color=theme_values["text"], linestyle="--", label="Requested bounds"),
-        ]
-        legend = ax.legend(
-            handles=handles, loc="upper center", frameon=False, ncol=3, fontsize=8,
-            handlelength=1.6, bbox_to_anchor=(0.5, -0.02 if presentation_enabled else -0.1),
+            self._draw_counts(ax, data, colors)
+        self._draw_key(
+            ax,
+            image,
+            data,
+            theme,
+            colors,
+            below=-0.02 if presentation_enabled else -0.1,
         )
-        for text in legend.get_texts():
-            text.set_color(theme_values["text"])
 
+        bounds = self.bounds
         pad = 0.03 * max(bounds.xmax - bounds.xmin, bounds.ymax - bounds.ymin)
         ax.set_xlim(bounds.xmin - pad, bounds.xmax + pad)
         ax.set_ylim(bounds.ymin - pad, bounds.ymax + pad)
@@ -219,34 +145,212 @@ class PopulationGrid(Raster):
             ylabel=None if presentation_enabled else "y (m, EPSG:3006)",
         )
         ax.ticklabel_format(useOffset=False, style="plain")
-        ax.set_title(title or self._default_title(), color=theme_values["text"], fontweight=600, pad=10)
-        ax.text(
-            0.0, -0.08 if presentation_enabled else -0.17,
-            "Counts are for whole 1 km cells, which extend beyond the requested bounds.\n"
-            + POPULATION_GRID_CREDIT,
-            transform=ax.transAxes, ha="left", va="top", fontsize=7.5,
-            color=theme_values["muted"],
+        ax.set_title(
+            title or self._default_title(), color=colors["text"], fontweight=600, pad=10
         )
-        message = self._empty_message(inhabited, outside)
-        if message:
-            ax.text(
-                0.5, 0.5, message, transform=ax.transAxes, ha="center", va="center",
-                color=theme_values["text"], fontsize=11, zorder=6,
-                bbox={"boxstyle": "round,pad=0.4", "facecolor": theme_values["panel"],
-                      "edgecolor": theme_values["panel_edge"]},
-            )
+        self._draw_notes(
+            ax, data, colors, below=-0.08 if presentation_enabled else -0.17
+        )
         if own_figure and not presentation_enabled:
             ax.figure.tight_layout()
         return finalize_presentation_plot(
-            ax, context=context, obj=self, panel_ax=panel_ax,
-            presentation=presentation, show=show, theme=theme, title=title,
+            ax,
+            context=context,
+            obj=self,
+            panel_ax=panel_ax,
+            presentation=presentation,
+            show=show,
+            theme=theme,
+            title=title,
         )
+
+    def _draw_cells(self, ax, data, cmap, colors):
+        """Draw inhabited cells on ``cmap``, zero cells grey and nodata cells hatched."""
+        from matplotlib.colors import ListedColormap
+        from matplotlib.patches import Rectangle
+
+        bounds = self.bounds
+        extent = (bounds.xmin, bounds.xmax, bounds.ymin, bounds.ymax)
+        cell = abs(self.georef.a)
+        outside = np.isnan(data)
+        inhabited = data > 0
+        vmax = float(np.max(data[inhabited])) if inhabited.any() else 1.0
+        # Masked cells are transparent, leaving zero and nodata cells to their own layers.
+        image = ax.imshow(
+            np.ma.masked_where(~inhabited, data),
+            cmap=cmap,
+            vmin=0.0,
+            vmax=vmax,
+            extent=extent,
+            origin="upper",
+            interpolation="nearest",
+            zorder=1,
+        )
+        zero = np.where(~inhabited & ~outside, 1.0, np.nan)
+        ax.imshow(
+            np.ma.masked_invalid(zero),
+            cmap=ListedColormap([ZERO_COLOR]),
+            vmin=0,
+            vmax=1,
+            extent=extent,
+            origin="upper",
+            interpolation="nearest",
+            zorder=1,
+        )
+        rows, cols = np.nonzero(outside)
+        for row, col in zip(rows, cols, strict=True):
+            ax.add_patch(
+                Rectangle(
+                    (bounds.xmin + col * cell, bounds.ymax - (row + 1) * cell),
+                    cell,
+                    cell,
+                    facecolor="none",
+                    edgecolor=colors["muted"],
+                    hatch="///",
+                    linewidth=0.0,
+                    zorder=1,
+                )
+            )
+        return image
+
+    def _draw_context(self, ax, shape, colors):
+        """Draw the 1 km cell lines, DeSO boundaries and the requested bounds."""
+        bounds = self.bounds
+        height, width = shape
+        for x in np.linspace(bounds.xmin, bounds.xmax, width + 1):
+            ax.axvline(x, color=colors["axes"], linewidth=0.5, zorder=2)
+        for y in np.linspace(bounds.ymin, bounds.ymax, height + 1):
+            ax.axhline(y, color=colors["axes"], linewidth=0.5, zorder=2)
+        boundaries = self.area_boundaries
+        if boundaries is not None and not boundaries.is_empty:
+            for line in getattr(boundaries, "geoms", [boundaries]):
+                if hasattr(line, "xy"):
+                    xs, ys = line.xy
+                    ax.plot(
+                        xs,
+                        ys,
+                        color=colors["text"],
+                        linewidth=0.4,
+                        alpha=0.35,
+                        zorder=3,
+                    )
+        if self.requested_bounds is not None:
+            r = self.requested_bounds
+            ax.plot(
+                [r.xmin, r.xmax, r.xmax, r.xmin, r.xmin],
+                [r.ymin, r.ymin, r.ymax, r.ymax, r.ymin],
+                color=colors["text"],
+                linewidth=1.2,
+                linestyle="--",
+                zorder=4,
+            )
+
+    def _draw_counts(self, ax, data, colors):
+        """Write each cell's count at its centre, except for cells outside Sweden."""
+        import matplotlib.patheffects as patheffects
+
+        bounds = self.bounds
+        cell = abs(self.georef.a)
+        outline = [patheffects.withStroke(linewidth=2.2, foreground=colors["axes"])]
+        for (row, col), value in np.ndenumerate(data):
+            if np.isnan(value):
+                continue
+            ax.text(
+                bounds.xmin + (col + 0.5) * cell,
+                bounds.ymax - (row + 0.5) * cell,
+                f"{value:,.0f}",
+                ha="center",
+                va="center",
+                fontsize=8,
+                color=colors["text"],
+                path_effects=outline,
+                zorder=5,
+            )
+
+    @staticmethod
+    def _draw_key(ax, image, data, theme, colors, below):
+        """Add the persons-per-cell colour scale and the zero, nodata and bounds legend."""
+        from matplotlib.lines import Line2D
+        from matplotlib.patches import Patch
+
+        from dtcc_core.plotting.style import style_colorbar
+
+        if np.any(data > 0):
+            colorbar = ax.figure.colorbar(
+                image, cax=ax.inset_axes([1.03, 0.1, 0.035, 0.8])
+            )
+            colorbar.set_label(POPULATION_GRID_UNIT)
+            style_colorbar(colorbar, theme=theme)
+        handles = [
+            Patch(
+                facecolor=ZERO_COLOR,
+                edgecolor=colors["text"],
+                linewidth=0.6,
+                label="No registered residents (0)",
+            ),
+            Patch(
+                facecolor="none",
+                edgecolor=colors["muted"],
+                hatch="///",
+                label="Outside Sweden (no data)",
+            ),
+            Line2D(
+                [0], [0], color=colors["text"], linestyle="--", label="Requested bounds"
+            ),
+        ]
+        legend = ax.legend(
+            handles=handles,
+            loc="upper center",
+            frameon=False,
+            ncol=3,
+            fontsize=8,
+            handlelength=1.6,
+            bbox_to_anchor=(0.5, below),
+        )
+        for text in legend.get_texts():
+            text.set_color(colors["text"])
+
+    def _draw_notes(self, ax, data, colors, below):
+        """Add the whole-cell note, the SCB credit and any empty-grid message."""
+        ax.text(
+            0.0,
+            below,
+            "Counts are for whole 1 km cells, which extend beyond the requested bounds.\n"
+            + POPULATION_GRID_CREDIT,
+            transform=ax.transAxes,
+            ha="left",
+            va="top",
+            fontsize=7.5,
+            color=colors["muted"],
+        )
+        message = self._empty_message(data > 0, np.isnan(data))
+        if message:
+            ax.text(
+                0.5,
+                0.5,
+                message,
+                transform=ax.transAxes,
+                ha="center",
+                va="center",
+                color=colors["text"],
+                fontsize=11,
+                zorder=6,
+                bbox={
+                    "boxstyle": "round,pad=0.4",
+                    "facecolor": colors["panel"],
+                    "edgecolor": colors["panel_edge"],
+                },
+            )
 
     def _default_title(self) -> str:
         variable = self.variable or "total"
         if variable.startswith("age_"):
             parts = variable[4:].split("_")
-            label = "Aged 100+" if parts == ["100", "plus"] else f"Aged {parts[0]}–{parts[1]}"
+            label = (
+                "Aged 100+"
+                if parts == ["100", "plus"]
+                else f"Aged {parts[0]}–{parts[1]}"
+            )
         else:
             label = {"total": "Total population", "men": "Men", "women": "Women"}.get(
                 variable, variable

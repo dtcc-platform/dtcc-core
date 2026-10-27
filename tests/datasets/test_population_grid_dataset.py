@@ -4,6 +4,7 @@ import geopandas as gpd
 import numpy as np
 import pytest
 from affine import Affine
+from pydantic import ValidationError
 from shapely.geometry import box
 
 import dtcc_core.datasets as datasets
@@ -54,15 +55,25 @@ def test_population_grid_dataset_passes_year_and_variable(monkeypatch):
         lambda bounds, year, variable: calls.append((year, variable)) or _raster(),
     )
 
-    datasets.population_grid(bounds=(0.0, 0.0, 2000.0, 1000.0), year=2015, variable="age_65_69")
+    datasets.population_grid(
+        bounds=(0.0, 0.0, 2000.0, 1000.0), year=2015, variable="age_65_69"
+    )
 
     assert calls == [(2015, "age_65_69")]
 
 
 def test_population_grid_dataset_exports_gpkg_with_all_variables(monkeypatch, tmp_path):
     gdf = gpd.GeoDataFrame(
-        [{"cell_id": "1", "reference_date": "20251231", "total": 10, "men": 5, "women": 5,
-          "geometry": box(0, 0, 1000, 1000)}],
+        [
+            {
+                "cell_id": "1",
+                "reference_date": "20251231",
+                "total": 10,
+                "men": 5,
+                "women": 5,
+                "geometry": box(0, 0, 1000, 1000),
+            }
+        ],
         crs="EPSG:3006",
     )
     monkeypatch.setattr(
@@ -84,7 +95,8 @@ def test_population_grid_dataset_exports_tif_as_plain_raster(monkeypatch, tmp_pa
     import rasterio
 
     monkeypatch.setattr(
-        "dtcc_core.io.data.download_population_grid", lambda bounds, year, variable: _raster()
+        "dtcc_core.io.data.download_population_grid",
+        lambda bounds, year, variable: _raster(),
     )
 
     payload = datasets.population_grid(bounds=(0.0, 0.0, 2000.0, 1000.0), format="tif")
@@ -97,5 +109,5 @@ def test_population_grid_dataset_exports_tif_as_plain_raster(monkeypatch, tmp_pa
 
 
 def test_population_grid_rejects_unsupported_variable():
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError, match="variable"):
         datasets.population_grid(bounds=(0.0, 0.0, 1000.0, 1000.0), variable="children")

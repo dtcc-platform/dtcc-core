@@ -5,7 +5,7 @@ from affine import Affine
 from shapely.geometry import box, mapping
 
 from dtcc_core.io.data import population_grid
-from dtcc_core.model import Bounds, PopulationGrid, Raster
+from dtcc_core.model import Bounds, PopulationGrid
 
 # 1.5 km x 1.5 km, not aligned to the 1 km grid: overlaps a 2 x 2 block of cells.
 BOUNDS = Bounds(319500.0, 6397500.0, 321000.0, 6399000.0)
@@ -14,9 +14,16 @@ BOUNDS = Bounds(319500.0, 6397500.0, 321000.0, 6399000.0)
 def _cell(x, y, total, **fields):
     # Every SCB count field, as the WFS returns them.
     counts = {field: 0 for field in population_grid.POPULATION_GRID_VARIABLES.values()}
-    counts.update(beftotalt=total, man=total // 2, kvinna=total - total // 2, ald20_24=total // 10)
-    props = {"objectid": int(x + y), "rutid_scb": f"{int(x)}{int(y)}", **counts,
-             "referenstid": "20251231", **fields}
+    counts.update(
+        beftotalt=total, man=total // 2, kvinna=total - total // 2, ald20_24=total // 10
+    )
+    props = {
+        "objectid": int(x + y),
+        "rutid_scb": f"{int(x)}{int(y)}",
+        **counts,
+        "referenstid": "20251231",
+        **fields,
+    }
     # SCB cell corners are a fraction of a millimetre off whole kilometres.
     geometry = box(x - 0.0004, y + 0.001, x + 999.998, y + 999.997)
     return {"type": "Feature", "properties": props, "geometry": mapping(geometry)}
@@ -46,14 +53,24 @@ class FakeResponse:
 def fake_wfs(monkeypatch, tmp_path):
     calls = []
     # "sweden" is the area the fake DeSO lookup returns; by default all cells.
-    state = {"cells": CELLS, "sweden": [box(300000, 6380000, 340000, 6420000)], "deso_calls": []}
+    state = {
+        "cells": CELLS,
+        "sweden": [box(300000, 6380000, 340000, 6420000)],
+        "deso_calls": [],
+    }
 
     def fake_get(url, params, headers, timeout):
         calls.append(dict(params))
         start = params["startIndex"]
         page = state["cells"][start : start + params["count"]]
-        return FakeResponse({"type": "FeatureCollection", "features": page,
-                             "numberMatched": len(state["cells"]), "numberReturned": len(page)})
+        return FakeResponse(
+            {
+                "type": "FeatureCollection",
+                "features": page,
+                "numberMatched": len(state["cells"]),
+                "numberReturned": len(page),
+            }
+        )
 
     def fake_deso(bounds, year, use_cache=True):
         state["deso_calls"].append((bounds.tuple, year))
@@ -133,7 +150,9 @@ def test_cells_outside_sweden_are_nodata(fake_wfs):
     assert data[0, 0] == 0.0  # in Sweden, no residents
     assert np.isnan(data[0, 1])  # outside Sweden
     assert data[1, 1] == 300.0  # inhabited, counted even outside the DeSO areas
-    assert fake_wfs.state["deso_calls"] == [((319000.0, 6397000.0, 321000.0, 6399000.0), 2025)]
+    assert fake_wfs.state["deso_calls"] == [
+        ((319000.0, 6397000.0, 321000.0, 6399000.0), 2025)
+    ]
     assert raster.area_boundaries is not None
 
 
@@ -163,7 +182,9 @@ def test_bounds_across_a_grid_line_do_not_share_a_cache_entry(fake_wfs):
 
 
 def test_bounds_covering_the_same_cells_share_a_cache_entry(fake_wfs):
-    population_grid.download_population_grid_geodataframe(Bounds(319100.0, 6397100.0, 320900.0, 6398900.0))
+    population_grid.download_population_grid_geodataframe(
+        Bounds(319100.0, 6397100.0, 320900.0, 6398900.0)
+    )
     calls = len(fake_wfs.calls)
 
     gdf = population_grid.download_population_grid_geodataframe(BOUNDS)
@@ -178,12 +199,26 @@ def test_bounds_covering_the_same_cells_share_a_cache_entry(fake_wfs):
         ({"type": "FeatureCollection"}, "no 'features' list"),
         ([], "no 'features' list"),
         ({"features": ["oops"]}, "feature 0 is not an object"),
-        ({"features": [{"type": "Feature", "properties": {"beftotalt": 5}, "geometry": None}]},
-         "no cell id"),
+        (
+            {
+                "features": [
+                    {
+                        "type": "Feature",
+                        "properties": {"beftotalt": 5},
+                        "geometry": None,
+                    }
+                ]
+            },
+            "no cell id",
+        ),
     ],
 )
-def test_malformed_response_raises_and_is_not_cached(monkeypatch, tmp_path, payload, message):
-    monkeypatch.setattr(population_grid.requests, "get", lambda *a, **k: FakeResponse(payload))
+def test_malformed_response_raises_and_is_not_cached(
+    monkeypatch, tmp_path, payload, message
+):
+    monkeypatch.setattr(
+        population_grid.requests, "get", lambda *a, **k: FakeResponse(payload)
+    )
     monkeypatch.setattr(population_grid, "cache_dir", tmp_path)
 
     with pytest.raises(RuntimeError, match=message):
@@ -212,11 +247,18 @@ def _with(**props):
         (_with(kvinna=-1), "no valid count for 'kvinna'"),
         (_with(beftotalt="12"), "no valid count for 'beftotalt'"),
         ({**_cell(320000, 6397000, 300), "geometry": None}, "no polygon geometry"),
-        ({**_cell(320000, 6397000, 300), "geometry": {"type": "Point", "coordinates": [320500, 6397500]}},
-         "no polygon geometry"),
+        (
+            {
+                **_cell(320000, 6397000, 300),
+                "geometry": {"type": "Point", "coordinates": [320500, 6397500]},
+            },
+            "no polygon geometry",
+        ),
     ],
 )
-def test_missing_required_fields_raise_and_are_not_cached(fake_wfs, tmp_path, cell, message):
+def test_missing_required_fields_raise_and_are_not_cached(
+    fake_wfs, tmp_path, cell, message
+):
     fake_wfs.state["cells"] = [cell]
 
     with pytest.raises(RuntimeError, match=message):
@@ -260,7 +302,9 @@ def test_service_error_raises(monkeypatch, tmp_path):
 
 
 def test_every_age_band_is_mapped():
-    ages = [v for v in population_grid.POPULATION_GRID_VARIABLES if v.startswith("age_")]
+    ages = [
+        v for v in population_grid.POPULATION_GRID_VARIABLES if v.startswith("age_")
+    ]
     assert len(ages) == 21
     assert population_grid.POPULATION_GRID_VARIABLES["age_0_4"] == "ald0_4"
     assert population_grid.POPULATION_GRID_VARIABLES["age_95_99"] == "ald95_99"
@@ -279,7 +323,9 @@ def test_raster_from_empty_geodataframe_has_one_cell_minimum():
 
     empty = gpd.GeoDataFrame({"total": []}, geometry=[], crs="EPSG:3006")
 
-    raster = population_grid.population_grid_raster(empty, Bounds(319000, 6398000, 319000, 6398000))
+    raster = population_grid.population_grid_raster(
+        empty, Bounds(319000, 6398000, 319000, 6398000)
+    )
 
     assert raster.data.shape == (1, 1)
     assert np.all(raster.data == 0)

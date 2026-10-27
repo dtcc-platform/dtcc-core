@@ -57,7 +57,7 @@ def download_population_grid(
     year: int = POPULATION_GRID_DEFAULT_YEAR,
     variable: str = "total",
     use_cache: bool = True,
-) -> Raster:
+) -> PopulationGrid:
     """Download one SCB 1 km population variable for ``bounds`` as a :class:`Raster`.
 
     Parameters
@@ -163,7 +163,7 @@ def population_grid_raster(
     height = round((cells.ymax - cells.ymin) / cell)
     data = np.zeros((height, width), dtype=np.float32)
     inhabited = np.zeros((height, width), dtype=bool)
-    for geometry, value in zip(gdf.geometry, gdf[variable]):
+    for geometry, value in zip(gdf.geometry, gdf[variable], strict=True):
         # Rounding absorbs the millimetre offsets of SCB cell corners.
         cell_xmin, _, _, cell_ymax = geometry.bounds
         col = round((cell_xmin - cells.xmin) / cell)
@@ -175,16 +175,25 @@ def population_grid_raster(
     boundaries = None
     if sweden is not None:
         polygons = list(getattr(sweden, "geometry", sweden))
-        coverage = shapely.union_all(polygons) if polygons else shapely.geometry.Polygon()
+        coverage = (
+            shapely.union_all(polygons) if polygons else shapely.geometry.Polygon()
+        )
         for row in range(height):
             for col in range(width):
                 x = cells.xmin + col * cell
                 y = cells.ymax - (row + 1) * cell
-                outside = coverage.intersection(box(x, y, x + cell, y + cell)).area < _MIN_OVERLAP_M2
+                outside = (
+                    coverage.intersection(box(x, y, x + cell, y + cell)).area
+                    < _MIN_OVERLAP_M2
+                )
                 if outside and not inhabited[row, col]:
                     data[row, col] = np.nan
         extent = box(*cells.tuple)
-        boundaries = shapely.union_all([p.boundary for p in polygons]).intersection(extent) if polygons else None
+        boundaries = (
+            shapely.union_all([p.boundary for p in polygons]).intersection(extent)
+            if polygons
+            else None
+        )
 
     transform = Affine(cell, 0, cells.xmin, 0, -cell, cells.ymax)
     return PopulationGrid(
@@ -201,7 +210,9 @@ def population_grid_raster(
 
 def _sweden_areas(cells: Bounds, use_cache: bool = True):
     try:
-        return download_deso_geodataframe(cells, year=COVERAGE_DESO_YEAR, use_cache=use_cache)
+        return download_deso_geodataframe(
+            cells, year=COVERAGE_DESO_YEAR, use_cache=use_cache
+        )
     except RuntimeError as exc:
         raise RuntimeError(
             f"Could not download SCB DeSO areas to find which population grid cells "
@@ -237,7 +248,9 @@ def _query_cells(bounds: Bounds, year: int) -> list:
             raise RuntimeError(
                 f"Failed to download SCB population grid {year}: {exc}"
             ) from exc
-        if not isinstance(payload, dict) or not isinstance(payload.get("features"), list):
+        if not isinstance(payload, dict) or not isinstance(
+            payload.get("features"), list
+        ):
             raise _invalid_response(year, "the response has no 'features' list")
         page = payload["features"]
         features.extend(page)
@@ -281,7 +294,11 @@ def _cells_overlapping(features: list, bounds: Bounds, year: int):
         values = {}
         for variable, field in POPULATION_GRID_VARIABLES.items():
             value = props.get(field)
-            if isinstance(value, bool) or not isinstance(value, (int, float)) or not value >= 0:
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not value >= 0
+            ):
                 raise _invalid_response(
                     year, f"cell {cell_id} has no valid count for {field!r} ({value!r})"
                 )

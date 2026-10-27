@@ -16,7 +16,9 @@ def _grid(data, **kwargs):
         crs="EPSG:3006",
         year=kwargs.pop("year", 2025),
         variable=kwargs.pop("variable", "total"),
-        requested_bounds=kwargs.pop("requested_bounds", Bounds(319500, 6397500, 320500, 6398500)),
+        requested_bounds=kwargs.pop(
+            "requested_bounds", Bounds(319500, 6397500, 320500, 6398500)
+        ),
         **kwargs,
     )
 
@@ -61,8 +63,14 @@ def test_plot_distinguishes_zero_and_nodata(plt):
     hatched = [p for p in ax.patches if p.get_hatch() == "///"]
     assert len(hatched) == 1 and hatched[0].get_xy() == (319000.0, 6397000.0)
     legend = [t.get_text() for t in ax.get_legend().get_texts()]
-    assert legend == ["No registered residents (0)", "Outside Sweden (no data)", "Requested bounds"]
-    assert to_hex(ax.get_legend().legend_handles[0].get_facecolor()) == ZERO_COLOR.lower()
+    assert legend == [
+        "No registered residents (0)",
+        "Outside Sweden (no data)",
+        "Requested bounds",
+    ]
+    assert (
+        to_hex(ax.get_legend().legend_handles[0].get_facecolor()) == ZERO_COLOR.lower()
+    )
     # Counts are written in cells, except outside Sweden.
     assert {"100", "0", "300"} <= set(_texts(ax)) and "nan" not in _texts(ax)
 

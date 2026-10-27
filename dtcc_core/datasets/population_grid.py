@@ -1,23 +1,42 @@
-from pathlib import Path
 import tempfile
-from typing import Literal, Optional
+from pathlib import Path
+from typing import Literal
+
+from pydantic import Field
 
 import dtcc_core
 from dtcc_core.io.data.population_grid import POPULATION_GRID_DEFAULT_YEAR
 from dtcc_core.model import PopulationGrid
-from pydantic import Field
 
 from .dataset import DatasetBaseArgs, DatasetDescriptor
 from .providers import provider_entry
 
-
 Year = Literal[2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025]
 Variable = Literal[
-    "total", "men", "women",
-    "age_0_4", "age_5_9", "age_10_14", "age_15_19", "age_20_24", "age_25_29",
-    "age_30_34", "age_35_39", "age_40_44", "age_45_49", "age_50_54", "age_55_59",
-    "age_60_64", "age_65_69", "age_70_74", "age_75_79", "age_80_84", "age_85_89",
-    "age_90_94", "age_95_99", "age_100_plus",
+    "total",
+    "men",
+    "women",
+    "age_0_4",
+    "age_5_9",
+    "age_10_14",
+    "age_15_19",
+    "age_20_24",
+    "age_25_29",
+    "age_30_34",
+    "age_35_39",
+    "age_40_44",
+    "age_45_49",
+    "age_50_54",
+    "age_55_59",
+    "age_60_64",
+    "age_65_69",
+    "age_70_74",
+    "age_75_79",
+    "age_80_84",
+    "age_85_89",
+    "age_90_94",
+    "age_95_99",
+    "age_100_plus",
 ]
 
 
@@ -32,7 +51,7 @@ class PopulationGridArgs(DatasetBaseArgs):
         "total",
         description="Population variable for the raster result: total, men, women or a five-year age band.",
     )
-    format: Optional[Literal["tif", "gpkg", "geojson"]] = Field(
+    format: Literal["tif", "gpkg", "geojson"] | None = Field(
         None,
         description=(
             "Output format (tif for the selected variable as GeoTIFF bytes, "
@@ -78,7 +97,7 @@ class PopulationGridDataset(DatasetDescriptor):
     ]
     license = (
         "CC0 1.0 Universal (SCB open geodata). No attribution is required; "
-        "citing \"Source: Statistics Sweden (SCB)\" is recommended."
+        'citing "Source: Statistics Sweden (SCB)" is recommended.'
     )
     collection_period = "Registered population on 31 December, 2015-2025"
     data_types = ["raster", "population_grid", "vector", "polygons"]
@@ -133,7 +152,10 @@ class PopulationGridDataset(DatasetDescriptor):
     presentation_legend = {
         "title": "Population grid",
         "entries": [
-            {"label": "Raster value", "meaning": "Persons in the 1 km cell for the selected variable"},
+            {
+                "label": "Raster value",
+                "meaning": "Persons in the 1 km cell for the selected variable",
+            },
             {"label": "0", "meaning": "No registered residents"},
             {"label": "nodata", "meaning": "Outside Sweden"},
         ],
@@ -155,8 +177,10 @@ class PopulationGridDataset(DatasetDescriptor):
     def build(self, args: PopulationGridArgs):
         bounds = self.parse_bounds(args.bounds)
         if args.format in ("gpkg", "geojson"):
-            gdf = dtcc_core.io.data.population_grid.download_population_grid_geodataframe(
-                bounds=bounds, year=args.year
+            gdf = (
+                dtcc_core.io.data.population_grid.download_population_grid_geodataframe(
+                    bounds=bounds, year=args.year
+                )
             )
             return self._export_gdf_to_bytes(gdf, args.format)
 
