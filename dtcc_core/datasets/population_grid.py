@@ -4,7 +4,7 @@ from typing import Literal, Optional
 
 import dtcc_core
 from dtcc_core.io.data.population_grid import POPULATION_GRID_DEFAULT_YEAR
-from dtcc_core.model import Raster
+from dtcc_core.model import PopulationGrid
 from pydantic import Field
 
 from .dataset import DatasetBaseArgs, DatasetDescriptor
@@ -35,7 +35,8 @@ class PopulationGridArgs(DatasetBaseArgs):
     format: Optional[Literal["tif", "gpkg", "geojson"]] = Field(
         None,
         description=(
-            "Output format (tif for the selected variable as GeoTIFF bytes; "
+            "Output format (tif for the selected variable as GeoTIFF bytes, "
+            "with nodata -1 outside Sweden; "
             "gpkg/geojson for all variables as 1 km cell polygons)"
         ),
     )
@@ -45,7 +46,7 @@ class PopulationGridDataset(DatasetDescriptor):
     """Population grid dataset, registered as ``population_grid``.
 
     SCB registered population per 1 km cell for the requested bounds, returned
-    as a Raster in EPSG:3006 for one variable (total, sex or age band).
+    as a PopulationGrid raster in EPSG:3006 for one variable (total, sex or age band).
 
     Call it with keyword arguments defined by ``PopulationGridArgs``.
     """
@@ -54,13 +55,13 @@ class PopulationGridDataset(DatasetDescriptor):
     title = "Population Grid (1 km)"
     description = (
         "SCB registered population per 1 km cell for the requested bounds, "
-        "returned as a Raster in EPSG:3006 for total population, sex or a "
+        "returned as a PopulationGrid raster in EPSG:3006 for total population, sex or a "
         "five-year age band."
     )
     ArgsModel = PopulationGridArgs
     data_category = "raw"
     result_kind = "raster"
-    python_return_type = "dtcc_core.model.Raster"
+    python_return_type = "dtcc_core.model.PopulationGrid"
     default_crs = "EPSG:3006"
     provider = [
         provider_entry("scb", role="source_provider"),
@@ -84,12 +85,14 @@ class PopulationGridDataset(DatasetDescriptor):
     geographic_coverage = "Sweden, constrained by requested bounds"
     update_frequency = "Yearly"
     processing_steps = [
-        "Query the SCB WFS for 1 km cells overlapping the requested bounds, in pages",
-        "Keep cells whose area overlaps the bounds, not those only touching an edge",
+        "Extend the requested bounds outward to whole 1 km SCB grid cells",
+        "Query the SCB WFS for those cells in pages, rejecting incomplete or malformed responses",
+        "Keep cells whose area overlaps the whole-cell bounds, not those only touching an edge",
         "Rename SCB fields to total, men, women and age_<from>_<to> variables",
         "Place the selected variable on the 1 km SCB grid, extended outward to whole cells",
         "Set cells that SCB omits (no residents) to 0",
-        "Return a Raster or serialize GeoTIFF, GeoPackage or GeoJSON bytes",
+        "Set cells with no part in Sweden, judged from SCB DeSO areas, to nodata",
+        "Return a PopulationGrid raster or serialize GeoTIFF, GeoPackage or GeoJSON bytes",
     ]
     presentation_headline = "Population per Square Kilometre"
     presentation_summary = (
@@ -131,7 +134,8 @@ class PopulationGridDataset(DatasetDescriptor):
         "title": "Population grid",
         "entries": [
             {"label": "Raster value", "meaning": "Persons in the 1 km cell for the selected variable"},
-            {"label": "0", "meaning": "No registered residents, or outside Sweden"},
+            {"label": "0", "meaning": "No registered residents"},
+            {"label": "nodata", "meaning": "Outside Sweden"},
         ],
     }
     view_hints = {
@@ -145,7 +149,7 @@ class PopulationGridDataset(DatasetDescriptor):
     ]
     presentation_limitations = [
         "1 km cells are coarser than DeSO areas in cities.",
-        "Cells outside Sweden are 0, not missing.",
+        "Counts are for whole 1 km cells, which extend beyond the requested bounds.",
     ]
 
     def build(self, args: PopulationGridArgs):
@@ -156,11 +160,12 @@ class PopulationGridDataset(DatasetDescriptor):
             )
             return self._export_gdf_to_bytes(gdf, args.format)
 
-        raster: Raster = dtcc_core.io.data.download_population_grid(
+        raster: PopulationGrid = dtcc_core.io.data.download_population_grid(
             bounds=bounds, year=args.year, variable=args.variable
         )
         if args.format == "tif":
-            return self.export_to_bytes(raster, "tif")
+            # GeoTIFF needs a numeric nodata; counts are never negative.
+            return self.export_to_bytes(raster.to_raster(nodata=-1.0), "tif")
         return raster
 
     @staticmethod

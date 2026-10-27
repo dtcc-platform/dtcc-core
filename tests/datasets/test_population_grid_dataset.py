@@ -9,12 +9,12 @@ from shapely.geometry import box
 import dtcc_core.datasets as datasets
 from dtcc_core.datasets.population_grid import PopulationGridArgs
 from dtcc_core.io.data import population_grid
-from dtcc_core.model import Bounds, Raster
+from dtcc_core.model import Bounds, PopulationGrid, Raster
 
 
 def _raster():
-    return Raster(
-        data=np.array([[100.0, 200.0]], dtype=np.float32),
+    return PopulationGrid(
+        data=np.array([[100.0, np.nan]], dtype=np.float32),
         georef=Affine(1000.0, 0, 0.0, 0, -1000.0, 1000.0),
         nodata=np.nan,
         crs="EPSG:3006",
@@ -78,6 +78,22 @@ def test_population_grid_dataset_exports_gpkg_with_all_variables(monkeypatch, tm
     loaded = gpd.read_file(path)
     assert loaded["total"].tolist() == [10]
     assert loaded["men"].tolist() == [5]
+
+
+def test_population_grid_dataset_exports_tif_as_plain_raster(monkeypatch, tmp_path):
+    import rasterio
+
+    monkeypatch.setattr(
+        "dtcc_core.io.data.download_population_grid", lambda bounds, year, variable: _raster()
+    )
+
+    payload = datasets.population_grid(bounds=(0.0, 0.0, 2000.0, 1000.0), format="tif")
+    path = tmp_path / "grid.tif"
+    path.write_bytes(payload)
+
+    with rasterio.open(path) as src:
+        assert src.nodata == -1.0
+        assert src.read(1).tolist() == [[100.0, -1.0]]
 
 
 def test_population_grid_rejects_unsupported_variable():

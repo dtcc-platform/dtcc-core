@@ -51,6 +51,7 @@ UNSUPPORTED = (
     "StreamlineCollection",
     "DatasetCollection",
     "DatasetValue",
+    "PopulationGrid",
 )
 SUPPORTED = OBJECTS + GEOMETRIES + VALUES
 

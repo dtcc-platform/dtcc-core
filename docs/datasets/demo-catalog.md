@@ -19,6 +19,7 @@ weather, air-quality, hydrology, ocean, and transit layers.
 | `demos/dataset_roads.py` | OpenStreetMap road network | `roads.plot(column="highway")` |
 | `demos/dataset_space_syntax.py` | Road-network space syntax | `roads.plot(column="space_syntax_integration")` |
 | `demos/dataset_deso.py` | DeSO population, cars, and employment context | `deso.plot(column="population_total")` |
+| `demos/dataset_population_grid.py` | SCB registered population per 1 km cell | `population.plot()` |
 | `demos/dataset_weather.py` | SMHI weather stations | `weather.plot("air_temperature")` |
 | `demos/dataset_air_quality.py` | SMHI air-quality stations | `air_quality.plot("NO2")` |
 | `demos/dataset_hydrology.py` | SMHI hydrology stations | `hydrology.plot("discharge_daily")` |
