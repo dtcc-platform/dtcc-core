@@ -2,7 +2,7 @@
 # Licensed under the MIT License
 
 from dataclasses import dataclass, field
-from typing import Union
+
 import numpy as np
 
 from ..model import Model
@@ -31,9 +31,14 @@ class Transform(Model):
     affine: np.ndarray = field(default_factory=lambda: np.eye(4))
 
     def _info_sections(self):
-        return [("", ("Property", "Value"), [("CRS", self.srs or "Not specified")]),
-                ("Affine matrix", ("", "X", "Y", "Z", "Offset"),
-                 [(i, *row) for i, row in enumerate(self.affine)])]
+        return [
+            ("", ("Property", "Value"), [("CRS", self.srs or "Not specified")]),
+            (
+                "Affine matrix",
+                ("", "X", "Y", "Z", "Offset"),
+                [(i, *row) for i, row in enumerate(self.affine)],
+            ),
+        ]
 
     def _summary_items(self):
         return [("srs", self.srs), ("shape", self.affine.shape)]
@@ -87,7 +92,6 @@ class Transform(Model):
         if np.allclose(self.affine, np.eye(4)):
             return True
         return False
-
 
     @property
     def offset(self):

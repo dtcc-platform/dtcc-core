@@ -1,12 +1,11 @@
 import numpy as np
+import rasterio.features
+from affine import Affine
 from scipy import ndimage as ndi
 from scipy.spatial import cKDTree
-from skimage import morphology, segmentation
-import rasterio.features
-from shapely.geometry import shape, Polygon
+from shapely.geometry import Polygon, shape
 from shapely.validation import make_valid
-from affine import Affine
-from skimage.measure import perimeter
+from skimage import morphology, segmentation
 
 
 def crown_radius_from_height(

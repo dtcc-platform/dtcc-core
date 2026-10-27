@@ -18,9 +18,7 @@ def test_download_tiles_raises_when_download_does_not_create_expected_file(
     monkeypatch.setattr(geopkg, "run_download_files", lambda *args, **kwargs: None)
 
     with pytest.raises(geopkg.FootprintDownloadError, match="did not produce"):
-        geopkg.download_tiles(
-            (0, 0, 10, 10), Mock(), server_url="http://example.test"
-        )
+        geopkg.download_tiles((0, 0, 10, 10), Mock(), server_url="http://example.test")
 
 
 def test_download_tiles_returns_existing_downloaded_files(

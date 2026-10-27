@@ -53,8 +53,13 @@ def test_build_terrain_surface_mesh_defaults_to_dtcc_mesher(monkeypatch):
     )
     captured: dict[str, object] = {}
 
-    monkeypatch.setattr(terrain_module, "resolve_2d_mesher", lambda mesher=None: "dtcc_mesher")
-    monkeypatch.setattr(terrain_module, "raster_to_builder_gridfield", lambda raster: "grid")
+    monkeypatch.setattr(
+        terrain_module, "resolve_2d_mesher", lambda mesher=None: "dtcc_mesher"
+    )
+    monkeypatch.setattr(
+        terrain_module, "raster_to_builder_gridfield", lambda raster: "grid"
+    )
+
     def fake_build_ground_mesh(**kwargs):
         captured["ground_request"] = kwargs
         return ground_mesh
@@ -114,8 +119,12 @@ def test_build_terrain_surface_mesh_forwards_explicit_mesher(monkeypatch):
         return "triangle"
 
     monkeypatch.setattr(terrain_module, "resolve_2d_mesher", fake_resolve)
-    monkeypatch.setattr(terrain_module, "raster_to_builder_gridfield", lambda raster: "grid")
-    monkeypatch.setattr(terrain_module, "create_builder_polygon", lambda polygon: polygon)
+    monkeypatch.setattr(
+        terrain_module, "raster_to_builder_gridfield", lambda raster: "grid"
+    )
+    monkeypatch.setattr(
+        terrain_module, "create_builder_polygon", lambda polygon: polygon
+    )
     monkeypatch.setattr(
         terrain_module._dtcc_builder,
         "build_terrain_surface_mesh",

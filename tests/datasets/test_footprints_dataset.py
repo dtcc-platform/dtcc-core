@@ -128,7 +128,9 @@ def test_building_footprints_geojson_export_returns_bytes(mock_city_cls):
     mock_city_cls.return_value = city
 
     dataset = FootprintsDataset()
-    with patch.object(dataset, "export_to_bytes", return_value=b"footprints-bytes") as mock_export:
+    with patch.object(
+        dataset, "export_to_bytes", return_value=b"footprints-bytes"
+    ) as mock_export:
         result = dataset.build(
             FootprintsArgs(
                 bounds=(0.0, 0.0, 1.0, 1.0),

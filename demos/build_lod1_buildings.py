@@ -1,46 +1,30 @@
-"""Extrude LOD1 buildings from footprints and a point cloud (builder API).
+"""Build LOD1 geometry and a stepped shell from three merged buildings (offline)."""
 
-Shows the builder-level pipeline: terrain raster, roof-point extraction, height
-estimation, LOD1 extrusion, then merge to one mesh saved in ``demos/output/``.
-Run with ``--view`` to open the result in the 3D viewer.
-"""
-
-import sys
-from pathlib import Path
+from shapely.geometry import box
 
 import dtcc_core as dtcc
-import dtcc_core.builder as builder
-from dtcc_core.model import City
 
-BOUNDS = dtcc.Bounds(319720, 6397660, 320220, 6398160)
+# Three 10 m squares, separated by 0.2 m, with roofs at 8, 16 and 12 m.
+city = dtcc.model.City()
+for x, height in [(0, 8), (10.2, 16), (20.4, 12)]:
+    footprint = dtcc.model.Surface()
+    footprint.from_polygon(box(x, 0, x + 10, 10), height=height)
+    building = dtcc.model.Building()
+    building.add_geometry(footprint, dtcc.model.GeometryType.LOD0)
+    building.estimated_height = height
+    building.attributes["ground_height"] = 0.0
+    city.add_building(building)
 
-# Download raw data into a City
-city = City()
-city.bounds = BOUNDS
-city.download_footprints()
-city.download_pointcloud()
+# Merge into one block and extrude each part at its own height.
+cleaned = dtcc.builder.clean_footprints(
+    city, min_building_detail=0.5, isolated=False, show=True
+)
+buildings = dtcc.builder.build_lod1_buildings(cleaned.buildings)
+cleaned.replace_buildings(buildings)
+cleaned.plot(lod="1")
+cleaned.view()
 
-pc = city.pointcloud
-buildings = city.buildings
-
-# Build terrain raster (used to determine ground elevation per building)
-raster = builder.build_terrain_raster(pc, cell_size=5, ground_only=True)
-
-# Extract per-building roof points and compute heights from point cloud
-buildings = builder.extract_roof_points(buildings, pc)
-buildings = builder.compute_building_heights(buildings, raster, overwrite=True)
-
-# Extrude LOD1 box representations for all buildings
-buildings = builder.build_lod1_buildings(buildings)
-
-# Convert each LOD1 MultiSurface to a triangular mesh and merge into one
-meshes = [b.lod1.mesh(weld=True, snap=0.005) for b in buildings if b.lod1 is not None]
-merged = builder.meshing.merge_meshes(meshes)
-
-# Save merged building mesh
-out_dir = Path(__file__).parent / "output"
-out_dir.mkdir(parents=True, exist_ok=True)
-merged.save(out_dir / "lod1_buildings.stl")
-
-if "--view" in sys.argv:
-    merged.view()
+# Mesh the block's exterior: roofs, outer walls, step walls and a floor.
+shell = dtcc.builder.build_building_shell(cleaned.buildings[0], max_mesh_size=5.0)
+shell.plot(max_elements=len(shell.faces))
+shell.view()

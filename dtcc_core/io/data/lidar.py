@@ -1,20 +1,24 @@
 # Copyright (C) 2024 Vasilis Naserentin
 # Licensed under the MIT License
 
+import asyncio
 import os
 import tempfile
 import time
-import requests
+
+import aiohttp
 import folium
 import pyproj
-import asyncio
-import aiohttp
+import requests
 from platformdirs import user_cache_dir
-from .logging import info, debug, warning, error
+
 from dtcc_core.common.progress import report_progress
+
+from .logging import debug, info, warning
 
 try:
     import nest_asyncio
+
     nest_asyncio.apply()
 except ImportError:
     pass
@@ -39,23 +43,31 @@ def _env_int(name, default, minimum=None):
         return default
 
     if minimum is not None and parsed < minimum:
-        warning(
-            f"Ignoring invalid {name}={value!r}; expected an integer >= {minimum}."
-        )
+        warning(f"Ignoring invalid {name}={value!r}; expected an integer >= {minimum}.")
         return default
 
     return parsed
 
 
-_DOWNLOAD_TOTAL_TIMEOUT_SECONDS = _env_int("DTCC_LIDAR_DOWNLOAD_TOTAL_TIMEOUT", 120, minimum=1)
-_DOWNLOAD_CONNECT_TIMEOUT_SECONDS = _env_int("DTCC_LIDAR_DOWNLOAD_CONNECT_TIMEOUT", 30, minimum=1)
-_DOWNLOAD_SOCK_READ_TIMEOUT_SECONDS = _env_int("DTCC_LIDAR_DOWNLOAD_SOCK_READ_TIMEOUT", 120, minimum=1)
+_DOWNLOAD_TOTAL_TIMEOUT_SECONDS = _env_int(
+    "DTCC_LIDAR_DOWNLOAD_TOTAL_TIMEOUT", 120, minimum=1
+)
+_DOWNLOAD_CONNECT_TIMEOUT_SECONDS = _env_int(
+    "DTCC_LIDAR_DOWNLOAD_CONNECT_TIMEOUT", 30, minimum=1
+)
+_DOWNLOAD_SOCK_READ_TIMEOUT_SECONDS = _env_int(
+    "DTCC_LIDAR_DOWNLOAD_SOCK_READ_TIMEOUT", 120, minimum=1
+)
 _DOWNLOAD_MAX_ATTEMPTS = _env_int("DTCC_LIDAR_DOWNLOAD_MAX_ATTEMPTS", 4, minimum=1)
-_DOWNLOAD_RETRY_BACKOFF_SECONDS = _env_int("DTCC_LIDAR_DOWNLOAD_RETRY_BACKOFF", 5, minimum=0)
+_DOWNLOAD_RETRY_BACKOFF_SECONDS = _env_int(
+    "DTCC_LIDAR_DOWNLOAD_RETRY_BACKOFF", 5, minimum=0
+)
 _DOWNLOAD_RATE_LIMIT_BACKOFF_SECONDS = _env_int(
     "DTCC_LIDAR_DOWNLOAD_RATE_LIMIT_BACKOFF", 30, minimum=0
 )
-_DOWNLOAD_MAX_CONCURRENCY = _env_int("DTCC_LIDAR_DOWNLOAD_MAX_CONCURRENCY", 3, minimum=1)
+_DOWNLOAD_MAX_CONCURRENCY = _env_int(
+    "DTCC_LIDAR_DOWNLOAD_MAX_CONCURRENCY", 3, minimum=1
+)
 
 
 class LidarDownloadError(RuntimeError):
@@ -70,6 +82,7 @@ class LidarDownloadError(RuntimeError):
     retry_after : str or None
         Value of the ``Retry-After`` header, when present.
     """
+
     def __init__(self, filename, status, retry_after=None):
         self.filename = filename
         self.status = status
@@ -88,7 +101,7 @@ def post_lidar_request(url, session, xmin, ymin, xmax, ymax, buffer_value=0):
         "ymin": round(ymin),
         "xmax": round(xmax),
         "ymax": round(ymax),
-        "buffer": buffer_value
+        "buffer": buffer_value,
     }
     debug(f"[POST] to {url} with payload={payload}")
     last_error = None
@@ -122,7 +135,9 @@ def post_lidar_request(url, session, xmin, ymin, xmax, ymax, buffer_value=0):
     raise RuntimeError(f"Lidar tile lookup failed: {last_error}")
 
 
-def plot_bboxes_folium(user_bbox, tiles, out_html="client_map.html", crs_from="EPSG:3006"):
+def plot_bboxes_folium(
+    user_bbox, tiles, out_html="client_map.html", crs_from="EPSG:3006"
+):
     """
     Plots:
       - The user_bbox (in green) in one layer
@@ -175,14 +190,18 @@ def plot_bboxes_folium(user_bbox, tiles, out_html="client_map.html", crs_from="E
         tymin = tile["ymin"]
         txmax = tile["xmax"]
         tymax = tile["ymax"]
-        tmin_lon, tmin_lat, tmax_lon, tmax_lat = add_bbox_coords(txmin, tymin, txmax, tymax)
-        converted_tiles.append({
-            "filename": tile["filename"],
-            "min_lon": tmin_lon,
-            "min_lat": tmin_lat,
-            "max_lon": tmax_lon,
-            "max_lat": tmax_lat
-        })
+        tmin_lon, tmin_lat, tmax_lon, tmax_lat = add_bbox_coords(
+            txmin, tymin, txmax, tymax
+        )
+        converted_tiles.append(
+            {
+                "filename": tile["filename"],
+                "min_lon": tmin_lon,
+                "min_lat": tmin_lat,
+                "max_lon": tmax_lon,
+                "max_lat": tmax_lat,
+            }
+        )
 
     # 5) Determine center of the map
     if not all_lons or not all_lats:
@@ -205,7 +224,7 @@ def plot_bboxes_folium(user_bbox, tiles, out_html="client_map.html", crs_from="E
         bounds=[(user_min_lat, user_min_lon), (user_max_lat, user_max_lon)],
         color="green",
         fill=False,
-        tooltip="User BBox"
+        tooltip="User BBox",
     ).add_to(user_fg)
 
     # 9) Add rectangles for each tile (blue) to tile_fg
@@ -215,7 +234,7 @@ def plot_bboxes_folium(user_bbox, tiles, out_html="client_map.html", crs_from="E
             bounds=[(t["min_lat"], t["min_lon"]), (t["max_lat"], t["max_lon"])],
             color="blue",
             fill=False,
-            tooltip=tooltip_text
+            tooltip=tooltip_text,
         ).add_to(tile_fg)
 
     # 10) Add the FeatureGroups to the map
@@ -274,10 +293,17 @@ async def download_laz_file(session, base_url, filename, output_dir, semaphore):
                         async for chunk in resp.content.iter_chunked(1024 * 1024):
                             f.write(chunk)
 
-                os.replace(tmp_path, out_path)
-                info(f"Saved {filename} to {out_path}")
+                try:
+                    os.replace(tmp_path, out_path)
+                except PermissionError:
+                    # Windows refuses a replace while a concurrent download publishes the tile.
+                    if not os.path.exists(out_path):
+                        raise
+                    debug(f"File {filename} was published by a concurrent download.")
+                else:
+                    info(f"Saved {filename} to {out_path}")
                 return
-            except (aiohttp.ClientError, asyncio.TimeoutError, OSError, RuntimeError) as exc:
+            except (TimeoutError, aiohttp.ClientError, OSError, RuntimeError) as exc:
                 if attempt >= _DOWNLOAD_MAX_ATTEMPTS:
                     raise
 
@@ -306,6 +332,7 @@ async def download_laz_file(session, base_url, filename, output_dir, semaphore):
 
             await asyncio.sleep(backoff)
 
+
 async def download_all_lidar_files(base_url, filenames, output_dir="downloaded_laz"):
     """
     Given a list of filenames, downloads them all asynchronously from
@@ -320,7 +347,7 @@ async def download_all_lidar_files(base_url, filenames, output_dir="downloaded_l
         report_progress(
             current=completed[0],
             total=total_files,
-            message=f"Downloading files ({completed[0]}/{total_files})..."
+            message=f"Downloading files ({completed[0]}/{total_files})...",
         )
 
     report_progress(percent=0, message=f"Downloading {total_files} files...")
@@ -343,6 +370,7 @@ async def download_all_lidar_files(base_url, filenames, output_dir="downloaded_l
         # Run all downloads concurrently
         await asyncio.gather(*tasks)
 
+
 def run_download_files(base_url, filenames, output_dir="downloaded_laz"):
     """
     Entry point to run the async download with asyncio, skipping already cached files.
@@ -359,9 +387,7 @@ def run_download_files(base_url, filenames, output_dir="downloaded_laz"):
             missing_files.append(filename)
     missing_count = len(missing_files)
     if missing_count == 0:
-        info(
-            f"Using {len(cached_files)} cached lidar tile file(s) from local cache"
-        )
+        info(f"Using {len(cached_files)} cached lidar tile file(s) from local cache")
         return
     if cached_files:
         info(
@@ -378,17 +404,23 @@ def run_download_files(base_url, filenames, output_dir="downloaded_laz"):
 # ------------------------------------------------------------------------
 # The single function that does everything for the user
 # ------------------------------------------------------------------------
-def download_lidar(user_bbox, session, buffer_val=0, base_url="http://127.0.0.1:8000",
-                   output_map="client_map.html", output_dir= None):
+def download_lidar(
+    user_bbox,
+    session,
+    buffer_val=0,
+    base_url="http://127.0.0.1:8000",
+    output_map="client_map.html",
+    output_dir=None,
+):
     """
     1) POST the bounding box + buffer to the server -> get intersecting tiles
     2) Plot user bbox + tile bboxes in a Folium map
     3) Download .laz files in parallel, skipping any that exist locally
     """
-    if output_dir is None: 
+    if output_dir is None:
         cache_dir = user_cache_dir(appname="dtcc-data")
         os.makedirs(cache_dir, exist_ok=True)
-        output_dir = os.path.join(cache_dir,'downloaded_laz')
+        output_dir = os.path.join(cache_dir, "downloaded_laz")
     # A) Prepare endpoint
     endpoint_post = f"{base_url}/get_lidar"
 
@@ -401,7 +433,7 @@ def download_lidar(user_bbox, session, buffer_val=0, base_url="http://127.0.0.1:
             ymin=user_bbox[1],
             xmax=user_bbox[2],
             ymax=user_bbox[3],
-            buffer_value=buffer_val
+            buffer_value=buffer_val,
         )
     except Exception as e:
         warning(f"Error occurred: {e}")
@@ -411,8 +443,10 @@ def download_lidar(user_bbox, session, buffer_val=0, base_url="http://127.0.0.1:
 
     # C) Plot bboxes
     returned_tiles = sorted(response_data["tiles"], key=lambda tile: tile["filename"])
-    output_map = os.path.join(cache_dir,output_map)
-    plot_bboxes_folium(user_bbox, returned_tiles, out_html=output_map, crs_from="EPSG:3006")
+    output_map = os.path.join(cache_dir, output_map)
+    plot_bboxes_folium(
+        user_bbox, returned_tiles, out_html=output_map, crs_from="EPSG:3006"
+    )
 
     # D) Download files in parallel (with local cache)
     filenames_to_download = [tile["filename"] for tile in returned_tiles]
@@ -423,7 +457,7 @@ def download_lidar(user_bbox, session, buffer_val=0, base_url="http://127.0.0.1:
 # ------------------------------------------------------------------------
 # Example usage: only 3 lines needed
 # ------------------------------------------------------------------------
-#if __name__ == "__main__":
+# if __name__ == "__main__":
 #    user_bbox = (267000, 6519000, 268000, 6521000)
 #    buffer_val = 100
 #    download_lidar(user_bbox, buffer_val)

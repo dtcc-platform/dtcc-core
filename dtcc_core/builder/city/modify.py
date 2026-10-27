@@ -1,168 +1,70 @@
-from ..polygons.polygons import (
-    polygon_merger,
-    simplify_polygon,
-    remove_slivers,
-    fix_clearance,
-)
-
-from ..building.modify import (
-    _condition_buildings_with_shared_cleaner,
-    clean_building_geometry,
-    fix_building_footprint_clearance,
-    merge_building_footprints,
-    simplify_building_footprints,
-)
-from ..cleaning import ConditioningOptions
-
 import numpy as np
 
+from dtcc_core.model import City, GeometryType, Raster, Terrain
+
+from ..building.modify import clean_building_geometry
+from ..cleaning.clean import clean_footprints as _clean_footprints
 from ..register import register_model_method
-from dtcc_core.model import City, Bounds, Terrain, Building, GeometryType, Raster
-from statistics import mean
-import shapely
-import dataclasses
-from copy import deepcopy
-from collections import defaultdict
-from shapely.geometry import MultiPolygon, Polygon, JOIN_STYLE, CAP_STYLE
-from ..logging import info, warning, error
 
 
 @register_model_method
-def simplify_buildings(city: City, tolerance=0.1) -> City:
-    """
-    Simplify the footprint of buildings in a `City` object.
-
-    Parameters
-    ----------
-    city : City
-        The `City` object to simplify the buildings of.
-    tolerance : float
-        The tolerance for simplification (default 0.1).
-
-    Returns
-    -------
-    City
-        A new `City` object with the simplified buildings.
-    """
-    simplified_city = deepcopy(city)
-    simplified_city.buildings = []
-    for b in city.buildings:
-        b = dataclasses.replace(b)
-        b.footprint = simplify_polygon(b.footprint, tolerance)
-        simplified_city.buildings.append(b)
-    return simplified_city
-
-
-@register_model_method
-def remove_small_buildings(city: City, min_area=10) -> City:
-    """
-    Remove small buildings from a `City` object.
-
-    Parameters
-    ----------
-    city : City
-        The `City` object to remove small buildings from.
-    min_area : float
-        The minimum area in square meters for a building to be kept (default
-        10).
-
-    Returns
-    -------
-    City
-        A new `City` object with the small buildings removed.
-    """
-    filtered_city = deepcopy(city)
-    filtered_city.buildings = []
-    for b in city.buildings:
-        if b.footprint.area > min_area:
-            filtered_city.buildings.append(b)
-    return filtered_city
-
-
-@register_model_method
-def merge_buildings(
+def clean_footprints(
     city: City,
-    max_distance=0.15,
-    min_area=10,
-    simplify=True,
-    properties_merge_strategy="list",
-    height_merge_strategy="mean",
+    min_building_detail: float = 0.5,
+    isolated: bool = False,
+    min_area: float = 0.0,
+    lod: GeometryType | None = None,
+    strict: bool = False,
+    show: bool = False,
+    remove_holes: bool = False,
 ) -> City:
     """
-    Merge buildings that are close together.
+    Clean the building footprints of a city.
+
+    Shortcut for :func:`dtcc_core.builder.clean_footprints` on a city. By
+    default the city is cleaned in unison: footprints closer than
+    ``min_building_detail`` are merged into blocks whose ``BuildingPart``
+    children are the original buildings, each with its own cleaned footprint.
+    With ``isolated=True`` each building is cleaned on its own and nothing is
+    merged.
 
     Parameters
     ----------
-    max_distance : float, optional
-        The maximum distance in meters between buildings to consider them close enough to merge (default 0.15).
-    min_area : float, optional
-        The minimum area in square meters for a building to be kept (default 10).
-    simplify : bool, optional
-        Deprecated and ignored. Merged footprints are always
-        cleaned at ``max_distance`` (default True).
-    properties_merge_strategy : str, optional
-        The strategy for merging properties. Options are 'list' and 'sample'. 'list' will create a list of all properties for the merged building. 'sample' will pick a property value from a random building (default "list").
-    height_merge_strategy : str, optional
-        The strategy for merging heights. Options are 'mean', 'area_weighted' and 'max' .
-        'mean' will take the mean height of the merged buildings.
-        'area_weighted' will take the area weighted mean height of the merged buildings.
-        'max' will take the maximum height of the merged buildings (default "mean").
+    city : City
+        The city to clean. It is not modified.
+    min_building_detail : float, default 0.5
+        Minimum feature size, fidelity scale and merge distance in metres.
+    isolated : bool, default False
+        Clean each building on its own instead of the city in unison.
+    min_area : float, default 0
+        Drop cleaned buildings smaller than this area in square metres.
+    lod : GeometryType, optional
+        Geometry to take footprints from. By default each building uses the
+        first of LOD1, LOD2, LOD3 and LOD0 that it has.
+    strict : bool, default False
+        Raise instead of accepting residual separation below the scale.
+    show : bool, default False
+        Plot the input and cleaned footprints.
+    remove_holes : bool, default False
+        Fill all holes and discard polygon components wholly inside holes
+        of other components, even when cleaning in isolation.
 
     Returns
     -------
     City
-        A new `City` object with the merged buildings.
+        A new city with the cleaned buildings. The cleaning is recorded in
+        ``attributes["footprint_cleaning"]``, which the mesh builders reuse.
     """
-    warning(
-        "merge_buildings() now delegates to the shared footprint conditioner; "
-        "legacy property and height merge strategies are no longer applied separately."
-    )
-    if not simplify:
-        warning("merge_buildings() ignores simplify=False; merged footprints are cleaned.")
-    merged_city = deepcopy(city)
-    declared_scale = (
-        float(np.nextafter(max_distance, np.inf)) if max_distance > 0 else 0.0
-    )
-    merged = _condition_buildings_with_shared_cleaner(
-        city.buildings,
-        lod=GeometryType.LOD0,
-        options=ConditioningOptions(
-            min_feature_size=declared_scale,
-            merge_distance=max_distance,
-            fidelity_budget=max_distance / 2.0 if max_distance > 0 else 0.0,
-            allow_source_merging=True,
-        ),
-        operation_name="merge_buildings",
+    return _clean_footprints(
+        city,
+        min_building_detail=min_building_detail,
+        isolated=isolated,
         min_area=min_area,
-        return_index_map=False,
+        lod=lod,
+        strict=strict,
+        show=show,
+        remove_holes=remove_holes,
     )
-    merged_city.replace_buildings(merged)
-    return merged_city
-
-
-@register_model_method
-def fix_building_clearance(
-    city: City, target_clearance: float, min_angle: float, accepted_tol_fraction=0.9
-) -> City:
-    """
-    Fix the clearance of the footprints in the building models. After running
-    each building should have a minimum_clearance of `tol` meters and a minimum
-    angle between each edge of `min_angle` degrees.
-    """
-    warning(
-        "fix_building_clearance() now delegates to the shared footprint conditioner; "
-        "min_angle and accepted_tol_fraction are ignored."
-    )
-    fixed_city = deepcopy(city)
-    fixed_city.replace_buildings(
-        fix_building_footprint_clearance(
-            city.buildings,
-            clearance=target_clearance,
-            lod=GeometryType.LOD0,
-            return_index_map=False,
-        )
-    )
-    return fixed_city
 
 
 def clean_building_surfaces(city: City, lod: GeometryType, tol=1e-2) -> City:
