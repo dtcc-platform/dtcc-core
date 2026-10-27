@@ -1,7 +1,8 @@
 """Build LOD1 geometry and a stepped shell from three merged buildings (offline)."""
 
-import dtcc_core as dtcc
 from shapely.geometry import box
+
+import dtcc_core as dtcc
 
 # Three 10 m squares, separated by 0.2 m, with roofs at 8, 16 and 12 m.
 city = dtcc.model.City()
@@ -16,7 +17,7 @@ for x, height in [(0, 8), (10.2, 16), (20.4, 12)]:
 
 # Merge into one block and extrude each part at its own height.
 cleaned = dtcc.builder.clean_footprints(
-    city, min_building_detail=0.5, isolated=False, show=True,
+    city, min_building_detail=0.5, isolated=False, show=True
 )
 buildings = dtcc.builder.build_lod1_buildings(cleaned.buildings)
 cleaned.replace_buildings(buildings)

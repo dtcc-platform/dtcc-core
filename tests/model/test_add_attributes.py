@@ -1,6 +1,6 @@
 import pytest
 
-from dtcc_core.model import Object, City, Building
+from dtcc_core.model import Building, City
 
 
 def test_set_get_child_attributes():

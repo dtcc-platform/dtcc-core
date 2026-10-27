@@ -1,10 +1,10 @@
-from ...model import RoadNetwork, GeometryType
+from typing import TYPE_CHECKING
 
 import numpy as np
-from ..register import register_model_method
-from ...model.geometry import Surface
 
-from typing import TYPE_CHECKING, Any, Union, List, Tuple
+from ...model import RoadNetwork
+from ...model.geometry import Surface
+from ..register import register_model_method
 
 if TYPE_CHECKING:
     from scipy.sparse import csr_matrix
@@ -19,10 +19,10 @@ if TYPE_CHECKING:
 def to_matrix(roadnetwork: RoadNetwork, bidirectional=True) -> "csr_matrix":
     """
     Convert a road network to a sparse adjacency matrix representation.
-    
+
     Creates a sparse matrix where entries represent road connections between vertices,
     with weights corresponding to road segment lengths.
-    
+
     Parameters
     ----------
     roadnetwork : RoadNetwork
@@ -30,7 +30,7 @@ def to_matrix(roadnetwork: RoadNetwork, bidirectional=True) -> "csr_matrix":
     bidirectional : bool, default=True
         If True, creates a symmetric matrix by adding reverse edges for all connections.
         Self-loops are only added once to avoid duplication.
-    
+
     Returns
     -------
     csr_matrix
@@ -56,16 +56,16 @@ def to_matrix(roadnetwork: RoadNetwork, bidirectional=True) -> "csr_matrix":
 def to_surfaces(
     roadnetwork: RoadNetwork,
     width_attribute="",
-    widths: Union[float, List[float]] = 4,
+    widths: float | list[float] = 4,
     cap_style="round",
     as_shapely=False,
 ):
     """
     Convert road network linestrings to polygon surfaces with specified widths.
-    
+
     Creates polygon surfaces by buffering each road linestring with the specified
     width, allowing for variable road widths based on attributes or fixed values.
-    
+
     Parameters
     ----------
     roadnetwork : RoadNetwork
@@ -79,12 +79,12 @@ def to_surfaces(
         End cap style for buffered polygons ('round', 'square', or 'flat').
     as_shapely : bool, default=False
         If True, returns Shapely polygons; if False, returns DTCC Surface objects.
-    
+
     Returns
     -------
     List[Union[Surface, Polygon]]
         List of road surface polygons, either as DTCC Surface objects or Shapely polygons.
-    
+
     Raises
     ------
     ValueError

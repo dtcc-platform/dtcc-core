@@ -1,6 +1,7 @@
-import pytest
 import numpy as np
+import pytest
 from shapely.geometry import Polygon
+
 from dtcc_core.model import Surface  # Assuming this is the correct import
 
 

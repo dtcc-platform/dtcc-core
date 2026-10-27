@@ -13,7 +13,6 @@ import pytest
 import dtcc_core.datasets as datasets
 from dtcc_core.model.object import VehicleCollection
 
-
 pytestmark = pytest.mark.live
 
 

@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -21,7 +21,7 @@ def make_tile(tmp_path, name="o65775_6725_25_mr25", collection="orto-o2-2025"):
         path=tmp_path / "cache" / collection / f"{name}.tif",
         id=name,
         collection=collection,
-        datetime=datetime(2025, 5, 31, 8, 10, 56, tzinfo=timezone.utc),
+        datetime=datetime(2025, 5, 31, 8, 10, 56, tzinfo=UTC),
         extent=Bounds(672500.0, 6577500.0, 675000.0, 6580000.0),
         crs="EPSG:3006",
         spektraltyp="rgbi",
@@ -63,7 +63,7 @@ def test_tile_keeps_metadata_without_touching_its_file(tmp_path, no_raster_reads
     assert tile.path == tmp_path / "cache" / "orto-o2-2025" / "o65775_6725_25_mr25.tif"
     assert tile.id == "o65775_6725_25_mr25"
     assert tile.collection == "orto-o2-2025"
-    assert tile.datetime == datetime(2025, 5, 31, 8, 10, 56, tzinfo=timezone.utc)
+    assert tile.datetime == datetime(2025, 5, 31, 8, 10, 56, tzinfo=UTC)
     assert tile.extent.tuple == (672500.0, 6577500.0, 675000.0, 6580000.0)
     assert tile.crs == "EPSG:3006"
     assert tile.spektraltyp == "rgbi"

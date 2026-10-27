@@ -1,6 +1,7 @@
-import pytest
-from dtcc_core.model import LineString, MultiLineString
 import numpy as np
+import pytest
+
+from dtcc_core.model import LineString, MultiLineString
 
 
 @pytest.fixture

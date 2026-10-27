@@ -1,6 +1,7 @@
-import pytest
-from pathlib import Path
 import json
+from pathlib import Path
+
+import pytest
 from shapely.geometry import shape
 
 import dtcc_core

@@ -20,7 +20,7 @@ def building(polygon, identifier="building"):
 def test_split_footprint_walls_preserves_shape_height_and_source():
     original = building(box(0, 0, 12, 6))
     vertices = original.lod0.vertices.copy()
-    result, = builder.split_footprint_walls([original], max_wall_length=3)
+    (result,) = builder.split_footprint_walls([original], max_wall_length=3)
     assert result.lod0.to_polygon().equals(original.lod0.to_polygon())
     edges = np.roll(result.lod0.vertices, -1, axis=0) - result.lod0.vertices
     assert np.linalg.norm(edges, axis=1).max() <= 3 + 1e-9
@@ -46,7 +46,9 @@ def test_clean_footprints_merges_nearby_footprints_without_mutating_city():
 def test_clean_footprint_removes_small_footprint_defect():
     polygon = Polygon([(0, 0), (4, 0), (4, 4), (2.01, 4), (2, 3.99), (0, 4)])
     original = building(polygon)
-    fixed = original.clean_footprint(min_building_detail=0.2).lod0.to_polygon(simplify=0)
+    fixed = original.clean_footprint(min_building_detail=0.2).lod0.to_polygon(
+        simplify=0
+    )
     assert fixed.is_valid and fixed.minimum_clearance >= 0.18
     assert original.lod0.to_polygon(simplify=0).equals(polygon)
 
@@ -71,7 +73,9 @@ def test_flat_terrain_uses_requested_height_and_extent():
 
 def test_default_mesher_override_reset_and_invalid_selection(monkeypatch):
     monkeypatch.setattr(backends, "_default_2d_mesher_override", None)
-    monkeypatch.setattr(backends, "available_2d_meshers", lambda: ["dtcc_mesher", "triangle"])
+    monkeypatch.setattr(
+        backends, "available_2d_meshers", lambda: ["dtcc_mesher", "triangle"]
+    )
     monkeypatch.setenv("DTCC_2D_MESHER", "dtcc_mesher")
     assert builder.get_default_2d_mesher() == "dtcc_mesher"
     assert builder.set_default_2d_mesher(" TRIANGLE ") == "triangle"

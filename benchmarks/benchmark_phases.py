@@ -11,8 +11,8 @@ from __future__ import annotations
 import hashlib
 import json
 import time
-from pathlib import Path
 from copy import deepcopy
+from pathlib import Path
 
 import numpy as np
 from affine import Affine
@@ -20,8 +20,7 @@ from shapely import make_valid
 from shapely.geometry import mapping, shape
 from shapely.ops import unary_union
 
-from dtcc_core.model import Bounds, City, GeometryType, Raster
-from dtcc_core.io.model import load_model, save_model
+from benchmarks.benchmark_catalog import CLEANING_PARAMETERS
 from dtcc_core.builder.cleaning.blocks import source_footprint, source_id, source_ids
 from dtcc_core.builder.cleaning.clean import RECORD_KEY, cleaning_record
 from dtcc_core.builder.geometry_builders import meshes
@@ -29,7 +28,8 @@ from dtcc_core.datasets._city_mesh_common import (
     prepare_city_from_bounds,
     prepare_footprint_city_from_bounds,
 )
-from benchmarks.benchmark_catalog import CLEANING_PARAMETERS
+from dtcc_core.io.model import load_model, save_model
+from dtcc_core.model import Bounds, City, GeometryType, Raster
 
 # Format version of saved cleaning artifacts; loading rejects any other.
 ARTIFACT_VERSION = 4
@@ -258,16 +258,20 @@ def roof_evidence(city):
             if not np.isfinite(points).all():
                 raise ValueError(f"Nonfinite source roof points for {source.id}")
             ground = source.attributes.get("ground_height")
-            sources.append({
-                "source_id": source_id(source),
-                "occurrence_id": str(source.id),
-                "points": len(points),
-                "footprint_sha256": hashlib.sha256(polygon.wkb).hexdigest(),
-                "points_sha256": hashlib.sha256(points.tobytes()).hexdigest(),
-                "ground_height": (
-                    float(ground) if ground is not None and np.isfinite(ground) else None
-                ),
-            })
+            sources.append(
+                {
+                    "source_id": source_id(source),
+                    "occurrence_id": str(source.id),
+                    "points": len(points),
+                    "footprint_sha256": hashlib.sha256(polygon.wkb).hexdigest(),
+                    "points_sha256": hashlib.sha256(points.tobytes()).hexdigest(),
+                    "ground_height": (
+                        float(ground)
+                        if ground is not None and np.isfinite(ground)
+                        else None
+                    ),
+                }
+            )
     return {
         "extraction": "original_source_footprints_v1",
         "sources": sources,
@@ -298,7 +302,9 @@ def execute_phases(task, metrics, artifacts):
         raw_city, cleaned_city = load_cleaning(source_path, task)
         stage = _cleaning_stage(cleaned_city, parameters)
         metrics["cleaning"] = {
-            "status": "reused", "input": str(source_path), "contract": stage.contract
+            "status": "reused",
+            "input": str(source_path),
+            "contract": stage.contract,
         }
         # Make the new result self-contained for another replay.
         path = save_cleaning(
@@ -310,7 +316,9 @@ def execute_phases(task, metrics, artifacts):
         )
     else:
         if phase == "replay":
-            raw_city = load_model(Path(task["cleaning_input"]).parent / "raw.dtcc", expected_type=City)
+            raw_city = load_model(
+                Path(task["cleaning_input"]).parent / "raw.dtcc", expected_type=City
+            )
         else:
             raw_city = prepare_footprint_city_from_bounds(bounds)
         metrics["input"] = {
@@ -379,16 +387,19 @@ def execute_phases(task, metrics, artifacts):
         else:
             city = prepared
             source = "saved"
-        if phase != "replay" and (len(prepared.buildings) != len(cleaned_city.buildings) or any(
-            original.id != enriched.id
-            or not _footprint_polygon(original).equals_exact(
-                _footprint_polygon(enriched), 0.0
+        if phase != "replay" and (
+            len(prepared.buildings) != len(cleaned_city.buildings)
+            or any(
+                original.id != enriched.id
+                or not _footprint_polygon(original).equals_exact(
+                    _footprint_polygon(enriched), 0.0
+                )
+                for original, enriched in zip(
+                    cleaned_city.buildings, prepared.buildings
+                )
             )
-            for original, enriched in zip(cleaned_city.buildings, prepared.buildings)
-        )):
-            raise ValueError(
-                "Saved mesh input does not match the cleaned buildings"
-            )
+        ):
+            raise ValueError("Saved mesh input does not match the cleaned buildings")
     else:
         city = prepare_city_from_bounds(
             bounds, buildings=cleaned_city.buildings, **preparation
@@ -472,40 +483,58 @@ def _restore_source_evidence(cleaned, prepared):
     from dtcc_core.builder.cleaning.blocks import part_roof, update_walls
 
     expected = roof_evidence(prepared)
-    if prepared.attributes.get('benchmark_roof_evidence') != expected:
-        raise ValueError('Raw replay needs matching saved source roof evidence')
+    if prepared.attributes.get("benchmark_roof_evidence") != expected:
+        raise ValueError("Raw replay needs matching saved source roof evidence")
     sources = {}
     for building in prepared.buildings:
         for source in building.building_parts or [building]:
             key = source_id(source)
             if key in sources:
                 previous = sources[key]
-                if (source_footprint(previous).wkb != source_footprint(source).wkb or
-                    not np.array_equal(previous.point_cloud.points, source.point_cloud.points)):
-                    raise ValueError(f'Conflicting saved evidence for source {key}')
+                if source_footprint(previous).wkb != source_footprint(
+                    source
+                ).wkb or not np.array_equal(
+                    previous.point_cloud.points, source.point_cloud.points
+                ):
+                    raise ValueError(f"Conflicting saved evidence for source {key}")
             sources[key] = source
     for building in cleaned.buildings:
         for source in building.building_parts or [building]:
             key = source_id(source)
             if key not in sources:
-                raise ValueError(f'Raw replay lacks evidence for source {key}')
+                raise ValueError(f"Raw replay lacks evidence for source {key}")
             saved = sources[key]
-            for name in ('source_footprint','ground_height','estimated_height','height'):
+            for name in (
+                "source_footprint",
+                "ground_height",
+                "estimated_height",
+                "height",
+            ):
                 if name in saved.attributes:
                     source.attributes[name] = deepcopy(saved.attributes[name])
             source.add_geometry(deepcopy(saved.point_cloud), GeometryType.POINT_CLOUD)
             if source.lod0 is not None:
-                source.lod0.set_z(saved.lod0.zmax if saved.lod0 is not None else part_roof(saved))
+                source.lod0.set_z(
+                    saved.lod0.zmax if saved.lod0 is not None else part_roof(saved)
+                )
         if building.building_parts:
-            building.lod0.set_z(max(part_roof(part) for part in building.building_parts))
-            building.attributes['ground_height'] = min(part.attributes['ground_height'] for part in building.building_parts)
-            building.attributes['estimated_height'] = building.lod0.zmax-building.attributes['ground_height']
+            building.lod0.set_z(
+                max(part_roof(part) for part in building.building_parts)
+            )
+            building.attributes["ground_height"] = min(
+                part.attributes["ground_height"] for part in building.building_parts
+            )
+            building.attributes["estimated_height"] = (
+                building.lod0.zmax - building.attributes["ground_height"]
+            )
             update_walls(building)
     cleaned.add_terrain(deepcopy(prepared.terrain))
     actual = roof_evidence(cleaned)
-    signatures = lambda evidence: sorted((s['source_id'],s['points_sha256'],s['footprint_sha256'],s['ground_height'])
-                                         for s in evidence['sources'])
+    signatures = lambda evidence: sorted(
+        (s["source_id"], s["points_sha256"], s["footprint_sha256"], s["ground_height"])
+        for s in evidence["sources"]
+    )
     if signatures(actual) != signatures(expected):
-        raise ValueError('Raw replay changed the source roof evidence inventory')
-    cleaned.attributes['benchmark_roof_evidence'] = actual
+        raise ValueError("Raw replay changed the source roof evidence inventory")
+    cleaned.attributes["benchmark_roof_evidence"] = actual
     return cleaned

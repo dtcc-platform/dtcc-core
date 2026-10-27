@@ -23,10 +23,19 @@ _LAZY_SUBMODULES = {
 }
 
 _LAZY_LOADERS = (
-    "load_3dbag", "load_model", "load_city", "load_cityjson",
-    "load_mesh", "load_volume_mesh", "load_mesh_as_city",
-    "load_pointcloud", "load_pointcloud_directory", "load_raster",
-    "load_footprints", "load_landuse", "load_roadnetwork",
+    "load_3dbag",
+    "load_model",
+    "load_city",
+    "load_cityjson",
+    "load_mesh",
+    "load_volume_mesh",
+    "load_mesh_as_city",
+    "load_pointcloud",
+    "load_pointcloud_directory",
+    "load_raster",
+    "load_footprints",
+    "load_landuse",
+    "load_roadnetwork",
 )
 
 

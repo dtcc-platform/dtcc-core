@@ -1,7 +1,6 @@
-from dtcc_core.model import Mesh
+import numpy as np
 
-import numpy as np
-import numpy as np
+from dtcc_core.model import Mesh
 
 
 def create_sphere(center, radius, resolution=20, scale=(1.0, 1.0, 1.0)):
@@ -78,9 +77,6 @@ def create_sphere(center, radius, resolution=20, scale=(1.0, 1.0, 1.0)):
     mesh = Mesh(vertices=vertices, faces=np.array(faces))
 
     return mesh
-
-
-import numpy as np
 
 
 def create_cylinder(center, radius, height, resolution=20, axis=2, cap=True):
@@ -183,9 +179,6 @@ def create_cylinder(center, radius, height, resolution=20, axis=2, cap=True):
     mesh = Mesh(vertices=np.array(vertices), faces=np.array(faces))
 
     return mesh
-
-
-import numpy as np
 
 
 def create_cone_mesh(center, radius, height, resolution=20, axis=2, cap=True):

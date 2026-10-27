@@ -27,8 +27,8 @@ import os
 import pkgutil
 import sys
 import textwrap
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 
 @dataclass
@@ -39,10 +39,10 @@ class FuncInfo:
     file: str
     start: int
     end: int
-    body_lines: Set[int]
+    body_lines: set[int]
 
     @property
-    def key(self) -> Tuple[str, int, int, str]:
+    def key(self) -> tuple[str, int, int, str]:
         return (self.file, self.start, self.end, self.qualname)
 
 
@@ -55,7 +55,7 @@ def iter_modules(package_name: str) -> Iterable[str]:
             yield m.name
 
 
-def function_body_lines(lines: List[str], start: int) -> Set[int]:
+def function_body_lines(lines: list[str], start: int) -> set[int]:
     """Return source lines that cannot be covered merely by defining a function."""
     if not lines:
         return set()
@@ -64,9 +64,11 @@ def function_body_lines(lines: List[str], start: int) -> Set[int]:
         # For example, an exported lambda can share its line with an assignment.
         return set()
     body = node.body
-    if (isinstance(body[0], ast.Expr)
-            and isinstance(body[0].value, ast.Constant)
-            and isinstance(body[0].value.value, str)):
+    if (
+        isinstance(body[0], ast.Expr)
+        and isinstance(body[0].value, ast.Constant)
+        and isinstance(body[0].value.value, str)
+    ):
         body = body[1:]
     if not body:
         return set()
@@ -78,21 +80,24 @@ def function_body_lines(lines: List[str], start: int) -> Set[int]:
         definition_nodes.append(node.returns)
     definition_end = max(
         [node.lineno]
-        + [getattr(part, "end_lineno", None) or node.lineno
-           for expression in definition_nodes for part in ast.walk(expression)]
+        + [
+            getattr(part, "end_lineno", None) or node.lineno
+            for expression in definition_nodes
+            for part in ast.walk(expression)
+        ]
     )
     first = max(body[0].lineno, definition_end + 1)
     return set(range(start + first - 1, start + node.end_lineno))
 
 
-def get_public_functions_from_loaded_module(module) -> List[FuncInfo]:
+def get_public_functions_from_loaded_module(module) -> list[FuncInfo]:
     """Collect public functions from a loaded module (uses its __all__)."""
     modname = module.__name__
     names = getattr(module, "__all__", None)
     if not names:
         return []
 
-    found: List[FuncInfo] = []
+    found: list[FuncInfo] = []
     for name in names:
         try:
             obj = getattr(module, name)
@@ -132,7 +137,7 @@ def get_public_functions_from_loaded_module(module) -> List[FuncInfo]:
 
         try:
             lines, start = inspect.getsourcelines(obj)
-        except (OSError, IOError):
+        except OSError:
             # Could not get source lines; mark as unknown range
             lines, start = [], 0
 
@@ -151,11 +156,11 @@ def get_public_functions_from_loaded_module(module) -> List[FuncInfo]:
     return found
 
 
-def load_coverage_executed_lines(coverage_json_path: str) -> Dict[str, Set[int]]:
-    with open(coverage_json_path, "r", encoding="utf-8") as f:
+def load_coverage_executed_lines(coverage_json_path: str) -> dict[str, set[int]]:
+    with open(coverage_json_path, encoding="utf-8") as f:
         data = json.load(f)
     files = data.get("files") or {}
-    executed: Dict[str, Set[int]] = {}
+    executed: dict[str, set[int]] = {}
     for path, entry in files.items():
         # Normalize to real absolute path
         try:
@@ -167,10 +172,16 @@ def load_coverage_executed_lines(coverage_json_path: str) -> Dict[str, Set[int]]
     return executed
 
 
-def main(argv: Optional[List[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description="Check public API function calls using coverage")
-    parser.add_argument("--package", required=True, help="Root package to scan, e.g., dtcc_core")
-    parser.add_argument("--coverage-file", required=True, help="Path to coverage JSON file")
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Check public API function calls using coverage"
+    )
+    parser.add_argument(
+        "--package", required=True, help="Root package to scan, e.g., dtcc_core"
+    )
+    parser.add_argument(
+        "--coverage-file", required=True, help="Path to coverage JSON file"
+    )
     parser.add_argument(
         "--strict",
         action="store_true",
@@ -179,10 +190,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     args = parser.parse_args(argv)
 
     # Discover public functions
-    func_map: Dict[Tuple[str, int, int, str], FuncInfo] = {}
+    func_map: dict[tuple[str, int, int, str], FuncInfo] = {}
     total_modules = 0
-    import_errors: List[Tuple[str, str]] = []
-    loaded_modules: List[object] = []
+    import_errors: list[tuple[str, str]] = []
+    loaded_modules: list[object] = []
     for modname in iter_modules(args.package):
         total_modules += 1
         try:
@@ -203,7 +214,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         for fi in funcs:
             func_map[fi.key] = fi
 
-    functions: List[FuncInfo] = list(func_map.values())
+    functions: list[FuncInfo] = list(func_map.values())
 
     # Load coverage executed lines
     try:
@@ -213,7 +224,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 2
 
     # Evaluate coverage for functions
-    misses: List[FuncInfo] = []
+    misses: list[FuncInfo] = []
     covered_count = 0
     for fi in sorted(functions, key=lambda x: (x.file, x.start, x.name)):
         if fi.file == "<built-in>":

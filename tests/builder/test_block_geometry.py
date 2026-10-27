@@ -1,13 +1,17 @@
 """LOD1 per part and closed shells of cleaned blocks."""
 
-from collections import Counter
 import math
+from collections import Counter
 
 import numpy as np
 import pytest
 from shapely.geometry import box
 
-from dtcc_core.builder import build_building_shell, build_lod1_buildings, build_lod2_buildings
+from dtcc_core.builder import (
+    build_building_shell,
+    build_lod1_buildings,
+    build_lod2_buildings,
+)
 from dtcc_core.model import Building, City, GeometryType, MultiSurface, Surface
 
 
@@ -30,7 +34,10 @@ def cleaned(*buildings):
 def volume(geometry):
     mesh = geometry.mesh(weld=True) if isinstance(geometry, MultiSurface) else geometry
     points = np.asarray(mesh.vertices)[np.asarray(mesh.faces)]
-    return float(np.einsum("ij,ij->i", points[:, 0], np.cross(points[:, 1], points[:, 2])).sum() / 6)
+    return float(
+        np.einsum("ij,ij->i", points[:, 0], np.cross(points[:, 1], points[:, 2])).sum()
+        / 6
+    )
 
 
 def closed_and_oriented(mesh):
@@ -135,10 +142,12 @@ def test_gap_closing_keeps_compact_cells_through_reuse_and_reload(tmp_path):
     from dtcc_core.builder.geometry_builders.meshes import footprint_cells
 
     city = City()
-    city.add_buildings([
-        building(str(i), box(x, 0, x + 10, 10), height)
-        for i, (x, height) in enumerate([(0, 8), (10.2, 16), (20.4, 12)])
-    ])
+    city.add_buildings(
+        [
+            building(str(i), box(x, 0, x + 10, 10), height)
+            for i, (x, height) in enumerate([(0, 8), (10.2, 16), (20.4, 12)])
+        ]
+    )
     once = city.clean_footprints(min_building_detail=0.5, isolated=False)
     io.save_model(once, tmp_path / "compact.dtcc")
     loaded = io.load_model(tmp_path / "compact.dtcc")
@@ -182,13 +191,17 @@ def test_gap_closing_city_surface_mesh_has_compact_building_constraints(isolated
     terrain = Terrain()
     terrain.add_geometry(raster, GeometryType.RASTER)
     city.add_terrain(terrain)
-    city.add_buildings([
-        building(str(i), box(x, 0, x + 10, 10), height)
-        for i, (x, height) in enumerate([(0, 8), (10.2, 16), (20.4, 12)])
-    ])
+    city.add_buildings(
+        [
+            building(str(i), box(x, 0, x + 10, 10), height)
+            for i, (x, height) in enumerate([(0, 8), (10.2, 16), (20.4, 12)])
+        ]
+    )
     # A jointly cleaned block can also be consumed by the isolated shell workflow.
     city = city.clean_footprints(min_building_detail=0.5)
-    mesh = build_city_surface_mesh(city, isolated=isolated, max_mesh_size=5, report_mesh_quality=False)
+    mesh = build_city_surface_mesh(
+        city, isolated=isolated, max_mesh_size=5, report_mesh_quality=False
+    )
     assert len(mesh.faces) < 2000
     assert quality(mesh).min() > 0.1
     points = mesh.vertices[mesh.faces]
@@ -219,7 +232,9 @@ def test_a_short_wall_edge_refines_only_the_walls_at_its_ends(notch):
     footprint = Polygon(
         [(0, 0), (20, 0), (20, 10), (10.5, 10), (10.5, 10 + notch), (0, 10 + notch)]
     )
-    shell = build_building_shell(building("notched", footprint, 30), min_building_detail=0.5)
+    shell = build_building_shell(
+        building("notched", footprint, 30), min_building_detail=0.5
+    )
     assert closed_and_oriented(shell)
     # Each vertical line is split into the fewest strips no taller than
     # max(5 times its narrowest panel, 0.5 m); panels narrower than a
@@ -263,7 +278,10 @@ def test_a_step_near_the_top_of_one_line_gives_no_sliver():
     terrain.add_geometry(raster, GeometryType.RASTER)
     city.add_terrain(terrain)
     city.add_buildings(
-        [building("high", box(20, 0, 30, 10), 30), building("mid", box(30, 5, 40, 10), 29.4)]
+        [
+            building("high", box(20, 0, 30, 10), 30),
+            building("mid", box(30, 5, 40, 10), 29.4),
+        ]
     )
     mesh = build_city_surface_mesh(
         city.clean_footprints(), max_mesh_size=10.0, report_mesh_quality=False

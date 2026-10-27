@@ -1,12 +1,13 @@
-from ...model import Building, GeometryType
-from ...model import Surface, MultiSurface, PointCloud, Raster
-from ..model_conversion import create_builder_polygon
-from .terrain import build_terrain_raster
+import numpy as np
+from shapely.geometry import Polygon
+
+from dtcc_core.common.progress import report_progress
+
+from ...model import Building, GeometryType, MultiSurface, PointCloud, Raster, Surface
 from .. import _dtcc_builder
-from ..logging import debug, info, warning, error
 from ..cleaning.blocks import (
-    is_block,
     invalidate_lod1,
+    is_block,
     part_roof,
     record_lod1,
     set_block_roof,
@@ -14,13 +15,10 @@ from ..cleaning.blocks import (
     source_footprint,
     update_walls,
 )
-from shapely.geometry import Polygon
-import numpy as np
-
-from typing import List, Tuple
-
+from ..logging import error, info, warning
+from ..model_conversion import create_builder_polygon
 from .surface import extrude_surface
-from dtcc_core.common.progress import report_progress
+from .terrain import build_terrain_raster
 
 
 def _source_vertices(part):
@@ -96,7 +94,7 @@ def extrude_building(
 
 
 def set_building_heights_from_attribute(
-    buildings: List[Building],
+    buildings: list[Building],
     terrain: Raster,
     height_attribute: str = "measured_height",
     default_ground_height: float = 0,
@@ -104,7 +102,7 @@ def set_building_heights_from_attribute(
     min_building_height: float = 2.5,
     default_building_height: float = 10.0,
     ground_height_strategy: str = "centroid",
-) -> List[Building]:
+) -> list[Building]:
     """Calculates ground level and absolute height for each building footprint from a given height attribute.
 
     Each part of a cleaned block gets its height from its own attributes and
@@ -238,12 +236,12 @@ def _height_from_attribute(
 
 
 def compute_building_heights(
-    buildings: List[Building],
+    buildings: list[Building],
     terrain: Raster,
     min_building_height=2.5,
     roof_percentile=0.9,
     overwrite=False,
-) -> List[Building]:
+) -> list[Building]:
     """
     Compute building heights from roof points and terrain elevation.
 
@@ -277,7 +275,9 @@ def compute_building_heights(
     """
     total_buildings = len(buildings)
     info("Computing building heights...")
-    report_progress(percent=0, message=f"Computing heights for {total_buildings} buildings...")
+    report_progress(
+        percent=0, message=f"Computing heights for {total_buildings} buildings..."
+    )
     for i, building in enumerate(buildings):
         if is_block(building):
             # A cleaned block: each part on the footprint of its source, with
@@ -364,7 +364,7 @@ def build_lod1_buildings(
     default_ground_height=0,
     always_use_default_ground=False,
     rebuild=True,
-) -> List[Building]:
+) -> list[Building]:
     """
     Build the LOD1 representation of the given buildings.
 
@@ -403,7 +403,9 @@ def build_lod1_buildings(
     """
     total_buildings = len(buildings)
     info(f"Building LOD1 representations of {total_buildings} buildings...")
-    report_progress(percent=0, message=f"Building LOD1 for {total_buildings} buildings...")
+    report_progress(
+        percent=0, message=f"Building LOD1 for {total_buildings} buildings..."
+    )
 
     for i, building in enumerate(buildings):
         parts = []
@@ -445,7 +447,7 @@ def build_lod1_buildings(
             report_progress(
                 current=i + 1,
                 total=total_buildings,
-                message=f"Building LOD1 ({i + 1}/{total_buildings})..."
+                message=f"Building LOD1 ({i + 1}/{total_buildings})...",
             )
 
     return buildings
@@ -460,7 +462,7 @@ def extract_roof_points(
     ransac_outlier_remover=False,
     ransac_outlier_margin=3.0,
     ransac_iterations=250,
-) -> List[Building]:
+) -> list[Building]:
     """
     Extract roof points from a point cloud for a list of buildings.
 
@@ -502,7 +504,9 @@ def extract_roof_points(
                 polygon = source_footprint(part)
                 if polygon is None:
                     continue
-                for piece in [polygon] if isinstance(polygon, Polygon) else polygon.geoms:
+                for piece in (
+                    [polygon] if isinstance(polygon, Polygon) else polygon.geoms
+                ):
                     polygons.append(_roof_point_polygon(piece))
                     owners.append(len(targets))
                 targets.append(part)
@@ -511,7 +515,9 @@ def extract_roof_points(
         if "source_footprint" in building.attributes:
             polygon = source_footprint(building)
             if polygon is not None:
-                for piece in [polygon] if isinstance(polygon, Polygon) else polygon.geoms:
+                for piece in (
+                    [polygon] if isinstance(polygon, Polygon) else polygon.geoms
+                ):
                     polygons.append(_roof_point_polygon(piece))
                     owners.append(len(targets))
                 targets.append(building)
@@ -558,7 +564,7 @@ def building_heights_from_pointcloud(
     roof_outlier_margin=1.5,
     overwrite=False,
     keep_roof_points=False,
-) -> List[Building]:
+) -> list[Building]:
     """
     Compute building heights from point cloud data.
 
@@ -593,7 +599,9 @@ def building_heights_from_pointcloud(
 
     if terrain_raster is None:
         info("No terrain raster provided, building terrain raster from point cloud.")
-        terrain_raster = build_terrain_raster(pointcloud, cell_size=2, ground_only=True, _report_progress=False)
+        terrain_raster = build_terrain_raster(
+            pointcloud, cell_size=2, ground_only=True, _report_progress=False
+        )
 
     buildings = extract_roof_points(
         buildings,

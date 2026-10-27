@@ -1,13 +1,11 @@
-from ..model import Surface, MultiSurface, Mesh, PointCloud, Raster, Mesh, VolumeMesh
-
-from typing import Union
-import numpy as np
-from affine import Affine
 from numbers import Real
 
-from . import _dtcc_builder
-
+import numpy as np
+from affine import Affine
 from shapely.geometry import Polygon
+
+from ..model import Mesh, MultiSurface, Raster, Surface, VolumeMesh
+from . import _dtcc_builder
 
 
 def create_builder_polygon(polygon: Polygon) -> _dtcc_builder.Polygon:
@@ -31,6 +29,7 @@ def create_builder_polygon(polygon: Polygon) -> _dtcc_builder.Polygon:
 
     return _dtcc_builder.create_polygon(shell, holes)
 
+
 def create_builder_surface(surface: Surface):
     """
     Create a DTCC builder Surface object through the pybind exposed C++
@@ -48,7 +47,9 @@ def create_builder_surface(surface: Surface):
 
     """
     if surface.regions:
-        raise NotImplementedError("The C++ geometry adapter cannot preserve semantic regions")
+        raise NotImplementedError(
+            "The C++ geometry adapter cannot preserve semantic regions"
+        )
     return _dtcc_builder.create_surface(surface.vertices, surface.holes)
 
 
@@ -68,8 +69,12 @@ def create_builder_multisurface(multisurface: MultiSurface):
         A `DTCC_BUILDER` MultiSurface object.
 
     """
-    if multisurface.regions or any(surface.regions for surface in multisurface.surfaces):
-        raise NotImplementedError("The C++ geometry adapter cannot preserve semantic regions")
+    if multisurface.regions or any(
+        surface.regions for surface in multisurface.surfaces
+    ):
+        raise NotImplementedError(
+            "The C++ geometry adapter cannot preserve semantic regions"
+        )
     surfaces = [
         _dtcc_builder.create_surface(surface.vertices, surface.holes)
         for surface in multisurface.surfaces
@@ -103,22 +108,30 @@ def raster_to_builder_gridfield(raster: Raster):
 
     """
     if np.ma.isMaskedArray(raster.data) and np.ma.getmaskarray(raster.data).any():
-        raise ValueError("Raster contains masked values; fill missing data before meshing")
+        raise ValueError(
+            "Raster contains masked values; fill missing data before meshing"
+        )
     data = np.asarray(raster.data)
     if data.ndim != 2 or not all(data.shape):
-        raise ValueError("Native grid conversion requires a nonempty 2D single-band raster")
+        raise ValueError(
+            "Native grid conversion requires a nonempty 2D single-band raster"
+        )
     georef = raster.georef
     if not isinstance(georef, Affine) or not np.isfinite(tuple(georef)).all():
         raise ValueError("Raster georeference must be a finite affine transform")
     if georef.b != 0 or georef.d != 0:
-        raise NotImplementedError("Native grid conversion does not support rotated or skewed rasters; reproject first")
+        raise NotImplementedError(
+            "Native grid conversion does not support rotated or skewed rasters; reproject first"
+        )
     if georef.a == 0 or georef.e == 0:
         raise ValueError("Raster pixel spacing must be nonzero")
     if raster.nodata is not None:
         if not isinstance(raster.nodata, Real):
             raise ValueError("Raster nodata must be a real scalar or None")
         if np.any(data == raster.nodata):
-            raise ValueError("Raster contains nodata values; fill missing data before meshing")
+            raise ValueError(
+                "Raster contains nodata values; fill missing data before meshing"
+            )
     # Native samples are ordered from the lower left, independent of storage order.
     if georef.e < 0:
         data = data[::-1, :]
@@ -137,13 +150,19 @@ def _check_mesh_metadata(mesh, *, allow_transform=False):
     from ..model.exchange import _transform
 
     if mesh.regions:
-        raise NotImplementedError("The C++ geometry adapter cannot preserve semantic regions")
+        raise NotImplementedError(
+            "The C++ geometry adapter cannot preserve semantic regions"
+        )
     if mesh.fields:
         raise NotImplementedError("The C++ geometry adapter cannot transfer fields")
     if mesh.dataset_context is not None:
-        raise NotImplementedError("The C++ geometry adapter cannot transfer Dataset Context")
+        raise NotImplementedError(
+            "The C++ geometry adapter cannot transfer Dataset Context"
+        )
     if mesh.schema_id is not None or mesh.schema_version is not None:
-        raise NotImplementedError("The C++ geometry adapter cannot transfer schema declarations")
+        raise NotImplementedError(
+            "The C++ geometry adapter cannot transfer schema declarations"
+        )
     _transform(mesh.transform)
     if not allow_transform and (
         mesh.transform.srs or not np.array_equal(mesh.transform.affine, np.eye(4))
@@ -154,7 +173,7 @@ def _check_mesh_metadata(mesh, *, allow_transform=False):
         )
 
 
-def mesh_to_builder_mesh(mesh:Mesh):
+def mesh_to_builder_mesh(mesh: Mesh):
     """
     Convert a model Mesh to a DTCC builder Mesh through the pybind exposed C++
     `DTCC_BUILDER::create_mesh()` function.
@@ -183,7 +202,9 @@ def mesh_to_builder_mesh(mesh:Mesh):
 
     """
     _check_mesh_metadata(mesh)
-    return _dtcc_builder.create_mesh(mesh.vertices, mesh.faces, mesh.markers, mesh.normals)
+    return _dtcc_builder.create_mesh(
+        mesh.vertices, mesh.faces, mesh.markers, mesh.normals
+    )
 
 
 def builder_mesh_to_mesh(_mesh: _dtcc_builder.Mesh):
@@ -209,7 +230,10 @@ def builder_mesh_to_mesh(_mesh: _dtcc_builder.Mesh):
     mesh.normals = normals.reshape((-1, 3))
     return mesh
 
-def volume_mesh_to_builder_volume_mesh(volume_mesh: VolumeMesh)-> _dtcc_builder.VolumeMesh:
+
+def volume_mesh_to_builder_volume_mesh(
+    volume_mesh: VolumeMesh,
+) -> _dtcc_builder.VolumeMesh:
     """
     Convert a model VolumeMesh to a DTCC builder VolumeMesh through the pybind exposed C++
     `DTCC_BUILDER::create_volume_mesh()` function.
@@ -237,7 +261,10 @@ def volume_mesh_to_builder_volume_mesh(volume_mesh: VolumeMesh)-> _dtcc_builder.
 
     """
     _check_mesh_metadata(volume_mesh)
-    return _dtcc_builder.create_volume_mesh(volume_mesh.vertices, volume_mesh.cells, volume_mesh.markers)
+    return _dtcc_builder.create_volume_mesh(
+        volume_mesh.vertices, volume_mesh.cells, volume_mesh.markers
+    )
+
 
 def builder_volume_mesh_to_volume_mesh(_volume_mesh: _dtcc_builder.VolumeMesh):
     """

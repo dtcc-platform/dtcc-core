@@ -2,18 +2,18 @@
 # Licensed under the MIT License
 
 from dataclasses import dataclass
-from typing import Any, List
+from typing import Any
+
 import numpy as np
 
-from .object import Object
-from ..geometry import Point
-from ..values import Field
 from ...plotting.style import (
     add_plot_context,
     apply_dtcc_style,
     resolve_colormap,
     style_colorbar,
 )
+from ..geometry import Point
+from .object import Object
 
 
 @dataclass(repr=False)
@@ -38,36 +38,66 @@ class SensorCollection(Object):
         if phenomenon is None:
             phenomenon = next(iter(self.attributes.get("parameter_fields") or {}), None)
         if phenomenon is None:
-            phenomenon = next((f.name for station in stations
-                               for geometry in station.get_geometries() for f in geometry.fields), None)
+            phenomenon = next(
+                (
+                    f.name
+                    for station in stations
+                    for geometry in station.get_geometries()
+                    for f in geometry.fields
+                ),
+                None,
+            )
         if phenomenon is not None:
             _, values = self.to_arrays(phenomenon)
             if values.dtype.kind in "biuf":
                 valid = values[np.isfinite(values)]
                 if valid.size:
-                    sections.append((f"Measurement statistics: {phenomenon}", ("Statistic", "Value"), [
-                        ("Count", valid.size), ("Min", f"{valid.min():.2f}"),
-                        ("Max", f"{valid.max():.2f}"), ("Mean", f"{valid.mean():.2f}"),
-                        ("Median", f"{np.median(valid):.2f}"),
-                    ]))
+                    sections.append(
+                        (
+                            f"Measurement statistics: {phenomenon}",
+                            ("Statistic", "Value"),
+                            [
+                                ("Count", valid.size),
+                                ("Min", f"{valid.min():.2f}"),
+                                ("Max", f"{valid.max():.2f}"),
+                                ("Mean", f"{valid.mean():.2f}"),
+                                ("Median", f"{np.median(valid):.2f}"),
+                            ],
+                        )
+                    )
         rows = []
         for station in stations[:3]:
             attrs = station.attributes
-            point = next((g for g in station.get_geometries() if isinstance(g, Point)), None)
+            point = next(
+                (g for g in station.get_geometries() if isinstance(g, Point)), None
+            )
             value, unit = attrs.get("value"), attrs.get("unit", "")
             if value is None and point is not None and point.fields:
-                field = next((f for f in point.fields if f.name == phenomenon), point.fields[0])
+                field = next(
+                    (f for f in point.fields if f.name == phenomenon), point.fields[0]
+                )
                 value = field.values[0] if len(field.values) else None
                 unit = field.unit
             if isinstance(value, np.ndarray):
                 value = np.array2string(value, threshold=6, edgeitems=2)
 
-            rows.append((attrs.get("station_name", station.id),
-                         "N/A" if point is None else f"({point.x:.4f}, {point.y:.4f})",
-                         value_text(value), unit, attrs.get("timestamp", "N/A")))
+            rows.append(
+                (
+                    attrs.get("station_name", station.id),
+                    "N/A" if point is None else f"({point.x:.4f}, {point.y:.4f})",
+                    value_text(value),
+                    unit,
+                    attrs.get("timestamp", "N/A"),
+                )
+            )
         if rows:
-            sections.append(("Sample stations (first 3)",
-                             ("Station", "Location", "Value", "Unit", "Timestamp"), rows))
+            sections.append(
+                (
+                    "Sample stations (first 3)",
+                    ("Station", "Location", "Value", "Unit", "Timestamp"),
+                    rows,
+                )
+            )
         return sections
 
     def _summary_items(self):
@@ -86,7 +116,7 @@ class SensorCollection(Object):
             raise TypeError("Station must be an Object instance")
         self.add_child(station)
 
-    def stations(self) -> List[Object]:
+    def stations(self) -> list[Object]:
         """Get all sensor stations (child objects).
 
         Returns

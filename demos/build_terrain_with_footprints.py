@@ -10,7 +10,7 @@ city.download_pointcloud()
 cleaned = dtcc.builder.clean_footprints(city, min_building_detail=0.5, show=True)
 footprints = [building.lod0 for building in cleaned.buildings]
 mesh = dtcc.builder.build_terrain_surface_mesh(
-    city.pointcloud, subdomains=footprints, max_mesh_size=10.0,
+    city.pointcloud, subdomains=footprints, max_mesh_size=10.0
 )
 mesh.plot()
 mesh.view()

@@ -1,8 +1,9 @@
 import hashlib
 import json
 import os
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 import numpy as np
 import requests
@@ -18,6 +19,7 @@ from dtcc_core.model import (
     Object,
     Surface,
 )
+
 from .cache import cache_dir
 from .logging import info, warning
 
@@ -227,7 +229,9 @@ def deso_from_geodataframe(
         "source": source,
         "year": year,
         "area_count": int(len(gdf)),
-        "source_url": _wfs_url(bounds, year) if bounds is not None else SCB_DESO_WFS_URL,
+        "source_url": _wfs_url(bounds, year)
+        if bounds is not None
+        else SCB_DESO_WFS_URL,
     }
     deso.transform.srs = "EPSG:3006"
     if bounds is not None:
@@ -305,13 +309,8 @@ def download_deso_statistics(
 
     fields = []
     statistics_years = _statistics_years(topics, year)
-    topic_labels = ", ".join(
-        f"{topic} ({statistics_years[topic]})" for topic in topics
-    )
-    info(
-        "Downloading DeSO statistics from SCB "
-        f"for {len(codes)} areas: {topic_labels}"
-    )
+    topic_labels = ", ".join(f"{topic} ({statistics_years[topic]})" for topic in topics)
+    info(f"Downloading DeSO statistics from SCB for {len(codes)} areas: {topic_labels}")
     for topic in topics:
         query = _STATISTIC_QUERIES[topic]
         statistics_year = statistics_years[topic]

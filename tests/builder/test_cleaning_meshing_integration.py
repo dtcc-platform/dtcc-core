@@ -1,7 +1,7 @@
-from collections import Counter, defaultdict
 import subprocess
 import sys
 import textwrap
+from collections import Counter, defaultdict
 from types import SimpleNamespace
 
 import numpy as np
@@ -20,16 +20,26 @@ from dtcc_core.builder.cleaning.contract import (
     check_mesher_handoff_profile,
 )
 from dtcc_core.builder.geometry_builders import meshes as meshes_module
+from dtcc_core.builder.meshing import dtcc_mesher_backend as dtcc_mesher_backend_module
+from dtcc_core.builder.meshing import flat_mesh_backends as flat_mesh_backends_module
+from dtcc_core.builder.meshing.tetgen import is_tetgen_available
 from dtcc_core.builder.model_conversion import (
     builder_mesh_to_mesh,
     create_builder_polygon,
     create_builder_surface,
     mesh_to_builder_mesh,
 )
-from dtcc_core.builder.meshing import dtcc_mesher_backend as dtcc_mesher_backend_module
-from dtcc_core.builder.meshing import flat_mesh_backends as flat_mesh_backends_module
-from dtcc_core.builder.meshing.tetgen import is_tetgen_available
-from dtcc_core.model import Building, Bounds, City, GeometryType, Mesh, Raster, Surface, Terrain, VolumeMesh
+from dtcc_core.model import (
+    Bounds,
+    Building,
+    City,
+    GeometryType,
+    Mesh,
+    Raster,
+    Surface,
+    Terrain,
+    VolumeMesh,
+)
 
 
 def make_surface(polygon: Polygon, z: float) -> Surface:
@@ -135,13 +145,9 @@ def make_prepared_ground_regions(
     partitioned_polygons: list[Polygon] = []
     partitioned_markers: list[int] = []
     partitioned_points: list[np.ndarray] = []
-    for polygon, marker, point in zip(
-        region_polygons, region_markers, region_points
-    ):
+    for polygon, marker, point in zip(region_polygons, region_markers, region_points):
         components = (
-            meshes_module._iter_polygon_components(
-                polygon.difference(building_union)
-            )
+            meshes_module._iter_polygon_components(polygon.difference(building_union))
             if marker < 0 and not building_union.is_empty
             else [polygon]
         )
@@ -217,9 +223,7 @@ def make_flat_city(buildings: list[Building]) -> City:
     return city
 
 
-def make_bounded_flat_city(
-    buildings: list[Building], bounds: Bounds
-) -> City:
+def make_bounded_flat_city(buildings: list[Building], bounds: Bounds) -> City:
     city = City()
     raster = Raster()
     raster.data = np.zeros((2, 2), dtype=float)
@@ -242,9 +246,16 @@ def test_build_city_flat_mesh_handles_pathological_footprints(monkeypatch):
     monkeypatch.setattr(meshes_module, "_meshing_footprints", wrapped)
 
     buildings = [
-        make_building(Polygon([(8, 8), (18, 8), (18, 18), (8, 18), (8, 8)]), roof_z=12.0),
-        make_building(Polygon([(18.1, 8), (28.1, 8), (28.1, 18), (18.1, 18), (18.1, 8)]), roof_z=8.0),
-        make_building(Polygon([(35, 8), (42, 15), (35, 15), (42, 8), (35, 8)]), roof_z=6.0),
+        make_building(
+            Polygon([(8, 8), (18, 8), (18, 18), (8, 18), (8, 8)]), roof_z=12.0
+        ),
+        make_building(
+            Polygon([(18.1, 8), (28.1, 8), (28.1, 18), (18.1, 18), (18.1, 8)]),
+            roof_z=8.0,
+        ),
+        make_building(
+            Polygon([(35, 8), (42, 15), (35, 15), (42, 8), (35, 8)]), roof_z=6.0
+        ),
     ]
     city = make_flat_city(buildings)
 
@@ -265,9 +276,7 @@ def test_build_city_flat_mesh_handles_pathological_footprints(monkeypatch):
 
 
 def test_build_city_flat_mesh_rejects_complete_domain_handoff_acute_sector():
-    shallow_boundary = Polygon(
-        [(0.0, -0.01), (20.0, 0.01), (20.0, 10.0), (0.0, 9.98)]
-    )
+    shallow_boundary = Polygon([(0.0, -0.01), (20.0, 0.01), (20.0, 10.0), (0.0, 9.98)])
     city = make_bounded_flat_city(
         [make_building(shallow_boundary, roof_z=5.0)],
         Bounds(0.0, 0.0, 20.0, 20.0),
@@ -321,9 +330,7 @@ def test_build_city_flat_mesh_allows_benign_boundary_touch():
 
 
 def test_build_city_surface_mesh_rejects_complete_domain_handoff_acute_sector():
-    shallow_boundary = Polygon(
-        [(0.0, -0.01), (20.0, 0.01), (20.0, 10.0), (0.0, 9.98)]
-    )
+    shallow_boundary = Polygon([(0.0, -0.01), (20.0, 0.01), (20.0, 10.0), (0.0, 9.98)])
     city = make_bounded_flat_city(
         [make_building(shallow_boundary, roof_z=5.0)],
         Bounds(0.0, 0.0, 20.0, 20.0),
@@ -344,9 +351,9 @@ def test_build_city_surface_mesh_rejects_complete_domain_handoff_acute_sector():
 
     contract = error.value.contract
     assert contract["requirements"]["incident_sector_profile"] is False
-    assert contract["metrics"]["mesher_profile"]["incident_sectors"][
-        "minimum_witness"
-    ]["vertex"] == [10.0, 0.0]
+    assert contract["metrics"]["mesher_profile"]["incident_sectors"]["minimum_witness"][
+        "vertex"
+    ] == [10.0, 0.0]
 
 
 def test_condition_meshing_footprints_regularizes_touching_holes():
@@ -582,7 +589,9 @@ def test_conditioned_footprint_contract_audit_warns_for_a_warning_candidate():
     contract = meshes_module._conditioned_footprint_contract_audit(
         surfaces=[make_surface(polygon, 8.0)],
         declared_scale=0.5,
-        diagnostics={"before_selection_contract": checked_candidate([polygon], [polygon])},
+        diagnostics={
+            "before_selection_contract": checked_candidate([polygon], [polygon])
+        },
     )
 
     assert contract["status"] == "warn"
@@ -627,7 +636,10 @@ def test_area_selection_cannot_hide_a_topology_defect():
     ]
     selected = [before[0], before[2], before[3]]
     diagnostics = {"before_selection_contract": checked_candidate(before, before)}
-    assert diagnostics["before_selection_contract"]["admissibility"]["topology_ok"] is False
+    assert (
+        diagnostics["before_selection_contract"]["admissibility"]["topology_ok"]
+        is False
+    )
 
     contract = meshes_module._conditioned_footprint_contract_audit(
         surfaces=[make_surface(polygon, 8) for polygon in selected],
@@ -668,7 +680,9 @@ def test_conditioned_footprint_contract_audit_warns_residual_self_clearance():
     contract = meshes_module._conditioned_footprint_contract_audit(
         surfaces=[make_surface(polygon, 8.0)],
         declared_scale=0.5,
-        diagnostics={"before_selection_contract": checked_candidate([polygon], [polygon])},
+        diagnostics={
+            "before_selection_contract": checked_candidate([polygon], [polygon])
+        },
     )
 
     assert contract["ok"] is True
@@ -833,7 +847,10 @@ def test_tetgen_plc_contract_from_audit_reports_precheck_failures():
     assert contract["status"] == "fail"
     assert contract["requirements"]["boundary_facets_present"] is True
     assert any("duplicate triangles" in message for message in contract["errors"])
-    assert any("25% of the declared meshing scale" in message for message in contract["warnings"])
+    assert any(
+        "25% of the declared meshing scale" in message
+        for message in contract["warnings"]
+    )
 
 
 def test_build_city_flat_mesh_dtcc_mesher_handles_touching_holes():
@@ -964,7 +981,10 @@ def test_condition_flat_mesh_ground_polygons_returns_explicit_courtyards():
     )
 
     courtyard = Polygon(building.interiors[0])
-    assert any(polygon.covers(courtyard) and courtyard.covers(polygon) for polygon in ground_polygons)
+    assert any(
+        polygon.covers(courtyard) and courtyard.covers(polygon)
+        for polygon in ground_polygons
+    )
 
 
 def test_condition_flat_mesh_ground_polygons_courtyards_exclude_nested_buildings():
@@ -1051,7 +1071,9 @@ def test_build_city_flat_mesh_dtcc_mesher_uses_single_coverage_call(monkeypatch)
                 self.tolerance = tolerance
 
         class MeshingOptions:
-            def __init__(self, *, min_angle, max_edge_length, refine, max_protection_levels=None):
+            def __init__(
+                self, *, min_angle, max_edge_length, refine, max_protection_levels=None
+            ):
                 self.min_angle = min_angle
                 self.max_edge_length = max_edge_length
                 self.refine = refine
@@ -1118,7 +1140,9 @@ def test_build_city_flat_mesh_dtcc_mesher_unrestricted_enables_refinement(monkey
                 self.tolerance = tolerance
 
         class MeshingOptions:
-            def __init__(self, *, min_angle, max_edge_length, refine, max_protection_levels=None):
+            def __init__(
+                self, *, min_angle, max_edge_length, refine, max_protection_levels=None
+            ):
                 self.min_angle = min_angle
                 self.max_edge_length = max_edge_length
                 self.refine = refine
@@ -1194,7 +1218,9 @@ def test_build_city_flat_mesh_dtcc_mesher_uses_explicit_region_points(monkeypatc
                 self.region_markers = region_markers
 
         class MeshingOptions:
-            def __init__(self, *, min_angle, max_edge_length, refine, max_protection_levels=None):
+            def __init__(
+                self, *, min_angle, max_edge_length, refine, max_protection_levels=None
+            ):
                 self.min_angle = min_angle
                 self.max_edge_length = max_edge_length
                 self.refine = refine
@@ -1202,8 +1228,12 @@ def test_build_city_flat_mesh_dtcc_mesher_uses_explicit_region_points(monkeypatc
 
         def mesh(self, geometry, *, options):
             calls["geometry_type"] = type(geometry).__name__
-            calls["region_points"] = np.asarray(geometry.region_points, dtype=np.float64)
-            calls["region_markers"] = np.asarray(geometry.region_markers, dtype=np.int32)
+            calls["region_points"] = np.asarray(
+                geometry.region_points, dtype=np.float64
+            )
+            calls["region_markers"] = np.asarray(
+                geometry.region_markers, dtype=np.int32
+            )
             calls["max_protection_levels"] = options.max_protection_levels
             return DummyRawMesh()
 
@@ -1274,8 +1304,14 @@ def test_build_city_flat_mesh_triangle_uses_conditioned_coverage(monkeypatch):
         )
 
     monkeypatch.setattr(meshes_module, "_meshing_footprints", fake_condition)
-    monkeypatch.setattr(meshes_module, "_condition_flat_mesh_coverage_regions", fake_condition_coverage_regions)
-    monkeypatch.setattr(meshes_module, "build_city_flat_mesh_from_coverage", fake_build_from_coverage)
+    monkeypatch.setattr(
+        meshes_module,
+        "_condition_flat_mesh_coverage_regions",
+        fake_condition_coverage_regions,
+    )
+    monkeypatch.setattr(
+        meshes_module, "build_city_flat_mesh_from_coverage", fake_build_from_coverage
+    )
     monkeypatch.setattr(
         meshes_module,
         "resolve_2d_mesher",
@@ -1322,8 +1358,14 @@ def test_build_city_flat_mesh_propagates_runtime_mesher_errors(monkeypatch):
         raise RuntimeError("internal triangulation error")
 
     monkeypatch.setattr(meshes_module, "_meshing_footprints", fake_condition)
-    monkeypatch.setattr(meshes_module, "_condition_flat_mesh_coverage_regions", fake_condition_coverage_regions)
-    monkeypatch.setattr(meshes_module, "build_city_flat_mesh_from_coverage", fake_build_from_coverage)
+    monkeypatch.setattr(
+        meshes_module,
+        "_condition_flat_mesh_coverage_regions",
+        fake_condition_coverage_regions,
+    )
+    monkeypatch.setattr(
+        meshes_module, "build_city_flat_mesh_from_coverage", fake_build_from_coverage
+    )
     monkeypatch.setattr(
         meshes_module,
         "resolve_2d_mesher",
@@ -1456,8 +1498,14 @@ def test_build_city_flat_mesh_marks_halos_for_triangle_backend(monkeypatch):
         )
 
     monkeypatch.setattr(meshes_module, "_meshing_footprints", fake_condition)
-    monkeypatch.setattr(meshes_module, "_condition_flat_mesh_coverage_regions", fake_condition_coverage_regions)
-    monkeypatch.setattr(meshes_module, "build_city_flat_mesh_from_coverage", fake_build_from_coverage)
+    monkeypatch.setattr(
+        meshes_module,
+        "_condition_flat_mesh_coverage_regions",
+        fake_condition_coverage_regions,
+    )
+    monkeypatch.setattr(
+        meshes_module, "build_city_flat_mesh_from_coverage", fake_build_from_coverage
+    )
     monkeypatch.setattr(
         meshes_module,
         "resolve_2d_mesher",
@@ -1476,7 +1524,9 @@ def test_build_city_flat_mesh_marks_halos_for_triangle_backend(monkeypatch):
         mesher="triangle",
     )
 
-    assert np.array_equal(np.asarray(mesh.markers, dtype=int), np.array([-1, 7], dtype=int))
+    assert np.array_equal(
+        np.asarray(mesh.markers, dtype=int), np.array([-1, 7], dtype=int)
+    )
 
 
 def test_builder_flat_mesh_backend_remaps_canonical_region_markers(monkeypatch):
@@ -1517,8 +1567,14 @@ def test_builder_flat_mesh_backend_remaps_canonical_region_markers(monkeypatch):
         captured["backend"] = backend
         return DummyCppMesh()
 
-    monkeypatch.setattr(flat_mesh_backends_module, "create_builder_polygon", fake_create_builder_polygon)
-    monkeypatch.setattr(flat_mesh_backends_module._dtcc_builder, "build_city_flat_mesh", fake_build_flat_mesh)
+    monkeypatch.setattr(
+        flat_mesh_backends_module, "create_builder_polygon", fake_create_builder_polygon
+    )
+    monkeypatch.setattr(
+        flat_mesh_backends_module._dtcc_builder,
+        "build_city_flat_mesh",
+        fake_build_flat_mesh,
+    )
 
     mesh = flat_mesh_backends_module.build_city_flat_mesh_with_builder_backend(
         region_polygons=[box(0, 0, 10, 10), box(2, 2, 4, 4)],
@@ -1532,7 +1588,9 @@ def test_builder_flat_mesh_backend_remaps_canonical_region_markers(monkeypatch):
     assert captured["building_polygon_count"] == 1
     assert captured["subdomain_resolution"] == []
     assert captured["backend"] == "triangle"
-    assert np.array_equal(np.asarray(mesh.markers, dtype=int), np.array([7, -1, -2], dtype=int))
+    assert np.array_equal(
+        np.asarray(mesh.markers, dtype=int), np.array([7, -1, -2], dtype=int)
+    )
 
 
 def test_native_triangle_shared_vertex_regions_survive_python_conversion():
@@ -1689,7 +1747,9 @@ def test_build_city_surface_mesh_extrudes_every_cleaned_building(monkeypatch):
         "_condition_flat_mesh_ground_polygons",
         fake_condition_ground_polygons,
     )
-    monkeypatch.setattr(meshes_module, "build_city_flat_mesh_from_coverage", fake_build_from_coverage)
+    monkeypatch.setattr(
+        meshes_module, "build_city_flat_mesh_from_coverage", fake_build_from_coverage
+    )
     monkeypatch.setattr(
         meshes_module,
         "resolve_2d_mesher",
@@ -1708,9 +1768,13 @@ def test_build_city_surface_mesh_extrudes_every_cleaned_building(monkeypatch):
 
     city = make_flat_city(
         [
-            make_building(box(10, 10, 20, 20), roof_z=10.0, lod1_polygon=box(10, 10, 20, 20)),
+            make_building(
+                box(10, 10, 20, 20), roof_z=10.0, lod1_polygon=box(10, 10, 20, 20)
+            ),
             make_building(box(20, 10, 30, 20), roof_z=11.0),
-            make_building(box(30, 10, 40, 20), roof_z=12.0, lod2_polygon=box(30, 10, 40, 20)),
+            make_building(
+                box(30, 10, 40, 20), roof_z=12.0, lod2_polygon=box(30, 10, 40, 20)
+            ),
         ]
     )
 
@@ -1744,7 +1808,9 @@ def test_build_city_surface_mesh_uses_raw_ground_markers(monkeypatch):
     captured = {}
 
     def fake_prepare(*args, **kwargs):
-        return make_prepared_city_inputs(terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics)
+        return make_prepared_city_inputs(
+            terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics
+        )
 
     def fake_prepare_regions(**kwargs):
         return make_prepared_ground_regions(
@@ -1790,8 +1856,12 @@ def test_build_city_surface_mesh_uses_raw_ground_markers(monkeypatch):
         )
 
     monkeypatch.setattr(meshes_module, "_prepare_city_meshing_inputs", fake_prepare)
-    monkeypatch.setattr(meshes_module, "_prepare_surface_ground_regions", fake_prepare_regions)
-    monkeypatch.setattr(meshes_module, "_build_ground_mesh_from_coverage", fake_build_ground)
+    monkeypatch.setattr(
+        meshes_module, "_prepare_surface_ground_regions", fake_prepare_regions
+    )
+    monkeypatch.setattr(
+        meshes_module, "_build_ground_mesh_from_coverage", fake_build_ground
+    )
     monkeypatch.setattr(
         meshes_module,
         "_build_city_surface_mesh_from_ground_mesh",
@@ -1912,7 +1982,9 @@ def test_build_city_volume_mesh_uses_shared_surface_pipeline(monkeypatch):
     captured = {}
 
     def fake_prepare(*args, **kwargs):
-        return make_prepared_city_inputs(terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics)
+        return make_prepared_city_inputs(
+            terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics
+        )
 
     def fake_prepare_regions(**kwargs):
         captured["conditioned_resolution"] = kwargs["conditioned_resolution"]
@@ -1939,10 +2011,10 @@ def test_build_city_volume_mesh_uses_shared_surface_pipeline(monkeypatch):
                         [1.0, 0.0, 0.0],
                         [0.0, 1.0, 0.0],
                     ]
+                ),
+                faces=np.array([[0, 1, 2]], dtype=int),
+                markers=np.array([0], dtype=int),
             ),
-            faces=np.array([[0, 1, 2]], dtype=int),
-            markers=np.array([0], dtype=int),
-        ),
             "dtcc_mesher",
         )
 
@@ -2013,8 +2085,12 @@ def test_build_city_volume_mesh_uses_shared_surface_pipeline(monkeypatch):
         }
 
     monkeypatch.setattr(meshes_module, "_prepare_city_meshing_inputs", fake_prepare)
-    monkeypatch.setattr(meshes_module, "_prepare_surface_ground_regions", fake_prepare_regions)
-    monkeypatch.setattr(meshes_module, "_build_ground_mesh_from_coverage", fake_build_ground)
+    monkeypatch.setattr(
+        meshes_module, "_prepare_surface_ground_regions", fake_prepare_regions
+    )
+    monkeypatch.setattr(
+        meshes_module, "_build_ground_mesh_from_coverage", fake_build_ground
+    )
     monkeypatch.setattr(
         meshes_module,
         "_build_city_surface_mesh_from_ground_mesh",
@@ -2138,7 +2214,14 @@ def test_build_city_volume_mesh_stage_audit_records_stage_contracts(monkeypatch)
             "num_shell_faces": 1,
             "num_boundary_facets": 5,
             "num_boundary_triangles": 5,
-            "bounds": {"xmin": 0.0, "xmax": 10.0, "ymin": 0.0, "ymax": 10.0, "zmin": 0.0, "zmax": 100.0},
+            "bounds": {
+                "xmin": 0.0,
+                "xmax": 10.0,
+                "ymin": 0.0,
+                "ymax": 10.0,
+                "zmin": 0.0,
+                "zmax": 100.0,
+            },
             "boundary_facets": {},
             "precheck": {
                 "ok": True,
@@ -2175,8 +2258,12 @@ def test_build_city_volume_mesh_stage_audit_records_stage_contracts(monkeypatch)
         )
 
     monkeypatch.setattr(meshes_module, "_prepare_city_meshing_inputs", fake_prepare)
-    monkeypatch.setattr(meshes_module, "_prepare_surface_ground_regions", fake_prepare_regions)
-    monkeypatch.setattr(meshes_module, "_build_ground_mesh_from_coverage", fake_build_ground)
+    monkeypatch.setattr(
+        meshes_module, "_prepare_surface_ground_regions", fake_prepare_regions
+    )
+    monkeypatch.setattr(
+        meshes_module, "_build_ground_mesh_from_coverage", fake_build_ground
+    )
     monkeypatch.setattr(
         meshes_module,
         "_build_city_surface_mesh_from_ground_mesh",
@@ -2248,7 +2335,9 @@ def test_build_city_surface_mesh_from_ground_mesh_snaps_boundary_vertices(monkey
         return DummyBuilderMesh(mesh)
 
     def fake_build_terrain(builder_mesh, builder_dem, smoothing):
-        captured["terrain_builder_input"] = np.array(builder_mesh._mesh.vertices, copy=True)
+        captured["terrain_builder_input"] = np.array(
+            builder_mesh._mesh.vertices, copy=True
+        )
         return DummyBuilderMesh(
             Mesh(
                 vertices=np.array(
@@ -2264,10 +2353,16 @@ def test_build_city_surface_mesh_from_ground_mesh_snaps_boundary_vertices(monkey
         )
 
     def fail_city_surface(*args, **kwargs):
-        raise AssertionError("Terrain-only surface mesh should not build building surfaces.")
+        raise AssertionError(
+            "Terrain-only surface mesh should not build building surfaces."
+        )
 
-    monkeypatch.setattr(meshes_module, "mesh_to_builder_mesh", fake_mesh_to_builder_mesh)
-    monkeypatch.setattr(meshes_module, "raster_to_builder_gridfield", lambda raster: "grid")
+    monkeypatch.setattr(
+        meshes_module, "mesh_to_builder_mesh", fake_mesh_to_builder_mesh
+    )
+    monkeypatch.setattr(
+        meshes_module, "raster_to_builder_gridfield", lambda raster: "grid"
+    )
     monkeypatch.setattr(
         meshes_module._dtcc_builder,
         "build_terrain_surface_mesh_from_ground_mesh",
@@ -2610,7 +2705,9 @@ def test_build_city_volume_mesh_keeps_requested_tetgen_switches(monkeypatch):
     captured = {}
 
     def fake_prepare(*args, **kwargs):
-        return make_prepared_city_inputs(terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics)
+        return make_prepared_city_inputs(
+            terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics
+        )
 
     def fake_prepare_regions(**kwargs):
         return make_prepared_ground_regions(
@@ -2674,8 +2771,12 @@ def test_build_city_volume_mesh_keeps_requested_tetgen_switches(monkeypatch):
         )
 
     monkeypatch.setattr(meshes_module, "_prepare_city_meshing_inputs", fake_prepare)
-    monkeypatch.setattr(meshes_module, "_prepare_surface_ground_regions", fake_prepare_regions)
-    monkeypatch.setattr(meshes_module, "_build_ground_mesh_from_coverage", fake_build_ground)
+    monkeypatch.setattr(
+        meshes_module, "_prepare_surface_ground_regions", fake_prepare_regions
+    )
+    monkeypatch.setattr(
+        meshes_module, "_build_ground_mesh_from_coverage", fake_build_ground
+    )
     monkeypatch.setattr(
         meshes_module,
         "_build_city_surface_mesh_from_ground_mesh",
@@ -2761,7 +2862,9 @@ def test_build_city_volume_mesh_uses_split_surface_default_without_flat_special_
     refinement_calls = {"transition": 0, "wall": 0, "horizontal": 0}
 
     def fake_prepare(*args, **kwargs):
-        return make_prepared_city_inputs(terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics)
+        return make_prepared_city_inputs(
+            terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics
+        )
 
     def fake_prepare_regions(**kwargs):
         return make_prepared_ground_regions(
@@ -2822,8 +2925,12 @@ def test_build_city_volume_mesh_uses_split_surface_default_without_flat_special_
         )
 
     monkeypatch.setattr(meshes_module, "_prepare_city_meshing_inputs", fake_prepare)
-    monkeypatch.setattr(meshes_module, "_prepare_surface_ground_regions", fake_prepare_regions)
-    monkeypatch.setattr(meshes_module, "_build_ground_mesh_from_coverage", fake_build_ground)
+    monkeypatch.setattr(
+        meshes_module, "_prepare_surface_ground_regions", fake_prepare_regions
+    )
+    monkeypatch.setattr(
+        meshes_module, "_build_ground_mesh_from_coverage", fake_build_ground
+    )
     monkeypatch.setattr(
         meshes_module,
         "_build_city_surface_mesh_from_ground_mesh",
@@ -2833,7 +2940,9 @@ def test_build_city_volume_mesh_uses_split_surface_default_without_flat_special_
         meshes_module,
         "_refine_ground_building_transition_faces_for_tetgen",
         lambda mesh, *, max_mesh_size: (
-            refinement_calls.__setitem__("transition", refinement_calls["transition"] + 1)
+            refinement_calls.__setitem__(
+                "transition", refinement_calls["transition"] + 1
+            )
             or mesh,
             meshes_module._tetgen_shell_transition_refinement_disabled_stats(),
         ),
@@ -2842,7 +2951,9 @@ def test_build_city_volume_mesh_uses_split_surface_default_without_flat_special_
         meshes_module,
         "_refine_near_horizontal_surface_faces_for_tetgen",
         lambda mesh, *, max_mesh_size: (
-            refinement_calls.__setitem__("horizontal", refinement_calls["horizontal"] + 1)
+            refinement_calls.__setitem__(
+                "horizontal", refinement_calls["horizontal"] + 1
+            )
             or mesh,
             meshes_module._tetgen_shell_refinement_disabled_stats(),
         ),
@@ -2851,8 +2962,7 @@ def test_build_city_volume_mesh_uses_split_surface_default_without_flat_special_
         meshes_module,
         "_refine_vertical_wall_faces_for_tetgen",
         lambda mesh, *, max_mesh_size: (
-            refinement_calls.__setitem__("wall", refinement_calls["wall"] + 1)
-            or mesh,
+            refinement_calls.__setitem__("wall", refinement_calls["wall"] + 1) or mesh,
             meshes_module._tetgen_shell_wall_refinement_disabled_stats(),
         ),
     )
@@ -2987,8 +3097,12 @@ def test_build_city_volume_mesh_allows_empty_conditioned_footprints(monkeypatch)
         )
 
     monkeypatch.setattr(meshes_module, "_prepare_city_meshing_inputs", fake_prepare)
-    monkeypatch.setattr(meshes_module, "_prepare_surface_ground_regions", fake_prepare_regions)
-    monkeypatch.setattr(meshes_module, "_build_ground_mesh_from_coverage", fake_build_ground)
+    monkeypatch.setattr(
+        meshes_module, "_prepare_surface_ground_regions", fake_prepare_regions
+    )
+    monkeypatch.setattr(
+        meshes_module, "_build_ground_mesh_from_coverage", fake_build_ground
+    )
     monkeypatch.setattr(
         meshes_module,
         "_build_city_surface_mesh_from_ground_mesh",
@@ -3049,7 +3163,9 @@ def test_build_city_volume_mesh_allows_empty_conditioned_footprints(monkeypatch)
     assert volume_mesh.cells.shape[0] == 1
 
 
-def test_build_city_volume_mesh_respects_explicit_tetgen_switches_for_dtcc_mesher(monkeypatch):
+def test_build_city_volume_mesh_respects_explicit_tetgen_switches_for_dtcc_mesher(
+    monkeypatch,
+):
     city = make_flat_city([make_building(box(10, 10, 20, 20), roof_z=10.0)])
     terrain = city.terrain
     terrain_raster = terrain.raster
@@ -3058,7 +3174,9 @@ def test_build_city_volume_mesh_respects_explicit_tetgen_switches_for_dtcc_meshe
     captured = {}
 
     def fake_prepare(*args, **kwargs):
-        return make_prepared_city_inputs(terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics)
+        return make_prepared_city_inputs(
+            terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics
+        )
 
     def fake_prepare_regions(**kwargs):
         return make_prepared_ground_regions(
@@ -3122,8 +3240,12 @@ def test_build_city_volume_mesh_respects_explicit_tetgen_switches_for_dtcc_meshe
         )
 
     monkeypatch.setattr(meshes_module, "_prepare_city_meshing_inputs", fake_prepare)
-    monkeypatch.setattr(meshes_module, "_prepare_surface_ground_regions", fake_prepare_regions)
-    monkeypatch.setattr(meshes_module, "_build_ground_mesh_from_coverage", fake_build_ground)
+    monkeypatch.setattr(
+        meshes_module, "_prepare_surface_ground_regions", fake_prepare_regions
+    )
+    monkeypatch.setattr(
+        meshes_module, "_build_ground_mesh_from_coverage", fake_build_ground
+    )
     monkeypatch.setattr(
         meshes_module,
         "_build_city_surface_mesh_from_ground_mesh",
@@ -3200,7 +3322,9 @@ def test_build_city_volume_mesh_saves_tetgen_debug_meshes(monkeypatch, tmp_path)
     captured = {}
 
     def fake_prepare(*args, **kwargs):
-        return make_prepared_city_inputs(terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics)
+        return make_prepared_city_inputs(
+            terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics
+        )
 
     def fake_prepare_regions(**kwargs):
         return make_prepared_ground_regions(
@@ -3268,8 +3392,12 @@ def test_build_city_volume_mesh_saves_tetgen_debug_meshes(monkeypatch, tmp_path)
         )
 
     monkeypatch.setattr(meshes_module, "_prepare_city_meshing_inputs", fake_prepare)
-    monkeypatch.setattr(meshes_module, "_prepare_surface_ground_regions", fake_prepare_regions)
-    monkeypatch.setattr(meshes_module, "_build_ground_mesh_from_coverage", fake_build_ground)
+    monkeypatch.setattr(
+        meshes_module, "_prepare_surface_ground_regions", fake_prepare_regions
+    )
+    monkeypatch.setattr(
+        meshes_module, "_build_ground_mesh_from_coverage", fake_build_ground
+    )
     monkeypatch.setattr(
         meshes_module,
         "_build_city_surface_mesh_from_ground_mesh",
@@ -3306,7 +3434,9 @@ def test_build_city_volume_mesh_saves_tetgen_debug_meshes(monkeypatch, tmp_path)
         "build_tetgen_plc",
         lambda mesh, *args, **kwargs: _fake_prebuilt_tetgen_plc(mesh),
     )
-    monkeypatch.setattr(meshes_module, "_save_tetgen_debug_meshes", fake_save_debug_meshes)
+    monkeypatch.setattr(
+        meshes_module, "_save_tetgen_debug_meshes", fake_save_debug_meshes
+    )
     monkeypatch.setattr(meshes_module, "_require_tetgen", lambda: None)
     monkeypatch.setattr(
         meshes_module, "get_default_tetgen_switches", _fake_tetgen_switch_defaults
@@ -3347,9 +3477,11 @@ def test_refine_near_horizontal_surface_faces_for_tetgen_splits_long_roof_faces(
         markers=np.array([7, 7], dtype=int),
     )
 
-    refined_mesh, stats = meshes_module._refine_near_horizontal_surface_faces_for_tetgen(
-        surface_mesh,
-        max_mesh_size=10.0,
+    refined_mesh, stats = (
+        meshes_module._refine_near_horizontal_surface_faces_for_tetgen(
+            surface_mesh,
+            max_mesh_size=10.0,
+        )
     )
 
     refined_vertices = np.asarray(refined_mesh.vertices, dtype=float)
@@ -3388,9 +3520,11 @@ def test_refine_near_horizontal_surface_faces_for_tetgen_skips_flat_ground_faces
         markers=np.array([-2, -2], dtype=int),
     )
 
-    refined_mesh, stats = meshes_module._refine_near_horizontal_surface_faces_for_tetgen(
-        surface_mesh,
-        max_mesh_size=10.0,
+    refined_mesh, stats = (
+        meshes_module._refine_near_horizontal_surface_faces_for_tetgen(
+            surface_mesh,
+            max_mesh_size=10.0,
+        )
     )
 
     assert stats["applied"] is False
@@ -3415,9 +3549,11 @@ def test_refine_near_horizontal_surface_faces_for_tetgen_refines_relief_ground_f
         markers=np.array([-2, -2], dtype=int),
     )
 
-    refined_mesh, stats = meshes_module._refine_near_horizontal_surface_faces_for_tetgen(
-        surface_mesh,
-        max_mesh_size=10.0,
+    refined_mesh, stats = (
+        meshes_module._refine_near_horizontal_surface_faces_for_tetgen(
+            surface_mesh,
+            max_mesh_size=10.0,
+        )
     )
 
     assert stats["applied"] is True
@@ -3441,9 +3577,11 @@ def test_refine_near_horizontal_surface_faces_for_tetgen_skips_steep_faces():
         markers=np.array([7], dtype=int),
     )
 
-    refined_mesh, stats = meshes_module._refine_near_horizontal_surface_faces_for_tetgen(
-        surface_mesh,
-        max_mesh_size=5.0,
+    refined_mesh, stats = (
+        meshes_module._refine_near_horizontal_surface_faces_for_tetgen(
+            surface_mesh,
+            max_mesh_size=5.0,
+        )
     )
 
     assert stats["applied"] is False
@@ -3541,7 +3679,9 @@ def test_refine_ground_building_transition_faces_for_tetgen_skips_low_relief_rin
     assert np.array_equal(refined_mesh.faces, surface_mesh.faces)
 
 
-def test_build_city_volume_mesh_captures_quality_failure_artifacts(monkeypatch, tmp_path):
+def test_build_city_volume_mesh_captures_quality_failure_artifacts(
+    monkeypatch, tmp_path
+):
     city = make_flat_city([make_building(box(10, 10, 20, 20), roof_z=10.0)])
     terrain = city.terrain
     terrain_raster = terrain.raster
@@ -3550,7 +3690,9 @@ def test_build_city_volume_mesh_captures_quality_failure_artifacts(monkeypatch, 
     captured = {}
 
     def fake_prepare(*args, **kwargs):
-        return make_prepared_city_inputs(terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics)
+        return make_prepared_city_inputs(
+            terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics
+        )
 
     def fake_prepare_regions(**kwargs):
         return make_prepared_ground_regions(
@@ -3621,8 +3763,12 @@ def test_build_city_volume_mesh_captures_quality_failure_artifacts(monkeypatch, 
         }
 
     monkeypatch.setattr(meshes_module, "_prepare_city_meshing_inputs", fake_prepare)
-    monkeypatch.setattr(meshes_module, "_prepare_surface_ground_regions", fake_prepare_regions)
-    monkeypatch.setattr(meshes_module, "_build_ground_mesh_from_coverage", fake_build_ground)
+    monkeypatch.setattr(
+        meshes_module, "_prepare_surface_ground_regions", fake_prepare_regions
+    )
+    monkeypatch.setattr(
+        meshes_module, "_build_ground_mesh_from_coverage", fake_build_ground
+    )
     monkeypatch.setattr(
         meshes_module,
         "_build_city_surface_mesh_from_ground_mesh",
@@ -3777,8 +3923,12 @@ def test_build_city_volume_mesh_ignores_quality_failure_capture_errors(
         )
 
     monkeypatch.setattr(meshes_module, "_prepare_city_meshing_inputs", fake_prepare)
-    monkeypatch.setattr(meshes_module, "_prepare_surface_ground_regions", fake_prepare_regions)
-    monkeypatch.setattr(meshes_module, "_build_ground_mesh_from_coverage", fake_build_ground)
+    monkeypatch.setattr(
+        meshes_module, "_prepare_surface_ground_regions", fake_prepare_regions
+    )
+    monkeypatch.setattr(
+        meshes_module, "_build_ground_mesh_from_coverage", fake_build_ground
+    )
     monkeypatch.setattr(
         meshes_module,
         "_build_city_surface_mesh_from_ground_mesh",
@@ -3853,9 +4003,7 @@ def test_build_city_volume_mesh_ignores_quality_failure_capture_errors(
     assert volume_mesh.cells.shape == (1, 4)
 
 
-def test_build_city_volume_mesh_uses_refined_shell_without_retry(
-    monkeypatch, tmp_path
-):
+def test_build_city_volume_mesh_uses_refined_shell_without_retry(monkeypatch, tmp_path):
     city = make_flat_city([make_building(box(10, 10, 20, 20), roof_z=10.0)])
     terrain = city.terrain
     terrain_raster = terrain.raster
@@ -3866,7 +4014,9 @@ def test_build_city_volume_mesh_uses_refined_shell_without_retry(
     calls: list[dict[str, object]] = []
 
     def fake_prepare(*args, **kwargs):
-        return make_prepared_city_inputs(terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics)
+        return make_prepared_city_inputs(
+            terrain, terrain_raster, [conditioned_surface], [[0]], [4.0], diagnostics
+        )
 
     def fake_prepare_regions(**kwargs):
         return make_prepared_ground_regions(
@@ -3984,8 +4134,12 @@ def test_build_city_volume_mesh_uses_refined_shell_without_retry(
         return volume_mesh
 
     monkeypatch.setattr(meshes_module, "_prepare_city_meshing_inputs", fake_prepare)
-    monkeypatch.setattr(meshes_module, "_prepare_surface_ground_regions", fake_prepare_regions)
-    monkeypatch.setattr(meshes_module, "_build_ground_mesh_from_coverage", fake_build_ground)
+    monkeypatch.setattr(
+        meshes_module, "_prepare_surface_ground_regions", fake_prepare_regions
+    )
+    monkeypatch.setattr(
+        meshes_module, "_build_ground_mesh_from_coverage", fake_build_ground
+    )
     monkeypatch.setattr(
         meshes_module,
         "_build_city_surface_mesh_from_ground_mesh",
@@ -4165,8 +4319,12 @@ def test_build_city_volume_mesh_keeps_shell_refinement_enabled_when_preserving_s
         )
 
     monkeypatch.setattr(meshes_module, "_prepare_city_meshing_inputs", fake_prepare)
-    monkeypatch.setattr(meshes_module, "_prepare_surface_ground_regions", fake_prepare_regions)
-    monkeypatch.setattr(meshes_module, "_build_ground_mesh_from_coverage", fake_build_ground)
+    monkeypatch.setattr(
+        meshes_module, "_prepare_surface_ground_regions", fake_prepare_regions
+    )
+    monkeypatch.setattr(
+        meshes_module, "_build_ground_mesh_from_coverage", fake_build_ground
+    )
     monkeypatch.setattr(
         meshes_module,
         "_build_city_surface_mesh_from_ground_mesh",
@@ -4322,8 +4480,12 @@ def test_build_city_flat_mesh_runs_with_auto_lod_resolution():
 def test_build_city_surface_mesh_runs_with_mixed_stored_geometry():
     city = make_flat_city(
         [
-            make_building(box(8, 8, 18, 18), roof_z=10.0, lod1_polygon=box(8, 8, 18, 18)),
-            make_building(box(22, 8, 32, 18), roof_z=12.0, lod2_polygon=box(22, 8, 32, 18)),
+            make_building(
+                box(8, 8, 18, 18), roof_z=10.0, lod1_polygon=box(8, 8, 18, 18)
+            ),
+            make_building(
+                box(22, 8, 32, 18), roof_z=12.0, lod2_polygon=box(22, 8, 32, 18)
+            ),
         ]
     )
 
@@ -4478,7 +4640,9 @@ def test_volume_mesh_requires_tetgen_before_preparation(monkeypatch):
     def unexpected_preparation(*args, **kwargs):
         pytest.fail("Geometry preparation ran without TetGen")
 
-    monkeypatch.setattr(meshes_module, "_prepare_city_meshing_inputs", unexpected_preparation)
+    monkeypatch.setattr(
+        meshes_module, "_prepare_city_meshing_inputs", unexpected_preparation
+    )
     city = City()
     for invoke in (
         lambda: build_city_volume_mesh(city),
@@ -4575,9 +4739,14 @@ def test_city_volume_mesh_propagates_tetgen_failure(monkeypatch):
     monkeypatch.setattr(meshes_module, "tetgen_build_volume_mesh", fail_tetgen)
     with pytest.raises(RuntimeError, match="TetGen meshing failed") as exc:
         build_city_volume_mesh(
-            city, lod="lod1", max_mesh_size=8.0, domain_height=40.0,
-            min_building_detail=0.0, min_building_area=1.0,
-            report_mesh_quality=False, stage_audit=stage_audit,
+            city,
+            lod="lod1",
+            max_mesh_size=8.0,
+            domain_height=40.0,
+            min_building_detail=0.0,
+            min_building_area=1.0,
+            report_mesh_quality=False,
+            stage_audit=stage_audit,
         )
     assert exc.value is failure
     assert len(calls) == 1

@@ -13,7 +13,6 @@ from tests.demos.demo_inventory import (
     WORKFLOW_DEMOS,
 )
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEMO_DIR = REPO_ROOT / "demos"
 
@@ -56,11 +55,7 @@ def test_legacy_table_case_entry_points_are_removed():
 
 
 def test_every_demo_is_intentionally_classified():
-    actual = {
-        path.name
-        for path in DEMO_DIR.glob("*.py")
-        if path.name != "__init__.py"
-    }
+    actual = {path.name for path in DEMO_DIR.glob("*.py") if path.name != "__init__.py"}
 
     assert actual == set(DATASET_DEMOS) | set(WORKFLOW_DEMOS)
     assert all(name.startswith("dataset_") for name in DATASET_DEMOS)
@@ -79,13 +74,18 @@ def test_demos_are_small_and_boring():
             for line in lines
             if line.startswith("import ") or line.startswith("from ")
             if line != "import dtcc_core as dtcc"
-            and not (demo_name in WORKFLOW_DEMOS and line == "from shapely.geometry import box")
+            and not (
+                demo_name in WORKFLOW_DEMOS
+                and line == "from shapely.geometry import box"
+            )
         ]
         assert extra_imports == [], f"{demo_name} has extra imports: {extra_imports}"
         assert len(lines) <= 40, f"{demo_name} should stay readable in under a minute"
 
         for pattern in FORBIDDEN_PATTERNS:
-            assert pattern not in text, f"{demo_name} contains forbidden pattern {pattern!r}"
+            assert pattern not in text, (
+                f"{demo_name} contains forbidden pattern {pattern!r}"
+            )
 
 
 def test_table_demo_mapping_is_complete_and_points_to_real_files():
@@ -110,7 +110,9 @@ def test_full_retired_inventory_is_classified():
     valid = {"migrated", "replaced", "retired"}
 
     for old_name, disposition in DTCC_DEMO_DISPOSITION.items():
-        assert disposition in valid, f"{old_name} has unknown disposition {disposition!r}"
+        assert disposition in valid, (
+            f"{old_name} has unknown disposition {disposition!r}"
+        )
 
     migrated = {n for n, d in DTCC_DEMO_DISPOSITION.items() if d == "migrated"}
     replaced = {n for n, d in DTCC_DEMO_DISPOSITION.items() if d == "replaced"}

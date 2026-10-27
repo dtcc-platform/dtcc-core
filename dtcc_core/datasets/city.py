@@ -1,15 +1,18 @@
-from dtcc_core.model import City
-from typing import Literal, Optional
+from typing import Literal
+
 from pydantic import Field, model_validator
 
-from .dataset import DatasetDescriptor, DatasetBaseArgs
+from dtcc_core.common.progress import ProgressTracker
+from dtcc_core.model import City
+
+from .dataset import DatasetBaseArgs, DatasetDescriptor
 from .footprints import _filter_small_buildings, _provider_for_source
 from .providers import provider_entry
-from dtcc_core.common.progress import ProgressTracker
 
 
 class CityArgs(DatasetBaseArgs):
     """Arguments for a city model with terrain and LOD1 or LOD2 buildings."""
+
     source: Literal["OSM", "LM"] = Field(
         "LM",
         description=(
@@ -20,16 +23,19 @@ class CityArgs(DatasetBaseArgs):
     smallest_building_size: float = Field(
         15.0, description="Smallest building size to include (in square meters)"
     )
-    format: Optional[Literal["cityjson", "json"]] = Field(
+    format: Literal["cityjson", "json"] | None = Field(
         None, description="Output file format"
     )
-    lod: Literal['lod1', 'lod2'] = Field('lod1', description='Requested output level of detail')
-    lod2_method: Literal['catalogue', 'ransac'] = Field(
-        'catalogue', description='Roof reconstruction method for LOD2 buildings')
+    lod: Literal["lod1", "lod2"] = Field(
+        "lod1", description="Requested output level of detail"
+    )
+    lod2_method: Literal["catalogue", "ransac"] = Field(
+        "catalogue", description="Roof reconstruction method for LOD2 buildings"
+    )
 
-    @model_validator(mode='after')
+    @model_validator(mode="after")
     def validate_lod_method(self):
-        if self.lod == 'lod1' and self.lod2_method != 'catalogue':
+        if self.lod == "lod1" and self.lod2_method != "catalogue":
             raise ValueError("lod2_method='ransac' requires lod='lod2'")
         return self
 
@@ -42,6 +48,7 @@ class CityDataset(DatasetDescriptor):
 
     Call it with keyword arguments defined by ``CityArgs``.
     """
+
     name = "city"
     title = "City"
     description = (
@@ -145,8 +152,14 @@ class CityDataset(DatasetDescriptor):
         "title": "City model layers",
         "entries": [
             {"label": "Terrain", "meaning": "point-cloud-derived terrain raster/mesh"},
-            {"label": "Building", "meaning": "LOD1 extrusion or reconstructed LOD2 shell"},
-            {"label": "City JSON", "meaning": "serialized city-model package when requested"},
+            {
+                "label": "Building",
+                "meaning": "LOD1 extrusion or reconstructed LOD2 shell",
+            },
+            {
+                "label": "City JSON",
+                "meaning": "serialized city-model package when requested",
+            },
         ],
     }
     view_hints = {
@@ -198,8 +211,10 @@ class CityDataset(DatasetDescriptor):
             with progress.phase("build_terrain", "Building terrain mesh..."):
                 city.build_terrain(build_mesh=True)
 
-            with progress.phase("build_buildings", f"Building {args.lod.upper()} city model..."):
-                if args.lod == 'lod2':
+            with progress.phase(
+                "build_buildings", f"Building {args.lod.upper()} city model..."
+            ):
+                if args.lod == "lod2":
                     city.build_lod2_buildings(lod2_method=args.lod2_method)
                 else:
                     city.build_lod1_buildings()
