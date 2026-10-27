@@ -141,7 +141,9 @@ def query_overpass_with_failover(
                 data = resp.json()
                 problem = overpass_payload_problem(data)
                 if problem is not None:
-                    debug(f"Endpoint {endpoint} returned an unusable payload: {problem}")
+                    debug(
+                        f"Endpoint {endpoint} returned an unusable payload: {problem}"
+                    )
                     last_error = f"{problem} from {endpoint}"
                     continue
                 debug(f"Overpass query successful via {endpoint}")

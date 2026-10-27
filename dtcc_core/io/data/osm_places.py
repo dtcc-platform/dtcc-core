@@ -25,7 +25,9 @@ except ImportError:
 PLACES_CACHE_VERSION = 2
 # Place queries cover several keys and take longer than road or building
 # queries, so they get a longer server timeout and read timeout.
-PLACES_OVERPASS_TIMEOUT_SECONDS = int(os.environ.get("DTCC_PLACES_OVERPASS_TIMEOUT", "90"))
+PLACES_OVERPASS_TIMEOUT_SECONDS = int(
+    os.environ.get("DTCC_PLACES_OVERPASS_TIMEOUT", "90")
+)
 PLACE_ATTRIBUTION = "© OpenStreetMap contributors, ODbL 1.0"
 
 # OSM keys whose features count as places, in priority order when a feature
@@ -94,14 +96,42 @@ PLACE_CATEGORY_NAMES = tuple(sorted(set(PLACE_CATEGORIES.values())))
 # Named street furniture and similar features that are not places to visit.
 EXCLUDED_VALUES = {
     "amenity": {
-        "bench", "waste_basket", "waste_disposal", "recycling", "bicycle_parking",
-        "motorcycle_parking", "parking_space", "parking_entrance", "vending_machine",
-        "post_box", "letter_box", "parcel_locker", "charging_station", "drinking_water",
-        "telephone", "clock", "grit_bin", "bbq", "shelter", "atm", "fountain",
-        "bicycle_rental", "car_sharing", "taxi", "ferry_terminal", "bus_station",
+        "bench",
+        "waste_basket",
+        "waste_disposal",
+        "recycling",
+        "bicycle_parking",
+        "motorcycle_parking",
+        "parking_space",
+        "parking_entrance",
+        "vending_machine",
+        "post_box",
+        "letter_box",
+        "parcel_locker",
+        "charging_station",
+        "drinking_water",
+        "telephone",
+        "clock",
+        "grit_bin",
+        "bbq",
+        "shelter",
+        "atm",
+        "fountain",
+        "bicycle_rental",
+        "car_sharing",
+        "taxi",
+        "ferry_terminal",
+        "bus_station",
     },
     "tourism": {"information", "artwork", "picnic_site"},
-    "leisure": {"pitch", "playground", "slipway", "outdoor_seating", "picnic_table", "swimming_pool"},
+    "leisure": {
+        "pitch",
+        "playground",
+        "slipway",
+        "outdoor_seating",
+        "picnic_table",
+        "swimming_pool",
+    },
 }
 
 # OSM tags kept as place attributes, mapped to attribute names.
@@ -115,7 +145,12 @@ PLACE_TAG_ATTRIBUTES = {
     "wheelchair": "wheelchair",
 }
 PLACE_COLUMNS = (
-    "osm_id", "osm_type", "name", "category", "osm_key", "osm_value",
+    "osm_id",
+    "osm_type",
+    "name",
+    "category",
+    "osm_key",
+    "osm_value",
     *PLACE_TAG_ATTRIBUTES.values(),
 )
 
@@ -150,14 +185,18 @@ def download_places(
         If no Overpass endpoint returns a complete response.
     """
     bounds = _ensure_bounds(bounds)
-    gdf = download_places_geodataframe(bounds, categories=categories, use_cache=use_cache)
+    gdf = download_places_geodataframe(
+        bounds, categories=categories, use_cache=use_cache
+    )
     places = places_from_geodataframe(gdf)
     places.attributes["requested_bounds"] = list(bounds.tuple)
     places.bounds = Bounds(*bounds.tuple)
     return places
 
 
-def download_places_geodataframe(bounds: Bounds, categories=None, use_cache: bool = True):
+def download_places_geodataframe(
+    bounds: Bounds, categories=None, use_cache: bool = True
+):
     """Download named OpenStreetMap places for ``bounds`` as a GeoDataFrame.
 
     The result is in EPSG:3006 with one point row per place and the columns
@@ -214,7 +253,9 @@ def place_category(tags: dict):
             continue
         if value in EXCLUDED_VALUES.get(key, ()):
             return None
-        category = PLACE_CATEGORIES.get((key, value)) or PLACE_CATEGORIES.get((key, None))
+        category = PLACE_CATEGORIES.get((key, value)) or PLACE_CATEGORIES.get(
+            (key, None)
+        )
         if category is not None:
             return category, key, value
     return None
@@ -237,10 +278,16 @@ def _query_places(bounds: Bounds) -> list:
             query, read_timeout=PLACES_OVERPASS_TIMEOUT_SECONDS + 10
         )
     except RuntimeError as e:
-        raise RuntimeError(f"Could not download OSM places for {bounds.tuple}: {e}. {hint}") from e
-    problem = overpass_payload_problem(payload) or _elements_problem(payload["elements"])
+        raise RuntimeError(
+            f"Could not download OSM places for {bounds.tuple}: {e}. {hint}"
+        ) from e
+    problem = overpass_payload_problem(payload) or _elements_problem(
+        payload["elements"]
+    )
     if problem is not None:
-        raise RuntimeError(f"Incomplete OSM places response for {bounds.tuple}: {problem}. {hint}")
+        raise RuntimeError(
+            f"Incomplete OSM places response for {bounds.tuple}: {problem}. {hint}"
+        )
     return payload["elements"]
 
 
@@ -250,7 +297,9 @@ def _elements_problem(elements: list):
             return f"element {index} is not an object"
         if element.get("type") not in ("node", "way", "relation"):
             return f"element {index} has no valid OSM type"
-        if not isinstance(element.get("id"), int) or isinstance(element.get("id"), bool):
+        if not isinstance(element.get("id"), int) or isinstance(
+            element.get("id"), bool
+        ):
             return f"element {index} has no integer OSM id"
         if not isinstance(element.get("tags", {}), dict):
             return f"element {index} has tags that are not an object"
@@ -293,8 +342,12 @@ def _places_from_elements(elements: list, bounds: Bounds):
         rows.append(row)
         geometries.append(ShapelyPoint(x, y))
     if unplaced:
-        warning(f"Skipped {unplaced} OSM places without coordinates in the Overpass response.")
-    return gpd.GeoDataFrame(rows, columns=list(PLACE_COLUMNS), geometry=geometries, crs="EPSG:3006")
+        warning(
+            f"Skipped {unplaced} OSM places without coordinates in the Overpass response."
+        )
+    return gpd.GeoDataFrame(
+        rows, columns=list(PLACE_COLUMNS), geometry=geometries, crs="EPSG:3006"
+    )
 
 
 def _check_categories(categories):

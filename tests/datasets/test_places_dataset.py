@@ -3,6 +3,7 @@ import typing
 
 import geopandas as gpd
 import pytest
+from pydantic import ValidationError
 from shapely.geometry import Point
 
 import dtcc_core.datasets as datasets
@@ -15,8 +16,14 @@ places_dataset = importlib.import_module("dtcc_core.datasets.places")
 
 def _gdf():
     row = {column: None for column in osm_places.PLACE_COLUMNS}
-    row.update(osm_id=1, osm_type="node", name="Panos", category="food_and_drink",
-               osm_key="amenity", osm_value="restaurant")
+    row.update(
+        osm_id=1,
+        osm_type="node",
+        name="Panos",
+        category="food_and_drink",
+        osm_key="amenity",
+        osm_value="restaurant",
+    )
     return gpd.GeoDataFrame([row], geometry=[Point(10.0, 20.0)], crs="EPSG:3006")
 
 
@@ -50,7 +57,9 @@ def fake_downloads(monkeypatch):
 
 
 def test_places_dataset_returns_place_collection(fake_downloads):
-    places = datasets.places(bounds=(0.0, 0.0, 100.0, 100.0), categories=["food_and_drink"])
+    places = datasets.places(
+        bounds=(0.0, 0.0, 100.0, 100.0), categories=["food_and_drink"]
+    )
 
     assert isinstance(places, PlaceCollection)
     assert isinstance(fake_downloads["places"][0][0], Bounds)
@@ -105,5 +114,5 @@ def test_places_dataset_exports_geojson(fake_downloads, monkeypatch, tmp_path):
 
 
 def test_places_rejects_unknown_category():
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError, match="categories"):
         datasets.places(bounds=(0.0, 0.0, 100.0, 100.0), categories=["nightlife"])

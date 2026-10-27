@@ -1,27 +1,37 @@
-from pathlib import Path
 import tempfile
-from typing import List, Literal, Optional
+from pathlib import Path
+from typing import Literal
+
+from pydantic import Field
 
 import dtcc_core
 from dtcc_core.model import PlaceCollection
-from pydantic import Field
 
 from ..common import warning
-
 from .dataset import DatasetBaseArgs, DatasetDescriptor
 from .providers import provider_entry
 
-
 Category = Literal[
-    "accommodation", "craft", "culture", "education", "finance", "food_and_drink",
-    "health", "leisure", "office", "other", "public_service", "shopping", "tourism",
+    "accommodation",
+    "craft",
+    "culture",
+    "education",
+    "finance",
+    "food_and_drink",
+    "health",
+    "leisure",
+    "office",
+    "other",
+    "public_service",
+    "shopping",
+    "tourism",
 ]
 
 
 class PlacesArgs(DatasetBaseArgs):
     """Arguments for the OpenStreetMap places dataset."""
 
-    categories: Optional[List[Category]] = Field(
+    categories: list[Category] | None = Field(
         None, description="Keep only these place categories; all categories by default."
     )
     roads: bool = Field(
@@ -32,7 +42,7 @@ class PlacesArgs(DatasetBaseArgs):
             "geojson/gpkg output."
         ),
     )
-    format: Optional[Literal["geojson", "gpkg"]] = Field(
+    format: Literal["geojson", "gpkg"] | None = Field(
         None, description="Output format (geojson/gpkg for point vector bytes)"
     )
 
@@ -127,9 +137,18 @@ class PlacesDataset(DatasetDescriptor):
     presentation_legend = {
         "title": "Place attributes",
         "entries": [
-            {"label": "category", "meaning": "Coarse place category, such as food_and_drink or shopping"},
-            {"label": "osm_key / osm_value", "meaning": "Original OSM tag, such as amenity=restaurant"},
-            {"label": "osm_id / osm_type", "meaning": "OpenStreetMap element reference"},
+            {
+                "label": "category",
+                "meaning": "Coarse place category, such as food_and_drink or shopping",
+            },
+            {
+                "label": "osm_key / osm_value",
+                "meaning": "Original OSM tag, such as amenity=restaurant",
+            },
+            {
+                "label": "osm_id / osm_type",
+                "meaning": "OpenStreetMap element reference",
+            },
         ],
     }
     view_hints = {
@@ -163,7 +182,9 @@ class PlacesDataset(DatasetDescriptor):
                     bounds=bounds, provider="OSM", epsg="3006"
                 )
             except Exception as e:
-                warning(f"Could not download context roads for places; plotting without them: {e}")
+                warning(
+                    f"Could not download context roads for places; plotting without them: {e}"
+                )
         return places
 
     @staticmethod

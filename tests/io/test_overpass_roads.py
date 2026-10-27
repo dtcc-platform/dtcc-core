@@ -40,7 +40,10 @@ def test_overpass_failover_does_not_warn_when_fallback_succeeds(monkeypatch):
 @pytest.mark.parametrize(
     "bad_payload",
     [
-        {"elements": [], "remark": "runtime error: Query timed out in \"query\" at line 1 after 26 seconds."},
+        {
+            "elements": [],
+            "remark": 'runtime error: Query timed out in "query" at line 1 after 26 seconds.',
+        },
         {"version": 0.6},
         [],
     ],
@@ -55,7 +58,10 @@ def test_overpass_fails_over_on_incomplete_payload(monkeypatch, bad_payload):
         def json(self):
             return self._payload
 
-    responses = [Response(bad_payload), Response({"elements": [{"type": "node", "id": 1}]})]
+    responses = [
+        Response(bad_payload),
+        Response({"elements": [{"type": "node", "id": 1}]}),
+    ]
 
     class Session:
         def post(self, endpoint, data, timeout):
@@ -89,7 +95,10 @@ def test_overpass_raises_when_every_payload_is_incomplete(monkeypatch):
 
 
 def test_overpass_accepts_informational_remark():
-    payload = {"elements": [], "remark": "runtime remark: Timeout is 25 and maxsize is 536870912."}
+    payload = {
+        "elements": [],
+        "remark": "runtime remark: Timeout is 25 and maxsize is 536870912.",
+    }
     assert overpass.overpass_payload_problem(payload) is None
 
 

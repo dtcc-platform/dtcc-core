@@ -2,8 +2,8 @@ import numpy as np
 import pytest
 
 from dtcc_core.model import Object, PlaceCollection
-from dtcc_core.model.object.place_collection import PLACE_CATEGORY_COLORS
 from dtcc_core.model.geometry import Point
+from dtcc_core.model.object.place_collection import PLACE_CATEGORY_COLORS
 
 
 def _place(name, category, x, y):
@@ -23,7 +23,9 @@ def _collection():
 
 def test_places_returns_all_children():
     assert [p.attributes["name"] for p in _collection().places()] == [
-        "Panos", "Salong Marie", "Café Linsen"
+        "Panos",
+        "Salong Marie",
+        "Café Linsen",
     ]
 
 
@@ -97,7 +99,10 @@ def test_plot_shows_attribution_labels_and_requested_bounds(plt):
 
     assert "© OpenStreetMap contributors, ODbL 1.0" in _texts(ax)
     # Places lie within a few metres of each other, so only one name fits.
-    assert sum(name in _texts(ax) for name in ("Panos", "Salong Marie", "Café Linsen")) == 1
+    assert (
+        sum(name in _texts(ax) for name in ("Panos", "Salong Marie", "Café Linsen"))
+        == 1
+    )
     xmin, xmax = ax.get_xlim()
     assert xmin < 0.0 and xmax > 100.0
     assert any(text.endswith(" m") for text in _texts(ax))
@@ -106,7 +111,9 @@ def test_plot_shows_attribution_labels_and_requested_bounds(plt):
 def test_plot_labels_can_be_disabled(plt):
     ax = _collection().plot(labels=0, show=False)
 
-    assert not any(name in _texts(ax) for name in ("Panos", "Salong Marie", "Café Linsen"))
+    assert not any(
+        name in _texts(ax) for name in ("Panos", "Salong Marie", "Café Linsen")
+    )
 
 
 def test_plot_hover_shows_place_details(plt):
@@ -167,9 +174,13 @@ def test_plot_empty_collection_explains_itself(plt):
 def test_plot_title_shows_with_presentation_panel(plt, monkeypatch):
     collection = _collection()
     context = object()
-    monkeypatch.setattr(PlaceCollection, "dataset_context", property(lambda self: context))
-    monkeypatch.setattr("dtcc_core.datasets.presentation.draw_presentation_panel",
-                        lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        PlaceCollection, "dataset_context", property(lambda self: context)
+    )
+    monkeypatch.setattr(
+        "dtcc_core.datasets.presentation.draw_presentation_panel",
+        lambda *args, **kwargs: None,
+    )
 
     ax = collection.plot(title="Food and drink", show=False)
 
