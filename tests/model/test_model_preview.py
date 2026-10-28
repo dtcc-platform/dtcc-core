@@ -117,6 +117,21 @@ def test_preview_bounds_work_and_rejects_ambiguous_frames():
         city.plot(show=False)
 
 
+@pytest.mark.parametrize(
+    ("association", "elevations"),
+    [("vertex", [10, 11, 13, 17] * 4), ("cell", [10.5, 12, 15])],
+)
+def test_volume_grid_fields_use_layer_elevations(association, elevations):
+    grid = VolumeGrid(width=1, height=1, z_levels=[10, 11, 13, 17])
+    count = grid.num_vertices if association == "vertex" else grid.num_cells
+    grid.fields = [
+        Field(name="temperature", association=association, values=np.arange(count))
+    ]
+    ax = grid.plot(field="temperature", show=False)
+    np.testing.assert_array_equal(ax.collections[0]._offsets3d[2], elevations)
+    assert grid._bounds is None
+
+
 def test_raster_nodata_and_explicit_elevation_meaning():
     from affine import Affine
 
